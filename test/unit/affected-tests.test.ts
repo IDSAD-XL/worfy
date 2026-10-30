@@ -46,16 +46,40 @@ function put(path: string, text = `${path}\n`): void {
   writeFileSync(join(repo, path), text)
 }
 
-/** A new branch from `from` with one commit made by `change`; returns its name. */
+// What the helpers below last checked out. Every git process costs about 0.1 s on an idle Windows PC
+// and several times that under the load of a full run, so a checkout of what is already checked out
+// is skipped; every checkout of the tests goes through these helpers, so the record stays right.
+let checkedOut = 'main'
+
+/** Checks out `ref` unless the helpers checked it out last. */
+function checkout(ref: string): void {
+  if (checkedOut === ref) return
+  git('checkout', '-q', ref)
+  checkedOut = ref
+}
+
+/** Creates branch `name` at `from` and checks it out. */
+function startBranch(name: string, from: string): void {
+  git('checkout', '-q', '-b', name, from)
+  checkedOut = name
+}
+
+/**
+ * A new branch from `from` with one commit made by `change`; returns its name. The branch stays
+ * checked out: the script runs on it next, and the next branch starts from its own base anyway.
+ */
 function branch(change: () => void, from = 'main'): string {
   const name = `topic-${++branches}`
-  git('checkout', '-q', '-b', name, from)
+  startBranch(name, from)
   change()
   git('add', '-A')
   git('commit', '-q', '--allow-empty', '-m', name)
-  git('checkout', '-q', 'main')
   return name
 }
+
+// A test runs the script once, on one branch: each run is a fresh Node process that loads vitest to
+// build the module graph, a few seconds under the load of a full run, and the tests that ran it two
+// to four times went past their time limit on Windows (worfy-polish 41).
 
 /** The script run on `head` checked out, as `<base> <head>`. */
 function affected(head: string, ...extra: string[]) {
@@ -69,13 +93,9 @@ function affectedIn(env: NodeJS.ProcessEnv, head: string, ...extra: string[]) {
 
 /** The same from another base. */
 function affectedFrom(base: string, env: NodeJS.ProcessEnv, head: string, ...extra: string[]) {
-  git('checkout', '-q', head)
-  try {
-    const result = spawnSync(scriptNode(), [SCRIPT, base, head, ...extra], { cwd: repo, encoding: 'utf8', env: { ...gitEnv(), ...env } })
-    return { status: result.status, lines: result.stdout.split('\n').filter((line) => line !== ''), stdout: result.stdout, stderr: result.stderr }
-  } finally {
-    git('checkout', '-q', 'main')
-  }
+  checkout(head)
+  const result = spawnSync(scriptNode(), [SCRIPT, base, head, ...extra], { cwd: repo, encoding: 'utf8', env: { ...gitEnv(), ...env } })
+  return { status: result.status, lines: result.stdout.split('\n').filter((line) => line !== ''), stdout: result.stdout, stderr: result.stderr }
 }
 
 // The fixture's table: the shape of the real one, small, with the rows written by hand only.
@@ -212,9 +232,12 @@ describe('affected-tests.mjs on the table', () => {
     expect(r.stderr).toContain('vitest.config.ts: changes the whole test run')
   })
 
-  it('answers ALL for a path neither the graph nor the table covers, changed or new', () => {
+  it('answers ALL for a changed path neither the graph nor the table covers', () => {
     const changed = branch(() => put('tools/build.sh', '#!/bin/sh\necho build\n'))
     expect(affected(changed).lines).toEqual(['ALL'])
+  })
+
+  it('answers ALL for a new path neither the graph nor the table covers', () => {
     const added = branch(() => put('pictures/logo.svg', '<svg/>\n'))
     const r = affected(added)
     expect(r.lines).toEqual(['ALL'])
@@ -246,8 +269,11 @@ describe('affected-tests.mjs on the table', () => {
 })
 
 describe('affected-tests.mjs on what covers a path', () => {
-  it('answers ALL for an unknown .json or .yml file', () => {
+  it('answers ALL for an unknown .json file', () => {
     expect(affected(branch(() => put('config/other.json', '{}\n'))).lines).toEqual(['ALL'])
+  })
+
+  it('answers ALL for an unknown .yml file', () => {
     expect(affected(branch(() => put('config/pipeline.yml', 'a: 1\n'))).lines).toEqual(['ALL'])
   })
 
@@ -258,32 +284,39 @@ describe('affected-tests.mjs on what covers a path', () => {
     expect(r.stderr).toContain('test/data/sample.yml: neither the module graph nor')
   })
 
-  it('selects what a generated row reads, and takes its scans for no cover', () => {
+  it('selects what a generated row reads: a file it reads', () => {
     expect(affected(branch(() => put('data/input.txt', 'changed\n'))).lines).toEqual(['test/unit/reader.test.ts'])
-    // A folder it reads: every file under it.
+  })
+
+  it('selects what a generated row reads: every file under a folder it reads', () => {
     expect(affected(branch(() => put('data/cases/new.json', '{}\n'))).lines).toEqual(['test/unit/reader.test.ts'])
+  })
+
+  it('takes the scans of a generated row for no cover', () => {
     expect(affected(branch(() => put('assets/new.svg', '<svg/>\n'))).lines).toEqual(['ALL'])
   })
 
   it('reads what the tests read from the sources of the head, so a test file split on the base since needs no table update', () => {
     // The base moved on: reader.test.ts gave its read of data/input.txt to a new file, and the table
     // was not touched — as when a pull request that splits a test file merges next to this one.
-    git('checkout', '-q', '-b', 'split-base', 'main')
+    startBranch('split-base', 'main')
     put('test/unit/reader.test.ts', READER.replace("export const input = readFileSync(join(REPO, 'data', 'input.txt'), 'utf8')\n", ''))
     put('test/unit/input-reader.test.ts', "import { readFileSync } from 'node:fs'\nimport { join } from 'node:path'\nexport const input = readFileSync(join(__dirname, '..', '..', 'data', 'input.txt'), 'utf8')\n")
     git('add', '-A')
     git('commit', '-q', '-m', 'split reader.test.ts')
-    git('checkout', '-q', 'main')
     const head = branch(() => put('data/input.txt', 'changed after the split\n'), 'split-base')
     const r = affectedFrom('split-base', {}, head)
     expect(r.status, r.stderr).toBe(0)
     expect(r.lines).toEqual(['test/unit/input-reader.test.ts'])
   })
 
-  it('selects the reader of a Markdown file, and of a path of `none`, that a test reads as text', () => {
-    // Markdown outside the code folders and the paths of `none` need no tests of their own, but the
-    // tests that read them still go in.
+  // Markdown outside the code folders and the paths of `none` need no tests of their own, but the
+  // tests that read them still go in.
+  it('selects the reader of a Markdown file that a test reads as text', () => {
     expect(affected(branch(() => put('GUIDE.md', '# guide, changed\n'))).lines).toEqual(['test/unit/reader.test.ts'])
+  })
+
+  it('selects the reader of a path of `none` that a test reads as text', () => {
     expect(affected(branch(() => put('docs/spec.md', 'spec, changed\n'))).lines).toEqual(['test/unit/reader.test.ts'])
   })
 
@@ -333,12 +366,11 @@ describe('affected-tests.mjs on the diff', () => {
 
   it('looks at what the head changed since it left the base, not at what the base did since', () => {
     const head = branch(() => put('README.md', '# fixture, on the branch\n'))
-    git('checkout', '-q', '-b', 'base-ahead', 'main')
+    startBranch('base-ahead', 'main')
     put('vitest.config.ts', `${CONFIG}// changed on the base\n`)
     git('commit', '-q', '-am', 'base moves on')
-    git('checkout', '-q', head)
+    checkout(head)
     const r = spawnSync(scriptNode(), [SCRIPT, 'base-ahead', head], { cwd: repo, encoding: 'utf8', env: gitEnv() })
-    git('checkout', '-q', 'main')
     expect(r.status, r.stderr).toBe(0)
     expect(r.stdout).toBe('')
   })
@@ -348,23 +380,37 @@ describe('affected-tests.mjs on the diff', () => {
     const r = affected(head, '--json')
     expect(r.status, r.stderr).toBe(0)
     expect(JSON.parse(r.stdout)).toEqual({ all: false, files: ['test/unit/menu.test.ts'], reasons: [] })
+  })
+
+  it('prints one JSON object with --json for an answer of ALL', () => {
     const all = affected(branch(() => put('package.json', '{"name": "x"}\n')), '--json')
     expect(JSON.parse(all.stdout)).toEqual({ all: true, files: [], reasons: ['package.json: changes the whole test run'] })
   })
 
+  /** The text of $GITHUB_OUTPUT after the script ran on `head` with --github-output; the file held a line before. */
+  const output = (head: string): string => {
+    const file = join(scratch, `github-output-${head}`)
+    writeFileSync(file, 'earlier=1\n')
+    const r = affectedIn({ GITHUB_OUTPUT: file }, head, '--github-output')
+    expect(r.status, r.stderr).toBe(0)
+    return readFileSync(file, 'utf8')
+  }
+
   quarantined('affected-tests-github-output')('appends run and files to $GITHUB_OUTPUT with --github-output, for the test jobs of CI', () => {
-    const output = (head: string): string => {
-      const file = join(scratch, `github-output-${head}`)
-      writeFileSync(file, 'earlier=1\n')
-      const r = affectedIn({ GITHUB_OUTPUT: file }, head, '--github-output')
-      expect(r.status, r.stderr).toBe(0)
-      return readFileSync(file, 'utf8')
-    }
     const some = branch(() => put('src/shared/format.ts', 'export const format = (n: number): string => `[${n}]`\n'))
     expect(output(some)).toBe('earlier=1\nrun=some\nfiles=test/unit/format.test.ts test/unit/menu.test.ts\n')
-    // The answer still goes to stdout as without the option.
-    expect(affectedIn({ GITHUB_OUTPUT: join(scratch, 'github-output-again') }, some, '--github-output').lines).toEqual(['test/unit/format.test.ts', 'test/unit/menu.test.ts'])
+  })
+
+  it('still prints the answer to stdout with --github-output, as without the option', () => {
+    const some = branch(() => put('src/shared/format.ts', 'export const format = (n: number): string => `{${n}}`\n'))
+    expect(affectedIn({ GITHUB_OUTPUT: join(scratch, 'github-output-stdout') }, some, '--github-output').lines).toEqual(['test/unit/format.test.ts', 'test/unit/menu.test.ts'])
+  })
+
+  it('appends run=none to $GITHUB_OUTPUT for a change that needs no tests', () => {
     expect(output(branch(() => put('docs/notes.md', 'other notes\n')))).toBe('earlier=1\nrun=none\nfiles=\n')
+  })
+
+  it('appends run=all to $GITHUB_OUTPUT for a change that needs them all', () => {
     expect(output(branch(() => put('vitest.config.ts', `${CONFIG}// for the output\n`)))).toBe('earlier=1\nrun=all\nfiles=\n')
   })
 
@@ -387,26 +433,35 @@ describe('affected-tests.mjs on the diff', () => {
 })
 
 describe('affected-tests.mjs refuses', () => {
-  it('with --github-output, exits 2 and writes no answer: an error must fail the CI step, never read as an empty list', () => {
-    // A failing input of each kind: a table it cannot read, an unknown commit, a tree that is not the head.
+  // With --github-output an error must fail the CI step, never read as an empty list: exit code 2,
+  // and $GITHUB_OUTPUT keeps only what it held before. One test for each kind of failing input.
+  const refusedWithOutput = (name: string, run: (file: string) => { status: number | null; stderr: string }): void => {
+    const file = join(scratch, `github-output-refused-${name}`)
+    writeFileSync(file, 'earlier=1\n')
+    const r = run(file)
+    expect(r.status, r.stderr).toBe(2)
+    expect(readFileSync(file, 'utf8')).toBe('earlier=1\n')
+  }
+
+  it('with --github-output, exits 2 and writes no answer for a table it cannot read', () => {
     const broken = branch(() => put('scripts/affected-tests.table.json', '{"all": [], "none": []}\n'))
+    refusedWithOutput('table', (file) => affectedIn({ GITHUB_OUTPUT: file }, broken, '--github-output'))
+  })
+
+  it('with --github-output, exits 2 and writes no answer for an unknown commit', () => {
     const head = branch(() => put('src/shared/alone.ts', 'export const alone = 5\n'))
-    const runs = [
-      () => affectedIn({ GITHUB_OUTPUT: join(scratch, 'github-output-refused-1') }, broken, '--github-output'),
-      () => affectedFrom('no-such-ref', { GITHUB_OUTPUT: join(scratch, 'github-output-refused-2') }, head, '--github-output'),
-      () => spawnSync(scriptNode(), [SCRIPT, 'main', head, '--github-output'], { cwd: repo, encoding: 'utf8', env: { ...gitEnv(), GITHUB_OUTPUT: join(scratch, 'github-output-refused-3') } }),
-    ]
-    runs.forEach((run, at) => {
-      const file = join(scratch, `github-output-refused-${at + 1}`)
-      writeFileSync(file, 'earlier=1\n')
-      const r = run()
-      expect(r.status, `case ${at + 1}: ${r.stderr}`).toBe(2)
-      expect(readFileSync(file, 'utf8'), `case ${at + 1}`).toBe('earlier=1\n')
-    })
+    refusedWithOutput('commit', (file) => affectedFrom('no-such-ref', { GITHUB_OUTPUT: file }, head, '--github-output'))
+  })
+
+  it('with --github-output, exits 2 and writes no answer for a working tree that is not the head', () => {
+    const head = branch(() => put('src/shared/alone.ts', 'export const alone = 6\n'))
+    checkout('main')
+    refusedWithOutput('tree', (file) => spawnSync(scriptNode(), [SCRIPT, 'main', head, '--github-output'], { cwd: repo, encoding: 'utf8', env: { ...gitEnv(), GITHUB_OUTPUT: file } }))
   })
 
   it('to answer when the working tree is not the head (exit code 2)', () => {
     const head = branch(() => put('src/shared/alone.ts', 'export const alone = 3\n'))
+    checkout('main')
     const r = spawnSync(scriptNode(), [SCRIPT, 'main', head], { cwd: repo, encoding: 'utf8', env: gitEnv() })
     expect(r.status).toBe(2)
     expect(r.stdout).toBe('')
@@ -426,12 +481,17 @@ describe('affected-tests.mjs refuses', () => {
     const b = affected(broken)
     expect(b.status).toBe(2)
     expect(b.stderr).toContain('"links" must be a list of')
-    // A committed copy of the generated rows, even a correct one: it is what went stale before.
+  })
+
+  it('a table with a committed copy of the generated rows, even a correct one: it is what went stale before (exit code 2)', () => {
     const generated = branch(() => put('scripts/affected-tests.table.json', JSON.stringify({ ...TABLE, generated: [{ file: 'test/unit/reader.test.ts', reads: ['data/input.txt'] }] })))
     const g = affected(generated)
     expect(g.status).toBe(2)
     expect(g.stdout).toBe('')
     expect(g.stderr).toContain('"generated" is built from the test sources on every run; remove it from the table')
+  })
+
+  it('a missing table (exit code 2)', () => {
     const missing = branch(() => git('rm', '-q', 'scripts/affected-tests.table.json'))
     const r = affected(missing)
     expect(r.status).toBe(2)

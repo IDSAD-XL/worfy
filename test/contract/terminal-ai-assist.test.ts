@@ -26,6 +26,7 @@ import { REDACTED } from '../../src/shared/terminal-ai/redact'
 import type { TerminalAiFeature } from '../../src/shared/terminal-ai/settings'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 // The real SDK module, replaced: a test that reached it would fail here instead of starting Claude Code.
 const sdkModule = vi.hoisted(() => ({ loaded: 0 }))
@@ -981,10 +982,24 @@ describe('gitBranch', () => {
     const repo = join(scratch, 'repo')
     mkdirSync(repo)
     execFileSync('git', ['init', '-q', '-b', 'feature/terminal-ai'], { cwd: repo })
-    expect(await gitBranch(repo)).toBe('feature/terminal-ai')
+    // Time enough for git on a busy machine: under the load of the whole suite it once took longer than its 1 s.
+    expect(await gitBranch(repo, { timeoutMs: ms(10_000) })).toBe('feature/terminal-ai')
     const plain = join(scratch, 'plain')
     mkdirSync(plain)
-    expect(await gitBranch(plain, { timeoutMs: 1000 })).toBeNull()
+    expect(await gitBranch(plain, { timeoutMs: ms(10_000) })).toBeNull()
     expect(await gitBranch(join(scratch, 'missing'))).toBeNull()
+  })
+
+  it('gives null when git answers later than its time: the request then goes without a branch', async () => {
+    vi.useRealTimers()
+    // A slow git: node in place of git runs the file `branch` of its folder, which answers after 10 s.
+    const slow = join(scratch, 'slow')
+    mkdirSync(slow)
+    writeFileSync(join(slow, 'branch'), "setTimeout(() => console.log('late'), 10_000)\n")
+    const started = Date.now()
+    expect(await gitBranch(slow, { git: process.execPath, timeoutMs: 200 })).toBeNull()
+    // Killed at its limit: neither sooner (the stand-in did not start) nor after its answer.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(150)
+    expect(Date.now() - started).toBeLessThan(10_000)
   })
 })

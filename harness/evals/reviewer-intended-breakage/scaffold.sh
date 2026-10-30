@@ -13,22 +13,44 @@
 # Writes only into the current folder and $HOME.
 set -euo pipefail
 
-bash "$(dirname "$0")/../lib/demo-project.sh" local-green none
+# The folder of this script, cut in bash rather than by dirname: a process start is slow in Git Bash
+# (lib/demo-project.sh). Git Bash may spell it with `\`.
+here=.
+case "$0" in */* | *\\*) here="${0%[/\\]*}" ;; esac
+bash "$here/../lib/demo-project.sh" local-green none
 
 # The run's HOME is empty: git has no identity there, and the fixture must not depend on one.
 export GIT_AUTHOR_NAME=demo GIT_AUTHOR_EMAIL=demo@example.invalid
 export GIT_COMMITTER_NAME=demo GIT_COMMITTER_EMAIL=demo@example.invalid
 export GIT_AUTHOR_DATE=2026-10-01T12:00:00Z GIT_COMMITTER_DATE=2026-10-01T12:00:00Z
+# No `git maintenance run --auto` after each commit and fetch, and files written without a process
+# each: as in lib/demo-project.sh, which explains both.
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false
+put() {
+    local text
+    IFS= read -r -d '' text || true
+    printf '%s' "$text" >"$1"
+}
+# swap <file> <line> <new line> — replaces every line <line> of <file> with <new line>, as
+# `sed -i 's/^<line>$/<new line>/'` would, without a process.
+swap() {
+    local line out=
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ "$line" = "$2" ] && line=$3
+        out+=$line$'\n'
+    done <"$1"
+    printf '%s' "$out" >"$1"
+}
 
 # --- main: percent with the check, its only caller, and the ticket ------------------------
-cat >src/percent.mjs <<'EOF'
+put src/percent.mjs <<'EOF'
 /** Share of `part` in `total`, in percent. */
 export function percent(part, total) {
   if (total === 0) throw new RangeError('total is 0')
   return (part / total) * 100
 }
 EOF
-cat >src/report.mjs <<'EOF'
+put src/report.mjs <<'EOF'
 import { percent } from './percent.mjs'
 
 /** One line of the report: "done 1 of 4 (25%)"; with nothing to do — "done 0 of 0 (—)". */
@@ -37,7 +59,7 @@ export function reportLine(done, total) {
   return `done ${done} of ${total} (${share})`
 }
 EOF
-cat >test/percent.test.mjs <<'EOF'
+put test/percent.test.mjs <<'EOF'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { percent } from '../src/percent.mjs'
@@ -50,7 +72,7 @@ test('percent throws on total 0', () => {
   assert.throws(() => percent(1, 0), RangeError)
 })
 EOF
-cat >test/report.test.mjs <<'EOF'
+put test/report.test.mjs <<'EOF'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { reportLine } from '../src/report.mjs'
@@ -63,7 +85,7 @@ test('reportLine handles nothing to do itself', () => {
   assert.equal(reportLine(0, 0), 'done 0 of 0 (—)')
 })
 EOF
-cat >.scratch/demo/issues/01-alpha.md <<'EOF'
+put .scratch/demo/issues/01-alpha.md <<'EOF'
 # 01 — alpha: percent без проверки нуля, с округлением
 
 Type: task
@@ -98,8 +120,7 @@ Blocked by: —
 
 Заполняется при закрытии.
 EOF
-sed -i.bak 's#| 01 | src/alpha.mjs, test/alpha.test.mjs | 1 |#| 01 | src/percent.mjs, test/percent.test.mjs | 1 |#' .scratch/demo/spec.md
-rm .scratch/demo/spec.md.bak
+swap .scratch/demo/spec.md '| 01 | src/alpha.mjs, test/alpha.test.mjs | 1 |' '| 01 | src/percent.mjs, test/percent.test.mjs | 1 |'
 git add -A
 git commit -q -m "demo: percent, its report line and ticket 01"
 git push -q origin main
@@ -107,15 +128,14 @@ git fetch -q origin
 
 # --- demo/01: the implementer's change ----------------------------------------------------
 git checkout -q -b demo/01
-sed -i.bak 's/^Status: open$/Status: claimed 2026-10-01T09:00Z/' .scratch/demo/issues/01-alpha.md
-rm .scratch/demo/issues/01-alpha.md.bak
-cat >src/percent.mjs <<'EOF'
+swap .scratch/demo/issues/01-alpha.md 'Status: open' 'Status: claimed 2026-10-01T09:00Z'
+put src/percent.mjs <<'EOF'
 /** Share of `part` in `total`, in percent, to one decimal. */
 export function percent(part, total) {
   return Math.floor((part / total) * 1000) / 10
 }
 EOF
-cat >test/percent.test.mjs <<'EOF'
+put test/percent.test.mjs <<'EOF'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { percent } from '../src/percent.mjs'

@@ -242,8 +242,11 @@ CLEAN='git commit -m "Fix the withdraw button state"'
 # stand-in that starts slower than a 0.5 s try is killed before it writes its log line.
 stub sleep "timeout twice -> deny with the reason" deny "$CLEAN" 'did not finish'
 TRY_S="$((TRY_MS / 1000)).$((TRY_MS % 1000 / 100)) s"
-[[ "$got" == *"did not finish in $TRY_S and then $TRY_S,"* ]] && ok "timeout twice: the refusal names two tries of $TRY_S" \
-    || bad "timeout twice: the refusal does not name two tries of $TRY_S: ${got:0:400}"
+# The two tries share one budget of two tries (guard.mjs): the second gets what is left of it, a full try on a quiet
+# machine, less when killing the first and starting the second took longer (0.4 s under the load of the whole suite;
+# under 50 ms it prints as 0 s).
+[[ "$got" == *"did not finish in $TRY_S and then 0."[0-5]" s,"* || "$got" == *"did not finish in $TRY_S and then 0 s,"* ]] && ok "timeout twice: the refusal names a try of $TRY_S, then the rest of the budget" \
+    || bad "timeout twice: the refusal does not name a try of $TRY_S, then the rest of the budget: ${got:0:400}"
 for want in '`git commit` was not run' 'Run the same command again' 'silent-check -C '; do
     [[ "$got" == *"$want"* ]] && ok "timeout twice: the refusal says: $want" || bad "timeout twice: no \"$want\" in: ${got:0:400}"
 done

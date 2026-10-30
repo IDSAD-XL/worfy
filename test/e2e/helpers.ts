@@ -373,11 +373,15 @@ const builtPreload = join(repoRoot, 'out', 'preload', 'index.cjs')
  * the same out/renderer/index.html. Resolves with the new window once its page has loaded; built
  * bundle only (`launchApp` without `executablePath`). `size` is the window's outer size (default
  * 1100×760); set it here, not with canvasReady(), whose `size` resizes the first window.
+ *
+ * The new window is the page that was not open before the call and shows the app's page. The
+ * app's next page alone is not it: a Browser's <webview> page that opens at the same time comes
+ * to Playwright as a window too (browser-family.spec.ts once got one).
  */
 export async function openSecondWindow(launched: Pick<LaunchedApp, 'app'>, options: { size?: { width: number; height: number } } = {}): Promise<Page> {
-  const opened = launched.app.waitForEvent('window')
+  const before = new Set(launched.app.windows())
   const size = options.size ?? { width: 1100, height: 760 }
-  await launched.app.evaluate(
+  const url = await launched.app.evaluate(
     async ({ BrowserWindow }, { preload, size }) => {
       const first = BrowserWindow.getAllWindows().find((each) => !each.isDestroyed())
       if (!first) throw new Error('no window of the app is open')
@@ -394,11 +398,17 @@ export async function openSecondWindow(launched: Pick<LaunchedApp, 'app'>, optio
       // window still came out 1024×642 on the runner, as macOS fits a window it shows into the
       // display; a resize after that keeps the size (canvasReady sizes the first window the same way).
       second.setSize(size.width, size.height)
-      await second.loadURL(first.webContents.getURL())
+      const url = first.webContents.getURL()
+      await second.loadURL(url)
+      return url
     },
     { preload: builtPreload, size },
   )
-  const window = await opened
+  let window: Page | undefined
+  await expect
+    .poll(() => (window = launched.app.windows().find((page) => !before.has(page) && page.url() === url)) !== undefined, { message: `a new window on ${url}`, timeout: ms(10_000) })
+    .toBe(true)
+  if (window === undefined) throw new Error(`no new window on ${url}`)
   await window.waitForLoadState('domcontentloaded')
   return window
 }

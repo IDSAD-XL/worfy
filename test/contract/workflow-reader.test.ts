@@ -21,6 +21,70 @@ import { generateScratch } from './scratch-gen'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
 
+/** A run of a process outside worfy's code: epic-status or `git worktree list`, in performance.now() time. */
+interface OutsideRun {
+  name: string
+  start: number
+  end: number
+}
+
+/** Every outside run of this file's watchers, as `timed` and the `git worktree list` below record them. */
+const outsideRuns = vi.hoisted((): OutsideRun[] => [])
+
+// `git worktree list` of the watcher, timed: the promise of 1.5 s is checked on the time worfy's own code takes.
+vi.mock('../../src/main/workflow/reader', async (importOriginal) => {
+  const reader = await importOriginal<typeof import('../../src/main/workflow/reader')>()
+  return {
+    ...reader,
+    ticketWorktrees: async (root: string) => {
+      const run = { name: 'git worktree list', start: performance.now(), end: Number.NaN }
+      outsideRuns.push(run)
+      try {
+        return await reader.ticketWorktrees(root)
+      } finally {
+        run.end = performance.now()
+      }
+    },
+  }
+})
+
+/** `run`, its runs recorded as epic-status runs. */
+function timed(run: EpicStatusRunner): EpicStatusRunner {
+  return async (cwd, ref) => {
+    const record = { name: 'epic-status', start: performance.now(), end: Number.NaN }
+    outsideRuns.push(record)
+    try {
+      return await run(cwd, ref)
+    } finally {
+      record.end = performance.now()
+    }
+  }
+}
+
+/**
+ * The time from the save to the delta that is worfy's own: without the outside runs in between. The two
+ * processes are started in the app too, but how fast a busy machine starts them is not worfy's code: under the
+ * load of the whole suite they took 1.2–2.8 s, against ≈0.2 s quiet (worfy-polish 41). `stages` names each one.
+ */
+function ownTime(savedAt: number, at: number): { own: number; started: number; stages: string } {
+  // Started after the save: a watcher that ran its processes more often than it should would hide behind the
+  // subtraction, so the tests also bound how many there are.
+  const started = outsideRuns.filter((run) => run.start >= savedAt && run.start < at).length
+  const spans = outsideRuns
+    .map((run) => ({ ...run, start: Math.max(run.start, savedAt), end: Math.min(Number.isNaN(run.end) ? at : run.end, at) }))
+    .filter((run) => run.end > run.start)
+    .sort((a, b) => a.start - b.start)
+  let outside = 0
+  let reached = savedAt
+  for (const span of spans) {
+    outside += Math.max(0, span.end - Math.max(span.start, reached))
+    reached = Math.max(reached, span.end)
+  }
+  const round = (value: number): number => Math.round(value - savedAt)
+  const stages = spans.map((span) => `${span.name} ${round(span.start)}–${round(span.end)} ms`).join(', ')
+  return { own: at - savedAt - outside, started, stages: `${round(at)} ms from the save to the delta, ${Math.round(outside)} ms of it outside: ${stages || 'no outside run'}` }
+}
+
 /**
  * The scripts' environment the readers are handed here: this process's own. The stub below reads
  * STUB_LOG, STUB_MODE and the like from it, and a test changes them between reads, so it is asked
@@ -828,7 +892,8 @@ describe('workflow watcher', () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
     const deltas: WorkflowDelta[] = []
-    const watcher = await startWatcher(repo, home, deltas)
+    // The watcher's own runner, the one it makes without `run`, timed.
+    const watcher = await startWatcher(repo, home, deltas, timed(epicStatusRunner(home, ownEnv)))
     expect(ticketOf(watcher.current, 3)?.state).toBe('open')
 
     const file = join(repo, '.scratch/demo/issues/03-third.md')
@@ -836,7 +901,10 @@ describe('workflow watcher', () => {
     writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked\nBlocked reason: waiting'))
     const { delta, at } = await nextDelta(deltas, (d) => d.tickets.length > 0)
 
-    expect(at - savedAt).toBeLessThanOrEqual(1500)
+    const { own, started, stages } = ownTime(savedAt, at)
+    expect(own, stages).toBeLessThanOrEqual(1500)
+    // One read for the save: epic-status, then `git worktree list`.
+    expect(started, stages).toBeLessThanOrEqual(2)
     expect(delta.tickets.map((t) => [t.num, t.state])).toEqual([[3, 'blocked']])
     expect(delta.epics).toEqual([])
     expect(delta.removedTickets).toEqual([])
@@ -1010,14 +1078,18 @@ describe('workflow watcher', () => {
       return out
     }
     const deltas: WorkflowDelta[] = []
-    const watcher = await startWatcher(repo, home, deltas, racing)
+    const watcher = await startWatcher(repo, home, deltas, timed(racing))
     expect(savedAt).toBeGreaterThan(0)
 
-    // Either `start` already gives the saved state, or a delta brings it within 1.5 s of the save.
+    // Either `start` already gives the saved state, or a delta brings it within 1.5 s of the save, the outside
+    // runs not counted (ownTime).
     if (ticketOf(watcher.current, 3)?.state !== 'work') {
       const { delta, at } = await nextDelta(deltas, (d) => d.tickets.some((t) => t.num === 3))
       expect(delta.tickets.map((t) => [t.num, t.state])).toEqual([[3, 'work']])
-      expect(at - savedAt).toBeLessThanOrEqual(1500)
+      const { own, started, stages } = ownTime(savedAt, at)
+      expect(own, stages).toBeLessThanOrEqual(1500)
+      // The end of the first read (`git worktree list`), then one read for the save: epic-status and `git worktree list`.
+      expect(started, stages).toBeLessThanOrEqual(3)
     }
     await watcher.idle()
     expect(ticketOf(watcher.current, 3)?.state).toBe('work')

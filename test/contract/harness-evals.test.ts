@@ -231,14 +231,28 @@ describe('harness/evals: the cases', () => {
       for (const type of types) expect(['regex', 'tool_used', 'tool_order', 'file_exists', 'llm']).toContain(type)
     })
 
-    // One scaffold without EVAL_* serves the three checks of that fixture: building it is the cost of
-    // the test (about 1.5 s on macOS, 5 s on Windows), and the profile runs only read it. The same
-    // build serves the later tests of this file that read the fixture of a case (caseFixture).
+    // One scaffold without EVAL_* serves the three checks of that fixture, and the later tests of this
+    // file that read the fixture of a case (caseFixture). It is built here, in a hook, not in the first
+    // test that asks for it: the build is about 1.5 s on macOS and 5 s on Windows alone, and under the
+    // load of a full run on Windows it took the test past its own limit, a failure that named the
+    // test's checks rather than the build (worfy-polish 41). The hook keeps the limit the build had in
+    // that test, the contract tests' 15 s times the run's multiplier (vitest.config.ts): no single
+    // limit is raised, only the one multiplier of the run. A build past it fails this hook, under its
+    // own name; a build that exits non-zero fails no hook: the test below reports its exit code with
+    // its output.
+    let built: CaseFixture | undefined
+    beforeAll(() => {
+      built = builtFixture(name)
+    }, ms(15_000))
+
     // On Windows the profile runs need the paths of the fixture's gate registry ("match", "pm") in
     // node's spelling, C:/…/work, not /tmp/…/work of Git Bash: harness/evals/lib/demo-project.sh
     // writes them from node's realpathSync.native (worfy-windows ticket 65, step 4).
     it('builds its fixture with exit code 0 in a temporary HOME, and bin/profile -C <fixture> finds profile demo with and without EVAL_HARNESS_HOME', () => {
-      const { work, home, run } = caseFixture(name)
+      if (built === undefined) throw new Error(`the beforeAll of ${name} built no fixture`)
+      // The build the hook recorded, not caseFixture(name): that would build a failed fixture again, here.
+      sharedNow.add(name)
+      const { work, home, run } = built
       expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
       expect(existsSync(join(work, '.git'))).toBe(true)
       expect(existsSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json'))).toBe(true)
