@@ -36,8 +36,9 @@ Other endings:
 - An unknown profile, an option such as `--verbose` among them, prints the usage and exits with 2. It writes nothing.
 - A folder outside git exits with 0 and says nothing.
 - `node gate.mjs` where node is not on the PATH fails with 127 before the Gate starts. The launcher `gate.sh`, which the
-  hooks use, looks further for a node of version 18 or newer. With none it answers `[gate] not verified: node not found`
-  and exit code 3.
+  hooks use, looks further for a node of version 18 or newer. With no node at all it answers `[gate] not verified: node not found`.
+  When every node it found is older or did not start, it answers
+  `[gate] not verified: no node 18 or newer: <path> is older or did not start`. Both exit with code 3.
 
 **Red or not verified.** A script that exits with a code other than 0 is red unless its output shows a missing
 environment: `command not found`, `Cache entry required but missing`, `ENOENT` for a path in `node_modules`, a Docker daemon
@@ -46,8 +47,8 @@ shows a live test run outranks these signs: `Tests 3 failed`, a line that starts
 `Expected … to` keep such a script red. A script that a signal ended counts as a failed script, and its report names the
 signal. One red script makes the whole run red, whatever the others say. A failed script does not stop the scripts after it.
 
-**What gets checked.** Each run prints a `[gate] scope` line with its choice and the reason. Normally the run is narrowed
-to the files that differ from the merge-base with `origin/HEAD` or `origin/main`, including uncommitted and untracked files.
+**What gets checked.** A run that gets a plan prints a `[gate] scope` line with its choice and the reason. A narrowed run with no
+changes answers "nothing ran" without that line. Normally the run is narrowed to the files that differ from the merge-base with `origin/HEAD` or `origin/main`, including uncommitted and untracked files.
 A renamed file counts under both paths. The run takes every package instead in any of these cases:
 
 - `GATE_SCOPE=all` is set.
@@ -111,8 +112,8 @@ lies. The entry with the longest `match` prefix wins. Each worktree has a tag, t
 
 **Two kinds of record.** Markers hold a state across runs: `red-<key>-<tag>` and `unverified-<key>-<tag>`, read by the hook `Stop`
 and by worfy, and `nokey-<kind>-<tag>-<session>`, read by the hook. The verdict file `verdict-<tag>.json` is the outcome of the last
-run, a machine contract for worfy that carries no words of any language: outcome, profile, worktree, key, head, exit code, time,
-reason, timings. A run that gets as far as knowing its worktree replaces the file whole or removes it. So a file from an older run
+run, a machine contract for worfy whose fields do not depend on the wording of the verdict lines: outcome, profile, worktree, key,
+head, exit code, time, reason (one line in English for `unverified` and `none`), timings. A run that gets as far as knowing its worktree replaces the file whole or removes it. So a file from an older run
 stays only when another process holds it open on Windows, or when a run ended before that point.
 
 **The launcher.** A hook command that named `node` would fail with 127 where node is not on the PATH, and the verdict of an earlier
@@ -176,13 +177,14 @@ Only scripts that exist in the package run. "Add project" shows the `root` lists
 | `workflow.finish` `local-green` | Yes. On the Ticket branch, by the Orchestrator, before the local merge. A red run stops the finish. |
 | `workflow.finish` `pr-green-ci`, `workflow.merge_gate` null or absent | No. With `workflow.ci` `pr` the merge condition is the final CI check on the PR's head and the `review` mark on the same head. |
 | `workflow.merge_gate` `each` | Yes. Each PR is rebased and gets its own run with `GATE_SCOPE=all`. |
-| `workflow.merge_gate` `wave` | Yes. One run for the set of a Wave's ready PRs, squash-merged in a temporary worktree (`wave-gate`). |
+| `workflow.merge_gate` `wave` | Yes. One run for the set of a Wave's ready PRs, squash-merged in a temporary worktree (`wave-gate`). A red run is repeated once on the same tree; red again, it bisects the set by prefixes, at most 2 + ceil(log2 N) finished runs. |
 
 worfy's own repository is on the second row, with `ci-ok` as the final check. There Gate full stays a tool for the implementer
 and for analysing a failure.
 
-**The e2e lock.** With `workflow.e2e_lock` in the Profile, every e2e run and every Gate full of the Project take that folder as a
-lock. A lock older than 30 minutes counts as abandoned, and its holder touches it every 5 minutes. A file inside it may name the
+**The e2e lock.** With `workflow.e2e_lock` in the Profile, `wave-gate`, the skills and the Project's rules take that folder as a
+lock for each local e2e run and Gate full. The Gate itself does not take it, so a bare `node gate.mjs full` holds nothing, and CI
+jobs do not use it. A lock older than 30 minutes counts as abandoned, and its holder touches it every 5 minutes. A file inside it may name the
 PRs of the run. While the lock is taken and a Ticket stands on the Stage "Gate & merge", its Stage says `gate running`, `waiting
 for gate` or `gate busy` ([Workflow](workflow.md)).
 
@@ -196,7 +198,7 @@ and `wave-gate merge` also keep the display awake while they run.
 
 For a Project on two Machines, one of which cannot run the other's Gate full. The Profile of each Machine has
 `cross_machine_gate` with its role, `serve` or `request`, a GitHub label and the name of a section of the PR description. Without
-that field the Project has no queue. worfy's own repository no longer uses it.
+that field the Project has no queue. worfy's own repository does not use it.
 
 **Which PR waits.** A PR waits for the Machine with `serve` when it is open, carries the label, is not from a fork and has no red
 report newer than its last commit. A report is a comment by the Project's GitHub account whose first line starts with
@@ -278,7 +280,7 @@ Epic frame shows none. Chips wrap onto a second line and are not cut. The colour
 | `gh unavailable` | Ticket | gh did not answer. The tooltip has the reason. |
 | `in %TEMP%` | Ticket, Session | The worktree lies in the Windows temporary folder. The tooltip has the warning and the path. |
 
-The tooltip of a Gate chip adds the worktree's path, and the tooltip of the row sums up all its chips. A Ticket with a PR also has the
+The tooltip of a Gate chip adds the worktree's path, and the tooltip of a Ticket's row sums up all its chips. A Ticket with a PR also has the
 action **Open PR**, which opens the address in the browser. An address that is not a page on `https://github.com/` leaves the button
 inactive, and its tooltip says why.
 
@@ -357,7 +359,7 @@ the disk runs low.
   them ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflow.md), [ADR-0005](../adr/0005-worfy-own-state-inventory.md)).
 - **The rate of asking and the rate of gh are separate.** The renderer may ask often because the tracker decides when gh runs. The
   renderer keeps one copy per Project and folder asked, shared by all badges. main has one tracker, shared with Autopilot's reads of the narrow
-  fix rounds and with the Stage, so gh runs at most once per interval for all of them.
+  fix rounds and with the Stage, so `gh pr list` of the whole list runs at most once per interval for all of them.
 - **A verdict is bound to a commit.** A mark is a commit status on a SHA, and the rollup that gh gives is of the head commit only, so a push
   makes the old verdict disappear by itself ([ADR-0067](../adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md)). A comment's first line
   `NARROW:` is still read, for Autopilot's journal and not for a chip ([ADR-0046](../adr/0046-autopilot-narrow-round-without-owner.md)).
@@ -371,7 +373,7 @@ the disk runs low.
 #### Windows
 
 Paths are compared with either separator and without regard to letter case, and the worktree tag is taken from git's spelling
-(`C:/Users/x/worfy`). To place a Gate call in a transcript, a `cd` to `C:\…`, `C:/…`, a UNC path or Git Bash's `/c/…` is understood.
+(`C:/Users/x/worfy`). To place a Gate call in a transcript, a quoted `cd` to `C:\…`, a `cd` to `C:/…`, a UNC path in quotes or Git Bash's `/c/…` is understood.
 
 ### Implementation
 

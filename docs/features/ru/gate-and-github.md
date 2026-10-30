@@ -37,7 +37,9 @@ Project-а (см. Gate full). `--help` и `-h` печатают usage и зав�
 - Неизвестный профиль, в том числе опция вроде `--verbose`, печатает usage и завершается с кодом 2. Ничего не пишет.
 - Папка вне git завершается с кодом 0 молча.
 - `node gate.mjs`, когда node нет в PATH, падает с кодом 127 до старта Gate. Launcher `gate.sh`, которым пользуются hook-и,
-  ищет дальше node версии 18 или новее. Если такого нет, он отвечает `[gate] not verified: node not found` и кодом 3.
+  ищет дальше node версии 18 или новее. Если node нет совсем, он отвечает `[gate] not verified: node not found`. Если каждый найденный
+  node старее или не запустился, он отвечает `[gate] not verified: no node 18 or newer: <path> is older or did not start`. Оба случая
+  завершаются с кодом 3.
 
 **Red или not verified.** Скрипт с exit code не 0 считается red, если его вывод не показывает отсутствие окружения:
 `command not found`, `Cache entry required but missing`, `ENOENT` для пути в `node_modules`, отсутствующий Docker daemon или
@@ -46,8 +48,8 @@ run test-ов, важнее этих признаков: `Tests 3 failed`, ст�
 оставляют такой скрипт red. Скрипт, завершённый сигналом, считается упавшим, и его отчёт называет сигнал. Один red скрипт
 делает red весь run, что бы ни сказали остальные. Упавший скрипт не останавливает скрипты после него.
 
-**Что проверяется.** Каждый run печатает строку `[gate] scope` со своим выбором и причиной. Обычно run сужается до файлов,
-которые отличаются от merge-base с `origin/HEAD` или `origin/main`, включая незакоммиченные и неотслеживаемые файлы.
+**Что проверяется.** Run, который получил план, печатает строку `[gate] scope` со своим выбором и причиной. Суженный run без изменений отвечает
+«nothing ran» без этой строки. Обычно run сужается до файлов, которые отличаются от merge-base с `origin/HEAD` или `origin/main`, включая незакоммиченные и неотслеживаемые файлы.
 Переименованный файл считается под обоими путями. Вместо этого run берёт все пакеты в любом из этих случаев:
 
 - Задан `GATE_SCOPE=all`.
@@ -109,8 +111,9 @@ hook-а тоже ничего не удерживает.
 виде, как печатает `git rev-parse --show-toplevel`, поэтому red в одном worktree не удерживает ход в другом.
 
 **Два вида записей.** Marker-ы хранят состояние между run-ами: `red-<key>-<tag>` и `unverified-<key>-<tag>` читают hook `Stop` и worfy,
-а `nokey-<kind>-<tag>-<session>` читает hook. Файл вердикта `verdict-<tag>.json` — исход последнего run-а, машинный контракт для worfy
-без слов какого-либо языка: исход, профиль, worktree, ключ, head, exit code, время, причина, замеры времени. Run, который дошёл
+а `nokey-<kind>-<tag>-<session>` читает hook. Файл вердикта `verdict-<tag>.json` — исход последнего run-а, машинный контракт для worfy,
+поля которого не зависят от формулировок строк вердикта: исход, профиль, worktree, ключ, head, exit code, время, причина (одна строка
+по-английски для `unverified` и `none`), замеры времени. Run, который дошёл
 до того, что знает свой worktree, заменяет файл целиком или удаляет его. Поэтому файл старого run-а остаётся, только когда его
 держит открытым другой процесс на Windows или когда run закончился раньше этой точки.
 
@@ -174,12 +177,13 @@ Gate full — та же программа с профилем `full`: `node gat
 | `workflow.finish` `local-green` | Да. На ветке Ticket-а, силами Orchestrator-а, перед локальным merge. Red run останавливает завершение. |
 | `workflow.finish` `pr-green-ci`, `workflow.merge_gate` null или нет | Нет. При `workflow.ci` `pr` условие merge — итоговая проверка CI на head PR и отметка `review` на том же head. |
 | `workflow.merge_gate` `each` | Да. Каждый PR делает rebase и получает свой run с `GATE_SCOPE=all`. |
-| `workflow.merge_gate` `wave` | Да. Один run на набор готовых PR Wave, влитых squash-ем во временный worktree (`wave-gate`). |
+| `workflow.merge_gate` `wave` | Да. Один run на набор готовых PR Wave, влитых squash-ем во временный worktree (`wave-gate`). Red run повторяется один раз на том же дереве; снова red — набор делится пополам по префиксам, не больше 2 + ceil(log2 N) законченных run-ов. |
 
 Собственный репозиторий worfy — на второй строке, итоговая проверка там `ci-ok`. Gate full там остаётся инструментом implementer-а и
 разбора сбоя.
 
-**Замок e2e.** Если в Profile-е есть `workflow.e2e_lock`, каждый run e2e и каждый Gate full Project-а берут эту папку как замок. Замок
+**Замок e2e.** Если в Profile-е есть `workflow.e2e_lock`, `wave-gate`, skills и правила Project-а берут эту папку как замок на каждый
+локальный run e2e и Gate full. Сам Gate его не берёт, поэтому голый `node gate.mjs full` ничего не держит, и job-ы CI его не используют. Замок
 старше 30 минут считается брошенным, и его владелец обновляет его каждые 5 минут. Файл внутри может называть PR этого run-а. Пока замок
 занят и Ticket стоит на Stage «Gate & merge», его Stage говорит `gate running`, `waiting for gate` или `gate busy`
 ([Workflow](workflow.md)).
@@ -194,7 +198,7 @@ Gate full — та же программа с профилем `full`: `node gat
 
 Для Project-а на двух Machine, одна из которых не может запустить Gate full другой. В Profile-е каждой Machine есть
 `cross_machine_gate` с её ролью, `serve` или `request`, меткой GitHub и именем раздела в описании PR. Без этого поля у Project-а нет
-очереди. Собственный репозиторий worfy её больше не использует.
+очереди. Собственный репозиторий worfy её не использует.
 
 **Какой PR ждёт.** PR ждёт Machine с `serve`, когда он открыт, несёт метку, не из fork-а и не имеет red отчёта новее последнего
 коммита. Отчёт — это комментарий GitHub-аккаунта Project-а, первая строка которого начинается с `<section> report: red`. Green отчёт
@@ -275,7 +279,7 @@ Chip-ы на Node-ах workflow. Ticket показывает их как под�
 | `gh unavailable` | Ticket | gh не ответил. В tooltip причина. |
 | `in %TEMP%` | Ticket, Session | Worktree лежит во временной папке Windows. В tooltip предупреждение и путь. |
 
-Tooltip chip-а Gate добавляет путь к worktree, а tooltip строки сводит все её chip-ы. У Ticket-а с PR есть ещё действие **Open PR**,
+Tooltip chip-а Gate добавляет путь к worktree, а tooltip строки Ticket-а сводит все её chip-ы. У Ticket-а с PR есть ещё действие **Open PR**,
 которое открывает адрес в браузере. Адрес, который не является страницей на `https://github.com/`, делает кнопку неактивной, и её
 tooltip говорит почему.
 
@@ -355,7 +359,7 @@ Ticket, не называющий ни одного из них, не имеет
   ([ADR-0002](../../adr/0002-worfy-is-a-view-over-the-workflow.md), [ADR-0005](../../adr/0005-worfy-own-state-inventory.md)).
 - **Частота вопросов и частота gh разделены.** Renderer может спрашивать часто, потому что решает, когда запускать gh, tracker. Renderer
   держит одну копию на Project и спрошенную папку, общую для всех badges. У main один tracker, общий с чтениями узких раундов исправления
-  у Autopilot и со Stage, поэтому gh запускается не чаще раза за интервал для всех них.
+  у Autopilot и со Stage, поэтому `gh pr list` всего списка запускается не чаще раза за интервал для всех них.
 - **Вердикт привязан к коммиту.** Отметка — это commit status на SHA, а rollup от gh относится только к head-коммиту, поэтому push сам
   убирает старый вердикт ([ADR-0067](../../adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md)). Первая строка комментария
   `NARROW:` по-прежнему читается, для journal-а Autopilot, а не для chip-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)).
@@ -369,7 +373,7 @@ Ticket, не называющий ни одного из них, не имеет
 #### Windows
 
 Пути сравниваются с любым разделителем и без учёта регистра, а тег worktree берётся из написания git (`C:/Users/x/worfy`). Чтобы определить
-место вызова Gate в транскрипте, понимается `cd` к `C:\…`, `C:/…`, пути UNC или `/c/…` из Git Bash.
+место вызова Gate в транскрипте, понимается `cd` в кавычках к `C:\…`, `cd` к `C:/…`, путь UNC в кавычках или `/c/…` из Git Bash.
 
 ### Implementation
 
