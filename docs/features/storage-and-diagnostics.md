@@ -27,8 +27,8 @@ runs over" and the folder on stderr. The running worfy restores its first window
 macOS, with every window closed, it opens one. A second start made before the first process has created its first window
 changes nothing on the screen.
 
-**A folder that cannot be used stops the start.** When the path is a file, lies under a file, or, on macOS, is a folder
-worfy may not write to, worfy shows the error window of a failed start (see [Diagnostics](#diagnostics)) and exits with
+**A folder that cannot be used stops the start.** When the path is a file, lies under a file, or is a folder
+that the system's write-access check refuses, worfy shows the error window of a failed start (see [Diagnostics](#diagnostics)) and exits with
 code 1. A folder that does not exist yet is fine.
 
 **Each Project has its own subfolder.** Its name is the Project's id: the name of the Project's folder, a dash and the
@@ -52,8 +52,8 @@ A read that fails for another reason, such as a missing permission, throws and d
 
 #### Windows
 
-Both folders are in the user's roaming application data. worfy quits when its last window closes, so the state with every
-window closed does not exist there.
+Both folders are in the user's roaming application data. worfy quits when its last window closes, so it does not keep running
+there with every window closed.
 
 #### On a Linked machine
 
@@ -102,7 +102,7 @@ entry that cannot be removed does not stop the walk: the others go, and the firs
 
 Another process, such as an antivirus or the indexer, can hold a file for a moment. So a removal waits up to 5 times, 100
 ms each, half a second at most for the whole removal. A move into the trash and back, of a Card's folder, its data or an
-image, waits in the same steps when it meets `EBUSY`, `EPERM` or `EACCES`. A rename of a state file, such as the atomic
+image, waits in the same steps when it meets `EBUSY`, `EPERM` or `EACCES`. Any other rename of a state file, such as the atomic
 write, is one call. On macOS the move of the trash is one call too.
 
 ### Implementation
