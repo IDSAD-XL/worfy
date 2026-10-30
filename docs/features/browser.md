@@ -81,7 +81,8 @@ A Live Browser goes to sleep in two cases, both only while its page has no keybo
 - No screen shows it at a readable zoom for longer than the off-screen time. A frame in the window on a Canvas zoomed
   out below the readable zoom counts as off screen. One screen that shows it readable is enough to keep it. A hidden
   window, such as a minimised one, shows no Browser. A Browser in a Focus mode tile counts as shown and readable. While
-  a Focus mode tile shows a Browser, the whole window counts as readable, so the Browsers on its Canvas sleep later.
+  a Focus mode tile shows a Browser, the whole window counts as readable, so the Browsers inside the window, even on a
+  Canvas zoomed out below the readable zoom, sleep later.
 - Nothing used it for longer than the unused time. Use is a press, a key, a touch or a scroll on the page, input in
   its frames, a Session's call, or its wake.
 
