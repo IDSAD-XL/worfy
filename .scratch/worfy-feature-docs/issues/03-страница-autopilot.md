@@ -1,7 +1,8 @@
 # 03 — Страница Autopilot
 
 Type: task
-Status: open
+Status: claimed 2026-10-30T21:37Z
+Branch: worfy-feature-docs/03
 Blocked by: 01
 Source: «Как устроено» и Q18 [spec.md](../spec.md); решения владельца 2026-10-30, Q2, Q3, Q7, Q9, Q10, Q20, Q21, Q22; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (английский как основной язык Feature page)
 
@@ -60,4 +61,48 @@ Source: «Как устроено» и Q18 [spec.md](../spec.md); решения
 - Feature, которых нет в `main`.
 
 ## Итог
+
+Страницы написаны по коду и test-ам `origin/main` (773915d8), приложение и настоящий Autopilot не запускались. Страница — один раздел
+Autopilot, как в таблице spec-а: 397 строк, близко к пределу «примерно 400», делить не пришлось. Список папок из `## Где в коде` оказался
+неполным: источник ещё `src/main/ipc/autopilot.ts`, `src/shared/ipc/autopilot.ts`, `src/main/actions/launch.ts`,
+`src/main/agent/orchestrator.ts`, `src/main/agent/session-settings.ts`, `src/main/agent/permissions.ts`, `src/main/link/autopilot-runs.ts`,
+`src/main/mcp/browser-server.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/renderer/settings/AutopilotSection.tsx`,
+`scripts/install-stable.mjs`.
+
+**Что не подтвердилось и на страницу не попало:**
+
+1. «Autopilot над самим worfy идёт только из Stable copy» (`CONTEXT.md`, README). Код отказывает только development-сборке, а любая
+   packaged-сборка проходит: `selfProjectRefusal` и test «lets another Project run on a development build, and any Project on a packaged
+   one». Страница пишет фактическое правило.
+2. «Агенты Wave собирают и проверяют dev-сборку в своих worktree» (`CONTEXT.md`). Это поведение агентов, код worfy этого не проверяет.
+3. Настоящий эффект keep-awake: экран не гаснет, macOS его не блокирует, с закрытой крышкой Mac спит, заблокированный вручную экран так и
+   остаётся (комментарий `power.ts`, README). Test-ы подменяют `powerSaveBlocker` и проверяют только, что blocker взят и отпущен; на Windows
+   то же самое. Страница называет, что worfy просит у системы, и причину со ссылкой на ADR-0034.
+4. «Любая точка, где понадобился человек, — дефект» (`CONTEXT.md`, формат journal). Это договорённость: код только пишет строку
+   `human-input`.
+5. «Ticket-ы в работе доходят до merge или blocked» (tooltip кнопки Stop). Это просьба к Orchestrator-у, run её не проверяет. Страница
+   пишет, что после Stop Ticket может остаться в `claimed`.
+6. «`origin/main` свеж, потому что Orchestrator делает fetch в preflight каждой Wave» (комментарий `harness-drift.ts`). Это зависит от
+   skill-а, в коде worfy этого нет. На странице только то, что сам worfy `git fetch` не делает.
+7. Записанное поведение настоящего Claude Code: форма отказа Limits и то, что Claude Code не ждёт сброса дальше 24 часов (комментарии
+   `resume-at.ts`). Test-ы проигрывают записанные события. На странице только то, как worfy их читает, и его собственный предел.
+8. Условия узкого круга (критический путь, уровень находок): это правило skill-а `epic-wave`, оно относится к странице Harness.
+9. Все отличия Windows проверены только чтением кода, как и решено в Q20.
+
+**Находки в продукте (не исправлялись, уровень low, Ticket-ами не становятся):**
+
+- В Silent mode journal, похоже, не получит `narrow-round`. `readPrs` читает только ветки `<epic>/<NN>`, а в Silent mode ветка названа по
+  изменению (`ticket-ref.ts`). Вывод только по чтению кода, test-а на этот случай нет. На странице этой детали нет: нет подтверждения, что
+  так и задумано.
+- Список прерванных Ticket-ов после Force stop живёт только в памяти, перезапуск приложения его теряет. На странице это записано как поведение.
+- В оценке бюджета `readyWave(...).ready.length` не считает прерванные Ticket-ы, которые идут в первую Wave следующего run-а.
+- README, раздел об обновлении Stable copy, требует Gate full на Mac перед обновлением, хотя условие merge теперь `ci-ok` (ADR-0083).
+
+**Вопросы пилота к владельцу:**
+
+- Шаблон подошёл, но Behaviour у Feature с большим числом состояний вышел длинным: понадобились подзаголовки внутри блока и две таблицы
+  (строка состояния, причины остановки). Страница заняла почти весь предел в 400 строк. Предлагаю разрешить такие подзаголовки в шаблоне явно.
+- Запрет путей в Behaviour заставил унести место и формат journal в Implementation, хотя разработчик читает этот файл как пользователь. Я
+  оставил так, как велит шаблон.
+- Stable copy и бюджет Limits вошли в этот раздел как части Autopilot; отдельные разделы им не понадобились.
 
