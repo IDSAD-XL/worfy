@@ -2,13 +2,15 @@
 //
 // First from the repository's files, with no process: find `.git` upwards from the folder, follow a
 // `.git` file (`gitdir: <path>`, a worktree or a submodule) to the git directory, and read its `HEAD`.
-// `ref: refs/heads/<name>` gives the name; a commit id (a detached HEAD) gives null; no `.git` up to
-// the root of the disk gives null (not a repository). A git process did not answer within its limit
-// on a loaded machine, and the request then went without a branch (worfy-terminal-ai ticket 17).
+// `ref: refs/heads/<name>` gives the name; a commit id (a detached HEAD) gives null. A git process
+// did not answer within its limit on a loaded machine, and the request then went without a branch
+// (worfy-terminal-ai ticket 17).
 //
-// Only when the files cannot be read or are in a form this reader does not know (an empty or broken
-// HEAD, a reftable repository), `git branch --show-current` answers, at most GIT_BRANCH_TIMEOUT_MS;
-// null when git is missing, fails or is slow: the request then goes without a branch.
+// Only when the files do not answer — no `.git` up to the root of the disk (GIT_DIR and the like may
+// still name a repository), a file that cannot be read, a form this reader does not know (an empty or
+// broken HEAD, a reftable repository) — `git branch --show-current` answers, at most
+// GIT_BRANCH_TIMEOUT_MS; null when git is missing, fails or is slow: the request then goes without a
+// branch.
 import { execFile } from 'node:child_process'
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
@@ -59,38 +61,32 @@ export function gitDirFromFile(content: string, dir: string, pathApi: typeof pat
   return target ? pathApi.resolve(dir, target) : null
 }
 
-type Found = { gitDir: string } | 'not-a-repository' | 'unknown'
-
-/** The git directory of `cwd`, found upwards; 'unknown' when a file on the way cannot be read. */
-async function findGitDir(cwd: string): Promise<Found> {
+/** The git directory of `cwd`, found upwards; null when none is found or a file on the way cannot be read. */
+async function findGitDir(cwd: string): Promise<string | null> {
   try {
-    if (!(await stat(cwd)).isDirectory()) return 'unknown'
+    if (!(await stat(cwd)).isDirectory()) return null
     for (let dir = path.resolve(cwd); ; ) {
       const dotGit = path.join(dir, '.git')
       const found = await stat(dotGit).catch((error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
         throw error
       })
-      if (found?.isDirectory()) return { gitDir: dotGit }
-      if (found?.isFile()) {
-        const gitDir = gitDirFromFile(await readFile(dotGit, 'utf8'), dir)
-        return gitDir === null ? 'unknown' : { gitDir }
-      }
+      if (found?.isDirectory()) return dotGit
+      if (found?.isFile()) return gitDirFromFile(await readFile(dotGit, 'utf8'), dir)
       const parent = path.dirname(dir)
-      if (parent === dir) return 'not-a-repository'
+      if (parent === dir) return null
       dir = parent
     }
   } catch {
-    return 'unknown'
+    return null
   }
 }
 
 /** The branch from the repository's files; undefined when the files do not tell. */
 async function branchFromFiles(cwd: string): Promise<string | null | undefined> {
-  const found = await findGitDir(cwd)
-  if (found === 'not-a-repository') return null
-  if (found === 'unknown') return undefined
-  const head = readHead(await readFile(path.join(found.gitDir, 'HEAD'), 'utf8').catch(() => ''))
+  const gitDir = await findGitDir(cwd)
+  if (gitDir === null) return undefined
+  const head = readHead(await readFile(path.join(gitDir, 'HEAD'), 'utf8').catch(() => ''))
   if (head === null) return undefined
   return 'branch' in head ? head.branch : null
 }

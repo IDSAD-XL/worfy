@@ -117,17 +117,29 @@ describe('gitBranch', () => {
       ['a submodule with a detached HEAD', subDetached, null],
       ['a submodule on a branch', subOnBranch, 'sub/branch'],
       ['a folder nested in a submodule', inSubmodule, 'sub/branch'],
-      ['a folder outside any repository', outside, null],
     ]
     for (const [name, cwd, branch] of cases) expect(showCurrent(cwd), `real git, ${name}`).toBe(branch)
+    expect(showCurrent(outside), 'real git, a folder outside any repository').toBeNull()
 
     stubGit([`exec sleep ${STUB_SLEEP_S}`])
     for (const [name, cwd, branch] of cases) expect(await gitBranch(cwd), name).toBe(branch)
     expect(existsSync(started)).toBe(false)
+    // No `.git` up to the root of the disk: the git process answers (below), here past its limit.
+    expect(await gitBranch(outside), 'a folder outside any repository').toBeNull()
   })
 
   // The stand-in is a /bin/sh script, which Windows does not start as a program: these run where it does.
-  describe.skipIf(WINDOWS)('a HEAD file it cannot read goes to the git process', () => {
+  describe.skipIf(WINDOWS)('a folder the files do not answer for goes to the git process', () => {
+    // GIT_DIR and the like can still name a repository for it: git decides, not the files.
+    it('a folder outside any repository', { timeout: ms(10_000) }, async () => {
+      const outside = join(root, 'outside')
+      mkdirSync(outside)
+      stubGit(['echo from-git-process'])
+
+      expect(await gitBranch(outside)).toBe('from-git-process')
+      expect(existsSync(started)).toBe(true)
+    })
+
     it.each([
       ['an empty HEAD', ''],
       ['a HEAD with garbage', 'not a ref\n'],
