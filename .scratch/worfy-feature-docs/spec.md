@@ -40,7 +40,7 @@ Ticket-ы: Epic `worfy-feature-docs`, 19 Ticket-ов, нумерация с `01`
 |---|---|---|
 | Autopilot (`autopilot.md`) | один раздел | 03 |
 | Terminal (`terminal.md`) | Terminal, Terminal AI | 04 |
-| Cards (`cards.md`) | Card как файл, Card MCP | 05 |
+| Cards (`cards.md`) | Card как файл, Card API, Canvas MCP | 05 |
 | Canvas (`canvas.md`) | Node и Layout, Epic frame, Done shelf, Find, вставка изображений | 08 |
 | Projects (`projects.md`) | Full mode и Silent mode, переключатель, просмотр ADR и HANDOFF | 09 |
 | Workflow (`workflow.md`) | Ticket и Epic на Canvas, Pipeline, Binding | 10 |
@@ -53,7 +53,7 @@ Ticket-ы: Epic `worfy-feature-docs`, 19 Ticket-ов, нумерация с `01`
 | Storage и диагностика (`storage-and-diagnostics.md`) | папка данных, diagnostics | 17 |
 | Harness (`harness.md`) | установка из приложения, plugin, skills, агенты, hooks | 18 |
 
-Группировка выведена из имён папок, код при этом не читался: пилот может её уточнить. Отличия Windows
+Группировка выведена из имён папок и на пилоте подошла, владелец её утвердил 2026-10-31. Отличия Windows
 идут внутри разделов, отдельной страницы у них нет. SSH session не описывается: Epic
 `worfy-terminal-ssh` на 0 из 10, а страница описывает только то, что уже есть в `main`.
 
@@ -66,7 +66,10 @@ Ticket-ы: Epic `worfy-feature-docs`, 19 Ticket-ов, нумерация с `01`
 - **Implementation** — модули и точки входа с путями, поток данных, главные test-ы. Без номеров строк и
   без копий сигнатур: они устаревают первыми.
 
-Отличия платформ — подзаголовком внутри нужного блока. Скриншотов нет: они устаревают и не проверяются.
+Отличия платформ и работа на Linked machine — подзаголовком внутри нужного блока (`On a Linked machine`). Для
+Feature с многими состояниями внутри Behaviour разрешены подзаголовки и таблицы. Конкретные числа на странице
+остаются: устаревшее число ловит линза `documentation`. Linux не описывается: пакета для него нет. Скриншотов
+нет: они устаревают и не проверяются.
 Страница описывает только настоящее: без changelog и без пересказа ADR. Страница больше примерно 400 строк
 делится на две.
 

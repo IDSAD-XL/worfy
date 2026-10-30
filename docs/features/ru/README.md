@@ -20,7 +20,7 @@ Epic-ам и Ticket-ам.
 |---|---|
 | [Autopilot](autopilot.md) | Autopilot |
 | [Terminal](terminal.md) | Terminal, Terminal AI |
-| [Cards](cards.md) | Card как файл, Card MCP |
+| [Cards](cards.md) | Card как файл, Card API, Canvas MCP |
 | [Canvas](canvas.md) | Node и Layout, Epic frame, Done shelf, Find, вставка изображений |
 | [Projects](projects.md) | Full mode и Silent mode, переключатель, просмотр ADR и HANDOFF |
 | [Workflow](workflow.md) | Ticket и Epic на Canvas, Pipeline, Binding |
@@ -46,7 +46,9 @@ Epic-ам и Ticket-ам.
 - **Implementation** — модули и точки входа с путями, поток данных, главные test-ы. Без номеров строк и без копий
   сигнатур: они устаревают первыми.
 
-Отличия платформ идут подзаголовком внутри нужного блока. Отдельной страницы у Windows нет.
+Отличия платформ и работа на Linked machine идут подзаголовком внутри нужного блока (`On a Linked machine`). Отдельной
+страницы у Windows нет, а Linux не описывается: пакета для него нет. Для Feature с многими состояниями внутри Behaviour
+разрешены подзаголовки и таблицы. Конкретные числа на странице остаются.
 
 Страница описывает только настоящее: без changelog и без пересказа ADR. Источник страницы — код и test-ы, утверждение,
 которое они не подтверждают, на страницу не попадает. Расхождение страницы и кода — баг, который чинят. Скриншотов нет:
