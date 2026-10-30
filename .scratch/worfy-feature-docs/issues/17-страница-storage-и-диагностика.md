@@ -60,3 +60,21 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
+Страница написана: разделы «Data folder» и «Diagnostics», 360 строк, делить не пришлось. Перевод — `docs/features/ru/storage-and-diagnostics.md`.
+
+**Сверка папок из «Где в коде».** Список был неполным. `src/main/storage` и `src/main/diagnostics` верны. Страница опирается также на `src/main/index.ts`, `src/main/startup-failure.ts`, `src/main/window.ts`, `src/main/ipc/memory.ts`, `src/shared/memory.ts`, `src/shared/ipc/memory.ts`, `src/renderer/memory`, `scripts/hang-sample.mjs` и на модули отдельных файлов состояния.
+
+**Утверждения, которые не подтвердились и на страницу не попали:**
+
+- ADR-0005: «единственная запись вне Application Support — регистрация в конфиге Gate». По коду worfy пишет и в другие места: установка Harness и migration в Claude home (`src/main/harness/install.ts`), папка `<home>/worfy-demo`. На странице этого утверждения нет.
+- Комментарий в `src/main/storage/paths.ts`: «the one copy outside it is statusline-bridge». Копий две: ещё `scripts/hang-sample.mjs`. На странице названы обе.
+- Комментарий в `src/main/storage/json-file.ts`: «one older store» без откладывания, `window.ts`. Таких мест больше: `first-run.json` и `statusline-limits.json` не откладываются, у `secrets.json` своя реализация. На странице это описано по коду.
+- Комментарий в `test/unit/no-rmsync.test.ts`: у `fs.rmSync` «one place in src/». Копия есть и в строке скрипта внутри `src/main/harness/migrate/restore.ts`. На странице написано «модуль и его копии».
+- Покрывает ли запись о завершившемся процессе процессы Card-ов и Browser. По документации Electron событие общее для всех webContents, но test проверяет только окно. На странице написано «renderer process», без перечисления.
+- Имя папки `Partitions` внутри `userData` и ответ Electron об exit-е из callback-а `ready`: первое — поведение Electron, в коде его нет; второе в комментарии названо прочитанным из исходников Electron, а не проверенным. На странице только измеренное следствие.
+- Останавливает ли старт на Windows папка, в которую worfy нельзя писать. Проверка — `accessSync(folder, W_OK)` в `src/main/startup-failure.ts`. Review вспоминает, что libuv на Windows пропускает через этот вызов любую папку, даже с запрещающим ACL. Исходников libuv на диске нет, а в `test/contract/startup-failure.test.ts` нет случая с папкой без права записи, поэтому ни код, ни test этого не подтверждают и не опровергают. На странице это утверждение оставлено только для macOS. Нужен один замер на PC, и если поведение подтвердится, одно предложение в подразделе Windows.
+
+**Возможные баги продукта (не чинил):**
+
+- Tooltip цифры памяти говорит «not counting terminal sessions». Процессы `claude` у Session по коду тоже не должны попадать в `app.getAppMetrics()`, так что tooltip, похоже, называет исключения неполно. Test-ом не проверено.
+- Корзина чистится только у Project-ов в списке: у Project-а, убранного из списка, записи не удаляются, пока его не добавят снова. Его подпапка тоже не удаляется никогда, кроме Demo project. Возможно, так задумано.
