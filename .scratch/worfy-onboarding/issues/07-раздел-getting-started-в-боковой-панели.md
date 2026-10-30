@@ -1,7 +1,8 @@
 # 07 — Раздел Getting started в боковой панели и команда Command palette
 
 Type: task
-Status: claimed 2026-10-30T08:05Z
+Status: done 2026-10-30T09:08Z
+PR: #1044
 Blocked by: 06
 Source: решения владельца 2026-10-26, пункт 2 (раздел вверху боковой панели, шесть шагов, «Connect your own project» ниже и не в «готово», пропуск в любой момент, команда Command palette «Getting started»); [spec.md](../spec.md), «Тексты (черновик)», «Раздел Getting started», «Command palette»; «Решено без владельца», Р4 (решено без владельца, подтверждено владельцем 2026-10-26)
 
@@ -88,4 +89,16 @@ Source: решения владельца 2026-10-26, пункт 2 (раздел
 
 ## Итог
 
-Заполняется при закрытии.
+PR #1044 (merge e33b1f22). Раздел `GettingStartedSection.tsx` (`order = 5`, первый в боковой панели), шесть шагов с
+кнопкой у текущего, «Connect your own project» через общий `requestAddProject()`, «Skip» с toast-ом, команда Command
+palette «Getting started»; готовый текст поля ввода (`pending-input.ts`) кладётся один раз в пустое поле и не
+отправляется (Р4). Снимки раздела в светлой и тёмной теме сверены с дизайном.
+
+- Вне следа: `SessionView.tsx` передаёт `nodeId` в `MessageInput`; новый e2e spec — в `scripts/e2e-specs.table.json`.
+- Gate, круг 1 — VERIFIED; CI красный из-за PR: `sidebar-sections.spec.ts:208` (пустая обёртка скрытого раздела — законна,
+  ожидание обновлено, нарисованный по ошибке раздел test по-прежнему ловит) и `getting-started.spec.ts:120` на Windows
+  (окружение test-а: HOMEDRIVE+HOMEPATH вели git в пустой профиль, нет автора commit-а; исправлено `windowsProfileEnv`).
+  Круг 2 — VERIFIED, CI зелёный, в том числе Windows.
+- Debt (low): тексты spec-а не закреплены test-ами; `disabled` кнопок шагов 3–4 без demo и фокус поля после вставки
+  текста без test-ов.
+- Windows: scope `pc` (e2e spec-ы) — gate full ПК после merge (ADR-0086).

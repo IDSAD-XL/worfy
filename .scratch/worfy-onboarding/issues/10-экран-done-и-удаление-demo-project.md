@@ -1,7 +1,8 @@
 # 10 — Экран Done и удаление Demo project
 
 Type: task
-Status: open
+Status: done 2026-10-30T12:13Z
+PR: #1048
 Blocked by: 03, 05, 07
 Source: решения владельца 2026-10-26, пункты 7 (экран «Done» с «Connect your own project» и «Remove the demo project»; удаление с подтверждением убирает папку, Profile и запись registry; сам demo не удаляется) и 8 (macOS и Windows одинаково); [spec.md](../spec.md), «Тексты (черновик)», «Экран Done»; «Решено без владельца», Р12 (решено без владельца, подтверждено владельцем 2026-10-26)
 
@@ -78,4 +79,28 @@ Source: решения владельца 2026-10-26, пункты 7 (экран
 
 ## Итог
 
-Заполняется при закрытии.
+PR #1048 (merge f2e654c4). Экран Done (`DoneScreen.tsx`) вместо шагов после шага 6, «Show steps» возвращает список;
+канал `gettingStarted.removeDemo` (`src/main/getting-started/remove.ts`): guard-ы до диалога (корень диска, home, папка
+выше home, пересечение с `dataRoot`, `bin/profile -C` = `worfy-demo` и Profile наш — проверка из `forget()`),
+нативное подтверждение (по умолчанию Cancel), Orchestrator удерживается закрытым (`keepClosed` в
+`AppOrchestrators.open` — единая точка для main и renderer), Session-ы и Terminal-ы с cwd внутри папки закрываются и
+дожидаются до удаления, `project-connect --remove`, строка списка и папка данных, запись `demo` и шаги 2–6, папка — 5
+попыток по 1 s с ответом, что осталось. Снимки экрана Done в обеих темах сверены.
+
+- Отступление от порядка тикета: запись `demo` убирается до удаления папки (её держат наблюдатели Stage-й demo).
+  Тупика нет: повторный Remove отклонился бы и при порядке тикета, `createDemo` потом создаёт `worfy-demo-2`.
+- Вне следа: `src/main/agent/app-orchestrators.ts` (`keepClosed`); `getting-started.spec.ts`, `getting-started-hints.spec.ts`
+  (клик «Show steps»), `scripts/e2e-specs.table.json`.
+- Gate: круг 1 — REJECTED (test корня диска красный на Windows CI: `mkdir D:\` EPERM; нет test-а на соседнюю
+  `worfy-demo-2`; нет test-а с symlink-ами; новое окно снова открывало Orchestrator). Круг 2 — REJECTED (снятие hold
+  при неудачном удалении без test-а; путь через renderer мимо hold-а; hold до `retain`). Узкий круг — решён
+  оркестратором без владельца (листовой тикет, ночная автономия; подтвердить) — NARROW: VERIFIED. Удаление за пределы
+  папки demo reviewer проверил пробами: symlink-и наружу, папка-symlink, `/var` и `/private/var`, регистр, `..`, пустой и
+  относительный путь.
+- CI: после узкого круга `getting-started.spec.ts:192` на macOS runner-е — тело раздела под «Show steps» выше на 9 px;
+  test проверяет видимость каждого шага вместо «не прокручивается» в этом состоянии.
+- Debt (low): после неудачного удаления при активном demo вид Session висит на «Starting the Orchestrator…» до смены
+  Project-а; `forgetDemo` сохраняет `hintsSeen` — после нового demo подсказки не повторяются; запись, чья папка удалена
+  руками, Remove отклоняет без очистки; «Show steps» нет в «Тексты (черновик)».
+- Не проверено: ручное удаление на ПК с открытым Terminal-ом — ПК делает на `main` f2e654c4; Windows: scope `pc` — gate
+  full ПК после merge (ADR-0086).

@@ -1,7 +1,8 @@
 # 09 — Подсказки Stage-й, переключатель «дешевле / дороже» и записанный пример доработки
 
 Type: task
-Status: open
+Status: done 2026-10-30T10:25Z
+PR: #1047
 Blocked by: 07
 Source: решения владельца 2026-10-26, пункты 4 (остальные понятия — короткие подсказки на Stage-ах Ticket-а demo), 5 (запасной путь: «this time the review found nothing» и записанный пример REJECTED и доработки), 6 (по умолчанию Sonnet, effort medium; переключатель на Opus; только «a bit cheaper» / «a bit more expensive»); [spec.md](../spec.md), «Тексты (черновик)»; «Решено без владельца», Р5, Р10, Р11 (решено без владельца, подтверждено владельцем 2026-10-26)
 
@@ -79,4 +80,18 @@ Source: решения владельца 2026-10-26, пункты 4 (остал
 
 ## Итог
 
-Заполняется при закрытии.
+PR #1047 (merge bd732aa4). `hints.ts` — чистая функция «Stage Ticket-а demo → подсказка»; строка под шагом и один
+toast на всё приложение (`hintSeen` в main, переживает перезапуск); `ReviewExample.tsx` — записанный пример доработки
+при `reworkSeen: false`; `CostSwitch.tsx` и канал `gettingStarted.setCost` — Sonnet + medium или Opus + effort модели,
+живая Session меняется со следующего хода. Цен и чисел нет. Снимки в обеих темах сверены (снимки строки подсказки —
+reviewer-а: у исполнителя были устаревшие).
+
+- Решено без владельца, подтвердить: подсказка «Epic и Ticket» — только после отметки шага 3 (spec, рядом с Р10);
+  причина — высота раздела; цена — кто пропустил шаг 3, её не увидит.
+- Вне следа: `tsconfig.test.node.json`, `scripts/e2e-specs.table.json`, `test/unit/getting-started-cost-switch.test.tsx`;
+  строка раздела 42 → 48 px.
+- Gate, круг 1 — REJECTED: устаревшие снимки; `setCost` открывал новую Session после неудачного старта Orchestrator-а;
+  отказ `configure` уходил только в log; два выживших мутанта. Круг 2 — VERIFIED.
+- Debt (low): нет test-а, что показывает переключатель после отказа живой Session; `progress.ts:23-24` повторяет
+  `DEMO_TICKET_REF`; demo, добавленный в список заново под новым id, открывает Orchestrator на настройках по умолчанию.
+- Windows: scope `pc` — gate full ПК после merge (ADR-0086).
