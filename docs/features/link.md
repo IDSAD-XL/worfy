@@ -45,8 +45,8 @@ Settings → Machines. Both are described under [Linked machine](#linked-machine
   ([ADR-0052](../adr/0052-machines-and-linking.md), [ADR-0023](../adr/0023-separate-data-roots-packaged-and-dev.md)).
   The roles host and client belong to one connection. Any Machine plays both.
 - **Self-signed certificate, no certificate authority.** The certificate is ECDSA P-256, valid for 20 years, and
-  starts a day in the past so that a Linked machine with a slow clock still accepts it. Trust rests on the fingerprint
-  remembered at linking, so no root certificate is installed anywhere.
+  starts a day in the past. Trust rests on the fingerprint remembered at linking, so no root certificate is installed
+  anywhere.
 - **A lost key makes a new certificate under the same id.** A key that is missing or does not fit the certificate is
   replaced at the start, with a warning in the log. The Linked machines then see "Certificate changed" and have to
   link again.
@@ -90,10 +90,10 @@ so the second side does not link again. The window lists a Machine that is alrea
 way to link it, and says which switch to turn on over there. A new link starts with access Off on both sides.
 
 **The list.** Bonjour searches while the window is open and shows the worfy it finds on the local network, without
-this Machine and without the Machines already linked. It keeps at most 64 announcements. An announcement is a claim
-and not a proof. "Two addresses" marks two announcements that claim one Machine id at different addresses, one of
-which is not that Machine. "Other version" marks a worfy of another link protocol, which linking will refuse until
-both run the same version.
+this Machine; the Machines already linked get their own "Already linked" rows. It keeps at most 64 announcements. An
+announcement is a claim and not a proof. "Two addresses" marks two announcements that claim one Machine id at
+different addresses, one of which is not that Machine. "Other version" marks a worfy of another link protocol, which
+linking will refuse until both run the same version.
 
 **The code.**
 
@@ -114,7 +114,9 @@ opening and every address, close linking and pause it until the oldest of the te
 
 - The window says `Linking is paused until <time> after repeated failed attempts. Restart worfy to link sooner.`
 - The Machine shows one notification with the count and the addresses the attempts came from.
-- The other side learns that linking is paused, and not until when.
+- A worfy that tries to link during the pause learns that linking is paused, and not until when, if this Machine still
+  listens, as it does while it has a Linked machine or is linking to another one itself. Otherwise the port is closed,
+  and it gets "could not reach".
 - When the pause ends, an open window opens linking again by itself.
 
 The count is kept in memory, so a restart lifts the pause. Machines already linked are not affected.
@@ -156,8 +158,8 @@ is inactive.
 
 One dial tries, in this order and with a limit of 10 seconds per step: the remembered address; the Machine's `.local`
 name, when known; its MagicDNS name, when known and while "Link through Tailscale" is on; the address where Bonjour
-sees it now, when that is somewhere else. A Machine that answers "not linked" or speaks another protocol ends the dial
-at once.
+sees it now, when that is somewhere else. A Machine that answers "not linked" ends the dial at once. Another protocol
+at the remembered address skips the names, but the address where Bonjour sees it is still tried.
 
 Bonjour searches while a Linked machine is unavailable, and its announcement gets one dial there at once. Each address
 other than the remembered one counts only when the remembered certificate answers there. The new address is then kept.
@@ -180,7 +182,7 @@ and linked again.
 
 #### Access to the Projects of this Machine
 
-Settings → Machines has one switch and a level per Linked machine.
+For access, Settings → Machines has one switch and a level per Linked machine.
 
 "Linked machines can work with my Projects" is off by default. Off means Off for everyone, whatever each level says:
 the level rows are inactive and show Off, and the kept levels show again when the switch is on.
@@ -257,7 +259,7 @@ active Project, and its active Project does not change.
 
 - **Shared by every screen:** the Layout, Cards, Sessions, Terminal and Autopilot state. Layout changes apply in the
   order they arrive, and the last one wins.
-- **Own to each screen:** selection, Edge highlight, Minimap corner, Find and open panels. ⌘Z (Ctrl+Z on Windows)
+- **Own to each screen:** selection, Edge highlight, Find and open panels. ⌘Z (Ctrl+Z on Windows)
   undoes only that screen's own changes. The live camera is the window's own, and one saved camera per Project is kept
   on the screen's Machine.
 
