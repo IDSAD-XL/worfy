@@ -245,7 +245,7 @@ leaves the write in place, with a warning.
 
 **A notification** comes when a Ticket starts to wait for a person, that is, its `Waits:` is `owner` or a Machine's name, and no worfy window of the Machine that shows it has focus. Its
 title is `<epic> NN is waiting for you`, its text the blocked reason or `<epic> NN — <title>`, and a click opens the board of
-the Project. `team` and `agent` give none, and neither do other transitions such as red CI. One wait notifies at most once: a wait that begins while a worfy window has focus gives no notification later, and a second wait of the same Ticket within 10 s gives none. A wait
+the Project. `team` and `agent` give none, and neither do other transitions such as red CI. One wait notifies at most once: a wait that begins while a worfy window has focus gives no notification later, and another wait of the same Ticket within 10 s of its last notification gives none. A wait
 already there when worfy first reads the Project gives none.
 
 #### On a Linked machine
