@@ -71,3 +71,43 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
+**Страница разделена на две (Q9).** Текст вышел больше 500 строк, и он разбит так:
+
+- `docs/features/sessions.md`, 308 строк: Session и Subagent.
+- `docs/features/transcripts-and-usage.md`, 214 строк: Transcript, Claude home, Memory и Limits.
+- Переводы лежат в `docs/features/ru/` под теми же именами.
+
+Индексы `docs/features/README.md`, `docs/features/ru/README.md` и таблица в `spec.md` по этому Ticket-у не менялись. В них
+нужно добавить новую страницу отдельным PR. Пока на неё ведёт ссылка из вступления `sessions.md`.
+
+**Что значит Memory.** В коде это показатель памяти собственных процессов worfy в toolbar, а не память Claude. Раздел написан про него.
+
+**Утверждения, которые не подтвердились и на страницу не попали:**
+
+- «Session с открытым запросом разрешения нельзя закрыть». Так можно понять UI, но код отказывает только в `busy`. На странице
+  написано только про `busy`.
+- «Limits показываются и в rail Session view», как сказано в комментарии заголовка `src/shared/agent/limits.ts`. Этот комментарий
+  устарел: Limits рисует только toolbar (`src/renderer/shell/toolbar/LimitsMeter.tsx`), и на странице написано так.
+
+**Что подтверждено только кодом или комментарием, без запуска:**
+
+- Части Windows написаны из кода и test-ов. Приложение не запускалось.
+- Причины поведения Windows взяты из комментариев в коде: поздний `exit` у Node и поток событий watch после исчезновения папки данных.
+
+**Возможные баги продукта (код не менялся):**
+
+- `closeRefusal` в `src/main/agent/resume.ts` отказывает только в `busy`. UI считает `needs_permission` идущим turn-ом
+  (`src/renderer/session/SessionView.tsx`), комментарий к функции говорит про «a running turn». Поэтому Session с открытым запросом
+  разрешения можно закрыть, а Orchestrator в этом состоянии пускает «New conversation». Не проверено, задумано ли так.
+
+**Поправка к списку «Где в коде».** Кроме перечисленных папок, понадобились:
+
+- `src/main/diagnostics/memory.ts`.
+- `src/main/ipc/`: `agent.ts`, `sessions.ts`, `orchestrator.ts`, `claude-home.ts`, `limits.ts`, `memory.ts`, `session-autocompact.ts`.
+- `src/shared/ipc/`, те же домены.
+- `src/renderer/shell/toolbar/` (Limits и Memory) и `src/renderer/shell/sidebar/SessionsSection.tsx`.
+- `src/renderer/settings/SessionsSection.tsx`, `src/renderer/settings/GeneralSection.tsx`, `src/shared/settings/app-settings.ts`.
+- `src/renderer/canvas/nodes/` (Node Session, Orchestrator и Subagent), `src/renderer/canvas/sources/subagents.ts`,
+  `src/renderer/canvas/overlays/SessionNodes.tsx`.
+- `src/renderer/palette/CommandPalette.tsx`, `src/main/notify.ts`, `scripts/statusline-bridge.sh`, `scripts/statusline-bridge.mjs`.
+
