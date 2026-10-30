@@ -253,9 +253,9 @@ Harness (Ticket 05); test-ы qmd (Ticket 15); Windows-раннер на PR (Q23 
 не условие этого Ticket-а: flaky test-ы идут в эпик polish, повторные запуски в CI — по правилу от 2026-10-28.
 Сверка каждого пункта — «Итог», раздел «Итоговая сверка критериев».
 
-- [ ] На ПК владельца `pnpm test` — код 0. Каждый пропуск на `win32` — с комментарием о причине; список — в Итог.
+- [x] На ПК владельца `pnpm test` — код 0. Каждый пропуск на `win32` — с комментарием о причине; список — в Итог.
   Код 0 — gate `37145bfe`. Список — [evidence/14-пропуски-на-win32.md](../evidence/14-пропуски-на-win32.md); у трёх
-  пропусков причина из кода не ясна — ждём решение Оркестратора.
+  пропусков причина неизвестна, так и записано в комментарии (решение Оркестратора); места названы в «Итог».
 - [x] На Mac ни один из пяти test-ов только для macOS не пропущен: `pnpm test --reporter=verbose` показывает их пройденными (через раздел Mac checks PR, Q33).
   По CI main run 41057465482 (`adc385a6`, старше merge #1052).
 - [x] Голого `Meta` в `test/e2e` нет, кроме `terminal-ai-request.spec.ts:111, :153, :172`:
@@ -766,13 +766,17 @@ test, условие, причина. Собран чтением кода main 
   строки, пробел в конце).
 - По условию — 88: 21 только на GitHub Actions, 16 без symlink; остальные — регистр букв на диске, 8.3-имена, нет
   pwsh, Git Bash, node или `sh` на PATH, нет `$LIVE_GATE`, запуск из копии Harness-а.
-- 29 мест были без причины. К 23 этот PR дописал однострочный комментарий над skip — только комментарии, условия не
-  менялись. У трёх `skipIf(LINKS)` причина стоит в имени test-а. У трёх причина из кода не ясна, ждём решение
-  Оркестратора:
+- 29 мест были без причины. Этот PR дописал над skip однострочный комментарий — только комментарии, условия не
+  менялись: к 23 — причину из кода, к трём — «Reason unknown» (решение Оркестратора). У трёх `skipIf(LINKS)`
+  причина стоит в имени test-а. Причина неизвестна:
   - `test/contract/harness-script-wiring.test.ts`, «what each run of a script gets»;
   - там же, «the watcher asks for a fresh environment after a failure» — оба skip с PR #311 (2026-10-15), когда
     worfy ещё не запускал скрипты Harness-а на Windows;
-  - `test/unit/shell-resolve.test.ts`, «opens a file named through a symlink alias of the Project root».
+  - `test/unit/shell-resolve.test.ts`, «opens a file named through a symlink alias of the Project root» — в #200
+    сказано только «не на Windows».
+- Для данных, не для правки: оба блока `harness-script-wiring` без skip, только они, на ПК, `2fdbd189`, 2026-10-30 —
+  exit 1, 6 красных из 8: «node not found in PATH» (PATH подмены склеен через `:`). Skip остаётся, нового
+  Ticket-а нет.
 
 **Git Bash в shell-test-ах (пункт 6).** Короткий запуск на ПК, exit 0, 1 passed, 75 skipped:
 `harness-scripts-1..4.test.ts --reporter=verbose -t "runs the shell tests with|qmd\.test\.sh|zsh is on PATH"`.

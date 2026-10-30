@@ -375,6 +375,7 @@ function scriptRun(root: string): ScriptRun {
   }
 }
 
+// Reason unknown: came with #311, when Harness scripts did not run on Windows. Run without the skip 2026-10-30 on 2fdbd189: red, "node not found in PATH" (the stand-in PATH is joined with ':').
 describe.skipIf(process.platform === 'win32')('what each run of a script gets', { shuffle: false }, () => {
   let run: ScriptRun
   /** The run of the first of the two leak tests, and the folder it ran in; the second asks it. */
@@ -460,6 +461,7 @@ describe.skipIf(process.platform === 'win32')('what each run of a script gets', 
   })
 })
 
+// Reason unknown: came with #311, when Harness scripts did not run on Windows. Run without the skip 2026-10-30 on 2fdbd189: red, "node not found in PATH" (the stand-in PATH is joined with ':').
 describe.skipIf(process.platform === 'win32')('the watcher asks for a fresh environment after a failure', () => {
   it('after exit code 127 the retry takes the login shell again; after another failure only when the held one fell back', async () => {
     const claudeHome = join(scratch, 'claude-home')

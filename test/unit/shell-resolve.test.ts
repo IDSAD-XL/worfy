@@ -258,6 +258,7 @@ describe('resolveProjectFile on this file system', () => {
     removeTestTree(scratch)
   })
 
+  // Reason unknown: #200 says only "not on Windows".
   it.skipIf(process.platform === 'win32')('opens a file named through a symlink alias of the Project root', async () => {
     const resolveProjectFile = await load()
     const alias = join(scratch, 'alias')
