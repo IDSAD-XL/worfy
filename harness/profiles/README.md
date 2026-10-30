@@ -33,7 +33,8 @@ $HARNESS_HOME/projects/<name>/
   bin/           optional: the project's tools named by profile fields (tasks.tool)
   epics/         optional: epic maps (<epic>/map.md — versioned; task-map.json is written by
                  tickets-to-tasks and is git-ignored)
-  state/         working state of the hooks (pending-retro.log, active-epic); not versioned
+  state/         working state of the hooks (pending-retro.log, active-epic) and the code maps the scout
+                 keeps (code-map/<repository>.md, bin/code-map); not versioned
 ```
 
 There is no profile in the project's repository and no PR with a profile. `rules.md` is mixed into a
