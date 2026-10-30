@@ -1,7 +1,8 @@
 # 06 — Состояние Getting started и шаги, которые отмечаются сами
 
 Type: task
-Status: open
+Status: done 2026-10-30T08:05Z
+PR: #1043
 Blocked by: 02, 05
 Source: решения владельца 2026-10-26, пункты 2 (шесть шагов отмечаются сами; пропуск; ничего не блокирует), 3 (существующий пользователь — раздел сам не открывается); [spec.md](../spec.md), «Как устроено», «Решено без владельца», Р2, Р3, Р7 (решено без владельца, подтверждено владельцем 2026-10-26)
 
@@ -81,4 +82,15 @@ Source: решения владельца 2026-10-26, пункты 2 (шесть
 
 ## Итог
 
-Заполняется при закрытии.
+PR #1043 (merge ed23c176). Состояние `getting-started.json` дополнено полями `user`, `section`, `steps`, `reworkSeen`,
+`noticeShown`; `src/main/getting-started/progress.ts` отмечает шаги 1–6 по фактам; каналы `gettingStarted.state`,
+`changed`, `setSection`, `noticeSeen` (все `local`); `WORFY_GETTING_STARTED_AUTO=0` по умолчанию в e2e.
+
+- Вне следа: `src/main/index.ts` — `startGettingStarted()` при старте до первого окна.
+- Gate, круг 1 — REJECTED: код верен, но test-ы не держали правило владельца «существующего пользователя не заставляем»
+  (мутант `projects: () => []` выживал), настоящий `isOrchestratorOf`, связь First run → шаг 1 и опоздавший snapshot.
+  Круг 2 — VERIFIED: test-ы на всё это, мутанты R1–R6 убиты; `isOrchestratorOf` → `orchestratorMatcher(lookup)`.
+- Сверх тикета: отложенный нечитаемый `projects.json` (`projects.json.unreadable-*`) делает пользователя `existing`.
+- Debt (low): отложенный файл без Project-ов тоже даёт `existing` (`state.ts:213`, безопасная сторона); contract test
+  `:312` — `LayoutStore` с `delayMs: 0` может писать после удаления временной папки (возможный flaky test, не замечен).
+- Windows: scope `pc` (`test/e2e/launch-env.ts`) — gate full ПК после merge (ADR-0086).
