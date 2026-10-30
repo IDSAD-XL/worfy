@@ -161,6 +161,8 @@ test('a move from the form of the first-run screen: "Move old Harness…" leaves
 
     const screen = window.getByTestId('first-run')
     await expect(screen).toBeVisible({ timeout: ms(30_000) })
+    // A new user's first start: the page of the three concepts comes first (worfy-onboarding ticket 08).
+    await screen.getByRole('button', { name: 'Next' }).click()
     await expect(screen.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: ms(30_000) })
     await screen.locator('[data-check="legacy-harness"]').getByRole('button', { name: 'Move…' }).click()
     const form = window.getByTestId('migration-form')

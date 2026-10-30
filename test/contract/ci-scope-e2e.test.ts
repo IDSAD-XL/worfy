@@ -165,6 +165,7 @@ describe('scripts/e2e-specs.table.json of this repository', () => {
     const specsOfRule = [...(firstRun[0]?.specs ?? [])].sort()
     expect(specsOfRule).toEqual([
       'test/e2e/first-run.spec.ts',
+      'test/e2e/getting-started-entry.spec.ts',
       'test/e2e/harness-migrate.spec.ts',
       'test/e2e/projects-connect.spec.ts',
       'test/e2e/settings-health.spec.ts',

@@ -201,7 +201,7 @@ export class GettingStartedState {
       section: gettingStartedSectionSchema.parse(decided.section),
       steps: stepsOf(file.steps),
       reworkSeen: file.reworkSeen === true,
-      noticeShown: file.noticeShown === true,
+      noticeShown: file.noticeShown === true || !(this.options.auto?.() ?? true),
       demo: this.demoOf(file),
     }
   }
