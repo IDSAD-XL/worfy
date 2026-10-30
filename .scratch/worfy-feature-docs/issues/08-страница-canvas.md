@@ -69,3 +69,40 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
+**Страница разделена на две.** Черновик одной страницы вышел на 517 строк при пределе около 400. Теперь это
+`docs/features/canvas.md` (Node и Layout, Find, вставка изображений; 378 строк) и новая
+`docs/features/epic-frames.md` (Epic frame, Done shelf; 152 строки), у обеих есть перевод в `docs/features/ru/`.
+Таблица spec-а и индекс `docs/features/README.md` этим PR не правятся: строку индекса и таблицу правит отдельный PR
+(Q9, Q22).
+
+**Что описано сверх списка разделов.** У Trash и Archive нет своей страницы ни в одном Ticket-е этого Epic-а, поэтому они
+коротко описаны в разделе Node и Layout. У focus mode страницы тоже нет: на странице только то, как он открывается.
+Описать его, значит добавить страницу или раздел, это решение Orchestrator-а.
+
+**Утверждения, которые не подтвердились и на страницу не попали (3):**
+
+- «ELK в Web Worker нужен, чтобы большой Epic не блокировал окно». ADR-0037 называет другую причину: меньше пересечений и
+  линии в обход Ticket-ов. На странице причина из ADR.
+- «Порядок полосы меняется только в спокойный момент, чтобы рамка не прыгала под указателем». Ни код, ни ADR-0075 этого
+  так не говорят. На странице только то, когда порядок пишется.
+- «Для Find нет ADR». Полный перебор ADR не делался, фраза снята.
+
+**Что на странице выведено из кода, без test-а и без запуска приложения:**
+
+- Find на Linked machine работает так же: в `src/renderer/find/CanvasFind.tsx` нет проверки read-only.
+- На Windows Ctrl+= и Ctrl+− меняют zoom внутри Terminal Node: это следует из `shellKeeps` в `src/shared/shortcuts.ts` и
+  `matches` в `src/renderer/shortcuts/match.ts`. Перехватывает ли xterm такую клавишу раньше, не проверялось.
+
+**Возможные баги продукта (код не менялся):**
+
+- `src/renderer/canvas/overlays/TrashPopover.tsx`: в `KIND_NAMES` нет `image`, поэтому строка изображения в Trash показывает
+  тип как `image` со строчной буквы, в отличие от Card, Note, Terminal и Session.
+- `src/main/images/protocol.ts`: комментарий в начале файла говорит, что хранилище сегодня одно, `attachments`. На деле есть и
+  хранилище изображений Canvas. Код верен, устарел только комментарий.
+
+**Сверка папок из «Где в коде».** Все перечисленные папки и файлы существуют, список верный, но неполный. Страница
+опирается ещё на `src/shared/ipc/canvas-images.ts`, `src/shared/ipc/images.ts`, `src/shared/ipc/layout.ts`,
+`src/shared/ipc/trash.ts`, `src/main/ipc/layout.ts`, `src/main/ipc/canvas-images.ts`, `src/main/remote-links.ts`,
+`src/renderer/palette/commands.ts`, `src/renderer/shortcuts/match.ts`, `src/renderer/settings/CanvasSection.tsx`.
+`src/shared/canvas` — это инструменты Canvas MCP, они описаны в `docs/features/cards.md`.
+
