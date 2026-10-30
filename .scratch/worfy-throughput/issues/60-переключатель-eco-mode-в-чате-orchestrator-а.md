@@ -1,7 +1,8 @@
 # 60 — Переключатель «Eco mode» в чате Orchestrator-а
 
 Type: task
-Status: claimed 2026-10-30T19:07Z
+Status: done 2026-10-30T21:33Z
+PR: #1057
 Blocked by: —
 Source: просьба владельца 2026-10-30 («нужно иметь возможность переключать эко/фулл прямо в чате оркестратора в
 виде свитча») и его ответы Q12–Q15 в тот же день; [Ticket 42](42-preset-profile-по-плану-подписки.md) (готовая
@@ -68,3 +69,31 @@ Source: просьба владельца 2026-10-30 («нужно иметь в
 - test-ы: `test/contract/eco-mode.test.ts`, `test/unit/eco-mode-switch.test.tsx`, `test/e2e/eco-mode.spec.ts` (новые)
 
 Только читать: `harness/bin/profile-set`, `src/renderer/settings/PlanSection.tsx`.
+
+## Итог
+
+**Что сделано (PR #1057, `eac162d9`).** В поле ввода Orchestrator-а — переключатель «Eco mode» (иконки лист и молния,
+tooltip). On пишет в Profile проекта `workflow.agents: "eco"` и `agents` — Sonnet, effort medium для implementer,
+reviewer, scout, verifier (значения берутся из `PLAN_PRESETS.pro.profile`); off удаляет оба поля. Запись — через
+`profile-set` с `--expect <fingerprint>`: Profile поменяли снаружи — записи нет, показано свежее состояние.
+Только чтение и проект другой Machine — переключатель недоступен с tooltip-ом. Канал — `src/shared/ipc/eco-mode.ts`,
+main — `src/main/ipc/eco-mode.ts`, элемент — `src/renderer/session/composer/EcoMode.tsx`.
+
+**Поле ввода в две строки (просьба владельца 2026-10-30).** Чтобы элементы не пропадали на узком окне: первая
+строка — вложение, подсказки, context meter, очередь, Interrupt; вторая — Model, Effort, Permissions, Eco mode
+(только у Orchestrator-а) и справа «Return to send» с Send. Высота строки подсказок не меняется при начале и конце
+хода (`--w-session-button-height`). С разрешения Orchestrator-а правлены файлы вне следа: `MessageInput.tsx`,
+`session.css`, `Pickers.tsx`, `Queue.tsx`, `ContextMeter.tsx`, `test/e2e/session-controls.spec.ts`,
+`test/e2e/context-meter.spec.ts`, `test/unit/pickers-captions.test.tsx`.
+
+**Тесты.** Contract `test/contract/eco-mode.test.ts` — настоящий `harness/bin/profile-set` во временной
+`HARNESS_HOME`: on, off, устаревший fingerprint, ошибка записи. Unit `test/unit/eco-mode-switch.test.tsx` — только у
+Orchestrator-а, состояние по `workflow.agents`, недоступность. E2e `test/e2e/eco-mode.spec.ts` — клик on/off и
+`profile.json`; `session-controls.spec.ts` — ширины окна 800–1600 px, высота строки и положение поля. ci-ok зелёный,
+`check/windows` success на `e319dd2b`.
+
+**Решено без владельца, подтвердить.** Дневной бюджет Autopilot переключатель не трогает (настройка Machine, не
+проекта); иконки — лист (on) и молния (off).
+
+**Долги ревью (low, тикетов не заводят).** Подписи элементов второй строки при смене ширины окна обновляются на
+один кадр позже (`Pickers.tsx`, `useCaptions` через `requestAnimationFrame`).

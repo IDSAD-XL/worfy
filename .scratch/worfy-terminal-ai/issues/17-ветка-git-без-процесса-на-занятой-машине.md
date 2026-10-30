@@ -1,7 +1,8 @@
 # 17 — Ветка git для запроса Terminal AI теряется на занятой машине
 
 Type: task
-Status: open
+Status: done 2026-10-30T21:33Z
+PR: #1056
 Blocked by: —
 Source: решение владельца 2026-10-30 («1-3 согласен», через мост ПК): чинить. Факт найден на ПК при polish 41 part 2 (PR #1052, test `terminal-ai-assist.test.ts`): под нагрузкой `git branch --show-current` не укладывается в 1000 ms
 
@@ -85,7 +86,10 @@ branch with the git on PATH…» в `test/contract/terminal-ai-assist.test.ts:10
 (`expected 'Folder: …' to contain 'Git branch: from-path-git'`); файл возвращён из копии.
 
 **Платформа.** Пути `.git` с `\` и буквой диска — платформенный PR (ADR-0056); на Windows test с настоящим git
-идёт со stub-ом, одним в PATH, а test-ы со stub-ом-скриптом `/bin/sh` пропускаются. `pnpm lint`, `pnpm typecheck`, `pnpm test` на Mac — exit 0; Windows-вердикт — job Windows в CI этого PR, пункт открыт до него.
+идёт со stub-ом, одним в PATH, а test-ы со stub-ом-скриптом `/bin/sh` пропускаются. `pnpm lint`, `pnpm typecheck`, `pnpm test` на Mac — exit 0; Windows-вердикт — job Windows в CI PR #1056 на `0c2e07bd`: зелёный, `check/windows` success. Первый run на
+Windows был красным только в test-е: posix-случаи `gitDirFromFile` брали модуль путей платформы, а `path.win32`
+читает `/repo` как папку текущего диска (`D:\repo\…`); test теперь передаёт `path.posix`, добавлен случай win32
+(`/repo/…` в `E:\wt` даёт `E:\repo\…`, как читает git). Код не менялся.
 
 **Долги ревью PR #1056 (low, тикетов не заводят).**
 
