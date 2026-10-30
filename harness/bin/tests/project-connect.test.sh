@@ -196,8 +196,10 @@ done
 jq '.profile.tickets.done_section = "## Done when" | .profile.tickets.manual_mark = null | .profile.docs = {adr_status_label: "Status"}' "$T/shop.json" >"$T/named.json"
 check "the names of the document sections pass the schema" 0 '"ok": true' "$CONNECT" --schema-only <"$T/named.json"
 # docs.feature_pages: optional, a path or null. The draft above has none and passes.
-jq '.profile.docs = {feature_pages: 5}' "$T/shop.json" >"$T/pages-num.json"
-check "a docs.feature_pages that is not a string is refused by the schema" 1 '"path": "profile.docs.feature_pages"' "$CONNECT" --schema-only <"$T/pages-num.json"
+for v in 5 false '["docs/pages"]' '{"dir":"docs/pages"}'; do
+    jq --argjson v "$v" '.profile.docs = {feature_pages: $v}' "$T/shop.json" >"$T/pages-bad.json"
+    check "a docs.feature_pages $v is refused by the schema" 1 '"path": "profile.docs.feature_pages"' "$CONNECT" --schema-only <"$T/pages-bad.json"
+done
 for v in '"docs/pages"' null; do
     jq --argjson v "$v" '.profile.docs = {feature_pages: $v}' "$T/shop.json" >"$T/pages.json"
     check "docs.feature_pages $v passes the schema" 0 '"ok": true' "$CONNECT" --schema-only <"$T/pages.json"

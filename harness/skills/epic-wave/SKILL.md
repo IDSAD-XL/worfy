@@ -238,8 +238,8 @@ expected answer; where to expect the answer — `F qmd.collections`) on the epic
 the plan: an accepted ADR or a lesson already paid for changes the briefs.
 
 The files a ticket may touch come from its section `F tickets.trail_section`.
-An incomplete list (no test, no entry point, or not what `rules.md` requires for such a change) is
-completed before dispatch by the agent `worfy:scout` (the brief gives the path `<repo>`): a map of
+An incomplete list (no test, no entry point, no page of `docs.feature_pages` that describes behaviour
+the ticket changes, or not what `rules.md` requires for such a change) is completed before dispatch by the agent `worfy:scout` (the brief gives the path `<repo>`): a map of
 the ticket with `file:line`.
 
 **Agents mode.** How many subagents a ticket starts is `F workflow.agents`: `full` or `eco`.

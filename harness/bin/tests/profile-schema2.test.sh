@@ -112,11 +112,23 @@ for p in bare hdgroupsnull legacy; do
     eq "$p: --json has no docs.feature_pages" false bash -c 'set -o pipefail; "$@" --json | jq ".docs | has(\"feature_pages\")" | tr -d "\r"' _ "$P2" -C "$T/r/$p"
     eq "$p: no field, no warning" "" bash -c '"$@" 2>&1 >/dev/null | grep -F feature_pages || true' _ "$P2" -C "$T/r/$p" --name
 done
+# The value reads as written: the path is not checked, so an absolute one and one with `..` pass, with no warning.
+stderr_lines='set -o pipefail; "$@" 2>&1 >/dev/null | wc -l | tr -d " \r"'
+for spec in "fpabs|/abs/pages" "fpdots|../../pages"; do
+    p="${spec%%|*}" want="${spec#*|}"
+    eq "$p: --field docs.feature_pages prints $want as written" "$want" "$P2" -C "$T/r/$p" --field docs.feature_pages
+    eq "$p: --json has $want as written" "$want" bash -c 'set -o pipefail; "$@" --json | jq -r ".docs.feature_pages" | tr -d "\r"' _ "$P2" -C "$T/r/$p"
+    eq "$p: no lines on stderr" 0 bash -c "$stderr_lines" _ "$P2" -C "$T/r/$p" --name
+done
 # A malformed value is one warning with the profile's path, and the field reads as absent: the project is still read.
-for spec in "fpnum|got 5" "fpblank|got \"  \"" "fplist|got [\"docs/pages\"]"; do
+# The lines of stderr are counted: a second warning would still hold the substring.
+for spec in "fpnum|got 5" "fpblank|got \"  \"" "fplist|got [\"docs/pages\"]" "fpempty|got \"\"" "fpfalse|got false" "fpzero|got 0" "fpobj|got {\"dir\":\"docs/pages\"}"; do
     p="${spec%%|*}" got="${spec#*|}"
     check "$p: a malformed docs.feature_pages -> 4, as absent" 4 "" "$P2" -C "$T/r/$p" --field docs.feature_pages
-    fails_with "$p: a malformed docs.feature_pages -> exit 0 and one warning with the path" 0 "profile: $(printed "$HH/projects/$p/profile.json"): docs.feature_pages must be a non-empty path or null, $got — ignored" "$P2" -C "$T/r/$p" --name
+    fails_with "$p: a malformed docs.feature_pages -> exit 0 and a warning with the path" 0 "profile: $(printed "$HH/projects/$p/profile.json"): docs.feature_pages must be a non-empty path or null, $got — ignored" "$P2" -C "$T/r/$p" --name
+    eq "$p: --name: exactly one line on stderr" 1 bash -c "$stderr_lines" _ "$P2" -C "$T/r/$p" --name
+    eq "$p: --json: exactly one line on stderr" 1 bash -c "$stderr_lines" _ "$P2" -C "$T/r/$p" --json
+    eq "$p: --json has no docs.feature_pages" false bash -c 'set -o pipefail; "$@" --json 2>/dev/null | jq ".docs | has(\"feature_pages\")" | tr -d "\r"' _ "$P2" -C "$T/r/$p"
 done
 eq "a malformed docs.feature_pages leaves the rest of docs" "docs/adr" "$P2" -C "$T/r/fpnum" --field docs.adr_dir
 # --- workflow.pipeline ------------------------------------------------------------------------

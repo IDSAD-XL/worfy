@@ -91,6 +91,17 @@ Test-ы `bin/profile` и контракта Profile: поле есть, поля
   `agents-text.test.sh` (текст линзы целиком), `epic-wave-ship-ticket.test.sh` (шаг skill-а и строка контракта). На
   старом коде они падали: exit code 1 у всех четырёх файлов.
 
+Доработка после `REJECTED on e4096865`:
+
+- Страница из `docs.feature_pages` больше не противоречит другим правилам: о ней сказано в границах
+  `harness/agents/implementer.md` (в том числе без skill-а), в двух файлах Silent mode (`implementer-silent-mode.md`,
+  `silent-mode.md`) и в проверке списка файлов Ticket-а в `harness/skills/epic-wave/SKILL.md`.
+- Линза `documentation` называет severity `[med]` и считает находкой новую фразу, которую код не подтверждает.
+- `harness/profiles/README.md`: значение читается как записано, путь не проверяется. Поведение `bin/profile` не менялось;
+  абсолютный путь и `..` закреплены test-ом.
+- Test-ы: `""`, `false`, `0` и объект в `profile-schema2.test.sh`, подсчёт строк stderr вместо поиска подстроки; массив,
+  объект и `false` в `project-connect.test.sh`; абзац шага и пункт границ сверяются целиком, новые фразы — по тексту.
+
 Не сделано здесь:
 
 - Пункт 4 — Profile worfy вне репозитория (`docs.feature_pages`, `documentation` в `review.lenses`, `audit_lenses`),

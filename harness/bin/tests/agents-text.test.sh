@@ -734,6 +734,7 @@ no field, nothing to check :: With the field absent or `null` the project keeps 
 how to look :: Otherwise take each behaviour the diff changes and search that folder for what the pages say about it.
 what a finding names :: A finding points at the changed line; its scenario names the page with `path:line`, the sentence that no longer holds and what the code does now.
 an edited page still counts :: A page the diff edits still counts when such a sentence stays in it.
+the severity, and a new sentence counts :: A sentence the change makes false is [med]; a sentence the diff adds that the code does not support counts too.
 the list of what is not a finding :: Not a finding:
 no change in behaviour :: - **No change in behaviour.** Refactoring and tests that leave the behaviour as it was.
 behaviour no page describes :: - **Behaviour no page describes.** This lens checks the pages that exist; it does not ask for new ones.
@@ -742,6 +743,14 @@ EOF
 section "$DOC_LENS" | grep -qiE 'worfy|english|russian|translat' \
     && bad "reviewer, lens documentation: names a project or a language" \
     || ok "reviewer, lens documentation: names no project and no language"
+
+# --- implementer: a feature page is not outside the trail ---------------------------------------
+# The whole bullet, as the lens above: a sentence moved out of it or added to it fails. The definition
+# holds it because a ticket with no skill never reads the step of ship-ticket that asks for the page edit.
+TRAIL_BULLET="$(awk '/^- Edit only the files/ { s = 1; print; next } s && /^- / { exit } s' "$AGENTS/implementer.md" | tr '\r\n' '  ' | tr -s ' ' | sed 's/ $//')"
+TRAIL_WANT='- Edit only the files in the ticket'"'"'s trail (section `tickets.trail_section`), those named in the brief, and a page of `docs.feature_pages` when the change alters behaviour it describes, even without a skill; anything else outside the trail is a question for the orchestrator, not an edit on your own initiative. What you notice along the way goes into the report, field `out_of_scope`, not into the diff.'
+[ "$TRAIL_BULLET" = "$TRAIL_WANT" ] && ok "implementer: the trail bullet, whole, allows a page of docs.feature_pages" \
+    || bad "implementer: the trail bullet is not exactly: $TRAIL_WANT (got: $TRAIL_BULLET)"
 
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
 README="${PROFILES_README_FILE:-$ROOT/profiles/README.md}"

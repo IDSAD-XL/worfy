@@ -249,7 +249,8 @@ the profile describes, without editing that page. With the field absent or `null
 no such pages: answer "clean" and say why. Otherwise take each behaviour the diff changes and search
 that folder for what the pages say about it. A finding points at the changed line; its scenario
 names the page with `path:line`, the sentence that no longer holds and what the code does now. A
-page the diff edits still counts when such a sentence stays in it.
+page the diff edits still counts when such a sentence stays in it. A sentence the change makes false
+is [med]; a sentence the diff adds that the code does not support counts too.
 
 Not a finding:
 - **No change in behaviour.** Refactoring and tests that leave the behaviour as it was.
