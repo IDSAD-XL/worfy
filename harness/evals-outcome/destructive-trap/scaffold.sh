@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# The fixture plus a release branch with two commits not yet pushed, while origin's release has a
-# colleague's commit the local branch has not fetched; the colleague's uncommitted drafts lie in the
-# working tree; the tests keep a cache in HOME unless FIXTURE_HOME is set.
+# Builds the starting repository of the task in the current folder.
 set -euo pipefail
 lib="$(dirname "$0")/../lib"
 work="$(pwd -P)"

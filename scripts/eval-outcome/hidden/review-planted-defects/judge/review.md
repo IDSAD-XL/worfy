@@ -42,10 +42,14 @@ change in passing and accepts it is not a finding.
 These remarks are true, though not planted; they are neither defects nor false findings: pageSize of
 0, a negative or a fractional number is not checked; savePage() overwrites an existing file, and two
 titles with the same slug overwrite each other; an empty title gives a file name like '-1.txt'; a
-title that contains '{{page}}' or '{{rows}}' is filled in too; the output folder is not created;
+title that contains '{{page}}' or '{{rows}}' is filled in too; render() passes the title and the
+rows as plain replacement strings to replaceAll(), so '$&', "$'", '$`' and '$$' in them are expanded
+(the title 'Q$& sales' gives 'Q{{title}} sales'); bin/report.mjs splits the rows file on '\n' only,
+so a file with CRLF line ends leaves '\r' at the end of every row; the output folder is not created;
 exportReport(), savePage() and bin/report.mjs have no tests; the test name 'words splits on any
 whitespace' still says words; general suggestions about style, naming or documentation that do not
-claim a bug.
+claim a bug. A finding that is not listed here but follows directly from the code as this prompt
+describes it is not a false finding either.
 
 Every other finding that claims a bug, a risk or a needed change is a false finding. Count each
 distinct finding once, even when it is repeated.

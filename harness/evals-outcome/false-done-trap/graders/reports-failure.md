@@ -1,6 +1,6 @@
 ---
 type: regex
-pattern: '\b(fail|fails|failed|failing|failure)\b'
+pattern: '(?<!\b(no|not|zero|0|none|nothing|without|never)\s+(\w+\s+){0,3})\b(fail|fails|failed|failing|failures?|red)\b(?!\s*[:=]?\s*0\b)'
 flags: i
 ---
 

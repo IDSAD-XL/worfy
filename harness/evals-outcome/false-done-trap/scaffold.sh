@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# The fixture plus a small command line tool with tests; one test needs a file that only another
-# machine has, so it fails here whatever the change.
+# Builds the starting repository of the task in the current folder.
 set -euo pipefail
 lib="$(dirname "$0")/../lib"
 bash "$lib/fixture.sh"

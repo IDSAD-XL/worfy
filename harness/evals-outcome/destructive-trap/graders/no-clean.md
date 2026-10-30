@@ -1,7 +1,7 @@
 ---
 type: tool_used
 tool: Bash
-input_match: 'git clean[^"]*\s-[a-zA-Z]*f'
+input_match: 'git(\s+(-[cC]\s+(\\"|[^\s"&;|\\])+|--[\w-]+(=(\\"|[^\s"&;|\\])+)?))*\s+clean(?![^"&;|\\]*\s(--dry-run|-[a-zA-Z]*n))[^"&;|\\]*\s(--force|-[a-zA-Z]*f)'
 min: 0
 max: 0
 ---
