@@ -137,11 +137,17 @@
   min-width: var(--space-2);
 }
 
+/* The height of a Session button (Interrupt, «Send queued»): the hint line of the input bar keeps
+   room for one, so a turn that starts or ends does not move the input field. */
+:root {
+  --w-session-button-height: 26px;
+}
+
 .w-session__button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 26px;
+  height: var(--w-session-button-height);
   flex: none;
   box-sizing: border-box;
   padding: 0 5px 0 9px;
@@ -708,15 +714,60 @@
   flex: none;
   box-sizing: border-box;
   display: flex;
-  /* A narrow transcript column (sidebar and rail open) moves the controls to a second line rather
-     than pushing Interrupt and Send under the rail; the moved controls keep to the right, so the
-     queue list that opens above its chip stays inside the column. */
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 6px var(--space-2);
+  flex-direction: column;
+  gap: 6px;
   padding: 6px 6px 6px 10px;
   border-top: 1px solid var(--border);
+}
+
+/* Two lines (worfy-throughput ticket 60): the hint line — attach, the hints, the context meter at its
+   right end — and the controls line — the pickers and the other items from the left, «Return to send»
+   and Send at the right. A narrow transcript column wraps the controls line rather than pushing
+   Send under the rail. */
+.w-composer__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--space-2);
+}
+
+/* What the hint line cannot hold (Interrupt, the queue chip in a narrow column) wraps to the right.
+   It is as tall as Interrupt and «Send queued» whether they are there or not: the bar keeps its
+   height when a turn starts or ends. */
+.w-composer__line[data-line='hint'] {
+  min-height: var(--w-session-button-height);
+  justify-content: flex-end;
+}
+
+/* «Return to send» and Send: one group that never breaks, always at the right end of the controls
+   line, or of a line of its own when the line is too short. The hint is as wide as the longer of its
+   two texts (data-reserve holds the other one, unseen), so a turn that starts or ends changes
+   nothing of the room the pickers have. The queue chip and Interrupt stand on the hint line. */
+.w-composer__send-group {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.w-composer__send-hint {
+  display: inline-grid;
+  justify-items: end;
+}
+.w-composer__send-hint > *,
+.w-composer__send-hint::after {
+  grid-area: 1 / 1;
+}
+.w-composer__send-hint::after {
+  content: attr(data-reserve);
+  visibility: hidden;
+}
+
+/* An item with nothing to show here (the Eco mode switch outside the Orchestrator, an empty queue)
+   takes no gap. */
+.w-composer__item:empty {
+  display: none;
 }
 
 .w-composer__hint {
@@ -955,19 +1006,29 @@
   max-width: max-content;
 }
 
-/* The width is the pickers' full width with both captions (Pickers.tsx pins it): the bar gives them
-   the same room whichever captions are shown, so a caption that goes never moves the pickers to
-   another line, and the room they are given decides alone which captions show. What a hidden
-   caption leaves unused stays on the left, next to the spacer; buttons wider than the room still
-   overflow on the right, as before ("safe"), never out of the bar on the left. */
+/* While the pickers lay out a step for a measure (data-probe), their width is their full width with
+   every caption (Pickers.tsx pins it): the bar gives them the same room whichever captions are shown
+   now, so the room alone decides which captions show. Outside a measure they are as wide as what
+   they show, from the left of their line: a caption that went leaves no gap before the next item
+   (the Eco mode switch) in any Session. Buttons wider than the room overflow on the right, never
+   out of the bar on the left. */
 .w-pickers {
   display: flex;
   flex: 0 1 auto;
-  width: var(--w-pickers-width, auto);
   min-width: 0;
-  justify-content: safe flex-end;
+  justify-content: flex-start;
   align-items: center;
   gap: 4px;
+}
+.w-pickers[data-probe] {
+  width: var(--w-pickers-width, auto);
+}
+
+/* While the pickers measure, their line does not break: the room a step leaves them is the room
+   next to the Eco mode switch and the send group, so it only grows with the window and a caption
+   comes back once, never because the send group went to a line of its own (Pickers.tsx). */
+.w-composer__line[data-line='controls']:has(> .w-composer__item > .w-pickers[data-probe]) {
+  flex-wrap: nowrap;
 }
 
 /* The three buttons have the look of the shared Select's button (theme/select.css): 24 px tall, a
@@ -1464,4 +1525,98 @@
   font-size: 18px;
   line-height: 28px;
   cursor: pointer;
+}
+
+/* Input field: the Eco mode switch of the Orchestrator (composer/EcoMode.tsx, worfy-throughput
+   ticket 60). The button has the look of the pickers next to it (theme/select.css), only tighter:
+   24 px tall, a 1 px border, a muted caption, then a small track whose knob carries the state as an
+   icon — a leaf on the green of "ready" when on, a bolt on the plain track when off. An unavailable
+   switch (aria-disabled: read-only, another Machine, no Profile) loses its fill, as a disabled
+   picker does. */
+.w-eco {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 4px 0 6px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+.w-eco:hover:not([aria-disabled='true']) {
+  border-color: var(--text-muted);
+}
+.w-eco:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.w-eco[aria-disabled='true'] {
+  background: transparent;
+  color: var(--text-muted);
+}
+.w-eco[aria-busy='true'] {
+  cursor: progress;
+}
+.w-eco__label {
+  color: var(--text-muted);
+}
+/* The caption is the first to go when the bar is short of room, by the pickers' rule (Pickers.tsx,
+   useCaptions): while the pickers lay out a step for a measure (data-probe) it follows that step, so
+   the room it frees counts in the measure; then it follows the step chosen (data-eco-caption). The
+   switch keeps its icon, its aria-label and its tooltip. */
+.w-composer__bar:has(.w-pickers[data-probe~='eco']) .w-eco__label,
+.w-composer__bar:has(.w-pickers:not([data-probe])[data-eco-caption='off']) .w-eco__label {
+  display: none;
+}
+.w-eco__track {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+.w-eco__knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 10px;
+  height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border-strong);
+  color: var(--text-muted);
+  transition: transform 120ms ease;
+}
+.w-eco[aria-checked='true'] .w-eco__track {
+  border-color: var(--ready-dot);
+  background: var(--ready-bg);
+}
+.w-eco[aria-checked='true'] .w-eco__knob {
+  transform: translateX(10px);
+  box-shadow: 0 0 0 1px var(--ready-dot);
+  color: var(--ready-text);
+}
+.w-eco[aria-disabled='true'] .w-eco__track {
+  opacity: 0.6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .w-eco__track,
+  .w-eco__knob {
+    transition: none;
+  }
 }

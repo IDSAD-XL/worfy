@@ -9,14 +9,15 @@ import { launchApp } from './helpers'
 // fake agent with test/fixtures/agent-scripts/context-meter.jsonl: each turn sets what
 // getContextUsage() answers — 10 %, 75 %, 95 % of the 167K autocompact threshold of a 200K window
 // (8 %, 63 %, 79 % of the window, the SDK's own percentage), then an error. The
-// meter stands in the bar of the input field, on the line of the pickers right after them, and says "no data" before
+// meter stands in the bar of the input field, at the right end of the line of the hint, and says "no data" before
 // the first turn and after the failed ask. The bar is shot in the light and the dark theme at each
 // state; with WORFY_EVIDENCE_DIR set, the shots are copied there.
 //
-// The meter never takes width from the pickers: in the 1280×800 window with the sidebar and the
-// rail shown, where the bar puts the pickers on a line of their own with Send, the meter stays on
-// the line of the hint and the permission mode of the default model is whole, in every state of
-// the meter (test/e2e/session-controls.spec.ts asks the same of the pickers).
+// The meter never takes width from the pickers: the bar has two lines (worfy-throughput ticket 60),
+// the meter on the line of the hint and the pickers on the line below with Send, in every width. In
+// the 1280×800 window with the sidebar and the rail shown the permission mode of the default model
+// is whole, in every state of the meter (test/e2e/session-controls.spec.ts asks the same of the
+// pickers).
 
 const EVIDENCE_DIR = process.env.WORFY_EVIDENCE_DIR
 
@@ -105,9 +106,9 @@ async function resize(app: ElectronApplication, bar: Locator, width: number, hei
 }
 
 /**
- * In the 1280×800 window with the sidebar and the rail shown: the meter is in the bar, on the line
- * of the hint, apart from the pickers, which stand on their own line with Send; the permission mode
- * of the default model is not cut.
+ * The meter is in the bar, on the line of the hint, apart from the pickers, which stand on the line
+ * below with Send; the permission mode of the default model is not cut (in the 1280×800 window with
+ * the sidebar and the rail shown, and wider).
  */
 async function expectPickersKeepTheirRoom(composer: Locator, state: string): Promise<void> {
   const bar = composer.locator('.w-composer__bar')
@@ -166,12 +167,13 @@ test('the context meter shows the share of the autocompact threshold after each 
     await expect(view.getByTestId('session-state')).toHaveText('idle')
     await expectPickersKeepTheirRoom(composer, 'no data after a failed ask')
 
-    // The sidebar hidden, the bar wide: the meter stands right before the model picker.
+    // The sidebar hidden, the bar wide: the meter stays on the line of the hint, at its right end,
+    // and the pickers on the line below it.
     await window.getByRole('button', { name: 'Hide sidebar' }).click()
-    const model = composer.getByTestId('picker-model')
-    await expect.poll(async () => Math.abs(middle(await box(meter)) - middle(await box(model)))).toBeLessThan(4)
-    const [meterBox, modelBox] = [await box(meter), await box(model)]
-    expect(meterBox.x + meterBox.width).toBeLessThanOrEqual(modelBox.x)
+    await resize(app.app, view.locator('.w-composer__bar'), 1920, 1080)
+    await expectPickersKeepTheirRoom(composer, 'a wide bar')
+    const [meterBox, barBox] = [await box(meter), await box(composer.locator('.w-composer__bar'))]
+    expect(barBox.x + barBox.width - (meterBox.x + meterBox.width)).toBeLessThan(16)
   } finally {
     await app.close()
   }

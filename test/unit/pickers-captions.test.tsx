@@ -19,6 +19,8 @@ const NEED = { none: FULL, model: 530, both: 460 } as const
 
 let room = FULL
 let observed: (() => void)[] = []
+/** The frames asked for: the observer's callback measures in the next frame (Pickers.tsx). */
+let frames: FrameRequestCallback[] = []
 const restore: (() => void)[] = []
 
 /** Replaces a getter of an element prototype for the test. */
@@ -82,6 +84,9 @@ beforeEach(() => {
   restore.push(() => {
     globals.ResizeObserver = had
   })
+  frames = []
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback))
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => undefined)
 })
 
 afterEach(() => {
@@ -98,11 +103,12 @@ async function mount(): Promise<void> {
   })
 }
 
-/** The bar gives the pickers `width` px: what a ResizeObserver reports when the window is resized. */
+/** The bar gives the pickers `width` px: what a ResizeObserver reports when the window is resized, then the next frame. */
 const resize = (width: number): void => {
   room = width
   act(() => {
     for (const callback of [...new Set(observed)]) callback()
+    for (const frame of frames.splice(0)) frame(0)
   })
 }
 
