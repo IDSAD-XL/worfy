@@ -65,8 +65,10 @@ a run the agents of a Wave build and test the dev build in their worktrees.
 The **Gate** is the check of whether changes are ready (`gate.mjs`), with the outcome green, red or could not verify. It
 is separate from CI on GitHub. **Gate full** is the complete Gate on one Machine: lint, typecheck, all tests, e2e and a
 check of the built app. Gate fast is the same without e2e and the build. Since
-[ADR-0083](../adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md) the merge condition is the green `ci-ok` check of
-CI on GitHub, and Gate full is a tool for the implementer and for analysing a failure. The **Windows verdict** answers
+[ADR-0083](../adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md) a PR merges when its head commit has three things: the
+green `ci-ok` check of CI on GitHub, the commit status `review` with `success` (the agents' review passed), and the mark
+`check/windows` with `success` (the Windows verdict below). A documents-only PR needs no `check/windows` and no agents' review, except that a `docs/features/` page gets one reviewer.
+Gate full is a tool for the implementer and for analysing a failure. The **Windows verdict** answers
 whether the change in a PR works on Windows. For each PR it is the `windows` job within `ci-ok`. For a platform PR that
 touches what the GitHub runner does not check (Terminal, windows, menus, notifications, e2e, packaging) it is Gate full
 on the owner's Windows PC. A scope script decides which one is needed, and that Gate full runs on `main` after the merge

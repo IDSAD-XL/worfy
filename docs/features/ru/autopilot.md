@@ -273,7 +273,7 @@ remote `origin` ([ADR-0053](../../adr/0053-several-screens-on-one-project.md)). 
 
 **Узкий круг исправления (narrow fix round).** Skill `/epic-wave` пишет свои вердикты комментариями `NARROW: …` в PR Ticket-а
 ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). Run только переносит их в journal. Он читает их через тот же PR tracker, что и
-PR badges. Tracker ограничивает `gh` для них вместе: один список PR на Project в минуту и один поиск за 5 минут для ветки, которой нет в этом списке.
+PR badges. Tracker ограничивает `gh` для них вместе: один список PR на папку репозитория в минуту и один поиск за 5 минут для ветки, которой нет в этом списке.
 Badges опрашивают, только пока окно в фокусе, поэтому без фокуса `gh` запускает собственное чтение run-а.
 
 ### Implementation

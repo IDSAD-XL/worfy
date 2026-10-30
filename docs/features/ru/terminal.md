@@ -117,7 +117,8 @@ pseudo-console. Если shell не сообщил о выходе за 5 сек
 постоянные переменные машины и пользователя из registry поверх короткого списка переменных, которые Windows задаёт для сессии
 ([ADR-0057](../../adr/0057-agent-environment-on-windows.md)). Больше ничего от процесса, запустившего worfy, до shell-а не доходит,
 с одним исключением: когда registry прочитать нельзя, например потому что policy запрещает `powershell.exe`, shell получает
-только эти переменные сессии и `Path` процесса worfy.
+только эти переменные сессии, `Path` процесса worfy и, если Git Bash найден, `CLAUDE_CODE_GIT_BASH_PATH` — переменную, через
+которую Claude Code получает Git Bash для своего tool Bash.
 
 ### Implementation
 

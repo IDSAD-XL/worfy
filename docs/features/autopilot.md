@@ -277,7 +277,7 @@ tests need a window ([ADR-0034](../adr/0034-autopilot-keeps-display-awake.md)). 
 
 **The narrow fix round.** The `/epic-wave` skill writes its verdicts as `NARROW: …` comments on a Ticket's PR
 ([ADR-0046](../adr/0046-autopilot-narrow-round-without-owner.md)). The run only copies them to the journal. It reads them through the
-same PR tracker as the PR badges. The tracker limits `gh` for both together: one PR list per Project per minute, and one lookup per
+same PR tracker as the PR badges. The tracker limits `gh` for both together: one PR list per repository folder per minute, and one lookup per
 5 minutes for a branch missing from that list. The badges poll only while a window has focus, so without focus the run's own read starts `gh`.
 
 ### Implementation

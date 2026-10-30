@@ -46,7 +46,7 @@ Epic-ов. **Feature page** описывает один Feature или неск�
 Ticket-а, его ветки, PR и отметок проверок и нигде не хранится. Статус — не Stage: один `claimed` идёт на нескольких Stage
 подряд, а `blocked` — пометка на любом Stage.
 
-Файлы workflow (Epic-и с Ticket-ами, HANDOFF, ADR, уроки) лежат в **Workflow folder** Project-а. Project работает в одном из
+Файлы workflow (Epic-и с Ticket-ами, HANDOFF, ADR, lessons) лежат в **Workflow folder** Project-а. Project работает в одном из
 двух режимов. В **Full mode** Workflow folder — это корень репозитория, и файлы видны всем, кто с ним работает. В **Silent
 mode** это папка вне репозитория, которую пользователь выбирает при подключении Project-а. Тогда в репозитории от workflow не
 остаётся следа: ни в файлах, ни в ветках, commit-ах и PR. Project над несколькими репозиториями всегда в Silent mode.
@@ -60,8 +60,9 @@ mode** это папка вне репозитория, которую поль�
 
 **Gate** — проверка готовности изменений (`gate.mjs`) с исходом «зелено», «красно» или «не удалось проверить». Это не CI на
 GitHub. **Gate full** — полный Gate на одной Machine: lint, typecheck, все test-ы, e2e и проверка собранного приложения. Gate
-fast — то же без e2e и сборки. С [ADR-0083](../../adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md) условие merge — зелёный
-check `ci-ok` CI на GitHub, а Gate full — инструмент implementer-а и разбора сбоя. **Windows verdict** отвечает на вопрос,
+fast — то же без e2e и сборки. С [ADR-0083](../../adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md) PR вливается, когда на его head-коммите
+есть три вещи: зелёный check `ci-ok` CI на GitHub, commit status `review` со значением `success` (ревью агентов пройдено) и
+отметка `check/windows` со значением `success` (Windows verdict, см. ниже). PR только с документами не требует `check/windows` и ревью агентов, кроме страницы `docs/features/`: её проверяет один агент. Gate full — инструмент implementer-а и разбора сбоя. **Windows verdict** отвечает на вопрос,
 работает ли изменение PR на Windows. Для каждого PR это job `windows` в составе `ci-ok`. Для платформенного PR, который трогает
 то, чего GitHub runner не проверяет (Terminal, окна, меню, уведомления, e2e, упаковка), это Gate full на Windows-ПК владельца.
 Какой из двух нужен, решает скрипт scope, а этот Gate full идёт на `main` после merge

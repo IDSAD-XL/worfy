@@ -115,7 +115,8 @@ Windows has no login shell to ask for the environment, so worfy builds it the wa
 of the machine and the user from the registry, on top of a short list of variables that Windows sets for the session
 ([ADR-0057](../adr/0057-agent-environment-on-windows.md)). Nothing else of the process that started worfy reaches the shell,
 with one exception: when the registry cannot be read, for example because a policy forbids `powershell.exe`, the shell gets
-only those session variables and the `Path` of worfy's process.
+only those session variables, the `Path` of worfy's process and, when Git Bash is found, `CLAUDE_CODE_GIT_BASH_PATH`, the
+variable through which Claude Code gets Git Bash for its Bash tool.
 
 ### Implementation
 
