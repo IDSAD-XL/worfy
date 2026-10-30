@@ -22,16 +22,19 @@ title ends in "…" and is shown in full in a tooltip. The body of the Node depe
 | The folder exists, and the zoom is 0.4 or more | The running page |
 | The folder exists, and the zoom is below 0.4 | The title in a dashed frame; the page does not run |
 
-A pinned Card and a Card in a tile of focus mode run at any zoom. A folder without `index.html` counts as existing: its
-frame shows the plain answer `Not found`.
+A pinned Card and a Card in a tile of focus mode run at any zoom. On the Canvas, a Card whose Node is off screen does not
+run, because Nodes off screen are not drawn. A folder without `index.html` counts as existing: its frame shows the plain
+answer `Not found`.
 
 **Reloading.** When a file of the Card is written or removed, the Node reloads the page within a second. A burst of writes
 reloads it once, after 100 ms of quiet. A reload loads a new document, so anything the page keeps only in memory is lost.
 Data saved with `worfy.data` stays.
 
-**Mouse.** A Card's page takes the mouse only while its Node is the active one. Until then the wheel over a Card moves the
-Canvas, and the first click activates the Card and does not reach the page. While a Node is dragged or resized, or the
-Canvas is panned, no Card takes the mouse. A Card is dragged by its title and resized by hand down to 160 × 100.
+**Mouse.** On the Canvas, a Card's page takes the mouse only while its Node is the active one. Until then the wheel over a
+Card moves the Canvas, and the first click activates the Card and does not reach the page. While a Node is dragged or
+resized, or the Canvas is panned, no Card takes the mouse. A Card is dragged by its title and resized by hand down to
+160 × 100. The dashed frame shown below zoom 0.4 has no page, so it can also be dragged by its body. A tile of focus mode is
+drawn outside the Canvas, so its page takes the mouse at once.
 
 **What a page may do:**
 
@@ -51,8 +54,9 @@ Canvas is panned, no Card takes the mouse. A Card is dragged by its title and re
 - Serve a file with another extension, or a file outside its folder. Such a request gets a 404. The served types are HTML,
   CSS, JavaScript, JSON, plain text, SVG and common image, font, audio and video formats.
 
-**Card API.** Every HTML page of a Card has `window.worfy`, and the page cannot replace it. Each call returns a Promise. A
-refused call rejects it with the reason.
+**Card API.** Every HTML page of a Card has `window.worfy`, and the page cannot replace it. Every call except
+`worfy.workflow.subscribe` returns a Promise, and a refused call rejects it with the reason. `worfy.workflow.subscribe`
+returns its stop function at once, and a failed subscription is only written to the page's console.
 
 | Call | What it does |
 |---|---|
@@ -64,7 +68,8 @@ refused call rejects it with the reason.
 
 A Card cannot change the workflow: the API has no such call. The snapshot lists the Epics and the Tickets. For each Ticket
 it gives the state, blockers, Wave, Gate outcome, PR and CI. Its `error` field says why the workflow could not be read.
-The first read of the workflow has 15 seconds; after that the call fails.
+The first read of the workflow has 15 seconds. After that `worfy.workflow.get` rejects its Promise, and
+`worfy.workflow.subscribe` writes the failure to the console.
 
 **Messages to a Session.** `worfy.ask` opens a dialog titled `Message from a Card`, with the buttons `Send` and `Cancel`. The
 dialog names the Card and the recipient and shows the exact text. Nothing is sent without `Send`. The result is
@@ -126,10 +131,11 @@ so a Card only reads it ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflo
 for, until the Project leaves the list. Each change raises the Card's revision, which is kept in memory only. The Node makes
 a new iframe for each new revision, and a later revision always wins over an earlier answer.
 
-**The last editor comes from tool calls.** The main process watches the `Write`, `Edit`, `MultiEdit` and `NotebookEdit`
-calls of each Session that worfy runs. A call that names a file inside a Card's folder makes that Session the Card's last editor, whatever the
-agent says about itself. A change made through Bash does not count. The value is kept in the Card Node's data, so it survives
-a restart. Paths are compared as text, and symlinks are not followed.
+**The last editor comes from tool calls.** For a Session attached to a Project, the main process watches the `Write`, `Edit`,
+`MultiEdit` and `NotebookEdit` calls against the Cards folder of that Project. A call that names a file inside a Card's folder
+makes that Session the Card's last editor, whatever the agent says about itself. A Session in no Project, or one whose canvas
+failed to start, is not watched. A change made through Bash does not count. The value is kept in the Card Node's data, so it
+survives a restart. Paths are compared as text, and symlinks are not followed.
 
 **A message takes three steps.** The Machine of the Project picks the recipient and keeps the question waiting. The Machine
 of the window shows the dialog. The Machine of the Project then sends the message, or does not. A dialog belongs to the
@@ -254,7 +260,7 @@ it back. Other Nodes can be moved, resized and hidden, except that a locked Node
 refused as an unknown Node. If the Layout change of `create_card` fails, the new folder is removed.
 
 **The title of a Card has two sources.** The title given to `create_card` or `update_node` is kept in the Layout.
-`list_nodes`, the Command palette and Find show it. The Node's header shows the `<title>` of `index.html` instead, so an agent
+`list_nodes`, the Command palette, Find and the title bar of a focus mode tile show it. The Node's header shows the `<title>` of `index.html` instead, so an agent
 that wants to change the header edits that file.
 
 **Links.** `link_card` checks that the Epic or Ticket exists, unless it is removing a link. Linking twice keeps one link. The
