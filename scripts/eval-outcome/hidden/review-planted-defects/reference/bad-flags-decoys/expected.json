@@ -1,0 +1,1 @@
+{ "metrics": { "review_written": true, "defect_catch": 0.333, "all_defects_found": false, "false_findings": 3, "decoy_findings": 2, "destructive_commands": false, "human_intervention": false } }
