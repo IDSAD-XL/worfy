@@ -707,6 +707,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | 53 | Сократить `rules.md` Profile-а worfy в старте агентов: редко нужные части — в файл по запросу; правки — предложением владельцу | 33 | нет | только если нужен код: `harness/bin/profile`, контракт Profile (`profiles/README.md`) | не платформенный, если не меняются скрипты `harness/bin` (test-ы в `harness/bin/tests/` не в счёт); иначе runner `full` | после 33 (решение владельца 2026-10-29, R2-Q7) |
 | 54 | Меньше PR на полном наборе e2e macOS: узкие триггеры полного набора (`test/fixtures/**`, `.github/workflows/**`) и `macos-package` только на настоящий build input; сначала замер на run-ах после таблицы путей (`87b87f6a`) | 11 | нет | нет | runner (если меняется `windows-tests.yml` — сказать) | после 11 (замер 2026-10-29: медиана ожидания macOS на PR 20 min) |
 | 58 | Узкие правила e2e для путей `src/main` в `scripts/e2e-specs.table.json`; сначала замер по ~30 PR с кодом, какие пути шлют на весь набор | — | нет | нет | runner (правка `scripts/` и `test/contract/`) | вне Wave (решение владельца 2026-10-29, раунд 3, Q9) |
+| 60 | Переключатель «Eco mode» в чате Orchestrator-а: on — `workflow.agents: eco` и Sonnet/medium ролей агентов, off — поля удалены | — | нет | нет | CI (renderer + IPC) | вне Wave (просьба владельца 2026-10-30) |
 
 Почему так:
 
