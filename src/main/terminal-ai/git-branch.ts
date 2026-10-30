@@ -1,17 +1,106 @@
-// The git branch of a Terminal's folder, for the context of a Terminal AI request:
-// `git branch --show-current`, at most GIT_BRANCH_TIMEOUT_MS. Null when the folder is not in a
-// repository, HEAD is detached, git is missing or slow: the request then goes without a branch.
+// The git branch of a Terminal's folder, for the context of a Terminal AI request.
+//
+// First from the repository's files, with no process: find `.git` upwards from the folder, follow a
+// `.git` file (`gitdir: <path>`, a worktree or a submodule) to the git directory, and read its `HEAD`.
+// `ref: refs/heads/<name>` gives the name; a commit id (a detached HEAD) gives null; no `.git` up to
+// the root of the disk gives null (not a repository). A git process did not answer within its limit
+// on a loaded machine, and the request then went without a branch (worfy-terminal-ai ticket 17).
+//
+// Only when the files cannot be read or are in a form this reader does not know (an empty or broken
+// HEAD, a reftable repository), `git branch --show-current` answers, at most GIT_BRANCH_TIMEOUT_MS;
+// null when git is missing, fails or is slow: the request then goes without a branch.
 import { execFile } from 'node:child_process'
+import { readFile, stat } from 'node:fs/promises'
+import path from 'node:path'
 
 export const GIT_BRANCH_TIMEOUT_MS = 1000
 
 export interface GitBranchOptions {
-  /** The git program; `git` on the PATH by default. */
+  /** The git program of the fallback; `git` on the PATH by default. */
   git?: string
   timeoutMs?: number
 }
 
-export function gitBranch(cwd: string, options: GitBranchOptions = {}): Promise<string | null> {
+/** What a HEAD file says: a branch, or a detached HEAD (a commit id). */
+export type Head = { branch: string } | { detached: true }
+
+const COMMIT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
+const BRANCH_REF = /^ref:\s*refs\/heads\/(.+)$/
+
+/**
+ * Reads the content of a HEAD file. Null for anything else than a branch of refs/heads or a commit
+ * id, and for a branch name git would refuse (`git check-ref-format`): reftable repositories keep the
+ * name `refs/heads/.invalid` in HEAD on purpose, and the real branch lives elsewhere.
+ */
+export function readHead(content: string): Head | null {
+  const head = content.trim()
+  if (COMMIT_ID.test(head)) return { detached: true }
+  const name = BRANCH_REF.exec(head)?.[1]
+  return name !== undefined && validBranchName(name) ? { branch: name } : null
+}
+
+/** The rules of `git check-ref-format` for the part after refs/heads/. */
+function validBranchName(name: string): boolean {
+  if (name === '@' || name.endsWith('/') || name.endsWith('.')) return false
+  if (name.includes('..') || name.includes('//') || name.includes('@{')) return false
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what git refuses
+  if (/[\u0000- \u007f~^:?*[\\]/.test(name)) return false
+  return name.split('/').every((part) => part !== '' && !part.startsWith('.') && !part.endsWith('.lock'))
+}
+
+/**
+ * The git directory a `.git` file in `dir` points to (`gitdir: <path>`, relative to `dir` or
+ * absolute, with `/` or `\` and a drive letter on Windows). Null for a file in another form.
+ * `pathApi` is node:path of the platform; the tests pass path.win32.
+ */
+export function gitDirFromFile(content: string, dir: string, pathApi: typeof path = path): string | null {
+  const match = /^gitdir:\s*(.*?)\s*$/.exec(content.split(/\r?\n/, 1)[0] ?? '')
+  const target = match?.[1]
+  return target ? pathApi.resolve(dir, target) : null
+}
+
+type Found = { gitDir: string } | 'not-a-repository' | 'unknown'
+
+/** The git directory of `cwd`, found upwards; 'unknown' when a file on the way cannot be read. */
+async function findGitDir(cwd: string): Promise<Found> {
+  try {
+    if (!(await stat(cwd)).isDirectory()) return 'unknown'
+    for (let dir = path.resolve(cwd); ; ) {
+      const dotGit = path.join(dir, '.git')
+      const found = await stat(dotGit).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
+        throw error
+      })
+      if (found?.isDirectory()) return { gitDir: dotGit }
+      if (found?.isFile()) {
+        const gitDir = gitDirFromFile(await readFile(dotGit, 'utf8'), dir)
+        return gitDir === null ? 'unknown' : { gitDir }
+      }
+      const parent = path.dirname(dir)
+      if (parent === dir) return 'not-a-repository'
+      dir = parent
+    }
+  } catch {
+    return 'unknown'
+  }
+}
+
+/** The branch from the repository's files; undefined when the files do not tell. */
+async function branchFromFiles(cwd: string): Promise<string | null | undefined> {
+  const found = await findGitDir(cwd)
+  if (found === 'not-a-repository') return null
+  if (found === 'unknown') return undefined
+  const head = readHead(await readFile(path.join(found.gitDir, 'HEAD'), 'utf8').catch(() => ''))
+  if (head === null) return undefined
+  return 'branch' in head ? head.branch : null
+}
+
+export async function gitBranch(cwd: string, options: GitBranchOptions = {}): Promise<string | null> {
+  const fromFiles = await branchFromFiles(cwd)
+  return fromFiles !== undefined ? fromFiles : gitProcessBranch(cwd, options)
+}
+
+function gitProcessBranch(cwd: string, options: GitBranchOptions): Promise<string | null> {
   return new Promise((resolve) => {
     try {
       execFile(
