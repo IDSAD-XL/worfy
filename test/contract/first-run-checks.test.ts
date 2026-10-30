@@ -1070,6 +1070,21 @@ describe('the first-run screen at start (src/main/ipc/first-run.ts)', () => {
     return { startup: handle(firstRunStartup), run: handle(firstRunRun) }
   }
 
+  // worfy-onboarding ticket 08 (decision 8): the page of the three concepts is for a first start of
+  // a new user only — no mark, and Getting started's user `new` (decision 7).
+  it('no mark and no Project: the first time (firstTime true); the screen opens without running the checks', async () => {
+    const app = await handlers(() => 'ok')
+    expect(await app.startup()).toEqual({ show: true, firstTime: true, report: null })
+  })
+
+  it('no mark but a Project in the list: an existing user, not the first time; with the mark, not either', async () => {
+    writeFileSync(join(data, 'projects.json'), JSON.stringify({ projects: [{ id: 'alpha-0000000a', name: 'alpha', path: data }], activeId: 'alpha-0000000a' }))
+    const app = await handlers(() => 'fail')
+    expect(await app.startup()).toEqual({ show: true, firstTime: false, report: null })
+    writeFileSync(join(data, 'first-run.json'), `${JSON.stringify({ closedAt: new Date(0).toISOString(), failing: [] })}\n`)
+    expect(await app.startup()).toMatchObject({ show: true, firstTime: false })
+  })
+
   it('a failed action whose check passes now does not open the screen by itself', async () => {
     // The screen was closed once with nothing failing.
     writeFileSync(join(data, 'first-run.json'), `${JSON.stringify({ closedAt: new Date(0).toISOString(), failing: [] })}\n`)

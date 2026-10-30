@@ -90,6 +90,14 @@ describe('the first read (decision 7)', () => {
     expect(state.read()).toMatchObject({ user: 'new', section: 'hidden' })
   })
 
+  it('with auto false an existing user gets no notice either (ticket 08): it reads as shown, and the file keeps noticeShown as it was', () => {
+    const { state } = stateWith([{ id: 'mine' }], { auto: false })
+    expect(state.read()).toMatchObject({ user: 'existing', noticeShown: true })
+    expect(onDisk()).not.toHaveProperty('noticeShown')
+    // With auto on, the same file still owes the notice: nothing was written for it.
+    expect(stateWith([{ id: 'mine' }]).state.read()).toMatchObject({ user: 'existing', noticeShown: false })
+  })
+
   it('a broken file: an empty state, the file set aside next to it', () => {
     writeFileSync(file(), '{"steps": {"1": ')
     const { state } = stateWith([])

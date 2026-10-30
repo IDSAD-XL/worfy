@@ -84,6 +84,11 @@ export const firstRunStartup = invokeChannel(
   z.void(),
   z.object({
     show: z.boolean(),
+    /**
+     * The first start of a new user (worfy-onboarding ticket 08, decision 8): no mark, and Getting
+     * started's user is `new`. The screen opens on the page of the three concepts then.
+     */
+    firstTime: z.boolean(),
     /** The checks, when main ran them to decide; null when it did not need to. */
     report: firstRunReportSchema.nullable(),
   }),

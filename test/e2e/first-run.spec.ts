@@ -143,10 +143,20 @@ const heardHarnessChanged = (window: Page): Promise<{ state: { kind: string } }[
 /** The Harness item of the toolbar (src/renderer/shell/toolbar/HarnessStatus.tsx). */
 const toolbarHarness = (window: Page): Locator => window.getByTestId('harness-status')
 
-/** The screen, once its checks are in. */
-async function screen(window: Page): Promise<Locator> {
+/**
+ * The screen, once its checks are in. `concepts`: it opened by itself on a new user's first start (no
+ * mark, no Project), so the page of the three concepts comes first and "Next" leaves it
+ * (worfy-onboarding ticket 08); `checks`: it opened on the checks.
+ */
+async function screen(window: Page, first: 'concepts' | 'checks'): Promise<Locator> {
   const dialog = window.getByTestId('first-run')
   await expect(dialog).toBeVisible({ timeout: ms(30_000) })
+  await expect(dialog).toHaveAttribute('data-page', first)
+  if (first === 'concepts') {
+    await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Welcome to worfy')
+    await dialog.getByRole('button', { name: 'Next' }).click()
+    await expect(dialog).toHaveAttribute('data-page', 'checks')
+  }
   await expect(dialog.locator('[data-check]')).toHaveCount(CHECK_IDS.length, { timeout: ms(30_000) })
   await expect(dialog.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: ms(30_000) })
   return dialog
@@ -167,7 +177,7 @@ test.describe('first-run screen', () => {
     sandbox()
     let launched = await launch()
     try {
-      const dialog = await screen(launched.window)
+      const dialog = await screen(launched.window, 'concepts')
       expect(await dialog.locator('[data-check]').evaluateAll((rows) => rows.map((each) => each.getAttribute('data-check')))).toEqual(CHECK_IDS)
       // The status chips and the summary chip have a 1 px border: their text stays inside it.
       await expectBorderedChipsFit(dialog, 'the first-run screen')
@@ -289,7 +299,7 @@ test.describe('first-run screen', () => {
     sandbox()
     const launched = await launch({ FAKE_CLAUDE_FAIL: 'plugin install worfy@' })
     try {
-      const dialog = await screen(launched.window)
+      const dialog = await screen(launched.window, 'concepts')
       const toolbar = toolbarHarness(launched.window)
       await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
       await answerDialogWith(launched, 0)
@@ -307,7 +317,7 @@ test.describe('first-run screen', () => {
     sandbox()
     const launched = await launch()
     try {
-      const dialog = await screen(launched.window)
+      const dialog = await screen(launched.window, 'concepts')
       const toolbar = toolbarHarness(launched.window)
       await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
       await listenForHarnessChanged(launched.window)
@@ -344,7 +354,7 @@ test.describe('first-run screen', () => {
       await input.fill('First-run checks')
       await expect(window.getByTestId('palette-option').first()).toHaveAttribute('data-command', 'first-run')
       await input.press('Enter')
-      const dialog = await screen(window)
+      const dialog = await screen(window, 'checks')
       await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'ok')
       await expect(row(dialog, 'harness')).toContainText(bundledHarness())
     } finally {
@@ -361,7 +371,7 @@ test.describe('first-run screen', () => {
     writeFileSync(join(state, 'plugin-version'), `${bundledHarness()}\n`)
     const launched = await launch()
     try {
-      const dialog = await screen(launched.window)
+      const dialog = await screen(launched.window, 'concepts')
       const dependencies = row(dialog, 'harness-dependencies')
       await expect(dependencies).toHaveAttribute('data-status', 'fail')
       await expect(dependencies).toContainText('not installed')
@@ -406,7 +416,7 @@ test.describe('first-run screen', () => {
     sandbox()
     let launched = await launch({ PATH: SYSTEM_PATH })
     try {
-      const scripts = row(await screen(launched.window), 'harness-scripts')
+      const scripts = row(await screen(launched.window, 'concepts'), 'harness-scripts')
       await expect(scripts).toHaveAttribute('data-status', 'ok')
       await expect(scripts).toContainText('Harness scripts')
       await expect(scripts).toContainText('profile --help answered')
@@ -426,7 +436,7 @@ test.describe('first-run screen', () => {
     sandbox({ tools: ['claude', 'gh', 'jq', 'git', 'npm', 'qmd'] })
     launched = await launch({ PATH: SYSTEM_PATH })
     try {
-      const dialog = await screen(launched.window)
+      const dialog = await screen(launched.window, 'concepts')
       const scripts = row(dialog, 'harness-scripts')
       await expect(scripts).toHaveAttribute('data-status', 'fail')
       // The detail itself names node, not only the fixed hint below it: worfy finds no node to run the script with.
@@ -442,7 +452,7 @@ test.describe('first-run screen', () => {
     sandbox({ ghAccount: '' })
     const launched = await launch()
     try {
-      const dialog = await screen(launched.window)
+      const dialog = await screen(launched.window, 'concepts')
       const accounts = row(dialog, 'gh-auth')
       await expect(accounts).toHaveAttribute('data-status', 'fail')
       await expect(accounts.locator('code')).toHaveText('gh auth login')
@@ -460,7 +470,7 @@ test.describe('first-run screen', () => {
     withProject()
     const launched = await launch()
     try {
-      const dialog = await screen(launched.window)
+      const dialog = await screen(launched.window, 'checks')
       const accounts = row(dialog, 'gh-auth')
       await expect(accounts).toHaveAttribute('data-status', 'fail')
 

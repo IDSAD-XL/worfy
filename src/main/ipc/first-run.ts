@@ -193,16 +193,29 @@ const remember = (report: FirstRunReport): FirstRunReport => {
   return report
 }
 
+/**
+ * Whether Getting started takes this user for new (decision 7): the page of the three concepts is
+ * never shown to an existing user. A state that cannot be read counts as existing.
+ */
+function newUser(): boolean {
+  try {
+    return gettingStartedState().read().user === 'new'
+  } catch (error) {
+    console.warn('[getting-started] the state could not be read; no concepts page', error)
+    return false
+  }
+}
+
 export default [
   defineHandler(firstRunStartup, async () => {
-    if (process.env.WORFY_FIRST_RUN_AUTO === '0') return { show: false, report: null }
+    if (process.env.WORFY_FIRST_RUN_AUTO === '0') return { show: false, firstTime: false, report: null }
     const mark = readMark()
-    if (mark === null) return { show: true, report: null }
+    if (mark === null) return { show: true, firstTime: newUser(), report: null }
     // A failed action counts here only while its row's check does not pass (FirstRunActions.report):
     // a cause fixed outside worfy does not open the screen.
     const report = remember(await appActions().report())
     const fresh = report.checks.some((check) => check.status === 'fail' && !mark.failing.includes(check.id))
-    return { show: fresh, report }
+    return { show: fresh, firstTime: false, report }
   }),
   // "Check again", and Settings → Health each time it shows: the login shell is captured again
   // first, so node added by an rc file since the start shows in these checks. Every Project of the
