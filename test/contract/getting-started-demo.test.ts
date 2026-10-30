@@ -16,7 +16,7 @@ import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { SESSION_SETTINGS_FILE, SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { GIT_IDENTITY_COMMANDS } from '../../src/main/first-run/checks'
-import { DEMO_PROFILE, DemoCreator, demoGit, type DemoDeps } from '../../src/main/getting-started/demo'
+import { DEMO_PROFILE, DemoCreator, demoGit, gateRegistryRepos, type DemoDeps } from '../../src/main/getting-started/demo'
 import { demoTemplate } from '../../src/main/getting-started/demo-template'
 import { GETTING_STARTED_FILE, GettingStartedState } from '../../src/main/getting-started/state'
 import { LayoutStore } from '../../src/main/layout/store'
@@ -156,6 +156,7 @@ async function app(options: Options = {}) {
     projects,
     openOrchestrator: options.open ? options.open(realOpen) : realOpen,
     state,
+    registeredRepos: gateRegistryRepos(() => join(harnessHome, 'gate')),
     progress: (step) => progress.push(step),
   }))
 
@@ -235,6 +236,16 @@ describe('gettingStarted.createDemo', () => {
     expect(await profileName(join(home, 'worfy-demo-2'))).toMatchObject({ code: 0, stdout: DEMO_PROFILE })
   })
 
+  it('takes worfy-demo-2 when a file is named worfy-demo, and leaves the file alone', async () => {
+    writeFileSync(join(home, 'worfy-demo'), 'not a folder\n')
+    const { createDemo } = await app()
+
+    const result = await createDemo()
+
+    expect(result).toMatchObject({ ok: true, path: join(home, 'worfy-demo-2') })
+    expect(readFileSync(join(home, 'worfy-demo'), 'utf8')).toBe('not a folder\n')
+  })
+
   it('refuses a home folder inside the temporary folder and writes nothing', async () => {
     const tempHome = join(temp, 'Users', 'someone')
     mkdirSync(tempHome, { recursive: true })
@@ -255,6 +266,7 @@ describe('gettingStarted.createDemo', () => {
       args[0] === '--remove'
         ? real(args, stdin)
         : Promise.resolve({ code: 1, stdout: JSON.stringify({ ok: false, errors: [{ path: '', kind: 'write', message: 'the disk is full' }] }), stderr: 'the disk is full' })
+    writeFileSync(join(home, 'keep.txt'), 'mine\n')
     const { createDemo, projectsFile } = await app({ connect: failing })
 
     const result = await createDemo()
@@ -262,12 +274,15 @@ describe('gettingStarted.createDemo', () => {
     expect(result.ok).toBe(false)
     expect(!result.ok && result.reason).toMatch(/the disk is full/)
     expect(existsSync(join(home, 'worfy-demo'))).toBe(false)
+    // Only the folder this call made goes: the home folder and what else is in it stay.
+    expect(readFileSync(join(home, 'keep.txt'), 'utf8')).toBe('mine\n')
     expect(existsSync(profileDir())).toBe(false)
     expect(existsSync(join(data, 'projects.json')) ? projectsFile().projects : []).toEqual([])
     expect(existsSync(join(data, GETTING_STARTED_FILE))).toBe(false)
   })
 
   it('rolls back what it did when the Orchestrator does not open: the Profile removed, the Project out of the list, no folder', async () => {
+    writeFileSync(join(home, 'keep.txt'), 'mine\n')
     const { createDemo, projectsFile, connectCalls } = await app({ open: () => () => Promise.reject(new Error('no Session today')) })
 
     const result = await createDemo()
@@ -278,6 +293,7 @@ describe('gettingStarted.createDemo', () => {
     expect(existsSync(profileDir())).toBe(false)
     expect(projectsFile().projects).toEqual([])
     expect(existsSync(join(home, 'worfy-demo'))).toBe(false)
+    expect(readFileSync(join(home, 'keep.txt'), 'utf8')).toBe('mine\n')
   })
 
   it('asks for an update of the Harness when project-connect does not know --no-qmd, and leaves nothing', async () => {
@@ -347,5 +363,28 @@ describe('gettingStarted.createDemo', () => {
     expect(await profileName(first.path)).toMatchObject({ code: 0, stdout: DEMO_PROFILE })
     expect(projectsFile().projects).toHaveLength(1)
     expect(state.demo()?.path).toBe(first.path)
+  })
+
+  it('leaves a worfy-demo Profile over another repository alone when the demo folder was deleted, and refuses on the name', async () => {
+    const first = await (await app()).createDemo()
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    // The user deletes the demo, removes its Profile, and connects a repository of their own under the same name.
+    removeTestTree(first.path)
+    expect((await realConnect()(['--remove', DEMO_PROFILE, '--no-qmd'], '')).code).toBe(0)
+    const theirs = join(scratch, 'their-repo')
+    mkdirSync(theirs)
+    await run('git', ['init', '-q', theirs])
+    expect((await realConnect()(['--no-qmd'], JSON.stringify(demoTemplate({ root: theirs, profileName: DEMO_PROFILE }).draft))).code).toBe(0)
+
+    const { createDemo, connectCalls, state } = await app()
+    const result = await createDemo()
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.reason).toMatch(/already has a Profile named worfy-demo/)
+    expect(connectCalls.filter((args) => args[0] === '--remove')).toEqual([])
+    expect(await profileName(theirs)).toMatchObject({ code: 0, stdout: DEMO_PROFILE })
+    expect(existsSync(join(home, 'worfy-demo'))).toBe(false)
+    expect(state.demo()).toBeNull()
   })
 })

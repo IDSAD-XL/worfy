@@ -5,6 +5,8 @@
 // 1. The folder: <home>/worfy-demo, or worfy-demo-2, -3… when it is taken. A folder inside the
 //    temporary folder of the system (%TEMP% on Windows) is refused always: the system cleans it.
 // 2. A demo of ours already there (its record and its folder) is the answer; nothing is created.
+//    A record whose folder is gone is dropped, and its Profile removed only while the gate registry
+//    still ties it to that folder (forget).
 // 3. The template's files, `git init -b main`, `git add -A`, one commit "Demo project" by the author
 //    git knows. Without an author the call is refused before anything is written, with the commands
 //    the first-run check `git-identity` gives.
@@ -26,11 +28,12 @@
 // runs it in a temporary folder.
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { SessionSettings } from '../../shared/agent/settings'
 import type { CreateDemoResult } from '../../shared/ipc/getting-started'
 import { isInsidePath } from '../claude-home/registry'
 import { GIT_IDENTITY_COMMANDS } from '../first-run/checks'
+import { readGateConfig } from '../gate/state'
 import type { ConnectScript, ScriptRun } from '../projects/connect'
 import { realpathOrSelf } from '../projects/real-path'
 import type { ProjectStore } from '../projects/store'
@@ -65,6 +68,8 @@ export interface DemoDeps {
   /** Opens the Project's Orchestrator as `orchestrator.open` does; a Node with no saved picks gets `firstSettings`. */
   openOrchestrator: (projectId: string, firstSettings: SessionSettings) => Promise<unknown>
   state: Pick<GettingStartedState, 'demo' | 'setDemo'>
+  /** The `match` of every gate registry entry of the Profile `profile`; none when it has none or the registry cannot be read. */
+  registeredRepos: (profile: string) => Promise<readonly string[]>
   /** Gets each step as it starts, one line. */
   progress?: (step: string) => void
 }
@@ -86,6 +91,11 @@ export function demoGit(env: Readonly<Record<string, string | undefined>>): Demo
         reject(error)
       })
     })
+}
+
+/** DemoDeps.registeredRepos over the gate registry in `gateDir` (the Harness's `gate/` folder). */
+export function gateRegistryRepos(gateDir: () => string): DemoDeps['registeredRepos'] {
+  return async (profile) => (await readGateConfig(gateDir()))?.repos.filter((entry) => entry.profile === profile).map((entry) => entry.match) ?? []
 }
 
 const UPDATE_HARNESS =
@@ -146,11 +156,21 @@ async function requireAuthor(deps: DemoDeps): Promise<void> {
   }
 }
 
-/** The first of worfy-demo, worfy-demo-2, … that nothing occupies. */
-function freeFolder(home: string): string {
+/**
+ * Creates the first of worfy-demo, worfy-demo-2, … that nothing occupies, and returns it. The
+ * creation is the check: a name that something takes (a folder, a file, a link), also one that
+ * appeared a moment ago, fails with EEXIST and the next name is tried, so the folder returned is
+ * always one this call made and the rollback may delete it.
+ */
+function claimFolder(home: string): string {
   for (let n = 1; n <= FOLDER_TRIES; n++) {
     const folder = join(home, n === 1 ? DEMO_PROFILE : `${DEMO_PROFILE}-${String(n)}`)
-    if (!existsSync(folder)) return folder
+    try {
+      mkdirSync(folder)
+      return folder
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | null)?.code !== 'EEXIST') throw error
+    }
   }
   throw new Refusal(`${join(home, DEMO_PROFILE)} and ${String(FOLDER_TRIES - 1)} folders after it are taken.`)
 }
@@ -167,12 +187,26 @@ async function reopen(deps: DemoDeps, record: DemoRecord): Promise<CreateDemoRes
   return { ok: true, projectId: added.project.id, path: record.path }
 }
 
+/** Whether a `match` of the gate registry names the demo's folder, as given or with its parent's on-disk spelling. */
+function namesFolder(match: string, folder: string): boolean {
+  const same = (a: string, b: string): boolean => isInsidePath(a, b) && isInsidePath(b, a)
+  return same(match, folder) || same(match, join(realpathOrSelf(dirname(folder)), basename(folder)))
+}
+
 /**
- * A record whose folder is gone (deleted by hand): its Project leaves the list and its Profile —
- * ours, by the record — is removed, so the name is free for the new demo.
+ * A record whose folder is gone (deleted by hand): its Project leaves the list and the record is
+ * dropped. The Profile of that name is removed only when it is still the demo's: every gate
+ * registry entry of it names the demo's folder. A Profile of that name over another repository
+ * (the user removed the demo's and connected their own) stays, and step 4 refuses on the name.
  */
 async function forget(deps: DemoDeps, record: DemoRecord): Promise<void> {
   if (deps.projects.find(record.projectId) !== undefined) deps.projects.remove(record.projectId)
+  const repos = await deps.registeredRepos(record.profile)
+  const ours = repos.length > 0 && repos.every((match) => namesFolder(match, record.path))
+  if (!ours) {
+    deps.state.setDemo(null)
+    return
+  }
   const removed = await harness(deps, ['--remove', record.profile, '--no-qmd'], '')
   const errors = connectErrors(removed)
   if (removed.code !== 0 && !errors.every((each) => each.message.startsWith(`no profile ${record.profile}`))) {
@@ -230,8 +264,7 @@ async function build(deps: DemoDeps, made: Made): Promise<CreateDemoResult> {
   const step = (text: string): void => deps.progress?.(text)
 
   step('Creating the folder')
-  const folder = freeFolder(deps.home)
-  mkdirSync(folder)
+  const folder = claimFolder(deps.home)
   made.folder = folder
 
   step('Writing the files')

@@ -8,7 +8,7 @@ import { gettingStartedCreateDemo, gettingStartedCreateProgress, type CreateDemo
 import { agentEnv } from '../agent/env'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { toEveryWindow } from '../broadcast'
-import { DemoCreator, demoGit } from '../getting-started/demo'
+import { DemoCreator, demoGit, gateRegistryRepos } from '../getting-started/demo'
 import { gettingStartedState } from '../getting-started/state'
 import { harnessHomes, locateHarness } from '../harness/locate'
 import { connectScriptRunner } from '../projects/connect'
@@ -42,6 +42,7 @@ function appCreator(): DemoCreator {
     projects: projectStore(),
     openOrchestrator: (projectId, firstSettings) => sharedOrchestrators().open(projectId, { firstSettings }),
     state: gettingStartedState(),
+    registeredRepos: gateRegistryRepos(() => locateHarness(harnessHomes(claudeHome())).gateDir),
     progress: (step) => toEveryWindow((client) => emit(client, gettingStartedCreateProgress, { step })),
   }))
   return creator
