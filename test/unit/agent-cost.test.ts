@@ -24,6 +24,18 @@
 //     src/c.ts; ticket 01's implementer read src/a.ts and src/b.ts before it;
 //   - agent-aimpl3, a rework round of demo-epic/01 that only runs the shell, no Edit or Write;
 //   - agent-adocs, without meta.json and without a ticket in its brief.
+// The waits fixture (test/fixtures/agent-cost/waits/, synthetic) is one main session and one
+// implementer on 2026-10-22, all on claude-opus-5-5. s-wait.jsonl, the Orchestrator, one response a
+// minute: msg_w1 after a prompt starts a background command; msg_w2 after the tool result that says
+// it started; msg_w3 after the notice "Background command … completed", written on two lines, the
+// second calls `gh pr checks 12 --watch`; msg_w4 after the result of that CI wait and a meta line;
+// msg_w5 after an ordinary tool result; msg_w6 after the notice 'Agent "impl-t1" finished'; msg_w7
+// after 'Monitor event: "gate verdict"' (a Monitor's notice of one event); msg_w8 after a prompt;
+// msg_w9 after two notices, a subagent finished and a background command completed; msg_w10 after
+// "2 background agents didn't finish …", and it starts `gh run watch 99` in the background; msg_w11
+// after the tool result that says it started; msg_w12 after its notice "Background command …
+// completed". agent-await, the implementer, also answers a background command notice: --waits
+// counts the Orchestrator only.
 // The report runs in this process: spawning the script takes seconds on a loaded Windows runner.
 // Two tests spawn it, once each: the one that checks it writes nothing and the missing folder.
 import { spawnSync } from 'node:child_process'
@@ -38,6 +50,7 @@ import { scriptNode } from '../script-node'
 const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'agent-cost.mjs')
 const FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'agent-cost', 'project')
 const BY_TICKET = join(import.meta.dirname, '..', 'fixtures', 'agent-cost', 'by-ticket')
+const WAITS = join(import.meta.dirname, '..', 'fixtures', 'agent-cost', 'waits')
 
 type RoleName = 'orchestrator' | 'implementer' | 'reviewer' | 'scout' | 'other'
 interface Role {
@@ -77,8 +90,9 @@ interface AgentCost {
   parseArgs: (args: string[]) => unknown
   defaultTranscriptFolders: (env: Record<string, string | undefined>, home: string, root: string) => string[]
   roleOf: (agent: { subagent: boolean; agentType?: string; name?: string; description?: string; brief?: string }) => string
+  ciWait: (command: string) => boolean
 }
-const { agentCost, parseArgs, ticketOf, waveTickets, shellReads, defaultTranscriptFolders, roleOf } = (await import(pathToFileURL(SCRIPT).href)) as AgentCost
+const { agentCost, parseArgs, ticketOf, waveTickets, shellReads, defaultTranscriptFolders, roleOf, ciWait } = (await import(pathToFileURL(SCRIPT).href)) as AgentCost
 
 const dirs: string[] = []
 const locked: string[] = []
@@ -267,6 +281,89 @@ describe('agent-cost --by-ticket on the by-ticket fixture', () => {
     expect(result.status).toBe(0)
     expect(result.stdout).toMatch(/^demo-epic\/02\s/m)
     expect(result.stdout).toMatch(/^\(no ticket\)\s/m)
+  })
+})
+
+interface WaitPart {
+  calls: number
+  tokens: number
+  cost: number
+}
+interface Waits extends WaitPart {
+  orchestratorCalls: number
+  orchestratorTokens: number
+  share: number
+  tokenShare: number
+  byKind: { background: WaitPart; ci: WaitPart; agent: WaitPart }
+}
+
+/** The four responses right after a background command or a Monitor event: msg_w3, msg_w7, msg_w9, msg_w12. */
+const BACKGROUND = tokens(2, 30, 1200, 50) + tokens(1, 35, 1600, 0) + tokens(1, 55, 1800, 0) + tokens(1, 85, 2100, 0)
+const BACKGROUND_COST = opus(2, 30, 1200, 50) + opus(1, 35, 1600, 0) + opus(1, 55, 1800, 0) + opus(1, 85, 2100, 0)
+
+async function waits(args: string[] = []): Promise<Report & { waits: Waits }> {
+  const result = await inProcess(['--transcripts', WAITS, '--json', '--waits', ...args])
+  expect(result.stderr).toBe('')
+  expect(result.status).toBe(0)
+  return JSON.parse(result.stdout) as Report & { waits: Waits }
+}
+
+describe('agent-cost --waits on the waits fixture', () => {
+  it('counts an Orchestrator response right after a background command or a Monitor event as a wait, and one after an ordinary tool result or a prompt as none', async () => {
+    const r = await waits()
+    expect(r.waits.byKind.background).toEqual({ calls: 4, tokens: BACKGROUND, cost: expect.closeTo(BACKGROUND_COST, 9) })
+    expect(r.waits.orchestratorCalls).toBe(12)
+  })
+
+  it('a response after a background command and a subagent at once counts as a wait', async () => {
+    const r = await waits(['--since', '2026-10-22T09:19:30Z', '--until', '2026-10-22T09:20:30Z'])
+    expect(r.waits).toMatchObject({ orchestratorCalls: 1, calls: 1, byKind: { background: { calls: 1 }, agent: { calls: 0 } } })
+  })
+
+  it('a CI wait run in the background counts once, by its notice, not by the tool result that says it started', async () => {
+    const started = await waits(['--since', '2026-10-22T09:23:30Z', '--until', '2026-10-22T09:24:30Z'])
+    expect(started.waits).toMatchObject({ orchestratorCalls: 1, calls: 0, byKind: { ci: { calls: 0 } } })
+    const ended = await waits(['--since', '2026-10-22T09:25:30Z'])
+    expect(ended.waits).toMatchObject({ orchestratorCalls: 1, calls: 1, byKind: { background: { calls: 1 }, ci: { calls: 0 } } })
+  })
+
+  it('a notice that background agents of the previous session did not finish is a subagent notice, not a wait', async () => {
+    const r = await waits(['--since', '2026-10-22T09:21:30Z', '--until', '2026-10-22T09:22:30Z'])
+    expect(r.waits).toMatchObject({ orchestratorCalls: 1, calls: 0, byKind: { agent: { calls: 1 } } })
+  })
+
+  it('counts the response after the result of a CI wait (gh pr checks --watch) as a wait, past a meta line between them', async () => {
+    const r = await waits()
+    expect(r.waits.byKind.ci).toEqual({ calls: 1, tokens: tokens(1, 40, 1300, 0), cost: expect.closeTo(opus(1, 40, 1300, 0), 9) })
+  })
+
+  it('keeps a response after a subagent finished apart, out of the waits, and leaves the subagents out', async () => {
+    const r = await waits()
+    expect(r.waits.byKind.agent).toEqual({ calls: 2, tokens: tokens(1, 25, 1500, 0) + tokens(1, 65, 1900, 0), cost: expect.closeTo(opus(1, 25, 1500, 0) + opus(1, 65, 1900, 0), 9) })
+    const waited = BACKGROUND + tokens(1, 40, 1300, 0)
+    expect(r.waits).toMatchObject({ calls: 5, tokens: waited, share: 5 / 12 })
+    expect(r.waits.tokenShare).toBeCloseTo(waited / r.waits.orchestratorTokens, 9)
+    expect(r.roles.implementer.calls).toBe(2)
+  })
+
+  it('keeps to the period', async () => {
+    const r = await waits(['--until', '2026-10-22T09:10:00Z'])
+    expect(r.waits).toMatchObject({ orchestratorCalls: 4, calls: 2 })
+  })
+
+  it('is absent without --waits, and prints its lines in the table', async () => {
+    expect((await report()) as Report & { waits?: Waits }).not.toHaveProperty('waits')
+    const result = await inProcess(['--transcripts', WAITS, '--waits'])
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('Orchestrator waits: 5 of 12 responses (41.7%)')
+    expect(result.stdout).toMatch(/background command or Monitor\s+4\b/)
+  })
+
+  it('a CI wait is gh pr checks --watch or gh run watch, not a plain gh pr checks', () => {
+    expect(ciWait('gh pr checks 12 --watch')).toBe(true)
+    expect(ciWait('cd repo && gh run watch 4711 --exit-status')).toBe(true)
+    expect(ciWait('gh pr checks 12 --json name,bucket')).toBe(false)
+    expect(ciWait('git status --watch')).toBe(false)
   })
 })
 
