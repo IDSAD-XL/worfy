@@ -2,6 +2,8 @@
 
 Personal infinite canvas where Claude agents build small apps (cards) while you chat with them. macOS, single local user.
 
+How each feature behaves and is implemented: [feature documentation](docs/features/README.md).
+
 ## Development
 
 Node.js 24 is required on both machines, the Mac and the Windows PC, and of that line 24.15 or newer. `engines.node` of `package.json` is `>=24`, and `.nvmrc` and CI name 24; four dependencies, jsdom among them, accept nothing in that line below 24.15. `engineStrict` in `pnpm-workspace.yaml` holds pnpm to both: under a Node that the package or one of these dependencies does not accept, `pnpm install` stops before it installs anything, with `ERR_PNPM_UNSUPPORTED_ENGINE`, exit code 1, the version it expects and the one it got. The tests always run under the Node of Electron, which is 24; the scripts (`pnpm icons`, `pnpm install:stable`, `postinstall`) run under the Node of the system: with an older one there, a script can behave differently from the test that covers it.

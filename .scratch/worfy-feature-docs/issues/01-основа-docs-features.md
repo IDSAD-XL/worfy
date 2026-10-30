@@ -1,7 +1,8 @@
 # 01 — Основа `docs/features/`: индекс, понятия, заготовки страниц, шаблон
 
 Type: task
-Status: open
+Status: claimed 2026-10-30T21:17Z
+Branch: worfy-feature-docs/01
 Blocked by: —
 Source: «Как устроено» и «Решено без владельца», Р2, [spec.md](../spec.md); решения владельца 2026-10-30, Q9, Q10, Q11, Q14, Q17, Q22; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md)
 
@@ -56,4 +57,11 @@ Source: «Как устроено» и «Решено без владельца�
 - Перевод `CONTEXT.md` целиком и правка языка корневого README.
 
 ## Итог
+
+- В `docs/features/` и `docs/features/ru/` лежат индекс, `concepts.md` и 14 заготовок страниц, корневой README ведёт на
+  индекс.
+- `concepts.md` пересказывает только `CONTEXT.md`, по коду не сверялся: это дело страниц Feature-ов. SSH session и
+  Remote host в него не вошли, потому что spec эти Feature не описывает.
+- Индекс называет проверку путей и скрипт отчёта и указывает, что их добавляет Ticket 02: до его merge этих скриптов
+  нет, а править индекс после Ticket-а 01 нельзя.
 
