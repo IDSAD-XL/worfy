@@ -311,7 +311,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
             find={find.transcript}
             logRef={logRef}
           />
-          <MessageInput ref={input} key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
+          <MessageInput ref={input} key={nodeId} nodeId={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
         </section>
         <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />
       </div>

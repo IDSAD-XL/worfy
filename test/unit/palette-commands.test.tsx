@@ -251,6 +251,7 @@ describe('palette commands', () => {
       'view:canvas',
       'view:session',
       'first-run',
+      'getting-started',
       'settings',
       'shortcuts',
       'project:p1',
@@ -278,6 +279,49 @@ describe('palette commands', () => {
       expect(await command!.run()).toBeUndefined()
       expect(useFirstRun.getState().open).toBe(true)
     }
+  })
+
+  it('has Getting started in the View group, with or without a Project; running it asks main to show the section (worfy-onboarding/07)', async () => {
+    for (const project of [context().project, undefined]) {
+      const asked: { channel: string; input: unknown }[] = []
+      const globals = globalThis as { worfy?: WorfyBridge }
+      globals.worfy = {
+        invoke: (channel: string, input: unknown) => {
+          asked.push({ channel, input })
+          if (channel === 'gettingStarted.setSection') {
+            const state = { user: 'new', section: 'shown', steps: {}, reworkSeen: false, noticeShown: false, demo: null }
+            return Promise.resolve({ ok: true, value: state })
+          }
+          return new Promise(() => undefined)
+        },
+        on: () => 1,
+        off: () => undefined,
+      } as unknown as WorfyBridge
+      onTestFinished(() => {
+        delete globals.worfy
+      })
+      const command = buildCommands(context({ project })).find((each) => each.id === 'getting-started')
+      expect(command).toMatchObject({ group: 'View', title: 'Getting started', detail: 'A guided demo of worfy' })
+      for (const query of ['getting started', 'demo', 'tour']) expect(rankItems(buildCommands(context({ project })), query)[0]?.id).toBe('getting-started')
+      expect(await command!.run()).toBeUndefined()
+      expect(asked.filter((each) => each.channel === 'gettingStarted.setSection')).toEqual([{ channel: 'gettingStarted.setSection', input: { section: 'shown' } }])
+      const { useGettingStartedStore } = await import('../../src/renderer/getting-started/store')
+      expect(useGettingStartedStore.getState().snapshot?.section).toBe('shown')
+    }
+  })
+
+  it('Getting started answers the reason when main refuses', async () => {
+    const globals = globalThis as { worfy?: WorfyBridge }
+    globals.worfy = {
+      invoke: (channel: string) => Promise.resolve(channel === 'gettingStarted.setSection' ? { ok: false, error: 'gettingStarted.setSection failed: disk full' } : { ok: true, value: {} }),
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    onTestFinished(() => {
+      delete globals.worfy
+    })
+    const command = buildCommands(context()).find((each) => each.id === 'getting-started')
+    expect(await command!.run()).toBe('disk full')
   })
 
   it('reads nothing of a workflow model that failed', () => {

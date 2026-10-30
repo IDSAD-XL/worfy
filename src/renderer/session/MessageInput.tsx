@@ -1,4 +1,4 @@
-import { useImperativeHandle, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type Ref } from 'react'
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type Ref } from 'react'
 import type { Attachment, AttachResult } from '../../shared/agent/attachments'
 import { invoke, windowMachine } from '../ipc'
 import { writeAction } from '../projects/read-only'
@@ -9,6 +9,7 @@ import { composerItems } from './composer/index'
 import { formatSize } from './attachment-format'
 import { composerHint } from './hints'
 import { stepHistory } from './history'
+import { takePendingInput, usePendingInput } from './pending-input'
 import { useSlashMenu } from './SlashMenu'
 
 // The input field of a Session: Return sends, Shift+Return starts a new line, ↑ and ↓ in an empty
@@ -31,6 +32,10 @@ import { useSlashMenu } from './SlashMenu'
 // Machine as bytes, the way dropped files do: the same size limit and the same count. That
 // Machine's own dialog (`agent.attachPick`) would open on a screen nobody here sees; it refuses
 // the call anyway.
+//
+// A ready text left for the field's Node (pending-input.ts; Getting started, worfy-onboarding
+// ticket 07) is taken as soon as it is there, and put in only when the field is empty. It is never
+// sent: the user sends it, as anything typed (decision 4 of the onboarding spec).
 
 /** A message as the field sends it. */
 export interface OutgoingMessage {
@@ -39,6 +44,8 @@ export interface OutgoingMessage {
 }
 
 export interface MessageInputProps {
+  /** The Node the Session is on: the key of a ready text for the field (pending-input.ts). */
+  nodeId?: string
   /** The live Session's id; null while none runs, and the field is disabled. */
   sessionId: string | null
   /** The Session is running a turn. */
@@ -126,7 +133,7 @@ export function AttachmentChips({ chips, onRemove }: { chips: readonly Chip[]; o
   )
 }
 
-export function MessageInput({ sessionId, busy, history, recipient, onSend, onInterrupt, ref }: MessageInputProps) {
+export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSend, onInterrupt, ref }: MessageInputProps) {
   const [text, setText] = useState('')
   // Where ↑/↓ are in the history; null while the field holds the user's own text.
   const [at, setAt] = useState<number | null>(null)
@@ -160,6 +167,21 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
     setText(value)
     setAt(null)
   }
+
+  // A ready text for this Node: taken when the field opens or as soon as it comes, put in only into
+  // an empty field, never sent.
+  useEffect(() => {
+    if (nodeId === undefined) return
+    const take = () => {
+      const ready = takePendingInput(nodeId)
+      if (ready === undefined) return
+      setText((current) => (current === '' ? ready : current))
+      setAt(null)
+      field.current?.focus()
+    }
+    take()
+    return usePendingInput.subscribe(take)
+  }, [nodeId])
 
   // The field still shows a prompt brought back by ↑/↓ from the history.
   const browsing = at !== null && text === history[at]

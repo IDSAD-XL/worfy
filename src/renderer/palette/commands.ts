@@ -27,6 +27,8 @@
 // its name the detail: the row is the choice of the Machine. They do what the buttons of its row in
 // the sidebar do — `link.reconnect`, and the confirmation of Remove (machines/MachineDialogs.tsx);
 // Reconnect only for a Machine without a connection. They concern this Machine's link, not the Project.
+// "Getting started" (worfy-onboarding ticket 07) shows the Getting started section of the sidebar
+// again and focuses it (getting-started/store.ts); with or without a Project.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
@@ -43,6 +45,7 @@ import { requestRepack } from '../canvas/sources/epics'
 import { showNode } from '../canvas/show-node'
 import { createCanvasNode, focusCanvasNode, openAdr, requestArrangeByEpic, requestTidyUp, setTagFilter, type TagFilter } from '../find/canvas-requests'
 import { kindLabel, nodeTitle, normalizeQuery, type Rankable } from '../find/search-index'
+import { openGettingStarted } from '../getting-started/store'
 import { invoke, windowMachine } from '../ipc'
 import { askRemoveMachine } from '../machines/machine-dialogs'
 import { linkStateNow, reconnectMachine } from '../machines/useMachines'
@@ -305,6 +308,16 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
       openFirstRun()
       return undefined
     },
+  })
+  // Getting started (worfy-onboarding ticket 07): shows the section again after Skip, and focuses it.
+  // Always here, with or without a Project.
+  commands.push({
+    id: 'getting-started',
+    group: 'View',
+    title: 'Getting started',
+    detail: 'A guided demo of worfy',
+    keys: ['getting started', 'demo', 'tour'],
+    run: () => openGettingStarted(),
   })
   // The Settings window (worfy-ui ticket 2): always here, with or without a Project.
   commands.push({

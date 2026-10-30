@@ -22,6 +22,12 @@ const EPICS = Array.from({ length: 12 }, (_, index) => `epic-${String(index + 1)
 const ADRS = Array.from({ length: 20 }, (_, index) => String(index + 1).padStart(4, '0'))
 /** The sections in the order of the sidebar: the names of their files. */
 const SECTIONS = ['ProjectsSection', 'MachinesSection', 'EpicsSection', 'PipelineSection', 'SessionsSection', 'AdrSection']
+/**
+ * The section files above them that draw nothing here: Sidebar.tsx puts a wrapper round every
+ * file, and Getting started (worfy-onboarding ticket 07) is hidden in every launch of the e2e
+ * tests (WORFY_GETTING_STARTED_AUTO=0, launch-env.ts), so its wrapper stays empty, with no frame.
+ */
+const EMPTY_ABOVE = ['GettingStartedSection']
 
 /** The rows the height rules count in: the common row, and the two-line row of Epics. */
 const ROW = 28
@@ -213,8 +219,8 @@ test('a section collapses by a click, Enter and Space on its heading and stays c
 
     // Every section is drawn in the frame, under the id of its file: the key of its saved state.
     const before = await measure(window)
-    expect(before.sections.map((section) => section.wrapper)).toStrictEqual(SECTIONS)
-    expect(before.sections.map((section) => section.frame)).toStrictEqual(SECTIONS)
+    expect(before.sections.map((section) => section.wrapper)).toStrictEqual([...EMPTY_ABOVE, ...SECTIONS])
+    expect(before.sections.map((section) => section.frame)).toStrictEqual([...EMPTY_ABOVE.map(() => null), ...SECTIONS])
     for (const name of ['Projects', 'Epics', 'Sessions', 'ADR']) await expect(heading(window, name)).toHaveAttribute('aria-expanded', 'true')
     // Machines alone is collapsed until the user expands it: nothing is saved about it yet, and
     // the section is its header.
