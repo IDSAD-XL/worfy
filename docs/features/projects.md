@@ -187,7 +187,7 @@ Project joins the list there without changing that Machine's active Project, and
 
 ### Behaviour
 
-**The list.** "Projects" is the first section of the sidebar. A row shows a folder icon, the name of the folder and, on the
+**The list.** "Projects" is the first section of the sidebar, after Getting started while that section is shown. A row shows a folder icon, the name of the folder and, on the
 right, the checked-out branch: `HEAD` when detached, `—` when git cannot read it. The tooltip is the full path. The Project
 the window shows is highlighted, and the toolbar repeats it as `<name> · <branch>`. The branch is read again when the window
 gets focus and on every change of the list.
@@ -205,7 +205,7 @@ Pipeline board.
 - The Orchestrator of the newly active Project opens. The Orchestrators of the other listed Projects are not closed.
 - The switch writes nothing into any repository.
 
-Adding a Project that is already listed selects it and says `<name> is already in the list.`
+Adding a listed Project the Harness knows selects it and says `<name> is already in the list.`
 
 **The context menu of a row.**
 
@@ -215,11 +215,11 @@ Adding a Project that is already listed selects it and says `<name> is already i
   the dialog also has the [Terminal shell](terminal.md).
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.
-- "Remove from list" acts at once, without a question. The Project leaves the list, and the next active one is the first of
-  the rest, or none. Its data folder stays, so a Project added again finds its settings there. Its Orchestrator closes, and
+- "Remove from list" acts at once, without a question. The Project leaves the list. If it was the active one, the first of
+  the rest becomes active, or none. Its data folder stays, so a Project added again finds its settings there. Its Orchestrator closes, and
   so do the shells of its [Terminals](terminal.md). The repository and the Harness Profile are not touched.
 
-**A broken list.** A `projects.json` that cannot be read is set aside, and the app starts with an empty list. A saved active
+**A broken list.** A `projects.json` with broken JSON or the wrong shape is set aside, and the app starts with an empty list. A saved active
 Project that is not in the list reads as no active Project.
 
 #### On a Linked machine
@@ -316,7 +316,7 @@ files of the same name in the repository are not read. These two places are fixe
 | The file comes back | Shown again |
 | Hidden through the canvas tools while the file exists | Stays hidden |
 | Shown by someone while the file is gone | The body says "The Project has no HANDOFF.md" |
-| The file cannot be read | The body says "HANDOFF.md could not be read:" and the reason |
+| The documents could not be opened, or the text of a listed file could not be read | The body says "HANDOFF.md could not be read:" and the reason |
 
 The text can be selected. The wheel moves the Canvas until the Node is clicked, and then it scrolls the text. Find searches
 the text of HANDOFF.
@@ -330,7 +330,7 @@ Without ADRs the section says "No ADRs in docs/adr/". A file added or removed ch
 
 **The ADR panel.** A click on a row opens the ADR over the Canvas on the right, at most 680 pixels wide, with the number, the
 title and the status in its header. Esc or Close closes it. A change of the file shows in the open panel, an ADR that is gone
-closes it, and another Project does not show it. "Go to" of the Command palette lists every ADR by title and finds it by
+hides it until the file is back, and another Project does not show it. "Go to" of the Command palette lists every ADR by title and finds it by
 number too (`12`, `0012`, `adr 0012`). With the sidebar hidden, such a request waits until the sidebar is shown and is carried
 out once.
 
@@ -338,7 +338,8 @@ out once.
 
 **The text of both.** One markdown renderer, with tables, task lists and strikethrough. Raw HTML is shown as text and never
 runs. Images are not loaded: the alt text is shown. `https://` links open in the default browser, and a relative link opens a
-file of the Project in the default editor. A link to a file that is not a document asks first: open it, show it in the file
+file of the Project in the default editor. An absolute path opens the same way when it lies inside the Project, one of its
+worktrees, the Workflow folder or the Tickets root; elsewhere it opens nothing. A link to a file that is not a document asks first: open it, show it in the file
 manager or cancel. Any other link is text.
 
 **Limits.** A file over 1 MiB is refused and read as absent: an ADR leaves the list, and a `HANDOFF.md` of that size hides the

@@ -64,7 +64,7 @@ Source: «Как устроено» и Q9 [spec.md](../spec.md); решения 
 
 ## Итог
 
-Страница `docs/features/projects.md`: 415 строк, это в пределах «примерно 400», на две не делилась. Перевод:
+Страница `docs/features/projects.md`: 416 строк, это в пределах «примерно 400», на две не делилась. Перевод:
 `docs/features/ru/projects.md`. Секции: Full mode and Silent mode, Project switcher, ADRs and HANDOFF.
 
 **Расхождение с индексом.** Строка `docs/features/README.md` говорит о переключении между режимами («the switch between
@@ -90,6 +90,14 @@ Project-а: режим выбирается в «Add project» и в форме 
    Machine не держит для такого экрана открытыми Orchestrator и документы. Сами документы при этом читаются: `docs.open` — `read`.
 4. У канала `projects.add` нет вызова из renderer-а: новый Project идёт через `projects.connect.*`, канал вызывают только тесты.
    На странице он упомянут только в списке каналов.
+5. Повторное добавление Project-а из списка, которого Harness не знает, открывает диалог подключения: `projects.connect.inspect`
+   (`src/main/ipc/projects.ts`) отвечает `new`, не заглядывая в список. Сообщения `<name> is already in the list.` при этом нет.
+   e2e test этого не видит: его stub `bin/profile` знает любую папку.
+6. `projects.json` без прав на чтение вызывает исключение: `readJsonFile` (`src/main/storage/json-file.ts`) откладывает в сторону
+   только битый JSON и файл неверной формы, а другую ошибку чтения пробрасывает, и `ProjectStore` её не ловит. Пустого списка в этом случае нет.
+   Что видит пользователь, запуском не проверялось.
+7. Нечитаемый `HANDOFF.md` молча скрывает Node: `readDocs` (`src/main/docs/watch.ts`) превращает любую ошибку чтения в `handoff: null`,
+   как у отсутствующего файла. Причина нигде не показана, а Node, который кто-то показал, говорит «The Project has no HANDOFF.md».
 
 **Сверка папок из «Где в коде».** Список неполный: `src/shared/projects` содержит только шаблоны действий. Код этих Feature лежит
 ещё в `src/main/workflow/folder.ts`, `src/main/workflow/profile.ts`, `src/main/ipc/{projects,docs,shell,linked}.ts`,
