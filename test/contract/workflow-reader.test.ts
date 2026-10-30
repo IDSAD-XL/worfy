@@ -65,15 +65,14 @@ vi.mock('node:child_process', async (importOriginal) => {
       throw error
     }
   }
-  // As node's own promisify(execFile) gives: { stdout, stderr }, or the error carrying both.
-  Object.assign(execFile, {
-    [promisify.custom]: (...params: unknown[]) =>
-      new Promise((resolve, reject) => {
-        execFile(...params, (error: Error | null, stdout: unknown, stderr: unknown) =>
-          error ? reject(Object.assign(error, { stdout, stderr })) : resolve({ stdout, stderr }),
-        )
-      }),
-  })
+  // As node's own promisify(execFile) gives: { stdout, stderr }, or the error carrying both. Set by assignment, not
+  // passed to a call: test/unit/e2e-no-spawn-on-load.test.ts takes a spawning function handed to a call at load for a start.
+  ;(execFile as unknown as Record<symbol, unknown>)[promisify.custom] = (...params: unknown[]) =>
+    new Promise((resolve, reject) => {
+      execFile(...params, (error: Error | null, stdout: unknown, stderr: unknown) =>
+        error ? reject(Object.assign(error, { stdout, stderr })) : resolve({ stdout, stderr }),
+      )
+    })
   const spawn = (...params: unknown[]): Child => {
     const run = record(params[0], params[1])
     try {

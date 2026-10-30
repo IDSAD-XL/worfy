@@ -175,8 +175,9 @@ test-а не поднят, продуктовые пороги не меняли
   - Причина: `guard.mjs` даёт двум попыткам общий бюджет в две попытки, вторая получает остаток. Под нагрузкой
     остаток 0,4 s, а test ждал ровно 0,5 s.
   - Правка — в test-е: в «timeout twice» первая попытка 0,5 s, вторая — остаток 0,0–0,5 s. Остаток там почти
-    всегда 0,5 s, поэтому общий бюджет проверяет новый случай «two checks, the first takes 0.3 s»: первая из
-    двух проверок отвечает через 0,3 s, попытки второй вместе — не больше остатка 0,7 s (0,8 s с округлением).
+    всегда 0,5 s, поэтому общий бюджет проверяет новый случай «two checks, the first takes 1 s» (попытки по 5 s):
+    первая из двух проверок отвечает через 1 s, попытки второй вместе — не больше остатка 9 s (9,1 s с
+    округлением), или «in the time left».
     Код `guard.mjs` не менялся.
   - Опыт, проверка не стала пустой (`guard.mjs` менялся только локально):
     - полный бюджет каждой попытке — файл красный на «two checks, one budget» (silent-check 4 раза вместо 3,
@@ -326,3 +327,27 @@ Gate full на `55f37b62` (8 worker-ов): код 2, три красных.
    - Mutant `sleep 31` в `scaffold.sh` — код 1, «Hook timed out in 30000ms».
 
 lint и typecheck — код 0.
+
+## Review, раунд 2 (Mac, 2026-10-30), что исправлено
+
+Gate full на `968216bd` (8 worker-ов): код 2, один красный — моя ошибка из раунда 1.
+- `e2e-no-spawn-on-load.test.ts:508`: mock `node:child_process` в `workflow-reader.test.ts` передавал функцию,
+  которая запускает процесс, в `Object.assign` внутри фабрики `vi.mock`. Статический анализ этого test-а считает такое
+  запуском процесса при загрузке файла. Правка: свойство ставится присваиванием. В одиночку на `968216bd` — код 1.
+- e2e, guard-silent, harness-evals, `script-node`, `linked-browser.spec.ts:90` — зелёные.
+
+Находка [med]: случай общего бюджета guard-silent ждал ответ stand-in-а внутри попытки 0,5 s. Это нарушало правило
+файла: где stand-in должен ответить внутри попытки, попытка 5 s.
+- Правка: случай перенесён к попыткам 5 s, `slow` отвечает через 1 s.
+- Принимается и «in the time left»; отказ обязан назвать `git commit`.
+- Проверка: с задержкой 1 s на старте каждого stand-in-а файл зелёный, код 0, 104 passed; mutant `const t = SILENT_TRY_MS` — код 1, красный только этот случай («5 s and then 5 s»).
+
+Low:
+- исправлены:
+  - `guard_timed`: пустой ответ (allow) читается как allow;
+  - строка времени сборки `harness-evals` пишется прямо в stdout, agent reporter её не прячет;
+  - `vi.waitFor` в test-е без `branchOf` ждёт `ms(GIT_BRANCH_TIMEOUT_MS * 2)`;
+- долг: в «two checks, one budget» замер теперь кончается раньше, и граница 7500 ms пропускает ответ hook-а примерно до
+  7,47 s при бюджете 6 s. Граница не менялась по решению Моста.
+
+Перед push-ем — код 0 у каждого: guard-silent (104 passed); `test/unit` целиком, вместе с `e2e-no-spawn-on-load` (6122 passed); `workflow-reader`, `terminal-ai-assist`, `script-node`, `test-timeout-scale` (170 passed); `harness-evals` (92 passed, 10 строк времени сборки в логе при CLAUDECODE=1); lint; typecheck; plugin-neutral (31 passed).

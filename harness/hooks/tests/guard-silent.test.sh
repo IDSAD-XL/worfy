@@ -176,7 +176,7 @@ cp "$T/sp-profile.json" "$SPP"
 # the next step of $STUB_PLAN (the last step repeats): `sleep` — hangs until the guard stops it; `traces` —
 # exit 1 with a finding; `profile` / `root` — exit 2 with the reason bin/silent-check gives when the profile or
 # the tickets root is not read; `kill` — killed by a signal; `many` — exit 1 with 120 findings; `slow` — exit 0
-# after 0.3 s; a number — that exit code, nothing printed.
+# after 1 s; a number — that exit code, nothing printed.
 # One try lasts $TRY_MS here. Where only timeouts happen, 0.5 s is enough: the stand-in that hangs sleeps far
 # longer than any try, and each such try is waited out in full. Such a case checks only what the guard prints,
 # never the stand-in's log, so its result does not depend on how fast the stand-in starts. Where a stand-in must answer inside a try, a try lasts 5 s, so a node start on a loaded machine never
@@ -195,7 +195,7 @@ if (step === "sleep") {
     process.exit(0)
 }
 if (step === "slow") {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300)
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
     process.exit(0)
 }
 if (step === "traces") {
@@ -225,12 +225,14 @@ now_ms() {
     else node -e 'process.stdout.write(String(Date.now()))'; fi
 }
 # guard, with the time its answer began (now_ms) on a line before the answer: the moment the hook decided, before its
-# node exits and before jq reads the answer. An answer of allow is empty, so its time is the hook's exit.
+# node exits and before jq reads the answer. An answer of allow is empty, so its time is the hook's exit; `$(…)` then
+# drops the newline after the time, and no line after it means allow.
 guard_timed() {
     local out at
     out="$(jq -n --arg c "$2" --arg d "$1" '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' | node "$GUARD" |
         { IFS= read -r -n 1 c; now_ms; echo; printf '%s' "$c"; cat; })"
-    at="${out%%$'\n'*}"; out="${out#*$'\n'}"
+    at="${out%%$'\n'*}"
+    if [[ "$out" == *$'\n'* ]]; then out="${out#*$'\n'}"; else out=""; fi
     echo "$at"
     if [ -z "$out" ]; then echo allow; else printf 'deny: %s\n' "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason')"; fi
 }
@@ -265,18 +267,21 @@ for want in '`git commit` was not run' 'Run the same command again' 'silent-chec
     [[ "$got" == *"$want"* ]] && ok "timeout twice: the refusal says: $want" || bad "timeout twice: no \"$want\" in: ${got:0:400}"
 done
 [[ "$got" != *"carries traces of the workflow"* ]] && ok "timeout twice: the refusal does not claim traces" || bad "timeout twice claims traces: ${got:0:300}"
-# The budget is shared, not a try each: when the first of two checks takes 0.3 s, the tries of the second add up to
-# at most the 0.7 s left (0.8 s with the rounding to tenths), where a full try each would print 0.5 s and then 0.5 s.
-# On a busy machine the first check takes longer and the second gets less, or one try, or none.
-stub slow,sleep "two checks, the first takes 0.3 s -> the second gets what is left" deny 'git checkout -b fix/x && git commit -m "Fix y"' 'did not finish'
-left_ok=0
-if [[ "$got" =~ did\ not\ finish\ in\ ([0-9]+)(\.([0-9]))?\ s(\ and\ then\ ([0-9]+)(\.([0-9]))?\ s)?, ]]; then
-    tenths=$((BASH_REMATCH[1] * 10 + ${BASH_REMATCH[3]:-0} + ${BASH_REMATCH[5]:-0} * 10 + ${BASH_REMATCH[7]:-0}))
-    [ "$tenths" -le 8 ] && left_ok=1
-fi
-[ "$left_ok" = 1 ] && ok "two checks, the first takes 0.3 s: the second gets only the rest of the budget" \
-    || bad "two checks, the first takes 0.3 s: the tries of the second add up to more than the rest: ${got:0:400}"
 TRY_MS=5000
+# The budget is shared, not a try each: the first of two checks answers after 1 s and its node start, so the tries of
+# the second add up to at most the 9 s left (9.1 s with the rounding of each to tenths), where a full try each would
+# print 5 s and then 5 s. On a busy machine the first check takes longer and the second gets less, one try, or none
+# ("in the time left"). The refusal is about the second check, `git commit`.
+stub slow,sleep "two checks, the first takes 1 s -> the second gets what is left" deny 'git checkout -b fix/x && git commit -m "Fix y"' '`git commit` was not run'
+left_ok=0
+if [[ "$got" == *"did not finish in the time left,"* ]]; then
+    left_ok=1
+elif [[ "$got" =~ did\ not\ finish\ in\ ([0-9]+)(\.([0-9]))?\ s(\ and\ then\ ([0-9]+)(\.([0-9]))?\ s)?, ]]; then
+    tenths=$((BASH_REMATCH[1] * 10 + ${BASH_REMATCH[3]:-0} + ${BASH_REMATCH[5]:-0} * 10 + ${BASH_REMATCH[7]:-0}))
+    [ "$tenths" -le 91 ] && left_ok=1
+fi
+[ "$left_ok" = 1 ] && ok "two checks, the first takes 1 s: the second gets only the rest of the budget" \
+    || bad "two checks, the first takes 1 s: the tries of the second add up to more than the rest: ${got:0:400}"
 stub profile "exit 2, the profile is not read -> allow, as before" allow "$CLEAN" '' 1
 stub root "exit 2, the tickets root is not read -> deny with the error" deny "$CLEAN" 'tickets root not read'
 stub 3 "an unknown exit code -> deny with the reason" deny "$CLEAN" 'exit 3'

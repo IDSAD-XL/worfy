@@ -1048,7 +1048,7 @@ describe('gitBranch', () => {
     })
     try {
       const fix = service.request('fix', input({ cwd: work, exitCode: 1, branch: undefined }))
-      await vi.waitFor(() => expect(sdk.spares[0]?.query?.prompt).toContain('Git branch: from-path-git'), { timeout: ms(10_000), interval: 20 })
+      await vi.waitFor(() => expect(sdk.spares[0]?.query?.prompt).toContain('Git branch: from-path-git'), { timeout: ms(GIT_BRANCH_TIMEOUT_MS * 2), interval: 20 })
       sdk.spares[0]?.query?.answer('make')
       expect(await fix).toMatchObject({ ok: true, command: 'make' })
     } finally {

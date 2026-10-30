@@ -244,8 +244,9 @@ describe('harness/evals: the cases', () => {
     beforeAll(() => {
       const started = performance.now()
       built = builtFixture(name)
-      // The build time in the run's log, so a full run shows how much of its part the build takes.
-      console.info(`[harness-evals] ${name}: fixture built in ${Math.round(performance.now() - started)} ms, the hook's limit ${ms(10_000)} ms`)
+      // The build time in the run's log, so a full run shows how much of its part the build takes. Written to stdout
+      // itself: the agent reporter of a run started by an agent (AI_AGENT, CLAUDECODE) hides console output.
+      process.stdout.write(`[harness-evals] ${name}: fixture built in ${Math.round(performance.now() - started)} ms, the hook's limit ${ms(10_000)} ms\n`)
     }, ms(10_000))
 
     // On Windows the profile runs need the paths of the fixture's gate registry ("match", "pm") in
