@@ -1,7 +1,8 @@
 # 08 — Вход в Getting started: страница трёх понятий в First run, «Start Getting started», уведомление в углу
 
 Type: task
-Status: open
+Status: done 2026-10-30T09:48Z
+PR: #1046
 Blocked by: 07
 Source: решения владельца 2026-10-26, пункты 3 (существующим — одно немодальное уведомление «Open · Not now», не показывается снова; новым — кнопка «Start Getting started» в конце First run; модальных окон нет) и 4 (первая страница First run с тремя понятиями, «Next» — к проверкам); [spec.md](../spec.md), «Тексты (черновик)»; «Решено без владельца», Р7, Р8, Р9 (решено без владельца, подтверждено владельцем 2026-10-26)
 
@@ -82,4 +83,20 @@ Source: решения владельца 2026-10-26, пункты 3 (сущес
 
 ## Итог
 
-Заполняется при закрытии.
+PR #1046 (merge b4e5c2c7). `firstRun.startup` отвечает `firstTime` (нет отметки `first-run.json` **и** пользователь
+`new` — сверх тикета, по правилу владельца «существующего не заставляем»); страница трёх понятий
+`FirstRunConcepts.tsx` — только когда First run открылся сам; «Start Getting started» — у нового пользователя до
+шага 6; уведомление `notice.ts` — существующему без `noticeShown`, один toast. Снимки в обеих темах сверены.
+
+- Вне следа: `src/main/getting-started/state.ts` — одна строка в `snapshotOf` (разрешено оркестратором): при
+  `WORFY_GETTING_STARTED_AUTO=0` уведомление считается показанным, иначе его получал бы каждый e2e с Project-ом;
+  `harness-migrate.spec.ts` (шаг «Next»), `scripts/e2e-specs.table.json`, `ci-scope-e2e.test.ts`; unit test
+  уведомления — `.tsx` (импорт store ломал typecheck как `.ts`).
+- Gate — VERIFIED с первого круга; CI зелёный.
+- Решено без владельца, подтвердить: `noticeSeen` пишется, когда toast уходит из store (как в тикете). Закрыл
+  приложение, ничего не нажав, — после перезапуска уведомление покажется снова; второе окно, открытое при висящем
+  toast-е, тоже его покажет. Запись в момент показа сделала бы «строго один раз».
+- Debt (low): запасной путь `newUser()` (нечитаемое состояние → existing, `first-run.ts:200-205`) без test-а;
+  stub `settings-health.test.tsx:104` без `firstTime` (безвредно); F-SPEC (`docs/design/F-SPEC.md:132`) не описывает
+  страницу понятий.
+- Windows: scope `pc` (e2e spec-ы) — gate full ПК после merge (ADR-0086).
