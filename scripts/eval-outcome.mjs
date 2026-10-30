@@ -20,16 +20,21 @@
 // of --max-cost-usd, one with the profile `full` and one with `eco` (PROFILES). Each call evaluates
 // its own copy of the plugin, which differs from harness/ only in one more state script,
 // evals-outcome/lib/plugin-state/zz-compare-profile.sh: it runs after worfy.sh in a task's scaffold
-// and sets `workflow.agents` and `agents` of the profile worfy.sh wrote. Results go to
+// and sets `workflow.agents` and `agents` of the profile worfy.sh wrote. After each call every
+// kept run must show those fields in the profile the plugin read (.git/worfy-harness of its working
+// folder); a run without them — a scaffold that does not run plugin-state/*.sh — fails the
+// comparison with exit 1 before the next call and before the score. Results go to
 // <results>/<time>/full/ and <time>/eco/, each scored, and <time>/compare.json puts them side by
 // side per task: the metrics, tokens and cost of each profile, the rework rounds (subagent briefs
 // that start with `Rework:` or carry a `Findings:` line) and subagents per run from the traces, and
 // the difference eco − full (rates: Newcombe interval and Fisher p; tokens: the ratio full / eco).
 //
 // --dry-run prints the calls it would make — the plugin copy, the cost limit of each, the profile —
-// and exits 0 before any copy or claude call: the price is read from the command eval really runs.
+// and exits 0 before any plugin copy and before `claude plugin eval`: the price is read from the
+// command eval really runs. It does run `claude --version` (free), as every run does.
 //
-// --max-cost-usd is required: every call is paid. --ablation, --eval-dir, --output-dir, --model and
+// --max-cost-usd is required: every call is paid; a plain decimal above 0 and at most 1000, passed on
+// as a number. --ablation, --eval-dir, --output-dir, --model and
 // --judge-model are fixed and refused. With no task folder in harness/evals-outcome/ it says so and
 // exits 1 before claude starts. HARNESS_DIR=<dir> evaluates another copy of the plugin (the tests).
 // Results go to scripts/eval-outcome/results/<time>/, outside the plugin, so no plugin copy carries
@@ -40,15 +45,15 @@
 // skips that (not with --compare-profiles, which needs the score). A signal during the score stops
 // it between runs: no outcome.json. A signal during the first call of --compare-profiles starts no
 // second one. Exit code: the worse of the calls' and the scores'; 1 — no task folder, no claude, a
-// claude without `plugin eval`, no git, a call without aggregate-result.json, or a score with
-// problems; 2 — usage; 128 + the signal number — stopped by a signal.
+// claude without `plugin eval`, no git, a call without aggregate-result.json, a profile that did
+// not reach the plugin, or a score with problems; 2 — usage; 128 + the signal number — stopped by a signal.
 import { constants } from 'node:os'
-import { existsSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
-import { judgeCommand, readTrace, scoreResults, taskFolders } from './eval-outcome-lib.mjs'
+import { copyKeptRun, judgeCommand, readTrace, scoreResults, taskFolders } from './eval-outcome-lib.mjs'
 import { fisherExact, newcombe } from './eval-outcome-stats.mjs'
 import { checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
@@ -133,6 +138,57 @@ function traceAgents(tracePath) {
   return { subagents: briefs.length, rework: briefs.filter((brief) => REWORK.test(brief)).length }
 }
 
+/** The state folder of the runs inside .git of their working folder: EVAL_HARNESS_HOME of scripts/eval-run-env.mjs. */
+const RUN_STATE = 'worfy-harness'
+
+/** JSON with the keys of every object sorted: two values are equal whatever their key order. */
+const canonical = (value) =>
+  Array.isArray(value)
+    ? `[${value.map(canonical).join(',')}]`
+    : value !== null && typeof value === 'object'
+      ? `{${Object.keys(value)
+          .sort()
+          .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
+          .join(',')}}`
+      : JSON.stringify(value)
+
+/**
+ * Where the profile of `run` did not reach the plugin: for every run of its result that is scored
+ * (no error, a trace), the profiles the plugin reads in the kept working folder
+ * (.git/worfy-harness/projects/<name>/profile.json, read from a copy, copyKeptRun) must exist and
+ * have the fields of `run`. A task whose scaffold does not run plugin-state/*.sh has none. Returns
+ * one line per such run.
+ */
+function profileProblems(run) {
+  const aggregate = JSON.parse(readFileSync(join(run.outputDir, 'aggregate-result.json'), 'utf8'))
+  const problems = []
+  for (const testCase of aggregate.cases ?? []) {
+    for (const [arm, results] of Object.entries(testCase.arms ?? {})) {
+      for (const [index, result] of results.entries()) {
+        if (result.error || !result.tracePath) continue
+        const where = `profile ${run.name}, ${testCase.name} ${arm} #${index}`
+        let copy = null
+        try {
+          copy = copyKeptRun(result.tracePath)
+          const projects = join(copy.work, '.git', RUN_STATE, 'projects')
+          const files = (existsSync(projects) ? readdirSync(projects) : []).map((name) => join(projects, name, 'profile.json')).filter((file) => existsSync(file))
+          if (files.length === 0) problems.push(`${where}: no profile in .git/${RUN_STATE}/projects of its working folder (does the scaffold run plugin-state/*.sh?)`)
+          for (const file of files) {
+            const profile = JSON.parse(readFileSync(file, 'utf8'))
+            const found = { 'workflow.agents': profile.workflow?.agents ?? null, agents: profile.agents ?? null }
+            if (canonical(found) !== canonical(run.fields)) problems.push(`${where}: ${relative(copy.work, file)} has ${JSON.stringify(found)}`)
+          }
+        } catch (error) {
+          problems.push(`${where}: its profile could not be read: ${error instanceof Error ? error.message : String(error)}`)
+        } finally {
+          if (copy) removeTree(copy.dir)
+        }
+      }
+    }
+  }
+  return problems
+}
+
 const mean = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null)
 
 /** One profile's side of a task: the summary of the arm with the plugin and the counts from its traces. */
@@ -154,7 +210,7 @@ function sideOf(arm) {
 function compareProfiles(profileRuns, outcomes) {
   const summary = {
     schemaVersion: 1,
-    maxCostUsd: Number(cost),
+    maxCostUsd: limitUsd,
     profiles: Object.fromEntries(profileRuns.map((run) => [run.name, { fields: run.fields, results: run.outputDir, maxCostUsd: Number(run.limit) }])),
     tasks: {},
   }
@@ -209,6 +265,8 @@ function summaryLines(summary) {
 // --- the run -------------------------------------------------------------------------------------
 
 const OWN_FLAGS = ['--no-score', '--compare-profiles', '--dry-run']
+/** The highest --max-cost-usd this script passes on: a typo of a few zeros must not reach a paid call. */
+const COST_CEILING_USD = 1000
 const given = process.argv.slice(2)
 if (given[0] === '--') given.shift()
 const score = !given.includes('--no-score')
@@ -222,14 +280,18 @@ for (const flag of OWN_FLAGS) if (named(flag)) stop(2, `${flag} takes no value; 
 const costIndex = passThrough.findIndex((arg) => arg === '--max-cost-usd' || arg.startsWith('--max-cost-usd='))
 const inline = costIndex >= 0 && passThrough[costIndex].includes('=')
 const cost = costIndex < 0 ? '' : inline ? passThrough[costIndex].split('=')[1] : passThrough[costIndex + 1]
-if (!(Number(cost) > 0)) stop(2, `--max-cost-usd <usd> is required: every run is paid; ${usage}`)
+// A plain decimal only: Number() also reads `Infinity`, `0x10` and `1e9`, and claude would get the raw text.
+if (!/^\d+(?:\.\d+)?$/.test(cost ?? '') || !(Number(cost) > 0) || Number(cost) > COST_CEILING_USD) {
+  stop(2, `--max-cost-usd <usd> is required: a plain decimal above 0 and at most ${COST_CEILING_USD} (every run is paid); ${usage}`)
+}
+const limitUsd = Number(cost)
 // A second one would reach claude after the limit this script sets, and claude would take it.
 if (passThrough.filter((arg) => arg === '--max-cost-usd' || arg.startsWith('--max-cost-usd=')).length > 1) stop(2, `--max-cost-usd is given twice; ${usage}`)
 if (compare && !score) stop(2, `--compare-profiles compares the scores of its two runs: --no-score cannot go with it; ${usage}`)
 // The arguments for claude without --max-cost-usd: each call gets its own limit.
 const rest = passThrough.filter((_, i) => i !== costIndex && (inline || i !== costIndex + 1))
 // Each of the two runs gets half, rounded down to the cent.
-const half = Math.floor(Number(((Number(cost) * 100) / 2).toFixed(6))) / 100
+const half = Math.floor(Number(((limitUsd * 100) / 2).toFixed(6))) / 100
 if (compare && !(half > 0)) stop(2, `--max-cost-usd ${cost} is too small for two runs: each gets half, at least 0.01; ${usage}`)
 
 const tasks = taskFolders(OUTCOME)
@@ -245,7 +307,7 @@ say(`claude ${version} (${claude}), model ${MODEL}, judge ${JUDGE_MODEL}, tasks:
 const RESULTS = process.env.EVAL_OUTCOME_RESULTS ? resolve(process.env.EVAL_OUTCOME_RESULTS) : join(REPO, 'scripts', 'eval-outcome', 'results')
 const runs = compare
   ? Object.entries(PROFILES).map(([name, fields]) => ({ name, fields, ablation: 'none', limit: String(half), outputDir: join(RESULTS, stamp, name) }))
-  : [{ name: null, fields: null, ablation: 'with-without', limit: cost, outputDir: join(RESULTS, stamp) }]
+  : [{ name: null, fields: null, ablation: 'with-without', limit: String(limitUsd), outputDir: join(RESULTS, stamp) }]
 // The target goes first: --allow-tools takes a list and would swallow it.
 const argsOf = (run, target) => [
   'plugin',
@@ -281,7 +343,7 @@ if (dryRun) {
     if (run.name) say(`profile ${run.name}: ${JSON.stringify(run.fields)}`)
     say(`${run.name ?? 'the call'} — claude ${argsOf(run, `<a copy of ${SOURCE}>`).join(' ')}`)
   }
-  say(`dry run: no copy made, no claude call; together the calls may spend up to ${cost} USD, and scoring adds the judge's calls`)
+  say(`dry run: no plugin copy made, plugin eval not started; together the calls may spend up to ${limitUsd} USD, and scoring adds the judge's calls`)
   process.exit(0)
 }
 
@@ -305,6 +367,7 @@ const aggregateOf = (run) => join(run.outputDir, 'aggregate-result.json')
 const gitDir = gitFolder(RESULTS, stamp)
 const evalGit = gitForRuns(gitDir, childEnv, fail)
 let worst = 0
+const notApplied = []
 try {
   for (const run of runs) {
     let harness = ''
@@ -323,8 +386,11 @@ try {
       if (harness) removeTree(dirname(harness))
     }
     await signalsHandled()
-    // A stopped or failed first call starts no second: its money would buy no comparison.
+    // A stopped or failed first call starts no second: its money would buy no comparison. Nor does
+    // a run whose profile did not reach the plugin: it would compare full with full.
     if (stopped || !existsSync(aggregateOf(run))) break
+    if (run.fields) notApplied.push(...profileProblems(run))
+    if (notApplied.length > 0) break
   }
 } finally {
   removeTree(gitDir)
@@ -332,6 +398,7 @@ try {
 
 await signalsHandled()
 if (stopped) exitStopped()
+if (notApplied.length > 0) stop(1, `the profile under comparison did not reach the plugin, nothing scored:\n${notApplied.join('\n')}`)
 for (const run of runs) {
   if (!existsSync(aggregateOf(run))) stop(Math.max(worst, 1), `no ${aggregateOf(run)}: nothing to score`)
   say(aggregateOf(run))

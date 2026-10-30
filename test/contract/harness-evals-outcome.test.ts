@@ -1555,6 +1555,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     withTask: boolean,
     extra: NodeJS.ProcessEnv = {},
     source = HARNESS,
+    editScaffold: (text: string) => string = (text) => text,
   ): { run: SpawnSyncReturns<string>; calls: StubCall[]; profiles: StubProfile[]; harness: string; root: string; results: string; log: string } {
     const root = tempDir('outcome-wrapper-')
     const harness = join(root, 'harness')
@@ -1565,7 +1566,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
       cpSync(join(task.tasks, task.name), join(harness, 'evals-outcome', task.name), { recursive: true })
       // The scaffold names the lib folder of the repository; in the copy it uses the copy's own.
       const scaffold = join(harness, 'evals-outcome', task.name, 'scaffold.sh')
-      writeFileSync(scaffold, readFileSync(scaffold, 'utf8').replace(`lib=${JSON.stringify(LIB)}`, 'lib="$(dirname "$0")/../lib"'))
+      writeFileSync(scaffold, editScaffold(readFileSync(scaffold, 'utf8').replace(`lib=${JSON.stringify(LIB)}`, 'lib="$(dirname "$0")/../lib"')))
       writeFileSync(join(harness, 'evals-outcome', task.name, 'stub-agent-with.sh'), GOOD_AGENT)
       writeFileSync(join(harness, 'evals-outcome', task.name, 'stub-agent-without.sh'), BAD_AGENT)
       hidden = task.hidden
@@ -1832,6 +1833,43 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     expect(run.status).not.toBe(0)
     expect(calls).toHaveLength(1)
     expect(profiles).toEqual([])
+  }, RUN_TIMEOUT)
+
+  it('--compare-profiles: a scaffold that does not run plugin-state/*.sh leaves the profile unset, and the comparison fails after the first call, unscored', () => {
+    const glob = 'for state in "$lib"/plugin-state/*.sh; do [ ! -e "$state" ] || bash "$state"; done\n'
+    const { run, calls, results } = stubRun(['--compare-profiles', '--max-cost-usd', '5'], true, {}, HARNESS, (text) => {
+      expect(text).toContain(glob)
+      return text.replace(glob, '')
+    })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toMatch(/did not reach the plugin/)
+    expect(run.stderr).toMatch(/profile full, synthetic-add with #0: no profile in \.git\/worfy-harness\/projects/)
+    expect(calls).toHaveLength(1)
+    expect(scored(join(results, readdirSync(results)[0]!))).toEqual([])
+    expect(readdirSync(join(results, readdirSync(results)[0]!))).not.toContain('compare.json')
+  }, RUN_TIMEOUT)
+
+  it('--compare-profiles: a run whose profile is set back to full after the profile script fails the eco side, unscored', () => {
+    const glob = 'for state in "$lib"/plugin-state/*.sh; do [ ! -e "$state" ] || bash "$state"; done\n'
+    const reset = `node -e 'const fs = require("node:fs"); const f = ".git/worfy-harness/projects/fixture/profile.json"; const p = JSON.parse(fs.readFileSync(f, "utf8")); p.workflow.agents = "full"; delete p.agents; fs.writeFileSync(f, JSON.stringify(p))'\n`
+    const { run, calls } = stubRun(['--compare-profiles', '--max-cost-usd', '5'], true, {}, HARNESS, (text) => text.replace(glob, `${glob}${reset}`))
+    expect(run.status).toBe(1)
+    expect(calls).toHaveLength(2)
+    expect(run.stderr).toMatch(/profile eco, synthetic-add with #0: \.git[\\/]worfy-harness[\\/]projects[\\/]fixture[\\/]profile\.json has \{"workflow\.agents":"full","agents":null\}/)
+    expect(run.stderr).not.toMatch(/profile full,/)
+  }, RUN_TIMEOUT)
+
+  it.each(['Infinity', '0x10', '1e9', '1001', '-5', '0'])('refuses --max-cost-usd %s (exit 2) and calls no claude', (limit) => {
+    const { run, calls } = stubRun(['--max-cost-usd', limit], true)
+    expect(run.status).toBe(2)
+    expect(run.stderr).toMatch(/a plain decimal above 0 and at most 1000/)
+    expect(calls).toEqual([])
+  }, RUN_TIMEOUT)
+
+  it('passes --max-cost-usd on as a number, not as the text given', () => {
+    const { run } = stubRun(['--max-cost-usd=007.50', '--dry-run'], true)
+    expect(run.status).toBe(0)
+    expect(run.stdout).toMatch(/--ablation with-without .*--max-cost-usd 7\.5 /)
   }, RUN_TIMEOUT)
 
   it('--dry-run prints each call it would make, with its cost limit and profile, and calls no claude', () => {

@@ -55,12 +55,14 @@ an Orchestrator call and the start context of a subagent, from Claude Code trans
                           earlier. The Ticket of a subagent comes from its brief (see ticketOf);
                           the Orchestrator from the wave command, split evenly between the
                           Wave's Tickets; the rest is the row "(no ticket)".
-  --waits                 how many Orchestrator responses come right after a wait: the
-                          notice that a background command or a Monitor ended, or the result
-                          of a CI wait (gh pr checks --watch, gh run watch); their tokens and
-                          cost. Responses right after the notice that a subagent finished are
-                          shown apart and are not counted as waits.
-  --json                 JSON instead of the table.
+  --waits                 how many Orchestrator responses come right after a wait: the notice
+                          that a background command ended or that a Monitor printed an event
+                          (a Monitor sends one notice per event, not only at its end), or the
+                          result of a CI wait run in the foreground (gh pr checks --watch,
+                          gh run watch; one run in the background counts by its notice);
+                          their tokens and cost. Responses right after the notice that a
+                          subagent finished are shown apart and are not counted as waits.
+  --json                  JSON instead of the table.
   --help                  this text.
 
 Exit code: 0 the report was made; 2 wrong arguments or no transcripts folder.`
@@ -243,8 +245,8 @@ export const ciWait = (command) => /\bgh\s+(?:pr\s+checks\b[^\n;&|]*\s--watch\b|
 
 /**
  * Notes in `pending` what a main session's user line brings: a task notification (Claude Code's
- * `<task-notification>` message) of a background command or a Monitor, or of a subagent; the result
- * of a tool call in `ciTools`. A response after several of them gets the first of WAIT_KINDS among
+ * `<task-notification>` message) that a background command ended or a Monitor printed an event
+ * ("Monitor event: …", one per event), or of a subagent; the result of a tool call in `ciTools`. A response after several of them gets the first of WAIT_KINDS among
  * them; a prompt of the person in between does not change that.
  */
 function noteWait(message, pending, ciTools) {
@@ -360,7 +362,9 @@ async function readTranscript(path, subagent, waits = false) {
     // The second line of a response finds nothing pending: measure keeps the wait of its first line.
     const wait = noteWaits ? (WAIT_KINDS.find((kind) => pending.has(kind)) ?? null) : null
     pending.clear()
-    for (const block of tools) if (noteWaits && block.name === 'Bash' && ciWait(String(block.input?.command ?? ''))) ciTools.add(block.id)
+    // A CI wait run in the background answers at once ("Command running in background"); it is
+    // counted once, by the notice that it ended.
+    for (const block of tools) if (noteWaits && block.name === 'Bash' && block.input?.run_in_background !== true && ciWait(String(block.input?.command ?? ''))) ciTools.add(block.id)
     calls.push({
       wait,
       id: message.id || entry.requestId || `${path}#${order}`,
