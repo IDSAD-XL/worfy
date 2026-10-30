@@ -34,8 +34,8 @@ field folds the stack opened last.
 **Collapsing.** An Epic with Tickets, all done, is collapsed by default until the user opens it. The chevron is one step
 of undo.
 
-**The strip.** Frames stand in K columns in the strip's order: frame i goes to column i mod K. Each column is as wide as
-its widest frame, and frames and columns are 48 apart. The strip starts at y = 0. Its left edge is the first x from 0
+**The strip.** Frames stand in K columns in the strip's order: frame i goes to column i mod K. Every column is as wide as
+the widest frame of the strip, and frames and columns are 48 apart. The strip starts at y = 0. Its left edge is the first x from 0
 rightwards that stays 48 from every Node on the plane in the band of the strip's height. A Node lower than that does not
 move it. The size of the window does not count.
 
@@ -44,9 +44,9 @@ on a tie. An earlier K stays while it is within 30 % of the target. Otherwise th
 is within 30 %, or when the old one is more than 1.3 times further off.
 
 **Order of the strip.** With no record of the arrangement, frames go by name. With a record, the order is kept: Epics
-that are gone drop out, and new ones go to the end by name. Activity alone changes nothing. Two automatic writes change
-it, both past undo: the first opening of a Project in a calendar day puts active Epics first and picks K afresh, and the
-record is also written when K changes. An active Epic has a claimed Ticket, a live agent bound to it or to its Ticket,
+that are gone drop out, and new ones go to the end by name. Activity alone changes nothing. Three automatic writes change
+the record, all past undo: the first opening of a Project in a calendar day puts active Epics first and picks K afresh, an
+Epic on the Done shelf by default leaves the order, and a new K is written when K changes. An active Epic has a claimed Ticket, a live agent bound to it or to its Ticket,
 or a running Autopilot. "Re-pack" puts active Epics first and picks K with no bias towards the old one, as one step of
 undo.
 
@@ -68,7 +68,7 @@ block for ELK, so opening it changes nothing in the graph ([ADR-0039](../adr/003
 The strip has K columns because one column grew to several screen heights. It does not depend on the window, so two
 screens show one Project with the same places ([ADR-0075](../adr/0075-epic-frames-in-columns-and-done-shelf.md)).
 
-**The Layout keeps only what the user changed.** The frame itself comes from the workflow
+**For the frames themselves, the Layout keeps only what the user changed.** The frame itself comes from the workflow
 ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflow.md)). For each changed Epic, the Layout has a locked
 `epic-frame` Node of size 1 × 1. Its x and y hold the offset, and its data holds `collapsed`.
 
@@ -119,7 +119,7 @@ strip's order in one step of undo. An Epic that is on the shelf by default leave
 undo. If a Ticket is reopened or added, the Epic returns to the strip, last. Epics on the shelf do not count in K.
 
 **Finding.** The sidebar, the palette's Go to and Find all lead to the chip. A Binding line to an Epic on the shelf ends
-at its chip, and [Arrange by Epic](canvas.md#node-and-layout) counts its Sessions as "Unbound".
+at its chip, and [Arrange by Epic](canvas.md#node-and-layout) counts its Sessions as Unbound.
 
 #### On a Linked machine
 

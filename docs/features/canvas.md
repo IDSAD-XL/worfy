@@ -16,11 +16,11 @@ the Layout. The Epic frame, the Ticket and the Subagent are Derived Nodes: worfy
 | --- | --- | --- |
 | Note | 220 × 120 | 120 × 64 |
 | Card | 360 × 280 | 160 × 100 |
-| Session | 300 × 120 | width 240 |
-| Terminal | 560 × 340 | |
-| Browser | 640 × 440 | |
+| Session | 300 × 120 | 240 × 140; started outside worfy 200 × 80 |
+| Terminal | 560 × 340 | 240 × 120 |
+| Browser | 640 × 440 | 360 × 200 |
 | HANDOFF | 360 × 320 | 240 × 120 |
-| Orchestrator | 360 × 200 | |
+| Orchestrator | 360 × 200 | 240 × 120 |
 | Image | by the picture, see [Inserting images](#inserting-images) | 48 × 48 |
 
 A Node of a kind this build does not have stays in the Layout with its data. It is drawn as `Unknown node: <kind>` and
@@ -52,7 +52,7 @@ out N of M, the Sessions history. On this Machine it shows only after 300 ms, so
 5. The active Node has something to scroll at the pointer: the content scrolls, even at the end of its scroll.
 6. Otherwise: the Canvas pans.
 
-**Active Node.** A plain click on a selected Node makes it active. A click on the empty plane, a press outside the Node,
+**Active Node.** A plain click on a Node selects it and makes it active. A click on the empty plane, a press outside the Node,
 Esc outside a Terminal, or losing the selection ends it. A Card takes the mouse only while it is active. No Card takes
 the mouse during a drag, a resize or a pan.
 
@@ -103,7 +103,7 @@ place, it does nothing. It is one step of undo. If it fails, the Nodes keep thei
 
 **Arrange by Epic.** It moves only Session Nodes on the plane without Keep. They form one column 48 to the right of the
 [strip of Epic frames](epic-frames.md#epic-frame), grouped by Epic from the height of the frame's header, 24 between Nodes and 48 between groups.
-Sessions without a Binding, or bound to an Epic on the Done shelf, go under them as "Unbound". With no strip it does
+Sessions without a Binding, or bound to an Epic on the Done shelf, go under them as Unbound. With no strip it does
 nothing, and a second run changes nothing.
 
 **New Nodes.** A Node worfy makes by itself, such as the Orchestrator, HANDOFF or a new Session, goes to (40, 40) when
@@ -119,7 +119,7 @@ Node was changed on another screen" or "Not redone: …". Note text has its own 
 **Trash.** Cards, Notes, Terminals, Session Nodes and images can be deleted. Locked Nodes, such as the Orchestrator and
 HANDOFF, cannot, and neither can a Session Node with a running Session. Deleted Nodes wait for 3 days in the Trash,
 opened by the button at the bottom centre, newest first, each with Restore. Restore brings the Node back with the same
-id and place. A Card moves with its files and data, and an image with its file unless another Node shows it.
+id, at its old place if clear, otherwise at the nearest clear place. A Card moves with its files and data, and an image with its file unless another Node shows it.
 
 **Archive.** worfy takes finished Session Nodes off the Canvas by itself, and nothing is deleted. The rule runs when the
 Project's Layout is first read and every 10 minutes. It takes a Session Node whose Session is not live, without Keep,
@@ -156,7 +156,7 @@ separately for each Linked machine's Project.
 #### Windows
 
 Ctrl takes the place of ⌘. Inside a Terminal Node, Ctrl and a key belong to the shell and not to the Canvas. The
-exception is zoom: Ctrl+= and Ctrl+− still zoom there, while Ctrl+_ stays the shell's undo.
+exception is zoom: Ctrl+= and Ctrl+− still zoom the Canvas from there, while Ctrl+_ stays the shell's undo.
 
 ### How it works
 
@@ -184,7 +184,7 @@ each Linked machine ([ADR-0066](../adr/0066-read-only-access-for-a-linked-machin
 | `src/shared/layout/free-place.ts` | The no-overlap rule: `NODE_GAP`, nearest clear shift, how a resize stops |
 | `src/shared/layout/derived.ts` | Which Nodes are on the plane, and the ids of Derived Nodes |
 | `src/main/layout/store.ts` | `LayoutStore`: applies operations, refuses, settles Nodes, saves `layout.json` |
-| `src/main/layout/upgrade.ts` | What the first read of an older `layout.json` removes, once |
+| `src/main/layout/upgrade.ts` | What a read of an older `layout.json` removes or moves, once |
 | `src/main/layout/place.ts` | The place of a new Node |
 | `src/main/layout/viewports.ts` | The camera per Project per Machine, in `viewports.json` |
 | `src/main/layout/trash.ts`, `src/shared/ipc/trash.ts` | Trash folders, kinds that can go, refusals, the purge at app start |
@@ -264,7 +264,8 @@ uses the frame around the Node, when there is one.
 
 #### On a Linked machine
 
-Find works as here: it only reads.
+The Find bar works as here: it only reads. With Read only, the Go to row of an archived or hidden Node is inactive with a
+tooltip, because bringing it back changes the Layout.
 
 #### Windows
 
@@ -280,10 +281,10 @@ a shell are the shell's.
 
 | Module | What it holds |
 | --- | --- |
-| `src/renderer/find/CanvasFind.tsx` | The bar, its keys, the outlines and the sources it gathers |
+| `src/renderer/find/CanvasFind.tsx` | The bar, its keys, the outlines, the sources it gathers and the wait for a Node |
 | `src/renderer/find/search-index.ts` | The index, the normalized query, the limit, reading order and the snippet |
-| `src/renderer/find/canvas-requests.ts` | Requests from the palette, and the wait for a Node |
-| `src/renderer/find/node-rect.ts` | Where a match is on the plane, with the frame and chip fallbacks |
+| `src/renderer/find/canvas-requests.ts` | Requests from the palette |
+| `src/renderer/find/node-rect.ts` | Where a match is on the plane, with the chip of an Epic on the Done shelf |
 | `src/renderer/canvas/overlays/CanvasFind.tsx` | Its place on the Canvas |
 | `src/renderer/palette/commands.ts` | Go to rows and layout commands |
 | `src/renderer/shortcuts/match.ts` | The rule of the Terminal Node |
