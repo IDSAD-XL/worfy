@@ -932,6 +932,7 @@ describe('review debt of Wave 1 (worfy-canvas ticket 16; ADR-0076, Amendments)',
     expect(registry.worktreeFailures()).toBe(0)
   })
 
+  // Windows: the failing git here is a #!/bin/sh file named `git` on PATH, which Windows does not start.
   it.skipIf(process.platform === 'win32')('git not installed is no failure; git failing otherwise (a timeout, an unexpected exit) is, and that run archives nothing', async () => {
     const { archiveRegistry } = await import('../../src/main/layout/archive')
     const home = join(scratch, 'claude-home')

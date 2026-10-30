@@ -160,6 +160,7 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(registrations()).toEqual([`-f ${target}`, `-f ${target}`])
     }, ms(60_000))
 
+    // macOS only: Launch Services (lsregister) exists on macOS only.
     it.runIf(process.platform === 'darwin')('a registration that Launch Services refuses is named, and the copy stays installed', () => {
       const target = targetIn('apps', 'worfy-stable')
       const line = installStable([target], inProcess({ WORFY_STABLE_LSREGISTER: '/usr/bin/false' }))

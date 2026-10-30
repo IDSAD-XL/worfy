@@ -39,6 +39,7 @@ async function developer() {
   return { shell, home, rcMarker, parts, runs }
 }
 
+// Windows: the agent environment there is not a login shell capture (captureAgentEnv takes captureWindowsEnv); the stand-in shell is /bin/sh.
 describe.skipIf(process.platform === 'win32')('the login shell of an e2e launch', () => {
   it("a spec without SHELL: the app's start runs neither the developer's shell nor an rc file, and gets the test process's PATH", async () => {
     const dev = await developer()

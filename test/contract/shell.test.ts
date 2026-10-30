@@ -582,6 +582,7 @@ describe('shell.openInEditor opens documents and asks about anything else', () =
   })
 
   // Line breaks would push the real extension out of the box: `invoice.md` and, three lines down, `.command`.
+  // Windows: a file name cannot hold a line break, so this file cannot be made.
   it.skipIf(process.platform === 'win32')('shows a mark in place of each line break of the name', async () => {
     const file = projectFile('lines/invoice.md\n\n\n.command')
     await asPlatform('darwin', async () => expect(outcome(await open(file))).toBe('cancelled'))

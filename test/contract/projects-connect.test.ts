@@ -782,6 +782,7 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
   // Mac review of PR #482 (worfy-windows ticket 59): stop() returned at once when the script had
   // exited, so the signal left its process group running with the pipes, and the run waited for the
   // time limit.
+  // Windows has no process groups: this case is POSIX only.
   it.skipIf(process.platform === 'win32')('the signal after the script has exited while its process group holds the pipes: the group is killed, the answer is the script\'s own exit code', { timeout: ms(20_000) }, async () => {
     const binDir = join(scratch, 'harness-bin')
     mkdirSync(binDir)
@@ -815,6 +816,7 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
   // the Ctrl+C or SIGHUP of a terminal that started worfy does not reach it. Electron quits on those
   // signals and node emits 'exit'; the runner kills every script still running then — also
   // qmd-collections, which runs with no signal of its own (src/main/harness/qmd.ts).
+  // Windows has no process groups: this case is POSIX only.
   it.skipIf(process.platform === 'win32')('on the exit of worfy every Harness script still running is killed with its process group', { timeout: ms(20_000) }, async () => {
     const binDir = join(scratch, 'harness-bin')
     mkdirSync(binDir)
@@ -844,6 +846,7 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
 
   // Review round 1 of PR #507: SIGKILL on the exit left qmd-collections no chance to release
   // refresh.lock. The exit sends SIGTERM, which a script can handle.
+  // Windows has no SIGTERM a script can handle: a kill there ends the process at once.
   it.skipIf(process.platform === 'win32')('on the exit of worfy a running script gets SIGTERM, so it can clean up before it ends', { timeout: ms(20_000) }, async () => {
     const binDir = join(scratch, 'harness-bin')
     mkdirSync(binDir)
@@ -870,6 +873,7 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
 
   // Review round 1 of PR #507 (mutant M1): the script has exited, its process group still holds the
   // pipes; the exit of worfy ends that group too.
+  // Windows has no process groups: this case is POSIX only.
   it.skipIf(process.platform === 'win32')('on the exit of worfy the group of a script that has exited, still holding its pipes, is ended', { timeout: ms(20_000) }, async () => {
     const binDir = join(scratch, 'harness-bin')
     mkdirSync(binDir)

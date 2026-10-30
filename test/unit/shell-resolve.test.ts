@@ -269,6 +269,7 @@ describe('resolveProjectFile on this file system', () => {
   it('opens a file named in another letter case on a case-insensitive volume', async (context) => {
     const resolveProjectFile = await load()
     const other = join(scratch, 'stuff', 'repo', 'a.md')
+    // A case-sensitive volume has no file under the other spelling: nothing to open there.
     if (!existsSync(other)) context.skip()
     expect(await resolveProjectFile(repo, other, [])).toBe(realpathSync.native(other))
   })

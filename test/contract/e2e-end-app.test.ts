@@ -69,6 +69,7 @@ function app(): ChildProcess {
 }
 
 describe('endApp', () => {
+  // Windows: the stand-in is a POSIX `sh` over `sleep` (shellOverApp), the macOS and Linux shape of the case.
   it.skipIf(process.platform === 'win32')('kills the app the shell started, not only the shell, and waits for both', async () => {
     const { shell, appPid } = await shellOverApp()
     expect(running(appPid)).toBe(true)
@@ -100,6 +101,7 @@ describe('endApp', () => {
     expect(running(child.pid!)).toBe(false)
   })
 
+  // Windows: the stand-in is a zombie process read through `ps -o stat=` (zombie); Windows has neither.
   it.skipIf(process.platform === 'win32')('rejects when the app’s process outlives the kill', async () => {
     const { pid } = await zombie()
     const child = app()
@@ -109,6 +111,7 @@ describe('endApp', () => {
     expect(running(pid)).toBe(true)
   })
 
+  // Windows: the stand-in is a zombie process read through `ps -o stat=` (zombie); Windows has neither.
   it.skipIf(process.platform === 'win32')('waits until the app’s process is gone, past the exit of the started process', async () => {
     const { parent, pid } = await zombie()
     const child = app()

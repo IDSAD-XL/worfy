@@ -47,6 +47,7 @@ afterEach(() => {
   removeTestTree(scratch)
 })
 
+// Windows: the agent environment there is not a login shell capture (captureAgentEnv takes captureWindowsEnv); the stand-in shell is #!/bin/sh.
 describe.skipIf(process.platform === 'win32')('recaptureAgentEnv', () => {
   it('agentEnv() holds its capture; a recapture runs the shell once for every caller meanwhile, and agentEnv() answers with it after', async () => {
     const { agentEnv, recaptureAgentEnv } = await env()

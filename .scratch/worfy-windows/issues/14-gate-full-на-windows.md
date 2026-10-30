@@ -40,7 +40,7 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
   - `test/contract/workflow-reader.test.ts:577` — FSEvents сливает события одного сохранения,
     inotify шлёт больше;
   - `test/contract/terminal.test.ts:163` — `$SHELL -l`, а `/bin/sh` на Linux — dash;
-  - `test/contract/make-icons.test.ts:176` — `sips` и `iconutil` есть только на macOS.
+  - `test/contract/make-icons.test.ts:226` — `sips` и `iconutil` есть только на macOS.
 
   Комментарии `test/unit/tail.test.ts:68` и `test/contract/workflow-reader.test.ts:575` говорят
   «worfy runs on macOS only». После порта это неправда.
@@ -249,16 +249,31 @@ Harness (Ticket 05); test-ы qmd (Ticket 15); Windows-раннер на PR (Q23 
 
 ## Готово, когда
 
+Условие приёмки — один полностью зелёный gate full на ПК владельца (решение владельца 2026-10-23). Устойчивость —
+не условие этого Ticket-а: flaky test-ы идут в эпик polish, повторные запуски в CI — по правилу от 2026-10-28.
+Сверка каждого пункта — «Итог», раздел «Итоговая сверка критериев».
+
 - [ ] На ПК владельца `pnpm test` — код 0. Каждый пропуск на `win32` — с комментарием о причине; список — в Итог.
-- [ ] На Mac ни один из пяти test-ов только для macOS не пропущен: `pnpm test --reporter=verbose` показывает их пройденными (через раздел Mac checks PR, Q33).
-- [ ] `grep -rnE "Meta\+|'Meta'" test/e2e` — пусто (код 1); на Mac `pnpm test:e2e` — код 0.
-- [ ] На ПК владельца `pnpm build && pnpm exec playwright test test/e2e/terminal.spec.ts --grep-invert @packaged` — код 0: PowerShell по умолчанию, один случай в Git Bash; после закрытия Node и выхода из worfy у main-процесса worfy нет дочерних оболочек.
-- [ ] На ПК владельца `pnpm test:package` — код 0: test-ы `@packaged` запустили `dist/win-unpacked/worfy.exe`, Terminal в собранном приложении работает.
-- [ ] `harness-scripts.test.ts` на Windows запускает `.test.sh` через Git Bash, а не через `C:\Windows\System32\bash.exe` (путь bash виден в выводе test-а); `qmd.test.sh` пропущен с причиной, где назван Ticket 15.
-- [ ] `GATE_SCOPE=all` gate full (команда Gate — какой её оставил Ticket 03) на ПК владельца — код 0 и вердикт «зелено». Вывод `[gate]` — в Итог.
-- [ ] То же на Mac — код 0 и вердикт «зелено» (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
-- [ ] `ci.yml`: `git diff origin/main -- .github/workflows/ci.yml` не трогает job `check` и триггеры `pull_request` и `push`; job `windows` и `full-macos` идут только на `workflow_dispatch` со своим значением `platform`.
-- [ ] Один ручной прогон `gh workflow run CI -f platform=windows` — только с согласия владельца (минута Windows — $0.010); ссылка на прогон — в Итог. Без согласия пункт — «не проверено», с причиной.
+  Код 0 — gate `37145bfe`. Список — [evidence/14-пропуски-на-win32.md](../evidence/14-пропуски-на-win32.md); у трёх
+  пропусков причина из кода не ясна — ждём решение Оркестратора.
+- [x] На Mac ни один из пяти test-ов только для macOS не пропущен: `pnpm test --reporter=verbose` показывает их пройденными (через раздел Mac checks PR, Q33).
+  По CI main run 41057465482 (`adc385a6`, старше merge #1052).
+- [x] Голого `Meta` в `test/e2e` нет, кроме `terminal-ai-request.spec.ts:111, :153, :172`:
+  `grep -rnE "'Meta[+']" test/e2e` находит только их. Этот spec пропускается там, где нет zsh
+  (`test.skip(NO_ZSH, …)`, `:21`): на ПК zsh нет, поэтому там он пропущен; на Mac `Meta` — Cmd. На Mac
+  `pnpm test:e2e` — код 0. Формулировка изменена 2026-10-30 (решение Оркестратора): прежний шаблон
+  `grep -rnE "Meta\+|'Meta'" test/e2e` совпадал и с `ControlOrMeta+`, поэтому пустым не бывал.
+- [x] На ПК владельца `pnpm build && pnpm exec playwright test test/e2e/terminal.spec.ts --grep-invert @packaged` — код 0: PowerShell по умолчанию, один случай в Git Bash; после закрытия Node и выхода из worfy у main-процесса worfy нет дочерних оболочек.
+- [x] На ПК владельца `pnpm test:package` — код 0: test-ы `@packaged` запустили `dist/win-unpacked/worfy.exe`, Terminal в собранном приложении работает.
+- [x] `harness-scripts.test.ts` на Windows запускает `.test.sh` через Git Bash, а не через `C:\Windows\System32\bash.exe` (путь bash виден в выводе test-а); `qmd.test.sh` пропущен с причиной, где назван Ticket 15.
+- [x] `GATE_SCOPE=all` gate full (команда Gate — какой её оставил Ticket 03) на ПК владельца — код 0 и вердикт «зелено». Вывод `[gate]` — в Итог.
+- [ ] То же на Mac: вердикт — `ci-ok` на main; локальный gate full на Mac не требуется с 2026-10-28. **Ждём
+  решение:** main красный в push-CI с `bd732aa4`; пункт дописывается с зелёным прогоном main.
+- [x] ~~`ci.yml`: `git diff origin/main -- .github/workflows/ci.yml` не трогает job `check` и триггеры `pull_request` и `push`; job `windows` и `full-macos` идут только на `workflow_dispatch` со своим значением `platform`.~~
+  Заменён решением владельца 2026-10-28 (пункт 4): вердикт по Windows — job `windows` внутри `ci-ok`, ручного
+  job-а нет; у `workflow_dispatch` на main нет ввода `platform`.
+- [x] ~~Один ручной прогон `gh workflow run CI -f platform=windows` — только с согласия владельца (минута Windows — $0.010); ссылка на прогон — в Итог. Без согласия пункт — «не проверено», с причиной.~~
+  Заменён тем же решением: ручного прогона нет, Windows проверяется на PR job-ами `windows` и `windows-e2e`.
 
 ## Тесты
 
@@ -719,3 +734,74 @@ reload, стрелки колеса в alternate screen): `terminal.spec.ts:218`
   снят `Stop-Process`; после повторов — ни одного. История PowerShell (PSReadLine) и `.bash_history` владельца до
   и после прогонов не изменились (размер и SHA256). Таблица «Красные e2e сейчас» в «Что происходит» — по этому
   пересчёту.
+
+### Итоговая сверка критериев (Session на Windows-ПК, 2026-10-30)
+
+Проверено по main `2399dcc8` и gate full на `37145bfe` (head PR #1052).
+
+**Gate full на ПК (пункты 1, 4, 5, 7).** Условие приёмки — один полностью зелёный gate full (решение владельца
+2026-10-23). `37145bfe`, `GATE_SCOPE=all`, 8 worker-ов, 2026-10-30, exit 0:
+
+```
+[gate] scope (full): all packages — . (reason: set by GATE_SCOPE=all)
+[gate] time (full): 4174.6 s in all; worfy/.:lint 31.6 s, worfy/.:typecheck 10.5 s, worfy/.:test 2312.9 s, worfy/.:test:e2e 1670.5 s, worfy/.:test:package 147.2 s
+[gate] green (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package
+```
+
+- `pnpm test`: 489 файлов прошли, 4 пропущены; 10256 test-ов прошли, 0 упали, 434 пропущены.
+- e2e: 336 passed, 17 skipped. В `terminal.spec.ts` 9 зелёных, среди них «on Windows, Git Bash chosen in the
+  settings…», «quitting worfy ends every shell…» и «…closing the Node ends it».
+- `test:package`: 16 passed, 1 skipped; test-ы `@packaged` запускали `dist\win-unpacked\worfy.exe`.
+- Один зелёный прогон не доказывает, что flaky test-ов нет. Это не условие Ticket-а: flaky test-ы — в эпике polish,
+  повторные запуски в CI — по правилу от 2026-10-28.
+
+**Пропуски на win32 (пункт 1).** Полный список — [evidence/14-пропуски-на-win32.md](../evidence/14-пропуски-на-win32.md):
+test, условие, причина. Собран чтением кода main `2399dcc8`, без запуска; со счётчиком 434 gate-а по именам не
+сверялся (gate шёл с agent reporter, имён пропущенных в логе нет).
+- 306 мест skip, которые срабатывают на Windows. Одно место может покрывать несколько случаев (`it.each`, `skip` в
+  shell-test-е). Ещё 5 test-ов в карантине на win32 до 2026-11-12 (`test/quarantine/*.json`).
+- На ПК владельца всегда — 218. Причины: нет zsh (Terminal, shell-test-ы Harness-а, qmd до Ticket-а 15); POSIX-оболочка
+  и процессы (скрипты с `#!`, login shell, сигналы, группы процессов, биты режима файла); только macOS (Finder,
+  `codesign`, Launch Services, `sips`, рамка окна); имена файлов, которых Windows не допускает (`"`, перевод
+  строки, пробел в конце).
+- По условию — 88: 21 только на GitHub Actions, 16 без symlink; остальные — регистр букв на диске, 8.3-имена, нет
+  pwsh, Git Bash, node или `sh` на PATH, нет `$LIVE_GATE`, запуск из копии Harness-а.
+- 29 мест были без причины. К 23 этот PR дописал однострочный комментарий над skip — только комментарии, условия не
+  менялись. У трёх `skipIf(LINKS)` причина стоит в имени test-а. У трёх причина из кода не ясна, ждём решение
+  Оркестратора:
+  - `test/contract/harness-script-wiring.test.ts`, «what each run of a script gets»;
+  - там же, «the watcher asks for a fresh environment after a failure» — оба skip с PR #311 (2026-10-15), когда
+    worfy ещё не запускал скрипты Harness-а на Windows;
+  - `test/unit/shell-resolve.test.ts`, «opens a file named through a symlink alias of the Project root».
+
+**Git Bash в shell-test-ах (пункт 6).** Короткий запуск на ПК, exit 0, 1 passed, 75 skipped:
+`harness-scripts-1..4.test.ts --reporter=verbose -t "runs the shell tests with|qmd\.test\.sh|zsh is on PATH"`.
+
+```
+✓ … harness shell tests, file 1 of 4 > runs the shell tests with C:\Program Files\Git\bin\bash.exe
+↓ … harness shell tests, file 1 of 4 > bin/tests/qmd.test.sh exits 0 with an empty HOME [qmd scripts are zsh until worfy-windows ticket 15]
+```
+
+Test проверяет, что в пути нет `\system32\`. Каждый `.test.sh` запускается тем же `gitBash()`
+(`test/harness-scripts-suite.ts`, `runInEmptyHome`).
+
+**`Meta` (пункт 3).** Голый `Meta+` остался только в `terminal-ai-request.spec.ts:111, :153, :172`. Spec
+пропускается там, где нет zsh (`test.skip(NO_ZSH, …)`, `:21`): на ПК zsh нет, поэтому там он пропущен; на Mac
+`Meta` — Cmd.
+
+**Mac (пункты 2, 3).** CI main run 41057465482 на `adc385a6`, прогон старше merge #1052:
+- macos-tests: 10570 passed, 104 skipped; macos-e2e: 171 + 178 passed, 0 failed.
+- Пять test-ов только для macOS идут на Mac:
+  - `tail.test.ts`: 0 skipped, skip только для Linux (`:71`);
+  - `workflow-reader.test.ts`: test на 300 ms идёт, единственный skip — только для win32 (`:557`);
+  - `agent-env.test.ts`: test-ы `/bin/zsh` идут через `onMac` (`:75`), 7 skip — блоки win32 (`:759`, `:790`);
+  - `terminal.test.ts`: `$SHELL -l` под darwin (`:63`);
+  - `make-icons.test.ts`: блок darwin на `:226` (в «Что происходит» исправлено с `:176`).
+
+**CI (пункты 9, 10).** Заменены решением владельца 2026-10-28 (пункт 4): вердикт по Windows — job `windows` внутри
+`ci-ok`, ручного job-а нет. На main у `workflow_dispatch` один ввод `job` (`check` или `full-macos`), ввода
+`platform` нет. Job-ы `windows` (vitest в 3 частях и shell-test-ы Harness-а в 2) и `windows-e2e` (4 части)
+идут на PR, когда их требует ci-scope, и входят в `ci-ok`.
+
+**Пункт 8 — ждём решение.** Вердикт Mac — `ci-ok` на main. main красный в push-CI с `bd732aa4`: linux-tests,
+`test/unit/install-stable.test.ts`, случаи «off Windows». Номер зелёного прогона main дописывается сюда.

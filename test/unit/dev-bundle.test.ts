@@ -72,6 +72,7 @@ describe('the Info.plist of the dev bundle', () => {
   })
 
   const electronPlist = join(REPO, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'Info.plist')
+  // macOS only: Electron.app's Info.plist and plutil exist on macOS only.
   it.runIf(process.platform === 'darwin' && existsSync(electronPlist))("over Electron's real Info.plist is a plist macOS reads, with worfy's values", () => {
     const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-dev-bundle-plist-')))
     try {

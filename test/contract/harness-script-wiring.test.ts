@@ -498,6 +498,7 @@ describe.skipIf(process.platform === 'win32')('the watcher asks for a fresh envi
   }, ms(60_000))
 })
 
+// Windows: the agent environment there is not a login shell capture (captureAgentEnv takes captureWindowsEnv), so SHELL is not read.
 describe.skipIf(process.platform === 'win32')('an empty SHELL', () => {
   it('the capture reads it as unset and resolves', async () => {
     const captured = await captureLoginShellEnv({ source: { SHELL: '', HOME: scratch, PATH: '/usr/bin:/bin' }, timeoutMs: 10_000 })
