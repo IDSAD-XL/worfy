@@ -9,8 +9,9 @@
 // window: its events and views go to every client of the app, and closing a window does not stop
 // it. It stops when the app quits, with every other Session.
 import { app } from 'electron'
+import type { SessionSettings } from '../../shared/agent/settings'
 import { agentEvent } from '../../shared/ipc/agent'
-import { orchestratorChanged } from '../../shared/ipc/orchestrator'
+import { orchestratorChanged, type OrchestratorView } from '../../shared/ipc/orchestrator'
 import { toEveryWindow } from '../broadcast'
 import { ClaudeHomeRegistry } from '../claude-home/registry'
 import { emit } from '../ipc/index'
@@ -23,13 +24,31 @@ import { Orchestrators } from './orchestrator'
 import { readTranscriptFacts } from './orchestrator-transcript'
 import { SessionSettingsStore } from './session-settings'
 
+/** Projects whose Orchestrator may not be opened for now, with how many holds each has. */
+const keptClosed = new Map<string, number>()
+
+/** What opening a held Project's Orchestrator answers: an error the caller shows, not a Session. */
+export const BEING_REMOVED = 'the project is being removed'
+
+/**
+ * The app's Orchestrators with the holds of keepClosed: every opening — main's own (a new window,
+ * the active Project, a Linked machine's screen), `orchestrator.open` and `orchestrator.newConversation`
+ * of a window — goes through open(), which refuses a held Project before anything starts.
+ */
+class AppOrchestrators extends Orchestrators {
+  override open(projectId: string, options?: { firstSettings?: SessionSettings }): Promise<OrchestratorView> {
+    if (keptClosed.has(projectId)) return Promise.reject(new Error(`The Orchestrator was not opened: ${BEING_REMOVED}`))
+    return super.open(projectId, options)
+  }
+}
+
 let shared: Orchestrators | null = null
 
 /** The app's Orchestrators, made on first use. */
 export function sharedOrchestrators(): Orchestrators {
   if (shared === null) {
     const claude = new ClaudeHomeRegistry({ home: claudeHome() })
-    shared = new Orchestrators({
+    shared = new AppOrchestrators({
       layout: layoutStore(),
       projectPath: (projectId) => projectStore().get(projectId).path,
       registry: sharedRegistry(),
@@ -46,6 +65,23 @@ export function sharedOrchestrators(): Orchestrators {
     })
   }
   return shared
+}
+
+/**
+ * The Project's Orchestrator is not opened — by main itself or for a window — until the returned
+ * function is called (AppOrchestrators). The removal of the Demo project holds it while it closes
+ * the demo's Sessions and deletes the folder (worfy-onboarding ticket 10).
+ */
+export function keepClosed(projectId: string): () => void {
+  keptClosed.set(projectId, (keptClosed.get(projectId) ?? 0) + 1)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const left = (keptClosed.get(projectId) ?? 1) - 1
+    if (left > 0) keptClosed.set(projectId, left)
+    else keptClosed.delete(projectId)
+  }
 }
 
 function openActive(): void {

@@ -247,8 +247,9 @@ test('each Stage of the demo Ticket gives its hint as a line and one toast; the 
 
     // Done: its toast is the only one of this run, so the gate-merge one would have come before it.
     setStatus(repo, 'done')
-    // All six marked: the line stays under the last step.
-    await expect(sectionOf(window).locator('[data-testid="getting-started-step"][data-done="true"]')).toHaveCount(6, { timeout: ms(20_000) })
+    // All six marked: the screen Done stands in place of the steps (ticket 10); under "Show steps" the line stays under the last step.
+    await sectionOf(window).getByTestId('getting-started-done').getByRole('button', { name: 'Show steps' }).click({ timeout: ms(20_000) })
+    await expect(sectionOf(window).locator('[data-testid="getting-started-step"][data-done="true"]')).toHaveCount(6)
     await expectHint(window, '6', 'done')
     await expect.poll(() => hintToasts(window)).toEqual([HINTS.done])
     await expect(window.getByTestId('toasts')).toContainText(HINTS.done)

@@ -16,6 +16,9 @@
 // Ticket 09: `gettingStarted.hintSeen` records that a hint of the demo Ticket's Stages was shown as a
 // toast, so it is shown once (decision 10); `gettingStarted.setCost` switches the demo's Orchestrator
 // between the cheaper and the more expensive settings (decision 5).
+//
+// Ticket 10: `gettingStarted.removeDemo` removes the Demo project after a native confirmation
+// (main: src/main/getting-started/remove.ts).
 import { z } from 'zod'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -111,8 +114,27 @@ export const gettingStartedHintSeen = invokeChannel('gettingStarted.hintSeen', z
  */
 export const gettingStartedSetCost = invokeChannel('gettingStarted.setCost', z.object({ cost: demoCostSchema }), gettingStartedSnapshotSchema, 'local')
 
+export const removeDemoResultSchema = z.discriminatedUnion('removed', [
+  z.object({ removed: z.literal(true) }),
+  /**
+   * `reason` null: the user chose Cancel and nothing was touched. Otherwise the refusal, when the
+   * folder is not proven to be the demo worfy made (nothing touched), or what stays and why.
+   */
+  z.object({ removed: z.literal(false), reason: z.string().min(1).nullable() }),
+])
+export type RemoveDemoResult = z.infer<typeof removeDemoResultSchema>
+
+/**
+ * Removes the Demo project after a native confirmation (ticket 10; spec, R12 "what the removal takes
+ * away"): closes the Sessions and Terminals inside its folder, then removes its Profile, its place in
+ * the list, its worfy data folder, the record with steps 2–6, and the folder. Only the folder of the
+ * record, and only when the Harness knows it as `worfy-demo`.
+ */
+export const gettingStartedRemoveDemo = invokeChannel('gettingStarted.removeDemo', z.void(), removeDemoResultSchema, 'local')
+
 declare module './channels' {
   interface IpcContract {
+    'gettingStarted.removeDemo': typeof gettingStartedRemoveDemo
     'gettingStarted.createDemo': typeof gettingStartedCreateDemo
     'gettingStarted.createProgress': typeof gettingStartedCreateProgress
     'gettingStarted.state': typeof gettingStartedStateChannel
