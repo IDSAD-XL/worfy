@@ -175,8 +175,8 @@ cp "$T/sp-profile.json" "$SPP"
 # A stand-in for bin/silent-check (CLAUDE_SILENT_CHECK_BIN): each call appends a line to $STUB_LOG and takes
 # the next step of $STUB_PLAN (the last step repeats): `sleep` — hangs until the guard stops it; `traces` —
 # exit 1 with a finding; `profile` / `root` — exit 2 with the reason bin/silent-check gives when the profile or
-# the tickets root is not read; `kill` — killed by a signal; `many` — exit 1 with 120 findings; a number —
-# that exit code, nothing printed.
+# the tickets root is not read; `kill` — killed by a signal; `many` — exit 1 with 120 findings; `slow` — exit 0
+# after 0.3 s; a number — that exit code, nothing printed.
 # One try lasts $TRY_MS here. Where only timeouts happen, 0.5 s is enough: the stand-in that hangs sleeps far
 # longer than any try, and each such try is waited out in full. Such a case checks only what the guard prints,
 # never the stand-in's log, so its result does not depend on how fast the stand-in starts. Where a stand-in must answer inside a try, a try lasts 5 s, so a node start on a loaded machine never
@@ -192,6 +192,10 @@ const plan = (process.env.STUB_PLAN || "0").split(",")
 const step = plan[Math.min(n, plan.length - 1)]
 if (step === "sleep") {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120000)
+    process.exit(0)
+}
+if (step === "slow") {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300)
     process.exit(0)
 }
 if (step === "traces") {
@@ -219,6 +223,16 @@ TRY_MS=500
 now_ms() {
     if [[ "${EPOCHREALTIME:-}" =~ ^([0-9]+)[.,]([0-9]{3}) ]]; then echo "${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
     else node -e 'process.stdout.write(String(Date.now()))'; fi
+}
+# guard, with the time its answer began (now_ms) on a line before the answer: the moment the hook decided, before its
+# node exits and before jq reads the answer. An answer of allow is empty, so its time is the hook's exit.
+guard_timed() {
+    local out at
+    out="$(jq -n --arg c "$2" --arg d "$1" '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' | node "$GUARD" |
+        { IFS= read -r -n 1 c; now_ms; echo; printf '%s' "$c"; cat; })"
+    at="${out%%$'\n'*}"; out="${out#*$'\n'}"
+    echo "$at"
+    if [ -z "$out" ]; then echo allow; else printf 'deny: %s\n' "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason')"; fi
 }
 # When the stand-in was first called, in ms (the line `call <ms>` it writes), else $1.
 first_call_ms() { local at; at="$(awk 'NR == 1 { print $2 }' "$STUB_LOG" 2>/dev/null)"; [[ "$at" =~ ^[0-9]+$ ]] && echo "$at" || echo "$1"; }
@@ -251,6 +265,17 @@ for want in '`git commit` was not run' 'Run the same command again' 'silent-chec
     [[ "$got" == *"$want"* ]] && ok "timeout twice: the refusal says: $want" || bad "timeout twice: no \"$want\" in: ${got:0:400}"
 done
 [[ "$got" != *"carries traces of the workflow"* ]] && ok "timeout twice: the refusal does not claim traces" || bad "timeout twice claims traces: ${got:0:300}"
+# The budget is shared, not a try each: when the first of two checks takes 0.3 s, the tries of the second add up to
+# at most the 0.7 s left (0.8 s with the rounding to tenths), where a full try each would print 0.5 s and then 0.5 s.
+# On a busy machine the first check takes longer and the second gets less, or one try, or none.
+stub slow,sleep "two checks, the first takes 0.3 s -> the second gets what is left" deny 'git checkout -b fix/x && git commit -m "Fix y"' 'did not finish'
+left_ok=0
+if [[ "$got" =~ did\ not\ finish\ in\ ([0-9]+)(\.([0-9]))?\ s(\ and\ then\ ([0-9]+)(\.([0-9]))?\ s)?, ]]; then
+    tenths=$((BASH_REMATCH[1] * 10 + ${BASH_REMATCH[3]:-0} + ${BASH_REMATCH[5]:-0} * 10 + ${BASH_REMATCH[7]:-0}))
+    [ "$tenths" -le 8 ] && left_ok=1
+fi
+[ "$left_ok" = 1 ] && ok "two checks, the first takes 0.3 s: the second gets only the rest of the budget" \
+    || bad "two checks, the first takes 0.3 s: the tries of the second add up to more than the rest: ${got:0:400}"
 TRY_MS=5000
 stub profile "exit 2, the profile is not read -> allow, as before" allow "$CLEAN" '' 1
 stub root "exit 2, the tickets root is not read -> deny with the error" deny "$CLEAN" 'tickets root not read'
@@ -318,14 +343,17 @@ stub sleep,traces "timeout, then the retry finds traces -> deny with the traces"
 # Two checks in one command share the budget of two tries: the first check uses a try and its retry, the
 # second gets only what is left of the budget, and no retry of its own.
 use_stub sleep,0,sleep
-# Counted from the stand-in's first start, not from before the hook: the hook's own node start and jq are not part
-# of the budget, and on a loaded Windows runner they took the 1.5 s to spare (FLAKY 4 times there, 2026-10-29).
+# Counted from the stand-in's first start to the moment the hook's answer begins (guard_timed), not from before the
+# hook to after it: the hook's own node start and exit and jq are not part of the budget. On a loaded Windows runner
+# they took the 1.5 s to spare (FLAKY 4 times there, 2026-10-29). On the loaded PC the hook's exit and jq after the
+# answer took up to 2.1 s, while the answer itself came 5.8-6.4 s after the first start (2026-10-30).
 # The error this accepts: the hook's budget starts before it spawns the first stand-in (`deadline` in guard.mjs),
 # and the stand-in writes its time only after its own node start, so that start drops out of what is measured too.
 # A hook past its budget by less than one node start would pass. The fault this case is for, a second check with a
 # try of its own, adds a whole try (3 s) and stays red. The limit is the same as before; a mutant in review was red
 # by only 20-30 ms on the Mac, so a change here should be checked against one.
-t0="$(now_ms)"; got="$(guard "$R" 'git checkout -b fix/x && git commit -m "Fix y"')"; t1="$(now_ms)"
+t0="$(now_ms)"; got="$(guard_timed "$R" 'git checkout -b fix/x && git commit -m "Fix y"')"
+t1="${got%%$'\n'*}"; got="${got#*$'\n'}"
 t0="$(first_call_ms "$t0")"; n="$(calls)"; no_stub
 elapsed=$((t1 - t0))
 [[ "$got" == deny*'`git commit` was not run'*"did not finish"* ]] && ok "two checks, one budget: the second check runs out of it -> deny" \

@@ -21,50 +21,75 @@ import { generateScratch } from './scratch-gen'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
 
-/** A run of a process outside worfy's code: epic-status or `git worktree list`, in performance.now() time. */
+/** A child process started by worfy's code (epic-status, `git worktree list`), in performance.now() time. */
 interface OutsideRun {
   name: string
   start: number
   end: number
 }
 
-/** Every outside run of this file's watchers, as `timed` and the `git worktree list` below record them. */
+/** Every child process the code under test started through execFile or spawn, as the mock below records them. */
 const outsideRuns = vi.hoisted((): OutsideRun[] => [])
 
-// `git worktree list` of the watcher, timed: the promise of 1.5 s is checked on the time worfy's own code takes.
-vi.mock('../../src/main/workflow/reader', async (importOriginal) => {
-  const reader = await importOriginal<typeof import('../../src/main/workflow/reader')>()
-  return {
-    ...reader,
-    ticketWorktrees: async (root: string) => {
-      const run = { name: 'git worktree list', start: performance.now(), end: Number.NaN }
-      outsideRuns.push(run)
-      try {
-        return await reader.ticketWorktrees(root)
-      } finally {
-        run.end = performance.now()
-      }
-    },
+// node:child_process with execFile and spawn timed from the call to the end of the process: the promise of 1.5 s is
+// checked on the time worfy's own code takes, and only the processes themselves are taken out of it. The test's own
+// execFileSync and spawnSync are the real ones.
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  const { basename } = await import('node:path')
+  const { promisify } = await import('node:util')
+  type Child = import('node:child_process').ChildProcess
+  const record = (file: unknown, args: unknown): OutsideRun => {
+    const words = [file, ...(Array.isArray(args) ? args.slice(0, 2) : [])].map((word) => basename(String(word)).replace(/\.exe$/i, ''))
+    const run = { name: words.join(' '), start: performance.now(), end: Number.NaN }
+    outsideRuns.push(run)
+    return run
   }
-})
-
-/** `run`, its runs recorded as epic-status runs. */
-function timed(run: EpicStatusRunner): EpicStatusRunner {
-  return async (cwd, ref) => {
-    const record = { name: 'epic-status', start: performance.now(), end: Number.NaN }
-    outsideRuns.push(record)
+  const ended = (run: OutsideRun) => () => {
+    if (Number.isNaN(run.end)) run.end = performance.now()
+  }
+  const execFile = (...params: unknown[]): Child => {
+    const run = record(params[0], params[1])
+    const last = params.length - 1
+    if (typeof params[last] === 'function') {
+      const callback = params[last] as (...result: unknown[]) => void
+      params[last] = (...result: unknown[]) => {
+        ended(run)()
+        callback(...result)
+      }
+    }
     try {
-      return await run(cwd, ref)
-    } finally {
-      record.end = performance.now()
+      return (actual.execFile as (...all: unknown[]) => Child)(...params).once('close', ended(run))
+    } catch (error) {
+      ended(run)()
+      throw error
     }
   }
-}
+  // As node's own promisify(execFile) gives: { stdout, stderr }, or the error carrying both.
+  Object.assign(execFile, {
+    [promisify.custom]: (...params: unknown[]) =>
+      new Promise((resolve, reject) => {
+        execFile(...params, (error: Error | null, stdout: unknown, stderr: unknown) =>
+          error ? reject(Object.assign(error, { stdout, stderr })) : resolve({ stdout, stderr }),
+        )
+      }),
+  })
+  const spawn = (...params: unknown[]): Child => {
+    const run = record(params[0], params[1])
+    try {
+      return (actual.spawn as (...all: unknown[]) => Child)(...params).once('close', ended(run))
+    } catch (error) {
+      ended(run)()
+      throw error
+    }
+  }
+  return { ...actual, execFile, spawn }
+})
 
 /**
- * The time from the save to the delta that is worfy's own: without the outside runs in between. The two
- * processes are started in the app too, but how fast a busy machine starts them is not worfy's code: under the
- * load of the whole suite they took 1.2–2.8 s, against ≈0.2 s quiet (worfy-polish 41). `stages` names each one.
+ * The time from the save to the delta that is worfy's own: without the child processes in between. The
+ * processes are started in the app too, but how fast a busy machine runs them is not worfy's code: under the
+ * load of the whole suite epic-status took 1.2–2.8 s, against ≈0.2 s quiet. `stages` names each one.
  */
 function ownTime(savedAt: number, at: number): { own: number; started: number; stages: string } {
   // Started after the save: a watcher that ran its processes more often than it should would hide behind the
@@ -892,8 +917,8 @@ describe('workflow watcher', () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
     const deltas: WorkflowDelta[] = []
-    // The watcher's own runner, the one it makes without `run`, timed.
-    const watcher = await startWatcher(repo, home, deltas, timed(epicStatusRunner(home, ownEnv)))
+    // The watcher's own runner, the one it makes without `run`.
+    const watcher = await startWatcher(repo, home, deltas, epicStatusRunner(home, ownEnv))
     expect(ticketOf(watcher.current, 3)?.state).toBe('open')
 
     const file = join(repo, '.scratch/demo/issues/03-third.md')
@@ -1078,11 +1103,11 @@ describe('workflow watcher', () => {
       return out
     }
     const deltas: WorkflowDelta[] = []
-    const watcher = await startWatcher(repo, home, deltas, timed(racing))
+    const watcher = await startWatcher(repo, home, deltas, racing)
     expect(savedAt).toBeGreaterThan(0)
 
-    // Either `start` already gives the saved state, or a delta brings it within 1.5 s of the save, the outside
-    // runs not counted (ownTime).
+    // Either `start` already gives the saved state, or a delta brings it within 1.5 s of the save, the child
+    // processes not counted (ownTime).
     if (ticketOf(watcher.current, 3)?.state !== 'work') {
       const { delta, at } = await nextDelta(deltas, (d) => d.tickets.some((t) => t.num === 3))
       expect(delta.tickets.map((t) => [t.num, t.state])).toEqual([[3, 'work']])

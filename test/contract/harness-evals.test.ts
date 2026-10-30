@@ -235,15 +235,18 @@ describe('harness/evals: the cases', () => {
     // file that read the fixture of a case (caseFixture). It is built here, in a hook, not in the first
     // test that asks for it: the build is about 1.5 s on macOS and 5 s on Windows alone, and under the
     // load of a full run on Windows it took the test past its own limit, a failure that named the
-    // test's checks rather than the build (worfy-polish 41). The hook keeps the limit the build had in
-    // that test, the contract tests' 15 s times the run's multiplier (vitest.config.ts): no single
-    // limit is raised, only the one multiplier of the run. A build past it fails this hook, under its
-    // own name; a build that exits non-zero fails no hook: the test below reports its exit code with
-    // its output.
+    // test's checks rather than the build (worfy-polish 41). The 45 s budget is split between the build
+    // hook and the checks; the total is unchanged: the test had the contract tests' 15 s times the run's
+    // multiplier, 3 by default (vitest.config.ts); now the hook has 10 s and the test 5 s of it,
+    // each times the same multiplier. A build past its part fails this hook, under its own name; a build that exits
+    // non-zero fails no hook: the test below reports its exit code with its output.
     let built: CaseFixture | undefined
     beforeAll(() => {
+      const started = performance.now()
       built = builtFixture(name)
-    }, ms(15_000))
+      // The build time in the run's log, so a full run shows how much of its part the build takes.
+      console.info(`[harness-evals] ${name}: fixture built in ${Math.round(performance.now() - started)} ms, the hook's limit ${ms(10_000)} ms`)
+    }, ms(10_000))
 
     // On Windows the profile runs need the paths of the fixture's gate registry ("match", "pm") in
     // node's spelling, C:/…/work, not /tmp/…/work of Git Bash: harness/evals/lib/demo-project.sh
@@ -267,7 +270,7 @@ describe('harness/evals: the cases', () => {
       const evalProfile = harness(home, work, 'profile', ['-C', work, '--name'], { EVAL_HARNESS_HOME: 'worfy-harness' })
       expect(evalProfile.status, evalProfile.stderr).toBe(0)
       expect(evalProfile.stdout.trim()).toBe('demo')
-    })
+    }, ms(5_000))
   })
 
   // A grader of the steps matches the command the skill prescribes today: the gate is gate.mjs since
