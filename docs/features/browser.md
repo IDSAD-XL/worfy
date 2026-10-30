@@ -16,18 +16,20 @@ profile a new Browser gets is under [Browser profile](#browser-profile). The hea
 Forward, Reload, the address bar, the button of the Browser settings sidebar, and the marks below. A selected frame is
 resized by its handles, down to 360 by 200.
 
-**The address bar.** Enter sends the page to the typed address. An address without a scheme gets `https://`. Another
-scheme, or text with spaces, is refused and the bar is marked invalid. Esc leaves the bar as it was and does nothing
-else. A new Browser has no address and shows an empty page. The address a page reaches, by a link or by the bar, is kept
+**The address bar.** Enter sends the page to the typed address. An address without `://` gets `https://`. A `scheme://`
+other than `http` or `https`, text with spaces, or an address that still makes no valid URL is refused and the bar is
+marked invalid. Esc leaves the bar as it was and does nothing else. A new Browser has no address and shows an empty
+page. The address a page reaches, by a link or by the bar, is kept
 in the Node, so the bar shows it and a restart opens it again. This is not a step of ⌘Z. Back and Forward are inactive
 at the ends of the page's history. All three are inactive while this window has no ready page of the Browser, which
 includes a frame that shows frames from another window.
 
 **The page on the Canvas.** The page moves and scales with its frame and is clipped at the frame's edge. Another Node or
 a menu over the frame covers the page. The wheel over the page scrolls the page and leaves the Canvas where it is. While
-a mouse button pressed on the Canvas is held, the page takes no mouse. The page keeps running when its frame leaves the
-screen, until the rules below put it to sleep. In Focus mode the page lies over the frame's body in its tile and takes
-input there. Leaving Focus mode puts it back on the frame: the same page, with its history, scroll and typed text.
+the main mouse button pressed on the Canvas is held, the page takes no mouse. The page keeps running when its frame
+leaves the screen, until the rules below put it to sleep. In Focus mode the page lies over the frame's body in its
+tile and takes input there. Leaving Focus mode puts it back on the frame: the same page, with its history, scroll and
+typed text.
 
 **Page viewport.** The sidebar sets the size the page is laid out at: "Fit to card", the default, makes it as large as
 the frame's body; 1440 × 900, 1280 × 800, 768 × 1024 and 390 × 844 are ready; "Custom" takes whole numbers from 200 to
@@ -78,7 +80,8 @@ A Live Browser goes to sleep in two cases, both only while its page has no keybo
 
 - No screen shows it at a readable zoom for longer than the off-screen time. A frame in the window on a Canvas zoomed
   out below the readable zoom counts as off screen. One screen that shows it readable is enough to keep it. A hidden
-  window, such as a minimised one, shows no Browser. A Browser in a Focus mode tile counts as shown and readable.
+  window, such as a minimised one, shows no Browser. A Browser in a Focus mode tile counts as shown and readable. While
+  a Focus mode tile shows a Browser, the whole window counts as readable, so the Browsers on its Canvas sleep later.
 - Nothing used it for longer than the unused time. Use is a press, a key, a touch or a scroll on the page, input in
   its frames, a Session's call, or its wake.
 
@@ -112,8 +115,9 @@ Without one, a call on a Browser with no page is refused and asks for the Projec
 
 A Session drives a Browser from its first call on it, and the frame says so. "Claude is driving" stays between calls.
 Only one Session drives a Browser at a time, and another Session's call is refused. A Session may drive the Browsers it
-opened and those the user opened, never one that another Session opened. A call that took the Browser and then failed
-gives it up again.
+opened and those the user opened, never one that another Session opened. A call that took the Browser and could not
+attach to the page, or found the page off the origins by then, gives it up again. A call that fails later, on a refused
+address or an element the page does not have, keeps driving it.
 
 **Takeover.** A press, a key or a touch of the user on the page or the frame takes the Browser over. A mouse move or a
 scroll does not, and neither do the Session's own events. From then on the user goes anywhere, and every call of a
@@ -201,9 +205,9 @@ bar.
 
 Once the user's input in another window has rested for 1.5 seconds, the page moves there: main keeps the scroll, the old
 window closes the page, and the new one opens the Node's address again. So a move is a reload. The page does not move
-while it has a `beforeunload` handler, while a Session drives it or while a call runs on it. The window then keeps the
-frames, and its next input tries again. When the drawing window closes or reloads, the page goes to the window worked
-in most recently, otherwise to the one that has shown the Project longest.
+while it has a `beforeunload` handler or does not answer, while a Session drives it or while a call runs on it. The
+window then keeps the frames, and its next input tries again. When the drawing window closes or reloads, the page goes
+to the window worked in most recently, otherwise to the one that has shown the Project longest.
 
 Frames are JPEGs of quality 60, at most 1280 × 1280 and at most one per 100 ms, sent only while a screen watches.
 
@@ -221,7 +225,8 @@ only while a window of the Machine shows the Project. Without such a window no p
 Linked machine is refused.
 
 **With read-only access** the frame has the name of the profile alone: no address bar, buttons, frames, marks or picture.
-The Layout it gets carries no Browser address. It cannot take a Browser over.
+The accent border of a driven Browser still shows. The Layout it gets carries no Browser address. It cannot take a
+Browser over.
 
 #### Windows
 
@@ -240,9 +245,9 @@ and its modifiers go to the page as they are.
 - **Control is over CDP.** Main uses Electron's `webContents.debugger` of the page, on the Machine of the Project. It
   attaches at the first need: a Session's call, a question before sleep, a screencast. It stays attached. When DevTools
   takes the page, the next call attaches again and the origin check holds again, and the logs stay.
-- **The origin check is in the Fetch domain.** Every request for a document pauses. For the main frame, while a Session
-  drives, it is checked and failed as `Aborted`, which Chromium treats as a cancelled navigation. A guard that cannot
-  read the origins refuses.
+- **The origin check is in the Fetch domain.** After a Session's first call on the page, every request for a document
+  pauses. For the main frame, while a Session drives, it is checked, and one off the list is failed as `Aborted`, which
+  Chromium treats as a cancelled navigation. A guard that cannot read the origins refuses.
 - **Typing happens inside the page.** The text goes in by the page's own editing command, and Enter as page events with
   HTML's implicit submission. A key through Chromium's input would move the focus of the worfy window. A click is
   Chromium's own and trusted, and the window puts the focus back after the release.
