@@ -1,7 +1,7 @@
 {
   "title": "Projects",
   "summary": [
-    "Project — репозиторий или папка над несколькими репозиториями, которые показывает worfy. Вы добавляете его один раз и выбираете режим: в Full mode файлы workflow лежат в репозитории, в Silent mode — в папке вне его. Список Projects переключает Project, который показывает окно. HANDOFF и ADR видны только для чтения."
+    "Project — то, что показывает worfy: репозиторий или папка над несколькими репозиториями. Вы добавляете его один раз и выбираете режим: в Full mode файлы workflow лежат в репозитории, в Silent mode — в папке вне его. Список Projects переключает Project, который показывает окно. HANDOFF и ADR видны только для чтения."
   ],
   "scene": {
     "description": "Project-ы в worfy. В окне диалог Add project добавляет Project в список Projects и по Connect поручает Harness записать его Profile. Profile называет Workflow folder; в Full mode это корень репозитория, а в Silent mode Harness не пускает в репозиторий никаких следов workflow. Щелчок в списке Projects переключает Canvas и открывает Orchestrator этого Project-а. Из Workflow folder worfy читает HANDOFF.md для Node-а HANDOFF на Canvas и docs/adr/ для раздела ADR в боковой панели.",
