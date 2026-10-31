@@ -22,6 +22,17 @@ import { defineHandler, emit, type HandlerModule } from './index'
 
 type InstallResult = Awaited<ReturnType<HarnessInstaller['install']>>
 
+/** Hear each install of the app's installer that answers `done` (worfy-update ticket 05: the Harness lag is checked again). */
+const installListeners = new Set<(status: InstallResult['status']) => void>()
+
+/** Calls `listener` after each install that answers `done`; the function returned stops it. */
+export function onHarnessInstalled(listener: (status: InstallResult['status']) => void): () => void {
+  installListeners.add(listener)
+  return () => {
+    installListeners.delete(listener)
+  }
+}
+
 /** The installer that tells every window what each install ended with. */
 class AnnouncingInstaller extends HarnessInstaller {
   /** The runs already announced: a second call during a run gets the same promise, and the run is announced once. */
@@ -35,7 +46,15 @@ class AnnouncingInstaller extends HarnessInstaller {
       // and `nothing-to-do` changed nothing. A run that throws reaches its caller, not the windows.
       run.then(
         (result) => {
-          if (result.outcome === 'done') toEveryWindow((client) => emit(client, harnessChanged, result.status))
+          if (result.outcome !== 'done') return
+          toEveryWindow((client) => emit(client, harnessChanged, result.status))
+          for (const listener of installListeners) {
+            try {
+              listener(result.status)
+            } catch (error) {
+              console.error('[harness] a listener of the install failed', error)
+            }
+          }
         },
         () => undefined,
       )

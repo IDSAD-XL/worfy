@@ -25,7 +25,7 @@ import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
 import { startGettingStarted } from './ipc/getting-started'
-import { appInstaller } from './ipc/harness'
+import { appInstaller, onHarnessInstalled } from './ipc/harness'
 import { appUrlMatcher, emit, registerIpc } from './ipc/index'
 import { appUpdate, startUpdateChecks } from './ipc/update'
 import { appNoteLink } from './link/notes'
@@ -298,8 +298,8 @@ function installAutoArchive(): () => void {
  * The Harness of this copy at the start after an Update or a roll back (src/main/update/harness-after-update.ts),
  * through the app's one installer, so it never runs beside an install of the toolbar or the first-run
  * screen; then the check of "Harness out of date" (src/main/update/harness-lag.ts), first when that
- * install has ended and then every hour. Only while Update is on, as the rest of Update. Returns the
- * stop of the check.
+ * install has ended, then every hour, and again after each install that answers `done`. Only while
+ * Update is on, as the rest of Update. Returns the stop of the check.
  */
 function startHarnessAfterUpdate(): () => void {
   if (!updateEnabled({ packaged: app.isPackaged, execPath: process.execPath, env: process.env })) return () => undefined
@@ -313,5 +313,10 @@ function startHarnessAfterUpdate(): () => void {
     stateFile: () => updateStateFile(),
     onChange: announce,
   })
-  return lag.start(installed)
+  const stopChecks = lag.start(installed)
+  const stopListening = onHarnessInstalled(() => void lag.run())
+  return () => {
+    stopListening()
+    stopChecks()
+  }
 }

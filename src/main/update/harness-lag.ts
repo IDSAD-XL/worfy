@@ -9,7 +9,10 @@
 // The answer goes into the Update state as `harnessBehind { from, to }`; null when the Harness is not
 // behind, or when GitHub did not answer (spec R15: a check skipped is no signal). The check runs only
 // while Update is on, first after the start's Harness install of ticket 05 has ended, then with the
-// Update checks' hour (CHECK_EVERY_MS): never more often than once an hour.
+// Update checks' hour (CHECK_EVERY_MS), and again after each install of the Harness that answers
+// `done` (src/main/index.ts), so a Harness the user brought up to date stops being "out of date" at
+// once. An install leaves the Harness of this copy, which needs no request: GitHub is asked about once
+// an hour.
 import type { HarnessState, HarnessStatus } from '../../shared/ipc/harness'
 import { compareHarnessVersions } from '../harness/install'
 import { CHECK_EVERY_MS } from './check'
@@ -58,15 +61,28 @@ export interface HarnessLagOptions {
 /** The check of the lag and its schedule. Built only while Update is on. */
 export class HarnessLagChecks {
   private running: Promise<void> | null = null
+  /** The check asked for while one runs: that one may have read the Harness before an install changed it. */
+  private next: Promise<void> | null = null
 
   constructor(private readonly options: HarnessLagOptions) {}
 
-  /** Checks now, or joins the check that runs; never rejects. */
+  /**
+   * Checks now; while a check runs, once more after it, and every ask meanwhile shares that one.
+   * Never rejects.
+   */
   run(): Promise<void> {
-    this.running ??= this.check()
+    if (this.running !== null) {
+      this.next ??= this.running.then(() => {
+        this.next = null
+        return this.run()
+      })
+      return this.next
+    }
+    const running = this.check()
       .catch((error: unknown) => console.error('[update] whether the Harness is behind could not be checked', error))
       .finally(() => (this.running = null))
-    return this.running
+    this.running = running
+    return running
   }
 
   /** Checks once `after` has settled (the Harness install of the start), then every hour; the function returned stops it. */

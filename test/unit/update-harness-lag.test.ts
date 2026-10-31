@@ -181,10 +181,40 @@ describe('the check of the lag', () => {
     expect(client.count()).toBe(0)
   })
 
-  it('two checks asked at once share one request', async () => {
+  it('a check asked while one runs runs once more after it, and every ask meanwhile shares that one', async () => {
     const client = countingClient()
     const checks = new HarnessLagChecks({ status: status(SAME), client, stateFile: () => updateStateFile(root) })
-    await Promise.all([checks.run(), checks.run()])
-    expect(client.count()).toBe(1)
+    await Promise.all([checks.run(), checks.run(), checks.run()])
+    expect(client.count()).toBe(2)
+    await checks.run()
+    expect(client.count()).toBe(3)
+  })
+
+  it('an install that ends during a check clears the lag at once: the check after it reads the Harness again', async () => {
+    const file = updateStateFile(root)
+    const client = countingClient()
+    let state: HarnessState = SAME
+    let reads = 0
+    let release: () => void = () => undefined
+    const firstRead = new Promise<void>((resolve) => (release = resolve))
+    const checks = new HarnessLagChecks({
+      status: async () => {
+        reads += 1
+        const seen = state
+        // The first read is slow: the install ends while it runs.
+        if (reads === 1) await firstRead
+        return status(seen)()
+      },
+      client,
+      stateFile: () => file,
+    })
+    const first = checks.run()
+    state = { kind: 'installed', version: COPY, enabled: true }
+    // The install answered `done`: src/main/index.ts asks for a check.
+    const afterInstall = checks.run()
+    release()
+    await Promise.all([first, afterInstall])
+    expect(reads).toBe(2)
+    expect(readUpdateState(file).harnessBehind).toBeNull()
   })
 })

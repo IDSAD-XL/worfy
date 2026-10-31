@@ -13,13 +13,14 @@ import { join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HARNESS_PLUGIN_ID, HarnessInstaller, type InstallerOptions } from '../../src/main/harness/install'
 import { harnessHome } from '../../src/main/storage/paths'
-import { writeJsonFile } from '../../src/main/storage/json-file'
+import { readJsonFile, writeJsonFile } from '../../src/main/storage/json-file'
 import { installHarnessAfterUpdate, isRestartCopy } from '../../src/main/update/harness-after-update'
-import { restartFile, restartRecordSchema, type RestartRecord } from '../../src/main/update/restart'
+import { previousCopy, previousPaths, restartFile, restartRecordSchema, settleLastRestart, type RestartRecord } from '../../src/main/update/restart'
 import { changeUpdateState, readUpdateState, updateStateFile } from '../../src/main/update/state'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { shellStub } from '../shell-stub'
+import { ms } from '../time-scale'
 
 const REPO = join(__dirname, '..', '..')
 const SHA_A = 'aaaaaaa' + '1'.repeat(33)
@@ -28,6 +29,8 @@ const SHA_B = 'bbbbbbb' + '2'.repeat(33)
 const VA = '0.3.0+aaaaaaa'
 const VB = '0.3.0+bbbbbbb'
 const LIST = 'plugin list --json'
+/** How long a test waits for `claude` of the stub to answer: on a loaded machine longer than vi.waitFor's 1 s. */
+const CLAUDE_WAIT = { timeout: ms(10_000) }
 const UPDATE_WORFY = `plugin update ${HARNESS_PLUGIN_ID} --scope user`
 
 // The Claude Code side, kept in STUB_CLAUDE_STATE outside the sandbox: the marketplaces it knows and
@@ -151,6 +154,11 @@ function restartRecord(record: Partial<RestartRecord> = {}): RestartRecord {
   return full
 }
 
+/** restart.json is still there, as it was written, and marked as taken by the start: no second install, and its names stay. */
+function expectTaken(record: RestartRecord): void {
+  expect(JSON.parse(readFileSync(restartFile(updateDir()), 'utf8'))).toEqual({ ...record, harnessTaken: true })
+}
+
 /** The start after the restart: the copy whose Harness is `bundle`, its installer with a dialog that must not open. */
 async function startWith(bundle: string, version: string, options: Partial<InstallerOptions> = {}) {
   const harness = installer(bundle, options)
@@ -161,9 +169,9 @@ async function startWith(bundle: string, version: string, options: Partial<Insta
 }
 
 describe('the Harness after an Update', () => {
-  it('installs the Harness of the new copy without a dialog when restart.json names this copy and the installed one is outdated, then removes restart.json', async () => {
+  it('installs the Harness of the new copy without a dialog when restart.json names this copy and the installed one is outdated, then marks restart.json taken and keeps it', async () => {
     await installedBefore(VA)
-    restartRecord()
+    const record = restartRecord()
     const bundle = makeBundle(VB)
     expect((await installer(bundle).status()).state).toEqual({ kind: 'outdated', from: VA, to: VB, sameVersion: true })
 
@@ -176,7 +184,7 @@ describe('the Harness after an Update', () => {
     await expect(confirm?.({} as never)).resolves.toBe(true)
     expect(commands()).toContain(UPDATE_WORFY)
     expect((await installer(bundle).status()).state).toEqual({ kind: 'installed', version: VB, enabled: true })
-    expect(existsSync(restartFile(updateDir()))).toBe(false)
+    expectTaken(record)
     expect(readUpdateState(stateFile()).harnessAfterUpdate).toBeNull()
     expect(onChange).toHaveBeenCalled()
   })
@@ -198,14 +206,14 @@ describe('the Harness after an Update', () => {
     expect(readUpdateState(stateFile()).harnessAfterUpdate).toBeNull()
   })
 
-  it('does not install when restart.json names another copy (the swap did not happen), and removes restart.json', async () => {
+  it('does not install when restart.json names another copy (the swap did not happen), and marks restart.json taken', async () => {
     await installedBefore(VA)
-    restartRecord({ version: '0.3.0+ccccccc', sha: 'c'.repeat(40) })
+    const record = restartRecord({ version: '0.3.0+ccccccc', sha: 'c'.repeat(40) })
     const { install, outcome } = await startWith(makeBundle(VB), VB)
     expect(outcome).toBe('other-copy')
     expect(install).not.toHaveBeenCalled()
     expect(commands().filter((command) => command !== LIST)).toEqual([])
-    expect(existsSync(restartFile(updateDir()))).toBe(false)
+    expectTaken(record)
     expect(readUpdateState(stateFile()).harnessAfterUpdate).toBeNull()
   })
 
@@ -219,25 +227,25 @@ describe('the Harness after an Update', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('does not install when the Harness of this copy is installed already, and removes restart.json', async () => {
+  it('does not install when the Harness of this copy is installed already, and marks restart.json taken', async () => {
     await installedBefore(VB)
-    restartRecord()
+    const record = restartRecord()
     const { install, outcome } = await startWith(makeBundle(VB), VB)
     expect(outcome).toBe('current')
     expect(install).not.toHaveBeenCalled()
-    expect(existsSync(restartFile(updateDir()))).toBe(false)
+    expectTaken(record)
   })
 
-  it('a failed install marks harnessAfterUpdate failed, removes restart.json, and the next start does not try again', async () => {
+  it('a failed install marks harnessAfterUpdate failed, marks restart.json taken, and the next start does not try again', async () => {
     await installedBefore(VA)
-    restartRecord()
+    const record = restartRecord()
     sb.env.STUB_CLAUDE_FAIL = UPDATE_WORFY
     const bundle = makeBundle(VB)
     const first = await startWith(bundle, VB)
     expect(first.outcome).toBe('failed')
     expect(first.install).toHaveBeenCalledTimes(1)
     expect(readUpdateState(stateFile()).harnessAfterUpdate).toBe('failed')
-    expect(existsSync(restartFile(updateDir()))).toBe(false)
+    expectTaken(record)
     expect(first.onChange).toHaveBeenCalled()
 
     // The next start of worfy: no second try without a press.
@@ -251,11 +259,11 @@ describe('the Harness after an Update', () => {
 
   it('an install that refuses to run (a dev run without a sandbox) counts as failed', async () => {
     await installedBefore(VA)
-    restartRecord()
+    const record = restartRecord()
     const { outcome } = await startWith(makeBundle(VB), VB, { canInstall: false })
     expect(outcome).toBe('failed')
     expect(readUpdateState(stateFile()).harnessAfterUpdate).toBe('failed')
-    expect(existsSync(restartFile(updateDir()))).toBe(false)
+    expectTaken(record)
   })
 
   it('a restart.json that does not read installs nothing', async () => {
@@ -284,13 +292,13 @@ describe('the Harness after a roll back', () => {
   it('installs the Harness of the copy rolled back to, named by its short SHA as a roll back without a record names it', async () => {
     await installedBefore(VB)
     // The previous copy named only by its commit (restart.ts, previousCopy): its version is the short SHA.
-    restartRecord({ action: 'rollback', version: 'aaaaaaa', sha: SHA_A, from: { sha: SHA_B, version: VB } })
+    const record = restartRecord({ action: 'rollback', version: 'aaaaaaa', sha: SHA_A, from: { sha: SHA_B, version: VB } })
     const bundle = makeBundle(VA)
     const { install, outcome } = await startWith(bundle, VA)
     expect(outcome).toBe('installed')
     expect(install).toHaveBeenCalledTimes(1)
     expect((await installer(bundle).status()).state).toEqual({ kind: 'installed', version: VA, enabled: true })
-    expect(existsSync(restartFile(updateDir()))).toBe(false)
+    expectTaken(record)
   })
 
   it('installs nothing when the roll back did not happen: the copy that runs is still the one rolled back from', async () => {
@@ -299,6 +307,102 @@ describe('the Harness after a roll back', () => {
     const { install, outcome } = await startWith(makeBundle(VB), VB)
     expect(outcome).toBe('other-copy')
     expect(install).not.toHaveBeenCalled()
+  })
+})
+
+describe('restart.json after the start (ticket 04 still reads it)', () => {
+  /** The Stable copy of the test and the copy kept as previous, the one of SHA_A. */
+  function previousKept(): string {
+    const target = join(sb.root, 'apps', process.platform === 'darwin' ? 'worfy-stable.app' : 'worfy-stable')
+    const paths = previousPaths(process.platform, target)
+    mkdirSync(paths.copy, { recursive: true })
+    writeFileSync(paths.metadata, JSON.stringify({ commit: SHA_A }))
+    return target
+  }
+
+  it('keeps the name of the previous copy: settle, install, settle again still says <semver>+<short SHA>', async () => {
+    await installedBefore(VA)
+    const target = previousKept()
+    restartRecord()
+    const settle = (): void => settleLastRestart({ dir: updateDir(), stateFile: stateFile(), target })
+    settle()
+    expect(readUpdateState(stateFile()).previous).toEqual({ version: VA })
+
+    expect((await startWith(makeBundle(VB), VB)).outcome).toBe('installed')
+
+    // The next start of worfy, and the roll back's dialog, which names the copy as previousCopy does.
+    settle()
+    expect(readUpdateState(stateFile()).previous).toEqual({ version: VA })
+    expect(previousCopy(process.platform, target, readJsonFile(restartFile(updateDir()), restartRecordSchema))).toEqual({ version: VA, commit: SHA_A })
+  })
+
+  it('a new restart replaces the taken record, and the start after it installs again', async () => {
+    await installedBefore(VA)
+    restartRecord()
+    const bundle = makeBundle(VB)
+    expect((await startWith(bundle, VB)).outcome).toBe('installed')
+    // A roll back and then an Update to VB again: each restart writes its own record, without the mark.
+    restartRecord({ action: 'rollback', version: VA, sha: SHA_A, from: { sha: SHA_B, version: VB } })
+    expect((await startWith(makeBundle(VA), VA)).outcome).toBe('installed')
+    restartRecord()
+    const again = await startWith(bundle, VB)
+    expect(again.outcome).toBe('installed')
+    expect(again.install).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('an install of the toolbar during the start', () => {
+  it('joined, and cancelled in its dialog: not installed, no failure to tell, and no install over the answer', async () => {
+    await installedBefore(VA)
+    const record = restartRecord()
+    const bundle = makeBundle(VB)
+    const harness = installer(bundle)
+    // The toolbar's "Update Harness" pressed during the start: its dialog is up.
+    let answer: (yes: boolean) => void = () => undefined
+    const dialog = vi.fn(() => new Promise<boolean>((resolve) => (answer = resolve)))
+    const toolbar = harness.install(dialog)
+    await vi.waitFor(() => expect(dialog).toHaveBeenCalled(), CLAUDE_WAIT)
+    const install = vi.spyOn(harness, 'install')
+    const start = installHarnessAfterUpdate({ dir: updateDir(), stateFile: stateFile(), bundled: VB, installer: harness })
+    await vi.waitFor(() => expect(install).toHaveBeenCalled(), CLAUDE_WAIT)
+    answer(false)
+
+    expect(await start).toBe('declined')
+    expect((await toolbar).outcome).toBe('declined')
+    expect(dialog).toHaveBeenCalledTimes(1)
+    expect(install).toHaveBeenCalledTimes(1)
+    expect((await installer(bundle).status()).state).toEqual({ kind: 'outdated', from: VA, to: VB, sameVersion: true })
+    expect(readUpdateState(stateFile()).harnessAfterUpdate).toBeNull()
+    expectTaken(record)
+  })
+
+  it('joined, and accepted in its dialog: installed', async () => {
+    await installedBefore(VA)
+    restartRecord()
+    const bundle = makeBundle(VB)
+    const harness = installer(bundle)
+    let answer: (yes: boolean) => void = () => undefined
+    const dialog = vi.fn(() => new Promise<boolean>((resolve) => (answer = resolve)))
+    const toolbar = harness.install(dialog)
+    await vi.waitFor(() => expect(dialog).toHaveBeenCalled(), CLAUDE_WAIT)
+    const start = installHarnessAfterUpdate({ dir: updateDir(), stateFile: stateFile(), bundled: VB, installer: harness })
+    answer(true)
+    expect(await start).toBe('installed')
+    expect((await toolbar).outcome).toBe('done')
+    expect((await installer(bundle).status()).state).toEqual({ kind: 'installed', version: VB, enabled: true })
+  })
+
+  it('an install that found nothing to do (another one brought the Harness up meanwhile) is the Harness of this copy, not a new install', async () => {
+    const record = restartRecord()
+    const status = { state: { kind: 'installed' as const, version: VB, enabled: true }, bundledVersion: VB, canInstall: true, pluginDir: join(sb.root, 'plugin'), dependencies: [] }
+    const fake = {
+      status: () => Promise.resolve({ ...status, state: { kind: 'outdated' as const, from: VA, to: VB, sameVersion: true } }),
+      install: vi.fn(() => Promise.resolve({ outcome: 'nothing-to-do' as const, status })),
+    }
+    expect(await installHarnessAfterUpdate({ dir: updateDir(), stateFile: stateFile(), bundled: VB, installer: fake })).toBe('current')
+    expect(fake.install).toHaveBeenCalledTimes(1)
+    expect(readUpdateState(stateFile()).harnessAfterUpdate).toBeNull()
+    expectTaken(record)
   })
 })
 

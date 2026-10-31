@@ -5,25 +5,28 @@
 // Session on.
 //
 // `update/restart.json` (src/main/update/restart.ts) says that the last run ended in such a restart
-// and which copy it went to. The start reads it after settleLastRestart and takes it: the file is
-// removed before anything is installed, so an install that fails, or a worfy that ends during it, is
-// never tried again without a press. When the copy that runs is not the one the file names (the swap
-// or the roll back did not happen) nothing is installed.
+// and which copy it went to. The start reads it after settleLastRestart and takes it: the record is
+// marked `harnessTaken` before anything is installed, so an install that fails, or a worfy that ends
+// during it, is never tried again without a press. The record itself stays: previousCopy names the
+// copy kept as previous by it (`<semver>+<short SHA>`, spec "Texts"), and the next restart replaces
+// it. When the copy that runs is not the one the file names (the swap or the roll back did not
+// happen) nothing is installed.
 //
 // Nothing here imports electron: src/main/index.ts gives it the app's installer, and its tests a
 // sandboxed one.
 import { existsSync } from 'node:fs'
 import type { HarnessInstaller } from '../harness/install'
-import { readJsonFile } from '../storage/json-file'
-import { removeFile } from '../storage/remove'
+import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { restartFile, restartRecordSchema, type RestartRecord } from './restart'
 import { changeUpdateState } from './state'
 
 /**
- * What the start did: no restart.json (`none`), one for another copy (`other-copy`), the Harness of
- * this copy there already or in a state an install does not mend (`current`), installed, or failed.
+ * What the start did: no restart.json or one taken already (`none`), one for another copy
+ * (`other-copy`), the Harness of this copy there already or in a state an install does not mend
+ * (`current`), installed, failed, or `declined`: the install joined one the user started from the
+ * toolbar meanwhile, and Cancel in its dialog answered for both.
  */
-export type AfterUpdateOutcome = 'none' | 'other-copy' | 'current' | 'installed' | 'failed'
+export type AfterUpdateOutcome = 'none' | 'other-copy' | 'current' | 'installed' | 'failed' | 'declined'
 
 export interface AfterUpdateOptions {
   /** `<dataRoot>/update`, where restart.json lies. */
@@ -53,9 +56,10 @@ export function isRestartCopy(record: RestartRecord, bundled: string | undefined
 }
 
 /**
- * Takes restart.json: reads it and removes it, once. Undefined when there is none, when it does not
- * read (readJsonFile sets such a file aside), or when it could not be removed: an install kept on
- * every start without a press would be worse than one missed.
+ * Takes restart.json, once: reads it and marks it `harnessTaken`, in one synchronous run. Undefined
+ * when there is none, when it was taken already, when it does not read (readJsonFile sets such a file
+ * aside), or when the mark could not be written: an install kept on every start without a press would
+ * be worse than one missed.
  */
 function takeRecord(dir: string): RestartRecord | undefined {
   const file = restartFile(dir)
@@ -65,11 +69,13 @@ function takeRecord(dir: string): RestartRecord | undefined {
     record = readJsonFile(file, restartRecordSchema)
   } catch (error) {
     console.warn(`[update] ${file} could not be read`, error)
+    return undefined
   }
+  if (record === undefined || record.harnessTaken === true) return undefined
   try {
-    removeFile(file)
+    writeJsonFile(file, restartRecordSchema, { ...record, harnessTaken: true })
   } catch (error) {
-    console.warn(`[update] ${file} could not be removed, so the Harness of the new copy is not installed by it`, error)
+    console.warn(`[update] ${file} could not be marked as taken, so the Harness of the new copy is not installed by it`, error)
     return undefined
   }
   return record
@@ -90,10 +96,20 @@ export async function installHarnessAfterUpdate({ dir, stateFile, bundled, insta
   try {
     const before = await installer.status()
     if (before.state.kind !== 'outdated' && before.state.kind !== 'not-installed') return 'current'
-    // No dialog: the press of the restart was the consent (spec R5).
+    // No dialog: the press of the restart was the consent (spec R5). An install the toolbar or the
+    // first-run screen started meanwhile is joined: its answer, its dialog's included, is this one's.
     const result = await installer.install(() => Promise.resolve(true))
-    outcome = result.status.state.kind === 'error' ? 'failed' : 'installed'
-    if (outcome === 'failed') console.warn(`[update] the Harness of ${record.version} was not installed after the ${record.action}`, result.status.state)
+    if (result.outcome === 'declined') {
+      // The user said Cancel in that dialog: no failure to tell, and no install over the answer.
+      console.warn(`[update] the Harness of ${record.version} was not installed after the ${record.action}: the install it joined was cancelled`)
+      return 'declined'
+    }
+    if (result.status.state.kind === 'error') {
+      outcome = 'failed'
+      console.warn(`[update] the Harness of ${record.version} was not installed after the ${record.action}`, result.status.state)
+    } else {
+      outcome = result.outcome === 'nothing-to-do' ? 'current' : 'installed'
+    }
   } catch (error) {
     console.warn(`[update] the Harness of ${record.version} was not installed after the ${record.action}`, error)
     outcome = 'failed'
