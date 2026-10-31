@@ -25,7 +25,8 @@ Skill это процедура в Markdown, которой следует аг�
 | `overnight-fix-loop` | `/worfy:overnight-fix-loop <modules>`, вручную | По worktree и implementer-у на модуль, с merge в ночную ветку. Ночью в главную ветку ничего не идёт |
 | `tickets-to-tasks` | После записи Ticket-ов, или когда список задач пуст | Импортирует Ticket-ы в Tasks Claude Code и сохраняет их блокировки |
 
-**`ship-ticket`.** Шаги идут по порядку, а финиш берётся из `workflow.finish`:
+**`ship-ticket`.** Финиш берётся из `workflow.finish`. Шаги 7 и 8 идут в порядке Pipeline: с `agent-review` после `ci`, это значение по
+умолчанию, сначала идёт шаг 8, а шаг 7 идёт на head-е PR. Остальные шаги идут по номерам:
 
 | Шаг | Что происходит |
 |---|---|
@@ -60,7 +61,9 @@ spec, конфликт, который не решается механичес�
 **Что меняет Profile.**
 
 - `workflow.agents`: `full` или `eco`. В `eco` маленький Ticket (только документы или одно изменение в одном файле) делает сам
-  Orchestrator, а review собственного diff Ticket-а идёт на глубине `low`.
+  Orchestrator, если только он не затрагивает скрипт или hook, не является платформенным PR и не удаляет файлы, не останавливает
+  процессы и не заменяет копию. В `ship-ticket` review собственного diff Ticket-а в режиме `eco` идёт на глубине `low`. Verification
+  gate в `epic-wave` сохраняет свою глубину.
 - `review.lenses` и `review.depth`: линзы и то, сколько reviewer-ов в раунде на глубинах `low`, `medium`, `high` и `max`. Аргумент
   skill-а или слово владельца в сообщении важнее глубины.
 - `workflow.pipeline`: Stage-ы, а значит и то, какие шаги идут ([Workflow](workflow.md)).
@@ -171,7 +174,7 @@ Claude Code запускает эти команды на свои событи�
 | `TaskCompleted`, `TeammateIdle` | `gate.sh fast` | 900 | [Gate](gate-and-github.md) |
 | `Stop` | `stop.mjs` | 10 | Держит ход, пока Gate красный, см. [Gate](gate-and-github.md) |
 | `Stop` | `worktree-lock beat` | 5 | Отмечает Session живой |
-| `Stop` | `qmd-refresh --quiet` | 15 | Обновляет индекс в фоне, если главная ветка сдвинулась |
+| `Stop` | `qmd-refresh --quiet` | 15 | Обновляет индекс в фоне, если главная ветка сдвинулась или файл memory либо lessons новее последнего обновления |
 | `SessionEnd` | `session-end.mjs` | 10 | Отмечает Session без ретроспективы |
 | `SessionEnd` | `worktree-lock release` | 5 | Снимает регистрацию |
 
@@ -208,9 +211,9 @@ Claude Code запускает эти команды на свои событи�
 
 | Отказ | Какие команды |
 |---|---|
-| Уничтожение незакоммиченной работы | `git checkout` или `git restore` по `.`, `./` или `*`; `git reset --hard`; `git clean` с force; `git stash pop`, `git stash drop` и stash без имени |
+| Уничтожение незакоммиченной работы | `git checkout` или `git restore` по `.`, `./` или `*`; `git reset --hard`; `git clean` с force; `git stash pop`, `git stash drop` и `git stash` отдельно или сразу с `-u`, `-k`, `-a` или `save` |
 | Pipe, который прячет exit code | Pipe после `pnpm`, `yarn` или `npm` с `lint`, `test`, `typecheck`, `check` или `build`, или после `vitest`, `eslint`, `tsc`, `jest`, `pytest` или `gh pr checks`, если `pipefail` не стоит перед pipe |
-| Следы workflow | В Silent mode или с `attribution: off`: текст `git commit`, имя новой ветки и текст `gh pr create`, `edit`, `comment`, `review` или `merge`, когда `silent-check` их отвергает |
+| Следы workflow | В Silent mode или с `attribution: off`: текст и staged changes команды `git commit`, имя новой ветки и текст `gh pr create`, `edit`, `comment`, `review` или `merge`, когда `silent-check` их отвергает |
 
 Причина называет правильный путь, например временный commit или `set -o pipefail`. В первых двух случаях текст в кавычках в команде вроде
 `grep` или `echo` считается данными, а тело heredoc не читается как команда. Проверка следов, которая не дала ответа, тоже отказывает: на

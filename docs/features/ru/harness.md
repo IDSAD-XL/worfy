@@ -52,11 +52,11 @@ Claude Code, уже запущенных в терминале, файлы ме�
 `~/.claude`, диалог предупреждает, что сессии в терминале запускают и его hooks, и hooks plugin-а. Команде даётся 120 с, а
 команде, которая ставит зависимость, 600 с.
 
-**Чем кончается неудачная установка.** Установка кончается состоянием «установлен» или «не установлен», но не на полпути:
+**Чем кончается неудачная установка.** В списке Claude Code plugin остаётся установленным или не установленным, но не на полпути:
 
 | Что упало | Что остаётся | Шаг ошибки |
 |---|---|---|
-| Команда для зависимости | Копии Harness нет, ни одна команда для `worfy` не запускалась | `dependency marketplace add`, `dependency install` |
+| Команда для зависимости | Копия Harness не тронута, ни одна команда для `worfy` не запускалась | `dependency marketplace add`, `dependency install` |
 | Копирование | Прежняя папка plugin как была | `copy` |
 | `marketplace add` для копии | Claude Code не показывает `worfy` в списке | `marketplace add` |
 | Первый `plugin install` | worfy читает список заново и удаляет запись, которую оставила команда | `install` |
@@ -82,18 +82,18 @@ Claude Code, уже запущенных в терминале, файлы ме�
 Когда папка удалена вручную, диалог говорит, что ставит более старый Harness. Копия, которую отложила прерванная установка, для
 этого сравнения считается установленной.
 
-**Перенос старого Harness.** До plugin-а Harness лежал прямо в `~/.claude`. Пока от него там что-то осталось и запуску можно
-устанавливать, toolbar показывает иконку "Move old Harness…", а строка First run предлагает "Move…". В форме "Move the old
+**Перенос старого Harness.** До plugin-а Harness лежал прямо в `~/.claude`. Пока от него там что-то осталось, строка First run
+предлагает "Move…", а в запуске, которому можно устанавливать, toolbar ещё показывает иконку "Move old Harness…". В форме "Move the old
 Harness out of ~/.claude" по строке на каждую вещь:
 
 | Группа | Выбор |
 |---|---|
-| Файлы Harness | Remove, Keep |
+| Harness files | Remove, Keep |
 | Разделы CLAUDE.md, показаны как diff | Remove, Keep |
 | Hooks в settings.json | Remove, Keep |
 | Status line | Replace, Keep |
 | qmd: скрипты, hook и запись MCP вместе | Remove, Keep |
-| Состояние Machine | Move, Keep |
+| Machine state | Move, Keep |
 | Profile-ы, каждый со своими полями и diff-ом | Move, Keep |
 
 Строка, которую нельзя убрать, предлагает только Keep и говорит почему. То, чего нет в форме, остаётся в `~/.claude`. Move
@@ -225,7 +225,7 @@ Plugin `worfy` приходит из marketplace `worfy-harness`, а его skil
 | `worktree-lock` | Рекомендательная блокировка рабочего дерева, см. [Hooks](skills-agents-and-hooks.md#hooks) |
 | `start-context` | Оценивает начальный контекст каждого агента в токенах, см. [Agents](skills-agents-and-hooks.md#agents) |
 | `qmd-mcp` | Запускает MCP server |
-| `qmd-refresh` | Обновляет индекс, когда главная ветка сдвинулась |
+| `qmd-refresh` | Обновляет индекс, когда главная ветка сдвинулась или файл memory либо lessons новее последнего обновления |
 | `qmd-sync-main` | Подтягивает копию главной ветки Project-а, которую читает индекс |
 | `qmd-collections` | Добавляет три коллекции Project-а в индекс и называет их в его Profile |
 
@@ -235,7 +235,8 @@ Plugin `worfy` приходит из marketplace `worfy-harness`, а его skil
 регистрирует server сам, под именем, которое инструменты носят в сессии в терминале (`mcp__plugin_worfy_qmd__…`), а `mcp.allowed` из
 Profile фильтрует его как любой другой server.
 
-**Текст.** Plugin написан по-английски, кроме слов других языков, которые его скрипты должны читать в Ticket-ах людей. Test следит,
+**Текст.** Plugin написан по-английски, кроме слов других языков, которые он должен читать в Ticket-ах людей, старых Profile-ах и
+строках вердикта старого Gate, и кроме старых русских форм команды Wave. Test следит,
 чтобы в его файлах не было имён, аккаунтов и домашних путей одного человека, рабочих проектов и номеров решений, Ticket-ов и Wave
 самого worfy.
 
@@ -273,8 +274,8 @@ worfy запускает Node-скрипт Harness как `node <script>`. На 
 - `harness/README.md` описывает папку, её test-ы и eval-ы.
 - В приложении: `src/main/agent/options.ts` передаёт копию inline и регистрирует её server-ы, с папкой из
   `src/main/agent/app-registry.ts`. `src/main/workflow/profile.ts` запускает скрипты с окружением из
-  `src/main/harness/script-env.ts`. `src/main/harness/attribution.ts` держит значение `attribution` по умолчанию, а
-  `src/main/harness/qmd.ts` ставит qmd и его модели.
+  `src/main/harness/script-env.ts`. `src/main/harness/attribution.ts` держит копию worfy значения `attribution` по умолчанию, для
+  значения, названного раньше любого Profile, а `src/main/harness/qmd.ts` ставит qmd и его модели.
 
 Главные test-ы: `harness/bin/tests/` и `harness/hooks/tests/` это shell-test-ы, которые `pnpm test` запускает через
 `test/contract/harness-scripts-1.test.ts` … `test/contract/harness-scripts-4.test.ts`. `harness/bin/tests/plugin-neutral.test.sh` это

@@ -24,7 +24,9 @@ A skill is a procedure in Markdown that an agent follows. worfy's actions, Autop
 | `overnight-fix-loop` | `/worfy:overnight-fix-loop <modules>`, by hand | A worktree and an implementer for each module, merged into a night branch. Nothing goes into the main branch at night |
 | `tickets-to-tasks` | After Tickets are written, or when the task list is empty | Imports Tickets into Claude Code Tasks and keeps their blockers |
 
-**`ship-ticket`.** The steps run in order, and the finish comes from `workflow.finish`:
+**`ship-ticket`.** The finish comes from `workflow.finish`. Steps 7 and 8 go in the order of the Pipeline: with
+`agent-review` after `ci`, the default, step 8 comes first and step 7 runs on the PR's head. The other steps run as
+numbered:
 
 | Step | What happens |
 |---|---|
@@ -60,7 +62,9 @@ A new Session resumes by running `wave-brief` first.
 **What a Profile changes.**
 
 - `workflow.agents`: `full` or `eco`. In `eco` a small Ticket (documents alone, or one change in one file) is done by
-  the Orchestrator itself, and a review of a Ticket's own diff is at depth `low`.
+  the Orchestrator itself, unless it touches a script or a hook, is a platform PR, or deletes files, stops processes or
+  replaces a copy. In `ship-ticket` a review of an `eco` Ticket's own diff is at depth `low`. The Verification gate of
+  `epic-wave` keeps its depth.
 - `review.lenses` and `review.depth`: the lenses, and at the depths `low`, `medium`, `high` and `max` how many reviewers
   a round has. An argument of the skill or the owner's word in a message overrides the depth.
 - `workflow.pipeline`: the Stages, and so which steps run ([Workflow](workflow.md)).
@@ -179,7 +183,7 @@ Claude Code runs these commands on its events. The limit is in seconds.
 | `TaskCompleted`, `TeammateIdle` | `gate.sh fast` | 900 | The [Gate](gate-and-github.md) |
 | `Stop` | `stop.mjs` | 10 | Holds the turn while the Gate is red, see the [Gate](gate-and-github.md) |
 | `Stop` | `worktree-lock beat` | 5 | Marks the Session alive |
-| `Stop` | `qmd-refresh --quiet` | 15 | Updates the index in the background if a main branch moved |
+| `Stop` | `qmd-refresh --quiet` | 15 | Updates the index in the background if a main branch moved or a memory or lessons file is newer than the last update |
 | `SessionEnd` | `session-end.mjs` | 10 | Notes a Session without a retrospective |
 | `SessionEnd` | `worktree-lock release` | 5 | Unregisters |
 
@@ -220,9 +224,9 @@ while the set of Sessions has not changed.
 
 | Refused | Which commands |
 |---|---|
-| Destroying uncommitted work | `git checkout` or `git restore` over `.`, `./` or `*`; `git reset --hard`; `git clean` with force; `git stash pop`, `git stash drop` and a stash without a name |
+| Destroying uncommitted work | `git checkout` or `git restore` over `.`, `./` or `*`; `git reset --hard`; `git clean` with force; `git stash pop`, `git stash drop`, and `git stash` alone or followed by `-u`, `-k`, `-a` or `save` |
 | A pipe that hides the exit code | A pipe after `pnpm`, `yarn` or `npm` with `lint`, `test`, `typecheck`, `check` or `build`, or after `vitest`, `eslint`, `tsc`, `jest`, `pytest` or `gh pr checks`, unless `pipefail` comes before the pipe |
-| Traces of the workflow | In Silent mode or with `attribution: off`: the text of `git commit`, a new branch name, and the text of `gh pr create`, `edit`, `comment`, `review` or `merge`, when `silent-check` rejects them |
+| Traces of the workflow | In Silent mode or with `attribution: off`: the text and the staged changes of `git commit`, a new branch name, and the text of `gh pr create`, `edit`, `comment`, `review` or `merge`, when `silent-check` rejects them |
 
 The reason gives the right way, such as a temporary commit or `set -o pipefail`. For the first two cases, quoted text in
 a command such as `grep` or `echo` is data, and a heredoc body is not read as a command. A trace check that gives no

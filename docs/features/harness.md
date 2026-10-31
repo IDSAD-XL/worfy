@@ -53,11 +53,11 @@ sessions already running in a terminal see the files change under them and need 
 `~/.claude`, the dialog warns that terminal sessions run its hooks and the plugin's both. A command gets 120 s, and a
 command that installs a dependency 600 s.
 
-**How a failed install ends.** An install ends installed or not installed, never half way:
+**How a failed install ends.** As Claude Code lists it, the plugin ends installed or not installed, never half way:
 
 | What failed | What stays | Error step |
 |---|---|---|
-| A command for a dependency | No Harness copy, and no command for `worfy` ran | `dependency marketplace add`, `dependency install` |
+| A command for a dependency | The Harness copy untouched, and no command for `worfy` ran | `dependency marketplace add`, `dependency install` |
 | The copy | The previous plugin folder as it was | `copy` |
 | `marketplace add` of the copy | Claude Code does not list `worfy` | `marketplace add` |
 | A first `plugin install` | worfy reads the list again and removes a record the command left | `install` |
@@ -84,8 +84,8 @@ With the folder removed by hand, the dialog says that it installs an older Harne
 set aside counts as installed for this comparison.
 
 **Moving an old Harness.** Before the plugin, the Harness lived directly in `~/.claude`. While anything of it is left
-there and the run may install, the toolbar shows the icon "Move old Harness…" and the First run row offers "Move…". The
-form "Move the old Harness out of ~/.claude" has a row for each thing:
+there, the First run row offers "Move…", and in a run that may install the toolbar also shows the icon "Move old
+Harness…". The form "Move the old Harness out of ~/.claude" has a row for each thing:
 
 | Group | Choices |
 |---|---|
@@ -231,7 +231,7 @@ Session and Subagent (see [Hooks](skills-agents-and-hooks.md#hooks)).
 | `worktree-lock` | The advisory lock on a working tree, see [Hooks](skills-agents-and-hooks.md#hooks) |
 | `start-context` | Estimates each agent's starting context in tokens, see [Agents](skills-agents-and-hooks.md#agents) |
 | `qmd-mcp` | Starts the MCP server |
-| `qmd-refresh` | Updates the index when a main branch has moved |
+| `qmd-refresh` | Updates the index when a main branch has moved or a memory or lessons file is newer than the last update |
 | `qmd-sync-main` | Pulls the copy of a Project's main branch that the index reads |
 | `qmd-collections` | Adds the three collections of a Project to the index and names them in its Profile |
 
@@ -241,8 +241,8 @@ check what it finds against the working tree. Installing qmd and its models is a
 For its own Sessions worfy registers the server itself, under the name the tools have in a terminal session
 (`mcp__plugin_worfy_qmd__…`), and the Profile's `mcp.allowed` filters it like any other server.
 
-**Text.** The plugin is written in English, apart from the words of other languages that its scripts must read in
-people's Tickets. A test keeps its files free of one person's names, accounts and home paths, of work projects, and of
+**Text.** The plugin is written in English, apart from the words of other languages that it must read in people's
+Tickets, older Profiles and the verdict lines of an older Gate, and the old Russian forms of the Wave command. A test keeps its files free of one person's names, accounts and home paths, of work projects, and of
 worfy's own decision, Ticket and Wave numbers.
 
 #### On Windows
@@ -283,8 +283,8 @@ Machine.
 - `harness/README.md` describes the folder, its tests and its evals.
 - In the app: `src/main/agent/options.ts` passes the copy inline and registers its servers, with the folder from
   `src/main/agent/app-registry.ts`. `src/main/workflow/profile.ts` starts the scripts, with the environment of
-  `src/main/harness/script-env.ts`. `src/main/harness/attribution.ts` holds the default of `attribution`, and
-  `src/main/harness/qmd.ts` installs qmd and its models.
+  `src/main/harness/script-env.ts`. `src/main/harness/attribution.ts` holds worfy's copy of the default of `attribution`, for a value
+  named before any Profile exists, and `src/main/harness/qmd.ts` installs qmd and its models.
 
 Main tests: `harness/bin/tests/` and `harness/hooks/tests/` are shell tests, which `pnpm test` runs through
 `test/contract/harness-scripts-1.test.ts` to `test/contract/harness-scripts-4.test.ts`.
