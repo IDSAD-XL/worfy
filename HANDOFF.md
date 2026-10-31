@@ -6,7 +6,7 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` ([spec](.scratch/worfy-link/spec.md)): 41/42; 31 (Tailscale) принят 2026-10-31; 41 (дубль сообщения, #1114) и 42 (поток строк смены сети, #1119) — проверка после Stable. Осталась приёмка 16.
-- `worfy-windows` (ADR 0054–0057, 0062, 0063, 0069, 0071): 113/117; 116 bug Git Bash (ПК); 117 Windows exception — open до приёмки. Отсечка 2026-10-23: повторяющиеся красные — в Epic-е (113; 106, 109–112 влиты), flaky — `worfy-polish` 47; планка 16 — gate full на Windows полностью зелёный.
+- `worfy-windows` (ADR 0054–0057, 0062, 0063, 0069, 0071): 115/117; 116 #1148 (Git Bash, Q10 у владельца), 117 #1143. Красный только на Windows — fix или Windows exception (Q1/Q9). Планка 16 — gate full ПК зелёный; идёт на bcd24970.
 - `worfy-windows`: 60 не нужен — остаёмся на `node-pty@1.2.0-beta.15`; 90 и 92 вынесены из Epic-а (upstream, приёмку не блокируют) — владелец 2026-10-23.
 - `worfy-windows` 39 влит (#512): main отвечает на `ESC[6n`, ответы view — не ввод. Цена — скорость flood-а (один worker разбора), владелец принял; 67 (#1020) — пул worker-ов, 2–8 shell-ов в 1.4–4.2 раза быстрее (ПК и Mac).
 - `worfy-windows` 66, ADR-0071: полный `pnpm test` на Windows-runner-е; его зелёный run — `check/windows` для платформенных PR без Terminal, окон, e2e и упаковки. Baseline runner-а починил 108 (#802).
@@ -20,7 +20,7 @@
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
-- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 12/13; осталась 12 — приёмка с владельцем. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): Living Canvas; 03 в работе, стоп на 10.
+- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 12/13; осталась 12 — приёмка с владельцем. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): Living Canvas; 4/21; 05, 09 в работе; стоп на 10.
 
 ## Ждёт владельца
 
