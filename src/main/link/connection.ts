@@ -15,6 +15,8 @@ export const CALL_TIMEOUT_MS = 30_000
 /** Close codes the link uses on top of the WebSocket ones. */
 export const CLOSE_REVOKED = 4003
 export const CLOSE_UNLINKED = 4004
+/** An address set by hand replaced this connection (worfy-link ticket 40): the Machine stays connected over the new one. */
+export const CLOSE_REPLACED = 4005
 
 /** A size in MB, two decimals cut, as people read it in a message. */
 const megabytes = (bytes: number): string => `${Math.floor((bytes / (1024 * 1024)) * 100) / 100} MB`

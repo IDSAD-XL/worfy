@@ -407,6 +407,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 16 | `test/e2e/linked-machines.spec.ts`, `.scratch/worfy-link/spec.md` | 6 |
 | 38 | `src/main/diagnostics/closed-stdio.ts`, `src/main/index.ts`, `test/unit/closed-stdio.test.ts`, `test/contract/stdout-epipe.test.ts` | вне Wave (находка ПК 2026-10-31) |
 | 39 | `src/main/link/checks.ts`, `src/main/link/server.ts`, `src/main/link/tailscale.ts`, `src/main/link/service.ts`, `test/contract/link-server.test.ts`, `test/contract/link-by-name.test.ts`, `test/unit/link-magicdns.test.ts` | вне Wave (находка приёмки 31) |
+| 40 | `src/main/link/service.ts`, `src/main/link/connection.ts`, `test/contract/link-reconnect.test.ts`, `docs/features/link.md` | вне Wave (находка приёмки 31) |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.

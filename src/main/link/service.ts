@@ -40,7 +40,7 @@ import type { ModuleLoader } from '../ipc/index'
 import { dataRoot, type BuildKind } from '../storage/paths'
 import { isAllowedPeer, isTailscaleAddress, normalizeAddress, type HostNames, type PeerAddresses, type SocketAddresses } from './checks'
 import { LinkConnectError, openLinkSocket } from './client'
-import { CLOSE_REVOKED, CLOSE_UNLINKED, LinkConnection } from './connection'
+import { CLOSE_REPLACED, CLOSE_REVOKED, CLOSE_UNLINKED, LinkConnection } from './connection'
 import { LinkConnections, watchNetwork, type LinkConnectionsOptions } from './connections'
 import { bonjourBackend, LinkDiscovery, mdnsInterfaces, onSameNetwork, type BonjourLike, type BonjourSocketOptions } from './discovery'
 import { loadIdentity, MACHINE_KEY, saveIdentity, type MachineIdentity } from './identity'
@@ -246,6 +246,10 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   private readonly pairingSocketsOut = new Set<WebSocket>()
   /** The other side's address of each connection and pairing attempt, both directions. */
   private readonly peerAddress = new WeakMap<LinkConnection | WebSocket, string>()
+  /** Where each connection goes, for the journal: the dialled address and port, or where an incoming one came from. */
+  private readonly endpoints = new WeakMap<LinkConnection, string>()
+  /** Connections this side closed for an address set by hand; their journal line is already written. */
+  private readonly replaced = new WeakSet<LinkConnection>()
   private server: LinkServer | null = null
   /** The IPC adapter, made at the first call over the link: a worfy without Linked machines never loads it. */
   private ipc: Promise<LinkIpcAdapter> | undefined
@@ -456,10 +460,14 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   async connect(machineId: string, via?: { host: string; port: number }): Promise<void> {
     const record = this.store.get(machineId)
     if (record === undefined) throw new Error(`Machine ${machineId} is not linked`)
-    if (via !== undefined) return this.connectAt(record, via, 'claimed')
+    if (via !== undefined) {
+      await this.connectAt(record, via, 'claimed')
+      return
+    }
     let first: LinkConnectError
     try {
-      return await this.connectAt(record, { host: record.address, port: record.port }, 'remembered')
+      await this.connectAt(record, { host: record.address, port: record.port }, 'remembered')
+      return
     } catch (error) {
       // The Machine answered there and said no: no name will do better.
       if (!(error instanceof LinkConnectError) || error.kind === 'unauthorized' || error.kind === 'protocol') throw error
@@ -469,7 +477,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     for (const name of this.fallbackNames(record)) {
       if (this.stopped || this.store.get(machineId) === undefined) break
       try {
-        return await this.connectAt(record, { host: name, port: record.port }, 'name')
+        await this.connectAt(record, { host: name, port: record.port }, 'name')
+        return
       } catch (error) {
         if (error instanceof LinkConnectError && error.kind === 'unauthorized') throw error
         tried.push(`${name}: ${messageOf(error)}`)
@@ -494,9 +503,9 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
    * or an address someone claims for it (Bonjour, typed by hand). Anywhere but the remembered
    * address another certificate is "not that Machine", and the address is kept once the connection
    * opened: a name as the address it resolved to, a claimed address as it is. A 401 forgets the
-   * Machine either way.
+   * Machine either way. Resolves with the connection it opened.
    */
-  private async connectAt(record: LinkedMachineRecord, target: { host: string; port: number }, kind: 'remembered' | 'name' | 'claimed'): Promise<void> {
+  private async connectAt(record: LinkedMachineRecord, target: { host: string; port: number }, kind: 'remembered' | 'name' | 'claimed'): Promise<LinkConnection> {
     const claimed = kind !== 'remembered'
     const token = this.secrets.get(record.outgoingTokenKey)
     if (token === undefined) throw new Error(`the token for Machine ${record.id} (${record.name}) is missing; link it again`)
@@ -528,8 +537,9 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       opened.ws.close(CLOSE_UNLINKED, 'linked again')
       throw new Error(`Machine ${record.id} (${record.name}) was linked again while connecting; connect again`)
     }
-    if (!this.attach(opened.ws, current ?? record, 'out', this.peerAddress.get(opened.ws))) throw new Error(`Machine ${record.id} (${record.name}) was unlinked while connecting`)
-    if (!claimed) return
+    const connection = this.attach(opened.ws, current ?? record, 'out', this.peerAddress.get(opened.ws), formatLinkAddress(target))
+    if (connection === undefined) throw new Error(`Machine ${record.id} (${record.name}) was unlinked while connecting`)
+    if (!claimed) return connection
     // The remembered certificate answered there: from now on it is where this Machine is.
     const resolved = kind === 'name' ? this.peerAddress.get(opened.ws) : undefined
     const address = resolved ?? normalizeAddress(target.host)
@@ -538,22 +548,51 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     else if (address !== record.address || target.port !== record.port) {
       this.warn(`[link] Machine ${record.id} (${record.name}) answered at ${formatLinkAddress({ host: address, port: target.port })}; its address was ${formatLinkAddress({ host: record.address, port: record.port })}`)
     }
+    return connection
   }
 
   /**
    * Sets the address of Linked machine `machineId` by hand (`link.setAddress`, worfy-link ticket 36),
    * without linking again: the address is kept only when the remembered certificate answers there,
-   * and this dial is then the connection. Another certificate, or no answer, is a refusal with the
-   * reason; the record stays as it was.
+   * and this dial is then the connection: every other one to the Machine, whichever side dialled it,
+   * is closed (replaceConnections, worfy-link ticket 40). Another certificate, or no answer, is a
+   * refusal with the reason; the record and the open connections stay as they were.
    */
   async setAddress(machineId: string, target: { host: string; port: number }): Promise<LinkedMachineInfo> {
     const record = this.store.get(machineId)
     if (record === undefined) throw new Error(`Machine ${machineId} is not linked`)
     this.warn(`[link] the address of Machine ${record.id} (${record.name}) is being set by hand to ${target.host}:${target.port}`)
-    await this.connectAt(record, target, 'claimed')
+    this.replaceConnections(machineId, await this.connectAt(record, target, 'claimed'))
     const saved = this.store.get(machineId)
     if (saved === undefined) throw new Error(`Machine ${machineId} was unlinked while its address was checked`)
     return this.info(saved)
+  }
+
+  /**
+   * "Change address…" means "the link goes over this address", not "one more path" (worfy-link
+   * ticket 40): every other connection to Machine `machineId` is closed with CLOSE_REPLACED, its own
+   * dials and the other side's alike, so the pair keeps exactly `kept`. Calls and events go over the
+   * first open connection (remote-calls.ts), which would otherwise stay the old one. Neither side
+   * emits `disconnected` for these (attach): `kept` is open. When `kept` closed meanwhile, the old
+   * connections are all the link has, and they stay. Only setAddress calls it: the automatic dials
+   * (connections.ts) never open a second connection over an open one, and two connections that
+   * both sides dialled at once are by design.
+   */
+  private replaceConnections(machineId: string, kept: LinkConnection): void {
+    if (!kept.isOpen) return
+    for (const connection of [...(this.connections.get(machineId) ?? [])]) {
+      if (connection === kept) continue
+      if (connection.isOpen) this.logReplaced(machineId, connection, kept)
+      this.replaced.add(connection)
+      connection.close(CLOSE_REPLACED, 'replaced by an address set by hand')
+    }
+  }
+
+  /** The journal line of a connection an address set by hand replaced; `by` is the one that stays. */
+  private logReplaced(machineId: string, closed: LinkConnection, by: LinkConnection | undefined): void {
+    const name = this.store.get(machineId)?.name ?? machineId
+    const where = (connection: LinkConnection): string => this.endpoints.get(connection) ?? 'an unknown address'
+    this.warn(`[link] Machine ${machineId} (${name}): the connection at ${where(closed)} is closed, ${by === undefined ? 'replaced by an address set by hand there, but no other connection is open' : `replaced by ${where(by)}`}`)
   }
 
   /**
@@ -744,13 +783,14 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   }
 
   /**
-   * Takes an established WebSocket of a Linked machine into service; false (and the socket closed)
-   * when the Machine was forgotten while the handshake ran, or the service stopped.
+   * Takes an established WebSocket of a Linked machine into service; undefined (and the socket
+   * closed) when the Machine was forgotten while the handshake ran, or the service stopped.
+   * `dialledAt` is the address and port this side dialled, for the journal.
    */
-  private attach(ws: WebSocket, record: LinkedMachineRecord, direction: 'in' | 'out', peerAddress?: string): boolean {
+  private attach(ws: WebSocket, record: LinkedMachineRecord, direction: 'in' | 'out', peerAddress?: string, dialledAt?: string): LinkConnection | undefined {
     if (this.stopped || this.store.get(record.id) === undefined) {
       ws.close(CLOSE_UNLINKED, 'unlinked')
-      return false
+      return undefined
     }
     const connection = new LinkConnection(ws, record.id, direction, {
       ...(this.options.pingIntervalMs === undefined ? {} : { pingIntervalMs: this.options.pingIntervalMs }),
@@ -765,6 +805,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       warn: this.warn,
     })
     if (peerAddress !== undefined) this.peerAddress.set(connection, peerAddress)
+    const endpoint = dialledAt ?? peerAddress
+    if (endpoint !== undefined) this.endpoints.set(connection, endpoint)
     this.peers.add(peer)
     peer.setAccess(this.settings.levelOf(record.id))
     let set = this.connections.get(record.id)
@@ -774,18 +816,20 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     }
     set.add(connection)
     connection.on('frame', (frame) => void this.onFrame(connection, peer, frame))
-    connection.once('close', () => {
+    connection.once('close', (code) => {
       this.peers.delete(peer)
       peer.close()
       const current = this.connections.get(record.id)
       current?.delete(connection)
       if (current?.size === 0) this.connections.delete(record.id)
+      // The other side set an address by hand: the connection it dialled there stays, so no `disconnected` below.
+      if (code === CLOSE_REPLACED && !this.replaced.has(connection)) this.logReplaced(record.id, connection, this.openConnection(record.id))
       const name = this.store.get(record.id)?.name ?? record.name
       if (!this.isConnected(record.id)) this.emit('disconnected', { id: record.id, name })
     })
     this.sendHello(connection)
     this.emit('connected', { id: record.id, name: record.name })
-    return true
+    return connection
   }
 
   /** `hello` of a connection: who this Machine is and the service messages it accepts (ADR-0079). Pairing's `hello` carries no list. */
