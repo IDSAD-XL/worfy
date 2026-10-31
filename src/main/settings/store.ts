@@ -11,7 +11,8 @@
 // `after` this version does not know (written by a newer one) reads as not chosen. `browserSleep`
 // (worfy-browser ticket 05) keeps only the fields a change named too; a value outside its bounds —
 // a file edited by hand — reads as not chosen, and the rest of the file stays. `autopilotBudget`
-// (worfy-throughput ticket 41) is kept the same way.
+// (worfy-throughput ticket 41) is kept the same way. `autoUpdate` ("Update automatically",
+// worfy-update ticket 03) is on in a file written before it existed, as `memoryIndicator` is.
 //
 // One file for the Machine: every window shares it. The store announces `changed` with each new
 // state; the IPC module (src/main/ipc/app-settings.ts) passes it on to every window, and the modules
@@ -24,6 +25,7 @@ import {
   AUTO_COMPACT_WINDOW_DEFAULTS,
   AUTO_COMPACT_WINDOW_WORFY_DEFAULT,
   autoCompactWindowChosen,
+  autoUpdateOf,
   clampAutoCompactWindow,
   clampScale,
   defaultAppSettings,
@@ -64,6 +66,7 @@ const appSettingsFileSchema = z.object({
     .default(() => ({ ...AUTO_COMPACT_WINDOW_DEFAULTS })),
   autoCompactWindowChosen: z.object({ orchestrator: z.boolean().default(false), other: z.boolean().default(false) }).optional(),
   memoryIndicator: z.boolean().default(true),
+  autoUpdate: z.boolean().default(true),
   sessionArchive: z.object({ after: sessionArchiveAfterSchema.optional().catch(undefined), ticketDone: z.boolean().optional() }).optional(),
   browserSleep: z
     .object({
@@ -147,6 +150,7 @@ function copy(settings: AppSettings): AppSettings {
     sidebar: { collapsed: { ...settings.sidebar.collapsed }, visible: { ...settings.sidebar.visible } },
     ...windows(roleWindow(settings, 'orchestrator'), roleWindow(settings, 'other')),
     memoryIndicator: settings.memoryIndicator,
+    autoUpdate: autoUpdateOf(settings),
     ...archiveChoice(settings.sessionArchive),
     ...sleepChoice(settings.browserSleep),
     ...budgetChoice(settings.autopilotBudget),
@@ -174,6 +178,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     },
     ...windows(windowAfter(current, 'orchestrator', patch.autoCompactWindow?.orchestrator), windowAfter(current, 'other', patch.autoCompactWindow?.other)),
     memoryIndicator: patch.memoryIndicator ?? current.memoryIndicator,
+    autoUpdate: patch.autoUpdate ?? autoUpdateOf(current),
     ...archiveChoice(current.sessionArchive, patch.sessionArchive),
     ...sleepChoice(current.browserSleep, patch.browserSleep),
     ...budgetChoice(current.autopilotBudget, patch.autopilotBudget),
@@ -192,6 +197,7 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.sidebar.visible.normal === b.sidebar.visible.normal &&
     a.sidebar.visible.focus === b.sidebar.visible.focus &&
     a.memoryIndicator === b.memoryIndicator &&
+    a.autoUpdate === b.autoUpdate &&
     a.sessionArchive?.after === b.sessionArchive?.after &&
     a.sessionArchive?.ticketDone === b.sessionArchive?.ticketDone &&
     SLEEP_FIELDS.every((field) => a.browserSleep?.[field] === b.browserSleep?.[field]) &&
