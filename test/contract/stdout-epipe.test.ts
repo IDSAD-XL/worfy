@@ -1,6 +1,6 @@
 // A stdout nobody reads any more must not stop the process (worfy-link ticket 38,
 // src/main/diagnostics/closed-stdio.ts). A child node gets a pipe for stdout, the test closes its
-// reading end, and only then tells the child, over stdin, to console.log. Without ignoreClosedStdio
+// reading end, and only then tells the child, over stdin, to console.log. Without ignoreStdioErrors
 // the write's EPIPE is an uncaught exception and the child dies; in Electron's main that is the modal
 // error box that kept the old Stable on the PC from quitting. With it the child writes its marker
 // file after the failed write and exits 0.
@@ -18,7 +18,7 @@ import { scriptNode } from '../script-node'
 
 const MODULE = join(__dirname, '..', '..', 'src', 'main', 'diagnostics', 'closed-stdio.ts')
 
-// The child: listens (or not) for closed-stream errors, waits for the go-ahead on stdin, then
+// The child: drops (or not) the errors of its stdout and stderr, waits for the go-ahead on stdin, then
 // console.logs three lines, giving the stream's events their turn after each. Node's Console keeps the
 // error of the first failed write from being uncaught, and the stream only closes; a later one, as the
 // link's next `[link]` line did on the PC, is the uncaught EPIPE (measured with node 24.19 on macOS). The marker says how often stdout closed:
@@ -27,7 +27,7 @@ const CHILD = `
 import { writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 const [modulePath, marker, listen] = process.argv.slice(2)
-if (listen === 'listen') (await import(pathToFileURL(modulePath).href)).ignoreClosedStdio()
+if (listen === 'listen') (await import(pathToFileURL(modulePath).href)).ignoreStdioErrors()
 let closed = 0
 process.stdout.on('close', () => closed++)
 const settle = () => new Promise((resolve) => setImmediate(() => setImmediate(resolve)))
@@ -81,7 +81,7 @@ describe('a stdout whose reader has gone', () => {
     expect(result.stderr).toMatch(/EPIPE|EOF/)
   })
 
-  it('leaves the process running with ignoreClosedStdio: exit code 0 and the line after the write', async () => {
+  it('leaves the process running with ignoreStdioErrors: exit code 0 and the line after the write', async () => {
     const result = await run(true)
     expect(result.stderr).toBe('')
     expect(result.marker).toMatch(/^after the writes, stdout closed [1-9]\d* times$/)

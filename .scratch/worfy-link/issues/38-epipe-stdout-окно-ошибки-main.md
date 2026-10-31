@@ -21,10 +21,13 @@ main показал модальное окно «A JavaScript error occurred in
 
 ## Что делаем
 
-1. В main при старте — обработчик `error` у `process.stdout` и `process.stderr`: коды закрытого потока — `EPIPE`,
-   `EOF`, `ERR_STREAM_DESTROYED`, `EIO` (закрытый TTY) — глотаются: писать больше некуда, приложение работает дальше;
-   прочие коды по-прежнему бросаются (решение Orchestrator-а 2026-10-31: ошибка записи в stdout/stderr не стоит
-   модального окна, а listener без `EIO` сделал бы его хуже — раньше первую ошибку записи глотал Console).
+1. В main при старте — обработчик `error` у `process.stdout` и `process.stderr`, который глотает ЛЮБУЮ ошибку этих
+   потоков, с любым кодом (решение Orchestrator-а 2026-10-31 после ревью #1101). Список кодов не годится: pipe даёт
+   `EPIPE` или `EOF` (libuv `src/win/error.c`), закрытый TTY — `EIO`, а консоль Windows (UV_TTY) отдаёт ошибку записи
+   через `uv_translate_sys_error` (libuv `src/win/tty.c:2254`): `ERROR_NO_DATA` → `EAGAIN`, `ERROR_INVALID_HANDLE` →
+   `EBADF`. Любой listener на потоке выключает собственную защиту Node Console (без listener-а Console глотал ошибку
+   своей записи с любым кодом, как минимум первую), так что код вне списка стал бы хуже, чем без обработчика. worfy —
+   GUI-приложение, его stdout никто не читает: потерянная строка лога лучше модального окна, которое держит main.
 2. Место — рядом с `reportUncaughtToStderr` (`src/main/diagnostics/`), подключение там же, где он.
 3. Журнал worfy (`log-file.ts`) продолжает получать строки: глотается только запись в закрытый поток.
 
@@ -50,16 +53,14 @@ main показал модальное окно «A JavaScript error occurred in
 
 ## Итог
 
-- Сделано: `src/main/diagnostics/closed-stdio.ts` — `ignoreClosedStdio()` ставит один обработчик `error` на
-  `process.stdout` и `process.stderr`; ошибка с кодом `EPIPE`, `EOF`, `ERR_STREAM_DESTROYED` или `EIO` глотается,
-  любая другая бросается дальше и остаётся uncaught exception, как без обработчика. Обработчик не зависит от вида потока
-  (pipe, socket, консоль). Подключён в `src/main/index.ts` сразу после `reportUncaughtToStderr()`.
-- Коды Windows по исходнику libuv `src/win/error.c`: запись с `ERROR_BROKEN_PIPE` и `ERROR_NO_DATA` даёт `EPIPE`
-  (`uv_translate_write_sys_error`), `ERROR_PIPE_NOT_CONNECTED` — `EPIPE`; `ERROR_BROKEN_PIPE` вне пути записи —
-  `EOF`. `ENOTCONN` не добавлен: источника, что закрытая консоль даёт его, не нашлось.
-- `EIO` (закрытый TTY) глотается тоже. По POSIX `write()` он бывает и при живом потоке: orphaned фоновая группа
-  процессов пишет в управляющий терминал при `TOSTOP`, физическая ошибка ввода-вывода файла, куда перенаправлен
-  stdout. Строка тогда теряется, приложение работает дальше.
+- Сделано: `src/main/diagnostics/closed-stdio.ts` — `ignoreStdioErrors()` ставит на `process.stdout` и `process.stderr`
+  listener `dropStdioError`, который глотает любую ошибку потока. Подключён в `src/main/index.ts` сразу после
+  `reportUncaughtToStderr()`; подключение проверяет `test/contract/main-ipc-wiring.test.ts`.
+- Коды Windows по исходнику libuv: pipe — `src/win/error.c` (запись с `ERROR_BROKEN_PIPE` и `ERROR_NO_DATA` даёт
+  `EPIPE`, `ERROR_BROKEN_PIPE` вне пути записи — `EOF`); консоль (UV_TTY) — `src/win/tty.c:2254`, через
+  `uv_translate_sys_error`: `ERROR_NO_DATA` → `EAGAIN`, `ERROR_INVALID_HANDLE` → `EBADF`. Обработчик на коды не смотрит.
+- Первая версия PR глотала только список кодов (`EPIPE`, `EOF`, `ERR_STREAM_DESTROYED`, потом и `EIO`). Ревью нашло
+  путь консоли Windows (`src/win/tty.c`), где коды другие (`EAGAIN`, `EBADF`); список заменён на «глотать всё».
 - Факты с ПК (2026-10-31, через мост): обе Stable запущены PowerShell-ом сессии ПК через
   `Start-Process -FilePath $exe -WorkingDirectory …`, без перенаправления; родитель потом закончился. stdin, stdout и
   stderr новой копии — хэндлы Windows console (`\Device\ConDrv`), не pipe и не файл. Стек старой копии 408b25c7:
@@ -68,5 +69,4 @@ main показал модальное окно «A JavaScript error occurred in
   сам глотает ошибку своей записи, поток закрывается; роняет следующая запись. Contract test поэтому пишет три строки.
 - Не проверено: случай ПК — Windows console, у которой ушёл владелец. Contract test `test/contract/stdout-epipe.test.ts`
   закрывает читателя pipe-а и этот случай не воспроизводит; сделать мёртвую консоль в CI не удалось. Покрытие этого
-  случая держится на том, что стек ПК показывает тот же `Socket._write` → `EPIPE`, а обработчик смотрит только на код
-  ошибки.
+  случая держится на том, что обработчик глотает любую ошибку потока, с любым кодом.

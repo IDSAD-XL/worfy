@@ -1,52 +1,35 @@
-// A stdout or stderr nobody reads any more must not stop main (src/main/diagnostics/closed-stdio.ts):
-// the errors of a closed stream and EIO are dropped, any other stream error stays uncaught.
+// A failed write to stdout or stderr must not stop main (src/main/diagnostics/closed-stdio.ts): every
+// error of the two streams is dropped, whatever its code.
 import { EventEmitter } from 'node:events'
 import { describe, expect, it } from 'vitest'
-import { ignoreClosedStdio, isClosedStreamError } from '../../src/main/diagnostics/closed-stdio'
+import { dropStdioError, ignoreStdioErrors } from '../../src/main/diagnostics/closed-stdio'
 
 const withCode = (code: string): Error => Object.assign(new Error(`write ${code}`), { code })
 
-describe('isClosedStreamError', () => {
-  it('knows the codes of a stream whose reader has gone', () => {
-    expect(isClosedStreamError(withCode('EPIPE'))).toBe(true)
-    expect(isClosedStreamError(withCode('EOF'))).toBe(true)
-    expect(isClosedStreamError(withCode('ERR_STREAM_DESTROYED'))).toBe(true)
-    expect(isClosedStreamError(withCode('EIO'))).toBe(true)
-  })
-
-  it('does not take any other error for one', () => {
-    expect(isClosedStreamError(withCode('ENOSPC'))).toBe(false)
-    expect(isClosedStreamError(withCode('EBADF'))).toBe(false)
-    expect(isClosedStreamError(new Error('EPIPE'))).toBe(false)
-    expect(isClosedStreamError(null)).toBe(false)
-    expect(isClosedStreamError('EPIPE')).toBe(false)
-  })
-})
-
-describe('ignoreClosedStdio', () => {
-  it('drops the error of a closed stream on every stream it is given', () => {
+describe('ignoreStdioErrors', () => {
+  // EPIPE: a pipe whose reader has gone; EIO: a terminal that hung up; EAGAIN and EBADF: a Windows
+  // console whose owner has gone (ERROR_NO_DATA, ERROR_INVALID_HANDLE); ENOSPC: a full disk under a
+  // redirected stdout.
+  it.each(['EPIPE', 'EIO', 'EAGAIN', 'EBADF', 'ENOSPC'])('drops a write error with code %s on every stream it is given', (code) => {
     const out = new EventEmitter()
     const err = new EventEmitter()
-    ignoreClosedStdio([out, err])
-    expect(() => out.emit('error', withCode('EPIPE'))).not.toThrow()
-    expect(() => err.emit('error', withCode('EPIPE'))).not.toThrow()
-    expect(() => out.emit('error', withCode('ERR_STREAM_DESTROYED'))).not.toThrow()
-    expect(() => err.emit('error', withCode('EIO'))).not.toThrow()
+    ignoreStdioErrors([out, err])
+    expect(() => out.emit('error', withCode(code))).not.toThrow()
+    expect(() => err.emit('error', withCode(code))).not.toThrow()
   })
 
-  it('throws any other stream error on, as the stream would with no listener', () => {
+  it('drops an error with no code too', () => {
     const out = new EventEmitter()
-    const enospc = withCode('ENOSPC')
-    ignoreClosedStdio([out])
-    expect(() => out.emit('error', enospc)).toThrow(enospc)
+    ignoreStdioErrors([out])
+    expect(() => out.emit('error', new Error('no code'))).not.toThrow()
   })
 
-  it('listens to process.stdout and process.stderr by default', () => {
+  it('puts dropStdioError on process.stdout and process.stderr by default', () => {
     const streams = [process.stdout, process.stderr]
-    const before = streams.map((stream) => new Set(stream.listeners('error')))
-    ignoreClosedStdio()
-    const added = streams.map((stream, i) => stream.listeners('error').filter((listener) => !before[i]!.has(listener)))
-    for (const [i, stream] of streams.entries()) for (const listener of added[i]!) stream.removeListener('error', listener as (error: Error) => void)
-    expect(added.map((listeners) => listeners.length)).toEqual([1, 1])
+    const before = streams.map((stream) => stream.listeners('error').filter((listener) => listener === dropStdioError).length)
+    ignoreStdioErrors()
+    const after = streams.map((stream) => stream.listeners('error').filter((listener) => listener === dropStdioError).length)
+    for (const stream of streams) stream.removeListener('error', dropStdioError)
+    expect(after).toEqual(before.map((count) => count + 1))
   })
 })
