@@ -139,6 +139,13 @@ export interface HostNames {
   tailscale: boolean
   /** This Machine's id: its own mDNS name worfyHost(machineId) is allowed (worfy-link ticket 36). */
   machineId?: string
+  /**
+   * The MagicDNS name Tailscale gives this machine, `Self.DNSName` of `tailscale status --json`
+   * (tailscale.ts, TailnetSelfName), lower case, without the trailing dot (worfy-link ticket 39).
+   * Known, it and its first label are the MagicDNS names of this machine, and nothing else under
+   * ts.net is; not known (no CLI, a failure), the names are guessed from os.hostname().
+   */
+  magicDnsName?: string
 }
 
 /**
@@ -161,11 +168,12 @@ function machineLabel(hostname: string): string {
  * label + `.local`, and os.hostname() itself when it already ends in `.local`), and this Machine's
  * own mDNS name worfyHost (one name, not a pattern: DNS rebinding, ADR-0052 point 8, stays shut,
  * since a site would have to know the Machine id and still could not resolve `.local`). While "Link
- * through Tailscale" is on, also the bare first label: the short MagicDNS name (`pc`). Lower case,
- * IPv6 without brackets and without a zone id. The long MagicDNS names are a pattern, not a list:
- * isAllowedHostName.
+ * through Tailscale" is on, also the MagicDNS names: with magicDnsName known, that name and its first
+ * label; without it, the bare first label of os.hostname() as the short name (`pc`), and the long
+ * names are a pattern, not a list (isAllowedHostName). Lower case, IPv6 without brackets and without
+ * a zone id.
  */
-export function allowedHostNames({ interfaces, hostname, tailscale, machineId }: HostNames): Set<string> {
+export function allowedHostNames({ interfaces, hostname, tailscale, machineId, magicDnsName }: HostNames): Set<string> {
   const names = new Set<string>(['localhost', '127.0.0.1', '::1'])
   if (machineId !== undefined && machineId !== '') names.add(worfyHost(machineId))
   for (const list of Object.values(interfaces)) {
@@ -175,7 +183,10 @@ export function allowedHostNames({ interfaces, hostname, tailscale, machineId }:
   const label = machineLabel(hostname)
   if (label !== '') names.add(`${label}.local`)
   if (host.endsWith('.local')) names.add(host)
-  if (tailscale && label !== '') names.add(label)
+  if (tailscale && magicDnsName !== undefined && magicDnsName !== '') {
+    names.add(magicDnsName)
+    names.add(magicDnsName.split('.')[0] ?? magicDnsName)
+  } else if (tailscale && label !== '') names.add(label)
   return names
 }
 
@@ -184,17 +195,17 @@ const TAILNET = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{
 
 /**
  * Whether `name` (lower case, without the port, as parseHostHeader gives it) names this machine:
- * one of allowedHostNames, or, while "Link through Tailscale" is on, the long MagicDNS name
- * `<first label>.<tailnet>.ts.net` (ADR-0070, point 5). Without the Tailscale CLI the machine does
- * not know its tailnet, so any tailnet passes. DNS rebinding (ADR-0052, point 8) stays shut: a site
- * cannot point a name under ts.net at this machine, only Tailscale controls that zone.
- * shortcut: the MagicDNS name is taken to be the first label of os.hostname(), so a machine renamed
- * in the Tailscale admin console is refused by name (its Tailscale address still works); redo when
- * the machine list comes from `tailscale status --json` (worfy-link ticket 30).
+ * one of allowedHostNames (with magicDnsName known, the exact MagicDNS name is there, and only it),
+ * or, while "Link through Tailscale" is on and magicDnsName is not known, the long MagicDNS name
+ * guessed from os.hostname(), `<first label>.<tailnet>.ts.net` (ADR-0070, point 5): without the
+ * Tailscale CLI the machine does not know its tailnet, so any tailnet passes. DNS rebinding
+ * (ADR-0052, point 8) stays shut: a site cannot point a name under ts.net at this machine, only
+ * Tailscale controls that zone.
  */
 export function isAllowedHostName(name: string, names: HostNames): boolean {
   if (allowedHostNames(names).has(name)) return true
   const label = machineLabel(names.hostname)
+  if (names.magicDnsName !== undefined && names.magicDnsName !== '') return false
   if (!names.tailscale || label === '' || !name.startsWith(`${label}.`) || !name.endsWith('.ts.net')) return false
   const tailnet = name.slice(label.length + 1, -'.ts.net'.length)
   return TAILNET.test(tailnet)

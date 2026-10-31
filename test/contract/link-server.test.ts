@@ -1002,3 +1002,117 @@ describe('round 2: re-linking and races', () => {
     expect(received).toEqual([1])
   })
 })
+
+// worfy-link ticket 39. A server alone, without a bench service: hostNames() and the MagicDNS name
+// are given, so `beta.local` stands for os.hostname() and `beta-mac.example.ts.net` for the name
+// Tailscale gave the machine (`Self.DNSName`). No test starts a real `tailscale`.
+describe('the MagicDNS name from Tailscale, and refusals in the log', () => {
+  const MAGIC = 'beta-mac.example.ts.net'
+
+  async function serverWith(options: Partial<Parameters<typeof startLinkServer>[0]>): Promise<{ port: number; close: () => void }> {
+    const own = await generateCertificate(randomUUID())
+    return startLinkServer({
+      key: own.key,
+      certificate: own.certificate,
+      host: '127.0.0.1',
+      port: 0,
+      build: '0.2.0+bench',
+      hostNames: () => ({ interfaces: {}, hostname: 'beta.local', tailscale: true }),
+      admit: () => ({ accept: (ws) => ws.close(), abort: () => undefined }),
+      isAllowedPeer: () => true,
+      warn: () => undefined,
+      ...options,
+    })
+  }
+
+  it('takes Host <Self.DNSName>:<port> though os.hostname() differs, and refuses any other *.ts.net name with 403', async () => {
+    const asked: number[] = []
+    const server = await serverWith({
+      magicDnsName: async () => {
+        asked.push(1)
+        return MAGIC
+      },
+    })
+    try {
+      const { port } = server
+      for (const host of [`${MAGIC}:${port}`, `beta-mac:${port}`, `BETA-MAC.Example.ts.net:${port}`]) expect((await upgrade(port, { headers: { host } })).status, host).toBe(101)
+      for (const host of [`beta.example.ts.net:${port}`, `other.example.ts.net:${port}`, `beta-mac.other.ts.net:${port}`, `${MAGIC}:${port + 1}`]) {
+        expect(await upgrade(port, { headers: { host } }), host).toEqual({ status: 403, body: 'forbidden' })
+      }
+      expect(asked.length).toBeGreaterThan(0)
+    } finally {
+      server.close()
+    }
+  })
+
+  it('keeps the rule by os.hostname() when the name is not known, and does not ask while "Link through Tailscale" is off', async () => {
+    let tailscale = true
+    let asked = 0
+    const server = await serverWith({
+      hostNames: () => ({ interfaces: {}, hostname: 'beta.local', tailscale }),
+      magicDnsName: async () => {
+        asked += 1
+        return undefined
+      },
+    })
+    try {
+      const { port } = server
+      expect((await upgrade(port, { headers: { host: `beta.example.ts.net:${port}` } })).status).toBe(101)
+      expect(await upgrade(port, { headers: { host: `${MAGIC}:${port}` } })).toEqual({ status: 403, body: 'forbidden' })
+      tailscale = false
+      const before = asked
+      expect(await upgrade(port, { headers: { host: `beta.example.ts.net:${port}` } })).toEqual({ status: 403, body: 'forbidden' })
+      expect((await upgrade(port, { headers: { host: `127.0.0.1:${port}` } })).status).toBe(101)
+      expect(asked).toBe(before)
+    } finally {
+      server.close()
+    }
+  })
+
+  it('writes a [link] line with the peer, the reason and the Host for a refusal by peer, by Origin and by Host', async () => {
+    const lines: string[] = []
+    // The connection passes, its upgrade does not: "Link through Tailscale" went off in between.
+    let peerChecks = 0
+    const server = await serverWith({
+      warn: (line) => lines.push(line),
+      isAllowedPeer: () => {
+        peerChecks += 1
+        return peerChecks !== 2
+      },
+    })
+    try {
+      const { port } = server
+      expect(await upgrade(port, {})).toEqual({ status: 403, body: 'forbidden' })
+      expect(await upgrade(port, { headers: { origin: 'https://evil.example' } })).toEqual({ status: 403, body: 'forbidden' })
+      expect(await upgrade(port, { headers: { host: `evil.example:${port}` } })).toEqual({ status: 403, body: 'forbidden' })
+      // A tab is the one control character a header value may carry; the line keeps none.
+      expect(await upgrade(port, { headers: { host: `evil\t.example:${port}` } })).toEqual({ status: 403, body: 'forbidden' })
+      expect(lines.slice(0, 3)).toEqual([
+        `[link] refused a connection from 127.0.0.1: its address may not connect (Host 127.0.0.1:${port})`,
+        `[link] refused a connection from 127.0.0.1: an Origin header, as a browser page sends (Host 127.0.0.1:${port})`,
+        `[link] refused a connection from 127.0.0.1: the Host does not name this machine and port (Host evil.example:${port})`,
+      ])
+      expect(lines[3]).toMatch(/^\[link\] refused a connection from 127\.0\.0\.1: the Host does not name this machine and port \(Host evil.\.example:\d+\)$/)
+      // eslint-disable-next-line no-control-regex -- control characters are what the line must not carry
+      for (const line of lines) expect(line).not.toMatch(/[\u0000-\u001f\u007f]/)
+    } finally {
+      server.close()
+    }
+  })
+
+  it('names a protocol mismatch and an unknown path in the line, without the query of the path', async () => {
+    const lines: string[] = []
+    const server = await serverWith({ warn: (line) => lines.push(line) })
+    try {
+      const { port } = server
+      expect((await upgrade(port, { headers: { 'x-worfy-link-protocol': '2' } })).status).toBe(400)
+      expect((await upgrade(port, { path: '/elsewhere?token=secret-value' })).status).toBe(404)
+      expect(lines).toEqual([
+        `[link] refused a connection from 127.0.0.1: link protocol 2, this Machine speaks ${LINK_PROTOCOL_VERSION} (Host 127.0.0.1:${port})`,
+        `[link] refused a connection from 127.0.0.1: no endpoint at /elsewhere (Host 127.0.0.1:${port})`,
+      ])
+    } finally {
+      server.close()
+    }
+  })
+})

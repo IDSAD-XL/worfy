@@ -2,16 +2,21 @@
 // takes a MagicDNS name or a Tailscale address with the port the other window shows; the Host check
 // takes this machine's MagicDNS names while "Link through Tailscale" is on; "Link a machine" lists
 // the Tailscale address first while the setting is on, and the window marks it.
+import { readFileSync } from 'node:fs'
 import type { NetworkInterfaceInfo } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { allowedHostNames, isAllowedHost, isAllowedHostName, isTailscaleAddress, type HostNames } from '../../src/main/link/checks'
 import { appLinkEnvironment, linkAddresses } from '../../src/main/link/service'
+import { parseSelfDnsName, readSelfDnsName, TAILSCALE_TIMEOUT_MS, TailnetSelfName } from '../../src/main/link/tailscale'
 import { isTailscaleHost, parseLinkAddress } from '../../src/shared/ipc/link'
 
 const info = (address: string, internal = false): NetworkInterfaceInfo =>
   (address.includes(':')
     ? { address, family: 'IPv6', netmask: '', mac: '00:00:00:00:00:00', internal, cidr: null, scopeid: 0 }
     : { address, family: 'IPv4', netmask: '', mac: '00:00:00:00:00:00', internal, cidr: null }) as NetworkInterfaceInfo
+
+const STATUS = readFileSync(join(__dirname, '../fixtures/tailscale/status.json'), 'utf8')
 
 describe('an address typed by hand', () => {
   it.each([
@@ -177,5 +182,128 @@ describe('WORFY_LINK_INTERFACES: the interfaces an e2e test gives the app', () =
         expect.stringContaining('WORFY_LINK_INTERFACES'),
       ])
     }
+  })
+})
+
+// worfy-link ticket 39: the name of a machine in the tailnet is not always the first label of
+// os.hostname(). On the owner's Mac os.hostname() is `Alexeys-MacBook-Pro-164.local` (macOS adds
+// `-164` when the name is taken on the network) and `Self.DNSName` of `tailscale status --json` is
+// `alexeys-macbook-pro.taila00ba6.ts.net.`. Known, that exact name is the MagicDNS name of this
+// machine; not known (no CLI, a failure), the rule by os.hostname() stays. No test starts a real
+// `tailscale`: the runner and the file check are injected.
+describe('the MagicDNS name Tailscale gives this machine', () => {
+  const interfaces = { en0: [info('192.168.0.119')], utun4: [info('100.71.20.55')] }
+  const port = 57769
+  const MAC = 'Alexeys-MacBook-Pro-164.local'
+  const DNS_NAME = 'alexeys-macbook-pro.taila00ba6.ts.net'
+  const owner = (tailscale: boolean, magicDnsName: string | null = DNS_NAME): HostNames => ({ interfaces, hostname: MAC, tailscale, ...(magicDnsName === null ? {} : { magicDnsName }) })
+
+  it('takes the exact name and its first label while the setting is on, though os.hostname() differs', () => {
+    for (const name of [DNS_NAME, 'alexeys-macbook-pro']) expect(isAllowedHostName(name, owner(true)), name).toBe(true)
+    expect(isAllowedHost(`${DNS_NAME}:${port}`, port, owner(true))).toBe(true)
+    expect(isAllowedHost(`ALEXEYS-MACBOOK-PRO.taila00ba6.ts.net:${port}`, port, owner(true))).toBe(true)
+    expect(isAllowedHost(`${DNS_NAME}:${port + 1}`, port, owner(true))).toBe(false)
+  })
+
+  it.each([
+    ['alexeys-macbook-pro-164.taila00ba6.ts.net', 'the os.hostname() guess, once Tailscale named the machine'],
+    ['alexeys-macbook-pro.other.ts.net', 'the same label in another tailnet'],
+    ['pc.taila00ba6.ts.net', 'another machine of the tailnet'],
+    ['alexeys-macbook-pro-164', 'the bare os.hostname() label, not a MagicDNS name here'],
+    [`${DNS_NAME}.evil.test`, 'the name followed by another zone'],
+  ])('refuses %s (%s)', (name) => {
+    expect(isAllowedHostName(name, owner(true))).toBe(false)
+  })
+
+  it('takes none of them while the setting is off; .local and the addresses stay', () => {
+    for (const name of [DNS_NAME, 'alexeys-macbook-pro']) expect(isAllowedHostName(name, owner(false)), name).toBe(false)
+    for (const name of ['alexeys-macbook-pro-164.local', '100.71.20.55']) expect(isAllowedHostName(name, owner(false)), name).toBe(true)
+  })
+
+  it('keeps the rule by os.hostname() when the name is not known', () => {
+    const unknown = owner(true, null)
+    expect(isAllowedHostName('alexeys-macbook-pro-164.taila00ba6.ts.net', unknown)).toBe(true)
+    expect(isAllowedHostName(DNS_NAME, unknown)).toBe(false)
+  })
+
+  describe('parseSelfDnsName', () => {
+    it('reads Self.DNSName of a recorded status, lower case, without the trailing dot', () => {
+      expect(parseSelfDnsName(STATUS)).toBe('studio.tail1234.ts.net')
+      expect(parseSelfDnsName(JSON.stringify({ Self: { DNSName: 'Alexeys-MacBook-Pro.taila00ba6.ts.net.' } }))).toBe(DNS_NAME)
+    })
+
+    it.each<[unknown, string]>([
+      [{ Self: { DNSName: '' } }, 'MagicDNS off'],
+      [{ Self: {} }, 'no DNSName'],
+      [{ Peer: null }, 'no Self'],
+      [{ Self: { DNSName: 'single-label.' } }, 'one label'],
+      [{ Self: { DNSName: 'bad name.ts.net.' } }, 'not a DNS name'],
+    ])('gives undefined for %j (%s)', (status) => {
+      expect(parseSelfDnsName(JSON.stringify(status))).toBeUndefined()
+    })
+
+    it('throws on a text that is not JSON', () => {
+      expect(() => parseSelfDnsName('not json')).toThrow()
+    })
+  })
+
+  describe('readSelfDnsName', () => {
+    const env = { PATH: '/opt/tools' }
+    const cli = '/opt/tools/tailscale'
+    const exists = (path: string): boolean => path === cli
+
+    it('runs `status --json` of the CLI it finds and gives the name', async () => {
+      const run = vi.fn(async () => STATUS)
+      expect(await readSelfDnsName({ platform: 'linux', env, exists, run, warn: () => undefined })).toBe('studio.tail1234.ts.net')
+      expect(run).toHaveBeenCalledWith(cli, ['status', '--json'], TAILSCALE_TIMEOUT_MS, env)
+    })
+
+    it('gives undefined and warns nothing without a CLI', async () => {
+      const run = vi.fn(async () => STATUS)
+      const warn = vi.fn()
+      expect(await readSelfDnsName({ platform: 'linux', env, exists: () => false, run, warn })).toBeUndefined()
+      expect(run).not.toHaveBeenCalled()
+      expect(warn).not.toHaveBeenCalled()
+    })
+
+    it('gives undefined with one [link] warning when the CLI fails or prints no status', async () => {
+      for (const run of [vi.fn(async () => Promise.reject(new Error('Tailscale is stopped.\nmore'))), vi.fn(async () => 'garbage')]) {
+        const warn = vi.fn()
+        expect(await readSelfDnsName({ platform: 'linux', env, exists, run, warn })).toBeUndefined()
+        expect(warn).toHaveBeenCalledTimes(1)
+        expect(warn.mock.calls[0]?.[0]).toMatch(/^\[link\] the MagicDNS name of this machine could not be read from \/opt\/tools\/tailscale status --json: /)
+      }
+    })
+  })
+
+  describe('TailnetSelfName: the cache', () => {
+    it('reads once per network, shares a read in flight, and reads again when the network changes', async () => {
+      let release: ((name: string | undefined) => void) | undefined
+      const read = vi.fn(() => new Promise<string | undefined>((resolve) => (release = resolve)))
+      const cache = new TailnetSelfName(read)
+      const first = cache.get(interfaces)
+      const second = cache.get(interfaces)
+      expect(read).toHaveBeenCalledTimes(1)
+      release?.(DNS_NAME)
+      expect(await first).toBe(DNS_NAME)
+      expect(await second).toBe(DNS_NAME)
+      expect(await cache.get({ ...interfaces })).toBe(DNS_NAME)
+      expect(read).toHaveBeenCalledTimes(1)
+
+      // Another network: the Tailscale adapter got another address, or came up.
+      const moved = { ...interfaces, utun4: [info('100.71.20.56')] }
+      const third = cache.get(moved)
+      expect(read).toHaveBeenCalledTimes(2)
+      release?.('renamed.taila00ba6.ts.net')
+      expect(await third).toBe('renamed.taila00ba6.ts.net')
+    })
+
+    it('keeps an unknown name for the network, and gives undefined when the read rejects', async () => {
+      const read = vi.fn(async (): Promise<string | undefined> => Promise.reject(new Error('boom')))
+      const cache = new TailnetSelfName(read)
+      expect(await cache.get(interfaces)).toBeUndefined()
+      expect(await cache.get(interfaces)).toBeUndefined()
+      expect(read).toHaveBeenCalledTimes(1)
+    })
   })
 })
