@@ -12,7 +12,7 @@
       "wave": "Ready wave · N",
       "waveNote": "Tickets to take now, computed and stored nowhere",
       "ticketDone": "Ticket 01",
-      "ticketDoneNote": "done: in the Done column",
+      "ticketDoneNote": "done: Done stack opened",
       "ticketReady": "Ticket 02",
       "ticketReadyNote": "open, its blocker done",
       "orchestrator": "Orchestrator",
@@ -97,7 +97,7 @@
     "limits": [
       "A file event starts one epic-status after 300 ms of quiet, at the latest 1 s after the first event.",
       "Stages are recomputed on each change of a Ticket's fields and every 60 s. gh runs every 60 s, doubling up to 32 minutes while it fails.",
-      "Stuck, by default: after 2 h on Implementing, CI, Agent review or Gate & merge; after 24 h while a person is awaited."
+      "Stuck, by default: after 2 h on Implementing, CI, Agent review or Gate & merge; after 24 h on Human review or Awaiting merge, or while Waits: is owner or team."
     ]
   }
 }

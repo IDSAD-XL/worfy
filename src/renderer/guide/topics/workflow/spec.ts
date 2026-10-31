@@ -28,7 +28,7 @@ export const WORKFLOW_SCENE: SceneSpec = {
     { id: 'canvas', x: 32, y: 24, group: 'project', topic: 'canvas', page: page('canvas'), shape: 'tab', width: 92 },
     { id: 'epic', x: 52, y: 88, group: 'workflow', shape: 'tab', width: 72 },
     { id: 'wave', x: 446, y: 91, group: 'workflow', shape: 'chip', width: 150 },
-    { id: 'ticketDone', x: 216, y: 168, group: 'workflow' },
+    { id: 'ticketDone', x: 176, y: 168, group: 'workflow' },
     { id: 'ticketReady', x: 436, y: 168, group: 'workflow' },
     { id: 'orchestrator', x: 60, y: 392, group: 'harness', topic: 'sessions', page: page('sessions') },
     { id: 'session', x: 436, y: 392, group: 'agents', topic: 'sessions', page: page('sessions') },
@@ -41,12 +41,12 @@ export const WORKFLOW_SCENE: SceneSpec = {
     { from: 'files', to: 'ticketReady', label: 'readsFiles', toShift: -12 },
     { from: 'ticketDone', to: 'ticketReady', label: 'blocks' },
     { from: 'ticketReady', to: 'wave', label: 'readyNow', fromSide: 'top', toSide: 'bottom' },
-    // Down out of the tab to the Orchestrator and back, side by side, left of the Done Ticket.
-    { from: 'epic', to: 'orchestrator', label: 'runWave', fromSide: 'bottom', toSide: 'top', fromShift: -14, toShift: -40 },
-    { from: 'orchestrator', to: 'epic', label: 'binding', fromSide: 'top', toSide: 'bottom', fromShift: -8, toShift: 14 },
+    // Down out of the tab to the Orchestrator and back up, far enough apart that their lit labels do not meet.
+    { from: 'epic', to: 'orchestrator', label: 'runWave', fromSide: 'bottom', toSide: 'top', fromShift: -20, toShift: -50 },
+    { from: 'orchestrator', to: 'epic', label: 'binding', fromSide: 'top', toSide: 'bottom', fromShift: 50, toShift: 24 },
     // Down to the Session and back up, apart.
-    { from: 'ticketReady', to: 'session', label: 'shipTicket', fromSide: 'bottom', toSide: 'top', fromShift: -30, toShift: -30 },
-    { from: 'session', to: 'ticketReady', label: 'binding', fromSide: 'top', toSide: 'bottom', fromShift: 30, toShift: 30 },
+    { from: 'ticketReady', to: 'session', label: 'shipTicket', fromSide: 'bottom', toSide: 'top', fromShift: -40, toShift: -40 },
+    { from: 'session', to: 'ticketReady', label: 'binding', fromSide: 'top', toSide: 'bottom', fromShift: 40, toShift: 40 },
     { from: 'session', to: 'files', label: 'ticketClaim', fromSide: 'right', toSide: 'left', toShift: 14 },
     { from: 'pipeline', to: 'ticketReady', label: 'stepper', toShift: 12 },
     { from: 'files', to: 'pipeline', label: 'status' },

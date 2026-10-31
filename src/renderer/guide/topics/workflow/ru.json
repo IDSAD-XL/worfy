@@ -12,7 +12,7 @@
       "wave": "Ready wave · N",
       "waveNote": "Ticket-ы, которые можно брать сейчас; вычисляется и нигде не хранится",
       "ticketDone": "Ticket 01",
-      "ticketDoneNote": "сделан: в колонке Done",
+      "ticketDoneNote": "сделан: стопка Done раскрыта",
       "ticketReady": "Ticket 02",
       "ticketReadyNote": "открыт, блокер сделан",
       "orchestrator": "Orchestrator",
@@ -97,7 +97,7 @@
     "limits": [
       "Событие файла запускает один epic-status после 300 мс тишины, самое позднее через 1 с после первого события.",
       "Stage-и пересчитываются при каждом изменении полей Ticket-а и раз в 60 с. gh запускается раз в 60 с, а пока он падает, интервал удваивается до 32 минут.",
-      "Stuck по умолчанию: через 2 часа на Implementing, CI, Agent review или Gate & merge; через 24 часа, пока ждут человека."
+      "Stuck по умолчанию: через 2 часа на Implementing, CI, Agent review или Gate & merge; через 24 часа на Human review или Awaiting merge, или пока Waits: — owner или team."
     ]
   }
 }
