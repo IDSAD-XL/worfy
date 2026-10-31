@@ -136,7 +136,7 @@ export default function GeneralSection() {
           {version.kind === 'ok' ? version.version : version.kind === 'loading' ? '…' : 'unknown'}
         </span>
       </SettingRow>
-      <UpdatesBlock />
+      <UpdatesBlock version={version.kind === 'ok' ? version.version : undefined} />
     </>
   )
 }

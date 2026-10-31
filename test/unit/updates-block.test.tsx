@@ -74,6 +74,22 @@ describe('Settings → General → Updates (worfy-update ticket 09)', () => {
     expect(disabled(within(row()).getByRole('button', { name: 'Check now' }))).toBe(false)
   })
 
+  it('"Check now" is inactive while main says a check runs, without a press here', () => {
+    give(snapshot({ checking: true }))
+    render(<UpdatesBlock />)
+    expect(disabled(within(row()).getByRole('button', { name: 'Check now' }))).toBe(true)
+  })
+
+  it('before the first check main does not know the copy that runs: the line names the build version it was given, or only what is known', () => {
+    give(snapshot({ running: null, lastCheck: null }))
+    const { rerender } = render(<UpdatesBlock version="1.4.0+aaaaaaa" />)
+    expect(screen.getByTestId('settings-updates-status').textContent).toBe('worfy 1.4.0+aaaaaaa.')
+    rerender(<UpdatesBlock />)
+    expect(screen.getByTestId('settings-updates-status').textContent).toBe('')
+    give(snapshot({ running: null }))
+    expect(screen.getByTestId('settings-updates-status').textContent).toMatch(/^Last checked .+\.$/u)
+  })
+
   it('without an Available update the line names the copy and the last check, and there is no "Update worfy"', () => {
     render(<UpdatesBlock />)
     const status = screen.getByTestId('settings-updates-status')
@@ -195,11 +211,13 @@ describe('Settings → General → Updates (worfy-update ticket 09)', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('Settings → General shows the block under the line "Version"', async () => {
+  it('Settings → General shows the block under the line "Version", with the build version until main knows the copy that runs', async () => {
+    give(snapshot({ running: null, lastCheck: null }))
     render(<GeneralSection />)
     const version = screen.getByTestId('settings-version-row')
     const updates = screen.getByTestId('settings-updates-row')
     expect(version.compareDocumentPosition(updates) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     await waitFor(() => expect(screen.getByTestId('settings-version').textContent).toContain('1.4.0+aaaaaaa'))
+    expect(screen.getByTestId('settings-updates-status').textContent).toBe('worfy 1.4.0+aaaaaaa.')
   })
 })

@@ -89,7 +89,7 @@ Source: решения владельца 2026-10-31, пункты 6 (Settings �
 - `scripts/ci-scope.mjs`: `test/update-stub.ts` добавлен в `APP_FILES` — e2e импортирует stub, и
   `test/contract/ci-workflow.test.ts:1222` требует, чтобы такой файл запускал macOS e2e на PR. Согласовано с
   Orchestrator-ом; Ticket-ы 06 и 07 добавляют ту же строку.
-- Test-ы: unit `test/unit/updates-block.test.tsx` (15), `test/unit/palette-commands.test.tsx` (+6); mutant
+- Test-ы: unit `test/unit/updates-block.test.tsx` (17), `test/unit/palette-commands.test.tsx` (+7); mutant
   «Check now не зовёт `update.check`» краснеет на двух test-ах. e2e `test/e2e/update-settings.spec.ts`
   (2): GitHub — stub, Stable copy и прежняя копия — во временной папке, clone для сборки не существует;
   «Check now» → «worfy 9.9.9+b2b2b2b is available.», при выключенном переключателе `build.phase` после
@@ -98,5 +98,10 @@ Source: решения владельца 2026-10-31, пункты 6 (Settings �
 - Снимки обеих тем (e2e пишет их в `test-results/e2e/snapshots/09-updates-*`): available, checked,
   building, ready-busy, missing-tools, rolled-back, palette-available, palette-ready. Состояния сборки
   e2e рисует snapshot-ом, посланным в окно (`worfy:update.changed`), — только для снимков.
-- Ограничение: store Update запускается первым `useUpdate()`. До Ticket-ов 06/07 (chip и toast-ы читают
-  store при старте окна) команда palette появляется только после того, как Settings → General открыт.
+- `src/renderer/palette/CommandPalette.tsx` (вне следа, по просьбе Orchestrator-а): обе панели palette
+  зовут `useUpdate()` и передают snapshot в `buildCommands` (и в deps `useMemo`): «Update worfy» есть без
+  открытия Settings и меняется, пока palette открыта (unit test и e2e).
+- До первой проверки main не знает запущенную копию (`running: null`): строка называет версию сборки из
+  строки «Version» (`app.version`), без неё — только «Last checked …» или пустая строка.
+- Раунд polish: три mutant-а (версия до первой проверки, `checking = pressing`, `update` вне deps palette)
+  краснеют на своих test-ах.

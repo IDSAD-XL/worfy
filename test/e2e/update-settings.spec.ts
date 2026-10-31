@@ -192,6 +192,14 @@ test('"Roll back to previous version" asks the native dialog first; Cancel chang
         return Promise.resolve({ response: 1, checkboxChecked: false })
       }) as typeof dialog.showMessageBox
     })
+    // The palette has "Update worfy" before Settings was ever opened: it reads the Update snapshot itself.
+    await window.keyboard.press('ControlOrMeta+k')
+    const palette = window.getByTestId('command-palette')
+    await window.getByTestId('palette-input').fill('update')
+    await expect(palette.locator('[data-testid="palette-option"][data-command="update-worfy"]')).toContainText('check for a new version')
+    await window.keyboard.press('Escape')
+    await expect(palette).toHaveCount(0)
+
     const settings = await openGeneral(app, window)
     const rollback = settings.getByTestId('settings-updates-rollback-row')
     await expect(rollback).toContainText(`Return to worfy ${PREVIOUS.slice(0, 7)}. Automatic updates wait for the next commit on main.`)

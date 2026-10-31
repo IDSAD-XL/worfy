@@ -20,17 +20,22 @@ function checkedAt(at: string, now: Date = new Date()): string {
   return time.toDateString() === now.toDateString() ? clock : `${time.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${clock}`
 }
 
-/** The line of the state, as the spec words it. */
-function statusLine(snapshot: UpdateSnapshot): string {
+/**
+ * The line of the state, as the spec words it. The copy that runs is main's `running`, filled in by
+ * the first check; before it, `version`, the build version the line "Version" shows. Neither known —
+ * only the last check, or no line.
+ */
+function statusLine(snapshot: UpdateSnapshot, version: string | undefined): string {
   const step = updateStep(snapshot)
   if (step.kind === 'restart') return `worfy ${step.version} is ready.`
   if (step.kind === 'install') return step.building ? `Building worfy ${step.version}…` : `worfy ${step.version} is available.`
-  const copy = snapshot.running === null ? 'worfy.' : `worfy ${snapshot.running.version}.`
-  return snapshot.lastCheck === null ? copy : `${copy} Last checked ${checkedAt(snapshot.lastCheck.at)}.`
+  const running = snapshot.running?.version ?? version
+  const checked = snapshot.lastCheck === null ? undefined : `Last checked ${checkedAt(snapshot.lastCheck.at)}.`
+  return [running === undefined ? undefined : `worfy ${running}.`, checked].filter((part) => part !== undefined).join(' ')
 }
 
 /** The row "Updates": the state, its notes and the buttons. */
-function UpdatesRow({ snapshot }: { snapshot: UpdateSnapshot }) {
+function UpdatesRow({ snapshot, version }: { snapshot: UpdateSnapshot; version: string | undefined }) {
   // The reason of the last press here: a refusal, or the skipped check that "Check now" ran.
   const [problem, setProblem] = useState<string>()
   const [checkedHere, setCheckedHere] = useState(false)
@@ -72,7 +77,7 @@ function UpdatesRow({ snapshot }: { snapshot: UpdateSnapshot }) {
       label="Updates"
       description={
         <>
-          <span data-testid="settings-updates-status">{statusLine(snapshot)}</span>
+          <span data-testid="settings-updates-status">{statusLine(snapshot, version)}</span>
           {notes.map((note) => (
             <span key={note.testId} style={{ display: 'block' }} data-testid={note.testId} role={note.alert === true ? 'alert' : undefined}>
               {note.text}
@@ -188,13 +193,16 @@ function RollbackRow({ snapshot }: { snapshot: UpdateSnapshot }) {
   )
 }
 
-/** The block "Updates" of Settings → General; nothing without Update in this copy. */
-export function UpdatesBlock() {
+/**
+ * The block "Updates" of Settings → General; nothing without Update in this copy. `version`: the
+ * build version of this copy (`app.version`), for the line before main knows the copy that runs.
+ */
+export function UpdatesBlock({ version }: { version?: string | undefined } = {}) {
   const snapshot = useUpdate()
   if (snapshot === null || !snapshot.enabled) return null
   return (
     <>
-      <UpdatesRow snapshot={snapshot} />
+      <UpdatesRow snapshot={snapshot} version={version} />
       <AutoUpdateRow />
       <RollbackRow snapshot={snapshot} />
     </>
