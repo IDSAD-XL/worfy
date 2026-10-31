@@ -1,0 +1,12 @@
+{
+  "sources": [{ "page": "docs/features/gate-and-github.md", "sha": "1c9d99c7" }],
+  "files": [
+    "harness/hooks/gate.mjs",
+    "harness/hooks/stop.mjs",
+    "src/main/gate/state.ts",
+    "src/main/github/prs.ts",
+    "src/main/ipc/checks.ts",
+    "src/renderer/canvas/badges/use-checks.ts",
+    "src/renderer/canvas/badges/ChecksBadges.tsx"
+  ]
+}

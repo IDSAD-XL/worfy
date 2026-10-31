@@ -1,0 +1,87 @@
+{
+  "title": "Gate and GitHub",
+  "summary": [
+    "The Gate is the Harness's check of whether the changes in a worktree are ready: it runs the Project's checks on what changed and gives one verdict. worfy never runs it. worfy reads the verdict, and the PR, its CI and review on GitHub, and shows them as chips on Tickets and Sessions."
+  ],
+  "scene": {
+    "description": "The Gate and GitHub in worfy. On this Machine, outside the Canvas, stand the Gate and the worktree it checks. On the Canvas lie a Ticket and a Session, the Nodes that show the chips. On GitHub is the PR, with its CI checks and the review mark. A Session runs the Gate, which checks what changed in the worktree; worfy shows the Gate's verdict as a chip on the Ticket and the Session. The Session opens a PR on GitHub; worfy shows the PR, its CI and the review verdict as chips on the Ticket.",
+    "labels": {
+      "thisMachine": "THIS MACHINE",
+      "githubRegion": "GITHUB",
+      "canvas": "Canvas",
+      "canvasNote": "the chips are on its Nodes",
+      "ticket": "Ticket",
+      "ticketNote": "gate, PR, CI, verdict chips",
+      "session": "Session",
+      "sessionNote": "its worktree's gate chip",
+      "gate": "Gate",
+      "gateNote": "one program of the Harness",
+      "worktree": "Worktree",
+      "worktreeNote": "a branch checked out",
+      "github": "GitHub",
+      "githubNote": "the PR, CI, the review mark",
+      "runsIt": "runs it, or a hook does",
+      "gateChip": "gate chip",
+      "checksChanges": "checks what changed",
+      "opensPr": "pushes, opens a PR",
+      "prChips": "PR, CI, verdict chips",
+      "step1": "An agent or a hook of the Harness runs the Gate in a worktree. The Gate runs the Project's checks on what changed there.",
+      "step2": "The verdict is green, red, not verified, or nothing ran. worfy reads it and shows it as a chip on the Ticket and the Session. Nothing ran is never green.",
+      "step3": "While the worktree's last run is red, a hook of the Harness holds the end of the agent's turn and tells it to run the Gate and fix what it points to, at most twice.",
+      "step4": "The agent pushes its branch and opens a PR. worfy reads the PR, its CI checks and the review mark with gh and shows them as chips. It changes nothing on GitHub.",
+      "step5": "What a merge needs, the Profile says: Gate full, the complete check, on the branch; or, as in worfy's own repository, the final CI check and the review mark on the PR."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "The data flow of the badges. The Gate writes the outcome of each run into its state folder: markers and a verdict file. GitHub holds the PRs, their checks and the review mark. In the main process, GateReader reads the Gate's state for each worktree, and PrTracker lists the PRs with gh pr list. The checks.get handler joins both into one snapshot for useChecks in the renderer, which ChecksBadges draws as chips.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "outside": "HARNESS AND GITHUB",
+        "badges": "ChecksBadges",
+        "badgesNote": "picks the worktree and PR",
+        "useChecks": "useChecks",
+        "useChecksNote": "one copy, every 10 s in focus",
+        "gateReader": "GateReader",
+        "gateReaderNote": "markers, verdict, transcripts",
+        "handler": "checks.get",
+        "handlerNote": "readChecks, git worktree list",
+        "prTracker": "PrTracker",
+        "prTrackerNote": "gh at most once per 60 s",
+        "gate": "Gate",
+        "gateNote": "gate.mjs: scope, cache, scripts",
+        "state": "Gate state",
+        "stateNote": "markers, verdict-<tag>.json",
+        "github": "GitHub",
+        "githubNote": "PRs, checks, review mark",
+        "writes": "writes the outcome",
+        "markers": "markers, verdict file",
+        "perWorktree": "Gate per worktree",
+        "prList": "gh pr list",
+        "prs": "PR, CI, verdict",
+        "get": "checks.get",
+        "snapshot": "snapshot",
+        "draws": "the snapshot"
+      }
+    },
+    "text": [
+      "A marker of the worktree goes before the verdict file, because a run that checked nothing never clears red. A verdict about another commit than HEAD is set aside.",
+      "The renderer may ask often: one tracker in main decides when gh runs, for the badges, Autopilot and the Stage alike. gh runs as the Profile's GitHub account, and the token is never kept."
+    ],
+    "files": {
+      "harness/hooks/gate.mjs": "The Gate: scope, cache, scripts, the verdict",
+      "harness/hooks/stop.mjs": "The hook that holds a turn while red",
+      "src/main/gate/state.ts": "GateReader: markers, verdict file, transcripts",
+      "src/main/github/prs.ts": "PrTracker: gh, the account, CI and verdict",
+      "src/main/ipc/checks.ts": "checks.get: what it accepts, readChecks",
+      "src/renderer/canvas/badges/use-checks.ts": "The renderer's copy and its polling",
+      "src/renderer/canvas/badges/ChecksBadges.tsx": "The chips"
+    },
+    "limits": [
+      "Normally the Gate checks only what differs from origin/main. GATE_SCOPE=all, or a branch over 50 commits ahead or 300 behind, makes it check everything.",
+      "A hook gives the Gate 900 seconds. A red turn is held at most twice per session and worktree.",
+      "gh pr list runs at most once per 60 s per folder, up to 32 minutes after failures, and reads the 100 latest PRs."
+    ]
+  }
+}
