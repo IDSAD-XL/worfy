@@ -104,8 +104,9 @@ export function AppShell({ project, canvas, session, pipeline, view: controlledV
         </main>
       </div>
       <SidebarFocusKeeper visible={sidebarVisible} shell={shell} />
-      {/* Getting started (worfy-onboarding ticket 13): a panel in the top right corner while shown, above the window and below its dialogs. */}
-      <GettingStartedPanel />
+      {/* Getting started (worfy-onboarding ticket 13): a panel in the top right corner while shown, above the window and below its dialogs;
+          in the Session view under the Session's header (owner's decision Q22). */}
+      <GettingStartedPanel sessionView={view === 'session'} />
       {/* The first-run screen (worfy-harness ticket 19): over the window when open; it asks main at start whether to open. */}
       <FirstRun />
       {/* The Settings window (worfy-ui ticket 2): over everything when open; the menu's "Settings…" and the palette open it. */}

@@ -178,7 +178,7 @@ Session проектирования 2026-10-26. Номера — как у вл
 
 ## Решения владельца 2026-10-31
 
-Ответы владельца «на все да», Q11–Q18. Ticket-ы 13 и 14 ссылаются на них.
+Ответы владельца «на все да», Q11–Q18; позже в тот же день — Q22 и Q23 (по первому кругу ревью Ticket-а 13). Ticket-ы 13 и 14 ссылаются на них.
 
 - **Q11. Поправка spec-а.** Два Ticket-а в этом Epic-е: 13 (панель) и 14 (подсветка). Исключение «Тур
   по интерфейсу» раздела «Не в этом Epic-е» снято для подсветки; стрелки по-прежнему не делаются.
@@ -205,6 +205,11 @@ Session проектирования 2026-10-26. Номера — как у вл
 - **Q18. Приёмка.** macOS-часть Ticket-а 12 владелец прошёл и принял 2026-10-31; Windows-часть идёт
   сейчас, с нынешним UI. Ticket-ы 13 и 14 принимаются позже — снимки в обеих темах и короткий просмотр
   на Mac. Epic закрывается после них.
+- **Q22. Панель в Session view.** Пока окно показывает Session view, панель и pill стоят в правом верхнем
+  углу области под заголовком Session-а (и под местом строки поиска ⌘F), чтобы не закрывать Interrupt,
+  Hide tools и поиск. На Canvas и прочих видах — как в Q12, под toolbar.
+- **Q23. Текст шага 4.** В панели шаг 4 называет Orchestrator, а не implementer agent: «The Orchestrator
+  implements the ticket in its own branch. The Pipeline shows each Stage.» Механика шага не меняется.
 
 ## Решено без владельца
 
@@ -295,7 +300,8 @@ Session проектирования 2026-10-26. Номера — как у вл
   Кнопка: «Create demo project». Ошибка: «Could not create the demo project: <reason>»
 - 3 — «Meet the Orchestrator» — «Ask the project's main Session what is planned.» Кнопка: «Open the
   Orchestrator». Готовый вопрос в поле ввода: «What is planned in this project?»
-- 4 — «Ship the ticket» — «An implementer agent adds `done <n>`. The Pipeline shows each Stage.»
+- 4 — «Ship the ticket» — «The Orchestrator implements the ticket in its own branch. The Pipeline shows each
+  Stage.» (Q23)
   Кнопка: «Ship the ticket». Готовое сообщение: «/worfy:ship-ticket todo 01»
 - 5 — «See the review» — «A reviewer checks the work. If it finds a problem, the implementer fixes it.»
 - 6 — «Merge» — «The Orchestrator merges the ticket into main.»

@@ -65,6 +65,15 @@ const corner: CSSProperties = {
   fontFamily: 'var(--font-ui)',
 }
 
+/**
+ * The top of the panel and its pill while the window shows the Session view (owner's decision Q22):
+ * under the Session's header (44 px, session.css `.w-session__header`) and under the place of its ⌘F
+ * find bar (8 px below the header, 32 px high, session.css `.w-session-find`), so Hide tools,
+ * Interrupt and the find bar stay uncovered. The panel stays there while the find bar is closed: it
+ * does not jump when ⌘F opens it.
+ */
+const TOP_IN_SESSION = 'calc(var(--toolbar-height) + 44px + var(--space-2) + 32px + var(--space-2))'
+
 const styles = {
   panel: {
     ...corner,
@@ -122,7 +131,6 @@ const styles = {
   line: { margin: '1px 0 0', fontSize: 'var(--text-12)', lineHeight: '15px', color: 'var(--text-secondary)', overflowWrap: 'anywhere' },
   note: { margin: '2px 0 0', fontSize: 'var(--text-11)', lineHeight: '14px', color: 'var(--text-muted)' },
   action: { marginTop: 6 },
-  code: { fontSize: 'var(--text-11)' },
   hint: {
     margin: '6px 0 0',
     padding: '3px 6px',
@@ -152,23 +160,14 @@ const styles = {
 
 interface StepText {
   title: string
-  line: ReactNode
+  line: string
 }
 
 const STEP_TEXTS: Record<GettingStartedStep, StepText> = {
   '1': { title: 'Check your setup', line: 'Make sure Claude Code, git, node and the Harness are ready.' },
   '2': { title: 'Open the demo project', line: 'worfy creates a small todo app in your home folder. No GitHub needed.' },
   '3': { title: 'Meet the Orchestrator', line: "Ask the project's main Session what is planned." },
-  '4': {
-    title: 'Ship the ticket',
-    line: (
-      <>
-        An implementer agent adds <code className="w-mono" style={styles.code}>
-          done &lt;n&gt;
-        </code>. The Pipeline shows each Stage.
-      </>
-    ),
-  },
+  '4': { title: 'Ship the ticket', line: 'The Orchestrator implements the ticket in its own branch. The Pipeline shows each Stage.' },
   '5': { title: 'See the review', line: 'A reviewer checks the work. If it finds a problem, the implementer fixes it.' },
   '6': { title: 'Merge', line: 'The Orchestrator merges the ticket into main.' },
 }
@@ -244,7 +243,8 @@ function useCollapsed(): [boolean, (next: boolean) => void] {
   return [chosen ?? saved ?? false, choose]
 }
 
-export function GettingStartedPanel() {
+/** `sessionView`: the window shows the Session view, and the panel stands under its header (TOP_IN_SESSION). */
+export function GettingStartedPanel({ sessionView = false }: { sessionView?: boolean } = {}) {
   const snapshot = useGettingStarted()
   const focusAsked = useGettingStartedStore((store) => store.focusAsked)
   const [collapsed, choose] = useCollapsed()
@@ -296,6 +296,7 @@ export function GettingStartedPanel() {
   }, [collapsed])
 
   if (snapshot === null || !shown) return null
+  const place: CSSProperties | undefined = sessionView ? { top: TOP_IN_SESSION } : undefined
 
   const toggle = (next: boolean): void => {
     focusNext.current = next ? 'pill' : 'heading'
@@ -305,7 +306,7 @@ export function GettingStartedPanel() {
   if (collapsed) {
     const marked = GETTING_STARTED_STEPS.filter((step) => snapshot.steps[step] !== undefined).length
     return createPortal(
-      <button ref={pill} type="button" style={styles.pill} data-testid="getting-started-pill" data-toast-keep-out="true" onClick={() => toggle(false)}>
+      <button ref={pill} type="button" style={{ ...styles.pill, ...place }} data-testid="getting-started-pill" data-toast-keep-out="true" onClick={() => toggle(false)}>
         Getting started · {marked}/{GETTING_STARTED_STEPS.length}
       </button>,
       document.body,
@@ -372,7 +373,7 @@ export function GettingStartedPanel() {
   }
 
   return createPortal(
-    <div role="region" aria-label="Getting started" style={styles.panel} data-testid="getting-started" data-toast-keep-out="true">
+    <div role="region" aria-label="Getting started" style={{ ...styles.panel, ...place }} data-testid="getting-started" data-toast-keep-out="true">
       <div style={styles.header}>
         <h2 ref={heading} tabIndex={-1} style={styles.heading}>
           Getting started

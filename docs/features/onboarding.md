@@ -141,7 +141,9 @@ action counts only while its check does not pass, so a cause fixed outside worfy
 
 ### Behaviour
 
-Getting started is a floating panel in the top right corner of the window, under the toolbar. It is about 320 px wide and as
+Getting started is a floating panel in the top right corner of the window, under the toolbar. While the window shows the Session
+view, the panel stands lower: under the Session's header and the place of its find bar, so Hide tools, Interrupt and the ⌘F find
+bar stay uncovered. It is about 320 px wide and as
 tall as its content, up to 70 % of the window; only a smaller window makes its content scroll inside. It holds six steps that take
 one Ticket of the Demo project from the Orchestrator through review to merge. It blocks nothing and is never a modal window.
 

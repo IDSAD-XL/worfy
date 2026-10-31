@@ -115,11 +115,11 @@ async function callOf(channel: string): Promise<Call> {
   })
 }
 
-async function renderPanel(state: GettingStartedSnapshot | null, settings: AppSettings = appSettings) {
+async function renderPanel(state: GettingStartedSnapshot | null, settings: AppSettings = appSettings, sessionView?: boolean) {
   preload(state, settings)
   const { GettingStartedPanel } = await import('../../src/renderer/getting-started/GettingStartedPanel')
-  const view = render(<GettingStartedPanel />)
-  return view
+  const view = render(<GettingStartedPanel sessionView={sessionView} />)
+  return { ...view, GettingStartedPanel }
 }
 
 const collapsedSettings = (): AppSettings => ({ ...appSettings, sidebar: { ...appSettings.sidebar, collapsed: { GettingStartedSection: true } } })
@@ -173,6 +173,23 @@ describe('the Getting started panel', () => {
     expect(pill()).toBeNull()
   })
 
+  it('in the Session view the panel and its pill stand under the Session header and its find bar; elsewhere under the toolbar (Q22)', async () => {
+    const UNDER_TOOLBAR = 'calc(var(--toolbar-height) + var(--space-3))'
+    const UNDER_SESSION = 'calc(var(--toolbar-height) + 44px + var(--space-2) + 32px + var(--space-2))'
+    const { rerender, GettingStartedPanel } = await renderPanel(twoDone(), appSettings, true)
+    const panel = await waitFor(region)
+    expect(panel.style.top).toBe(UNDER_SESSION)
+    expect(panel.style.right).toBe('var(--space-4)')
+    rerender(<GettingStartedPanel sessionView={false} />)
+    expect(region().style.top).toBe(UNDER_TOOLBAR)
+    rerender(<GettingStartedPanel sessionView />)
+    fireEvent.click(within(region()).getByRole('button', { name: 'Collapse' }))
+    await waitFor(() => expect(pill()).not.toBeNull())
+    expect(pill()!.style.top).toBe(UNDER_SESSION)
+    rerender(<GettingStartedPanel />)
+    expect(pill()!.style.top).toBe(UNDER_TOOLBAR)
+  })
+
   it('"Collapse" leaves the pill "Getting started · 2/6" alone, saved in the app settings; the pill expands it again', async () => {
     await renderPanel(twoDone())
     fireEvent.click(within(await waitFor(region)).getByRole('button', { name: 'Collapse' }))
@@ -221,6 +238,10 @@ describe('the Getting started panel', () => {
     expect(items.map((item) => item.getAttribute('data-done') === 'true')).toEqual([true, true, false, false, false, false])
     // A screen reader hears "done" on the two marked steps only.
     expect(within(items[0]!).getByText('Check your setup')).toBeTruthy()
+    // Step 4 names the Orchestrator, not an implementer agent (owner's decision Q23, 2026-10-31).
+    expect(within(items[3]!).getByText('Ship the ticket')).toBeTruthy()
+    expect(within(items[3]!).getByText('The Orchestrator implements the ticket in its own branch. The Pipeline shows each Stage.')).toBeTruthy()
+    expect(items[3]!.textContent).not.toMatch(/implementer/u)
     expect(items.map((item) => within(item).queryByText('done') !== null)).toEqual([true, true, false, false, false, false])
     // The time of a marked step is its tooltip.
     expect(within(items[1]!).getByTestId('getting-started-mark').getAttribute('title')).toMatch(/^Done /)

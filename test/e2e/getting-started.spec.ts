@@ -23,9 +23,12 @@ import { ms } from '../time-scale'
 // The panel is a layer of <body> under the dialogs (ticket 13, owner's decision Q13): a click beside
 // it reaches the Canvas and the toolbar, and First run, the Command palette and Settings open over it
 // (a toast below it: getting-started-done.spec.ts). Collapsed, it is a pill that a restart keeps.
+// In the Session view it stands under the Session's header and the place of its ⌘F find bar
+// (owner's decision Q22): Hide tools, Interrupt and the find bar are not covered.
 //
 // Screenshots of the panel in both themes (steps 1–2 marked; step 4 with its hint; all six marked;
-// the pill; the smallest window) go to the test's output as 13-panel-<what>-<theme>.png.
+// the pill; the smallest window; the whole window in the Session view and on the Canvas) go to the
+// test's output as 13-panel-<what>-<theme>.png.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const bundle = join(repoRoot, 'out', 'harness')
@@ -122,21 +125,44 @@ const viewport = (window: Page): Promise<{ width: number; height: number }> =>
     return { width: page.innerWidth, height: page.innerHeight }
   })
 
-/** The panel stands in the top right corner: its top under the toolbar, its right edge at the window's, about 320 px wide. */
-async function expectInCorner(window: Page): Promise<void> {
+/** The Session view of the window's main area (not a Session of focus mode). */
+const sessionViewOf = (window: Page): Locator => window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
+
+/**
+ * The panel stands in the top right corner, its right edge at the window's, about 320 px wide. Its
+ * top is under the toolbar; in the Session view (`under: 'session'`, owner's decision Q22) under the
+ * Session's header and the place of its ⌘F find bar (8 px below the header, 32 px high).
+ */
+async function expectInCorner(window: Page, under: 'toolbar' | 'session' = 'toolbar'): Promise<void> {
   const panel = await sectionOf(window).boundingBox()
-  const toolbar = await window.locator('.w-toolbar').boundingBox()
+  const above = under === 'toolbar' ? await window.locator('.w-toolbar').boundingBox() : await sessionViewOf(window).locator('.w-session__header').boundingBox()
   const page = await viewport(window)
   expect(panel).not.toBeNull()
-  expect(toolbar).not.toBeNull()
-  if (panel === null || toolbar === null) return
-  expect(panel.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height)
-  expect(panel.y).toBeLessThanOrEqual(toolbar.y + toolbar.height + 24)
+  expect(above).not.toBeNull()
+  if (panel === null || above === null) return
+  const top = above.y + above.height + (under === 'session' ? 8 + 32 : 0)
+  expect(panel.y).toBeGreaterThanOrEqual(top)
+  expect(panel.y).toBeLessThanOrEqual(top + 24)
   // The right edge at the window's, with the margin the toasts keep (16 px).
   expect(page.width - (panel.x + panel.width)).toBeGreaterThanOrEqual(0)
   expect(page.width - (panel.x + panel.width)).toBeLessThanOrEqual(24)
   expect(Math.abs(panel.width - 320)).toBeLessThanOrEqual(3)
 }
+
+/**
+ * Whether the point at the centre of the element `selector` finds hits that element itself, or what is
+ * inside it: nothing covers it there. False when there is no such element.
+ */
+const hitsAtCentre = (window: Page, selector: string): Promise<boolean> =>
+  window.evaluate((selector) => {
+    type El = { contains(other: unknown): boolean; getBoundingClientRect(): { left: number; top: number; width: number; height: number } }
+    const doc = (globalThis as unknown as { document: { elementFromPoint(x: number, y: number): El | null; querySelector(selector: string): El | null } }).document
+    const own = doc.querySelector(selector)
+    if (own === null) return false
+    const box = own.getBoundingClientRect()
+    const hit = doc.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+    return hit !== null && own.contains(hit)
+  }, selector)
 
 /** The messages the fake agent was sent, from its log (WORFY_AGENT_LOG). */
 function messagesSent(log: string): string[] {
@@ -223,6 +249,37 @@ test('Getting started: the panel in the top right corner, the demo created, the 
     await expect(field).toHaveValue(QUESTION)
     expect(messagesSent(agentLog)).toEqual([])
 
+    // In the Session view the panel stands under the Session's header (owner's decision Q22): at
+    // 1280 px Hide tools, Interrupt and the ⌘F find bar are not covered — the point at the centre of
+    // each hits the control itself. On the Canvas it is back under the toolbar.
+    await expect.poll(async () => (await viewport(window)).width).toBe(1280)
+    const session = sessionViewOf(window)
+    await expectInCorner(window, 'session')
+    const inSession = (testId: string): string => `.w-shell__view[data-view="session"] [data-testid="${testId}"]`
+    expect(await hitsAtCentre(window, inSession('session-hide-tools'))).toBe(true)
+    expect(await hitsAtCentre(window, inSession('session-interrupt'))).toBe(true)
+    await window.keyboard.press('ControlOrMeta+f')
+    const find = session.getByTestId('session-find')
+    await expect(find).toBeVisible()
+    expect(await hitsAtCentre(window, inSession('session-find'))).toBe(true)
+    // The toast of Skip, still shown, moves below the panel there too (toasts are placed again every 200 ms).
+    const skipped = window.getByTestId('toasts').getByText(SKIPPED)
+    await expect
+      .poll(async () => {
+        const [toast, panel] = [await skipped.boundingBox(), await sectionOf(window).boundingBox()]
+        if (toast === null || panel === null) return `toast ${JSON.stringify(toast)}, panel ${JSON.stringify(panel)}`
+        return toast.y >= panel.y + panel.height ? 'below' : `toast at ${toast.y}, panel ends at ${panel.y + panel.height}`
+      })
+      .toBe('below')
+    await shoot(window, 'session-view', { whole: false, target: window.locator('body') })
+    await session.getByTestId('session-find-input').press('Escape')
+    await expect(find).toHaveCount(0)
+    await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Canvas' }).click()
+    await expectInCorner(window)
+    await shoot(window, 'canvas', { whole: false, target: window.locator('body') })
+    await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Session' }).click()
+    await expect(session).toBeVisible()
+
     // The Orchestrator has answered (written as main writes it): the hint of step 3 stands under step 4,
     // the cost switch under step 2. In a 1200 × 900 window the panel shows all of it without scrolling.
     markSteps(dataDir, ['3'])
@@ -231,7 +288,7 @@ test('Getting started: the panel in the top right corner, the demo created, the 
     await expect.poll(async () => (await viewport(window)).height).toBe(900)
     await expect(stepOf(window, '4').getByTestId('getting-started-hint')).toHaveAttribute('data-hint', 'epic-ticket', { timeout: ms(20_000) })
     await expect(stepOf(window, '2').getByTestId('getting-started-cost')).toBeVisible()
-    await expectInCorner(window)
+    await expectInCorner(window, 'session')
     expect(await overflowOf(window)).toBe(0)
     await shoot(window, 'step-4-hint')
 
