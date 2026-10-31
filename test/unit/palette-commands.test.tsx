@@ -302,6 +302,13 @@ describe('palette commands', () => {
       expect(useGuide.getState()).toMatchObject({ open: true, topic: 'skeleton' })
     })
 
+    it('a Topic does not take the first place from an action: "session" still runs New session first (worfy-guide/08)', () => {
+      reset()
+      const commands = buildCommands(context())
+      expect(commands.some((each) => each.id === 'guide:sessions')).toBe(true)
+      expect(rankItems(commands, 'session')[0]?.id).toBe('new:session')
+    })
+
     it('leaves out the test Topic in a packaged build, and while the build has not answered', () => {
       for (const packaged of [true, null]) {
         reset()
