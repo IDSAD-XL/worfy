@@ -2,7 +2,11 @@
 // First run shows before its checks when it opened by itself on a new user's first start. The texts
 // are the spec's, "Texts (draft)". This file is the content; the dialog around it, its header,
 // footer and buttons, is FirstRun.tsx.
+//
+// Under the concepts, the way into the worfy Guide (worfy-guide ticket 09, ADR-0090): "worfy Guide"
+// opens it over First run, which stays on this page; Esc or Close of the Guide comes back here.
 import type { CSSProperties } from 'react'
+import { openGuide } from '../guide/store'
 
 export const CONCEPTS_TITLE = 'Welcome to worfy'
 export const CONCEPTS_LEAD = 'worfy runs Claude Code agents on your projects and shows their work. Three things to know:'
@@ -24,18 +28,30 @@ const styles = {
   list: { listStyle: 'none', margin: 0, padding: 'var(--space-3) 0 var(--space-2)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' },
   name: { margin: '0 0 2px', fontSize: 'var(--text-13)', fontWeight: 600 },
   text: { margin: 0, color: 'var(--text-secondary)', fontSize: 'var(--text-13)', lineHeight: 1.45 },
+  guide: { margin: '0 0 var(--space-2)', color: 'var(--text-secondary)', fontSize: 'var(--text-13)', lineHeight: 1.45 },
+  // A button that reads as a link: --accent on --surface is at least 4.5:1 in both themes (test/e2e/guide-entry-links.spec.ts).
+  link: { border: 0, padding: 0, background: 'transparent', color: 'var(--accent)', font: 'inherit', textDecoration: 'underline', cursor: 'pointer' },
 } satisfies Record<string, CSSProperties>
 
-/** The three concepts, in the spec's order. */
+/** The three concepts, in the spec's order, and the way into the worfy Guide under them. */
 export function FirstRunConcepts() {
   return (
-    <ul style={styles.list} aria-label="Three things to know" data-testid="first-run-concepts">
-      {CONCEPTS.map((concept) => (
-        <li key={concept.name}>
-          <h3 style={styles.name}>{concept.name}</h3>
-          <p style={styles.text}>{concept.text}</p>
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul style={styles.list} aria-label="Three things to know" data-testid="first-run-concepts">
+        {CONCEPTS.map((concept) => (
+          <li key={concept.name}>
+            <h3 style={styles.name}>{concept.name}</h3>
+            <p style={styles.text}>{concept.text}</p>
+          </li>
+        ))}
+      </ul>
+      <p style={styles.guide} data-testid="first-run-guide">
+        Short visual help:{' '}
+        <button type="button" style={styles.link} onClick={() => openGuide()}>
+          worfy Guide
+        </button>
+        . It is in the Help menu too.
+      </p>
+    </>
   )
 }

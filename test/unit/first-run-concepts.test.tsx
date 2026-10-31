@@ -108,6 +108,21 @@ describe('the page of the three concepts', () => {
     expect(callsOf('firstRun.close')).toHaveLength(1)
   })
 
+  it('"worfy Guide" under the concepts opens the Guide over First run, which stays open on its page (worfy-guide 09)', async () => {
+    preload({ show: true, firstTime: true })
+    await renderFirstRun()
+    const { useGuide } = await import('../../src/renderer/guide/store')
+    const dialog = await welcome()
+    expect(useGuide.getState().open).toBe(false)
+    const line = within(dialog).getByTestId('first-run-guide')
+    expect(line.textContent).toBe('Short visual help: worfy Guide. It is in the Help menu too.')
+    fireEvent.click(within(line).getByRole('button', { name: 'worfy Guide' }))
+    expect(useGuide.getState().open).toBe(true)
+    await act(async () => undefined)
+    expect(screen.getByRole('dialog', { name: 'Welcome to worfy' })).toBe(dialog)
+    expect(callsOf('firstRun.close')).toHaveLength(0)
+  })
+
   it('Escape on the concepts page closes First run, and main is told to write the mark', async () => {
     preload({ show: true, firstTime: true })
     await renderFirstRun()

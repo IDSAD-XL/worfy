@@ -4,7 +4,7 @@
 // loads on the first opening (GuideHost.tsx).
 //
 // The Guide opens from Help ▸ worfy Guide (`menu.command` `guide`), from the Command palette (a
-// row for the Guide and one per Topic) and, later, from Getting started and First run. Nothing
+// row for the Guide and one per Topic), from Getting started and from First run (ticket 09). Nothing
 // opens it by itself: no timer, no first start, no update.
 //
 // One modal window at a time: opening the Guide closes the Keyboard shortcuts and the Settings

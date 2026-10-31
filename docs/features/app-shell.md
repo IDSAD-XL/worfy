@@ -382,7 +382,9 @@ Topic on the right. A Topic is one screen: a diagram, a short text, **Under the 
 the main files, the limits) and **Full page**.
 
 - **Opening.** Help ▸ worfy Guide and the palette's "worfy Guide" open it where it was. Each Topic also has a palette row,
-  "Guide: `<Topic>`", that opens the Guide at that Topic. Nothing opens it by itself.
+  "Guide: `<Topic>`", that opens the Guide at that Topic. The link "worfy Guide" at the bottom of the
+  [Getting started](onboarding.md#getting-started) panel and under the concepts of First run's "Welcome to worfy" opens it
+  too; the panel and First run stay as they were behind it. Nothing opens it by itself.
 - **Closing.** Esc, Close or a click outside the window closes it, and the focus goes back where it was. While it is open, no
   key reaches a shortcut of the app.
 - **One modal window.** Opening the Guide closes Settings and Keyboard shortcuts, and either of them closes the Guide.

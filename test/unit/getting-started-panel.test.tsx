@@ -297,6 +297,34 @@ describe('the Getting started panel', () => {
     ])
   })
 
+  it('"worfy Guide" at the bottom, left of "Skip", opens the Guide and leaves the panel as it was; the panel alone opens nothing (worfy-guide 09)', async () => {
+    const { useGuide } = await import('../../src/renderer/guide/store')
+    await renderPanel(twoDone())
+    const panel = await waitFor(region)
+    expect(useGuide.getState().open).toBe(false)
+    const link = within(panel).getByRole('button', { name: 'worfy Guide' })
+    expect(link.nextElementSibling?.textContent).toBe('Skip')
+    const before = main.calls.length
+    fireEvent.click(link)
+    expect(useGuide.getState().open).toBe(true)
+    // No call to main: the Guide opens in the renderer, as from the Command palette.
+    await act(async () => undefined)
+    expect(main.calls.slice(before).map((call) => call.channel)).toEqual([])
+    expect(settingsAsked).toEqual([])
+    expect(region()).toBeTruthy()
+    expect(pill()).toBeNull()
+  })
+
+  it('"worfy Guide" stays at the bottom of the screen Done too', async () => {
+    const { useGuide } = await import('../../src/renderer/guide/store')
+    const steps6 = Object.fromEntries(['1', '2', '3', '4', '5', '6'].map((step) => [step, '2026-10-30T09:00:00.000Z']))
+    await renderPanel(snapshot({ steps: steps6 }))
+    const panel = await waitFor(region)
+    expect(within(panel).queryByRole('list', { name: 'Steps' })).toBeNull()
+    fireEvent.click(within(panel).getByRole('button', { name: 'worfy Guide' }))
+    expect(useGuide.getState().open).toBe(true)
+  })
+
   it('step 1: "Open checks" opens the first-run checks', async () => {
     const { useFirstRun } = await import('../../src/renderer/shell/first-run-store')
     useFirstRun.setState({ open: false, report: { checks: [], checkedAt: '2026-10-30T09:00:00.000Z' } })

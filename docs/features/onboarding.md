@@ -31,7 +31,8 @@ New and existing are defined under [Getting started](#getting-started).
 when the Harness stops the connection or gh is missing. Settings → Health shows the same rows, actions and "Check again".
 Opening that section runs the checks, and closing Settings does not count as closing First run.
 
-**The page "Welcome to worfy".** It explains three concepts in short texts: Project + Harness, Orchestrator and Canvas. The
+**The page "Welcome to worfy".** It explains three concepts in short texts: Project + Harness, Orchestrator and Canvas. Under
+them, the link "worfy Guide" opens the [worfy Guide](app-shell.md#worfy-guide) over First run, which stays on this page. The
 checks already run behind it. "Next" goes to them. "Close" closes the dialog like any other close, so the page does not come
 again by itself. Opened in any other way, First run starts on the checks.
 
@@ -224,6 +225,9 @@ a recorded example in place: the reviewer's REJECTED with its finding, the Orche
 **Done.** Once step 6 is marked, the panel shows "Done — the ticket is merged" in place of the steps, with "Connect your own
 project" and "Remove the demo project". "Show steps" brings the list back until the panel is next mounted.
 
+**The worfy Guide.** "worfy Guide" at the bottom of the panel, left of "Skip", under the steps and under Done alike, opens the
+[worfy Guide](app-shell.md#worfy-guide). The panel stays as it was.
+
 **Leaving and coming back.** "Skip" at the bottom hides the panel and leaves no pill, removes nothing and says where it comes back
 from. The Command palette's "Getting started" shows the panel again at any time, expanded and with the focus on its heading, with or
 without a Project.
@@ -277,6 +281,7 @@ does the work.
   `test/unit/getting-started-panel.test.tsx`, `test/unit/getting-started-hints.test.ts`, `test/unit/getting-started-notice.test.tsx`,
   `test/unit/getting-started-highlight.test.ts`, `test/e2e/getting-started.spec.ts`, `test/e2e/getting-started-entry.spec.ts`,
   `test/e2e/getting-started-hints.spec.ts`, `test/e2e/getting-started-done.spec.ts` and `test/e2e/getting-started-highlight.spec.ts`.
+  `test/e2e/guide-entry-links.spec.ts` checks the links to the worfy Guide in the panel and in First run.
 
 ## Demo project
 
