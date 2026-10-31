@@ -25,9 +25,9 @@ public repository `IDSAD-XL/worfy`, without sign-in. The head is an Available up
 
 Texts name the new version as `<version of package.json on that commit>+<short SHA>`, the form of the app's build
 version. Only the head of `main` is a candidate: there are no update channels and no Update to another commit. No
-network, a refusal or a failure of GitHub, or a request over 15 seconds skips the check: one line goes to the log of
-the main process, and the screen shows nothing. Without sign-in GitHub allows 60 requests an hour from one address, and
-a check spends one to four.
+network, a refusal or a failure of GitHub, or a request over 15 seconds skips the check: one line goes to the log of the
+main process. A scheduled check shows nothing on the screen; one that "Check now" ran shows its reason in Settings.
+Without sign-in GitHub allows 60 requests an hour from one address, and a check spends one to four.
 
 **Where it shows.**
 
@@ -45,7 +45,7 @@ The dot and the Health row stay until the Update is installed. The toasts:
 |---|---|---|
 | "New worfy <version> available" | Update, Later | An Available update while "Update automatically" is off |
 | "worfy <version> ready" | Restart now or Restart when idle, Later | A build is ready. The first button changes in place when work starts or ends |
-| "worfy restarts when no Session is working and Autopilot has stopped" | None | After "Restart when idle" |
+| "worfy restarts when no Session is working and Autopilot has stopped" | None | After the button "Restart when idle" of the toast "ready", when worfy starts to wait |
 | "Update failed" | Show log | A build failed |
 | "Harness out of date: <from> → <to>" | Update, Later | The installed Harness is behind this copy's |
 | "worfy updated to <version>. The new Harness applies from the next Session." | None | The first start after a restart into an Update |
@@ -59,9 +59,11 @@ The result of a restart is told once, not at every start.
 
 **Settings → General → Updates.** The row "Updates" says "worfy <version>. Last checked <time>.", "worfy <version> is
 available.", "Building worfy <version>…" or "worfy <version> is ready.". Its buttons are "Check now" and "Update worfy",
-or, for a built Update, "Restart now" or "Restart when idle". A check that "Check now" ran and that was skipped shows its
-reason under the line. The row "Update automatically" holds the switch, and "Roll back to previous version" the button
-"Roll back" (see below). Where Update is off, the block is not there.
+or, for a built Update, "Restart now" or "Restart when idle". A check that "Check now" ran and that was skipped shows
+its reason under the line. While "Restart when idle" waits, the row shows "worfy restarts when no Session is working and
+Autopilot has stopped" under its line, and its button "Restart when idle" is inactive. The row "Update automatically"
+holds the switch, and "Roll back to previous version" the button "Roll back" (see below). Where Update is off, the block
+is not there.
 
 **Update automatically.** The switch is on by default: "Build new versions of worfy in the background. worfy restarts
 only when you say so." On, worfy builds an Available update by itself right after the check that found it. The toast
@@ -74,8 +76,9 @@ diagnostics](storage-and-diagnostics.md)): `~/Library/Application Support/worfy/
 `%APPDATA%\worfy\update\repo` on Windows. The clone is made once with `git clone` and fetched into after that. The build
 is the one of `pnpm install:stable`: `pnpm install --frozen-lockfile`, then `pnpm package`. The user's checkout and the
 folders of the Projects are never touched. The output goes to `build.log` next to the clone, a new one for each build.
-One build runs at a time, and a newer commit found during a build is built after it. Quitting worfy during a build stops
-it, and the commit counts as never built, not as failed.
+One build runs at a time. With "Update automatically" on, a newer commit found during a build is built after it; with it
+off, a newer commit waits for "Update worfy". Quitting worfy during a build stops it, and the commit counts as never
+built, not as failed.
 
 **A failed build** leaves the running Stable copy as it is. The chip's tooltip names the failure, the toast "Update
 failed" offers "Show log", which opens `build.log` in the system's program for it, and the Health row says "update
