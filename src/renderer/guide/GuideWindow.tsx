@@ -63,7 +63,7 @@ function TopicView({ topic, language, strings, version }: { topic: GuideTopic; l
         <summary className="w-guide__under-summary">{strings.underTheHood}</summary>
         {Flow === null || flow === undefined ? null : (
           <figure className="w-guide__figure w-guide__figure--flow" role="group" aria-label={strings.dataFlow} aria-describedby={flowDescriptionId}>
-            <Flow labels={flow.labels} strings={strings} />
+            <Flow labels={flow.labels} strings={strings} testId="guide-flow" />
             <figcaption id={flowDescriptionId} className="w-guide__sr-only">
               {flow.description}
             </figcaption>

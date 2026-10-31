@@ -44,6 +44,8 @@ export interface LivingSceneProps {
   labels: Readonly<Record<string, string>>
   /** The Guide's own labels in its language. */
   strings: GuideStrings
+  /** The diagram's data-testid, and with `-caption` its step caption's: `guide-scene` by default. */
+  testId?: string
 }
 
 /** The arrowhead, its tip at the origin, pointing right. */
@@ -166,7 +168,7 @@ function Block({ block, labels, hot, near, target, pageHint, onLight, onOpen }: 
   )
 }
 
-export function LivingScene({ spec, labels, strings }: LivingSceneProps) {
+export function LivingScene({ spec, labels, strings, testId = 'guide-scene' }: LivingSceneProps) {
   const svg = useRef<SVGSVGElement>(null)
   const listId = useId()
   const gridId = useId()
@@ -233,7 +235,7 @@ export function LivingScene({ spec, labels, strings }: LivingSceneProps) {
         role="group"
         aria-label={strings.diagram}
         aria-describedby={listId}
-        data-testid="guide-scene"
+        data-testid={testId}
       >
         <defs>
           <pattern id={gridId} width="16" height="16" patternUnits="userSpaceOnUse">
@@ -340,7 +342,7 @@ export function LivingScene({ spec, labels, strings }: LivingSceneProps) {
               </button>
             ))}
           </div>
-          <p className="w-guide-steps__caption" aria-live="polite" data-testid="guide-scene-caption">
+          <p className="w-guide-steps__caption" aria-live="polite" data-testid={`${testId}-caption`}>
             {caption}
           </p>
         </div>

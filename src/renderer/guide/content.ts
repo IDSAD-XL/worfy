@@ -53,6 +53,8 @@ export interface SceneProps {
   labels: Readonly<Record<string, string>>
   /** The Guide's own labels in that language: the step player's buttons, the name of the diagram. */
   strings: GuideStrings
+  /** The diagram's data-testid: `guide-scene` when absent; the window gives Flow.tsx `guide-flow`. */
+  testId?: string
 }
 
 export interface GuideTopic {

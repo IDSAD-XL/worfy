@@ -228,12 +228,17 @@ test('the diagram moves its dots only while the open Guide shows it in view', as
     await expect.poll(() => dotPlaces(window)).not.toEqual(first)
     expect(await framesAskedOver(window, 10)).toBeGreaterThan(0)
 
-    // Scrolled out of view: the loop stops, and the dots stay where they are.
+    // Folded, the data-flow diagram of Under the hood (Flow.tsx) is not in view and does not move.
+    const flow = guide.getByTestId('guide-flow')
+    await expect(flow).toHaveAttribute('data-motion', 'paused')
+    // Scrolled out of view: the diagram's loop stops, and its dots stay where they are, while the
+    // data-flow diagram, unfolded and now in view, moves: only a diagram in view runs.
     await guide.locator('summary').click()
     await guide.locator('.w-guide__content').evaluate((content) => content.scrollTo(0, content.scrollHeight))
     await expect(scene).toHaveAttribute('data-motion', 'paused')
+    await expect(flow).toHaveAttribute('data-motion', 'running')
     const stopped = await dotPlaces(window)
-    expect(await framesAskedOver(window, 10)).toBe(0)
+    expect(await framesAskedOver(window, 10)).toBeGreaterThan(0)
     expect(await dotPlaces(window)).toEqual(stopped)
     await guide.locator('.w-guide__content').evaluate((content) => content.scrollTo(0, 0))
     await expect(scene).toHaveAttribute('data-motion', 'running')
@@ -243,6 +248,7 @@ test('the diagram moves its dots only while the open Guide shows it in view', as
     await window.keyboard.press('Escape')
     await expect(guide).toHaveCount(0)
     await expect(window.getByTestId('guide-scene')).toHaveCount(0)
+    await expect(window.getByTestId('guide-flow')).toHaveCount(0)
     expect(await framesAskedOver(window, 10)).toBe(0)
   } finally {
     await launched.close()
