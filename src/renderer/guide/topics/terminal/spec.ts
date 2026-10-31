@@ -52,18 +52,18 @@ export const TERMINAL_FLOW: SceneSpec = {
   height: 496,
   regions: [
     { label: 'renderer', x: 16, y: 24 },
-    { label: 'main', x: 300, y: 24 },
+    { label: 'main', x: 320, y: 24 },
     { label: 'processes', x: 800, y: 24 },
   ],
   blocks: [
     // The renderer.
     { id: 'node', x: 16, y: 160, group: 'tools' },
     // The main process.
-    { id: 'replay', x: 300, y: 40, group: 'machine' },
-    { id: 'registry', x: 300, y: 160, group: 'tools' },
-    { id: 'screen', x: 540, y: 40, group: 'machine' },
-    { id: 'shellLink', x: 540, y: 300, group: 'tools' },
-    { id: 'assist', x: 540, y: 420, group: 'tools' },
+    { id: 'screen', x: 560, y: 40, group: 'machine' },
+    { id: 'registry', x: 320, y: 160, group: 'tools' },
+    { id: 'replay', x: 320, y: 300, group: 'machine' },
+    { id: 'shellLink', x: 560, y: 300, group: 'tools' },
+    { id: 'assist', x: 560, y: 420, group: 'tools' },
     // The processes main starts.
     { id: 'shell', x: 800, y: 160, group: 'tools' },
     { id: 'claude', x: 800, y: 420, group: 'agents' },
@@ -74,9 +74,9 @@ export const TERMINAL_FLOW: SceneSpec = {
     { from: 'registry', to: 'node', label: 'output', fromShift: 12, toShift: 12 },
     { from: 'registry', to: 'shell', label: 'keys', fromShift: -12, toShift: -12 },
     { from: 'shell', to: 'registry', label: 'chunks', fromShift: 12, toShift: 12 },
-    // Each chunk also goes up: to the kept output and to the headless screen.
-    { from: 'registry', to: 'replay', label: 'appends', fromSide: 'top', toSide: 'bottom', fromShift: -40, toShift: -40 },
-    { from: 'registry', to: 'screen', label: 'posts', fromSide: 'top', toSide: 'left', fromShift: 40 },
+    // Each chunk also goes down to the kept output and up to the headless screen.
+    { from: 'registry', to: 'replay', label: 'appends', fromSide: 'bottom', toSide: 'top' },
+    { from: 'registry', to: 'screen', label: 'posts', fromSide: 'top', toSide: 'left' },
     { from: 'screen', to: 'shell', label: 'answers', fromSide: 'right', toSide: 'top' },
     // Terminal AI: the shell asks over its socket and gets text back.
     { from: 'shell', to: 'shellLink', label: 'ask', fromSide: 'bottom', toSide: 'right', fromShift: -30, toShift: -12 },

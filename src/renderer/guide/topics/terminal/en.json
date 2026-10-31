@@ -4,14 +4,14 @@
     "A Terminal is a Node on the Canvas with your own shell in it; agents do not use it. In a zsh Terminal, Terminal AI, help from a Claude model, proposes text for your input line."
   ],
   "scene": {
-    "description": "The Terminal in worfy. On the Canvas lies a Terminal Node. Its shell starts in the Project folder; your keys go to the shell, and its output comes back to the Node. Another screen, a window or a Linked machine, opens the same shell. In zsh, the shell sends the typed line to Terminal AI and gets grey text back; Fix in the Node's header asks Terminal AI too. Terminal AI asks Claude Code, which reports the Limits, and the Limits may pause Terminal AI.",
+    "description": "The Terminal in worfy. On the Canvas lies a Terminal Node. Its shell starts in the Project folder; your keys go to the shell, and its output comes back to the Node. Another screen, a window or a Linked machine with write access, opens the same shell. In zsh, the shell sends the typed line to Terminal AI and gets grey text back; Fix in the Node's header asks Terminal AI too. Terminal AI asks Claude Code, which reports the Limits, and the Limits may pause Terminal AI.",
     "labels": {
       "canvas": "Canvas",
       "canvasNote": "New terminal in its menu",
       "terminal": "Terminal",
       "terminalNote": "your shell; agents do not use it",
       "other": "Another screen",
-      "otherNote": "a window or a Linked machine",
+      "otherNote": "a window, or a Linked machine with write access",
       "folder": "Project folder",
       "folderNote": "the root of the Project",
       "shell": "Shell",
@@ -36,7 +36,7 @@
       "step2": "The shell keeps running when the Node scrolls out of sight or the window reloads, and the next view redraws its last output. Closing the Node ends the shell.",
       "step3": "Other windows, and a Linked machine with write access, show the same shell and may type in it. The screen that typed or clicked last sets its size.",
       "step4": "In a zsh Terminal, Terminal AI shows grey text after the cursor, from your history or from Claude. → takes it; Enter stays with you.",
-      "step5": "After a failed command, Fix in the Node's header asks Claude for a corrected command and puts it into the line. Near the Limits, Terminal AI pauses until the window resets."
+      "step5": "After a failed command, Fix in the Node's header asks Claude for a corrected command and puts it into the line. Near the Limits, the automatic grey text pauses until the window resets; Fix stops only when the Limits refuse."
     }
   },
   "underTheHood": {
@@ -62,7 +62,7 @@
         "shellNote": "in node-pty",
         "claude": "Claude Code",
         "claudeNote": "spare process, one turn",
-        "open": "terminal.open, input",
+        "open": "open, input",
         "output": "terminal.output",
         "keys": "writes",
         "chunks": "chunks",

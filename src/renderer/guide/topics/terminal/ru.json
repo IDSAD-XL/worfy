@@ -4,14 +4,14 @@
     "Terminal — Node на Canvas с вашим собственным shell внутри; агенты им не пользуются. В Terminal-е с zsh Terminal AI, помощь модели Claude, предлагает текст для вашей строки ввода."
   ],
   "scene": {
-    "description": "Terminal в worfy. На Canvas лежит Node Terminal-а. Его shell запускается в папке Project-а; ваши клавиши идут в shell, а его вывод возвращается в Node. Другой экран, окно или Linked machine, открывает тот же shell. В zsh shell отправляет набранную строку в Terminal AI и получает обратно серый текст; Fix в шапке Node-а тоже обращается к Terminal AI. Terminal AI спрашивает Claude Code, тот сообщает Limits, а Limits могут поставить Terminal AI на паузу.",
+    "description": "Terminal в worfy. На Canvas лежит Node Terminal-а. Его shell запускается в папке Project-а; ваши клавиши идут в shell, а его вывод возвращается в Node. Другой экран, окно или Linked machine с доступом на запись, открывает тот же shell. В zsh shell отправляет набранную строку в Terminal AI и получает обратно серый текст; Fix в шапке Node-а тоже обращается к Terminal AI. Terminal AI спрашивает Claude Code, тот сообщает Limits, а Limits могут поставить Terminal AI на паузу.",
     "labels": {
       "canvas": "Canvas",
       "canvasNote": "New terminal в его меню",
       "terminal": "Terminal",
       "terminalNote": "ваш shell; агенты им не пользуются",
       "other": "Другой экран",
-      "otherNote": "окно или Linked machine",
+      "otherNote": "окно или Linked machine с доступом на запись",
       "folder": "Папка Project-а",
       "folderNote": "корень Project-а",
       "shell": "Shell",
@@ -36,7 +36,7 @@
       "step2": "Shell продолжает работать, когда Node уходит из виду или окно перезагружается, и следующий вид перерисовывает его последний вывод. Закрытие Node-а завершает shell.",
       "step3": "Другие окна и Linked machine с доступом на запись показывают тот же shell и могут в нём печатать. Размер задаёт экран, который последним печатал или кликал.",
       "step4": "В Terminal-е с zsh Terminal AI показывает серый текст после курсора — из вашей истории или от Claude. → принимает его; Enter остаётся за вами.",
-      "step5": "После упавшей команды Fix в шапке Node-а просит у Claude исправленную команду и вставляет её в строку. У порога Limits Terminal AI встаёт на паузу до сброса окна."
+      "step5": "После упавшей команды Fix в шапке Node-а просит у Claude исправленную команду и вставляет её в строку. У порога Limits автоматический серый текст встаёт на паузу до сброса окна; Fix останавливается, только когда Limits отказывают."
     }
   },
   "underTheHood": {
@@ -62,7 +62,7 @@
         "shellNote": "в node-pty",
         "claude": "Claude Code",
         "claudeNote": "запасной процесс, один ход",
-        "open": "terminal.open, input",
+        "open": "open, input",
         "output": "terminal.output",
         "keys": "пишет",
         "chunks": "куски вывода",
