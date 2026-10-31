@@ -150,7 +150,7 @@ export default function GeneralSection() {
           </span>
         )}
       </SettingRow>
-      <UpdatesBlock version={version.kind === 'ok' ? version.version : undefined} number={version.kind === 'ok' ? version.number : undefined} />
+      <UpdatesBlock version={version.kind === 'ok' ? version.version : undefined} />
     </>
   )
 }

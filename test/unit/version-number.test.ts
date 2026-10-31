@@ -51,9 +51,16 @@ describe('the numbered builds of an Update snapshot', () => {
   const RUNNING = { commit: 'a'.repeat(40), version: '0.3.0+aaaaaaa', number: 100 }
   const AVAILABLE = { sha: 'b'.repeat(40), version: '0.3.0+bbbbbbb', quiet: false, number: 104 }
 
-  it('numbers this run, the copy the check saw run, the Available update and the build of its commit', () => {
-    const builds = numberedBuilds({ current: { version: '0.3.0+ccccccc', number: 99 }, running: RUNNING, available: AVAILABLE, build: { sha: AVAILABLE.sha, version: '0.3.0+bbbbbbbb' } })
+  it('numbers this run, the copy the check saw run, the previous copy, the Available update and the build of its commit', () => {
+    const builds = numberedBuilds({
+      current: { version: '0.3.0+ccccccc', number: 99 },
+      running: RUNNING,
+      previous: { version: '0.3.0+eeeeeee', number: 97 },
+      available: AVAILABLE,
+      build: { sha: AVAILABLE.sha, version: '0.3.0+bbbbbbbb' },
+    })
     expect(versionLabel('0.3.0+ccccccc', builds)).toBe('0.3.99')
+    expect(versionLabel('0.3.0+eeeeeee', builds)).toBe('0.3.97')
     expect(versionLabel('0.3.0+aaaaaaa', builds)).toBe('0.3.100')
     expect(versionLabel('0.3.0+bbbbbbb', builds)).toBe('0.3.104')
     // The build in worfy's clone may name its SHA longer: it is the same commit.
@@ -61,11 +68,19 @@ describe('the numbered builds of an Update snapshot', () => {
   })
 
   it('names a version no build numbers, a build of another commit and an unnumbered update as they are', () => {
-    const builds = numberedBuilds({ running: RUNNING, available: { ...AVAILABLE, number: undefined }, build: { sha: 'c'.repeat(40), version: '0.3.0+ccccccc' } })
+    const builds = numberedBuilds({ running: RUNNING, previous: { version: '0.3.0+eeeeeee' }, available: { ...AVAILABLE, number: undefined }, build: { sha: 'c'.repeat(40), version: '0.3.0+ccccccc' } })
+    expect(versionLabel('0.3.0+eeeeeee', builds)).toBe('0.3.0+eeeeeee')
     expect(versionLabel('0.3.0+bbbbbbb', builds)).toBe('0.3.0+bbbbbbb')
     expect(versionLabel('0.3.0+ccccccc', builds)).toBe('0.3.0+ccccccc')
     expect(versionLabel('0.2.0+ddddddd', builds)).toBe('0.2.0+ddddddd')
-    expect(versionLabel('0.3.0+aaaaaaa', numberedBuilds({ running: null, available: null, build: {} }))).toBe('0.3.0+aaaaaaa')
+    expect(versionLabel('0.3.0+aaaaaaa', numberedBuilds({ running: null, previous: null, available: null, build: {} }))).toBe('0.3.0+aaaaaaa')
+  })
+
+  it('does not give the number of the Available update to a ready build of another commit', () => {
+    // A build of an older commit is still ready while the check found a newer head: it is not that head.
+    const builds = numberedBuilds({ running: RUNNING, previous: null, available: AVAILABLE, build: { sha: 'c'.repeat(40), version: '0.3.0+ccccccc' } })
+    expect(versionLabel('0.3.0+bbbbbbb', builds)).toBe('0.3.104')
+    expect(versionLabel('0.3.0+ccccccc', builds)).toBe('0.3.0+ccccccc')
   })
 })
 

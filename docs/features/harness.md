@@ -20,7 +20,8 @@ reaches every window.
 ([Storage and diagnostics](storage-and-diagnostics.md)). The version is `v<major>.<minor>.<N>` with the build number
 ([Settings → General → Version](app-shell.md#settings)), and its tooltip is the build version with the commit; a build
 without a number shows the build version `v<semver>+<short SHA>` with no tooltip. In the Stable copy the version is the
-version chip of [Update](updates.md), whose tooltip names the Update while one waits.
+version chip of [Update](updates.md): while an Update waits, its tooltip names the Update, and the build version follows
+on a second line.
 
 | State | Text | Icon button | When |
 |---|---|---|---|

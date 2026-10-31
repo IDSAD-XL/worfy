@@ -2,12 +2,13 @@
 // with the full build version as its tooltip; Settings → General shows the number with the build
 // version next to it; the Update texts (chip, Settings → Updates, toasts) name a version by its number
 // where it is known. A build without a number (a shallow clone, no git) reads as before.
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { updateSnapshotSchema, type UpdateSnapshot } from '../../src/shared/ipc/update'
 import { defaultAppSettings } from '../../src/shared/settings/app-settings'
 import GeneralSection from '../../src/renderer/settings/GeneralSection'
+import { HarnessStatusView } from '../../src/renderer/shell/toolbar/HarnessStatus'
 import { resetToasts, toasts } from '../../src/renderer/toast/toasts'
 import UpdateChip from '../../src/renderer/update/UpdateChip'
 import { useUpdateStore } from '../../src/renderer/update/store'
@@ -58,19 +59,49 @@ describe('the toolbar version line', () => {
     expect(chip().hasAttribute('title')).toBe(false)
   })
 
-  it('names an Available update by its number in the tooltip; without it, by its build version', () => {
+  it('names an Available update by its number in the tooltip, with the build version of this copy on a second line', () => {
     render(<UpdateChip version={RUNNING} number={1187} update={snapshot({ available: { sha: NEW_SHA, version: NEW, quiet: false, number: 1191 } })} />)
     expect(chip().textContent).toBe('v0.3.1187')
-    expect(chip().getAttribute('title')).toBe('worfy 0.3.1191 is available')
+    expect(chip().getAttribute('title')).toBe(`worfy 0.3.1191 is available\nworfy ${RUNNING}`)
     cleanup()
     render(<UpdateChip version={RUNNING} number={1187} update={snapshot({ available: { sha: NEW_SHA, version: NEW, quiet: false } })} />)
-    expect(chip().getAttribute('title')).toBe(`worfy ${NEW} is available`)
+    expect(chip().getAttribute('title')).toBe(`worfy ${NEW} is available\nworfy ${RUNNING}`)
+  })
+
+  it('keeps the Update tooltip a single line when the copy has no number: the line itself shows the build version', () => {
+    render(<UpdateChip version={RUNNING} update={snapshot({ available: { sha: NEW_SHA, version: NEW, quiet: false, number: 1191 } })} />)
+    expect(chip().textContent).toBe(`v${RUNNING}`)
+    expect(chip().getAttribute('title')).toBe('worfy 0.3.1191 is available')
   })
 
   it('names the build of that commit by the same number', () => {
     const update = snapshot({ available: { sha: NEW_SHA, version: NEW, quiet: false, number: 1191 }, build: { phase: 'ready', sha: NEW_SHA, version: NEW } })
     render(<UpdateChip version={RUNNING} number={1187} update={update} />)
-    expect(chip().getAttribute('title')).toBe('worfy 0.3.1191 is ready — restart to update')
+    expect(chip().getAttribute('title')).toBe(`worfy 0.3.1191 is ready — restart to update\nworfy ${RUNNING}`)
+  })
+
+  it("titles What's new with the number, before main answers and after", async () => {
+    let answer: (value: Answer) => void = () => undefined
+    handlers['update.whatsNew'] = () => ({ ok: true, value: { version: NEW, items: [], more: false, compareUrl: 'https://github.com/IDSAD-XL/worfy/compare/a...b' } })
+    const pending = new Promise<Answer>((resolve) => (answer = resolve))
+    invoke.mockImplementationOnce(() => pending)
+    render(<UpdateChip version={RUNNING} number={1187} update={snapshot({ available: { sha: NEW_SHA, version: NEW, quiet: false, number: 1191 } })} />)
+    fireEvent.click(chip())
+    fireEvent.click(screen.getByRole('menuitem', { name: "What's new" }))
+    expect(screen.getByRole('dialog', { name: "What's new in worfy 0.3.1191" })).toBeTruthy()
+    await act(async () => {
+      answer(handlers['update.whatsNew']!())
+      await pending
+    })
+    expect(screen.getByRole('dialog', { name: "What's new in worfy 0.3.1191" })).toBeTruthy()
+  })
+
+  it('goes from app.version through HarnessStatusView with its number', () => {
+    render(<HarnessStatusView status={undefined} busy={false} failure={undefined} onInstall={() => undefined} version={RUNNING} versionNumber={1187} />)
+    expect(chip().textContent).toBe('v0.3.1187')
+    cleanup()
+    render(<HarnessStatusView status={undefined} busy={false} failure={undefined} onInstall={() => undefined} version={RUNNING} />)
+    expect(chip().textContent).toBe(`v${RUNNING}`)
   })
 })
 
@@ -89,6 +120,24 @@ describe('Settings → General', () => {
     render(<GeneralSection />)
     await waitFor(() => expect(screen.getByTestId('settings-version').textContent).toBe(RUNNING))
     expect(screen.queryByTestId('settings-build-version')).toBeNull()
+  })
+
+  it('names this copy by number before the first check, from the snapshot of this run', async () => {
+    handlers['app.version'] = () => ({ ok: true, value: { version: RUNNING, packaged: true, number: 1187 } })
+    act(() => useUpdateStore.setState({ snapshot: snapshot({ running: null, lastCheck: null, current: { version: RUNNING, number: 1187 } }) }))
+    render(<GeneralSection />)
+    await waitFor(() => expect(screen.getByTestId('settings-updates-status').textContent).toBe('worfy 0.3.1187.'))
+  })
+
+  it('names the previous copy of the roll back by its number, and by its build version without one', async () => {
+    handlers['app.version'] = () => ({ ok: true, value: { version: RUNNING, packaged: true, number: 1187 } })
+    act(() => useUpdateStore.setState({ snapshot: snapshot({ previous: { version: '0.3.0+ccccccc', number: 1180 } }) }))
+    render(<GeneralSection />)
+    await waitFor(() => expect(screen.getByTestId('settings-updates-rollback-row').textContent).toContain('Return to worfy 0.3.1180. Automatic updates'))
+    cleanup()
+    act(() => useUpdateStore.setState({ snapshot: snapshot({ previous: { version: '0.3.0+ccccccc' } }) }))
+    render(<GeneralSection />)
+    await waitFor(() => expect(screen.getByTestId('settings-updates-rollback-row').textContent).toContain('Return to worfy 0.3.0+ccccccc. Automatic updates'))
   })
 
   it('names an Available update by its number', async () => {

@@ -698,3 +698,38 @@ describe('The helper process', () => {
     expect(got.token).toBeNull()
   })
 })
+
+// worfy-update ticket 14: the build number of the copy that ran goes into restart.json, so the
+// previous copy and the roll back are named by number later; a record without one names the build
+// version as before (the tests above).
+describe('build numbers (worfy-update ticket 14)', () => {
+  const numbered = () => ({ commit: RUNNING_SHA, version: '0.5.0+aaaaaaa', number: 1187 })
+
+  it('an install keeps the number of the copy that ran in restart.json', async () => {
+    readyBuild()
+    const { restarts: subject } = restarts(new FakeIdle(true), { running: numbered })
+    expect(await subject.restart('now')).toEqual({ outcome: 'quitting' })
+    expect(JSON.parse(readFileSync(restartFile(dir), 'utf8'))).toMatchObject({ from: { sha: RUNNING_SHA, version: '0.5.0+aaaaaaa', number: 1187 } })
+  })
+
+  it('the start gives `previous` that number, and the roll back dialog names the previous copy by it', async () => {
+    previousCopy(RUNNING_SHA)
+    writeFileSync(restartFile(dir), JSON.stringify({ action: 'install', version: '0.6.0+bbbbbbb', sha: BUILT_SHA, from: { sha: RUNNING_SHA, version: '0.5.0+aaaaaaa', number: 1187 }, harness: true, at: '2026-10-31T10:00:00.000Z' }))
+    writeFileSync(resultFile(dir), JSON.stringify({ ok: true, action: 'install', commit: BUILT_SHA, previous: previousPaths(process.platform, target).copy, notes: [] }))
+    settleLastRestart({ dir, stateFile, target, platform: process.platform })
+    expect(readUpdateState(stateFile).previous).toEqual({ version: '0.5.0+aaaaaaa', number: 1187 })
+
+    const { restarts: subject } = restarts(new FakeIdle(true), { running: () => ({ commit: BUILT_SHA, version: '0.6.0+bbbbbbb', number: 1191 }) })
+    const confirm = vi.fn(() => Promise.resolve(false))
+    expect(await subject.rollback(confirm)).toEqual({ outcome: 'cancelled' })
+    expect(confirm).toHaveBeenCalledWith('0.5.1187')
+  })
+
+  it('an install that did not take effect names the copy that runs instead by its number', () => {
+    readyBuild()
+    writeFileSync(restartFile(dir), JSON.stringify({ action: 'install', version: '0.6.0+bbbbbbb', sha: BUILT_SHA, from: { sha: RUNNING_SHA, version: '0.5.0+aaaaaaa', number: 1187 }, harness: true, at: '2026-10-31T10:00:00.000Z' }))
+    writeFileSync(resultFile(dir), JSON.stringify({ ok: true, action: 'install', commit: BUILT_SHA, previous: null, notes: [] }))
+    settleLastRestart({ dir, stateFile, target, running: numbered(), platform: process.platform })
+    expect(readUpdateState(stateFile).lastRestart).toMatchObject({ ok: false, reason: '0.5.1187 runs instead: the new copy did not start, or was rolled back by hand' })
+  })
+})

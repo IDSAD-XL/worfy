@@ -61,8 +61,8 @@ export const updateStateSchema = z.object({
   build: updateBuildSchema.default({ phase: 'idle' }),
   /** Nothing works: no Session in a turn, no Autopilot run (ticket 04, spec R6). */
   idle: z.boolean().default(false),
-  /** The copy kept as worfy-stable.previous (tickets 02, 04). */
-  previous: z.object({ version: z.string() }).nullable().default(null),
+  /** The copy kept as worfy-stable.previous (tickets 02, 04), with its build number when known (ticket 14). */
+  previous: z.object({ version: z.string(), number: buildNumberSchema.optional() }).nullable().default(null),
   /** The SHA the user rolled back from (ticket 04): its Update is quiet. */
   rolledBackFrom: z.string().nullable().default(null),
   /** The installed Harness is behind the one of this copy (ticket 05). */

@@ -55,6 +55,11 @@ const TOOLTIP: Record<Phase, (version: string) => string> = {
   failed: (version) => `The update to ${version} failed — see Settings → Health`,
 }
 
+/** The Update's text, and under it the build version with its commit when the line shows a number (ticket 14). */
+function withBuild(text: string, build: string | undefined): string {
+  return build === undefined ? text : `${text}\n${build}`
+}
+
 const menuStyle: CSSProperties = {
   position: 'fixed',
   // Over the toasts (z-index 120, src/renderer/toast/toast.css), as "What's new": the sticky Update
@@ -205,7 +210,7 @@ export default function UpdateChip({ version, number, update }: UpdateChipProps)
   const [view, setView] = useState<'menu' | 'whatsNew'>('menu')
   const signal = updateSignal(update)
   const shown = numberedVersion(version, number)
-  const label = (each: string): string => updateVersionLabel(update, each, { version, number })
+  const label = (each: string): string => updateVersionLabel(update, each)
   if (signal === null) {
     // The signal went (installed from Settings or another window): the menu goes with it, so a later
     // signal shows a closed chip rather than a menu that opens by itself. Adjusted during render, as
@@ -223,7 +228,7 @@ export default function UpdateChip({ version, number, update }: UpdateChipProps)
       <button
         type="button"
         className="w-mono w-toolbar__version w-toolbar__version-chip"
-        title={TOOLTIP[signal.phase](label(signal.version))}
+        title={withBuild(TOOLTIP[signal.phase](label(signal.version)), buildVersionTooltip(version, number))}
         aria-haspopup="menu"
         aria-expanded={anchor !== null}
         data-testid="app-version"

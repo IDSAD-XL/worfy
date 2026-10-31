@@ -25,8 +25,9 @@ public repository `IDSAD-XL/worfy`, without sign-in. The head is an Available up
 
 Texts name a version by its build number, as the toolbar does: `<major>.<minor>.<N>`, where N counts the commits from the
 start of the history to that commit ([Settings → General → Version](app-shell.md#settings)). The number of the new
-version is the number of the copy that runs plus `ahead_by` of GitHub's comparison. Where it cannot be counted (the copy
-that runs has no number, GitHub gives no `ahead_by`, the previous copy of a roll back), the text names
+version is the number of the copy that runs plus `ahead_by` of GitHub's comparison. The previous copy of a roll back
+keeps the number of the copy that ran when the restart replaced it (`restart.json`). Where a number is not known (the
+copy that runs has none, GitHub gives no `ahead_by`, a previous copy kept before numbers existed), the text names
 `<version of package.json on that commit>+<short SHA>`, the form of the app's build version. Only the head of `main` is a candidate: there are no update channels and no Update to another commit. No
 network, a refusal or a failure of GitHub, or a request over 15 seconds skips the check: one line goes to the log of the
 main process. A scheduled check shows nothing on the screen; one that "Check now" ran shows its reason in Settings.
@@ -36,7 +37,7 @@ Without sign-in GitHub allows 60 requests an hour from one address, and a check 
 
 | Place | What |
 |---|---|
-| Version chip | The app version on the second line of the toolbar's Harness item turns into a button with an accent dot. Its tooltip says "worfy <version> is available", "Building worfy <version>…", "worfy <version> is ready — restart to update" or "The update to <version> failed — see Settings → Health". Its menu: "Update worfy" (once built, "Restart now" or "Restart when idle"; during a build, an inactive "Building worfy <version>…"), "What's new", and "Later", which only closes the menu |
+| Version chip | The app version on the second line of the toolbar's Harness item turns into a button with an accent dot. Its tooltip says "worfy <version> is available", "Building worfy <version>…", "worfy <version> is ready — restart to update" or "The update to <version> failed — see Settings → Health"; when the line shows a number, a second line of the tooltip is the build version of this copy with its commit. Its menu: "Update worfy" (once built, "Restart now" or "Restart when idle"; during a build, an inactive "Building worfy <version>…"), "What's new", and "Later", which only closes the menu |
 | Toasts | See the next table |
 | Settings → General | The block of three rows "Updates", "Update automatically" and "Roll back to previous version" |
 | Settings → Health | The row "worfy version" of the group "worfy": "<version>, up to date", "<version> available", "update failed" with "Show log", or "<tool> not found". Its failures do not open First run by themselves |

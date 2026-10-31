@@ -52,19 +52,22 @@ export function versionLabel(version: string, known: ReadonlyArray<NumberedBuild
 export interface UpdateBuilds {
   current?: NumberedBuild | undefined
   running: NumberedBuild | null
+  previous: NumberedBuild | null
   available: (NumberedBuild & { sha: string }) | null
   build: { version?: string | undefined; sha?: string | undefined }
 }
 
 /**
  * The builds of an Update snapshot with a known number: this run, the copy the last check saw run,
- * the Available update (the running number plus GitHub's `ahead_by`, src/main/update/check.ts) and
- * the build of that same commit in worfy's clone.
+ * the previous copy (its number as restart.json kept it, src/main/update/restart.ts), the Available
+ * update (the running number plus GitHub's `ahead_by`, src/main/update/check.ts) and the build of
+ * that same commit in worfy's clone.
  */
-export function numberedBuilds({ current, running, available, build }: UpdateBuilds): NumberedBuild[] {
+export function numberedBuilds({ current, running, previous, available, build }: UpdateBuilds): NumberedBuild[] {
   const builds: NumberedBuild[] = []
   if (current !== undefined) builds.push(current)
   if (running !== null) builds.push(running)
+  if (previous !== null) builds.push(previous)
   if (available !== null) {
     builds.push(available)
     if (build.version !== undefined && build.sha !== undefined && build.sha === available.sha) builds.push({ version: build.version, number: available.number })
