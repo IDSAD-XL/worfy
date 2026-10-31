@@ -38,7 +38,7 @@ afterAll(() => {
 /**
  * At `program`, a link to a program that waits: `ps` lists it under the link's path. macOS: the
  * one copy of sleep. Linux (CI): the node of the tests' scripts (scriptNode). Not sleep there:
- * Ubuntu 26.04, the ubuntu-latest runner since 2026-10-30, ships uutils coreutils — one binary
+ * Ubuntu 26.04, the ubuntu-latest runner since 2026-10-30 and pinned in ci.yml since 2026-10-31, ships uutils coreutils — one binary
  * that picks its tool by the name it is started under. Started as `worfy` it is no tool, says so,
  * and exits at once: the process was gone before `ps` listed it.
  */
