@@ -13,10 +13,13 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { spawn, spawnSync } = require("node:child_process")
+const { harnessHome } = require("../hooks/eval-env.cjs")
 
 const WINDOWS = process.platform === "win32"
 
-// --- the folders qmd uses (dist/paths.js and dist/collections.js of qmd 2.8.3) ---------------
+// --- the folders qmd uses (dist/paths.js and dist/collections.js of qmd 2.8.3). home() is qmd's idea of
+// the home folder and is for these folders only: the Harness state comes from harnessHome() of
+// hooks/eval-env.cjs. --------------------------------------------------------------------------
 const home = () => process.env.HOME || process.env.USERPROFILE || os.homedir()
 const cacheDir = () => path.join(process.env.XDG_CACHE_HOME || path.join(home(), ".cache"), "qmd")
 const indexYml = () =>
@@ -24,13 +27,12 @@ const indexYml = () =>
     (process.env.QMD_CONFIG_DIR
         ? path.join(process.env.QMD_CONFIG_DIR, "index.yml")
         : path.join(process.env.XDG_CONFIG_HOME || path.join(home(), ".config"), "qmd", "index.yml"))
-const harnessHome = () => process.env.HARNESS_HOME || path.join(home(), ".claude", "worfy-harness")
 const answerFile = () => path.join(harnessHome(), "qmd-models")
 const lockDir = () => path.join(cacheDir(), "refresh.lock")
 const logFile = () => path.join(cacheDir(), "refresh.log")
 const indexedFile = () => path.join(cacheDir(), "last-index")
 
-// --- the models: the worfy app keeps the same URIs, and test/contract/harness-qmd.test.ts checks them ---
+// --- the models: the worfy app keeps the same URIs, and a contract test checks that they agree ---
 const EMBED_MODEL = "hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
 const RU_GENERATE_MODEL = "hf:AGmind/qmd-query-expansion-ru/qmd-query-expansion-ru-q4_k_m.gguf"
 const DEFAULT_GENERATE_MODEL = "hf:tobil/qmd-query-expansion-1.7B-gguf/qmd-query-expansion-1.7B-q4_k_m.gguf"
@@ -48,17 +50,14 @@ const modelsAgreed = () => answerLines()[0] === "downloaded"
 // What an agent does when qmd cannot run.
 const GREP_FALLBACK = "search with grep over the profile's qmd.fallback_grep"
 
-// --- node: better-sqlite3 of qmd is built for N-API 10, and node below 22.14 ends with an access
-// violation (0xC0000005 on Windows) when it loads the module, without a word ---------------------
-const MIN_NODE = [22, 14, 0]
-function nodeTooOld() {
-    const version = process.env.QMD_NODE_VERSION || process.versions.node
-    const parts = version.split(".").map(Number)
-    for (let i = 0; i < MIN_NODE.length; i++) {
-        if ((parts[i] || 0) > MIN_NODE[i]) return null
-        if ((parts[i] || 0) < MIN_NODE[i]) return `node ${version} is older than ${MIN_NODE.join(".")}, and qmd dies on it without a word`
-    }
-    return null
+// --- node: better-sqlite3 of qmd is built for N-API 10, and a node without it ends with an access
+// violation (0xC0000005 on Windows) when it loads the module, without a word. N-API 10 came in 22.14
+// on the 22 line and in 23.6 on the 23 line. The worfy app draws the same line, and a contract test
+// checks that they agree. ---------------------------------------------------------------------
+function nodeTooOld(version = process.env.QMD_NODE_VERSION || process.versions.node) {
+    const [major = 0, minor = 0] = version.split(".").map(Number)
+    if (major >= 24 || (major === 23 && minor >= 6) || (major === 22 && minor >= 14)) return null
+    return `node ${version} is too old for qmd, which needs 22.14 or newer (23.6 or newer on the 23 line) and dies on an older one without a word`
 }
 
 // --- starting a script or qmd ---------------------------------------------------------------
@@ -147,28 +146,50 @@ function findQmd() {
         const found = qmdIn(WINDOWS ? prefix : path.join(prefix, "bin"))
         if (found) return found
     }
-    const nvm = path.join(home(), ".nvm", "versions", "node")
-    let versions = []
-    try {
-        versions = fs.readdirSync(nvm).sort((a, b) => b.localeCompare(a, "en", { numeric: true }))
-    } catch {
-        // No nvm here.
-    }
-    for (const version of versions) {
-        const found = qmdIn(path.join(nvm, version, "bin"))
+    for (const version of nvmVersions()) {
+        const found = qmdIn(nvmBin(version))
         if (found) return found
     }
     return null
 }
+const nvmBin = (version) => path.join(home(), ".nvm", "versions", "node", version, "bin")
+// The node versions of nvm, newest first; [] without nvm.
+function nvmVersions() {
+    try {
+        return fs.readdirSync(path.join(home(), ".nvm", "versions", "node")).sort((a, b) => b.localeCompare(a, "en", { numeric: true }))
+    } catch {
+        return []
+    }
+}
+// The first node on the PATH is too old: when a node of nvm at or above the limit has qmd, the script runs
+// again on it, and this process ends with the same code. A synchronous child: a client that ends an MCP
+// server closes its stdin, and that ends the child. Returns only when there is no such node.
+function rerunOnNvmNode() {
+    if (process.env.QMD_RERUN_ON_NVM) return // the node of this run was that node: its folder name lied
+    for (const version of nvmVersions()) {
+        const node = path.join(nvmBin(version), WINDOWS ? "node.exe" : "node")
+        if (nodeTooOld(version.replace(/^v/, "")) || !isFile(node) || !qmdIn(nvmBin(version))) continue
+        const env = { ...process.env, QMD_RERUN_ON_NVM: "1" }
+        delete env.QMD_NODE_VERSION
+        process.exit(rcOf(spawnSync(node, process.argv.slice(1), { stdio: "inherit", env, windowsHide: true })))
+    }
+}
 // The way `qmd <args>` starts: a Node script with this node, anything else by itself.
 const qmdCommand = (qmd, args) => (namesNode(firstLine(qmd)) ? [process.execPath, [qmd, ...args]] : [qmd, args])
 
+// A variable of `env` by any case of its name: the keys of a copy of process.env keep their Windows
+// spelling (`Path`), and only process.env itself reads them in any case.
+function envValue(env, name) {
+    const key = Object.keys(env).find((k) => k.toUpperCase() === name.toUpperCase())
+    return key === undefined ? undefined : env[key]
+}
 // The folder of Git Bash on Windows, found as the worfy app finds it; never the WSL launcher
 // System32\bash.exe. Null when there is none.
 function gitBashDir(env = process.env) {
     const candidates = []
-    if (env.CLAUDE_CODE_GIT_BASH_PATH) candidates.push(env.CLAUDE_CODE_GIT_BASH_PATH)
-    for (const dir of (env.PATH || "").split(path.delimiter)) {
+    const named = envValue(env, "CLAUDE_CODE_GIT_BASH_PATH")
+    if (named) candidates.push(named)
+    for (const dir of (envValue(env, "PATH") || "").split(path.delimiter)) {
         if (!dir || !fs.existsSync(path.join(dir, "git.exe"))) continue
         let root = dir
         if (/^(cmd|bin)$/i.test(path.basename(root))) root = path.dirname(root)
@@ -176,9 +197,13 @@ function gitBashDir(env = process.env) {
         candidates.push(path.join(root, "bin", "bash.exe"))
         break
     }
-    for (const root of [env.ProgramFiles, env["ProgramFiles(x86)"]]) if (root) candidates.push(path.join(root, "Git", "bin", "bash.exe"))
-    if (env.LOCALAPPDATA) candidates.push(path.join(env.LOCALAPPDATA, "Programs", "Git", "bin", "bash.exe"))
-    const windowsDir = `${(env.SystemRoot || "C:\\Windows").toLowerCase()}\\`
+    for (const name of ["ProgramFiles", "ProgramFiles(x86)"]) {
+        const root = envValue(env, name)
+        if (root) candidates.push(path.join(root, "Git", "bin", "bash.exe"))
+    }
+    const local = envValue(env, "LOCALAPPDATA")
+    if (local) candidates.push(path.join(local, "Programs", "Git", "bin", "bash.exe"))
+    const windowsDir = `${(envValue(env, "SystemRoot") || "C:\\Windows").toLowerCase()}\\`
     for (const bash of candidates) {
         if (bash.toLowerCase().startsWith(windowsDir)) continue
         if (fs.existsSync(bash)) return path.dirname(bash)
@@ -211,9 +236,10 @@ function unquote(v) {
     return v
 }
 // The qmd-sync-main a collection's `update:` runs and for which profile: [script, profile] or null.
-// Both forms: `node "<folder>/qmd-sync-main" <profile>` and the older `<folder>/qmd-sync-main <profile>`.
+// Both forms, anywhere in the line: `node "<folder>/qmd-sync-main" <profile>` and the older
+// `<folder>/qmd-sync-main <profile>`, so a line that starts with a node's full path or a variable counts too.
 function syncOf(update) {
-    const m = /^(?:node\s+"([^"]*qmd-sync-main)"|(\S*qmd-sync-main))\s+(\S+)/.exec(update || "")
+    const m = /(?:node\s+"([^"]*qmd-sync-main)"|(\S*qmd-sync-main))\s+(\S+)/.exec(update || "")
     return m ? [m[1] || m[2], m[3]] : null
 }
 
@@ -267,12 +293,18 @@ const timestamp = () => {
 const rcOf = (run) => (run.error ? 127 : run.signal ? 128 + os.constants.signals[run.signal] : run.status)
 
 // The update under a lock this process holds: `qmd update`, then `qmd embed` at a lower priority when
-// the user agreed to the models. The lock goes on the way out and on a signal. `stamp` writes the time
-// of the update first: a note written during indexing is then newer, and the next pass takes it.
+// the user agreed to the models. `stamp` writes the time of the update first: a note written during
+// indexing is then newer, and the next pass takes it.
+//
+// What stops when: spawnSync blocks the event loop, so the listener below runs only after the synchronous
+// code is done. A signal to the process group (worfy on quit, a terminal) also ends the running qmd
+// command: `qmd embed` then does not start, and `finally` lets go of the lock. A signal to this process
+// alone stops nothing: `update` and `embed` run to their end. Either way the listener comes after `finally`,
+// when another holder may have the lock already, so it removes the lock only while this update holds it.
 function runUpdate(qmd, label, stamp) {
-    const release = () => dropLock()
+    let holding = true
     const onSignal = (signal) => {
-        release()
+        if (holding) dropLock()
         process.exit(128 + os.constants.signals[signal])
     }
     for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, onSignal)
@@ -282,8 +314,10 @@ function runUpdate(qmd, label, stamp) {
         const say = (line) => fs.writeSync(log, `${line}\n`)
         const options = { cwd: home(), stdio: ["ignore", log, log], env: qmdEnv({ QMD_EMBED_MODEL: EMBED_MODEL }), windowsHide: true }
         say(`== ${timestamp()} refresh${label}`)
-        say(`update rc=${rcOf(spawnSync(...qmdCommand(qmd, ["update"]), options))}`)
-        if (modelsAgreed()) {
+        const update = spawnSync(...qmdCommand(qmd, ["update"]), options)
+        say(`update rc=${rcOf(update)}`)
+        if (update.signal) say(`embed skipped: qmd update ended by ${update.signal}`)
+        else if (modelsAgreed()) {
             try {
                 os.setPriority(10)
             } catch {
@@ -293,13 +327,22 @@ function runUpdate(qmd, label, stamp) {
         } else say(`embed skipped: no consent to the models in ${answerFile()}`)
         fs.closeSync(log)
     } finally {
-        release()
+        dropLock()
+        holding = false
     }
 }
 // The same update in the background, without inheriting stdio (a hook or an MCP handshake would wait for
-// embed to finish). The parent writes the pid: a dead pid in the lock reads as an abandoned lock.
+// embed to finish). The parent writes the pid: a dead pid in the lock reads as an abandoned lock. It runs in
+// the home folder: on Windows a process's current folder cannot be removed, and the folder of a Stop hook is a
+// session's worktree. HARNESS_HOME is fixed here: a relative EVAL_HARNESS_HOME resolves from the current folder.
 function startUpdate(label, stamp, env = process.env) {
-    const child = spawn(process.execPath, [__filename, "--update-job", label, stamp ? "stamp" : "no-stamp"], { detached: true, stdio: "ignore", env, windowsHide: true })
+    const child = spawn(process.execPath, [__filename, "--update-job", label, stamp ? "stamp" : "no-stamp"], {
+        cwd: home(),
+        detached: true,
+        stdio: "ignore",
+        env: { ...env, HARNESS_HOME: harnessHome() },
+        windowsHide: true,
+    })
     writeLockPid(child.pid)
     child.on("error", () => dropLock())
     child.unref()
@@ -317,6 +360,7 @@ module.exports = {
     cacheDir,
     dropLock,
     findQmd,
+    gitBashDir,
     harnessHome,
     home,
     indexYml,
@@ -327,6 +371,7 @@ module.exports = {
     nodeTooOld,
     qmdCommand,
     qmdEnv,
+    rerunOnNvmNode,
     runScript,
     runUpdate,
     scriptCommand,

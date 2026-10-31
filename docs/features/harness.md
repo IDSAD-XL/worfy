@@ -255,7 +255,7 @@ Session and Subagent (see [Hooks](skills-agents-and-hooks.md#hooks)).
 | `qmd-sync-main` | Pulls the copy of a Project's main branch that the index reads |
 | `qmd-collections` | Adds the three collections of a Project to the index and names them in its Profile |
 
-**qmd.** The MCP server starts only after the user agreed to the models, with qmd installed and node 22.14 or newer. Otherwise
+**qmd.** The MCP server starts only after the user agreed to the models, with qmd installed and node 22.14 or newer (23.6 or newer on the 23 line). Otherwise
 it stops with one line that says why, and agents search with grep over the Profile's `qmd.fallback_grep`. One index serves all Projects, and it may lag behind: agents
 check what it finds against the working tree. Installing qmd and its models is an action of [First run](onboarding.md).
 For its own Sessions worfy registers the server itself, under the name the tools have in a terminal session

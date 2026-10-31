@@ -7,6 +7,7 @@
 // part runs the qmd scripts of the Harness themselves, as `node <script>`, on a Node stand-in of qmd.
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { delimiter, join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -21,6 +22,7 @@ import {
   qmdState,
   readModelsAnswer,
   setupCollections,
+  qmdRunsOnNode,
 } from '../../src/main/harness/qmd'
 import type { SpawnProcess } from '../../src/main/workflow/profile'
 import { NODE, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
@@ -165,10 +167,12 @@ describe('installQmd', () => {
   })
 
   it.for<[string, string | null, string]>([
-    ['node 20', 'v20.11.1', 'qmd needs node 22.14 or newer, and node is 20.11.1'],
+    ['node 20', 'v20.11.1', 'qmd needs node 22.14 or newer (23.6 or newer on the 23 line), and node is 20.11.1'],
     // better-sqlite3 of qmd 2.8.3 kills every node below 22.14 without a word.
-    ['node 22.13', 'v22.13.1', 'qmd needs node 22.14 or newer, and node is 22.13.1'],
-    ['no node', null, 'qmd needs node 22.14 or newer, and there is no node'],
+    ['node 22.13', 'v22.13.1', 'qmd needs node 22.14 or newer (23.6 or newer on the 23 line), and node is 22.13.1'],
+    // N-API 10 reached the 23 line only in 23.6.
+    ['node 23.5', 'v23.5.0', 'qmd needs node 22.14 or newer (23.6 or newer on the 23 line), and node is 23.5.0'],
+    ['no node', null, 'qmd needs node 22.14 or newer (23.6 or newer on the 23 line), and there is no node'],
   ])('%s: npm is not run, the error names the command that installs node', async ([, version, message]) => {
     if (version !== null) nodeStub(version)
     npmStub()
@@ -273,8 +277,19 @@ describe('the models', () => {
     expect(readModelsAnswer(harnessHome)).toBeNull()
   })
 
+  it('the app and the Harness scripts draw the same line for the node qmd runs on', () => {
+    const { nodeTooOld } = createRequire(import.meta.url)(join(REPO, 'harness', 'lib', 'qmd-common.cjs')) as { nodeTooOld: (version: string) => string | null }
+    const runs = (version: string): boolean => nodeTooOld(version) === null
+    for (const version of ['20.11.1', '21.7.3', '22.13.1', '23.0.0', '23.5.9']) {
+      expect([version, qmdRunsOnNode(version), runs(version)]).toEqual([version, false, false])
+    }
+    for (const version of ['22.14.0', '22.20.1', '23.6.0', '23.11.0', '24.0.0', '25.1.0']) {
+      expect([version, qmdRunsOnNode(version), runs(version)]).toEqual([version, true, true])
+    }
+  })
+
   it('the model URIs and the answer file are the ones the Harness scripts use', () => {
-    const shared = readFileSync(join(REPO, 'harness', 'hooks', 'qmd-common.cjs'), 'utf8')
+    const shared = readFileSync(join(REPO, 'harness', 'lib', 'qmd-common.cjs'), 'utf8')
     expect(shared).toContain(`EMBED_MODEL = "${QMD_MODELS.embed.uri}"`)
     expect(shared).toContain(`RU_GENERATE_MODEL = "${RU}"`)
     expect(shared).toContain(`DEFAULT_GENERATE_MODEL = "${DEFAULT}"`)
@@ -355,7 +370,7 @@ describe('the qmd scripts of the Harness, as Claude Code starts them', () => {
     const run = qmdMcp({ QMD_NODE_VERSION: '22.13.1' })
     expect(run.status).toBe(3)
     expect(run.stderr.trimEnd().split('\n')).toHaveLength(1)
-    expect(run.stderr).toMatch(/22\.13\.1 is older than 22\.14\.0.*qmd\.fallback_grep/)
+    expect(run.stderr).toMatch(/22\.13\.1 is too old for qmd.*qmd\.fallback_grep/)
     expect(callLines()).toEqual([])
   })
 

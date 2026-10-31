@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stand-ins of node, npm, qmd and the Harness's qmd-collections for test/contract/harness-qmd.test.ts.
+# Stand-ins of node, npm and qmd for test/contract/harness-qmd.test.ts.
 # The test links them into a temporary folder, the only one on the PATH it hands the module, so they
 # use shell built-ins only. What differs between tests comes from that environment (*_STUB_*).
 # The files are the same in every test: macOS checks every new executable file on its first run, one

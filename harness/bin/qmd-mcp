@@ -13,15 +13,15 @@
 // or `skipped`, then the model URIs that were pulled.
 //
 // When qmd cannot run, one line in stderr names the reason and the grep fallback over the profile's
-// qmd.fallback_grep, and `qmd mcp` is not started: exit 3 — no answer `downloaded`, or node below
-// 22.14, where qmd dies without a word; exit 127 — no qmd.
+// qmd.fallback_grep, and `qmd mcp` is not started: exit 3 — no answer `downloaded`, or a node qmd dies on
+// without a word (below 22.14, and 23.0 to 23.5) with no newer node of nvm that has qmd; exit 127 — no qmd.
 "use strict"
 
 const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { spawn } = require("node:child_process")
-const q = require("../hooks/qmd-common.cjs")
+const q = require("../lib/qmd-common.cjs")
 
 const fail = (code, reason) => {
     process.stderr.write(`qmd-mcp: ${reason}, the server does not start; ${q.GREP_FALLBACK}\n`)
@@ -31,7 +31,10 @@ const fail = (code, reason) => {
 const answer = q.answerLines()
 if (answer[0] !== "downloaded") fail(3, `the qmd models were not downloaded with the user's consent (${q.answerFile()}: ${answer[0] || "no answer"})`)
 const tooOld = q.nodeTooOld()
-if (tooOld) fail(3, tooOld)
+if (tooOld) {
+    q.rerunOnNvmNode()
+    fail(3, tooOld)
+}
 const qmd = q.findQmd()
 if (!qmd) fail(127, "qmd not found in PATH or in the global folder of npm")
 

@@ -30,11 +30,27 @@
 // is doing exactly the same work.
 "use strict"
 
+// With --quiet (the Stop hook, every turn) a non-zero exit would show as an error on each turn: whatever
+// goes wrong ends with exit 0, and the reason goes to the log when the log can be written.
+let logFailure = () => {}
+if (process.argv.includes("--quiet")) {
+    process.on("uncaughtException", (error) => {
+        try {
+            logFailure(error)
+        } catch {
+            // The log cannot be written either: nothing more to do in a hook.
+        }
+        process.exit(0)
+    })
+}
+
 const fs = require("node:fs")
 const path = require("node:path")
 const { spawnSync } = require("node:child_process")
 const { git: GIT } = require("../hooks/eval-env.cjs")
-const q = require("../hooks/qmd-common.cjs")
+const q = require("../lib/qmd-common.cjs")
+
+logFailure = (error) => fs.appendFileSync(q.logFile(), `${q.timestamp()} qmd-refresh: ${error && error.message}\n`)
 
 const INDEX_YML = q.indexYml()
 // qmd-sync-main is the script next to this one, in the folder of this file's real path.
@@ -80,17 +96,22 @@ function die(code, text, stream = "stdout") {
     process.exit(QUIET ? 0 : code)
 }
 
-const tooOld = q.nodeTooOld()
-if (tooOld) die(3, `${tooOld}, the index is not updated; ${q.GREP_FALLBACK}`, "stderr")
-const QMD = q.findQmd()
-if (!QMD) die(127, `qmd not found, the index is not updated; ${q.GREP_FALLBACK}`, "stderr")
-
 let indexText
 try {
     indexText = fs.readFileSync(INDEX_YML, "utf8")
 } catch {
-    die(1, `no ${INDEX_YML}`)
+    // Nothing to do. The Stop hook on a machine without qmd ends here on every turn: before findQmd, which
+    // runs `npm prefix -g`. By hand, the reason qmd cannot run comes first.
+    if (QUIET) process.exit(0)
 }
+const tooOld = q.nodeTooOld()
+if (tooOld) {
+    q.rerunOnNvmNode()
+    die(3, `${tooOld}, the index is not updated; ${q.GREP_FALLBACK}`, "stderr")
+}
+const QMD = q.findQmd()
+if (!QMD) die(127, `qmd not found, the index is not updated; ${q.GREP_FALLBACK}`, "stderr")
+if (indexText === undefined) die(1, `no ${INDEX_YML}`)
 
 // Parsing index.yml: collections are keys indented by 2 under `collections:`, their fields are indented by 4.
 const MIRRORS = [] // profile of each git copy

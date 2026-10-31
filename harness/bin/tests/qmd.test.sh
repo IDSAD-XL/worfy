@@ -6,7 +6,7 @@
 #   - qmd-refresh: one broken profile / one missing copy do not stop the run —
 #     qmd update is still called; with --quiet (Stop hook) exit 0, without --quiet — 1;
 #     qmd embed only after the consent to the models;
-#   - qmd-mcp: without the answer "downloaded", without qmd or on node below 22.14 no server and one
+#   - qmd-mcp: without the answer "downloaded", without qmd or on a node qmd dies on no server and one
 #     stderr line that names the grep fallback; the Russian query expansion model only for a project
 #     with language.docs ru; the plugin's .mcp.json, the agents' qmd tools and the Stop hook.
 # Run: bash harness/bin/tests/qmd.test.sh; exit code 0 — everything passed.
@@ -21,6 +21,10 @@ onpath() { cygpath -u "$1" 2>/dev/null || printf '%s' "$1"; }
 printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
 trap 'rm -rf "$T"' EXIT
+# The Harness home comes from os.homedir(), which on Windows is USERPROFILE and not the HOME of a case: no case
+# reads the real one. A case that is about the Harness home sets its own.
+export HARNESS_HOME="$T/hh-default"
+unset EVAL_HARNESS_HOME QMD_RERUN_ON_NVM
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
@@ -99,6 +103,9 @@ collections:
   good:
     path: $T/outer
     update: "node \"/x/qmd-sync-main\" good"
+  prefixed:
+    path: $T/z
+    update: /opt/bin/node "/x/qmd-sync-main" prefixed
   memory:
     path: $T/mem
 EOF
@@ -115,6 +122,8 @@ rm -f "$T/qmd.calls" "$H/.cache/qmd/last-index"
 out="$(run_refresh)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$out" == *"profile bad not resolved"* ]] && [[ "$out" == *"no-such-copy"* ]] \
     && ok "refresh (manual): warns about both, exit 1 (partial failure)" || bad "refresh manual: rc=$rc out=${out:0:300}"
+[[ "$out" == *"profile prefixed not resolved"* ]] \
+    && ok "refresh: an update line that starts with a node's full path is read as a git copy" || bad "refresh, update line with a full node path: out=${out:0:300}"
 grep -qx update "$T/qmd.calls" 2>/dev/null && ok "refresh (manual): qmd update still ran" || bad "refresh manual: qmd update not called"
 
 # A profile warning on the stderr of --describe (bin/profile warns and still answers): the copy is
@@ -174,6 +183,11 @@ HOME="$H" TMPDIR="$T/tmp-sync" CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROF
     node "$BIN/qmd-sync-main" x 2>/dev/null
 grep -qF -- "[x] $REASON" "$T/mark-x" 2>/dev/null \
     && ok "sync + failing profile: the profile's reason in the marker" || bad "sync + failing profile: marker '$(head -c 300 "$T/mark-x" 2>/dev/null)'"
+# The marker lies in qmd's cache folder, where qmd-refresh looks for it, also when XDG_CACHE_HOME moves that folder.
+XDG_CACHE_HOME="$T/xdg" HOME="$T/home-xdg" TMPDIR="$T/tmp-sync" CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile-reason" \
+    node "$BIN/qmd-sync-main" x 2>/dev/null
+[ -s "$T/xdg/qmd/sync-failed-x" ] && [ ! -e "$T/home-xdg/.cache/qmd/sync-failed-x" ] \
+    && ok "sync: the marker follows XDG_CACHE_HOME" || bad "sync: the marker is not in the XDG cache folder"
 out="$(HOME="$H" TMPDIR="$T/tmp-sync" CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile-reason" \
     node "$BIN/qmd-sync-main" --describe x 2>&1 >/dev/null)"; rc=$?
 [ "$rc" -eq 1 ] && [ "$out" = "qmd-sync-main: $REASON" ] \
@@ -213,7 +227,124 @@ n=0; while [ "$n" -lt 300 ] && [ ! -e "$T/sync-slow.ended" ]; do sleep 0.1; n=$(
 [ "$described" = yes ] && [ -z "$(ls -A "$T/tmp-term")" ] && [ ! -e "$H/.cache/qmd/refresh.lock" ] \
     && ok "refresh: SIGTERM during --describe leaves no temporary file and no lock" \
     || bad "refresh: SIGTERM during --describe: the stand-in was running at the signal: $described; left: $(ls -A "$T/tmp-term" | head -n 3 | tr '\n' ' ')"
+# SIGTERM while qmd update runs: the signal to this process alone waits for the update to end, and the lock is gone.
+mkdir -p "$T/sigbin"
+node_stub "$T/sigbin/qmd" 'fs.appendFileSync(T + "/sig.calls", A[0] + "\n")
+const sleeper = new Int32Array(new SharedArrayBuffer(4))
+for (let n = 0; n < 300 && A[0] === "update" && !fs.existsSync(T + "/sig.go"); n++) Atomics.wait(sleeper, 0, 0, 100)'
+HOME="$H" PATH="$(onpath "$T/sigbin"):$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-warn" \
+    node "$BIN/qmd-refresh" --wait --force --quiet >/dev/null 2>&1 &
+sig_pid=$!
+n=0; while [ ! -s "$T/sig.calls" ] && [ "$n" -lt 300 ]; do sleep 0.1; n=$((n + 1)); done
+held=no; [ -d "$H/.cache/qmd/refresh.lock" ] && held=yes
+kill -TERM "$sig_pid" 2>/dev/null
+: >"$T/sig.go"
+wait "$sig_pid" 2>/dev/null
+[ "$held" = yes ] && [ ! -e "$H/.cache/qmd/refresh.lock" ] \
+    && ok "refresh: SIGTERM during qmd update -> the lock is gone once the update ends" || bad "refresh: SIGTERM during qmd update: held=$held, lock left=$([ -e "$H/.cache/qmd/refresh.lock" ] && echo yes || echo no)"
 fi
+# The listener of a signal comes after the update has let go of the lock, and another holder may have it by then:
+# the listener leaves that lock alone. process.emit runs the listener on every system.
+LIB="$BIN/../lib/qmd-common.cjs"
+cat >"$T/emit-signal.cjs" <<'EOF'
+const q = require(process.argv[2])
+q.takeLock()
+q.runUpdate(process.argv[3], "", false)
+q.takeLock() // another holder
+process.emit("SIGTERM", "SIGTERM")
+EOF
+HOME="$H" node "$T/emit-signal.cjs" "$LIB" "$T/fakebin/qmd" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 143 ] && [ -d "$H/.cache/qmd/refresh.lock" ] \
+    && ok "a signal listener after the update: exit 143, another holder's lock stays" || bad "signal listener: rc=$rc, lock left=$([ -e "$H/.cache/qmd/refresh.lock" ] && echo yes || echo no)"
+rm -rf "$H/.cache/qmd/refresh.lock"
+
+# --- 6a. qmd-refresh --quiet always exits 0 --------------------------------------------------
+# A file where qmd's cache folder should be: nothing can be written, not even the log.
+QB="$T/home-broken"; mkdir -p "$QB/.cache"; : >"$QB/.cache/qmd"
+out="$(HOME="$QB" PATH="$FAKEBIN:$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-warn" node "$BIN/qmd-refresh" --force --quiet 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "refresh --quiet: the cache folder is a file -> exit 0, no output" || bad "refresh --quiet, broken cache folder: rc=$rc out=${out:0:300}"
+# A failure with a working log: the reason goes there.
+QL="$T/home-logged"; mkdir -p "$QL/.cache/qmd/last-check"
+touch -t 201001010000 "$QL/.cache/qmd/last-check"; : >"$QL/.cache/qmd/last-index"
+out="$(HOME="$QL" PATH="$FAKEBIN:$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-warn" node "$BIN/qmd-refresh" --quiet 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && grep -q 'qmd-refresh: .*last-check' "$QL/.cache/qmd/refresh.log" 2>/dev/null \
+    && ok "refresh --quiet: an error -> exit 0, the reason in the log" || bad "refresh --quiet, error: rc=$rc out=${out:0:200} log=[$(cat "$QL/.cache/qmd/refresh.log" 2>/dev/null)]"
+
+# --- 6c. the path of the Stop hook: no --force, last-index present -----------------------------
+SH="$T/home-stop"; SC="$SH/.cache/qmd"; mkdir -p "$SC" "$T/stopbin" "$T/stop-mem/deep"
+node_stub "$T/stopbin/qmd" 'fs.appendFileSync(T + "/stop.calls", A[0] + "\n")'
+gq clone -q "$T/origin.git" "$T/stop-copy" 2>/dev/null
+node_stub "$T/sync-stop" 'if (A[0] === "--describe") process.stdout.write(T + "/stop-copy\tmain\t\n")'
+cat >"$T/index-stop.yml" <<EOF
+collections:
+  copy:
+    path: $T/stop-copy
+    update: node "/x/qmd-sync-main" stop
+  memory:
+    path: $T/stop-mem
+EOF
+# Dates far apart, so that no case depends on the clock: a note before the last update, the update, a note after it.
+BEFORE=200501010000 UPDATED=201001010000 AFTER=201501010000
+touch -t "$BEFORE" "$T/stop-mem/old.md"
+main_moves() { gq -C "$T/seed" commit -q --allow-empty -m moved && gq -C "$T/seed" push -q origin HEAD:main 2>/dev/null; }
+copy_at_main() { gq -C "$T/stop-copy" fetch -q origin main 2>/dev/null; gq -C "$T/stop-copy" checkout -q --detach origin/main 2>/dev/null; }
+stop_state() { # $1: recent — the last network check just now; old — long ago; none
+    rm -f "$T/stop.calls" "$SC/last-check"
+    touch -t "$UPDATED" "$SC/last-index"
+    case "$1" in recent) : >"$SC/last-check" ;; old) touch -t "$UPDATED" "$SC/last-check" ;; esac
+}
+stop_hook() { # the arguments of qmd-refresh; --wait, because a test reads what ran
+    HOME="$SH" PATH="$(onpath "$T/stopbin"):$PATH" QMD_INDEX_YML="${STOP_INDEX:-$T/index-stop.yml}" QMD_REFRESH_SYNC="${STOP_SYNC:-$T/sync-stop}" \
+        node "$BIN/qmd-refresh" --wait "$@" 2>&1
+}
+ran_update() { grep -qx update "$T/stop.calls" 2>/dev/null; }
+copy_at_main
+# No last-index: the first update, whatever the rate limit says.
+# Without a local collection: a note with any date would also read as newer than no last-index at all.
+cat >"$T/index-stop-copy.yml" <<EOF
+collections:
+  copy:
+    path: $T/stop-copy
+    update: node "/x/qmd-sync-main" stop
+EOF
+stop_state recent; rm -f "$SC/last-index"; STOP_INDEX="$T/index-stop-copy.yml" stop_hook --quiet >/dev/null
+ran_update && ok "stop hook: no last-index -> update, under the rate limit too" || bad "stop hook, no last-index: no update"
+stop_state none; out="$(stop_hook)"
+! ran_update && [ -e "$SC/last-check" ] && [[ "$out" == *"the index is already at"* ]] \
+    && ok "stop hook: main has not moved, no newer note -> no update, the check is recorded" || bad "stop hook, main not moved: out=${out:0:200} calls=[$(cat "$T/stop.calls" 2>/dev/null)]"
+stop_state old; stop_hook --quiet >/dev/null
+! ran_update && ok "stop hook: an old check, main has not moved -> no update" || bad "stop hook, old check, main not moved: update ran"
+main_moves
+stop_state recent; out="$(stop_hook)"
+! ran_update && [[ "$out" == *"s ago, skipping"* ]] \
+    && ok "stop hook: main moved, but checked just now -> the rate limit skips the network and the update" || bad "stop hook, rate limit: out=${out:0:200} calls=[$(cat "$T/stop.calls" 2>/dev/null)]"
+stop_state old; stop_hook --quiet >/dev/null
+ran_update && ok "stop hook: main moved, an old check -> update" || bad "stop hook, main moved: no update"
+stop_state none; stop_hook --quiet >/dev/null
+ran_update && ok "stop hook: main moved, no check yet -> update" || bad "stop hook, main moved, no check yet: no update"
+copy_at_main
+touch -t "$AFTER" "$T/stop-mem/deep/new.md"
+stop_state recent; stop_hook --quiet >/dev/null
+ran_update && ok "stop hook: a note newer than last-index, in a subfolder -> update, under the rate limit too" || bad "stop hook, newer note: no update"
+rm -f "$T/stop-mem/deep/new.md"
+touch -t "$AFTER" "$T/stop-mem/new.txt"
+stop_state recent; stop_hook --quiet >/dev/null
+! ran_update && ok "stop hook: a newer file that is not .md -> no update" || bad "stop hook, newer .txt: update ran"
+rm -f "$T/stop-mem/new.txt"
+# The marker of a failed pull: shown by hand, under the rate limit too, and not by the hook.
+printf 'pull failed for a reason\n' >"$SC/sync-failed-stop"; printf 'not a marker\n' >"$SC/other-file"
+stop_state recent; out="$(stop_hook)"
+[[ "$out" == *"WARNING"*"pull failed for a reason"* ]] && [[ "$out" != *"not a marker"* ]] \
+    && ok "refresh by hand: the marker of a failed pull is shown as a warning" || bad "refresh, sync-failed: out=${out:0:300}"
+stop_state recent; out="$(stop_hook --quiet)"
+[ -z "$out" ] && ok "stop hook: the marker of a failed pull prints nothing" || bad "stop hook, sync-failed: out=${out:0:300}"
+rm -f "$SC/sync-failed-stop" "$SC/other-file"
+# A warning goes to the log only past the rate limit: otherwise the log grows by a line on every turn.
+rm -f "$SC/refresh.log"
+stop_state recent; STOP_SYNC="$T/sync-fail" STOP_INDEX="$T/index-warn.yml" stop_hook --quiet >/dev/null
+[ ! -e "$SC/refresh.log" ] && ok "stop hook: under the rate limit a warning is not logged" || bad "stop hook: logged under the rate limit: [$(cat "$SC/refresh.log")]"
+stop_state old; STOP_SYNC="$T/sync-fail" STOP_INDEX="$T/index-warn.yml" stop_hook --quiet >/dev/null
+grep -q 'profile warns not resolved' "$SC/refresh.log" 2>/dev/null && ok "stop hook: past the rate limit the warning is logged" || bad "stop hook: no warning in the log past the rate limit"
 
 # --- 6b. qmd-refresh: qmd embed only with the consent to the models -----------------------
 HH="$T/hh"; mkdir -p "$HH"
@@ -249,25 +380,56 @@ alive=no; node -e 'try { process.kill(Number(process.argv[1]), 0); process.exit(
 n=0; while [ -e "$LK" ] && [ "$n" -lt 300 ]; do sleep 0.1; n=$((n + 1)); done
 [ ! -e "$LK" ] && grep -q '^update rc=0' "$H/.cache/qmd/refresh.log" && ok "refresh in the background: the update ends and lets the lock go" \
     || bad "refresh in the background: lock left=$([ -e "$LK" ] && echo yes || echo no) log=[$(tail -n 3 "$H/.cache/qmd/refresh.log" 2>/dev/null)]"
+# A Stop hook starts in a session's worktree, and on Windows a process's current folder cannot be moved or removed.
+if [ "$WIN" = 1 ]; then
+    mkdir -p "$T/hook-cwd"; rm -f "$T/slow.go" "$T/slow.calls"
+    (cd "$T/hook-cwd" && HOME="$H" PATH="$(onpath "$T/slowbin"):$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-warn" \
+        node "$BIN/qmd-refresh" --force --quiet >/dev/null 2>&1)
+    n=0; while [ ! -e "$T/slow.calls" ] && [ "$n" -lt 300 ]; do sleep 0.1; n=$((n + 1)); done
+    moved=no; mv "$T/hook-cwd" "$T/hook-cwd-moved" 2>/dev/null && moved=yes
+    : >"$T/slow.go"
+    n=0; while [ -e "$LK" ] && [ "$n" -lt 300 ]; do sleep 0.1; n=$((n + 1)); done
+    [ "$moved" = yes ] && ok "refresh in the background: the update does not hold the folder the hook started in" || bad "refresh in the background: the folder of the hook is held (EBUSY)"
+fi
 
 # qmd-refresh that cannot run qmd: without --quiet one stderr line with the grep fallback, with --quiet nothing and 0.
 EMPTY_PREFIX="$T/empty-prefix"; mkdir -p "$EMPTY_PREFIX/bin"
-NODE_DIR="$(dirname "$(node -p process.execPath)")"; NODE_ONLY="$(onpath "$NODE_DIR")"
+# link_node <folder>: this node under its name in the folder, as a link where the system allows it. A folder with only
+# that on the PATH has no qmd, also on a Mac where qmd lies next to the node of nvm.
+link_node() {
+    local real; real="$(onpath "$(node -p process.execPath)")"
+    mkdir -p "$1"
+    if [ "$WIN" = 1 ]; then ln "$real" "$1/node.exe" 2>/dev/null || cp "$real" "$1/node.exe"; else ln -s "$real" "$1/node"; fi
+}
+link_node "$T/node-only"; NODE_ONLY="$(onpath "$T/node-only")"
 no_qmd_env() { env HOME="$H" PATH="$NODE_ONLY" QMD_NPM_PREFIX="$EMPTY_PREFIX" QMD_INDEX_YML="$T/index-warn.yml" "$@"; }
-# A qmd next to this node (a Mac with qmd in nvm) makes these cases about another machine.
-BESIDE_NODE=no; { [ -e "$NODE_DIR/qmd" ] || [ -e "$NODE_DIR/qmd.cmd" ]; } && BESIDE_NODE=yes
-if [ "$BESIDE_NODE" = yes ]; then
-    echo "skip the cases without qmd: a qmd lies next to this node"
-else
-    no_qmd_env node "$BIN/qmd-refresh" >"$T/nq.out" 2>"$T/nq.err"; rc=$?
-    [ "$rc" -eq 127 ] && [ ! -s "$T/nq.out" ] && [ "$(wc -l <"$T/nq.err" | tr -d ' ')" = 1 ] && grep -q 'qmd.fallback_grep' "$T/nq.err" \
-        && ok "refresh without qmd: exit 127, one stderr line with the grep fallback" || bad "refresh without qmd: rc=$rc err=[$(cat "$T/nq.err")]"
-    no_qmd_env node "$BIN/qmd-refresh" --quiet >"$T/nq.out" 2>&1; rc=$?
-    [ "$rc" -eq 0 ] && [ ! -s "$T/nq.out" ] && ok "refresh --quiet without qmd: exit 0, no output" || bad "refresh --quiet without qmd: rc=$rc out=[$(cat "$T/nq.out")]"
-fi
+no_qmd_env node "$BIN/qmd-refresh" >"$T/nq.out" 2>"$T/nq.err"; rc=$?
+[ "$rc" -eq 127 ] && [ ! -s "$T/nq.out" ] && [ "$(wc -l <"$T/nq.err" | tr -d ' ')" = 1 ] && grep -q 'qmd.fallback_grep' "$T/nq.err" \
+    && ok "refresh without qmd: exit 127, one stderr line with the grep fallback" || bad "refresh without qmd: rc=$rc err=[$(cat "$T/nq.err")]"
+no_qmd_env node "$BIN/qmd-refresh" --quiet >"$T/nq.out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ ! -s "$T/nq.out" ] && ok "refresh --quiet without qmd: exit 0, no output" || bad "refresh --quiet without qmd: rc=$rc out=[$(cat "$T/nq.out")]"
+# The Stop hook on a machine without qmd has no index.yml either: it ends before `npm prefix -g`, on every turn.
+mkdir -p "$T/npmbin"
+printf '#!/bin/sh\necho called >>"$NPM_CALLS"\n' >"$T/npmbin/npm"; chmod +x "$T/npmbin/npm"
+printf '@echo called>>"%%NPM_CALLS%%"\r\n' >"$T/npmbin/npm.cmd"
+# On Windows node starts npm through cmd.exe: named here, because this PATH does not have it and the empty-HOME
+# run of this file has no COMSPEC.
+WIN_SHELL=""; [ "$WIN" = 1 ] && WIN_SHELL="$(cygpath -w -S)\\cmd.exe"
+npm_env() { env HOME="$H" PATH="$(onpath "$T/npmbin"):$NODE_ONLY" NPM_CALLS="$T/npm.calls" COMSPEC="$WIN_SHELL" "$@"; }
+rm -f "$T/npm.calls"
+npm_env QMD_INDEX_YML="$T/no-such.yml" node "$BIN/qmd-refresh" --quiet >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ ! -e "$T/npm.calls" ] && ok "refresh --quiet, no index.yml: exit 0, npm is not run" || bad "refresh --quiet, no index.yml: rc=$rc npm calls=[$(cat "$T/npm.calls" 2>/dev/null)]"
+npm_env QMD_INDEX_YML="$T/index-warn.yml" node "$BIN/qmd-refresh" --quiet >/dev/null 2>&1
+[ -e "$T/npm.calls" ] && ok "refresh --quiet, index.yml and no qmd on the PATH: npm is asked for its folder" || bad "refresh --quiet: the npm stand-in was not reached"
+npm_env QMD_INDEX_YML="$T/no-such.yml" node "$BIN/qmd-refresh" >/dev/null 2>"$T/nq.err"; rc=$?
+[ "$rc" -eq 127 ] && grep -q 'qmd.fallback_grep' "$T/nq.err" && ok "refresh by hand, no index.yml and no qmd: the reason qmd cannot run comes first" || bad "refresh by hand, no index.yml: rc=$rc err=[$(cat "$T/nq.err")]"
 HOME="$H" PATH="$FAKEBIN:$PATH" QMD_NODE_VERSION=22.13.1 QMD_INDEX_YML="$T/index-warn.yml" node "$BIN/qmd-refresh" >"$T/old.out" 2>"$T/old.err"; rc=$?
-[ "$rc" -eq 3 ] && [ "$(wc -l <"$T/old.err" | tr -d ' ')" = 1 ] && grep -q '22.13.1 is older than 22.14' "$T/old.err" && grep -q 'qmd.fallback_grep' "$T/old.err" \
+[ "$rc" -eq 3 ] && [ "$(wc -l <"$T/old.err" | tr -d ' ')" = 1 ] && grep -q '22.13.1 is too old for qmd' "$T/old.err" && grep -q 'qmd.fallback_grep' "$T/old.err" \
     && ok "refresh on node 22.13.1: exit 3, one stderr line with the version and the grep fallback" || bad "refresh on an old node: rc=$rc err=[$(cat "$T/old.err")]"
+out="$(HOME="$H" PATH="$FAKEBIN:$PATH" QMD_NODE_VERSION=22.13.1 QMD_INDEX_YML="$T/index-warn.yml" node "$BIN/qmd-refresh" --quiet 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "refresh --quiet on node 22.13.1: exit 0, no output" || bad "refresh --quiet on an old node: rc=$rc out=${out:0:200}"
+HOME="$H" PATH="$FAKEBIN:$PATH" QMD_NODE_VERSION=23.5.0 QMD_INDEX_YML="$T/index-warn.yml" node "$BIN/qmd-refresh" >/dev/null 2>"$T/old.err"; rc=$?
+[ "$rc" -eq 3 ] && grep -q '23.5.0 is too old for qmd' "$T/old.err" && ok "refresh on node 23.5.0: exit 3, the 23 line got N-API 10 in 23.6" || bad "refresh on node 23.5.0: rc=$rc err=[$(cat "$T/old.err")]"
 
 # --- 7. qmd-mcp: consent and the model of the project's language ---------------------------
 RU='hf:AGmind/qmd-query-expansion-ru/qmd-query-expansion-ru-q4_k_m.gguf'
@@ -306,6 +468,31 @@ for lang in en absent; do
     [ "$rc" -eq 0 ] && [ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=unset emb=$EMB" ] \
         && ok "qmd-mcp, downloaded, language.docs $lang: qmd mcp with the default expansion model" || bad "qmd-mcp $lang: rc=$rc calls=[$(cat "$T/mcp.calls" 2>/dev/null)]"
 done
+QMD_GENERATE_MODEL=left-from-the-shell run_mcp en downloaded; rc=$?
+[ "$rc" -eq 0 ] && [ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=unset emb=$EMB" ] \
+    && ok "qmd-mcp, language.docs en: a QMD_GENERATE_MODEL of the environment is deleted" || bad "qmd-mcp, QMD_GENERATE_MODEL in the environment: rc=$rc calls=[$(cat "$T/mcp.calls" 2>/dev/null)]"
+# The update log: emptied above one megabyte when the server starts, left alone up to it.
+head -c 1000001 /dev/zero >"$H/.cache/qmd/refresh.log"
+run_mcp en downloaded
+[ "$(wc -c <"$H/.cache/qmd/refresh.log" | tr -d ' ')" = 0 ] && ok "qmd-mcp: a log above 1 MB is emptied" || bad "qmd-mcp: a log above 1 MB stays, $(wc -c <"$H/.cache/qmd/refresh.log") bytes"
+head -c 1000000 /dev/zero >"$H/.cache/qmd/refresh.log"
+run_mcp en downloaded
+[ "$(wc -c <"$H/.cache/qmd/refresh.log" | tr -d ' ')" = 1000000 ] && ok "qmd-mcp: a log of 1 MB stays" || bad "qmd-mcp: a log of 1 MB changed, $(wc -c <"$H/.cache/qmd/refresh.log") bytes"
+rm -f "$H/.cache/qmd/refresh.log"
+# The Harness home is the one hooks/eval-env.cjs names: EVAL_HARNESS_HOME counts, and on Windows the folder is
+# under USERPROFILE, not under a HOME set by Git Bash or a user.
+mcp_answer_in() { # env assignments for the run; HARNESS_HOME is not set
+    rm -f "$T/mcp.calls"
+    (cd "$T/session" && env -u HARNESS_HOME HOME="$T/home-a" PATH="$MCPBIN:$PATH" QMD_MCP_NO_REFRESH=1 QMD_MCP_PROFILE_BIN="$T/profile-lang" LANG_DOCS=en "$@" \
+        node "$BIN/qmd-mcp" 2>"$T/mcp.err" </dev/null)
+}
+mkdir -p "$T/evalh" "$T/home-a"; printf 'downloaded\n' >"$T/evalh/qmd-models"
+mcp_answer_in EVAL_HARNESS_HOME="$T/evalh"; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$T/mcp.calls" ] && ok "qmd-mcp: the answer is read from EVAL_HARNESS_HOME" || bad "qmd-mcp, EVAL_HARNESS_HOME: rc=$rc err=[$(cat "$T/mcp.err")]"
+if [ "$WIN" = 1 ]; then OS_HOME="$T/home-b"; else OS_HOME="$T/home-a"; fi
+mkdir -p "$OS_HOME/.claude/worfy-harness"; printf 'downloaded\n' >"$OS_HOME/.claude/worfy-harness/qmd-models"
+mcp_answer_in USERPROFILE="$T/home-b"; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$T/mcp.calls" ] && ok "qmd-mcp: the default Harness home is under the system's home folder" || bad "qmd-mcp, default Harness home: rc=$rc err=[$(cat "$T/mcp.err")]"
 run_mcp en downloaded "$EMB" "$RU"
 [ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=$RU emb=$EMB" ] \
     && ok "qmd-mcp: only the Russian model was downloaded -> it, not a new download, for an en project" || bad "qmd-mcp consented list en: [$(cat "$T/mcp.calls" 2>/dev/null)]"
@@ -322,17 +509,15 @@ out="$(cd "$T/session" && printf 'hello' | HOME="$H" HARNESS_HOME="$HH" PATH="$M
 # node below 22.14: qmd would die without a word, so one line says why, and qmd is not started.
 rm -f "$T/mcp.calls"
 (cd "$T/session" && HOME="$H" HARNESS_HOME="$HH" PATH="$MCPBIN:$PATH" QMD_MCP_NO_REFRESH=1 QMD_NODE_VERSION=22.13.1 node "$BIN/qmd-mcp" 2>"$T/mcp.err" </dev/null); rc=$?
-[ "$rc" -eq 3 ] && [ "$(wc -l <"$T/mcp.err" | tr -d ' ')" = 1 ] && grep -q '22.13.1 is older than 22.14' "$T/mcp.err" && grep -q 'qmd.fallback_grep' "$T/mcp.err" && [ ! -e "$T/mcp.calls" ] \
+[ "$rc" -eq 3 ] && [ "$(wc -l <"$T/mcp.err" | tr -d ' ')" = 1 ] && grep -q '22.13.1 is too old for qmd' "$T/mcp.err" && grep -q 'qmd.fallback_grep' "$T/mcp.err" && [ ! -e "$T/mcp.calls" ] \
     && ok "qmd-mcp on node 22.13.1: exit 3, one line with the version and the grep fallback, qmd not started" || bad "qmd-mcp on an old node: rc=$rc err=[$(cat "$T/mcp.err")]"
 (cd "$T/session" && HOME="$H" HARNESS_HOME="$HH" PATH="$MCPBIN:$PATH" QMD_MCP_NO_REFRESH=1 QMD_NODE_VERSION=22.14.0 QMD_MCP_PROFILE_BIN="$T/profile-lang" LANG_DOCS=en node "$BIN/qmd-mcp" 2>"$T/mcp.err" </dev/null); rc=$?
 [ "$rc" -eq 0 ] && [ -e "$T/mcp.calls" ] && ok "qmd-mcp on node 22.14.0: qmd mcp starts" || bad "qmd-mcp on 22.14.0: rc=$rc err=[$(cat "$T/mcp.err")]"
 
 # No qmd anywhere: exit 127, one line with the grep fallback.
-if [ "$BESIDE_NODE" = no ]; then
-    (cd "$T/session" && no_qmd_env HARNESS_HOME="$HH" QMD_MCP_NO_REFRESH=1 node "$BIN/qmd-mcp" 2>"$T/mcp.err" </dev/null); rc=$?
-    [ "$rc" -eq 127 ] && [ "$(wc -l <"$T/mcp.err" | tr -d ' ')" = 1 ] && grep -q 'qmd not found' "$T/mcp.err" && grep -q 'qmd.fallback_grep' "$T/mcp.err" \
-        && ok "qmd-mcp without qmd: exit 127, one line with the grep fallback" || bad "qmd-mcp without qmd: rc=$rc err=[$(cat "$T/mcp.err")]"
-fi
+(cd "$T/session" && no_qmd_env HARNESS_HOME="$HH" QMD_MCP_NO_REFRESH=1 node "$BIN/qmd-mcp" 2>"$T/mcp.err" </dev/null); rc=$?
+[ "$rc" -eq 127 ] && [ "$(wc -l <"$T/mcp.err" | tr -d ' ')" = 1 ] && grep -q 'qmd not found' "$T/mcp.err" && grep -q 'qmd.fallback_grep' "$T/mcp.err" \
+    && ok "qmd-mcp without qmd: exit 127, one line with the grep fallback" || bad "qmd-mcp without qmd: rc=$rc err=[$(cat "$T/mcp.err")]"
 
 # qmd in the global folder of npm and not on the PATH: found there. On Windows the file npm's qmd.cmd
 # names runs with this node; the .cmd itself, and the `#!/bin/sh` file npm leaves next to it, do not.
@@ -345,13 +530,39 @@ if [ "$WIN" = 1 ]; then
 else
     mkdir -p "$PREFIX/bin" && cp "$T/mcpbin/qmd" "$PREFIX/bin/qmd"
 fi
-if [ "$BESIDE_NODE" = no ]; then
+rm -f "$T/mcp.calls"
+(cd "$T/session" && env HOME="$H" HARNESS_HOME="$HH" PATH="$NODE_ONLY" QMD_NPM_PREFIX="$PREFIX" QMD_MCP_NO_REFRESH=1 QMD_MCP_PROFILE_BIN="$T/profile-lang" LANG_DOCS=en \
+    node "$BIN/qmd-mcp" 2>"$T/mcp.err" </dev/null); rc=$?
+[ "$rc" -eq 0 ] && [ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=unset emb=$EMB" ] \
+    && ok "qmd-mcp: qmd in the global folder of npm is found and started" || bad "qmd-mcp npm folder: rc=$rc err=[$(cat "$T/mcp.err")] calls=[$(cat "$T/mcp.calls" 2>/dev/null)]"
+
+# qmd of nvm, a Mac app started without the user's PATH: found in $HOME/.nvm/versions/node/<version>/bin.
+NVM_V="$T/home-nvm/.nvm/versions/node/v24.1.0/bin"; mkdir -p "$NVM_V"; cp "$T/mcpbin/qmd" "$NVM_V/qmd"
+mkdir -p "$T/home-nvm/.nvm/versions/node/v9.0.0/bin"; printf '#!/usr/bin/env node\nprocess.exit(9)\n' >"$T/home-nvm/.nvm/versions/node/v9.0.0/bin/qmd"; chmod +x "$T/home-nvm/.nvm/versions/node/v9.0.0/bin/qmd"
+nvm_mcp() { # $1: the HOME; the rest: env assignments
+    local home="$1"; shift
     rm -f "$T/mcp.calls"
-    (cd "$T/session" && env HOME="$H" HARNESS_HOME="$HH" PATH="$NODE_ONLY" QMD_NPM_PREFIX="$PREFIX" QMD_MCP_NO_REFRESH=1 QMD_MCP_PROFILE_BIN="$T/profile-lang" LANG_DOCS=en \
-        node "$BIN/qmd-mcp" 2>"$T/mcp.err" </dev/null); rc=$?
-    [ "$rc" -eq 0 ] && [ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=unset emb=$EMB" ] \
-        && ok "qmd-mcp: qmd in the global folder of npm is found and started" || bad "qmd-mcp npm folder: rc=$rc err=[$(cat "$T/mcp.err")] calls=[$(cat "$T/mcp.calls" 2>/dev/null)]"
-fi
+    (cd "$T/session" && env HOME="$home" HARNESS_HOME="$HH" PATH="$NODE_ONLY" QMD_NPM_PREFIX="$EMPTY_PREFIX" QMD_MCP_NO_REFRESH=1 QMD_MCP_PROFILE_BIN="$T/profile-lang" LANG_DOCS=en "$@" \
+        node "$BIN/qmd-mcp" 2>"$T/mcp.err" </dev/null)
+}
+nvm_mcp "$T/home-nvm"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=unset emb=$EMB" ] \
+    && ok "qmd-mcp: qmd of nvm is found, the newest version first" || bad "qmd-mcp, qmd of nvm: rc=$rc err=[$(cat "$T/mcp.err")] calls=[$(cat "$T/mcp.calls" 2>/dev/null)]"
+# The first node on the PATH is too old. A node of nvm at or above the limit that has qmd runs the script again.
+nvm_mcp "$T/home-nvm" QMD_NODE_VERSION=22.13.1; rc=$?
+[ "$rc" -eq 3 ] && grep -q '22.13.1 is too old for qmd' "$T/mcp.err" && [ ! -e "$T/mcp.calls" ] \
+    && ok "qmd-mcp on an old node, nvm has qmd but no node there: exit 3" || bad "qmd-mcp, nvm without a node: rc=$rc err=[$(cat "$T/mcp.err")]"
+link_node "$NVM_V"
+nvm_mcp "$T/home-nvm" QMD_NODE_VERSION=22.13.1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=unset emb=$EMB" ] \
+    && ok "qmd-mcp on an old node: the node of nvm that has qmd runs it" || bad "qmd-mcp, rerun on nvm: rc=$rc err=[$(cat "$T/mcp.err")] calls=[$(cat "$T/mcp.calls" 2>/dev/null)]"
+rm -f "$T/mcp.calls"
+env HOME="$T/home-nvm" HARNESS_HOME="$T/hh-default" PATH="$NODE_ONLY" QMD_NPM_PREFIX="$EMPTY_PREFIX" QMD_NODE_VERSION=22.13.1 QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-warn" \
+    node "$BIN/qmd-refresh" --wait --force >/dev/null 2>"$T/nvm.err"; rc=$?
+[ "$rc" -eq 0 ] && grep -q '^update' "$T/mcp.calls" 2>/dev/null && ok "qmd-refresh on an old node: the node of nvm that has qmd runs it" || bad "qmd-refresh, rerun on nvm: rc=$rc err=[$(cat "$T/nvm.err")] calls=[$(cat "$T/mcp.calls" 2>/dev/null)]"
+NVM_OLD="$T/home-nvm-old/.nvm/versions/node/v22.13.0/bin"; mkdir -p "$NVM_OLD"; cp "$T/mcpbin/qmd" "$NVM_OLD/qmd"; link_node "$NVM_OLD"
+nvm_mcp "$T/home-nvm-old" QMD_NODE_VERSION=22.13.1; rc=$?
+[ "$rc" -eq 3 ] && [ ! -e "$T/mcp.calls" ] && ok "qmd-mcp on an old node, the node of nvm is below the limit too: exit 3" || bad "qmd-mcp, old node of nvm: rc=$rc err=[$(cat "$T/mcp.err")]"
 
 # The background update of qmd-mcp: without QMD_MCP_NO_REFRESH it runs update and embed with the models and
 # lets the lock go; with the lock taken by someone alive it does not start a second one. On Windows the PATH of
@@ -367,9 +578,33 @@ n=0; while [ -e "$LK" ] && [ "$n" -lt 300 ]; do sleep 0.1; n=$((n + 1)); done
 grep -q "^mcp emb=$EMB" "$T/mcp.calls" && grep -q "^update emb=$EMB" "$T/mcp.calls" && grep -q "^embed emb=$EMB" "$T/mcp.calls" && [ ! -e "$LK" ] \
     && ok "qmd-mcp: the background update runs update and embed with the embedding model, then lets the lock go" \
     || bad "qmd-mcp background: rc=$rc calls=[$(cat "$T/mcp.calls" 2>/dev/null)] log=[$(tail -n 3 "$H/.cache/qmd/refresh.log" 2>/dev/null)]"
+# qmd runs an update line that starts with `node`: the first entry of the PATH is the folder of this node.
+first_on_path="$(node -p 'require("fs").readFileSync(process.argv[1], "utf8").split(require("path").delimiter)[0]' "$T/update.path" 2>/dev/null)"
+[ "$first_on_path" = "$(node -p 'require("path").dirname(process.execPath)')" ] \
+    && ok "qmd-mcp: the first entry of the PATH of qmd update is the folder of this node" || bad "qmd-mcp, first entry of the PATH: [$first_on_path]"
 if [ "$WIN" = 1 ]; then
-    [ -n "$(node -p 'process.argv[1].split(";").slice(0, 2).filter((d) => require("fs").existsSync(d + "\\bash.exe") && !/system32/i.test(d)).join()' "$(cat "$T/update.path" 2>/dev/null)")" ] \
-        && ok "qmd-mcp, Windows: the PATH of qmd update starts with this node and Git Bash" || bad "qmd-mcp PATH of the update: [$(cut -c1-300 "$T/update.path" 2>/dev/null)]"
+    [ -n "$(node -p 'process.argv[1].split(";").slice(1, 2).filter((d) => require("fs").existsSync(d + "\\bash.exe") && !/system32/i.test(d)).join()' "$(cat "$T/update.path" 2>/dev/null)")" ] \
+        && ok "qmd-mcp, Windows: Git Bash comes next on the PATH of qmd update" || bad "qmd-mcp PATH of the update: [$(cut -c1-300 "$T/update.path" 2>/dev/null)]"
+fi
+# Git Bash is found whatever the case of the variables: a copy of process.env keeps the key `Path` on Windows.
+GB="$T/git-root"; mkdir -p "$GB/cmd" "$GB/bin" "$T/pf/Git/bin" "$T/lad/Programs/Git/bin"
+: >"$GB/cmd/git.exe"; : >"$GB/bin/bash.exe"; : >"$T/pf/Git/bin/bash.exe"; : >"$T/lad/Programs/Git/bin/bash.exe"
+cat >"$T/git-bash.cjs" <<'EOF'
+const { gitBashDir } = require(process.argv[2])
+const name = process.argv[3]
+process.stdout.write(String(gitBashDir({ [name]: process.argv[4] })))
+EOF
+for row in "Path|$GB/cmd|$GB/bin" "programfiles|$T/pf|$T/pf/Git/bin" "localappdata|$T/lad|$T/lad/Programs/Git/bin"; do
+    IFS='|' read -r name value want <<<"$row"
+    got="$(node "$T/git-bash.cjs" "$LIB" "$name" "$value")"
+    [ "$(printed "$got")" = "$(printed "$want")" ] && ok "Git Bash: the variable spelled $name is read" || bad "Git Bash, $name: [$got], not [$want]"
+done
+if [ "$WIN" = 1 ]; then
+    cat >"$T/git-bash-win.cjs" <<'EOF'
+const { gitBashDir } = require(process.argv[2])
+process.stdout.write(String(gitBashDir({ Path: process.argv[3], systemroot: process.argv[4] })))
+EOF
+    [ "$(node "$T/git-bash-win.cjs" "$LIB" "$GB/cmd" "$(printed "$GB")")" = null ] && ok "Git Bash: a bash under the Windows folder of a lowercase systemroot does not count" || bad "Git Bash, lowercase systemroot"
 fi
 [ "$(printed "$(cat "$T/update.cwd" 2>/dev/null)")" = "$(printed "$H")" ] \
     && ok "qmd-mcp: the background update runs in the home folder" || bad "qmd-mcp update cwd: [$(cat "$T/update.cwd" 2>/dev/null)]"

@@ -400,7 +400,7 @@ collect y; rc=$?
     && ok "profile names collections, index.yml has collections: {}: the profile's refusal, nothing written" \
     || bad "named-empty: rc=$rc out=[$(cat "$C/out")]"
 
-# --- what runs a file (scriptCommand of hooks/qmd-common.cjs) ----------------------------------
+# --- what runs a file (scriptCommand of lib/qmd-common.cjs) ----------------------------------
 # A text file without a #! line is not given to node: it is valid JavaScript here, and the marker says whether it ran.
 setup script-command x "$FULL"
 cat >"$C/text-profile" <<EOF
@@ -423,21 +423,35 @@ HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$T/fakebin"
 [ "$rc" -eq 1 ] && [ -e "$C/ran-sh" ] && grep -q 'is not JSON' "$C/err" \
     && ok "a #!/bin/sh file as the profile: it runs" || bad "#!/bin/sh file: rc=$rc err=[$(cat "$C/err")]"
 
+# --- tickets.root on another drive of Windows: path.relative gives an absolute path, and that is not inside the source ---
+if [ "$WIN" = 1 ]; then
+    setup other-drive x "$(printf '%s' "$FULL" | sed 's#"tickets": {"root": ".scratch/"}#"tickets": {"root": "Q:/tickets/"}#')"
+    collect x; rc=$?
+    tickets_block="$(sed -n '/^  x-tickets:/,/^  x-memory:/p' "$INDEX")"
+    [ "$rc" -eq 0 ] && [[ "$tickets_block" == *'Q:'* ]] && [[ "$tickets_block" != *'update:'* ]] \
+        && ok "tickets.root on another drive: the tickets collection has no update: line" || bad "tickets.root on another drive: rc=$rc out=[$(tail -n 3 "$C/out")] block=[$tickets_block]"
+fi
+
 # --- qmd cannot run: the collections are recorded, one stderr line names the grep fallback ------
 setup no-qmd y "$SILENT_Y"
-NODE_DIR="$(dirname "$(node -p process.execPath)")"; GIT_DIR_ON_PATH="$(dirname "$(type -P git)")"
-mkdir -p "$C/empty-prefix/bin"
-if [ -e "$NODE_DIR/qmd" ] || [ -e "$NODE_DIR/qmd.cmd" ] || [ -e "$GIT_DIR_ON_PATH/qmd" ]; then
-    echo "skip the case without qmd: a qmd lies next to this node or git"
+# A folder with only links to node and git on the PATH has no qmd, also on a Mac where qmd lies next to the node of
+# nvm. Git for Windows finds its files from the folder of git.exe, so there the PATH has the folder of git itself.
+mkdir -p "$C/empty-prefix/bin" "$C/tools"
+real_node="$(onpath "$(node -p process.execPath)")"
+if [ "$WIN" = 1 ]; then
+    ln "$real_node" "$C/tools/node.exe" 2>/dev/null || cp "$real_node" "$C/tools/node.exe"
+    NO_QMD_PATH="$(onpath "$C/tools"):$(dirname "$(type -P git)")"
 else
-    HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$NODE_DIR"):$GIT_DIR_ON_PATH" QMD_NPM_PREFIX="$C/empty-prefix" \
-        node "$SCRIPT" y >"$C/stdout" 2>"$C/err"; rc=$?
-    [ "$rc" -eq 0 ] && [ -f "$INDEX" ] && [ "$(wc -l <"$C/err" | tr -d ' ')" = 1 ] && grep -q 'qmd not found' "$C/err" && grep -q 'qmd.fallback_grep' "$C/err" \
-        && ok "no qmd: exit 0, index.yml written, one stderr line with the grep fallback" || bad "no qmd: rc=$rc err=[$(cat "$C/err")]"
+    ln -s "$real_node" "$C/tools/node"; ln -s "$(type -P git)" "$C/tools/git"
+    NO_QMD_PATH="$C/tools"
 fi
+HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$NO_QMD_PATH" QMD_NPM_PREFIX="$C/empty-prefix" \
+    node "$SCRIPT" y >"$C/stdout" 2>"$C/err"; rc=$?
+[ "$rc" -eq 0 ] && [ -f "$INDEX" ] && [ "$(wc -l <"$C/err" | tr -d ' ')" = 1 ] && grep -q 'qmd not found' "$C/err" && grep -q 'qmd.fallback_grep' "$C/err" \
+    && ok "no qmd: exit 0, index.yml written, one stderr line with the grep fallback" || bad "no qmd: rc=$rc err=[$(cat "$C/err")]"
 setup old-node y "$SILENT_Y"
 HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$T/fakebin"):$PATH" QMD_NODE_VERSION=22.13.1 node "$SCRIPT" y >"$C/stdout" 2>"$C/err"; rc=$?
-[ "$rc" -eq 0 ] && [ -f "$INDEX" ] && [ ! -e "$QMD_CALLS" ] && [ "$(wc -l <"$C/err" | tr -d ' ')" = 1 ] && grep -q '22.13.1 is older than 22.14' "$C/err" && grep -q 'qmd.fallback_grep' "$C/err" \
+[ "$rc" -eq 0 ] && [ -f "$INDEX" ] && [ ! -e "$QMD_CALLS" ] && [ "$(wc -l <"$C/err" | tr -d ' ')" = 1 ] && grep -q '22.13.1 is too old for qmd' "$C/err" && grep -q 'qmd.fallback_grep' "$C/err" \
     && ok "node 22.13.1: exit 0, index.yml written, qmd not started, one stderr line with the grep fallback" || bad "old node: rc=$rc err=[$(cat "$C/err")]"
 
 # --- usage ------------------------------------------------------------------------------------

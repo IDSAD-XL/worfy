@@ -45,10 +45,10 @@ const fs = require("node:fs")
 const path = require("node:path")
 const os = require("node:os")
 const { spawn, spawnSync } = require("node:child_process")
-const q = require("../hooks/qmd-common.cjs")
+const q = require("../lib/qmd-common.cjs")
 
 const HOME = q.home()
-const CLAUDE = path.join(HOME, ".claude")
+const CLAUDE = path.join(os.homedir(), ".claude")
 const HARNESS_HOME = q.harnessHome()
 const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || CLAUDE
 const BIN = path.dirname(fs.realpathSync(__filename))
@@ -265,7 +265,9 @@ if (lessons) patterns.push(`${lessons}/**/*.md`)
 
 const ticketsRoot = expandHome((P.tickets && typeof P.tickets.root === "string" && P.tickets.root) || ".scratch/")
 const ticketsPath = path.normalize(path.isAbsolute(ticketsRoot) ? ticketsRoot.replace(/[\\/]+$/, "") : path.join(source, ticketsRoot.replace(/[\\/]+$/, "")))
-const ticketsInSource = !path.relative(source, ticketsPath).startsWith("..")
+// path.relative gives an absolute path across drives on Windows: that is not inside the source either.
+const ticketsRelative = path.relative(source, ticketsPath)
+const ticketsInSource = !ticketsRelative.startsWith("..") && !path.isAbsolute(ticketsRelative)
 const memoryPath = path.join(CLAUDE_DIR, "projects", MATCH.replace(/[^A-Za-z0-9]/g, "-"), "memory")
 
 const wanted = []

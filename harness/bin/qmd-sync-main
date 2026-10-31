@@ -26,10 +26,11 @@
 "use strict"
 
 const fs = require("node:fs")
+const os = require("node:os")
 const path = require("node:path")
 const { spawnSync } = require("node:child_process")
 const { git: GIT } = require("../hooks/eval-env.cjs")
-const q = require("../hooks/qmd-common.cjs")
+const q = require("../lib/qmd-common.cjs")
 
 const USAGE = "usage: qmd-sync-main [--describe] <profile>"
 // profile is the script next to this one, in the folder of this file's real path.
@@ -44,7 +45,7 @@ if (!NAME || NAME.startsWith("-")) {
     process.exit(2)
 }
 // Each profile has its own marker: a successful pull of one project does not erase the failure of another.
-const MARK = process.env.QMD_SYNC_MARK || path.join(q.home(), ".cache", "qmd", `sync-failed-${NAME}`)
+const MARK = process.env.QMD_SYNC_MARK || path.join(q.cacheDir(), `sync-failed-${NAME}`)
 function mark(text) {
     try {
         fs.mkdirSync(path.dirname(MARK), { recursive: true })
@@ -57,7 +58,7 @@ const lastLine = (text) => text.trimEnd().split(/\r?\n/).pop() || ""
 function describe() {
     // The gate registry: $HARNESS_HOME/gate/config.json; with none there but one in the old place,
     // ~/.claude/gate/config.json, the old one is read (transition, read only).
-    const legacy = path.join(q.home(), ".claude", "gate", "config.json")
+    const legacy = path.join(os.homedir(), ".claude", "gate", "config.json")
     let cfg = process.env.CLAUDE_GATE_CONFIG || path.join(q.harnessHome(), "gate", "config.json")
     if (!process.env.CLAUDE_GATE_CONFIG && !fs.existsSync(cfg) && fs.existsSync(legacy)) cfg = legacy
     let repos

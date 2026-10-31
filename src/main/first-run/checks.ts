@@ -69,13 +69,13 @@ import { harnessHomes, locateHarness } from '../harness/locate'
 import type { HarnessScriptEnvSource } from '../harness/script-env'
 import { environmentExit, harnessScriptRunner, HarnessScriptStartError, HARNESS_SCRIPT_TIMEOUT_MS, NODE_NOT_FOUND, scriptFailureDetail } from '../workflow/profile'
 import { hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
-import { MIN_NODE_MAJOR, MIN_QMD_NODE, modelPlan, profileDocsLanguages, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
+import { MIN_NODE_MAJOR, modelPlan, profileDocsLanguages, QMD_NODE_NEED, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
 import { programStart } from '../program'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { Check, CheckGroup, CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { numberedVersion } from '../../shared/version-number'
-import { runTool, WINGET_IDS, type Env, type ToolRun } from './tools'
+import { installCommand, runTool, WINGET_IDS, type Env, type ToolRun } from './tools'
 
 export { killTool, runTool, toolStart, windowsProgram, WINGET_IDS, type Env, type ToolRun } from './tools'
 
@@ -321,12 +321,6 @@ interface Machine {
 /** Where a missing tool was looked for: the login shell off Windows, the environment worfy builds on Windows. */
 const notFound = (machine: Machine): string => (machine.windows ? 'not found on the PATH' : 'not found on the PATH of the login shell')
 
-/** The command that installs a tool: `brew install <tool>` on macOS, `winget install <id>` on Windows. */
-const installCommand = (machine: Machine, name: keyof typeof WINGET_IDS): string => {
-  if (machine.windows) return `winget install ${WINGET_IDS[name]}`
-  return `brew install ${name}`
-}
-
 async function claudeVersion(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
   const bundled = deps.bundledClaudeCodeVersion
   const run = await machine.probes.run('claude', ['--version'], deps.env, timeoutMs)
@@ -372,7 +366,7 @@ function runGh(args: readonly string[], deps: CheckDeps, machine: Machine, timeo
 
 async function tool(name: 'git' | 'gh' | 'jq', deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
   const run = name === 'gh' ? await runGh(['--version'], deps, machine, timeoutMs) : await machine.probes.run(name, ['--version'], deps.env, timeoutMs)
-  const install = installCommand(machine, name)
+  const install = installCommand(machine.windows, name)
   // On Windows jq is not required (owner's decision of 2026-10-09): missing or broken, it warns.
   const optional = machine.windows && name === 'jq'
   if (run.missing) return row(optional ? 'warn' : 'fail', notFound(machine), optional ? JQ_WINDOWS_HINT : 'worfy does not install it: run the command in a terminal', install)
@@ -394,7 +388,7 @@ async function gitIdentity(deps: CheckDeps, machine: Machine, timeoutMs: number)
   const outside = existsSync(tmpdir()) ? tmpdir() : undefined
   const ask = (key: string): Promise<ToolRun> => machine.probes.run('git', ['config', '--get', key], deps.env, timeoutMs, outside)
   const [name, email] = await Promise.all([ask('user.name'), ask('user.email')])
-  if (name.missing || email.missing) return row('warn', 'git is not installed', `Install git first (${installCommand(machine, 'git')}), then set the commit author`)
+  if (name.missing || email.missing) return row('warn', 'git is not installed', `Install git first (${installCommand(machine.windows, 'git')}), then set the commit author`)
   const value = (run: ToolRun): string | null => (run.code === 0 ? firstLine(run.stdout) || null : null)
   const broken = [name, email].find((run) => run.code !== 0 && run.code !== 1)
   if (broken !== undefined) {
@@ -414,12 +408,12 @@ async function gitIdentity(deps: CheckDeps, machine: Machine, timeoutMs: number)
 
 async function node(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
   const run = await machine.probes.run('node', ['--version'], deps.env, timeoutMs)
-  const install = installCommand(machine, 'node')
+  const install = installCommand(machine.windows, 'node')
   if (run.missing) return row('fail', notFound(machine), `The Harness scripts need node ${MIN_NODE_MAJOR} or newer`, install)
   const found = semver(run.stdout)
   if (run.code !== 0 || found === null) return row('fail', `node --version failed: ${lastLine(run.stderr) || `exit ${String(run.code)}`}`, 'Reinstall it', install)
   const version = found.join('.')
-  if (found[0] < MIN_NODE_MAJOR) return row('fail', `${version}, needs ${MIN_NODE_MAJOR} or newer`, `The Harness scripts and qmd need node ${MIN_NODE_MAJOR} or newer`, install)
+  if (found[0] < MIN_NODE_MAJOR) return row('fail', `${version}, needs ${MIN_NODE_MAJOR} or newer`, `The Harness scripts need node ${MIN_NODE_MAJOR} or newer, and qmd needs ${QMD_NODE_NEED}`, install)
   return row('ok', version)
 }
 
@@ -512,7 +506,7 @@ export function ghAccounts(output: string): string[] {
 
 async function ghAuth(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
   const run = await runGh(['auth', 'status'], deps, machine, timeoutMs)
-  if (run.missing) return row('fail', 'gh is not installed', `Install gh first (${installCommand(machine, 'gh')}), then sign in`)
+  if (run.missing) return row('fail', 'gh is not installed', `Install gh first (${installCommand(machine.windows, 'gh')}), then sign in`)
   const accounts = ghAccounts(`${run.stdout}\n${run.stderr}`)
   if (accounts.length > 0) return row('ok', accounts.join(', '))
   return row('fail', 'not signed in to any GitHub host', 'Sign in with gh auth login: you answer its questions yourself', 'gh auth login', [action('gh-login', 'Sign in…')])
@@ -544,7 +538,7 @@ function lastLineOf(file: string): string {
 
 /** The tools an Update build needs, with the command that installs each (spec item 8). */
 const updateToolCommand = (machine: Machine, tool: string): string | null => {
-  if (tool === 'git' || tool === 'node') return installCommand(machine, tool)
+  if (tool === 'git' || tool === 'node') return installCommand(machine.windows, tool)
   return tool === 'pnpm' ? 'npm install -g pnpm' : null
 }
 
@@ -692,16 +686,16 @@ async function qmdRows(deps: CheckDeps, machine: Machine): Promise<QmdRows> {
   const state = await qmdState({ ...deps.homes, env: deps.env })
   const installed = state.qmd !== null
 
-  const needsNode = `qmd needs node ${MIN_QMD_NODE.join('.')} or newer`
+  const needsNode = `qmd needs node ${QMD_NODE_NEED}`
   let qmd: Row
   // An installed qmd on an older node dies without a word on any command that opens the index.
   if (installed && !state.node.ok) {
     const found = state.node.version === null ? 'there is no node' : `node is ${state.node.version}`
-    qmd = row('warn', `${state.qmd?.version ?? 'unknown version'} (${state.qmd?.path ?? ''})`, `${needsNode}, and ${found}. Until then the Harness searches with grep`, installCommand(machine, 'node'))
+    qmd = row('warn', `${state.qmd?.version ?? 'unknown version'} (${state.qmd?.path ?? ''})`, `${needsNode}, and ${found}. Until then the Harness searches with grep`, installCommand(machine.windows, 'node'))
   } else if (state.version === 'ok') qmd = row('ok', `${QMD_VERSION} (${state.qmd?.path ?? ''})`)
   else if (state.version === 'warn') qmd = row('warn', `${state.qmd?.version ?? 'unknown version'} (${state.qmd?.path ?? ''})`, state.warning ?? '')
   else if (!state.node.ok)
-    qmd = row('warn', 'not installed', `${needsNode}: install node first. Without qmd the Harness searches with grep`, installCommand(machine, 'node'))
+    qmd = row('warn', 'not installed', `${needsNode}: install node first. Without qmd the Harness searches with grep`, installCommand(machine.windows, 'node'))
   else qmd = row('warn', 'not installed', `Install qmd ${QMD_VERSION} with npm. Without it the Harness searches with grep`, null, [action('qmd-install', 'Install…')])
 
   const size = formatBytes(modelPlan(profileDocsLanguages(deps.homes)).bytes)

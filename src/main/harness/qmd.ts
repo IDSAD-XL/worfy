@@ -29,7 +29,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { agentEnv, getVar } from '../agent/env'
-import { killTool, toolStart, windowsProgram, WINGET_IDS } from '../first-run/tools'
+import { installCommand, killTool, toolStart, windowsProgram } from '../first-run/tools'
 import { runHarnessScript, type SpawnProcess } from '../workflow/profile'
 
 type Env = Readonly<Record<string, string | undefined>>
@@ -38,15 +38,19 @@ type Env = Readonly<Record<string, string | undefined>>
 export const QMD_PACKAGE = '@tobilu/qmd'
 /** The qmd version the Harness scripts are checked with (ticket 17 pins it; ADR-0043 left the choice to it). */
 export const QMD_VERSION = '2.8.3'
-/** The node the Harness scripts need; qmd 2.8.3 declares the same `engines.node >= 22`, but see MIN_QMD_NODE. */
+/** The node the Harness scripts need; qmd 2.8.3 declares the same `engines.node >= 22`, but see qmdRunsOnNode. */
 export const MIN_NODE_MAJOR = 22
 /**
- * The node qmd 2.8.3 really runs on: its better-sqlite3 13 is built for N-API 10, and below 22.14 node
- * dies loading it, without a word. The Harness scripts check the same (harness/hooks/qmd-common.cjs).
+ * The node qmd 2.8.3 really runs on: its better-sqlite3 13 is built for N-API 10, which came in 22.14 on
+ * the 22 line and in 23.6 on the 23 line, and a node without it dies loading the module, without a word.
+ * The Harness scripts draw the same line (nodeTooOld of harness/lib/qmd-common.cjs), and a contract test
+ * checks that they agree.
  */
-export const MIN_QMD_NODE = [22, 14] as const
-/** What the user runs when node is missing or too old: worfy does not install it. */
-export const nodeInstallHint = (platform: NodeJS.Platform = process.platform): string => (platform === 'win32' ? `winget install ${WINGET_IDS.node}` : 'brew install node')
+export const qmdRunsOnNode = (version: string): boolean => {
+  const [major = 0, minor = 0] = version.split('.').map(Number)
+  return major >= 24 || (major === 23 && minor >= 6) || (major === 22 && minor >= 14)
+}
+export const QMD_NODE_NEED = '22.14 or newer (23.6 or newer on the 23 line)'
 /** The answer about the models, in the Harness home; qmd-mcp, qmd-refresh and qmd-collections read it. */
 export const MODELS_ANSWER_FILE = 'qmd-models'
 
@@ -62,7 +66,7 @@ export interface QmdModel {
 }
 
 /**
- * The models qmd-mcp runs with. The URIs are also in harness/hooks/qmd-common.cjs, which the qmd scripts of
+ * The models qmd-mcp runs with. The URIs are also in harness/lib/qmd-common.cjs, which the qmd scripts of
  * the Harness share; test/contract/harness-qmd.test.ts checks they agree.
  */
 export const QMD_MODELS = Object.freeze({
@@ -250,7 +254,7 @@ const loginEnv = async (options: QmdOptions): Promise<Env> => options.env ?? (aw
 export interface NodeState {
   /** `node --version` without the `v`; null when there is no node. */
   version: string | null
-  /** Whether qmd runs on it (MIN_QMD_NODE). */
+  /** Whether qmd runs on it (qmdRunsOnNode). */
   ok: boolean
 }
 
@@ -258,8 +262,8 @@ async function nodeState(env: Env): Promise<NodeState> {
   const run = await runCommand('node', ['--version'], env, SHORT_TIMEOUT_MS)
   const match = /v?(\d+)\.(\d+)\.(\d+)/.exec(run.stdout)
   if (run.code !== 0 || !match) return { version: null, ok: false }
-  const [major, minor] = [Number(match[1]), Number(match[2])]
-  return { version: `${match[1]}.${match[2]}.${match[3]}`, ok: major > MIN_QMD_NODE[0] || (major === MIN_QMD_NODE[0] && minor >= MIN_QMD_NODE[1]) }
+  const version = `${match[1]}.${match[2]}.${match[3]}`
+  return { version, ok: qmdRunsOnNode(version) }
 }
 
 export interface QmdBinaryState {
@@ -327,7 +331,7 @@ export async function installQmd(options: QmdOptions & { consent: boolean }): Pr
   const node = await nodeState(env)
   if (!node.ok) {
     const found = node.version === null ? 'there is no node' : `node is ${node.version}`
-    return { status: 'no-node', error: `qmd needs node ${MIN_QMD_NODE.join('.')} or newer, and ${found}: install it with \`${nodeInstallHint()}\`` }
+    return { status: 'no-node', error: `qmd needs node ${QMD_NODE_NEED}, and ${found}: install it with \`${installCommand(process.platform === 'win32', 'node')}\`` }
   }
   const present = await qmdBinary(env)
   if (present !== null) {

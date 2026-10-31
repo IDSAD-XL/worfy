@@ -11,6 +11,9 @@ export type Env = Readonly<Record<string, string | undefined>>
 /** The winget ids of what the checks name on Windows. */
 export const WINGET_IDS = { git: 'Git.Git', gh: 'GitHub.cli', jq: 'jqlang.jq', node: 'OpenJS.NodeJS.LTS', pwsh: 'Microsoft.PowerShell' } as const
 
+/** The command that installs a tool: `winget install <id>` on Windows, `brew install <tool>` elsewhere. */
+export const installCommand = (windows: boolean, name: keyof typeof WINGET_IDS): string => (windows ? `winget install ${WINGET_IDS[name]}` : `brew install ${name}`)
+
 const MAX_OUTPUT = 256 * 1024
 
 

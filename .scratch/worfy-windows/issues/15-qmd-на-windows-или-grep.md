@@ -137,7 +137,7 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 ## Готово, когда
 
 - [x] Исследование: в «Итог» — какой нативный модуль qmd падает на ПК владельца с 0xC0000005 и на какой команде.
-- [x] `grep -lE '^#!.*zsh' harness/bin/*` — пусто (код 1).
+- [x] `grep -lE --directories=skip '^#!.*zsh' harness/bin/*` — пусто (код 1).
 - [ ] `bash harness/bin/tests/qmd.test.sh` — код 0 на Mac и в Git Bash на ПК владельца; скрипты в нём вызваны через `node`.
 - [ ] `bash harness/bin/tests/harness-home.test.sh` и `bash harness/bin/tests/qmd-collections.test.sh` — код 0 на Mac и в Git Bash.
 - [ ] Contract `test/contract/harness-qmd.test.ts`: поведение E3 Ticket 17 держится на Node-версии — без ответа «скачано» `qmd-mcp` выходит с кодом не 0 и не запускает `qmd mcp`; при `language.docs` = `ru` задана русская модель расширения запроса; `harness/.mcp.json` и Stop-hook в `harness/hooks/hooks.json` зовут скрипты через `node`. Зелёный на Mac и на ПК владельца.
@@ -184,23 +184,30 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 - `harness/bin/qmd-refresh`
 - `harness/bin/qmd-sync-main`
 - `harness/bin/qmd-collections`
+- `harness/lib/qmd-common.cjs` (новый: общее у обёрток), `harness/lib/README.md`
+- `harness/hooks/qmd-refresh.mjs` (удалён: Stop-hook зовёт `bin/qmd-refresh` через node)
 - `harness/.mcp.json`
 - `harness/hooks/hooks.json`
 - `harness/skills/qmd/SKILL.md`
+- `harness/README.md`
 - `harness/bin/tests/qmd.test.sh`
 - `harness/bin/tests/harness-home.test.sh`
 - `harness/bin/tests/qmd-collections.test.sh`
+- `harness/hooks/tests/rules-hooks.test.sh`
 - `src/main/harness/qmd.ts`
 - `src/main/first-run/checks.ts`
-- `src/main/workflow/profile.ts`
-- `docs/design/F-SPEC.md`
+- `src/main/first-run/tools.ts` (новый), `src/main/first-run/actions.ts`
+- `docs/design/F-SPEC.md`, `docs/roadmap.md`, `docs/adr/0043-qmd-is-part-of-harness.md` и страницы `docs/features`
 - `test/contract/harness-qmd.test.ts`
-- `test/contract/workflow-profile.test.ts`
 - `test/contract/first-run-checks.test.ts`
-- `test/contract/harness-scripts.test.ts`
+- `test/contract/harness-hooks-qmd-refresh.test.ts` (удалён вместе с `harness/hooks/qmd-refresh.mjs`)
+- `test/unit/agent-options.test.ts`
+- `test/harness-scripts-suite.ts`, `test/harness-shell-tests.ts`
+- `test/fixtures/qmd-stub`, `test/fixtures/first-run-tools`
+- `test/e2e/first-run.spec.ts`, `test/e2e/first-run-sandbox.ts`, `test/e2e/settings-health.spec.ts`
 - `.github/workflows/ci.yml`
 
-`src/main/workflow/profile.ts` и `test/contract/workflow-profile.test.ts` меняются только на пути Б.
+`src/main/workflow/profile.ts` и `test/contract/workflow-profile.test.ts` менялись бы только на пути Б: не тронуты.
 `.github/workflows/ci.yml` — только комментарий шага «Install zsh». Пути файлов E3 сверены с main
 `76f7ff8` и `8cabc65`: `harness/.mcp.json`, `harness/bin/qmd-collections`, `src/main/harness/qmd.ts` есть
 (evidence Ticket-а 01, разделы 18 и 24).
@@ -259,9 +266,9 @@ win32-x64, стек из gdb на Linux в `napi_module_register_by_symbol`, и 
 на стеке из #1514. Стек на Windows не снимали: журнал Windows события сбоя не дал. Какую версию `better-sqlite3`
 получил ticket 01, в его записях нет; диапазон `^13.0.3` тот же.
 
-**Не проверено.** `embed`, `vsearch`, `query` и модели; `qmd mcp`; три обёртки на zsh; индекс на настоящих папках worfy
-(проверена одна папка с одним файлом); node и система на Mac и в CI. На node 24 npm не выполнил install-скрипты
-`node-llama-cpp` и `tree-sitter-*`: `getLlama` на CPU это не помешало, про GPU и `embed` неизвестно.
+**Не проверено.** Node и система на Mac и в CI. На node 24 npm не выполнил install-скрипты `node-llama-cpp` и
+`tree-sitter-*`: `getLlama` на CPU и `embed` это не помешало (замер Wave ниже), про GPU неизвестно. Остальное, что здесь
+стояло 2026-10-30 (`embed`, `vsearch`, `query` и модели, `qmd mcp`, индекс на настоящих папках), замерила Wave; обёртки теперь на Node.
 
 **Что это меняет (Orchestrator, 2026-10-30).** Пункт исследования закрыт этим замером. Q21 (на Windows — grep до
 ticket-а qmd) опирался на падение под node 22.13.0; node ПК по умолчанию теперь 24.21.0, и BM25 там работает, поэтому
@@ -271,18 +278,35 @@ Wave — эти команды на node 24; обёрткам — проверк
 
 ### Работа Wave (ПК, 2026-10-31)
 
-**Путь — А** (решение владельца Q4): qmd остаётся на Windows, обёртки на Node. grep — запасной путь, когда qmd не может
+**Путь — А** (решение владельца Q4, его передал мост 2026-10-31): qmd остаётся на Windows, обёртки на Node. grep — запасной путь, когда qmd не может
 работать; ветки «qmd is not available on Windows» нет, `allowedMcpServers` не менялся.
 
 **Как падал первый test.** `qmd.test.sh` с вызовом через `node` на zsh-скриптах: код 1, passed 8, failed 28,
 `SyntaxError: Invalid or unexpected token` на второй строке `qmd-sync-main` и `qmd-mcp`. Сам `node harness/bin/qmd-mcp`
 — код 1.
 
-**Обёртки.** `qmd-mcp`, `qmd-refresh`, `qmd-sync-main` на Node, общее — в `harness/hooks/qmd-common.cjs`. Когда qmd не
-может работать, одна строка в stderr называет причину и grep по `qmd.fallback_grep`: нет ответа `downloaded` или node
-ниже 22.14 — код 3 у `qmd-mcp` и `qmd-refresh`; нет qmd — 127; `qmd-refresh --quiet` (Stop-hook) молчит и выходит с 0;
-`qmd-collections` записывает коллекции, пишет строку и выходит с 0 (раньше строка «qmd not found» шла в stdout).
-`qmd.cmd` не запускается: обёртка читает из него путь к JS-файлу qmd и запускает его своим node.
+**Обёртки.** `qmd-mcp`, `qmd-refresh`, `qmd-sync-main` на Node, общее — в `harness/lib/qmd-common.cjs`. Когда qmd не
+может работать, одна строка в stderr называет причину и grep по `qmd.fallback_grep`. Node ниже 22.14 или 23.0–23.5 (N-API 10
+появился в 22.14 и 23.6) — код 3 у `qmd-mcp` и `qmd-refresh`; нет ответа `downloaded` — код 3 только у `qmd-mcp`,
+`qmd-refresh` без согласия запускает `update` и пропускает `embed`; нет qmd — 127. `qmd-refresh --quiet` (Stop-hook) молчит
+и всегда выходит с 0, ошибка уходит в журнал. `qmd-collections` записывает коллекции, пишет строку и выходит с 0 (раньше
+строка «qmd not found» шла в stdout). `qmd.cmd` не запускается: обёртка читает из него путь к JS-файлу qmd и запускает его
+своим node.
+
+**`node` из `.mcp.json` на Mac.** Команда — `node`, как требует Ticket. Если первый `node` на PATH слишком старый, а в nvm
+есть `node` не ниже порога и при нём qmd, `qmd-mcp` и `qmd-refresh` запускаются заново на нём, а не выходят с кодом 3.
+**Известное ограничение:** если `node` на PATH нет совсем, обёртка не запустится, и этого здесь не решить: Claude Code покажет
+`CONNECTION_CLOSED` без строки о причине. Это проверка на Mac (раздел «Осталось»).
+
+**Замер qmd на настоящих папках** (ПК, node 24.21.0, модели Harness, отдельный HOME; прямые команды `qmd`, не через обёртки).
+- `worfy-docs` на 85 документов: `embed` — 340 кусков за 1 мин 4 с; `vsearch` отвечает; гибридный `query` с расширением и
+  rerank на английском и русском отвечает: первый rerank 90.2 с (23 куска), следующий 8.9 с (21 кусок).
+- `qmd mcp` на этом индексе: `initialize` 1721 мс, инструменты `query`, `get`, `multi_get`, `status`, `query` по `lex` 7272 мс,
+  по `vec` 4950 мс.
+- Все коллекции: `embed` последней партии — 472 куска из 71 документа за 46 с; `status` — 771 документ, 6448 векторов, 0 в
+  очереди; `query` — rerank 40 кусков за 11.7 с; `qmd mcp`: `initialize` 1347 мс, `lex` 10064 мс, `vec` 10783 мс.
+
+**Не замерено:** использование GPU; гибридный `query` с моделями через обёртки (через `qmd-mcp` проверен `query` по `lex`).
 
 **Папки на Windows** (замер, отдельный HOME). Домашняя папка qmd — `HOME`, затем `USERPROFILE`. Индекс и модели —
 `<дом>\.cache\qmd` (`index.sqlite`, `models`), `XDG_CACHE_HOME` важнее. Конфигурация — `<дом>\.config\qmd\index.yml`,
@@ -302,8 +326,9 @@ PATH — код 1. Поэтому в skill написано запускать `
 не команда, затем `Connection failed (CONNECTION_CLOSED)`. Повтор той же команды через cmd.exe — код 1 и то же
 сообщение. Установленный plugin не менялся: ошибка уйдёт, когда он обновится на эту версию. Новая форма `node
 <plugin>/bin/qmd-mcp`, замер:
-- нет ответа о моделях — код 3 и одна строка; нет qmd — код 127 и одна строка. Claude Code покажет те же слова
-  `CONNECTION_CLOSED`, но строка в `/mcp` и журнале называет причину: это вторая, ожидаемая причина, не поломка;
+- нет ответа о моделях — код 3 и одна строка; нет qmd — код 127 и одна строка. **Предположение, не проверено:** Claude Code
+  покажет те же слова `CONNECTION_CLOSED`, а строку с причиной — в `/mcp`. Замерено только, что stderr сервера попадает в его
+  журнал MCP. Проверка — в разделе «Осталось»;
 - qmd есть и согласие есть — `initialize` отвечает (`qmd` 2.8.3), инструменты `query`, `get`, `multi_get`, `status`,
   `query` по `lex` находит файлы настоящих папок worfy;
 - закрыт stdin — код 0 за секунды; обёртка убита и закрыт stdin — ни одного процесса qmd не осталось.
@@ -314,7 +339,16 @@ PATH — код 1. Поэтому в skill написано запускать `
 
 **Установка на Windows.** `npm`, `node` и `qmd` в `src/main/harness/qmd.ts` и `npmPrefix` запускаются как все инструменты
 первого запуска (`toolStart`, файл `src/main/first-run/tools.ts`): `.cmd` через cmd.exe. Подсказка для node —
-`winget install OpenJS.NodeJS.LTS`. Порог qmd — node 22.14; установленный qmd на node ниже — `warn` с этой командой.
+`winget install OpenJS.NodeJS.LTS`. Порог qmd — node 22.14, на линии 23 — 23.6 (contract-тест держит одинаковыми порог приложения и обёрток); установленный qmd на node ниже — `warn` с этой командой.
+
+**Проверено на Linux (WSL на ПК, node 24.18.0, без jq):** `qmd.test.sh` — 89 прошло, 2 упали: обе проверки читают JSON через `jq`,
+а его там нет. Случаи, которые идут только вне Windows (SIGTERM во время `--describe` и во время `qmd update`), прошли.
+`qmd-collections.test.sh` там не запускался: нужен `jq`. Это не замена прогону на Mac.
+
+**Мутационная проверка** `qmd.test.sh` и `qmd-collections.test.sh`: 40 мутантов обёрток (порог частоты, новая заметка, сдвиг main,
+маркер `sync-failed`, ротация журнала, повторный запуск на node из nvm, порог node, блокировка при сигнале, папка фонового
+обновления) — убиты все. Первый проход оставил два: случай без `last-index` дополнен коллекцией без заметок, а второй
+оказался ошибкой прогона (этот test проверяет скрипты рядом с собой, а не из `BIN_DIR`).
 
 **Проверено на ПК:** `qmd.test.sh`, `qmd-collections.test.sh`, `harness-home.test.sh`, `skill-blocks.test.sh`,
 `rules-hooks.test.sh`, `plugin-neutral.test.sh` — код 0; contract `harness-qmd`, `first-run-checks` — зелёные, в `harness-qmd`
@@ -331,4 +365,5 @@ Windows — `2 warnings`, в `settings-health.spec.ts` — `1 failed · 5 warnin
 запретил прогоны с окнами, пока владелец за ПК.
 
 **Осталось.** Прогнать два spec-а выше на ПК; все проверки на Mac; снимок владельца `../evidence/15-qmd-windows.png` и
-проверка Session worfy (путь А); gate full на Mac и ПК. Пункт «Путь Б» не применяется: выбран путь А.
+проверка Session worfy (путь А); что показывает `/mcp` при коде 3 и 127 (предположение выше); на Mac — `node` из `.mcp.json`, когда
+на PATH приложения нет `node` или он старый; gate full на Mac и ПК. Пункт «Путь Б» не применяется: выбран путь А.

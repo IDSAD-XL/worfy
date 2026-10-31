@@ -48,7 +48,7 @@ collections yourself: each of these steps needs the user's consent or writes out
   are `mcp__plugin_worfy_qmd__query`, `__get`, `__multi_get`, `__status`. Sessions that worfy starts
   register the same command themselves as `plugin_worfy_qmd`, with the same tool names.
 - **The program.** `qmd` 2.8.3 (the version is pinned; the scripts rely on its behaviour), installed
-  by worfy with `npm install -g @tobilu/qmd@2.8.3` after the user agrees. It needs node 22.14 or newer:
+  by worfy with `npm install -g @tobilu/qmd@2.8.3` after the user agrees. It needs node 22.14 or newer (23.6 or newer on the 23 line):
   below that node dies loading qmd's database module, without a word, so the qmd scripts check the
   version first and say so in one line.
 - **The models** (about 2.4 GB) are downloaded only after the user agrees, by `qmd pull` with the
@@ -67,12 +67,15 @@ collections yourself: each of these steps needs the user's consent or writes out
   `qmd.covers` of the profile, never into the project's repository; a second run changes nothing.
 - **No server in the session** (no `mcp__plugin_worfy_qmd__*` tools, or `status` fails): search with
   `grep` over the profile's `qmd.fallback_grep` and say in the report that qmd was not available.
-  `qmd-mcp` names the reason in one line of stderr, which `/mcp` shows: no consent to the models or a
-  node below 22.14 (exit code 3), no qmd (exit code 127).
+  `qmd-mcp` names the reason in one line of stderr, which reaches the server's MCP log of Claude Code
+  (whether `/mcp` shows it is not checked yet): no consent to the models or a node qmd dies on (exit code 3),
+  no qmd (exit code 127).
 
 ## On Windows
 
-qmd works there as on a Mac, and the same rules hold, with these differences:
+Measured on a Windows PC with node 24.21.0 and the Harness models on real project folders: `update`, `embed`, `search`,
+`vsearch`, hybrid `query` and `qmd mcp` work. GPU use was not measured, nor a hybrid `query` through `qmd-mcp`. The same rules
+hold, with these differences:
 
 - **Folders.** The home folder is `HOME`, then `USERPROFILE`: `%USERPROFILE%\.config\qmd\index.yml` and
   `%USERPROFILE%\.cache\qmd`, models in `models` there. The paths in `index.yml` are quoted, with
