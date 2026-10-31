@@ -1,7 +1,8 @@
 # 06 — Version chip и кнопка Harness в toolbar: точка, акцент и меню
 
 Type: task
-Status: claimed 2026-10-31T09:27Z
+Status: done 2026-10-31T10:32Z
+PR: #1126
 Blocked by: 03, 04
 Source: решения владельца 2026-10-31, пункты 5 (акцентная кнопка с точкой для обоих сигналов), 6 (version chip с точкой, меню «Update worfy · What's new · Later»); [spec.md](../spec.md), «Решено без владельца», Р11, Р12, «Тексты (черновик)», «Version chip», «Кнопка Harness»
 
@@ -87,3 +88,5 @@ Source: решения владельца 2026-10-31, пункты 5 (акцен
 - Снимки toolbar в обеих темах (none, available, building, ready, failed, quiet, «Restart when idle»,
   Harness outdated, `harnessBehind`, «Replace Harness») — в scratchpad, не в репозитории; e2e пишет свои
   `update-*-light/dark.png` в output test-а. Пункт «(вручную)» — владельцу.
+
+- Low из review (debt, Ticket-ами не становятся): три low первого круга исправлены (меню само не открывается, e2e меряет chip, `harnessBehind` только для установленной версии). Chip перенесён в `src/renderer/update/UpdateChip.tsx`: каждый файл `shell/toolbar/` грузится как элемент toolbar. e2e `update-toolbar` пропущен на Windows (PATH сборки из registry); точка на кнопке Harness касается кольца иконки на ~1,4 px.

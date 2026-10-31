@@ -1,7 +1,8 @@
 # 07 — Sticky toast-ы Update: при старте, «ready», «Update failed», итог перезапуска
 
 Type: task
-Status: open
+Status: done 2026-10-31T10:32Z
+PR: #1124
 Blocked by: 03, 04
 Source: решения владельца 2026-10-31, пункты 5 (один sticky toast при старте «… · Update · Later» для обоих сигналов), 7 («worfy <version> ready · Restart now · Later», «Restart when idle»), 8 («Update failed · Show log»); [spec.md](../spec.md), «Решено без владельца», Р11, Р12, «Тексты (черновик)», «Toast-ы»
 
@@ -91,3 +92,5 @@ Source: решения владельца 2026-10-31, пункты 5 (один s
 - e2e `test/e2e/update-toasts.spec.ts`: готовая сборка при старте — «ready», «Restart now», «Later»;
   без «Update automatically» — «available», «Update» → clone bare-репозитория, настоящий `pnpm install`
   пустого проекта, подменная сборка с кодом 1 → «Update failed» (в `build.log` — строка подменной сборки).
+
+- Low из review (debt, Ticket-ами не становятся): ветка «результат перезапуска не читается» (`restart.ts:113`) не несёт `at`; текст ошибки в toast-е обрезается на трёх строках (общее правило `toast.css`, полный текст в `title`).

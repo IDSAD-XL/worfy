@@ -87,4 +87,26 @@ Source: «Готово, когда» Epic-а worfy-onboarding ([spec.md](../spec
 
 ## Итог
 
-Заполняется при закрытии.
+### Windows-ПК владельца, 2026-10-31
+
+**Проход.** Отдельная копия на свежей папке данных, запуск 02:20:54Z, без переменных `CLAUDE*`, `ANTHROPIC*`, `MCP_*`, `ELECTRON*`, stdout и stderr в файлы (о ticket-е 38 это ничего не говорит). Владелец прошёл First run, Getting started и demo до Done. Demo влил `e39ff7e Close ticket todo/01` в 02:26:55Z. Удаление завершено к 02:27:23Z: папки, Profile и записи Project-а нет. Проход длился около 6.5 минуты. Стоимость на последнем снимке $0.62, это не итоговая сумма.
+
+**Ревью.** Reviewer не выдал строку вердикта: риск 1 spec-а наблюдался. Три находки `[low]`, две исправила Session Orchestrator-а, REJECTED не было.
+
+**Тексты.** В сессии ПК владелец правок текстов не просил. Про шаг 5 ответил: «Да все норм, отработало как надо».
+
+**Находки и решения.**
+- Stop hook вернул exit 127 и задержал шаг 5: это worfy-windows 115, уже влит.
+- Harness `773915d8`: факт, владелец сам нажал значок обновления в 04:22, отклонением не считается.
+- Отдельного implementer-а не было: так устроен ship-ticket. Неверен текст шага 4, а не процесс; вопрос о формулировке идёт владельцу через Orchestrator-а.
+- Шаг 1 отмечается за окном First run: наблюдение, по замыслу (`src/main/getting-started/progress.ts:38-39`).
+- Тест «already done» в шаблоне demo: `[low]`, без ticket-а.
+- Transcripts demo остаются после удаления: по замыслу (ADR-0005).
+
+**gate full на ПК.** На `0eddc918` exit 2, красный только `test/e2e/getting-started.spec.ts:184`: тест не успевал за сообщением `info`, которое скрывается через 4 с. Исправлено #1121. Шаг также был красным на `two-windows.spec.ts:212`, `linked-browser.spec.ts:90`, `subagent-tree.spec.ts:312`: классифицированы как flaky (worfy-polish 47). Следующий gate full на `1b4009c5` (merge #1121): `getting-started.spec.ts:184` зелёный, шаг `test:e2e` красный только на `epic-frame.spec.ts:1104` (3394 ms при пределе 3000 ms, в одиночку 1300 ms; worfy-polish 47). #1120 закрыт решением Orchestrator-а без владельца — подтвердить.
+
+Evidence на ПК, не в репозитории: `12-01-start.png`, `12-auto-042153…042655.png`, `onb12-stdout.log`, `onb12-stderr.log`, `onb12-watch.log`.
+
+### macOS
+
+Дописывается при закрытии Ticket-а.

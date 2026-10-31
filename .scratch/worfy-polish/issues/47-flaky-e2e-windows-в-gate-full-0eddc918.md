@@ -1,4 +1,4 @@
-# 47 — Flaky e2e Windows в gate full на `0eddc918`: two-windows, linked-browser, subagent-tree
+# 47 — Flaky e2e Windows в gate full на ПК: two-windows, linked-browser, subagent-tree, epic-frame
 
 Type: task
 Status: open
@@ -17,6 +17,10 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
 - `test/e2e/subagent-tree.spec.ts:312`: красный только в первом прогоне, строка 353 — 1150 ms при пределе 1000 ms.
   В одиночку не запускался.
 
+- `test/e2e/epic-frame.spec.ts:1104` («an Auction-sized Project is interactive within 3 s»): gate full на ПК, main
+  `1b4009c5`, 2026-10-31 — 3394 ms при пределе 3000 ms; в одиночку тот же SHA — exit 0, 1300 ms; в девяти прошлых
+  gate full на ПК — 1248–1951 ms. Причина не установлена. Предел не поднимать: исправление или quarantine.
+
 ## Что делаем
 
 1. Каждый — найти причину (порядок test-ов, нагрузка 8 workers, гонка в самом test-е) и исправить test или код.
@@ -30,7 +34,8 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
 
 ## Где в коде
 
-- `test/e2e/two-windows.spec.ts`, `test/e2e/linked-browser.spec.ts`, `test/e2e/subagent-tree.spec.ts`
+- `test/e2e/two-windows.spec.ts`, `test/e2e/linked-browser.spec.ts`, `test/e2e/subagent-tree.spec.ts`,
+  `test/e2e/epic-frame.spec.ts`
 - код, на который укажет причина
 
 ## Итог

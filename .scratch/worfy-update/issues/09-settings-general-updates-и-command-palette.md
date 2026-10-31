@@ -1,7 +1,8 @@
 # 09 — Settings → General, блок «Updates», и Command palette «Update worfy»
 
 Type: task
-Status: claimed 2026-10-31T09:21Z
+Status: done 2026-10-31T10:32Z
+PR: #1125
 Branch: worfy-update/09
 Blocked by: 03, 04
 Source: решения владельца 2026-10-31, пункты 6 (Settings → General «Updates»: «Check now», «Update automatically»; Command palette «Update worfy»), 7 (по умолчанию включено), 9 («Roll back to previous version»); [spec.md](../spec.md), «Решено без владельца», Р8, «Тексты (черновик)», «Settings → General → Updates», «Command palette»
@@ -105,3 +106,5 @@ Source: решения владельца 2026-10-31, пункты 6 (Settings �
   строки «Version» (`app.version`), без неё — только «Last checked …» или пустая строка.
 - Раунд polish: три mutant-а (версия до первой проверки, `checking = pressing`, `update` вне deps palette)
   краснеют на своих test-ах.
+
+- Low из review (debt, Ticket-ами не становятся): обновление «Update worfy» на лету в ProjectPalette (`CommandPalette.tsx:370`) без test-а; три low первого круга исправлены (версия до первой проверки, «Check now» по `checking`, store в palette).
