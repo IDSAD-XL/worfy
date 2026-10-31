@@ -5,13 +5,13 @@
 // and then calls node-pty's kill() while node-pty still knows the pseudo-console
 // (src/main/terminal/windows-pty.ts, hangupLines). Only on Windows with Git for Windows; the shells
 // run in the temporary home of the harness (windowsEnv), never in the profile of the machine.
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { existsSync, statSync } from 'node:fs'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { findGitBash } from '../../src/main/agent/env'
+import { findGitBash, gitBashKill } from '../../src/main/agent/env'
 import { spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
-import { endDescendants, endShell, type StartedShell } from '../../src/main/terminal/windows-pty'
+import { endDescendants, endShell, type DescendantsVerdict, type StartedShell } from '../../src/main/terminal/windows-pty'
 import { alive, consoleHosts, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, settledHandleCount, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
 import { ms } from '../time-scale'
 
@@ -28,6 +28,55 @@ function needsGitBash(context: { skip: (condition: boolean, note?: string) => vo
 
 /** A command whose output, not its typed line, holds `<word>-42`; the typed line is what history keeps. */
 const unique = (word: string): { command: string; output: RegExp } => ({ command: `echo ${word}-$((40+2))`, output: new RegExp(`${word}-42\\r?\\n`) })
+
+/**
+ * A stand-in of kill.exe as a batch file: one process, as kill.exe is. After `first` it notes that it
+ * started and rewrites a file in a loop, until the scratch folder of the test is removed. The loop is
+ * bounded, about a minute on the PC, in case vitest dies before it removes the folder.
+ */
+async function spinningKill(name: string, first = ''): Promise<{ file: string; started: string; beat: string }> {
+  const file = join(home, `${name}.cmd`)
+  await writeFile(file, ['@echo off', first, 'echo.>"%~f0.started"', 'set n=0', ':again', 'echo.>"%~f0.beat"', 'set /a n+=1', 'if %n% lss 10000 if exist "%~f0" goto again', ''].join('\r\n'))
+  return { file, started: `${file}.started`, beat: `${file}.beat` }
+}
+
+/** What a test says when execFile ended the helper at HANGUP_TIMEOUT_MS: under load it took up to 4855 ms (worfy-windows ticket 116). */
+const OUT_OF_TIME = 'the helper ran out of its time limit on this busy machine, so it never reached what this test reads'
+
+interface RecordingHelper {
+  run: (shell: StartedShell) => Promise<DescendantsVerdict>
+  answers: DescendantsVerdict[]
+  outOfTime: boolean
+}
+
+/** The helper of the close with a stand-in of kill.exe; a helper ended by its time limit is told apart from a wrong answer. */
+function recordingHelper(hangup: string): RecordingHelper {
+  const helper: RecordingHelper = {
+    answers: [],
+    outOfTime: false,
+    run: async (shell) => {
+      try {
+        const answer = await endDescendants({ ...shell, hangup })
+        helper.answers.push(answer)
+        return answer
+      } catch (error) {
+        helper.outOfTime = (error as { killed?: boolean }).killed === true
+        throw error
+      }
+    },
+  }
+  return helper
+}
+
+/** Opens Git Bash, runs a command and closes it with this helper. */
+async function openAndCloseWith(helper: RecordingHelper): Promise<void> {
+  const h = await harness({ shell: 'git-bash', endDescendants: helper.run })
+  await h.open()
+  const { command, output } = unique('ready')
+  await h.run(command, output)
+  await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+  expect(h.registry.size).toBe(0)
+}
 
 describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty', () => {
   it('terminal.close of a running Git Bash leaves its history: both commands typed before the close are in HISTFILE of the home', async (context) => {
@@ -48,6 +97,40 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
     const lines = (await readFile(file, 'utf8')).split(/\r?\n/)
     expect(lines).toContain(first.command)
     expect(lines).toContain(second.command)
+  }, ms(30_000))
+
+  // On a busy machine kill.exe took longer than the 500 ms the helper used to give it: ended by then,
+  // it had not delivered the SIGHUP, and bash wrote nothing (26 of 120 closes under a full vitest,
+  // all 26 without a history file; worfy-windows ticket 116). That the history is written is the
+  // test above, with the real kill.exe; here the stand-in never delivers, so only its time is read.
+  it('a kill.exe still running after 700 ms is not cut off: it runs until the wait for bash ends', async (context) => {
+    needsGitBash(context)
+    const standIn = await spinningKill('slow-kill')
+    const helper = recordingHelper(standIn.file)
+    await openAndCloseWith(helper)
+    context.skip(helper.outOfTime, OUT_OF_TIME)
+    expect(helper.answers).toEqual(['ended'])
+    expect(statSync(standIn.beat).mtimeMs - statSync(standIn.started).mtimeMs).toBeGreaterThan(700)
+  }, ms(30_000))
+
+  // kill.exe inherits the stdout of the helper, so one that outlives the helper holds back its answer
+  // until execFile gives up at the time limit. execFile then still reports the exit code 0 of the
+  // helper, so only the stand-in itself tells. This one delivers the SIGHUP: bash exits, and the
+  // helper does not spend its whole wait on the way to its answer.
+  it('a kill.exe that delivers its SIGHUP and never exits: the helper ends it before it answers', async (context) => {
+    needsGitBash(context)
+    const kill = gitBashKill(findGitBash(windowsEnv(home)) ?? '') ?? ''
+    // cmd.exe reads a batch file in the OEM code page and expands every %.
+    context.skip(!/^[\x20-\x7e]+$/.test(kill) || kill.includes('%'), 'a batch file cannot name this kill.exe')
+    const standIn = await spinningKill('stuck-kill', `start "" /b "${kill}" %*`)
+    const helper = recordingHelper(standIn.file)
+    await openAndCloseWith(helper)
+    context.skip(helper.outOfTime, OUT_OF_TIME)
+    expect(helper.answers).toEqual(['ended'])
+    expect(existsSync(standIn.beat), 'the stand-in ran').toBe(true)
+    await rm(standIn.beat, { force: true, maxRetries: 5, retryDelay: 100 })
+    await new Promise((done) => setTimeout(done, ms(500)))
+    expect(existsSync(standIn.beat), 'the stand-in still runs after the answer').toBe(false)
   }, ms(30_000))
 
   // node-pty 1.2.0-beta.15 forgets the pseudo-console of a shell that exits by itself and never

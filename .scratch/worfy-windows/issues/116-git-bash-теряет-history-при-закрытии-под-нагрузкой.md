@@ -1,7 +1,8 @@
 # 116 — Git Bash теряет history при закрытии под нагрузкой: kill.exe обрывается раньше SIGHUP
 
 Type: bug
-Status: open
+Status: claimed 2026-10-31T15:26Z
+Branch: worfy-windows/116
 Blocked by: —
 Source: замер ПК 2026-10-31 на main `c01cd364` (через мост; данные на ПК в `evidence/windows-close-measure/`:
 `idle.jsonl`, `load.jsonl`, `stats.mjs`, `stats2.mjs`); красный `test/contract/terminal-git-bash-close.test.ts:33` в gate
@@ -41,12 +42,12 @@ full на ПК, main `fc9279cf` (раньше в worfy-polish 47). Платфо�
 
 ## Готово, когда
 
-- [ ] Сначала падающий test: stand-in kill.exe, который доставляет сигнал через 700 ms, — history сохраняется
-      (сейчас — нет).
-- [ ] Test: stand-in kill.exe, который не выходит вовсе, — helper отвечает в своём пределе, и kill.exe не держит ответ
+- [x] Сначала падающий test: stand-in kill.exe, который доставляет сигнал через 700 ms, — history сохраняется
+      (сейчас — нет). Был красным на старом коде; по решению Orchestrator-а после ревью заменён, см. «Итог».
+- [x] Test: stand-in kill.exe, который не выходит вовсе, — helper отвечает в своём пределе, и kill.exe не держит ответ
       (поведение, ради которого вводили предел 500 ms).
 - [ ] (вручную, ПК) Тот же замер, 120 закрытий под нагрузкой: 0 закрытий без `.bash_history`; `terminal.close` не дольше
-      `WINDOWS_CLOSE_BOUND_MS`; таблица — в «Итог».
+      `WINDOWS_CLOSE_BOUND_MS`; таблица — в «Итог». **НЕ выполнен: 2 из 120 без history.** `terminal.close` в пределе.
 - [ ] `test/contract/terminal-git-bash-close.test.ts` зелёный в gate full на ПК.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
@@ -63,3 +64,56 @@ full на ПК, main `fc9279cf` (раньше в worfy-polish 47). Платфо�
 - `test/contract/terminal-git-bash-close.test.ts`, test-ы `windows-pty`
 
 ## Итог
+
+**Потеря history сократилась, но не устранена: пункт «0 закрытий без `.bash_history`» НЕ выполнен, 2 из 120 под нагрузкой.**
+Решение Orchestrator-а: вливать с этой таблицей (вариант 1). Запись history без сигнала (`PROMPT_COMMAND='history -a'`,
+не проверено) — вопрос владельцу, в этом тикете не начата.
+
+Что изменилось. Выбрано первое направление: kill.exe больше не завершают через 500 ms. kill.exe и bash делят одно ожидание
+`HANGUP_WAIT_MS` = 1500 ms: отсчёт после `Process.Start`, ожидание кончается с выходом bash. Эта константа заменила
+`HANGUP_SIGNAL_BOUND_MS` (500) и `HANGUP_GRACE_MS` (1000), сумма та же. `HANGUP_TIMEOUT_MS` = 4500 ms и
+`WINDOWS_CLOSE_BOUND_MS` = 5000 ms не менялись. kill.exe, ещё работающий после ожидания, helper завершает до ответа:
+kill.exe, переживший helper, держал бы его ответ. `Stop-Process` — только для оставшегося после ожидания.
+
+Замер на ПК, коммит с исправлением `50dabaec` (после rebase — `79bac120`, тот же код), тот же способ, что на `c01cd364`: 120 закрытий Git Bash под полным vitest на
+8 workers (данные на ПК в `evidence/windows-close-measure/`, `loadfix116.jsonl`, `idlefix116.jsonl`).
+
+| Git Bash, под нагрузкой | до, `c01cd364` | исправление |
+| --- | --- | --- |
+| без `.bash_history` | 26 из 120 | **2 из 120** |
+| CPU, медиана / максимум | 47 / 76 % | 71 / 99 % |
+| `terminal.close`, медиана / p95 / максимум, ms | 2193 / 3678 / 4511 | 2457 / 3721 / 4933 |
+| `terminal.close` дольше 5000 ms | 0 | 0 |
+| helper, медиана / p95 / максимум, ms | 2120 / 3613 / 4449 | 2378 / 3650 / 4855 |
+| helper дольше 4500 ms | 0 | 2 |
+| от старта kill.exe до выхода bash, медиана / максимум, ms | 382 / 2432 (n=94) | 441 / 1991 (n=118) |
+| PowerShell: helper, максимум; закрытие, максимум, ms | 2906; 2985 | 3530; 3613 |
+
+Без нагрузки, 30 закрытий Git Bash: потерь 0, `terminal.close` до 1913 ms, kill.exe до 366 ms.
+
+- Обе потери: kill.exe ещё работал в конце ожидания, bash был жив. `i=130`: CPU 63 %, `Process.Start` около 572 ms, helper
+  3931 ms, закрытие 4000 ms. `i=192`: CPU 75 %, `Process.Start` около 1221 ms, helper 4855 ms, закрытие 4933 ms.
+- **helper в двух случаях вышел за 4500 ms на практике; запас `terminal.close` до 5000 ms в худшем случае — 67 ms.** Ответ
+  helper-а во всех 120 закрытиях полный. «Timed out 0» это не подтверждает: `execFile` при exit 0 ошибки не отдаёт.
+- Нагрузка заметно выше прошлой, причина не установлена; часть замера шла параллельно с двумя агентами ревью, читавшими
+  diff. Поэтому 26 и 2 — не сравнение один к одному.
+- Причина потерь выведена из совпадения, доставка SIGHUP напрямую не наблюдалась. Замер относится к скрипту helper-а
+  `50dabaec`; его текст после этого не менялся, менялись комментарий и test-ы.
+
+Test-ы со stand-in kill.exe (batch-файл, настоящий Git Bash, только Windows). Первая версия на 700 ms (`sleep.exe`, затем
+настоящий kill.exe) была красной на старом коде без `.bash_history`, но по ревью не укладывалась бы в ожидание под нагрузкой.
+Заменена по решению Orchestrator-а; запись history проверяет `terminal-git-bash-close.test.ts:33`.
+- «still running after 700 ms»: по файлам-меткам stand-in прожил дольше 700 ms. С возвращённым обрывом 500 ms — красный
+  (467.7 ms), с исправлением — зелёный.
+- «delivers its SIGHUP and never exits»: stand-in доставляет сигнал и не выходит. Без `$signal.Kill()` — красный (`the
+  stand-in still runs after the answer`), с исправлением — зелёный. Первая версия этой поломки не ловила: `execFile` при
+  сработавшем лимите отдаёт exit 0 helper-а, поэтому test смотрит на сам stand-in.
+- helper, снятый по лимиту под нагрузкой, в обоих test-ах — отдельный исход (skip с причиной), а не неверный ответ.
+
+Осталось:
+- Находка ревью low не исправлена: если kill.exe не запустился, helper всё равно ждёт bash всё `HANGUP_WAIT_MS`. Правка меняет
+  текст скрипта на основном пути, а замер не повторяется; цена — 500 ms только на этом редком пути.
+- `terminal-git-bash-close.test.ts:33` может краснеть в gate full на ПК из-за этих 1,7 %. Тогда это Windows exception с reason:
+  реальная остаточная потеря history, запись ждёт решения владельца, а не безвредный flaky test.
+- Полный `pnpm test` на ПК до PR не запускался: вердикт — `ci-ok` и gate full на ПК после merge. Пункт «зелёный в gate full на ПК»
+  ждёт этот gate.
