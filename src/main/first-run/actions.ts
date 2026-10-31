@@ -40,7 +40,8 @@ export interface Confirmation {
   detail: string
 }
 
-export type RunnableAction = Exclude<FirstRunAction, 'migration-form'>
+/** The screen handles `migration-form` (the move form) and `update-log` (`update.showLog`) itself. */
+export type RunnableAction = Exclude<FirstRunAction, 'migration-form' | 'update-log'>
 
 export interface ActionDeps {
   /** Runs every check (runChecks with the app's dependencies). */

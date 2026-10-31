@@ -16,8 +16,16 @@
 //   the agents' commits carry it. Only a warning — the author may be set in the repository itself.
 // - GitHub accounts: `gh auth status`. None signed in is `fail` with the `gh auth login` action,
 //   which the user goes through in a Terminal Node.
+// - worfy version (worfy-update ticket 08; spec, "Texts", "Health"): only where Update is on (the
+//   packaged Stable copy, or WORFY_UPDATE=1). OK without an Update; fails with an Available update
+//   that is not quiet, with a failed build (the last line of build.log, "Show log"), and with the
+//   tools that build did not find, each with its install command.
 // - Harness: the installer's state (src/main/harness/install.ts, ticket 13) — not installed fails,
-//   another version than this build's warns; both offer Install / Update.
+//   another version than this build's warns; both offer Install / Update. A Harness behind this
+//   build fails (worfy-update ticket 08): an older semver, or the same semver that the Update state
+//   says is behind (`harnessBehind`, ticket 05); the same semver GitHub has not ordered still warns
+//   with "Replace". Neither this fail nor that of worfy version opens First run by itself
+//   (`opensFirstRun: false`, spec R9): their signal at the start is a toast.
 // - Plugin dependencies: the plugins the Harness plugin needs (ticket 30, ADR-0059), from the same
 //   state — the same `claude plugin list`, no command of its own. Missing fails and offers the same
 //   install action, which then runs the dependency's commands alone; without the Harness plugin's
@@ -50,7 +58,7 @@
 // The system, its os.release(), its architecture and the answers of the tools come in through
 // CheckDeps, so a test checks Windows on any machine.
 import { execFile, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, openSync, readSync } from 'node:fs'
 import { arch as osArch, release as osRelease, tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { fileOrAlias, findGitBash, findOnPath, getVar, type Env as AgentEnv, type FileExists } from '../agent/env'
@@ -66,6 +74,7 @@ import { MIN_NODE_MAJOR, modelPlan, NODE_INSTALL_HINT, profileDocsLanguages, QMD
 import { programStart, windowsProgramPath } from '../program'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { Check, CheckGroup, CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
+import type { UpdateSnapshot } from '../../shared/ipc/update'
 
 export type Env = Readonly<Record<string, string | undefined>>
 
@@ -120,6 +129,12 @@ export interface CheckDeps {
    * development build. Only the Windows row "Limits from terminal" reads it.
    */
   limitsBridge?: string | null
+  /**
+   * Update of this copy (worfy-update ticket 08): its snapshot (src/main/ipc/update.ts) and the build
+   * version that runs. Unset, or `enabled: false` (a dev build without WORFY_UPDATE=1): no "worfy
+   * version" row, and no Harness is taken for behind by GitHub's word.
+   */
+  update?: () => { snapshot: Pick<UpdateSnapshot, 'enabled' | 'available' | 'build' | 'harnessBehind'>; version: string }
 }
 
 /** The machine: process.platform, os.release() (`10.0.<build>` on Windows) and the architecture. */
@@ -313,6 +328,7 @@ const CHECKS: readonly { id: CheckId; group: CheckGroup; title: string; windows?
   { id: 'node', group: 'Command-line tools', title: 'node' },
   { id: 'jq', group: 'Command-line tools', title: 'jq' },
   { id: 'gh-auth', group: 'GitHub', title: 'GitHub accounts' },
+  { id: 'worfy-update', group: 'worfy', title: 'worfy version' },
   { id: 'harness', group: 'Harness', title: 'Harness plugin' },
   { id: 'harness-dependencies', group: 'Harness', title: 'Plugin dependencies' },
   { id: 'harness-scripts', group: 'Harness', title: 'Harness scripts' },
@@ -616,7 +632,54 @@ async function ghAuth(deps: CheckDeps, machine: Machine, timeoutMs: number): Pro
   return row('fail', 'not signed in to any GitHub host', 'Sign in with gh auth login: you answer its questions yourself', 'gh auth login', [action('gh-login', 'Sign in…')])
 }
 
-function harness(status: HarnessStatus): Row {
+/** A `fail` that does not open First run by itself at the start (worfy-update spec R9). */
+const noFirstRun = (checked: Row): Row => ({ ...checked, opensFirstRun: false })
+
+/** How much of the end of build.log is read for its last line. */
+const LOG_TAIL_BYTES = 16 * 1024
+
+/** The last line of the file's end; '' when the file does not read. */
+function lastLineOf(file: string): string {
+  try {
+    const fd = openSync(file, 'r')
+    try {
+      const size = fstatSync(fd).size
+      const length = Math.min(size, LOG_TAIL_BYTES)
+      const buffer = Buffer.alloc(length)
+      readSync(fd, buffer, 0, length, size - length)
+      return lastLine(buffer.toString('utf8'))
+    } finally {
+      closeSync(fd)
+    }
+  } catch {
+    return ''
+  }
+}
+
+/** The tools an Update build needs, with the command that installs each (spec item 8). */
+const updateToolCommand = (machine: Machine, tool: string): string | null => {
+  if (tool === 'git' || tool === 'node') return installCommand(machine, tool)
+  return tool === 'pnpm' ? 'npm install -g pnpm' : null
+}
+
+/** "worfy version" (worfy-update ticket 08): the Update of this copy, as its snapshot says. */
+function worfyUpdate(update: NonNullable<CheckDeps['update']>, machine: Machine): Row {
+  const { snapshot, version } = update()
+  const { available, build } = snapshot
+  if (build.phase === 'failed') {
+    const missing = (build.missing ?? []).filter((tool) => updateToolCommand(machine, tool) !== null)
+    if (missing.length > 0) return noFirstRun(row('fail', `${missing.join(', ')} not found`, 'Updates need git, node and pnpm', missing.map((tool) => updateToolCommand(machine, tool)).join('; ')))
+    return noFirstRun(row('fail', 'update failed', build.log === undefined ? '' : lastLineOf(build.log), null, [action('update-log', 'Show log')]))
+  }
+  if (available !== null && !available.quiet) return noFirstRun(row('fail', `${available.version} available`, 'Update worfy from the toolbar or Settings → General'))
+  return noFirstRun(row('ok', `${version}, up to date`))
+}
+
+/**
+ * The Harness plugin. `behind`: the Update state says the installed Harness is behind this build's
+ * (`harnessBehind`, worfy-update ticket 05), which only GitHub can say for the same semver.
+ */
+function harness(status: HarnessStatus, behind: boolean): Row {
   const { state } = status
   const install = (label: string): Check['actions'] => (status.canInstall ? [action('harness-install', label)] : [])
   const devRun = status.canInstall ? '' : ' (a dev run only shows the state: start the packaged app to install)'
@@ -627,17 +690,24 @@ function harness(status: HarnessStatus): Row {
         : row('warn', `${state.version}, disabled`, 'Enable the plugin in Claude Code', 'claude plugin enable worfy@worfy-harness')
     case 'not-installed':
       return row('fail', 'not installed', `Install the Harness of this build${status.bundledVersion ? ` (${status.bundledVersion})` : ''}${devRun}`, null, install('Install'))
-    case 'outdated':
-      // The same semver from another commit (ticket 67): no arrow and no "update", as worfy cannot tell which one is newer.
-      return state.sameVersion
-        ? row(
-            'warn',
-            `${state.from ?? 'unknown version'}, this build ${state.to}`,
-            `Both are version ${state.to.split('+')[0] ?? state.to} and ${unorderedWhy(state.to, state.from)}, so worfy cannot tell which is newer: replace it only if this build is the newer one${devRun}`,
-            null,
-            install('Replace'),
-          )
-        : row('warn', `${state.from ?? 'unknown version'} → ${state.to}`, `Update it to the Harness of this build${devRun}`, null, install('Update'))
+    case 'outdated': {
+      const update = (level: Row['status']): Row => row(level, `${state.from ?? 'unknown version'} → ${state.to}`, `Update it to the Harness of this build${devRun}`, null, install('Update'))
+      // The same semver from another commit (ticket 67): no arrow and no "update", as worfy cannot
+      // tell which one is newer — unless GitHub said this build's commit comes after it (`behind`).
+      if (state.sameVersion) {
+        if (behind) return noFirstRun(update('fail'))
+        return row(
+          'warn',
+          `${state.from ?? 'unknown version'}, this build ${state.to}`,
+          `Both are version ${state.to.split('+')[0] ?? state.to} and ${unorderedWhy(state.to, state.from)}, so worfy cannot tell which is newer: replace it only if this build is the newer one${devRun}`,
+          null,
+          install('Replace'),
+        )
+      }
+      // An older semver, or a version that does not read. A newer installed Harness is not
+      // `outdated` but an installer error (install.ts refuses to replace it).
+      return noFirstRun(update('fail'))
+    }
     case 'error':
       return row('fail', `error at ${state.step}`, lastLine(state.reason), null, install('Retry'))
   }
@@ -805,7 +875,25 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
   // One read of the installer's state feeds the Harness plugin and its dependencies.
   const harnessStatus = Promise.resolve().then(() => deps.harness())
   harnessStatus.catch(() => undefined)
-  const listed = CHECKS.filter((check) => machine.windows || check.windows !== true)
+  // One snapshot of Update feeds "worfy version" and the Harness row; none where Update is off.
+  let update: CheckDeps['update']
+  try {
+    const answer = deps.update?.()
+    if (answer?.snapshot.enabled === true) update = () => answer
+  } catch (error) {
+    // A state that does not read: the row says so, and the Harness row goes by the installer alone.
+    update = () => {
+      throw error
+    }
+  }
+  const behind = (): boolean => {
+    try {
+      return (update?.().snapshot.harnessBehind ?? null) !== null
+    } catch {
+      return false
+    }
+  }
+  const listed = CHECKS.filter((check) => (machine.windows || check.windows !== true) && (check.id !== 'worfy-update' || update !== undefined))
   const onWindows = (run: () => Promise<Row> | Row): Promise<Row> | null => (machine.windows ? guarded(run) : null)
   const rows: Record<CheckId, Promise<Row> | null> = {
     'claude-login': guarded(() => signIn(deps)),
@@ -821,7 +909,8 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
     node: guarded(() => node(deps, machine, timeoutMs)),
     jq: guarded(() => tool('jq', deps, machine, timeoutMs)),
     'gh-auth': guarded(() => ghAuth(deps, machine, timeoutMs)),
-    harness: guarded(async () => harness(await harnessStatus)),
+    'worfy-update': update === undefined ? null : guarded(() => worfyUpdate(update, machine)),
+    harness: guarded(async () => harness(await harnessStatus, behind())),
     'harness-dependencies': guarded(async () => harnessDependencies(await harnessStatus)),
     'harness-scripts': guarded(() => harnessScripts(deps)),
     'legacy-harness': guarded(() => legacyHarness(deps)),

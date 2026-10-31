@@ -29,6 +29,8 @@ export const checkIdSchema = z.enum([
   'node',
   'jq',
   'gh-auth',
+  // The version of worfy against its Update (worfy-update ticket 08); only where Update is on.
+  'worfy-update',
   'harness',
   'harness-dependencies',
   'harness-scripts',
@@ -44,12 +46,13 @@ export type CheckId = z.infer<typeof checkIdSchema>
  * dependencies, one dialog) and the `qmd-*` actions itself after its dialog; `gh-login` is
  * confirmed by main and then typed into a Terminal Node by the screen;
  * `migration-form` only opens the form of worfy-harness ticket 14, which asks on its own;
- * `limits-bridge` (Windows) points statusLine of Claude Code's settings.json at the Limits bridge.
+ * `limits-bridge` (Windows) points statusLine of Claude Code's settings.json at the Limits bridge;
+ * `update-log` only asks `update.showLog` to open the log of the failed Update build ("Show log").
  */
-export const firstRunActionSchema = z.enum(['harness-install', 'migration-form', 'qmd-install', 'qmd-models-download', 'qmd-models-skip', 'qmd-collections', 'gh-login', 'limits-bridge'])
+export const firstRunActionSchema = z.enum(['harness-install', 'migration-form', 'qmd-install', 'qmd-models-download', 'qmd-models-skip', 'qmd-collections', 'gh-login', 'limits-bridge', 'update-log'])
 export type FirstRunAction = z.infer<typeof firstRunActionSchema>
 
-export const checkGroupSchema = z.enum(['Claude Code', 'Windows', 'Command-line tools', 'GitHub', 'Harness', 'qmd'])
+export const checkGroupSchema = z.enum(['Claude Code', 'Windows', 'Command-line tools', 'GitHub', 'worfy', 'Harness', 'qmd'])
 export type CheckGroup = z.infer<typeof checkGroupSchema>
 
 export const checkSchema = z.object({
@@ -65,6 +68,11 @@ export const checkSchema = z.object({
   command: z.string().nullable(),
   /** The buttons of the row, with their labels. */
   actions: z.array(z.object({ id: firstRunActionSchema, label: z.string() })),
+  /**
+   * `false`: a `fail` of this row does not open First run by itself at the start (worfy-update spec
+   * R9) — "worfy version" and the Harness behind this build, whose signal at the start is a toast.
+   */
+  opensFirstRun: z.literal(false).optional(),
 })
 export type Check = z.infer<typeof checkSchema>
 
@@ -77,7 +85,8 @@ export type FirstRunReport = z.infer<typeof firstRunReportSchema>
 
 /**
  * Whether the screen opens by itself at start: when worfy's data folder has no mark that the
- * screen was closed once, or when a check fails that did not fail when it was last closed.
+ * screen was closed once, or when a check fails that did not fail when it was last closed (a row
+ * with `opensFirstRun: false` does not count).
  */
 export const firstRunStartup = invokeChannel(
   'firstRun.startup',
@@ -107,7 +116,7 @@ export const firstRunChecks = invokeChannel('firstRun.checks', z.void(), firstRu
 export const firstRunRun = invokeChannel(
   'firstRun.run',
   z.object({
-    action: firstRunActionSchema.exclude(['migration-form']),
+    action: firstRunActionSchema.exclude(['migration-form', 'update-log']),
     /** The Project whose Canvas gets the Terminal Node (`gh-login`); named in the dialog. */
     projectName: z.string().min(1).max(200).optional(),
   }),

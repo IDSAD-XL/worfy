@@ -21,6 +21,9 @@ this Machine, in any way.
 | Closed once, and a check fails now that did not fail at the last close | The checks |
 | Closed once, and no check fails that did not fail at the last close | Nothing |
 
+"worfy version" and the Harness plugin row of a Harness behind this build never count here: they fail, but their signal
+at the start is a toast, not this dialog.
+
 New and existing are defined under [Getting started](#getting-started).
 
 **Other ways in.** The Command palette's "First-run checks" opens the checks at any time, with or without a Project.
@@ -44,7 +47,8 @@ or "2 failed · 1 warning".
 | Command-line tools | git identity | `user.name` and `user.email`, asked outside any repository | Warning, with the two `git config --global` commands |
 | Command-line tools | node | Version 22 or newer | Failed, with `brew install node` |
 | GitHub | GitHub accounts | `gh auth status` | Failed when gh is missing, and when no account is signed in, with "Sign in…" |
-| Harness | Harness plugin | The installer's state | Failed when not installed ("Install") or on an installer error ("Retry"). Warning when disabled, with `claude plugin enable worfy@worfy-harness`, or when another version ("Update") or the same version from another build ("Replace") is installed |
+| worfy | worfy version | The Update state of this copy; only where Update is on (the packaged Stable copy, or `WORFY_UPDATE=1`) | Failed with "<version> available" while an Update waits (not after a roll back from it), with "update failed", the last line of the build log and "Show log" after a failed build, and with "<tool> not found" and its install command when the build did not find git, node or pnpm |
+| Harness | Harness plugin | The installer's state | Failed when not installed ("Install"), on an installer error ("Retry"), and when an older version is installed ("Update"). Warning when disabled, with `claude plugin enable worfy@worfy-harness`, or when the same version from another build is installed ("Replace"); that one fails with "Update" once GitHub says the installed build is the older one |
 | Harness | Plugin dependencies | The plugins the Harness plugin needs | Failed when one is missing, with "Install…". Warning when they could not be checked yet |
 | Harness | Harness scripts | `profile --help`, run the way the Epics read runs it, within 15 s | Failed with the exit code or signal and what the script said: worfy then reads no Epics. Warning without a Harness or without that script |
 | Harness | Old Harness in ~/.claude | Files of the old Harness | Warning, with "Move…" |
