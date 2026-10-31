@@ -1,7 +1,8 @@
 # 18 — Страница Harness
 
 Type: task
-Status: open
+Status: done 2026-10-31T00:15Z
+PR: #1088
 Blocked by: 08, 09, 10, 11, 12, 13, 14, 15, 16, 17
 Source: «Как устроено» и Q8, Q9 [spec.md](../spec.md); решения владельца 2026-10-30, Q2, Q3, Q7, Q9, Q10, Q20, Q21, Q22; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (английский как основной язык Feature page)
 
