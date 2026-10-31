@@ -34,7 +34,10 @@ export function idle({ sessions, autopilotRunning }: IdleSources): boolean {
 
 /** Something that says whether nothing works now, and tells its subscribers when that changes. */
 export interface IdleSignal {
+  /** As last looked at: on the last event, or the last look at Autopilot (at most 2 s ago). */
   readonly idle: boolean
+  /** Looks at the sources now, and tells the subscribers if that changed the answer. */
+  recheck(): boolean
   /** Answers the unsubscribe. */
   subscribe(listener: (idle: boolean) => void): () => void
 }
@@ -59,6 +62,11 @@ export class IdleWatch implements IdleSignal {
   subscribe(listener: (idle: boolean) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  recheck(): boolean {
+    this.update()
+    return this.value
   }
 
   /** Looks now, then on each Session event that may change the answer and every 2 s; the function returned stops it. */

@@ -3,6 +3,7 @@
 // Stable copy is a folder in the temporary folder (assertTemporaryStableCopy), and no test quits an
 // app or runs the real helper. One test starts a real detached node with a stand-in helper that only
 // writes down what it got, to show the arguments and the folder reach it as given on each system.
+import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -11,7 +12,7 @@ import type { UpdateSnapshot } from '../../src/shared/ipc/update'
 import { UpdateService } from '../../src/main/ipc/update'
 import type { UpdateGitHub } from '../../src/main/update/check'
 import { IdleWatch, type IdleSignal } from '../../src/main/update/idle'
-import { helperScript, previousPaths, restartFile, Restarts, resultFile, settleLastRestart, type SpawnDetached } from '../../src/main/update/restart'
+import { helperScript, helperStart, NODE_MISSING, NODE_NOT_EXE, previousPaths, restartFile, Restarts, resultFile, settleLastRestart, type SpawnDetached } from '../../src/main/update/restart'
 import { changeUpdateState, readUpdateState } from '../../src/main/update/state'
 import { removeTestTree } from '../remove'
 import { findScriptNode } from '../script-node'
@@ -34,6 +35,9 @@ const PID = 4242
 class FakeIdle implements IdleSignal {
   private listeners = new Set<(idle: boolean) => void>()
   constructor(public idle: boolean) {}
+  recheck(): boolean {
+    return this.idle
+  }
   subscribe(listener: (idle: boolean) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -197,6 +201,85 @@ describe('Restart now', () => {
     expect(existsSync(restartFile(dir))).toBe(false)
   })
 
+  it('looks at Autopilot afresh right before the helper starts, not as the last look every 2 s saw it', async () => {
+    readyBuild()
+    let autopilot = false
+    const watch = new IdleWatch({ sources: { sessions: () => [], autopilotRunning: () => autopilot }, observe: () => () => undefined })
+    const stopWatch = watch.start()
+    try {
+      const env = deferred<Record<string, string>>()
+      const { restarts: subject, quit } = restarts(watch, { env: () => env.promise })
+      const answer = subject.restart('now')
+      // An Autopilot run starts; the next look of the watch would be up to 2 s later.
+      autopilot = true
+      env.resolve(shellEnv())
+      expect(await answer).toEqual({ outcome: 'refused', reason: 'a Session is working or Autopilot runs', busy: true })
+      expect(spawned).toEqual([])
+      expect(quit).not.toHaveBeenCalled()
+      expect(watch.idle).toBe(false)
+    } finally {
+      stopWatch()
+    }
+  })
+
+  it('a helper that does not start puts back the restart.json of the restart before', async () => {
+    readyBuild()
+    const earlier = `${JSON.stringify({ action: 'install', version: '0.5.0+aaaaaaa', sha: RUNNING_SHA, from: { sha: PREVIOUS_SHA, version: '0.4.0+ccccccc' }, harness: true, at: '2026-10-30T10:00:00.000Z' })}\n`
+    writeFileSync(restartFile(dir), earlier)
+    const { restarts: subject, quit } = restarts(new FakeIdle(true), { spawn: () => ({ pid: undefined, on: () => undefined, unref: () => undefined }) })
+    expect(await subject.restart('now')).toEqual({ outcome: 'refused', reason: 'node could not be started' })
+    expect(readFileSync(restartFile(dir), 'utf8')).toBe(earlier)
+    expect(quit).not.toHaveBeenCalled()
+  })
+
+  it('removes the result of an earlier restart before the helper starts', async () => {
+    readyBuild()
+    writeFileSync(resultFile(dir), JSON.stringify({ ok: false, action: 'install', commit: null, previous: null, reason: 'an earlier run', notes: [] }))
+    const { restarts: subject } = restarts(new FakeIdle(true))
+    expect(await subject.restart('now')).toEqual({ outcome: 'quitting' })
+    expect(existsSync(resultFile(dir))).toBe(false)
+  })
+
+  it('lets the started helper go (unref) and hears its late error without failing', async () => {
+    readyBuild()
+    const child = Object.assign(new EventEmitter(), { pid: 778, unref: vi.fn() })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const { restarts: subject, quit } = restarts(new FakeIdle(true), { spawn: () => child })
+      expect(await subject.restart('now')).toEqual({ outcome: 'quitting' })
+      expect(child.unref).toHaveBeenCalledTimes(1)
+      expect(quit).toHaveBeenCalledTimes(1)
+      // Without a listener an 'error' event would throw here.
+      child.emit('error', new Error('spawn node ENOENT'))
+      expect(warn).toHaveBeenCalledWith('[update] the restart helper failed', expect.any(Error))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('starts node.exe of the Path on Windows and refuses a node.cmd', () => {
+    const env = { PATH: 'C:\\tools;C:\\node', PATHEXT: '.COM;.EXE;.BAT;.CMD', SystemRoot: 'C:\\Windows' }
+    const args = ['C:\\data\\update\\repo\\scripts\\install-stable.mjs', 'C:\\Users\\me me\\AppData\\Local\\worfy-stable']
+    expect(helperStart(args, env, 'win32', (path) => path === 'C:\\node\\node.exe')).toEqual({ file: 'C:\\node\\node.exe', args })
+    // A node.cmd earlier on the Path is what a terminal would run: refused, not glued into a cmd.exe line.
+    expect(helperStart(args, env, 'win32', (path) => path === 'C:\\tools\\node.cmd' || path === 'C:\\node\\node.exe')).toBe(NODE_NOT_EXE)
+    expect(helperStart(args, env, 'win32', () => false)).toBe(NODE_MISSING)
+  })
+
+  it.runIf(WINDOWS)('refuses a node.cmd on Windows: no cmd.exe, no command line glued from the paths', async () => {
+    readyBuild()
+    const bin = mkdtempSync(join(root, 'node-cmd-'))
+    writeFileSync(join(bin, 'node.cmd'), '@echo off\r\n')
+    const { restarts: subject, quit } = restarts(new FakeIdle(true), {
+      platform: 'win32',
+      env: () => Promise.resolve({ PATH: bin, PATHEXT: '.COM;.EXE;.BAT;.CMD', SystemRoot: 'C:\\Windows' }),
+    })
+    expect(await subject.restart('now')).toEqual({ outcome: 'refused', reason: NODE_NOT_EXE })
+    expect(spawned).toEqual([])
+    expect(quit).not.toHaveBeenCalled()
+    expect(existsSync(restartFile(dir))).toBe(false)
+  })
+
   it('a helper that does not start leaves no restart.json and does not quit', async () => {
     readyBuild()
     const { restarts: subject, quit } = restarts(new FakeIdle(true), { spawn: () => ({ pid: undefined, on: () => undefined, unref: () => undefined }) })
@@ -264,6 +347,30 @@ describe('Restart now', () => {
 })
 
 describe('Restart when idle', () => {
+  it('pressed when all is quiet, keeps waiting when a Session begins a turn while the restart is asked for', async () => {
+    readyBuild()
+    const idle = new FakeIdle(true)
+    const env = deferred<Record<string, string>>()
+    const { restarts: subject, quit } = restarts(idle, { env: () => env.promise })
+    const answer = subject.restart('idle')
+    idle.set(false)
+    env.resolve(shellEnv())
+    expect(await answer).toEqual({ outcome: 'waiting' })
+    expect(subject.pending).toBe(true)
+    expect(quit).not.toHaveBeenCalled()
+    // The turn ends: the restart the wish kept goes now.
+    idle.set(true)
+    await vi.waitFor(() => expect(quit).toHaveBeenCalledTimes(1))
+    expect(spawned).toHaveLength(1)
+    expect(subject.pending).toBe(false)
+  })
+
+  it('pressed when all is quiet, answers the refusal that is not about work, and keeps no wish', async () => {
+    const { restarts: subject } = restarts(new FakeIdle(true))
+    expect(await subject.restart('idle')).toEqual({ outcome: 'refused', reason: 'no Update is built and ready' })
+    expect(subject.pending).toBe(false)
+  })
+
   it('waits while something works, restarts once all is quiet, and a press of Restart now drops the wish', async () => {
     readyBuild()
     const idle = new FakeIdle(false)
@@ -381,8 +488,16 @@ describe('Roll back', () => {
     const { restarts: subject } = restarts(new FakeIdle(true))
     const confirm = vi.fn(() => Promise.resolve(true))
     expect(await subject.rollback(confirm)).toEqual({ outcome: 'refused', reason: 'no previous version is kept' })
+    // A file with the name of the copy, next to its metadata, is no copy.
+    const paths = previousPaths(process.platform, target)
+    mkdirSync(dirname(paths.copy), { recursive: true })
+    writeFileSync(paths.copy, 'not a copy')
+    writeFileSync(paths.metadata, JSON.stringify({ commit: PREVIOUS_SHA }))
+    expect(await subject.rollback(confirm)).toEqual({ outcome: 'refused', reason: 'no previous version is kept' })
+    removeTestTree(paths.copy)
+    removeTestTree(paths.metadata)
     // A folder without its file is no copy either.
-    mkdirSync(previousPaths(process.platform, target).copy, { recursive: true })
+    mkdirSync(paths.copy, { recursive: true })
     expect(await subject.rollback(confirm)).toEqual({ outcome: 'refused', reason: 'no previous version is kept' })
     expect(confirm).not.toHaveBeenCalled()
     expect(spawned).toEqual([])

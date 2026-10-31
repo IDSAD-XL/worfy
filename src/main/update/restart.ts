@@ -17,7 +17,7 @@
 // refused with the reason. "Restart when idle" keeps the wish (RestartIntent) and restarts once
 // nothing works; "Restart now" pressed again, or a cancel, drops it, and so does a quit of worfy.
 import { spawn as nodeSpawn } from 'node:child_process'
-import { closeSync, existsSync, openSync, readFileSync, statSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { join, posix, win32 } from 'node:path'
 import { z } from 'zod'
 import type { RestartAnswer, UpdateState } from '../../shared/ipc/update'
@@ -143,6 +143,23 @@ export function settleLastRestart({ dir, stateFile, target, platform = process.p
   }
 }
 
+export const NODE_MISSING = 'node was not found: a restart into an Update needs it (Settings → Health)'
+export const NODE_NOT_EXE = 'the node found is no program worfy can start by itself (node.exe)'
+
+/**
+ * How the system's node starts the helper with `args`, or the reason it cannot. Off Windows `node`
+ * by name, found on the PATH of `env` when the process starts. On Windows the node.exe the Path
+ * names; a node.cmd is refused: it would need cmd.exe and a command line glued from the paths,
+ * where node.exe takes its arguments one by one. `exists` is for the tests (toolStart).
+ */
+export function helperStart(args: readonly string[], env: Env, platform: NodeJS.Platform, exists?: (path: string) => boolean): { file: string; args: string[] } | string {
+  if (platform !== 'win32' && missingTools(env, platform).includes('node')) return NODE_MISSING
+  const start = toolStart('node', args, env, platform, exists)
+  if (start === null) return NODE_MISSING
+  if (start.shell !== false) return NODE_NOT_EXE
+  return { file: start.file, args: start.args }
+}
+
 /** Starts the helper; Node's spawn by default. Answers the child, whose pid is undefined when it did not start. */
 export type SpawnDetached = (
   file: string,
@@ -211,7 +228,8 @@ export class Restarts {
       this.intent.cancel()
       return Promise.resolve(this.quittingNow ? QUITTING : { outcome: 'cancelled' })
     }
-    if (when === 'idle' && !this.options.idle.idle) return Promise.resolve(this.quittingNow ? QUITTING : this.intent.arm())
+    // Always through the wish: a Session that begins a turn while the restart is asked for keeps it waiting.
+    if (when === 'idle') return this.quittingNow ? Promise.resolve(QUITTING) : this.intent.arm()
     // A new press of "Restart now" drops the wish of "Restart when idle", whatever it answers.
     if (when === 'now') this.intent.cancel()
     return this.now()
@@ -264,11 +282,10 @@ export class Restarts {
    */
   private launch(env: Env, action: 'install' | 'rollback' = 'install'): RestartAnswer {
     if (this.quittingNow) return QUITTING
-    const plan = this.plan(action)
+    const plan = this.plan(action, true)
     if ('outcome' in plan) return plan
     const { dir } = this.options
     const platform = this.options.platform ?? process.platform
-    if (missingTools(env, platform).includes('node')) return { outcome: 'refused', reason: 'node was not found: a restart into an Update needs it (Settings → Health)' }
     const args = [
       helperScript(dir),
       this.options.target(),
@@ -279,16 +296,17 @@ export class Restarts {
       '--result',
       resultFile(dir),
     ]
-    const start = toolStart('node', args, env, platform)
-    // A node.cmd would need cmd.exe and a command line glued from the paths; the system's node.exe is
-    // started by itself, its arguments passed one by one.
-    if (start === null || start.shell !== false) return { outcome: 'refused', reason: 'the node found is no program worfy can start by itself (node.exe)' }
+    const start = helperStart(args, env, platform)
+    if (typeof start === 'string') return { outcome: 'refused', reason: start }
     const childEnv = withoutTokens(env)
     for (const name of Object.keys(childEnv)) if (name.toUpperCase() === 'WORFY_STABLE_PREBUILT') delete childEnv[name]
     if (plan.appPath !== undefined) childEnv.WORFY_STABLE_PREBUILT = plan.appPath
 
+    // The record of the restart before this one (ticket 05 reads it): put back when this one does not start.
+    let before: string | null
     try {
       removeFile(resultFile(dir))
+      before = existsSync(restartFile(dir)) ? readFileSync(restartFile(dir), 'utf8') : null
       writeJsonFile(restartFile(dir), restartRecordSchema, { ...plan.record, at: (this.options.now ?? (() => new Date()))().toISOString() })
     } catch (error) {
       return { outcome: 'refused', reason: `${restartFile(dir)} could not be written (${message(error)})` }
@@ -297,7 +315,7 @@ export class Restarts {
     try {
       log = openSync(restartLogFile(dir), 'w')
     } catch (error) {
-      this.forgetRecord()
+      this.restoreRecord(before)
       return { outcome: 'refused', reason: `${restartLogFile(dir)} could not be opened (${message(error)})` }
     }
     let started: boolean
@@ -323,7 +341,7 @@ export class Restarts {
       closeSync(log)
     }
     if (!started) {
-      this.forgetRecord()
+      this.restoreRecord(before)
       return { outcome: 'refused', reason: failure }
     }
     this.quittingNow = true
@@ -332,9 +350,12 @@ export class Restarts {
     return { outcome: 'quitting' }
   }
 
-  /** What `action` would do now, or the refusal. */
-  private plan(action: 'install' | 'rollback'): Plan | RestartAnswer {
-    if (!this.options.idle.idle) return BUSY
+  /**
+   * What `action` would do now, or the refusal. `fresh`: the Sessions and Autopilot are looked at
+   * now, not as last seen (Autopilot is looked at only every 2 s).
+   */
+  private plan(action: 'install' | 'rollback', fresh = false): Plan | RestartAnswer {
+    if (!(fresh ? this.options.idle.recheck() : this.options.idle.idle)) return BUSY
     const { dir } = this.options
     if (!existsSync(helperScript(dir))) return { outcome: 'refused', reason: `the clone of Update has no ${helperScript(dir)}` }
     const state = readUpdateState(this.options.stateFile())
@@ -351,11 +372,16 @@ export class Restarts {
     return { record: { action, version: previous.version, sha: previous.commit, from, harness: true } }
   }
 
-  private forgetRecord(): void {
+  /** Puts back the restart.json a restart that did not start replaced: removed when there was none. */
+  private restoreRecord(before: string | null): void {
+    const file = restartFile(this.options.dir)
     try {
-      removeFile(restartFile(this.options.dir))
+      if (before === null) return removeFile(file)
+      const writing = `${file}.restoring-${process.pid}`
+      writeFileSync(writing, before)
+      renameSync(writing, file)
     } catch (error) {
-      console.warn('[update] restart.json of a restart that did not start could not be removed', error)
+      console.warn(`[update] ${file} of a restart that did not start could not be put back`, error)
     }
   }
 }
@@ -380,7 +406,7 @@ export interface RestartIntentOptions {
 export class RestartIntent {
   private armed = false
   private done = false
-  private running = false
+  private running: Promise<RestartAnswer> | null = null
   private unsubscribe: (() => void) | null = null
 
   constructor(private readonly options: RestartIntentOptions) {}
@@ -389,17 +415,23 @@ export class RestartIntent {
     return this.armed
   }
 
-  arm(): RestartAnswer {
+  /**
+   * Keeps the wish; when all is quiet already, restarts at once and answers how that went. A refusal
+   * because something works answers `waiting`: the wish stays for the next quiet.
+   */
+  async arm(): Promise<RestartAnswer> {
     if (this.done) return QUITTING
     if (!this.armed) {
       this.armed = true
       this.unsubscribe = this.options.idle.subscribe((idle) => {
-        if (idle) this.fire()
+        if (idle) void this.fire()
       })
       this.options.onChange?.()
     }
-    if (this.options.idle.idle) this.fire()
-    return { outcome: 'waiting' }
+    const attempt = this.options.idle.idle ? this.fire() : null
+    const answer = attempt === null ? null : await attempt
+    if (answer === null || (answer.outcome === 'refused' && answer.busy === true && this.armed)) return { outcome: 'waiting' }
+    return answer
   }
 
   cancel(): void {
@@ -420,25 +452,36 @@ export class RestartIntent {
     this.unsubscribe = null
   }
 
-  private fire(): void {
-    if (!this.armed || this.running) return
-    this.running = true
-    void this.attempt()
+  /** The restart of the wish; the one under way when there is one, null when there is no wish. */
+  private fire(): Promise<RestartAnswer> | null {
+    if (!this.armed) return null
+    if (this.running === null) {
+      // Taken before the restart is asked for: a change it causes on the way (the restart looks at
+      // the Sessions afresh) must not start a second one.
+      let settle: (answer: RestartAnswer) => void = () => undefined
+      this.running = new Promise((resolve) => (settle = resolve))
+      void this.attempt().then((answer) => {
+        this.running = null
+        settle(answer)
+        // Refused because something worked; a quiet that came back while it was asked for sends no
+        // new change, so it is looked at here.
+        if (answer.outcome === 'refused' && answer.busy === true && this.options.idle.idle) void this.fire()
+      })
+    }
+    return this.running
   }
 
-  private async attempt(): Promise<void> {
-    let busy = false
+  private async attempt(): Promise<RestartAnswer> {
+    let answer: RestartAnswer
     try {
-      const answer = await this.options.restartNow()
-      busy = answer.outcome === 'refused' && answer.busy === true
-      if (answer.outcome === 'refused' && !busy) console.warn(`[update] "Restart when idle" gave up: ${answer.reason}`)
+      answer = await this.options.restartNow()
     } catch (error) {
       console.warn('[update] "Restart when idle" failed', error)
+      answer = { outcome: 'refused', reason: message(error) }
     }
-    this.running = false
-    if (!busy) return this.cancel()
-    // Refused because something worked; a quiet that came back while it was asked for sends no new
-    // change, so it is looked at here.
-    if (this.options.idle.idle) this.fire()
+    const busy = answer.outcome === 'refused' && answer.busy === true
+    if (answer.outcome === 'refused' && !busy) console.warn(`[update] "Restart when idle" gave up: ${answer.reason}`)
+    if (!busy) this.cancel()
+    return answer
   }
 }
