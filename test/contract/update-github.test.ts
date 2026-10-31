@@ -5,14 +5,14 @@
 // from the file next to a Stable copy in the temporary folder.
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { UpdateSnapshot } from '../../src/shared/ipc/update'
 import { UpdateService } from '../../src/main/ipc/update'
 import { checkForUpdate } from '../../src/main/update/check'
 import { updateGitHub } from '../../src/main/update/github'
 import { readStableMetadata, runningOf, stableCopyPath } from '../../src/main/update/stable-copy'
-import { readUpdateState, updateStateFile } from '../../src/main/update/state'
+import { changeUpdateState, readUpdateState, updateStateFile } from '../../src/main/update/state'
 import { removeTestTree } from '../remove'
 import { assertTemporaryStableCopy, closedPort, startUpdateStub, type UpdateStub } from '../update-stub'
 
@@ -24,6 +24,7 @@ const folders: string[] = []
 
 afterEach(async () => {
   vi.unstubAllEnvs()
+  vi.restoreAllMocks()
   await stub?.close()
   stub = undefined
   for (const folder of folders.splice(0)) removeTestTree(folder)
@@ -116,12 +117,15 @@ describe('the Update service over the stub', () => {
   it('writes the Available update and the running commit of the Stable copy into the state file', async () => {
     const temp = mkdtempSync(join(tmpdir(), 'worfy-update-'))
     folders.push(temp)
-    const copy = join(temp, 'worfy-stable.app')
+    // The copy as the Stable copy of this platform is named: a folder ending in .app on macOS, a
+    // plain folder on Windows. Next to either lies worfy-stable.json (metadataPath of the script).
+    const copy = join(temp, process.platform === 'win32' ? 'worfy-stable' : 'worfy-stable.app')
     stub = await startUpdateStub({ head: HEAD, version: '0.6.0' }, { stable: copy })
     mkdirSync(copy)
     writeFileSync(join(temp, 'worfy-stable.json'), JSON.stringify({ commit: RUNNING, dirty: false }))
-    expect(stableCopyPath('darwin', { WORFY_UPDATE_STABLE: copy }, '/Users/u')).toBe(copy)
-    const running = runningOf(readStableMetadata('darwin', copy), '0.3.0+1111111')
+    expect(stableCopyPath(process.platform, { WORFY_UPDATE_STABLE: copy }, '/Users/u')).toBe(copy)
+    const running = runningOf(readStableMetadata(process.platform, copy), '0.3.0+1111111')
+    expect(running.commit).toBe(RUNNING)
 
     const sent: UpdateSnapshot[] = []
     const service = new UpdateService({
@@ -141,6 +145,57 @@ describe('the Update service over the stub', () => {
     // A skipped check keeps the Update known before.
     stub.answers = { head: HEAD, failWith: 429 }
     expect(await service.check()).toMatchObject({ lastCheck: { result: 'skipped' }, available: { sha: HEAD } })
+  })
+
+  it('answers "Check now" during a scheduled check with a check of its own, never quiet', async () => {
+    stub = await startUpdateStub({ head: HEAD })
+    const file = updateStateFile(mkdtempSync(join(tmpdir(), 'worfy-update-')))
+    folders.push(dirname(dirname(file)))
+    // The head is the commit the user rolled back from: a scheduled check marks it quiet.
+    changeUpdateState((state) => ({ ...state, rolledBackFrom: HEAD }), file)
+    const service = new UpdateService({
+      enabled: true,
+      running: () => ({ commit: RUNNING, version: '0.3.0+1111111' }),
+      client: updateGitHub({ env: { WORFY_UPDATE_API: stub.url } }),
+      stateFile: () => file,
+      broadcast: () => undefined,
+    })
+    const scheduled = service.checks.now(false)
+    const asked = await service.check()
+    await scheduled
+    expect(asked.available).toMatchObject({ sha: HEAD, quiet: false })
+    // Two checks of four reads each: the scheduled one, then the one asked for.
+    expect(stub.requests).toHaveLength(8)
+    // A scheduled check alone keeps the mark.
+    await service.checks.now(false)
+    expect(readUpdateState(file).available?.quiet).toBe(true)
+  })
+
+  it('never throws nor rejects when the state file cannot be read, and logs the result of the check', async () => {
+    stub = await startUpdateStub({ head: HEAD, version: '0.6.0' })
+    const root = mkdtempSync(join(tmpdir(), 'worfy-update-'))
+    folders.push(root)
+    const file = updateStateFile(root)
+    // A folder where the file should be: every read and write of it fails.
+    mkdirSync(file, { recursive: true })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const service = new UpdateService({
+      enabled: true,
+      running: () => ({ commit: RUNNING, version: '0.3.0+1111111' }),
+      client: updateGitHub({ env: { WORFY_UPDATE_API: stub.url } }),
+      stateFile: () => file,
+      // As the app's broadcast does: the snapshot reads the state file.
+      broadcast: () => void service.snapshot(),
+    })
+    let done: Promise<void> | undefined
+    expect(() => {
+      done = service.checks.now(false)
+    }).not.toThrow()
+    await expect(done).resolves.toBeUndefined()
+    expect(service.checks.checking).toBe(false)
+    expect(stub.requests).toHaveLength(4)
+    const failed = errors.mock.calls.find(([message]) => message === '[update] the check failed')
+    expect(String((failed?.[1] as Error | undefined)?.message)).toContain(`"version":"0.6.0+abcdef0"`)
   })
 
   it('refuses a Stable copy outside the temporary folder', () => {

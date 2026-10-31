@@ -170,11 +170,11 @@ describe('the schedule of the checks', () => {
     expect(run).toHaveBeenCalledTimes(0)
     await vi.advanceTimersByTimeAsync(1)
     expect(run).toHaveBeenCalledTimes(1)
-    // A check asked for while one runs gets that one's result.
-    const asked = checks.now(true)
+    // A scheduled check asked for while one runs gets that one's result.
+    const joined = checks.now()
     expect(run).toHaveBeenCalledTimes(1)
     release?.()
-    await asked
+    await joined
     await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
     expect(run).toHaveBeenCalledTimes(2)
     release?.()
@@ -182,5 +182,47 @@ describe('the schedule of the checks', () => {
     await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000)
     expect(run).toHaveBeenCalledTimes(2)
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('runs a check asked for by the user after the scheduled one that runs, once for every asker', async () => {
+    const calls: boolean[] = []
+    const releases: (() => void)[] = []
+    const checks = new UpdateChecks(
+      (manual) =>
+        new Promise<void>((resolve) => {
+          calls.push(manual)
+          releases.push(resolve)
+        }),
+    )
+    const scheduled = checks.now(false)
+    await vi.waitFor(() => expect(calls).toEqual([false]))
+    const asked = [checks.now(true), checks.now(true)]
+    expect(calls).toEqual([false])
+    releases.shift()?.()
+    await scheduled
+    await vi.waitFor(() => expect(calls).toEqual([false, true]))
+    // A check asked for while one asked for runs joins it.
+    const third = checks.now(true)
+    releases.shift()?.()
+    await Promise.all([...asked, third])
+    expect(calls).toEqual([false, true])
+    expect(checks.checking).toBe(false)
+  })
+
+  it('neither throws nor rejects when the listener of its changes throws', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const run = vi.fn(() => Promise.resolve())
+    const checks = new UpdateChecks(run, () => {
+      throw new Error('EISDIR: illegal operation on a directory, read')
+    })
+    let done: Promise<void> | undefined
+    expect(() => {
+      done = checks.now()
+    }).not.toThrow()
+    await expect(done).resolves.toBeUndefined()
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(checks.checking).toBe(false)
+    expect(errors).toHaveBeenCalledTimes(2)
+    errors.mockRestore()
   })
 })

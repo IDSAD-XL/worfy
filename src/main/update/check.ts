@@ -79,10 +79,13 @@ export const CHECK_EVERY_MS = 60 * 60 * 1000
 
 /**
  * The schedule: `run` 10 s after start() and then every hour. One check at a time: a check asked for
- * while one runs gets that one. `onChange` hears a check begin and end, after `checking` changed.
+ * while one runs gets that one, except a check asked for by the user (`manual`) while a scheduled one
+ * runs: it runs after that one, so its answer never carries the quiet mark (ticket 01, item 3).
+ * `onChange` hears a check begin and end, after `checking` changed; a listener that throws is logged
+ * and never stops the check, so now() neither throws nor rejects (a timer calls it).
  */
 export class UpdateChecks {
-  private current: Promise<void> | null = null
+  private current: { done: Promise<void>; manual: boolean } | null = null
 
   constructor(
     private readonly run: (manual: boolean) => Promise<void>,
@@ -93,19 +96,31 @@ export class UpdateChecks {
     return this.current !== null
   }
 
-  /** Checks now, or joins the check that runs; never rejects. */
+  /** Checks now, or joins the check that runs; never throws, never rejects. */
   now(manual = false): Promise<void> {
-    if (this.current !== null) return this.current
+    if (this.current !== null) {
+      // The answer to "Check now" is a check of its own; a scheduled check may have set `quiet`.
+      if (manual && !this.current.manual) return this.current.done.then(() => this.now(true))
+      return this.current.done
+    }
     const done = Promise.resolve()
       .then(() => this.run(manual))
       .catch((error: unknown) => console.error('[update] the check failed', error))
       .finally(() => {
         this.current = null
-        this.onChange()
+        this.changed()
       })
-    this.current = done
-    this.onChange()
+    this.current = { done, manual }
+    this.changed()
     return done
+  }
+
+  private changed(): void {
+    try {
+      this.onChange()
+    } catch (error) {
+      console.error('[update] the change of the check could not be sent', error)
+    }
   }
 
   /** Starts the timers; the function returned stops them. */

@@ -56,19 +56,31 @@ export class UpdateService {
   private async run(manual: boolean): Promise<void> {
     const file = this.options.stateFile()
     const running = this.options.running()
+    let rolledBackFrom: string | null = null
+    try {
+      rolledBackFrom = readUpdateState(file).rolledBackFrom
+    } catch (error) {
+      // A state file that cannot be read at all (no permission, a folder in its place): the check
+      // still runs, and its result is logged when it cannot be written either.
+      console.error(`[update] ${file} could not be read`, error)
+    }
     const outcome = await checkForUpdate({
       client: this.options.client,
       running: running.commit,
-      rolledBackFrom: readUpdateState(file).rolledBackFrom,
+      rolledBackFrom,
       manual,
       ...(this.options.now === undefined ? {} : { now: this.options.now }),
     })
     // Spec R15: one line in the log of main, nothing on the screen.
     if (outcome.lastCheck.result === 'skipped') console.warn(`[update] the check was skipped: ${outcome.lastCheck.reason ?? 'no reason given'}`)
-    changeUpdateState(
-      (state) => ({ ...state, running, lastCheck: outcome.lastCheck, ...(outcome.available === undefined ? {} : { available: outcome.available }) }),
-      file,
-    )
+    try {
+      changeUpdateState(
+        (state) => ({ ...state, running, lastCheck: outcome.lastCheck, ...(outcome.available === undefined ? {} : { available: outcome.available }) }),
+        file,
+      )
+    } catch (error) {
+      throw new Error(`the check ended (${JSON.stringify(outcome)}), but ${file} could not be written`, { cause: error })
+    }
   }
 }
 
