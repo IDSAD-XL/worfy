@@ -8,15 +8,15 @@ import type { SceneSpec } from '../../scene/model'
 
 export const TERMINAL_SCENE: SceneSpec = {
   width: 900,
-  height: 480,
+  height: 410,
   frames: [{ block: 'canvas', kind: 'canvas', x: 16, y: 40, width: 300, height: 260 }],
   blocks: [
     // On the Canvas: the Terminal Node.
     { id: 'canvas', x: 32, y: 24, group: 'project', topic: 'canvas', page: 'docs/features/canvas.md', shape: 'tab', width: 92 },
     { id: 'terminal', x: 76, y: 150, group: 'tools' },
-    // Outside the Canvas: another screen of the same shell, the shell, its folder, Terminal AI with
+    // Outside the Canvas: the shell, its folder, another screen of the same shell, Terminal AI with
     // the Claude Code process it asks, and the Limits.
-    { id: 'other', x: 76, y: 400, group: 'machine' },
+    { id: 'other', x: 720, y: 40, group: 'machine' },
     { id: 'folder', x: 420, y: 40, group: 'project' },
     { id: 'shell', x: 420, y: 170, group: 'tools' },
     { id: 'terminalAi', x: 420, y: 330, group: 'tools' },
@@ -30,8 +30,8 @@ export const TERMINAL_SCENE: SceneSpec = {
     { from: 'shell', to: 'folder', label: 'startsIn' },
     { from: 'other', to: 'shell', label: 'sameShell' },
     // Down to Terminal AI and back up, side by side.
-    { from: 'shell', to: 'terminalAi', label: 'typedLine', fromShift: -30, toShift: -30 },
-    { from: 'terminalAi', to: 'shell', label: 'greyText', fromShift: 30, toShift: 30 },
+    { from: 'shell', to: 'terminalAi', label: 'typedLine', fromShift: -40, toShift: -40 },
+    { from: 'terminalAi', to: 'shell', label: 'greyText', fromShift: 40, toShift: 40 },
     // Out of the bottom of the Node, under the Canvas frame, into Terminal AI's left side.
     { from: 'terminal', to: 'terminalAi', label: 'fix', fromSide: 'bottom', toSide: 'left' },
     { from: 'terminalAi', to: 'claude', label: 'asks', fromShift: 12, toShift: 12 },
