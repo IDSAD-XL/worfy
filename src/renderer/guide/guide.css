@@ -153,6 +153,10 @@
 .w-guide__figure {
   margin: 0 0 var(--space-3);
 }
+/* The data-flow diagram at the top of Under the hood, below its summary line. */
+.w-guide__figure--flow {
+  margin-top: var(--space-2);
+}
 .w-guide__sr-only {
   position: absolute;
   width: 1px;

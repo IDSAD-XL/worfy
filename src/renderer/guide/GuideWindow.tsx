@@ -1,7 +1,7 @@
 // The window of the worfy Guide (worfy-guide ticket 03, ADR-0090): a modal dialog over the app
 // window, drawn in the layer of the Settings window. The list of Topics on the left, the Topic on the
-// right: its diagram, a short text, Under the hood folded below — more text, the main files, the
-// limits — and Full page. The header has the EN / RU switch, the one place of worfy that is not
+// right: its diagram, a short text, Under the hood folded below — a data-flow diagram when the Topic
+// has one (Flow.tsx), more text, the main files, the limits — and Full page. The header has the EN / RU switch, the one place of worfy that is not
 // English only; the choice goes to the app settings of this Machine.
 //
 // This module and what it imports below (content.ts, the texts, the diagrams, guide.css) are the
@@ -38,7 +38,10 @@ function ExternalLink({ url, title, className, children }: { url: string; title:
 function TopicView({ topic, language, strings, version }: { topic: GuideTopic; language: GuideLanguage; strings: GuideStrings; version: string | null }) {
   const text = topic.text[language]
   const descriptionId = useId()
+  const flowDescriptionId = useId()
   const Scene = topic.Scene
+  const Flow = topic.Flow
+  const flow = text.underTheHood.flow
   const page = topic.meta.sources[0]?.page
   return (
     <article className="w-guide__topic" lang={language} data-testid="guide-topic" data-topic={topic.id}>
@@ -58,6 +61,14 @@ function TopicView({ topic, language, strings, version }: { topic: GuideTopic; l
       ))}
       <details className="w-guide__under" data-testid="guide-under-the-hood">
         <summary className="w-guide__under-summary">{strings.underTheHood}</summary>
+        {Flow === null || flow === undefined ? null : (
+          <figure className="w-guide__figure w-guide__figure--flow" role="group" aria-label={strings.dataFlow} aria-describedby={flowDescriptionId}>
+            <Flow labels={flow.labels} strings={strings} />
+            <figcaption id={flowDescriptionId} className="w-guide__sr-only">
+              {flow.description}
+            </figcaption>
+          </figure>
+        )}
         {text.underTheHood.text.map((paragraph, index) => (
           <p key={index} className="w-guide__text">
             {paragraph}
