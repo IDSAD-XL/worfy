@@ -391,6 +391,12 @@ the main files, the limits) and **Full page**.
   choice is a setting of the Machine and outlives a restart.
 - **Links.** Full page and the files of Under the hood open GitHub in the system's browser, at the commit of this build. A
   build that does not know its commit links to `main`.
+- **Diagrams.** Dots run along the arrows of a Topic's diagram. The pointer or the keyboard focus on a block lights the
+  block, its neighbours and its connections, shows the labels of those connections and fades the rest. A block that names
+  another Topic opens it on a click or Enter. Under the diagram, Play goes through its steps, one every 4 seconds, and stops
+  on the last; a step button shows one step and says what happens in it, and pressing it again shows the whole diagram. The
+  dots move only while the Guide is open and the diagram is in view. With Reduce motion in the system settings they stand
+  still and the highlight changes at once. A screen reader reads the diagram's description and each of its connections.
 - **No Project and no network** are needed.
 - The test Topic "How the Guide works" is shown only when worfy runs from a build that is not packaged (`pnpm dev`, the e2e
   tests). Until the first real Topics come, the Guide of the packaged app says "No Topics yet."
@@ -400,6 +406,12 @@ the main files, the limits) and **Full page**.
 The Guide's window, its texts and its diagrams are a chunk of their own. The app loads it the first time the Guide opens, so
 the start of worfy does not load it. The first chunk holds only the registry of Topics: one line per Topic with its id and
 English title, which the palette needs.
+
+A diagram is SVG drawn by the Guide's own scene kit (`src/renderer/guide/scene/`), with no animation library. Its dots
+follow the path that draws their line, frame by frame (`requestAnimationFrame`); the frames stop while the page is hidden or
+the diagram is out of view, and end when the Guide closes. Block colours follow the block's group: three groups take the
+colours of the Node kinds, and Machine, Project and Tools have colours of the Guide's own, kept apart from the status
+colours.
 
 Each Topic is a folder with `topic.json` (the pages of `docs/features/` it was checked against, each with a commit, and its
 main files), `en.json` and `ru.json` (every text, the same keys in both) and its diagram. A test fails when a string has only

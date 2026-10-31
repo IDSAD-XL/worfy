@@ -58,8 +58,12 @@ function fakeMain(build = { version: '0.3.0+e61cb1fe', packaged: false }): Main 
 }
 
 let main: Main
+const svgPrototype = SVGElement.prototype as unknown as Record<string, unknown>
 
 beforeEach(() => {
+  // jsdom has no SVG geometry; the dots of the diagram (scene/motion.ts) stand on their path through it.
+  svgPrototype.getTotalLength = () => 100
+  svgPrototype.getPointAtLength = (distance: number) => ({ x: distance, y: 0 })
   main = fakeMain()
   useGuide.setState({ open: false, topic: null, build: { version: '0.3.0+e61cb1fe', packaged: false } })
 })
@@ -69,6 +73,8 @@ afterEach(() => {
   delete globals.worfy
   document.body.replaceChildren()
   vi.restoreAllMocks()
+  delete svgPrototype.getTotalLength
+  delete svgPrototype.getPointAtLength
 })
 
 const guide = () => screen.queryByRole('dialog', { name: 'worfy Guide' })
@@ -158,8 +164,9 @@ describe('the Topics', () => {
     expect(within(topic).getByRole('heading', { name: en.title })).toBeTruthy()
     expect(within(topic).getByText(en.summary[0]!)).toBeTruthy()
     expect((within(topic).getByTestId('guide-under-the-hood') as HTMLDetailsElement).open).toBe(false)
-    // The diagram has its text for a screen reader.
-    expect(within(topic).getByRole('img', { name: en.title }).getAttribute('aria-describedby')).toBeTruthy()
+    // The diagram has its text for a screen reader: a group named by the Topic, described by the
+    // Topic's description; inside it, the diagram described by the list of its Edges (ticket 04).
+    expect(within(topic).getByRole('group', { name: en.title }).getAttribute('aria-describedby')).toBeTruthy()
     expect(within(topic).getByText(en.scene.description)).toBeTruthy()
   })
 

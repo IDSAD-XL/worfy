@@ -13,6 +13,12 @@
   background: rgba(0, 0, 0, 0.25);
 }
 .w-guide {
+  /* The groups of the diagrams that have no kind-* band (scene-colours.ts), and the line of an Edge
+     that is not lit; the dark values are at the end of this file. */
+  --guide-machine: #7c7c82;
+  --guide-project: #00838f;
+  --guide-tools: #6e56cf;
+  --guide-edge: rgba(99, 99, 102, 0.55);
   width: 920px;
   max-width: calc(100vw - 32px);
   height: min(640px, calc(100vh - 48px));
@@ -190,34 +196,67 @@
   font-weight: 600;
 }
 
-/* The diagram (topics/<id>/Scene.tsx): the Living Canvas style of the epic's spec. --c is the
-   colour of a block's group. */
+/* The diagrams (scene/LivingScene.tsx, worfy-guide ticket 04): the Living Canvas style of the epic's
+   spec. --c is the colour of a block's group (scene-colours.ts); an Edge and its dots take the colour
+   of the block they leave. Only opacity, the outline of a block and the labels change, with the
+   style's transitions; Reduce motion drops the transitions and the highlight changes at once. */
+/* A diagram is drawn about as wide as its column (a viewBox some 660 units wide): its 13 px and 11 px
+   texts stay near their size. */
+.w-guide-scene-wrap {
+  max-width: 680px;
+}
 .w-guide-scene {
   display: block;
   width: 100%;
-  max-width: 640px;
   height: auto;
+  overflow: visible;
+}
+.w-guide-scene text {
+  font-family: var(--font-ui);
 }
 .w-guide-scene__canvas {
   fill: var(--canvas);
   stroke: var(--border-strong);
   stroke-width: 1.5;
 }
-.w-guide-scene__edge {
-  fill: none;
-  stroke: var(--text-muted);
-  stroke-width: 1.5;
+.w-guide-scene__grid {
+  fill: var(--canvas-dot);
+}
+.w-guide-scene__block,
+.w-guide-scene__edge,
+.w-guide-scene__arrow,
+.w-guide-scene__dot {
+  transition: opacity 0.22s ease;
+}
+.w-guide-scene__block {
+  outline: none;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.06)) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.05));
+}
+.w-guide-scene__block.is-link {
+  cursor: pointer;
 }
 .w-guide-scene__node {
   fill: var(--surface);
   stroke: var(--border-strong);
   stroke-width: 1;
+  transition: stroke 0.2s;
+}
+.w-guide-scene__block.is-hot .w-guide-scene__node {
+  stroke: var(--c);
+  stroke-width: 2;
+}
+.w-guide-scene__block:focus-visible .w-guide-scene__node {
+  stroke: var(--accent);
+  stroke-width: 2.5;
 }
 .w-guide-scene__header {
   fill: color-mix(in srgb, var(--c) 13%, var(--surface));
 }
 .w-guide-scene__rule {
   stroke: var(--border);
+}
+.w-guide-scene__group {
+  fill: var(--c);
 }
 .w-guide-scene__title {
   fill: var(--text);
@@ -227,4 +266,128 @@
 .w-guide-scene__note {
   fill: var(--text-secondary);
   font-size: 11px;
+}
+.w-guide-scene__note.is-wrapped {
+  font-size: 10.5px;
+}
+.w-guide-scene__edge {
+  fill: none;
+  stroke: var(--guide-edge);
+  stroke-width: 1.5;
+}
+.w-guide-scene__edge.is-hot {
+  stroke: var(--c);
+  stroke-width: 2.2;
+}
+.w-guide-scene__arrow {
+  fill: var(--guide-edge);
+}
+.w-guide-scene__arrow.is-hot {
+  fill: var(--c);
+}
+.w-guide-scene__dot {
+  fill: var(--c);
+}
+.w-guide-scene__dot.is-hot {
+  r: 4;
+}
+.w-guide-scene.is-focusing .w-guide-scene__block:not(.is-hot):not(.is-near) {
+  opacity: 0.2;
+}
+.w-guide-scene.is-focusing .w-guide-scene__edge:not(.is-hot),
+.w-guide-scene.is-focusing .w-guide-scene__arrow:not(.is-hot) {
+  opacity: 0.1;
+}
+.w-guide-scene.is-focusing .w-guide-scene__dot:not(.is-hot) {
+  opacity: 0;
+}
+.w-guide-scene__label {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+.w-guide-scene__label.is-hot {
+  opacity: 1;
+}
+.w-guide-scene__label rect {
+  fill: var(--surface);
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.w-guide-scene__label text {
+  fill: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* The step player under a diagram: Play, the steps as a segmented control like EN / RU, and what the
+   step on screen shows. */
+.w-guide-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.w-guide-steps__track {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--segment-track);
+}
+.w-guide-steps__play,
+.w-guide-steps__step {
+  min-width: 28px;
+  padding: 3px var(--space-2);
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+.w-guide-steps__play {
+  min-width: 56px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+}
+.w-guide-steps__step[aria-pressed='true'] {
+  background: var(--segment-thumb);
+  color: var(--text);
+  box-shadow: var(--shadow-control);
+}
+.w-guide-steps__play:focus-visible,
+.w-guide-steps__step:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.w-guide-steps__caption {
+  flex: 1 1 240px;
+  margin: 0;
+  min-height: 17px;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+
+@media (prefers-color-scheme: dark) {
+  .w-guide {
+    --guide-machine: #9c968d;
+    --guide-project: #4fd1c5;
+    --guide-tools: #a78bfa;
+    --guide-edge: rgba(156, 150, 141, 0.5);
+  }
+  /* No shadows in the dark theme. */
+  .w-guide-scene__block {
+    filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-guide-scene *,
+  .w-guide-steps * {
+    transition: none !important;
+  }
 }

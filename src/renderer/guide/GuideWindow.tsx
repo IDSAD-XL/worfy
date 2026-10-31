@@ -47,8 +47,8 @@ function TopicView({ topic, language, strings, version }: { topic: GuideTopic; l
     <article className="w-guide__topic" lang={language} data-testid="guide-topic" data-topic={topic.id}>
       <h3 className="w-guide__topic-title">{text.title}</h3>
       {Scene === null ? null : (
-        <figure className="w-guide__figure" role="img" aria-label={text.title} aria-describedby={descriptionId}>
-          <Scene labels={text.scene.labels} />
+        <figure className="w-guide__figure" role="group" aria-label={text.title} aria-describedby={descriptionId}>
+          <Scene labels={text.scene.labels} strings={strings} />
           <figcaption id={descriptionId} className="w-guide__sr-only">
             {text.scene.description}
           </figcaption>

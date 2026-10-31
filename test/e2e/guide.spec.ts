@@ -153,3 +153,171 @@ test('snapshots of the Guide in both themes and both languages', async () => {
     await launched.close()
   }
 })
+
+// worfy-guide ticket 04 (ADR-0090 point 9): the live diagram. Its dots run on requestAnimationFrame
+// only while the open Guide shows it; the checks count the frames the page asks for over a number of
+// frames of its own (framesAskedOver), never over a span of clock time. Under Reduce motion no frame
+// runs, the dots stand at (i + 0.5) / n of their Edge and the highlight changes at once.
+
+/** What countFrames adds to the page's global object. */
+interface FrameCounter {
+  __framesAsked: number
+  __rawFrame: (callback: (time: number) => void) => number
+  requestAnimationFrame: (callback: (time: number) => void) => number
+}
+
+/** From now on the page counts every requestAnimationFrame it is asked for. */
+async function countFrames(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const page = globalThis as unknown as FrameCounter
+    page.__framesAsked = 0
+    page.__rawFrame = page.requestAnimationFrame.bind(page)
+    page.requestAnimationFrame = (callback) => {
+      page.__framesAsked += 1
+      return page.__rawFrame(callback)
+    }
+  })
+}
+
+/** How many frames the page asked for while `frames` of its frames went by. */
+async function framesAskedOver(window: Page, frames: number): Promise<number> {
+  return window.evaluate(
+    (count) =>
+      new Promise<number>((resolve) => {
+        const page = globalThis as unknown as FrameCounter
+        const start = page.__framesAsked
+        let left = count
+        const next = (): void => {
+          left -= 1
+          if (left === 0) resolve(page.__framesAsked - start)
+          else page.__rawFrame(next)
+        }
+        page.__rawFrame(next)
+      }),
+    frames,
+  )
+}
+
+/** The `transform` of every dot of the diagram, in order. */
+async function dotPlaces(window: Page): Promise<string[]> {
+  return window.locator('[data-testid="guide-scene"] [data-dot-edge]').evaluateAll((dots) => dots.map((dot) => dot.getAttribute('transform') ?? ''))
+}
+
+test('the diagram moves its dots only while the open Guide shows it in view', async () => {
+  const launched = await launchApp()
+  try {
+    const { app, window } = launched
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+    // A low window, so Under the hood unfolded pushes the diagram out of the Guide's view.
+    await window.setViewportSize({ width: 1280, height: 520 })
+    await countFrames(window)
+    await clickMenuItem(app, GUIDE_MENU_ITEM_ID)
+    const guide = window.getByRole('dialog', { name: 'worfy Guide' })
+    const scene = guide.getByTestId('guide-scene')
+    await expect(scene).toHaveAttribute('data-motion', 'running')
+    const first = await dotPlaces(window)
+    expect(first).toHaveLength(6)
+    await expect.poll(() => dotPlaces(window)).not.toEqual(first)
+    expect(await framesAskedOver(window, 10)).toBeGreaterThan(0)
+
+    // Scrolled out of view: the loop stops, and the dots stay where they are.
+    await guide.locator('summary').click()
+    await guide.locator('.w-guide__content').evaluate((content) => content.scrollTo(0, content.scrollHeight))
+    await expect(scene).toHaveAttribute('data-motion', 'paused')
+    const stopped = await dotPlaces(window)
+    expect(await framesAskedOver(window, 10)).toBe(0)
+    expect(await dotPlaces(window)).toEqual(stopped)
+    await guide.locator('.w-guide__content').evaluate((content) => content.scrollTo(0, 0))
+    await expect(scene).toHaveAttribute('data-motion', 'running')
+    await expect.poll(() => dotPlaces(window)).not.toEqual(stopped)
+
+    // Closed: the diagram is gone and nothing asks for a frame.
+    await window.keyboard.press('Escape')
+    await expect(guide).toHaveCount(0)
+    await expect(window.getByTestId('guide-scene')).toHaveCount(0)
+    expect(await framesAskedOver(window, 10)).toBe(0)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('under Reduce motion the dots stand still at (i + 0.5) / n and the highlight changes at once', async () => {
+  const launched = await launchApp()
+  try {
+    const { app, window } = launched
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+    await window.emulateMedia({ reducedMotion: 'reduce' })
+    await countFrames(window)
+    await clickMenuItem(app, GUIDE_MENU_ITEM_ID)
+    const guide = window.getByRole('dialog', { name: 'worfy Guide' })
+    const scene = guide.getByTestId('guide-scene')
+    await expect(scene).toHaveAttribute('data-motion', 'still')
+    expect(await framesAskedOver(window, 10)).toBe(0)
+    // Each dot stands on its own path, at (i + 0.5) / n of its length.
+    const misplaced = await scene.evaluate((svg) => {
+      const wrong: string[] = []
+      type Path = { dataset: Record<string, string>; getTotalLength(): number; getPointAtLength(distance: number): { x: number; y: number } }
+      for (const path of svg.querySelectorAll('path[data-edge]') as unknown as Path[]) {
+        const dots = [...svg.querySelectorAll(`[data-dot-edge="${path.dataset.edge}"]`)]
+        dots.forEach((dot, index) => {
+          const point = path.getPointAtLength(((index + 0.5) / dots.length) * path.getTotalLength())
+          const [x, y] = (/translate\(([-\d.]+) ([-\d.]+)\)/.exec(dot.getAttribute('transform') ?? '') ?? []).slice(1).map(Number)
+          if (x === undefined || y === undefined || Math.abs(x - point.x) > 0.1 || Math.abs(y - point.y) > 0.1) wrong.push(`${path.dataset.edge} #${index}`)
+        })
+      }
+      return wrong
+    })
+    expect(misplaced).toEqual([])
+
+    // The meaning stays: the pointer on a block lights its Edges and their labels, with no transition.
+    const menu = scene.locator('[data-block="menu"]')
+    await expect(menu).toHaveCSS('transition-duration', '0s')
+    await menu.hover()
+    await expect(scene.locator('[data-edge-label="menu->guide"]')).toHaveCSS('opacity', '1')
+    await expect(scene.locator('[data-block="topics"]')).toHaveCSS('opacity', '0.2')
+    // The step player still works.
+    await window.mouse.move(0, 0)
+    await guide.getByRole('button', { name: 'Step 3' }).click()
+    await expect(guide.getByTestId('guide-scene-caption')).not.toHaveText('')
+    await expect(scene.locator('[data-block="topics"]')).toHaveClass(/is-hot/)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('snapshots of the diagram: the flow, a lit block, a step, and Reduce motion', async () => {
+  const launched = await launchApp()
+  try {
+    const { app, window } = launched
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+    await window.setViewportSize({ width: 1280, height: 800 })
+    await clickMenuItem(app, GUIDE_MENU_ITEM_ID)
+    const guide = window.getByRole('dialog', { name: 'worfy Guide' })
+    const scene = guide.getByTestId('guide-scene')
+    await expect(scene).toHaveAttribute('data-motion', 'running')
+    const evidence = process.env.WORFY_EVIDENCE_DIR
+    const keep = async (name: string): Promise<void> => {
+      const shots = await snapshotThemes(window, `guide-scene-${name}`)
+      if (evidence === undefined || evidence === '') return
+      await mkdir(evidence, { recursive: true })
+      await copyFile(shots.light, join(evidence, `04-scene-${name}-light.png`))
+      await copyFile(shots.dark, join(evidence, `04-scene-${name}-dark.png`))
+    }
+    // The pointer on the Guide block: its three Edges lit, with their labels.
+    await scene.locator('[data-block="guide"]').hover()
+    await expect(scene.locator('[data-edge-label="guide->topics"]')).toHaveClass(/is-hot/)
+    await keep('lit')
+    // Step 2 of the player, the pointer off the diagram.
+    await window.mouse.move(0, 0)
+    await guide.getByRole('button', { name: 'Step 2' }).click()
+    await expect(scene.locator('[data-edge="palette->guide"]')).toHaveClass(/is-hot/)
+    await keep('step')
+    // Reduce motion, in Russian: still dots and the same step.
+    await guide.getByTestId('guide-language-ru').click()
+    await window.emulateMedia({ reducedMotion: 'reduce' })
+    await expect(scene).toHaveAttribute('data-motion', 'still')
+    await keep('reduced-motion-ru')
+  } finally {
+    await launched.close()
+  }
+})
