@@ -1,7 +1,9 @@
 // The build of an Update in worfy's own clone (worfy-update ticket 03, ADR-0089 points 3 and 6):
 // `<dataRoot>/update/repo`, made once with `git clone` and fetched into after that, then the same
 // build as `pnpm install:stable`: `pnpm install --frozen-lockfile` and `pnpm package`
-// (buildCommand of scripts/install-stable.mjs). The app it leaves is where builtApp of that script
+// (buildCommand of scripts/install-stable.mjs). Between them it checks the Electron that `pnpm
+// package` packs, as that script does, and downloads it again when its download did not finish
+// (ticket 15, electron-binary.ts). The app it leaves is where builtApp of that script
 // looks for it. The user's checkout and the folders of their Projects are never touched (ADR-0005),
 // nor is the Stable copy: a build that fails leaves the copy that runs as it is.
 //
@@ -21,6 +23,7 @@ import type { AvailableUpdate, UpdateState } from '../../shared/ipc/update'
 import { getVar, type CapturedEnv } from '../agent/env'
 import { killTool, toolStart } from '../first-run/checks'
 import { removeTree } from '../storage/remove'
+import { electronBinary, ELECTRON_INSTALL_SCRIPT } from './electron-binary'
 import { changeUpdateState } from './state'
 
 type Env = Readonly<Record<string, string | undefined>>
@@ -293,11 +296,12 @@ export class UpdateBuilder implements UpdateBuilds {
       ['git', ['checkout', '--force', '--detach', update.sha]],
       ['git', ['clean', '-fdx', '-e', 'node_modules']],
       ['pnpm', ['install', '--frozen-lockfile']],
-      build === undefined ? ['pnpm', ['package']] : ['node', [build]],
     ]
     for (const [tool, args] of steps) {
       if (this.stopped || !(await step(tool, args))) return failed()
     }
+    if (this.stopped || !(await this.electronReady(clone, step, note))) return failed()
+    if (this.stopped || !(await (build === undefined ? step('pnpm', ['package']) : step('node', [build])))) return failed()
     const appPath = builtApp(join(clone, 'dist'), this.platform)
     if (appPath === null) {
       note(this.platform === 'win32' ? 'Expected dist\\win-unpacked after the build, and it is not there.' : 'Expected exactly one dist/mac*/worfy.app after the build.')
@@ -305,6 +309,27 @@ export class UpdateBuilder implements UpdateBuilds {
     }
     note('Ready.')
     return { phase: 'ready', sha: update.sha, version: update.version, appPath, log }
+  }
+
+  /**
+   * Whether the Electron that `pnpm package` packs is in the clone (worfy-update ticket 15). A download
+   * that did not finish is not run again by `pnpm install` ("Already up to date"), nor removed by
+   * `git clean -e node_modules`: the build runs node_modules/electron/install.js as a step of its
+   * own, the command scripts/install-stable.mjs names in its refusal, and looks again.
+   */
+  private async electronReady(clone: string, step: (tool: string, args: readonly string[]) => Promise<boolean>, note: (text: string) => void): Promise<boolean> {
+    const electron = join(clone, 'node_modules', 'electron')
+    const found = electronBinary(this.platform, clone)
+    if (found === 'ok') return true
+    if (found === 'no-package') {
+      note(`${electron} is not there after pnpm install: there is no Electron to build with. Nothing was built.`)
+      return false
+    }
+    note(`The Electron that pnpm package packs is not in ${join(electron, 'dist')}: its download after pnpm install did not finish. It is downloaded again.`)
+    if (!(await step('node', [ELECTRON_INSTALL_SCRIPT]))) return false
+    if (electronBinary(this.platform, clone) === 'ok') return true
+    note(`${ELECTRON_INSTALL_SCRIPT} ended, and the Electron is still not in ${join(electron, 'dist')}. Nothing was built.`)
+    return false
   }
 
   /**

@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AvailableUpdate, UpdateSnapshot } from '../../src/shared/ipc/update'
 import { UpdateService } from '../../src/main/ipc/update'
@@ -133,6 +134,21 @@ function alive(pid: number): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * Leaves node_modules/electron of the clone as an Electron download that did not finish leaves it
+ * (worfy-update ticket 15): the package without dist and path.txt. Its install.js is the stand-in
+ * electron-install.mjs; the real one would download Electron.
+ */
+function breakElectron(): void {
+  const electron = join(dir, 'repo', 'node_modules', 'electron')
+  removeTestTree(electron)
+  mkdirSync(electron, { recursive: true })
+  writeFileSync(join(electron, 'package.json'), '{ "name": "electron", "version": "0.0.0" }\n')
+  // CommonJS, as the package's own install.js: the stand-in is an ES module, so it is imported.
+  const stand = pathToFileURL(join(FIXTURES, 'electron-install.mjs')).href
+  writeFileSync(join(electron, 'install.js'), `import(${JSON.stringify(stand)}).catch((error) => {\n  console.error(error)\n  process.exitCode = 1\n})\n`)
 }
 
 const traceLines = (): string[] => (existsSync(trace) ? readFileSync(trace, 'utf8').trim().split('\n') : [])
@@ -317,6 +333,63 @@ describe('UpdateBuilder', () => {
     expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: c })
     expect(changes).toEqual(['building', 'ready', 'building', 'ready'])
     expect(b).not.toBe(c)
+  })
+
+  it('a clone whose Electron download did not finish (node_modules/electron without dist and path.txt) runs node_modules/electron/install.js as its own step before pnpm package', async () => {
+    const first = commit('A')
+    const builds = builder()
+    builds.install(available(first))
+    await builds.settled()
+    // A whole Electron: no such step.
+    expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: first })
+    expect(buildLog()).not.toContain('electron/install.js')
+
+    // pnpm install leaves the package as it is ("Already up to date"), and git clean skips node_modules.
+    breakElectron()
+    const second = commit('B')
+    builds.install(available(second))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: second, appPath: expectedApp() })
+    expect(traceLines()).toEqual(['install A', 'build A', 'install B', 'electron-install B', 'build B'])
+    expect(buildLog()).toContain('download after pnpm install did not finish')
+    expect(buildLog()).toContain('$ node node_modules/electron/install.js')
+    expect(buildLog()).toContain('fake electron downloaded')
+    expect(existsSync(join(dir, 'repo', 'node_modules', 'electron', 'path.txt'))).toBe(true)
+
+    // The next build finds it whole and does not download it again.
+    const third = commit('C')
+    builds.install(available(third))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: third })
+    expect(traceLines().slice(5)).toEqual(['install C', 'build C'])
+    expect(buildLog()).not.toContain('electron/install.js')
+  })
+
+  it.each([
+    ['ends with 0 and brings no Electron', 'nothing', 'node_modules/electron/install.js ended, and the Electron'],
+    ['fails', 'fail', 'fake electron install failed'],
+  ])('a download of Electron that %s is `failed` before pnpm package, with the reason in build.log', async (_, mode, reason) => {
+    const first = commit('A')
+    const builds = builder({ env: () => processEnv({ FAKE_ELECTRON_INSTALL: mode }) })
+    builds.install(available(first))
+    await builds.settled()
+    breakElectron()
+    const second = commit('B')
+    builds.install(available(second))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build).toEqual({ phase: 'failed', sha: second, version: `0.9.0+${second.slice(0, 7)}`, log: join(dir, 'build.log') })
+    expect(traceLines()).toEqual(['install A', 'build A', 'install B', 'electron-install B'])
+    expect(buildLog()).toContain(reason)
+  })
+
+  it('a clone without node_modules/electron after pnpm install is `failed` before pnpm package: there is no install.js to run', async () => {
+    const sha = commit('A')
+    const builds = builder({ env: () => processEnv({ FAKE_PNPM_ELECTRON: 'none' }) })
+    builds.install(available(sha))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'failed', sha })
+    expect(traceLines()).toEqual(['install A'])
+    expect(buildLog()).toContain('is not there after pnpm install')
   })
 
   it('an environment that does not come fails the build; it never stays `building`', async () => {
