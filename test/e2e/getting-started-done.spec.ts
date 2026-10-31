@@ -15,7 +15,9 @@ import { ms } from '../time-scale'
 // replaced in main, recorded and answered by the test (Cancel first, then Confirm); the folder picker
 // of "Connect your own project" too.
 //
-// Screenshots of the screen Done, light and dark, go to the test's output as 10-done-<theme>.png.
+// Screenshots of the screen Done, light and dark, go to the test's output as 10-done-<theme>.png, and of
+// the whole Getting started panel with it (ticket 13) as 10-panel-done-<theme>.png. The toast of the
+// removal stands below the panel (ticket 13): the window with both, 10-panel-toast-<theme>.png.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const bundle = join(repoRoot, 'out', 'harness')
@@ -125,8 +127,9 @@ test('step 6 shows Done; Connect opens Add project; Remove asks, Cancel keeps th
     await expect(done).toContainText('You took one ticket from the Orchestrator through review to main. That is the whole loop.')
     await expect(sectionOf(window).getByTestId('getting-started-step')).toHaveCount(0)
     await shoot(window, done, 'done')
+    await shoot(window, sectionOf(window), 'panel-done')
 
-    // "Show steps" brings the list back, all six marked; the section mounts again with Done.
+    // "Show steps" brings the list back, all six marked; the panel mounts again with Done.
     await done.getByRole('button', { name: 'Show steps' }).click()
     await expect(sectionOf(window).locator('[data-testid="getting-started-step"][data-done="true"]')).toHaveCount(6)
     await window.reload()
@@ -165,6 +168,15 @@ test('step 6 shows Done; Connect opens Add project; Remove asks, Cancel keeps th
     await answerDialogs(launched, 0)
     await doneOf(window).getByRole('button', { name: 'Remove the demo project' }).click()
     await expect(window.getByTestId('getting-started-removed-toast')).toHaveText('The demo project was removed.', { timeout: ms(30_000) })
+    // The toast came while the panel is open (ticket 13): it stands below the panel and does not cover
+    // it. The panel grows as the steps come back, and the toasts are placed again every 200 ms.
+    const belowPanel = async (): Promise<string> => {
+      const [toast, panel] = [await window.getByTestId('getting-started-removed-toast').boundingBox(), await sectionOf(window).boundingBox()]
+      if (toast === null || panel === null) return `toast ${JSON.stringify(toast)}, panel ${JSON.stringify(panel)}`
+      return toast.y >= panel.y + panel.height ? 'below' : `toast at ${toast.y}, panel ends at ${panel.y + panel.height}`
+    }
+    await expect.poll(belowPanel, { timeout: ms(3_000) }).toBe('below')
+    await shoot(window, window.locator('body'), 'panel-toast')
     await expect(row).toHaveCount(0)
     expect(existsSync(repo)).toBe(false)
     expect(readState().demo).toBeUndefined()

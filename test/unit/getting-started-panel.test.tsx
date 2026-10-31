@@ -1,13 +1,21 @@
-// The Getting started section at the top of the sidebar (worfy-onboarding ticket 07), over the real
-// renderer IPC client and a fake preload of this Machine:
-// - it shows while main's state says `section: 'shown'` and is gone while it says `hidden`;
+// The Getting started panel in the top right corner of the window (worfy-onboarding ticket 13, in
+// place of the sidebar section of ticket 07), over the real renderer IPC client and a fake preload of
+// this Machine:
+// - it shows while main's state says `section: 'shown'` and is gone, pill and all, while it says
+//   `hidden`; the sidebar has no Getting started section any more;
+// - it is a layer of <body> below the dialogs (z-index under 90), not a dialog: a region, no backdrop,
+//   and toasts keep out of it and of its pill (`data-toast-keep-out`);
+// - collapsed, it is the pill "Getting started · n/6" alone; the pill expands it, "Collapse" collapses
+//   it, and the choice is `sidebar.collapsed.GettingStartedSection` of the app settings, as the
+//   section's was;
 // - six steps in an ordered list, each marked one with a check, the time in its tooltip and "done"
 //   for a screen reader; the first unmarked step is the current one and alone has its button;
 // - the buttons: "Open checks" opens the first-run checks, "Create demo project" calls
 //   `gettingStarted.createDemo` and shows its progress and its refusal, "Open the Orchestrator" and
 //   "Ship the ticket" open the demo's Orchestrator with a ready text in its input field;
-// - "Connect…" asks for the same "Add project" as "+" of Projects; "Skip" hides the section and says
-//   where to find it again; openGettingStarted() (the Command palette) shows it and focuses it.
+// - "Connect…" asks for the same "Add project" as "+" of Projects; "Skip" hides the panel and says
+//   where to find it again; openGettingStarted() (the Command palette) shows it, expanded, and focuses
+//   its heading.
 // The ready text of the input field (src/renderer/session/pending-input.ts): MessageInput puts it in
 // once, only into an empty field, and never sends it (decision 4 of the spec).
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -107,14 +115,17 @@ async function callOf(channel: string): Promise<Call> {
   })
 }
 
-async function renderSection(state: GettingStartedSnapshot | null) {
-  preload(state)
-  const { default: GettingStartedSection } = await import('../../src/renderer/shell/sidebar/GettingStartedSection')
-  const view = render(<GettingStartedSection />)
+async function renderPanel(state: GettingStartedSnapshot | null, settings: AppSettings = appSettings) {
+  preload(state, settings)
+  const { GettingStartedPanel } = await import('../../src/renderer/getting-started/GettingStartedPanel')
+  const view = render(<GettingStartedPanel />)
   return view
 }
 
+const collapsedSettings = (): AppSettings => ({ ...appSettings, sidebar: { ...appSettings.sidebar, collapsed: { GettingStartedSection: true } } })
+
 const region = () => screen.getByRole('region', { name: 'Getting started' })
+const pill = () => screen.queryByTestId('getting-started-pill')
 const steps = () => within(within(region()).getByRole('list', { name: 'Steps' })).getAllByRole('listitem')
 
 beforeEach(() => {
@@ -126,15 +137,83 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('the Getting started section', () => {
-  it('stands above Projects in the sidebar', async () => {
-    const own = await import('../../src/renderer/shell/sidebar/GettingStartedSection')
-    const projects = await import('../../src/renderer/shell/sidebar/ProjectsSection')
-    expect(own.order).toBeLessThan(projects.order)
+describe('the Getting started panel', () => {
+  it('the sidebar has no Getting started section while main says "shown"; the panel is outside it', async () => {
+    preload(twoDone())
+    const { Sidebar } = await import('../../src/renderer/shell/Sidebar')
+    const { GettingStartedPanel } = await import('../../src/renderer/getting-started/GettingStartedPanel')
+    render(
+      <>
+        <Sidebar />
+        <GettingStartedPanel />
+      </>,
+    )
+    await waitFor(() => expect(region()).toBeTruthy())
+    const sidebar = screen.getByRole('navigation', { name: 'Sidebar' })
+    expect(sidebar.contains(region())).toBe(false)
+    expect(within(sidebar).queryByText('Getting started')).toBeNull()
+    expect(sidebar.querySelector('[data-section="GettingStartedSection"], [data-section-id="GettingStartedSection"]')).toBeNull()
+  })
+
+  it('is a layer of <body> below the dialogs and above the window, not a dialog; toasts keep out of it', async () => {
+    await renderPanel(twoDone())
+    const panel = await waitFor(region)
+    expect(panel.parentElement).toBe(document.body)
+    expect(panel.getAttribute('data-testid')).toBe('getting-started')
+    expect(panel.style.position).toBe('fixed')
+    const layer = Number(panel.style.zIndex)
+    // First run is 90, Add project and Connect 95, the Command palette 100, Settings 110.
+    expect(layer).toBeGreaterThan(0)
+    expect(layer).toBeLessThan(90)
+    expect(panel.hasAttribute('data-toast-keep-out')).toBe(true)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(panel.getAttribute('aria-modal')).toBeNull()
+    // Its height follows the content up to 70 % of the window; only past that does its body scroll.
+    expect(panel.style.maxHeight).toBe('70vh')
+    expect(pill()).toBeNull()
+  })
+
+  it('"Collapse" leaves the pill "Getting started · 2/6" alone, saved in the app settings; the pill expands it again', async () => {
+    await renderPanel(twoDone())
+    fireEvent.click(within(await waitFor(region)).getByRole('button', { name: 'Collapse' }))
+    await waitFor(() => expect(pill()).not.toBeNull())
+    expect(screen.queryByRole('region', { name: 'Getting started' })).toBeNull()
+    expect(screen.queryByTestId('getting-started')).toBeNull()
+    expect(pill()!.tagName).toBe('BUTTON')
+    expect(pill()!.textContent).toBe('Getting started · 2/6')
+    expect(pill()!.hasAttribute('data-toast-keep-out')).toBe(true)
+    expect(pill()!.parentElement).toBe(document.body)
+    expect(document.activeElement).toBe(pill())
+    expect(settingsAsked).toEqual([{ sidebar: { collapsed: { GettingStartedSection: true } } }])
+    fireEvent.click(pill()!)
+    await waitFor(() => expect(region()).toBeTruthy())
+    expect(pill()).toBeNull()
+    expect(settingsAsked).toEqual([{ sidebar: { collapsed: { GettingStartedSection: true } } }, { sidebar: { collapsed: { GettingStartedSection: false } } }])
+    expect(document.activeElement).toBe(within(region()).getByRole('heading', { name: 'Getting started' }))
+    // The work of the panel was kept while it was a pill: steps 1–2 marked, the button at step 3.
+    expect(within(steps()[2]!).getByRole('button', { name: 'Open the Orchestrator' })).toBeTruthy()
+  })
+
+  it('collapsed in the app settings: only the pill, with the steps marked so far', async () => {
+    await renderPanel(twoDone(), collapsedSettings())
+    await waitFor(() => expect(pill()?.textContent).toBe('Getting started · 2/6'))
+    expect(screen.queryByRole('region', { name: 'Getting started' })).toBeNull()
+    act(() => main.emit('gettingStarted.changed', { ...twoDone(), steps: { ...twoDone().steps, '3': '2026-10-30T09:10:00.000Z' } }))
+    expect(pill()!.textContent).toBe('Getting started · 3/6')
+  })
+
+  it('an existing user, whose state main keeps hidden: neither the panel nor the pill', async () => {
+    const { container } = await renderPanel(snapshot({ user: 'existing', section: 'hidden' }), collapsedSettings())
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole('region', { name: 'Getting started' })).toBeNull()
+    expect(pill()).toBeNull()
+    expect(container.innerHTML).toBe('')
   })
 
   it('shows with section "shown": steps 1 and 2 marked, the button at step 3 only', async () => {
-    await renderSection(twoDone())
+    await renderPanel(twoDone())
     await waitFor(() => expect(region()).toBeTruthy())
     expect(within(region()).getByText('A guided demo: one ticket from start to merge.')).toBeTruthy()
     const items = steps()
@@ -157,7 +236,7 @@ describe('the Getting started section', () => {
   })
 
   it('is not there with section "hidden", and comes when main says "shown"', async () => {
-    const { container } = await renderSection(snapshot({ section: 'hidden' }))
+    const { container } = await renderPanel(snapshot({ section: 'hidden' }))
     // Answered: still nothing.
     await act(async () => {
       await Promise.resolve()
@@ -168,10 +247,11 @@ describe('the Getting started section', () => {
     expect(region()).toBeTruthy()
     act(() => main.emit('gettingStarted.changed', snapshot({ section: 'hidden' })))
     expect(screen.queryByRole('region', { name: 'Getting started' })).toBeNull()
+    expect(pill()).toBeNull()
   })
 
   it('an answer to the first read that comes after a change loses to it', async () => {
-    await renderSection(null)
+    await renderPanel(null)
     const read = await callOf('gettingStarted.state')
     act(() => main.emit('gettingStarted.changed', twoDone()))
     expect(region()).toBeTruthy()
@@ -179,14 +259,15 @@ describe('the Getting started section', () => {
     expect(region()).toBeTruthy()
   })
 
-  it('Skip asks main to hide the section and says where to find it again', async () => {
+  it('Skip asks main to hide the panel and says where to find it again; no pill stays', async () => {
     const { toasts } = await import('../../src/renderer/toast/toasts')
-    await renderSection(twoDone())
+    await renderPanel(twoDone())
     fireEvent.click(await within(await waitFor(region)).findByRole('button', { name: 'Skip' }))
     const call = await callOf('gettingStarted.setSection')
     expect(call.input).toEqual({ section: 'hidden' })
     await act(async () => call.answer({ ok: true, value: { ...twoDone(), section: 'hidden' } }))
     expect(screen.queryByRole('region', { name: 'Getting started' })).toBeNull()
+    expect(pill()).toBeNull()
     expect(toasts.getState().toasts.map(({ kind, text }) => ({ kind, text }))).toEqual([
       { kind: 'info', text: 'Getting started is hidden. Reopen it from the Command palette: Getting started.' },
     ])
@@ -195,14 +276,14 @@ describe('the Getting started section', () => {
   it('step 1: "Open checks" opens the first-run checks', async () => {
     const { useFirstRun } = await import('../../src/renderer/shell/first-run-store')
     useFirstRun.setState({ open: false, report: { checks: [], checkedAt: '2026-10-30T09:00:00.000Z' } })
-    await renderSection(snapshot())
+    await renderPanel(snapshot())
     fireEvent.click(await within(await waitFor(region)).findByRole('button', { name: 'Open checks' }))
     expect(useFirstRun.getState().open).toBe(true)
     expect(steps()[0]!.getAttribute('aria-current')).toBe('step')
   })
 
   it('step 2: "Create demo project" calls createDemo, shows where it is and the refusal', async () => {
-    await renderSection(snapshot({ steps: { '1': '2026-10-30T09:00:00.000Z' } }))
+    await renderPanel(snapshot({ steps: { '1': '2026-10-30T09:00:00.000Z' } }))
     const button = await within(await waitFor(region)).findByRole('button', { name: 'Create demo project' })
     expect(within(steps()[1]!).getByText('The agents work for real and use your Claude Code usage.')).toBeTruthy()
     fireEvent.click(button)
@@ -217,7 +298,7 @@ describe('the Getting started section', () => {
   })
 
   it('step 2: a call that fails is a refusal too', async () => {
-    await renderSection(snapshot({ steps: { '1': '2026-10-30T09:00:00.000Z' } }))
+    await renderPanel(snapshot({ steps: { '1': '2026-10-30T09:00:00.000Z' } }))
     fireEvent.click(await within(await waitFor(region)).findByRole('button', { name: 'Create demo project' }))
     const call = await callOf('gettingStarted.createDemo')
     await act(async () => call.answer({ ok: false, error: 'gettingStarted.createDemo failed: boom' }))
@@ -232,7 +313,7 @@ describe('the Getting started section', () => {
       const { useNavigation } = await import('../../src/renderer/session/navigation')
       const { usePendingInput } = await import('../../src/renderer/session/pending-input')
       const marked = Object.fromEntries(done.map((each) => [each, '2026-10-30T09:00:00.000Z']))
-      await renderSection({ ...twoDone(), steps: marked })
+      await renderPanel({ ...twoDone(), steps: marked })
       fireEvent.click(await within(await waitFor(region)).findByRole('button', { name: button }))
       // The demo becomes the window's Project, then its Orchestrator opens.
       const select = await callOf('projects.select')
@@ -249,7 +330,7 @@ describe('the Getting started section', () => {
   }
 
   it('step 3: a refusal of the Orchestrator is shown in the step', async () => {
-    await renderSection(twoDone())
+    await renderPanel(twoDone())
     fireEvent.click(await within(await waitFor(region)).findByRole('button', { name: 'Open the Orchestrator' }))
     await act(async () => (await callOf('projects.select')).answer({ ok: true, value: { revision: 2, activeId: DEMO, projects: [] } }))
     await act(async () => (await callOf('orchestrator.open')).answer({ ok: false, error: 'orchestrator.open failed: no such Project' }))
@@ -257,7 +338,7 @@ describe('the Getting started section', () => {
   })
 
   it('steps 5 and 6 have no button', async () => {
-    await renderSection(snapshot({ steps: { '1': 'x', '2': 'x', '3': 'x', '4': 'x' } as never }))
+    await renderPanel(snapshot({ steps: { '1': 'x', '2': 'x', '3': 'x', '4': 'x' } as never }))
     const items = await waitFor(steps)
     expect(items[4]!.getAttribute('aria-current')).toBe('step')
     expect(within(items[4]!).queryByRole('button')).toBeNull()
@@ -267,7 +348,7 @@ describe('the Getting started section', () => {
     const { onAddProjectRequest } = await import('../../src/renderer/projects/add-project')
     const asked = vi.fn()
     const stop = onAddProjectRequest(asked)
-    await renderSection(twoDone())
+    await renderPanel(twoDone())
     const section = await waitFor(region)
     expect(within(section).getByText('Connect your own project')).toBeTruthy()
     expect(within(section).getByText('Add a repository you work on. Not part of the demo.')).toBeTruthy()
@@ -293,9 +374,9 @@ describe('the Getting started section', () => {
     expect(requestAddProject()).toBe(false)
   })
 
-  it('openGettingStarted() asks main to show the section, then focuses it', async () => {
+  it('openGettingStarted() asks main to show the panel, then focuses its heading', async () => {
     const { openGettingStarted } = await import('../../src/renderer/getting-started/store')
-    await renderSection(snapshot({ section: 'hidden' }))
+    await renderPanel(snapshot({ section: 'hidden' }))
     let opened: Promise<string | undefined> | undefined
     act(() => {
       opened = openGettingStarted()
@@ -304,18 +385,14 @@ describe('the Getting started section', () => {
     expect(call.input).toEqual({ section: 'shown' })
     await act(async () => call.answer({ ok: true, value: twoDone() }))
     expect(await opened).toBeUndefined()
-    const heading = within(region()).getByRole('button', { name: 'Getting started' })
+    const heading = within(region()).getByRole('heading', { name: 'Getting started' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
   })
 
-  it('openGettingStarted() expands a section the user collapsed', async () => {
+  it('openGettingStarted() expands a panel the user collapsed to its pill', async () => {
     const { openGettingStarted } = await import('../../src/renderer/getting-started/store')
-    const collapsed = { ...appSettings, sidebar: { ...appSettings.sidebar, collapsed: { GettingStartedSection: true } } }
-    preload(twoDone(), collapsed)
-    const { default: GettingStartedSection } = await import('../../src/renderer/shell/sidebar/GettingStartedSection')
-    render(<GettingStartedSection />)
-    const heading = await waitFor(() => within(region()).getByRole('button', { name: 'Getting started' }))
-    await waitFor(() => expect(heading.getAttribute('aria-expanded')).toBe('false'))
+    await renderPanel(twoDone(), collapsedSettings())
+    await waitFor(() => expect(pill()).not.toBeNull())
     let opened: Promise<string | undefined> | undefined
     act(() => {
       opened = openGettingStarted()
@@ -323,7 +400,8 @@ describe('the Getting started section', () => {
     await act(async () => (await callOf('gettingStarted.setSection')).answer({ ok: true, value: twoDone() }))
     expect(await opened).toBeUndefined()
     expect(settingsAsked).toEqual([{ sidebar: { collapsed: { GettingStartedSection: false } } }])
-    await waitFor(() => expect(heading.getAttribute('aria-expanded')).toBe('true'))
+    const heading = await waitFor(() => within(region()).getByRole('heading', { name: 'Getting started' }))
+    expect(pill()).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(heading))
   })
 
@@ -336,13 +414,14 @@ describe('the Getting started section', () => {
     expect(await opened).toBe('disk full')
   })
 
-  it('every button is reached by Tab: they are buttons, none taken out of the order', async () => {
-    await renderSection(snapshot({ steps: { '1': '2026-10-30T09:00:00.000Z' } }))
+  it('every button is reached by Tab: they are buttons, none taken out of the order; Collapse has its tooltip', async () => {
+    await renderPanel(snapshot({ steps: { '1': '2026-10-30T09:00:00.000Z' } }))
     const section = await waitFor(region)
     for (const button of within(section).getAllByRole('button')) {
       expect(button.tagName).toBe('BUTTON')
       expect(button.getAttribute('tabindex')).toBeNull()
     }
+    expect(within(section).getByRole('button', { name: 'Collapse' }).getAttribute('title')).toBe('Collapse')
   })
 })
 

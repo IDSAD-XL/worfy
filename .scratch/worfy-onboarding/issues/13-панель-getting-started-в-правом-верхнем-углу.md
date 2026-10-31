@@ -1,7 +1,7 @@
 # 13 — Панель Getting started в правом верхнем углу вместо раздела боковой панели
 
 Type: task
-Status: open
+Status: claimed 2026-10-31T00:18Z
 Blocked by: —
 Source: решения владельца 2026-10-31, Q11 (поправка spec-а, два Ticket-а в этом Epic-е), Q12 (место и размер панели, toast-ы её обходят), Q13 (слой панели, клики вне неё проходят, немодальная), Q14 (панель вместо раздела, свёрнутая — pill «Getting started · 3/6»), Q17 (существующий пользователь — без изменений); [spec.md](../spec.md), «Решения владельца 2026-10-31», «Тексты (черновик)», «Панель Getting started»
 
@@ -137,4 +137,16 @@ Source: решения владельца 2026-10-31, Q11 (поправка spec
 
 ## Итог
 
-Заполняется при закрытии.
+- Панель — `src/renderer/getting-started/GettingStartedPanel.tsx` (файл раздела перенесён сюда, `git mv`):
+  `createPortal` в `<body>`, z-index 80, `role="region"`, `data-toast-keep-out` у панели и у pill, высота до
+  `70vh`, прокручивается только тело. Свёрнутость — прежний ключ `sidebar.collapsed.GettingStartedSection`;
+  сворачивание и pill пишут его сами, `openGettingStarted()` больше не пишет app settings — панель
+  разворачивает pill и переводит фокус в заголовок (`h2`, `tabIndex=-1`). Константа
+  `GETTING_STARTED_SECTION_ID` переименована в `GETTING_STARTED_COLLAPSED_KEY` (значение то же).
+- Файлы вне следа: `docs/features/onboarding.md` (английская страница фичи: панель вместо раздела; без
+  этого `pnpm lint` красный — `check-feature-docs.mjs` ловил путь удалённого файла).
+- e2e: `getting-started.spec.ts` — угол и ширина панели, нет раздела в боковой панели, клики рядом с
+  панелью доходят до Canvas и toolbar, First run / Command palette / Settings поверх панели, окно 1200×900
+  без прокрутки на шаге 4 с подсказкой и переключателем стоимости, наименьшее окно, pill и перезапуск;
+  `getting-started-done.spec.ts` — toast удаления ниже панели; `getting-started-entry.spec.ts` —
+  существующий пользователь без панели и pill, «Open» уведомления открывает панель.

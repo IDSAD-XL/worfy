@@ -22,7 +22,8 @@ import { ms } from '../time-scale'
 // toast, and a restart of the app shows none of those already shown.
 //
 // Screenshots of the cost switch, of a hint line and of the example, light and dark, go to the test's output as
-// 09-<what>-<theme>.png.
+// 09-<what>-<theme>.png; the whole Getting started panel (ticket 13) with step 5's example open as
+// 09-panel-review-example-<theme>.png.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const bundle = join(repoRoot, 'out', 'harness')
@@ -140,7 +141,7 @@ function markReview(sha: string, verdict: 'pending' | 'failure' | 'success'): vo
   writeFileSync(file, `${JSON.stringify({ epic: 'todo', num: 1, marks: [...marks, { kind: 'review', verdict, sha, at: new Date().toISOString() }] }, null, 2)}\n`)
 }
 
-/** The hint line of the section: under `step`, with this hint. */
+/** The hint line of the panel: under `step`, with this hint. */
 async function expectHint(window: Page, step: string, id: keyof typeof HINTS): Promise<void> {
   const line = sectionOf(window).getByTestId('getting-started-hint')
   await expect(line).toHaveCount(1, { timeout: ms(20_000) })
@@ -284,6 +285,8 @@ test('step 5 marked without a rework round says the review found nothing and ope
     await expect(fallback.getByRole('button', { name: 'Show an example' })).toHaveCount(0)
     await example.evaluate((node) => (node as unknown as { blur(): void }).blur())
     await shoot(window, fallback, 'review-example')
+    // The whole panel with the example open (ticket 13).
+    await shoot(window, sectionOf(window), 'panel-review-example')
   } finally {
     await launched.close()
   }

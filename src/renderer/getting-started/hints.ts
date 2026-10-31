@@ -1,6 +1,6 @@
 // The hints of the demo Ticket's Stages (worfy-onboarding ticket 09; spec, decision 10): one short
 // line per concept the demo shows, given while the demo Ticket stands on the Stage it explains. The
-// section of Getting started (shell/sidebar/GettingStartedSection.tsx) shows the hint as a line under
+// panel of Getting started (GettingStartedPanel.tsx) shows the hint as a line under
 // its current step and once as an `info` toast of the Demo project; main records which hints were
 // shown (`gettingStarted.hintSeen`). Texts are those of the spec, section "Texts (draft)".
 import { DEMO_TICKET_REF, type DemoRecord, type GettingStartedHint, type GettingStartedSnapshot } from '../../shared/ipc/getting-started'

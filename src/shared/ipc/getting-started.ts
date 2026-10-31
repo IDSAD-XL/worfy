@@ -2,10 +2,10 @@
 // `local`: the Demo project and the Getting started state belong to this Machine.
 //
 // The state (ticket 06): whether the user was new or existing when worfy first read it, whether the
-// section shows, the six steps with the time each was marked, the Demo project's record. Main owns
+// Getting started panel shows (`section`), the six steps with the time each was marked, the Demo project's record. Main owns
 // it (src/main/getting-started/state.ts) and marks the steps itself from facts
 // (src/main/getting-started/progress.ts); a window reads it with `gettingStarted.state`, hears
-// `gettingStarted.changed` after every change, and writes only the section and the notice.
+// `gettingStarted.changed` after every change, and writes only `section` and the notice.
 //
 // `gettingStarted.createDemo` (ticket 05) creates the Demo project with one call: a git repository
 // from the template in the home folder, connected to the Harness, added to the list as local to this
@@ -40,7 +40,10 @@ export type DemoRecord = z.infer<typeof demoRecordSchema>
 export const gettingStartedUserSchema = z.enum(['new', 'existing'])
 export type GettingStartedUser = z.infer<typeof gettingStartedUserSchema>
 
-/** Whether the sidebar shows the section: Skip hides it, the Command palette shows it again (ticket 07). */
+/**
+ * Whether the window shows Getting started — the panel in the top right corner (ticket 13), named
+ * `section` after the sidebar section it replaced: Skip hides it, the Command palette shows it again.
+ */
 export const gettingStartedSectionSchema = z.enum(['shown', 'hidden'])
 export type GettingStartedSection = z.infer<typeof gettingStartedSectionSchema>
 
@@ -71,7 +74,7 @@ export const gettingStartedStateChannel = invokeChannel('gettingStarted.state', 
 /** The whole state again, after any change: a step marked, the section, the notice, the demo. */
 export const gettingStartedChanged = eventChannel('gettingStarted.changed', gettingStartedSnapshotSchema, 'local')
 
-/** Shows or hides the section: Skip, and "Getting started" of the Command palette (ticket 07). Answers the state. */
+/** Shows or hides the panel: Skip, and "Getting started" of the Command palette (tickets 07, 13). Answers the state. */
 export const gettingStartedSetSection = invokeChannel('gettingStarted.setSection', z.object({ section: gettingStartedSectionSchema }), gettingStartedSnapshotSchema, 'local')
 
 /** The notice for an existing user was shown (ticket 08); it is not shown again. Answers the state. */

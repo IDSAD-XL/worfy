@@ -27,8 +27,8 @@
 // its name the detail: the row is the choice of the Machine. They do what the buttons of its row in
 // the sidebar do — `link.reconnect`, and the confirmation of Remove (machines/MachineDialogs.tsx);
 // Reconnect only for a Machine without a connection. They concern this Machine's link, not the Project.
-// "Getting started" (worfy-onboarding ticket 07) shows the Getting started section of the sidebar
-// again and focuses it (getting-started/store.ts); with or without a Project.
+// "Getting started" (worfy-onboarding tickets 07, 13) shows the Getting started panel again,
+// expanded, and focuses it (getting-started/store.ts); with or without a Project.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
@@ -309,7 +309,7 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
       return undefined
     },
   })
-  // Getting started (worfy-onboarding ticket 07): shows the section again after Skip, and focuses it.
+  // Getting started (worfy-onboarding tickets 07, 13): shows the panel again after Skip, expanded, and focuses it.
   // Always here, with or without a Project.
   commands.push({
     id: 'getting-started',
