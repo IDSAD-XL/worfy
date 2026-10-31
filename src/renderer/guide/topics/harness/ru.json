@@ -1,0 +1,107 @@
+{
+  "title": "Harness",
+  "summary": [
+    "Harness — plugin Claude Code с именем worfy: skills, агенты и hooks, по которым агенты Claude ведут работу над Project-ом. Каждая сборка worfy несёт его копию и ставит её на Machine после диалога, в котором названа каждая команда. Любой агент сначала запускает скрипт profile и работает по Profile Project-а, а Profile никогда не лежит в репозитории."
+  ],
+  "scene": {
+    "description": "Harness и Session-ы, до которых он доходит. worfy ставит свою копию Harness в Harness home, откуда её загружают Session-ы в терминале, и, если в ~/.claude не осталось старого Harness, передаёт ту же копию inline Orchestrator-у и любой другой Session, которую запускает сам. Orchestrator запускает skill и Subagent-ов. В plugin лежат skills, hooks, агенты, скрипты и qmd. Hooks дают Orchestrator-у главные правила, а Subagent-у — общие. Определение агента задаёт Subagent-у его роль. Subagent сначала запускает profile и читает Profile Project-а, который лежит в Harness home, запускает скрипты вроде ticket и preflight и ищет решения через qmd.",
+    "labels": {
+      "harnessHome": "Harness home",
+      "sessions": "Session-ы",
+      "plugin": "Plugin worfy",
+      "app": "worfy",
+      "appNote": "копия в каждой сборке",
+      "installed": "Plugin worfy",
+      "installedNote": "установлен для Session-ов в терминале",
+      "profile": "Profile",
+      "profileNote": "один на Project, не в репозитории",
+      "orchestrator": "Orchestrator",
+      "orchestratorNote": "главная Session Project-а",
+      "subagent": "Subagent",
+      "subagentNote": "implementer, reviewer или scout",
+      "skills": "Skills",
+      "skillsNote": "процедуры: /worfy:<name>",
+      "hooks": "Hooks",
+      "hooksNote": "по событиям Claude Code",
+      "agents": "Агенты",
+      "agentsNote": "три роли",
+      "scripts": "Скрипты",
+      "scriptsNote": "profile, ticket, preflight…",
+      "qmd": "qmd",
+      "qmdNote": "поиск по документам",
+      "installs": "ставит, после диалога",
+      "inline": "копия, inline",
+      "starts": "запускает",
+      "runsSkill": "запускает /worfy:epic-wave",
+      "mainRules": "главные правила на старте",
+      "commonRules": "общие правила",
+      "role": "его роль",
+      "runsScripts": "запускает скрипты",
+      "searches": "ищет решения",
+      "profileFirst": "сначала читает",
+      "step1": "worfy ставит свою копию Harness как plugin Claude Code с именем worfy, после диалога, в котором названа каждая команда. Старая сборка никогда не заменяет более новый Harness.",
+      "step2": "Session, которую запускает worfy, получает копию этой сборки inline, если в ~/.claude не остался старый Harness. Orchestrator ведёт Wave по skill epic-wave.",
+      "step3": "Orchestrator запускает Subagent-ов в трёх ролях: implementer, reviewer и scout. Каждый сначала запускает profile и работает по тому, что тот напечатал.",
+      "step4": "Hooks срабатывают сами по событиям Claude Code: правила на старте, Bash guard перед командой и Gate, когда задача завершена.",
+      "step5": "Скрипты вроде ticket и preflight пишут и проверяют workflow. qmd ищет решения и уроки всех Project-ов."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "Поток данных Harness в worfy. В renderer: пункт Harness. В main process: установщик, locateHarness, запуск скриптов и опции Session. В Harness home: папка plugin. На стороне Claude Code: его команды claude plugin, Claude home и Session. Пункт Harness вызывает harness.install. Установщик копирует Harness этой сборки в папку plugin через промежуточную папку, которую затем переименовывает, и запускает команды claude plugin, а они пишут в Claude home. Каждому окну он отвечает harness.changed. locateHarness находит папку plugin и сообщает запуску скриптов, где лежат скрипты, а опциям Session — что стоит на Machine: plugin или старый Harness. Запуск скриптов запускает bin/profile из папки plugin. Опции Session передают Session копию из сборки inline.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "home": "HARNESS HOME",
+        "claude": "CLAUDE CODE",
+        "item": "Пункт Harness",
+        "itemNote": "toolbar, Settings → Pipeline",
+        "installer": "Установщик",
+        "installerNote": "читает, спрашивает, копирует",
+        "locate": "locateHarness",
+        "locateNote": "plugin, legacy или none",
+        "runner": "Запуск скриптов",
+        "runnerNote": "env login shell, HARNESS_HOME",
+        "options": "Опции Session",
+        "optionsNote": "plugins и MCP-серверы",
+        "pluginFolder": "Папка plugin",
+        "pluginFolderNote": "worfy-harness/plugin",
+        "cli": "claude plugin",
+        "cliNote": "бинарник Claude Code из SDK",
+        "claudeHome": "Claude home",
+        "claudeHomeNote": "settings.json, папка plugins",
+        "session": "Session",
+        "sessionNote": "один query Claude Code",
+        "install": "harness.install",
+        "changed": "harness.changed",
+        "commands": "install, update",
+        "swap": "через staging и rename",
+        "writes": "пишет",
+        "found": "plugin.json, bin/",
+        "binDir": "папка скриптов",
+        "kind": "plugin или legacy",
+        "runs": "запускает bin/profile",
+        "inline": "копия из сборки, inline"
+      }
+    },
+    "text": [
+      "При установке worfy сам пишет только папку plugin. settings.json и папку plugins пишут собственные команды Claude Code, с бинарником из SDK. Недостающая зависимость ставится первой: без неё plugin не загружается.",
+      "Какой Harness стоит на Machine, проверяется при каждом вызове. Пока старый Harness лежит в ~/.claude, он главнее, и Session-ы worfy не получают plugin, чтобы старые hooks не сработали дважды.",
+      "Из hooks задержать ход или команду могут только Gate и Bash guard. Сломанный hook не ломает Session."
+    ],
+    "files": {
+      "src/main/harness/install.ts": "Установщик: состояние, план, порядок версий, текст диалога, замена папки",
+      "src/main/ipc/harness.ts": "Единственный установщик приложения и диалог согласия; объявляет harness.changed",
+      "src/main/harness/locate.ts": "Какой Harness стоит на Machine и где его скрипты",
+      "src/main/agent/options.ts": "Передаёт копию Session inline и регистрирует её серверы",
+      "src/main/workflow/profile.ts": "Запускает bin/profile и читает поля Profile",
+      "src/renderer/shell/toolbar/HarnessStatus.tsx": "Пункт Harness в toolbar",
+      "harness/hooks/hooks.json": "Подключает каждый hook plugin"
+    },
+    "limits": [
+      "Ставить Harness может только собранное приложение или запуск с WORFY_CLAUDE_HOME: сборка для разработки заменила бы Harness, на котором работает терминал.",
+      "Команде установки даётся 120 с, а команде, которая ставит зависимость, — 600 с.",
+      "Текст hook длиннее 10 000 символов Claude Code обрезает до превью, поэтому общие правила вместе с правилами пользователя в этот предел укладываются."
+    ]
+  }
+}
