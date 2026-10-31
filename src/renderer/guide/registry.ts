@@ -28,6 +28,7 @@ export const GUIDE_TOPICS: readonly GuideTopicEntry[] = [
   { id: 'harness', title: 'Harness', keys: ['plugin', 'skills', 'hooks', 'profile'] },
   { id: 'workflow', title: 'Workflow', keys: ['pipeline', 'binding', 'epics and tickets'] },
   { id: 'cards', title: 'Cards', keys: ['card api', 'canvas mcp', 'create_card', 'window.worfy'] },
+  { id: 'link', title: 'Link', keys: ['linked machine', 'tailscale', 'pairing code'] },
   { id: 'skeleton', title: 'How the Guide works', keys: ['guide test', 'skeleton'], devOnly: true },
 ]
 

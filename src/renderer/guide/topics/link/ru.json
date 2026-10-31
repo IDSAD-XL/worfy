@@ -1,0 +1,83 @@
+{
+  "title": "Link",
+  "summary": [
+    "Machine — одна папка данных worfy. Свяжите две Machine кодом из 6 цифр, и каждая сможет открывать Project-ы другой, если та это разрешила. Project по-прежнему работает на своей Machine: ваше окно его показывает и передаёт команды. Связь работает в локальной сети, а через Tailscale — когда обе стороны его включили."
+  ],
+  "scene": {
+    "description": "Две связанные Machine. Под «Эта Machine»: сама Machine, раздел Machines её боковой панели и ваше окно. Под «Другая Machine»: Linked machine, доступ, который она даёт этой, и её Project. Machine связана с другой кодом из 6 цифр. Раздел Machines показывает состояние Linked machine. Ваше окно передаёт команды другой Machine; пока у неё включён переключатель «Linked machines can work with my Projects», уровень доступа, который она дала этой Machine, решает, что доходит до Project-а, а Project показан в вашем окне.",
+    "labels": {
+      "thisMachine": "Эта Machine",
+      "otherMachine": "Другая Machine",
+      "machine": "Machine",
+      "machineNote": "одна папка данных worfy",
+      "section": "Раздел Machines",
+      "sectionNote": "в боковой панели",
+      "window": "Ваше окно",
+      "windowNote": "показывает Project-ы одной Machine",
+      "linked": "Linked machine",
+      "linkedNote": "связь в обе стороны",
+      "access": "Доступ",
+      "accessNote": "Off, Read only, Full access",
+      "project": "Project",
+      "projectNote": "его Session-ы работают здесь",
+      "code": "код из 6 цифр",
+      "state": "её состояние",
+      "commands": "команды",
+      "byLevel": "по уровню",
+      "shown": "показан здесь",
+      "step1": "Откройте Link a machine… на обоих worfy. На одном выберите другой и введите код из 6 цифр, который он показывает. Связь работает в обе стороны.",
+      "step2": "Раздел Machines в боковой панели показывает Linked machine как Online, Sleeping, Offline или Certificate changed. worfy переподключается сам.",
+      "step3": "Machine, чьи это Project-ы, решает в Settings → Machines. «Linked machines can work with my Projects» по умолчанию выключен; пока он включён, каждая Linked machine получает Off, Read only или Full access. Новая связь начинается с Off.",
+      "step4": "Клик по её Project-у в боковой панели открывает его в вашем окне. Session-ы, Terminal-ы и Autopilot работают там; ваше окно их показывает и передаёт команды."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "Поток данных вызова из вашего окна к Project-у Linked machine M. Окно читает метку доступа канала: каналы local и link остаются у собственных обработчиков этой Machine, а project и desktop уходят как linked.invoke к обработчикам linked в main этой Machine. RemoteCalls отправляет вызов кадром по текущему соединению с M. На M link service передаёт его IPC adapter-у, и тот запускает тот же обработчик, что вызвало бы окно на M, если метка и уровень доступа это разрешают. Ответ и события M возвращаются кадрами; RemoteCalls разбирает их схемой этой стороны, и они доходят до окна как ответ и как linked.event.",
+      "labels": {
+        "here": "Эта Machine",
+        "there": "Linked machine",
+        "window": "Ваше окно",
+        "windowNote": "направляет по метке доступа",
+        "own": "Свои обработчики",
+        "ownNote": "main этой Machine",
+        "linked": "Каналы linked",
+        "linkedNote": "считают окна на корень",
+        "remote": "RemoteCalls",
+        "remoteNote": "текущее соединение с M",
+        "service": "Link service",
+        "serviceNote": "TLS 1.3 и WebSocket",
+        "adapter": "IPC adapter",
+        "adapterNote": "проверяет метку и уровень",
+        "handler": "Тот же обработчик",
+        "handlerNote": "как для окна на M",
+        "stays": "local, link",
+        "invoke": "linked.invoke",
+        "call": "вызов",
+        "frame": "кадр вызова",
+        "passes": "вызов",
+        "allowed": "если разрешено",
+        "answer": "ответ, кадры событий",
+        "parsed": "разобрано здесь",
+        "event": "ответ, linked.event"
+      }
+    },
+    "text": [
+      "Вызов от Linked machine запускает тот же обработчик IPC, что и вызов из окна, с теми же схемами. Имя канала, которого adapter не знает, закрыто, а Read only отклоняет каждый канал project с пометкой write.",
+      "Pairing — это SPAKE2 с кодом в роли пароля, привязанный к отпечаткам обоих сертификатов, поэтому машина посередине его срывает."
+    ],
+    "files": {
+      "src/main/link/service.ts": "Когда сервер слушает, pairing, соединения",
+      "src/main/link/pairing.ts": "SPAKE2, код, счёт неудач",
+      "src/main/link/remote-calls.ts": "Вызовы к Linked machine",
+      "src/main/link/ipc-adapter.ts": "Вызовы от неё: проверки метки и уровня",
+      "src/shared/ipc/channels.ts": "Метка доступа каждого канала",
+      "src/renderer/ipc.ts": "Направляет вызов окна по его метке"
+    },
+    "limits": [
+      "Код живёт 2 минуты, и первая попытка его сжигает. 10 неудачных попыток подряд или за час закрывают связывание.",
+      "Сообщение в соединении — не больше 16 MiB, а вызов ждёт ответа 30 секунд.",
+      "Пока Link through Tailscale не включён на обеих сторонах, проходят только локальная сеть и loopback. Ретранслятора нет."
+    ]
+  }
+}
