@@ -96,7 +96,7 @@ Terminal AI — группа `tools` (`scene-colours.ts`: «Cards, the Terminal,
 [RU](../evidence/13-terminal-flow-lit-ai-ru-light.png) и Terminal Node [EN](../evidence/13-terminal-flow-lit-node-en-light.png) /
 [RU](../evidence/13-terminal-flow-lit-node-ru-light.png). Контраст текста: каждый видимый текст Topic-а (HTML, подписи
 блоков, областей и связей обеих схем) против своего фона, обе темы, EN и RU, без подсветки и с подсветкой блоков обеих
-схем — CONTRAST.
+схем — 24 замера по 114–115 текстов, минимум 5,60:1 в светлой и 5,93:1 в тёмной, ниже 4,5:1 нет ни одного.
 
 **Доработка после REJECTED (PR #1164, ревью medium, 2 medium + 2 low).** Шаг 5 в EN и RU сужен: у порога Limits
 встаёт на паузу только автоматический серый текст, Fix останавливается, только когда Limits отказывают
