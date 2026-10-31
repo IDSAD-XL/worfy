@@ -260,15 +260,16 @@ describe('a click on a block of the Map', () => {
 
   it('opens the Full page on GitHub, at the build commit, while its Topic is not written', async () => {
     render(<Scene labels={en.scene.labels} strings={GUIDE_STRINGS.en} />)
-    const autopilot = blockOf('autopilot')
-    expect(autopilot.getAttribute('role')).toBe('link')
-    expect(autopilot.dataset.target).toBe('page')
-    expect(autopilot.dataset.to).toBe('docs/features/autopilot.md')
-    expect(autopilot.querySelector('title')?.textContent).toBe(GUIDE_STRINGS.en.openOnGitHub)
-    fireEvent.click(autopilot)
-    fireEvent.keyDown(blockOf('canvas'), { key: 'Enter' })
+    // Blocks whose Topics no ticket of the pilot writes (worfy-guide 06-08 write autopilot, canvas, sessions).
+    const harness = blockOf('harness')
+    expect(harness.getAttribute('role')).toBe('link')
+    expect(harness.dataset.target).toBe('page')
+    expect(harness.dataset.to).toBe('docs/features/harness.md')
+    expect(harness.querySelector('title')?.textContent).toBe(GUIDE_STRINGS.en.openOnGitHub)
+    fireEvent.click(harness)
+    fireEvent.keyDown(blockOf('gate'), { key: 'Enter' })
     await act(() => Promise.resolve())
-    expect(opened).toEqual([`${GUIDE_REPO_URL}/blob/e61cb1fe/docs/features/autopilot.md`, `${GUIDE_REPO_URL}/blob/e61cb1fe/docs/features/canvas.md`])
+    expect(opened).toEqual([`${GUIDE_REPO_URL}/blob/e61cb1fe/docs/features/harness.md`, `${GUIDE_REPO_URL}/blob/e61cb1fe/docs/features/gate-and-github.md`])
     expect(useGuide.getState().topic).toBe(ID)
   })
 
