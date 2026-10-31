@@ -493,6 +493,11 @@ describe('the move', () => {
   })
 
   it('removes bin/epic-status last, after the hook records left settings.json (ADR-0049)', async () => {
+    // The order of the steps does not depend on git, and the ~/.claude commit has its own test above.
+    // Without the repository the step "commit" skips that commit: about 40 of the move's 57 git
+    // processes, each 0.2 s or more on the Windows PC, where this test took 12 s alone and went over
+    // its 45 s limit in a gate with 8 workers.
+    removeTestTree(join(sandbox.claudeHome, '.git'))
     const seen: { step: MigrationStep; marker: boolean; hooks: number }[] = []
     const settingsPath = join(sandbox.claudeHome, 'settings.json')
     const look = (step: MigrationStep): void => {
