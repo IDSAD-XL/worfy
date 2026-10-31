@@ -5,7 +5,7 @@
     "Open it from Help ▸ worfy Guide or from the Command palette. It needs no Project and no network, and it never opens by itself."
   ],
   "scene": {
-    "description": "Help ▸ worfy Guide and a row of the Command palette both open the Guide. The Guide reads its Topics from the app's own code.",
+    "description": "Help ▸ worfy Guide and a row of the Command palette both open the Guide. The Guide reads each Topic from its folder in the app's own code: the texts in English and Russian and the diagram.",
     "labels": {
       "menu": "Help menu",
       "menuNote": "worfy Guide",
@@ -13,7 +13,13 @@
       "paletteNote": "a row per Topic",
       "guide": "Guide",
       "guideNote": "Topics in EN and RU",
-      "opens": "opens"
+      "opens": "opens",
+      "topics": "Topic folder",
+      "topicsNote": "texts EN, RU and a diagram",
+      "reads": "reads",
+      "step1": "Help ▸ worfy Guide opens the Guide where it was left.",
+      "step2": "A row of the Command palette opens the Guide at its Topic.",
+      "step3": "The Guide reads the Topic from its folder: the texts in both languages and this diagram."
     }
   },
   "underTheHood": {

@@ -8,5 +8,10 @@
   "fullPage": "Full page",
   "openOnGitHub": "Opens on GitHub",
   "close": "Close",
-  "noTopics": "No Topics yet."
+  "noTopics": "No Topics yet.",
+  "diagram": "Diagram",
+  "steps": "Steps",
+  "step": "Step",
+  "play": "Play",
+  "pause": "Pause"
 }

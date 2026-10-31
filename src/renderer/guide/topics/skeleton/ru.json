@@ -5,7 +5,7 @@
     "Откройте его через Help ▸ worfy Guide или из Command palette. Ему не нужны ни Project, ни сеть, и сам он никогда не открывается."
   ],
   "scene": {
-    "description": "Help ▸ worfy Guide и строка Command palette открывают Guide. Guide берёт Topic-и из кода самого приложения.",
+    "description": "Help ▸ worfy Guide и строка Command palette открывают Guide. Guide берёт каждый Topic из его папки в коде самого приложения: тексты на английском и русском и схему.",
     "labels": {
       "menu": "Help menu",
       "menuNote": "worfy Guide",
@@ -13,7 +13,13 @@
       "paletteNote": "строка на Topic",
       "guide": "Guide",
       "guideNote": "Topic-и на EN и RU",
-      "opens": "открывает"
+      "opens": "открывает",
+      "topics": "Папка Topic-а",
+      "topicsNote": "тексты EN, RU и схема",
+      "reads": "читает",
+      "step1": "Help ▸ worfy Guide открывает Guide там, где его закрыли.",
+      "step2": "Строка Command palette открывает Guide на своём Topic-е.",
+      "step3": "Guide берёт Topic из его папки: тексты на двух языках и эту схему."
     }
   },
   "underTheHood": {

@@ -8,5 +8,10 @@
   "fullPage": "Full page",
   "openOnGitHub": "Открывается на GitHub",
   "close": "Close",
-  "noTopics": "Topic-ов пока нет."
+  "noTopics": "Topic-ов пока нет.",
+  "diagram": "Схема",
+  "steps": "Шаги",
+  "step": "Шаг",
+  "play": "Play",
+  "pause": "Pause"
 }

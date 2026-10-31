@@ -42,6 +42,8 @@ export type TopicText = z.output<typeof topicTextSchema>
 export interface SceneProps {
   /** `scene.labels` of the Topic in the language on screen. */
   labels: Readonly<Record<string, string>>
+  /** The Guide's own labels in that language: the step player's buttons, the name of the diagram. */
+  strings: GuideStrings
 }
 
 export interface GuideTopic {
