@@ -1,5 +1,5 @@
 // A stdout or stderr nobody reads any more must not stop main (src/main/diagnostics/closed-stdio.ts):
-// the errors of a closed stream are dropped, any other stream error stays uncaught.
+// the errors of a closed stream and EIO are dropped, any other stream error stays uncaught.
 import { EventEmitter } from 'node:events'
 import { describe, expect, it } from 'vitest'
 import { ignoreClosedStdio, isClosedStreamError } from '../../src/main/diagnostics/closed-stdio'
@@ -11,10 +11,11 @@ describe('isClosedStreamError', () => {
     expect(isClosedStreamError(withCode('EPIPE'))).toBe(true)
     expect(isClosedStreamError(withCode('EOF'))).toBe(true)
     expect(isClosedStreamError(withCode('ERR_STREAM_DESTROYED'))).toBe(true)
+    expect(isClosedStreamError(withCode('EIO'))).toBe(true)
   })
 
   it('does not take any other error for one', () => {
-    expect(isClosedStreamError(withCode('EIO'))).toBe(false)
+    expect(isClosedStreamError(withCode('ENOSPC'))).toBe(false)
     expect(isClosedStreamError(withCode('EBADF'))).toBe(false)
     expect(isClosedStreamError(new Error('EPIPE'))).toBe(false)
     expect(isClosedStreamError(null)).toBe(false)
@@ -30,13 +31,14 @@ describe('ignoreClosedStdio', () => {
     expect(() => out.emit('error', withCode('EPIPE'))).not.toThrow()
     expect(() => err.emit('error', withCode('EPIPE'))).not.toThrow()
     expect(() => out.emit('error', withCode('ERR_STREAM_DESTROYED'))).not.toThrow()
+    expect(() => err.emit('error', withCode('EIO'))).not.toThrow()
   })
 
   it('throws any other stream error on, as the stream would with no listener', () => {
     const out = new EventEmitter()
-    const eio = withCode('EIO')
+    const enospc = withCode('ENOSPC')
     ignoreClosedStdio([out])
-    expect(() => out.emit('error', eio)).toThrow(eio)
+    expect(() => out.emit('error', enospc)).toThrow(enospc)
   })
 
   it('listens to process.stdout and process.stderr by default', () => {

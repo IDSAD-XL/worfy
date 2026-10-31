@@ -21,8 +21,10 @@ main показал модальное окно «A JavaScript error occurred in
 
 ## Что делаем
 
-1. В main при старте — обработчик `error` у `process.stdout` и `process.stderr`: `EPIPE` (и `ERR_STREAM_DESTROYED`)
-   глотается — писать больше некуда, приложение работает дальше; прочие ошибки потока — как сейчас.
+1. В main при старте — обработчик `error` у `process.stdout` и `process.stderr`: коды закрытого потока — `EPIPE`,
+   `EOF`, `ERR_STREAM_DESTROYED`, `EIO` (закрытый TTY) — глотаются: писать больше некуда, приложение работает дальше;
+   прочие коды по-прежнему бросаются (решение Orchestrator-а 2026-10-31: ошибка записи в stdout/stderr не стоит
+   модального окна, а listener без `EIO` сделал бы его хуже — раньше первую ошибку записи глотал Console).
 2. Место — рядом с `reportUncaughtToStderr` (`src/main/diagnostics/`), подключение там же, где он.
 3. Журнал worfy (`log-file.ts`) продолжает получать строки: глотается только запись в закрытый поток.
 
@@ -49,12 +51,15 @@ main показал модальное окно «A JavaScript error occurred in
 ## Итог
 
 - Сделано: `src/main/diagnostics/closed-stdio.ts` — `ignoreClosedStdio()` ставит один обработчик `error` на
-  `process.stdout` и `process.stderr`; ошибка с кодом `EPIPE`, `EOF` или `ERR_STREAM_DESTROYED` глотается, любая
-  другая бросается дальше и остаётся uncaught exception, как без обработчика. Обработчик не зависит от вида потока
+  `process.stdout` и `process.stderr`; ошибка с кодом `EPIPE`, `EOF`, `ERR_STREAM_DESTROYED` или `EIO` глотается,
+  любая другая бросается дальше и остаётся uncaught exception, как без обработчика. Обработчик не зависит от вида потока
   (pipe, socket, консоль). Подключён в `src/main/index.ts` сразу после `reportUncaughtToStderr()`.
 - Коды Windows по исходнику libuv `src/win/error.c`: запись с `ERROR_BROKEN_PIPE` и `ERROR_NO_DATA` даёт `EPIPE`
   (`uv_translate_write_sys_error`), `ERROR_PIPE_NOT_CONNECTED` — `EPIPE`; `ERROR_BROKEN_PIPE` вне пути записи —
   `EOF`. `ENOTCONN` не добавлен: источника, что закрытая консоль даёт его, не нашлось.
+- `EIO` (закрытый TTY) глотается тоже. По POSIX `write()` он бывает и при живом потоке: orphaned фоновая группа
+  процессов пишет в управляющий терминал при `TOSTOP`, физическая ошибка ввода-вывода файла, куда перенаправлен
+  stdout. Строка тогда теряется, приложение работает дальше.
 - Факты с ПК (2026-10-31, через мост): обе Stable запущены PowerShell-ом сессии ПК через
   `Start-Process -FilePath $exe -WorkingDirectory …`, без перенаправления; родитель потом закончился. stdin, stdout и
   stderr новой копии — хэндлы Windows console (`\Device\ConDrv`), не pipe и не файл. Стек старой копии 408b25c7:
