@@ -1,7 +1,7 @@
 # 01 — Проверка Available update в main: GitHub API, зелёный `ci-ok`, пути, состояние
 
 Type: task
-Status: open
+Status: claimed 2026-10-31T04:52Z
 Blocked by:
 Source: решения владельца 2026-10-31, пункты 1 (GitHub API без входа, при старте и раз в час, без сети — молча), 2 (Available update), 11 (dev-сборка не проверяет); [spec.md](../spec.md), «Как устроено», «Решено без владельца», Р1–Р4, Р15; [ADR-0089](../../../docs/adr/0089-update-builds-main-in-own-clone.md), пункты 1, 2, 7
 
@@ -53,16 +53,16 @@ Source: решения владельца 2026-10-31, пункты 1 (GitHub API
 
 ## Готово, когда
 
-- [ ] Unit test `check`: голова = запущенный — нет Update; `ci-ok` `pending` и `failure` — нет; `diverged`
+- [x] Unit test `check`: голова = запущенный — нет Update; `ci-ok` `pending` и `failure` — нет; `diverged`
       и 404 — нет; только `docs/a.md`, `.scratch/x/spec.md`, `HANDOFF.md` — нет; плюс `src/main/x.ts` или
       `harness/skills/x/SKILL.md` — есть; 300 файлов — есть.
-- [ ] Unit test `updateEnabled`: dev — нет; packaged в Stable copy — да; packaged в `/tmp/x.app` — нет;
+- [x] Unit test `updateEnabled`: dev — нет; packaged в Stable copy — да; packaged в `/tmp/x.app` — нет;
       `WORFY_UPDATE=1` — да. Пути Windows — через `node:path` `win32`.
-- [ ] Contract test клиента против `test/update-stub.ts`: нет `Authorization` ни в одном запросе при
+- [x] Contract test клиента против `test/update-stub.ts`: нет `Authorization` ни в одном запросе при
       заданных `GH_TOKEN` и `GITHUB_TOKEN`; сервер не отвечает (порт закрыт) и 403 — `skipped`, без
       исключения; запрос к адресу не из `WORFY_UPDATE_API` невозможен (счётчик заглушки = все запросы).
-- [ ] Contract test состояния: файл во временной папке данных пишется и читается; битый — в стороне.
-- [ ] Версия Available update — `<version из package.json заглушки>+<7 символов SHA>`.
+- [x] Contract test состояния: файл во временной папке данных пишется и читается; битый — в стороне.
+- [x] Версия Available update — `<version из package.json заглушки>+<7 символов SHA>`.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты
@@ -91,4 +91,19 @@ Source: решения владельца 2026-10-31, пункты 1 (GitHub API
 
 ## Итог
 
-Заполняется при закрытии.
+- Новый модуль `src/main/update/`: `stable-copy.ts` (путь Stable copy как `defaultTarget` скрипта,
+  `WORFY_UPDATE_STABLE`, `updateEnabled`, запущенный commit из `<target>.json` или из build version),
+  `github.ts` (четыре чтения GitHub API без входа через `WORFY_UPDATE_API`, без `Authorization`, таймаут
+  15 s, сбой — `skipped` с причиной), `check.ts` (решение Р2–Р4, пометка `quiet` после отката,
+  расписание `UpdateChecks`: через 10 s и раз в час, одна проверка за раз), `state.ts`
+  (`<dataRoot>/update/state.json`, схема всего Epic-а, у каждого поля пустое значение по умолчанию).
+- Домен IPC `update` (`update.state`, `update.check`, событие `update.changed`, все `local`), store
+  `src/renderer/update/store.ts`; `src/main/index.ts` запускает проверки и останавливает их на `will-quit`.
+  Вне Stable copy без `WORFY_UPDATE=1` — `enabled: false`, файл состояния не читается и не пишется.
+- Чтения идут по порядку, который тратит меньше запросов: голова `main` = запущенный commit — одна
+  проверка стоит один запрос.
+- `test/update-stub.ts` — локальный HTTP-сервер с ответами четырёх чтений и списком запросов;
+  `assertTemporaryStableCopy` отказывает пути Stable copy вне временной папки. Чтобы test-ы проверялись
+  `tsc`, файл добавлен в `tsconfig.test.node.json` (вне «Где в коде»).
+- Test-ы: `test/unit/update-check.test.ts`, `test/contract/update-github.test.ts`,
+  `test/contract/update-state.test.ts`.

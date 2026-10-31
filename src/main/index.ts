@@ -24,6 +24,7 @@ import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-ho
 import { sharedGateQueue } from './ipc/gate-queue'
 import { startGettingStarted } from './ipc/getting-started'
 import { appUrlMatcher, registerIpc } from './ipc/index'
+import { startUpdateChecks } from './ipc/update'
 import { appNoteLink } from './link/notes'
 import { appLinkService, onAppLinkStart, startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
@@ -192,6 +193,14 @@ function start(): void {
         app.on('will-quit', startGettingStarted())
       } catch (error) {
         console.error('[getting-started] Getting started did not start', error)
+      }
+      // The Update checks of the Stable copy (worfy-update ticket 01, ADR-0089): GitHub without
+      // sign-in, 10 s after the start and then every hour; in any other build nothing runs. Not a
+      // startup step: worfy runs without it.
+      try {
+        app.on('will-quit', startUpdateChecks())
+      } catch (error) {
+        console.error('[update] the Update checks did not start', error)
       }
       // The Limits asked from Claude Code every 30 minutes, at zero model tokens, while the
       // Sessions and the status line bring nothing fresh (limits-usage.ts). Not a startup step:
