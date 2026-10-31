@@ -1,7 +1,8 @@
 # 03 — ADR и каркас Guide: окно, реестр Topic-ов, EN/RU, входы из меню и Command palette
 
 Type: task
-Status: open
+Status: done 2026-10-31T16:01Z
+PR: #1145
 Blocked by: 02
 Source: [spec.md](../spec.md), Q1, Q3, Q4, Q5, Q9, Q16, Q17, Q20, Q21
 
@@ -48,3 +49,7 @@ Help menu держит один пункт, Keyboard Shortcuts (`src/main/menu.t
 - Ссылки из Getting started и First run: Ticket 09.
 
 ## Итог
+- Ревью: круг 1 REJECTED (high: unit test требовал commit сверки в истории, а CI делает checkout глубиной 2; low: капслок «TOPIC-И» в RU), круг 2 VERIFIED. SHA test Topic-а поставлен на merge-commit `ca34275a` документным PR.
+- Low (не Ticket): palette, открытая до ответа main, не показывает строку test Topic-а до повторного открытия;
+  `GUIDE_REPO_URL` (`src/renderer/guide/links.ts:9`) повторяет адрес из `src/main/update/build.ts:30`;
+  `test/contract/view-menu.test.ts` — больше 1000 строк.
