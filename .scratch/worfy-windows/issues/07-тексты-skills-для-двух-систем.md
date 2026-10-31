@@ -1,9 +1,9 @@
 # 07 — Тексты skills для двух систем; перед Wave — открытые PR второго Epic-а
 
 Type: task
-Status: blocked 2026-10-18T17:55Z
-Blocked reason: влит (#461); метка и Q33 проверены на #479; Profile ПК role request записан; запуск worfy и Get-Process на ПК проверены 2026-10-27; ждёт ПК: Q31 (первая Wave на ПК)
-Waits: owner
+Status: done 2026-10-31T10:27Z
+PR: #1127
+Branch: worfy-windows/07
 Blocked by: 03, 12
 Source: решения владельца 2026-10-07: Q19 (скрипты Harness — на Node, команды skills — для обеих систем), Q25 (Session-ы Mac и Windows общаются через репозиторий; перед Wave — открытые PR второго Epic-а), Q12 (мерж в main по очереди); решения владельца 2026-10-08: Q30 (метка `needs-mac-gate`: PR Session Windows с общим кодом проверяет и вливает Session Mac; spec.md, «Соглашения», «Метка needs-mac-gate»), Q31 (Windows проверяет main после мержа: gate full на свежем main в начале каждой своей Wave, красный — первым делом чинит; уточняет ADR-0056, пункт 6), Q33 (раздел «Mac checks» в описании PR; Session Mac выполняет его вместе с gate full и пишет отчёт в PR; без отчёта мержа нет); spec.md, «Решения владельца», «Как работает очередь needs-mac-gate» ([spec.md](../spec.md)); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node», пункт 6; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions», пункты 4–6; [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness по-английски); evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
 
@@ -225,7 +225,7 @@ macOS PR #150 не добавил: `grep -rnE 'stat -f|date -v' harness/skills` 
 - [x] Вручную: `profile --field cross_machine_gate.role` в репозитории worfy печатает `request` на Windows-ПК и `serve` на Mac (Mac — через раздел Mac checks PR, Q33); `--field cross_machine_gate.checks_section` на обеих — `Mac checks`.
 - [x] Живая проверка метки. PR этого Ticket-а идёт по правилу вручную: метку ставит Session на Windows, вливает Session на Mac. Первый PR с меткой после его мержа, когда новые тексты skills стоят на обеих Machine, идёт по новым шагам: метку ставит раздел 8 `ship-ticket` на Windows-ПК, Session на Mac в разделе 1 `epic-wave` перебазирует, проверяет и вливает его или пишет комментарий. Годится PR Ticket-а, который не ждёт 07 (обычно 14): 15 и 16 ждут 07. Если такого PR не осталось — на Windows-ПК блок раздела 8 над влитым PR этого Ticket-а печатает `label`, на Mac блок раздела 1 печатает открытые PR с меткой или ничего. Номер PR, строка `[gate]` и итог — в Итог.
 - [x] Живая проверка Q33 на том же PR с меткой: в описании PR есть раздел `## Mac checks` (команды или `none`); в PR есть отчёт Session на Mac с первой строкой `Mac checks report: green` или `Mac checks report: red`, строкой `[gate]` и кодами выхода команд раздела; мерж — позже отчёта по времени. Ссылки на описание и отчёт — в Итог.
-- [ ] Живая проверка Q31: на Windows-ПК первая Wave после мержа этого Ticket-а начинается с gate full на свежем main — строка вердикта и код выхода стоят в отчёте Wave раньше раздачи Ticket-ов. Выдержка из отчёта Wave — в Итог.
+- [x] Живая проверка Q31: на Windows-ПК первая Wave после мержа этого Ticket-а начинается с gate full на свежем main — строка вердикта и код выхода стоят в отчёте Wave раньше раздачи Ticket-ов. Выдержка из отчёта Wave — в Итог.
 - [x] Windows-ПК, один раз: запуск по новому абзацу открывает установленный worfy, команда `Get-Process` печатает путь его `worfy.exe`. Выбранный способ запуска и вывод — в Итог.
 - [x] Mac: gate full зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 
@@ -334,4 +334,26 @@ worfy/.:test`. Три test-а Ticket-а отдельно — exit 0. До rebase
   - Передний план к Stable не перешёл: впереди был Telegram, после запуска — explorer, затем Chrome; окно Stable не было свёрнуто, так что `restore()` не требовался. `focus()` из second-instance Windows, судя по всему, не пустила на передний план (блокировка переднего плана, как в Ticket-е 113 worfy-windows); сам вызов `second-instance` снаружи не виден — обработчик ничего не пишет в лог.
   - Вернуть передний план Telegram без клика (`WScript.Shell.AppActivate`) не вышло: ответ True, но впереди остался Chrome.
   - UI-тест другого проекта (`stolyar_uitest`) к моменту запуска уже закончился: ни до, ни после запуска его процесса не было.
-- Осталось (ПК): Q31 — первая Wave на ПК (gate full на свежем main; ждёт слова Orchestrator-а Mac).
+
+### Живая проверка Q31: первая Wave на ПК (Session на ПК, 2026-10-31)
+
+Отчёт этой Wave — сообщения Session на ПК Оркестратору через мост. Выдержка в порядке времени:
+
+```
+07:06:57Z–08:22:07Z  gate full на свежем origin/main 0eddc918, GATE_SCOPE=all
+[gate] red (full): worfy/.:test:e2e (passed: worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:package)
+EXIT=2
+08:55:33Z            issue #1120 (метка pc-main-red): getting-started.spec.ts:184 красный и в одиночку
+09:01Z               раздача: claim windows 15, по решению Оркестратора
+09:07:17Z–10:22:47Z  gate full на merge исправления #1121, 1b4009c5, GATE_SCOPE=all
+[gate] red (full): worfy/.:test:e2e (passed: worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:package)
+EXIT=2
+10:23Z               один повтор: epic-frame.spec.ts:1104 в одиночку EXIT=0 (1300 мс; в gate 3394 мс при лимите 3000 мс)
+```
+
+Строка вердикта и код выхода стоят раньше раздачи: пункт «Готово, когда» выполнен. Два отличия от текста, с которым писался Q31:
+
+- **База зелёной не была.** По разделу 1 `epic-wave` при красной базе Ticket-ы не раздаются. Windows 15 начат раньше зелёного gate, и #1120 закрыт на красном gate с тестом, зелёным в одиночку: оба решения Оркестратора, без владельца. Записаны в #1120; в утренний отчёт их несёт Оркестратор.
+- **Ветку `request` раздела 1 skill не выполнял.** Поля `cross_machine_gate` в Profile ПК больше нет (ADR-0083, пункт 5): `profile --field cross_machine_gate.role` — exit 4. Gate запущен вручную в отдельном worktree по слову Оркестратора. Значит, живая проверка подтверждает порядок действий, а не блок skill-а.
+
+По ADR-0086, пункт 2, эта Wave — первая с gate full на `main` после неё: PR со scope `pc` вливаются раньше него. Его результат записывается отдельно, в этом Ticket-е он не проверялся.
