@@ -229,6 +229,61 @@ describe('the diagram', () => {
   })
 })
 
+describe('frames, tabs, chips and areas (worfy-guide ticket 05)', () => {
+  const FRAMED: SceneSpec = {
+    width: 800,
+    height: 400,
+    regions: [{ label: 'outside', x: 10, y: 20 }],
+    frames: [{ block: 'board', kind: 'canvas', x: 200, y: 40, width: 560, height: 340 }],
+    blocks: [
+      { id: 'menu', x: 10, y: 40, group: 'workflow' },
+      { id: 'board', x: 216, y: 24, group: 'project', shape: 'tab', width: 90 },
+      { id: 'guide', x: 240, y: 120, group: 'harness' },
+      { id: 'topics', x: 500, y: 120, group: 'tools', shape: 'chip', width: 120 },
+    ],
+    edges: [
+      { from: 'menu', to: 'board', label: 'opens' },
+      { from: 'guide', to: 'topics', label: 'reads' },
+    ],
+  }
+  const FRAMED_LABELS = { ...LABELS, outside: 'OUTSIDE', board: 'Board', boardNote: 'a plane' }
+  const renderFramed = () => render(<LivingScene spec={FRAMED} labels={FRAMED_LABELS} strings={strings} />)
+  const frameOf = (id: string) => scene().querySelector(`[data-frame="${id}"]`)!
+
+  it('a diagram with a Canvas frame draws no Canvas field behind the whole of it, and names its areas', () => {
+    renderFramed()
+    expect(scene().querySelector('.w-guide-scene__canvas')).toBeNull()
+    expect(frameOf('board').classList.contains('is-canvas')).toBe(true)
+    expect(scene().querySelector('[data-region="outside"]')?.textContent).toBe('OUTSIDE')
+    renderScene()
+    expect(document.querySelectorAll('.w-guide-scene__canvas')).toHaveLength(1)
+  })
+
+  it('a tab is the block of its frame: the frame lights with it, and fades when another block is lit', () => {
+    renderFramed()
+    expect(blockOf('Board').getAttribute('aria-label')).toBe('Board: a plane')
+    expect(blockOf('Board').classList.contains('is-tab')).toBe(true)
+    fireEvent.mouseEnter(blockOf('Board'))
+    expect(hot(frameOf('board'))).toBe(true)
+    expect(hot(edge('menu->board'))).toBe(true)
+    fireEvent.mouseLeave(blockOf('Board'))
+    fireEvent.mouseEnter(blockOf('Help menu'))
+    expect(near(frameOf('board'))).toBe(true)
+    fireEvent.mouseLeave(blockOf('Help menu'))
+    fireEvent.mouseEnter(blockOf('Guide'))
+    expect(hot(frameOf('board')) || near(frameOf('board'))).toBe(false)
+  })
+
+  it('a chip is a dashed pill with its title; its note is read by a screen reader', () => {
+    renderFramed()
+    const chip = blockOf('Topic folder')
+    expect(chip.classList.contains('is-chip')).toBe(true)
+    expect(chip.querySelector('.w-guide-scene__chip')?.getAttribute('width')).toBe('120')
+    expect(within(chip).getByText('Topic folder')).toBeTruthy()
+    expect(within(chip).queryByText('texts and a diagram')).toBeNull()
+  })
+})
+
 describe('the step player', () => {
   const steps = () => screen.getByRole('group', { name: strings.steps })
   const stepButton = (n: number) => within(steps()).getByRole('button', { name: `${strings.step} ${n}` })

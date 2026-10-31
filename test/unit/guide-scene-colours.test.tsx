@@ -104,6 +104,8 @@ describe('the groups of the Guide diagrams', () => {
 
   it('the header tint the style names is in guide.css', () => {
     expect(guideCss).toContain('color-mix(in srgb, var(--c) 13%, var(--surface))')
+    // The chip of a computed thing (ticket 05), whose title the contrast check below reads on this tint.
+    expect(guideCss).toContain('color-mix(in srgb, var(--c) 16%, var(--surface))')
   })
 })
 
@@ -147,7 +149,14 @@ for (const scheme of ['light', 'dark'] as const) {
       // The title of a block on its header: 13 % of the group's colour over --surface.
       for (const [group, colour] of Object.entries(GROUP_COLOURS)) {
         pairs.push([`--text on the ${group} header`, token(scheme, '--text'), mix(hexOf(scheme, colour), 0.13, surface)])
+        // The title of a chip (ticket 05): 16 % of the group's colour over --surface.
+        pairs.push([`--text on a ${group} chip`, token(scheme, '--text'), mix(hexOf(scheme, colour), 0.16, surface)])
       }
+      // Ticket 05: the title of a frame's tab on --surface; the tab's note and an area's caption in
+      // --text-muted, on the Guide's --surface outside the Canvas frame and on --canvas inside it.
+      pairs.push(['--text on a tab', token(scheme, '--text'), surface])
+      pairs.push(['--text-muted on --surface', token(scheme, '--text-muted'), surface])
+      pairs.push(['--text-muted on --canvas', token(scheme, '--text-muted'), token(scheme, '--canvas')])
       for (const [what, text, ground] of pairs) {
         const ratio = contrast(text, ground)
         expect(ratio, `${what}: ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)

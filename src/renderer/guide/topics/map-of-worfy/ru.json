@@ -1,0 +1,87 @@
+{
+  "title": "Map of worfy",
+  "summary": [
+    "worfy рисует вашу работу такой, какая она есть. Project живёт на одной Machine, и у него ровно один Canvas. На Canvas лежат Node-ы: рамки Epic-ов с их Ticket-ами, Session-ы Claude Code с их Subagent-ами, Card-ы, Browser-ы и Terminal-ы.",
+    "То, что не Node, работает вокруг Canvas. Harness ведёт работу по Profile каждого Project-а, Gate проверяет, готовы ли изменения, а Autopilot ведёт Wave-ы без человека. Нажмите на блок, чтобы узнать о нём больше."
+  ],
+  "scene": {
+    "description": "Map of worfy. Linked machine связана с этой Machine кодом из 6 цифр и, если доступ включён, открывает Canvas. Эта Machine — дом Project-а, и на ней один Harness. Harness ведёт Project по его Profile, ведёт работу агентов и включает Gate. У Project-а ровно один Canvas. На Canvas рамка Epic-а держит Ticket и плашку Ready wave; Session запускает Subagent-а, и оба привязаны к Ticket-у; Session может менять Card и приходит в Browser со входом; рядом стоит Terminal. Autopilot ведёт Wave без человека и ждёт сброса Limits.",
+    "labels": {
+      "otherMachine": "Другая Machine",
+      "thisMachine": "Эта Machine",
+      "linked": "Linked machine",
+      "linkedNote": "связь по коду из 6 цифр",
+      "machine": "Machine",
+      "machineNote": "компьютер со своей папкой данных worfy",
+      "project": "Project",
+      "projectNote": "репозиторий или папка",
+      "harness": "Harness",
+      "harnessNote": "правила, skills, агенты, hooks",
+      "gate": "Gate",
+      "gateNote": "готовы ли изменения?",
+      "profile": "Profile",
+      "profileNote": "как вести один Project",
+      "limits": "Limits",
+      "limitsNote": "окна подписки: 5 часов и 7 дней",
+      "autopilot": "Autopilot",
+      "autopilotNote": "Wave-ы без человека",
+      "canvas": "Canvas",
+      "canvasNote": "бесконечная плоскость Node-ов",
+      "epic": "Epic",
+      "epicNote": "Ticket-ы под одну цель",
+      "wave": "Ready wave · N",
+      "waveNote": "Wave: Ticket-ы, которые можно брать параллельно сейчас; вычисляется и нигде не хранится",
+      "ticket": "Ticket",
+      "ticketNote": "одна единица работы",
+      "session": "Session",
+      "sessionNote": "один разговор с Claude Code",
+      "subagent": "Subagent",
+      "subagentNote": "его запустила Session",
+      "card": "Card",
+      "cardNote": "HTML-приложение от агента",
+      "browser": "Browser",
+      "browserNote": "встроенный Chromium",
+      "terminal": "Terminal",
+      "terminalNote": "ваш shell; агенты им не пользуются",
+      "linkedBy": "связь по коду из 6 цифр",
+      "opensIfAllowed": "открывает при включённом доступе",
+      "hosts": "здесь живёт",
+      "hasOne": "ровно один",
+      "onePerMachine": "один на Machine",
+      "runsBy": "ведёт Project по",
+      "describes": "описывает",
+      "guides": "ведёт работу агентов",
+      "includes": "включает",
+      "readyNow": "открыт, блокеры закрыты",
+      "runsWaves": "ведёт без человека",
+      "waitsForReset": "ждёт сброса",
+      "starts": "запускает",
+      "binding": "Binding",
+      "mayChange": "может менять",
+      "signedIn": "приходит со входом",
+      "step1": "Project живёт на одной Machine, и у него ровно один Canvas. Linked machine может открыть этот Canvas, если эта Machine разрешает.",
+      "step2": "Epic — набор Ticket-ов под одну цель. Ticket-ы, которые можно брать параллельно прямо сейчас, — его Wave. Autopilot ведёт Wave-ы без человека и ждёт сброса Limits.",
+      "step3": "Harness ведёт каждый Project по его Profile. Session-ы и их Subagent-ы работают над Ticket-ом, к которому привязаны, а Gate проверяет, готовы ли изменения.",
+      "step4": "Рядом с агентами — инструменты: Card-ы, которые собирают агенты, Browser-ы, куда они приходят со входом, и ваш Terminal, которым агенты не пользуются."
+    }
+  },
+  "underTheHood": {
+    "text": [
+      "worfy показывает workflow и не владеет им (ADR-0002). Источник правды остаётся в файлах и инструментах: Ticket-ы, HANDOFF, ADR, транскрипты Session-ов и Gate. worfy их читает и меняет workflow только инструментами самого Harness.",
+      "Ticket-ы приходят из epic-status Harness-а. Готовую Wave worfy вычисляет из них каждый раз и нигде не хранит. Binding Session-а или Subagent-а берётся из сигналов в его работе, например из Ticket-а, который он взял (claim), или из его ветки, либо вы задаёте его руками.",
+      "Собственное состояние worfy, например Layout каждого Canvas, Settings и список Project-ов, лежит в папке данных этой Machine и никогда в репозитории (ADR-0005). Profile тоже вне репозитория; worfy читает его через Harness."
+    ],
+    "files": {
+      "src/main/workflow/reader.ts": "Читает Epic-и и Ticket-ы Project-а через Harness и ничего не пишет",
+      "src/shared/workflow/waves.ts": "Готовая Wave Epic-а: вычисляется, нигде не хранится",
+      "src/shared/binding/resolve.ts": "Ticket или Epic, над которым работает Session или Subagent",
+      "src/main/layout/store.ts": "Layout каждого Canvas, в папке данных",
+      "src/main/workflow/profile.ts": "Читает Profile Project-а через Harness"
+    },
+    "limits": [
+      "Ради читаемости не нарисованы: Blocked by между Ticket-ами, Subagent-ы Subagent-ов, Pipeline и его Stage-и, HANDOFF, Full и Silent mode, Stable copy, Archive и Done shelf.",
+      "Всё, что вне рамки Canvas, — не Node.",
+      "Блок, чей Topic ещё не написан, открывает его Full page на GitHub."
+    ]
+  }
+}

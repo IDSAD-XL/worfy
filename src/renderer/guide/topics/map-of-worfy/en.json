@@ -1,0 +1,87 @@
+{
+  "title": "Map of worfy",
+  "summary": [
+    "worfy draws your work as it is. A Project lives on one Machine and has exactly one Canvas. The Nodes lie on the Canvas: Epic frames with their Tickets, Sessions of Claude Code with their Subagents, Cards, Browsers and Terminals.",
+    "What is not a Node works around the Canvas. The Harness carries out the work by each Project's Profile, the Gate checks whether changes are ready, and Autopilot runs Waves without a person. Click a block to read more about it."
+  ],
+  "scene": {
+    "description": "The Map of worfy. A Linked machine is linked to this Machine by a 6-digit code and, if access is on, opens the Canvas. This Machine hosts the Project and has one Harness. The Harness runs the Project by its Profile, guides the agents and includes the Gate. The Project has exactly one Canvas. On the Canvas, an Epic frame holds a Ticket and the Ready wave chip; a Session starts a Subagent, and both are bound to the Ticket; the Session may change a Card and arrives signed in to a Browser; a Terminal stands beside them. Autopilot runs the Wave without a person and waits for Limits to reset.",
+    "labels": {
+      "otherMachine": "OTHER MACHINE",
+      "thisMachine": "THIS MACHINE",
+      "linked": "Linked machine",
+      "linkedNote": "linked by a 6-digit code",
+      "machine": "Machine",
+      "machineNote": "a computer with a worfy data folder",
+      "project": "Project",
+      "projectNote": "a repository or a folder",
+      "harness": "Harness",
+      "harnessNote": "rules, skills, agents, hooks",
+      "gate": "Gate",
+      "gateNote": "are the changes ready?",
+      "profile": "Profile",
+      "profileNote": "how one Project is run",
+      "limits": "Limits",
+      "limitsNote": "subscription windows: 5 hours, 7 days",
+      "autopilot": "Autopilot",
+      "autopilotNote": "Waves without a person",
+      "canvas": "Canvas",
+      "canvasNote": "an infinite plane of Nodes",
+      "epic": "Epic",
+      "epicNote": "Tickets for one goal",
+      "wave": "Ready wave · N",
+      "waveNote": "the Wave: Tickets to take in parallel now, computed and stored nowhere",
+      "ticket": "Ticket",
+      "ticketNote": "one unit of work",
+      "session": "Session",
+      "sessionNote": "one Claude Code conversation",
+      "subagent": "Subagent",
+      "subagentNote": "started by a Session",
+      "card": "Card",
+      "cardNote": "an HTML app an agent built",
+      "browser": "Browser",
+      "browserNote": "built-in Chromium",
+      "terminal": "Terminal",
+      "terminalNote": "your shell; agents do not use it",
+      "linkedBy": "linked by a 6-digit code",
+      "opensIfAllowed": "opens it, if access is on",
+      "hosts": "hosts",
+      "hasOne": "has exactly one",
+      "onePerMachine": "one per Machine",
+      "runsBy": "runs a Project by",
+      "describes": "describes",
+      "guides": "guides the agents",
+      "includes": "includes",
+      "readyNow": "open, blockers closed",
+      "runsWaves": "runs without a person",
+      "waitsForReset": "waits for reset",
+      "starts": "starts",
+      "binding": "Binding",
+      "mayChange": "may change",
+      "signedIn": "arrives signed in",
+      "step1": "A Project lives on one Machine and has exactly one Canvas. A Linked machine can open that Canvas when this Machine allows it.",
+      "step2": "An Epic is a set of Tickets for one goal. The Tickets that can be taken in parallel right now are its Wave. Autopilot runs Waves without a person and waits for Limits to reset.",
+      "step3": "The Harness runs each Project by its Profile. Sessions and their Subagents work on the Ticket they are bound to, and the Gate checks whether the changes are ready.",
+      "step4": "Next to the agents lie the tools: Cards that agents build, Browsers they arrive at signed in, and your Terminal, which agents do not use."
+    }
+  },
+  "underTheHood": {
+    "text": [
+      "worfy shows the workflow and does not own it (ADR-0002). The source of truth stays in files and tools: the Tickets, HANDOFF, the ADRs, the transcripts of Sessions and the Gate. worfy reads them and changes the workflow only through the Harness's own tools.",
+      "The Tickets come from the Harness's epic-status. The ready Wave is computed from them each time and stored nowhere. The Binding of a Session or a Subagent comes from signals in its work, such as the Ticket it claimed or its branch, or you set it by hand.",
+      "worfy's own state, such as each Canvas's Layout, the Settings and the list of Projects, is kept in the data folder of this Machine and never in a repository (ADR-0005). The Profile is outside the repository too; worfy reads it through the Harness."
+    ],
+    "files": {
+      "src/main/workflow/reader.ts": "Reads the Epics and Tickets of a Project through the Harness and writes nothing",
+      "src/shared/workflow/waves.ts": "The ready Wave of an Epic, computed and stored nowhere",
+      "src/shared/binding/resolve.ts": "The Ticket or Epic a Session or a Subagent works on",
+      "src/main/layout/store.ts": "The Layout of each Canvas, in the data folder",
+      "src/main/workflow/profile.ts": "Reads the Project's Profile through the Harness"
+    },
+    "limits": [
+      "Left out for readability: Blocked by between Tickets, Subagents of Subagents, the Pipeline and its Stages, HANDOFF, Full and Silent mode, the Stable copy, the Archive and the Done shelf.",
+      "Nothing outside the Canvas frame is a Node.",
+      "A block whose Topic is not written yet opens its Full page on GitHub."
+    ]
+  }
+}

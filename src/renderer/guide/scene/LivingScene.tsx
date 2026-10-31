@@ -2,7 +2,10 @@
 // style of the epic's spec: Node blocks with a header tinted by their group, Edges as Bézier curves
 // with an arrowhead, two dots running along each Edge. The pointer or the keyboard focus on a block
 // lights it, its neighbours and its Edges, shows the labels of those Edges and fades the rest; a block
-// with a Topic opens it. The step player under the diagram lights one step at a time and says what
+// with a Topic opens it, or its Full page on GitHub while that Topic is not written yet. Frames say
+// what lies inside what (a Canvas, an Epic): a frame's block is the tab on its top edge, and the frame
+// lights and fades with it; a chip on a frame is a thing that is computed and stored nowhere (a Wave),
+// drawn dashed. Captions name the areas outside the Canvas (worfy-guide ticket 05). The step player under the diagram lights one step at a time and says what
 // happens in it. A Topic's Scene.tsx describes its diagram (model.ts, SceneSpec) and passes it here
 // with its labels; motion.ts moves the dots.
 //
@@ -11,19 +14,25 @@
 // (guide.css), and the highlight still changes, at once.
 import { useEffect, useId, useLayoutEffect, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import type { GuideStrings } from '../content'
+import { githubFileUrl, openInBrowser } from '../links'
+import { shownTopics } from '../registry'
 import { GROUP_COLOURS } from '../scene-colours'
-import { selectGuideTopic } from '../store'
+import { selectGuideTopic, useGuide } from '../store'
 import {
+  CHIP_HEIGHT,
   DOTS_PER_EDGE,
   HEADER_HEIGHT,
   NODE_HEIGHT,
   NODE_WIDTH,
   STEP_SECONDS,
+  TAB_HEIGHT,
+  blockTarget,
   edgeId,
   edgeShape,
   litParts,
   noteLines,
   playerReducer,
+  type BlockTarget,
   type SceneBlock,
   type SceneSpec,
 } from './model'
@@ -47,36 +56,23 @@ const LABEL_PADDING = 14
 const colourOf = (block: SceneBlock): CSSProperties => ({ ['--c' as string]: GROUP_COLOURS[block.group] })
 const classes = (...names: (string | false)[]): string => names.filter(Boolean).join(' ')
 
-function Block({ block, labels, hot, near, onLight }: { block: SceneBlock; labels: LivingSceneProps['labels']; hot: boolean; near: boolean; onLight: (id: string | null, by: 'pointer' | 'focus') => void }) {
-  const title = labels[block.id] ?? block.id
-  const note = labels[`${block.id}Note`] ?? ''
+interface BlockProps {
+  block: SceneBlock
+  labels: LivingSceneProps['labels']
+  hot: boolean
+  near: boolean
+  target: BlockTarget
+  /** What a block that opens a page on GitHub says under the pointer. */
+  pageHint: string
+  onLight: (id: string | null, by: 'pointer' | 'focus') => void
+  onOpen: (target: NonNullable<BlockTarget>) => void
+}
+
+/** A Node: the header tinted by its group, the title, and the note in one line or two. */
+function NodeShape({ title, note }: { title: string; note: string }) {
   const lines = noteLines(note, NODE_WIDTH)
-  const topic = block.topic
-  const open = topic === undefined ? undefined : () => selectGuideTopic(topic)
   return (
-    <g
-      className={classes('w-guide-scene__block', hot && 'is-hot', near && 'is-near', topic !== undefined && 'is-link')}
-      transform={`translate(${block.x} ${block.y})`}
-      style={colourOf(block)}
-      role={topic === undefined ? 'img' : 'link'}
-      tabIndex={0}
-      aria-label={note === '' ? title : `${title}: ${note}`}
-      data-block={block.id}
-      onMouseEnter={() => onLight(block.id, 'pointer')}
-      onMouseLeave={() => onLight(null, 'pointer')}
-      onFocus={() => onLight(block.id, 'focus')}
-      onBlur={() => onLight(null, 'focus')}
-      onClick={open}
-      onKeyDown={
-        open === undefined
-          ? undefined
-          : (event: KeyboardEvent) => {
-              if (event.key !== 'Enter') return
-              event.preventDefault()
-              open()
-            }
-      }
-    >
+    <>
       <rect className="w-guide-scene__node" width={NODE_WIDTH} height={NODE_HEIGHT} rx="8" />
       <path className="w-guide-scene__header" d={`M 0 8 a 8 8 0 0 1 8 -8 h ${NODE_WIDTH - 16} a 8 8 0 0 1 8 8 v ${HEADER_HEIGHT - 8} h ${-NODE_WIDTH} z`} />
       <line className="w-guide-scene__rule" x1="0" y1={HEADER_HEIGHT} x2={NODE_WIDTH} y2={HEADER_HEIGHT} />
@@ -97,6 +93,75 @@ function Block({ block, labels, hot, near, onLight }: { block: SceneBlock; label
           ))}
         </text>
       )}
+    </>
+  )
+}
+
+/** The tab of a frame: its title in the tab, its note to the right of it, above the frame's edge. */
+function TabShape({ title, note, width }: { title: string; note: string; width: number }) {
+  return (
+    <>
+      <rect className="w-guide-scene__tab" width={width} height={TAB_HEIGHT} rx="8" />
+      <circle className="w-guide-scene__group" cx="14" cy={TAB_HEIGHT / 2} r="4.5" />
+      <text className="w-guide-scene__title is-tab" x="25" y={TAB_HEIGHT / 2 + 5}>
+        {title}
+      </text>
+      {note === '' ? null : (
+        <text className="w-guide-scene__tab-note" x={width + 10} y="11">
+          {note}
+        </text>
+      )}
+    </>
+  )
+}
+
+/** A chip: a dashed pill with the dot of its group and its title; its note is for a screen reader. */
+function ChipShape({ title, width }: { title: string; width: number }) {
+  return (
+    <>
+      <rect className="w-guide-scene__chip" width={width} height={CHIP_HEIGHT} rx={CHIP_HEIGHT / 2} />
+      <circle className="w-guide-scene__group" cx="13" cy={CHIP_HEIGHT / 2} r="4" />
+      <text className="w-guide-scene__title is-chip" x="23" y={CHIP_HEIGHT / 2 + 4.5}>
+        {title}
+      </text>
+    </>
+  )
+}
+
+function Block({ block, labels, hot, near, target, pageHint, onLight, onOpen }: BlockProps) {
+  const title = labels[block.id] ?? block.id
+  const note = labels[`${block.id}Note`] ?? ''
+  const shape = block.shape ?? 'node'
+  const width = block.width ?? NODE_WIDTH
+  const open = target === null ? undefined : () => onOpen(target)
+  return (
+    <g
+      className={classes('w-guide-scene__block', `is-${shape}`, hot && 'is-hot', near && 'is-near', target !== null && 'is-link')}
+      transform={`translate(${block.x} ${block.y})`}
+      style={colourOf(block)}
+      role={target === null ? 'img' : 'link'}
+      tabIndex={0}
+      aria-label={note === '' ? title : `${title}: ${note}`}
+      data-block={block.id}
+      data-target={target === null ? undefined : target.kind}
+      data-to={target === null ? undefined : target.kind === 'topic' ? target.topic : target.page}
+      onMouseEnter={() => onLight(block.id, 'pointer')}
+      onMouseLeave={() => onLight(null, 'pointer')}
+      onFocus={() => onLight(block.id, 'focus')}
+      onBlur={() => onLight(null, 'focus')}
+      onClick={open}
+      onKeyDown={
+        open === undefined
+          ? undefined
+          : (event: KeyboardEvent) => {
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              open()
+            }
+      }
+    >
+      {target?.kind === 'page' ? <title>{pageHint}</title> : null}
+      {shape === 'tab' ? <TabShape title={title} note={note} width={width} /> : shape === 'chip' ? <ChipShape title={title} width={width} /> : <NodeShape title={title} note={note} />}
     </g>
   )
 }
@@ -110,13 +175,22 @@ export function LivingScene({ spec, labels, strings }: LivingSceneProps) {
   const steps = spec.steps ?? []
   const [player, dispatch] = useReducer(playerReducer(steps.length), { step: null, playing: false })
   const lit = litParts(spec, pointer ?? focused, player.step)
+  const build = useGuide((state) => state.build)
+  const shown = new Set(shownTopics(build.packaged).map((topic) => topic.id))
+  const openTarget = (target: NonNullable<BlockTarget>): void => {
+    if (target.kind === 'topic') selectGuideTopic(target.topic)
+    else openInBrowser(githubFileUrl(target.page, build.version))
+  }
+  const frames = spec.frames ?? []
+  // A diagram with a Canvas frame of its own is not drawn on a Canvas as a whole.
+  const field = !frames.some((frame) => frame.kind === 'canvas')
   const byId = new Map(spec.blocks.map((block) => [block.id, block]))
   const edges = spec.edges.flatMap((edge) => {
     const from = byId.get(edge.from)
     const to = byId.get(edge.to)
     if (from === undefined || to === undefined) return []
     const id = edgeId(edge)
-    return [{ edge, id, from, to, shape: edgeShape(from, to), hot: lit.edges.has(id) }]
+    return [{ edge, id, from, to, shape: edgeShape(from, to, edge), hot: lit.edges.has(id) }]
   })
   // A lit Edge is drawn over the others.
   const drawn = [...edges.filter((each) => !each.hot), ...edges.filter((each) => each.hot)]
@@ -166,8 +240,34 @@ export function LivingScene({ spec, labels, strings }: LivingSceneProps) {
             <circle className="w-guide-scene__grid" cx="8" cy="8" r="1.1" />
           </pattern>
         </defs>
-        <rect className="w-guide-scene__canvas" x="0.75" y="0.75" width={spec.width - 1.5} height={spec.height - 1.5} rx="14" />
-        <rect x="0.75" y="0.75" width={spec.width - 1.5} height={spec.height - 1.5} rx="14" fill={`url(#${gridId})`} />
+        {field ? (
+          <>
+            <rect className="w-guide-scene__canvas" x="0.75" y="0.75" width={spec.width - 1.5} height={spec.height - 1.5} rx="14" />
+            <rect x="0.75" y="0.75" width={spec.width - 1.5} height={spec.height - 1.5} rx="14" fill={`url(#${gridId})`} />
+          </>
+        ) : null}
+        <g aria-hidden="true">
+          {(spec.regions ?? []).map((region) => (
+            <text key={region.label} className="w-guide-scene__region" x={region.x} y={region.y} data-region={region.label}>
+              {labels[region.label] ?? region.label}
+            </text>
+          ))}
+          {frames.map((frame) => {
+            const tab = byId.get(frame.block)
+            const box = { x: frame.x, y: frame.y, width: frame.width, height: frame.height, rx: frame.kind === 'canvas' ? 14 : 10 }
+            return (
+              <g
+                key={frame.block}
+                className={classes('w-guide-scene__frame', `is-${frame.kind}`, lit.hot.has(frame.block) && 'is-hot', lit.near.has(frame.block) && 'is-near')}
+                style={tab === undefined ? undefined : colourOf(tab)}
+                data-frame={frame.block}
+              >
+                <rect className="w-guide-scene__frame-ground" {...box} />
+                {frame.kind === 'canvas' ? <rect {...box} fill={`url(#${gridId})`} /> : null}
+              </g>
+            )
+          })}
+        </g>
         <g aria-hidden="true">
           {drawn.map(({ id, from, shape, hot }) => (
             <g key={id} style={colourOf(from)}>
@@ -185,7 +285,17 @@ export function LivingScene({ spec, labels, strings }: LivingSceneProps) {
         </g>
         <g>
           {spec.blocks.map((block) => (
-            <Block key={block.id} block={block} labels={labels} hot={lit.hot.has(block.id)} near={lit.near.has(block.id)} onLight={light} />
+            <Block
+              key={block.id}
+              block={block}
+              labels={labels}
+              hot={lit.hot.has(block.id)}
+              near={lit.near.has(block.id)}
+              target={blockTarget(block, (topic) => shown.has(topic))}
+              pageHint={strings.openOnGitHub}
+              onLight={light}
+              onOpen={openTarget}
+            />
           ))}
         </g>
         <g aria-hidden="true">

@@ -78,8 +78,10 @@ afterEach(() => {
 })
 
 const guide = () => screen.queryByRole('dialog', { name: 'worfy Guide' })
-const ru = TOPIC_FILES.ru.get('skeleton')!
-const en = TOPIC_FILES.en.get('skeleton')!
+// The Map of worfy is the first Topic, the one the Guide opens at (worfy-guide ticket 05).
+const ru = TOPIC_FILES.ru.get('map-of-worfy')!
+const en = TOPIC_FILES.en.get('map-of-worfy')!
+const test = TOPIC_FILES.en.get('skeleton')!
 
 async function opened(): Promise<HTMLElement> {
   act(() => openGuide())
@@ -155,12 +157,12 @@ describe('opening and closing', () => {
 })
 
 describe('the Topics', () => {
-  it('lists the test Topic in a build that is not packaged and shows it, Under the hood folded', async () => {
+  it('lists the Map first and the test Topic in a build that is not packaged, and opens at the Map, Under the hood folded', async () => {
     render(<GuideHost />)
     const dialog = await opened()
-    expect(within(dialog).getAllByTestId('guide-topic-item').map((item) => item.textContent)).toEqual([en.title])
+    expect(within(dialog).getAllByTestId('guide-topic-item').map((item) => item.textContent)).toEqual([en.title, test.title])
     const topic = within(dialog).getByTestId('guide-topic')
-    expect(topic.dataset.topic).toBe('skeleton')
+    expect(topic.dataset.topic).toBe('map-of-worfy')
     expect(within(topic).getByRole('heading', { name: en.title })).toBeTruthy()
     expect(within(topic).getByText(en.summary[0]!)).toBeTruthy()
     expect((within(topic).getByTestId('guide-under-the-hood') as HTMLDetailsElement).open).toBe(false)
@@ -174,8 +176,8 @@ describe('the Topics', () => {
     useGuide.setState({ build: { version: '0.3.0+e61cb1fe', packaged: true } })
     render(<GuideHost />)
     const dialog = await opened()
-    expect(within(dialog).queryAllByTestId('guide-topic-item')).toEqual([])
-    expect(within(dialog).getByTestId('guide-empty').textContent).toBe('No Topics yet.')
+    expect(within(dialog).getAllByTestId('guide-topic-item').map((item) => item.dataset.topic)).toEqual(['map-of-worfy'])
+    expect(within(dialog).queryByTestId('guide-empty')).toBeNull()
   })
 
   it('opens at the Topic it is asked for', async () => {
@@ -192,7 +194,7 @@ describe('the language', () => {
     render(<GuideHost />)
     const dialog = await opened()
     expect(dialog.dataset.language).toBe('ru')
-    expect(within(dialog).getByTestId('guide-topic-item').textContent).toBe(ru.title)
+    expect(within(dialog).getAllByTestId('guide-topic-item')[0]?.textContent).toBe(ru.title)
     expect(within(dialog).getByTestId('guide-language-ru').getAttribute('aria-pressed')).toBe('true')
   })
 
@@ -221,20 +223,20 @@ describe('the GitHub links', () => {
     render(<GuideHost />)
     const dialog = await opened()
     const fullPage = within(dialog).getByRole('link', { name: /Full page/ })
-    const url = `${GUIDE_REPO_URL}/blob/e61cb1fe/docs/features/app-shell.md`
+    const url = `${GUIDE_REPO_URL}/blob/e61cb1fe/docs/features/concepts.md`
     expect(fullPage.getAttribute('href')).toBe(url)
     const click = new MouseEvent('click', { bubbles: true, cancelable: true })
     fullPage.dispatchEvent(click)
     expect(click.defaultPrevented).toBe(true)
     await waitFor(() => expect(main.calls.filter((call) => call.channel === 'shell.openExternal').map((call) => call.input)).toEqual([{ url }]))
-    const file = within(dialog).getByRole('link', { name: 'src/main/menu.ts' })
-    expect(file.getAttribute('href')).toBe(`${GUIDE_REPO_URL}/blob/e61cb1fe/src/main/menu.ts`)
+    const file = within(dialog).getByRole('link', { name: 'src/main/workflow/reader.ts' })
+    expect(file.getAttribute('href')).toBe(`${GUIDE_REPO_URL}/blob/e61cb1fe/src/main/workflow/reader.ts`)
   })
 
   it('lead to main when the build does not know its commit', async () => {
     useGuide.setState({ build: { version: '0.3.0', packaged: false } })
     render(<GuideHost />)
     const dialog = await opened()
-    expect(within(dialog).getByRole('link', { name: /Full page/ }).getAttribute('href')).toBe(`${GUIDE_REPO_URL}/blob/main/docs/features/app-shell.md`)
+    expect(within(dialog).getByRole('link', { name: /Full page/ }).getAttribute('href')).toBe(`${GUIDE_REPO_URL}/blob/main/docs/features/concepts.md`)
   })
 })

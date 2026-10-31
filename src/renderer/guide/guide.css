@@ -320,6 +320,79 @@
   font-weight: 500;
 }
 
+/* Frames, tabs, chips and area captions (worfy-guide ticket 05, the Map of worfy). A frame lies
+   behind the blocks and takes no pointer; its tab is its block, and the frame lights and fades with
+   it. A chip is dashed: a thing that is computed and stored nowhere. */
+.w-guide-scene__frame {
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+.w-guide-scene__frame.is-canvas .w-guide-scene__frame-ground {
+  fill: var(--canvas);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+.w-guide-scene__frame.is-epic .w-guide-scene__frame-ground {
+  fill: color-mix(in srgb, var(--c) 8%, transparent);
+  stroke: color-mix(in srgb, var(--c) 70%, transparent);
+  stroke-width: 1.5;
+}
+.w-guide-scene__frame.is-hot .w-guide-scene__frame-ground {
+  stroke: var(--c);
+  stroke-width: 2;
+}
+.w-guide-scene.is-focusing .w-guide-scene__frame:not(.is-hot):not(.is-near) {
+  opacity: 0.2;
+}
+.w-guide-scene__tab {
+  fill: var(--surface);
+  stroke: var(--c);
+  stroke-width: 1.5;
+  transition: stroke 0.2s;
+}
+.w-guide-scene__title.is-tab {
+  font-size: 14px;
+  font-weight: 700;
+}
+.w-guide-scene__tab-note {
+  fill: var(--text-muted);
+  font-size: 11px;
+}
+.w-guide-scene__chip {
+  fill: color-mix(in srgb, var(--c) 16%, var(--surface));
+  stroke: var(--c);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+}
+.w-guide-scene__title.is-chip {
+  font-size: 12px;
+  font-weight: 650;
+}
+.w-guide-scene__block.is-hot .w-guide-scene__tab,
+.w-guide-scene__block.is-hot .w-guide-scene__chip {
+  stroke-width: 2;
+}
+.w-guide-scene__block.is-hot .w-guide-scene__chip {
+  stroke-dasharray: none;
+}
+.w-guide-scene__block:focus-visible .w-guide-scene__tab,
+.w-guide-scene__block:focus-visible .w-guide-scene__chip {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+/* Only a Node casts the light theme's shadow. */
+.w-guide-scene__block.is-tab,
+.w-guide-scene__block.is-chip {
+  filter: none;
+}
+.w-guide-scene__region {
+  fill: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
 /* The step player under a diagram: Play, the steps as a segmented control like EN / RU, and what the
    step on screen shows. */
 .w-guide-steps {
