@@ -1,7 +1,8 @@
 # 02 — `install-stable` ждёт выхода копии, хранит прежнюю как `worfy-stable.previous` и откатывает
 
 Type: task
-Status: claimed 2026-10-31T04:52Z
+Status: done 2026-10-31T06:06Z
+PR: #1113
 Blocked by:
 Source: решения владельца 2026-10-31, пункты 3 (та же сборка, что `pnpm install:stable`), 6 (сбой — текущая копия остаётся), 9 (одна прежняя копия `worfy-stable.previous`, откат); [spec.md](../spec.md), «Решено без владельца», Р7, Р8; [ADR-0089](../../../docs/adr/0089-update-builds-main-in-own-clone.md), пункт 4; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2
 

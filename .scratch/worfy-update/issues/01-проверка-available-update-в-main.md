@@ -1,7 +1,8 @@
 # 01 — Проверка Available update в main: GitHub API, зелёный `ci-ok`, пути, состояние
 
 Type: task
-Status: claimed 2026-10-31T04:52Z
+Status: done 2026-10-31T06:06Z
+PR: #1112
 Blocked by:
 Source: решения владельца 2026-10-31, пункты 1 (GitHub API без входа, при старте и раз в час, без сети — молча), 2 (Available update), 11 (dev-сборка не проверяет); [spec.md](../spec.md), «Как устроено», «Решено без владельца», Р1–Р4, Р15; [ADR-0089](../../../docs/adr/0089-update-builds-main-in-own-clone.md), пункты 1, 2, 7
 
