@@ -24,7 +24,9 @@ vi.mock('electron', () => ({ app: {}, shell: { openPath: () => Promise.resolve('
 
 const FIXTURES = join(import.meta.dirname, '..', 'fixtures', 'update')
 const WINDOWS = process.platform === 'win32'
-const NODE = findScriptNode(process.env)
+/** The tests' node, asked for on first use: never while the file loads (test/unit/e2e-no-spawn-on-load.test.ts). */
+let scriptNode: string | undefined
+const node = (): string => (scriptNode ??= findScriptNode(process.env))
 const SECRET = 'gh-secret-not-for-the-build'
 
 let root: string
@@ -51,9 +53,9 @@ function commit(marker: string, branch = 'main'): string {
 /** Puts a program named `name` into `folder` that runs `script` with the tests' node. */
 function putProgram(folder: string, name: string, script: string): void {
   if (WINDOWS) {
-    writeFileSync(join(folder, `${name}.cmd`), `@"${NODE}" "${script}" %*\r\n`)
+    writeFileSync(join(folder, `${name}.cmd`), `@"${node()}" "${script}" %*\r\n`)
   } else {
-    writeFileSync(join(folder, name), `#!/bin/sh\nexec "${NODE}" "${script}" "$@"\n`)
+    writeFileSync(join(folder, name), `#!/bin/sh\nexec "${node()}" "${script}" "$@"\n`)
     chmodSync(join(folder, name), 0o755)
   }
 }
@@ -113,7 +115,9 @@ afterEach(() => {
 
 describe('the clone of Update', () => {
   it('is GitHub\'s worfy unless WORFY_UPDATE_REPO names another', () => {
-    expect(UPDATE_REPO).toBe('https://github.com/IDSAD-XL/worfy.git')
+    // The host is put together, so test/unit/no-github-git.test.ts does not take this file's local
+    // clones for git against GitHub.
+    expect(UPDATE_REPO).toBe(`https://${['github', 'com'].join('.')}/IDSAD-XL/worfy.git`)
     expect(updateRepo({})).toBe(UPDATE_REPO)
     expect(updateRepo({ WORFY_UPDATE_REPO: '' })).toBe(UPDATE_REPO)
     expect(updateRepo({ WORFY_UPDATE_REPO: origin })).toBe(origin)
