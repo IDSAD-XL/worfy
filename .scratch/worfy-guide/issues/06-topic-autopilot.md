@@ -33,9 +33,9 @@ Topic сжимает `docs/features/autopilot.md` до одного экрана
 
 ## Итог
 
-Topic `autopilot` в `src/renderer/guide/topics/autopilot/`: `Scene.tsx` (живая схема одного прогона, 10 блоков, 8 связей,
+Topic `autopilot` в `src/renderer/guide/topics/autopilot/`: `Scene.tsx` (живая схема одного прогона, 9 блоков, 8 связей,
 5 шагов), `Flow.tsx` (поток данных в Under the hood, 9 блоков, 12 связей, 4 шага, по контракту Ticket-а 07), `en.json`,
-`ru.json`, `topic.json` (страница `docs/features/autopilot.md`, сверена на `02be335e`; 8 главных файлов) и строка в
+`ru.json`, `spec.ts` (обе схемы, чтобы test мог их прочесть), `topic.json` (страница `docs/features/autopilot.md`, сверена на `02be335e`; 8 главных файлов) и строка в
 `registry.ts`. Блок Autopilot на Map of worfy теперь открывает этот Topic, а не Full page.
 
 ### Утверждения и подписи — источники
@@ -49,8 +49,8 @@ Topic `autopilot` в `src/renderer/guide/topics/autopilot/`: `Scene.tsx` (жив
 | Останавливается: нет готовой Wave, Stop autopilot, ошибка | `src/shared/autopilot/cycle.ts:38-39`, `:205-209`, `:230-235`, `:259-261`; `AP:168-184` |
 | Сам прогон не начинается | `AP:39`; единственный вызов `start` — `src/main/ipc/autopilot.ts:74` |
 | Orchestrator без человека, вопросы и запросы разрешений отклоняются (подпись `orchestratorNote`, шаг 2) | `src/main/agent/session-settings.ts:46-48`, `src/main/agent/permissions.ts:98-105`, `src/main/agent/session.ts:177` |
-| Экран не гаснет (подпись `keepAwake`, `powerSaveBlocker`) | `src/main/autopilot/power.ts:2`, `:19`; `src/main/autopilot/run.ts:668-669` |
-| Каждый шаг — в журнал, один файл на прогон, `<run>.jsonl` | `src/main/autopilot/journal.ts:1`; `AP:194`, `AP:340` |
+| Экран не гаснет (только в Under the hood: подпись `keepAwake`, `powerSaveBlocker`, шаг 2 потока) | `src/main/autopilot/power.ts:2`, `:19`; `src/main/autopilot/run.ts:668-669` |
+| Каждый шаг — в журнал, один файл на прогон, `<run>.jsonl`; строка JSON на шаг (`lines`) | `src/main/autopilot/journal.ts:1`; `src/main/autopilot/run.ts:1584`; `AP:194`, `AP:340` |
 | Ready wave · N: Ticket-ы, которые можно брать параллельно сейчас; «готов сейчас» | `CONTEXT.md:84`, `src/shared/workflow/waves.ts:164-171` |
 | Текст Run wave Project-а называет Ticket-ы Wave (шаг 2, `text`) | `src/main/actions/launch.ts:286-294`, `src/shared/actions/render-template.ts:13` |
 | Orchestrator обычно запускает implementer-ов в фоне (подписи `implementers`, `startsInBackground`) | `AP:226`, `docs/adr/0029-autopilot-waits-for-background-tasks.md:5` |
@@ -66,15 +66,12 @@ Topic `autopilot` в `src/renderer/guide/topics/autopilot/`: `Scene.tsx` (жив
 | Одна очередь на прогон, события по порядку | `src/main/autopilot/run.ts:518-522`; `AP:219` |
 | send-wave → launcher (`autopilotWave`), одно чтение workflow | `src/main/autopilot/run.ts:1040`, `:1077`; `src/main/actions/launch.ts:287-288` |
 | События Session: prompt, result, state, background_tasks | `src/main/autopilot/run.ts:829`, `:835`, `:869`, `:877`; `AP:328` |
-| Прогон — взгляд на workflow; конец Wave выводится из событий и свежего чтения | `AP:201-203`, `src/main/autopilot/run.ts:16-18` |
-| Каждая Wave после первой — новая SDK session | `src/main/autopilot/run.ts:7-8`, `:1062-1063` |
-| Stop autopilot мягкий; Force stop в меню ⋯ прерывает ход и закрывает процесс с background task-ами | `src/main/autopilot/run.ts:31-41`, `:154-155`; `AutopilotAction.tsx:29`, `:33` |
+| Каждая Wave после первой обычно идёт в новую SDK session (не идёт, когда Orchestrator занят, после `tasks-timeout` и со старым Harness) | `src/main/autopilot/run.ts:7-14`, `:1062-1063` |
+| Force stop — в меню ⋯ рядом с кнопкой (строка таблицы файлов) | `src/renderer/canvas/actions/AutopilotAction.tsx:33` |
 | Таблица файлов: назначение каждого из 8 | `AP:289-314` (строки этих файлов) |
 | Один прогон на Project; тот же Epic того же репозитория на Linked machine отклоняет старт; Start anyway — единственный обход | `src/main/autopilot/run.ts:629`, `:335`, `:338`, `:642-643`; `AutopilotAction.tsx:60-62` |
 | Dev-сборка отказывает на собственном репозитории worfy, включая worktree | `src/main/autopilot/run.ts:359-360`, `:376-388` |
 | Ticket в работе после хода — до 10 минут, затем `wave-unfinished`; background task-и без событий час — `background-stalled` | `src/shared/autopilot/cycle.ts:58`, `:65`, `:9-13` |
-| Дневной бюджет в Settings → Autopilot выключен по умолчанию, резерв 15 % | `src/shared/settings/app-settings.ts:190`, `src/renderer/settings/AutopilotSection.tsx:17-18` |
-| Выход из приложения останавливает прогоны с `app-quit` | `src/main/autopilot/run.ts:790`, `src/main/ipc/autopilot.ts:7` |
 | Ожидание Limits по таймеру настенных часов; текст продолжения | `src/main/autopilot/limits-wait.ts:17`, `:25`, `:33` |
 
 ### Снимки
@@ -97,4 +94,14 @@ Playwright, окно 1280×800, через временный spec вне PR:
 
 ### Tokens
 
-Автор: около 300 тысяч токенов (оценка по объёму контекста; точного счётчика у агента нет). Проверка — допишет Orchestrator.
+Автор: около 300 тысяч токенов за первый раунд и около 60 тысяч за раунд правок (оценка по объёму контекста; точного
+счётчика у агента нет). Проверка: около 130 тысяч (оценка ревьюера).
+
+### Раунд правок
+
+- Цвета групп на схеме потока: Orchestrator — `harness`, как на простой схеме и в `scene-colours.ts`; Launcher — `workflow`,
+  как Run и Cycle (это код worfy). Обе схемы вынесены в `spec.ts`; `test/unit/guide-autopilot.test.ts` требует одну группу
+  для блока с одним названием на обеих схемах. Мутанты (Orchestrator → `agents`, Launcher → `harness`) делают его красным.
+- «обычно» для новой SDK session; «строка JSON на шаг» в подписи и описании потока.
+- Сокращено: «экран не гаснет» на простом уровне; в Under the hood — абзац о взгляде на workflow, абзац о Stop и Force stop,
+  лимиты о бюджете и о выходе из приложения; короче строки `run.ts` и `journal.ts`. То же в RU.
