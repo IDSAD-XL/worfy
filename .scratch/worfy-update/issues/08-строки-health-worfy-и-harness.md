@@ -1,7 +1,8 @@
 # 08 — Строки Settings → Health: версия worfy и отстающий Harness
 
 Type: task
-Status: claimed 2026-10-31T10:20Z
+Status: done 2026-10-31T12:14Z
+PR: #1129
 Blocked by: 01, 05
 Source: решения владельца 2026-10-31, пункты 5 (красная строка в Settings → Health для обоих сигналов), 8 (недостающие инструменты видны в Health); [spec.md](../spec.md), «Решено без владельца», Р9, «Тексты (черновик)», «Health»
 

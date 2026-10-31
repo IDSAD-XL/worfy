@@ -1,7 +1,8 @@
 # 11 — Feature page Update: `docs/features/updates.md` и перевод
 
 Type: task
-Status: claimed 2026-10-31T12:00Z
+Status: done 2026-10-31T12:14Z
+PR: #1132
 Branch: worfy-update/11
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10
 Source: [spec.md](../spec.md), «Решено без владельца», Р14, «Риски», пункт 2 (откат руками); [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (английская страница, русский перевод с отметкой commit-а)
@@ -63,3 +64,13 @@ Source: [spec.md](../spec.md), «Решено без владельца», Р14,
 - Оговорку о Windows `--wait-pid` на страницу не писал: по коду ожидание главного pid и последующая проверка процессов
   копии одинаковы на macOS и Windows; на странице — общий случай «процесс старой копии ещё работает → отказ, старая копия
   стартует снова».
+- Ревью утверждений: круг 1 REJECTED (2 med: toast ожидания появляется только после кнопки «Restart when idle»
+  toast-а «ready»; более новый commit во время сборки встаёт в очередь только при «Update automatically»; 2 low),
+  круг 2 VERIFIED. По ходу дописан перевод двух абзацев worfy-update 05 в `ru/harness.md`.
+- Находка вне страницы — Ticket 13: после падения новой копии и отката руками `settleLastRestart`
+  (`src/main/update/restart.ts:104`) показывает успех Update и снимает `rolledBackFrom`.
+- Low (не Ticket): `docs/features/storage-and-diagnostics.md` — в таблице папки данных нет папки `update`;
+  `docs/features/concepts.md` — нет Update и Available update.
+- Вопрос владельцу: диалог отката (`src/main/ipc/update.ts:349`) обещает «Its Harness is installed too», но более
+  новый установленный Harness не понижается (`src/main/update/harness-after-update.ts:99`; страница пишет это
+  условие верно). Править текст диалога или понижать Harness — решает владелец.

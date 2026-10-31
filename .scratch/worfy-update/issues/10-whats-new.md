@@ -1,7 +1,8 @@
 # 10 — What's new: заголовки PR между запущенной копией и новой версией
 
 Type: task
-Status: claimed 2026-10-31T10:45Z
+Status: done 2026-10-31T12:14Z
+PR: #1130
 Branch: worfy-update/10
 Blocked by: 01, 06
 Source: решения владельца 2026-10-31, пункты 6 (пункт «What's new» в меню version chip-а), 10 (заголовки PR, влитых между копией и новой версией, с GitHub; без changelog); [spec.md](../spec.md), «Решено без владельца», Р13, «Тексты (черновик)», «What's new»
@@ -73,3 +74,5 @@ Source: решения владельца 2026-10-31, пункты 6 (пункт
 - Tests: `test/unit/update-whats-new.test.ts`, `test/unit/whats-new-view.test.tsx`; e2e `test/e2e/update-toolbar.spec.ts`
   проверяет пункт меню и popover в собранном приложении через stub. Снимки ревью (обе темы) — в scratchpad, в
   репозиторий не кладутся.
+- Ревью: VERIFIED. Low (не Ticket): `src/main/update/build.ts:30` — URL clone собирается литералом, а не из
+  `UPDATE_REPO` (`src/shared/ipc/update.ts`).
