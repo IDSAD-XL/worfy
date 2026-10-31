@@ -75,4 +75,10 @@ Source: «Готово, когда» Epic-а worfy-update ([spec.md](../spec.md)
 
 ## Итог
 
-Заполняется при закрытии.
+Заполняется при закрытии. Промежуточные записи:
+
+- 2026-11-01, Windows-ПК, Update из приложения со Stable `a03f5f63` на `e7fbac67` (по данным bridge-сессии ПК).
+  - Попытка 1 упала на `pnpm package`: `The specified electronDist does not exist` (`%APPDATA%\worfy\update\repo\node_modules\electron\dist`). В папке обновления не была докачана загрузка Electron. `pnpm install --frozen-lockfile` её не повторяет, а сборка Update, в отличие от `install-stable`, наличие Electron не проверяет. Это bug, worfy-update 15.
+  - Папку починили вручную по слову владельца: `node node_modules/electron/install.js`.
+  - Попытка 2 прошла, владелец: «Прошло». Stable `0.3.0+e7fbac67`, `lastRestart.ok=true` в 22:20:49Z, главное окно открыто.
+  - Остальные ручные пункты на ПК (откат, Harness после Update, тексты) и время и размер сборки не записаны. gate full на `e7fbac67` не шёл.
