@@ -20,7 +20,7 @@ import type { LinkedMachineView, LinkState } from '../../src/shared/ipc/link'
 import { updateSnapshotSchema, type UpdateSnapshot } from '../../src/shared/ipc/update'
 import { useUpdateStore } from '../../src/renderer/update/store'
 import { useGuide } from '../../src/renderer/guide/store'
-import { GUIDE_TOPICS } from '../../src/renderer/guide/registry'
+import { GUIDE_TOPICS, shownTopics } from '../../src/renderer/guide/registry'
 import { useShortcutsWindow } from '../../src/renderer/shortcuts/shortcuts-window'
 
 function ticket(num: number, state: Ticket['state'], blockedNums: number[] = []): Ticket {
@@ -252,6 +252,7 @@ describe('palette commands', () => {
   })
 
   it('without a Project keeps only the views, the first-run checks, Settings, Keyboard shortcuts and the Projects', () => {
+    expect(shownTopics(null)[0]?.id).toBe('map-of-worfy')
     expect(ids(context({ project: undefined, model: undefined, layoutNodes: [], adrs: [], createItems: [] }))).toEqual([
       'view:canvas',
       'view:session',
@@ -260,8 +261,9 @@ describe('palette commands', () => {
       'settings',
       'shortcuts',
       'guide',
-      // A Topic shown in every build: the Map of worfy (worfy-guide/05).
-      'guide:map-of-worfy',
+      // A row per Topic shown in every build (the build has not answered here), in the registry's
+      // order: the Map of worfy first (worfy-guide/05), then the Topics of later tickets.
+      ...shownTopics(null).map((topic) => `guide:${topic.id}`),
       'project:p1',
       'project:p2',
     ])
