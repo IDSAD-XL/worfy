@@ -1,0 +1,31 @@
+/*
+ * The ring of Getting started around the element to press next (worfy-onboarding ticket 14,
+ * highlight.ts): drawn on the target itself, so it stands in the target's own layer — over the panel
+ * when the target is in First run. An outline takes no room and catches no click: the layout, the
+ * pointer, the focus and the Tab order stay as without the ring. The attribute twice outweighs a
+ * button's own outline rule of one class.
+ */
+[data-getting-started-target][data-getting-started-ring] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  animation: w-getting-started-ring 1.6s ease-in-out infinite;
+}
+
+/* A soft pulse: the ring steps out a little and fades, then comes back. Its first frame is the full ring. */
+@keyframes w-getting-started-ring {
+  0%,
+  100% {
+    outline-color: var(--accent);
+    outline-offset: 2px;
+  }
+  50% {
+    outline-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    outline-offset: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-getting-started-target][data-getting-started-ring] {
+    animation: none;
+  }
+}
