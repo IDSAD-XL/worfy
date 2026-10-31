@@ -117,8 +117,8 @@ the press leaves focus mode and it stays open.
 | Tab | Walks the layer's controls and the sidebar, never the toolbar or the Canvas under the layer |
 
 Pressed with the focus in the layer or nowhere, arrow keys move no Canvas Node, and Delete, Backspace, ⌘Z and ⇧⌘Z do not
-act on the Canvas. With the focus nowhere, ⌘Z and ⇧⌘Z go to the undo of the Edit menu, which can undo typing in a Note's
-field in a tile. The wheel does not pan or zoom it.
+act on the Canvas. With the focus nowhere, ⌘Z and ⇧⌘Z go to Undo and Redo of the Edit menu, which can undo typing in a
+Note's field in a tile. The wheel does not pan or zoom it.
 
 ### What stays and what is dropped
 
