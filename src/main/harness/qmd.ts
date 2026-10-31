@@ -288,9 +288,33 @@ export interface QmdState {
   version: 'ok' | 'warn' | 'missing'
   warning: string | null
   node: NodeState
+  /** The version of the newest node of nvm at or above the limit that has qmd beside it, or null: the Harness scripts run on it. */
+  qmdOnNvm: string | null
   /** What would be downloaded, and which of those files are already in qmd's cache. */
   models: ModelPlan & { present: string[] }
   answer: ModelsAnswer | null
+}
+
+/**
+ * What the Harness scripts find in nvm when the first node on the PATH is too old or qmd is not on the PATH
+ * (findQmd and rerunOnNvmNode of harness/lib/qmd-common.cjs). The files are only looked at: a node of nvm that
+ * cannot start is not known here.
+ */
+function qmdOnNvm(env: Env): string | null {
+  const root = join(getVar(env, 'HOME') || getVar(env, 'USERPROFILE') || '', '.nvm', 'versions', 'node')
+  let versions: string[]
+  try {
+    versions = readdirSync(root).sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))
+  } catch {
+    return null
+  }
+  const windows = process.platform === 'win32'
+  for (const version of versions) {
+    const bin = join(root, version, 'bin')
+    const hasQmd = existsSync(join(bin, 'qmd')) || (windows && existsSync(join(bin, 'qmd.cmd')))
+    if (hasQmd && existsSync(join(bin, windows ? 'node.exe' : 'node')) && qmdRunsOnNode(version.replace(/^v/, ''))) return version.replace(/^v/, '')
+  }
+  return null
 }
 
 /** What is on the machine. Runs `node --version` and `qmd --version`, writes nothing. */
@@ -306,6 +330,7 @@ export async function qmdState(options: QmdOptions): Promise<QmdState> {
     version,
     warning: version === 'warn' && qmd !== null ? otherVersionWarning(qmd) : null,
     node,
+    qmdOnNvm: qmdOnNvm(env),
     models: { ...plan, present },
     answer: readModelsAnswer(options.harnessHome)?.answer ?? null,
   }

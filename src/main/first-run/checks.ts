@@ -687,15 +687,18 @@ async function qmdRows(deps: CheckDeps, machine: Machine): Promise<QmdRows> {
   const installed = state.qmd !== null
 
   const needsNode = `qmd needs node ${QMD_NODE_NEED}`
+  // The Harness scripts also find qmd in nvm, and run again on that node when the first node on the PATH is too old.
+  const onNvm = state.qmdOnNvm === null ? null : `The Harness scripts run the qmd of nvm on node ${state.qmdOnNvm}`
   let qmd: Row
   // An installed qmd on an older node dies without a word on any command that opens the index.
   if (installed && !state.node.ok) {
     const found = state.node.version === null ? 'there is no node' : `node is ${state.node.version}`
-    qmd = row('warn', `${state.qmd?.version ?? 'unknown version'} (${state.qmd?.path ?? ''})`, `${needsNode}, and ${found}. Until then the Harness searches with grep`, installCommand(machine.windows, 'node'))
+    qmd = row('warn', `${state.qmd?.version ?? 'unknown version'} (${state.qmd?.path ?? ''})`, `${needsNode}, and ${found}. ${onNvm ?? 'Until then the Harness searches with grep'}`, installCommand(machine.windows, 'node'))
   } else if (state.version === 'ok') qmd = row('ok', `${QMD_VERSION} (${state.qmd?.path ?? ''})`)
   else if (state.version === 'warn') qmd = row('warn', `${state.qmd?.version ?? 'unknown version'} (${state.qmd?.path ?? ''})`, state.warning ?? '')
   else if (!state.node.ok)
-    qmd = row('warn', 'not installed', `${needsNode}: install node first. Without qmd the Harness searches with grep`, installCommand(machine.windows, 'node'))
+    qmd = row('warn', onNvm === null ? 'not installed' : 'not on the PATH', `${needsNode}: install node first. ${onNvm ?? 'Without qmd the Harness searches with grep'}`, installCommand(machine.windows, 'node'))
+  else if (onNvm !== null) qmd = row('warn', 'not on the PATH', `${onNvm}. Install qmd ${QMD_VERSION} with npm to have it in a terminal`, null, [action('qmd-install', 'Install…')])
   else qmd = row('warn', 'not installed', `Install qmd ${QMD_VERSION} with npm. Without it the Harness searches with grep`, null, [action('qmd-install', 'Install…')])
 
   const size = formatBytes(modelPlan(profileDocsLanguages(deps.homes)).bytes)

@@ -55,6 +55,9 @@ const env = q.qmdEnv({ QMD_EMBED_MODEL: q.EMBED_MODEL })
 if (generate === q.RU_GENERATE_MODEL) env.QMD_GENERATE_MODEL = q.RU_GENERATE_MODEL
 else delete env.QMD_GENERATE_MODEL
 
+// Before the chdir: a relative EVAL_HARNESS_HOME resolves from the session's directory.
+env.HARNESS_HOME = q.harnessHome()
+
 // Always the global index: the session's cwd may contain a project .qmd/.
 process.chdir(q.home())
 

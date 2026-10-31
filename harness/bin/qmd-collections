@@ -38,7 +38,7 @@
 // Exit codes: 0 — done (or nothing to do); 1 — refusal or failure, the reason in stderr; 2 — usage.
 // Environment: HARNESS_HOME, CLAUDE_CONFIG_DIR, QMD_INDEX_YML (else QMD_CONFIG_DIR, XDG_CONFIG_HOME,
 // ~/.config/qmd), CLAUDE_GATE_CONFIG; for tests QMD_COLLECTIONS_PROFILE_BIN and QMD_COLLECTIONS_SYNC_BIN.
-// What the qmd scripts share (the folders of qmd, which qmd to start, the lock): hooks/qmd-common.cjs.
+// What the qmd scripts share (the folders of qmd, which qmd to start, the lock): lib/qmd-common.cjs.
 "use strict"
 
 const fs = require("node:fs")

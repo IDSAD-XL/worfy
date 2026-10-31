@@ -191,7 +191,7 @@ Claude Code runs these commands on its events. The limit is in seconds.
 | `TaskCompleted`, `TeammateIdle` | `gate.sh fast` | 900 | The [Gate](gate-and-github.md) |
 | `Stop` | `stop.mjs` | 10 | Holds the turn while the Gate is red, see the [Gate](gate-and-github.md) |
 | `Stop` | `worktree-lock beat` | 5 | Marks the Session alive |
-| `Stop` | `qmd-refresh --quiet` | 15 | Updates the index in the background if a main branch moved or a memory or lessons file is newer than the last update. When qmd cannot run (no qmd, a node too old for it), it exits 0 and does nothing |
+| `Stop` | `qmd-refresh --quiet` | 15 | Updates the index in the background if a main branch moved or a memory or lessons file is newer than the last update. When qmd cannot run (no qmd, a node too old for it), it exits 0, runs no update, and writes the reason to the log at most once a day |
 | `SessionEnd` | `session-end.mjs` | 10 | Notes a Session without a retrospective |
 | `SessionEnd` | `worktree-lock release` | 5 | Unregisters |
 

@@ -644,6 +644,37 @@ describe('first-run checks', () => {
     expect(checkOf(report, 'qmd').hint).toContain('searches with grep')
   })
 
+  it('a node of nvm at or above the limit with qmd beside it: the row does not say grep, and one below the limit changes nothing', async () => {
+    const nvmNode = (version: string): void => {
+      const bin = join(home, '.nvm', 'versions', 'node', version, 'bin')
+      mkdirSync(bin, { recursive: true })
+      writeFileSync(join(bin, process.platform === 'win32' ? 'node.exe' : 'node'), '')
+      writeFileSync(join(bin, 'qmd'), '')
+    }
+    tools(...ALL_TOOLS)
+    const old = loginEnv({ FAKE_NODE_VERSION: '22.13.1' })
+    nvmNode('v22.13.0')
+    let report = await runChecks(deps(old))
+    expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', detail: 'not installed' })
+    expect(checkOf(report, 'qmd').hint).toContain('searches with grep')
+
+    nvmNode('v24.1.0')
+    report = await runChecks(deps(old))
+    expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', detail: 'not on the PATH', command: expect.stringContaining('install') as string })
+    expect(checkOf(report, 'qmd').hint).toContain('the qmd of nvm on node 24.1.0')
+    expect(checkOf(report, 'qmd').hint).not.toContain('grep')
+
+    report = await runChecks(deps(loginEnv()))
+    expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', detail: 'not on the PATH', actions: [{ id: 'qmd-install' }] })
+    expect(checkOf(report, 'qmd').hint).not.toContain('grep')
+
+    tools('qmd')
+    report = await runChecks(deps(old))
+    expect(checkOf(report, 'qmd').hint).toContain('node is 22.13.1')
+    expect(checkOf(report, 'qmd').hint).toContain('the qmd of nvm on node 24.1.0')
+    expect(checkOf(report, 'qmd').hint).not.toContain('grep')
+  })
+
   it('qmd collections: a Project whose Profile names none warns with Set up; none connected is ok', async () => {
     tools(...ALL_TOOLS, 'qmd')
     mkdirSync(join(harnessHome, 'plugin', 'bin'), { recursive: true })

@@ -423,6 +423,25 @@ HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$T/fakebin"
 [ "$rc" -eq 1 ] && [ -e "$C/ran-sh" ] && grep -q 'is not JSON' "$C/err" \
     && ok "a #!/bin/sh file as the profile: it runs" || bad "#!/bin/sh file: rc=$rc err=[$(cat "$C/err")]"
 
+# --- an update line with more than the script is the owner's own command: left as it is ------------
+setup compound x "$FULL"
+mkdir -p "$H/.config/qmd"
+cat >"$INDEX" <<EOF
+collections:
+  compound:
+    path: /elsewhere
+    update: cd /x && git pull && qmd-sync-main x && ./build-docs.sh
+  echoed:
+    path: /elsewhere/too
+    update: echo qmd-sync-main x
+  plain:
+    path: /elsewhere/three
+    update: /old/qmd-sync-main x
+EOF
+collect x; rc=$?
+[ "$rc" -eq 0 ] && grep -qF 'update: cd /x && git pull && qmd-sync-main x && ./build-docs.sh' "$INDEX" && grep -qF 'update: echo qmd-sync-main x' "$INDEX" && ! grep -qF '/old/qmd-sync-main' "$INDEX" \
+    && ok "update lines: compound lines stay, a plain line of the script is rewritten" || bad "update lines: rc=$rc index=[$(cat "$INDEX")]"
+
 # --- tickets.root on another drive of Windows: path.relative gives an absolute path, and that is not inside the source ---
 if [ "$WIN" = 1 ]; then
     setup other-drive x "$(printf '%s' "$FULL" | sed 's#"tickets": {"root": ".scratch/"}#"tickets": {"root": "Q:/tickets/"}#')"

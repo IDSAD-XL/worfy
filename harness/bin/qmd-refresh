@@ -19,7 +19,8 @@
 //
 //   qmd-refresh            — update if main has moved
 //   qmd-refresh --force    — update unconditionally
-//   qmd-refresh --quiet    — no output (for the hook)
+//   qmd-refresh --quiet    — no output and always exit 0 (for the hook); the reason goes to the log, a
+//                            line about the grep fallback at most once a day
 //   qmd-refresh --wait     — do not go to the background, wait for the end (for checking by hand)
 //
 // The check runs in place and costs one network call; the update itself (`update` +
@@ -31,7 +32,7 @@
 "use strict"
 
 // With --quiet (the Stop hook, every turn) a non-zero exit would show as an error on each turn: whatever
-// goes wrong ends with exit 0, and the reason goes to the log when the log can be written.
+// goes wrong ends with exit 0, and the reason goes to the log when the log can be written (see logOncePerDay).
 let logFailure = () => {}
 if (process.argv.includes("--quiet")) {
     process.on("uncaughtException", (error) => {
@@ -90,10 +91,32 @@ function logWarnings() {
     warnings = []
 }
 const finish = () => process.exit(partial && !QUIET ? 1 : 0)
+// With --quiet grep being the fallback still leaves an explicit line, in the log and not on a stream, at most
+// once a day: the hook runs on every turn. A marker in qmd's cache folder holds the time of the last line.
+const DAY_MS = 24 * 60 * 60 * 1000
+function logOncePerDay(text) {
+    const marker = path.join(q.cacheDir(), "fallback-logged")
+    try {
+        if (Date.now() - fs.statSync(marker).mtimeMs < DAY_MS) return
+    } catch {
+        // No marker yet.
+    }
+    try {
+        fs.mkdirSync(q.cacheDir(), { recursive: true })
+        fs.appendFileSync(LOG, `${q.timestamp()} qmd-refresh: ${text}\n`)
+        fs.writeFileSync(marker, "")
+    } catch {
+        // The log cannot be written: a hook still ends with 0.
+    }
+}
 // A total failure (no qmd, no index.yml): with --quiet also 0 — for the same reason.
 function die(code, text, stream = "stdout") {
-    if (!QUIET) process[stream].write(`qmd-refresh: ${text}\n`)
-    process.exit(QUIET ? 0 : code)
+    if (QUIET) {
+        logOncePerDay(text)
+        process.exit(0)
+    }
+    process[stream].write(`qmd-refresh: ${text}\n`)
+    process.exit(code)
 }
 
 let indexText
@@ -102,7 +125,7 @@ try {
 } catch {
     // Nothing to do. The Stop hook on a machine without qmd ends here on every turn: before findQmd, which
     // runs `npm prefix -g`. By hand, the reason qmd cannot run comes first.
-    if (QUIET) process.exit(0)
+    if (QUIET) die(1, `no ${INDEX_YML}, the index is not updated; ${q.GREP_FALLBACK}`)
 }
 const tooOld = q.nodeTooOld()
 if (tooOld) {

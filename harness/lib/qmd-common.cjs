@@ -162,16 +162,21 @@ function nvmVersions() {
     }
 }
 // The first node on the PATH is too old: when a node of nvm at or above the limit has qmd, the script runs
-// again on it, and this process ends with the same code. A synchronous child: a client that ends an MCP
-// server closes its stdin, and that ends the child. Returns only when there is no such node.
+// again on it, and this process ends with the same code (0 under --quiet, the Stop hook). A synchronous child:
+// a client that ends an MCP server closes its stdin, and that ends the child. A node that cannot start is passed
+// over, and asked first with no stream open: on Linux the system hands a broken file to a shell, which prints its
+// error and exits 127, the same code a script may end with. Returns only when no such node runs.
+const nodeStarts = (node) => spawnSync(node, ["--version"], { stdio: "ignore", windowsHide: true }).status === 0
 function rerunOnNvmNode() {
     if (process.env.QMD_RERUN_ON_NVM) return // the node of this run was that node: its folder name lied
     for (const version of nvmVersions()) {
         const node = path.join(nvmBin(version), WINDOWS ? "node.exe" : "node")
-        if (nodeTooOld(version.replace(/^v/, "")) || !isFile(node) || !qmdIn(nvmBin(version))) continue
+        if (nodeTooOld(version.replace(/^v/, "")) || !isFile(node) || !qmdIn(nvmBin(version)) || !nodeStarts(node)) continue
         const env = { ...process.env, QMD_RERUN_ON_NVM: "1" }
         delete env.QMD_NODE_VERSION
-        process.exit(rcOf(spawnSync(node, process.argv.slice(1), { stdio: "inherit", env, windowsHide: true })))
+        const run = spawnSync(node, process.argv.slice(1), { stdio: "inherit", env, windowsHide: true })
+        if (run.error) continue
+        process.exit(process.argv.includes("--quiet") ? 0 : rcOf(run))
     }
 }
 // The way `qmd <args>` starts: a Node script with this node, anything else by itself.
@@ -235,11 +240,18 @@ function unquote(v) {
     if (v.startsWith("'")) return v.slice(1, -1).replace(/''/g, "'")
     return v
 }
-// The qmd-sync-main a collection's `update:` runs and for which profile: [script, profile] or null.
-// Both forms, anywhere in the line: `node "<folder>/qmd-sync-main" <profile>` and the older
-// `<folder>/qmd-sync-main <profile>`, so a line that starts with a node's full path or a variable counts too.
+// The qmd-sync-main a collection's `update:` runs and for which profile: [script, profile] or null. Only a line
+// that is this and nothing else: an optional node (`node`, `node.exe`, a full path, a quoted path, `"$NODE"`), the
+// script's path, quoted or not, and the profile. A line with anything more is the owner's own command, and
+// qmd-collections would replace all of it: `cd /x && git pull && qmd-sync-main demo && ./build-docs.sh`.
+const WORD = "[^\\s\"'&|;<>()`$]" // a character of an unquoted word: no quote, no shell operator, no variable
+const FOLDER = "[\\\\/]"
+const SYNC_LINE = new RegExp(
+    `^\\s*(?:(?:(?:${WORD}*${FOLDER})?node(?:\\.exe)?|"(?:[^"]*${FOLDER})?node(?:\\.exe)?"|"\\$\\{?NODE\\}?")\\s+)?` +
+        `(?:"((?:[^"]*${FOLDER})?qmd-sync-main)"|((?:${WORD}*${FOLDER})?qmd-sync-main))\\s+(${WORD}+)\\s*$`,
+)
 function syncOf(update) {
-    const m = /(?:node\s+"([^"]*qmd-sync-main)"|(\S*qmd-sync-main))\s+(\S+)/.exec(update || "")
+    const m = SYNC_LINE.exec(update || "")
     return m ? [m[1] || m[2], m[3]] : null
 }
 
@@ -297,16 +309,13 @@ const rcOf = (run) => (run.error ? 127 : run.signal ? 128 + os.constants.signals
 // indexing is then newer, and the next pass takes it.
 //
 // What stops when: spawnSync blocks the event loop, so the listener below runs only after the synchronous
-// code is done. A signal to the process group (worfy on quit, a terminal) also ends the running qmd
-// command: `qmd embed` then does not start, and `finally` lets go of the lock. A signal to this process
-// alone stops nothing: `update` and `embed` run to their end. Either way the listener comes after `finally`,
-// when another holder may have the lock already, so it removes the lock only while this update holds it.
+// code is done. Its use is that node does not die at once and leave the lock behind. A signal to the process
+// group (worfy on quit, a terminal) also ends the running qmd command: `qmd embed` then does not start. A signal
+// to this process alone stops nothing: `update` and `embed` run to their end. Either way `finally` lets go of the
+// lock first, and the listener only ends the process with the signal's code: it never touches the lock, which
+// another holder may have by then. A kill without a signal (taskkill /F on Windows) leaves the lock with a dead pid.
 function runUpdate(qmd, label, stamp) {
-    let holding = true
-    const onSignal = (signal) => {
-        if (holding) dropLock()
-        process.exit(128 + os.constants.signals[signal])
-    }
+    const onSignal = (signal) => process.exit(128 + os.constants.signals[signal])
     for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, onSignal)
     try {
         if (stamp) fs.writeFileSync(indexedFile(), "")
@@ -328,19 +337,19 @@ function runUpdate(qmd, label, stamp) {
         fs.closeSync(log)
     } finally {
         dropLock()
-        holding = false
     }
 }
 // The same update in the background, without inheriting stdio (a hook or an MCP handshake would wait for
 // embed to finish). The parent writes the pid: a dead pid in the lock reads as an abandoned lock. It runs in
 // the home folder: on Windows a process's current folder cannot be removed, and the folder of a Stop hook is a
-// session's worktree. HARNESS_HOME is fixed here: a relative EVAL_HARNESS_HOME resolves from the current folder.
+// session's worktree. HARNESS_HOME is fixed here: a relative EVAL_HARNESS_HOME resolves from the current folder,
+// so a caller that has changed its folder passes the value it read before that.
 function startUpdate(label, stamp, env = process.env) {
     const child = spawn(process.execPath, [__filename, "--update-job", label, stamp ? "stamp" : "no-stamp"], {
         cwd: home(),
         detached: true,
         stdio: "ignore",
-        env: { ...env, HARNESS_HOME: harnessHome() },
+        env: { ...env, HARNESS_HOME: env.HARNESS_HOME || harnessHome() },
         windowsHide: true,
     })
     writeLockPid(child.pid)
