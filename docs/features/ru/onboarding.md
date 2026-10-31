@@ -1,9 +1,9 @@
 # Onboarding
 
-> Перевод [английской версии](../onboarding.md), commit `same-pr`.
+> Перевод [английской версии](../onboarding.md), commit `7779f070`.
 
 Как разработчик проходит путь от свежей установки до одного влитого Ticket-а. На странице три раздела. First run описывает
-проверки Machine и действия, которые исправляют найденное. Getting started описывает список из шести шагов в боковой панели.
+проверки Machine и действия, которые исправляют найденное. Getting started описывает список из шести шагов в панели в правом верхнем углу окна.
 Demo project описывает небольшой Project, который worfy создаёт для этого списка. Термины объяснены в [Concepts](concepts.md).
 
 ## First run
@@ -22,6 +22,9 @@ Machine, любым способом.
 | Ни разу не закрывался, существующий пользователь | Проверки |
 | Закрывался, и сейчас падает проверка, которая не падала при последнем закрытии | Проверки |
 | Закрывался, и новых упавших проверок нет | Ничего |
+
+«worfy version» и строка Harness plugin при Harness старее этой сборки здесь никогда не считаются: они падают, но при запуске
+о них сообщает toast, а не этот диалог.
 
 Что значит новый и существующий пользователь, сказано в разделе [Getting started](#getting-started).
 
@@ -46,7 +49,8 @@ Machine, любым способом.
 | Command-line tools | git identity | `user.name` и `user.email`, вне любого репозитория | Warning, с двумя командами `git config --global` |
 | Command-line tools | node | Версия 22 или новее | Failed, с `brew install node` |
 | GitHub | GitHub accounts | `gh auth status` | Failed, если нет gh и если ни одна учётная запись не вошла, с «Sign in…» |
-| Harness | Harness plugin | Состояние установщика | Failed, если не установлен («Install») или при ошибке установщика («Retry»). Warning, если выключен, с `claude plugin enable worfy@worfy-harness`, или если стоит другая версия («Update») либо та же версия из другой сборки («Replace») |
+| worfy | worfy version | Состояние Update этой копии; только там, где Update включён (упакованная копия Stable или `WORFY_UPDATE=1`) | Failed с «<version> available», пока ждёт Update (но не после отката с него), с «update failed», последней строкой log сборки и «Show log» после упавшей сборки, и с «<tool> not found» и командой его установки, когда сборка не нашла git, node или pnpm |
+| Harness | Harness plugin | Состояние установщика | Failed, если не установлен («Install»), при ошибке установщика («Retry») и если стоит более старая версия («Update»). Warning, если выключен, с `claude plugin enable worfy@worfy-harness`, или если стоит та же версия из другой сборки («Replace»); такая строка становится Failed с «Update», когда GitHub говорит, что установленная сборка старее |
 | Harness | Plugin dependencies | Plugin-ы, нужные plugin-у Harness | Failed, если какого-то нет, с «Install…». Warning, если проверить их пока не удалось |
 | Harness | Harness scripts | `profile --help`, запущенный так же, как при чтении Epic-ов, за 15 с | Failed с exit code или сигналом и словами script-а: тогда worfy не читает Epic-и. Warning без Harness или без этого script-а |
 | Harness | Old Harness in ~/.claude | Файлы старого Harness | Warning, с «Move…» |
@@ -72,10 +76,10 @@ Warning, потому что без qmd Harness ищет через grep. На �
 - «Move…» открывает форму переноса старого Harness, которая спрашивает сама.
 
 **«Check again»** сначала заново читает окружение login shell, поэтому инструмент, добавленный rc-файлом после запуска, становится
-виден. Project боковой панели, у которого не прочитался Layout, затем пробует снова сразу.
+виден. Project в sidebar, у которого не прочитался Layout, затем пробует снова сразу.
 
 **«Start Getting started»** стоит рядом с «Close» у нового пользователя, пока шаг 6 Getting started не отмечен. Кнопка закрывает
-First run так же, как «Close», и показывает раздел боковой панели с фокусом на нём.
+First run так же, как «Close», и показывает панель Getting started, развёрнутую и с фокусом на её заголовке.
 
 #### Windows
 
@@ -137,18 +141,29 @@ first-run checks, и что вход в gh делается там же.
 
 ### Behaviour
 
-Getting started — раздел боковой панели, выше Projects. В нём шесть шагов, которые проводят один Ticket Demo project от Orchestrator-а
-через ревью до merge. Он ничего не блокирует и никогда не бывает модальным окном.
+Getting started — плавающая панель в правом верхнем углу окна, под toolbar. Пока окно показывает Session view, панель стоит ниже:
+под заголовком Session и местом её find bar, поэтому Hide tools, Interrupt и find bar по ⌘F панель не перекрывает. Ширина панели около
+320 px, высота — по содержимому, до 70 % окна; содержимое прокручивается внутри только в окне поменьше. В ней шесть шагов, которые
+проводят один Ticket Demo project от Orchestrator-а через ревью до merge. Она ничего не блокирует и никогда не бывает модальным окном.
+
+**Слой панели.** Панель стоит над Canvas, Session-ами и sidebar и под любым диалогом и меню: First run, Add project, Connect, выбор
+папки, Command palette, Settings и меню открываются поверх неё. У неё нет затемнения фона, и она не удерживает фокус. Клик вне её
+рамки доходит до того, что под ней. Toast-ы не заходят на панель и на её pill: они встают под ней в той же колонке.
+
+**Свёрнутая.** Кнопка справа от заголовка панели, с tooltip «Collapse», оставляет в том же углу только pill «Getting started ·
+n/6», где n — число отмеченных шагов. Клик по pill снова разворачивает панель. Свёрнута панель или нет, хранится в настройках
+приложения, поэтому переживает перезапуск и одинаково во всех окнах Machine. Pill — это не скрытый Getting started: «Skip» скрывает
+и то и другое.
 
 **Новый и существующий пользователь.** worfy решает это один раз, до первого окна, и больше не пересматривает.
 
 | Пользователь | Чем определяется | Что получает |
 |---|---|---|
-| Новый | В списке нет Project-ов, не считая Demo project | Раздел показывается сам, а First run, если ни разу не закрывался, начинается со страницы приветствия |
-| Существующий | В списке есть Project, или список не прочитался и отложен в сторону | Раздел скрыт. Один notice в углу, «New: Getting started — a guided demo of worfy.», с «Open» и «Not now» |
+| Новый | В списке нет Project-ов, не считая Demo project | Панель показывается сама, а First run, если ни разу не закрывался, начинается со страницы приветствия |
+| Существующий | В списке есть Project, или список не прочитался и отложен в сторону | Панель скрыта, pill нет. Один notice в углу, «New: Getting started — a guided demo of worfy.», с «Open» и «Not now» |
 
 Notice держится, пока пользователь не ответит или не закроет его. Как бы он ни ушёл, в следующем окне или при следующем запуске
-он не вернётся. «Open» показывает раздел.
+он не вернётся. «Open» показывает панель.
 
 **Шаги.** Шаг отмечается сам, когда факт верен, в любом порядке, и когда работа сделана другим путём. Первый неотмеченный шаг — текущий,
 и только у него есть кнопка. Кнопка — это короткий путь, а не условие. Отмеченный шаг показывает галочку, а в tooltip — время.
@@ -170,10 +185,19 @@ Notice держится, пока пользователь не ответит �
 project?» и `/worfy:ship-ticket todo 01`. Ничего не отправляется: отправляет пользователь. Текст не ложится поверх того, что пользователь
 уже набрал.
 
-Удаление Demo project снимает шаги 2–6. В остальном отмеченный шаг остаётся: упавшая позже проверка не снимает шаг 1. Шаги продолжают
-отмечаться, пока раздел скрыт или окно показывает другой Project.
+**Кольцо на том, что нажать дальше.** Пока панель развёрнута, кольцо цвета акцента с мягкой пульсацией отмечает один элемент: кнопку
+текущего шага; «Check again» в First run, пока текущий шаг 1 и First run открыт; кнопку отправки в поле Orchestrator-а demo, пока в
+нём лежит текст шага 3 или 4 или правка его пользователем. Когда это поле что-нибудь отправило, кольца нет, пока шаг не отмечен,
+так что ничто не просит о ходе второй раз. Опустевшее поле возвращает кольцо кнопке шага, которая снова кладёт текст. Цель, которой
+нет на экране, например кнопка отправки в закрытом Session view или неактивная, уступает кнопке шага, которая снова её открывает.
+Пока создаётся demo, на шагах 5 и 6, на экране Done, на pill и пока панель скрыта, кольца нет. Ничего не затемняется и не
+блокируется, фокус и порядок Tab остаются прежними. При reduced motion кольцо не пульсирует. Screen reader слышит текущий шаг, как
+и раньше.
 
-**Подсказки.** Пока раздел виден и Ticket demo стоит на Stage с подсказкой, подсказка — строка под текущим шагом, а когда отмечены все и «Show steps» вернул список,
+Удаление Demo project снимает шаги 2–6. В остальном отмеченный шаг остаётся: упавшая позже проверка не снимает шаг 1. Шаги продолжают
+отмечаться, пока панель скрыта или свёрнута или окно показывает другой Project.
+
+**Подсказки.** Пока Getting started виден, панелью или её pill, и Ticket demo стоит на Stage с подсказкой, подсказка — строка под текущим шагом, а когда отмечены все и «Show steps» вернул список,
 под шагом 6. Кроме того, каждая подсказка один раз становится toast, с учётом всех окон и перезапусков. Этот toast принадлежит Demo project,
 поэтому виден, только пока этот Project активен.
 
@@ -190,11 +214,11 @@ project?» и `/worfy:ship-ticket todo 01`. Ничего не отправляе
 круга доработки не было, шаг говорит «This time the review found nothing.» и предлагает «Show an example». Это раскрывает на месте записанный
 пример: REJECTED ревьюера с находкой, правка implementer-а и VERIFIED ревьюера.
 
-**Done.** Когда шаг 6 отмечен, раздел показывает «Done — the ticket is merged» вместо шагов, с «Connect your own project» и «Remove the demo
-project». «Show steps» возвращает список до следующего монтирования раздела.
+**Done.** Когда шаг 6 отмечен, панель показывает «Done — the ticket is merged» вместо шагов, с «Connect your own project» и «Remove the demo
+project». «Show steps» возвращает список до следующего монтирования панели.
 
-**Выйти и вернуться.** «Skip» внизу скрывает раздел, ничего не удаляет и говорит, откуда он возвращается. «Getting started» в Command palette
-показывает раздел снова в любой момент, развёрнутым и с фокусом на нём, с Project-ом и без него. «Connect your own project» под шагами не
+**Выйти и вернуться.** «Skip» внизу скрывает панель и не оставляет pill, ничего не удаляет и говорит, откуда она возвращается. «Getting started»
+в Command palette показывает панель снова в любой момент, развёрнутой и с фокусом на её заголовке, с Project-ом и без него. «Connect your own project» под шагами не
 входит в demo: «Connect…» открывает тот же «Add project», что и «+» в Projects.
 
 #### Windows
@@ -223,16 +247,23 @@ worfy `getting-started.json` ([ADR-0005](../../adr/0005-worfy-own-state-inventor
   и Stage-ы demo; эта подписка закрывается, когда Project уходит из списка. `firstRunPasses` содержит проверки, на которые смотрит шаг 1.
 - `src/main/ipc/getting-started.ts` содержит handler-ы и `startGettingStarted`, который `src/main/index.ts` запускает до первого окна. Это первое чтение
   решает, новый пользователь или существующий. Каналы — в `src/shared/ipc/getting-started.ts`, все с отметкой доступа `local`.
-- `src/renderer/shell/sidebar/GettingStartedSection.tsx` — раздел. `src/renderer/getting-started/store.ts` держит снимок main в окне. Окно не отмечает
-  шаги: состояние оно меняет только запросами к main о разделе, notice, показанной подсказке, стоимости, создании и удалении demo.
+- `src/renderer/getting-started/GettingStartedPanel.tsx` — панель и её pill, нарисованные в `<body>` с z-index 80 и смонтированные
+  `src/renderer/shell/AppShell.tsx`. Её корень и pill несут `data-toast-keep-out`, который размещение toast-ов обходит стороной. Свёрнутость —
+  `sidebar.collapsed.GettingStartedSection` в настройках приложения, ключ раздела sidebar, который заменила панель.
+  `src/renderer/getting-started/store.ts` держит снимок main в окне. Окно не отмечает шаги: состояние оно меняет только запросами к
+  main — показать или скрыть Getting started (`section`), notice, показанная подсказка, стоимость, создание и удаление demo.
   `src/renderer/getting-started/hints.ts` выбирает подсказку. `src/renderer/getting-started/notice.ts` — notice.
   `src/renderer/getting-started/ReviewExample.tsx` и `src/renderer/getting-started/DoneScreen.tsx` — записанный пример и экран Done.
-  `src/renderer/session/pending-input.ts` держит готовый текст.
-- `WORFY_GETTING_STARTED_AUTO=0` оставляет раздел скрытым для нового пользователя и считает notice показанным, для e2e test-ов.
+  `src/renderer/session/pending-input.ts` держит готовый текст и то, что с ним стало: предложен, в поле или отправлен.
+- `src/renderer/getting-started/highlight.ts` выбирает цель кольца. Панель ставит `data-getting-started-ring` на тот один элемент, у
+  которого этот `data-getting-started-target`: её кнопки шагов, «Check again» в `src/renderer/shell/FirstRunChecks.tsx` и кнопку
+  отправки в `src/renderer/session/MessageInput.tsx`, которая ещё и называет свой Node. Выбор повторяется после каждого изменения
+  состояния и страницы. `src/renderer/getting-started/highlight.css` рисует кольцо как outline самого элемента.
+- `WORFY_GETTING_STARTED_AUTO=0` оставляет панель скрытой для нового пользователя и считает notice показанным, для e2e test-ов.
 - Главные test-ы: `test/contract/getting-started-state.test.ts`, `test/unit/getting-started-progress.test.ts`,
-  `test/unit/getting-started-section.test.tsx`, `test/unit/getting-started-hints.test.ts`, `test/unit/getting-started-notice.test.tsx`,
-  `test/e2e/getting-started.spec.ts`, `test/e2e/getting-started-entry.spec.ts`, `test/e2e/getting-started-hints.spec.ts` и
-  `test/e2e/getting-started-done.spec.ts`.
+  `test/unit/getting-started-panel.test.tsx`, `test/unit/getting-started-hints.test.ts`, `test/unit/getting-started-notice.test.tsx`,
+  `test/unit/getting-started-highlight.test.ts`, `test/e2e/getting-started.spec.ts`, `test/e2e/getting-started-entry.spec.ts`,
+  `test/e2e/getting-started-hints.spec.ts`, `test/e2e/getting-started-done.spec.ts` и `test/e2e/getting-started-highlight.spec.ts`.
 
 ## Demo project
 
@@ -288,12 +319,12 @@ Sonnet с effort medium. Opus использует effort модели по ум
 
 1. Orchestrator demo останавливается и не может открыться, пока удаление не закончится, а все Session-ы и Terminal-ы, работающие внутри папки, закрываются, и worfy
    ждёт их завершения.
-2. Снимается Profile с записями в Gate registry и его runs. Если это не удалось, ничего не удаляется, и раздел говорит почему.
+2. Снимается Profile с записями в Gate registry и его runs. Если это не удалось, ничего не удаляется, и панель говорит почему.
 3. Project уходит из списка, его папка в папке данных worfy удаляется.
 4. Снимаются шаги 2–6. Шаг 1 остаётся.
 5. Удаляется папка, не больше 5 попыток с паузой 1 с.
 
-Toast «The demo project was removed.» говорит, что всё получилось. Если что-то осталось, раздел называет это с причиной. Транскрипты demo в Claude Code остаются:
+Toast «The demo project was removed.» говорит, что всё получилось. Если что-то осталось, панель называет это с причиной. Транскрипты demo в Claude Code остаются:
 это данные Claude Code. После удаления список шагов возвращается, и шаг 2 может создать новый demo.
 
 #### Windows

@@ -1,6 +1,6 @@
 # Skills, agents and hooks
 
-> Перевод [английской версии](../skills-agents-and-hooks.md), commit `same-pr`.
+> Перевод [английской версии](../skills-agents-and-hooks.md), commit `3f662f1c`.
 
 Три Feature plugin-а [Harness](harness.md). **Skills** это процедуры, которым следуют агенты, **Agents** это три роли, которые они
 запускают, а **Hooks** это то, что само работает вокруг Session. Термины объяснены в [Concepts](concepts.md).
@@ -181,7 +181,7 @@ Claude Code запускает эти команды на свои событи�
 | `TaskCompleted`, `TeammateIdle` | `gate.sh fast` | 900 | [Gate](gate-and-github.md) |
 | `Stop` | `stop.mjs` | 10 | Держит ход, пока Gate красный, см. [Gate](gate-and-github.md) |
 | `Stop` | `worktree-lock beat` | 5 | Отмечает Session живой |
-| `Stop` | `qmd-refresh --quiet` | 15 | Обновляет индекс в фоне, если главная ветка сдвинулась или файл memory либо lessons новее последнего обновления |
+| `Stop` | `qmd-refresh.mjs` | 15 | Запускает `qmd-refresh --quiet`: обновляет индекс в фоне, если главная ветка сдвинулась или файл memory либо lessons новее последнего обновления. На Windows или без `zsh` в PATH завершается с exit code 0 и ничего не делает |
 | `SessionEnd` | `session-end.mjs` | 10 | Отмечает Session без ретроспективы |
 | `SessionEnd` | `worktree-lock release` | 5 | Снимает регистрацию |
 
