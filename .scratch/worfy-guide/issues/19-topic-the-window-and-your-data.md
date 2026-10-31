@@ -34,7 +34,7 @@ Topic сжимает `docs/features/app-shell.md`, `docs/features/notifications.
 ## Итог
 
 Topic `the-window-and-your-data` (`src/renderer/guide/topics/the-window-and-your-data/`): `Scene.tsx` (простой уровень,
-`viewBox` 976×472, 12 блоков, 10 связей, 5 шагов проигрывателя), `Flow.tsx` (поток данных в Under the hood, 976×476,
+`viewBox` 976×496, 12 блоков, 10 связей, 5 шагов проигрывателя), `Flow.tsx` (поток данных в Under the hood, 976×476,
 10 блоков, 10 связей), `en.json`, `ru.json`, `topic.json` и одна строка `registry.ts` (ключи `data folder`,
 `notifications`, `diagnostics`, `theme`). `topic.json` сверен с `docs/features/app-shell.md` (058d618b),
 `docs/features/notifications.md` (41f4e01b) и `docs/features/storage-and-diagnostics.md` (fc627df0). Блок Machine на
@@ -64,7 +64,7 @@ Shortcuts (кроме ⌘K и Settings… ⌘,), Theme (одна фраза), ha
 | «Claude home: ~/.claude, the transcripts»; связь «transcripts read» в Session | `s.md:14`, `src/main/storage/paths.ts:50`, `a.md:60-62` |
 | Session — «one Claude Code conversation» | `CONTEXT.md:157-159` |
 | Command palette «⌘K: find and run»; шаг 1: находит команды и вещи Project-а и выполняет их | `a.md:11-15`, `src/shared/shortcuts.ts:72` |
-| Связь palette → Settings «opens» | `a.md:25`, `:264-265`, `src/renderer/palette/commands.ts:338` |
+| Связь palette → Settings (без подписи: обе строки — «Settings…», это говорит подпись связи меню) | `a.md:25`, `:264-265`, `src/renderer/palette/commands.ts:338` |
 | Меню «Settings…, Help ▸ worfy Guide»; связь «Settings… (⌘,)» | `a.md:204-211`, `:124`, `src/main/menu.ts:2-4`, `:30` |
 | Settings «worfy's own, on this Machine»; шаг 1 | `a.md:264`, `:333` |
 | Связь Settings → папка данных «app-settings.json» | `a.md:336`, `src/main/settings/store.ts:1-3`, `:48` |

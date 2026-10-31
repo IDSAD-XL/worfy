@@ -13,33 +13,34 @@ const page = (name: string): string => `docs/features/${name}.md`
 
 const WINDOW_SPEC: SceneSpec = {
   width: 976,
-  height: 472,
+  height: 496,
   regions: [
-    { label: 'read', x: 16, y: 274 },
+    { label: 'read', x: 16, y: 298 },
     { label: 'window', x: 232, y: 18 },
     { label: 'machine', x: 800, y: 18 },
   ],
-  frames: [{ block: 'canvas', kind: 'canvas', x: 216, y: 240, width: 416, height: 216 }],
+  frames: [{ block: 'canvas', kind: 'canvas', x: 216, y: 264, width: 416, height: 216 }],
   blocks: [
     // Read where they lie.
-    { id: 'workflowFiles', x: 16, y: 290, group: 'workflow', topic: 'workflow', page: page('workflow') },
-    { id: 'claudeHome', x: 16, y: 384, group: 'machine' },
+    { id: 'workflowFiles', x: 16, y: 314, group: 'workflow', topic: 'workflow', page: page('workflow') },
+    { id: 'claudeHome', x: 16, y: 408, group: 'machine' },
     // The window.
     { id: 'palette', x: 232, y: 34, group: 'machine' },
     { id: 'menu', x: 232, y: 134, group: 'machine' },
     { id: 'settings', x: 456, y: 34, group: 'machine' },
     { id: 'toast', x: 456, y: 134, group: 'machine' },
     // The tab at the right of the frame's top edge, so its Edges leave toward the data folder and the toast.
-    { id: 'canvas', x: 520, y: 224, group: 'project', topic: 'canvas', page: page('canvas'), shape: 'tab', width: 92 },
-    { id: 'ticket', x: 248, y: 290, group: 'workflow', topic: 'workflow', page: page('workflow') },
-    { id: 'session', x: 248, y: 384, group: 'agents', topic: 'sessions', page: page('sessions') },
+    { id: 'canvas', x: 520, y: 248, group: 'project', topic: 'canvas', page: page('canvas'), shape: 'tab', width: 92 },
+    { id: 'ticket', x: 336, y: 314, group: 'workflow', topic: 'workflow', page: page('workflow') },
+    { id: 'session', x: 336, y: 408, group: 'agents', topic: 'sessions', page: page('sessions') },
     // On this Machine, outside the window.
     { id: 'diagnostics', x: 800, y: 34, group: 'machine' },
     { id: 'dataFolder', x: 800, y: 180, group: 'machine' },
-    { id: 'notification', x: 800, y: 337, group: 'machine' },
+    { id: 'notification', x: 800, y: 361, group: 'machine' },
   ],
   edges: [
-    { from: 'palette', to: 'settings', label: 'opens' },
+    // No label: both rows of the palette and the menu are "Settings…", which the menu's label says.
+    { from: 'palette', to: 'settings' },
     { from: 'menu', to: 'settings', label: 'opensToo', toShift: 14 },
     { from: 'settings', to: 'dataFolder', label: 'savesSettings', toShift: -12 },
     { from: 'canvas', to: 'dataFolder', label: 'savesLayout', toShift: 12 },

@@ -32,7 +32,6 @@
       "dataFolderNote": "собственное состояние worfy",
       "notification": "Уведомление ОС",
       "notificationNote": "когда worfy не на переднем плане",
-      "opens": "открывает",
       "opensToo": "Settings… (⌘,)",
       "savesSettings": "app-settings.json",
       "savesLayout": "Layout, Card-ы, корзина",

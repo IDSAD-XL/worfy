@@ -32,7 +32,6 @@
       "dataFolderNote": "worfy's own state",
       "notification": "System notification",
       "notificationNote": "when worfy is not in front",
-      "opens": "opens",
       "opensToo": "Settings… (⌘,)",
       "savesSettings": "app-settings.json",
       "savesLayout": "Layout, Cards, trash",
