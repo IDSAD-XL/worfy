@@ -115,8 +115,9 @@ Update is on; no answer from GitHub means no signal and the plain "Replace Harne
 
 **Roll back.** Settings → General → Updates, row "Roll back to previous version", button "Roll back". The row names the
 copy: "Return to worfy <version>. Automatic updates wait for the next commit on main." A native dialog asks first: "Roll
-back to worfy <version>?", "worfy quits, puts the previous copy back and starts it. Its Harness is installed too.", with
-"Roll back" and "Cancel". Like a restart, it is refused while something works, and the same process does the swap.
+back to worfy <version>?", "worfy quits, puts the previous copy back and starts it. Its Harness is installed too, unless
+the one installed is newer.", with "Roll back" and "Cancel". Like a restart, it is refused while something works, and the
+same process does the swap.
 
 Only one previous copy is kept. The copy rolled back from is removed, so the row then says "No previous version is
 kept." and its button is inactive until the next Update. After a roll back, the commit rolled back from stays quiet: no

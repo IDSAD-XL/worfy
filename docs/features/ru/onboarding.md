@@ -204,9 +204,9 @@ project?» и `/worfy:ship-ticket todo 01`. Ничего не отправляе
 | Ticket demo | Подсказка |
 |---|---|
 | Queued, шаг 3 отмечен, шаг 4 нет | An Epic is a goal; a Ticket is one piece of work in it. Both are files in the project, under .scratch/. |
-| Implementing | Implementer started in its own worktree — a separate checkout, so main stays untouched. |
+| Implementing | The Orchestrator started the work in its own worktree — a separate checkout, so main stays untouched. |
 | Agent review | The reviewer started. It reads the change and runs the project's checks itself. |
-| Снова Implementing после упавшего ревью | The reviewer found a problem — this is the rework round. The implementer fixes it on the same branch. |
+| Снова Implementing после упавшего ревью | The reviewer found a problem — this is the rework round. The Orchestrator fixes it on the same branch. |
 | Gate & merge | Review passed. The Orchestrator runs the Gate — the project's full checks — and merges. |
 | Done | Merged. The ticket is done. |
 
