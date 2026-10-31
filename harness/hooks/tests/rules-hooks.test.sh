@@ -559,8 +559,9 @@ if [ "$(hj valid)" = ok ]; then ok "hooks.json is valid JSON with .hooks"; else 
 # with the qmd server of the plugin. No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
 # a project with a worktree.root outside the repository is connected (decided 2026-10-09). Every Node script runs as an explicit
 # `node "${CLAUDE_PLUGIN_ROOT}/…"`: Windows starts no
-# script by its #! line. Two exceptions: the gate hooks call the launcher gate.sh, because without
-# node only the launcher can say so; qmd-refresh is still a zsh script.
+# script by its #! line. One exception: the gate hooks call the launcher gate.sh, because without
+# node only the launcher can say so. The qmd refresh runs through the node hook qmd-refresh.mjs:
+# Windows has no zsh, and bin/qmd-refresh run directly ended every turn there with exit 127.
 # One line per hook: event|matcher|command|timeout.
 R='"${CLAUDE_PLUGIN_ROOT}'
 N='node "${CLAUDE_PLUGIN_ROOT}'
@@ -577,7 +578,7 @@ TaskCompleted||$R/hooks/gate.sh" fast|900
 TeammateIdle||$R/hooks/gate.sh" fast|900
 Stop||$N/hooks/stop.mjs"|10
 Stop||$N/bin/worktree-lock" beat|5
-Stop||$R/bin/qmd-refresh" --quiet|15
+Stop||$N/hooks/qmd-refresh.mjs"|15
 SessionEnd||$N/hooks/session-end.mjs"|10
 SessionEnd||$N/bin/worktree-lock" release|5
 PreToolUse|Bash|$N/hooks/guard.mjs"|30
@@ -602,7 +603,19 @@ while IFS= read -r cmd; do
             esac ;;
     esac
 done < <(hj commands)
-if grep -q 'bin/qmd-refresh.* --quiet' "$HJ" 2>/dev/null; then ok "hooks.json: Stop runs qmd-refresh --quiet"; else bad "hooks.json: no qmd-refresh"; fi
+if grep -q 'hooks/qmd-refresh.mjs' "$HJ" 2>/dev/null; then ok "hooks.json: Stop runs the qmd-refresh hook"; else bad "hooks.json: no qmd-refresh hook"; fi
+# No hook runs a zsh script directly: Windows has no zsh, and Claude Code shows such a hook's exit 127
+# as "Stop hook error occurred" on every turn. A command either starts with
+# `node ` or names a script whose #! line is sh or bash.
+while IFS= read -r cmd; do
+    case "$cmd" in 'node '*) continue ;; esac
+    path="$(printf '%s' "$cmd" | sed -n 's#^"\${CLAUDE_PLUGIN_ROOT}\(/[^"]*\)".*#\1#p')"
+    shebang="$(head -n 1 "$HARNESS$path" 2>/dev/null)"
+    case "$shebang" in
+        '#!/bin/sh' | '#!/usr/bin/env sh' | '#!/bin/bash' | '#!/usr/bin/env bash') ok "not node, runs under $shebang: $cmd" ;;
+        *) bad "a hook command neither node nor sh/bash: $cmd ($shebang)" ;;
+    esac
+done < <(hj commands)
 
 # Every command path, with ${CLAUDE_PLUGIN_ROOT} = harness, exists and is executable. A command
 # that starts with `node ` names a file node reads: it must exist, with or without the
