@@ -1,7 +1,8 @@
 # 46 — Клавиши Canvas не действуют под слоем Focus mode, когда фокус ни на чём
 
 Type: task
-Status: claimed 2026-10-31T01:01Z
+Status: done 2026-10-31T02:01Z
+PR: #1098
 Blocked by: —
 Source: слово владельца 2026-10-31 («Только Focus mode»), находка при написании страницы `docs/features/focus-mode.md` (`worfy-feature-docs` 19, `## Итог`). Код прочитан, приложение не запускалось.
 
