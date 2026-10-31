@@ -20,7 +20,7 @@ browser, canvas, autopilot, projects, notifications, terminal, app-shell, skills
 
 | № | Severity | Адрес | Что расходится | Проверка | Исправление |
 |---|---|---|---|---|---|
-| documentation-1 | MED | `docs/features/sessions.md:130` | Страница говорит, что Eco mode пишет `workflow.agents`. Код пишет ещё `agents`, а выключение убирает оба поля без возврата прежних моделей: `src/main/ipc/eco-mode.ts:6-8`, `:23`; значения — `src/shared/agent/plan-preset.ts:57-58` | `sed -n 1,35p src/main/ipc/eco-mode.ts`, Orchestrator перечитал | Ticket 01 |
+| documentation-1 | MED | `docs/features/sessions.md:130` | Страница говорит, что Eco mode пишет `workflow.agents`. Код пишет ещё `agents`, а выключение убирает оба поля без возврата прежних моделей: `src/main/ipc/eco-mode.ts:6-8`, `:22`; значения — `src/shared/agent/plan-preset.ts:57-58` | `sed -n 1,35p src/main/ipc/eco-mode.ts`, Orchestrator перечитал | Ticket 01 |
 | documentation-2 | MED | `docs/features/skills-agents-and-hooks.md:133` | «Two lenses have written rules» и нет `docs.feature_pages`. PR #1084 добавил линзу в `harness/agents/reviewer.md` и шаг в `harness/skills/ship-ticket/SKILL.md:201`; страница написана на базе до него | `grep -n 'Lens: documentation' harness/agents/reviewer.md`, Orchestrator перечитал | Ticket 01 |
 
 Находок HIGH и `regressed` нет, фаза перекрёстной проверки пуста. Находки LOW отброшены по правилу владельца от 2026-10-22;
