@@ -12,12 +12,11 @@ import { useId, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from 
 import { createPortal } from 'react-dom'
 import { GUIDE_LANGUAGES, type GuideLanguage } from '../../shared/settings/app-settings'
 import '../canvas/actions/actions.css'
-import { invoke } from '../ipc'
 import { SETTINGS_LAYER } from '../settings/settings-window'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
 import { GUIDE_CONTENT, GUIDE_STRINGS, type GuideStrings, type GuideTopic } from './content'
 import { guideLanguage } from './language'
-import { githubFileUrl } from './links'
+import { githubFileUrl, openInBrowser } from './links'
 import { shownTopics } from './registry'
 import { closeGuide, selectGuideTopic, setGuideDialogElement, useGuide } from './store'
 import './guide.css'
@@ -25,9 +24,7 @@ import './guide.css'
 /** Opens `url` in the system's browser instead of in the window. */
 function openExternal(event: MouseEvent<HTMLAnchorElement>, url: string): void {
   event.preventDefault()
-  void invoke('shell.openExternal', { url }).then((result) => {
-    if (!result.ok) console.error('shell.openExternal failed:', result.error)
-  })
+  openInBrowser(url)
 }
 
 function ExternalLink({ url, title, className, children }: { url: string; title: string; className?: string; children: ReactNode }) {

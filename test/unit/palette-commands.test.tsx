@@ -260,6 +260,8 @@ describe('palette commands', () => {
       'settings',
       'shortcuts',
       'guide',
+      // A Topic shown in every build: the Map of worfy (worfy-guide/05).
+      'guide:map-of-worfy',
       'project:p1',
       'project:p2',
     ])

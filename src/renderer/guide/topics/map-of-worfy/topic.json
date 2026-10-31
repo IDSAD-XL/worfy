@@ -1,0 +1,7 @@
+{
+  "sources": [
+    { "page": "docs/features/concepts.md", "sha": "35ac7463" },
+    { "page": "docs/features/epic-frames.md", "sha": "e3c54550" }
+  ],
+  "files": ["src/main/workflow/reader.ts", "src/shared/workflow/waves.ts", "src/shared/binding/resolve.ts", "src/main/layout/store.ts", "src/main/workflow/profile.ts"]
+}
