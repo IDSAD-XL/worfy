@@ -76,7 +76,7 @@ Warning, потому что без qmd Harness ищет через grep. На �
 - «Move…» открывает форму переноса старого Harness, которая спрашивает сама.
 
 **«Check again»** сначала заново читает окружение login shell, поэтому инструмент, добавленный rc-файлом после запуска, становится
-виден. Project боковой панели, у которого не прочитался Layout, затем пробует снова сразу.
+виден. Project в sidebar, у которого не прочитался Layout, затем пробует снова сразу.
 
 **«Start Getting started»** стоит рядом с «Close» у нового пользователя, пока шаг 6 Getting started не отмечен. Кнопка закрывает
 First run так же, как «Close», и показывает панель Getting started, развёрнутую и с фокусом на её заголовке.
@@ -142,7 +142,7 @@ first-run checks, и что вход в gh делается там же.
 ### Behaviour
 
 Getting started — плавающая панель в правом верхнем углу окна, под toolbar. Пока окно показывает Session view, панель стоит ниже:
-под заголовком Session и местом её find bar, поэтому Hide tools, Interrupt и find bar по ⌘F остаются открытыми. Ширина панели около
+под заголовком Session и местом её find bar, поэтому Hide tools, Interrupt и find bar по ⌘F панель не перекрывает. Ширина панели около
 320 px, высота — по содержимому, до 70 % окна; содержимое прокручивается внутри только в окне поменьше. В ней шесть шагов, которые
 проводят один Ticket Demo project от Orchestrator-а через ревью до merge. Она ничего не блокирует и никогда не бывает модальным окном.
 
@@ -248,7 +248,7 @@ worfy `getting-started.json` ([ADR-0005](../../adr/0005-worfy-own-state-inventor
 - `src/main/ipc/getting-started.ts` содержит handler-ы и `startGettingStarted`, который `src/main/index.ts` запускает до первого окна. Это первое чтение
   решает, новый пользователь или существующий. Каналы — в `src/shared/ipc/getting-started.ts`, все с отметкой доступа `local`.
 - `src/renderer/getting-started/GettingStartedPanel.tsx` — панель и её pill, нарисованные в `<body>` с z-index 80 и смонтированные
-  `src/renderer/shell/AppShell.tsx`. Её корень и pill несут `data-toast-keep-out`, который обходит размещение toast-ов. Свёрнутость —
+  `src/renderer/shell/AppShell.tsx`. Её корень и pill несут `data-toast-keep-out`, который размещение toast-ов обходит стороной. Свёрнутость —
   `sidebar.collapsed.GettingStartedSection` в настройках приложения, ключ раздела sidebar, который заменила панель.
   `src/renderer/getting-started/store.ts` держит снимок main в окне. Окно не отмечает шаги: состояние оно меняет только запросами к
   main — показать или скрыть Getting started (`section`), notice, показанная подсказка, стоимость, создание и удаление demo.
