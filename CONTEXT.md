@@ -101,8 +101,16 @@ _Avoid_: воркфлоу (как имя списка), процесс, board
 _Avoid_: ночной режим, автономный прогон
 
 **Stable copy**:
-Собранная копия worfy вне репозитория (на macOS — `~/Applications/worfy-stable.app`, на Windows — папка `%LOCALAPPDATA%\worfy-stable`), из которой Autopilot ведёт Wave-ы самого worfy; обновляется между прогонами.
+Собранная копия worfy вне репозитория (на macOS — `~/Applications/worfy-stable.app`, на Windows — папка `%LOCALAPPDATA%\worfy-stable`), из которой Autopilot ведёт Wave-ы самого worfy; обновляется между прогонами — руками или через **Update**.
 _Avoid_: стабильная копия, prod-сборка, релиз
+
+**Update**:
+Замена Stable copy новой сборкой из `main` вместе с её Harness ([ADR-0089](docs/adr/0089-update-builds-main-in-own-clone.md)).
+_Avoid_: релиз, upgrade, обновление версии
+
+**Available update**:
+Commit `main` новее запущенной Stable copy, с зелёным CI, который меняет приложение или Harness.
+_Avoid_: новый релиз, новая версия (без уточнения)
 
 **Gate**:
 Проверка готовности изменений (`gate.mjs`) с исходом «зелено», «красно» или «не удалось проверить».
