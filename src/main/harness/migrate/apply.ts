@@ -187,17 +187,95 @@ function commitArgs(dir: string): string[] {
   return args
 }
 
+/** How knownPaths reads the platform and git's output; a test sets them. */
+export interface KnownPathsOptions {
+  /** The platform the paths are spelled for: on Windows `\` separates names, elsewhere it escapes a character in a pattern. */
+  platform?: NodeJS.Platform
+  /** The most output `git ls-files` may print; past it the paths are asked about one by one. */
+  maxBuffer?: number
+}
+
+/** 64 MB: the files of every tracked folder of the move come back in one answer. */
+const LS_FILES_MAX_BUFFER = 64 * 1024 * 1024
+
+/** A path as git prints it: `/` between names (worfy writes `\` on Windows). */
+const gitSpelling = (rel: string, platform: NodeJS.Platform): string => (platform === 'win32' ? rel.replaceAll('\\', '/') : rel)
+
+/**
+ * Whether `rel` can be matched by name against the output of one git call. Not a pattern: no glob
+ * characters, no `:` magic, no trailing separator, and off Windows no `\` (an escape there). Only
+ * printable ASCII: git on macOS prints names composed (NFC, core.precomposeunicode) while readdir
+ * gives them decomposed (NFD), so a non-ASCII name is asked about by itself, as before, and git
+ * composes its argument the same way it composed the index.
+ */
+function batchable(rel: string, platform: NodeJS.Platform): boolean {
+  if (!/^[\x20-\x7e]*$/.test(rel) || /[*?[]/.test(rel) || rel.startsWith(':') || /[\\/]$/.test(rel)) return false
+  return platform === 'win32' || !rel.includes('\\')
+}
+
+/** Whether one path is tracked in `dir`: a file of that name, or a file under that folder. */
+const trackedOne = (dir: string, rel: string): boolean => git(dir, ['ls-files', '-z', '--', rel]) !== ''
+
+/** Whether one path is not ignored in `dir` (any failure of check-ignore counts as not ignored). */
+function notIgnoredOne(dir: string, rel: string): boolean {
+  try {
+    git(dir, ['check-ignore', '-q', '--', rel])
+    return false
+  } catch {
+    return true
+  }
+}
+
+/** The files `git ls-files` lists under `paths`, or null when its answer is longer than `maxBuffer`. */
+function trackedFiles(dir: string, paths: string[], maxBuffer: number): string[] | null {
+  try {
+    return execFileSync('git', ['-C', dir, 'ls-files', '-z', '--', ...paths], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: gitEnv, maxBuffer })
+      .split('\0')
+      .filter((file) => file !== '')
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 'ENOBUFS') return null
+    throw error
+  }
+}
+
+/** The paths `git check-ignore` finds ignored among `paths`, or null when it failed outright (exit 128). */
+function ignoredPaths(dir: string, paths: string[]): Set<string> | null {
+  try {
+    // -z only with --stdin: the names come back NUL-separated and unquoted.
+    const out = execFileSync('git', ['-C', dir, 'check-ignore', '-z', '--stdin'], { encoding: 'utf8', input: paths.map((rel) => `${rel}\0`).join(''), stdio: ['pipe', 'pipe', 'pipe'], env: gitEnv })
+    return new Set(out.split('\0').filter((file) => file !== ''))
+  } catch (error) {
+    // Exit 1: none of the paths is ignored. Anything else: ask path by path, as before.
+    return (error as { status?: unknown }).status === 1 ? new Set() : null
+  }
+}
+
+/**
+ * The paths of `paths` git knows (`tracked`: a tracked file at the path or under it) or may know
+ * (not `tracked`: not ignored). One git process for all batchable paths, not one per path: a git
+ * process costs 0.2 s or more on Windows, and a move commits some 35 paths. The answer is the one a
+ * call per path would give: a path that is not batchable, a check-ignore that fails outright and an
+ * ls-files answer past `maxBuffer` are asked about one by one.
+ */
+export function knownPaths(dir: string, paths: string[], tracked: boolean, options: KnownPathsOptions = {}): string[] {
+  const platform = options.platform ?? process.platform
+  const spelled = (rel: string): string => gitSpelling(rel, platform)
+  const batch = paths.filter((rel) => batchable(rel, platform)).map(spelled)
+  if (tracked) {
+    const files = batch.length === 0 ? [] : trackedFiles(dir, batch, options.maxBuffer ?? LS_FILES_MAX_BUFFER)
+    const isTracked = (rel: string, listed: string[]): boolean => {
+      const name = spelled(rel)
+      return listed.some((file) => file === name || file.startsWith(`${name}/`))
+    }
+    return paths.filter((rel) => (files !== null && batchable(rel, platform) ? isTracked(rel, files) : trackedOne(dir, rel)))
+  }
+  const ignored = batch.length === 0 ? new Set<string>() : ignoredPaths(dir, batch)
+  return paths.filter((rel) => (ignored !== null && batchable(rel, platform) ? !ignored.has(spelled(rel)) : notIgnoredOne(dir, rel)))
+}
+
 /** Commits exactly `paths` (those git knows or may know) in `dir`; returns the commit, or null when nothing changed. */
 function commitPaths(dir: string, paths: string[], message: string, tracked: boolean): string | null {
-  const known = paths.filter((rel) => {
-    if (tracked) return git(dir, ['ls-files', '-z', '--', rel]) !== ''
-    try {
-      git(dir, ['check-ignore', '-q', '--', rel])
-      return false
-    } catch {
-      return true
-    }
-  })
+  const known = knownPaths(dir, paths, tracked)
   if (known.length === 0) return null
   git(dir, ['add', '-A', '--', ...known])
   if (git(dir, ['diff', '--cached', '--name-only', '--', ...known]).trim() === '') return null

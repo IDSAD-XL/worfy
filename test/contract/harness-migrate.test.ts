@@ -457,7 +457,6 @@ describe('the move', () => {
     expect(readJson(join(sandbox.claudeHome, 'settings.json')).statusLine).toEqual({ ...before, command: bridgeLine(bridge) })
   })
 
-  // Windows: 29.9 s in a full run on the PC (main aa27fa89, 2026-10-19 22:55-23:20); twice that.
   it('the qmd group: "Remove" takes the three scripts, the hook and the record together; "Keep" leaves all five, .claude.json byte for byte', async () => {
     const claudeJson = read(sandbox.claudeJson)
     const result = await applyMigration(selection(plan(), (id) => (id === 'qmd' ? 'keep' : undefined)), applyOptions())
@@ -473,7 +472,7 @@ describe('the move', () => {
     expect(hookCommands(join(sandbox.claudeHome, 'settings.json'))).not.toContain('$HOME/.claude/bin/qmd-refresh --quiet')
     const servers = readJson(sandbox.claudeJson).mcpServers as Record<string, unknown>
     expect(Object.keys(servers)).toEqual(['freecad', 'telegram'])
-  }, process.platform === 'win32' ? ms(60_000) : undefined)
+  })
 
   quarantined('harness-migrate-toolbar-offer')('the toolbar offer: there before a move, gone after a move with the defaults, there while a Harness file is kept', async () => {
     const offered = (): boolean => hasLegacyHarness(omit(planOptions() as unknown as Record<string, unknown>, 'pluginState') as unknown as Omit<PlanOptions, 'pluginState'>)
