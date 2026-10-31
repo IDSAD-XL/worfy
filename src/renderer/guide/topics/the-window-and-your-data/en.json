@@ -4,7 +4,7 @@
     "Around the Canvas is worfy's window: the Command palette (⌘K), the menu, Settings, and notifications when a Session or a Ticket needs you. It is light or dark as the system is. worfy keeps its own state in a data folder on this Machine, and reads Tickets, ADRs and transcripts where they lie."
   ],
   "scene": {
-    "description": "The window and your data. On the left, what worfy reads where it lies: the workflow files, Tickets, HANDOFF and ADRs, read for each Ticket; and Claude home, whose transcripts are read for each Session. In the middle, the window: the Command palette and the menu, which both open Settings; a toast; and the Canvas with a Ticket and a Session. On the right, on this Machine: the data folder, where Settings and each Canvas's Layout, Cards and trash are saved and the diagnostics write their logs; and the system notification, which a Session or a Ticket that needs you raises. The Canvas's automatic archive shows a toast with Undo.",
+    "description": "The window and your data. On the left, what worfy reads where it lies: the workflow files, Tickets, HANDOFF and ADRs, from which a Ticket on the Canvas is read; and Claude home, from whose transcripts a Session's conversation is read. In the middle, the window: the Command palette and the menu, which both open Settings; a toast; and the Canvas with a Ticket and a Session. On the right, on this Machine: the data folder, where Settings and each Canvas's Layout, Cards and trash are saved and the diagnostics write their logs; and the system notification, which a Session or a Ticket that needs you raises. The Canvas's automatic archive shows a toast with Undo.",
     "labels": {
       "read": "READ WHERE THEY LIE",
       "window": "THE WINDOW",
@@ -89,22 +89,21 @@
       }
     },
     "text": [
-      "The data folder is worfy for a packaged build and worfy-dev for a development build, so both can run at once; WORFY_DATA_DIR overrides it. A second start over a folder in use quits and focuses the worfy already running.",
-      "A JSON state file that does not parse or match its schema is not overwritten: it is set aside as <name>.unreadable-<time>, and that part of worfy starts empty.",
-      "Every shortcut is written once, in one registry, which the key handlers, the menu and the Keyboard shortcuts window all read."
+      "The data folder is worfy for a packaged build and worfy-dev for a development build, so both run at once; WORFY_DATA_DIR overrides it. A second start over a folder in use quits.",
+      "A JSON state file that does not parse or match its schema is set aside as <name>.unreadable-<time>, not overwritten, and that part of worfy starts empty."
     ],
     "files": {
-      "src/main/storage/paths.ts": "The one module that knows where the data folder is",
-      "src/main/storage/json-file.ts": "The read with a schema and the set-aside; the atomic write",
-      "src/main/settings/store.ts": "The Machine's settings in app-settings.json",
-      "src/renderer/palette/commands.ts": "The palette's commands, built from the window's state",
-      "src/shared/shortcuts.ts": "The registry of shortcuts",
-      "src/main/notify.ts": "The rules of system notifications, and the click",
+      "src/main/storage/paths.ts": "Where the data folder is",
+      "src/main/storage/json-file.ts": "Read with a schema, set-aside, atomic write",
+      "src/main/settings/store.ts": "The Machine's settings, app-settings.json",
+      "src/renderer/palette/commands.ts": "The palette's commands, from the window's state",
+      "src/shared/shortcuts.ts": "The one registry of shortcuts",
+      "src/main/notify.ts": "The rules of system notifications",
       "src/renderer/toast/toasts.ts": "The store of toasts",
-      "src/main/startup-failure.ts": "The steps of the start and the window of a failed start"
+      "src/main/startup-failure.ts": "The steps of the start; the failed-start window"
     },
     "limits": [
-      "A Session or a Ticket gives no notification while a worfy window has focus, and one Session gives at most one in 10 seconds.",
+      "No notification of a Session or a Ticket while a worfy window has focus; at most one per Session in 10 seconds.",
       "At most 3 toasts are on screen; info and success toasts hide after 4 seconds.",
       "Entries older than 3 days leave each Project's trash when the app starts."
     ]
