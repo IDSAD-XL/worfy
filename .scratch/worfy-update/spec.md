@@ -239,6 +239,8 @@ Epic готов, когда:
 - после перезапуска: «worfy updated to <version>. The new Harness applies from the next Session.»
 - Harness после Update не встал: «The Harness was not updated» · «Open Health»
 - после отката: «worfy is back to <version>. Automatic updates wait for the next commit on main.»
+- перезапуск не удался (черновик, Ticket 07): «worfy was not updated to <version>: <reason>»; откат — «worfy was not
+  rolled back to <version>: <reason>»
 
 **Settings → General → Updates** (Ticket 09)
 

@@ -34,15 +34,15 @@ Source: решения владельца 2026-10-31, пункты 5 (один s
 
 ## Готово, когда
 
-- [ ] Unit test: `ready` при старте — один toast «ready», без «available»; `idle: false` — кнопка
+- [x] Unit test: `ready` при старте — один toast «ready», без «available»; `idle: false` — кнопка
       «Restart when idle»; `idle` стал `true` — тот же `key`, кнопка «Restart now».
-- [ ] Unit test: без `autoUpdate`, Available update — toast «available»; с `autoUpdate` во время
+- [x] Unit test: без `autoUpdate`, Available update — toast «available»; с `autoUpdate` во время
       `building` — ни одного toast-а (Р11); `quiet` — ни одного.
-- [ ] Unit test: «Later» закрывает; новый снимок того же состояния в этом запуске toast не возвращает.
-- [ ] Unit test: `failed` — «Update failed», «Show log» зовёт `update.showLog`.
-- [ ] Unit test: Harness `outdated` и `harnessBehind` — toast «Harness out of date», «Update» зовёт
+- [x] Unit test: «Later» закрывает; новый снимок того же состояния в этом запуске toast не возвращает.
+- [x] Unit test: `failed` — «Update failed», «Show log» зовёт `update.showLog`.
+- [x] Unit test: Harness `outdated` и `harnessBehind` — toast «Harness out of date», «Update» зовёт
       `harness.install`; `sameVersion` без `harnessBehind` — нет toast-а.
-- [ ] e2e `update-toasts.spec.ts` (`WORFY_UPDATE=1`, заглушка, подменная сборка): при старте с готовой
+- [x] e2e `update-toasts.spec.ts` (`WORFY_UPDATE=1`, заглушка, подменная сборка): при старте с готовой
       сборкой — toast «ready»; подменная сборка с кодом 1 — «Update failed».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
@@ -64,4 +64,25 @@ Source: решения владельца 2026-10-31, пункты 5 (один s
 
 ## Итог
 
-Заполняется при закрытии.
+- `src/renderer/update/toasts.ts`: `createUpdateToasts` (логика над store toast-ов, без IPC) и
+  `installUpdateToasts` (подписки: snapshot Update, `harness.state`/`harness.changed`, `appSettings`).
+  Ключи — из тикета; ещё `update-harness-failed` (Harness после Update), `update-restart-waiting` (info после
+  «Restart when idle») и `update-error` (отказ или сбой вызова кнопки, текст — причина от main).
+- Ничего не показывается, пока Update выключен (`enabled: false`): dev-сборки и остальные e2e toast-ов не видят.
+- Каждый toast предлагается один раз на загрузку окна для того же состояния (другая сборка, новый переход в
+  `failed`, другая пара версий Harness — снова). «Update failed» показывается и при старте, если сборка уже
+  `failed`.
+- `lastRestart` main не очищает (`src/main/update/restart.ts` пишет его только при наличии файла результата),
+  поэтому показанный `lastRestart` запоминается в localStorage окна (папка данных worfy, ADR-0005), иначе
+  toast шёл бы при каждом старте. Ограничение: два одинаковых неудачных перезапуска подряд — второй без toast-а.
+- Текст неудачного перезапуска в spec-е не было; добавлен в «Тексты (черновик)» spec-а этим же PR:
+  «worfy was not updated to <version>: <reason>» / «worfy was not rolled back to <version>: <reason>».
+- `harnessAfterUpdate` уже есть в schema на `main` (`src/shared/ipc/update.ts`); toast читает его, Ticket 05 его
+  выставляет.
+- Вне следа, аддитивно: `followUpdate` в `src/renderer/update/store.ts` (запуск чтения без React);
+  `test/update-stub.ts` в `APP_FILES` `scripts/ci-scope.mjs` (та же строка, что у Ticket 09).
+- Unit test — `test/unit/update-toasts.test.tsx`, не `.ts`: модуль тянет `settings-window.ts` с DOM, а
+  `tsconfig.test.node.json` его не включает.
+- e2e `test/e2e/update-toasts.spec.ts`: готовая сборка при старте — «ready», «Restart now», «Later»;
+  без «Update automatically» — «available», «Update» → clone bare-репозитория, настоящий `pnpm install`
+  пустого проекта, подменная сборка с кодом 1 → «Update failed» (в `build.log` — строка подменной сборки).

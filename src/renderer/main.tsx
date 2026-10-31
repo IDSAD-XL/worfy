@@ -16,6 +16,7 @@ import { setView, useNavigation } from './session/navigation'
 import { installQuestionToasts } from './session/question-toast'
 import { SessionView } from './session/SessionView'
 import { ToastRegion } from './toast/ToastRegion'
+import { installUpdateToasts } from './update/toasts'
 
 const styles = {
   column: { display: 'flex', flexDirection: 'column', width: '100%', height: '100%' },
@@ -106,6 +107,9 @@ if (container) {
   guardFileDrops()
   // An existing user hears of Getting started once, in a toast of the corner (worfy-onboarding ticket 08).
   installGettingStartedNotice()
+  // The sticky toasts of Update: a ready build, an Available update, a failed build, a Harness out of
+  // date and the end of the last restart (worfy-update ticket 07).
+  installUpdateToasts()
   createRoot(container).render(
     <StrictMode>
       <App />
