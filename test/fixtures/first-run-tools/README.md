@@ -12,10 +12,8 @@ the same answers and the same variables (`stand-in.mjs` holds the call log). On 
 the tests' node, so the checks find and start it as they find npm's `claude.cmd`; the installer runs
 `claude.mjs` by its path (src/main/program.ts). There `npm install -g` writes a `qmd.cmd` into
 `$FAKE_NPM_BIN` in place of the link. On macOS and Linux the `/bin/sh` scripts are used, as before;
-a change to one of them goes into its port too. Not every port runs in a test yet: `npm.mjs` and
-`qmd.mjs` only serve the qmd cases, which are skipped on Windows until worfy-windows ticket 15, and the
-`FAKE_NODE_REAL` branch of `node.mjs` is unused there, since worfy starts a Harness script on Windows
-only with a `node.exe`.
+a change to one of them goes into its port too. Every port runs in a test on Windows but the
+`FAKE_NODE_REAL` branch of `node.mjs`: worfy starts a Harness script there only with a `node.exe`.
 
 | variable | tool | meaning |
 |---|---|---|
@@ -28,7 +26,7 @@ only with a `node.exe`.
 | `FAKE_GIT_CONFIG_FAIL` | `git` | `git config --get` prints it to stderr and exits 3, as git does with a broken config file |
 | `FAKE_GIT_CWD_LOG` | `git` | `git config --get` appends the folder it runs in to this file |
 | `FAKE_GH_ACCOUNT` | `gh` | the signed-in account; empty — `gh auth status` exits 1, not signed in |
-| `FAKE_NODE_VERSION` | `node` | what `node --version` prints, without `v` (default `22.11.0`) |
+| `FAKE_NODE_VERSION` | `node` | what `node --version` prints, without `v` (default `22.14.0`, the oldest node qmd runs on) |
 | `FAKE_NODE_REAL` | `node` | the real node: every call but `--version` goes to it, so a Harness script, which worfy starts as `node <script>`, runs; unset — such a call prints an error and exits 2 |
 | `FAKE_NPM_FAIL` | `npm` | `npm install` prints it to stderr and exits 1 |
 | `FAKE_NPM_BIN` | `npm` | where `npm install -g` puts `qmd` (a folder on the PATH) |

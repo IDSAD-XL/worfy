@@ -53,7 +53,7 @@ or "2 failed · 1 warning".
 | Harness | Plugin dependencies | The plugins the Harness plugin needs | Failed when one is missing, with "Install…". Warning when they could not be checked yet |
 | Harness | Harness scripts | `profile --help`, run the way the Epics read runs it, within 15 s | Failed with the exit code or signal and what the script said: worfy then reads no Epics. Warning without a Harness or without that script |
 | Harness | Old Harness in ~/.claude | Files of the old Harness | Warning, with "Move…" |
-| qmd | qmd | Version 2.8.3 | Warning when another version is there, or when it is not installed: "Install…", or a command to install node first when node is missing or older than 22 |
+| qmd | qmd | Version 2.8.3 | Warning when another version is there, or when it is not installed: "Install…", or a command to install node first when node is missing or older than 22.14 (`brew install node`, on Windows `winget install OpenJS.NodeJS.LTS`). An installed qmd on such a node warns too |
 | qmd | qmd models | Whether the question of the models was answered | Warning with the size and "Skip…", and "Download…" once qmd is installed. After a skip the row is OK, and "Download…" stays while qmd is installed |
 | qmd | qmd collections | The collections of each connected Project that has a Profile | Warning with "Set up…", or with what to install first |
 

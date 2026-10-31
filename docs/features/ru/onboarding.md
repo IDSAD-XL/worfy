@@ -54,7 +54,7 @@ Machine, любым способом.
 | Harness | Plugin dependencies | Plugin-ы, нужные plugin-у Harness | Failed, если какого-то нет, с «Install…». Warning, если проверить их пока не удалось |
 | Harness | Harness scripts | `profile --help`, запущенный так же, как при чтении Epic-ов, за 15 с | Failed с exit code или сигналом и словами script-а: тогда worfy не читает Epic-и. Warning без Harness или без этого script-а |
 | Harness | Old Harness in ~/.claude | Файлы старого Harness | Warning, с «Move…» |
-| qmd | qmd | Версия 2.8.3 | Warning, если стоит другая версия, или если не установлен: «Install…» либо команда установки node, если node нет или он старше 22 |
+| qmd | qmd | Версия 2.8.3 | Warning, если стоит другая версия, или если не установлен: «Install…» либо команда установки node, если node нет или он старше 22.14 (`brew install node`, на Windows `winget install OpenJS.NodeJS.LTS`). Установленный qmd на таком node тоже даёт Warning |
 | qmd | qmd models | Дан ли ответ на вопрос о моделях | Warning с размером и «Skip…», и «Download…», когда qmd установлен. После пропуска строка OK, а «Download…» остаётся, пока qmd установлен |
 | qmd | qmd collections | Коллекции каждого подключённого Project-а с Profile | Warning с «Set up…» или с тем, что поставить сначала |
 

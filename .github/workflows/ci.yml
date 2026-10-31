@@ -182,8 +182,8 @@ jobs:
         env:
           BASE: ${{ needs.changes.outputs.tests-base }}
         run: node scripts/affected-tests.mjs "$BASE" HEAD --github-output
-      # The shell tests of the Harness (test/contract/harness-scripts-<n>.test.ts) run the qmd scripts
-      # under zsh; the Ubuntu image has bash, git, jq and node but no zsh.
+      # The shell tests of the Harness (test/contract/harness-scripts-<n>.test.ts) run the fenced blocks
+      # of the skills under zsh too; the Ubuntu image has bash, git, jq and node but no zsh.
       - name: Install zsh
         run: command -v zsh || { sudo apt-get update -qq && sudo apt-get install -y -qq zsh; }
       # vitest gives each shard a fixed part of the test files. Inside a shard the files run in a

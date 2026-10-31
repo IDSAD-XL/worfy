@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { CHECK_IDS, CHECK_RUN_CALL, CLAUDE_STAND_IN, NO_QMD, TOOLS, toolFile, writeSandbox } from './first-run-sandbox'
+import { CHECK_IDS, CLAUDE_STAND_IN, TOOLS, toolFile, writeSandbox } from './first-run-sandbox'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
@@ -70,8 +70,8 @@ const launch = (): Promise<LaunchedApp> =>
   })
 
 const calls = (): string[] => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [])
-/** How many times the checks ran: each run writes CHECK_RUN_CALL once. */
-const checkRuns = (): number => calls().filter((line) => line === CHECK_RUN_CALL).length
+/** How many times the checks ran: each run writes `qmd --version` once. */
+const checkRuns = (): number => calls().filter((line) => line === 'qmd --version').length
 const mark = (): string => join(dataDir, 'first-run.json')
 
 /** The rows of `place` once its checks are in: the id, the name and the status of each. */
@@ -140,9 +140,9 @@ test('Settings → Health shows the checks of the First run dialog; closing Sett
     expect(checkRuns()).toBe(1)
     // What First run shows on a first start (test/e2e/first-run.spec.ts): one failed (the Harness
     // plugin), three warnings (its dependencies and its scripts, checked once it is installed; the qmd models).
-    // On Windows three more: Limits (a development build has no bridge), PowerShell (no pwsh on the
-    // sandbox's Path) and qmd (NO_QMD).
-    await expect(health.getByTestId('first-run-summary')).toHaveText(NO_QMD ? '1 failed · 6 warnings' : '1 failed · 3 warnings')
+    // On Windows two more: Limits (a development build has no bridge) and PowerShell (no pwsh on the
+    // sandbox's Path).
+    await expect(health.getByTestId('first-run-summary')).toHaveText(process.platform === 'win32' ? '1 failed · 5 warnings' : '1 failed · 3 warnings')
     await expect(health.locator('[data-check="harness"]')).toHaveAttribute('data-status', 'fail')
     await expect(health.locator('[data-check="harness"]').getByRole('button', { name: 'Install' })).toBeVisible()
     await expect(health.getByRole('button', { name: 'Check again' })).toBeVisible()

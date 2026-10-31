@@ -13,7 +13,8 @@
 //                (`qmd-sync-main --describe`: ~/.cache/qmd/<project>-<branch>, or qmd.mirror.path).
 //                No copy — it is cloned here from the project's origin, with the token of
 //                github.account when there is one, the global gh account untouched. The
-//                collections get `update: <plugin>/bin/qmd-sync-main <project>`.
+//                collections get `update: node "<plugin>/bin/qmd-sync-main" <project>`: qmd runs that
+//                line as `bash -c <line>`, on Windows too, so the path has `/` and the quotes of bash.
 //   Silent mode  the Workflow folder (the profile's workflow.folder, by default
 //                $HARNESS_HOME/projects/<project>/workflow), without `update:`: qmd-refresh treats
 //                such collections as local.
@@ -23,8 +24,9 @@
 // `qmd embed` goes to the background, as in qmd-refresh.
 //
 // A profile that already names collections, all of them in index.yml (for example acme, tickets,
-// memory), gets no new ones: only the `update:` of the collections that run a qmd-sync-main other
-// than the plugin's for this project is pointed at the plugin's. Names, paths and patterns stay.
+// memory), gets no new ones: only the `update:` of the collections of this project that run another
+// qmd-sync-main, or the plugin's in the older form without `node`, is rewritten to the line above.
+// Names, paths and patterns stay.
 //
 // The `collections: {}` line qmd writes before it has any collection becomes `collections:` with the blocks under it;
 // any other value on that line is a refusal that says how to put the file into the block form.
@@ -36,15 +38,18 @@
 // Exit codes: 0 — done (or nothing to do); 1 — refusal or failure, the reason in stderr; 2 — usage.
 // Environment: HARNESS_HOME, CLAUDE_CONFIG_DIR, QMD_INDEX_YML (else QMD_CONFIG_DIR, XDG_CONFIG_HOME,
 // ~/.config/qmd), CLAUDE_GATE_CONFIG; for tests QMD_COLLECTIONS_PROFILE_BIN and QMD_COLLECTIONS_SYNC_BIN.
+// What the qmd scripts share (the folders of qmd, which qmd to start, the lock): hooks/qmd-common.cjs.
 "use strict"
 
 const fs = require("node:fs")
 const path = require("node:path")
+const os = require("node:os")
 const { spawn, spawnSync } = require("node:child_process")
+const q = require("../hooks/qmd-common.cjs")
 
-const HOME = process.env.HOME || require("node:os").homedir()
+const HOME = q.home()
 const CLAUDE = path.join(HOME, ".claude")
-const HARNESS_HOME = process.env.HARNESS_HOME || path.join(CLAUDE, "worfy-harness")
+const HARNESS_HOME = q.harnessHome()
 const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || CLAUDE
 const BIN = path.dirname(fs.realpathSync(__filename))
 const PROFILE_BIN = process.env.QMD_COLLECTIONS_PROFILE_BIN || path.join(BIN, "profile")
@@ -55,26 +60,19 @@ const SYNC_FOR_UPDATE = (() => {
     const installed = path.join(HARNESS_HOME, "plugin", "bin", "qmd-sync-main")
     return fs.existsSync(installed) ? installed : path.join(BIN, "qmd-sync-main")
 })()
-const INDEX_YML =
-    process.env.QMD_INDEX_YML ||
-    (process.env.QMD_CONFIG_DIR
-        ? path.join(process.env.QMD_CONFIG_DIR, "index.yml")
-        : path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, ".config"), "qmd", "index.yml"))
-const CACHE = path.join(HOME, ".cache", "qmd")
-const ANSWER_FILE = path.join(HARNESS_HOME, "qmd-models")
-// The embedding model of qmd-mcp: vectors of another model would not match the server's queries.
-const EMBED_MODEL = "hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
-const RU_GENERATE_MODEL = "hf:AGmind/qmd-query-expansion-ru/qmd-query-expansion-ru-q4_k_m.gguf"
+const INDEX_YML = q.indexYml()
+// The line qmd runs as `bash -c <line>`: a double-quoted path for bash, with `/` on Windows too.
+const updateLine = (name) => `node "${SYNC_FOR_UPDATE.split(path.sep).join("/").replace(/["$`\\]/g, "\\$&")}" ${name}`
+const CACHE = q.cacheDir()
+const ANSWER_FILE = q.answerFile()
 const LOCK_WAIT_MS = 120_000
-// A lock with no pid in it this long after it was made was left by a holder that stopped before writing it (qmd-mcp).
-const LOCK_ABANDONED_MS = 120_000
 
 const say = (s) => process.stdout.write(`qmd-collections: ${s}\n`)
 const die = (code, s) => {
     process.stderr.write(`qmd-collections: ${s}\n`)
     process.exit(code)
 }
-const expandHome = (p) => p.replace(/^~(?=\/|$)/, HOME)
+const expandHome = (p) => p.replace(/^~(?=[\\/]|$)/, HOME)
 
 // --- arguments ---------------------------------------------------------------------------
 const args = process.argv.slice(2)
@@ -100,25 +98,7 @@ function registryMatch() {
 const MATCH = registryMatch()
 
 const run = (cmd, argv, opts = {}) => spawnSync(cmd, argv, { encoding: "utf8", windowsHide: true, ...opts })
-// What runs a file: a node script (a #! line naming node, or none) with this node; a file whose #! line names
-// another interpreter by that line, through bash on Windows, which cannot start it by its #! line.
-function scriptCommand(file, args) {
-    let head = ""
-    try {
-        const fd = fs.openSync(file, "r")
-        try {
-            const buf = Buffer.alloc(256)
-            head = buf.toString("latin1", 0, fs.readSync(fd, buf, 0, buf.length, 0)).split("\n")[0]
-        } finally {
-            fs.closeSync(fd)
-        }
-    } catch {
-        /* unreadable: the start reports it */
-    }
-    if (head.startsWith("#!") && !/\bnode\b/.test(head)) return process.platform === "win32" ? ["bash", [file, ...args]] : [file, args]
-    return [process.execPath, [file, ...args]]
-}
-const runScript = (file, argv, opts) => run(...scriptCommand(file, argv), opts)
+const runScript = q.runScript
 // What a failed run says: the error that kept it from starting with the command it tried (`spawnSync bash
 // ENOENT`), the signal that ended it, or its exit code. status is null in the first two.
 const failure = (r) => (r.error ? r.error.message : r.signal ? `ended by ${r.signal}` : `exit ${r.status}`)
@@ -135,18 +115,7 @@ const MODE = P.mode
 
 // --- index.yml: collections are keys indented by 2 under `collections:`, fields by 4 ---------
 // (the same reading as in qmd-refresh). Values in quotes are read as JSON or as a YAML single-quoted string.
-function unquote(v) {
-    v = v.trim()
-    if (v.startsWith('"')) {
-        try {
-            return JSON.parse(v)
-        } catch {
-            return v.slice(1, -1)
-        }
-    }
-    if (v.startsWith("'")) return v.slice(1, -1).replace(/''/g, "'")
-    return v
-}
+const unquote = q.unquote
 function readIndex() {
     const text = fs.existsSync(INDEX_YML) ? fs.readFileSync(INDEX_YML, "utf8") : null
     const lines = text === null ? [] : text.split("\n")
@@ -195,12 +164,6 @@ function readIndex() {
     return { text, lines, collections, start, end, empty }
 }
 const yamlScalar = (v) => (/^[A-Za-z0-9_/.~][A-Za-z0-9_/.,~@+=-]*( [A-Za-z0-9_/.,~@+=-]+)*$/.test(v) ? v : JSON.stringify(v))
-// The qmd-sync-main a collection's `update:` runs and for which profile: [script, profile] or null.
-function syncOf(update) {
-    const m = /^(\S*qmd-sync-main)\s+(\S+)/.exec(update || "")
-    return m ? [m[1], m[2]] : null
-}
-
 // --- writes ------------------------------------------------------------------------------
 const stamp = () => new Date().toISOString().replace(/[:.]/g, "-")
 function writeIndex(index, newText) {
@@ -217,13 +180,13 @@ function writeIndex(index, newText) {
     fs.renameSync(tmp, INDEX_YML)
     return true
 }
-// The `update:` lines of this project's collections that run another qmd-sync-main, pointed at SYNC_FOR_UPDATE.
+// The `update:` lines of this project's collections that are not updateLine(NAME) yet, rewritten to it.
 function retargetUpdates(index, lines) {
     const fixed = []
     for (const c of index.collections.values()) {
-        const sync = syncOf(c.update)
-        if (!sync || sync[1] !== NAME || sync[0] === SYNC_FOR_UPDATE) continue
-        lines[c.updateLine] = `    update: ${yamlScalar(c.update.replace(sync[0], SYNC_FOR_UPDATE))}`
+        const sync = q.syncOf(c.update)
+        if (!sync || sync[1] !== NAME || c.update === updateLine(NAME)) continue
+        lines[c.updateLine] = `    update: ${yamlScalar(updateLine(NAME))}`
         fixed.push(c.name)
     }
     return fixed
@@ -253,7 +216,7 @@ if (MODE === "full") {
     const [copy, branch, account] = d.stdout.replace(/\n$/, "").split("\t")
     if (!copy || !branch) die(1, `qmd-sync-main --describe ${NAME} printed no copy and branch: ${d.stdout.trim()}`)
     source = copy
-    update = `${SYNC_FOR_UPDATE} ${NAME}`
+    update = updateLine(NAME)
     if (!fs.existsSync(path.join(copy, ".git"))) {
         if (fs.existsSync(copy) && fs.readdirSync(copy).length > 0)
             die(1, `${copy} exists and is not a git copy — not cloning into it`)
@@ -269,7 +232,7 @@ if (MODE === "full") {
         say(`cloned the copy of ${branch}: ${copy}`)
     }
 } else if (MODE === "silent") {
-    const folder = P.workflow && typeof P.workflow.folder === "string" ? expandHome(P.workflow.folder) : path.join(HARNESS_HOME, "projects", NAME, "workflow")
+    const folder = P.workflow && typeof P.workflow.folder === "string" ? path.normalize(expandHome(P.workflow.folder)) : path.join(HARNESS_HOME, "projects", NAME, "workflow")
     if (!fs.existsSync(folder)) die(1, `the Workflow folder ${folder} does not exist`)
     source = folder
 } else die(1, `the profile's mode is ${JSON.stringify(MODE)}, not "full" or "silent"`)
@@ -283,7 +246,7 @@ function relative(p) {
         if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return null
         p = rel
     }
-    return p.replace(/^\.\//, "").replace(/\/+$/, "")
+    return p.replace(/^\.[\\/]/, "").replace(/[\\/]+$/, "").split(path.sep).join("/")
 }
 const fieldPath = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? v.path : null)
 
@@ -301,7 +264,7 @@ const lessons = lessonsRepo ? relative(lessonsRepo[1]) : null
 if (lessons) patterns.push(`${lessons}/**/*.md`)
 
 const ticketsRoot = expandHome((P.tickets && typeof P.tickets.root === "string" && P.tickets.root) || ".scratch/")
-const ticketsPath = path.isAbsolute(ticketsRoot) ? ticketsRoot.replace(/\/+$/, "") : path.join(source, ticketsRoot.replace(/\/+$/, ""))
+const ticketsPath = path.normalize(path.isAbsolute(ticketsRoot) ? ticketsRoot.replace(/[\\/]+$/, "") : path.join(source, ticketsRoot.replace(/[\\/]+$/, "")))
 const ticketsInSource = !path.relative(source, ticketsPath).startsWith("..")
 const memoryPath = path.join(CLAUDE_DIR, "projects", MATCH.replace(/[^A-Za-z0-9]/g, "-"), "memory")
 
@@ -372,45 +335,22 @@ if (!indexChanged) {
 }
 
 // --- qmd update, then embed in the background with consent -------------------------------
-function findQmd() {
-    for (const dir of (process.env.PATH || "").split(path.delimiter)) {
-        if (dir && fs.existsSync(path.join(dir, "qmd"))) return path.join(dir, "qmd")
-    }
-    const nvm = path.join(HOME, ".nvm", "versions", "node")
-    const versions = fs.existsSync(nvm) ? fs.readdirSync(nvm).sort((a, b) => b.localeCompare(a, "en", { numeric: true })) : []
-    for (const v of versions) if (fs.existsSync(path.join(nvm, v, "bin", "qmd"))) return path.join(nvm, v, "bin", "qmd")
-    return null
+const tooOld = q.nodeTooOld()
+if (tooOld) {
+    process.stderr.write(`qmd-collections: ${tooOld}: the collections are recorded, qmd indexes them on its next update; until then ${q.GREP_FALLBACK}\n`)
+    process.exit(0)
 }
-const qmd = findQmd()
+const qmd = q.findQmd()
 if (!qmd) {
-    say("qmd not found: the collections are recorded, qmd indexes them on its next update")
+    process.stderr.write(`qmd-collections: qmd not found: the collections are recorded, qmd indexes them on its next update; until then ${q.GREP_FALLBACK}\n`)
     process.exit(0)
 }
 // The lock shared with qmd-mcp and qmd-refresh: `qmd update` checks out the shared copies.
-const LOCK = path.join(CACHE, "refresh.lock")
+const LOCK = q.lockDir()
 fs.mkdirSync(CACHE, { recursive: true })
-// An abandoned lock, by the rule of qmd-mcp: the pid is written and that process is not running, or
-// no pid was written within two minutes. worfy kills this script with its process group (at a time
-// limit, on quit), and the lock it held stays; qmd-mcp drops such a lock only when it starts.
-const abandoned = (dir) => {
-    let pid = ""
-    try {
-        pid = fs.readFileSync(path.join(dir, "pid"), "utf8").trim()
-    } catch {}
-    if (/^\d+$/.test(pid)) {
-        try {
-            process.kill(Number(pid), 0)
-            return false
-        } catch (e) {
-            return e.code === "ESRCH" // EPERM: running, under another user
-        }
-    }
-    try {
-        return Date.now() - fs.statSync(dir).mtimeMs > LOCK_ABANDONED_MS
-    } catch {
-        return false // gone already: the next mkdir takes it
-    }
-}
+// An abandoned lock (q.abandoned): worfy kills this script with its process group (at a time limit, on
+// quit), and the lock it held stays; qmd-mcp drops such a lock only when it starts.
+const abandoned = q.abandoned
 const deadline = Date.now() + LOCK_WAIT_MS
 let locked = false
 while (!locked) {
@@ -448,8 +388,8 @@ while (!locked) {
 // The first qmd command on a machine writes the models it resolves into index.yml (`models:`), and
 // from then on they win over the environment: so every qmd command of the Harness runs with the
 // models of qmd-mcp, never with qmd's defaults.
-const qmdEnv = { ...process.env, QMD_EMBED_MODEL: EMBED_MODEL }
-if (P.language && P.language.docs === "ru") qmdEnv.QMD_GENERATE_MODEL = RU_GENERATE_MODEL
+const qmdEnv = q.qmdEnv({ QMD_EMBED_MODEL: q.EMBED_MODEL })
+if (P.language && P.language.docs === "ru") qmdEnv.QMD_GENERATE_MODEL = q.RU_GENERATE_MODEL
 // worfy ends a running script on its exit with SIGTERM to the script's process group; a terminal sends INT or
 // HUP to it. With a listener node does not die at once: `qmd update` in the same group ends, spawnSync returns
 // and `finally` lets go of the lock. A signal to this process alone waits for `qmd update` to end; the
@@ -458,13 +398,13 @@ if (P.language && P.language.docs === "ru") qmdEnv.QMD_GENERATE_MODEL = RU_GENER
 let holding = true
 const release = (signal) => {
     if (holding) fs.rmSync(LOCK, { recursive: true, force: true })
-    process.exit(128 + require("node:os").constants.signals[signal])
+    process.exit(128 + os.constants.signals[signal])
 }
 for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, release)
 let updated
 try {
     fs.writeFileSync(path.join(LOCK, "pid"), String(process.pid))
-    updated = run(qmd, ["update"], { cwd: HOME, stdio: "inherit", env: qmdEnv })
+    updated = run(...q.qmdCommand(qmd, ["update"]), { cwd: HOME, stdio: "inherit", env: qmdEnv })
 } finally {
     fs.rmSync(LOCK, { recursive: true, force: true })
     holding = false
@@ -472,18 +412,20 @@ try {
 if (updated.signal) die(1, `qmd update ended by ${updated.signal}`)
 if (updated.status !== 0) die(1, `qmd update: ${failure(updated)}`)
 
-let agreed = false
-try {
-    agreed = fs.readFileSync(ANSWER_FILE, "utf8").split("\n")[0] === "downloaded"
-} catch {}
-if (agreed) {
+if (q.modelsAgreed()) {
     const log = fs.openSync(path.join(CACHE, "refresh.log"), "a")
-    const child = spawn("nice", ["-n", "10", qmd, "embed"], {
+    const child = spawn(...q.qmdCommand(qmd, ["embed"]), {
         cwd: HOME,
         detached: true,
         stdio: ["ignore", log, log],
         env: qmdEnv,
+        windowsHide: true,
     })
+    try {
+        os.setPriority(child.pid, 10)
+    } catch {
+        // Already ended, or not allowed: it runs at the normal priority.
+    }
     child.unref()
     say(`qmd embed started in the background, log ${path.join(CACHE, "refresh.log")}`)
 } else say(`no consent to the models in ${ANSWER_FILE}: qmd embed not started, search works by words (BM25)`)

@@ -1,4 +1,0 @@
-#!/bin/sh
-# The Harness's qmd-collections (see ./node): prints its arguments, the login shell's mark and HARNESS_HOME.
-printf 'args=%s mark=%s hh=%s\n' "$*" "$LOGIN_MARK" "$HARNESS_HOME"
-exit 0

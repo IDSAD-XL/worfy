@@ -76,10 +76,6 @@ const failureReport = (output: string): string => {
   return `${shown.join('\n')}\n--- last ${TAIL_LINES} lines:\n${tail(output, TAIL_LINES)}`
 }
 
-// The qmd scripts of the Harness and their test are zsh scripts; Windows has no zsh.
-const NO_ZSH_UNTIL_TICKET_15 = 'qmd scripts are zsh until worfy-windows ticket 15'
-const ZSH_ONLY = new Set(['bin/tests/qmd.test.sh'])
-
 type Run = {
   status: number | null
   signal: NodeJS.Signals | null
@@ -404,7 +400,7 @@ export function harnessScripts(file: number): void {
       // Commands the Harness scripts need. The shell tests do not skip a check when one is missing,
       // they fail on it; this case names the missing command directly (ubuntu-latest has no zsh).
       it.for(['bash', 'zsh', 'jq', 'git', 'node'])('%s is on PATH', (command, context) => {
-        context.skip(WINDOWS && command === 'zsh', NO_ZSH_UNTIL_TICKET_15)
+        context.skip(WINDOWS && command === 'zsh', 'only the fenced blocks of the skills run under zsh, and skill-blocks.test.sh checks those where zsh is there')
         const found = spawnSync(WINDOWS ? gitBash() : 'sh', ['-c', `command -v ${command}`], { encoding: 'utf8' })
         expect(found.status, `${command} is not installed`).toBe(0)
       })
@@ -412,7 +408,6 @@ export function harnessScripts(file: number): void {
     if (file === 1) runnerCases()
 
     const runFile = async (name: string, context: TestContext): Promise<void> => {
-      context.skip(WINDOWS && ZSH_ONLY.has(name), NO_ZSH_UNTIL_TICKET_15)
       starts.set(name, (starts.get(name) ?? 0) + 1)
       const path = join(HARNESS, name)
       running += 1

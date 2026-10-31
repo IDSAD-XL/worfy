@@ -1,95 +1,77 @@
-#!/bin/zsh
-# qmd-mcp — launches the qmd MCP server for Claude Code (harness/.mcp.json: the server `qmd` of the
-# plugin; worfy registers the same command as `plugin_worfy_qmd`).
-# Sets the models (0.6B embedding; Russian query expansion only for a project whose documents are
-# in Russian), finds node from nvm, updates the global index in the background (git copy of main,
-# project memory, lessons) and starts the server.
-# Index: ~/.config/qmd/index.yml and ~/.cache/qmd/index.sqlite. Update log: ~/.cache/qmd/refresh.log.
-# Disable the background update: QMD_MCP_NO_REFRESH=1.
-#
-# Consent: qmd downloads a missing model by itself on the first query, so
-# the server starts only after the user agreed to download the models. The answer is the file
-# $HARNESS_HOME/qmd-models, written by the worfy app: the first line `downloaded`
-# or `skipped`, then the model URIs that were pulled. Any first line other than `downloaded`, or no
-# file — one line in stderr, exit 3, `qmd mcp` is not started; agents then search with grep over
-# the profile's qmd.fallback_grep.
-set -u
+#!/usr/bin/env node
+// qmd-mcp — launches the qmd MCP server for Claude Code (harness/.mcp.json: the server `qmd` of the
+// plugin; worfy registers the same command as `plugin_worfy_qmd`).
+// Sets the models (0.6B embedding; Russian query expansion only for a project whose documents are
+// in Russian), updates the global index in the background (git copy of main, project memory,
+// lessons) and starts the server.
+// Index: ~/.config/qmd/index.yml and ~/.cache/qmd/index.sqlite. Update log: ~/.cache/qmd/refresh.log.
+// Disable the background update: QMD_MCP_NO_REFRESH=1.
+//
+// Consent: qmd downloads a missing model by itself on the first query, so
+// the server starts only after the user agreed to download the models. The answer is the file
+// $HARNESS_HOME/qmd-models, written by the worfy app: the first line `downloaded`
+// or `skipped`, then the model URIs that were pulled.
+//
+// When qmd cannot run, one line in stderr names the reason and the grep fallback over the profile's
+// qmd.fallback_grep, and `qmd mcp` is not started: exit 3 — no answer `downloaded`, or node below
+// 22.14, where qmd dies without a word; exit 127 — no qmd.
+"use strict"
 
-HARNESS_HOME="${HARNESS_HOME:-$HOME/.claude/worfy-harness}"
-ANSWER_FILE="$HARNESS_HOME/qmd-models"
-# The worfy app keeps the same model URIs, and a contract test in the worfy repository checks that
-# both name the same ones.
-EMBED_MODEL="hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
-RU_GENERATE_MODEL="hf:AGmind/qmd-query-expansion-ru/qmd-query-expansion-ru-q4_k_m.gguf"
-DEFAULT_GENERATE_MODEL="hf:tobil/qmd-query-expansion-1.7B-gguf/qmd-query-expansion-1.7B-q4_k_m.gguf"
+const fs = require("node:fs")
+const os = require("node:os")
+const path = require("node:path")
+const { spawn } = require("node:child_process")
+const q = require("../hooks/qmd-common.cjs")
 
-answer=""
-[[ -r "$ANSWER_FILE" ]] && answer="$(head -n 1 "$ANSWER_FILE" 2>/dev/null)"
-if [[ "$answer" != downloaded ]]; then
-  print -u2 -r -- "qmd-mcp: the qmd models were not downloaded with the user's consent (${ANSWER_FILE}: ${answer:-no answer}), the server does not start; search with grep over the profile's qmd.fallback_grep"
-  exit 3
-fi
+const fail = (code, reason) => {
+    process.stderr.write(`qmd-mcp: ${reason}, the server does not start; ${q.GREP_FALLBACK}\n`)
+    process.exit(code)
+}
 
-export QMD_EMBED_MODEL="$EMBED_MODEL"
+const answer = q.answerLines()
+if (answer[0] !== "downloaded") fail(3, `the qmd models were not downloaded with the user's consent (${q.answerFile()}: ${answer[0] || "no answer"})`)
+const tooOld = q.nodeTooOld()
+if (tooOld) fail(3, tooOld)
+const qmd = q.findQmd()
+if (!qmd) fail(127, "qmd not found in PATH or in the global folder of npm")
 
-# The Claude app starts the server without the user's PATH; node lives in nvm.
-if ! command -v qmd >/dev/null 2>&1 && [[ -s "$HOME/.nvm/nvm.sh" ]]; then
-  source "$HOME/.nvm/nvm.sh" >/dev/null 2>&1
-  nvm use default --silent >/dev/null 2>&1 || true
-fi
-QMD_BIN="$(command -v qmd)" || { echo "qmd-mcp: qmd not found in PATH" >&2; exit 127; }
+// The language of the project's documents, from the session's directory (the server starts there),
+// before the chdir below. Not `ru`, no profile, no field — the default query expansion model of qmd.
+const PROFILE_BIN = process.env.QMD_MCP_PROFILE_BIN || path.join(path.dirname(fs.realpathSync(__filename)), "profile") // override for tests
+const language = q.runScript(PROFILE_BIN, ["--field", "language.docs"])
+const lang = language.status === 0 ? language.stdout.trim() : ""
+let generate = lang === "ru" ? q.RU_GENERATE_MODEL : q.DEFAULT_GENERATE_MODEL
+// Only a model the user agreed to download: when the answer lists the models and this one is not
+// among them but the other expansion model is, take that one rather than let qmd fetch a new one.
+if (answer.some((line) => line.startsWith("hf:")) && !answer.includes(generate)) {
+    const other = generate === q.RU_GENERATE_MODEL ? q.DEFAULT_GENERATE_MODEL : q.RU_GENERATE_MODEL
+    if (answer.includes(other)) generate = other
+}
+// generate: in index.yml is not read by query (qmd 2.8.3), only the environment variable works
+const env = q.qmdEnv({ QMD_EMBED_MODEL: q.EMBED_MODEL })
+if (generate === q.RU_GENERATE_MODEL) env.QMD_GENERATE_MODEL = q.RU_GENERATE_MODEL
+else delete env.QMD_GENERATE_MODEL
 
-# The language of the project's documents, from the session's directory (the server starts there),
-# before the cd below. Not `ru`, no profile, no field — the default query expansion model of qmd.
-PROFILE_BIN="${QMD_MCP_PROFILE_BIN:-${0:A:h}/profile}"   # override for tests
-lang="$("$PROFILE_BIN" --field language.docs 2>/dev/null)" || lang=""
-generate="$DEFAULT_GENERATE_MODEL"
-[[ "$lang" == ru ]] && generate="$RU_GENERATE_MODEL"
-# Only a model the user agreed to download: when the answer lists the models and this one is not
-# among them but the other expansion model is, take that one rather than let qmd fetch a new one.
-if grep -q '^hf:' "$ANSWER_FILE" 2>/dev/null && ! grep -qxF -- "$generate" "$ANSWER_FILE"; then
-  other="$RU_GENERATE_MODEL"; [[ "$generate" == "$RU_GENERATE_MODEL" ]] && other="$DEFAULT_GENERATE_MODEL"
-  grep -qxF -- "$other" "$ANSWER_FILE" && generate="$other"
-fi
-# generate: in index.yml is not read by query (qmd 2.8.3), only the environment variable works
-if [[ "$generate" == "$RU_GENERATE_MODEL" ]]; then
-  export QMD_GENERATE_MODEL="$RU_GENERATE_MODEL"
-else
-  unset QMD_GENERATE_MODEL
-fi
+// Always the global index: the session's cwd may contain a project .qmd/.
+process.chdir(q.home())
 
-# Always the global index: the session's cwd may contain a project .qmd/.
-cd "$HOME" || exit 1
+fs.mkdirSync(q.cacheDir(), { recursive: true })
+try {
+    if (fs.statSync(q.logFile()).size > 1_000_000) fs.writeFileSync(q.logFile(), "")
+} catch {}
 
-CACHE="$HOME/.cache/qmd"
-LOG="$CACHE/refresh.log"
-LOCK="$CACHE/refresh.lock"   # a lock directory, holding the pid of the background job
-mkdir -p "$CACHE"
-[[ -f "$LOG" && "$(stat -f%z "$LOG")" -gt 1000000 ]] && : > "$LOG"
+if (fs.existsSync(q.lockDir()) && q.abandoned(q.lockDir())) q.dropLock()
 
-# An abandoned lock: the pid is written and the process is dead, or the pid was never written within two minutes.
-if [[ -d "$LOCK" ]]; then
-  pid="$(cat "$LOCK/pid" 2>/dev/null || true)"
-  if [[ -n "$pid" ]]; then
-    kill -0 "$pid" 2>/dev/null || rm -rf "$LOCK"
-  elif [[ -n "$(find "$LOCK" -maxdepth 0 -mmin +2 2>/dev/null)" ]]; then
-    rm -rf "$LOCK"
-  fi
-fi
+// The lock exists for `qmd update` (git checkout in the shared copy); `qmd embed` has its own lock.
+if (process.env.QMD_MCP_NO_REFRESH !== "1" && q.takeLock()) q.startUpdate("", false, env)
 
-# The index update runs in the background without inheriting the server's stdio, otherwise the MCP handshake waits for embed to finish.
-# The lock exists for `qmd update` (git checkout in the shared copy); `qmd embed` has its own lock.
-if [[ "${QMD_MCP_NO_REFRESH:-}" != "1" ]] && mkdir "$LOCK" 2>/dev/null; then
-  (
-    trap 'rm -rf "$LOCK" 2>/dev/null; exit' EXIT TERM INT HUP
-    {
-      echo "== $(date '+%F %T') refresh"
-      "$QMD_BIN" update; echo "update rc=$?"
-      nice -n 10 "$QMD_BIN" embed; echo "embed rc=$?"
-    } >>"$LOG" 2>&1
-  ) </dev/null >/dev/null 2>&1 &
-  print -r -- "$!" >"$LOCK/pid" 2>/dev/null || true
-  disown 2>/dev/null
-fi
-
-exec "$QMD_BIN" mcp "$@"
+// node has no exec: the server is a child on this stdio, and this process ends with it. The client
+// closes stdin to end the server, and qmd ends on that by itself.
+const [command, args] = q.qmdCommand(qmd, ["mcp", ...process.argv.slice(2)])
+const server = spawn(command, args, { stdio: "inherit", env, windowsHide: true })
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, () => server.kill(signal))
+server.on("error", (error) => {
+    process.stderr.write(`qmd-mcp: could not start ${qmd}: ${error.message}; ${q.GREP_FALLBACK}\n`)
+    process.exit(127)
+})
+server.on("exit", (code, signal) => process.exit(code ?? 128 + (os.constants.signals[signal] || 0)))

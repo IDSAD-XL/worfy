@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 # Tests of harness/bin/qmd-collections on temporary directories: origin is
-# a local bare repository, qmd is a stub that writes its arguments, HOME, CLAUDE_CONFIG_DIR and
+# a local bare repository, qmd is a Node stand-in that writes its arguments, HOME, CLAUDE_CONFIG_DIR and
 # HARNESS_HOME are temporary. The real profile, qmd-sync-main and gate resolver next to this test run.
 #   - Full mode: the copy of main is cloned; three collections with their paths and `update:` on the
 #     plugin's qmd-sync-main; the names in the profile; qmd update ran, qmd embed did not (no consent);
+#     the `update:` line pulls the copy under `bash -c`, the way qmd runs it;
 #   - a second run: index.yml and the profile byte for byte the same;
 #   - Silent mode: paths in the Workflow folder, no `update:`; with consent qmd embed starts;
 #   - someone else's collection under one of the names: exit != 0, index.yml and the profile untouched;
 #   - a profile like acme's (collections already named): only `update:` changes, a copy next to it;
+#   - what runs a file: a text file without a #! line is not run by node, a binary starts as it is;
 #   - the project's repository stays clean (`git status --porcelain` empty) in every case.
 # Run: bash harness/bin/tests/qmd-collections.test.sh; exit code 0 — everything passed.
 set -u
-unset QMD_INDEX_YML QMD_CONFIG_DIR XDG_CONFIG_HOME # index.yml is always the one under the temporary HOME
+unset QMD_INDEX_YML QMD_CONFIG_DIR XDG_CONFIG_HOME XDG_CACHE_HOME # the folders of qmd are always under the temporary HOME
+shopt -u patsub_replacement 2>/dev/null # the backslashes of a Windows path stay as they are in ${x//a/b}
 BIN="$(cd "$(dirname "$0")/.." && pwd)"
+BINF="$(cd "$BIN" && { pwd -W 2>/dev/null || pwd; })" # C:/… on Windows: the form the `update:` line has
 SCRIPT="$BIN/qmd-collections"
 T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })" # C:/… on Windows: node reads the registry's paths
 # A folder as PATH takes it: /c/… in Git Bash, where the colon of C:/… splits the entry; unchanged elsewhere.
@@ -20,12 +24,10 @@ onpath() { cygpath -u "$1" 2>/dev/null || printf '%s' "$1"; }
 # A path as the script prints it: with backslashes on Windows (cygpath exists there), unchanged elsewhere.
 printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
-# What these cases need and Windows does not have until qmd is ported there; each skip names its gap. The skipped
-# blocks below are not indented: their strings and here-documents are compared byte for byte.
-NO_ZSH="qmd-sync-main is a zsh script and Git Bash on Windows has no zsh; qmd is not ported to Windows yet"
-NO_SH_QMD="Windows does not start a qmd that is a shell script by its #! line; qmd is not ported to Windows yet"
-NO_UPDATE_LINE="the update: line qmd runs on Windows is not settled until qmd is ported to Windows"
-skip() { echo "skip $1: $2"; }
+# A path as index.yml holds it: on Windows with backslashes, which make it a quoted JSON string; plain elsewhere.
+yp() { if [ "$WIN" = 1 ]; then printf '"%s"' "$(printed "$1" | sed 's/\\/\\\\/g')"; else printf '%s' "$1"; fi; }
+# No line of index.yml gives a path with both separators.
+no_mixed_paths() { [ -z "$(grep -E '^ +path:' "$INDEX" | grep '/' | grep '\\')" ]; }
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
@@ -43,11 +45,18 @@ gq clone -q "$T/origin.git" "$T/proj" 2>/dev/null
 mkdir -p "$T/proj2" && gq -C "$T/proj2" init -q -b main && gq -C "$T/proj2" commit -q --allow-empty -m one
 
 mkdir -p "$T/fakebin"
-cat >"$T/fakebin/qmd" <<EOF
-#!/bin/sh
-echo "\$1 emb=\${QMD_EMBED_MODEL:-unset}" >>"\$QMD_CALLS"
+cat >"$T/fakebin/qmd" <<'EOF'
+#!/usr/bin/env node
+require("fs").appendFileSync(process.env.QMD_CALLS, process.argv[2] + " emb=" + (process.env.QMD_EMBED_MODEL || "unset") + "\n")
 EOF
 chmod +x "$T/fakebin/qmd"
+# A process that writes its pid to $1 and runs until the file $1.go appears, at most 60 s: what the shell knows as
+# $! is another process on Windows.
+cat >"$T/holder" <<'EOF'
+const fs = require("fs"), sleeper = new Int32Array(new SharedArrayBuffer(4))
+fs.writeFileSync(process.argv[2], String(process.pid))
+for (let n = 0; n < 600 && !fs.existsSync(process.argv[3]); n++) Atomics.wait(sleeper, 0, 0, 100)
+EOF
 
 # setup <case> <profile.json body without name/schema>: a fresh HOME, Claude home and Harness home.
 setup() {
@@ -72,7 +81,6 @@ FULL='"mode": "full", "language": {"reports": "ru", "team": "en", "docs": "ru"},
   "qmd": {"collections": [], "covers": "none yet", "fallback_grep": ["docs/adr"]}'
 
 # --- Full mode --------------------------------------------------------------------------------
-if [ "$WIN" = 1 ]; then skip "full mode, its second run, collections already in index.yml" "$NO_ZSH"; else
 setup full x "$FULL"
 before_rest="$(jq -S 'del(.qmd)' "$PROFILE")"
 collect x; rc=$?
@@ -82,29 +90,32 @@ MEM="$CL/projects/$(printf '%s' "$T/proj" | sed 's/[^A-Za-z0-9]/-/g')/memory"
     && ok "full: the copy of main is cloned into ~/.cache/qmd/x-main" || bad "full: rc=$rc out=[$(cat "$C/out")]"
 want="collections:
   x-docs:
-    path: $COPY
+    path: $(yp "$COPY")
     pattern: \"docs/adr/**/*.md,CONTEXT.md,HANDOFF.md,docs/lessons/**/*.md\"
-    update: $BIN/qmd-sync-main x
+    update: \"node \\\"$BINF/qmd-sync-main\\\" x\"
   x-tickets:
-    path: $COPY/.scratch
+    path: $(yp "$COPY/.scratch")
     pattern: \"**/*.md\"
-    update: $BIN/qmd-sync-main x
+    update: \"node \\\"$BINF/qmd-sync-main\\\" x\"
   x-memory:
-    path: $MEM
+    path: $(yp "$MEM")
     pattern: \"**/*.md\"
 "
 [ "$(cat "$INDEX" 2>/dev/null)" = "$(printf '%s' "$want")" ] \
     && ok "full: three collections with their paths, update: on the plugin's qmd-sync-main" || bad "full: index.yml:
 $(cat "$INDEX" 2>/dev/null)"
+no_mixed_paths && ok "full: no path in index.yml mixes / and \\" || bad "full: paths with both separators: $(grep -E '^ +path:' "$INDEX")"
 [ "$(jq -c '.qmd.collections' "$PROFILE")" = '["x-docs","x-tickets","x-memory"]' ] && [ "$(jq -S 'del(.qmd)' "$PROFILE")" = "$before_rest" ] \
     && [ "$(jq -c '.qmd.fallback_grep' "$PROFILE")" = '["docs/adr"]' ] && [[ "$(jq -r '.qmd.covers' "$PROFILE")" == *"x-docs: ADRs"* ]] \
     && ok "full: names and covers in the profile, nothing else in it changed" || bad "full: profile $(jq -c .qmd "$PROFILE")"
 grep -qx "update emb=hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf" "$QMD_CALLS" 2>/dev/null && ! grep -q '^embed' "$QMD_CALLS" \
     && ok "full: qmd update ran with the embedding model of qmd-mcp, no qmd embed without consent" || bad "full: qmd calls [$(cat "$QMD_CALLS" 2>/dev/null)]"
-# The update: command really pulls the copy: a new commit in origin reaches it.
+# The update: line really pulls the copy, run the way qmd runs it (`bash -c <line>`): a new commit in origin reaches it.
 echo "# 0050" >"$T/seed/docs/adr/0050-new.md"; gq -C "$T/seed" add -A && gq -C "$T/seed" commit -q -m new && gq -C "$T/seed" push -q origin HEAD:main 2>/dev/null
-HOME="$H" HARNESS_HOME="$HH" zsh "$BIN/qmd-sync-main" x >/dev/null 2>&1
-[ -f "$COPY/docs/adr/0050-new.md" ] && ok "full: the collection's update: command pulls the copy" || bad "full: qmd-sync-main x did not pull the copy"
+update_line="$(sed -n 's/^    update: //p' "$INDEX" | head -n 1 | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8"))')"
+HOME="$H" HARNESS_HOME="$HH" bash -c "$update_line" >/dev/null 2>"$C/update.err"; rc=$?
+[ "$rc" -eq 0 ] && [ -f "$COPY/docs/adr/0050-new.md" ] && ok "full: the update: line under bash -c pulls the copy" \
+    || bad "full: the update: line [$update_line]: rc=$rc err=[$(cat "$C/update.err")]"
 clean_repos && ok "full: the project's repository is untouched" || bad "full: git status: $(git -C "$T/proj" status --porcelain)"
 
 # --- a second run changes nothing -----------------------------------------------------------
@@ -123,11 +134,9 @@ rm -f "$QMD_CALLS"
 collect x; rc=$?
 [ "$rc" -eq 0 ] && cmp -s "$INDEX" "$C/index.1" && cmp -s "$PROFILE" "$C/profile.1" && [ "$(ls "$H/.config/qmd" | wc -l)" = "$n_before" ] && [ ! -e "$QMD_CALLS" ] \
     && ok "collections already in index.yml: it stays byte for byte, no copy of it, the profile gets the names" || bad "already there: rc=$rc out=[$(cat "$C/out")]"
-fi # full mode
 
 # --- Silent mode, with consent to the models -------------------------------------------------
 WF="$T/workflow-y"; mkdir -p "$WF/docs/adr" "$WF/.scratch"
-if [ "$WIN" = 1 ]; then skip "silent mode with consent" "$NO_SH_QMD"; else
 setup silent y '"mode": "silent", "language": {"reports": "ru", "team": "en"},
   "workflow": {"folder": "'"$WF"'"}, "docs": {"adr_dir": "docs/adr", "handoff": {"path": "'"$WF"'/HANDOFF.md"}},
   "lessons": "profile", "tickets": {"root": ".scratch/"}'
@@ -136,26 +145,25 @@ collect y; rc=$?
 MEM2="$CL/projects/$(printf '%s' "$T/proj2" | sed 's/[^A-Za-z0-9]/-/g')/memory"
 want="collections:
   y-docs:
-    path: $WF
+    path: $(yp "$WF")
     pattern: \"docs/adr/**/*.md,HANDOFF.md\"
   y-tickets:
-    path: $WF/.scratch
+    path: $(yp "$WF/.scratch")
     pattern: \"**/*.md\"
   y-memory:
-    path: $MEM2
+    path: $(yp "$MEM2")
     pattern: \"**/*.md\"
 "
 [ "$rc" -eq 0 ] && [ "$(cat "$INDEX" 2>/dev/null)" = "$(printf '%s' "$want")" ] && [ ! -e "$H/.cache/qmd/y-main" ] \
     && ok "silent: paths in the Workflow folder, no update:, no copy cloned" || bad "silent: rc=$rc out=[$(cat "$C/out")] index:
 $(cat "$INDEX" 2>/dev/null)"
+no_mixed_paths && ok "silent: no path in index.yml mixes / and \\" || bad "silent: paths with both separators: $(grep -E '^ +path:' "$INDEX")"
 for _ in 1 2 3 4 5 6 7 8 9 10; do grep -q '^embed' "$QMD_CALLS" 2>/dev/null && break; sleep 0.5; done
 grep -qx "embed emb=hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf" "$QMD_CALLS" 2>/dev/null \
     && ok "silent with consent: qmd embed in the background with the embedding model of qmd-mcp" || bad "silent: qmd calls [$(cat "$QMD_CALLS" 2>/dev/null)]"
 clean_repos && ok "silent: the project's repository is untouched" || bad "silent: git status dirty"
-fi # silent mode
 
 # --- someone else's collection under one of the names ----------------------------------------
-if [ "$WIN" = 1 ]; then skip "someone else's collection under one of the names" "$NO_ZSH"; else
 setup foreign x "$FULL"
 mkdir -p "$H/.config/qmd"
 printf 'collections:\n  x-tickets:\n    path: /somewhere/else\n    pattern: "**/*.md"\nmodels:\n  embed: e\n' >"$INDEX"
@@ -165,10 +173,8 @@ collect x; rc=$?
     && [ "$(ls "$H/.config/qmd" | wc -l | tr -d ' ')" = 1 ] \
     && ok "foreign collection: exit $rc, index.yml and the profile unchanged" || bad "foreign: rc=$rc out=[$(cat "$C/out")]"
 clean_repos && ok "foreign: the project's repository is untouched" || bad "foreign: git status dirty"
-fi # someone else's collection
 
 # --- a profile like acme's: only update: moves to the plugin -------------------------------
-if [ "$WIN" = 1 ]; then skip "a profile with its collections already named (update: lines)" "$NO_UPDATE_LINE"; else
 setup acme x "$(printf '%s' "$FULL" | sed 's/"collections": \[\]/"collections": ["acme", "tickets", "memory"]/')"
 mkdir -p "$H/.config/qmd" "$HH/plugin/bin"
 : >"$HH/plugin/bin/qmd-sync-main"
@@ -193,7 +199,7 @@ models:
 EOF
 cp "$INDEX" "$C/index.0"; cp "$PROFILE" "$C/profile.0"
 collect x; rc=$?
-expected="$(sed "s#update: /home/someone/.claude/bin/qmd-sync-main x#update: $HH/plugin/bin/qmd-sync-main x#" "$C/index.0")"
+expected="$(sed "s#update: /home/someone/.claude/bin/qmd-sync-main x#update: \"node \\\\\"$HH/plugin/bin/qmd-sync-main\\\\\" x\"#" "$C/index.0")"
 copies=("$H/.config/qmd/index.yml."*)
 [ "$rc" -eq 0 ] && [ "$(cat "$INDEX")" = "$expected" ] && [ "$(diff "$C/index.0" "$INDEX" | grep -c '^>')" = 2 ] \
     && ok "already-named: only the two update: lines of this project point at the plugin's qmd-sync-main" || bad "already-named: rc=$rc out=[$(cat "$C/out")] diff:
@@ -203,17 +209,14 @@ $(diff "$C/index.0" "$INDEX")"
 cmp -s "$PROFILE" "$C/profile.0" && [ ! -e "$H/.cache/qmd/x-main" ] && [ ! -e "$QMD_CALLS" ] \
     && ok "already-named: the profile unchanged, no new collections, no copy cloned, no qmd run" || bad "already-named: profile or copy changed"
 clean_repos && ok "already-named: the project's repository is untouched" || bad "already-named: git status dirty"
-fi # a profile like acme's
 
 # --- refresh.lock left by a killed holder ----------------------------
 # worfy kills qmd-collections with its process group at a time limit or on quit; the lock it held stays. qmd-mcp
 # drops such a lock only when it starts, so qmd-collections looks at the holder itself: a pid that is not running,
 # or no pid after two minutes, is an abandoned lock and is taken; a running holder is waited for.
-if [ "$WIN" = 1 ]; then skip "refresh.lock of a dead, old, live and young holder" "$NO_ZSH"; else
 setup lockdead x "$FULL"
 LK="$H/.cache/qmd/refresh.lock"; mkdir -p "$LK"
-sh -c 'exit 0' & dead=$!; wait "$dead"
-printf '%s' "$dead" >"$LK/pid"
+node -p process.pid >"$LK/pid" # a process that has ended
 start=$(date +%s); collect x; rc=$?; took=$(( $(date +%s) - start ))
 [ "$rc" -eq 0 ] && [ "$took" -lt 20 ] && grep -q '^update ' "$QMD_CALLS" 2>/dev/null && [ ! -e "$LK" ] \
     && [ -z "$(ls -d "$LK".abandoned-* 2>/dev/null)" ] \
@@ -229,30 +232,28 @@ start=$(date +%s); collect x; rc=$?; took=$(( $(date +%s) - start ))
 for holder in live young; do
     setup "lock$holder" x "$FULL"
     LK="$H/.cache/qmd/refresh.lock"; mkdir -p "$LK"
-    hp=""
-    if [ "$holder" = live ]; then sleep 60 & hp=$!; printf '%s' "$hp" >"$LK/pid"; fi
+    if [ "$holder" = live ]; then
+        node "$T/holder" "$LK/pid" "$C/holder.go" &
+        for _ in $(seq 1 100); do [ -s "$LK/pid" ] && break; sleep 0.1; done
+    fi
     collect x & cp_pid=$!
     for _ in $(seq 1 30); do grep -q "added to" "$C/out" 2>/dev/null && break; sleep 0.2; done
     sleep 2
     waiting=no; kill -0 "$cp_pid" 2>/dev/null && [ ! -e "$QMD_CALLS" ] && [ -d "$LK" ] && waiting=yes
-    rm -rf "$LK"; [ -n "$hp" ] && kill "$hp" 2>/dev/null
+    : >"$C/holder.go"; rm -rf "$LK"
     wait "$cp_pid"; rc=$?
     [ "$waiting" = yes ] && [ "$rc" -eq 0 ] && grep -q '^update ' "$QMD_CALLS" 2>/dev/null \
         && ok "refresh.lock of a $holder holder: waited for, then taken once it was released" \
         || bad "$holder holder: waiting=$waiting rc=$rc out=[$(cat "$C/out")]"
 done
-fi # refresh.lock of a killed holder
-# qmd-refresh without --wait leaves the update to a background subshell. The pid in the lock must be that
-# subshell's, not the pid of the qmd-refresh that has already exited: a dead pid reads as an abandoned lock.
-if ! command -v zsh >/dev/null 2>&1; then
-    echo "skip the background qmd-refresh case: no zsh here (Git Bash on Windows), it runs on macOS and Linux"
-else
+# qmd-refresh without --wait leaves the update to a background process. The pid in the lock must be that
+# process's, not the pid of the qmd-refresh that has already exited: a dead pid reads as an abandoned lock.
 setup lockrefresh x "$FULL"
 mkdir -p "$H/.cache/qmd" "$C/slowbin" "$C/mem"; LK="$H/.cache/qmd/refresh.lock"
-printf '#!/bin/sh\n[ "$1" = update ] && sleep 8\nexit 0\n' >"$C/slowbin/qmd"; chmod +x "$C/slowbin/qmd"
+printf '#!/usr/bin/env node\nif (process.argv[2] === "update") Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 8000)\n' >"$C/slowbin/qmd"; chmod +x "$C/slowbin/qmd"
 printf 'collections:\n  mem:\n    path: %s\n' "$C/mem" >"$C/refresh.yml"
-HOME="$H" HARNESS_HOME="$HH" PATH="$(onpath "$C/slowbin"):$PATH" QMD_INDEX_YML="$C/refresh.yml" QMD_REFRESH_SYNC=/usr/bin/true \
-    zsh "$BIN/qmd-refresh" --force --quiet; rc_refresh=$?
+HOME="$H" HARNESS_HOME="$HH" PATH="$(onpath "$C/slowbin"):$PATH" QMD_INDEX_YML="$C/refresh.yml" \
+    node "$BIN/qmd-refresh" --force --quiet; rc_refresh=$?
 sleep 1
 collect x & cp_pid=$!
 for _ in $(seq 1 30); do grep -q "added to" "$C/out" 2>/dev/null && break; sleep 0.2; done
@@ -262,7 +263,6 @@ wait "$cp_pid"; rc=$?
 [ "$rc_refresh" -eq 0 ] && [ "$waiting" = yes ] && [ "$rc" -eq 0 ] && grep -q '^update ' "$QMD_CALLS" 2>/dev/null && [ ! -e "$LK" ] \
     && ok "a background qmd-refresh holds refresh.lock: qmd-collections waits for it, then runs qmd update" \
     || bad "background qmd-refresh: refresh rc=$rc_refresh waiting=$waiting rc=$rc out=[$(cat "$C/out")]"
-fi
 # worfy ends a running Harness script on its exit with SIGTERM to the script's process group. qmd-collections then
 # lets go of refresh.lock, so the next qmd-refresh or qmd-collections is not kept waiting for a holder that is gone.
 # Not on Windows: worfy ends a script there with taskkill /T /F, no signal reaches it, and the abandoned-lock cases
@@ -295,10 +295,10 @@ SILENT_Y='"mode": "silent", "language": {"reports": "ru", "team": "en"},
   "workflow": {"folder": "'"$WF"'"}, "docs": {"adr_dir": "docs/adr", "handoff": {"path": "'"$WF"'/HANDOFF.md"}},
   "lessons": "profile", "tickets": {"root": ".scratch/"}'
 BLOCKS_Y="  y-docs:
-    path: $WF
+    path: $(yp "$WF")
     pattern: \"docs/adr/**/*.md,HANDOFF.md\"
   y-tickets:
-    path: $WF/.scratch
+    path: $(yp "$WF/.scratch")
     pattern: \"**/*.md\"
   y-memory:
     path: @MEM@
@@ -311,10 +311,9 @@ copies_of() { ls "$H/.config/qmd" | grep -c '^index\.yml\.20'; }
 # accepted <case> <index.yml before> <index.yml expected>: exit 0, index.yml byte for byte as expected, one dated
 # copy byte for byte the old file, the three names in the profile. @MEM@ stands for the case's memory folder.
 accepted() {
-    if [ "$WIN" = 1 ]; then skip "$1" "$NO_SH_QMD"; return; fi
     setup "$1" y "$SILENT_Y"
     mkdir -p "$H/.config/qmd"; printf '%s' "$2" >"$INDEX"; cp "$INDEX" "$C/index.0"
-    mem="$CL/projects/$(printf '%s' "$T/proj2" | sed 's/[^A-Za-z0-9]/-/g')/memory"
+    mem="$(yp "$CL/projects/$(printf '%s' "$T/proj2" | sed 's/[^A-Za-z0-9]/-/g')/memory")"
     printf '%s' "${3//@MEM@/$mem}" >"$C/index.want"
     collect y; rc=$?
     copy="$(ls -d "$H/.config/qmd/index.yml.20"* 2>/dev/null | head -1)"
@@ -331,13 +330,11 @@ $BLOCKS_Y
 $MODELS
 "
 # A second run on that file: nothing changes, no new copy.
-if [ "$WIN" = 1 ]; then skip "fresh-machine second run" "$NO_SH_QMD"; else
 cp "$INDEX" "$C/index.1"; cp "$PROFILE" "$C/profile.1"
 collect y; rc=$?
 [ "$rc" -eq 0 ] && cmp -s "$INDEX" "$C/index.1" && cmp -s "$PROFILE" "$C/profile.1" && [ "$(copies_of)" = 1 ] \
     && ok "fresh-machine second run: index.yml and the profile byte for byte the same, no new copy" \
     || bad "fresh-machine second run: rc=$rc copies=$(copies_of) out=[$(cat "$C/out")]"
-fi # fresh-machine second run
 accepted empty-spaced "collections: {  }
 $MODELS
 " "collections:
@@ -402,6 +399,46 @@ collect y; rc=$?
     && cmp -s "$INDEX" "$C/index.0" && [ "$(copies_of)" = 0 ] \
     && ok "profile names collections, index.yml has collections: {}: the profile's refusal, nothing written" \
     || bad "named-empty: rc=$rc out=[$(cat "$C/out")]"
+
+# --- what runs a file (scriptCommand of hooks/qmd-common.cjs) ----------------------------------
+# A text file without a #! line is not given to node: it is valid JavaScript here, and the marker says whether it ran.
+setup script-command x "$FULL"
+cat >"$C/text-profile" <<EOF
+require("fs").writeFileSync("$C/ran", "")
+EOF
+HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$T/fakebin"):$PATH" QMD_COLLECTIONS_PROFILE_BIN="$C/text-profile" \
+    node "$SCRIPT" x >"$C/stdout" 2>"$C/err"; rc=$?
+[ "$rc" -eq 1 ] && grep -q 'text-profile' "$C/err" && [ ! -e "$C/ran" ] \
+    && ok "a text file without #! as the profile: exit 1, the message names it, node did not run it" || bad "text file without #!: rc=$rc ran=$([ -e "$C/ran" ] && echo yes || echo no) err=[$(cat "$C/err")]"
+# A binary starts as it is: it answers nothing, so the message is about its answer, not a SyntaxError of node.
+cp "$(type -P true)" "$C/x.exe"
+HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$T/fakebin"):$PATH" QMD_COLLECTIONS_PROFILE_BIN="$C/x.exe" \
+    node "$SCRIPT" x >"$C/stdout" 2>"$C/err"; rc=$?
+[ "$rc" -eq 1 ] && grep -q 'is not JSON' "$C/err" && ! grep -q 'SyntaxError: Invalid' "$C/err" \
+    && ok "a binary as the profile: it starts, and its empty answer is not JSON" || bad "binary: rc=$rc err=[$(cat "$C/err")]"
+# A #! line naming another interpreter runs by that line, through bash on Windows.
+printf '#!/bin/sh\n: >"%s"\necho nope\n' "$C/ran-sh" >"$C/sh-profile"; chmod +x "$C/sh-profile"
+HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$T/fakebin"):$PATH" QMD_COLLECTIONS_PROFILE_BIN="$C/sh-profile" \
+    node "$SCRIPT" x >"$C/stdout" 2>"$C/err"; rc=$?
+[ "$rc" -eq 1 ] && [ -e "$C/ran-sh" ] && grep -q 'is not JSON' "$C/err" \
+    && ok "a #!/bin/sh file as the profile: it runs" || bad "#!/bin/sh file: rc=$rc err=[$(cat "$C/err")]"
+
+# --- qmd cannot run: the collections are recorded, one stderr line names the grep fallback ------
+setup no-qmd y "$SILENT_Y"
+NODE_DIR="$(dirname "$(node -p process.execPath)")"; GIT_DIR_ON_PATH="$(dirname "$(type -P git)")"
+mkdir -p "$C/empty-prefix/bin"
+if [ -e "$NODE_DIR/qmd" ] || [ -e "$NODE_DIR/qmd.cmd" ] || [ -e "$GIT_DIR_ON_PATH/qmd" ]; then
+    echo "skip the case without qmd: a qmd lies next to this node or git"
+else
+    HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$NODE_DIR"):$GIT_DIR_ON_PATH" QMD_NPM_PREFIX="$C/empty-prefix" \
+        node "$SCRIPT" y >"$C/stdout" 2>"$C/err"; rc=$?
+    [ "$rc" -eq 0 ] && [ -f "$INDEX" ] && [ "$(wc -l <"$C/err" | tr -d ' ')" = 1 ] && grep -q 'qmd not found' "$C/err" && grep -q 'qmd.fallback_grep' "$C/err" \
+        && ok "no qmd: exit 0, index.yml written, one stderr line with the grep fallback" || bad "no qmd: rc=$rc err=[$(cat "$C/err")]"
+fi
+setup old-node y "$SILENT_Y"
+HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$T/fakebin"):$PATH" QMD_NODE_VERSION=22.13.1 node "$SCRIPT" y >"$C/stdout" 2>"$C/err"; rc=$?
+[ "$rc" -eq 0 ] && [ -f "$INDEX" ] && [ ! -e "$QMD_CALLS" ] && [ "$(wc -l <"$C/err" | tr -d ' ')" = 1 ] && grep -q '22.13.1 is older than 22.14' "$C/err" && grep -q 'qmd.fallback_grep' "$C/err" \
+    && ok "node 22.13.1: exit 0, index.yml written, qmd not started, one stderr line with the grep fallback" || bad "old node: rc=$rc err=[$(cat "$C/err")]"
 
 # --- usage ------------------------------------------------------------------------------------
 node "$SCRIPT" >/dev/null 2>&1; rc=$?

@@ -57,11 +57,10 @@
 //   (src/main/harness/status-line.ts); a warning with an action that points it there.
 // The system, its os.release(), its architecture and the answers of the tools come in through
 // CheckDeps, so a test checks Windows on any machine.
-import { execFile, type ChildProcess } from 'node:child_process'
 import { closeSync, existsSync, fstatSync, openSync, readSync } from 'node:fs'
 import { arch as osArch, release as osRelease, tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
-import { fileOrAlias, findGitBash, findOnPath, getVar, type Env as AgentEnv, type FileExists } from '../agent/env'
+import { fileOrAlias, findGitBash, getVar, type Env as AgentEnv, type FileExists } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
 import { limitsBridgeState } from '../harness/status-line'
 import { terminalShell } from '../terminal/pty'
@@ -70,14 +69,15 @@ import { harnessHomes, locateHarness } from '../harness/locate'
 import type { HarnessScriptEnvSource } from '../harness/script-env'
 import { environmentExit, harnessScriptRunner, HarnessScriptStartError, HARNESS_SCRIPT_TIMEOUT_MS, NODE_NOT_FOUND, scriptFailureDetail } from '../workflow/profile'
 import { hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
-import { MIN_NODE_MAJOR, modelPlan, NODE_INSTALL_HINT, profileDocsLanguages, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
-import { programStart, windowsProgramPath } from '../program'
+import { MIN_NODE_MAJOR, MIN_QMD_NODE, modelPlan, profileDocsLanguages, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
+import { programStart } from '../program'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { Check, CheckGroup, CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { numberedVersion } from '../../shared/version-number'
+import { runTool, WINGET_IDS, type Env, type ToolRun } from './tools'
 
-export type Env = Readonly<Record<string, string | undefined>>
+export { killTool, runTool, toolStart, windowsProgram, WINGET_IDS, type Env, type ToolRun } from './tools'
 
 /** A connected Project and what its Profile says about qmd. */
 export interface ProjectProfile {
@@ -156,126 +156,11 @@ export interface Probes {
 /** The oldest Windows worfy runs on: Windows 10 21H2 (Q24). */
 export const MIN_WINDOWS_BUILD = 19044
 
-/** The winget ids of what the checks name on Windows. */
-export const WINGET_IDS = { git: 'Git.Git', gh: 'GitHub.cli', jq: 'jqlang.jq', node: 'OpenJS.NodeJS.LTS', pwsh: 'Microsoft.PowerShell' } as const
-
 const TOOL_TIMEOUT_MS = 15_000
 /** How long the Claude Code process of the sign-in check may take to answer; then it is closed (askAccount). */
 export const ACCOUNT_TIMEOUT_MS = 60_000
 /** The check's own limit on accountInfo(), a little later than askAccount's, so the process is closed first. */
 const SIGN_IN_GUARD_MS = ACCOUNT_TIMEOUT_MS + 5_000
-const MAX_OUTPUT = 256 * 1024
-
-export interface ToolRun {
-  code: number | null
-  stdout: string
-  stderr: string
-  /** Not on the PATH, or not executable. */
-  missing: boolean
-}
-
-/** The extensions windowsProgram looks for, in the order of PATHEXT (`.COM;.EXE;.BAT;.CMD;…` by default). */
-function programExtensions(env: Env): string[] {
-  const listed = (getVar(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
-    .split(';')
-    .map((ext) => ext.trim().toLowerCase())
-    .filter((ext) => ext === '.exe' || ext === '.cmd' || ext === '.bat')
-  return listed.length > 0 ? listed : ['.exe', '.bat', '.cmd']
-}
-
-/**
- * A program on the PATH of `env` on Windows, found as the command line finds it: folder by folder,
- * in each folder `<name>.exe`, `.bat` and `.cmd` in the order of PATHEXT — so npm's claude.cmd in a
- * folder before that of a claude.exe wins, as it does in a terminal. `.bat` and `.cmd` only cmd.exe
- * runs (`cmd: true`). Null when there is none.
- */
-export function windowsProgram(name: string, env: Env, exists?: FileExists): { file: string; cmd: boolean } | null {
-  const extensions = programExtensions(env)
-  for (const dir of (getVar(env, 'PATH') ?? '').split(';')) {
-    for (const ext of extensions) {
-      // findOnPath on that one folder: the same rules for a folder of the Path (full paths only, quotes).
-      const file = findOnPath(`${name}${ext}`, { PATH: dir }, exists)
-      if (file !== null) return { file, cmd: ext !== '.exe' }
-    }
-  }
-  return null
-}
-
-/**
- * How a tool starts. Off Windows by its name, which the PATH of `env` resolves. On Windows by the
- * full path windowsProgram finds; a `.cmd` through cmd.exe of %SystemRoot%, because Node refuses to
- * start a `.cmd` or `.bat` itself (EINVAL, the fix of CVE-2024-27980). The arguments the checks pass
- * are constant words (`--version`, `auth status`), so the line cmd.exe gets needs no escaping. The
- * path itself is quoted but cmd.exe still expands `%NAME%` in it: a folder named with `%` would be
- * read as another one (none of the usual install folders is).
- */
-export function toolStart(name: string, args: readonly string[], env: Env, platform: NodeJS.Platform, exists?: FileExists): { file: string; args: string[]; shell: string | false } | null {
-  if (platform !== 'win32') return { file: name, args: [...args], shell: false }
-  // A full path (a WORFY_GH override, or worfy's own executable that runs a `.mjs` one in runGh) is
-  // that file, as "Sign in with gh" reads it (windowsProgramPath); only a bare name is looked for on
-  // the Path, and a relative path is refused.
-  const path = windowsProgramPath(name, exists ?? fileOrAlias)
-  if (path.kind === 'relative') return null
-  const program = path.kind === 'full' ? (path.file === null ? null : { file: path.file, cmd: /\.(?:cmd|bat)$/i.test(path.file) }) : windowsProgram(name, env, exists)
-  if (program === null) return null
-  if (!program.cmd) return { file: program.file, args: [...args], shell: false }
-  const root = getVar(env, 'SystemRoot') ?? ''
-  const cmdExe = win32.join(/^[A-Za-z]:[\\/]/.test(root) ? root : 'C:\\Windows', 'System32', 'cmd.exe')
-  return { file: [`"${program.file}"`, ...args].join(' '), args: [], shell: cmdExe }
-}
-
-/** taskkill of %SystemRoot%, by its full path. */
-function taskkillPath(env: Env): string {
-  const root = getVar(env, 'SystemRoot') ?? ''
-  return win32.join(/^[A-Za-z]:[\\/]/.test(root) ? root : 'C:\\Windows', 'System32', 'taskkill.exe')
-}
-
-/** Ends a tool that did not answer: on Windows its whole tree (taskkill /T /F on the child worfy started), elsewhere the process itself. */
-export function killTool(child: ChildProcess, platform: NodeJS.Platform, env: Env): void {
-  if (platform === 'win32' && child.pid !== undefined) {
-    execFile(taskkillPath(env), ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => undefined)
-  } else {
-    child.kill('SIGKILL')
-  }
-}
-
-/**
- * Runs a tool found on the PATH of `env`. Never rejects. At `timeoutMs` the run is answered at once
- * as timed out, without waiting for its output pipes to close: a claude.cmd runs node.exe under
- * cmd.exe, and node.exe keeps the pipes open after cmd.exe is gone. The tool is ended then by
- * `kill` (killTool; tests wrap it).
- */
-export function runTool(
-  name: string,
-  args: readonly string[],
-  env: Env,
-  timeoutMs: number,
-  { platform = process.platform, kill = killTool, cwd }: { platform?: NodeJS.Platform; kill?: typeof killTool; cwd?: string } = {},
-): Promise<ToolRun> {
-  const start = toolStart(name, args, env, platform)
-  if (start === null) return Promise.resolve({ code: null, stdout: '', stderr: '', missing: true })
-  return new Promise((resolve) => {
-    let settled = false
-    const settle = (run: ToolRun): void => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      resolve(run)
-    }
-    const options = { env: env as NodeJS.ProcessEnv, maxBuffer: MAX_OUTPUT, encoding: 'utf8' as const, windowsHide: true, ...(cwd === undefined ? {} : { cwd }), ...(start.shell === false ? {} : { shell: start.shell }) }
-    const child = execFile(start.file, start.args, options, (error, stdout, stderr) => {
-      if (!error) return settle({ code: 0, stdout, stderr, missing: false })
-      const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'EACCES') return settle({ code: null, stdout, stderr, missing: true })
-      settle({ code: typeof code === 'number' ? code : null, stdout, stderr: stderr || error.message, missing: false })
-    })
-    const timer = setTimeout(() => {
-      settle({ code: null, stdout: '', stderr: `${name} did not answer within ${Math.round(timeoutMs / 1000)} s`, missing: false })
-      kill(child, platform, env)
-    }, timeoutMs)
-  })
-}
-
 const firstLine = (text: string): string =>
   text
     .split('\n')
@@ -439,7 +324,7 @@ const notFound = (machine: Machine): string => (machine.windows ? 'not found on 
 /** The command that installs a tool: `brew install <tool>` on macOS, `winget install <id>` on Windows. */
 const installCommand = (machine: Machine, name: keyof typeof WINGET_IDS): string => {
   if (machine.windows) return `winget install ${WINGET_IDS[name]}`
-  return name === 'node' ? NODE_INSTALL_HINT : `brew install ${name}`
+  return `brew install ${name}`
 }
 
 async function claudeVersion(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
@@ -803,15 +688,20 @@ interface QmdRows {
   collections: Row
 }
 
-async function qmdRows(deps: CheckDeps): Promise<QmdRows> {
+async function qmdRows(deps: CheckDeps, machine: Machine): Promise<QmdRows> {
   const state = await qmdState({ ...deps.homes, env: deps.env })
   const installed = state.qmd !== null
 
+  const needsNode = `qmd needs node ${MIN_QMD_NODE.join('.')} or newer`
   let qmd: Row
-  if (state.version === 'ok') qmd = row('ok', `${QMD_VERSION} (${state.qmd?.path ?? ''})`)
+  // An installed qmd on an older node dies without a word on any command that opens the index.
+  if (installed && !state.node.ok) {
+    const found = state.node.version === null ? 'there is no node' : `node is ${state.node.version}`
+    qmd = row('warn', `${state.qmd?.version ?? 'unknown version'} (${state.qmd?.path ?? ''})`, `${needsNode}, and ${found}. Until then the Harness searches with grep`, installCommand(machine, 'node'))
+  } else if (state.version === 'ok') qmd = row('ok', `${QMD_VERSION} (${state.qmd?.path ?? ''})`)
   else if (state.version === 'warn') qmd = row('warn', `${state.qmd?.version ?? 'unknown version'} (${state.qmd?.path ?? ''})`, state.warning ?? '')
   else if (!state.node.ok)
-    qmd = row('warn', 'not installed', `qmd needs node ${MIN_NODE_MAJOR} or newer: install node first. Without qmd the Harness searches with grep`, NODE_INSTALL_HINT)
+    qmd = row('warn', 'not installed', `${needsNode}: install node first. Without qmd the Harness searches with grep`, installCommand(machine, 'node'))
   else qmd = row('warn', 'not installed', `Install qmd ${QMD_VERSION} with npm. Without it the Harness searches with grep`, null, [action('qmd-install', 'Install…')])
 
   const size = formatBytes(modelPlan(profileDocsLanguages(deps.homes)).bytes)
@@ -877,7 +767,7 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
     windows: system.platform === 'win32',
   }
   // One read of qmd's state feeds its three rows; a failure there fails each of them with the error.
-  const qmdAll = qmdRows(deps)
+  const qmdAll = qmdRows(deps, machine)
   qmdAll.catch(() => undefined)
   // One read of the installer's state feeds the Harness plugin and its dependencies.
   const harnessStatus = Promise.resolve().then(() => deps.harness())

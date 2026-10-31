@@ -7,7 +7,7 @@ import { log, unsupported } from './stand-in.mjs'
 const args = process.argv.slice(2)
 log('node', args)
 if (args[0] === '--version') {
-  process.stdout.write(`v${process.env.FAKE_NODE_VERSION || '22.11.0'}\n`)
+  process.stdout.write(`v${process.env.FAKE_NODE_VERSION || '22.14.0'}\n`)
 } else if (process.env.FAKE_NODE_REAL) {
   const run = spawnSync(process.env.FAKE_NODE_REAL, args, { stdio: 'inherit' })
   // A real node ended by a signal ends the stand-in by the same signal, as `exec` does in ./node.

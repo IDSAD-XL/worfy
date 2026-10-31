@@ -1,121 +1,147 @@
-#!/bin/zsh
-# qmd-sync-main <profile> — pulls the git copy of the project's main branch that qmd indexes.
-#
-#   qmd-sync-main <profile>              — fetch + checkout of the copy (this is how `update:` in index.yml calls it)
-#   qmd-sync-main --describe <profile>   — print "copy<TAB>branch<TAB>gh account" and exit
-#                                          (qmd-refresh uses this)
-#
-# Project facts come from the profile (bin/profile next to this script), not from this file:
-#   copy     — ~/.cache/qmd/<profile>-<branch>; the qmd.mirror.path field overrides it;
-#   branch   — worktree.base without "origin/" (no field — main); qmd.mirror.branch overrides it;
-#   account  — github.account; no field — git takes credentials as usual.
-# The profile is found by name: the entry of the gate registry ($HARNESS_HOME/gate/config.json) with this `profile`, its `match`.
-#
-# Called by the `update` command of collections in ~/.config/qmd/index.yml, for example
-#   update: <plugin>/bin/qmd-sync-main acme
-# It used to hold a bare `git fetch … || true`: git took the token from the ACTIVE gh account, and when
-# the work account was active, the private repository answered "Repository not found", and `|| true`
-# turned that into rc=0. The index silently stayed on an old main (39 updates out of 212 before 2026-09-29).
-#
-# Here the token is taken explicitly from the profile's account, as in ~/.claude/cloud-routines/git-personal.sh,
-# without switching the active gh account. A failure is written loudly and leaves a marker
-# ~/.cache/qmd/sync-failed-<profile> (time and reason); a successful pass removes the marker.
-# The sync exit code is 0 in both cases: otherwise qmd would not update the other collections
-# (memory, lessons), and the failure signal is the marker and a log line, which `qmd-refresh` shows without --quiet.
-# A usage error (no profile name) — 2; the profile is not found — marker and 0, like a failed pull.
-set -u
+#!/usr/bin/env node
+// qmd-sync-main <profile> — pulls the git copy of the project's main branch that qmd indexes.
+//
+//   qmd-sync-main <profile>              — fetch + checkout of the copy (this is how `update:` in index.yml calls it)
+//   qmd-sync-main --describe <profile>   — print "copy<TAB>branch<TAB>gh account" and exit
+//                                          (qmd-refresh uses this)
+//
+// Project facts come from the profile (bin/profile next to this script), not from this file:
+//   copy     — ~/.cache/qmd/<profile>-<branch>; the qmd.mirror.path field overrides it;
+//   branch   — worktree.base without "origin/" (no field — main); qmd.mirror.branch overrides it;
+//   account  — github.account; no field — git takes credentials as usual.
+// The profile is found by name: the entry of the gate registry ($HARNESS_HOME/gate/config.json) with this `profile`, its `match`.
+//
+// Called by the `update` command of collections in ~/.config/qmd/index.yml, for example
+//   update: node "<plugin>/bin/qmd-sync-main" acme
+// It used to hold a bare `git fetch … || true`: git took the token from the ACTIVE gh account, and when
+// the work account was active, the private repository answered "Repository not found", and `|| true`
+// turned that into rc=0. The index silently stayed on an old main (39 updates out of 212 before 2026-09-29).
+//
+// Here the token is taken explicitly from the profile's account, as in ~/.claude/cloud-routines/git-personal.sh,
+// without switching the active gh account. A failure is written loudly and leaves a marker
+// ~/.cache/qmd/sync-failed-<profile> (time and reason); a successful pass removes the marker.
+// The sync exit code is 0 in both cases: otherwise qmd would not update the other collections
+// (memory, lessons), and the failure signal is the marker and a log line, which `qmd-refresh` shows without --quiet.
+// A usage error (no profile name) — 2; the profile is not found — marker and 0, like a failed pull.
+"use strict"
 
-USAGE='usage: qmd-sync-main [--describe] <profile>'
-# profile is the script next to this one: ${0:A:h} is the folder of this file's real path.
-PROFILE_BIN="${QMD_SYNC_PROFILE_BIN:-${0:A:h}/profile}"   # override for tests
+const fs = require("node:fs")
+const path = require("node:path")
+const { spawnSync } = require("node:child_process")
+const { git: GIT } = require("../hooks/eval-env.cjs")
+const q = require("../hooks/qmd-common.cjs")
 
-DESCRIBE=0
-[[ "${1:-}" == --describe ]] && { DESCRIBE=1; shift }
-NAME="${1:-}"
-[[ -n "$NAME" && "$NAME" != -* ]] || { print -u2 -r -- "qmd-sync-main: no profile named · $USAGE"; exit 2 }
-# Each profile has its own marker: a successful pull of one project does not erase the failure of another.
-MARK="${QMD_SYNC_MARK:-$HOME/.cache/qmd/sync-failed-$NAME}"
+const USAGE = "usage: qmd-sync-main [--describe] <profile>"
+// profile is the script next to this one, in the folder of this file's real path.
+const PROFILE_BIN = process.env.QMD_SYNC_PROFILE_BIN || path.join(path.dirname(fs.realpathSync(__filename)), "profile") // override for tests
 
-# Profile facts as one TSV line: copy, branch, account. Error — text on stdout, exit 1.
-describe() {
-  # The gate registry: $HARNESS_HOME/gate/config.json; with none there but one in the old place,
-  # ~/.claude/gate/config.json, the old one is read (transition, read only).
-  local hh="${HARNESS_HOME:-$HOME/.claude/worfy-harness}" match json
-  local cfg="${CLAUDE_GATE_CONFIG:-$hh/gate/config.json}"
-  [[ -z "${CLAUDE_GATE_CONFIG:-}" && ! -e "$cfg" && -e "$HOME/.claude/gate/config.json" ]] && cfg="$HOME/.claude/gate/config.json"
-  match="$(node -e '
-    const [cfg, name] = process.argv.slice(1)
-    let repos = []
-    try { repos = JSON.parse(require("fs").readFileSync(cfg, "utf8")).repos || [] } catch (e) { process.exit(1) }
-    const hit = repos.find((r) => r.profile === name && r.match)
-    if (hit) process.stdout.write(hit.match)' "$cfg" "$NAME" 2>/dev/null)" \
-    || { print -r -- "registry $cfg unreadable"; return 1 }
-  [[ -n "$match" ]] || { print -r -- "profile $NAME is not in the registry $cfg"; return 1 }
-  # The JSON is stdout only: profile prints warnings on stderr (a broken user.json, a malformed
-  # language) and still exits 0. Its stderr is kept apart: on success it passes through to ours; on a
-  # failure its last line, the profile's own error after any warnings, is the reason.
-  local err="" prc
-  json="$("$PROFILE_BIN" -C "$match" --json 2>"${PROFILE_ERR:-/dev/null}")"; prc=$?
-  [[ -n "${PROFILE_ERR:-}" ]] && err="$(<"$PROFILE_ERR")"
-  if (( prc )); then print -r -- "profile -C $match: ${err##*$'\n'}"; return 1; fi
-  [[ -n "$err" ]] && print -u2 -r -- "$err"
-  print -r -- "$json" | node -e '
-    let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
-      const p = JSON.parse(s), home = process.env.HOME
-      const m = (p.qmd && p.qmd.mirror) || {}
-      const base = (p.worktree && p.worktree.base) || "origin/main"
-      const branch = m.branch || base.replace(/^origin\//, "")
-      const copy = (m.path || `${home}/.cache/qmd/${p.name}-${branch}`).replace(/^~(?=\/)/, home)
-      const account = (p.github && p.github.account) || ""
-      process.stdout.write([copy, branch, account].join("\t") + "\n")
-    })'
+const args = process.argv.slice(2)
+const DESCRIBE = args[0] === "--describe"
+if (DESCRIBE) args.shift()
+const NAME = args[0] || ""
+if (!NAME || NAME.startsWith("-")) {
+    process.stderr.write(`qmd-sync-main: no profile named · ${USAGE}\n`)
+    process.exit(2)
+}
+// Each profile has its own marker: a successful pull of one project does not erase the failure of another.
+const MARK = process.env.QMD_SYNC_MARK || path.join(q.home(), ".cache", "qmd", `sync-failed-${NAME}`)
+function mark(text) {
+    try {
+        fs.mkdirSync(path.dirname(MARK), { recursive: true })
+        fs.writeFileSync(MARK, `${text}\n`)
+    } catch {}
+}
+const lastLine = (text) => text.trimEnd().split(/\r?\n/).pop() || ""
+
+// Profile facts: { copy, branch, account }, or { error } with the reason.
+function describe() {
+    // The gate registry: $HARNESS_HOME/gate/config.json; with none there but one in the old place,
+    // ~/.claude/gate/config.json, the old one is read (transition, read only).
+    const legacy = path.join(q.home(), ".claude", "gate", "config.json")
+    let cfg = process.env.CLAUDE_GATE_CONFIG || path.join(q.harnessHome(), "gate", "config.json")
+    if (!process.env.CLAUDE_GATE_CONFIG && !fs.existsSync(cfg) && fs.existsSync(legacy)) cfg = legacy
+    let repos
+    try {
+        repos = JSON.parse(fs.readFileSync(cfg, "utf8")).repos || []
+    } catch {
+        return { error: `registry ${cfg} unreadable` }
+    }
+    const hit = repos.find((r) => r && r.profile === NAME && r.match)
+    if (!hit) return { error: `profile ${NAME} is not in the registry ${cfg}` }
+    // The JSON is stdout only: profile prints warnings on stderr (a broken user.json, a malformed
+    // language) and still exits 0. On success its stderr passes through to ours; on a failure its last
+    // line, the profile's own error after any warnings, is the reason.
+    const run = q.runScript(PROFILE_BIN, ["-C", hit.match, "--json"])
+    if (run.status !== 0) return { error: `profile -C ${hit.match}: ${lastLine(run.stderr || "") || (run.error ? run.error.message : `exit ${run.status}`)}` }
+    if (run.stderr) process.stderr.write(run.stderr)
+    let p
+    try {
+        p = JSON.parse(run.stdout)
+    } catch (e) {
+        return { error: `profile -C ${hit.match}: not JSON: ${e.message}` }
+    }
+    const mirror = (p.qmd && p.qmd.mirror) || {}
+    const base = (p.worktree && p.worktree.base) || "origin/main"
+    const branch = mirror.branch || base.replace(/^origin\//, "")
+    const copy = mirror.path ? path.normalize(mirror.path.replace(/^~(?=[\\/]|$)/, q.home())) : path.join(q.home(), ".cache", "qmd", `${p.name}-${branch}`)
+    return { copy, branch, account: (p.github && p.github.account) || "" }
 }
 
-# profile's stderr, read by describe; removed on exit and on a signal.
-PROFILE_ERR="$(mktemp "${TMPDIR:-/tmp}/qmd-sync-main-profile.XXXXXX" 2>/dev/null)" || PROFILE_ERR=""
-trap '[[ -n "$PROFILE_ERR" ]] && rm -f -- "$PROFILE_ERR"' EXIT
-trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
-desc="$(describe)"; rc=$?
-if [[ "$DESCRIBE" == 1 ]]; then
-  [[ $rc == 0 ]] || { print -u2 -r -- "qmd-sync-main: $desc"; exit 1 }
-  print -r -- "$desc"; exit 0
-fi
-if [[ $rc != 0 ]]; then
-  print -r -- "$(date '+%F %T') [$NAME] $desc" > "$MARK"
-  print -u2 -r -- "qmd-sync-main: SYNC FAILED — profile $NAME not resolved: $desc"
-  exit 0
-fi
-COPY="${desc%%$'\t'*}"; rest="${desc#*$'\t'}"; BRANCH="${rest%%$'\t'*}"; ACCOUNT="${rest#*$'\t'}"
-COPY="${QMD_SYNC_COPY:-$COPY}"   # the override is only for testing
+const facts = describe()
+if (DESCRIBE) {
+    if (facts.error) {
+        process.stderr.write(`qmd-sync-main: ${facts.error}\n`)
+        process.exit(1)
+    }
+    process.stdout.write(`${facts.copy}\t${facts.branch}\t${facts.account}\n`)
+    process.exit(0)
+}
+if (facts.error) {
+    mark(`${q.timestamp()} [${NAME}] ${facts.error}`)
+    process.stderr.write(`qmd-sync-main: SYNC FAILED — profile ${NAME} not resolved: ${facts.error}\n`)
+    process.exit(0)
+}
+const COPY = process.env.QMD_SYNC_COPY || facts.copy // the override is only for testing
+const { branch: BRANCH, account: ACCOUNT } = facts
 
-git_personal() {
-  if [[ -n "$ACCOUNT" ]]; then
-    git -c credential.helper= \
-      -c "credential.helper=!f() { echo username=x-access-token; echo password=\$(gh auth token --user $ACCOUNT); }; f" "$@"
-  else
-    git "$@"
-  fi
+const git = (argv) => {
+    const run = spawnSync(GIT, argv, { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })
+    return { ok: run.status === 0, stdout: (run.stdout || "").trim(), output: `${run.stdout || ""}${run.stderr || ""}${run.error ? run.error.message : ""}`.trim() }
+}
+// The token of the profile's account, the active gh account untouched.
+const personal = ACCOUNT ? ["-c", "credential.helper=", "-c", `credential.helper=!f() { echo username=x-access-token; echo password=$(gh auth token --user ${ACCOUNT}); }; f`] : []
+
+// The copy must be the root of ITS OWN repository. Otherwise `git -C` goes up the tree
+// and does fetch + checkout --detach in another repository that contains the path
+// (a wrong qmd.mirror.path, a deleted copy inside a working project). The refusal is like
+// a failed pull: marker, a loud line, exit 0.
+const realOf = (p) => {
+    try {
+        return fs.realpathSync(p)
+    } catch {
+        return path.resolve(p)
+    }
+}
+const top = git(["-C", COPY, "rev-parse", "--show-toplevel"])
+if (!top.ok || !top.stdout || path.relative(realOf(top.stdout), realOf(COPY)) !== "") {
+    const why = `copy ${COPY} is not the root of a git repository (git sees the root: ${top.stdout || "no repository"}) — not doing fetch/checkout`
+    mark(`${q.timestamp()} [${NAME}] ${why}`)
+    process.stderr.write(`qmd-sync-main: SYNC FAILED — ${why}\n`)
+    process.exit(0)
 }
 
-# The copy must be the root of ITS OWN repository. Otherwise `git -C` goes up the tree
-# and does fetch + checkout --detach in another repository that contains the path
-# (a wrong qmd.mirror.path, a deleted copy inside a working project). The refusal is like
-# a failed pull: marker, a loud line, exit 0.
-top="$(git -C "$COPY" rev-parse --show-toplevel 2>/dev/null)"
-if [[ -z "$top" || "${top:A}" != "${COPY:A}" ]]; then
-  why="copy $COPY is not the root of a git repository (git sees the root: ${top:-no repository}) — not doing fetch/checkout"
-  print -r -- "$(date '+%F %T') [$NAME] $why" > "$MARK"
-  print -u2 -r -- "qmd-sync-main: SYNC FAILED — $why"
-  exit 0
-fi
-
-if out="$(git_personal -C "$COPY" fetch -q --depth 1 origin "$BRANCH" 2>&1)" \
-   && out2="$(git -C "$COPY" checkout -q --detach "origin/$BRANCH" 2>&1)"; then
-  rm -f "$MARK"
-  echo "qmd-sync-main: copy at $(git -C "$COPY" rev-parse --short HEAD)"
-else
-  msg="$(date '+%F %T') ${out:-}${out2:-}"
-  print -r -- "$msg" > "$MARK"
-  echo "qmd-sync-main: SYNC FAILED — the index stays at $(git -C "$COPY" rev-parse --short HEAD 2>/dev/null || echo '?'): ${out:-}${out2:-}" >&2
-fi
-exit 0
+const short = () => {
+    const head = git(["-C", COPY, "rev-parse", "--short", "HEAD"])
+    return head.ok ? head.stdout : "?"
+}
+const fetched = git([...personal, "-C", COPY, "fetch", "-q", "--depth", "1", "origin", BRANCH])
+const moved = fetched.ok ? git(["-C", COPY, "checkout", "-q", "--detach", `origin/${BRANCH}`]) : { ok: false, output: "" }
+if (fetched.ok && moved.ok) {
+    fs.rmSync(MARK, { force: true })
+    process.stdout.write(`qmd-sync-main: copy at ${short()}\n`)
+} else {
+    const reason = `${fetched.output}${moved.output}`
+    mark(`${q.timestamp()} ${reason}`)
+    process.stderr.write(`qmd-sync-main: SYNC FAILED — the index stays at ${short()}: ${reason}\n`)
+}
+process.exit(0)

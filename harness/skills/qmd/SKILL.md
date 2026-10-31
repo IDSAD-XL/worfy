@@ -35,7 +35,7 @@ are in the `rules.md` of its profile: `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --rul
 The index is refreshed in the background at the start of every session (wrapper
 `${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp`, log `~/.cache/qmd/refresh.log`) and after a turn when the main
 branch has moved (Stop hook `qmd-refresh --quiet`); before that, a collection with `update:` in
-`index.yml` pulls its own copy (`${CLAUDE_PLUGIN_ROOT}/bin/qmd-sync-main <profile>`), and new files
+`index.yml` pulls its own copy (`node "${CLAUDE_PLUGIN_ROOT}/bin/qmd-sync-main" <profile>`), and new files
 are embedded. The index is a snapshot taken at session start: read uncommitted changes and work
 branches from the working tree.
 
@@ -48,7 +48,9 @@ collections yourself: each of these steps needs the user's consent or writes out
   are `mcp__plugin_worfy_qmd__query`, `__get`, `__multi_get`, `__status`. Sessions that worfy starts
   register the same command themselves as `plugin_worfy_qmd`, with the same tool names.
 - **The program.** `qmd` 2.8.3 (the version is pinned; the scripts rely on its behaviour), installed
-  by worfy with `npm install -g @tobilu/qmd@2.8.3` after the user agrees. It needs node 22 or newer.
+  by worfy with `npm install -g @tobilu/qmd@2.8.3` after the user agrees. It needs node 22.14 or newer:
+  below that node dies loading qmd's database module, without a word, so the qmd scripts check the
+  version first and say so in one line.
 - **The models** (about 2.4 GB) are downloaded only after the user agrees, by `qmd pull` with the
   models of `qmd-mcp`; the Russian query expansion model replaces the default one when some project
   has `language.docs: ru`. The answer is the file `~/.claude/worfy-harness/qmd-models`: the first
@@ -65,6 +67,22 @@ collections yourself: each of these steps needs the user's consent or writes out
   `qmd.covers` of the profile, never into the project's repository; a second run changes nothing.
 - **No server in the session** (no `mcp__plugin_worfy_qmd__*` tools, or `status` fails): search with
   `grep` over the profile's `qmd.fallback_grep` and say in the report that qmd was not available.
+  `qmd-mcp` names the reason in one line of stderr, which `/mcp` shows: no consent to the models or a
+  node below 22.14 (exit code 3), no qmd (exit code 127).
+
+## On Windows
+
+qmd works there as on a Mac, and the same rules hold, with these differences:
+
+- **Folders.** The home folder is `HOME`, then `USERPROFILE`: `%USERPROFILE%\.config\qmd\index.yml` and
+  `%USERPROFILE%\.cache\qmd`, models in `models` there. The paths in `index.yml` are quoted, with
+  backslashes.
+- **Starting.** The server and the scripts run as `node <script>`, never by their first line. npm leaves
+  `qmd.cmd`; the scripts run the JavaScript file it names with their own node.
+- **`update:` lines.** qmd runs a line as `bash -c <line>`, without a shell of its own, so `bash` must be
+  Git Bash. The scripts put Git Bash first on the PATH of `qmd update`. A `qmd update` typed in PowerShell
+  may reach the WSL `bash.exe` of System32, or no bash at all: run
+  `node "${CLAUDE_PLUGIN_ROOT}/bin/qmd-refresh" --force --wait` instead.
 
 ## Server tools
 

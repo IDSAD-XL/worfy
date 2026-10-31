@@ -1,12 +1,14 @@
 // qmd as part of the Harness (src/main/harness/qmd.ts, worfy-harness ticket 17): the install
 // through npm, the models with their size and the user's consent, node. `npm`, `node` and `qmd` are
-// links to the stand-in shell scripts of test/fixtures/qmd-stub in a temporary folder, the only one on the PATH of the "login shell"
-// environment handed to the module; each writes its arguments and the variables it saw. HOME, the
-// Harness home and the Claude home are temporary too: nothing reaches the owner's folders.
-import { spawn } from 'node:child_process'
+// the stand-ins of test/fixtures/qmd-stub in a temporary folder, the only one on the PATH of the "login shell"
+// environment handed to the module: links to its shell scripts, on Windows `.cmd` files that run its Node
+// ports, as npm leaves `.cmd` files there. Each writes its arguments and the variables it saw. HOME, the
+// Harness home and the Claude home are temporary too: nothing reaches the owner's folders. The second
+// part runs the qmd scripts of the Harness themselves, as `node <script>`, on a Node stand-in of qmd.
+import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { delimiter, join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   MODELS_ANSWER_FILE,
@@ -14,6 +16,7 @@ import {
   QMD_VERSION,
   answerModels,
   installQmd,
+  modelCacheDir,
   modelPlan,
   qmdState,
   readModelsAnswer,
@@ -24,6 +27,9 @@ import { NODE, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 const REPO = join(import.meta.dirname, '..', '..')
+const WINDOWS = process.platform === 'win32'
+/** What the module tells the user to run for node. */
+const NODE_HINT = WINDOWS ? 'winget install OpenJS.NodeJS.LTS' : 'brew install node'
 
 let root: string
 let bin: string
@@ -37,21 +43,19 @@ let calls: string
  * the PATH needs nothing else. A test links one into `bin` and sets what it answers in `stubVars`,
  * which go into the environment handed to the module. The scripts are the same files in every test:
  * a new executable file per test waits for the macOS check of new files, which timed out under load
- * (worfy-polish ticket 30).
+ * (worfy-polish ticket 30). On Windows a `<name>.cmd` runs the Node port of the stand-in with the tests' node.
  */
 const STUBS = join(import.meta.dirname, '..', 'fixtures', 'qmd-stub')
 let stubVars: Record<string, string>
 function stub(name: string, vars: Record<string, string>): void {
-  rmSync(join(bin, name), { force: true })
-  symlinkSync(join(STUBS, name), join(bin, name))
+  if (WINDOWS) {
+    writeFileSync(join(bin, `${name}.cmd`), `@"${NODE}" "${join(STUBS, `${name}.mjs`)}" %*\r\n`)
+  } else {
+    rmSync(join(bin, name), { force: true })
+    symlinkSync(join(STUBS, name), join(bin, name))
+  }
   Object.assign(stubVars, vars)
 }
-/**
- * Skips a test that runs a stand-in on Windows: the stand-ins are /bin/sh scripts started by their
- * `#!` line, which Windows has neither of. Worfy-windows ticket 15 decides qmd on Windows.
- */
-const needsShStubs = (context: { skip: (condition: boolean, note?: string) => void }): void =>
-  context.skip(process.platform === 'win32', 'qmd scripts are zsh/sh until worfy-windows ticket 15')
 const nodeStub = (version: string): void => stub('node', { NODE_STUB_VERSION: version })
 const qmdStub = (version: string, pullCode = 0): void =>
   stub('qmd', {
@@ -68,8 +72,10 @@ const callLines = (): string[] => {
     return []
   }
 }
+/** A login shell's environment on Windows has SystemRoot: node and cmd.exe need it to start. */
+const systemRoot = (): Record<string, string> => (WINDOWS && process.env.SystemRoot !== undefined ? { SystemRoot: process.env.SystemRoot } : {})
 /** The login shell environment the module is handed: only the stand-ins on the PATH. */
-const env = (): Record<string, string> => ({ PATH: bin, HOME: home, LOGIN_MARK: 'login-shell', CALLS: calls, ...stubVars })
+const env = (): Record<string, string> => ({ ...systemRoot(), PATH: bin, HOME: home, LOGIN_MARK: 'login-shell', CALLS: calls, ...stubVars })
 const options = () => ({ harnessHome, claudeHome, env: env() })
 const profile = (dir: string, name: string, docs: string | null): void => {
   mkdirSync(join(dir, name), { recursive: true })
@@ -113,8 +119,7 @@ describe('installQmd', () => {
     expect(callLines()).toEqual([])
   })
 
-  it('with consent runs exactly `npm install -g @tobilu/qmd@<QMD_VERSION>` in the login shell environment', async (context) => {
-    needsShStubs(context)
+  it('with consent runs exactly `npm install -g @tobilu/qmd@<QMD_VERSION>` in the login shell environment', async () => {
     nodeStub('v24.19.0')
     npmStub()
     const result = await installQmd({ ...options(), consent: true })
@@ -124,8 +129,7 @@ describe('installQmd', () => {
     expect(result).toEqual({ status: 'installed', version: null })
   })
 
-  it('with qmd of another version on the PATH: a warning with that version, npm is not run', async (context) => {
-    needsShStubs(context)
+  it('with qmd of another version on the PATH: a warning with that version, npm is not run', async () => {
     nodeStub('v24.19.0')
     npmStub()
     qmdStub('2.9.1')
@@ -134,12 +138,11 @@ describe('installQmd', () => {
     expect(result.status === 'other-version' && result.warning).toMatch(/qmd 2\.9\.1 .*2\.8\.3/)
     expect(callLines()).toEqual([])
     const state = await qmdState(options())
-    expect(state).toMatchObject({ version: 'warn', qmd: { version: '2.9.1', path: join(bin, 'qmd') } })
+    expect(state).toMatchObject({ version: 'warn', qmd: { version: '2.9.1', path: join(bin, WINDOWS ? 'qmd.cmd' : 'qmd') } })
     expect(state.warning).toMatch(/2\.9\.1/)
   })
 
-  it('with the pinned qmd already there: nothing to do, npm is not run', async (context) => {
-    needsShStubs(context)
+  it('with the pinned qmd already there: nothing to do, npm is not run', async () => {
     nodeStub('v24.19.0')
     npmStub()
     qmdStub(QMD_VERSION)
@@ -148,8 +151,7 @@ describe('installQmd', () => {
     expect(await qmdState(options())).toMatchObject({ version: 'ok', warning: null })
   })
 
-  it('a failed npm: an error with its exit code and the last line of stderr, and no second attempt', async (context) => {
-    needsShStubs(context)
+  it('a failed npm: an error with its exit code and the last line of stderr, and no second attempt', async () => {
     nodeStub('v24.19.0')
     npmStub(243)
     const result = await installQmd({ ...options(), consent: true })
@@ -162,21 +164,26 @@ describe('installQmd', () => {
     expect(callLines()).toHaveLength(1)
   })
 
-  it.for<[string, string | null, RegExp]>([
-    ['node 20', 'v20.11.1', /node is 20\.11\.1.*brew install node/],
-    ['no node', null, /there is no node.*brew install node/],
-  ])('%s: npm is not run, the error names brew install node', async ([, version, message], context) => {
-    // Only the row with a node stand-in runs one; the row with no node runs on Windows too.
-    if (version !== null) {
-      needsShStubs(context)
-      nodeStub(version)
-    }
+  it.for<[string, string | null, string]>([
+    ['node 20', 'v20.11.1', 'qmd needs node 22.14 or newer, and node is 20.11.1'],
+    // better-sqlite3 of qmd 2.8.3 kills every node below 22.14 without a word.
+    ['node 22.13', 'v22.13.1', 'qmd needs node 22.14 or newer, and node is 22.13.1'],
+    ['no node', null, 'qmd needs node 22.14 or newer, and there is no node'],
+  ])('%s: npm is not run, the error names the command that installs node', async ([, version, message]) => {
+    if (version !== null) nodeStub(version)
     npmStub()
     const result = await installQmd({ ...options(), consent: true })
     expect(result.status).toBe('no-node')
-    expect(result.status === 'no-node' && result.error).toMatch(message)
+    expect(result.status === 'no-node' && result.error).toBe(`${message}: install it with \`${NODE_HINT}\``)
     expect(callLines()).toEqual([])
     expect((await qmdState(options())).node.ok).toBe(false)
+  })
+
+  it('node 22.14: npm runs', async () => {
+    nodeStub('v22.14.0')
+    npmStub()
+    expect(await installQmd({ ...options(), consent: true })).toEqual({ status: 'installed', version: null })
+    expect((await qmdState(options())).node).toEqual({ version: '22.14.0', ok: true })
   })
 })
 
@@ -210,8 +217,13 @@ describe('the models', () => {
     expect((await qmdState(options())).models.present).toEqual([QMD_MODELS.embed.uri])
   })
 
-  it('qmd pull runs only after the consent, with the variables of qmd-mcp, and the answer says downloaded', async (context) => {
-    needsShStubs(context)
+  it('the cache lies in the home folder qmd takes: HOME, then USERPROFILE, unless XDG_CACHE_HOME says otherwise', () => {
+    expect(modelCacheDir({ HOME: join('a', 'home'), USERPROFILE: join('a', 'profile') })).toBe(join('a', 'home', '.cache', 'qmd', 'models'))
+    expect(modelCacheDir({ USERPROFILE: join('a', 'profile') })).toBe(join('a', 'profile', '.cache', 'qmd', 'models'))
+    expect(modelCacheDir({ XDG_CACHE_HOME: join('a', 'cache'), HOME: join('a', 'home') })).toBe(join('a', 'cache', 'qmd', 'models'))
+  })
+
+  it('qmd pull runs only after the consent, with the variables of qmd-mcp, and the answer says downloaded', async () => {
     qmdStub(QMD_VERSION)
     profile(join(harnessHome, 'projects'), 'w', 'ru')
     expect(callLines()).toEqual([])
@@ -224,15 +236,13 @@ describe('the models', () => {
     expect((await qmdState(options())).answer).toBe('downloaded')
   })
 
-  it('without a Russian Project qmd pull gets no QMD_GENERATE_MODEL: the default expansion model', async (context) => {
-    needsShStubs(context)
+  it('without a Russian Project qmd pull gets no QMD_GENERATE_MODEL: the default expansion model', async () => {
     qmdStub(QMD_VERSION)
     await answerModels({ ...options(), env: { ...env(), QMD_GENERATE_MODEL: 'from-the-shell' }, download: true })
     expect(callLines()).toEqual([`qmd pull emb=${QMD_MODELS.embed.uri} gen=unset mark=login-shell`])
   })
 
-  it('the answer lists the models qmd pull reported: a model pinned in index.yml wins over the plan', async (context) => {
-    needsShStubs(context)
+  it('the answer lists the models qmd pull reported: a model pinned in index.yml wins over the plan', async () => {
     qmdStub(QMD_VERSION)
     profile(join(harnessHome, 'projects'), 'w', 'ru')
     const result = await answerModels({ ...options(), env: { ...env(), PULLED_GENERATE: DEFAULT }, download: true })
@@ -251,8 +261,7 @@ describe('the models', () => {
     expect(Object.keys(snapshot(home)).filter((path) => !(path in before))).toEqual([`/.claude/worfy-harness/${MODELS_ANSWER_FILE}`])
   })
 
-  it('a failed qmd pull writes no answer: the server stays off', async (context) => {
-    needsShStubs(context)
+  it('a failed qmd pull writes no answer: the server stays off', async () => {
     qmdStub(QMD_VERSION, 3)
     const result = await answerModels({ ...options(), download: true })
     expect(result).toMatchObject({ status: 'failed', code: 3, stderr: 'pull: network down' })
@@ -264,28 +273,101 @@ describe('the models', () => {
     expect(readModelsAnswer(harnessHome)).toBeNull()
   })
 
-  it('the model URIs are the ones the Harness scripts set', () => {
-    const script = (name: string): string => readFileSync(join(REPO, 'harness', 'bin', name), 'utf8')
-    const mcp = script('qmd-mcp')
-    expect(mcp).toContain(`EMBED_MODEL="${QMD_MODELS.embed.uri}"`)
-    expect(mcp).toContain(`RU_GENERATE_MODEL="${RU}"`)
-    expect(mcp).toContain(`DEFAULT_GENERATE_MODEL="${DEFAULT}"`)
-    expect(mcp).toContain(`ANSWER_FILE="$HARNESS_HOME/${MODELS_ANSWER_FILE}"`)
-    expect(script('qmd-refresh')).toContain(`QMD_EMBED_MODEL="${QMD_MODELS.embed.uri}"`)
-    expect(script('qmd-collections')).toContain(`EMBED_MODEL = "${QMD_MODELS.embed.uri}"`)
+  it('the model URIs and the answer file are the ones the Harness scripts use', () => {
+    const shared = readFileSync(join(REPO, 'harness', 'hooks', 'qmd-common.cjs'), 'utf8')
+    expect(shared).toContain(`EMBED_MODEL = "${QMD_MODELS.embed.uri}"`)
+    expect(shared).toContain(`RU_GENERATE_MODEL = "${RU}"`)
+    expect(shared).toContain(`DEFAULT_GENERATE_MODEL = "${DEFAULT}"`)
+    expect(shared).toContain(`path.join(harnessHome(), "${MODELS_ANSWER_FILE}")`)
+  })
+})
+
+// The behaviour of worfy-harness ticket 17 on the Node version of the scripts (worfy-windows ticket 15).
+describe('the qmd scripts of the Harness, as Claude Code starts them', () => {
+  const HARNESS = join(REPO, 'harness')
+  const EMBED = QMD_MODELS.embed.uri
+  const RU = QMD_MODELS.generateRu.uri
+  let tools: string
+
+  beforeEach(() => {
+    tools = join(root, 'wrapper-bin')
+    mkdirSync(tools)
+    // Node scripts named as the real ones: qmd-mcp finds `qmd` on the PATH and starts it with its own node.
+    writeFileSync(
+      join(tools, 'qmd'),
+      `#!/usr/bin/env node\nconst e = process.env\nrequire("fs").appendFileSync(e.CALLS, process.argv[2] + " gen=" + (e.QMD_GENERATE_MODEL || "unset") + " emb=" + (e.QMD_EMBED_MODEL || "unset") + "\\n")\n`,
+      { mode: 0o755 },
+    )
+    writeFileSync(join(root, 'profile'), '#!/usr/bin/env node\nconsole.log(process.env.LANG_DOCS)\n')
+  })
+
+  /** `node harness/bin/qmd-mcp`, stdin closed at once, with the versions and answers a case sets. */
+  const qmdMcp = (vars: Record<string, string> = {}) =>
+    spawnSync(NODE, [join(HARNESS, 'bin', 'qmd-mcp')], {
+      cwd: root,
+      encoding: 'utf8',
+      input: '',
+      env: {
+        ...systemRoot(),
+        PATH: [tools, NODE_DIR].join(delimiter),
+        HOME: home,
+        HARNESS_HOME: harnessHome,
+        CALLS: calls,
+        QMD_MCP_NO_REFRESH: '1',
+        QMD_MCP_PROFILE_BIN: join(root, 'profile'),
+        QMD_NPM_PREFIX: join(root, 'no-npm-prefix'),
+        // The check of the version is its own case: the others do not depend on the node of the machine.
+        QMD_NODE_VERSION: '24.0.0',
+        LANG_DOCS: 'en',
+        ...vars,
+      },
+    })
+  const answer = (text: string): void => writeFileSync(join(harnessHome, MODELS_ANSWER_FILE), text)
+
+  it.for<[string, string | null]>([
+    ['no answer', null],
+    ['the answer "skipped"', 'skipped\n'],
+  ])('qmd-mcp with %s: exit code 3, one stderr line that names the grep fallback, and no `qmd mcp`', ([, text]) => {
+    if (text !== null) answer(text)
+    const run = qmdMcp()
+    expect(run.status).toBe(3)
+    expect(run.stderr.trimEnd().split('\n')).toHaveLength(1)
+    expect(run.stderr).toContain("search with grep over the profile's qmd.fallback_grep")
+    expect(callLines()).toEqual([])
+  })
+
+  it('qmd-mcp with language.docs ru: the Russian query expansion model', () => {
+    answer('downloaded\n')
+    const run = qmdMcp({ LANG_DOCS: 'ru' })
+    expect(run.status, run.stderr).toBe(0)
+    expect(callLines()).toEqual([`mcp gen=${RU} emb=${EMBED}`])
+  })
+
+  it('qmd-mcp with another language: the default query expansion model of qmd', () => {
+    answer('downloaded\n')
+    const run = qmdMcp()
+    expect(run.status, run.stderr).toBe(0)
+    expect(callLines()).toEqual([`mcp gen=unset emb=${EMBED}`])
+  })
+
+  it('qmd-mcp on node 22.13: exit code 3, one line that says why, and qmd does not start, because it would die without a word', () => {
+    answer('downloaded\n')
+    const run = qmdMcp({ QMD_NODE_VERSION: '22.13.1' })
+    expect(run.status).toBe(3)
+    expect(run.stderr.trimEnd().split('\n')).toHaveLength(1)
+    expect(run.stderr).toMatch(/22\.13\.1 is older than 22\.14\.0.*qmd\.fallback_grep/)
+    expect(callLines()).toEqual([])
+  })
+
+  it('.mcp.json and the Stop hook start the scripts through node, not by their first line', () => {
+    const mcp = JSON.parse(readFileSync(join(HARNESS, '.mcp.json'), 'utf8')) as { mcpServers: Record<string, unknown> }
+    expect(mcp.mcpServers.qmd).toEqual({ command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp'] })
+    const hooks = JSON.parse(readFileSync(join(HARNESS, 'hooks', 'hooks.json'), 'utf8')) as { hooks: { Stop: { hooks: { command: string }[] }[] } }
+    expect(hooks.hooks.Stop.flatMap((group) => group.hooks.map((hook) => hook.command))).toContain('node "${CLAUDE_PLUGIN_ROOT}/bin/qmd-refresh" --quiet')
   })
 })
 
 describe('setupCollections', () => {
-  it('runs bin/qmd-collections <project> with the login shell environment and HARNESS_HOME', async (context) => {
-    needsShStubs(context)
-    const scripts = join(root, 'harness-bin')
-    mkdirSync(scripts)
-    symlinkSync(join(STUBS, 'qmd-collections'), join(scripts, 'qmd-collections'))
-    const result = await setupCollections({ ...options(), binDir: scripts, project: 'worfy' })
-    expect(result).toEqual({ code: 0, output: `args=worfy mark=login-shell hh=${harnessHome}\n` })
-  })
-
   // worfy-windows ticket 30: Windows does not run the file by its `#!` line; the script goes through
   // the launcher of every Harness script, as `node <script> <project>`.
   it('starts the Node script as node <script> <project>, node from the PATH of the login shell', async () => {
