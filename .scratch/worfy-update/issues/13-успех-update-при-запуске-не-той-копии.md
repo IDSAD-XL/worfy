@@ -1,7 +1,8 @@
 # 13 — Успех Update не показывается, когда запущена не та копия
 
 Type: bug
-Status: claimed 2026-10-31T12:07Z
+Status: done 2026-10-31T12:45Z
+PR: #1134
 Branch: worfy-update/13
 Blocked by: 04, 07
 Source: находка implementer-а Ticket-а 11 (out of scope), подтверждена чтением кода 2026-10-31; [spec.md](../spec.md), R8 (commit, с которого откатились, «тихий» до следующего)
@@ -76,3 +77,6 @@ Source: находка implementer-а Ticket-а 11 (out of scope), подтве�
 - Отклонение от тикета: test-ы `settleLastRestart` Ticket-а 04 лежат в `test/contract/update-restart.test.ts`, а не в
   `test/unit/update-restart*.test.ts`; новый файл — в `test/unit/` по следу брифа. Проверка toast-а — отдельно в
   `.tsx`: test-проект renderer-а (`tsconfig.test.web.json`) не видит `src/main`.
+- Ревью: VERIFIED (Orchestrator, high), круг полировки — перевод в `ru/updates.md`. Low (не Ticket): test toast-а
+  держит текст причины литералом, смена причины в `restart.ts` его не покрасит. Вне Ticket-а: новая копия, упавшая
+  уже после чтения `result.json`, по-прежнему не «тихая» — страница говорит это прямо.
