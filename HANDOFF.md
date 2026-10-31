@@ -24,7 +24,7 @@
 
 ## Ждёт владельца
 
-- `worfy-onboarding`: приёмка 12 сегодня: Mac, затем ПК вместе с link 31.
+- `worfy-onboarding`: 12 — Mac принят 2026-10-31, ПК — с link 31; 13, 14 — по снимкам.
 - С `check/windows` skipped, пока ПК на паузе, влит #878 — его покрывает полный run Windows e2e ПК на свежем `main` (решение 2026-10-28).
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
 - Песочница приёмки в `$TMPDIR`: macOS чистит файлы через три дня без обращений. Исправление — `worfy-harness` 36; после merge владелец запускает `move` (команды — в PR).
@@ -57,7 +57,7 @@
 - Очередь мержа (владелец, Q7, Q10) пройдена: #517, #496, #508 влиты; `worfy-pipeline` 08 влит (#552).
 - `worfy-harness` 50, 51 — платный повтор кейса eval (`~/.docker/bin` вынести на время run-а); 52 — Session без plugin-а для задач и платные шаги 2б, 4, 5.
 - `worfy-windows`, очередь ПК (2026-10-24): 113 (замер на worfy, запущенной вручную) → 07 (первая настоящая Wave на ПК) → 15 (краш qmd — `better-sqlite3` на node < 22.14, «Итог» 15), 67, 68 → приёмка 16; 61 — low; 73 — правка на ПК (`worfy-windows/70-lows`).
-- `worfy-onboarding` ([spec](.scratch/worfy-onboarding/spec.md)): 11/12, код готов; осталась приёмка 12 с владельцем.
+- `worfy-onboarding` ([spec](.scratch/worfy-onboarding/spec.md)): 11/14; 12 — Mac принят 2026-10-31, осталась ПК-часть; 13 (панель) и 14 (подсветка) открыты.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - После `pnpm install:stable` — первый `retro` на настоящем сбое (`worfy-reliability` 09, пункт «(вручную)»).
