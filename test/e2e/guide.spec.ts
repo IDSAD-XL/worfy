@@ -366,7 +366,7 @@ test('the Map of worfy is the first Topic, and each of its blocks opens its Topi
     const blocks = scene.locator('[data-block]')
     await expect(blocks).toHaveCount(17)
 
-    let pages = 0
+    let topics = 0
     for (const id of await blocks.evaluateAll((all) => all.map((block) => block.getAttribute('data-block') ?? ''))) {
       const block = scene.locator(`[data-block="${id}"]`)
       const kind = await block.getAttribute('data-target')
@@ -376,23 +376,31 @@ test('the Map of worfy is the first Topic, and each of its blocks opens its Topi
       // On its shape: a tab's note stands apart from it, and the middle of the two is empty.
       await block.locator('rect').first().click()
       if (kind === 'page') {
-        pages += 1
         await expect.poll(async () => (await opened()).slice(before), id).toEqual([expect.stringMatching(new RegExp(`^https://github\\.com/IDSAD-XL/worfy/blob/[0-9a-f]{7,40}/${to.replaceAll('.', '\\.')}$`))])
         await expect(guide.getByTestId('guide-topic')).toHaveAttribute('data-topic', 'map-of-worfy')
       } else {
+        topics += 1
         await expect(guide.getByTestId('guide-topic'), id).toHaveAttribute('data-topic', to)
         expect(await opened()).toHaveLength(before)
         await guide.locator('[data-testid="guide-topic-item"][data-topic="map-of-worfy"]').click()
       }
     }
-    // While its Topics are not written, the blocks lead to their pages.
-    expect(pages).toBeGreaterThan(0)
-    // The keyboard: Enter on a focused block opens it as a click does.
+    // Written Topics (worfy-guide 06-08 and on) are opened from the Map. The page branch above runs
+    // only while some block's Topic is not written; once worfy-guide 11-19 have written them all, the
+    // Full-page path is checked by the unit test alone (test/unit/guide-map.test.tsx, which hides
+    // Topics from the registry).
+    expect(topics).toBeGreaterThan(0)
+    // The keyboard: Enter on a focused block opens it as a click does, whichever it leads to.
     const before = (await opened()).length
-    await scene.locator('[data-block="gate"]').focus()
+    const gate = scene.locator('[data-block="gate"]')
+    const gateTarget = await gate.getAttribute('data-target')
+    await gate.focus()
     await window.keyboard.press('Enter')
-    if ((await scene.locator('[data-block="gate"]').getAttribute('data-target')) === 'page') {
+    if (gateTarget === 'page') {
       await expect.poll(async () => (await opened()).slice(before)).toEqual([expect.stringMatching(/\/docs\/features\/gate-and-github\.md$/)])
+    } else {
+      await expect(guide.getByTestId('guide-topic')).toHaveAttribute('data-topic', 'gate-and-github')
+      expect(await opened()).toHaveLength(before)
     }
   } finally {
     await launched.close()
