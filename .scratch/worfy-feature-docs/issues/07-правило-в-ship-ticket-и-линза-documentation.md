@@ -1,7 +1,8 @@
 # 07 — Правило «обновить страницу в том же PR»: поле Profile, шаг `worfy:ship-ticket`, линза `documentation`
 
 Type: task
-Status: open
+Status: done 2026-10-31T00:08Z
+PR: #1084
 Blocked by: 06
 Source: «Проверки», «Исключения» и «Решено без владельца», Р4, [spec.md](../spec.md); решения владельца 2026-10-30, Q4, Q19, Q21, Q23; [ADR-0074](../../../docs/adr/0074-harness-neutral-by-language-and-project.md); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md)
 
