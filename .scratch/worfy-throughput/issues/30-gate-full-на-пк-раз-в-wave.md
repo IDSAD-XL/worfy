@@ -1,7 +1,8 @@
 # 30 — gate full на Windows-ПК раз в Wave на `main`, а не на каждый PR со scope `pc`
 
 Type: task
-Status: claimed 2026-10-29T12:19Z
+Status: done 2026-10-31T19:39Z
+PR: #989
 Branch: worfy-throughput/30-pc-gate-once-per-wave
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 1, решение 7;
 ADR-0056 (Windows-проверки и две Session), пункт 2 —
@@ -40,7 +41,7 @@ skill `epic-wave`, `rules.md` Profile-а; слово владельца дано
 - [x] Текст skill-а; `harness/bin/tests/epic-wave-ship-ticket.test.sh` — exit 0.
 - [x] После merge: правило ADR-0086 в `rules.md` Profile-а worfy на обеих машинах (ADR-0042) — на Mac правит
       Orchestrator, на ПК — Session на ПК; Session на ПК открывает и закрывает issue `pc-main-red`.
-- [ ] (вручную, ПК) Первая Wave с PR со scope `pc`: PR влит до gate full на ПК; gate full на ПК на `main` после
+- [x] (вручную, ПК) Первая Wave с PR со scope `pc`: PR влит до gate full на ПК; gate full на ПК на `main` после
       Wave — код и строка `[gate] green (full)` в «Итог»; время Windows-Ticket-а до merge — по Ticket-у 14.
 
 ## Где в коде
@@ -96,3 +97,12 @@ PR #989, после двух раундов ревью Orchestrator-а.
   передаёт одним аргументом (проверки 1 test.sh пишут текст во временный файл).
 - Не сделано здесь: правило в `rules.md` на обеих машинах (после merge) и приёмка на первой Wave с PR со scope
   `pc` (последние пункты «Готово, когда»).
+
+Закрытие (2026-10-31, Orchestrator; данные ПК через мост). Первая Wave с PR со scope `pc`: #1148 (`worfy-windows` 116,
+`src/main/terminal/windows-pty.ts`) влит в 17:00Z без gate full на ПК на своём head. Gate full на ПК на `main` после
+Wave прошёл на `15932ac9` (до него влиты #1149, #1150, #1155): exit 0, 3295 s, 18:42–19:37Z,
+`[gate] green (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package`;
+vitest 10877 passed, e2e 362 passed, package 16 passed, 0 failed; две Windows exception (`worfy-windows` 117). Это
+первый полностью зелёный gate full на ПК. Ему предшествовали красный на `bcd24970` (issue #1153: два e2e кликали кнопки
+за краем окна, починено #1155) и 11 красных до таблицы. Время Windows-Ticket-а 116 от claim до merge — 1 ч 34 мин
+(15:26Z → 17:00Z).
