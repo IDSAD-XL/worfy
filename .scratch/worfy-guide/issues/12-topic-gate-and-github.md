@@ -34,7 +34,7 @@ Topic сжимает `docs/features/gate-and-github.md` до одного экр
 ## Итог
 
 Topic `gate-and-github` (`src/renderer/guide/topics/gate-and-github/`): `spec.ts` с двумя схемами, `Scene.tsx` (простой
-уровень, `viewBox` 796×494, 6 блоков, 6 связей, 5 шагов проигрывателя), `Flow.tsx` (поток данных badges в Under the hood,
+уровень, `viewBox` 836×494, 6 блоков, 6 связей, 5 шагов проигрывателя), `Flow.tsx` (поток данных badges в Under the hood,
 976×476, 8 блоков, 8 связей), `en.json`, `ru.json`, `topic.json` и одна строка `registry.ts`. `topic.json` сверен с
 `docs/features/gate-and-github.md` на 1c9d99c7 (последний commit страницы). Блок Gate на Map of worfy теперь открывает этот
 Topic. Блоки Canvas, Ticket и Session ведут в Topic-и `canvas`, `workflow`, `sessions`, пока Topic-а нет — на его страницу.
@@ -81,21 +81,36 @@ Session → GitHub «pushes, opens a PR» взята из skill-а, а не со
 **Снимки** (Playwright против сборки ветки, окно 1280×800; у каждого есть пара `-dark`):
 [EN](../evidence/12-gate-and-github-en-light.png), [RU](../evidence/12-gate-and-github-ru-light.png),
 [подсветка Gate](../evidence/12-gate-and-github-lit-en-light.png), [шаг 2](../evidence/12-gate-and-github-step-en-light.png),
+[подсветка GitHub EN](../evidence/12-gate-and-github-lit-github-en-light.png) / [RU](../evidence/12-gate-and-github-lit-github-ru-light.png),
+[шаг 4](../evidence/12-gate-and-github-step-4-en-light.png),
 [reduced motion, RU](../evidence/12-gate-and-github-reduced-motion-ru-light.png),
 [Under the hood EN](../evidence/12-gate-and-github-under-the-hood-en-light.png) / [RU dark](../evidence/12-gate-and-github-under-the-hood-ru-dark.png),
 [таблица файлов и лимиты EN](../evidence/12-gate-and-github-under-the-hood-files-en-light.png) / [RU](../evidence/12-gate-and-github-under-the-hood-files-ru-light.png),
 [подсветка checks.get на потоке данных](../evidence/12-gate-and-github-flow-lit-en-light.png).
 Контраст текста: каждый видимый текст Topic-а (HTML, подписи блоков, областей и связей обеих схем, до 99 текстов на
 замер) против своего фона, обе темы, EN и RU — минимум 5,60:1 в светлой и 5,93:1 в тёмной, ниже 4,5:1 нет ни одного.
-Снимки сняты со сборки commit-а 666661cd без незакоммиченных правок (в шапке приложения версия без `.dirty`).
+Снимки сняты со сборки закоммиченной ветки без незакоммиченных правок (в шапке приложения версия без `.dirty`).
 
 **Подписи связей.** Разовая проверка Playwright вне репозитория (удалена): наведение на каждый блок обеих схем и каждый
-шаг проигрывателя, EN и RU, — 38 состояний, 74 подсвеченные подписи; ни одна не задевает другую подпись, блок или
-наконечник стрелки (сравнение bounding box). Первый прогон нашёл подпись «runs it, or a hook does» поверх блоков Gate и
-Session: подпись сокращена до «runs it» (hook назван в шаге 1), а Canvas, Ticket, Session и GitHub сдвинуты на 40 вправо.
+шаг проигрывателя, EN и RU, — 38 состояний, 74 подсвеченные подписи; ни одна не задевает другую подпись, блок, заголовок
+области (THIS MACHINE, GITHUB, RENDERER…) или наконечник стрелки, и заголовки областей не задевают блоки (сравнение
+bounding box). Первый прогон нашёл подпись «runs it, or a hook does» поверх блоков Gate и Session: подпись сокращена до
+«runs it» (hook назван в шаге 1), Canvas, Ticket и Session сдвинуты вправо.
 
 **Объём.** Простой уровень — 53 слова EN / 47 RU, шаги — 153 / 128; Under the hood (текст, таблица файлов и лимиты
 вместе) — 170 / 160.
 
 **Tokens.** Автор: около 150 тыс. токенов контекста (точного счётчика у агента нет; оценка по объёму прочитанного и
 написанного). Проверка: заполняет ревьюер.
+
+**Доработка после REJECTED (PR #1179, ревью medium).** Утверждения сужены до источника, EN и RU: список PR-ов читается не
+чаще раза в 60 s, а ветка Ticket-а не из списка ищется отдельно, каждая не чаще раза в 5 минут (заметка PrTracker и
+лимит); gh работает от `github.account` из Profile, только если Profile его называет, иначе от аккаунта login shell;
+шаг 5 — Gate full «перед merge», а не «на ветке» (при `merge_gate` `wave` run идёт на наборе PR-ов Wave); summary и шаг 4:
+chip-ы PR, CI и вердикта — только на Ticket-ах, на Session — только chip gate; поток данных: «исход run-а», а не «каждого
+run-а». Исправлены три ссылки таблицы. Схема: GitHub и заголовок GITHUB опущены и сдвинуты вправо, подпись связи
+GitHub → Ticket больше не закрывает заголовок; заголовки областей в RU — «Эта Machine», «GitHub», «Harness и GitHub», как
+на Map of worfy. Проверка подписей теперь сравнивает их и с заголовками областей: на сборке до доработки она нашла ровно
+находку ревью (подпись github->ticket на заголовке GITHUB при наведении на Ticket и GitHub и на шагах 4–5, EN и RU), на
+промежуточной раскладке — подпись session->github на блоке Session; на итоговой — ничего. Добавлены снимки: наведение на
+GitHub (EN, RU) и шаг 4.
