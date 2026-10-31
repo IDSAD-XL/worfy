@@ -4,9 +4,13 @@
 // long note of a block breaks into two lines. Pure functions, no DOM.
 import { describe, expect, it } from 'vitest'
 import {
+  CHIP_HEIGHT,
   DOT_SPEED,
   NODE_HEIGHT,
   NODE_WIDTH,
+  TAB_HEIGHT,
+  blockTarget,
+  boxOf,
   dotFraction,
   edgeId,
   edgeShape,
@@ -62,6 +66,52 @@ describe('edgeShape: a cubic curve from the middle of a side to the middle of a 
     expect(shape.tip).toEqual({ x: 10 + NODE_WIDTH / 2, y: 100 })
     expect(shape.angle).toBe(90)
     expect(edgeShape(block('a', 0, 100), block('b', 0, 0)).angle).toBe(-90)
+  })
+})
+
+describe('a tab, a chip and a route of an Edge (worfy-guide ticket 05)', () => {
+  it('a tab and a chip take the width they are given and their own height; a Node is always NODE_WIDTH × NODE_HEIGHT', () => {
+    expect(boxOf({ ...block('a', 1, 2), width: 300 })).toEqual({ x: 1, y: 2, width: NODE_WIDTH, height: NODE_HEIGHT })
+    expect(boxOf({ ...block('a', 1, 2), shape: 'tab', width: 90 })).toEqual({ x: 1, y: 2, width: 90, height: TAB_HEIGHT })
+    expect(boxOf({ ...block('a', 1, 2), shape: 'chip', width: 128 })).toEqual({ x: 1, y: 2, width: 128, height: CHIP_HEIGHT })
+  })
+
+  it('an Edge to a tab ends at the middle of the tab, not of a Node-sized box', () => {
+    const shape = edgeShape(block('a', 0, 0), { ...block('tab', 400, 0), shape: 'tab', width: 90 })
+    expect(shape.tip).toEqual({ x: 400, y: TAB_HEIGHT / 2 })
+    expect(numbers(shape.d).slice(0, 2)).toEqual([NODE_WIDTH, NODE_HEIGHT / 2])
+  })
+
+  it('the sides an Edge names win over the facing ones, and the shifts move its ends along them', () => {
+    // Side by side, the Edge would run right to left; told to, it leaves by the bottom and enters by the top.
+    const shape = edgeShape(block('a', 0, 0), block('b', 400, 0), { fromSide: 'bottom', toSide: 'top', fromShift: 30, toShift: -20 })
+    const [sx, sy, c1x, c1y] = numbers(shape.d)
+    expect([sx, sy]).toEqual([NODE_WIDTH / 2 + 30, NODE_HEIGHT])
+    // The first arm goes down, out of the bottom side.
+    expect(c1x).toBe(sx)
+    expect(c1y).toBeGreaterThan(sy!)
+    expect(shape.tip).toEqual({ x: 400 + NODE_WIDTH / 2 - 20, y: 0 })
+    expect(shape.angle).toBe(90)
+    // Entering by the right side, the arrow points left; by the bottom, up.
+    expect(edgeShape(block('a', 0, 0), block('b', 400, 0), { toSide: 'right' }).angle).toBe(180)
+    expect(edgeShape(block('a', 0, 0), block('b', 400, 0), { toSide: 'bottom' }).angle).toBe(-90)
+  })
+})
+
+describe('blockTarget: where a click on a block leads', () => {
+  const shown = (topic: string) => topic === 'canvas'
+
+  it('to its Topic while the Guide shows it', () => {
+    expect(blockTarget({ ...block('a', 0, 0), topic: 'canvas', page: 'docs/features/canvas.md' }, shown)).toEqual({ kind: 'topic', topic: 'canvas' })
+  })
+
+  it('to its Full page while its Topic is not written yet', () => {
+    expect(blockTarget({ ...block('a', 0, 0), topic: 'autopilot', page: 'docs/features/autopilot.md' }, shown)).toEqual({ kind: 'page', page: 'docs/features/autopilot.md' })
+  })
+
+  it('to its Topic when it names no page, and nowhere when it names neither', () => {
+    expect(blockTarget({ ...block('a', 0, 0), topic: 'skeleton' }, shown)).toEqual({ kind: 'topic', topic: 'skeleton' })
+    expect(blockTarget(block('a', 0, 0), shown)).toBeNull()
   })
 })
 

@@ -1,7 +1,7 @@
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, repoRoot } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
@@ -77,13 +77,14 @@ test('Help ▸ worfy Guide and the palette open it, Esc closes it, and the langu
       const guide = window.getByRole('dialog', { name: 'worfy Guide' })
       await expect(window.getByTestId('app-shell')).toBeVisible()
 
-      // From the menu: English by default (the tests run the app in en-US), the test Topic on screen.
+      // From the menu: English by default (the tests run the app in en-US), the first Topic — the
+      // Map of worfy (ticket 05) — on screen.
       await clickMenuItem(app, GUIDE_MENU_ITEM_ID)
       await expect(guide).toBeVisible()
       await expect(guide).toHaveAttribute('data-language', 'en')
-      await expect(guide.getByTestId('guide-topic')).toHaveAttribute('data-topic', 'skeleton')
-      await expect(guide.getByRole('heading', { name: 'How the Guide works' })).toBeVisible()
-      await expect(guide.getByRole('link', { name: /Full page/ })).toHaveAttribute('href', /^https:\/\/github\.com\/IDSAD-XL\/worfy\/blob\/[0-9a-f]{7,40}\/docs\/features\/app-shell\.md$/)
+      await expect(guide.getByTestId('guide-topic')).toHaveAttribute('data-topic', 'map-of-worfy')
+      await expect(guide.getByRole('heading', { name: 'Map of worfy' })).toBeVisible()
+      await expect(guide.getByRole('link', { name: /Full page/ })).toHaveAttribute('href', /^https:\/\/github\.com\/IDSAD-XL\/worfy\/blob\/[0-9a-f]{7,40}\/docs\/features\/concepts\.md$/)
       await window.keyboard.press('Escape')
       await expect(guide).toHaveCount(0)
 
@@ -198,6 +199,12 @@ async function framesAskedOver(window: Page, frames: number): Promise<number> {
   )
 }
 
+/** Shows the test Topic, whose diagram the checks of ticket 04 know; the Guide opens at the Map of worfy. */
+async function showTestTopic(guide: Locator): Promise<void> {
+  await guide.locator('[data-testid="guide-topic-item"][data-topic="skeleton"]').click()
+  await expect(guide.getByTestId('guide-topic')).toHaveAttribute('data-topic', 'skeleton')
+}
+
 /** The `transform` of every dot of the diagram, in order. */
 async function dotPlaces(window: Page): Promise<string[]> {
   return window.locator('[data-testid="guide-scene"] [data-dot-edge]').evaluateAll((dots) => dots.map((dot) => dot.getAttribute('transform') ?? ''))
@@ -213,6 +220,7 @@ test('the diagram moves its dots only while the open Guide shows it in view', as
     await countFrames(window)
     await clickMenuItem(app, GUIDE_MENU_ITEM_ID)
     const guide = window.getByRole('dialog', { name: 'worfy Guide' })
+    await showTestTopic(guide)
     const scene = guide.getByTestId('guide-scene')
     await expect(scene).toHaveAttribute('data-motion', 'running')
     const first = await dotPlaces(window)
@@ -220,12 +228,17 @@ test('the diagram moves its dots only while the open Guide shows it in view', as
     await expect.poll(() => dotPlaces(window)).not.toEqual(first)
     expect(await framesAskedOver(window, 10)).toBeGreaterThan(0)
 
-    // Scrolled out of view: the loop stops, and the dots stay where they are.
+    // Folded, the data-flow diagram of Under the hood (Flow.tsx) is not in view and does not move.
+    const flow = guide.getByTestId('guide-flow')
+    await expect(flow).toHaveAttribute('data-motion', 'paused')
+    // Scrolled out of view: the diagram's loop stops, and its dots stay where they are, while the
+    // data-flow diagram, unfolded and now in view, moves: only a diagram in view runs.
     await guide.locator('summary').click()
     await guide.locator('.w-guide__content').evaluate((content) => content.scrollTo(0, content.scrollHeight))
     await expect(scene).toHaveAttribute('data-motion', 'paused')
+    await expect(flow).toHaveAttribute('data-motion', 'running')
     const stopped = await dotPlaces(window)
-    expect(await framesAskedOver(window, 10)).toBe(0)
+    expect(await framesAskedOver(window, 10)).toBeGreaterThan(0)
     expect(await dotPlaces(window)).toEqual(stopped)
     await guide.locator('.w-guide__content').evaluate((content) => content.scrollTo(0, 0))
     await expect(scene).toHaveAttribute('data-motion', 'running')
@@ -235,6 +248,7 @@ test('the diagram moves its dots only while the open Guide shows it in view', as
     await window.keyboard.press('Escape')
     await expect(guide).toHaveCount(0)
     await expect(window.getByTestId('guide-scene')).toHaveCount(0)
+    await expect(window.getByTestId('guide-flow')).toHaveCount(0)
     expect(await framesAskedOver(window, 10)).toBe(0)
   } finally {
     await launched.close()
@@ -250,6 +264,7 @@ test('under Reduce motion the dots stand still at (i + 0.5) / n and the highligh
     await countFrames(window)
     await clickMenuItem(app, GUIDE_MENU_ITEM_ID)
     const guide = window.getByRole('dialog', { name: 'worfy Guide' })
+    await showTestTopic(guide)
     const scene = guide.getByTestId('guide-scene')
     await expect(scene).toHaveAttribute('data-motion', 'still')
     expect(await framesAskedOver(window, 10)).toBe(0)
@@ -293,6 +308,7 @@ test('snapshots of the diagram: the flow, a lit block, a step, and Reduce motion
     await window.setViewportSize({ width: 1280, height: 800 })
     await clickMenuItem(app, GUIDE_MENU_ITEM_ID)
     const guide = window.getByRole('dialog', { name: 'worfy Guide' })
+    await showTestTopic(guide)
     const scene = guide.getByTestId('guide-scene')
     await expect(scene).toHaveAttribute('data-motion', 'running')
     const evidence = process.env.WORFY_EVIDENCE_DIR
@@ -317,6 +333,126 @@ test('snapshots of the diagram: the flow, a lit block, a step, and Reduce motion
     await window.emulateMedia({ reducedMotion: 'reduce' })
     await expect(scene).toHaveAttribute('data-motion', 'still')
     await keep('reduced-motion-ru')
+  } finally {
+    await launched.close()
+  }
+})
+
+// worfy-guide ticket 05: the Map of worfy, the first Topic. Each block leads to its Topic while the
+// Guide has it, else to that Topic's page of docs/features/ on GitHub — opened in the system's
+// browser, which here only records the address. Snapshots in both themes and both languages, a lit
+// block, a step, Reduce motion and Under the hood unfolded; with WORFY_EVIDENCE_DIR set they are
+// copied there as 05-map-<what>-<theme>.png.
+
+test('the Map of worfy is the first Topic, and each of its blocks opens its Topic or its Full page', async () => {
+  const launched = await launchApp()
+  try {
+    const { app, window } = launched
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+    await window.setViewportSize({ width: 1280, height: 800 })
+    await app.evaluate(({ shell }) => {
+      const opened: string[] = []
+      ;(globalThis as unknown as { opened: string[] }).opened = opened
+      shell.openExternal = async (url: string) => {
+        opened.push(url)
+      }
+    })
+    const opened = () => app.evaluate(() => [...(globalThis as unknown as { opened: string[] }).opened])
+    await clickMenuItem(app, GUIDE_MENU_ITEM_ID)
+    const guide = window.getByRole('dialog', { name: 'worfy Guide' })
+    await expect(guide.getByTestId('guide-topic-item').first()).toHaveAttribute('data-topic', 'map-of-worfy')
+    await expect(guide.getByTestId('guide-topic')).toHaveAttribute('data-topic', 'map-of-worfy')
+    const scene = guide.getByTestId('guide-scene')
+    const blocks = scene.locator('[data-block]')
+    await expect(blocks).toHaveCount(17)
+
+    let pages = 0
+    for (const id of await blocks.evaluateAll((all) => all.map((block) => block.getAttribute('data-block') ?? ''))) {
+      const block = scene.locator(`[data-block="${id}"]`)
+      const kind = await block.getAttribute('data-target')
+      const to = (await block.getAttribute('data-to')) ?? ''
+      expect(['topic', 'page'], id).toContain(kind)
+      const before = (await opened()).length
+      // On its shape: a tab's note stands apart from it, and the middle of the two is empty.
+      await block.locator('rect').first().click()
+      if (kind === 'page') {
+        pages += 1
+        await expect.poll(async () => (await opened()).slice(before), id).toEqual([expect.stringMatching(new RegExp(`^https://github\\.com/IDSAD-XL/worfy/blob/[0-9a-f]{7,40}/${to.replaceAll('.', '\\.')}$`))])
+        await expect(guide.getByTestId('guide-topic')).toHaveAttribute('data-topic', 'map-of-worfy')
+      } else {
+        await expect(guide.getByTestId('guide-topic'), id).toHaveAttribute('data-topic', to)
+        expect(await opened()).toHaveLength(before)
+        await guide.locator('[data-testid="guide-topic-item"][data-topic="map-of-worfy"]').click()
+      }
+    }
+    // While its Topics are not written, the blocks lead to their pages.
+    expect(pages).toBeGreaterThan(0)
+    // The keyboard: Enter on a focused block opens it as a click does.
+    const before = (await opened()).length
+    await scene.locator('[data-block="gate"]').focus()
+    await window.keyboard.press('Enter')
+    if ((await scene.locator('[data-block="gate"]').getAttribute('data-target')) === 'page') {
+      await expect.poll(async () => (await opened()).slice(before)).toEqual([expect.stringMatching(/\/docs\/features\/gate-and-github\.md$/)])
+    }
+  } finally {
+    await launched.close()
+  }
+})
+
+test('snapshots of the Map of worfy: both themes and languages, a lit block, a step, Reduce motion, Under the hood', async () => {
+  const launched = await launchApp()
+  try {
+    const { app, window } = launched
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+    await window.setViewportSize({ width: 1280, height: 800 })
+    await clickMenuItem(app, GUIDE_MENU_ITEM_ID)
+    const guide = window.getByRole('dialog', { name: 'worfy Guide' })
+    const scene = guide.getByTestId('guide-scene')
+    await expect(guide.getByTestId('guide-topic')).toHaveAttribute('data-topic', 'map-of-worfy')
+    await expect(scene).toHaveAttribute('data-motion', 'running')
+    const evidence = process.env.WORFY_EVIDENCE_DIR
+    const keep = async (name: string): Promise<void> => {
+      const shots = await snapshotThemes(window, `guide-map-${name}`)
+      if (evidence === undefined || evidence === '') return
+      await mkdir(evidence, { recursive: true })
+      await copyFile(shots.light, join(evidence, `05-map-${name}-light.png`))
+      await copyFile(shots.dark, join(evidence, `05-map-${name}-dark.png`))
+    }
+    for (const language of ['en', 'ru'] as const) {
+      await guide.getByTestId(`guide-language-${language}`).click()
+      await expect(guide).toHaveAttribute('data-language', language)
+      await keep(language)
+    }
+    // The pointer on the Session: its Harness, Subagent, Ticket, Card and Browser lit, with the labels.
+    await guide.getByTestId('guide-language-en').click()
+    await scene.locator('[data-block="session"]').hover()
+    await expect(scene.locator('[data-edge-label="session->ticket"]')).toHaveCSS('opacity', '1')
+    await expect(scene.locator('[data-block="limits"]')).toHaveCSS('opacity', '0.2')
+    await keep('lit-en')
+    // Step 1 of the player: the Epic, its Ticket and Wave, Autopilot and Limits.
+    await window.mouse.move(0, 0)
+    await guide.getByRole('button', { name: 'Step 1' }).click()
+    await expect(scene.locator('[data-edge="autopilot->wave"]')).toHaveClass(/is-hot/)
+    // The player and its caption in view, under the diagram.
+    await guide.getByTestId('guide-scene-caption').evaluate((caption) => caption.scrollIntoView({ block: 'end' }))
+    await keep('step-en')
+    // Reduce motion, in Russian: still dots, the same step.
+    await guide.getByTestId('guide-language-ru').click()
+    await window.emulateMedia({ reducedMotion: 'reduce' })
+    await expect(scene).toHaveAttribute('data-motion', 'still')
+    await keep('reduced-motion-ru')
+    // Under the hood unfolded and scrolled to, in both languages.
+    await window.emulateMedia({ reducedMotion: null })
+    // Step 1 again: the whole diagram (the button's name is Russian now).
+    await guide.locator('.w-guide-steps__step').nth(0).click()
+    await guide.locator('summary').click()
+    for (const language of ['en', 'ru'] as const) {
+      await guide.getByTestId(`guide-language-${language}`).click()
+      await expect(guide).toHaveAttribute('data-language', language)
+      // Its heading at the top of the Topic's scrolled area, under the window's header, not behind it.
+      await guide.locator('summary').evaluate((summary) => summary.scrollIntoView({ block: 'start' }))
+      await keep(`under-the-hood-${language}`)
+    }
   } finally {
     await launched.close()
   }

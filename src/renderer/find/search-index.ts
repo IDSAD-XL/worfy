@@ -20,6 +20,12 @@ export interface Rankable {
   detail?: string | undefined
   /** Exact keys: a query equal to one of them ranks above every title match. */
   keys?: readonly string[] | undefined
+  /**
+   * Ranks below every item without it whose match is of the same kind (a key, a title prefix, a word
+   * of the title…): a row of the worfy Guide ("Guide: Canvas") yields to the command it explains
+   * ("Switch to Canvas"), and still comes first when nothing else matches.
+   */
+  yields?: boolean | undefined
 }
 
 /** Lower-cased, trimmed, inner whitespace collapsed to one space. */
@@ -76,7 +82,15 @@ export function matchScore(query: string, item: Rankable): number {
   return fuzzy(query, haystack)
 }
 
-/** The items that match `query`, best first; ties keep the items' own order. At most `limit`. */
+/** The kind of match a score is: the smallest tier at or above it (a title prefix scores TIER_PREFIX minus the title's length). */
+function tierOf(score: number): number {
+  return [TIER_FUZZY, TIER_WORDS, TIER_DETAIL, TIER_TITLE, TIER_WORD, TIER_PREFIX].find((tier) => score <= tier) ?? TIER_KEY
+}
+
+/**
+ * The items that match `query`, best first: by the kind of match, then an item that `yields` after
+ * the others of that kind, then by score; ties keep the items' own order. At most `limit`.
+ */
 export function rankItems<T extends Rankable>(items: readonly T[], query: string, limit = Number.POSITIVE_INFINITY): T[] {
   const q = normalizeQuery(query)
   const scored: { item: T; score: number; index: number }[] = []
@@ -84,7 +98,8 @@ export function rankItems<T extends Rankable>(items: readonly T[], query: string
     const score = matchScore(q, item)
     if (score > 0) scored.push({ item, score, index })
   })
-  scored.sort((a, b) => b.score - a.score || a.index - b.index)
+  const yields = (entry: { item: T }): number => (entry.item.yields === true ? 1 : 0)
+  scored.sort((a, b) => tierOf(b.score) - tierOf(a.score) || yields(a) - yields(b) || b.score - a.score || a.index - b.index)
   return scored.slice(0, limit).map(({ item }) => item)
 }
 

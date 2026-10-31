@@ -23,6 +23,19 @@
     }
   },
   "underTheHood": {
+    "flow": {
+      "description": "The Topic's files, its texts and diagrams, are bundled into the Guide's chunk; content.ts reads them and the window draws the Topic.",
+      "labels": {
+        "files": "Topic files",
+        "filesNote": "JSON texts, diagrams",
+        "content": "content.ts",
+        "contentNote": "reads every Topic",
+        "window": "GuideWindow",
+        "windowNote": "draws the Topic",
+        "bundled": "bundled",
+        "topics": "Topics"
+      }
+    },
     "text": [
       "The Guide is a dialog over the window. Its code is a separate chunk that loads the first time the Guide opens, so starting worfy does not pay for it.",
       "Each Topic keeps its text in two JSON files, one per language, next to its diagram. A test fails when a string has only one of its two versions. The language switch is saved in the app settings of this Machine."

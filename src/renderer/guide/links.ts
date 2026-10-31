@@ -3,6 +3,8 @@
 // reader sees the code the Guide describes; when the build does not know its commit, at `main`.
 // The commit comes from the build version `<semver>+<short SHA>[.dirty]` (scripts/build-version.ts),
 // which main answers on `app.version`. A dirty build still names its commit: the closest one there is.
+// They open in the system's browser (`shell.openExternal`), never in the window.
+import { invoke } from '../ipc'
 
 /** The public repository of worfy. */
 export const GUIDE_REPO_URL = 'https://github.com/IDSAD-XL/worfy'
@@ -19,4 +21,11 @@ export function buildCommit(version: string | null | undefined): string | null {
 export function githubFileUrl(path: string, version: string | null | undefined): string {
   const encoded = path.split('/').map(encodeURIComponent).join('/')
   return `${GUIDE_REPO_URL}/blob/${buildCommit(version) ?? 'main'}/${encoded}`
+}
+
+/** Opens `url` in the system's browser; the window stays where it is. */
+export function openInBrowser(url: string): void {
+  void invoke('shell.openExternal', { url }).then((result) => {
+    if (!result.ok) console.error('shell.openExternal failed:', result.error)
+  })
 }

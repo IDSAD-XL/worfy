@@ -377,6 +377,8 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
       detail: 'worfy Guide',
       keys: [...(topic.keys ?? []), 'guide'],
       queryOnly: true,
+      // Below the command it explains: "canvas" finds Switch to Canvas before Guide: Canvas.
+      yields: true,
       run: () => {
         openGuide(topic.id)
         return undefined

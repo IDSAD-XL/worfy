@@ -36,6 +36,7 @@ describe('the Topics of the Guide', () => {
     expect([...TOPIC_FILES.en.keys()].sort()).toEqual(ids)
     expect([...TOPIC_FILES.ru.keys()].sort()).toEqual(ids)
     expect([...GUIDE_CONTENT.keys()].sort()).toEqual(ids)
+    for (const id of TOPIC_FILES.flow.keys()) expect(ids, `${id}/Flow.tsx`).toContain(id)
   })
 
   it('each title of the registry is the title of en.json: the palette row and the Guide say the same', () => {
@@ -46,6 +47,12 @@ describe('the Topics of the Guide', () => {
     expect(() => topicMetaSchema.parse(TOPIC_FILES.meta.get(id))).not.toThrow()
     expect(() => topicTextSchema.parse(TOPIC_FILES.en.get(id))).not.toThrow()
     expect(() => topicTextSchema.parse(TOPIC_FILES.ru.get(id))).not.toThrow()
+  })
+
+  it.each(ids)('%s: has Flow.tsx exactly when both texts have underTheHood.flow', (id) => {
+    const hasFlow = TOPIC_FILES.flow.has(id)
+    expect(TOPIC_FILES.en.get(id)?.underTheHood.flow !== undefined, `${id}: en.json`).toBe(hasFlow)
+    expect(TOPIC_FILES.ru.get(id)?.underTheHood.flow !== undefined, `${id}: ru.json`).toBe(hasFlow)
   })
 
   it.each(ids)('%s: every string has its English and its Russian version', (id) => {
