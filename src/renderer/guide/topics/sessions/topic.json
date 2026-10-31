@@ -1,0 +1,16 @@
+{
+  "sources": [
+    { "page": "docs/features/sessions.md", "sha": "7f869dfe" },
+    { "page": "docs/features/transcripts-and-usage.md", "sha": "6fb2efec" }
+  ],
+  "files": [
+    "src/main/agent/session.ts",
+    "src/main/agent/options.ts",
+    "src/main/agent/resume.ts",
+    "src/shared/transcript/parse.ts",
+    "src/main/claude-home/registry.ts",
+    "src/main/claude-home/subagents.ts",
+    "src/renderer/session/store.ts",
+    "src/main/agent/limits.ts"
+  ]
+}
