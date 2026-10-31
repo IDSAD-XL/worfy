@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { knownPaths } from '../../src/main/harness/migrate/apply'
+import { knownPaths, type KnownPathsOptions } from '../../src/main/harness/migrate/apply'
 import { removeTestTree } from '../remove'
 
 // execFileSync as it is, with the git calls written down: the one-process claim is counted, not
@@ -25,9 +25,9 @@ vi.mock('node:child_process', async (importOriginal) => {
 })
 
 /** knownPaths with the git processes it started. */
-function counted(paths: string[], tracked: boolean): { known: string[]; processes: number } {
+function counted(paths: string[], tracked: boolean, options: KnownPathsOptions = {}): { known: string[]; processes: number } {
   spawned.git.length = 0
-  const known = knownPaths(repo, paths, tracked)
+  const known = knownPaths(repo, paths, tracked, options)
   return { known, processes: spawned.git.length }
 }
 
@@ -54,6 +54,9 @@ const write = (rel: string): void => {
   writeFileSync(join(repo, rel), `${rel}\n`)
 }
 
+/** A name with a letter outside ASCII, decomposed (NFD) as readdir gives it on macOS; git there keeps it composed (NFC). */
+const CAFE = 'café'.normalize('NFD')
+
 /** The paths asked about, each a kind of answer. */
 const PATHS = [
   'settings.json', // a tracked file
@@ -69,7 +72,12 @@ const PATHS = [
   'debug.log', // an ignored file by a pattern
   'gone.md', // not on disk at all
   'skills/*', // a pattern: git matches it, not a name
+  `profiles/${CAFE}`, // a tracked folder with a non-ASCII name, NFD
+  `cache/${CAFE}.json`, // an ignored file with a non-ASCII name, NFD
 ]
+
+/** The git processes for PATHS: one for the batch, one each for the pattern and the two non-ASCII names. */
+const PATHS_PROCESSES = 4
 
 beforeAll(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-known-paths-')))
@@ -83,11 +91,11 @@ beforeAll(() => {
   repo = join(root, 'repo')
   mkdirSync(repo)
   git('init', '-q')
-  for (const rel of ['settings.json', 'skills/qmd/SKILL.md', 'skills/qmd-extra/SKILL.md', 'bin/epic-status', 'my notes.md', 'profiles/my profile/profile.md', '.gitignore']) write(rel)
+  for (const rel of ['settings.json', 'skills/qmd/SKILL.md', 'skills/qmd-extra/SKILL.md', 'bin/epic-status', 'my notes.md', 'profiles/my profile/profile.md', `profiles/${CAFE}/profile.md`, '.gitignore']) write(rel)
   writeFileSync(join(repo, '.gitignore'), 'cache/\n*.log\n')
   git('add', '-A')
   git('-c', 'user.name=worfy', '-c', 'user.email=worfy@localhost', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'fixture')
-  for (const rel of ['new.md', 'cache/state.json', 'debug.log']) write(rel)
+  for (const rel of ['new.md', 'cache/state.json', `cache/${CAFE}.json`, 'debug.log']) write(rel)
 })
 
 afterAll(() => {
@@ -98,11 +106,10 @@ afterAll(() => {
 describe('knownPaths: one git process, the answer of one process per path', () => {
   it('tracked: the paths with a tracked file at them or under them', () => {
     const { known, processes } = counted(PATHS, true)
-    // One for the plain paths, one for the pattern `skills/*`.
-    expect(processes).toBe(2)
     expect(known).toEqual(oneByOne(PATHS, true))
+    expect(processes).toBe(PATHS_PROCESSES)
     // The fixed half of the answer, so the comparison above cannot pass on two empty lists.
-    expect(known).toEqual(expect.arrayContaining(['settings.json', 'skills/qmd', 'my notes.md', 'profiles/my profile', 'skills/*']))
+    expect(known).toEqual(expect.arrayContaining(['settings.json', 'skills/qmd', 'my notes.md', 'profiles/my profile', 'skills/*', `profiles/${CAFE}`]))
     expect(known).not.toContain('skills/qm')
     expect(known).not.toContain('bin/epic')
     expect(known).not.toContain('new.md')
@@ -111,10 +118,34 @@ describe('knownPaths: one git process, the answer of one process per path', () =
 
   it('untracked: the paths no ignore rule takes', () => {
     const { known, processes } = counted(PATHS, false)
-    expect(processes).toBe(2)
     expect(known).toEqual(oneByOne(PATHS, false))
-    expect(known).toEqual(expect.arrayContaining(['settings.json', 'skills/qmd', 'my notes.md', 'new.md', 'gone.md']))
-    for (const rel of ['cache', 'cache/state.json', 'debug.log']) expect(known).not.toContain(rel)
+    expect(processes).toBe(PATHS_PROCESSES)
+    expect(known).toEqual(expect.arrayContaining(['settings.json', 'skills/qmd', 'my notes.md', 'new.md', 'gone.md', `profiles/${CAFE}`]))
+    for (const rel of ['cache', 'cache/state.json', 'debug.log', `cache/${CAFE}.json`]) expect(known).not.toContain(rel)
+  })
+
+  it('untracked, check-ignore failing outright (exit 128, a path outside the repository): every path asked about by itself', () => {
+    const paths = ['../outside.md', 'cache', 'new.md']
+    const { known, processes } = counted(paths, false)
+    expect(processes).toBe(1 + paths.length)
+    expect(known).toEqual(oneByOne(paths, false))
+    expect(known).toEqual(['../outside.md', 'new.md'])
+  })
+
+  it('tracked, an ls-files answer past maxBuffer: every path asked about by itself', () => {
+    const { known, processes } = counted(PATHS, true, { maxBuffer: 16 })
+    expect(processes).toBe(1 + PATHS.length)
+    expect(known).toEqual(oneByOne(PATHS, true))
+  })
+
+  // On Windows worfy writes `\` between names, and git prints `/`; the platform is a parameter, so
+  // the spelling is checked on every system. Off Windows `\` escapes a character in a pattern.
+  it('a path written with `\\` on Windows matches the `/` git prints', () => {
+    const win32 = { platform: 'win32' as const }
+    expect(counted(['skills\\qmd', 'bin\\epic', 'my notes.md'], true, win32)).toEqual({ known: ['skills\\qmd', 'my notes.md'], processes: 1 })
+    expect(counted(['cache\\state.json', 'new.md'], false, win32)).toEqual({ known: ['new.md'], processes: 1 })
+    const darwin = { platform: 'darwin' as const }
+    expect(counted(['skills\\qmd'], true, darwin)).toEqual({ known: oneByOne(['skills\\qmd'], true), processes: 1 })
   })
 
   it('untracked with nothing ignored: check-ignore exits 1, and every path is known', () => {
