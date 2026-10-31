@@ -11,8 +11,9 @@
 // (5xx), a timeout or an answer of an unexpected shape is a read that is skipped with its reason
 // (spec R15), never an exception.
 import { z } from 'zod'
+import { UPDATE_REPO } from '../../shared/ipc/update'
 
-export const UPDATE_REPO = 'IDSAD-XL/worfy'
+export { UPDATE_REPO }
 export const DEFAULT_UPDATE_API = 'https://api.github.com'
 /** How long one request may take before the check is skipped. */
 export const UPDATE_REQUEST_TIMEOUT_MS = 15_000

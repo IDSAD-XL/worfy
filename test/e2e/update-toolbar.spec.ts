@@ -8,7 +8,8 @@ import { startUpdateStub, type UpdateStub } from '../update-stub'
 import { launchApp, type LaunchedApp } from './helpers'
 import { E2E_SHELL } from './launch-env'
 
-// worfy-update ticket 06: the version chip of the toolbar in the built app. Update is on through
+// worfy-update ticket 06: the version chip of the toolbar in the built app, and its "What's new"
+// (ticket 10): the PR titles main reads from the stub's comparison. Update is on through
 // WORFY_UPDATE=1; GitHub is the local stub of test/update-stub.ts, the repository a bare one in a
 // temporary folder, the Stable copy a folder there too (WORFY_UPDATE_STABLE, refused by the stub
 // outside the temporary folder). The build of ticket 03 runs in worfy's own clone with a stand-in
@@ -68,13 +69,15 @@ process.stdout.write('gated build done\\n')
 const bridgeCall = (window: Page, channel: string, input?: unknown) =>
   window.evaluate(([name, value]) => (globalThis as unknown as { worfy: Bridge }).worfy.invoke(name as string, value), [channel, input] as const)
 
-/** The toolbar, with the chip's menu under it when one is open, in both themes; kept with the test's output. */
+/** The toolbar, with the chip's menu or "What's new" under it when one is open, in both themes; kept with the test's output. */
 async function snapshots(window: Page, toolbar: Locator, name: string): Promise<void> {
   const menu = window.getByRole('menu', { name: 'worfy update' })
+  const whatsNew = window.getByTestId('whats-new')
   for (const scheme of ['light', 'dark'] as const) {
     await window.emulateMedia({ colorScheme: scheme })
     const boxes = [(await toolbar.boundingBox())!]
     if (await menu.isVisible()) boxes.push((await menu.boundingBox())!)
+    if (await whatsNew.isVisible()) boxes.push((await whatsNew.boundingBox())!)
     const x = Math.min(...boxes.map((box) => box.x))
     const y = Math.min(...boxes.map((box) => box.y))
     const clip = { x, y, width: Math.max(...boxes.map((box) => box.x + box.width)) - x, height: Math.max(...boxes.map((box) => box.y + box.height)) - y }
@@ -118,7 +121,13 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   const stable = join(root, 'Applications', 'worfy-stable.app')
   mkdirSync(stable, { recursive: true })
   writeFileSync(join(root, 'Applications', 'worfy-stable.json'), JSON.stringify({ commit: running }))
-  stub = await startUpdateStub({ head, version: VERSION, compare: { status: 'ahead', files: ['src/main/index.ts'] } }, { stable })
+  // The comparison's commits, oldest first as GitHub lists them: two squash merges and a push without a PR.
+  const commits = [
+    { sha: running, message: 'feat(update): sticky Update toasts (worfy-update 07) (#1124)\n\nThe body.' },
+    { sha: running, message: 'chore: a push to main without a PR' },
+    { sha: head, message: 'feat(update): "What\'s new" after an Update <b>not bold</b> (worfy-update 10) (#1130)' },
+  ]
+  stub = await startUpdateStub({ head, version: VERSION, compare: { status: 'ahead', files: ['src/main/index.ts'], commits } }, { stable })
 
   // The login shell of the app: the e2e shell, with the stand-in pnpm first on its PATH.
   const bin = join(root, 'bin')
@@ -167,14 +176,43 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   expect(await heights()).toEqual(before)
   await snapshots(window, toolbar, 'update-available')
 
-  // The menu: "Update worfy" and "Later"; "Later" closes it and the dot stays.
+  // The menu: "Update worfy", "What's new" and "Later"; "Later" closes it and the dot stays.
   await chip.click()
   const menu = window.getByRole('menu', { name: 'worfy update' })
-  await expect(menu.getByRole('menuitem')).toHaveText(['Update worfy', 'Later'])
+  await expect(menu.getByRole('menuitem')).toHaveText(['Update worfy', "What's new", 'Later'])
   await snapshots(window, toolbar, 'update-available-menu')
   await menu.getByRole('menuitem', { name: 'Later' }).click()
   await expect(menu).toBeHidden()
   await expect(chip.locator('.w-update-dot')).toBeVisible()
+
+  // "What's new": the PRs of the comparison, newest first, the push without a PR left out; the title is text.
+  await chip.click()
+  await menu.getByRole('menuitem', { name: "What's new" }).click()
+  await expect(menu).toBeHidden()
+  const whatsNew = window.getByRole('dialog', { name: `What's new in worfy ${update}` })
+  await expect(whatsNew.getByRole('heading')).toHaveText(`What's new in worfy ${update}`)
+  await expect(whatsNew.getByRole('listitem')).toHaveText([
+    'feat(update): "What\'s new" after an Update <b>not bold</b> (worfy-update 10) #1130',
+    'feat(update): sticky Update toasts (worfy-update 07) #1124',
+  ])
+  await expect(whatsNew.getByRole('link', { name: '#1130' })).toHaveAttribute('href', 'https://github.com/IDSAD-XL/worfy/pull/1130')
+  await expect(whatsNew.locator('b')).toHaveCount(0)
+  await expect(whatsNew.getByRole('button', { name: 'Update worfy' })).toBeVisible()
+  await snapshots(window, toolbar, 'update-whats-new')
+  await window.keyboard.press('Escape')
+  await expect(whatsNew).toBeHidden()
+  // It lies over the toasts and so over the Command palette: ⌘K closes it rather than open the palette under it.
+  await chip.click()
+  await menu.getByRole('menuitem', { name: "What's new" }).click()
+  await expect(whatsNew).toBeVisible()
+  await window.keyboard.press('ControlOrMeta+k')
+  const palette = window.getByTestId('command-palette')
+  await expect(palette).toBeVisible()
+  await expect(whatsNew).toBeHidden()
+  await window.keyboard.press('Escape')
+  await expect(palette).toBeHidden()
+  // One comparison for the check and one for "What's new"; no request per PR.
+  expect(stub.requests.filter((request) => /\/pulls?\//u.test(request.path))).toEqual([])
 
   // "Update worfy": the build runs and waits for the test's file.
   await chip.click()
@@ -196,7 +234,7 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   await expect(chip).toHaveAttribute('title', `worfy ${update} is ready — restart to update`)
   await snapshots(window, toolbar, 'update-ready')
   await chip.click()
-  await expect(menu.getByRole('menuitem')).toHaveText(['Restart now', 'Later'])
+  await expect(menu.getByRole('menuitem')).toHaveText(['Restart now', "What's new", 'Later'])
   await snapshots(window, toolbar, 'update-ready-menu')
   await menu.getByRole('menuitem', { name: 'Later' }).click()
   expect(await heights()).toEqual(before)

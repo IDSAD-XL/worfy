@@ -12,6 +12,9 @@
 // "Restart now", "Restart when idle" and the roll back (ticket 04) are src/main/update/restart.ts;
 // whether nothing works is src/main/update/idle.ts, followed while Update is on and kept in the
 // state's `idle`. At the start the result of the restart that ended the last run is read.
+//
+// "What's new" (ticket 10) is src/main/update/whats-new.ts: one comparison of the running commit
+// with the new version, kept for the run.
 import { existsSync } from 'node:fs'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import type { AgentEvent } from '../../shared/agent/events'
@@ -23,8 +26,10 @@ import {
   updateRollback,
   updateShowLog,
   updateStateChannel,
+  updateWhatsNew,
   type RestartAnswer,
   type UpdateSnapshot,
+  type WhatsNew,
 } from '../../shared/ipc/update'
 import { autoUpdateOf } from '../../shared/settings/app-settings'
 import { agentEnv, recaptureAgentEnv } from '../agent/env'
@@ -39,6 +44,7 @@ import { IdleWatch, type IdleSession } from '../update/idle'
 import { Restarts } from '../update/restart'
 import { readStableMetadata, runningOf, runsFromStableCopy, stableCopyPath, updateEnabled } from '../update/stable-copy'
 import { changeUpdateState, emptyUpdateState, readUpdateState, updateDir, updateStateFile } from '../update/state'
+import { WhatsNewReader, whatsNewTarget } from '../update/whats-new'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 export interface UpdateServiceOptions {
@@ -63,12 +69,15 @@ export interface UpdateServiceOptions {
   now?: () => Date
 }
 
-const OFF: RestartAnswer = { outcome: 'refused', reason: 'Update is off in this copy of worfy' }
+const OFF_REASON = 'Update is off in this copy of worfy'
+const OFF: RestartAnswer = { outcome: 'refused', reason: OFF_REASON }
 
 export class UpdateService {
   readonly checks: UpdateChecks
+  private readonly whatsNewReader: WhatsNewReader
 
   constructor(private readonly options: UpdateServiceOptions) {
+    this.whatsNewReader = new WhatsNewReader(options.client)
     this.checks = new UpdateChecks(
       (manual) => this.run(manual),
       () => this.options.broadcast(this.snapshot()),
@@ -112,6 +121,17 @@ export class UpdateService {
     const target = installTarget(readUpdateState(this.options.stateFile()))
     if (target !== null) builder.install(target)
     return this.snapshot()
+  }
+
+  /**
+   * "What's new": the PRs between the copy that runs and the new version (whatsNewTarget: the build
+   * that runs or is ready, else the Update "Update worfy" builds). Fails with the reason.
+   */
+  async whatsNew(): Promise<WhatsNew> {
+    if (!this.options.enabled) throw new Error(OFF_REASON)
+    const target = whatsNewTarget(readUpdateState(this.options.stateFile()))
+    if (target === null) throw new Error('there is no Available update to compare with')
+    return this.whatsNewReader.read(this.options.running().commit, target.sha, target.version)
   }
 
   /** Opens build.log of the last build with the program of the system. */
@@ -339,6 +359,7 @@ export function updateHandlers(service: () => UpdateService = appUpdate): Handle
     defineHandler(updateCheck, () => service().check()),
     defineHandler(updateInstall, () => service().install()),
     defineHandler(updateShowLog, () => service().showLog()),
+    defineHandler(updateWhatsNew, () => service().whatsNew()),
     defineHandler(updateRestart, ({ when }) => service().restart(when)),
     defineHandler(updateRollback, (_input, { event }) => service().rollback((version) => confirmRollback(BrowserWindow.fromWebContents(event.sender), version))),
   ]
