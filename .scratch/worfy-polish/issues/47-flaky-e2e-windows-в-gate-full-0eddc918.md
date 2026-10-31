@@ -35,6 +35,15 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   или bash может выйти поздно, тогда его завершает `Stop-Process` (`:206`), и history Session-а теряется. ПК замеряет
   время от сигнала до выхода, время helper-а и закрытия без `.bash_history`; если подтвердится — отдельный bug
   Ticket в `worfy-windows`.
+- `test/contract/workflow-branches-gone.test.ts:70` («`git worktree remove` of the last worktree, then the repository
+  itself…»): gate full на ПК, main `c01cd364`, 2026-10-31, 8 workers — `expected 328 to be less than 300`: время
+  процессора worker-а за секунду после удаления (`process.cpuUsage`, строки 63–67; проверки на 87 и 104). Красный и
+  в сохранённом gate full `e6802c9e`, то есть повторяется; в одиночку exit 0, 8 s. По ADR-0086 п.3 — quarantine только
+  на win32 до 2026-11-07: запись `test/quarantine/workflow-branches-gone-worktree-then-repository.json`. Предел 300 ms
+  не поднимать.
+- `test/e2e/chat-attachments.spec.ts:148` (png и pdf, брошенные в чат Orchestrator-а): gate full на ПК, main
+  `c01cd364` — `Cannot read properties of null (reading 'dispatchEvent')` на строке 158; в одиночку exit 0. Test
+  сразу после `launchApp` берёт `document.querySelector` для `.react-flow__pane` и `.w-sidebar-section`.
 
 ## Что делаем
 
@@ -53,6 +62,8 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   `test/e2e/epic-frame.spec.ts`
 - `test/contract/terminal-windows.test.ts`, `test/quarantine/terminal-windows-close-no-console-host.json`
 - `test/contract/terminal-git-bash-close.test.ts`, `src/main/terminal/windows-pty.ts` (helper закрытия, hangup)
+- `test/contract/workflow-branches-gone.test.ts`, `test/quarantine/workflow-branches-gone-worktree-then-repository.json`
+- `test/e2e/chat-attachments.spec.ts`
 - код, на который укажет причина
 
 ## Итог
@@ -93,3 +104,18 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   но ничего не доказывает. На Mac без нагрузки stub сработал только на вызове helper-а (один вызов в диагностическом run).
 - Проверка на Mac (нагрузка ~10–12): `two-windows` + `linked-browser` `--repeat-each=3 --workers=1` — 9 passed.
   На Windows правки не запускались: ПК, gate full.
+
+### 2026-10-31, ветка `worfy-polish/47-c01cd364`: две находки gate full на ПК `c01cd364`
+
+- `test/contract/workflow-branches-gone.test.ts:71` (после правки) — в quarantine на win32 до 2026-11-07, запись
+  `test/quarantine/workflow-branches-gone-worktree-then-repository.json`, обёртка `quarantined('<id>')(name, fn)`.
+  Причина не установлена. Гипотеза: замер — `process.cpuUsage()` всего worker-а за одну секунду (строки 64–68 после
+  правки, проверки на 88 и 105), и при 8 workers в эту секунду попадает его собственная работа (сборка мусора,
+  поздние события chokidar об удалении) без бесконечного цикла watcher-а. Предел 300 ms не тронут. Записей в
+  quarantine после правки — 13 из 15; `test/unit/quarantine.test.ts` зелёный и красный, если имя test-а в записи
+  не совпадает с кодом (проверено правкой имени).
+- `test/e2e/chat-attachments.spec.ts:148` — исправлен test. `launchApp` (`test/e2e/helpers.ts:266`) возвращает окно,
+  как только оно показано (`waitForFirstWindowShown`), а не когда Canvas и sidebar отрисованы. Под нагрузкой
+  `.react-flow__pane` или `.w-sidebar-section` ещё не было, `querySelector` давал `null`. Теперь перед `evaluate`
+  test ждёт `expect(...).toBeVisible()` для pane и первой секции sidebar; timeout-ы и фиксированные паузы не
+  добавлены. Проверка на Mac: `--repeat-each=3` — 3 passed. На Windows правка не запускалась: ПК, gate full.
