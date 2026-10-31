@@ -90,7 +90,7 @@ Harness out of ~/.claude" по строке на каждую вещь:
 |---|---|
 | Harness files | Remove, Keep |
 | Разделы CLAUDE.md, показаны как diff | Remove, Keep |
-| Hooks в settings.json | Remove, Keep |
+| Hooks in settings.json | Remove, Keep |
 | Status line | Replace, Keep |
 | qmd: скрипты, hook и запись MCP вместе | Remove, Keep |
 | Machine state | Move, Keep |
