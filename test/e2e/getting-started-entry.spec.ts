@@ -12,12 +12,14 @@ import { ms } from '../time-scale'
 //
 // - A new user (a fresh data folder): First run opens by itself on the page of the three concepts
 //   (decision 8), "Next" goes to the checks, and "Start Getting started" next to "Close" (decision 9)
-//   closes First run, writing its mark as "Close" does, and shows the section with the focus on it.
-//   WORFY_GETTING_STARTED_AUTO stays 0 (test/e2e/launch-env.ts), so the section starts hidden and only
-//   the button shows it.
+//   closes First run, writing its mark as "Close" does, and shows the Getting started panel (ticket 13)
+//   with the focus on its heading. WORFY_GETTING_STARTED_AUTO stays 0 (test/e2e/launch-env.ts), so the
+//   panel starts hidden and only the button shows it.
 // - An existing user (a data folder with one Project and no getting-started.json, WORFY_GETTING_STARTED_AUTO=1):
 //   First run, opened by itself since there is no mark, goes straight to the checks; the corner has
-//   the notice with "Open" and "Not now"; after "Not now" no later start shows it, and the section stays hidden.
+//   the notice with "Open" and "Not now", and neither the panel nor its pill shows by itself (owner's
+//   decision Q17); after "Not now" no later start shows it, and the panel stays hidden; "Open" shows
+//   the panel.
 //
 // The checks run a login /bin/sh over the test's HOME, whose .profile sets PATH to the system folders
 // alone, as harness-migrate.spec.ts does; on Windows a registry stand-in gives them a Path of the
@@ -70,7 +72,7 @@ async function shoot(window: Page, locator: Locator, name: string): Promise<void
 const caughtUp = (window: Page): Promise<unknown> =>
   window.evaluate(() => (globalThis as unknown as { worfy: { invoke(channel: string): Promise<unknown> } }).worfy.invoke('gettingStarted.state'))
 
-test('a new user: the three concepts, "Next" to the checks, "Start Getting started" closes First run and shows the section in focus', async () => {
+test('a new user: the three concepts, "Next" to the checks, "Start Getting started" closes First run and shows the panel in focus', async () => {
   const launched = await launch()
   try {
     const { window } = launched
@@ -80,7 +82,7 @@ test('a new user: the three concepts, "Next" to the checks, "Start Getting start
     await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Welcome to worfy')
     await expect(dialog.getByRole('list', { name: 'Three things to know' }).getByRole('heading')).toHaveText(['Project + Harness', 'Orchestrator', 'Canvas'])
     await expect(dialog.getByRole('button', { name: 'Start Getting started' })).toHaveCount(0)
-    // The section is hidden (WORFY_GETTING_STARTED_AUTO=0): only the button below shows it.
+    // The panel is hidden (WORFY_GETTING_STARTED_AUTO=0): only the button below shows it.
     await expect(sectionOf(window)).toHaveCount(0)
     await shoot(window, dialog, 'concepts')
 
@@ -95,7 +97,7 @@ test('a new user: the three concepts, "Next" to the checks, "Start Getting start
     await expect(dialog).toHaveCount(0)
     const section = sectionOf(window)
     await expect(section).toBeVisible()
-    await expect(section.getByRole('button', { name: 'Getting started' })).toBeFocused()
+    await expect(section.getByRole('heading', { name: 'Getting started' })).toBeFocused()
     // Closed as by "Close": main wrote the mark.
     expect(readJson('first-run.json')).toHaveProperty('failing')
     expect(readJson('getting-started.json')).toMatchObject({ user: 'new', section: 'shown' })
@@ -104,7 +106,7 @@ test('a new user: the three concepts, "Next" to the checks, "Start Getting start
   }
 })
 
-test('an existing user: First run without the concepts, the notice in the corner; after "Not now" no notice and no section on the next start', async () => {
+test('an existing user: First run without the concepts, the notice in the corner, no panel and no pill; after "Not now" no notice and no panel on the next start', async () => {
   const root = join(scratch, 'alpha')
   mkdirSync(root)
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
@@ -134,6 +136,7 @@ test('an existing user: First run without the concepts, the notice in the corner
     await expect(buttons.nth(2)).toHaveAccessibleName('Dismiss')
     await shoot(window, notice, 'notice')
     await expect(sectionOf(window)).toHaveCount(0)
+    await expect(window.getByTestId('getting-started-pill')).toHaveCount(0)
 
     await notice.getByRole('button', { name: 'Not now' }).click()
     await expect(notice).toHaveCount(0)
@@ -152,7 +155,33 @@ test('an existing user: First run without the concepts, the notice in the corner
     await window.evaluate(() => new Promise((resolve) => (globalThis as unknown as { requestAnimationFrame(callback: () => void): void }).requestAnimationFrame(() => resolve(null))))
     await expect(window.getByTestId('getting-started-notice')).toHaveCount(0)
     await expect(sectionOf(window)).toHaveCount(0)
+    await expect(window.getByTestId('getting-started-pill')).toHaveCount(0)
     expect(readJson('getting-started.json')).toMatchObject({ user: 'existing', section: 'hidden', noticeShown: true })
+  } finally {
+    await launched.close()
+  }
+})
+
+test('an existing user: "Open" of the notice shows the panel, expanded, with the focus on its heading', async () => {
+  const root = join(scratch, 'alpha')
+  mkdirSync(root)
+  mkdirSync(join(dataDir, PROJECT), { recursive: true })
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: root }], activeId: PROJECT }))
+  // First run was closed before: only the notice comes at the start.
+  const launched = await launch({ WORFY_GETTING_STARTED_AUTO: '1', WORFY_FIRST_RUN_AUTO: '0' })
+  try {
+    const { window } = launched
+    const notice = window.getByTestId('getting-started-notice')
+    await expect(notice).toBeVisible({ timeout: ms(30_000) })
+    await expect(sectionOf(window)).toHaveCount(0)
+    await expect(window.getByTestId('getting-started-pill')).toHaveCount(0)
+    await notice.getByRole('button', { name: 'Open' }).click()
+    await expect(notice).toHaveCount(0)
+    const panel = sectionOf(window)
+    await expect(panel).toBeVisible()
+    await expect(panel.getByRole('heading', { name: 'Getting started' })).toBeFocused()
+    await expect(window.getByTestId('getting-started-pill')).toHaveCount(0)
+    await expect.poll(() => readJson('getting-started.json')).toMatchObject({ user: 'existing', section: 'shown', noticeShown: true })
   } finally {
     await launched.close()
   }

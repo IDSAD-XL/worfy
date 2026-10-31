@@ -1,7 +1,7 @@
 # Onboarding
 
 How a developer gets from a fresh install to one Ticket merged. This page has three sections. First run covers the checks
-of the Machine and the actions that fix what they find. Getting started covers the guided list of six steps in the sidebar.
+of the Machine and the actions that fix what they find. Getting started covers the guided list of six steps in a panel at the top right of the window.
 Demo project covers the small Project that worfy creates for that list. Terms are explained in [Concepts](concepts.md).
 
 ## First run
@@ -75,7 +75,7 @@ attempt failed: …", until the next attempt or until the check itself passes.
 Project of the sidebar whose Layout failed to read then tries again at once.
 
 **"Start Getting started"** stands beside "Close" for a new user until step 6 of Getting started is marked. It closes First run
-like "Close" and shows the sidebar section with the focus on it.
+like "Close" and shows the Getting started panel, expanded and with the focus on its heading.
 
 #### Windows
 
@@ -141,18 +141,31 @@ action counts only while its check does not pass, so a cause fixed outside worfy
 
 ### Behaviour
 
-Getting started is a sidebar section, above Projects. It holds six steps that take one Ticket of the Demo project from the
-Orchestrator through review to merge. It blocks nothing and is never a modal window.
+Getting started is a floating panel in the top right corner of the window, under the toolbar. While the window shows the Session
+view, the panel stands lower: under the Session's header and the place of its find bar, so Hide tools, Interrupt and the ⌘F find
+bar stay uncovered. It is about 320 px wide and as
+tall as its content, up to 70 % of the window; only a smaller window makes its content scroll inside. It holds six steps that take
+one Ticket of the Demo project from the Orchestrator through review to merge. It blocks nothing and is never a modal window.
+
+**The panel's layer.** The panel stands above the Canvas, the Sessions and the sidebar, and below every dialog and menu: First run,
+Add project, Connect, the folder browser, the Command palette, Settings and the menus all open over it. It has no backdrop and does
+not hold the focus. A click outside its box reaches what is under it. Toasts keep out of the panel and of its pill: they stack below
+it in the same column.
+
+**Collapsed.** The button at the right of the panel's heading, with the tooltip "Collapse", leaves only a pill "Getting started ·
+n/6" in the same corner, where n is the number of marked steps. A click on the pill expands the panel again. Collapsed or not is kept
+in the app settings, so it outlives a restart and is the same in every window of the Machine. A pill is not hidden Getting started:
+"Skip" hides both.
 
 **New and existing user.** worfy decides this once, before the first window, and does not decide it again.
 
 | User | Decided by | What they get |
 |---|---|---|
-| New | No Project in the list, not counting the Demo project | The section shows by itself, and First run, if it was never closed, starts with the welcome page |
-| Existing | A Project in the list, or a Project list that did not read and was set aside | The section stays hidden. One notice in the corner, "New: Getting started — a guided demo of worfy.", with "Open" and "Not now" |
+| New | No Project in the list, not counting the Demo project | The panel shows by itself, and First run, if it was never closed, starts with the welcome page |
+| Existing | A Project in the list, or a Project list that did not read and was set aside | The panel stays hidden, with no pill. One notice in the corner, "New: Getting started — a guided demo of worfy.", with "Open" and "Not now" |
 
 The notice stays until the user answers or closes it. However it left, it does not come back in a later window or start. "Open"
-shows the section.
+shows the panel.
 
 **The steps.** A step marks itself when the fact is true, in any order, also when the work was done another way. The first
 unmarked step is the current one, and only it has a button. A button is a shortcut, not a condition. A marked step shows a
@@ -176,9 +189,9 @@ in this project?" and `/worfy:ship-ticket todo 01`. Nothing is sent: the user se
 already typed.
 
 Removing the Demo project takes back steps 2 to 6. Apart from that a marked step stays: a later failed check does not take back
-step 1. The steps go on being marked while the section is hidden or the window shows another Project.
+step 1. The steps go on being marked while the panel is hidden or collapsed, or the window shows another Project.
 
-**Hints.** While the section shows and the demo Ticket stands on a Stage with a hint, the hint is a line under the current step,
+**Hints.** While Getting started shows, as the panel or as its pill, and the demo Ticket stands on a Stage with a hint, the hint is a line under the current step,
 or under step 6 once all are marked and "Show steps" has brought the list back. Each hint is also a toast once, across windows and restarts. That toast belongs to the Demo project, so it shows only while that
 Project is active.
 
@@ -195,11 +208,12 @@ Project is active.
 is marked and no rework round was seen, the step says "This time the review found nothing." and offers "Show an example". That opens
 a recorded example in place: the reviewer's REJECTED with its finding, the implementer's fix and the reviewer's VERIFIED.
 
-**Done.** Once step 6 is marked, the section shows "Done — the ticket is merged" in place of the steps, with "Connect your own
-project" and "Remove the demo project". "Show steps" brings the list back until the section is next mounted.
+**Done.** Once step 6 is marked, the panel shows "Done — the ticket is merged" in place of the steps, with "Connect your own
+project" and "Remove the demo project". "Show steps" brings the list back until the panel is next mounted.
 
-**Leaving and coming back.** "Skip" at the bottom hides the section, removes nothing and says where it comes back from. The Command
-palette's "Getting started" shows the section again at any time, expanded and with the focus on it, with or without a Project.
+**Leaving and coming back.** "Skip" at the bottom hides the panel and leaves no pill, removes nothing and says where it comes back
+from. The Command palette's "Getting started" shows the panel again at any time, expanded and with the focus on its heading, with or
+without a Project.
 "Connect your own project" under the steps is not part of the demo: "Connect…" opens the same "Add project" as "+" of Projects.
 
 #### Windows
@@ -232,15 +246,18 @@ does the work.
 - `src/main/ipc/getting-started.ts` holds the handlers and `startGettingStarted`, which `src/main/index.ts` runs before the first
   window. That first read decides new or existing. The channels are in `src/shared/ipc/getting-started.ts`, all with the access mark
   `local`.
-- `src/renderer/shell/sidebar/GettingStartedSection.tsx` is the section. `src/renderer/getting-started/store.ts` holds main's snapshot
-  in the window. The window marks no step: it changes the state only by asking main for the section, the notice, a hint shown, the
+- `src/renderer/getting-started/GettingStartedPanel.tsx` is the panel and its pill, drawn into `<body>` at z-index 80 and mounted by
+  `src/renderer/shell/AppShell.tsx`. Its root and the pill carry `data-toast-keep-out`, which the toasts' placement avoids. Collapsed
+  is `sidebar.collapsed.GettingStartedSection` of the app settings, the key of the sidebar section the panel replaced.
+  `src/renderer/getting-started/store.ts` holds main's snapshot in the window. The window marks no step: it changes the state only by
+  asking main to show or hide Getting started (`section`), the notice, a hint shown, the
   cost, and creating or removing the demo. `src/renderer/getting-started/hints.ts` chooses the hint.
   `src/renderer/getting-started/notice.ts` is the notice. `src/renderer/getting-started/ReviewExample.tsx` and
   `src/renderer/getting-started/DoneScreen.tsx` are the recorded example and the screen Done. `src/renderer/session/pending-input.ts`
   holds the ready text.
-- `WORFY_GETTING_STARTED_AUTO=0` keeps the section hidden for a new user and reads the notice as shown, for the e2e tests.
+- `WORFY_GETTING_STARTED_AUTO=0` keeps the panel hidden for a new user and reads the notice as shown, for the e2e tests.
 - Main tests: `test/contract/getting-started-state.test.ts`, `test/unit/getting-started-progress.test.ts`,
-  `test/unit/getting-started-section.test.tsx`, `test/unit/getting-started-hints.test.ts`, `test/unit/getting-started-notice.test.tsx`,
+  `test/unit/getting-started-panel.test.tsx`, `test/unit/getting-started-hints.test.ts`, `test/unit/getting-started-notice.test.tsx`,
   `test/e2e/getting-started.spec.ts`, `test/e2e/getting-started-entry.spec.ts`, `test/e2e/getting-started-hints.spec.ts` and
   `test/e2e/getting-started-done.spec.ts`.
 
@@ -302,12 +319,12 @@ does nothing. After "Confirm":
 
 1. The demo's Orchestrator stops and cannot open until the removal ends, and every Session and Terminal working inside the folder is
    closed and waited for.
-2. The Profile goes, with its entries in the Gate registry and its runs. If this fails, nothing is deleted and the section says why.
+2. The Profile goes, with its entries in the Gate registry and its runs. If this fails, nothing is deleted and the panel says why.
 3. The Project leaves the list, and its folder in worfy's data folder is deleted.
 4. Steps 2 to 6 are taken back. Step 1 stays.
 5. The folder is deleted, with 5 tries at most and 1 s between them.
 
-The toast "The demo project was removed." says that it worked. If something stays, the section names it with the reason. Claude Code's
+The toast "The demo project was removed." says that it worked. If something stays, the panel names it with the reason. Claude Code's
 transcripts of the demo stay, since they are Claude Code's data. After a removal the list of steps is back, and step 2 can create a new
 demo.
 
