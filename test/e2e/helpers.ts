@@ -1157,3 +1157,26 @@ export async function oneBoxEachInOnePass<N extends string>(page: Page, selector
 }
 
 const firstOfEach = (lists: Record<string, Rect[]>): Record<string, Rect> => Object.fromEntries(Object.entries(lists).map(([name, list]) => [name, list[0]!]))
+
+/**
+ * The room a test leaves between a control it clicks and each edge of the page (issue #1153). A
+ * control outside the page is clicked only after Playwright scrolls the Canvas, which React Flow
+ * undoes at once; whether the click lands first is a race, lost on Windows.
+ */
+export const EDGE_ROOM = 40
+
+/** The page's own size, as it lays out: on Windows the frame and the menu take part of the window. */
+export async function innerSize(window: Page): Promise<{ width: number; height: number }> {
+  return window.evaluate(() => {
+    const dom = globalThis as unknown as PageDom
+    return { width: dom.innerWidth, height: dom.innerHeight }
+  })
+}
+
+/** The smallest distance in pixels between `locator` and an edge of the page; negative when it sticks out. */
+export async function roomToEdges(window: Page, locator: Locator): Promise<number> {
+  const box = await locator.boundingBox()
+  if (!box) throw new Error('the element has no box')
+  const page = await innerSize(window)
+  return Math.min(box.x, box.y, page.width - box.x - box.width, page.height - box.y - box.height)
+}

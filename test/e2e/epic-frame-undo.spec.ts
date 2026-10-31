@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, type LaunchedApp } from './helpers'
+import { canvasReady, EDGE_ROOM, innerSize, launchApp, roomToEdges, type LaunchedApp } from './helpers'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
 
@@ -119,6 +119,9 @@ async function dragBy(window: Page, handle: Locator, dx: number, dy: number): Pr
 async function launch(): Promise<LaunchedApp> {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome } })
   await expect(launched.window.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT_ID)
+  // A known width, not the platform's default: the frame's header, its Collapse button at the right
+  // end included, has room for the drag of the test (issue #1153).
+  await canvasReady(launched, { size: { width: 1400, height: 900 } })
   return launched
 }
 
@@ -139,7 +142,12 @@ test('⌘Z puts a frame dragged by its header back and leaves the step before it
 
     // The frame dragged by its header: main keeps its offset in the `epic-frame` Node.
     const before = await flowPosition(window, FRAME)
-    await dragBy(window, frame.locator('.w-epic__drag .w-epic__tag'), 120, 80)
+    // To the right by what the page's own width leaves: the Collapse button stays EDGE_ROOM px inside it (issue #1153).
+    const collapse = frame.getByRole('button', { name: 'Collapse epic demo' })
+    const collapseBox = (await collapse.boundingBox())!
+    const dx = Math.min(120, Math.floor((await innerSize(window)).width - EDGE_ROOM - collapseBox.x - collapseBox.width))
+    expect(dx, 'the page leaves room to drag the frame right by more than the 60 px checked below').toBeGreaterThanOrEqual(80)
+    await dragBy(window, frame.locator('.w-epic__drag .w-epic__tag'), dx, 80)
     await expect.poll(async () => (await nodeIn(window, FRAME))?.x ?? 0).toBeGreaterThan(60)
     const saved = (await nodeIn(window, FRAME))!
     expect(saved.y).toBeGreaterThan(40)
@@ -160,7 +168,9 @@ test('⌘Z puts a frame dragged by its header back and leaves the step before it
     expect(await nodeIn(window, FRAME)).toMatchObject({ x: saved.x, y: saved.y })
 
     // The collapse button, then ⌘Z: the frame is open again.
-    await frame.getByRole('button', { name: 'Collapse epic demo' }).click()
+    await expect(collapse, 'the Collapse button is inside the window').toBeInViewport({ ratio: 1 })
+    expect(await roomToEdges(window, collapse), 'the Collapse button keeps its distance from the edges of the page').toBeGreaterThanOrEqual(EDGE_ROOM)
+    await collapse.click()
     await expect(frame).toHaveAttribute('data-collapsed', 'true')
     await expect(window.getByTestId('ticket-node')).toHaveCount(0)
     await window.keyboard.press('ControlOrMeta+z')
