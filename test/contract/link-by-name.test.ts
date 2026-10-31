@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { LinkConnectError, openLinkSocket } from '../../src/main/link/client'
 import { generateCertificate } from '../../src/main/link/identity'
 import { CONNECT_PATH, LINK_PROTOCOL_VERSION } from '../../src/main/link/messages'
+import { LinkService } from '../../src/main/link/service'
 import { LinkBench, type BenchMachine } from './link-bench'
 
 let bench: LinkBench | undefined
@@ -113,6 +114,36 @@ describe('a Machine reached by name', () => {
     // Read on every request: off refuses the next one without a restart.
     b.service.settings.set({ tailscale: false })
     for (const host of names) expect(await upgrade(port, { client: a, headers: { ...auth, host } }), host).toEqual({ status: 403, body: 'forbidden' })
+  })
+
+  it('takes the MagicDNS name Tailscale gives the machine, not the one guessed from os.hostname(), and reads it once per network (worfy-link ticket 39)', async () => {
+    newBench()
+    const { a, b } = await linkedPair()
+    // beta again over its data folder, now with a MagicDNS name that is not `beta.<tailnet>`: on
+    // the owner's Mac os.hostname() is `Alexeys-MacBook-Pro-164.local`, the tailnet name `alexeys-macbook-pro`.
+    let reads = 0
+    await b.service.stop()
+    b.service = await LinkService.start({
+      dataDir: b.dataDir,
+      buildKind: 'packaged',
+      buildVersion: '0.2.0+bench',
+      listenHost: '127.0.0.1',
+      hostname: () => 'beta.local',
+      networkInterfaces: () => ({}),
+      warn: () => undefined,
+      readMagicDnsName: async () => {
+        reads += 1
+        return 'beta-mac.example.ts.net'
+      },
+    })
+    b.service.settings.set({ tailscale: true })
+    const port = b.service.status().port ?? 0
+    const auth = { authorization: `Bearer ${secretsOf(a)[`outgoing:${b.service.machine.id}`] ?? ''}` }
+    for (const host of [`beta-mac.example.ts.net:${port}`, `beta-mac:${port}`]) expect((await upgrade(port, { client: a, headers: { ...auth, host } })).status, host).toBe(101)
+    for (const host of [`beta.example.ts.net:${port}`, `beta:${port}`, `other.example.ts.net:${port}`]) {
+      expect(await upgrade(port, { client: a, headers: { ...auth, host } }), host).toEqual({ status: 403, body: 'forbidden' })
+    }
+    expect(reads).toBe(1)
   })
 
   it('links by a host name, remembers the name and connects by it again after a restart', async () => {

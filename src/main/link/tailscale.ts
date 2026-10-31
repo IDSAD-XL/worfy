@@ -13,10 +13,12 @@
 // Homebrew's /opt/homebrew/bin. It is started with an argument array, never through a shell. Tests inject the runner and the
 // file check: no test starts a real `tailscale`.
 import { execFile } from 'node:child_process'
+import type { NetworkInterfaceInfo } from 'node:os'
 import { posix, win32 } from 'node:path'
 import { z } from 'zod'
 import type { TailscalePeerView } from '../../shared/ipc/link'
 import { agentEnv, fileOrAlias, findOnPath, getVar, type FileExists } from '../agent/env'
+import { networkSignature } from './connections'
 
 /** How long `tailscale status --json` may run before it is stopped and the list left empty. */
 export const TAILSCALE_TIMEOUT_MS = 3_000
@@ -114,6 +116,19 @@ export interface TailscaleReadOptions {
   linked?: readonly string[]
 }
 
+/** Why a read of the CLI failed, in one line for the log. */
+function failureOf(error: unknown): string {
+  const reason =
+    error instanceof SyntaxError || error instanceof z.ZodError
+      ? 'its output is not a status'
+      : (error as { killed?: boolean } | null)?.killed === true
+        ? `no answer within ${TAILSCALE_TIMEOUT_MS} ms`
+        : error instanceof Error
+          ? error.message
+          : String(error)
+  return reason.split('\n')[0] ?? ''
+}
+
 /**
  * The machines of the user's tailnet (parseTailscaleStatus); empty when the CLI is not found, and
  * empty with one warning when it fails, hangs or prints no status. Never throws.
@@ -126,15 +141,68 @@ export async function readTailscalePeers(options: TailscaleReadOptions = {}): Pr
   try {
     return parseTailscaleStatus(await (options.run ?? runTailscaleCli)(cli, ['status', '--json'], TAILSCALE_TIMEOUT_MS, env), options.linked)
   } catch (error) {
-    const reason =
-      error instanceof SyntaxError || error instanceof z.ZodError
-        ? 'its output is not a status'
-        : (error as { killed?: boolean } | null)?.killed === true
-          ? `no answer within ${TAILSCALE_TIMEOUT_MS} ms`
-          : error instanceof Error
-            ? error.message
-            : String(error)
-    warn(`[link] the tailnet machines could not be read from ${cli} status --json: ${reason.split('\n')[0]}`)
+    warn(`[link] the tailnet machines could not be read from ${cli} status --json: ${failureOf(error)}`)
     return []
+  }
+}
+
+// This machine's own MagicDNS name for the Host check of the link server (worfy-link ticket 39;
+// ADR-0070, point 5): `Self.DNSName` of the same `tailscale status --json`. The name Tailscale gives
+// a machine is not always the first label of os.hostname(): macOS adds a suffix of its own
+// (`Name-164.local`) when the name is taken on the network, and the admin console may rename it.
+const selfSchema = z.object({ Self: z.object({ DNSName: z.string().optional() }).nullable().optional() })
+
+/** One DNS label or more, dot-separated, at least two: a full MagicDNS name. */
+const DNS_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/
+
+/**
+ * `Self.DNSName` of the output of `tailscale status --json`, lower case, without the trailing dot;
+ * undefined when the status has none (MagicDNS off) or it is not a DNS name of two labels or more.
+ * Throws when the text is not JSON or not a status.
+ */
+export function parseSelfDnsName(text: string): string | undefined {
+  const name = normalHost(selfSchema.parse(JSON.parse(text)).Self?.DNSName ?? '')
+  return DNS_NAME.test(name) ? name : undefined
+}
+
+/**
+ * This machine's MagicDNS name (parseSelfDnsName); undefined when the CLI is not found, and
+ * undefined with one warning when it fails, hangs past TAILSCALE_TIMEOUT_MS or prints no status.
+ * Never throws. Asynchronous: the CLI never runs on the main thread's time.
+ */
+export async function readSelfDnsName(options: Omit<TailscaleReadOptions, 'linked'> = {}): Promise<string | undefined> {
+  const warn = options.warn ?? ((message: string) => console.warn(message))
+  const env = options.env ?? (await agentEnv()).env
+  const cli = findTailscale(options.platform ?? process.platform, env, options.exists)
+  if (cli === null) return undefined
+  try {
+    return parseSelfDnsName(await (options.run ?? runTailscaleCli)(cli, ['status', '--json'], TAILSCALE_TIMEOUT_MS, env))
+  } catch (error) {
+    warn(`[link] the MagicDNS name of this machine could not be read from ${cli} status --json: ${failureOf(error)}`)
+    return undefined
+  }
+}
+
+/**
+ * The MagicDNS name of this machine, read once per network: `read` runs again only when the
+ * machine's addresses differ from the last read (networkSignature: another network, the Tailscale
+ * adapter up or down). Concurrent asks share one read. A failed or empty read is kept for the
+ * network too, so the CLI does not run on every request. A read that rejects gives undefined.
+ * shortcut: a rename in the Tailscale admin console without a change of address is seen only after
+ * the next change of network or a restart of worfy; redo if that delay shows up in use.
+ */
+export class TailnetSelfName {
+  private network: string | undefined
+  private name: Promise<string | undefined> | undefined
+
+  constructor(private readonly read: () => Promise<string | undefined>) {}
+
+  get(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>): Promise<string | undefined> {
+    const network = networkSignature(interfaces)
+    if (this.name === undefined || network !== this.network) {
+      this.network = network
+      this.name = this.read().catch(() => undefined)
+    }
+    return this.name
   }
 }

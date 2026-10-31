@@ -73,6 +73,7 @@ import { LinkLogFile, teeLinkConsole } from './log-file'
 import { LinkSettings, type LinkSettingsValue } from './settings'
 import { SleepNotice, type PowerEvents } from './sleep-notice'
 import { LinkedMachineStore, outgoingTokenKey, tokenHash, type LinkedMachineRecord } from './store'
+import { readSelfDnsName, TailnetSelfName } from './tailscale'
 
 /** Why the server listens. */
 export type ListenReason = 'linked' | 'linking' | 'pairing'
@@ -168,6 +169,12 @@ export interface LinkServiceOptions {
   pairingStepTimeoutMs?: number
   /** Warnings for the worfy log; console.warn by default. */
   warn?: (message: string) => void
+  /**
+   * Reads the MagicDNS name Tailscale gives this machine for the Host check (worfy-link ticket 39),
+   * kept per network (tailscale.ts, TailnetSelfName). None by default: the names are guessed from
+   * os.hostname(), and no test starts a real `tailscale`; the app passes readSelfDnsName.
+   */
+  readMagicDnsName?: () => Promise<string | undefined>
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
@@ -249,6 +256,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   private readonly hostname: () => string
   private readonly interfaces: () => HostNames['interfaces']
   private readonly addressesOf: (socket: SocketAddresses) => PeerAddresses
+  private readonly magicDnsName: TailnetSelfName | undefined
 
   private constructor(
     private readonly options: LinkServiceOptions,
@@ -271,6 +279,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     this.hostname = options.hostname ?? osHostname
     this.interfaces = options.networkInterfaces ?? osNetworkInterfaces
     this.addressesOf = options.addressesOf ?? ((socket) => ({ remote: socket.remoteAddress, local: socket.localAddress }))
+    this.magicDnsName = options.readMagicDnsName === undefined ? undefined : new TailnetSelfName(options.readMagicDnsName)
     this.pairingWindow = new PairingWindow(options.now ?? Date.now, options.codeTtlMs ?? PAIRING_CODE_TTL_MS, () => this.emit('pairing-code'))
     this.messages.register(helloMessage, (hello, from) => this.onHello(hello, from.machineId))
     this.messages.register(revokedMessage, (_payload, from) => this.forget(from.machineId, 'other-machine'))
@@ -986,6 +995,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
   /** Listens on the kept port, or on a new one the OS picks when that one is taken. */
   private async listen(): Promise<LinkServer> {
     const key = this.machineKey()
+    const magicDnsName = this.magicDnsName
     const hosts = this.options.listenHost === undefined ? [ALL_INTERFACES, '0.0.0.0'] : [this.options.listenHost]
     let lastError: unknown
     for (const host of hosts) {
@@ -1004,6 +1014,8 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
             // may get its address after worfy started.
             isAllowedPeer: (peer) => isAllowedPeer(peer, { tailscale: this.settings.get().tailscale, interfaces: this.interfaces() }),
             addressesOf: this.addressesOf,
+            ...(magicDnsName === undefined ? {} : { magicDnsName: (interfaces: HostNames['interfaces']) => magicDnsName.get(interfaces) }),
+            warn: this.warn,
           })
         } catch (error) {
           lastError = error
@@ -1325,6 +1337,7 @@ export async function startAppLink(options: { buildKind: BuildKind; buildVersion
       addClient,
       ...(environment.listenHost === undefined ? {} : { listenHost: environment.listenHost }),
       ...(environment.interfaces === undefined ? {} : { networkInterfaces: () => environment.interfaces ?? {}, listInterfaces: true }),
+      readMagicDnsName: () => readSelfDnsName(),
     })
     const journal = {
       stop: (): void => {

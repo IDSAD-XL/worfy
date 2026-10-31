@@ -240,8 +240,13 @@ online machine puts its address in the field, and the port is still typed: it is
 offline machine is grey and cannot be picked. No CLI means no list. A CLI that fails, or does not answer within 3
 seconds, also gives no list, with one warning in the log and no error in the window.
 
-A machine renamed in the Tailscale admin console is refused by its new name, because worfy takes the MagicDNS name to
-be the first label of the computer's name. Its Tailscale address still works.
+**This machine's MagicDNS name.** While the setting is on, the server takes `Host` names under `ts.net` only when they
+are this machine's own MagicDNS name. worfy reads that name, `Self.DNSName`, from `tailscale status --json` on the
+first linking request after the network changes, and keeps it until the next change. A request waits for the CLI for
+at most 3 seconds. The full name and its first label pass; every other name under `ts.net` is refused. When the CLI is
+missing or fails, worfy guesses the name from the computer's name: its first label, in any tailnet. Then a machine
+renamed in the Tailscale admin console is refused by its new name. With the CLI, a rename is seen after the next change
+of network or a restart of worfy. The Tailscale address works in both cases.
 
 #### On a Linked machine
 
@@ -327,7 +332,8 @@ The Tailscale CLI is looked for on the Path, then in the Tailscale folder under 
   written, so a token never reaches a server with another certificate. The server refuses in this order, before the
   WebSocket handshake: a peer outside the allowed networks (dropped on TCP, before TLS), any `Origin` header, a `Host`
   that does not name this machine and port (against DNS rebinding), another protocol version, an unknown path, then
-  the endpoint's own check.
+  the endpoint's own check. Each refusal before the endpoint's check writes `[link] refused a connection from <peer>:
+  <reason> (Host <host>)` to the log, without the query string of the path.
 - **Pairing proves the two certificates, not only the code.** The exchange is SPAKE2 (RFC 9382, P-256) with the code
   as the password. The identities in the transcript are the two certificate fingerprints each side saw, so a machine
   in the middle makes the transcripts differ, and the key confirmation fails on both sides. A captured exchange cannot

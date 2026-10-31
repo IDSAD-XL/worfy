@@ -23,6 +23,8 @@ import { CONNECT_PATH, LINK_MAX_PAYLOAD, LINK_PROTOCOL_HEADER, LINK_PROTOCOL_VER
 export interface Refusal {
   status: 400 | 401 | 403 | 404 | 409
   body: string
+  /** Why, for this Machine's log only (checkUpgrade); never sent to the peer. */
+  reason?: string
 }
 
 const STATUS_TEXT: Record<Refusal['status'], string> = { 400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 409: 'Conflict' }
@@ -44,18 +46,31 @@ export interface UpgradeRequest {
   url: string | undefined
 }
 
-/** The checks every upgrade passes, whatever the endpoint; null when they pass. */
+/** The checks every upgrade passes, whatever the endpoint; null when they pass. A refusal says why in `reason`, for the log. */
 export function checkUpgrade(request: UpgradeRequest, context: { port: number; names: HostNames; build: string; isAllowedPeer: (peer: PeerAddresses) => boolean }): Refusal | null {
-  if (!context.isAllowedPeer(request.peer)) return FORBIDDEN
+  if (!context.isAllowedPeer(request.peer)) return { ...FORBIDDEN, reason: 'its address may not connect' }
   // A browser always sends Origin (and an old one Sec-WebSocket-Origin); worfy's client never does.
-  if (request.headers.origin !== undefined || request.headers['sec-websocket-origin'] !== undefined) return FORBIDDEN
-  if (!isAllowedHost(request.headers.host, context.port, context.names)) return FORBIDDEN
+  if (request.headers.origin !== undefined || request.headers['sec-websocket-origin'] !== undefined) return { ...FORBIDDEN, reason: 'an Origin header, as a browser page sends' }
+  if (!isAllowedHost(request.headers.host, context.port, context.names)) return { ...FORBIDDEN, reason: 'the Host does not name this machine and port' }
   const version = request.headers[LINK_PROTOCOL_HEADER]
   const theirs = Array.isArray(version) ? version.join(',') : version
-  if (theirs !== String(LINK_PROTOCOL_VERSION)) return protocolMismatch(theirs, context.build)
-  const path = (request.url ?? '').split('?')[0]
-  if (path !== PAIR_PATH && path !== CONNECT_PATH) return { status: 404, body: 'not found' }
+  if (theirs !== String(LINK_PROTOCOL_VERSION)) return { ...protocolMismatch(theirs, context.build), reason: `link protocol ${printable(theirs ?? 'none')}, this Machine speaks ${LINK_PROTOCOL_VERSION}` }
+  const path = (request.url ?? '').split('?')[0] ?? ''
+  if (path !== PAIR_PATH && path !== CONNECT_PATH) return { status: 404, body: 'not found', reason: `no endpoint at ${printable(path)}` }
   return null
+}
+
+/** A text the peer sent, fit for one log line: control characters as `?`, at most 200 characters. */
+function printable(text: string): string {
+  // eslint-disable-next-line no-control-regex -- control characters are what this removes
+  const clean = text.replace(/[\u0000-\u001f\u007f]/g, '?')
+  return clean.length > 200 ? `${clean.slice(0, 200)}…` : clean
+}
+
+/** The `[link]` line of a refused upgrade: the peer, why, and the Host it asked for. No token, no query string. */
+function refusalLine(remoteAddress: string | undefined, reason: string, host: string | undefined): string {
+  const peer = remoteAddress === undefined ? 'an unknown address' : normalizeAddress(remoteAddress)
+  return `[link] refused a connection from ${peer}: ${reason} (Host ${host === undefined ? 'none' : printable(host)})`
 }
 
 /** The bearer token of an Authorization header; undefined when there is none. */
@@ -96,6 +111,15 @@ export interface LinkServerOptions {
   isAllowedPeer?: (peer: PeerAddresses) => boolean
   /** How a socket's two addresses are read; its own by default. Tests stand 127.0.0.1 in for a Tailscale address. */
   addressesOf?: (socket: SocketAddresses) => PeerAddresses
+  /**
+   * The MagicDNS name Tailscale gives this machine (tailscale.ts, TailnetSelfName), asked before
+   * the Host check of every upgrade while "Link through Tailscale" is on, with the interfaces of
+   * hostNames(); undefined keeps the names guessed from os.hostname(). None by default: the server
+   * starts no `tailscale` of its own (worfy-link ticket 39).
+   */
+  magicDnsName?: (interfaces: HostNames['interfaces']) => Promise<string | undefined>
+  /** Where a refused upgrade is told (refusalLine), for link.log; console.warn by default. */
+  warn?: (message: string) => void
 }
 
 const LOCAL_NETWORK_ONLY = { tailscale: false, interfaces: {} }
@@ -126,6 +150,7 @@ export function startLinkServer(options: LinkServerOptions): Promise<LinkServer>
   let port = options.port
   const allowed = options.isAllowedPeer ?? ((peer: PeerAddresses) => isAllowedPeer(peer, LOCAL_NETWORK_ONLY))
   const addressesOf = options.addressesOf ?? socketAddresses
+  const warn = options.warn ?? ((message: string) => console.warn(message))
 
   // A peer that may not connect is dropped on the TCP connection, before the TLS handshake: it
   // never gets as far as the certificate (whose name carries the Machine id). The check at
@@ -139,12 +164,12 @@ export function startLinkServer(options: LinkServerOptions): Promise<LinkServer>
     response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', connection: 'close' })
     response.end('not found')
   })
-  server.on('upgrade', (request: IncomingMessage, socket: Socket, head: Buffer) => {
-    socket.on('error', () => socket.destroy())
+  const upgrade = (request: IncomingMessage, socket: Socket, head: Buffer, names: HostNames): void => {
     const peerAddresses = addressesOf(socket)
     const remoteAddress = peerAddresses.remote
-    const common = checkUpgrade({ peer: peerAddresses, headers: request.headers, url: request.url }, { port, names: options.hostNames(), build: options.build, isAllowedPeer: allowed })
+    const common = checkUpgrade({ peer: peerAddresses, headers: request.headers, url: request.url }, { port, names, build: options.build, isAllowedPeer: allowed })
     if (common !== null || remoteAddress === undefined) {
+      warn(refusalLine(remoteAddress, common?.reason ?? 'no address of the peer', request.headers.host))
       refuse(socket, common ?? FORBIDDEN)
       return
     }
@@ -171,6 +196,23 @@ export function startLinkServer(options: LinkServerOptions): Promise<LinkServer>
       accepted = true
       decision.accept(ws)
     })
+  }
+  server.on('upgrade', (request: IncomingMessage, socket: Socket, head: Buffer) => {
+    socket.on('error', () => socket.destroy())
+    const names = options.hostNames()
+    const ask = options.magicDnsName
+    if (!names.tailscale || ask === undefined) {
+      upgrade(request, socket, head, names)
+      return
+    }
+    // The name comes from a cache, or from the Tailscale CLI on the first request of a network
+    // (TAILSCALE_TIMEOUT_MS at most); the request waits for it, the main thread does not.
+    void ask(names.interfaces)
+      .catch(() => undefined)
+      .then((magicDnsName) => {
+        if (socket.destroyed) return
+        upgrade(request, socket, head, magicDnsName === undefined ? names : { ...names, magicDnsName })
+      })
   })
   server.on('tlsClientError', () => {
     // A client that fails the TLS handshake (a browser probing the port) is dropped by Node itself.

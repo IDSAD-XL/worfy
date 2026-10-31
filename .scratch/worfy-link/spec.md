@@ -406,6 +406,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 15 | `src/main/autopilot/run.ts`, `src/main/autopilot/origin.ts`, `src/main/autopilot/journal.ts`, `src/shared/autopilot/journal.ts`, `src/main/ipc/autopilot.ts`, `src/shared/ipc/autopilot.ts`, `src/main/link/autopilot-runs.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `test/unit/autopilot-origin.test.ts`, `test/unit/autopilot-run.test.ts`, `test/e2e/linked-autopilot.spec.ts` | 4 |
 | 16 | `test/e2e/linked-machines.spec.ts`, `.scratch/worfy-link/spec.md` | 6 |
 | 38 | `src/main/diagnostics/closed-stdio.ts`, `src/main/index.ts`, `test/unit/closed-stdio.test.ts`, `test/contract/stdout-epipe.test.ts` | вне Wave (находка ПК 2026-10-31) |
+| 39 | `src/main/link/checks.ts`, `src/main/link/server.ts`, `src/main/link/tailscale.ts`, `src/main/link/service.ts`, `test/contract/link-server.test.ts`, `test/contract/link-by-name.test.ts`, `test/unit/link-magicdns.test.ts` | вне Wave (находка приёмки 31) |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
