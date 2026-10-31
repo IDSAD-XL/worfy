@@ -4,7 +4,7 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { GateQueueView } from '../../src/shared/ipc/gate-queue'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
-import { PaletteBody } from '../../src/renderer/palette/CommandPalette'
+import { CommandPalette, PaletteBody } from '../../src/renderer/palette/CommandPalette'
 import { buildCommands, forQuery, type CommandContext } from '../../src/renderer/palette/commands'
 import { useArrangeByEpicRequests } from '../../src/renderer/canvas/arrange-by-epic-command'
 import { useRepackRequests } from '../../src/renderer/canvas/sources/epics'
@@ -17,6 +17,8 @@ import { useSettingsWindow } from '../../src/renderer/settings/settings-window'
 import { MachineDialogs } from '../../src/renderer/machines/MachineDialogs'
 import { acceptLinkState } from '../../src/renderer/machines/useMachines'
 import type { LinkedMachineView, LinkState } from '../../src/shared/ipc/link'
+import { updateSnapshotSchema, type UpdateSnapshot } from '../../src/shared/ipc/update'
+import { useUpdateStore } from '../../src/renderer/update/store'
 
 function ticket(num: number, state: Ticket['state'], blockedNums: number[] = []): Ticket {
   return {
@@ -619,5 +621,99 @@ describe('Machine commands', () => {
   it('without the Linked machines in the context, the ones the renderer has now', () => {
     acceptLinkState(linkState(20, [linkedMachine(MINI, 'Mini', 'sleeping')]))
     expect(ids(context()).filter((id) => id.startsWith('machine-'))).toEqual([`machine-reconnect:${MINI}`, `machine-remove:${MINI}`])
+  })
+})
+
+// ── worfy-update ticket 09: "Update worfy" ──────────────────────────────────────────────────────
+
+describe('Update worfy', () => {
+  const available = { sha: 'b'.repeat(40), version: '1.5.0+bbbbbbb', quiet: false }
+  const update = (over: Partial<UpdateSnapshot> = {}): UpdateSnapshot =>
+    updateSnapshotSchema.parse({ enabled: true, checking: false, running: { commit: 'a'.repeat(40), version: '1.4.0+aaaaaaa' }, ...over })
+  const ready = (idle: boolean): UpdateSnapshot => update({ available, idle, build: { phase: 'ready', sha: available.sha, version: available.version } })
+  const row = (ctx: CommandContext) => buildCommands(ctx).find((command) => command.id === 'update-worfy')
+
+  /** This Machine's preload: every call is recorded and answered with `answer`. */
+  function preload(answer: (channel: string) => unknown): { channel: string; input: unknown }[] {
+    const asked: { channel: string; input: unknown }[] = []
+    const globals = globalThis as { worfy?: WorfyBridge }
+    globals.worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        return Promise.resolve(answer(channel))
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    onTestFinished(() => {
+      delete globals.worfy
+    })
+    return asked
+  }
+
+  it('is an Action with Update on, with or without a Project, found by "update"; its detail follows the state', () => {
+    for (const project of [context().project, undefined]) {
+      expect(row(context({ project, update: update() }))).toMatchObject({ group: 'Action', title: 'Update worfy', detail: 'check for a new version' })
+      expect(rankItems(buildCommands(context({ project, update: update() })), 'update')[0]?.id).toBe('update-worfy')
+    }
+    expect(row(context({ update: update({ available }) }))?.detail).toBe('worfy 1.5.0+bbbbbbb available')
+    expect(row(context({ update: ready(false) }))?.detail).toBe('ready — restart')
+    // The commit rolled back from is quiet (spec R8): no Available update until the next one.
+    expect(row(context({ update: update({ available: { ...available, quiet: true }, rolledBackFrom: available.sha }) }))?.detail).toBe('check for a new version')
+  })
+
+  it('is not there with Update off, nor before main has answered', () => {
+    expect(row(context({ update: update({ enabled: false }) }))).toBeUndefined()
+    expect(row(context({ update: null }))).toBeUndefined()
+  })
+
+  it('without an Available update it checks (update.check)', async () => {
+    const asked = preload(() => ({ ok: true, value: update() }))
+    expect(await row(context({ update: update() }))!.run()).toBeUndefined()
+    // The window's store may read the snapshot first (update.state); the command itself only checks.
+    expect(asked.map(({ channel }) => channel).filter((channel) => channel !== 'update.state')).toEqual(['update.check'])
+  })
+
+  it('with an Available update it builds it (update.install); a refusal is what the palette shows', async () => {
+    const asked = preload(() => ({ ok: true, value: update({ available }) }))
+    expect(await row(context({ update: update({ available }) }))!.run()).toBeUndefined()
+    expect(asked.map(({ channel }) => channel)).toEqual(['update.install'])
+    preload(() => ({ ok: false, error: 'update.install: main is gone' }))
+    expect(await row(context({ update: update({ available }) }))!.run()).toBe('update.install: main is gone')
+  })
+
+  it('built: update.restart, "now" when nothing works and "idle" while something does; a refusal is its reason', async () => {
+    let asked = preload(() => ({ ok: true, value: { outcome: 'quitting' } }))
+    expect(await row(context({ update: ready(true) }))!.run()).toBeUndefined()
+    expect(asked).toEqual([{ channel: 'update.restart', input: { when: 'now' } }])
+    asked = preload(() => ({ ok: true, value: { outcome: 'refused', reason: 'a Session started a turn', busy: true } }))
+    expect(await row(context({ update: ready(false) }))!.run()).toBe('a Session started a turn')
+    expect(asked).toEqual([{ channel: 'update.restart', input: { when: 'idle' } }])
+  })
+
+  it('the open palette has "Update worfy" from the window\'s snapshot and follows its changes while open', async () => {
+    useUpdateStore.setState({ snapshot: update({ available }) })
+    onTestFinished(() => useUpdateStore.setState({ snapshot: null }))
+    // jsdom has no scrollIntoView; the palette calls it for the active row.
+    Element.prototype.scrollIntoView = () => undefined
+    onTestFinished(() => {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    })
+    preload((channel) => (channel === 'update.state' ? { ok: true, value: useUpdateStore.getState().snapshot } : { ok: false, error: `${channel}: not in this test` }))
+    render(<CommandPalette />)
+    fireEvent.click(screen.getByTestId('palette-trigger'))
+    fireEvent.change(screen.getByTestId('palette-input'), { target: { value: 'update' } })
+    const option = () => screen.getByTestId('command-palette').querySelector('[data-testid="palette-option"][data-command="update-worfy"]')
+    await waitFor(() => expect(option()?.textContent).toContain('worfy 1.5.0+bbbbbbb available'))
+    act(() => useUpdateStore.setState({ snapshot: ready(false) }))
+    expect(option()?.textContent).toContain('ready — restart')
+    act(() => useUpdateStore.setState({ snapshot: update({ enabled: false }) }))
+    expect(option()).toBeNull()
+  })
+
+  it('without the snapshot in the context, the one the window has now', () => {
+    useUpdateStore.setState({ snapshot: update({ available }) })
+    onTestFinished(() => useUpdateStore.setState({ snapshot: null }))
+    expect(row(context())?.detail).toBe('worfy 1.5.0+bbbbbbb available')
   })
 })

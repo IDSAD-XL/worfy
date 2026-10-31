@@ -27,6 +27,7 @@ import { useGateQueue } from '../projects/useGateQueue'
 import { activeProject, useProjects, useReadOnly } from '../projects/useProjects'
 import { openSession, useNavigation } from '../session/navigation'
 import { label, matches } from '../shortcuts/match'
+import { useUpdate } from '../update/store'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { buildCommands, forQuery, type CommandGate, type PaletteCommand } from './commands'
 import { groupRows, type RowGroup } from './groups'
@@ -365,6 +366,8 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
   const readOnly = useReadOnly()
   // Read when the palette opens, on the window's Machine (worfy-windows ticket 17).
   const gateQueue = useGateQueue(windowMachine(), project.id)
+  // main's Update snapshot (worfy-update ticket 09): "Update worfy" follows it while the palette is open.
+  const update = useUpdate()
   const commands = useMemo(
     () =>
       buildCommands({
@@ -379,8 +382,9 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
         createItems,
         readOnly,
         gateQueue,
+        update,
       }),
-    [project, projects, view, model, layout, history, docs, tagFilter, createItems, readOnly, gateQueue],
+    [project, projects, view, model, layout, history, docs, tagFilter, createItems, readOnly, gateQueue, update],
   )
   const transcripts = useMemo(() => ({ projectId: project.id, projectRoot: project.path }), [project.id, project.path])
   return <PaletteBody commands={commands} empty="Nothing matches" onClose={onClose} transcripts={transcripts} />
@@ -389,9 +393,10 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
 /** Without a Project only the view commands are left. */
 function EmptyPalette({ projects, onClose }: Omit<PanelProps, 'project'>) {
   const view = useNavigation((state) => state.view)
+  const update = useUpdate()
   const commands = useMemo(
-    () => buildCommands({ project: undefined, projects, view, model: undefined, layoutNodes: [], history: [], adrs: [], tagFilter: null, createItems: [] }),
-    [projects, view],
+    () => buildCommands({ project: undefined, projects, view, model: undefined, layoutNodes: [], history: [], adrs: [], tagFilter: null, createItems: [], update }),
+    [projects, view, update],
   )
   return <PaletteBody commands={commands} empty="Add a project to get its commands" onClose={onClose} />
 }

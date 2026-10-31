@@ -1,7 +1,8 @@
 # 09 — Settings → General, блок «Updates», и Command palette «Update worfy»
 
 Type: task
-Status: open
+Status: claimed 2026-10-31T09:21Z
+Branch: worfy-update/09
 Blocked by: 03, 04
 Source: решения владельца 2026-10-31, пункты 6 (Settings → General «Updates»: «Check now», «Update automatically»; Command palette «Update worfy»), 7 (по умолчанию включено), 9 («Roll back to previous version»); [spec.md](../spec.md), «Решено без владельца», Р8, «Тексты (черновик)», «Settings → General → Updates», «Command palette»
 
@@ -60,4 +61,47 @@ Source: решения владельца 2026-10-31, пункты 6 (Settings �
 
 ## Итог
 
-Заполняется при закрытии.
+- `src/renderer/settings/UpdatesBlock.tsx` (новый): три строки `SettingRow` под строкой «Version».
+  - «Updates»: строка состояния по тексту spec-а — «worfy <version>. Last checked <time>.» (время — часы
+    сегодня, иначе день и часы), «worfy <version> is available.», «Building worfy <version>…», «worfy
+    <version> is ready.». Кнопки: «Check now» (`update.check`, неактивна, пока идёт проверка); «Update
+    worfy» при Available update (`update.install`, неактивна во время сборки); при `ready` — «Restart now»
+    (`idle: true`) или «Restart when idle» (`update.restart { when }`). Под строкой: причина `skipped`
+    (только после «Check now» в этом окне), отказ main, «Updates need git, node and pnpm: <missing> not
+    found. See Settings → Health.», после отката — «worfy is back to <version>. Automatic updates wait for
+    the next commit on main.» (текст toast-а из spec-а), во время ожидания «Restart when idle» — «worfy
+    restarts when no Session is working and Autopilot has stopped».
+  - «Update automatically» — `SettingSwitch`, пишет `autoUpdate` через `setAppSettings`; описание из spec-а.
+  - «Roll back to previous version» — кнопка «Roll back» (`update.rollback`; нативный диалог спрашивает
+    main); без `previous` — неактивна, «No previous version is kept.». Отказ показывается под строкой,
+    `cancelled` — ничего.
+  - `enabled: false` или snapshot ещё не пришёл — блока нет.
+- Available update с `quiet` (commit, с которого откатились, Р8) считается отсутствующим: нет «is
+  available» и «Update worfy», команда palette делает «Check now».
+- `src/renderer/update/store.ts` — только добавлено: `updateStep()` (что значит «Update worfy» в этом
+  snapshot-е), `installUpdate()` (берёт snapshot ответа), `restartIntoUpdate(when)`, `rollBackUpdate()`.
+  Вынесено из компонента: правило `react-refresh/only-export-components` запрещает экспорт функций из
+  `.tsx`, а palette использует те же функции.
+- `src/renderer/palette/commands.ts`: «Update worfy» (группа Action, с Project-ом и без) при `enabled`;
+  detail «worfy <version> available» · «ready — restart» · «check for a new version»; запуск —
+  `update.restart` / `update.install` / `update.check`. Snapshot — из `CommandContext.update`, без него — из
+  store окна (`useUpdateStore.getState()`), как `linked`.
+- `scripts/ci-scope.mjs`: `test/update-stub.ts` добавлен в `APP_FILES` — e2e импортирует stub, и
+  `test/contract/ci-workflow.test.ts:1222` требует, чтобы такой файл запускал macOS e2e на PR. Согласовано с
+  Orchestrator-ом; Ticket-ы 06 и 07 добавляют ту же строку.
+- Test-ы: unit `test/unit/updates-block.test.tsx` (17), `test/unit/palette-commands.test.tsx` (+7); mutant
+  «Check now не зовёт `update.check`» краснеет на двух test-ах. e2e `test/e2e/update-settings.spec.ts`
+  (2): GitHub — stub, Stable copy и прежняя копия — во временной папке, clone для сборки не существует;
+  «Check now» → «worfy 9.9.9+b2b2b2b is available.», при выключенном переключателе `build.phase` после
+  ответа проверки — `idle` и папки `update/repo` нет; откат — диалог подменён, «Cancel» → диалог показан
+  один раз с текстом spec-а, прежняя копия на месте, `restart.json` нет, helper не запускался.
+- Снимки обеих тем (e2e пишет их в `test-results/e2e/snapshots/09-updates-*`): available, checked,
+  building, ready-busy, missing-tools, rolled-back, palette-available, palette-ready. Состояния сборки
+  e2e рисует snapshot-ом, посланным в окно (`worfy:update.changed`), — только для снимков.
+- `src/renderer/palette/CommandPalette.tsx` (вне следа, по просьбе Orchestrator-а): обе панели palette
+  зовут `useUpdate()` и передают snapshot в `buildCommands` (и в deps `useMemo`): «Update worfy» есть без
+  открытия Settings и меняется, пока palette открыта (unit test и e2e).
+- До первой проверки main не знает запущенную копию (`running: null`): строка называет версию сборки из
+  строки «Version» (`app.version`), без неё — только «Last checked …» или пустая строка.
+- Раунд polish: три mutant-а (версия до первой проверки, `checking = pressing`, `update` вне deps palette)
+  краснеют на своих test-ах.
