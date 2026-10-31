@@ -78,8 +78,11 @@ both cases a build never restarts worfy: the restart is always a press of its ow
 **The build.** worfy builds in its own clone in its data folder (see [Storage and
 diagnostics](storage-and-diagnostics.md)): `~/Library/Application Support/worfy/update/repo` on macOS,
 `%APPDATA%\worfy\update\repo` on Windows. The clone is made once with `git clone` and fetched into after that. The build
-is the one of `pnpm install:stable`: `pnpm install --frozen-lockfile`, then `pnpm package`. The user's checkout and the
-folders of the Projects are never touched. The output goes to `build.log` next to the clone, a new one for each build.
+is the one of `pnpm install:stable`: `pnpm install --frozen-lockfile`, then `pnpm package`. Between them worfy checks
+that the Electron `pnpm package` packs is in `node_modules/electron/dist`. When its download after an earlier install did
+not finish, `pnpm install` does not run it again, so the build runs `node node_modules/electron/install.js` as a step of
+its own and checks again. Still no Electron, or no `node_modules/electron` at all, fails the build before `pnpm package`.
+The user's checkout and the folders of the Projects are never touched. The output goes to `build.log` next to the clone, a new one for each build.
 One build runs at a time. With "Update automatically" on, a newer commit found during a build is built after it; with it
 off, a newer commit waits for "Update worfy". Quitting worfy during a build stops it, and the commit counts as never
 built, not as failed.
