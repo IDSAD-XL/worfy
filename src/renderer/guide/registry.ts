@@ -23,6 +23,7 @@ export const GUIDE_TOPICS: readonly GuideTopicEntry[] = [
   { id: 'autopilot', title: 'Autopilot', keys: ['run waves', 'unattended', 'stop autopilot', 'force stop', 'journal'] },
   { id: 'canvas', title: 'Canvas', keys: ['done shelf', 'focus mode'] },
   { id: 'sessions', title: 'Sessions', keys: ['subagent', 'transcript', 'limits', 'claude home'] },
+  { id: 'browser', title: 'Browser', keys: ['chromium', 'sign-in', 'origins'] },
   { id: 'skeleton', title: 'How the Guide works', keys: ['guide test', 'skeleton'], devOnly: true },
 ]
 

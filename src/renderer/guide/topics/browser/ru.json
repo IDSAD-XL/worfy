@@ -1,0 +1,91 @@
+{
+  "title": "Browser",
+  "summary": [
+    "Browser — Node на Canvas со страницей Chromium. Вы ходите в нём по сайтам сами, а Session ведёт его инструментами. Он открывается под Browser profile — сохранённым входом одной роли, поэтому Session-ы приходят уже со входом и паролей не видят."
+  ],
+  "scene": {
+    "description": "Browser в worfy. На Canvas лежат Live Browser, Session и Asleep Browser. Вне Canvas стоят Browser profile, MCP-сервер Session worfy-browser и правила сна. Browser открывается под своим profile, уже со входом. Session вызывает инструменты browser своего сервера, а сервер открывает Browser и ведёт его. Правила сна усыпляют Browser, а клик его будит.",
+    "labels": {
+      "notNodes": "НЕ NODE-Ы",
+      "canvas": "Canvas",
+      "canvasNote": "Browser — это Node",
+      "browser": "Browser",
+      "browserNote": "Live: страница Chromium",
+      "session": "Session",
+      "sessionNote": "ведёт его инструментами",
+      "asleep": "Asleep Browser",
+      "asleepNote": "без страницы; клик будит",
+      "profile": "Browser profile",
+      "profileNote": "вход одной роли",
+      "server": "worfy-browser",
+      "serverNote": "MCP-сервер, один на Session",
+      "rules": "Правила сна",
+      "rulesNote": "по умолчанию 3 Live сразу",
+      "signedIn": "открывает со входом",
+      "tools": "инструменты browser_*",
+      "drives": "открывает, ведёт",
+      "sleeps": "усыпляют",
+      "step1": "Вы входите на сайт руками в Browser. Его Browser profile хранит cookies, и их видят все Browser-ы под этим profile.",
+      "step2": "Session открывает Browser рядом со своим Node через browser_open, под уже созданным profile, и приходит со входом.",
+      "step3": "Session читает страницу, кликает и печатает инструментами worfy-browser. Она не уходит с origin-ов profile и никогда не печатает в поле пароля.",
+      "step4": "Пока Session ведёт Browser, ваше нажатие или клавиша на странице забирает его себе, и вызовы Session отклоняются. Return control to Claude отдаёт его обратно.",
+      "step5": "Browser, которым не пользуются или которого нет на экране, через какое-то время может уснуть. Клик или вызов Session его будит, и страница загружается заново."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "Поток данных страницы Browser. В этом окне: страница и слой Browser-ов. В main process: CdpPage, LiveBrowsers, screencast и MCP-сервер worfy-browser. На стороне Claude Code: его процесс. Внизу: другой экран. Слой сообщает, что показывает окно, по browser.screen и получает Live и Asleep по browser.lives.changed. Для каждого Live Browser, которым владеет это окно, он рисует <webview> и передаёт его в main по browser.page.live, а main делает из него CdpPage, которая достаёт страницу через её debugger. Claude Code вызывает инструмент worfy-browser, тот держит Browser в LiveBrowsers и шлёт команды CDP в CdpPage. LiveBrowsers сообщает screencast о каждой новой странице; другой экран подписывается по browser.frames.watch, получает browser.frame и шлёт browser.input в LiveBrowsers.",
+      "labels": {
+        "window": "ЭТО ОКНО",
+        "main": "MAIN PROCESS",
+        "claude": "CLAUDE CODE",
+        "others": "ДРУГИЕ ЭКРАНЫ",
+        "page": "Страница",
+        "pageNote": "<webview> без прав приложения",
+        "layer": "Слой Browser-ов",
+        "layerNote": "под всеми Node-ами",
+        "other": "Другой экран",
+        "otherNote": "окно или Linked machine с полным доступом",
+        "cdp": "CdpPage",
+        "cdpNote": "webContents.debugger",
+        "lives": "LiveBrowsers",
+        "livesNote": "Live или Asleep, кто ведёт",
+        "screencast": "Screencast",
+        "screencastNote": "JPEG-кадры для зрителей",
+        "server": "worfy-browser",
+        "serverNote": "MCP-сервер, один на Session",
+        "process": "Claude Code",
+        "processNote": "процесс Session",
+        "draws": "рисует",
+        "screen": "browser.screen",
+        "livesChanged": "browser.lives.changed",
+        "pageLive": "browser.page.live",
+        "debugger": "debugger",
+        "call": "вызов инструмента",
+        "commands": "команды CDP",
+        "holds": "держит, будит",
+        "newPage": "каждая новая страница",
+        "watch": "browser.frames.watch",
+        "frame": "browser.frame",
+        "input": "browser.input"
+      }
+    },
+    "text": [
+      "Каждая страница — <webview>, который слой под всеми Node-ами рисует на месте рамки, поэтому zoom Canvas её масштабирует, а другие Node-ы закрывают. У неё нет preload и Node integration, и она работает в sandbox.",
+      "Main хранит состояние каждого Browser и раз в секунду проверяет правила сна. Пока Session ведёт Browser, переход главного frame за пределы origin-ов profile отменяется в домене Fetch протокола CDP."
+    ],
+    "files": {
+      "src/main/browser/live.ts": "Жизнь, управление и владелец каждого Browser",
+      "src/main/browser/sleep.ts": "Правила сна и предел",
+      "src/main/browser/cdp.ts": "Сессия CDP на одной странице",
+      "src/main/mcp/browser-server.ts": "MCP-сервер и его инструменты",
+      "src/renderer/canvas/overlays/BrowserLayer.tsx": "Слой страниц",
+      "src/main/browser/profiles.ts": "Browser profile-ы Project-а"
+    },
+    "limits": [
+      "Live сразу: по умолчанию 3 Browser-а, можно до 10, на всю Machine. По умолчанию Live Browser может уснуть через 30 с вне экрана или через 5 мин без использования.",
+      "browser_type принимает до 10 000 символов, а browser_read обрезает на 60 000.",
+      "В Autopilot Session видит только profile-ы с отметкой Available to Autopilot."
+    ]
+  }
+}
