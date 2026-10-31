@@ -153,8 +153,10 @@ without a connection and "Remove machine…" for each one.
 
 **Reconnecting is automatic.** The pause between dials doubles from 1 second to 30 seconds, and an open connection
 resets it. worfy dials at once, without the pause, in three cases: on wake-up, when the addresses of this machine
-change, and on Reconnect. The addresses are read every 5 seconds. While a dial runs, Reconnect shows "Connecting…" and
-is inactive.
+change, and on Reconnect. The addresses are read every 5 seconds. Only the IPv4 addresses that may carry the link count:
+local-network and Tailscale ones, not 169.254/16 and not IPv6. A new set counts once two reads in a row see it, so a
+change is acted on 5 to 10 seconds after it happens, and the journal line names the addresses that came and went. While
+a dial runs, Reconnect shows "Connecting…" and is inactive.
 
 One dial tries, in this order and with a limit of 10 seconds per step: the remembered address; the Machine's `.local`
 name, when known; its MagicDNS name, when known and while "Link through Tailscale" is on; the address where Bonjour
