@@ -31,10 +31,26 @@
 // WORFY_STABLE_LSREGISTER=<program> runs another program in its place: the unit tests use it, since
 // their stand-in build is no app.
 //
+// The helper of an Update (worfy-update ticket 02, ADR-0089 item 4) runs it with flags:
+//
+//   --wait-pid <pid>   first waits for that process to quit, 120 s at most; still running — a refusal,
+//                      nothing changed.
+//   --keep-previous    keeps the copy it replaces next to the target as <name>.previous
+//                      (worfy-stable.previous) and its file as <name>.previous.json, instead of removing
+//                      them; the one kept before is removed first. Sets no deploy mark.
+//   --rollback         puts <name>.previous and its file back at the target and removes the copy it
+//                      rolled back from; no build. With no previous copy — a refusal, nothing changed.
+//   --relaunch         afterwards, also after a refusal, starts what is at the target, detached: macOS
+//                      `open <target>`, Windows <target>\worfy.exe. WORFY_STABLE_LAUNCH=<program> runs
+//                      `<program> <target>` in its place, for the tests.
+//   --result <file>    last, also after a refusal, writes { ok, action, commit, previous, reason?, notes }.
+//
+// Without flags it does what it did before: a manual `pnpm install:stable` removes the earlier copy.
+//
 // One file with no import of its own: a test copies it alone into another repository. The parts
 // that decide by the system take it as a parameter (test/unit/install-stable-functions.test.ts).
 
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, posix, win32 } from 'node:path'
@@ -293,6 +309,92 @@ export function registerCommand(platform, target, env) {
   return { command: env.WORFY_STABLE_LSREGISTER || LSREGISTER, args: ['-f', target] }
 }
 
+/** How long --wait-pid waits for the process to quit, and how often it looks. */
+export const WAIT_LIMIT_MS = 120_000
+export const WAIT_EVERY_MS = 500
+
+/**
+ * The flags and the target of a run: `{ options, problem }`. `problem` is the reason the arguments
+ * are refused, or null; `options` holds what was read all the same, so a refusal still knows where
+ * its --result goes and whether to --relaunch.
+ */
+export function parseArgs(argv) {
+  const options = { target: undefined, waitPid: undefined, keepPrevious: false, rollback: false, relaunch: false, result: undefined }
+  const targets = []
+  let problem = null
+  const refuse = (why) => {
+    if (problem === null) problem = why
+  }
+  for (let at = 0; at < argv.length; at++) {
+    const arg = argv[at]
+    if (arg === '--keep-previous') options.keepPrevious = true
+    else if (arg === '--rollback') options.rollback = true
+    else if (arg === '--relaunch') options.relaunch = true
+    else if (arg === '--wait-pid' || arg === '--result') {
+      const value = argv[at + 1]
+      at++
+      if (value === undefined || value === '') refuse(`${arg} needs a value`)
+      else if (arg === '--result') options.result = value
+      else if (!/^[1-9]\d*$/.test(value) || Number(value) > MAX_PID) refuse(`--wait-pid needs the number of a process, got: ${value}`)
+      else options.waitPid = Number(value)
+    } else if (arg.startsWith('--')) refuse(`unknown option ${arg}`)
+    else targets.push(arg)
+  }
+  if (targets.length > 1) refuse(`expected at most one argument, the target path; got ${targets.length}`)
+  options.target = targets[0]
+  if (options.rollback && options.keepPrevious) refuse('--rollback and --keep-previous do not go together')
+  return { options, problem }
+}
+
+/**
+ * Where --keep-previous keeps the copy it replaced, and its file: next to the target, under the name of
+ * the target without .app and with .previous — worfy-stable.previous and worfy-stable.previous.json for
+ * the default target on either system. On macOS the kept copy is no .app, so Launch Services and
+ * Spotlight do not offer it as a second worfy.
+ */
+export function previousPaths(platform, target) {
+  const rules = rulesOf(platform)
+  const stem = rules.join(rules.dirname(target), `${rules.basename(target).replace(/\.app$/, '')}.previous`)
+  return { copy: stem, metadata: `${stem}.json` }
+}
+
+/**
+ * Waits until no process has the pid: true once it is gone, false when it still runs after `limit`.
+ * It looks at once, then every `every` ms. `alive` says whether a pid runs; `now` and `sleep` are the
+ * clock and the pause, parameters for the tests.
+ */
+export function waitForExit(pid, alive, { now = Date.now, sleep = pause, limit = WAIT_LIMIT_MS, every = WAIT_EVERY_MS } = {}) {
+  const deadline = now() + limit
+  for (;;) {
+    if (!alive(pid)) return true
+    const left = deadline - now()
+    if (left <= 0) return false
+    sleep(Math.min(every, left))
+  }
+}
+
+/**
+ * The command that starts what is at the target (--relaunch): `open <target>` on macOS, the worfy.exe
+ * of the target on Windows; null elsewhere. WORFY_STABLE_LAUNCH=<program> gives `<program> <target>`
+ * on any system.
+ */
+export function launchCommand(platform, target, env) {
+  if (env.WORFY_STABLE_LAUNCH) return { command: env.WORFY_STABLE_LAUNCH, args: [target] }
+  if (platform === 'darwin') return { command: 'open', args: [target] }
+  if (platform === 'win32') return { command: win32.join(target, `${APP}.exe`), args: [] }
+  return null
+}
+
+/** Starts a program that outlives this script; throws when it cannot be started. */
+function startDetached(command, args) {
+  const child = spawn(command, args, { detached: true, stdio: 'ignore' })
+  // A program that is not there is reported here by the missing pid; its 'error' comes later, when
+  // nobody listens any more, and would end this script with an unhandled error.
+  child.on('error', () => {})
+  child.unref()
+  if (child.pid === undefined) fail(`${command} could not be started`)
+}
+
 /** A time as the metadata file writes it: UTC, to the second. */
 export function stamp(ms) {
   return new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z')
@@ -370,7 +472,7 @@ function processListing(platform) {
   return listing
 }
 
-/** True while a process with this pid is there. */
+/** True while a process with this pid is there: one of another user (EPERM) counts. */
 function processAlive(pid) {
   try {
     process.kill(pid, 0)
@@ -661,18 +763,100 @@ function plainFile(path) {
   }
 }
 
+/** The message of an error, or what was thrown as text. */
+const why = (error) => (error instanceof Error ? error.message : String(error))
+
+/** The commit a metadata file names, or null when it names none or cannot be read. */
+function commitIn(file) {
+  try {
+    const { commit } = JSON.parse(readFileSync(file, 'utf8'))
+    return typeof commit === 'string' && commit !== '' ? commit : null
+  } catch {
+    return null
+  }
+}
+
 /**
- * Installs the copy; answers the line to print. Throws an Error with the reason otherwise.
+ * Writes the result of a run (--result). It is written whole under another name first and then
+ * renamed, so a reader never sees half of it. A file that cannot be written does not change what the
+ * run did: it is said on stderr.
+ */
+function writeResult(file, outcome) {
+  const writing = `${file}.writing-${process.pid}`
+  try {
+    writeFileSync(writing, `${JSON.stringify(outcome, null, 2)}\n`)
+    patiently(() => renameSync(writing, file))
+  } catch (error) {
+    process.stderr.write(`install-stable: the result could not be written to ${file} (${why(error)})\n`)
+  }
+}
+
+/**
+ * Installs the copy, or with --rollback puts the previous one back; answers the line to print. Throws
+ * an Error with the reason otherwise. The flags are those of parseArgs; with --relaunch and --result
+ * the start and the file come after either answer, the file last.
  * `build(platform, repo)` makes the app when no built one is given; packageApp by default.
  * `rename(from, to)` moves a copy in the swap; renameSync by default.
  * `removeFolder(path)` removes a copy, or what is left of one; removeTree by default. On Windows
  * removeInRounds runs it again while the answer is "busy"; elsewhere it is run once.
  * `listing(platform)` gives the list of processes runningCopies reads; processListing by default.
+ * `alive(pid)`, `now()` and `sleep(ms)` are what --wait-pid asks and waits with; `start(command, args)`
+ * starts the copy for --relaunch, detached.
  */
-export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync, removeFolder = removeTree, mark = markDeploy, listing = processListing } = {}) {
+export function installStable(argv, deps = {}) {
+  const { platform = process.platform, env = process.env, start = startDetached } = deps
+  const { options, problem } = parseArgs(argv)
+  const outcome = { ok: false, action: options.rollback ? 'rollback' : 'install', commit: null, previous: null, notes: [] }
+  // What the run has learnt by the time it ends, a refusal included: the target --relaunch starts, and
+  // the place of the previous copy --result names.
+  const known = { target: null, previous: null }
+  let line = null
+  let failure = null
+  try {
+    if (problem !== null) fail(problem)
+    line = changeCopy(options, deps, outcome, known)
+    outcome.ok = true
+  } catch (error) {
+    failure = error
+  }
+  const late = []
+  if (options.relaunch && known.target !== null) {
+    const launch = launchCommand(platform, known.target, env)
+    if (!there(known.target)) late.push(`nothing is at ${known.target} to start`)
+    else if (launch === null) late.push(`there is no way to start ${known.target} on ${platform}`)
+    else {
+      try {
+        start(launch.command, launch.args)
+      } catch (error) {
+        late.push(`${known.target} could not be started (${why(error)})`)
+      }
+    }
+  }
+  outcome.notes.push(...late)
+  if (known.previous !== null) outcome.previous = plainFolder(known.previous) ? known.previous : null
+  if (options.result !== undefined) {
+    const { ok, action, commit, previous, notes } = outcome
+    writeResult(options.result, failure === null ? { ok, action, commit, previous, notes } : { ok, action, commit, previous, reason: why(failure), notes })
+  }
+  if (failure !== null) {
+    for (const each of late) process.stderr.write(`install-stable: ${each}\n`)
+    throw failure
+  }
+  return `${line}${late.map((each) => `\ninstall-stable: ${each}`).join('')}`
+}
+
+/** The work of installStable between its arguments and its relaunch; `outcome` and `known` are filled as it goes. */
+function changeCopy(options, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync, removeFolder = removeTree, mark = markDeploy, listing = processListing, alive = processAlive, now = Date.now, sleep = pause } = {}, outcome, known) {
   const rules = rulesOf(platform)
-  if (argv.length > 1) fail(`expected at most one argument, the target path; got ${argv.length}`)
-  const target = checkTarget(platform, argv[0] ?? defaultTarget(platform, env, home), env, home)
+  const target = checkTarget(platform, options.target ?? defaultTarget(platform, env, home), env, home)
+  known.target = rules.resolve(target)
+  // The running worfy holds the files of the copy: nothing is looked at or changed before it has quit.
+  if (options.waitPid !== undefined && !waitForExit(options.waitPid, alive, { now, sleep })) {
+    fail(`process ${options.waitPid} is still running after ${WAIT_LIMIT_MS / 1000} s: nothing was changed`)
+  }
+  const prior = previousPaths(platform, known.target)
+  known.previous = prior.copy
+  if (options.rollback && !plainFolder(prior.copy)) fail(`there is no previous copy at ${prior.copy} to roll back to`)
   /**
    * Removes a copy, or what is left of one. On Windows a removal that busy entries stopped is run
    * again (removeInRounds).
@@ -684,7 +868,8 @@ export function installStable(argv, { platform = process.platform, env = process
    * at once would be no wait either; what could not be removed is left and named, as on Windows.
    */
   const remove = (path) => (platform === 'win32' ? removeInRounds(path, removeFolder) : removeFolder(path))
-  const why = (error) => (error instanceof Error ? error.message : String(error))
+  // A move of a copy or of its file; on Windows tried again while the answer is "busy".
+  const move = platform === 'win32' ? (from, to) => patiently(() => rename(from, to)) : rename
   const parent = rules.dirname(rules.resolve(target))
   mkdirSync(parent, { recursive: true })
   // Both spellings of the target: a process started through a symlinked folder (/var -> /private/var
@@ -693,6 +878,7 @@ export function installStable(argv, { platform = process.platform, env = process
   const physical = rules.join(realpathSync(parent), rules.basename(target))
   const metadata = metadataPath(platform, logical)
   const spellings = new Set([logical, physical])
+  known.target = logical
 
   if (platform === 'win32') {
     // The target as Windows spells it: a link to the installer's folder or a subst drive over it is
@@ -719,26 +905,31 @@ export function installStable(argv, { platform = process.platform, env = process
   // been started while the build ran.
   refuseIfRunning()
 
-  let source
-  if (env.WORFY_STABLE_PREBUILT) {
-    source = env.WORFY_STABLE_PREBUILT
-    if (!existsSync(source) || !statSync(source).isDirectory()) fail(`WORFY_STABLE_PREBUILT is not a folder: ${source}`)
-  } else {
-    build(platform, repo)
-    const dist = rules.join(repo, 'dist')
-    source = builtApp(platform, dist, existsSync(dist) ? readdirSync(dist) : [], existsSync)
+  // The build to install; a rollback has none, the copy it puts back lies next to the target.
+  const prepare = () => {
+    let source
+    if (env.WORFY_STABLE_PREBUILT) {
+      source = env.WORFY_STABLE_PREBUILT
+      if (!existsSync(source) || !statSync(source).isDirectory()) fail(`WORFY_STABLE_PREBUILT is not a folder: ${source}`)
+    } else {
+      build(platform, repo)
+      const dist = rules.join(repo, 'dist')
+      source = builtApp(platform, dist, existsSync(dist) ? readdirSync(dist) : [], existsSync)
+    }
+    // The file whose time is the time of the build: the last one the build writes into the app.
+    const marker = platform === 'win32' ? rules.join(source, `${APP}.exe`) : rules.join(source, 'Contents', 'Info.plist')
+    if (!existsSync(marker)) fail(`${source} does not look like a built ${APP}: there is no ${rules.relative(source, marker)} in it`)
+
+    const commit = run('git', ['-C', repo, 'rev-parse', 'HEAD']).trim()
+    // Untracked files count: the build bundles a new source file whether git tracks it or not.
+    const dirty = run('git', ['-C', repo, 'status', '--porcelain']).trim() !== ''
+    const builtAt = stamp(statSync(marker).mtimeMs)
+    const installedAt = stamp(Date.now())
+
+    refuseIfRunning()
+    return { source, commit, dirty, builtAt, installedAt }
   }
-  // The file whose time is the time of the build: the last one the build writes into the app.
-  const marker = platform === 'win32' ? rules.join(source, `${APP}.exe`) : rules.join(source, 'Contents', 'Info.plist')
-  if (!existsSync(marker)) fail(`${source} does not look like a built ${APP}: there is no ${rules.relative(source, marker)} in it`)
-
-  const commit = run('git', ['-C', repo, 'rev-parse', 'HEAD']).trim()
-  // Untracked files count: the build bundles a new source file whether git tracks it or not.
-  const dirty = run('git', ['-C', repo, 'status', '--porcelain']).trim() !== ''
-  const builtAt = stamp(statSync(marker).mtimeMs)
-  const installedAt = stamp(Date.now())
-
-  refuseIfRunning()
+  const built = options.rollback ? null : prepare()
 
   // Copy next to the target first, then swap: an interrupted copy never leaves half an app at the
   // target path. The swap moves the earlier copy aside before the new one takes its place, and
@@ -746,10 +937,10 @@ export function installStable(argv, { platform = process.platform, env = process
   // file in it is open — the earlier copy is still whole, and goes back.
   const folder = rules.dirname(logical)
   const base = rules.basename(logical)
-  const notes = []
+  const notes = outcome.notes
 
   // What a run that was interrupted left next to the target — only now, when there is a build to
-  // install: a run that is refused changes nothing. Its unfinished copy is removed; an earlier copy
+  // install or a copy to put back: a run that is refused changes nothing. Its unfinished copy is removed; an earlier copy
   // it had moved aside goes back to the target when nothing took its place. Only a real folder with
   // such a name is taken: a file or a link of that name is somebody's own. A name with the pid of
   // this run is a leftover too: no other run has this pid now. What cannot be cleared is named and
@@ -773,9 +964,79 @@ export function installStable(argv, { platform = process.platform, env = process
     }
   }
 
+  // Notification Center shows the icon of the bundle that Launch Services has for the bundle id,
+  // and keeps it: the first copies of dev.worfy.app had Electron's icon. The copy is registered
+  // anew, and its modification time is now, not the build's (ditto keeps that one), so a cache
+  // that knows the bundle by its time reads the icon again. Nothing inside the copy is written.
+  const register = () => {
+    const registration = registerCommand(platform, logical, env)
+    if (registration === null) return
+    try {
+      const now = new Date()
+      utimesSync(logical, now, now)
+      run(registration.command, registration.args, { timeout: REGISTER_TIMEOUT_MS })
+    } catch (error) {
+      notes.push(`Launch Services could not be told about ${logical} (${why(error)}): notifications and the Dock may keep the icon of an earlier worfy until it is registered`)
+    }
+  }
+  const noted = () => notes.map((each) => `\ninstall-stable: ${each}`).join('')
+
   const staging = rules.join(folder, leftoverName(base, 'installing', process.pid))
   const aside = rules.join(folder, leftoverName(base, 'replaced', process.pid))
+
+  // --rollback: the previous copy takes the place of the copy at the target the way a new build does,
+  // so a step that fails puts the copy that was there back. Then the copy it rolled back from goes,
+  // and the file of the previous copy replaces the file of that one.
+  const rollBack = () => {
+    if (there(logical) && there(aside)) fail(`${aside} is in the way: this run needs that name, and what lies there is not a leftover it could clear. Remove it by hand, then run this again.`)
+    let earlier
+    try {
+      earlier = swapIn({ staging: prior.copy, target: logical, aside }, { there, rename: move })
+    } catch (error) {
+      fail(`the previous copy could not be put back: ${why(error)}`)
+    }
+    if (earlier !== null) {
+      try {
+        remove(earlier)
+      } catch (error) {
+        notes.push(`the copy rolled back from could not be removed and is left at ${earlier} (${why(error)}); the next run removes it`)
+      }
+    }
+    try {
+      if (plainFile(prior.metadata)) move(prior.metadata, metadata)
+      else if (plainFile(metadata)) unlinkSync(metadata)
+    } catch (error) {
+      fail(`the previous copy is back at ${logical}, but its file ${prior.metadata} could not take the place of ${metadata} (${why(error)})`)
+    }
+    register()
+    outcome.commit = commitIn(metadata)
+    const details = existsSync(metadata) ? `, details in ${metadata}` : ': no file names its build'
+    return `install-stable: rolled back ${logical} to ${outcome.commit === null ? 'the previous copy' : `commit ${outcome.commit.slice(0, 7)}`}${details}${noted()}`
+  }
+
+  // --keep-previous: the earlier copy, moved aside by the swap, goes to the place of the previous copy
+  // instead of being removed, and its file with it, before the new file is written. The copy kept
+  // before is removed first. What cannot be done is named, and the install stands.
+  const keep = (earlier) => {
+    try {
+      if (there(prior.copy)) remove(prior.copy)
+      move(earlier, prior.copy)
+    } catch (error) {
+      notes.push(`the earlier copy could not be kept at ${prior.copy} (${why(error)}) and is left at ${earlier}; the next run removes it`)
+      return
+    }
+    try {
+      if (plainFile(metadata)) move(metadata, prior.metadata)
+      else if (plainFile(prior.metadata)) unlinkSync(prior.metadata)
+    } catch (error) {
+      notes.push(`the file of the earlier copy could not be kept at ${prior.metadata} (${why(error)})`)
+    }
+    notes.push(`the earlier copy is kept at ${prior.copy}`)
+  }
+
   try {
+    if (built === null) return rollBack()
+    const { source, commit, dirty, builtAt, installedAt } = built
     // Nothing may lie at the names this run uses. A real folder of such a name was cleared
     // above; what is there now is a file, a link, or a folder that could not be cleared. The copy
     // would go into that folder, or through the link into the folder it leads to. The name of the
@@ -790,7 +1051,7 @@ export function installStable(argv, { platform = process.platform, env = process
       // build is copied from its real folder: cpSync would copy a link to it as a link.
       if (platform === 'win32') cpSync(realpathSync(source), staging, { recursive: true })
       else run('ditto', [source, staging])
-      earlier = swapIn({ staging, target: logical, aside }, { there, rename: platform === 'win32' ? (from, to) => patiently(() => rename(from, to)) : rename })
+      earlier = swapIn({ staging, target: logical, aside }, { there, rename: move })
     } finally {
       try {
         remove(staging)
@@ -801,7 +1062,8 @@ export function installStable(argv, { platform = process.platform, env = process
     }
 
     // The earlier copy goes before the file is written: when the file cannot be, a whole copy does not stay aside.
-    if (earlier !== null) {
+    if (earlier !== null && options.keepPrevious) keep(earlier)
+    else if (earlier !== null) {
       try {
         // A link at the target (a symlink, a junction) is removed as a link: what it led to stays.
         remove(earlier)
@@ -809,33 +1071,24 @@ export function installStable(argv, { platform = process.platform, env = process
         notes.push(`the earlier copy could not be removed and is left at ${earlier} (${why(error)}); the next run removes it`)
       }
     }
-    // Notification Center shows the icon of the bundle that Launch Services has for the bundle id,
-    // and keeps it: the first copies of dev.worfy.app had Electron's icon. The copy is registered
-    // anew, and its modification time is now, not the build's (ditto keeps that one), so a cache
-    // that knows the bundle by its time reads the icon again. Nothing inside the copy is written.
-    const registration = registerCommand(platform, logical, env)
-    if (registration !== null) {
-      try {
-        const now = new Date()
-        utimesSync(logical, now, now)
-        run(registration.command, registration.args, { timeout: REGISTER_TIMEOUT_MS })
-      } catch (error) {
-        notes.push(`Launch Services could not be told about ${logical} (${why(error)}): notifications and the Dock may keep the icon of an earlier worfy until it is registered`)
-      }
-    }
+    register()
     try {
       writeFileSync(metadata, `${JSON.stringify({ commit, dirty, builtAt, installedAt, source }, null, 2)}\n`)
     } catch (error) {
       const old = plainFile(metadata) ? 'the file still names the build that was there before' : 'no file names the build of this copy'
       fail(`the copy is installed at ${logical}, but ${metadata} could not be written (${why(error)}): ${old}`)
     }
-    const note = notes.map((each) => `\ninstall-stable: ${each}`).join('')
+    outcome.commit = commit
+    const note = noted()
     // Last, once the copy and its file are in place: the mark says this commit is what the copy runs.
-    let marked
-    try {
-      marked = mark({ repo, commit, dirty, prebuilt: Boolean(env.WORFY_STABLE_PREBUILT), env })
-    } catch (error) {
-      marked = `install-stable: deploy mark skipped: ${why(error)}`
+    // An Update (--keep-previous) sets none: its user has no gh allowed to set commit statuses (worfy-update spec, R7).
+    let marked = null
+    if (!options.keepPrevious) {
+      try {
+        marked = mark({ repo, commit, dirty, prebuilt: Boolean(env.WORFY_STABLE_PREBUILT), env })
+      } catch (error) {
+        marked = `install-stable: deploy mark skipped: ${why(error)}`
+      }
     }
     return `install-stable: installed ${logical} (commit ${commit.slice(0, 7)}${dirty ? ', uncommitted changes' : ''}), details in ${metadata}${note}${marked ? `\n${marked}` : ''}`
   } catch (error) {

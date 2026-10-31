@@ -604,3 +604,108 @@ describe.runIf(process.platform !== 'linux')('the deploy mark after a whole inst
     expect(out.split('\n')).toEqual([expect.stringContaining(`install-stable: installed ${target} (commit `)])
   })
 })
+
+// The flags of an Update's helper (worfy-update ticket 02): what the script reads from its arguments, where
+// it keeps the copy it replaced, how it waits for worfy to quit and how it starts the copy afterwards. The
+// script itself runs with them in install-stable-update.test.ts.
+interface UpdateFlags {
+  parseArgs: (argv: string[]) => { options: { target?: string; waitPid?: number; keepPrevious: boolean; rollback: boolean; relaunch: boolean; result?: string }; problem: string | null }
+  previousPaths: (platform: string, target: string) => { copy: string; metadata: string }
+  waitForExit: (pid: number, alive: (pid: number) => boolean, clock?: { now?: () => number; sleep?: (ms: number) => void; limit?: number; every?: number }) => boolean
+  launchCommand: (platform: string, target: string, env: Env) => { command: string; args: string[] } | null
+  WAIT_LIMIT_MS: number
+  WAIT_EVERY_MS: number
+}
+const flags = (await import(pathToFileURL(join(REPO, 'scripts', 'install-stable.mjs')).href)) as UpdateFlags
+
+describe('the arguments of a run', () => {
+  const none = { target: undefined, waitPid: undefined, keepPrevious: false, rollback: false, relaunch: false, result: undefined }
+
+  it('are the target alone when no flag is given, as before the flags', () => {
+    expect(flags.parseArgs([])).toEqual({ options: none, problem: null })
+    expect(flags.parseArgs(['/a/worfy-stable.app'])).toEqual({ options: { ...none, target: '/a/worfy-stable.app' }, problem: null })
+  })
+
+  it('read every flag, before or after the target', () => {
+    expect(flags.parseArgs(['--wait-pid', '4242', '/a/x.app', '--keep-previous', '--relaunch', '--result', '/r/result.json'])).toEqual({
+      options: { target: '/a/x.app', waitPid: 4242, keepPrevious: true, rollback: false, relaunch: true, result: '/r/result.json' },
+      problem: null,
+    })
+    expect(flags.parseArgs(['--rollback']).options.rollback).toBe(true)
+  })
+
+  it.each([
+    [['/a/one.app', '/a/two.app'], 'expected at most one argument, the target path; got 2'],
+    [['--wait-pid'], '--wait-pid needs a value'],
+    [['--result', ''], '--result needs a value'],
+    [['--wait-pid', 'abc'], '--wait-pid needs the number of a process, got: abc'],
+    [['--wait-pid', '0'], '--wait-pid needs the number of a process, got: 0'],
+    [['--wait-pid', '99999999'], '--wait-pid needs the number of a process, got: 99999999'],
+    [['--keep'], 'unknown option --keep'],
+    [['--rollback', '--keep-previous'], '--rollback and --keep-previous do not go together'],
+  ])('refuse %j: %s', (argv, problem) => {
+    expect(flags.parseArgs(argv).problem).toBe(problem)
+  })
+
+  it('keep what they could read when they are refused: a refusal still writes its result and relaunches', () => {
+    expect(flags.parseArgs(['--relaunch', '--bogus', '--result', '/r/result.json']).options).toMatchObject({ relaunch: true, result: '/r/result.json' })
+  })
+})
+
+describe('the previous copy', () => {
+  it('lies next to the target as worfy-stable.previous on either system, with worfy-stable.previous.json', () => {
+    expect(flags.previousPaths('darwin', '/Users/dev/Applications/worfy-stable.app')).toEqual({ copy: '/Users/dev/Applications/worfy-stable.previous', metadata: '/Users/dev/Applications/worfy-stable.previous.json' })
+    expect(flags.previousPaths('win32', 'C:\\Users\\dev\\AppData\\Local\\worfy-stable')).toEqual({ copy: 'C:\\Users\\dev\\AppData\\Local\\worfy-stable.previous', metadata: 'C:\\Users\\dev\\AppData\\Local\\worfy-stable.previous.json' })
+  })
+
+  it('takes its name from the target, so two targets in one folder keep two previous copies', () => {
+    expect(flags.previousPaths('darwin', '/apps/other.app').copy).toBe('/apps/other.previous')
+    expect(flags.previousPaths('win32', 'D:\\apps\\other').copy).toBe('D:\\apps\\other.previous')
+  })
+})
+
+describe('the wait for a process to quit', () => {
+  /** A clock that moves only when the wait sleeps, and the pauses it was asked for. */
+  const clock = () => {
+    const state = { time: 0, sleeps: [] as number[] }
+    return { state, now: () => state.time, sleep: (wait: number) => void (state.sleeps.push(wait), (state.time += wait)) }
+  }
+
+  it('waits 120 s at most and looks every 500 ms', () => {
+    expect([flags.WAIT_LIMIT_MS, flags.WAIT_EVERY_MS]).toEqual([120_000, 500])
+  })
+
+  it('looks at once, and a process that is gone costs no pause', () => {
+    const c = clock()
+    expect(flags.waitForExit(7, () => false, c)).toBe(true)
+    expect(c.state.sleeps).toEqual([])
+  })
+
+  it('answers true once the process is gone', () => {
+    const c = clock()
+    let looks = 0
+    expect(flags.waitForExit(7, () => ++looks < 4, c)).toBe(true)
+    expect(c.state.sleeps).toEqual([500, 500, 500])
+  })
+
+  it('answers false when the process still runs at the limit, and never sleeps past it', () => {
+    const c = clock()
+    const asked: number[] = []
+    expect(flags.waitForExit(7, (pid) => (asked.push(pid), true), { ...c, limit: 1_200 })).toBe(false)
+    expect(c.state.sleeps).toEqual([500, 500, 200])
+    expect(new Set(asked)).toEqual(new Set([7]))
+  })
+})
+
+describe('the start of the copy afterwards', () => {
+  it('is `open <target>` on macOS and the worfy.exe of the target on Windows', () => {
+    expect(flags.launchCommand('darwin', '/a/worfy-stable.app', {})).toEqual({ command: 'open', args: ['/a/worfy-stable.app'] })
+    expect(flags.launchCommand('win32', 'C:\\a\\worfy-stable', {})).toEqual({ command: 'C:\\a\\worfy-stable\\worfy.exe', args: [] })
+  })
+
+  it('runs WORFY_STABLE_LAUNCH with the target instead, on any system; none on Linux without it', () => {
+    expect(flags.launchCommand('win32', 'C:\\a\\worfy-stable', { WORFY_STABLE_LAUNCH: 'C:\\stub.exe' })).toEqual({ command: 'C:\\stub.exe', args: ['C:\\a\\worfy-stable'] })
+    expect(flags.launchCommand('linux', '/a/worfy-stable.app', { WORFY_STABLE_LAUNCH: '/stub' })).toEqual({ command: '/stub', args: ['/a/worfy-stable.app'] })
+    expect(flags.launchCommand('linux', '/a/worfy-stable.app', {})).toBeNull()
+  })
+})
