@@ -5,7 +5,7 @@
 - `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): 70/71; влиты 62, 64, 65 (#719), 66 (#949), 67 (#1011), 68 (#945), 69 (#1015), 70 (#778), 71 (#829), 52, 63 (#713); задачи 52 — у владельца; 31, 36, 47, 48, 50, 51 — шаг владельца.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
-- `worfy-link` ([spec](.scratch/worfy-link/spec.md)): 40/41; 31 (Tailscale) принят 2026-10-31; 41 — дубль сообщения на другой Machine (#1114), проверка с владельцем после Stable. Осталась приёмка 16.
+- `worfy-link` ([spec](.scratch/worfy-link/spec.md)): 41/42; 31 (Tailscale) принят 2026-10-31; 41 (дубль сообщения, #1114) и 42 (поток строк смены сети, #1119) — проверка после Stable. Осталась приёмка 16.
 - `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 111/114. Отсечка владельца 2026-10-23 после пересчёта e2e на ПК: повторяющиеся красные — в Epic-е (113; 106, 109–112 влиты), flaky — `worfy-polish` 41; планка 16 — gate full на Windows полностью зелёный.
 - `worfy-windows`: 60 не нужен — остаёмся на `node-pty@1.2.0-beta.15`; 90 и 92 вынесены из Epic-а (upstream, приёмку не блокируют) — владелец 2026-10-23.
 - `worfy-windows` 39 влит (#512): main отвечает на `ESC[6n`, ответы view — не ввод. Цена — скорость flood-а (один worker разбора), владелец принял; 67 (#1020) — пул worker-ов, 2–8 shell-ов в 1.4–4.2 раза быстрее (ПК и Mac).
@@ -14,13 +14,13 @@
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–26; 12 — приёмка; открыты 27 (pointer, hover), 28 (drop, превью в чате).
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 45/45, Epic закрыт; 41 — #1028 и #1052 (flaky Windows починены по причине).
+- `worfy-polish`: 45/47; 41 — #1028 и #1052; 47 — три flaky e2e Windows из gate full `0eddc918`.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 56/60; открыты 05, 30, 31, 43; 60 — Eco mode в чате (#1057). 43: eco проверяет друг. 31: замер 2026-11-06.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
-- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 3/12, влиты 01–03; 04 в работе. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): 01 сдан (три направления на Card); 02 ждёт выбора владельца.
+- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 4/12, влиты 01–04; 05, 06, 07, 09 в работе. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): 01 сдан (три направления на Card); 02 ждёт выбора владельца.
 
 ## Ждёт владельца
 

@@ -1,7 +1,8 @@
 # 42 — Поток строк «the network of this Machine changed» в журнале ПК
 
 Type: bug
-Status: open
+Status: done 2026-10-31T09:02Z
+PR: #1119
 Blocked by: —
 Source: журнал main-процесса worfy на ПК (Windows) во время приёмки link 31, 2026-10-31: строка
 `[link] the network of this Machine changed: …` повторяется много раз подряд. Разбор кода — scout Orchestrator-а.
@@ -64,3 +65,5 @@ Ticket заведён Orchestrator-ом без владельца (ночь 2026
   `TailnetSelfName` не увидит смену адреса Tailscale при выключенной настройке); публичные IPv4 в подпись не входят, как
   и в `mdnsInterfaces`; нечитаемое чтение не сбрасывает settle.
 - Ручная проверка на ПК — не проверено: нужен ПК после Stable.
+
+- Low из review (debt, Ticket-ами не становятся): нет test-а, что публичный IPv4 и не-internal `127.x` не считаются сменой сети (`connections.ts:281-282`, mutant-ы выживают); комментарий `connections.ts:269-271` говорит, что IPv6 связь не несёт, а ULA IPv6 несёт (`discovery.ts:126-127`) — такая связь ждёт heartbeat, не виснет.

@@ -2,7 +2,8 @@
 
 Type: task
 Status: open
-Blocked by: 06, 07, 13, 14
+Blocked by: 06, 13, 14
+Blocker note: 07 снят Orchestrator-ом 2026-10-31 — код 07 влит (#461), 07 ждёт только первую Wave на ПК (Q31); 15 от неё не зависит.
 Source: решения владельца 2026-10-07: Q21 (qmd на Windows — последним Ticket-ом порта, до того агенты ищут grep-ом), Q19 (скрипты, которые зовут hooks и worfy, — на Node; bash только в test-ах); «Готово, когда» Epic-а, пункты 3 и 4 (подтверждено 2026-10-08); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port» (qmd последним Ticket-ом); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node»; [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) (qmd — часть Harness, ставится с согласия); [ADR-0048](../../../docs/adr/0048-harness-plugin-spike-results.md) (имя MCP-сервера plugin-а); Ticket-ы E3: [17](../../worfy-harness/issues/17-qmd-модели-и-коллекции-в-harness.md) (qmd, модели и коллекции в Harness), [19](../../worfy-harness/issues/19-экран-первого-запуска.md) (экран первого запуска); [spec.md](../spec.md)
 
 ## Что происходит
