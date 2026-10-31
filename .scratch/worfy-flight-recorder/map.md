@@ -11,7 +11,7 @@
 - Термины — `CONTEXT.md`: **Run** (заведён этой картой), Wave, Stage, Pipeline, Autopilot, Session, Subagent, Machine.
 - Ограничения, которые уже действуют: ADR-0002 (worfy — view над workflow, нового хранилища событий нет), ADR-0067 (Stage вычисляется, нигде не хранится), Silent mode (в commit-ах и PR нет следов workflow).
 - Что уже есть, по разведке 2026-11-01:
-  - Autopilot Journal — один JSONL на Run, `<data dir>/autopilot/<run>.jsonl`, 23 вида событий, run id = время старта + 6 hex (`src/shared/autopilot/journal.ts`);
+  - Autopilot Journal — один JSONL на Run, `<data dir>/autopilot/<run>.jsonl`, 18 видов событий, run id = время старта + 6 hex (`src/shared/autopilot/journal.ts`);
   - `decisions.tsv` и `wave-brief.txt` Harness — в `~/.claude/worfy-harness/runs/<project>/<epic>-wave-<время>/`, общего ключа с Journal нет;
   - транскрипты Session и Subagent (`src/shared/transcript/`) — session id и agent id, без Ticket и Epic;
   - gate — только последний verdict на worktree и логи последних 10 запусков (`harness/hooks/gate.mjs`, `gate-log.mjs`);
@@ -35,7 +35,7 @@
 
 ## Not yet specified
 
-- Особенности Windows (пути к Journal, транскриптам и логам gate, время файлов) — решаются при нарезке spec.
+Ничего: особенности Windows разобраны в [spec.md](spec.md), раздел «Windows».
 
 ## Out of scope
 
