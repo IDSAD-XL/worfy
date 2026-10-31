@@ -1,7 +1,8 @@
 # 08 — Topic Sessions
 
 Type: task
-Status: open
+Status: done 2026-10-31T21:16Z
+PR: #1156
 Blocked by: 05
 Source: [spec.md](../spec.md), Q5, Q6, Q17, Q18, Q19
 
