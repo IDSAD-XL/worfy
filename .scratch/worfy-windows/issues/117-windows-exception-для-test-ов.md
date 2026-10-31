@@ -1,7 +1,8 @@
 # 117 — Windows exception: test, красный только на Windows, пропускается до приёмки
 
 Type: task
-Status: claimed 2026-10-31T14:46Z
+Status: done 2026-10-31T17:09Z
+PR: #1143
 Branch: worfy-windows/117-windows-exceptions
 Blocked by: —
 Source: решения владельца 2026-10-31, Q1 («либо дорабатывать тесты, чтобы проходили, либо делать исключения для

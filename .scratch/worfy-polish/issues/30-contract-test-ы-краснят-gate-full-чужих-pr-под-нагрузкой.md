@@ -406,6 +406,8 @@ vitest по умолчанию умножены на 3, в одном месте
 упираются в предел (раздел «Одна проблема нагрузки» ниже); меньше worker-ов не помогает. Таблица ниже —
 история замеров, по которой это видно.
 
+Поправка 2026-10-31: предел 60 s у `harness-migrate` «the qmd group…» снят в #1146 — перенос спрашивает git о путях одним вызовом, а не по одному на путь; test идёт с default 45 s.
+
 Цель среза 3l — `pnpm test` с exit code 0 на Windows. Test-ы ниже краснели по timeout-у на PC.
 Предел поднят только на win32 и только у одного test-а: третий аргумент
 `it(…, fn, process.platform === 'win32' ? N : undefined)`, над test-ом — комментарий с замером.
@@ -450,6 +452,8 @@ PC, 2026-10-19, с обычным TEMP и с TEMP=W:\). Их предел вре
 | `test/contract/harness-install.test.ts:816` | «errors > a copy interrupted between its two renames…» | 15 s → 27 s | R1: 13.5 s, завершён; R2: 5.8 s, завершён |
 | `test/contract/harness-migrate-boundaries.test.ts:80` | «a second restore.mjs keeps what the first one saved in after/…» | 15 s → 31 s → снят (default 45 s после Итога) | R3: 15.5 s, завершён; в одиночку 8.3 s и 7.7 s; R2: timeout на 15 s — не замер |
 | `test/contract/harness-migrate.test.ts:459` | «the qmd group: "Remove" takes the three scripts…» | 15 s → 60 s | R3: 29.9 s, завершён; в одиночку 9.9 s и 9.8 s; R2: timeout на 15 s — не замер |
+
+Поправка 2026-10-31: предел 60 s у `harness-migrate` «the qmd group…» снят в #1146 — перенос спрашивает git о путях одним вызовом, а не по одному на путь; test идёт с default 45 s.
 
 Предел снят — 2× завершённого замера не больше 15 s (первая версия среза ставила его по длительности
 асинхронного test-а, упавшего по timeout-у, а это не замер):
