@@ -1,0 +1,19 @@
+{
+  "sources": [
+    { "page": "docs/features/canvas.md", "sha": "e3c54550" },
+    { "page": "docs/features/epic-frames.md", "sha": "e3c54550" },
+    { "page": "docs/features/focus-mode.md", "sha": "e3c54550" }
+  ],
+  "files": [
+    "src/main/layout/store.ts",
+    "src/shared/layout/types.ts",
+    "src/shared/layout/free-place.ts",
+    "src/main/mcp/canvas-server.ts",
+    "src/renderer/canvas/Canvas.tsx",
+    "src/renderer/canvas/useLayout.ts",
+    "src/renderer/canvas/history.ts",
+    "src/renderer/canvas/sources/epics.ts",
+    "src/renderer/canvas/epic-layout.ts",
+    "src/renderer/focus/FocusMode.tsx"
+  ]
+}
