@@ -118,6 +118,53 @@ html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
   width: 20px;
   height: 20px;
 }
+/* A signal (worfy-update ticket 06): the Harness to update. The icon takes the accent, and a dot
+   sits in its top right corner. */
+.w-toolbar__icon-button--accent {
+  position: relative;
+  color: var(--accent);
+}
+.w-toolbar__icon-button--accent .w-update-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+}
+/* The app version, the second line of the Harness item: small and muted, 13px high, so the two
+   lines fit the toolbar. */
+.w-toolbar__version {
+  font-size: var(--text-11);
+  line-height: 13px;
+  color: var(--text-muted);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+/* The version chip (worfy-update ticket 06): the same line as a button with a menu while an Update
+   waits; its height stays 13px. */
+.w-toolbar__version-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 13px;
+  line-height: 13px;
+  margin: 0 -3px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  opacity: 1;
+}
+.w-toolbar__version-chip:hover {
+  background: var(--surface-raised);
+}
+/* The dot of a signal: on the version chip and on the Harness button. */
+.w-update-dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
 /* The title shrinks (and only the title): a long Project name is cut with an ellipsis, the full
    name is in the title attribute, and the controls to the right always stay whole. */
 .w-toolbar__title {
