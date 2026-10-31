@@ -66,3 +66,4 @@ Windows exception-ы, которыми владеет этот Ticket (`test/qua
 
 Quarantine после перевода — 11 из 15 записей. Даты `until` — предел «since + 45 дней»; после приёмки
 `worfy-windows` 16 их ставят на «приёмка + 30 дней».
+- Механизм влит PR #1143 (`eb200227`): Windows exception-ы — `terminal-windows-close-no-console-host`, `workflow-branches-gone-worktree-then-repository` (обе до 2026-12-15). Ticket остаётся open — общий владелец.
