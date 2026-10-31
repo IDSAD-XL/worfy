@@ -64,6 +64,11 @@ Source: решения владельца 2026-10-31, пункты 3 (посто
 ## Где в коде
 
 - `src/main/update/build.ts` (новый)
+- После ревью (раунд 1): шаг запускается в своей группе процессов (`detached` вне Windows), `stop()` и
+  предел git-шага убивают всю группу (`SIGKILL` по `-pid`; на Windows `taskkill /T`) — electron-builder
+  под `pnpm package` не переживает worfy. Git-шаг дольше `GIT_STEP_TIMEOUT_MS` (30 min) — `failed` с
+  причиной в журнале. Окружение login shell снимается заново перед каждой сборкой (`recaptureAgentEnv`),
+  причина запасного окружения пишется в `build.log`; после `stop()` ни один шаг не начинается.
 - `src/main/update/auto.ts` (новый)
 - `src/shared/ipc/update.ts`, `src/main/ipc/update.ts`
 - `src/shared/settings/app-settings.ts` (`:183`), `src/main/settings/store.ts`
@@ -105,5 +110,5 @@ Source: решения владельца 2026-10-31, пункты 3 (посто
 - `autoUpdate` в настройках: в схеме состояния поле необязательное (`autoUpdateOf` — нет поля, значит
   включено), store пишет его всегда, файл без поля — `true`. Необязательное — чтобы не править 14 unit
   test-ов renderer-а с готовыми объектами настроек вне «Где в коде».
-- Test-ы: `test/contract/update-build.test.ts` (20), `test/contract/app-settings.test.ts` (поле
+- Test-ы: `test/contract/update-build.test.ts` (24), `test/contract/app-settings.test.ts` (поле
   `autoUpdate`); подменные команды — `test/fixtures/update/` (Node-скрипты, одинаковые на всех ОС).
