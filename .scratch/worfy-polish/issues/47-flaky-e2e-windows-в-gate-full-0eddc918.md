@@ -59,7 +59,7 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
 
 Заполняется при закрытии. Ticket open: `subagent-tree`, `terminal-windows` и Git Bash ждут замеров ПК.
 
-### 2026-10-31, ветка `worfy-polish/47-e2e-logic`: логика трёх e2e test-ов, пределы не тронуты
+### 2026-10-31, ветка `worfy-polish/47-e2e-logic`: логика двух e2e test-ов, третий — вопрос владельцу; пределы не тронуты
 
 - `test/e2e/linked-browser.spec.ts:90`. Путь ввода от A к B прочитан: каждое нажатие — отдельный `browser.input`
   без ответа (`sendBrowserInput`, `src/renderer/browser/frames.ts:79`), дальше `linked.invoke` → одно соединение
@@ -68,14 +68,17 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   `document.activeElement.id === 'typed'` (helper `focusedOnB` рядом с `typedOnB`), потом `toBeFocused` у frames,
   потом ввод. Какой из двух фокусов не успел на ПК — не установлено: журнала с ПК, где виден текст в `#typed`
   при падении, нет; это ожидание условия, а не причина, доказанная замером.
-- `test/e2e/epic-frame.spec.ts:1104`. Почему эталон был только на GitHub Actions: `git log -S measuresReference`
-  — один коммит #874 (2026-10-28, «pass on the 1024x768 macOS runner display»), эталон сделан для медленного
-  runner-а; 3 s взяты с Mac владельца (564 ms). Решения, что Windows держит абсолютные 3 s, нет ни в коммите, ни в
-  ADR, ни в qmd. Теперь бюджет относительный и на win32: `startBudget(reference, env, platform)` и
-  `measuresReference(env, platform)` в `test/e2e/start-budget.ts` — 6 × медиана трёх стартов Project-а с одним
-  Ticket-ом на той же машине, не ниже 3000 ms, не выше 7300 ms; `START_MS`, `START_RATIO`, `RUNNER_START_CAP_MS`
-  не менялись. На Mac бюджет по-прежнему 3 s без эталона. Unit test `test/unit/e2e-start-budget.test.ts` — новые
-  случаи win32. Множитель 6 и потолок 7,3 s измерены на macOS runner-е, не на ПК: проверить на ПК в gate full.
+- `test/e2e/epic-frame.spec.ts:1104` — не исправлен, test не тронут. **Вопрос владельцу.** Почему эталон есть только на
+  GitHub Actions: `git log -S measuresReference` находит один коммит — #874 (`fbc1a749c`, 2026-10-28, «pass on the
+  1024x768 macOS runner display»). Эталон там введён только для медленного macOS runner-а. 3 s взяты с Mac владельца
+  (564 ms). Решения, что Windows держит абсолютные 3 s, нет ни в коммите, ни в ADR, ни в qmd. Предложение: включить
+  эталон и на win32, то есть `startBudget`/`measuresReference` в `test/e2e/start-budget.ts` с условием
+  `GITHUB_ACTIONS === 'true' || platform === 'win32'`. Тогда на ПК бюджет — 6 × медиана трёх стартов Project-а с одним
+  Ticket-ом на той же машине, не ниже 3000 ms и не выше 7300 ms. Цена: фактический предел этого test-а на Windows
+  растёт с 3000 до 7300 ms (под нагрузкой эталон медленнее, и бюджет растёт с ним), и на win32 прибавляются три
+  запуска приложения. Множитель 6 и потолок 7,3 s измерены на macOS runner-е, не на ПК. По правилу «timeout-ы test-ов
+  не подстраивают по одному» (2026-10-23) это решение владельца вместе с общим множителем для всего набора; в PR
+  #1136 правка была и убрана после ревью.
 - `test/e2e/two-windows.spec.ts:212`. Stub `getAllWindows` отличал вызов helper-а от вызова самого приложения по
   тексту stack (`/[\\/]out[\\/]main[\\/]/`). Счёт 2 вместо 3: либо stub к строке 233 ещё не сработал (тогда сам
   вызов счёта сделал decoy и вернул список до него), либо decoy закрылся — кода, который закрывает чужое окно, в
@@ -84,7 +87,9 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   stub одноразовый и делает decoy при первом вызове после установки, кто бы ни вызвал. Test проверяет, что decoy
   создан (`decoyId` — число, без ошибки конструктора), а окна сверяет по адресам через `expect.poll`
   (`about:blank` и два адреса приложения): красный run назовёт, какого окна нет. Сила test-а та же: с helper-ом,
-  который берёт следующую страницу без проверки адреса, старая и новая версия красные 4 из 4.
-- Проверка на Mac (нагрузка ~10–12): `two-windows` + `linked-browser` `--repeat-each=3 --workers=1` — 9 passed;
-  `epic-frame` `--repeat-each=3` — 24 passed (старт Auction-sized 605–808 ms); ветка эталона с `GITHUB_ACTIONS=true`
-  — 1 passed (эталон 264–283 ms, бюджет 3000 ms). Ветка win32 на Windows не запускалась: ПК, gate full.
+  который берёт следующую страницу без проверки адреса, старая и новая версия красные 4 из 4. Оговорка: если между
+  установкой stub-а и вызовом helper-а придёт broadcast приложения, decoy появится раньше. Если Playwright увидит
+  страницу decoy до снимка `before` в helper-е, test пройдёт, так и не проверив защиту helper-а: такой run зелёный,
+  но ничего не доказывает. На Mac без нагрузки stub сработал только на вызове helper-а (один вызов в диагностическом run).
+- Проверка на Mac (нагрузка ~10–12): `two-windows` + `linked-browser` `--repeat-each=3 --workers=1` — 9 passed.
+  На Windows правки не запускались: ПК, gate full.

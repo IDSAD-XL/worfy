@@ -1098,16 +1098,16 @@ async function interactiveAfter(window: Page, epic: string): Promise<number> {
   )
 }
 
-/** One-Ticket starts behind the reference (GitHub Actions, Windows): a single start on the runner varied from 909 to 1274 ms. */
+/** One-Ticket starts behind the reference on GitHub Actions: a single start on the runner varied from 909 to 1274 ms. */
 const REFERENCE_STARTS = 3
 
 test('an Auction-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
   const answer = join(scratch, 'epic-status.json')
   makeClaudeHome(answer)
-  // On GitHub Actions and on Windows the budget is measured against the same start of a one-Ticket
-  // Project on that machine (test/e2e/start-budget.ts); on the Mac it is 3 s and needs no reference.
+  // On GitHub Actions the budget is measured against the same start of a one-Ticket Project on the
+  // runner (test/e2e/start-budget.ts); everywhere else it is 3 s and needs no reference.
   const starts: number[] = []
-  if (measuresReference(process.env, process.platform)) {
+  if (measuresReference(process.env)) {
     let small: { json: string; biggest: string } | undefined
     makeProject((dir) => {
       small = generateEpics(dir, [1])
@@ -1191,14 +1191,14 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
     test.info().annotations.push({ type: 'perf', description: `hoverToLit=${hoverMs}ms` })
     if (enforce) expect(hoverMs).toBeLessThanOrEqual(100)
 
-    const budget = startBudget(referenceMs, process.env, process.platform)
-    const reference = starts.length > 0 ? `a one-Ticket Project ${starts.join(', ')} ms, median ${referenceMs} ms` : 'no one-Ticket reference: the budget is 3 s here'
+    const budget = startBudget(referenceMs, process.env)
+    const reference = starts.length > 0 ? `a one-Ticket Project ${starts.join(', ')} ms, median ${referenceMs} ms` : 'no one-Ticket reference off GitHub Actions'
     console.log(
       `auction-size: interactive ${interactiveMs} ms after the window's page started loading (${reference}; budget ${budget} ms); ` +
         `pan/zoom 5 s: ${frames.length} frames, median ${fps} fps, longest frame ${longest} ms; ${ticketsDrawn} Ticket Nodes in the DOM`,
     )
     test.info().annotations.push({ type: 'perf', description: `interactive=${interactiveMs}ms reference=${referenceMs}ms medianFps=${fps} longestFrame=${longest}ms frames=${frames.length}` })
-    expect(interactiveMs, `interactive within ${budget} ms: 3 s, or on GitHub Actions and Windows ${START_RATIO} × the ${referenceMs} ms of a one-Ticket Project, at most ${RUNNER_START_CAP_MS} ms`).toBeLessThanOrEqual(budget)
+    expect(interactiveMs, `interactive within ${budget} ms: 3 s, or on GitHub Actions ${START_RATIO} × the ${referenceMs} ms of a one-Ticket Project, at most ${RUNNER_START_CAP_MS} ms`).toBeLessThanOrEqual(budget)
     // Frame rates depend on the machine: CI only prints them, WORFY_PERF=1 on the developer's Mac checks them.
     if (enforce) {
       expect(fps).toBeGreaterThanOrEqual(55)
