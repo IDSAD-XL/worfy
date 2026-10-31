@@ -352,6 +352,28 @@ describe('affected-tests.mjs on test files', () => {
     const head = branch(() => git('rm', '-q', 'test/contract/unrelated.test.ts'))
     expect(affected(head).lines).toEqual(['test/unit/scan.test.ts'])
   })
+
+  // Next to a changed module, so the graph is asked: a deleted path checked against the test globs
+  // must not reach the graph's own list of test files, which it then tries to load.
+  it('selects no deleted test file when a changed module asks the graph too', () => {
+    const head = branch(() => {
+      git('rm', '-q', 'test/contract/unrelated.test.ts')
+      put('src/shared/format.ts', 'export const format = (n: number): string => `(${n})`\n')
+    })
+    const r = affected(head)
+    expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' })
+    expect(r.lines).toEqual(['test/unit/format.test.ts', 'test/unit/menu.test.ts', 'test/unit/scan.test.ts'])
+  })
+
+  it('selects a renamed test file under its new name only, next to a changed module it imports', () => {
+    const head = branch(() => {
+      git('mv', 'test/unit/menu.test.ts', 'test/unit/main-menu.test.ts')
+      put('src/main/menu.ts', "import { label } from '../shared/label'\nexport const menu = (): string => label(2)\n")
+    })
+    const r = affected(head)
+    expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' })
+    expect(r.lines).toEqual(['test/unit/main-menu.test.ts', 'test/unit/scan.test.ts'])
+  })
 })
 
 describe('affected-tests.mjs on the diff', () => {

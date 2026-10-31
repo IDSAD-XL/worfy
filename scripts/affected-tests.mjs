@@ -184,8 +184,18 @@ async function openGraph(root) {
     const found = await vitest.specifications.getRelevantTestSpecifications()
     return new Set(found.map((spec) => rel(spec.moduleId)))
   }
-  /** Whether `path` is where a test file of the run would be: true for a deleted one too. */
-  const isTestPath = (path) => vitest.projects.some((project) => project.matchesTestGlob(posix.join(viteRoot, path)))
+  /**
+   * Whether `path` is where a test file of the run would be: true for a deleted one too. Matched
+   * here rather than with project.matchesTestGlob, which adds a matching path to the project's
+   * cached list of test files: the next graph query then loads a deleted test file from that list
+   * and fails ("Failed to load url … Does the file exist?").
+   */
+  const isTestPath = (path) => vitest.projects.some(({ config }) => {
+    const dir = (config.dir || config.root).split(sep).join('/')
+    const file = posix.relative(dir, posix.join(viteRoot, path))
+    const glob = (patterns) => patterns.some((pattern) => posix.matchesGlob(file, pattern))
+    return glob(config.include) && !glob(config.exclude)
+  })
   return { testFiles, isTestPath, importers, close: () => vitest.close() }
 }
 
