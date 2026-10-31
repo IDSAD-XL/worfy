@@ -5,7 +5,7 @@
 - `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): 70/71; влиты 62, 64, 65 (#719), 66 (#949), 67 (#1011), 68 (#945), 69 (#1015), 70 (#778), 71 (#829), 52, 63 (#713); задачи 52 — у владельца; 31, 36, 47, 48, 50, 51 — шаг владельца.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
-- `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): 35/37, влиты 01–15, 17–30, 32–37 (30 — машины tailnet, #866). Остались проверка Tailscale 31 и приёмка 16 — с владельцем.
+- `worfy-link` ([spec](.scratch/worfy-link/spec.md)): 38/40, влиты все, кроме 16 и 31. 31: шаги 1–5 пройдены 2026-10-31; осталась связь по имени MagicDNS после обновления Stable. 16 — с владельцем.
 - `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 111/114. Отсечка владельца 2026-10-23 после пересчёта e2e на ПК: повторяющиеся красные — в Epic-е (113; 106, 109–112 влиты), flaky — `worfy-polish` 41; планка 16 — gate full на Windows полностью зелёный.
 - `worfy-windows`: 60 не нужен — остаёмся на `node-pty@1.2.0-beta.15`; 90 и 92 вынесены из Epic-а (upstream, приёмку не блокируют) — владелец 2026-10-23.
 - `worfy-windows` 39 влит (#512): main отвечает на `ESC[6n`, ответы view — не ввод. Цена — скорость flood-а (один worker разбора), владелец принял; 67 (#1020) — пул worker-ов, 2–8 shell-ов в 1.4–4.2 раза быстрее (ПК и Mac).
@@ -20,15 +20,15 @@
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
-- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089), `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): после onboarding 13/14.
+- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089), `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): следующие в очереди (onboarding 13/14 влиты).
 
 ## Ждёт владельца
 
-- `worfy-onboarding`: 12 — Mac принят 2026-10-31, ПК — с link 31; 13, 14 — по снимкам.
+- `worfy-onboarding`: 12 — Mac принят 2026-10-31, ПК пройден; 13, 14 влиты (#1100, #1106), приёмка вживую после обновления Stable.
 - С `check/windows` skipped, пока ПК на паузе, влит #878 — его покрывает полный run Windows e2e ПК на свежем `main` (решение 2026-10-28).
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
 - Песочница приёмки в `$TMPDIR`: macOS чистит файлы через три дня без обращений. Исправление — `worfy-harness` 36; после merge владелец запускает `move` (команды — в PR).
-- Приёмка `worfy-link` 16 (Bonjour, запрос Local Network из 02) — код готов. Tailscale на Mac и ПК ставит владелец (ADR-0070, Ticket 31 — с Windows-частью onboarding 12).
+- Приёмка `worfy-link` 16 (Bonjour, запрос Local Network) — код готов; Tailscale стоит на обеих машинах.
 - Одной сессией после `worfy-terminal-ai` 09 — проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
 - `worfy-windows`, ПК: 12 — SmartScreen установщика; 07 — Q31 и `Get-Process` установленного worfy.
@@ -57,7 +57,7 @@
 - Очередь мержа (владелец, Q7, Q10) пройдена: #517, #496, #508 влиты; `worfy-pipeline` 08 влит (#552).
 - `worfy-harness` 50, 51 — платный повтор кейса eval (`~/.docker/bin` вынести на время run-а); 52 — Session без plugin-а для задач и платные шаги 2б, 4, 5.
 - `worfy-windows`, очередь ПК (2026-10-24): 113 (замер на worfy, запущенной вручную) → 07 (первая настоящая Wave на ПК) → 15 (краш qmd — `better-sqlite3` на node < 22.14, «Итог» 15), 67, 68 → приёмка 16; 61 — low; 73 — правка на ПК (`worfy-windows/70-lows`).
-- `worfy-onboarding` ([spec](.scratch/worfy-onboarding/spec.md)): 11/14; 12 — Mac принят 2026-10-31, осталась ПК-часть; 13 (панель) и 14 (подсветка) открыты.
+- `worfy-onboarding` ([spec](.scratch/worfy-onboarding/spec.md)): 13/14; 12 — Mac принят, ПК пройден, «Итог» пишет ПК; 13 (панель) и 14 (подсветка) влиты.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - После `pnpm install:stable` — первый `retro` на настоящем сбое (`worfy-reliability` 09, пункт «(вручную)»).

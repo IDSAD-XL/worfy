@@ -38,7 +38,7 @@ skill `epic-wave`, `rules.md` Profile-а; слово владельца дано
 
 - [x] ADR и `## Amendments` в ADR-0056.
 - [x] Текст skill-а; `harness/bin/tests/epic-wave-ship-ticket.test.sh` — exit 0.
-- [ ] После merge: правило ADR-0086 в `rules.md` Profile-а worfy на обеих машинах (ADR-0042) — на Mac правит
+- [x] После merge: правило ADR-0086 в `rules.md` Profile-а worfy на обеих машинах (ADR-0042) — на Mac правит
       Orchestrator, на ПК — Session на ПК; Session на ПК открывает и закрывает issue `pc-main-red`.
 - [ ] (вручную, ПК) Первая Wave с PR со scope `pc`: PR влит до gate full на ПК; gate full на ПК на `main` после
       Wave — код и строка `[gate] green (full)` в «Итог»; время Windows-Ticket-а до merge — по Ticket-у 14.
