@@ -64,9 +64,10 @@ export type UpdateState = z.output<typeof updateStateSchema>
 
 /**
  * What a window sees: the state, whether Update is on for this copy (only the packaged Stable copy,
- * or WORFY_UPDATE=1; spec R1) and whether a check runs now.
+ * or WORFY_UPDATE=1; spec R1), whether a check runs now and whether "Restart when idle" waits (ticket
+ * 04; kept in memory only: a wish of this run, not of the next).
  */
-export const updateSnapshotSchema = updateStateSchema.extend({ enabled: z.boolean(), checking: z.boolean() })
+export const updateSnapshotSchema = updateStateSchema.extend({ enabled: z.boolean(), checking: z.boolean(), restartWhenIdle: z.boolean().default(false) })
 export type UpdateSnapshot = z.output<typeof updateSnapshotSchema>
 
 /** The snapshot now; the window then follows `update.changed`. */
@@ -85,6 +86,30 @@ export const updateInstall = invokeChannel('update.install', z.void(), updateSna
 /** Opens build.log of the last build with the program of the system ("Show log"); fails when there is none. */
 export const updateShowLog = invokeChannel('update.showLog', z.void(), z.void(), 'local')
 
+/**
+ * What a restart button answers (ticket 04): worfy quits now (`quitting`), "Restart when idle" waits
+ * (`waiting`), the wish or the roll back was cancelled, or a refusal with its reason. `busy`: refused
+ * because a Session works or Autopilot runs.
+ */
+export const restartAnswerSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('quitting') }),
+  z.object({ outcome: z.literal('waiting') }),
+  z.object({ outcome: z.literal('cancelled') }),
+  z.object({ outcome: z.literal('refused'), reason: z.string(), busy: z.boolean().optional() }),
+])
+export type RestartAnswer = z.infer<typeof restartAnswerSchema>
+
+/**
+ * "Restart now" (`now`, only when nothing works and an Update is built), "Restart when idle" (`idle`:
+ * now when nothing works, else once nothing works) and the cancel of that wish (`cancel`). A press
+ * of "Restart now" drops the wish too. The press is the consent to the Harness of the new copy
+ * (spec R5).
+ */
+export const updateRestart = invokeChannel('update.restart', z.object({ when: z.enum(['now', 'idle', 'cancel']) }), restartAnswerSchema, 'local')
+
+/** "Roll back to previous version": a native dialog asks first (spec R8); `cancelled` when it was said no. */
+export const updateRollback = invokeChannel('update.rollback', z.void(), restartAnswerSchema, 'local')
+
 /** The whole snapshot after a change. */
 export const updateChanged = eventChannel('update.changed', updateSnapshotSchema, 'local')
 
@@ -94,6 +119,8 @@ declare module './channels' {
     'update.check': typeof updateCheck
     'update.install': typeof updateInstall
     'update.showLog': typeof updateShowLog
+    'update.restart': typeof updateRestart
+    'update.rollback': typeof updateRollback
     'update.changed': typeof updateChanged
   }
 }
