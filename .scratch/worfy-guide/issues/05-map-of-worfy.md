@@ -30,8 +30,8 @@ Map of worfy в выбранном стиле первым пунктом спи
 ## Итог
 
 Map of worfy — Topic `map-of-worfy` (`src/renderer/guide/topics/map-of-worfy/`), первая строка `registry.ts`: Guide
-открывается на нём и в упакованной сборке. Схема `viewBox` 880×690, 17 блоков, 17 связей, 4 шага проигрывателя; тексты
-EN и RU, Under the hood с пятью файлами и тремя ограничениями; `topic.json` сверен с `docs/features/concepts.md`
+открывается на нём и в упакованной сборке. Схема `viewBox` 976×690, 17 блоков, 17 связей, 3 шага проигрывателя; тексты
+EN и RU, Under the hood с пятью файлами и одним ограничением; `topic.json` сверен с `docs/features/concepts.md`
 (35ac7463) и `docs/features/epic-frames.md` (e3c54550).
 
 **Набор схем дополнен, не скопирован** (`scene/model.ts`, `scene/LivingScene.tsx`, `guide.css`): то, что Ticket 04
@@ -57,10 +57,11 @@ EN и RU, Under the hood с пятью файлами и тремя ограни
 
 | Что на схеме или в тексте | Источник |
 |---|---|
-| Linked machine вне Canvas, «linked by a 6-digit code»; связь Linked machine → Machine | `concepts.md:117`, `docs/features/link.md:4`, `src/main/link/pairing.ts:140` |
+| Три области по положению: выше подписи «THIS MACHINE» только Linked machine («OTHER MACHINE»); всё остальное ниже; Autopilot и Limits — своя колонка «NOT NODES» справа от рамки Canvas | `concepts.md:113-114`, `:117-120`, `:59` |
+| Linked machine вне Canvas, «linked by a 6-digit code» (подпись блока); связь Linked machine → Machine без подписи | `concepts.md:117`, `docs/features/link.md:4`, `src/main/link/pairing.ts:140` |
 | Linked machine → Canvas «opens it, if access is on» | `concepts.md:118-120` |
 | Machine «a computer with a worfy data folder» | `concepts.md:112-113` |
-| Machine → Project «hosts»; «A Project lives on one Machine» | `concepts.md:113-114` |
+| Machine → Project «hosts» (RU «держит»); «A Project lives on one Machine» | `concepts.md:113-114` |
 | Project «a repository or a folder»; Project → Canvas «has exactly one» | `concepts.md:10-11` |
 | Machine → Harness «one per Machine» | `concepts.md:96-97` |
 | Harness «rules, skills, agents, hooks»; Harness → Session «guides the agents» | `concepts.md:94` |
@@ -71,9 +72,9 @@ EN и RU, Under the hood с пятью файлами и тремя ограни
 | Epic frame, Ticket и Subagent внутри рамки Canvas (Derived Node) | `concepts.md:15-16` |
 | Epic «Tickets for one goal», Ticket внутри рамки Epic; Ticket «one unit of work» | `concepts.md:37` |
 | Плашка «Ready wave · N» на рамке Epic | `docs/features/epic-frames.md:26`, `src/renderer/canvas/nodes/EpicFrameNode.tsx:140` |
-| Ticket → Wave «open, blockers closed»; Wave вычисляется и нигде не хранится | `concepts.md:39-41`, `src/shared/workflow/waves.ts:4-5` |
-| Autopilot → Wave «runs without a person»; Autopilot → Limits «waits for reset» | `concepts.md:59-60` |
-| Limits «subscription windows: 5 hours, 7 days»; вне Canvas (в toolbar) | `concepts.md:32-33`, `docs/features/transcripts-and-usage.md:5` |
+| Ticket → Wave «ready now» (входит в плашку снизу); Wave вычисляется и нигде не хранится (сказано один раз, в подписи плашки) | `concepts.md:39-41`, `src/shared/workflow/waves.ts:4-5` |
+| Autopilot → Wave «runs», Autopilot «Waves without a person»; Autopilot → Limits «waits for reset» | `concepts.md:59-60` |
+| Limits «subscription windows: 5 hours, 7 days» (число и единица через неразрывный пробел); вне Canvas (в toolbar) | `concepts.md:32-33`, `docs/features/transcripts-and-usage.md:5` |
 | Session «one Claude Code conversation» | `concepts.md:79-80` |
 | Session → Subagent «starts»; Subagent «started by a Session» | `concepts.md:81-82` |
 | Session → Ticket и Subagent → Ticket «Binding» | `concepts.md:90-91` |
@@ -86,7 +87,7 @@ EN и RU, Under the hood с пятью файлами и тремя ограни
 | Layout, Settings, список Project-ов — в папке данных Machine, не в репозитории | `docs/features/storage-and-diagnostics.md:11-12`, ADR-0005 |
 | Profile вне репозитория, читается через Harness | `concepts.md:99`, `src/main/workflow/profile.ts:6-8` |
 
-Не нарисовано ради читаемости (и сказано в «Limits» Topic-а): Blocked by, Subagent-ы Subagent-ов, Pipeline и Stage-и,
+Не нарисовано ради читаемости (единственный пункт «Limits» Topic-а): Blocked by, Subagent-ы Subagent-ов, Pipeline и Stage-и,
 HANDOFF, Full/Silent mode, Stable copy, Archive, Done shelf. Terminal AI из прототипа Ticket-а 01 убран: у него нет
 своего Topic-а, он часть Terminal.
 
@@ -122,7 +123,7 @@ HANDOFF, Full/Silent mode, Stable copy, Archive, Done shelf. Terminal AI из п
   [светлая](../evidence/05-map-ru-light.png), [тёмная](../evidence/05-map-ru-dark.png);
 - подсвечен Session, подписи его связей: [светлая](../evidence/05-map-lit-en-light.png),
   [тёмная](../evidence/05-map-lit-en-dark.png);
-- шаг 2 (Epic, Ticket, Wave, Autopilot, Limits): [светлая](../evidence/05-map-step-en-light.png),
+- шаг 1 (Epic, Ticket, Wave, Autopilot, Limits): [светлая](../evidence/05-map-step-en-light.png),
   [тёмная](../evidence/05-map-step-en-dark.png);
 - Reduce motion, RU: [светлая](../evidence/05-map-reduced-motion-ru-light.png),
   [тёмная](../evidence/05-map-reduced-motion-ru-dark.png);
@@ -130,9 +131,16 @@ HANDOFF, Full/Silent mode, Stable copy, Archive, Done shelf. Terminal AI из п
   [тёмная](../evidence/05-map-under-the-hood-en-dark.png); RU [светлая](../evidence/05-map-under-the-hood-ru-light.png),
   [тёмная](../evidence/05-map-under-the-hood-ru-dark.png).
 
-**Известные слабые места** (low): при ширине окна Guide 920 px схема 880 единиц идёт в масштабе около 0,75, подписи
-Node-ов около 8 px на экране; подпись «open, blockers closed» при подсветке задевает угол Ticket-а (подпись связи стоит
-в середине кривой — упрощение Ticket-а 04). Долг Ticket-а 04 (проигрыватель шагов идёт, пока схема вне видимости,
+**Круг правок после ревью (REJECTED, 2 средних/высоких и 6 low).** Autopilot и Limits ушли из верхнего ряда «OTHER
+MACHINE» в свою колонку «NOT NODES» справа от Canvas; столбец Machine → Project → Profile → Harness → Gate слева, связь
+Machine → Harness идёт дугой справа от столбца. Подпись Ticket → Wave — «ready now», связь входит в плашку снизу.
+Сокращены: вступление сводки, шаг 1 (повторял сводку), подпись связи Linked machine → Machine, повторы «computed and
+stored nowhere», два пункта «Limits». Снимок Under the hood прокручен к заголовку. Новые unit-test-ы
+(`guide-map.test.tsx`: области, подписи связей не закрывают блоки на EN и RU, вход в плашку снизу, «ready now»,
+число с единицей не разрываются, каждое утверждение один раз) краснеют на 12 мутантах, все убиты.
+
+**Известные слабые места** (low): схема 976 единиц идёт в масштабе около 0,68, подписи Node-ов около 7,5 px на экране —
+цена отдельной колонки «NOT NODES». Долг Ticket-а 04 (проигрыватель шагов идёт, пока схема вне видимости,
 `LivingScene.tsx`) не тронут: эти строки не менялись.
 
-**Токены:** автор ≈ 250 тыс. (оценка по объёму разговора, счётчика у агента нет).
+**Токены:** автор ≈ 250 тыс. первый круг и ≈ 60 тыс. круг правок (оценка по объёму разговора, счётчика у агента нет).

@@ -423,9 +423,9 @@ test('snapshots of the Map of worfy: both themes and languages, a lit block, a s
     await expect(scene.locator('[data-edge-label="session->ticket"]')).toHaveCSS('opacity', '1')
     await expect(scene.locator('[data-block="limits"]')).toHaveCSS('opacity', '0.2')
     await keep('lit-en')
-    // Step 2 of the player: the Epic, its Ticket and Wave, Autopilot and Limits.
+    // Step 1 of the player: the Epic, its Ticket and Wave, Autopilot and Limits.
     await window.mouse.move(0, 0)
-    await guide.getByRole('button', { name: 'Step 2' }).click()
+    await guide.getByRole('button', { name: 'Step 1' }).click()
     await expect(scene.locator('[data-edge="autopilot->wave"]')).toHaveClass(/is-hot/)
     // The player and its caption in view, under the diagram.
     await guide.getByTestId('guide-scene-caption').evaluate((caption) => caption.scrollIntoView({ block: 'end' }))
@@ -437,13 +437,14 @@ test('snapshots of the Map of worfy: both themes and languages, a lit block, a s
     await keep('reduced-motion-ru')
     // Under the hood unfolded and scrolled to, in both languages.
     await window.emulateMedia({ reducedMotion: null })
-    // Step 2 again: the whole diagram (the button's name is Russian now).
-    await guide.locator('.w-guide-steps__step').nth(1).click()
+    // Step 1 again: the whole diagram (the button's name is Russian now).
+    await guide.locator('.w-guide-steps__step').nth(0).click()
     await guide.locator('summary').click()
     for (const language of ['en', 'ru'] as const) {
       await guide.getByTestId(`guide-language-${language}`).click()
       await expect(guide).toHaveAttribute('data-language', language)
-      await guide.locator('.w-guide__content').evaluate((content) => content.scrollTo(0, content.scrollHeight))
+      // Its heading at the top of the Topic's scrolled area, under the window's header, not behind it.
+      await guide.locator('summary').evaluate((summary) => summary.scrollIntoView({ block: 'start' }))
       await keep(`under-the-hood-${language}`)
     }
   } finally {

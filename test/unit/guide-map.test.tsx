@@ -14,7 +14,7 @@ import { GUIDE_STRINGS, TOPIC_FILES } from '../../src/renderer/guide/content'
 import { GUIDE_REPO_URL } from '../../src/renderer/guide/links'
 import { GUIDE_TOPICS, shownTopics } from '../../src/renderer/guide/registry'
 import { LivingScene } from '../../src/renderer/guide/scene/LivingScene'
-import { boxOf, edgeId, type Box, type SceneBlock } from '../../src/renderer/guide/scene/model'
+import { CHIP_HEIGHT, boxOf, edgeId, edgeShape, noteLines, NODE_WIDTH, type Box, type SceneBlock } from '../../src/renderer/guide/scene/model'
 import { useGuide } from '../../src/renderer/guide/store'
 import Scene from '../../src/renderer/guide/topics/map-of-worfy/Scene'
 import { MAP_SPEC } from '../../src/renderer/guide/topics/map-of-worfy/spec'
@@ -43,7 +43,7 @@ describe('the Map in the Guide', () => {
   it('every block, Edge, area and step has its text in both languages', () => {
     const keys = [
       ...MAP_SPEC.blocks.flatMap((block) => [block.id, `${block.id}Note`]),
-      ...MAP_SPEC.edges.map((edge) => edge.label!),
+      ...MAP_SPEC.edges.flatMap((edge) => (edge.label === undefined ? [] : [edge.label])),
       ...(MAP_SPEC.regions ?? []).map((region) => region.label),
       ...(MAP_SPEC.steps ?? []).map((step) => step.caption),
     ]
@@ -101,7 +101,7 @@ describe('what the Map draws, against docs/features/concepts.md', () => {
         'profile->project', //  :97-99 the Profile says how to check changes, where the Tickets are, ...
         'harness->session', //  :94 "rules, skills, agents, scripts and hooks by which Claude agents carry out the work"
         'harness->gate', //     :94-95 "... carry out the work on a Project: Epics, Tickets, Waves, the Gate and review"
-        'ticket->wave', //      :39-40 "open, with all blockers closed and no shared files"
+        'ticket->wave', //      :39-40 "can be taken up in parallel right now: open, with all blockers closed and no shared files"
         'autopilot->wave', //   :59 "Autopilot is the mode in which the Waves of an Epic run without a person"
         'autopilot->limits', // :59-60 "waits for Limits to reset"
         'session->subagent', // :81-82 "A Subagent is an agent that a Session started"
@@ -111,6 +111,104 @@ describe('what the Map draws, against docs/features/concepts.md', () => {
         'session->browser', //  :26 "Sessions arrive signed in and never see the passwords"
       ].sort(),
     )
+  })
+})
+
+describe('the areas of the Map: OTHER MACHINE, THIS MACHINE, NOT NODES', () => {
+  const region = (label: string) => MAP_SPEC.regions!.find((each) => each.label === label)!
+  /** A caption is 11 px: its text stands up to 11 units above its baseline. */
+  const CAPTION = 11
+
+  it('above the caption THIS MACHINE stands only the Linked machine, under OTHER MACHINE', () => {
+    // concepts.md:117-120: the Linked machine is another Machine; everything else of the Map runs on this one
+    // (:113-114 the Project, its Sessions and Gate; :96 the Harness; :59 Autopilot keeps this Machine awake).
+    const thisMachine = region('thisMachine')
+    const otherMachine = region('otherMachine')
+    const linked = boxOfId('linked')
+    expect(otherMachine.y).toBeLessThan(linked.y)
+    expect(linked.y + linked.height).toBeLessThan(thisMachine.y - CAPTION)
+    for (const block of MAP_SPEC.blocks) {
+      if (block.id === 'linked') continue
+      expect(boxOf(block).y, `${block.id} lies below THIS MACHINE`).toBeGreaterThan(thisMachine.y)
+    }
+    for (const each of MAP_SPEC.frames!) expect(each.y, each.block).toBeGreaterThan(thisMachine.y)
+  })
+
+  it('NOT NODES heads a column of its own, outside the Canvas frame: Autopilot and Limits, and nothing else', () => {
+    const notNodes = region('notNodes')
+    const canvas = frame('canvas')
+    expect(notNodes.x).toBeGreaterThan(canvas.x + canvas.width)
+    const column = MAP_SPEC.blocks.filter((block) => boxOf(block).x >= notNodes.x).map((block) => block.id)
+    expect(column.sort()).toEqual(['autopilot', 'limits'])
+    for (const id of column) expect(boxOfId(id).y, id).toBeGreaterThan(notNodes.y)
+  })
+})
+
+describe('the labels and texts of the Map', () => {
+  /** The Edge label's pill as LivingScene.tsx estimates it: 6.2 units a character, 14 of padding, 19 high, at the middle of the curve. */
+  const pill = (edge: (typeof MAP_SPEC.edges)[number], text: string): Box => {
+    const middle = edgeShape(blocks.get(edge.from)!, blocks.get(edge.to)!, edge).middle
+    const width = text.length * 6.2 + 14
+    return { x: middle.x - width / 2, y: middle.y - 9.5, width, height: 19 }
+  }
+
+  it.each(['en', 'ru'] as const)('%s: no Edge label covers a block when it is lit', (language) => {
+    const labels = TOPIC_FILES[language].get(ID)!.scene.labels
+    const covered = MAP_SPEC.edges.flatMap((edge) => {
+      if (edge.label === undefined) return []
+      const box = pill(edge, labels[edge.label]!)
+      return MAP_SPEC.blocks.filter((block) => overlap(box, boxOf(block))).map((block) => `${edgeId(edge)} "${labels[edge.label!]}" over ${block.id}`)
+    })
+    expect(covered).toEqual([])
+  })
+
+  it('the Ticket enters the Ready wave chip from below, not along the Epic frame top edge it stands on', () => {
+    const edge = MAP_SPEC.edges.find((each) => edgeId(each) === 'ticket->wave')!
+    const tip = edgeShape(blocks.get('ticket')!, blocks.get('wave')!, edge).tip
+    const wave = boxOfId('wave')
+    expect(tip.y).toBe(wave.y + CHIP_HEIGHT)
+    expect(tip.y).not.toBe(frame('epic').y)
+  })
+
+  it('the Ticket → Wave label says the whole condition: ready now', () => {
+    // concepts.md:39-40: open, all blockers closed and no shared files; a list of two of the three would be wrong.
+    expect(en.scene.labels.readyNow).toBe('ready now')
+    expect(ru.scene.labels.readyNow).toBe('готов сейчас')
+  })
+
+  it.each(['en', 'ru'] as const)('%s: no note of a block breaks between a number and its unit', (language) => {
+    const labels = TOPIC_FILES[language].get(ID)!.scene.labels
+    for (const block of MAP_SPEC.blocks) {
+      const lines = noteLines(labels[`${block.id}Note`]!, NODE_WIDTH)
+      for (const line of lines.slice(0, -1)) expect(line, block.id).not.toMatch(/\d$/)
+    }
+  })
+
+  it.each(['en', 'ru'] as const)('%s: says each thing once', (language) => {
+    const text = TOPIC_FILES[language].get(ID)!
+    const labels = text.scene.labels
+    // No Edge label repeats the note of a block it joins.
+    for (const edge of MAP_SPEC.edges) {
+      if (edge.label === undefined) continue
+      for (const end of [edge.from, edge.to]) expect(labels[edge.label], edgeId(edge)).not.toBe(labels[`${end}Note`])
+    }
+    // No step repeats a sentence of the summary.
+    const summary = text.summary.join(' ')
+    for (const step of MAP_SPEC.steps!) {
+      for (const sentence of labels[step.caption]!.split(/(?<=\.)\s+/)) expect(summary, step.caption).not.toContain(sentence)
+    }
+    // "Computed and stored nowhere" is said once, of the Wave.
+    const all = JSON.stringify(text)
+    const phrase = language === 'en' ? /stored nowhere/g : /нигде не хранит/g
+    expect(all.match(phrase)).toHaveLength(1)
+    // One limit: what the Map leaves out. Nothing of a Topic not written yet, nothing the frame already shows.
+    expect(text.underTheHood.limits).toHaveLength(1)
+  })
+
+  it('the summary opens with the Project, without a preamble', () => {
+    expect(en.summary[0]).toMatch(/^A Project lives on one Machine/)
+    expect(ru.summary[0]).toMatch(/^Project живёт на одной Machine/)
+    expect(ru.scene.labels.hosts).toBe('держит')
   })
 })
 
