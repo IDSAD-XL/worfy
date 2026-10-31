@@ -251,7 +251,7 @@ Epic готов, когда:
 - «Roll back to previous version», описание: «Return to worfy <version>. Automatic updates wait for the
   next commit on main.»; без прежней копии — «No previous version is kept.»
 - Подтверждение (нативный диалог): заголовок «Roll back to worfy <version>?»; текст «worfy quits, puts the
-  previous copy back and starts it. Its Harness is installed too.»; кнопки «Roll back», «Cancel»
+  previous copy back and starts it. Its Harness is installed too, unless the one installed is newer.»; кнопки «Roll back», «Cancel»
 - Нет инструментов: «Updates need git, node and pnpm: <missing> not found. See Settings → Health.»
 
 **Health** (Ticket 08), группа «worfy», строка «worfy version»

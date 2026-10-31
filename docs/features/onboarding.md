@@ -219,7 +219,7 @@ Project is active.
 
 **A review that finds nothing.** The demo is made so that the review probably finds a problem, but this is not certain. When step 5
 is marked and no rework round was seen, the step says "This time the review found nothing." and offers "Show an example". That opens
-a recorded example in place: the reviewer's REJECTED with its finding, the implementer's fix and the reviewer's VERIFIED.
+a recorded example in place: the reviewer's REJECTED with its finding, the Orchestrator's fix and the reviewer's VERIFIED.
 
 **Done.** Once step 6 is marked, the panel shows "Done — the ticket is merged" in place of the steps, with "Connect your own
 project" and "Remove the demo project". "Show steps" brings the list back until the panel is next mounted.
@@ -382,8 +382,9 @@ the Stages from it ([ADR-0045](../adr/0045-one-ticket-one-repository.md),
 [ADR-0067](../adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md)). Both sides apply the same rule. The file is
 `<Harness home>/runs/worfy-demo/marks/todo-01.json`.
 
-**Sonnet or Opus for the whole demo.** The switch changes only the Orchestrator's picks. The implementer and the reviewer inherit its
-model, and their effort comes from their own definitions.
+**Sonnet or Opus for the whole demo.** The switch changes only the Orchestrator's picks. The Orchestrator does the work itself, and the
+reviewer it starts inherits its model (`model: inherit`); the reviewer's effort comes from its own definition
+([harness/agents/reviewer.md](../../harness/agents/reviewer.md)), since the demo's profile names no `agents`.
 
 **Removal is proven first.** The removal deletes a folder that a file names, so it trusts the file only when the Harness agrees. The
 Orchestrator is held closed because a window that opens meanwhile would otherwise start a Session in that folder. The record goes before

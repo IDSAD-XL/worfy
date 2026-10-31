@@ -73,4 +73,4 @@ Source: [spec.md](../spec.md), «Решено без владельца», Р14,
   `docs/features/concepts.md` — нет Update и Available update.
 - Вопрос владельцу: диалог отката (`src/main/ipc/update.ts:349`) обещает «Its Harness is installed too», но более
   новый установленный Harness не понижается (`src/main/update/harness-after-update.ts:99`; страница пишет это
-  условие верно). Править текст диалога или понижать Harness — решает владелец.
+  условие верно). Править текст диалога или понижать Harness — решает владелец. Ответ: владелец 2026-10-31: править текст, Harness не понижать — PR #1142.

@@ -212,7 +212,7 @@ project?» и `/worfy:ship-ticket todo 01`. Ничего не отправляе
 
 **Ревью, которое ничего не нашло.** Demo устроен так, что ревью, вероятно, найдёт проблему, но это не гарантировано. Если шаг 5 отмечен, а
 круга доработки не было, шаг говорит «This time the review found nothing.» и предлагает «Show an example». Это раскрывает на месте записанный
-пример: REJECTED ревьюера с находкой, правка implementer-а и VERIFIED ревьюера.
+пример: REJECTED ревьюера с находкой, правка Orchestrator-а и VERIFIED ревьюера.
 
 **Done.** Когда шаг 6 отмечен, панель показывает «Done — the ticket is merged» вместо шагов, с «Connect your own project» и «Remove the demo
 project». «Show steps» возвращает список до следующего монтирования панели.
@@ -362,7 +362,7 @@ worfy-demo/
 ([ADR-0045](../../adr/0045-one-ticket-one-repository.md), [ADR-0067](../../adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md)). Обе стороны применяют одно
 правило. Файл — `<Harness home>/runs/worfy-demo/marks/todo-01.json`.
 
-**Sonnet или Opus на всё demo.** Переключатель меняет только настройки Orchestrator-а. Implementer и ревьюер наследуют его модель, а effort берут из своих определений.
+**Sonnet или Opus на всё demo.** Переключатель меняет только настройки Orchestrator-а. Работу Orchestrator делает сам, а ревьюер, которого он запускает, наследует его модель (`model: inherit`); effort ревьюера берётся из его определения ([harness/agents/reviewer.md](../../../harness/agents/reviewer.md)), потому что профиль demo не задаёт `agents`.
 
 **Удаление сначала доказывается.** Удаление стирает папку, которую называет файл, поэтому файлу верят, только если Harness согласен. Orchestrator держится закрытым, потому
 что окно, открывшееся в это время, иначе запустило бы Session в этой папке. Запись уходит раньше папки, потому что Stage-ы следят за папкой, пока запись её называет, а на

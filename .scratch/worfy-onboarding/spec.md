@@ -371,7 +371,7 @@ Session проектирования 2026-10-26. Номера — как у вл
 - Done: «Merged. The ticket is done.»
 - Запасной путь шага 5: «This time the review found nothing.» Кнопка: «Show an example»
 - Подписи для screen reader в раскрытом примере (черновик, onboarding 09): список — «Example of a rework
-  round», diff правки — «The implementer's fix»
+  round», diff правки — «The Orchestrator's fix»; автор правки — «Orchestrator»
 
 **Уведомление в углу** (Ticket 08)
 
