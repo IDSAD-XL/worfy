@@ -365,9 +365,10 @@ PATH — код 1. Поэтому в skill написано запускать `
 
 **e2e.** `NO_QMD` и `CHECK_RUN_CALL` убраны. `first-run.spec.ts` проходит шаги моделей на Windows, но «Everything is ready»
 там недостижимо не из-за qmd: в сборке для разработки нет bridge для Limits, а в PATH песочницы нет `pwsh`. Поэтому сводка на
-Windows — `2 warnings`, в `settings-health.spec.ts` — `1 failed · 5 warnings`. **Эти два spec-а не запускались:** Orchestrator
-запретил прогоны с окнами, пока владелец за ПК.
+Windows — `2 warnings`, в `settings-health.spec.ts` — `1 failed · 5 warnings`. Замер на ПК, 2026-10-31, каждый файл целиком,
+`--workers=1`: `first-run.spec.ts` — код 0, 8 passed; `settings-health.spec.ts` — код 0, 3 passed. Пункт о «Everything is ready»
+поэтому не отмечен: его текст требует того, что на Windows закрывают не qmd; решает Orchestrator.
 
-**Осталось.** Прогнать два spec-а выше на ПК; все проверки на Mac; снимок владельца `../evidence/15-qmd-windows.png` и
+**Осталось.** Все проверки на Mac; снимок владельца `../evidence/15-qmd-windows.png` и
 проверка Session worfy (путь А); что показывает `/mcp` при коде 3 и 127 (предположение выше); на Mac — `node` из `.mcp.json`, когда
 на PATH приложения нет `node` или он старый; gate full на Mac и ПК. Пункт «Путь Б» не применяется: выбран путь А.
