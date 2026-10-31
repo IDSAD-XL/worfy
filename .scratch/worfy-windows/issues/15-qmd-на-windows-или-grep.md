@@ -372,8 +372,9 @@ Windows — `2 warnings`, в `settings-health.spec.ts` — `1 failed · 5 warnin
 
 **Два известных warning-а на Windows.** В сводке первого запуска на Windows ожидаются ровно два warning-а: нет bridge для
 Limits в сборке для разработки и нет `pwsh` в PATH песочницы; любой третий красный. Основание Orchestrator-а: решение
-владельца 2026-10-31 о приёмке Windows (исправить или Windows exception). Spec проверяет их число по тексту сводки
-(`2 warnings`), а имена называет только в комментарии: другой warning вместо одного из двух он не заметит.
+владельца 2026-10-31 о приёмке Windows (исправить или Windows exception). `first-run.spec.ts` проверяет их по именам:
+строки с `data-status="warn"` — ровно `limits` и `powershell`, и текст причины каждой; другой warning вместо одного из них тоже
+красный.
 
 **Осталось.** Все проверки на Mac; снимок владельца `../evidence/15-qmd-windows.png` и
 проверка Session worfy (путь А); что показывает `/mcp` при коде 3 и 127 (предположение выше); на Mac — `node` из `.mcp.json`, когда

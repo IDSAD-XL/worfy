@@ -264,8 +264,15 @@ test.describe('first-run screen', () => {
       await expect(row(dialog, 'qmd-models')).toContainText('skipped')
       expect(readFileSync(join(claudeHome, 'worfy-harness', 'qmd-models'), 'utf8')).toBe('skipped\n')
       // Two rows of the machine stay warnings on Windows, which has nothing to do with qmd: Limits (a development
-      // build has no bridge) and PowerShell (no pwsh on the sandbox's Path).
+      // build has no bridge) and PowerShell (no pwsh on the sandbox's Path). A third warning is red, and so is
+      // another one in place of these two: they are read by name, not only counted.
       await expect(dialog.getByTestId('first-run-summary')).toHaveText(process.platform === 'win32' ? '2 warnings' : 'Everything is ready')
+      const warnings = await dialog.locator('[data-check][data-status="warn"]').evaluateAll((rows) => rows.map((each) => each.getAttribute('data-check')))
+      expect(warnings).toEqual(process.platform === 'win32' ? ['limits', 'powershell'] : [])
+      if (process.platform === 'win32') {
+        await expect(row(dialog, 'limits')).toContainText('A development build has no bridge of its own')
+        await expect(row(dialog, 'powershell')).toContainText('Terminal uses Windows PowerShell')
+      }
       await keep(launched.window, 'first-run-ready')
 
       await dialog.getByRole('button', { name: 'Close' }).click()
