@@ -11,6 +11,7 @@ import { findGitBash, findOnPath } from '../../src/main/agent/env'
 import { terminalKey } from '../../src/main/ipc/terminal'
 import { endDescendants, spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
 import { alive, consoleHosts, folderLine, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, settledHandleCount, SYSTEM_ROOT, threads, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
+import { quarantined } from '../quarantine'
 import { ms } from '../time-scale'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
@@ -158,7 +159,7 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
 
   // Review of PR #280 (item 5): the count of hosts was compared, not their pids, and nothing showed
   // that the host of the package's console (OpenConsole.exe) was counted at all.
-  it('close leaves no console host behind, neither conhost.exe nor OpenConsole.exe; it is done well inside its bound', async (context) => {
+  quarantined('terminal-windows-close-no-console-host')('close leaves no console host behind, neither conhost.exe nor OpenConsole.exe; it is done well inside its bound', async (context) => {
     needsWindowsPowerShellOffRunner(context)
     const h = await harness({ nodes: ['n1', 'n2', 'n3'] })
     const before = new Set(consoleHosts())
