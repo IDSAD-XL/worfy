@@ -1530,7 +1530,9 @@
 /* Input field: the Eco mode switch of the Orchestrator (composer/EcoMode.tsx, worfy-throughput
    ticket 60). The button has the look of the pickers next to it (theme/select.css), only tighter:
    24 px tall, a 1 px border, a muted caption, then a small track whose knob carries the state as an
-   icon — a leaf on the green of "ready" when on, a bolt on the plain track when off. An unavailable
+   icon — a leaf on the green of "ready" when on, a bolt on the plain track when off. The knob has
+   no fill and no ring of its own: the track's border is the switch's only outline, and the icon
+   alone moves inside it (green when on, muted when off). An unavailable
    switch (aria-disabled: read-only, another Machine, no Profile) loses its fill, as a disabled
    picker does. */
 .w-eco {
@@ -1597,8 +1599,6 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--surface);
-  box-shadow: 0 0 0 1px var(--border-strong);
   color: var(--text-muted);
   transition: transform 120ms ease;
 }
@@ -1608,7 +1608,6 @@
 }
 .w-eco[aria-checked='true'] .w-eco__knob {
   transform: translateX(10px);
-  box-shadow: 0 0 0 1px var(--ready-dot);
   color: var(--ready-text);
 }
 .w-eco[aria-disabled='true'] .w-eco__track {
