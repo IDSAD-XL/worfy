@@ -12,9 +12,10 @@ import { eventChannel, invokeChannel } from './channels'
 /**
  * What a menu item asks the window for. `settings` opens the Settings window; `toggleSidebar` hides
  * or shows the sidebar in what the window shows now, the normal view or focus mode; `shortcuts`
- * opens the Keyboard shortcuts window (Help ▸ Keyboard Shortcuts).
+ * opens the Keyboard shortcuts window (Help ▸ Keyboard Shortcuts); `guide` opens the worfy Guide
+ * (Help ▸ worfy Guide, worfy-guide ticket 03).
  */
-export const MENU_COMMANDS = ['settings', 'toggleSidebar', 'shortcuts'] as const
+export const MENU_COMMANDS = ['settings', 'toggleSidebar', 'shortcuts', 'guide'] as const
 export const menuCommandSchema = z.enum(MENU_COMMANDS)
 export type MenuCommand = z.output<typeof menuCommandSchema>
 

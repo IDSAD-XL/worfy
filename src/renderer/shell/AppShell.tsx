@@ -2,6 +2,7 @@ import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode
 import { underFocusCover } from '../focus/cover'
 import { setFocusSlot } from '../focus/focus-state'
 import { GettingStartedPanel } from '../getting-started/GettingStartedPanel'
+import { GuideHost } from '../guide/GuideHost'
 import { MachineDialogs } from '../machines/MachineDialogs'
 import { useInterfaceScale } from '../settings/interface-scale'
 import { SettingsDialog } from '../settings/SettingsDialog'
@@ -113,6 +114,8 @@ export function AppShell({ project, canvas, session, pipeline, view: controlledV
       <SettingsDialog />
       {/* The Keyboard shortcuts window (worfy-ui ticket 11): Cmd/Ctrl+/, "?", the palette; in the layer of Settings. */}
       <ShortcutsOverlay />
+      {/* The worfy Guide (worfy-guide ticket 03): Help ▸ worfy Guide and the palette open it; its window is a chunk loaded on the first opening. */}
+      <GuideHost />
       <MachineDialogs />
     </div>
   )

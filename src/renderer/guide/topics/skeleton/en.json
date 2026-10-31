@@ -1,0 +1,35 @@
+{
+  "title": "How the Guide works",
+  "summary": [
+    "The Guide explains worfy in short Topics: a diagram, a few lines of text and, folded below, how the Feature is built in code.",
+    "Open it from Help ▸ worfy Guide or from the Command palette. It needs no Project and no network, and it never opens by itself."
+  ],
+  "scene": {
+    "description": "Help ▸ worfy Guide and a row of the Command palette both open the Guide. The Guide reads its Topics from the app's own code.",
+    "labels": {
+      "menu": "Help menu",
+      "menuNote": "worfy Guide",
+      "palette": "Command palette",
+      "paletteNote": "a row per Topic",
+      "guide": "Guide",
+      "guideNote": "Topics in EN and RU",
+      "opens": "opens"
+    }
+  },
+  "underTheHood": {
+    "text": [
+      "The Guide is a dialog over the window. Its code is a separate chunk that loads the first time the Guide opens, so starting worfy does not pay for it.",
+      "Each Topic keeps its text in two JSON files, one per language, next to its diagram. A test fails when a string has only one of its two versions. The language switch is saved in the app settings of this Machine."
+    ],
+    "files": {
+      "src/renderer/guide/GuideWindow.tsx": "The window: the list of Topics, the Topic, the language switch",
+      "src/renderer/guide/registry.ts": "One line per Topic, for the Command palette",
+      "src/main/menu.ts": "The Help ▸ worfy Guide item",
+      "scripts/guide-lag.mjs": "The report of Topics behind their pages or their translation"
+    },
+    "limits": [
+      "This test Topic is not shown in a packaged build.",
+      "Links lead to GitHub at the commit of this build, or to main when the build does not know it."
+    ]
+  }
+}

@@ -33,6 +33,10 @@
 // Project: it does what the button of Settings → General → Updates does now — restarts into a built
 // Update (`update.restart`, "now" or "idle"), builds the Available update (`update.install`), or,
 // without one, checks ("Check now", `update.check`). It concerns this copy of worfy, not the Project.
+// "worfy Guide" (worfy-guide ticket 03, ADR-0090) opens the Guide, with or without a Project, and each
+// Topic of its registry (guide/registry.ts) is a row of its own, found by typing only, that opens the
+// Guide at that Topic; the test Topic only in a build that is not packaged. The registry is all the
+// palette reads: the Guide's window and texts stay out of the app's first chunk.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
@@ -51,6 +55,8 @@ import { showNode } from '../canvas/show-node'
 import { createCanvasNode, focusCanvasNode, openAdr, requestArrangeByEpic, requestTidyUp, setTagFilter, type TagFilter } from '../find/canvas-requests'
 import { kindLabel, nodeTitle, normalizeQuery, type Rankable } from '../find/search-index'
 import { openGettingStarted } from '../getting-started/store'
+import { shownTopics } from '../guide/registry'
+import { openGuide, useGuide } from '../guide/store'
 import { invoke, windowMachine } from '../ipc'
 import { askRemoveMachine } from '../machines/machine-dialogs'
 import { linkStateNow, reconnectMachine } from '../machines/useMachines'
@@ -351,6 +357,32 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
       return undefined
     },
   })
+  // The worfy Guide (worfy-guide ticket 03): always here, with or without a Project.
+  commands.push({
+    id: 'guide',
+    group: 'View',
+    title: 'worfy Guide',
+    detail: 'Short visual help',
+    keys: ['guide', 'help', 'docs', 'documentation'],
+    run: () => {
+      openGuide()
+      return undefined
+    },
+  })
+  for (const topic of shownTopics(useGuide.getState().build.packaged)) {
+    commands.push({
+      id: `guide:${topic.id}`,
+      group: 'View',
+      title: `Guide: ${topic.title}`,
+      detail: 'worfy Guide',
+      keys: [...(topic.keys ?? []), 'guide'],
+      queryOnly: true,
+      run: () => {
+        openGuide(topic.id)
+        return undefined
+      },
+    })
+  }
   if (project) {
     const projectId = project.id
     const tags = [...new Set(layoutNodes.flatMap((node) => node.tags))].sort((a, b) => a.localeCompare(b))
