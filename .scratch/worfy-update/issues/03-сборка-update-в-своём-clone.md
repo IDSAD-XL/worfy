@@ -1,7 +1,8 @@
 # 03 — Сборка Update в своём clone в папке данных worfy и «Update automatically»
 
 Type: task
-Status: claimed 2026-10-31T06:04Z
+Status: done 2026-10-31T07:47Z
+PR: #1116
 Branch: worfy-update/03
 Blocked by: 01
 Source: решения владельца 2026-10-31, пункты 3 (постоянный clone в папке данных, та же сборка, что `pnpm install:stable`, нужны `node` и `pnpm`), 7 (с «Update automatically», по умолчанию включено, — сборка в фоне), 8 (сбой — текущая копия остаётся, недостающие инструменты, повтор); [spec.md](../spec.md), «Как устроено», «Решено без владельца», Р5, Р11; [ADR-0089](../../../docs/adr/0089-update-builds-main-in-own-clone.md), пункты 3, 5, 6; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md)
@@ -112,3 +113,5 @@ Source: решения владельца 2026-10-31, пункты 3 (посто
   test-ов renderer-а с готовыми объектами настроек вне «Где в коде».
 - Test-ы: `test/contract/update-build.test.ts` (24), `test/contract/app-settings.test.ts` (поле
   `autoUpdate`); подменные команды — `test/fixtures/update/` (Node-скрипты, одинаковые на всех ОС).
+
+- Low из review (debt, Ticket-ами не становятся): нет pid-lock на clone после падения worfy посреди сборки; test зависшего шага проверяет pid нестрого.
