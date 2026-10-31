@@ -1,5 +1,5 @@
-// Handlers of the `update` domain (src/shared/ipc/update.ts, worfy-update tickets 01 and 03) and the
-// schedule of the Update checks, which src/main/index.ts starts and stops on `will-quit`; the stop
+// Handlers of the `update` domain (src/shared/ipc/update.ts, worfy-update tickets 01, 03 and 04) and
+// the schedule of the Update checks, which src/main/index.ts starts and stops on `will-quit`; the stop
 // ends a build that runs too.
 //
 // Update is on only in the packaged Stable copy, or with WORFY_UPDATE=1 (spec R1,
@@ -8,11 +8,26 @@
 //
 // After each check "Update automatically" may start a build (src/main/update/auto.ts); the build
 // itself is src/main/update/build.ts.
+//
+// "Restart now", "Restart when idle" and the roll back (ticket 04) are src/main/update/restart.ts;
+// whether nothing works is src/main/update/idle.ts, followed while Update is on and kept in the
+// state's `idle`. At the start the result of the restart that ended the last run is read.
 import { existsSync } from 'node:fs'
-import { app, shell } from 'electron'
-import { updateChanged, updateCheck, updateInstall, updateShowLog, updateStateChannel, type UpdateSnapshot } from '../../shared/ipc/update'
+import { app, BrowserWindow, dialog, shell } from 'electron'
+import type { AgentEvent } from '../../shared/agent/events'
+import {
+  updateChanged,
+  updateCheck,
+  updateInstall,
+  updateRestart,
+  updateRollback,
+  updateShowLog,
+  updateStateChannel,
+  type RestartAnswer,
+  type UpdateSnapshot,
+} from '../../shared/ipc/update'
 import { autoUpdateOf } from '../../shared/settings/app-settings'
-import { recaptureAgentEnv } from '../agent/env'
+import { agentEnv, recaptureAgentEnv } from '../agent/env'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessVersion } from '../harness/bundled'
 import { appSettingsStore } from '../settings/store'
@@ -20,6 +35,8 @@ import { autoBuildFor, installTarget } from '../update/auto'
 import { UpdateBuilder, updateBuildOverride, updateRepo, type UpdateBuilds } from '../update/build'
 import { checkForUpdate, UpdateChecks } from '../update/check'
 import { updateGitHub, type UpdateGitHub } from '../update/github'
+import { IdleWatch, type IdleSession } from '../update/idle'
+import { Restarts } from '../update/restart'
 import { readStableMetadata, runningOf, runsFromStableCopy, stableCopyPath, updateEnabled } from '../update/stable-copy'
 import { changeUpdateState, emptyUpdateState, readUpdateState, updateDir, updateStateFile } from '../update/state'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -39,8 +56,14 @@ export interface UpdateServiceOptions {
   autoUpdate?: () => boolean
   /** Opens a file with the program of the system; answers an error message, or '' (shell.openPath). */
   openPath?: (path: string) => Promise<string>
+  /** Follows whether nothing works (ticket 04); without it, `idle` is left as the file has it. */
+  idle?: IdleWatch
+  /** "Restart now", "Restart when idle" and the roll back (ticket 04); without them a restart is refused. */
+  restarts?: Restarts
   now?: () => Date
 }
+
+const OFF: RestartAnswer = { outcome: 'refused', reason: 'Update is off in this copy of worfy' }
 
 export class UpdateService {
   readonly checks: UpdateChecks
@@ -53,8 +76,27 @@ export class UpdateService {
   }
 
   snapshot(): UpdateSnapshot {
-    if (!this.options.enabled) return { ...emptyUpdateState(), enabled: false, checking: false }
-    return { ...readUpdateState(this.options.stateFile()), enabled: true, checking: this.checks.checking }
+    if (!this.options.enabled) return { ...emptyUpdateState(), enabled: false, checking: false, restartWhenIdle: false }
+    return { ...readUpdateState(this.options.stateFile()), enabled: true, checking: this.checks.checking, restartWhenIdle: this.options.restarts?.pending ?? false }
+  }
+
+  /** "Restart now", "Restart when idle" or the cancel of that wish. */
+  restart(when: 'now' | 'idle' | 'cancel'): Promise<RestartAnswer> {
+    const { restarts } = this.options
+    if (!this.options.enabled || restarts === undefined) return Promise.resolve(OFF)
+    return restarts.restart(when)
+  }
+
+  /** The roll back to the previous copy, once `confirm` said yes. */
+  rollback(confirm: (version: string) => Promise<boolean>): Promise<RestartAnswer> {
+    const { restarts } = this.options
+    if (!this.options.enabled || restarts === undefined) return Promise.resolve(OFF)
+    return restarts.rollback(confirm)
+  }
+
+  /** worfy quits (before-quit): "Restart when idle" no longer waits, and no restart starts. */
+  quitting(): void {
+    this.options.restarts?.quitting()
   }
 
   /** Checks now ("Check now") and answers the snapshot after it; off, only the snapshot. */
@@ -86,12 +128,38 @@ export class UpdateService {
    */
   start(): () => void {
     if (!this.options.enabled) return () => undefined
-    const { builder } = this.options
+    const { builder, idle, restarts } = this.options
     builder?.recover()
+    try {
+      restarts?.settle()
+    } catch (error) {
+      console.error('[update] the result of the last restart could not be read', error)
+    }
+    const stopIdle = idle === undefined ? () => undefined : this.followIdle(idle)
     const stopChecks = this.checks.start()
     return () => {
       stopChecks()
+      stopIdle()
       builder?.stop()
+    }
+  }
+
+  /** Keeps the state's `idle` as the watch sees it; answers the stop. */
+  private followIdle(idle: IdleWatch): () => void {
+    const write = (value: boolean): void => {
+      try {
+        if (readUpdateState(this.options.stateFile()).idle !== value) changeUpdateState((state) => ({ ...state, idle: value }), this.options.stateFile())
+      } catch (error) {
+        console.error('[update] whether anything works could not be written', error)
+      }
+      this.options.broadcast(this.snapshot())
+    }
+    const stopWatch = idle.start()
+    const unsubscribe = idle.subscribe(write)
+    write(idle.idle)
+    return () => {
+      unsubscribe()
+      stopWatch()
     }
   }
 
@@ -143,12 +211,60 @@ function appRunning(): { commit: string; version: string } {
   return runningOf(named ? readStableMetadata(process.platform, copy) : undefined, version)
 }
 
+/** The live Sessions as the rule of spec R6 reads them. */
+function sessionsOf(registry: SessionRegistryView): IdleSession[] {
+  return registry.list().map((info) => {
+    let backgroundTasks = 0
+    try {
+      backgroundTasks = registry.get(info.sessionId).backgroundTasks().length
+    } catch {
+      // Closed since the list was taken.
+    }
+    return { state: info.state, backgroundTasks }
+  })
+}
+
+type SessionRegistryView = Pick<import('../agent/session/registry').SessionRegistry, 'list' | 'get' | 'observe'>
+
+/**
+ * The watch over the app's Sessions and Autopilot. Their modules are loaded when the watch starts,
+ * not with this one (the tests of the check load this module alone); until then Autopilot counts as
+ * running, so nothing reads as quiet too early. The look every 2 s takes them in once loaded.
+ */
+function appIdleWatch(): IdleWatch {
+  let registry: SessionRegistryView | undefined
+  let autopilotRunning: (() => boolean) | undefined
+  const loaded = Promise.all([import('../agent/app-registry'), import('./autopilot')]).then(([sessions, autopilot]) => {
+    registry = sessions.sharedRegistry()
+    autopilotRunning = () => autopilot.sharedAutopilot().anyRunning()
+  })
+  loaded.catch((error: unknown) => console.error('[update] the Sessions and Autopilot could not be followed', error))
+  return new IdleWatch({
+    sources: {
+      sessions: () => (registry === undefined ? [] : sessionsOf(registry)),
+      autopilotRunning: () => autopilotRunning?.() ?? true,
+    },
+    observe: (listener: (sessionId: string, event: AgentEvent) => void) => {
+      let stopped = false
+      let unobserve: (() => void) | undefined
+      void loaded.then(() => {
+        if (!stopped && registry !== undefined) unobserve = registry.observe(listener)
+      })
+      return () => {
+        stopped = true
+        unobserve?.()
+      }
+    },
+  })
+}
+
 let shared: UpdateService | undefined
 
 /** The app's service, made on first use: after src/main/index.ts has set the build kind of the data folder. */
 export function appUpdate(): UpdateService {
   if (shared === undefined) {
     let running: { commit: string; version: string } | undefined
+    const idle = appIdleWatch()
     shared = new UpdateService({
       enabled: updateEnabled({ packaged: app.isPackaged, execPath: process.execPath, env: process.env }),
       running: () => (running ??= appRunning()),
@@ -170,6 +286,19 @@ export function appUpdate(): UpdateService {
       }),
       autoUpdate: () => autoUpdateOf(appSettingsStore().get()),
       openPath: (path) => shell.openPath(path),
+      idle,
+      restarts: new Restarts({
+        dir: updateDir(),
+        stateFile: () => updateStateFile(),
+        target: () => stableCopyPath(),
+        pid: process.pid,
+        // The login shell's environment, as the build had it: the system's node is found on its PATH.
+        env: async () => (await agentEnv()).env,
+        running: () => (running ??= appRunning()),
+        idle,
+        quit: () => app.quit(),
+        onChange: () => broadcast(appUpdate().snapshot()),
+      }),
     })
   }
   return shared
@@ -182,7 +311,26 @@ function broadcast(snapshot: UpdateSnapshot): void {
 
 /** Starts the checks (10 s after the start, then every hour) when Update is on; the function returned stops them. */
 export function startUpdateChecks(): () => void {
-  return appUpdate().start()
+  const service = appUpdate()
+  // Kept for the whole run: the stop comes on will-quit, after before-quit.
+  app.on('before-quit', () => service.quitting())
+  return service.start()
+}
+
+/** The native dialog of the roll back (spec, "Texts"), on the window that asked; button 0 rolls back. */
+async function confirmRollback(owner: BrowserWindow | null, version: string): Promise<boolean> {
+  const options = {
+    type: 'question' as const,
+    buttons: ['Roll back', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+    title: 'worfy',
+    message: `Roll back to worfy ${version}?`,
+    detail: 'worfy quits, puts the previous copy back and starts it. Its Harness is installed too.',
+    noLink: true,
+  }
+  const { response } = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
+  return response === 0
 }
 
 export function updateHandlers(service: () => UpdateService = appUpdate): HandlerModule {
@@ -191,6 +339,8 @@ export function updateHandlers(service: () => UpdateService = appUpdate): Handle
     defineHandler(updateCheck, () => service().check()),
     defineHandler(updateInstall, () => service().install()),
     defineHandler(updateShowLog, () => service().showLog()),
+    defineHandler(updateRestart, ({ when }) => service().restart(when)),
+    defineHandler(updateRollback, (_input, { event }) => service().rollback((version) => confirmRollback(BrowserWindow.fromWebContents(event.sender), version))),
   ]
 }
 
