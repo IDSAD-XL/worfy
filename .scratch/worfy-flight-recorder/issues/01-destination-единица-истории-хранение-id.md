@@ -1,7 +1,7 @@
 # 01 — Destination, единица истории, хранение и id
 
 Type: grilling
-Status: done 2026-11-01 00:00
+Status: done 2026-10-31T22:15Z
 Blocked by:
 Source: [map.md](../map.md)
 
