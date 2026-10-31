@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { failureReason } from '../../shared/ipc/channels'
-import type { WhatsNew as WhatsNewAnswer } from '../../shared/ipc/update'
+import { UPDATE_REPO_PAGE, type WhatsNew as WhatsNewAnswer } from '../../shared/ipc/update'
 import { invoke } from '../ipc'
 
 // "What's new" (worfy-update ticket 10, spec item 6, R13): a popover under the version chip
@@ -15,8 +15,10 @@ import { invoke } from '../ipc'
 // A title is GitHub's text, written by whoever opened the PR: React puts it in as text, never as
 // markup. The number and "…and more" open github.com in the system's browser (`shell.openExternal`,
 // which main accepts for https only); the window never navigates.
-
-const REPO_PAGE = 'https://github.com/IDSAD-XL/worfy'
+//
+// It lies over the toasts (z-index 120), so it closes once the focus goes to anything else of the
+// window — the Command palette's field on ⌘K (z-index 101) among them —, never under it. The window
+// losing the focus (a PR opening in the browser) keeps it open.
 
 /** The button of the popover: the chip's first menu item. Without `run` it is inactive (a build that runs). */
 export interface WhatsNewAction {
@@ -79,7 +81,7 @@ function GitHubLink({ url, children }: { url: string; children: string }) {
   )
 }
 
-/** The popover; it asks main once, when it opens. Escape and a click elsewhere close it. */
+/** The popover; it asks main once, when it opens. Escape, a click elsewhere and the focus elsewhere close it. */
 export default function WhatsNew({ version, anchor, action, onClose }: WhatsNewProps) {
   const popover = useRef<HTMLDivElement>(null)
   const close = useRef(onClose)
@@ -107,12 +109,16 @@ export default function WhatsNew({ version, anchor, action, onClose }: WhatsNewP
 
   useEffect(() => {
     popover.current?.focus()
-    const outside = (event: MouseEvent): void => {
+    const outside = (event: Event): void => {
       const target = event.target as Node
       if (!popover.current?.contains(target) && !anchor.contains(target)) close.current()
     }
     document.addEventListener('mousedown', outside)
-    return () => document.removeEventListener('mousedown', outside)
+    document.addEventListener('focusin', outside)
+    return () => {
+      document.removeEventListener('mousedown', outside)
+      document.removeEventListener('focusin', outside)
+    }
   }, [anchor])
 
   const shown = reading.kind === 'read' ? reading.answer.version : version
@@ -138,10 +144,11 @@ export default function WhatsNew({ version, anchor, action, onClose }: WhatsNewP
   } else {
     body = (
       <ul style={{ margin: 0, padding: 0, listStyle: 'none', overflowY: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-        {reading.answer.items.map((item) => (
-          <li key={item.number} style={{ lineHeight: '18px', overflowWrap: 'anywhere' }}>
+        {reading.answer.items.map((item, at) => (
+          // By place: a cherry-picked squash merge repeats its (#N), and the list never changes once read.
+          <li key={at} style={{ lineHeight: '18px', overflowWrap: 'anywhere' }}>
             {item.title}{' '}
-            <GitHubLink url={`${REPO_PAGE}/pull/${item.number}`}>{`#${item.number}`}</GitHubLink>
+            <GitHubLink url={`${UPDATE_REPO_PAGE}/pull/${item.number}`}>{`#${item.number}`}</GitHubLink>
           </li>
         ))}
       </ul>

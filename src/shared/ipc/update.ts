@@ -8,6 +8,11 @@ import { eventChannel, invokeChannel } from './channels'
 
 const sha = z.string().regex(/^[0-9a-f]{7,40}$/u)
 
+/** The repository the Stable copy updates from: GitHub's API (src/main/update/github.ts) and its pages ("What's new"). */
+export const UPDATE_REPO = 'IDSAD-XL/worfy'
+/** Its page on github.com; the PRs and the comparisons of "What's new" lie under it. */
+export const UPDATE_REPO_PAGE = `https://github.com/${UPDATE_REPO}`
+
 /** The last check: done (`ok`) or skipped (no network, GitHub refused or failed) with the reason. */
 export const updateLastCheckSchema = z.object({
   at: z.iso.datetime(),

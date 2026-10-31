@@ -44,7 +44,7 @@ import { IdleWatch, type IdleSession } from '../update/idle'
 import { Restarts } from '../update/restart'
 import { readStableMetadata, runningOf, runsFromStableCopy, stableCopyPath, updateEnabled } from '../update/stable-copy'
 import { changeUpdateState, emptyUpdateState, readUpdateState, updateDir, updateStateFile } from '../update/state'
-import { WhatsNewReader } from '../update/whats-new'
+import { WhatsNewReader, whatsNewTarget } from '../update/whats-new'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 export interface UpdateServiceOptions {
@@ -124,14 +124,12 @@ export class UpdateService {
   }
 
   /**
-   * "What's new": the PRs between the copy that runs and the new version — the build that runs or is
-   * ready when there is one, else the Available update. Fails with the reason.
+   * "What's new": the PRs between the copy that runs and the new version (whatsNewTarget: the build
+   * that runs or is ready, else the Update "Update worfy" builds). Fails with the reason.
    */
   async whatsNew(): Promise<WhatsNew> {
     if (!this.options.enabled) throw new Error(OFF_REASON)
-    const { available, build } = readUpdateState(this.options.stateFile())
-    const target =
-      build.phase !== 'idle' && build.sha !== undefined && build.version !== undefined ? { sha: build.sha, version: build.version } : available
+    const target = whatsNewTarget(readUpdateState(this.options.stateFile()))
     if (target === null) throw new Error('there is no Available update to compare with')
     return this.whatsNewReader.read(this.options.running().commit, target.sha, target.version)
   }

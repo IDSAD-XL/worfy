@@ -66,6 +66,10 @@ Source: решения владельца 2026-10-31, пункты 6 (пункт
   this copy and the new version.» (в черновике текстов их нет); кнопка popover-а повторяет первый пункт меню, а не всегда
   «Update worfy» (после сборки `update.install` ничего не делает); menu и popover chip-а — над toast-ами (z-index 130
   против 120): sticky toast старта лежит прямо под chip-ом и закрывал их.
+- Ревью, раунд 1: заголовок popover-а при упавшей сборке теперь — Available update, которую соберёт «Update worfy»
+  (`whatsNewTarget` в `whats-new.ts` берёт сборку только в фазах building/ready, иначе `installTarget`); menu и popover
+  закрываются, когда фокус уходит в другое место окна (поле Command palette на ⌘K): они выше palette; строки — ключ по
+  месту (cherry-pick повторяет `(#N)`); `UPDATE_REPO` и `UPDATE_REPO_PAGE` — в `src/shared/ipc/update.ts`.
 - Tests: `test/unit/update-whats-new.test.ts`, `test/unit/whats-new-view.test.tsx`; e2e `test/e2e/update-toolbar.spec.ts`
   проверяет пункт меню и popover в собранном приложении через stub. Снимки ревью (обе темы) — в scratchpad, в
   репозиторий не кладутся.

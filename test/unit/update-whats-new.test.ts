@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { whatsNewSchema } from '../../src/shared/ipc/update'
 import { UpdateService } from '../../src/main/ipc/update'
+import { installTarget } from '../../src/main/update/auto'
 import { updateGitHub } from '../../src/main/update/github'
 import { changeUpdateState } from '../../src/main/update/state'
 import { COMPARE_COMMIT_LIMIT, pullRequestsOf, WhatsNewReader } from '../../src/main/update/whats-new'
@@ -174,6 +175,25 @@ describe('the service answers update.whatsNew', () => {
     const { file, service: update } = service(stub.url)
     changeUpdateState((state) => ({ ...state, available: { sha: OTHER, version: '0.6.1+fedcba9', quiet: false }, build: { phase: 'ready', sha: HEAD, version: VERSION } }), file)
     expect(await update.whatsNew()).toMatchObject({ version: VERSION, compareUrl: COMPARE_PAGE })
+  })
+
+  it('a build that runs names its own commit too', async () => {
+    stub = await startUpdateStub({ head: HEAD, compare: { status: 'ahead', files: [], commits: THREE } })
+    const { file, service: update } = service(stub.url)
+    changeUpdateState((state) => ({ ...state, available: { sha: OTHER, version: '0.6.1+fedcba9', quiet: false }, build: { phase: 'building', sha: HEAD, version: VERSION } }), file)
+    expect(await update.whatsNew()).toMatchObject({ version: VERSION, compareUrl: COMPARE_PAGE })
+  })
+
+  it('a failed build names the Available update, the one "Update worfy" builds (installTarget), not the failed commit', async () => {
+    stub = await startUpdateStub({ head: HEAD, compare: { status: 'ahead', files: [], commits: THREE } })
+    const { file, service: update } = service(stub.url)
+    const state = changeUpdateState(
+      (was) => ({ ...was, available: { sha: HEAD, version: VERSION, quiet: false }, build: { phase: 'failed', sha: OTHER, version: '0.6.1+fedcba9' } }),
+      file,
+    )
+    expect(installTarget(state)?.sha).toBe(HEAD)
+    expect(await update.whatsNew()).toMatchObject({ version: VERSION, compareUrl: COMPARE_PAGE })
+    expect(stub.requests.map((request) => request.path)).toEqual([`/repos/IDSAD-XL/worfy/compare/${RUNNING}...${HEAD}`])
   })
 
   it('without an Available update, or with Update off in this copy: an error with its reason, and GitHub is not asked', async () => {

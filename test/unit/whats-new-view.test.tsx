@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { updateSnapshotSchema, type UpdateSnapshot, type WhatsNew } from '../../src/shared/ipc/update'
 import UpdateChip from '../../src/renderer/update/UpdateChip'
@@ -51,6 +51,7 @@ function fakeBridge(whatsNew: Answer | Promise<Answer>) {
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
   delete globals.worfy
 })
 
@@ -162,6 +163,39 @@ describe("What's new", () => {
       await Promise.resolve()
     })
     expect(within(popover).getByRole('status').textContent).toBe('No pull requests between this copy and the new version.')
+  })
+
+  it('two lines with the same number (a cherry-pick of a squash merge) are two lines, with no duplicate React key', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const twice = [ANSWER.items[1]!, { ...ANSWER.items[1]!, title: 'fix(update): sticky toasts (cherry-pick)' }]
+    fakeBridge({ ok: true, value: { ...ANSWER, items: twice } })
+    render(<UpdateChip version="0.4.0+aaaaaaa" update={withUpdate()} />)
+    const popover = await openWhatsNew()
+    expect(within(popover).getAllByRole('listitem')).toHaveLength(2)
+    expect(errors.mock.calls.filter((call) => String(call[0]).includes('same key'))).toEqual([])
+  })
+
+  it('the menu and the popover close when the focus goes to anything else of the window, as the Command palette field takes it on ⌘K', async () => {
+    fakeBridge({ ok: true, value: ANSWER })
+    render(
+      <>
+        <UpdateChip version="0.4.0+aaaaaaa" update={withUpdate()} />
+        <input aria-label="Search or run" />
+      </>,
+    )
+    const field = screen.getByRole('textbox', { name: 'Search or run' })
+    fireEvent.click(chip())
+    expect(screen.getByRole('menu')).toBeTruthy()
+    act(() => field.focus())
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    const popover = await openWhatsNew()
+    // The focus inside the popover, and back on the chip, keeps it open.
+    act(() => within(popover).getByRole('link', { name: '#1130' }).focus())
+    act(() => chip().focus())
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    act(() => field.focus())
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('Escape closes it and gives the focus back to the chip', async () => {

@@ -11,8 +11,9 @@
 // GitHub refused or failed, a commit it does not know) is an Error with the reason and is not kept.
 //
 // The titles are GitHub's text, written by whoever opened the PR: the window shows them as text only.
-import type { WhatsNew, WhatsNewItem } from '../../shared/ipc/update'
-import { UPDATE_REPO, type Comparison, type UpdateGitHub } from './github'
+import { UPDATE_REPO_PAGE, type UpdateState, type WhatsNew, type WhatsNewItem } from '../../shared/ipc/update'
+import { installTarget } from './auto'
+import type { Comparison, UpdateGitHub } from './github'
 
 /** The most commits GitHub lists in one comparison. */
 export const COMPARE_COMMIT_LIMIT = 250
@@ -32,9 +33,20 @@ export function pullRequestsOf(commits: Comparison['commits']): { items: WhatsNe
   return { items, more: commits.length >= COMPARE_COMMIT_LIMIT }
 }
 
+/**
+ * The new version "What's new" is about: the build that runs or is ready (its menu item and button
+ * restart into it), else what "Update worfy" builds — installTarget, src/main/update/auto.ts — so a
+ * failed build of an older commit is not the one shown. Null when there is nothing to compare with.
+ */
+export function whatsNewTarget(state: Pick<UpdateState, 'available' | 'build'>): { sha: string; version: string } | null {
+  const { build } = state
+  if ((build.phase === 'building' || build.phase === 'ready') && build.sha !== undefined && build.version !== undefined) return { sha: build.sha, version: build.version }
+  return installTarget(state)
+}
+
 /** The comparison page of two commits on github.com. */
 export function compareUrlOf(base: string, head: string): string {
-  return `https://github.com/${UPDATE_REPO}/compare/${base}...${head}`
+  return `${UPDATE_REPO_PAGE}/compare/${base}...${head}`
 }
 
 export class WhatsNewReader {

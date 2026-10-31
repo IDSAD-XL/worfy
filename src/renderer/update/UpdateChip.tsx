@@ -91,7 +91,7 @@ interface MenuProps {
 
 /**
  * The chip's menu, drawn over everything under the chip with its left edge on the chip's. Escape, a
- * click elsewhere, the window losing focus and choosing an item close it; the focus goes back to the chip.
+ * click elsewhere, the focus elsewhere in the window, the window losing focus and choosing an item close it; the focus goes back to the chip.
  */
 function ChipMenu({ primary, anchor, onClose, onWhatsNew }: MenuProps) {
   const menu = useRef<HTMLDivElement>(null)
@@ -107,15 +107,19 @@ function ChipMenu({ primary, anchor, onClose, onWhatsNew }: MenuProps) {
 
   useEffect(() => {
     menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
-    const outside = (event: MouseEvent): void => {
+    const outside = (event: Event): void => {
       const target = event.target as Node
       if (!menu.current?.contains(target) && !anchor.contains(target)) close.current()
     }
     const blur = (): void => close.current()
     document.addEventListener('mousedown', outside)
+    // The focus elsewhere in the window (the Command palette's field on ⌘K): the menu lies over the
+    // toasts and the palette, so it must not stay open under the focus.
+    document.addEventListener('focusin', outside)
     window.addEventListener('blur', blur)
     return () => {
       document.removeEventListener('mousedown', outside)
+      document.removeEventListener('focusin', outside)
       window.removeEventListener('blur', blur)
     }
   }, [anchor])

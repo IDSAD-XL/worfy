@@ -201,6 +201,16 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   await snapshots(window, toolbar, 'update-whats-new')
   await window.keyboard.press('Escape')
   await expect(whatsNew).toBeHidden()
+  // It lies over the toasts and so over the Command palette: ⌘K closes it rather than open the palette under it.
+  await chip.click()
+  await menu.getByRole('menuitem', { name: "What's new" }).click()
+  await expect(whatsNew).toBeVisible()
+  await window.keyboard.press('ControlOrMeta+k')
+  const palette = window.getByTestId('command-palette')
+  await expect(palette).toBeVisible()
+  await expect(whatsNew).toBeHidden()
+  await window.keyboard.press('Escape')
+  await expect(palette).toBeHidden()
   // One comparison for the check and one for "What's new"; no request per PR.
   expect(stub.requests.filter((request) => /\/pulls?\//u.test(request.path))).toEqual([])
 
