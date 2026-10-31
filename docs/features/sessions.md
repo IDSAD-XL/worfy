@@ -127,8 +127,9 @@ answers.
 - "New conversation" is refused in `busy` and while Autopilot runs. The old conversation stays in the history, and the
   cost starts from zero.
 - When the Orchestrator opens, its saved Session is resumed. With the transcript gone, a new Session starts.
-- Eco mode, a switch under the Orchestrator's input field, writes `workflow.agents` in the Project's Profile. It applies
-  from the next Ticket.
+- Eco mode, a switch under the Orchestrator's input field, writes two fields of the Project's Profile: `workflow.agents`
+  set to `eco`, and `agents`, which is Sonnet with effort medium for each agent role. Off removes both fields, and the
+  models the roles had before are not restored. It applies from the next Ticket.
 - Autopilot runs this Session unattended. See [Autopilot](autopilot.md). While it does, the permission mode is forced to
   Bypass permissions and not saved, a mode change is refused, and permission requests and questions are refused at once.
 
@@ -210,6 +211,7 @@ for a process also asks the system.
 | Renderer store, the join of past and live events | `src/renderer/session/store.ts` |
 | Cards | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Items under the input field, found by glob | `src/renderer/session/composer/` |
+| Eco mode | `src/main/ipc/eco-mode.ts`, `src/shared/ipc/eco-mode.ts`, `src/shared/agent/plan-preset.ts`, `src/renderer/session/composer/EcoMode.tsx` |
 | Nodes | `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/overlays/SessionNodes.tsx` |
 | Autocompact settings | `src/renderer/settings/SessionsSection.tsx`, `src/shared/settings/app-settings.ts` |
 | Notifications | `src/main/notify.ts`, `src/renderer/session/notification-target.ts` |

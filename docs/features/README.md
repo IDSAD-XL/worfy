@@ -33,7 +33,8 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 | [Notifications](notifications.md) | Notifications |
 | [Onboarding](onboarding.md) | First run, Getting started, Demo project |
 | [Storage and diagnostics](storage-and-diagnostics.md) | data folder, diagnostics |
-| [Harness](harness.md) | installing from the app, plugin, skills, agents, hooks |
+| [Harness](harness.md) | installing from the app, plugin |
+| [Skills, agents and hooks](skills-agents-and-hooks.md) | skills, agents, hooks |
 
 A page that is not written yet holds its heading and one line that says so. A pull request (PR) that writes a page
 replaces that line and does not edit this index.
