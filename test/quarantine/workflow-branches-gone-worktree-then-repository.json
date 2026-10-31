@@ -1,0 +1,12 @@
+{
+  "runner": "vitest",
+  "file": "test/contract/workflow-branches-gone.test.ts",
+  "test": "the watch of the branches on Windows, real folders: a folder it watches is removed > `git worktree remove` of the last worktree, then the repository itself: each costs one line in the log and no processor time after it",
+  "reason": "On the owner's Windows PC, in the full vitest run with 8 workers only: the processor time of this process in the second after a removal was 328 ms on main c01cd364 against the test's 300 ms bound (expected 328 to be less than 300); red also in the saved PC gate full on e6802c9e, so it repeats (ADR-0086, item 3). Alone on the same SHA it passes (exit 0, 8 s). The measure is process.cpuUsage() of the whole worker over one second (test/contract/workflow-branches-gone.test.ts:63-68), asserted after `git worktree remove` (:88) and after the repository is removed (:105); hypothesis, not established: with 8 workers on the machine the worker's own time in that second (garbage collection, the late chokidar events of the removal) grows past the bound without the watcher looping. The bound is not raised.",
+  "platforms": [
+    "win32"
+  ],
+  "owner": "worfy-polish 47",
+  "since": "2026-10-31",
+  "until": "2026-11-07"
+}

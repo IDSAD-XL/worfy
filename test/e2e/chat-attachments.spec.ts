@@ -153,6 +153,11 @@ test('a png and a pdf dropped on the Orchestrator transcript: chips, then a thum
   const first = await launchApp({ env })
   try {
     const { window } = first
+    // launchApp returns once the window is on screen, not once the Canvas and the sidebar have
+    // rendered: under load (worfy-polish 47, the PC's gate full) the pane was not there yet, and
+    // querySelector below gave null.
+    await expect(window.locator('.react-flow__pane')).toBeVisible()
+    await expect(window.locator('.w-sidebar-section').first()).toBeVisible()
     // Outside the chat — on the Canvas, on the sidebar — nothing takes a file, and the window does
     // not open it either: the drag and the drop of it are refused (dispatchEvent answers false).
     const refused = await window.evaluate(`(() => ['.react-flow__pane', '.w-sidebar-section'].map((selector) => {

@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fullLayout } from '../../src/main/workflow/folder'
 import { WorkflowWatcher } from '../../src/main/workflow/watch'
+import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
 
@@ -67,7 +68,7 @@ async function spentInASecond(): Promise<number> {
 }
 
 describe.runIf(WINDOWS)('the watch of the branches on Windows, real folders: a folder it watches is removed', () => {
-  it('`git worktree remove` of the last worktree, then the repository itself: each costs one line in the log and no processor time after it', async () => {
+  quarantined('workflow-branches-gone-worktree-then-repository')('`git worktree remove` of the last worktree, then the repository itself: each costs one line in the log and no processor time after it', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const lines = (): string[] => warn.mock.calls.map(([line]) => String(line)).filter((line) => line.startsWith('[workflow] the folder '))
     const worktree = join(dir, 'wt')
