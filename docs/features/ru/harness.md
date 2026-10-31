@@ -18,15 +18,16 @@ Harness на Machine, по умолчанию `worfy-harness` внутри Claud
 установка, которая могла что-то изменить, доходит до каждого окна.
 
 **Пункт в toolbar.** Это последний пункт toolbar. Во второй его строке версия приложения и собственная память worfy
-([Storage and diagnostics](storage-and-diagnostics.md)).
+([Storage and diagnostics](storage-and-diagnostics.md)). В Stable copy версия — это version chip
+[Update](updates.md).
 
 | Состояние | Текст | Кнопка-иконка | Когда |
 |---|---|---|---|
 | Не установлен | `Harness not installed` | Install | Папки plugin нет, или Claude Code не показывает plugin в списке |
 | Установлен | `Harness <version>` | Нет | Копия и plugin в списке Claude Code имеют версию этой сборки |
 | Выключен | `Harness <version> · disabled` | Нет | То же, и plugin выключен в Claude Code |
-| Другая версия | `Harness <from>` | Update Harness | Установлена другая версия. Tooltip говорит `<from> → <to>` |
-| Та же версия | `Harness <from>` | Replace Harness | Тот же semver из другого commit-а, см. ниже |
+| Другая версия | `Harness <from>` | Update Harness, с акцентом и точкой | Установлена другая версия. Tooltip говорит `<from> → <to>` |
+| Та же версия | `Harness <from>` | Replace Harness | Тот же semver из другого commit-а, см. ниже. Когда GitHub говорит, что он отстаёт, строка — «Другая версия» |
 | Ошибка | `Harness error: <step>` | Retry | Шаг упал, Claude Code сообщает, что plugin сломан, или нет зависимости. Причина в tooltip |
 | Идёт установка | `Installing Harness…` | Нет | Во время установки, начатой из этого пункта |
 | Нет ответа | `Harness unavailable` | Нет | Вызов main process упал. Причина в tooltip |
@@ -81,6 +82,20 @@ Claude Code, уже запущенных в терминале, файлы ме�
 
 Когда папка удалена вручную, диалог говорит, что ставит более старый Harness. Копия, которую отложила прерванная установка, для
 этого сравнения считается установленной.
+
+**После Update или отката Stable copy второго диалога нет.** Нажатие «Restart now» или «Roll back» и было согласием на
+Harness этой копии. При первом старте новой копии worfy ставит её Harness, если установленный устарел или его нет, тем же
+installer-ом и теми же командами, что выше. Делает это один раз: запись о перезапуске сначала помечается как использованная,
+так что упавшая установка не повторяется, пока пользователь не нажмёт кнопку. Сбой — обычное состояние ошибки с Retry, и
+состояние Update отмечает его для уведомления. Установка, начатая в этот момент из toolbar, общая, и Cancel в её диалоге
+оставляет Harness как был. Если стартовала не та копия, которую назвал перезапуск, потому что замена не случилась, ничего не
+ставится. Claude Code берёт новый Harness со следующей Session. Сам Update описан в [Updates](updates.md).
+
+**Harness out of date.** Пока Update включён, worfy ещё проверяет, не отстаёт ли установленный Harness от Harness этой копии.
+Меньший semver отстаёт сразу. Для того же semver из другого commit-а worfy без входа спрашивает GitHub, идёт ли commit этой
+копии после commit-а установленного. Нет ответа от GitHub — нет и сигнала. Проверка идёт после установки при старте, потом
+раз в час и снова после каждой установки Harness. Сигналы отстающего Harness — акцент и точка на «Update Harness», toast
+«Harness out of date: <from> → <to>» и красная строка Health, см. [Updates](updates.md).
 
 **Перенос старого Harness.** До plugin-а Harness лежал прямо в `~/.claude`. Пока от него там что-то осталось, строка First run
 предлагает "Move…", а в запуске, которому можно устанавливать, toolbar ещё показывает иконку "Move old Harness…". В форме "Move the old

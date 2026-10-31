@@ -1,7 +1,8 @@
 # 11 — Feature page Update: `docs/features/updates.md` и перевод
 
 Type: task
-Status: open
+Status: claimed 2026-10-31T12:00Z
+Branch: worfy-update/11
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10
 Source: [spec.md](../spec.md), «Решено без владельца», Р14, «Риски», пункт 2 (откат руками); [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (английская страница, русский перевод с отметкой commit-а)
 
@@ -46,4 +47,19 @@ Source: [spec.md](../spec.md), «Решено без владельца», Р14,
 
 ## Итог
 
-Заполняется при закрытии.
+- `docs/features/updates.md` — одна Feature Update по шаблону раздела: где Update включён, проверка и условия Available
+  update, где видно (version chip, toast-ы, Settings → General → Updates, Health «worfy version», Command palette «Update
+  worfy»), «Update automatically», сборка и её сбой с «Show log», «Restart now» / «Restart when idle», Harness после
+  Update и «Harness out of date», откат из приложения и руками (переименовать `worfy-stable.previous` и его `.json`,
+  или `install-stable.mjs --rollback` из clone), What's new, Windows, Linked machine; что не входит (Releases, подпись,
+  нотаризация — E4, ADR-0089). Реализация — `src/main/update/`, `scripts/install-stable.mjs`, renderer, test-ы.
+- `docs/features/ru/updates.md` — перевод, `same-pr`.
+- Индексы `docs/features/README.md` и `ru/README.md` — строка Updates. `harness.md`: ссылки на Updates, акцент и точка у
+  «Update Harness»; `ru/harness.md` заодно догнал отставание от worfy-update 05 (два абзаца про Harness после Update),
+  поэтому `same-pr` в нём верен. `app-shell.md` (+ ru): «Update worfy» в группе Action и блок Updates в General.
+- Каждая строка интерфейса в кавычках на странице найдена `grep` в `src/renderer/` или `src/main/` (диалог отката, строки
+  Health, отказы перезапуска); составные тексты («worfy was not updated to …», «Last checked …») сверены с шаблонами в
+  коде. `node scripts/check-feature-docs.mjs` — exit 0.
+- Оговорку о Windows `--wait-pid` на страницу не писал: по коду ожидание главного pid и последующая проверка процессов
+  копии одинаковы на macOS и Windows; на странице — общий случай «процесс старой копии ещё работает → отказ, старая копия
+  стартует снова».

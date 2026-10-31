@@ -21,7 +21,7 @@ next typing or pick. While a command runs, another pick does nothing.
 
 | Group | Rows |
 |---|---|
-| Action | New session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Reconnect machine…; Remove machine… |
+| Action | New session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Reconnect machine…; Remove machine…; Update worfy |
 | View | Switch to Canvas; Switch to Session; First-run checks; Getting started; Settings…; Keyboard shortcuts; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>`, for each other Project |
 | Go to | Orchestrator; each Epic, Ticket and ADR; each Node of the Layout, except those worfy draws from the workflow and binding anchors |
@@ -36,6 +36,8 @@ Some rows exist only in some states:
 - Reconnect machine…: only for a Linked machine that is not online, or whose certificate changed. Remove machine…: for
   each Linked machine. The name of the Machine is in the detail of the row.
 - Show all Nodes: only while a tag filter is on.
+- Update worfy: only where Update is on, with or without a Project. It restarts into a built Update, builds the
+  Available update, or checks for one, and its detail says which: see [Updates](updates.md).
 
 A "Go to" row shows the Canvas and centers it on the Node. An archived or hidden Node is brought back first. A Ticket of a
 collapsed frame centers its frame. An ADR row opens that ADR read-only and does not move the Canvas. With the sidebar hidden, the ADR opens when the sidebar is shown. The Orchestrator row
@@ -264,7 +266,7 @@ nothing.
 
 | Section | What it holds |
 |---|---|
-| General | Interface scale; Memory in the toolbar; Version |
+| General | Interface scale; Memory in the toolbar; Version; Updates, where Update is on: see [Updates](updates.md) |
 | Health | The First run checks with their actions and "Check again". Opening the section checks |
 | Shortcuts | The list of the Keyboard shortcuts window |
 | Machines | The switches of the link and the access level of each Linked machine: see [Link](link.md) |
