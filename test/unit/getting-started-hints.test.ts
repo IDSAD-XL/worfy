@@ -59,9 +59,9 @@ describe('stageHint', () => {
   it('gives the texts of the spec, word for word, and six different ones', () => {
     expect(HINT_TEXTS).toEqual({
       'epic-ticket': 'An Epic is a goal; a Ticket is one piece of work in it. Both are files in the project, under .scratch/.',
-      implementing: 'Implementer started in its own worktree — a separate checkout, so main stays untouched.',
+      implementing: 'The Orchestrator started the work in its own worktree — a separate checkout, so main stays untouched.',
       'agent-review': "The reviewer started. It reads the change and runs the project's checks itself.",
-      rework: 'The reviewer found a problem — this is the rework round. The implementer fixes it on the same branch.',
+      rework: 'The reviewer found a problem — this is the rework round. The Orchestrator fixes it on the same branch.',
       'gate-merge': "Review passed. The Orchestrator runs the Gate — the project's full checks — and merges.",
       done: 'Merged. The ticket is done.',
     })

@@ -242,6 +242,9 @@ describe('the Getting started panel', () => {
     expect(within(items[3]!).getByText('Ship the ticket')).toBeTruthy()
     expect(within(items[3]!).getByText('The Orchestrator implements the ticket in its own branch. The Pipeline shows each Stage.')).toBeTruthy()
     expect(items[3]!.textContent).not.toMatch(/implementer/u)
+    // So does step 5: in the demo the Orchestrator fixes what the review found (owner's decision, 2026-10-31).
+    expect(within(items[4]!).getByText('A reviewer checks the work. If it finds a problem, the Orchestrator fixes it.')).toBeTruthy()
+    expect(items[4]!.textContent).not.toMatch(/implementer/u)
     expect(items.map((item) => within(item).queryByText('done') !== null)).toEqual([true, true, false, false, false, false])
     // The time of a marked step is its tooltip.
     expect(within(items[1]!).getByTestId('getting-started-mark').getAttribute('title')).toMatch(/^Done /)

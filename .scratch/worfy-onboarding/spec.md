@@ -153,8 +153,8 @@ Session проектирования 2026-10-26. Номера — как у вл
 4. **First run получает первую страницу** с тремя понятиями: Project + Harness (правила, по которым
    агенты работают в этом Project-е), Orchestrator (Session, которая раздаёт Ticket-ы агентам и
    мержит), Canvas (где всё это видно). «Next» ведёт к существующим проверкам. Остальные понятия —
-   короткие подсказки, когда Ticket demo доходит до своего Stage («Implementer started in its own
-   worktree», «The reviewer found a problem — this is the rework round»).
+   короткие подсказки, когда Ticket demo доходит до своего Stage («The Orchestrator started the work in its
+   own worktree», «The reviewer found a problem — this is the rework round»).
 5. **Demo project** — локальный git-репозиторий, который worfy создаёт сам в домашней папке
    пользователя (например `~/worfy-demo`; на Windows никогда не в `%TEMP%`), без GitHub,
    `workflow.finish` `local-green`, Full mode, свой Profile `worfy-demo` на установленном plugin Harness.
@@ -303,7 +303,7 @@ Session проектирования 2026-10-26. Номера — как у вл
 - 4 — «Ship the ticket» — «The Orchestrator implements the ticket in its own branch. The Pipeline shows each
   Stage.» (Q23)
   Кнопка: «Ship the ticket». Готовое сообщение: «/worfy:ship-ticket todo 01»
-- 5 — «See the review» — «A reviewer checks the work. If it finds a problem, the implementer fixes it.»
+- 5 — «See the review» — «A reviewer checks the work. If it finds a problem, the Orchestrator fixes it.»
 - 6 — «Merge» — «The Orchestrator merges the ticket into main.»
 - Ниже, отдельно: «Connect your own project» — «Add a repository you work on. Not part of the demo.»
   Кнопка: «Connect…»
@@ -363,15 +363,15 @@ Session проектирования 2026-10-26. Номера — как у вл
 
 - Шаг 3, Epic и Ticket: «An Epic is a goal; a Ticket is one piece of work in it. Both are files in the
   project, under .scratch/.»
-- Implementing: «Implementer started in its own worktree — a separate checkout, so main stays untouched.»
+- Implementing: «The Orchestrator started the work in its own worktree — a separate checkout, so main stays untouched.»
 - Agent review: «The reviewer started. It reads the change and runs the project's checks itself.»
 - Implementing после отметки `review` `failure`: «The reviewer found a problem — this is the rework
-  round. The implementer fixes it on the same branch.»
+  round. The Orchestrator fixes it on the same branch.»
 - Gate & merge: «Review passed. The Orchestrator runs the Gate — the project's full checks — and merges.»
 - Done: «Merged. The ticket is done.»
 - Запасной путь шага 5: «This time the review found nothing.» Кнопка: «Show an example»
 - Подписи для screen reader в раскрытом примере (черновик, onboarding 09): список — «Example of a rework
-  round», diff правки — «The implementer's fix»
+  round», diff правки — «The Orchestrator's fix»; автор правки — «Orchestrator»
 
 **Уведомление в углу** (Ticket 08)
 

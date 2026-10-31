@@ -23,16 +23,17 @@ import { ms } from '../time-scale'
 //
 // Screenshots of the cost switch, of a hint line and of the example, light and dark, go to the test's output as
 // 09-<what>-<theme>.png; the whole Getting started panel (ticket 13) with step 5's example open as
-// 09-panel-review-example-<theme>.png.
+// 09-panel-review-example-<theme>.png; in Implementing and in the rework round as
+// 09-panel-implementing-<theme>.png and 09-panel-rework-<theme>.png.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const bundle = join(repoRoot, 'out', 'harness')
 
 const HINTS = {
   'epic-ticket': 'An Epic is a goal; a Ticket is one piece of work in it. Both are files in the project, under .scratch/.',
-  implementing: 'Implementer started in its own worktree — a separate checkout, so main stays untouched.',
+  implementing: 'The Orchestrator started the work in its own worktree — a separate checkout, so main stays untouched.',
   'agent-review': "The reviewer started. It reads the change and runs the project's checks itself.",
-  rework: 'The reviewer found a problem — this is the rework round. The implementer fixes it on the same branch.',
+  rework: 'The reviewer found a problem — this is the rework round. The Orchestrator fixes it on the same branch.',
   'gate-merge': "Review passed. The Orchestrator runs the Gate — the project's full checks — and merges.",
   done: 'Merged. The ticket is done.',
 } as const
@@ -213,6 +214,7 @@ test('each Stage of the demo Ticket gives its hint as a line and one toast; the 
     const sha = git(repo, 'rev-parse', 'todo/01')
     setStatus(repo, 'claimed')
     await expectHint(window, '4', 'implementing')
+    await shoot(window, sectionOf(window), 'panel-implementing')
 
     // Agent review: a `review` mark on the head, not yet a verdict.
     markReview(sha, 'pending')
@@ -225,6 +227,8 @@ test('each Stage of the demo Ticket gives its hint as a line and one toast; the 
     await expectHint(window, '5', 'rework')
     await expect.poll(() => readState().reworkSeen).toBe(true)
     await shoot(window, stepOf(window, '5'), 'hint-line')
+    // The whole panel in the rework round: step 5's line and the hint under it.
+    await shoot(window, sectionOf(window), 'panel-rework')
 
     // Gate & merge: VERIFIED.
     markReview(sha, 'success')
@@ -281,6 +285,10 @@ test('step 5 marked without a rework round says the review found nothing and ope
     await expect(example.getByRole('listitem').nth(0)).toContainText('REJECTED')
     await expect(example.getByRole('listitem').nth(0)).toContainText('done 2 on a task that is already done exits 0 and says nothing')
     await expect(example.getByRole('listitem').nth(1)).toContainText("+if (task.done)\n+ throw Error('Not open')")
+    // In the demo the Orchestrator fixes what the review found: no implementer (owner's decision, 2026-10-31).
+    await expect(example.getByRole('listitem').nth(1)).toContainText('Orchestrator')
+    await expect(example.getByLabel("The Orchestrator's fix")).toBeVisible()
+    await expect(example).not.toContainText(/implementer/iu)
     await expect(example.getByRole('listitem').nth(2)).toContainText('VERIFIED')
     await expect(fallback.getByRole('button', { name: 'Show an example' })).toHaveCount(0)
     await example.evaluate((node) => (node as unknown as { blur(): void }).blur())

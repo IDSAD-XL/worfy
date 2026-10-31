@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 /**
  * The fallback of step 5 of Getting started (worfy-onboarding ticket 09; spec, decision 11): the
  * review of the demo found nothing, so the rework round was not seen. The step says so, and "Show an
- * example" opens a recorded one — the reviewer's REJECTED with its finding, the implementer's fix on
+ * example" opens a recorded one — the reviewer's REJECTED with its finding, the Orchestrator's fix on
  * the same branch, the reviewer's VERIFIED. Text, not a screenshot: it does not age with the UI. It
  * follows the demo's own todo CLI (src/main/getting-started/demo-template.ts) and the edge case its
  * full checks cover.
@@ -17,7 +17,7 @@ const REVIEW_EXAMPLE = [
     text: '1. `done 2` on a task that is already done exits 0 and says nothing. The full checks fail: `test/full/cli.test.js`, "done on a task that is already done prints a message and exits with 1".',
   },
   {
-    who: 'Implementer',
+    who: 'Orchestrator',
     verdict: null,
     text: [
       '--- a/src/todo.js',
@@ -121,7 +121,7 @@ export default function ReviewExample() {
               </span>
               {part.verdict === null ? (
                 // Focusable, so the keyboard scrolls it too.
-                <pre className="w-mono" style={styles.diff} tabIndex={0} aria-label="The implementer's fix">
+                <pre className="w-mono" style={styles.diff} tabIndex={0} aria-label="The Orchestrator's fix">
                   {part.text.split('\n').map((line, at) => (
                     <DiffLine key={at} line={line} />
                   ))}

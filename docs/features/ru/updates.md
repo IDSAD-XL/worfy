@@ -117,8 +117,8 @@ toast приходит только там, где Update включён. Для
 **Откат.** Settings → General → Updates, строка «Roll back to previous version», кнопка «Roll back». Строка называет
 копию: «Return to worfy <version>. Automatic updates wait for the next commit on main.» Сначала спрашивает нативный
 диалог: «Roll back to worfy <version>?», «worfy quits, puts the previous copy back and starts it. Its Harness is
-installed too.», с «Roll back» и «Cancel». Как и перезапуск, откат отказывается, пока что-то работает, и замену делает
-тот же процесс.
+installed too, unless the one installed is newer.», с «Roll back» и «Cancel». Как и перезапуск, откат отказывается,
+пока что-то работает, и замену делает тот же процесс.
 
 Хранится только одна прежняя копия. Копия, с которой откатились, удаляется, так что строка затем говорит «No previous
 version is kept.», а её кнопка неактивна до следующего Update. После отката commit, с которого откатились, молчит: нет

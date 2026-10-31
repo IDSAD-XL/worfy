@@ -175,7 +175,7 @@ const STEP_TEXTS: Record<GettingStartedStep, StepText> = {
   '2': { title: 'Open the demo project', line: 'worfy creates a small todo app in your home folder. No GitHub needed.' },
   '3': { title: 'Meet the Orchestrator', line: "Ask the project's main Session what is planned." },
   '4': { title: 'Ship the ticket', line: 'The Orchestrator implements the ticket in its own branch. The Pipeline shows each Stage.' },
-  '5': { title: 'See the review', line: 'A reviewer checks the work. If it finds a problem, the implementer fixes it.' },
+  '5': { title: 'See the review', line: 'A reviewer checks the work. If it finds a problem, the Orchestrator fixes it.' },
   '6': { title: 'Merge', line: 'The Orchestrator merges the ticket into main.' },
 }
 

@@ -346,7 +346,7 @@ async function confirmRollback(owner: BrowserWindow | null, version: string): Pr
     cancelId: 1,
     title: 'worfy',
     message: `Roll back to worfy ${version}?`,
-    detail: 'worfy quits, puts the previous copy back and starts it. Its Harness is installed too.',
+    detail: 'worfy quits, puts the previous copy back and starts it. Its Harness is installed too, unless the one installed is newer.',
     noLink: true,
   }
   const { response } = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
