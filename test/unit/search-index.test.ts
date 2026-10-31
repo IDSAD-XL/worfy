@@ -35,6 +35,37 @@ describe('palette ranking', () => {
     expect(rankItems(items, 'ship').map((item) => item.id)).toEqual(['prefix', 'word', 'inside', 'detail'])
   })
 
+  it('puts an item that yields below the others of its kind of match, never below a weaker kind', () => {
+    // "guide: canvas" has the word at 7, "switch to canvas" at 10: by score alone the Guide row won.
+    const items = [
+      { id: 'guide', title: 'Guide: Canvas', yields: true },
+      { id: 'view', title: 'Switch to Canvas' },
+      { id: 'detail', title: 'Something', detail: 'canvas' },
+    ]
+    expect(rankItems(items, 'canvas').map((item) => item.id)).toEqual(['view', 'guide', 'detail'])
+    // A prefix of its own title still beats a word start of another.
+    expect(rankItems([{ id: 'view', title: 'Go to canvas' }, { id: 'guide', title: 'Canvas', yields: true }], 'canvas').map((item) => item.id)).toEqual(['guide', 'view'])
+  })
+
+  it('keeps a yielding match inside a title above a plain match of the detail, even at its start', () => {
+    // "anvas" inside "Guide: Canvas" is a title match (TIER_TITLE - 8); "anvas" at 0 of the detail is
+    // TIER_DETAIL exactly: a lower kind of match, which the Guide row does not yield to.
+    const items = [
+      { id: 'detail', title: 'Something', detail: 'anvas first' },
+      { id: 'guide', title: 'Guide: Canvas', yields: true },
+    ]
+    expect(rankItems(items, 'anvas').map((item) => item.id)).toEqual(['guide', 'detail'])
+  })
+
+  it('still returns an item that yields, first, when nothing else matches', () => {
+    const items = [
+      { id: 'view', title: 'Switch to Canvas' },
+      { id: 'guide', title: 'Guide: Map of worfy', keys: ['overview'], yields: true },
+    ]
+    expect(rankItems(items, 'overview').map((item) => item.id)).toEqual(['guide'])
+    expect(rankItems(items, 'map of').map((item) => item.id)).toEqual(['guide'])
+  })
+
   it('matches several words in any order, then letters in order, and drops what does not match', () => {
     const items = [
       { id: 'words', title: 'Ship ticket', detail: 'worfy-mvp/08' },

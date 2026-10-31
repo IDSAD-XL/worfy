@@ -1,0 +1,105 @@
+{
+  "title": "Canvas",
+  "summary": [
+    "The Canvas is an endless plane, one per Project, and everything on it is a Node. Drag Nodes anywhere: they never overlap, they snap into line, and ⌘Z takes a move back.",
+    "worfy draws each Epic as a frame of its Tickets, in columns by what blocks what. Once every Ticket is done and the frame is folded, the Epic becomes a chip on the Done shelf. Select Nodes and press ⌘↩: focus mode shows them side by side as tiles that keep working, and the Canvas underneath stays as it was."
+  ],
+  "scene": {
+    "description": "A Canvas frame holds the Nodes: an Epic frame with Ticket 01, ready now, which blocks Ticket 02, and the chip Ready wave · 1 over Ticket 01's column; under it the chip of another, finished Epic on the Done shelf; a Session, a Card, a Terminal, a Browser, a Note and an image. Outside the frame, focus mode takes the selected Session, Card and Terminal as tiles.",
+    "labels": {
+      "overCanvas": "A LAYER OVER IT",
+      "canvas": "Canvas",
+      "canvasNote": "one per Project",
+      "epic": "Epic frame",
+      "epicNote": "drawn from the workflow",
+      "wave": "Ready wave · 1",
+      "ticket1": "Ticket 01",
+      "ticket1Note": "Level 1: ready now",
+      "ticket2": "Ticket 02",
+      "ticket2Note": "Level 2: Blocked by 01",
+      "shelf": "Done shelf: ✓ old-epic 4/4",
+      "session": "Session",
+      "sessionNote": "one Claude Code conversation",
+      "card": "Card",
+      "cardNote": "an HTML app an agent built",
+      "terminal": "Terminal",
+      "terminalNote": "your shell",
+      "browser": "Browser",
+      "browserNote": "built-in Chromium",
+      "note": "Note",
+      "noteNote": "double-click the plane",
+      "image": "Image",
+      "imageNote": "pasted or dropped",
+      "focus": "Focus mode",
+      "focusNote": "the selection as tiles",
+      "blocks": "blocks",
+      "readyNow": "ready now",
+      "focusKey": "⌘↩",
+      "step1": "The Canvas is one plane per Project. Every object on it is a Node, and Nodes never overlap.",
+      "step2": "Each Epic is a frame of its Tickets, in columns by Blocked by; the ones ready now form the Ready wave. A finished Epic with its frame folded becomes a chip on the Done shelf.",
+      "step3": "Select Nodes and press ⌘↩: focus mode lays them out as tiles over the Canvas, and each keeps working there."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "A drag goes from React Flow through useLayout to main over layout.apply. LayoutStore, which an agent's Canvas MCP tools call too, checks it, saves layout.json and sends layout.changed back to every window. Epic frames come from the workflow model through sources/epics.ts and ELK in a Web Worker, and are not stored.",
+      "labels": {
+        "renderer": "WINDOW (RENDERER)",
+        "main": "MAIN PROCESS",
+        "reactflow": "React Flow",
+        "reactflowNote": "moves the Node at once",
+        "uselayout": "useLayout",
+        "uselayoutNote": "keeps the newest revision",
+        "store": "LayoutStore",
+        "storeNote": "checks, keeps Nodes apart",
+        "file": "layout.json",
+        "fileNote": "in worfy's data folder",
+        "mcp": "Canvas MCP tools",
+        "mcpNote": "an agent's changes",
+        "workflow": "Workflow model",
+        "workflowNote": "main reads the Tickets",
+        "epics": "sources/epics.ts",
+        "epicsNote": "frames, computed",
+        "elk": "ELK",
+        "elkNote": "in a Web Worker",
+        "operation": "operation",
+        "nodes": "Nodes",
+        "apply": "layout.apply",
+        "changed": "layout.changed",
+        "sameOps": "the same operations",
+        "save": "after 250 ms of quiet",
+        "model": "workflow.changed",
+        "request": "layout request",
+        "places": "places",
+        "frames": "frames, Tickets",
+        "step1": "A drag: React Flow moves the Node at once, and useLayout sends the operation to main over layout.apply.",
+        "step2": "LayoutStore checks the operation and moves the Node clear of its neighbours. An agent's Canvas MCP tools take the same path.",
+        "step3": "main saves layout.json after 250 ms of quiet and sends layout.changed to every window; each keeps the newest revision.",
+        "step4": "Epic frames are not stored: sources/epics.ts computes them from the workflow model, and ELK places the Tickets in each frame in a Web Worker."
+      }
+    },
+    "text": [
+      "main is the only writer of the Layout, the places and sizes of the Nodes; a refused operation puts the Nodes back.",
+      "The Layout keeps only what the user changed about an Epic frame: its offset and whether it is folded.",
+      "Undo lives in the window: each screen takes back only its own gestures. Focus mode is a tree of splits held in memory: it sends no Layout operation, so leaving it shows the Canvas exactly as it was."
+    ],
+    "files": {
+      "src/main/layout/store.ts": "LayoutStore: applies or refuses an operation, keeps Nodes apart, saves layout.json",
+      "src/shared/layout/types.ts": "Node, Layout, the operations and their limits",
+      "src/shared/layout/free-place.ts": "The no-overlap rule, the same in main and in the drag preview",
+      "src/main/mcp/canvas-server.ts": "The Canvas MCP tools of an agent",
+      "src/renderer/canvas/Canvas.tsx": "The React Flow surface, gestures and zoom",
+      "src/renderer/canvas/useLayout.ts": "The Layout in the window and sendLayoutOp",
+      "src/renderer/canvas/history.ts": "Undo and redo of this screen's gestures",
+      "src/renderer/canvas/sources/epics.ts": "Epic frames, Tickets and the Done shelf from the workflow",
+      "src/renderer/canvas/epic-layout.ts": "Frame sizes, Levels, the strip of frames, the Done shelf",
+      "src/renderer/focus/FocusMode.tsx": "The focus mode layer, its tiles and Esc"
+    },
+    "limits": [
+      "Zoom goes from 0.2 to 2.5; coordinates go up to ±10,000,000.",
+      "Nodes keep a gap of 16; a dragged Node snaps within 6 screen pixels, else to a grid of 8.",
+      "⌘Z keeps 40 steps of this screen's own gestures; what an agent or another screen did is not in it.",
+      "Deleted Nodes wait in the Trash for 3 days. Finished Session Nodes are archived after 24 h by default, or an hour after their last record once their Ticket is done; nothing is deleted."
+    ]
+  }
+}

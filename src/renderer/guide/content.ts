@@ -8,7 +8,10 @@
 //     of Under the hood, as paths of the repository;
 //   - en.json and ru.json — every text of the Topic, one file per language, the same keys in both
 //     (translation.ts; test/unit/guide-content.test.tsx fails on a string with one version only);
-//   - Scene.tsx — its diagram, labelled from the texts' `scene.labels`.
+//   - Scene.tsx — its diagram, labelled from the texts' `scene.labels`;
+//   - Flow.tsx, when it has one — the technical diagram at the top of Under the hood, labelled from the
+//     texts' `underTheHood.flow.labels` (worfy-guide ticket 07); a Topic has both or neither of the
+//     file and that key (test/unit/guide-content.test.tsx).
 // The texts are JSON, data rather than code: the rule "no Cyrillic in code" (scripts/check-cyrillic.mjs)
 // stays as it is for every .ts and .tsx file, the Guide's included.
 import type { ComponentType } from 'react'
@@ -35,7 +38,13 @@ export const topicTextSchema = z.strictObject({
   title: filled,
   summary: z.array(filled).min(1),
   scene: z.strictObject({ description: filled, labels: z.record(z.string(), filled) }),
-  underTheHood: z.strictObject({ text: z.array(filled), files: z.record(repoPath, filled), limits: z.array(filled) }),
+  underTheHood: z.strictObject({
+    /** The texts of Flow.tsx: what a screen reader says for it, and its labels. */
+    flow: z.strictObject({ description: filled, labels: z.record(z.string(), filled) }).optional(),
+    text: z.array(filled),
+    files: z.record(repoPath, filled),
+    limits: z.array(filled),
+  }),
 })
 export type TopicText = z.output<typeof topicTextSchema>
 
@@ -44,6 +53,8 @@ export interface SceneProps {
   labels: Readonly<Record<string, string>>
   /** The Guide's own labels in that language: the step player's buttons, the name of the diagram. */
   strings: GuideStrings
+  /** The diagram's data-testid: `guide-scene` when absent; the window gives Flow.tsx `guide-flow`. */
+  testId?: string
 }
 
 export interface GuideTopic {
@@ -52,12 +63,15 @@ export interface GuideTopic {
   text: Readonly<Record<GuideLanguage, TopicText>>
   /** The Topic's diagram; null for a Topic without Scene.tsx. */
   Scene: ComponentType<SceneProps> | null
+  /** The technical diagram of its Under the hood; null for a Topic without Flow.tsx. */
+  Flow: ComponentType<SceneProps> | null
 }
 
 const metas = import.meta.glob<TopicMeta>('./topics/*/topic.json', { eager: true, import: 'default' })
 const english = import.meta.glob<TopicText>('./topics/*/en.json', { eager: true, import: 'default' })
 const russian = import.meta.glob<TopicText>('./topics/*/ru.json', { eager: true, import: 'default' })
 const scenes = import.meta.glob<ComponentType<SceneProps>>('./topics/*/Scene.tsx', { eager: true, import: 'default' })
+const flows = import.meta.glob<ComponentType<SceneProps>>('./topics/*/Flow.tsx', { eager: true, import: 'default' })
 
 /** `skeleton` of ./topics/skeleton/en.json. */
 const idOf = (path: string): string => path.split('/')[2] ?? path
@@ -72,6 +86,7 @@ export const TOPIC_FILES = {
   en: byId(english),
   ru: byId(russian),
   scene: byId(scenes),
+  flow: byId(flows),
 }
 
 /** The Topics that have topic.json and both texts, by id. */
@@ -80,6 +95,6 @@ export const GUIDE_CONTENT: ReadonlyMap<string, GuideTopic> = new Map(
     const enText = TOPIC_FILES.en.get(id)
     const ruText = TOPIC_FILES.ru.get(id)
     if (enText === undefined || ruText === undefined) return []
-    return [[id, { id, meta, text: { en: enText, ru: ruText }, Scene: TOPIC_FILES.scene.get(id) ?? null }] as const]
+    return [[id, { id, meta, text: { en: enText, ru: ruText }, Scene: TOPIC_FILES.scene.get(id) ?? null, Flow: TOPIC_FILES.flow.get(id) ?? null }] as const]
   }),
 )
