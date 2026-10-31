@@ -2,7 +2,8 @@
 
 Status: утверждён владельцем 2026-10-26: пункты 1–9 раздела «Решения владельца», Р1–Р14 раздела
 «Решено без владельца» и тексты интерфейса раздела «Тексты (черновик)». Ticket-ы раздаются после
-закрытия `worfy-link`.
+закрытия `worfy-link`. Поправка 2026-10-31 — раздел «Решения владельца 2026-10-31» (Q11–Q18): панель
+вместо раздела боковой панели и подсветка следующего шага, Ticket-ы 13 и 14.
 Source: решения владельца 2026-10-26; [CONTEXT.md](../../CONTEXT.md), термины Getting started и Demo
 project; [roadmap.md](../../docs/roadmap.md), раздел «E4 — Для других людей» (связь ниже, roadmap этот
 Epic не правит); [ADR-0002](../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md) (worfy — вид над
@@ -12,7 +13,7 @@ workflow), [ADR-0005](../../docs/adr/0005-worfy-own-state-inventory.md) (сво�
 [ADR-0067](../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md) (Pipeline и отметки
 агентов), [ADR-0071](../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (вердикт
 Windows с runner-а GitHub).
-Ticket-ы: Epic `worfy-onboarding`, 12 Ticket-ов, нумерация с `01`. Шапка — тот же диалект, что у
+Ticket-ы: Epic `worfy-onboarding`, 14 Ticket-ов, нумерация с `01`. Шапка — тот же диалект, что у
 worfy-link (`Type:` / `Status:` / `Blocked by:` / `Source:`), чтобы её читали `epic-status`, `ticket`
 и вычисление Wave в worfy (`src/shared/workflow/waves.ts`).
 
@@ -26,23 +27,25 @@ Project подключается как раньше.
 Epic готов, когда:
 
 1. Новый пользователь (свежая папка данных worfy, Project-ов нет) видит в First run страницу трёх
-   понятий, потом проверки, потом кнопку «Start Getting started». Раздел Getting started стоит первым
-   в боковой панели, его шесть шагов отмечаются сами, по мере того как сделаны.
+   понятий, потом проверки, потом кнопку «Start Getting started». Getting started открыт — панель в
+   правом верхнем углу (до Ticket-а 13 — раздел первым в боковой панели), его шесть шагов отмечаются
+   сами, по мере того как сделаны; элемент, который нажать следующим, подсвечен (Ticket 14).
 2. Одна кнопка создаёт Demo project: локальный git-репозиторий в домашней папке, без GitHub, Full
    mode, `workflow.finish` `local-green`, свой Profile `worfy-demo` на установленном Harness. Его Ticket
    проходит через Orchestrator до merge с настоящими агентами. Pipeline показывает Stage-ы, у каждого
    Stage — своя подсказка, круг доработки виден. Если ревью ничего не нашло — Getting started говорит
    об этом и показывает записанный пример REJECTED и доработки.
-3. Существующий пользователь (хотя бы один Project на момент обновления) не получает раздел сам: один
+3. Существующий пользователь (хотя бы один Project на момент обновления) не получает Getting started сам: один
    раз видит уведомление в углу «New: Getting started…» с «Open» и «Not now». После «Not now» или
    закрытия оно не появляется. Нигде нет модального окна, которое заставляет пройти Getting started.
 4. Экран Done предлагает «Connect your own project» и «Remove the demo project». Удаление спрашивает
    подтверждение и убирает папку, Profile и запись gate registry. Сам по себе Demo project не
-   удаляется. Command palette «Getting started» открывает раздел снова в любой момент.
+   удаляется. Command palette «Getting started» открывает Getting started снова в любой момент.
 5. Всё это одинаково на macOS и на Windows; Demo project никогда не виден Linked machine-у.
 
 Проверку всех пяти пунктов делает Ticket 12 вместе с владельцем: новый пользователь macOS и Windows-ПК
-владельца.
+владельца. Панель и подсветку (Ticket-ы 13 и 14) владелец принимает отдельно — по снимкам в обеих темах
+и короткому просмотру на Mac (Q18); Epic закрывается после них.
 
 ## Как устроено
 
@@ -93,7 +96,8 @@ Epic готов, когда:
   `src/renderer/shell/registry.ts:38-51`). Пропуск скрывает раздел; Command palette «Getting started»
   (`src/renderer/palette/commands.ts`, рядом с «First-run checks», `:288-299`) открывает снова.
   «Connect your own project» открывает тот же «Add project», что «+» Projects
-  (`ProjectsSection.tsx:401`, `:447`).
+  (`ProjectsSection.tsx:401`, `:447`). С Ticket-а 13 раздел заменяет плавающая панель в правом
+  верхнем углу, Ticket 14 подсвечивает элемент, который нажать следующим (решения владельца 2026-10-31).
 - **Вход** (Ticket 08). First run (`src/renderer/shell/FirstRun.tsx`) при первом открытии без отметки
   показывает страницу трёх понятий, «Next» — к проверкам. В нижней строке проверок — «Start Getting
   started». Существующему пользователю — уведомление action toast (`showToast`,
@@ -123,6 +127,8 @@ Epic готов, когда:
 4. **UI** — 07: раздел и команда Command palette; 08: First run и уведомление; 09: подсказки,
    переключатель стоимости, пример доработки; 10: Done и удаление.
 5. **Приёмка** — 12: с владельцем, новый пользователь macOS и Windows-ПК.
+6. **Панель и подсветка** (решения владельца 2026-10-31) — 13: панель вместо раздела боковой панели;
+   14: подсветка элемента, который нажать следующим.
 
 ## Решения владельца
 
@@ -131,13 +137,14 @@ Session проектирования 2026-10-26. Номера — как у вл
 1. **Для кого и зачем.** Разработчики, которые уже работают с Claude Code. Пользователь понимает
    worfy, проведя один Ticket Demo project через Orchestrator, ревью, которое находит проблему, круг
    доработки и merge.
-2. **Getting started** — раздел в самом верху боковой панели, шесть шагов, которые отмечаются сами:
+2. **Getting started** — раздел в самом верху боковой панели (поправка 2026-10-31: плавающая панель в
+   правом верхнем углу вместо раздела, Q12–Q14 ниже), шесть шагов, которые отмечаются сами:
    Check your setup (First run зелёный) → Open the demo project (одна кнопка создаёт его) → Meet the
    Orchestrator (в demo уже есть один Epic и один Ticket) → Ship the ticket (исполнитель работает,
    Pipeline показывает Stage-ы) → See the review (ревьюер находит проблему, исполнитель исправляет) →
    Merge (Ticket done). Ниже — необязательный «Connect your own project», в «готово» не входит.
    Пропуск в любой момент; ничего не блокирует; свой Project подключается и в обход. Команда Command
-   palette «Getting started» открывает раздел снова.
+   palette «Getting started» открывает Getting started снова.
 3. **Существующих пользователей не заставляют добавлять Project.** Если при обновлении есть хотя бы
    один Project, список сам не открывается; вместо этого — одно немодальное уведомление в углу «New:
    Getting started — a guided demo of worfy. Open · Not now», после «Not now» или закрытия больше не
@@ -168,6 +175,36 @@ Session проектирования 2026-10-26. Номера — как у вл
    владельца; исключение из правила «новых Epic-ов нет, пока не закрыты worfy-windows и
    worfy-browser»). Onboarding стоит рядом с E4 roadmap (установщик для других людей): E4 даёт
    подписанную сборку, этот Epic — первый час работы в ней. roadmap этот Epic не правит.
+
+## Решения владельца 2026-10-31
+
+Ответы владельца «на все да», Q11–Q18. Ticket-ы 13 и 14 ссылаются на них.
+
+- **Q11. Поправка spec-а.** Два Ticket-а в этом Epic-е: 13 (панель) и 14 (подсветка). Исключение «Тур
+  по интерфейсу» раздела «Не в этом Epic-е» снято для подсветки; стрелки по-прежнему не делаются.
+- **Q12. Место панели.** Плавающая панель в правом верхнем углу под toolbar, ширина около 320 px,
+  высота по содержимому до 70 % окна; внутренняя прокрутка — только в маленьком окне. Toast-ы обходят
+  панель существующим механизмом `data-toast-keep-out` (`src/renderer/toast/placement.ts`). Не правый
+  нижний угол: там бывает Send Orchestrator-а, а он нужен в шагах 3–4.
+- **Q13. Слой.** Выше Canvas, Session-ов и боковой панели; ниже модальных окон (First run — z-index 90,
+  Add project и Connect — 95, FolderBrowser — 96, Settings — 110). Клики вне своего прямоугольника не
+  перехватывает. Немодальная.
+- **Q14. Панель вместо раздела.** Раздел боковой панели «Getting started» уходит целиком. Свёрнутая
+  панель — pill «Getting started · 3/6» в том же углу; открывается снова по pill или из Command palette
+  «Getting started». «Skip», экран Done, переключатель стоимости и пример доработки переезжают в
+  панель.
+- **Q15. Подсветка.** Кольцо цвета акцента с мягкой пульсацией вокруг одного элемента, который нажать
+  следующим; без затемнения, ничего не блокируется; `prefers-reduced-motion` — кольцо без анимации.
+  Порядок: шаг 1 — «Open checks» в панели, потом кнопка проверок в First run; шаг 2 — «Create demo
+  project»; шаги 3 и 4 — кнопка шага в панели, а когда текст положен в поле ввода — Send поля ввода
+  Orchestrator-а (`input-send`, `src/renderer/session/MessageInput.tsx`); шаги 5–6 — без подсветки.
+- **Q16. Цели нет на экране** (Orchestrator закрыт или свёрнут, Send недоступна или не отрисована) —
+  подсвечивается кнопка шага в панели: она открывает нужное место. Стрелок у края нет.
+- **Q17. Существующие пользователи — без изменений.** Когда есть Project, панель сама не открывается
+  (только уведомление «Open · Not now» и Command palette); подсветка — только пока панель открыта.
+- **Q18. Приёмка.** macOS-часть Ticket-а 12 владелец прошёл и принял 2026-10-31; Windows-часть идёт
+  сейчас, с нынешним UI. Ticket-ы 13 и 14 принимаются позже — снимки в обеих темах и короткий просмотр
+  на Mac. Epic закрывается после них.
 
 ## Решено без владельца
 
@@ -249,7 +286,7 @@ Session проектирования 2026-10-26. Номера — как у вл
 - Внизу: «Everything else is explained when you meet it.» Кнопка: «Next»
 - Кнопка в нижней строке проверок: «Start Getting started»
 
-**Раздел Getting started** (Ticket 07)
+**Раздел Getting started** (Ticket 07; с Ticket-а 13 — те же тексты в панели)
 
 - Заголовок раздела: «Getting started»; строка: «A guided demo: one ticket from start to merge.»
 - 1 — «Check your setup» — «Make sure Claude Code, git, node and the Harness are ready.» Кнопка, пока не
@@ -267,6 +304,11 @@ Session проектирования 2026-10-26. Номера — как у вл
 - Ссылка внизу: «Skip». Строка после пропуска (toast `info`): «Getting started is hidden. Reopen it
   from the Command palette: Getting started.»
 - Строка о стоимости под шагом 2: «The agents work for real and use your Claude Code usage.»
+
+**Панель Getting started** (Ticket 13)
+
+- Свёрнутая панель, pill: «Getting started · <n>/6» (Q14)
+- Tooltip кнопки сворачивания (черновик, onboarding 13): «Collapse»
 
 **Создание Demo project** (Ticket 05; черновик, onboarding 05)
 
@@ -346,8 +388,8 @@ Session проектирования 2026-10-26. Номера — как у вл
 ## Не в этом Epic-е
 
 - **Подпись, нотаризация, установщик для других людей** — E4 roadmap.
-- **Тур по интерфейсу** (подсветка элементов, стрелки) — нет: понятия объясняют страница First run и
-  подсказки Stage-й.
+- **Стрелки к элементам интерфейса** — нет. Подсветка элемента, который нажать следующим, — в Epic-е
+  с 2026-10-31 (Q11, Ticket 14); остальное понятия объясняют страница First run и подсказки Stage-й.
 - **Demo project на Linked machine-е** — никогда (пункт 8).
 - **Второй Ticket или Epic в demo**, Autopilot на demo — нет.
 - **Цены и подсчёт токенов в Getting started** — нет (пункт 6).
@@ -415,6 +457,8 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 09 | `src/renderer/getting-started/hints.ts`, `src/renderer/getting-started/ReviewExample.tsx`, `src/renderer/getting-started/CostSwitch.tsx`, `src/renderer/shell/sidebar/GettingStartedSection.tsx`, `src/main/getting-started/demo.ts`, `src/main/getting-started/state.ts`, `src/shared/ipc/getting-started.ts`, `src/main/ipc/getting-started.ts`, `test/unit/getting-started-hints.test.ts`, `test/contract/getting-started-cost.test.ts`, `test/e2e/getting-started-hints.spec.ts` | 5 |
 | 10 | `src/main/getting-started/remove.ts`, `src/main/getting-started/demo.ts`, `src/main/getting-started/state.ts`, `src/shared/ipc/getting-started.ts`, `src/main/ipc/getting-started.ts`, `src/renderer/getting-started/DoneScreen.tsx`, `src/renderer/shell/sidebar/GettingStartedSection.tsx`, `test/contract/getting-started-remove.test.ts`, `test/e2e/getting-started-done.spec.ts` | 6 |
 | 12 | `.scratch/worfy-onboarding/spec.md` | 7 |
+| 13 | `src/renderer/getting-started/GettingStartedPanel.tsx`, `src/renderer/shell/sidebar/GettingStartedSection.tsx`, `src/renderer/shell/AppShell.tsx`, `src/renderer/getting-started/store.ts`, `src/renderer/getting-started/hints.ts`, `src/renderer/palette/commands.ts`, `src/shared/ipc/getting-started.ts`, `test/unit/getting-started-panel.test.tsx`, `test/unit/getting-started-section.test.tsx`, `test/e2e/getting-started.spec.ts`, `test/e2e/getting-started-entry.spec.ts`, `test/e2e/getting-started-hints.spec.ts`, `test/e2e/getting-started-done.spec.ts`, `test/e2e/sidebar-sections.spec.ts` | 7 |
+| 14 | `src/renderer/getting-started/highlight.ts`, `src/renderer/getting-started/highlight.css`, `src/renderer/getting-started/GettingStartedPanel.tsx`, `src/renderer/session/pending-input.ts`, `src/renderer/session/MessageInput.tsx`, `src/renderer/shell/FirstRunChecks.tsx`, `test/unit/getting-started-highlight.test.ts`, `test/e2e/getting-started-highlight.spec.ts`, `scripts/e2e-specs.table.json` | 8 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
@@ -430,7 +474,9 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
   стоимость и пример. 08 зовёт открытие раздела из store Ticket-а 07 и его не правит.
 - **Wave 6 — 10, один.** Ждёт 03, 05 и 07; по блокерам — Wave 5, сдвинут: с 09 общие
   `GettingStartedSection.tsx`, `src/main/getting-started/demo.ts` и файлы домена `gettingStarted`.
-- **Wave 7 — 12, один.** Ждёт все остальные Ticket-ы. Отмечает пункты «Готово, когда» в этом файле.
+- **Wave 7 — 12 и 13.** 12 ждёт 01–11 и отмечает пункты «Готово, когда» в этом файле. 13 блокеров не
+  имеет (поправка 2026-10-31); общих файлов с 12 нет: 12 правит только этот файл.
+- **Wave 8 — 14, один.** Ждёт 13: общий файл панели `GettingStartedPanel.tsx`.
 
 Таблица собрана руками по «Где в коде» Ticket-ов, без пометки «(новый)». Файлы, которые Ticket-ы
 допишут при claim, в таблицу не вошли.
