@@ -5,7 +5,7 @@
 - `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): 70/71; влиты 62, 64, 65 (#719), 66 (#949), 67 (#1011), 68 (#945), 69 (#1015), 70 (#778), 71 (#829), 52, 63 (#713); задачи 52 — у владельца; 31, 36, 47, 48, 50, 51 — шаг владельца.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
-- `worfy-link` ([spec](.scratch/worfy-link/spec.md)): 39/40; 31 (Tailscale) принят с владельцем 2026-10-31. Осталась приёмка 16 — с владельцем.
+- `worfy-link` ([spec](.scratch/worfy-link/spec.md)): 40/41; 31 (Tailscale) принят 2026-10-31; 41 — дубль сообщения на другой Machine (#1114), проверка с владельцем после Stable. Осталась приёмка 16.
 - `worfy-windows` (порт под Windows; ADR 0054–0057, 0062, 0063, 0069, 0071): 111/114. Отсечка владельца 2026-10-23 после пересчёта e2e на ПК: повторяющиеся красные — в Epic-е (113; 106, 109–112 влиты), flaky — `worfy-polish` 41; планка 16 — gate full на Windows полностью зелёный.
 - `worfy-windows`: 60 не нужен — остаёмся на `node-pty@1.2.0-beta.15`; 90 и 92 вынесены из Epic-а (upstream, приёмку не блокируют) — владелец 2026-10-23.
 - `worfy-windows` 39 влит (#512): main отвечает на `ESC[6n`, ответы view — не ввод. Цена — скорость flood-а (один worker разбора), владелец принял; 67 (#1020) — пул worker-ов, 2–8 shell-ов в 1.4–4.2 раза быстрее (ПК и Mac).
@@ -20,7 +20,7 @@
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
-- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089), `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): следующие в очереди (onboarding 13/14 влиты).
+- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 2/12, влиты 01, 02; 03 в работе. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)) — после него.
 
 ## Ждёт владельца
 

@@ -1,7 +1,8 @@
 # 41 — Сообщение с картинкой показано дважды в Session, открытой с другой Machine
 
 Type: bug
-Status: claimed 2026-10-31T05:08Z
+Status: done 2026-10-31T06:06Z
+PR: #1114
 Blocked by: —
 Source: владелец 2026-10-31 (Stable `640b7a4c` на Mac и ПК): одно сообщение с картинкой, отправленное в Orchestrator
 Project-а Mac на самом Mac, на ПК (Session Mac через связь) показано дважды, между копиями — строка «Added by Claude
