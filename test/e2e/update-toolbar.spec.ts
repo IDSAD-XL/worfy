@@ -149,18 +149,22 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   // No Update yet: the plain version line.
   await expect(chip).toBeVisible()
   expect(await chip.evaluate((element) => element.tagName)).toBe('SMALL')
-  const height = (await toolbar.boundingBox())!.height
+  // The toolbar's own height is fixed (shell.css): what could grow is the Harness column, the Harness
+  // line over the version line, and the version line itself.
+  const column = toolbar.getByTestId('harness-column')
+  const heights = async (): Promise<{ column: number; chip: number }> => ({ column: (await column.boundingBox())!.height, chip: (await chip.boundingBox())!.height })
+  const before = await heights()
   await snapshots(window, toolbar, 'update-none')
 
   // Built only when asked: "Update automatically" off, then the check the app would run on its schedule.
   expect((await bridgeCall(window, 'appSettings.set', { autoUpdate: false })).ok).toBe(true)
   expect((await bridgeCall(window, 'update.check')).ok).toBe(true)
 
-  // The dot, the tooltip, and the toolbar as high as before.
+  // The dot, the tooltip, and the column and the version line as high as before.
   await expect(chip).toHaveAttribute('data-update', 'available')
   await expect(chip.locator('.w-update-dot')).toBeVisible()
   await expect(chip).toHaveAttribute('title', `worfy ${update} is available`)
-  expect((await toolbar.boundingBox())!.height).toBe(height)
+  expect(await heights()).toEqual(before)
   await snapshots(window, toolbar, 'update-available')
 
   // The menu: "Update worfy" and "Later"; "Later" closes it and the dot stays.
@@ -195,5 +199,5 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   await expect(menu.getByRole('menuitem')).toHaveText(['Restart now', 'Later'])
   await snapshots(window, toolbar, 'update-ready-menu')
   await menu.getByRole('menuitem', { name: 'Later' }).click()
-  expect((await toolbar.boundingBox())!.height).toBe(height)
+  expect(await heights()).toEqual(before)
 })

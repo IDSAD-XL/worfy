@@ -156,8 +156,9 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate, harnessBehin
       title = state.enabled ? undefined : 'The plugin worfy is disabled in Claude Code'
       break
     case 'outdated':
-      if (state.sameVersion && harnessBehind !== null) {
+      if (state.sameVersion && harnessBehind !== null && harnessBehind.from === state.from) {
         // Main found the installed commit behind this copy's (worfy-update ticket 05): an update, as for an older semver.
+        // Only for the version this state names as installed: a snapshot about another one is stale.
         text = canInstall ? `Harness ${harnessBehind.from}` : `Harness ${harnessBehind.from} → ${harnessBehind.to}`
         button = action('update', 'Update Harness', `Update Harness: ${harnessBehind.from} → ${harnessBehind.to}`, true)
         break

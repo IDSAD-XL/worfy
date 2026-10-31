@@ -181,6 +181,10 @@ export default function UpdateChip({ version, update }: UpdateChipProps) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const signal = updateSignal(update)
   if (signal === null) {
+    // The signal went (installed from Settings or another window): the menu goes with it, so a later
+    // signal shows a closed chip rather than a menu that opens by itself. Adjusted during render, as
+    // React advises for state that follows a prop.
+    if (anchor !== null) setAnchor(null)
     return (
       <small className="w-mono w-toolbar__version" data-testid="app-version">
         v{version}

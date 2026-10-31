@@ -147,6 +147,15 @@ describe('HarnessStatusView', () => {
     expect(replace.querySelector('.w-update-dot')).toBeNull()
   })
 
+  it('a harnessBehind about another installed version than the one on the line (a stale snapshot) is not shown: "Replace Harness", plain', () => {
+    const same: HarnessState = { kind: 'outdated', from: '0.3.0+ccccccc', to: '0.3.0+bbbbbbb', sameVersion: true }
+    render(<HarnessStatusView status={status(same, true)} busy={false} failure={undefined} onInstall={() => undefined} harnessBehind={{ from: '0.3.0+aaaaaaa', to: '0.3.0+bbbbbbb' }} />)
+    expect(screen.queryByRole('button', { name: 'Update Harness' })).toBeNull()
+    const replace = screen.getByRole('button', { name: 'Replace Harness' })
+    expect(replace.classList.contains('w-toolbar__icon-button--accent')).toBe(false)
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.3.0+ccccccc')
+  })
+
   it('no other button of the item carries the accent', () => {
     for (const state of [STATES[0]!, STATES[2]!]) {
       render(<HarnessStatusView status={status(state, true)} busy={false} failure={undefined} onInstall={() => undefined} onMigrate={() => undefined} />)

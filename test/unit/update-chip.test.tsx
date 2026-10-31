@@ -107,6 +107,21 @@ describe('UpdateChip', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  it('an open menu goes with the signal, and does not open again by itself when a signal comes back', () => {
+    fakeBridge()
+    const { rerender } = render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available() })} />)
+    fireEvent.click(chip())
+    expect(screen.queryByRole('menu')).not.toBeNull()
+    // Installed elsewhere (Settings, another window): nothing to install, the plain line.
+    rerender(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot()} />)
+    expect(screen.queryByRole('menu')).toBeNull()
+    // A newer Update arrives: the dot, the menu stays closed until a press.
+    rerender(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available() })} />)
+    expect(dot()).not.toBeNull()
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(chip().getAttribute('aria-expanded')).toBe('false')
+  })
+
   it('a quiet Available update (the commit rolled back from): no dot, but still a button with the menu', () => {
     fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(true) })} />)
