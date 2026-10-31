@@ -2,8 +2,8 @@
 // bin/qmd-collections): where qmd keeps its files on this system, which qmd to start and how, the
 // lock of an index update, and the update itself.
 //
-// `node qmd-common.cjs --update-job <label> <stamp|no-stamp>` is that update as a process of its own:
-// qmd-mcp and qmd-refresh start it in the background and write its pid into the lock.
+// `node qmd-common.cjs --update-job <qmd> <label> <stamp|no-stamp>` is that update as a process of its own:
+// qmd-mcp and qmd-refresh start it in the background with the qmd they found and write its pid into the lock.
 //
 // Environment for tests: QMD_NODE_VERSION stands for the version of the running node, and
 // QMD_NPM_PREFIX for the answer of `npm prefix -g`.
@@ -240,19 +240,27 @@ function unquote(v) {
     if (v.startsWith("'")) return v.slice(1, -1).replace(/''/g, "'")
     return v
 }
-// The qmd-sync-main a collection's `update:` runs and for which profile: [script, profile] or null. Only a line
-// that is this and nothing else: an optional node (`node`, `node.exe`, a full path, a quoted path, `"$NODE"`), the
-// script's path, quoted or not, and the profile. A line with anything more is the owner's own command, and
-// qmd-collections would replace all of it: `cd /x && git pull && qmd-sync-main demo && ./build-docs.sh`.
+// Two questions about a collection's `update:` line, each with the profile as its answer, or null.
 const WORD = "[^\\s\"'&|;<>()`$]" // a character of an unquoted word: no quote, no shell operator, no variable
 const FOLDER = "[\\\\/]"
+// Is this collection a git copy, and of which profile (qmd-refresh checks its main branch)? The script anywhere in
+// the line counts: `cd /x && git pull && qmd-sync-main demo && ./build-docs.sh` keeps a copy up to date too. The
+// profile is the word right after the first qmd-sync-main of the line; a later one in the same line is not read.
+const SYNC_ANYWHERE = new RegExp(`(?:^|[\\s"'\\\\/;&|(])qmd-sync-main["']?\\s+(?!-)(${WORD}+)`)
+function syncProfile(update) {
+    const m = SYNC_ANYWHERE.exec(update || "")
+    return m ? m[1] : null
+}
+// May qmd-collections replace this line? Only a line that is the script and nothing else: an optional node (`node`,
+// `node.exe`, a full path, a quoted path, `"$NODE"`), the script's path, quoted or not, and the profile. A line with
+// anything more is the owner's own command, and replacing it would lose that command.
 const SYNC_LINE = new RegExp(
     `^\\s*(?:(?:(?:${WORD}*${FOLDER})?node(?:\\.exe)?|"(?:[^"]*${FOLDER})?node(?:\\.exe)?"|"\\$\\{?NODE\\}?")\\s+)?` +
-        `(?:"((?:[^"]*${FOLDER})?qmd-sync-main)"|((?:${WORD}*${FOLDER})?qmd-sync-main))\\s+(${WORD}+)\\s*$`,
+        `(?:"(?:[^"]*${FOLDER})?qmd-sync-main"|(?:${WORD}*${FOLDER})?qmd-sync-main)\\s+(${WORD}+)\\s*$`,
 )
-function syncOf(update) {
+function plainSyncProfile(update) {
     const m = SYNC_LINE.exec(update || "")
-    return m ? [m[1] || m[2], m[3]] : null
+    return m ? m[1] : null
 }
 
 // --- the lock of an index update, shared by the scripts: `qmd update` checks out the shared copies ---
@@ -343,9 +351,11 @@ function runUpdate(qmd, label, stamp) {
 // embed to finish). The parent writes the pid: a dead pid in the lock reads as an abandoned lock. It runs in
 // the home folder: on Windows a process's current folder cannot be removed, and the folder of a Stop hook is a
 // session's worktree. HARNESS_HOME is fixed here: a relative EVAL_HARNESS_HOME resolves from the current folder,
-// so a caller that has changed its folder passes the value it read before that.
-function startUpdate(label, stamp, env = process.env) {
-    const child = spawn(process.execPath, [__filename, "--update-job", label, stamp ? "stamp" : "no-stamp"], {
+// so a caller that has changed its folder passes the value it read before that. The job gets the qmd the caller
+// found and does not search again: qmdEnv puts the folder of this node first on its PATH, and a global install
+// under nvm has another qmd there.
+function startUpdate(qmd, label, stamp, env = process.env) {
+    const child = spawn(process.execPath, [__filename, "--update-job", qmd, label, stamp ? "stamp" : "no-stamp"], {
         cwd: home(),
         detached: true,
         stdio: "ignore",
@@ -378,6 +388,7 @@ module.exports = {
     logFile,
     modelsAgreed,
     nodeTooOld,
+    plainSyncProfile,
     qmdCommand,
     qmdEnv,
     rerunOnNvmNode,
@@ -385,7 +396,7 @@ module.exports = {
     runUpdate,
     scriptCommand,
     startUpdate,
-    syncOf,
+    syncProfile,
     takeLock,
     timestamp,
     unquote,
@@ -393,11 +404,5 @@ module.exports = {
 }
 
 if (require.main === module && process.argv[2] === "--update-job") {
-    const qmd = findQmd()
-    if (!qmd) {
-        fs.appendFileSync(logFile(), `== ${timestamp()} refresh${process.argv[3]}: qmd not found\n`)
-        dropLock()
-        process.exit(127)
-    }
-    runUpdate(qmd, process.argv[3], process.argv[4] === "stamp")
+    runUpdate(process.argv[3], process.argv[4], process.argv[5] === "stamp")
 }

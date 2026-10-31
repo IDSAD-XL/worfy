@@ -16,7 +16,7 @@ set -u
 unset QMD_INDEX_YML QMD_CONFIG_DIR XDG_CONFIG_HOME XDG_CACHE_HOME # the folders of qmd are always under the temporary HOME
 shopt -u patsub_replacement 2>/dev/null # the backslashes of a Windows path stay as they are in ${x//a/b}
 BIN="$(cd "$(dirname "$0")/.." && pwd)"
-BINF="$(cd "$BIN" && { pwd -W 2>/dev/null || pwd; })" # C:/… on Windows: the form the `update:` line has
+BINF="$(cd "$BIN" && { pwd -W 2>/dev/null || pwd -P; })" # C:/… on Windows: the form the `update:` line has
 SCRIPT="$BIN/qmd-collections"
 T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })" # C:/… on Windows: node reads the registry's paths
 # A folder as PATH takes it: /c/… in Git Bash, where the colon of C:/… splits the entry; unchanged elsewhere.
@@ -24,6 +24,7 @@ onpath() { cygpath -u "$1" 2>/dev/null || printf '%s' "$1"; }
 # A path as the script prints it: with backslashes on Windows (cygpath exists there), unchanged elsewhere.
 printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
+. "$(dirname "$0")/no-real-qmd.sh"
 # A path as index.yml holds it: on Windows with backslashes, which make it a quoted JSON string; plain elsewhere.
 yp() { if [ "$WIN" = 1 ]; then printf '"%s"' "$(printed "$1" | sed 's/\\/\\\\/g')"; else printf '%s' "$1"; fi; }
 # No line of index.yml gives a path with both separators.
@@ -437,10 +438,38 @@ collections:
   plain:
     path: /elsewhere/three
     update: /old/qmd-sync-main x
+  other:
+    path: /elsewhere/four
+    update: cd /x && qmd-sync-main other-profile && ./build-docs.sh
 EOF
 collect x; rc=$?
 [ "$rc" -eq 0 ] && grep -qF 'update: cd /x && git pull && qmd-sync-main x && ./build-docs.sh' "$INDEX" && grep -qF 'update: echo qmd-sync-main x' "$INDEX" && ! grep -qF '/old/qmd-sync-main' "$INDEX" \
     && ok "update lines: compound lines stay, a plain line of the script is rewritten" || bad "update lines: rc=$rc index=[$(cat "$INDEX")]"
+# The same compound line, unrewritten, is a git copy for qmd-refresh.
+cat >"$C/sync-log" <<'EOF'
+#!/usr/bin/env node
+require("fs").appendFileSync(process.env.SYNC_LOG, process.argv.slice(2).join(" ") + "\n")
+process.exit(1)
+EOF
+chmod +x "$C/sync-log"
+HOME="$H" HARNESS_HOME="$HH" PATH="$(onpath "$T/fakebin"):$PATH" SYNC_LOG="$C/sync.calls" QMD_REFRESH_SYNC="$C/sync-log" \
+    node "$BIN/qmd-refresh" --force --wait >"$C/out" 2>&1
+grep -qx -- '--describe other-profile' "$C/sync.calls" 2>/dev/null && grep -qF 'update: cd /x && qmd-sync-main other-profile && ./build-docs.sh' "$INDEX" \
+    && ok "update lines: qmd-refresh reads a compound line as a git copy of the profile after the script" || bad "update lines, git copy: calls=[$(cat "$C/sync.calls" 2>/dev/null)] out=[$(tail -n 3 "$C/out")]"
+
+# --- a plugin path with characters bash reads inside double quotes: the line runs as qmd runs it, `bash -c <line>` --
+setup odd-path x "$FULL"
+ODD='pl$ug`in'; [ "$WIN" = 1 ] || ODD="$ODD\"x" # Windows allows no quote in a file name
+mv "$HH" "$C/$ODD"; HH="$C/$ODD"
+mkdir -p "$HH/plugin/bin"
+cat >"$HH/plugin/bin/qmd-sync-main" <<'EOF'
+require("fs").writeFileSync(process.env.SYNC_RAN, process.argv.slice(2).join(" "))
+EOF
+collect x; rc=$?
+line="$(node -e 'const q = require(process.argv[1]); const m = /^ +update: (.*)$/m.exec(require("fs").readFileSync(process.argv[2], "utf8")); process.stdout.write(q.unquote(m[1]))' "$BIN/../lib/qmd-common.cjs" "$INDEX" 2>/dev/null)"
+(cd "$C" && SYNC_RAN="$C/sync.ran" bash -c "$line" >/dev/null 2>&1)
+[ "$rc" -eq 0 ] && [ "$(cat "$C/sync.ran" 2>/dev/null)" = x ] \
+    && ok "update line: a plugin path with \$, a backtick and a quote runs through bash -c" || bad "update line, odd path: rc=$rc line=[$line] out=[$(tail -n 3 "$C/out")]"
 
 # --- tickets.root on another drive of Windows: path.relative gives an absolute path, and that is not inside the source ---
 if [ "$WIN" = 1 ]; then

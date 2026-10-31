@@ -69,11 +69,11 @@ try {
 if (fs.existsSync(q.lockDir()) && q.abandoned(q.lockDir())) q.dropLock()
 
 // The lock exists for `qmd update` (git checkout in the shared copy); `qmd embed` has its own lock.
-if (process.env.QMD_MCP_NO_REFRESH !== "1" && q.takeLock()) q.startUpdate("", false, env)
+if (process.env.QMD_MCP_NO_REFRESH !== "1" && q.takeLock()) q.startUpdate(qmd, "", false, env)
 
 // node has no exec: the server is a child on this stdio, and this process ends with it. The client
 // closes stdin to end the server, and qmd ends on that by itself.
-const [command, args] = q.qmdCommand(qmd, ["mcp", ...process.argv.slice(2)])
+const [command, args] = q.qmdCommand(qmd, ["mcp"])
 const server = spawn(command, args, { stdio: "inherit", env, windowsHide: true })
 for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, () => server.kill(signal))
 server.on("error", (error) => {

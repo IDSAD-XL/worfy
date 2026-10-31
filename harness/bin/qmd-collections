@@ -184,8 +184,8 @@ function writeIndex(index, newText) {
 function retargetUpdates(index, lines) {
     const fixed = []
     for (const c of index.collections.values()) {
-        const sync = q.syncOf(c.update)
-        if (!sync || sync[1] !== NAME || c.update === updateLine(NAME)) continue
+        const profile = q.plainSyncProfile(c.update)
+        if (profile !== NAME || c.update === updateLine(NAME)) continue
         lines[c.updateLine] = `    update: ${yamlScalar(updateLine(NAME))}`
         fixed.push(c.name)
     }

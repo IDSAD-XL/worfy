@@ -144,9 +144,9 @@ const LOCAL_DIRS = [] // path of each local collection
     let current = null
     const flush = () => {
         if (current) {
-            const sync = q.syncOf(current.update)
-            if (sync) {
-                if (!MIRRORS.includes(sync[1])) MIRRORS.push(sync[1])
+            const profile = q.syncProfile(current.update)
+            if (profile) {
+                if (!MIRRORS.includes(profile)) MIRRORS.push(profile)
             } else if (!current.update && current.path) LOCAL_DIRS.push(current.path)
         }
         current = null
@@ -289,7 +289,7 @@ if (WAIT) {
     if (COPIES.length === 0) say("qmd-refresh: index updated")
 } else {
     // To the background without inheriting stdio: a hook waiting for `embed` to finish would hang the session.
-    q.startUpdate(" (qmd-refresh)", true)
+    q.startUpdate(QMD, " (qmd-refresh)", true)
     say(`qmd-refresh: update started in the background, log ${LOG}`)
 }
 finish()

@@ -21,6 +21,7 @@ onpath() { cygpath -u "$1" 2>/dev/null || printf '%s' "$1"; }
 printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
 trap 'rm -rf "$T"' EXIT
+. "$(dirname "$0")/no-real-qmd.sh"
 # The Harness home comes from os.homedir(), which on Windows is USERPROFILE and not the HOME of a case: no case
 # reads the real one. A case that is about the Harness home sets its own.
 export HARNESS_HOME="$T/hh-default"
@@ -436,7 +437,7 @@ printf '@echo called>>"%%NPM_CALLS%%"\r\n' >"$T/npmbin/npm.cmd"
 # On Windows node starts npm through cmd.exe: named here, because this PATH does not have it and the empty-HOME
 # run of this file has no COMSPEC.
 WIN_SHELL=""; [ "$WIN" = 1 ] && WIN_SHELL="$(cygpath -w -S)\\cmd.exe"
-npm_env() { env HOME="$H" PATH="$(onpath "$T/npmbin"):$NODE_ONLY" NPM_CALLS="$T/npm.calls" COMSPEC="$WIN_SHELL" "$@"; }
+npm_env() { env -u QMD_NPM_PREFIX HOME="$H" PATH="$(onpath "$T/npmbin"):$NODE_ONLY" NPM_CALLS="$T/npm.calls" COMSPEC="$WIN_SHELL" "$@"; }
 rm -f "$T/npm.calls"
 npm_env QMD_INDEX_YML="$T/no-such.yml" node "$BIN/qmd-refresh" --quiet >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ ! -e "$T/npm.calls" ] && ok "refresh --quiet, no index.yml: exit 0, npm is not run" || bad "refresh --quiet, no index.yml: rc=$rc npm calls=[$(cat "$T/npm.calls" 2>/dev/null)]"
@@ -577,6 +578,8 @@ link_node "$NVM_V"
 nvm_mcp "$T/home-nvm" QMD_NODE_VERSION=22.13.1; rc=$?
 [ "$rc" -eq 0 ] && [ "$(cat "$T/mcp.calls" 2>/dev/null)" = "mcp gen=unset emb=$EMB" ] \
     && ok "qmd-mcp on an old node: the node of nvm that has qmd runs it" || bad "qmd-mcp, rerun on nvm: rc=$rc err=[$(cat "$T/mcp.err")] calls=[$(cat "$T/mcp.calls" 2>/dev/null)]"
+nvm_mcp "$T/home-nvm" QMD_NODE_VERSION=22.13.1 MCP_STUB_ECHO=127; rc=$?
+[ "$rc" -eq 127 ] && ok "qmd-mcp on an old node: the exit code of the run on the node of nvm is the exit code" || bad "qmd-mcp, exit code of the rerun: rc=$rc err=[$(cat "$T/mcp.err")]"
 rm -f "$T/mcp.calls"
 env HOME="$T/home-nvm" HARNESS_HOME="$T/hh-default" PATH="$NODE_ONLY" QMD_NPM_PREFIX="$EMPTY_PREFIX" QMD_NODE_VERSION=22.13.1 QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-warn" \
     node "$BIN/qmd-refresh" --wait --force >/dev/null 2>"$T/nvm.err"; rc=$?
@@ -645,6 +648,28 @@ EOF
 fi
 [ "$(printed "$(cat "$T/update.cwd" 2>/dev/null)")" = "$(printed "$H")" ] \
     && ok "qmd-mcp: the background update runs in the home folder" || bad "qmd-mcp update cwd: [$(cat "$T/update.cwd" 2>/dev/null)]"
+# A qmd next to the running node (a global install under nvm) is not the qmd the script found: the folder of the
+# node is first on the PATH of the background update, which still runs the found one. A hard link or a copy of
+# node, because process.execPath of a symbolic link names the real folder.
+NEXT="$T/node-next-to-qmd"; mkdir -p "$NEXT"
+if [ "$WIN" = 1 ]; then NEXT_NODE="$NEXT/node.exe"; else NEXT_NODE="$NEXT/node"; fi
+real_node="$(onpath "$(node -p process.execPath)")"
+ln "$real_node" "$NEXT_NODE" 2>/dev/null || cp "$real_node" "$NEXT_NODE"
+node_stub "$NEXT/qmd" 'fs.appendFileSync(T + "/wrong.calls", A[0] + "\n")'
+if "$NEXT_NODE" --version >/dev/null 2>&1; then
+    rm -f "$T/mcp.calls"
+    (cd "$T/session" && HOME="$H" HARNESS_HOME="$HH" PATH="$MCPBIN:$(onpath "$NEXT"):$PATH" QMD_MCP_PROFILE_BIN="$T/profile-lang" LANG_DOCS=en "$NEXT_NODE" "$BIN/qmd-mcp" 2>"$T/mcp.err" </dev/null); rc=$?
+    n=0; while [ -e "$LK" ] && [ "$n" -lt 300 ]; do sleep 0.1; n=$((n + 1)); done
+    [ "$rc" -eq 0 ] && grep -q '^update' "$T/mcp.calls" && grep -q '^embed' "$T/mcp.calls" && [ ! -e "$T/wrong.calls" ] \
+        && ok "qmd-mcp, a qmd next to node: the background update runs the qmd the script found" || bad "qmd-mcp, a qmd next to node: rc=$rc calls=[$(cat "$T/mcp.calls" 2>/dev/null)] wrong=[$(cat "$T/wrong.calls" 2>/dev/null)]"
+    rm -f "$T/mcp.calls" "$T/wrong.calls"
+    HOME="$H" HARNESS_HOME="$HH" PATH="$MCPBIN:$(onpath "$NEXT"):$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-warn" "$NEXT_NODE" "$BIN/qmd-refresh" --force >/dev/null 2>&1; rc=$?
+    n=0; while [ -e "$LK" ] && [ "$n" -lt 300 ]; do sleep 0.1; n=$((n + 1)); done
+    [ "$rc" -eq 0 ] && grep -q '^update' "$T/mcp.calls" && [ ! -e "$T/wrong.calls" ] \
+        && ok "qmd-refresh, a qmd next to node: the background update runs the qmd the script found" || bad "qmd-refresh, a qmd next to node: rc=$rc calls=[$(cat "$T/mcp.calls" 2>/dev/null)] wrong=[$(cat "$T/wrong.calls" 2>/dev/null)]"
+else
+    echo "skip a qmd next to node: this node does not start from another folder"
+fi
 # A relative EVAL_HARNESS_HOME resolves from the session's directory, before qmd-mcp goes to the home folder: the
 # background update finds the answer there, and embed runs.
 EV="$T/home-eval"; mkdir -p "$EV"; gq init -q "$T/session-git"; mkdir -p "$T/session-git/.git/worfy-harness"
@@ -655,9 +680,25 @@ rm -f "$T/mcp.calls"
 n=0; while [ -e "$EV/.cache/qmd/refresh.lock" ] && [ "$n" -lt 300 ]; do sleep 0.1; n=$((n + 1)); done
 [ "$rc" -eq 0 ] && grep -q '^embed' "$T/mcp.calls" 2>/dev/null \
     && ok "qmd-mcp: a relative EVAL_HARNESS_HOME reaches the background update" || bad "qmd-mcp, relative EVAL_HARNESS_HOME: rc=$rc calls=[$(cat "$T/mcp.calls" 2>/dev/null)] log=[$(tail -n 2 "$EV/.cache/qmd/refresh.log" 2>/dev/null)]"
-# Which update lines count as the script of a profile: only a line that is that and nothing else.
+# Two questions about an update line. May it be replaced: only a line that is the script and nothing else. Is the
+# collection a git copy: the script anywhere in the line, and the profile is the word after the first one.
 cat >"$T/sync-of.cjs" <<'EOF'
-const { syncOf } = require(process.argv[2])
+const { plainSyncProfile, syncProfile } = require(process.argv[2])
+const anywhere = [
+    ['node "/x/qmd-sync-main" demo', "demo"],
+    ["/x/qmd-sync-main demo", "demo"],
+    ["C:\\x\\qmd-sync-main demo", "demo"],
+    ['"/a folder/qmd-sync-main" demo', "demo"],
+    ["cd /x && git pull && qmd-sync-main demo && ./build-docs.sh", "demo"],
+    ["echo qmd-sync-main demo", "demo"],
+    ["qmd-sync-main demo; ./build-docs.sh", "demo"],
+    ["x;qmd-sync-main demo", "demo"],
+    ["qmd-sync-main one && qmd-sync-main two", "one"],
+    ["/x/not-qmd-sync-main demo", null],
+    ["qmd-sync-main --describe demo", null],
+    ["/x/qmd-sync-main", null],
+    ["", null],
+]
 const lines = [
     ['node "/x/qmd-sync-main" demo', "demo"],
     ["node /x/qmd-sync-main demo", "demo"],
@@ -683,12 +724,15 @@ const lines = [
     ["/x/qmd-sync-main", null],
     ["", null],
 ]
-const wrong = lines.filter(([line, profile]) => (syncOf(line)?.[1] ?? null) !== profile).map(([line]) => line)
-if (syncOf(undefined) !== null) wrong.push("undefined")
+const wrong = [
+    ...lines.filter(([line, profile]) => plainSyncProfile(line) !== profile).map(([line]) => `whole: ${line}`),
+    ...anywhere.filter(([line, profile]) => syncProfile(line) !== profile).map(([line]) => `anywhere: ${line}`),
+]
+if (plainSyncProfile(undefined) !== null || syncProfile(undefined) !== null) wrong.push("undefined")
 process.stdout.write(wrong.join(" | "))
 EOF
 out="$(node "$T/sync-of.cjs" "$LIB")"; rc=$?
-[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "update lines: each form of the script is read, a compound line is not" || bad "update lines read wrong: rc=$rc [$out]"
+[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "update lines: a compound line is a git copy and may not be replaced, each form of the script is read" || bad "update lines read wrong: rc=$rc [$out]"
 # The lock of a live holder: a node process that writes its own pid there (what the shell knows as $! is another
 # process on Windows) and waits to be released, at most 30 s. No second update, the server still starts.
 mkdir -p "$LK"
