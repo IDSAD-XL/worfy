@@ -1,7 +1,7 @@
 {
   "title": "Harness",
   "summary": [
-    "The Harness is the Claude Code plugin worfy: the skills, agents and hooks by which Claude's agents do the work of a Project. Each build of worfy carries a copy and installs it on the Machine, after a dialog that names every command. Every agent first runs the script profile and works by the Project's Profile, which is never in the repository."
+    "The Harness is the Claude Code plugin worfy: the skills, agents and hooks by which Claude's agents do the work of a Project. Each build of worfy carries a copy and installs it on the Machine; Install, Update and Replace on the toolbar first name every command in a dialog. Every agent first runs the script profile and works by the Project's Profile, which is never in the repository."
   ],
   "scene": {
     "description": "The Harness and the Sessions it reaches. worfy installs its copy of the Harness into the Harness home, where terminal sessions load it, and, unless an old Harness is still in ~/.claude, passes the same copy inline to the Orchestrator and every other Session it starts. The Orchestrator runs a skill and starts Subagents. The plugin holds skills, hooks, agents, scripts and qmd. Hooks give the Orchestrator the main rules and a Subagent the common rules. An agent's definition gives a Subagent its role. A Subagent runs profile first to read the Project's Profile, which lies in the Harness home, runs scripts such as ticket and preflight, and searches decisions with qmd.",
@@ -29,7 +29,7 @@
       "scriptsNote": "profile, ticket, preflight…",
       "qmd": "qmd",
       "qmdNote": "search over documents",
-      "installs": "installs, after a dialog",
+      "installs": "installs",
       "inline": "copy, inline",
       "starts": "starts",
       "runsSkill": "runs /worfy:epic-wave",
@@ -39,7 +39,7 @@
       "runsScripts": "runs scripts",
       "searches": "searches decisions",
       "profileFirst": "reads it first",
-      "step1": "worfy installs its copy of the Harness as the Claude Code plugin worfy, after a dialog that names every command. An older build never replaces a newer Harness.",
+      "step1": "worfy installs its copy of the Harness as the Claude Code plugin worfy. Install, Update and Replace on the toolbar first name every command in a dialog. An older build never replaces a newer Harness.",
       "step2": "A Session that worfy starts gets this build's copy inline, unless an old Harness is still in ~/.claude. The Orchestrator runs a Wave by the skill epic-wave.",
       "step3": "The Orchestrator starts Subagents in three roles: implementer, reviewer and scout. Each first runs profile and works by what it prints.",
       "step4": "Hooks run by themselves on Claude Code's events: rules at the start, the Bash guard before a command, and the Gate when a task is completed.",

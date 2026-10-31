@@ -1,6 +1,6 @@
 {
   "sources": [
-    { "page": "docs/features/harness.md", "sha": "cb077695" },
+    { "page": "docs/features/harness.md", "sha": "8c6fc399" },
     { "page": "docs/features/skills-agents-and-hooks.md", "sha": "3f662f1c" }
   ],
   "files": [

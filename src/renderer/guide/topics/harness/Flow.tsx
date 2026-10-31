@@ -1,6 +1,7 @@
 // The data-flow diagram of Under the hood of the Topic Harness (worfy-guide ticket 18), from the
-// "How it works" and "Implementation" sections of docs/features/harness.md. Four columns: the
-// renderer, the main process, the plugin folder in the Harness home, and Claude Code with its home.
+// "How it works" and "Implementation" sections of docs/features/harness.md. Three columns: the
+// renderer with the plugin folder of the Harness home below it, the main process, and Claude Code
+// with its home.
 // Labelled from the Topic's `underTheHood.flow.labels`.
 import type { SceneProps } from '../../content'
 import { LivingScene } from '../../scene/LivingScene'

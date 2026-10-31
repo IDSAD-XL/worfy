@@ -1,7 +1,7 @@
 {
   "title": "Harness",
   "summary": [
-    "Harness — plugin Claude Code с именем worfy: skills, агенты и hooks, по которым агенты Claude ведут работу над Project-ом. Каждая сборка worfy несёт его копию и ставит её на Machine после диалога, в котором названа каждая команда. Любой агент сначала запускает скрипт profile и работает по Profile Project-а, а Profile никогда не лежит в репозитории."
+    "Harness — plugin Claude Code с именем worfy: skills, агенты и hooks, по которым агенты Claude ведут работу над Project-ом. Каждая сборка worfy несёт его копию и ставит её на Machine; Install, Update и Replace в toolbar сначала называют каждую команду в диалоге. Любой агент сначала запускает скрипт profile и работает по Profile Project-а, а Profile никогда не лежит в репозитории."
   ],
   "scene": {
     "description": "Harness и Session-ы, до которых он доходит. worfy ставит свою копию Harness в Harness home, откуда её загружают Session-ы в терминале, и, если в ~/.claude не осталось старого Harness, передаёт ту же копию inline Orchestrator-у и любой другой Session, которую запускает сам. Orchestrator запускает skill и Subagent-ов. В plugin лежат skills, hooks, агенты, скрипты и qmd. Hooks дают Orchestrator-у главные правила, а Subagent-у — общие. Определение агента задаёт Subagent-у его роль. Subagent сначала запускает profile и читает Profile Project-а, который лежит в Harness home, запускает скрипты вроде ticket и preflight и ищет решения через qmd.",
@@ -11,8 +11,8 @@
       "plugin": "Plugin worfy",
       "app": "worfy",
       "appNote": "копия в каждой сборке",
-      "installed": "Plugin worfy",
-      "installedNote": "установлен для Session-ов в терминале",
+      "installed": "Установленный plugin",
+      "installedNote": "его грузят Session-ы в терминале",
       "profile": "Profile",
       "profileNote": "один на Project, не в репозитории",
       "orchestrator": "Orchestrator",
@@ -29,7 +29,7 @@
       "scriptsNote": "profile, ticket, preflight…",
       "qmd": "qmd",
       "qmdNote": "поиск по документам",
-      "installs": "ставит, после диалога",
+      "installs": "ставит",
       "inline": "копия, inline",
       "starts": "запускает",
       "runsSkill": "запускает /worfy:epic-wave",
@@ -39,7 +39,7 @@
       "runsScripts": "запускает скрипты",
       "searches": "ищет решения",
       "profileFirst": "сначала читает",
-      "step1": "worfy ставит свою копию Harness как plugin Claude Code с именем worfy, после диалога, в котором названа каждая команда. Старая сборка никогда не заменяет более новый Harness.",
+      "step1": "worfy ставит свою копию Harness как plugin Claude Code с именем worfy. Install, Update и Replace в toolbar сначала называют каждую команду в диалоге. Старая сборка никогда не заменяет более новый Harness.",
       "step2": "Session, которую запускает worfy, получает копию этой сборки inline, если в ~/.claude не остался старый Harness. Orchestrator ведёт Wave по skill epic-wave.",
       "step3": "Orchestrator запускает Subagent-ов в трёх ролях: implementer, reviewer и scout. Каждый сначала запускает profile и работает по тому, что тот напечатал.",
       "step4": "Hooks срабатывают сами по событиям Claude Code: правила на старте, Bash guard перед командой и Gate, когда задача завершена.",
