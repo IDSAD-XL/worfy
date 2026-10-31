@@ -76,7 +76,7 @@ function quoted(text: string): string {
  * helper, the helper's stdout among them: a kill.exe that outlived a helper which answered held back
  * the answer until it exited (measured with a stand-in that sleeps 10 s: 12.4 s instead of about
  * 0.5 s). A helper ended by its own time limit is not waited for (measured: 1.3 s with the stand-in
- * still running).
+ * still running), and nothing ends that kill.exe any more.
  */
 function hangupLines(shell: StartedShell, kill: string): string[] {
   const pid = Math.trunc(shell.pid)

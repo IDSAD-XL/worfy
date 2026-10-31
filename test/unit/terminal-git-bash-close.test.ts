@@ -102,7 +102,7 @@ describe('descendantsScript with hangup: the order of a Git Bash close', () => {
   it('waits at most HANGUP_WAIT_MS from the start of kill.exe, and ends a kill.exe still running before it answers', () => {
     expect(lines[at('$deadline =')]).toBe(`  $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_WAIT_MS})`)
     expect(at('$signals.Add(')).toBeLessThan(at('$deadline ='))
-    expect(at('$signal.Kill()')).toBeLessThan(lines.length - 1)
+    expect(at('$signal.Kill()')).toBeLessThan(at("'ended ' + $ended"))
   })
 
   it('names kill.exe as a literal: every quote PowerShell takes for a single quote is doubled, and the script has no double quote', () => {
