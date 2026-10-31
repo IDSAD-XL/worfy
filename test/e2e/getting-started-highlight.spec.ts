@@ -28,6 +28,7 @@ const bundle = join(repoRoot, 'out', 'harness')
 
 const QUESTION = 'What is planned in this project?'
 const SHIP = '/worfy:ship-ticket todo 01'
+const EDITED = 'What is planned here, in two lines?'
 
 let scratch: string
 
@@ -187,7 +188,7 @@ async function shoot(window: Page, target: Locator, name: string): Promise<void>
   await window.emulateMedia({ colorScheme: null })
 }
 
-test('the ring walks the demo: "Open checks", "Check again", "Create demo project", the step button and Send of steps 3 and 4, none after sending and in steps 5–6', async () => {
+test('the ring walks the demo: "Open checks", "Check again", "Create demo project", the step button and Send of steps 3 and 4 (an edited or emptied field, the pill), none after sending and in steps 5–6', async () => {
   const agentLog = join(scratch, 'agent.jsonl')
   const env = homes()
   const launched = await launchApp({ env: { ...env, WORFY_GETTING_STARTED_AUTO: '1', WORFY_AGENT_LOG: agentLog, WORFY_AGENT_SCRIPT: 'interrupt' } })
@@ -231,17 +232,28 @@ test('the ring walks the demo: "Open checks", "Check again", "Create demo projec
     await expectRingOnSend(window)
     await shoot(window, sessionViewOf(window).getByTestId('message-input'), 'send')
 
-    // The Session view closed: the Send is hidden, the step's button that opens it again takes the ring.
+    // The question edited, then the Session view closed: the Send is hidden, the step's button that opens
+    // it again takes the ring. Pressed, it keeps the edit in the field, and the ring is back on Send.
+    await field.fill(EDITED)
     const views = window.getByRole('group', { name: 'View', exact: true })
     await views.getByRole('button', { name: 'Canvas' }).click()
     await expectRingOnStep(window, '3', 'Open the Orchestrator')
-    await views.getByRole('button', { name: 'Session' }).click()
+    await ringOf(window).click()
+    await expect(sessionViewOf(window).getByTestId('session-view')).toBeVisible()
+    await expect(field).toHaveValue(EDITED)
     await expectRingOnSend(window)
 
-    // Send pressed through the ring sends the question as without it; while the turn runs, no ring.
+    // Collapsed into the pill with the text in the field: no ring; expanded: on Send again.
+    await sectionOf(window).getByRole('button', { name: 'Collapse' }).click()
+    await expect(window.getByTestId('getting-started-pill')).toBeVisible()
+    await expectNoRing(window)
+    await window.getByTestId('getting-started-pill').click()
+    await expectRingOnSend(window)
+
+    // Send pressed through the ring sends the edited question as without it; while the turn runs, no ring.
     expect(await ringHitAtCentre(window)).toBe(true)
     await ringOf(window).click()
-    await expect.poll(() => messagesSent(agentLog), { timeout: ms(20_000) }).toEqual([QUESTION])
+    await expect.poll(() => messagesSent(agentLog), { timeout: ms(20_000) }).toEqual([EDITED])
     await expectNoRing(window)
     await expect(stepOf(window, '3')).toHaveAttribute('aria-current', 'step')
 
@@ -252,12 +264,18 @@ test('the ring walks the demo: "Open checks", "Check again", "Create demo projec
     await ringOf(window).click()
     await expect(field).toHaveValue(SHIP, { timeout: ms(30_000) })
     await expectRingOnSend(window)
+    // The field emptied by hand: the step's button takes the ring and puts the command back.
+    await field.fill('')
+    await expectRingOnStep(window, '4', 'Ship the ticket')
+    await ringOf(window).click()
+    await expect(field).toHaveValue(SHIP)
+    await expectRingOnSend(window)
     await views.getByRole('button', { name: 'Canvas' }).click()
     await expectRingOnStep(window, '4', 'Ship the ticket')
     await views.getByRole('button', { name: 'Session' }).click()
     await expectRingOnSend(window)
     await ringOf(window).click()
-    await expect.poll(() => messagesSent(agentLog), { timeout: ms(20_000) }).toEqual([QUESTION, SHIP])
+    await expect.poll(() => messagesSent(agentLog), { timeout: ms(20_000) }).toEqual([EDITED, SHIP])
     await expectNoRing(window)
 
     // Steps 5 and 6, then Done: no ring. The Ticket passes Implementing (a pending review), then Agent review.

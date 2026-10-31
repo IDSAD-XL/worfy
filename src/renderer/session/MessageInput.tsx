@@ -174,10 +174,10 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
     setAt(null)
   }
 
-  // A field emptied without sending no longer holds the ready text. Before the effect below, so the
-  // ready text that effect puts in at mount is not forgotten in the same commit.
+  // A field emptied without sending no longer holds the offered text. Before the effect below, so the
+  // text that effect puts in at mount is not taken for gone in the same commit.
   useEffect(() => {
-    if (nodeId !== undefined && text.trim() === '' && usePendingInput.getState().fields[nodeId] === 'ready') markField(nodeId, null)
+    if (nodeId !== undefined && text.trim() === '' && usePendingInput.getState().fields[nodeId] === 'ready') markField(nodeId, 'offered')
   }, [nodeId, text])
 
   // A ready text for this Node: taken when the field opens or as soon as it comes, put in only into
@@ -187,10 +187,9 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
     const take = () => {
       const ready = takePendingInput(nodeId)
       if (ready === undefined) return
-      // The field shows the committed text: empty, or the same text put in by an earlier button press.
-      const shown = field.current?.value ?? ''
       setText((current) => (current === '' ? ready : current))
-      if (shown === '' || shown === ready) markField(nodeId, 'ready')
+      // Put in, or the field keeps what the user has there (perhaps an edit of an earlier offer): either is what Send sends now.
+      markField(nodeId, 'ready')
       setAt(null)
       field.current?.focus()
     }
@@ -258,9 +257,10 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
     const message = text
     const attached = chipsNow.current
     if (disabled || sending || (message.trim() === '' && attached.length === 0)) return
-    // The ready text (perhaps edited) goes out: no ring on Send now (Getting started).
-    const readyIn = nodeId !== undefined && usePendingInput.getState().fields[nodeId] === 'ready' ? nodeId : null
-    if (readyIn !== null) markField(readyIn, 'sent')
+    // A send from a field a step offered a text to, whatever it sends: no ring on Send or on the step's button now (Getting started).
+    const before = nodeId === undefined ? undefined : usePendingInput.getState().fields[nodeId]
+    const offeredIn = nodeId !== undefined && (before === 'offered' || before === 'ready') ? nodeId : null
+    if (offeredIn !== null) markField(offeredIn, 'sent')
     setSending(true)
     setError(null)
     setText('')
@@ -273,7 +273,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
     if (failure !== null) {
       // Not sent: the text and the attachments come back so nothing is lost.
       setText((current) => (current === '' ? message : current))
-      if (readyIn !== null) markField(readyIn, 'ready')
+      if (offeredIn !== null && before !== undefined) markField(offeredIn, before)
       changeChips((current) => [...attached, ...current])
       setError(failure)
     }

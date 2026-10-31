@@ -21,8 +21,8 @@ export type HighlightTarget = { kind: 'step'; step: GettingStartedStep } | { kin
 export interface PreparedField {
   step: GettingStartedStep
   nodeId: string
-  /** As session/pending-input.ts records it: the text lies in the field, or was sent from it. */
-  phase: 'ready' | 'sent'
+  /** As session/pending-input.ts records it: offered and not in the field, in the field, or sent from it. */
+  phase: 'offered' | 'ready' | 'sent'
 }
 
 export interface HighlightInput {

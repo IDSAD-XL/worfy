@@ -35,6 +35,7 @@ describe('highlightTarget', () => {
     ['step 2: "Create demo project"', { snapshot: snapshot(['1']) }, step('2')],
     ['step 2 while the demo is being created: nothing', { snapshot: snapshot(['1']), creating: true }, null],
     ['step 3 with no ready text: "Open the Orchestrator"', { snapshot: snapshot(['1', '2']) }, step('3')],
+    ['step 3 with the text offered but not in the field (emptied, or not opened yet): "Open the Orchestrator"', { snapshot: snapshot(['1', '2']), field: { step: '3', nodeId: NODE, phase: 'offered' } }, step('3')],
     ['step 3 with the ready text in the field: its Send', { snapshot: snapshot(['1', '2']), field: { step: '3', nodeId: NODE, phase: 'ready' } }, send],
     ['step 3 after the text was sent: nothing', { snapshot: snapshot(['1', '2']), field: { step: '3', nodeId: NODE, phase: 'sent' } }, null],
     ['step 4 with no ready text: "Ship the ticket"', { snapshot: snapshot(['1', '2', '3']) }, step('4')],

@@ -190,8 +190,9 @@ already typed.
 
 **The ring on the next thing to press.** While the panel is expanded, a ring of the accent colour with a soft pulse marks one
 element: the current step's button; "Check again" of First run while step 1 is current and First run is open; the send button of
-the demo Orchestrator's field while the text of step 3 or 4 lies in it. Once that text is sent, there is no ring until the step is
-marked, so nothing asks for the turn a second time. A target that is not on screen, such as a send button in a closed Session view
+the demo Orchestrator's field while the text of step 3 or 4 lies in it, or the user's edit of it. Once that field sends anything,
+there is no ring until the step is marked, so nothing asks for the turn a second time. An emptied field gives the ring back to the
+step's button, which puts the text in again. A target that is not on screen, such as a send button in a closed Session view
 or a disabled one, gives way to the step's button, which opens it again. While the demo is being created, in steps 5 and 6, on the
 screen Done, on the pill and while the panel is hidden there is no ring. Nothing is dimmed or blocked, and the focus and the Tab
 order stay as they are. With reduced motion the ring stands still. A screen reader hears the current step as before.
@@ -262,7 +263,7 @@ does the work.
   cost, and creating or removing the demo. `src/renderer/getting-started/hints.ts` chooses the hint.
   `src/renderer/getting-started/notice.ts` is the notice. `src/renderer/getting-started/ReviewExample.tsx` and
   `src/renderer/getting-started/DoneScreen.tsx` are the recorded example and the screen Done. `src/renderer/session/pending-input.ts`
-  holds the ready text and whether it lies in the field or was sent.
+  holds the ready text and what became of it: offered, in the field, or sent.
 - `src/renderer/getting-started/highlight.ts` chooses the ring's target. The panel puts `data-getting-started-ring` on the one
   element with that `data-getting-started-target`: its step buttons, "Check again" in `src/renderer/shell/FirstRunChecks.tsx` and
   the send button in `src/renderer/session/MessageInput.tsx`, which also names its Node. It looks again after each change of the
