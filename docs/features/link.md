@@ -168,8 +168,10 @@ A connection is checked by a ping every 15 seconds, and one without a pong by th
 change of network each open connection is checked at once and is cut when no pong comes within 3 seconds.
 
 **Change address…** takes an address or name with its port. worfy keeps it only if the certificate the Machine was
-linked with answers there, and that dial then becomes the connection. Another certificate or no answer is shown in the
-window as a refusal, and the address stays as it was.
+linked with answers there, and that dial then becomes the connection: every other connection between the two Machines,
+whichever side dialled it, is closed, so the pair keeps only the new one. The Machine stays connected throughout, with
+no "disconnected", and the journal on each side notes which connection was replaced by which. Another certificate or
+no answer is shown in the window as a refusal, and the address and the open connections stay as they were.
 
 **Remove** always asks first, and the focus starts on Cancel. It forgets the Machine here at once, including its
 access level and tokens. The other side loses the link at once when connected, otherwise on its next connection, when
@@ -348,8 +350,8 @@ The Tailscale CLI is looked for on the Path, then in the Tailscale folder under 
   remembered certificate answers there. An incoming connection that passed the checks updates the remembered address
   too. The `.local` name is learnt only from an announcement at the address of an open connection.
 - **One connection per Machine carries the calls.** Both sides dial, so two connections may be open, and a Machine is
-  online while any is. Calls go over one, and only its events are passed on. When another connection takes over, or
-  sharing comes back, or the level changes between Read only and Full access, a counter called the epoch changes: what
+  online while any is; Change address… closes all but its own. Calls go over one, and only its events are passed on.
+  When another connection takes over, or sharing comes back, or the level changes between Read only and Full access, a counter called the epoch changes: what
   the old connection subscribed to is gone, and a window on that Machine loads again.
 - **Service messages are not IPC channels.** `hello`, `revoked`, `sleeping`, `awake`, `projects-access`, `note`,
   `ticket-note`, `autopilot-runs-ask` and `autopilot-runs` are the link's own, each parsed with a schema on arrival.

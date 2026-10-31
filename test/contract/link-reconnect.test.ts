@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import dns from 'node:dns'
 import { EventEmitter } from 'node:events'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { createServer, type Server, type Socket } from 'node:net'
+import { createServer, type AddressInfo, type Server, type Socket } from 'node:net'
 import os, { type NetworkInterfaceInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -482,6 +482,87 @@ describe('link.setAddress', () => {
     expect(info).toMatchObject({ id, address: 'localhost', port: newPort, fingerprint: before?.fingerprint, connected: true })
     expect(linked).toEqual([])
     expect(b.service.pairingCode()).toBeNull()
+  })
+
+  // worfy-link ticket 40: "Change address…" means "the link goes over this address", not "one more path".
+  /** `from`'s connections to `to` that have not closed yet (open or closing). */
+  const connectionsOf = (from: BenchMachine, to: BenchMachine): LinkConnection[] => [
+    ...((from.service as unknown as { connections: Map<string, Set<LinkConnection>> }).connections.get(to.service.machine.id) ?? []),
+  ]
+
+  /** A and B linked, each with a connection it dialled itself: the two connections the design allows. */
+  async function linkedBothWays(): Promise<{ a: BenchMachine; b: BenchMachine; aId: string; bId: string; disconnected: string[] }> {
+    const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    await bench.link(a, b)
+    const aId = a.service.machine.id
+    const bId = b.service.machine.id
+    await a.service.connect(bId)
+    await b.service.connect(aId)
+    await until(() => connectionsOf(a, b).length === 2 && connectionsOf(b, a).length === 2)
+    const disconnected: string[] = []
+    a.service.on('disconnected', ({ id }) => disconnected.push(`a lost ${id}`))
+    b.service.on('disconnected', ({ id }) => disconnected.push(`b lost ${id}`))
+    return { a, b, aId, bId, disconnected }
+  }
+
+  it('the address set by hand closes every other connection of the pair on both sides, with no "disconnected", and calls go over it', async () => {
+    const { a, b, bId, disconnected } = await linkedBothWays()
+    const old = [...connectionsOf(a, b), ...connectionsOf(b, a)]
+    const port = bench.portOf(b)
+
+    // A second address of B: its name, at the same port (the Host check of the server wants that port).
+    const info = await a.service.setAddress(bId, { host: 'localhost', port })
+    expect(info).toMatchObject({ address: 'localhost', port, connected: true })
+    await until(() => connectionsOf(a, b).length === 1 && connectionsOf(b, a).length === 1)
+    const [kept] = connectionsOf(a, b)
+    expect(old).not.toContain(kept)
+    expect(old.filter((connection) => connection.isOpen)).toEqual([])
+    expect(a.service.connectionTo(bId)).toBe(kept)
+    expect(connectionsOf(b, a)[0]?.isOpen).toBe(true)
+
+    const over = vi.spyOn(kept as LinkConnection, 'call')
+    expect(await a.service.call(bId, 'link.ping')).toMatchObject({ ok: true, value: { id: bId } })
+    expect(over).toHaveBeenCalledWith('link.ping', undefined)
+    // Long enough for a late close or a `disconnected` to show.
+    await pause(200)
+    expect(disconnected).toEqual([])
+    expect(online(a, b) && online(b, a)).toBe(true)
+  })
+
+  it('both sides write the replacement to the journal, with the old and the new address', async () => {
+    const { a, b, aId, bId } = await linkedBothWays()
+    const oldPort = bench.portOf(b)
+
+    await a.service.setAddress(bId, { host: 'localhost', port: oldPort })
+    await until(() => connectionsOf(a, b).length === 1 && connectionsOf(b, a).length === 1)
+
+    const has = (text: string): number => bench.captured.filter((line) => line.includes(text)).length
+    // A: its own dial to the old address, and B's dial to it.
+    expect(has(`[link] Machine ${bId} (b): the connection at 127.0.0.1:${oldPort} is closed, replaced by localhost:${oldPort}`)).toBe(1)
+    expect(has(`[link] Machine ${bId} (b): the connection at 127.0.0.1 is closed, replaced by localhost:${oldPort}`)).toBe(1)
+    // B: A's old dial and its own one to A, each once.
+    expect(has(`[link] Machine ${aId} (a): the connection at 127.0.0.1 is closed, replaced by `)).toBe(1)
+    expect(has(`[link] Machine ${aId} (a): the connection at 127.0.0.1:${bench.portOf(a)} is closed, replaced by `)).toBe(1)
+  })
+
+  it('a refused address, another certificate or no answer, leaves the open connections alone', async () => {
+    const { a, b, bId, disconnected } = await linkedBothWays()
+    const impostor = await bench.machine('impostor')
+    await bench.codeOf(impostor)
+    const nobody = await silentServer(0)
+    const nobodyPort = (nobody.server.address() as AddressInfo).port
+    await new Promise((done) => nobody.server.close(done))
+    const before = connectionsOf(a, b)
+
+    await expect(a.service.setAddress(bId, { host: '127.0.0.1', port: bench.portOf(impostor) })).rejects.toThrow(/another certificate; nothing was changed/)
+    await expect(a.service.setAddress(bId, { host: '127.0.0.1', port: nobodyPort })).rejects.toThrow(/could not reach/)
+    await pause(200)
+    expect(connectionsOf(a, b)).toEqual(before)
+    expect(before.every((connection) => connection.isOpen)).toBe(true)
+    expect(connectionsOf(b, a)).toHaveLength(2)
+    expect(disconnected).toEqual([])
+    expect(bench.captured.filter((line) => line.includes('is closed, replaced by'))).toEqual([])
   })
 })
 
