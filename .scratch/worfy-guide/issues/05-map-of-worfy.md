@@ -1,7 +1,8 @@
 # 05 — Map of worfy: обзорная схема, из которой можно перейти в любой Topic
 
 Type: task
-Status: claimed 2026-10-31T17:09Z
+Status: done 2026-10-31T19:39Z
+PR: #1152
 Blocked by: 04
 Source: [spec.md](../spec.md), Q7, Q13, Q18
 

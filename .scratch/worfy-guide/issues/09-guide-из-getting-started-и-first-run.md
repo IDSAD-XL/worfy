@@ -1,7 +1,8 @@
 # 09 — Ссылки на Guide из Getting started и First run
 
 Type: task
-Status: claimed 2026-10-31T16:34Z
+Status: done 2026-10-31T19:39Z
+PR: #1150
 Blocked by: 03
 Source: [spec.md](../spec.md), Q4
 

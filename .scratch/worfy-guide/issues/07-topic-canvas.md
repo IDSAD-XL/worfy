@@ -1,7 +1,8 @@
 # 07 — Topic Canvas
 
 Type: task
-Status: open
+Status: done 2026-10-31T20:23Z
+PR: #1158
 Blocked by: 05
 Source: [spec.md](../spec.md), Q5, Q6, Q17, Q18, Q19
 

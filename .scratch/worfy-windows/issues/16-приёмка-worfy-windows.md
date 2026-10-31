@@ -102,7 +102,7 @@ machines (`worfy-link`).
 
 ## Готово, когда
 
-- [ ] Планка (решение владельца 2026-10-23, Q1 «а»): gate full на Windows полностью зелёный, не «нет новых красных против main»; красные пересчёта 2026-10-23, которые повторяются каждый раз, исправлены в Epic-е (106, 109–112), flaky — в `worfy-polish` 41 (Q2).
+- [x] Планка (решение владельца 2026-10-23, Q1 «а»): gate full на Windows полностью зелёный, не «нет новых красных против main»; красные пересчёта 2026-10-23, которые повторяются каждый раз, исправлены в Epic-е (106, 109–112), flaky — в `worfy-polish` 41 (Q2).
 - [ ] Пункт 3: `pnpm test harness-node-only` — код 0 на Mac, на ПК владельца и в CI на Linux. Контрольный шаг: копия `harness/bin` во временной папке с подложенным скриптом `#!/bin/bash` — test называет этот файл и красный.
 - [ ] Пункт 3: `git ls-files --eol harness scripts` на Windows-клоне — у каждого скрипта `w/lf`. Вывод — в Итог.
 - [ ] Пункт 1 (шаг владельца): на ПК владельца неподписанный установщик поставил worfy; экран первого запуска — все строки `ok` (`warn` — только PowerShell, архитектура, `jq` или qmd по пути Б Ticket-а 15); после Install `claude plugin list --json` показывает `worfy` включённым и с версией сборки. Снимки — `../evidence/16-установка.png`, `../evidence/16-первый-запуск.png`. Unit-test-ы «голой» машины Ticket-а 13 (`test/unit/first-run-windows.test.ts`) — в `pnpm test`, зелёные.
@@ -140,3 +140,10 @@ Ticket последний в Epic-е, с другими Ticket-ами он не 
 ## Итог
 
 Заполняется при закрытии.
+
+Планка gate full (2026-10-31): первый полностью зелёный gate full на ПК — `main` `15932ac9`, exit 0, 3295 s,
+`[gate] green (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package`; vitest
+10877 passed, e2e 362 passed, package 16 passed, 0 failed. Пропущены по Windows exception (`worfy-windows` 117; решение
+владельца Q1/Q9 2026-10-31: зелёный с такими исключениями засчитывается) два test-а: `test/contract/terminal-windows.test.ts`
+и `test/contract/workflow-branches-gone.test.ts`, срок до 2026-12-15. Один зелёный прогон: на 8 workers красные раньше
+приходили по одному новому test-у, следующие gate full могут снова покраснеть.
