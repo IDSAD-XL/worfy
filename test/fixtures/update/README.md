@@ -8,7 +8,7 @@ hands `build-ok.mjs`, `build-fail.mjs` or `build-hang.mjs` to the builder in pla
 | file | stands in for | does |
 |---|---|---|
 | `pnpm.mjs` | `pnpm install --frozen-lockfile` | appends a line to `node_modules/.installs` of the clone; puts the Electron of `electron.mjs` there when `node_modules/electron` is not there yet, unless `FAKE_PNPM_ELECTRON=none` |
-| `electron.mjs` | — | `node_modules/electron` as a finished download leaves it: the program in `dist` (`Electron.app/Contents/MacOS/Electron`, `electron.exe`, `electron`) and `path.txt` naming it |
+| `electron.mjs` | — | `node_modules/electron` as a finished download leaves it: the program in `dist` (`Electron.app/Contents/MacOS/Electron`, `electron.exe`, `electron`) and `path.txt` naming it; the e2e specs `update-toasts` and `update-toolbar` commit it into their bare repository (types: `electron.d.mts`) |
 | `electron-install.mjs` | `node_modules/electron/install.js` | the test puts an `install.js` into the clone that imports it; puts the Electron of `electron.mjs` there, puts nothing with `FAKE_ELECTRON_INSTALL=nothing`, exits 1 with `FAKE_ELECTRON_INSTALL=fail` |
 | `build-ok.mjs` | `pnpm package` | makes `dist/mac-arm64/worfy.app` (`dist\win-unpacked` on Windows) with the commit's `marker.txt` |
 | `build-fail.mjs` | `pnpm package` | prints `fake build failed: …` to stderr, exits 1 |

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { buildVersionTooltip } from '../../src/shared/version-number'
+import { putElectron } from '../fixtures/update/electron.mjs'
 import { startUpdateStub, type UpdateStub } from '../update-stub'
 import { launchApp, type LaunchedApp } from './helpers'
 import { E2E_SHELL } from './launch-env'
@@ -14,11 +15,11 @@ import { E2E_SHELL } from './launch-env'
 // WORFY_UPDATE=1; GitHub is the local stub of test/update-stub.ts, the repository a bare one in a
 // temporary folder, the Stable copy a folder there too (WORFY_UPDATE_STABLE, refused by the stub
 // outside the temporary folder). The build of ticket 03 runs in worfy's own clone with a stand-in
-// pnpm whose `install --frozen-lockfile` only puts an Electron whose download finished into the clone
-// (path.txt and the program in dist, which the build checks before `pnpm package`, ticket 15), and a
-// build in place of `pnpm package` that waits for a file of the test, so "Building…" is seen before
-// "Restart now". Both are written by the spec into its temporary folder, as test/fixtures/update/
-// does for the contract tests. Nothing is restarted: the press would quit worfy.
+// pnpm whose `install --frozen-lockfile` does nothing, and a build in place of `pnpm package` that
+// waits for a file of the test, so "Building…" is seen before "Restart now". Both are written by the
+// spec into its temporary folder, as test/fixtures/update/ does for the contract tests. The
+// repository commits a node_modules/electron as a finished download leaves it, which the build checks
+// before `pnpm package` (ticket 15). Nothing is restarted: the press would quit worfy.
 //
 // The PATH of the build is the login shell's (src/main/agent/env.ts): the spec's own SHELL is the e2e
 // shell of launch-env.ts with the stand-in pnpm first on its PATH. Windows has no login shell, so the
@@ -109,6 +110,10 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   git(work, 'init', '-q')
   git(work, 'remote', 'add', 'origin', origin)
   writeFileSync(join(work, 'package.json'), `{ "name": "fixture", "version": "${VERSION}" }\n`)
+  // The Electron the build checks before `pnpm package` (ticket 15); -f: a global excludes file of the
+  // machine may ignore node_modules.
+  putElectron(work)
+  git(work, 'add', '-f', 'node_modules')
   const commit = (marker: string): string => {
     writeFileSync(join(work, 'marker.txt'), `${marker}\n`)
     git(work, 'add', '-A')
@@ -134,9 +139,7 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   // The login shell of the app: the e2e shell, with the stand-in pnpm first on its PATH.
   const bin = join(root, 'bin')
   mkdirSync(bin)
-  const program = process.platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : 'electron'
-  const electron = `mkdir -p "node_modules/electron/dist/$(dirname '${program}')" && : >'node_modules/electron/dist/${program}' && printf %s '${program}' >node_modules/electron/path.txt`
-  writeFileSync(join(bin, 'pnpm'), `#!/bin/sh\n[ "$*" = "install --frozen-lockfile" ] && { ${electron}; exit $?; }\necho "pnpm stand-in: unsupported: $*" >&2\nexit 2\n`)
+  writeFileSync(join(bin, 'pnpm'), '#!/bin/sh\n[ "$*" = "install --frozen-lockfile" ] && exit 0\necho "pnpm stand-in: unsupported: $*" >&2\nexit 2\n')
   chmodSync(join(bin, 'pnpm'), 0o755)
   const shell = join(root, 'shell', 'sh')
   mkdirSync(join(root, 'shell'))
