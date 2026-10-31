@@ -17,15 +17,16 @@ use one installer. A second request during an install gets the same run, and an 
 reaches every window.
 
 **The toolbar item.** It is the last item of the toolbar. Its second line holds the app version and worfy's own memory
-([Storage and diagnostics](storage-and-diagnostics.md)).
+([Storage and diagnostics](storage-and-diagnostics.md)). In the Stable copy the version is the version chip of
+[Update](updates.md).
 
 | State | Text | Icon button | When |
 |---|---|---|---|
 | Not installed | `Harness not installed` | Install | The plugin folder is missing, or Claude Code does not list the plugin |
 | Installed | `Harness <version>` | None | The copy and the plugin Claude Code lists carry this build's version |
 | Disabled | `Harness <version> · disabled` | None | The same, and the plugin is disabled in Claude Code |
-| Outdated | `Harness <from>` | Update Harness | Another version is installed. The tooltip says `<from> → <to>` |
-| Same version | `Harness <from>` | Replace Harness | The same semver from another commit, see below |
+| Outdated | `Harness <from>` | Update Harness, with the accent and a dot | Another version is installed. The tooltip says `<from> → <to>` |
+| Same version | `Harness <from>` | Replace Harness | The same semver from another commit, see below. When GitHub says it is behind, the row is Outdated |
 | Error | `Harness error: <step>` | Retry | A step failed, Claude Code reports the plugin broken, or a dependency is missing. The tooltip holds the reason |
 | Installing | `Installing Harness…` | None | During an install started from this item |
 | No answer | `Harness unavailable` | None | The call to the main process failed. The tooltip holds the reason |
@@ -90,12 +91,14 @@ the restart is marked as used first, so a failed install is not tried again unti
 failure is the usual error state with Retry, and the Update state marks it for a notice. An install started from the
 toolbar at that moment is shared, and Cancel in its dialog leaves the Harness as it was. When the copy that starts is not the one
 the restart named, because the swap did not happen, nothing is installed. Claude Code takes the new Harness from the
-next Session on.
+next Session on. The Update itself is described in [Updates](updates.md).
 
 **Harness out of date.** While Update is on, worfy also checks whether the installed Harness is behind this copy's. A
 lower semver is behind at once. For the same semver from another commit, worfy asks GitHub without sign-in whether this
 copy's commit comes after the installed one's. No answer from GitHub means no signal. The check runs after the install
-of the start, then once an hour, and again after every install of the Harness.
+of the start, then once an hour, and again after every install of the Harness. The signals of a Harness behind are the
+accent and the dot of "Update Harness", the toast "Harness out of date: <from> → <to>" and a failed Health row, see
+[Updates](updates.md).
 
 **Moving an old Harness.** Before the plugin, the Harness lived directly in `~/.claude`. While anything of it is left
 there, the First run row offers "Move…", and in a run that may install the toolbar also shows the icon "Move old

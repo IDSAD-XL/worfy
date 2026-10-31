@@ -34,6 +34,7 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 | [Onboarding](onboarding.md) | First run, Getting started, Demo project |
 | [Storage and diagnostics](storage-and-diagnostics.md) | data folder, diagnostics |
 | [Harness](harness.md) | installing from the app, plugin |
+| [Updates](updates.md) | Update, Available update |
 | [Skills, agents and hooks](skills-agents-and-hooks.md) | skills, agents, hooks |
 
 A page that is not written yet holds its heading and one line that says so. A pull request (PR) that writes a page

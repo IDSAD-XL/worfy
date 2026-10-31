@@ -23,7 +23,7 @@ Enter или клик запускает выбранную строку. Esc и
 
 | Группа | Строки |
 |---|---|
-| Action | New session; «New …» на каждый пункт меню Canvas; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Reconnect machine…; Remove machine… |
+| Action | New session; «New …» на каждый пункт меню Canvas; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Reconnect machine…; Remove machine…; Update worfy |
 | View | Switch to Canvas; Switch to Session; First-run checks; Getting started; Settings…; Keyboard shortcuts; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>` на каждый другой Project |
 | Go to | Orchestrator; каждый Epic, Ticket и ADR; каждый Node из Layout, кроме тех, что worfy рисует из workflow, и binding anchor-ов |
@@ -38,6 +38,8 @@ Enter или клик запускает выбранную строку. Esc и
 - Reconnect machine…: только для Linked machine, которая не online или у которой сменился сертификат. Remove machine…: для
   каждой Linked machine. Имя Machine стоит в подробностях строки.
 - Show all Nodes: только пока включён фильтр по тегу.
+- Update worfy: только там, где Update включён, с Project-ом и без. Перезапускает в собранный Update, собирает Available
+  update или проверяет, есть ли он; подробности строки говорят, что именно: см. [Updates](updates.md).
 
 Строка «Go to» показывает Canvas и центрирует его на Node-е. Архивный или скрытый Node сначала возвращается. Ticket в свёрнутом
 frame центрирует этот frame. Строка ADR открывает этот ADR только для чтения и не двигает Canvas. При скрытом sidebar ADR откроется, когда sidebar покажут. Строка Orchestrator открывает
@@ -260,7 +262,7 @@ Settings — это настройки самого worfy на этой Machine.
 
 | Раздел | Что в нём |
 |---|---|
-| General | Interface scale; Memory in the toolbar; Version |
+| General | Interface scale; Memory in the toolbar; Version; Updates там, где Update включён: см. [Updates](updates.md) |
 | Health | Проверки First run с их действиями и «Check again». Открытие раздела запускает проверку |
 | Shortcuts | Список окна Keyboard shortcuts |
 | Machines | Переключатели связи и уровень доступа каждой Linked machine: см. [Link](link.md) |
