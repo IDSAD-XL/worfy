@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 15, 17, 106, 109, 110, 111, 112, 116
+Blocked by: 15, 17, 106, 109, 110, 111, 112, 116, 117
 Source: «Готово, когда» Epic-а — пять пунктов, подтверждены владельцем 2026-10-08; решения владельца 2026-10-07: Q1 (полный порт под Windows), Q18 (Git for Windows обязателен), Q19 (скрипты, которые зовут hooks и worfy, — на Node; bash только в test-ах), Q20 (Terminal на Windows — PowerShell), Q21 (qmd на Windows или grep), Q22 (неподписанный установщик NSIS до E4; если включён Smart App Control — вопрос подписи сразу), Q23 (gate full на ПК владельца перед мержем платформенных PR), Q24 (Windows 10 21H2+ и 11, x64), Q25 (Session-ы Mac и Windows общаются через репозиторий); решения владельца 2026-10-08: Q30–Q33 (метка `needs-mac-gate`, gate full на свежем main в начале Wave на Windows, очередь `/worfy:gate-queue` на Mac, раздел «Mac checks» и отчёт в PR; spec.md, «Соглашения», «Метка needs-mac-gate»); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node»; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions»; [docs/roadmap.md](../../../docs/roadmap.md), раздел «worfy-windows — Windows-порт»; [spec.md](../spec.md)
 
 ## Что происходит
