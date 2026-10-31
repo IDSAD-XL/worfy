@@ -23,6 +23,7 @@
 // linking again on the other side clears it.
 import { EventEmitter } from 'node:events'
 import { networkInterfaces as osNetworkInterfaces } from 'node:os'
+import { isLocalNetworkAddress, isTailscaleAddress } from './checks'
 import type { LinkService } from './service'
 
 /** Where Bonjour sees a Machine now. */
@@ -260,38 +261,81 @@ export class LinkConnections extends EventEmitter<{ changed: [] }> {
   }
 }
 
-/** What watchNetwork compares: every non-internal address, by interface, sorted. */
+/**
+ * What watchNetwork compares: this machine's addresses that may carry the link, as
+ * `"<interface> <address>"`, sorted. The rules are those of mdnsInterfaces (discovery.ts) and of the
+ * server's peer check (checks.ts): IPv4 only, not internal, not link-local 169.254/16, in a local
+ * range or in Tailscale's (whatever "Link through Tailscale" says, so TailnetSelfName in tailscale.ts
+ * still reads the name again when the Tailscale address changes). IPv6 is left out (worfy-link
+ * ticket 42): Windows rotates its temporary addresses on a timer, and Hyper-V and WSL switches come
+ * and go with only `fe80::`, and none of them carries the link.
+ */
 export function networkSignature(interfaces: ReturnType<typeof osNetworkInterfaces>): string {
-  const entries: string[] = []
-  for (const [name, list] of Object.entries(interfaces)) for (const entry of list ?? []) if (!entry.internal) entries.push(`${name} ${entry.address}`)
-  return entries.sort().join('\n')
+  return signatureEntries(interfaces).join('\n')
+}
+
+function signatureEntries(interfaces: ReturnType<typeof osNetworkInterfaces>): string[] {
+  const entries = new Set<string>()
+  for (const [name, list] of Object.entries(interfaces)) {
+    for (const entry of list ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal || entry.address.startsWith('169.254.') || entry.address.startsWith('127.')) continue
+      if (isTailscaleAddress(entry.address) || isLocalNetworkAddress(entry.address)) entries.add(`${name} ${entry.address}`)
+    }
+  }
+  return [...entries].sort()
+}
+
+/** A change of network as watchNetwork tells it: the `"<interface> <address>"` entries that came and went. */
+export interface NetworkChange {
+  added: string[]
+  removed: string[]
 }
 
 /**
  * Calls `changed` when the machine's addresses change: another network, a new DHCP address, the
  * Tailscale adapter up or down. Node and Electron have no event for it, so the interfaces are read
- * every `intervalMs` (5 s by default). Returns the stop.
+ * every `intervalMs` (5 s by default). A new set of addresses counts once two reads in a row see it
+ * (worfy-link ticket 42): an adapter that goes and comes back between two reads is no change, and a
+ * real one is told 5 to 10 s after it happens. An unreadable read is skipped. The change is told
+ * against the last set that counted. Returns the stop.
  */
 export function watchNetwork(
-  changed: () => void,
+  changed: (change: NetworkChange) => void,
   options: { interfaces?: () => ReturnType<typeof osNetworkInterfaces>; intervalMs?: number } = {},
 ): () => void {
   const read = options.interfaces ?? osNetworkInterfaces
-  const signature = (): string | undefined => {
+  const signature = (): string[] | undefined => {
     try {
-      return networkSignature(read())
+      return signatureEntries(read())
     } catch {
       // Unreadable this time (it throws on some systems while an adapter goes away): the next read decides.
       return undefined
     }
   }
+  const key = (entries: string[]): string => entries.join('\n')
+  // The set that counts, and a new one seen once, waiting for the next read to confirm it.
   let last = signature()
+  let pending: string[] | undefined
   const timer = setInterval(() => {
     const now = signature()
-    if (now === undefined || now === last) return
-    const first = last === undefined
+    if (now === undefined) return
+    if (last === undefined) {
+      last = now
+      return
+    }
+    if (key(now) === key(last)) {
+      pending = undefined
+      return
+    }
+    if (pending === undefined || key(pending) !== key(now)) {
+      pending = now
+      return
+    }
+    const before = new Set(last)
+    const after = new Set(now)
     last = now
-    if (!first) changed()
+    pending = undefined
+    changed({ added: now.filter((entry) => !before.has(entry)), removed: [...before].filter((entry) => !after.has(entry)) })
   }, options.intervalMs ?? 5_000)
   timer.unref()
   return () => clearInterval(timer)

@@ -1229,7 +1229,8 @@ export function wireAppLink(service: LinkService, options: WireAppLinkOptions): 
   service.on('connected', ({ id, name }) => console.log(`[link] Machine ${id} (${name}) is connected`))
   service.on('disconnected', ({ id, name }) => console.log(`[link] Machine ${id} (${name}) is disconnected`))
   sleep.on('resumed', () => again('this Machine woke up'))
-  const stopWatch = watchNetwork(() => again('the network of this Machine changed'), {
+  // The line names what changed (worfy-link ticket 42): `+Wi-Fi 10.0.0.7, -Wi-Fi 192.168.0.193`.
+  const stopWatch = watchNetwork(({ added, removed }) => again(`the network of this Machine changed (${[...added.map((entry) => `+${entry}`), ...removed.map((entry) => `-${entry}`)].join(', ')})`), {
     ...(options.networkInterfaces === undefined ? {} : { interfaces: options.networkInterfaces }),
     ...(options.networkPollMs === undefined ? {} : { intervalMs: options.networkPollMs }),
   })

@@ -12,7 +12,7 @@ import os, { type NetworkInterfaceInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firewallHint, rowHint } from '../../src/main/ipc/link'
-import { LinkConnections, networkSignature } from '../../src/main/link/connections'
+import { LinkConnections, networkSignature, watchNetwork, type NetworkChange } from '../../src/main/link/connections'
 import {
   bonjourBackend,
   dialAddress,
@@ -29,6 +29,7 @@ import {
 import { LinkConnection } from '../../src/main/link/connection'
 import { LinkLogFile, teeLinkConsole } from '../../src/main/link/log-file'
 import { LinkService, stopLink, wireAppLink, type AppLink, type LinkServiceOptions } from '../../src/main/link/service'
+import { TailnetSelfName } from '../../src/main/link/tailscale'
 import { accessOf } from '../../src/shared/ipc/channels'
 import '../../src/shared/ipc/link'
 import { LinkBench, type BenchMachine } from './link-bench'
@@ -223,6 +224,137 @@ describe('dialling at once on wake-up and on a new network', () => {
     expect(networkSignature(one)).toBe('en0 192.168.1.20')
     expect(networkSignature({ ...one, lo0: [{ ...LOOPBACK, address: '127.0.0.2' }] })).toBe(networkSignature(one))
     expect(networkSignature({ ...one, en0: [{ ...LOOPBACK, address: '10.0.0.7', internal: false }] })).not.toBe(networkSignature(one))
+  })
+})
+
+describe('a change of network is an address that may carry the link, held for two reads (worfy-link ticket 42)', () => {
+  const v4 = (address: string): NetworkInterfaceInfo => ({ address, netmask: '255.255.255.0', family: 'IPv4', mac: '00:00:00:00:00:02', internal: false, cidr: `${address}/24` })
+  const v6 = (address: string): NetworkInterfaceInfo => ({ address, netmask: 'ffff:ffff:ffff:ffff::', family: 'IPv6', mac: '00:00:00:00:00:02', internal: false, cidr: `${address}/64`, scopeid: 0 })
+  /** A Windows PC: Wi-Fi with IPv4 and IPv6, Tailscale, and the loopback. */
+  const pc = (): Record<string, NetworkInterfaceInfo[]> => ({
+    'Loopback Pseudo-Interface 1': [LOOPBACK],
+    'Wi-Fi': [v4('192.168.0.193'), v6('2a02:2378:1000::1a'), v6('fe80::1c2d:3e4f:5a6b:7c8d')],
+    Tailscale: [v4('100.101.102.103'), v6('fd7a:115c:a1e0::1')],
+  })
+
+  it('IPv6, fe80::, 169.254/16 and an adapter without IPv4 are not a change; a local IPv4 or a Tailscale address is', () => {
+    const before = networkSignature(pc())
+    expect(before).toBe(['Tailscale 100.101.102.103', 'Wi-Fi 192.168.0.193'].join('\n'))
+    // Windows rotates its temporary IPv6 addresses on a timer.
+    expect(networkSignature({ ...pc(), 'Wi-Fi': [v4('192.168.0.193'), v6('2a02:2378:1000::77'), v6('fe80::1c2d:3e4f:5a6b:7c8d')] })).toBe(before)
+    expect(networkSignature({ ...pc(), 'Wi-Fi': [v4('192.168.0.193'), v6('2a02:2378:1000::1a'), v6('fe80::99')] })).toBe(before)
+    expect(networkSignature({ ...pc(), Ethernet: [v4('169.254.12.34')] })).toBe(before)
+    // A Hyper-V or WSL switch coming up with only its link-local IPv6 address.
+    expect(networkSignature({ ...pc(), 'vEthernet (WSL)': [v6('fe80::215:5dff:fe00:1')] })).toBe(before)
+
+    expect(networkSignature({ ...pc(), 'vEthernet (WSL)': [v4('172.30.16.1')] })).toBe([before, 'vEthernet (WSL) 172.30.16.1'].join('\n'))
+    expect(networkSignature({ ...pc(), 'Wi-Fi': [v4('10.0.0.7')] })).not.toBe(before)
+    expect(networkSignature({ ...pc(), Tailscale: [v4('100.71.20.56')] })).not.toBe(before)
+  })
+
+  it('the MagicDNS name is read again when the Tailscale address changes, not when only IPv6 does', async () => {
+    const read = vi.fn(async (): Promise<string | undefined> => 'pc.taila00ba6.ts.net')
+    const cache = new TailnetSelfName(read)
+    await cache.get(pc())
+    await cache.get({ ...pc(), 'Wi-Fi': [v4('192.168.0.193'), v6('2a02:2378:1000::77')] })
+    expect(read).toHaveBeenCalledTimes(1)
+    await cache.get({ ...pc(), Tailscale: [v4('100.71.20.56')] })
+    expect(read).toHaveBeenCalledTimes(2)
+  })
+
+  /** Interfaces read in turn from `script`; its last entry repeats. */
+  const scripted = (script: Record<string, NetworkInterfaceInfo[]>[]) => {
+    const state = { script, reads: 0 }
+    const read = (): Record<string, NetworkInterfaceInfo[]> => {
+      const at = Math.min(state.reads, state.script.length - 1)
+      state.reads += 1
+      const next = state.script[at]
+      if (next === undefined) throw new Error('an empty script')
+      return next
+    }
+    return Object.assign(state, { read })
+  }
+  const moved = (): Record<string, NetworkInterfaceInfo[]> => ({ ...pc(), 'Wi-Fi': [v4('10.0.0.7')] })
+  const other = (): Record<string, NetworkInterfaceInfo[]> => ({ ...pc(), 'Wi-Fi': [v4('10.0.0.8')] })
+
+  it('an address that flips back within one read is no change; a new one held for two reads is one change', () => {
+    vi.useFakeTimers()
+    const changes: NetworkChange[] = []
+    const network = scripted([pc(), moved(), pc()])
+    const stop = watchNetwork((change) => changes.push(change), { interfaces: network.read, intervalMs: 100 })
+    vi.advanceTimersByTime(1_000)
+    expect(changes).toEqual([])
+
+    network.script = [moved()]
+    vi.advanceTimersByTime(100)
+    expect(changes).toEqual([])
+    vi.advanceTimersByTime(100)
+    expect(changes).toEqual([{ added: ['Wi-Fi 10.0.0.7'], removed: ['Wi-Fi 192.168.0.193'] }])
+    vi.advanceTimersByTime(1_000)
+    expect(changes).toHaveLength(1)
+    stop()
+  })
+
+  it('a second change while the first settles waits for its own two reads and is told against the last accepted network', () => {
+    vi.useFakeTimers()
+    const changes: NetworkChange[] = []
+    const network = scripted([pc(), moved(), other()])
+    const stop = watchNetwork((change) => changes.push(change), { interfaces: network.read, intervalMs: 100 })
+    vi.advanceTimersByTime(200)
+    expect(changes).toEqual([])
+    vi.advanceTimersByTime(100)
+    expect(changes).toEqual([{ added: ['Wi-Fi 10.0.0.8'], removed: ['Wi-Fi 192.168.0.193'] }])
+    stop()
+  })
+
+  it('an unreadable read neither counts nor resets the settle; a stop while it settles ends it', () => {
+    vi.useFakeTimers()
+    const changes: NetworkChange[] = []
+    let fail = false
+    const network = scripted([pc(), moved()])
+    const read = (): Record<string, NetworkInterfaceInfo[]> => {
+      if (fail) throw new Error('the adapter went away')
+      return network.read()
+    }
+    const stop = watchNetwork((change) => changes.push(change), { interfaces: read, intervalMs: 100 })
+    vi.advanceTimersByTime(100)
+    fail = true
+    vi.advanceTimersByTime(300)
+    expect(changes).toEqual([])
+    fail = false
+    vi.advanceTimersByTime(100)
+    expect(changes).toHaveLength(1)
+
+    const later = scripted([pc(), moved()])
+    const stopLater = watchNetwork((change) => changes.push(change), { interfaces: later.read, intervalMs: 100 })
+    vi.advanceTimersByTime(100)
+    stopLater()
+    vi.advanceTimersByTime(1_000)
+    expect(changes).toHaveLength(1)
+    expect(later.reads).toBe(2)
+    stop()
+  })
+
+  it('the app link: a flip gives no line and no announcement; a held change gives one line naming the addresses and one announcement', async () => {
+    const a = await bench.machine('a')
+    const discovery = new LinkDiscovery({ backend: recordingMdns(), self: () => a.service.machine, isLinked: (id) => a.service.isLinked(id), protocol: 1 })
+    const announceAgain = vi.spyOn(discovery, 'announceAgain')
+    const network = scripted([pc(), moved(), pc()])
+    links.push(wireAppLink(a.service, { bonjour: true, discovery, networkInterfaces: network.read, networkPollMs: 20 }))
+    const lines = (): string[] => bench.captured.filter((line) => line.startsWith('[link] the network of this Machine changed'))
+
+    await until(() => network.reads >= 6)
+    expect(lines()).toEqual([])
+    expect(announceAgain).not.toHaveBeenCalled()
+
+    network.script = [moved()]
+    network.reads = 0
+    await until(() => lines().length > 0)
+    await until(() => network.reads >= 6)
+    expect(lines()).toHaveLength(1)
+    expect(lines()[0]).toContain('+Wi-Fi 10.0.0.7')
+    expect(lines()[0]).toContain('-Wi-Fi 192.168.0.193')
+    expect(announceAgain).toHaveBeenCalledTimes(1)
   })
 })
 
