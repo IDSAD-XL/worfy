@@ -1,11 +1,12 @@
 // Settings → General: the interface scale of this Machine (a slider, 80–150 % by steps of 10 %),
-// whether the toolbar shows worfy's own memory (worfy-ui ticket 20), and the build version
-// (`app.version`).
+// whether the toolbar shows worfy's own memory (worfy-ui ticket 20), the build version
+// (`app.version`) and, under it, the block "Updates" (worfy-update ticket 09, UpdatesBlock.tsx).
 import { useEffect, useRef, useState } from 'react'
 import { failureReason } from '../../shared/ipc/channels'
 import { INTERFACE_SCALE_MAX, INTERFACE_SCALE_MIN, INTERFACE_SCALE_STEP } from '../../shared/settings/app-settings'
 import { invoke } from '../ipc'
 import { SettingRow, SettingSwitch } from './controls'
+import { UpdatesBlock } from './UpdatesBlock'
 import { formatScale, scaleToPercent } from './interface-scale'
 import { setAppSettings, useAppSettings } from './useAppSettings'
 
@@ -135,6 +136,7 @@ export default function GeneralSection() {
           {version.kind === 'ok' ? version.version : version.kind === 'loading' ? '…' : 'unknown'}
         </span>
       </SettingRow>
+      <UpdatesBlock />
     </>
   )
 }

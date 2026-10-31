@@ -29,11 +29,16 @@
 // Reconnect only for a Machine without a connection. They concern this Machine's link, not the Project.
 // "Getting started" (worfy-onboarding tickets 07, 13) shows the Getting started panel again,
 // expanded, and focuses it (getting-started/store.ts); with or without a Project.
+// "Update worfy" (worfy-update ticket 09) is there while Update is on in this copy, with or without a
+// Project: it does what the button of Settings → General → Updates does now — restarts into a built
+// Update (`update.restart`, "now" or "idle"), builds the Available update (`update.install`), or,
+// without one, checks ("Check now", `update.check`). It concerns this copy of worfy, not the Project.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
 import type { GateQueueView } from '../../shared/ipc/gate-queue'
 import type { LinkedMachineView } from '../../shared/ipc/link'
+import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { failureReason } from '../../shared/ipc/channels'
 import { epicNodeId, shownOnCanvas, SOURCE_NODE_KINDS, ticketNodeId } from '../../shared/layout/derived'
 import type { LayoutNode } from '../../shared/layout/types'
@@ -56,6 +61,7 @@ import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
 import { label } from '../shortcuts/match'
 import { openShortcuts } from '../shortcuts/shortcuts-window'
+import { checkForUpdateNow, installUpdate, restartIntoUpdate, updateStep, useUpdateStore } from '../update/store'
 
 export type CommandGroup = 'Action' | 'Go to' | 'View' | 'Project' | 'Manual check'
 
@@ -100,6 +106,8 @@ export interface CommandContext {
   now?: number | undefined
   /** The Linked machines of this Machine; absent — as the renderer has them now (linkStateNow). */
   linked?: readonly LinkedMachineView[] | undefined
+  /** main's Update snapshot (update/store.ts); null — not answered yet; absent — as the window has it now. */
+  update?: UpdateSnapshot | null | undefined
 }
 
 const nn = (num: number): string => String(num).padStart(2, '0')
@@ -530,6 +538,23 @@ function machineCommands({ linked }: CommandContext): PaletteCommand[] {
   return commands
 }
 
+/** "Update worfy" while Update is on: restart, build or check, as the state allows. */
+function updateCommands({ update }: CommandContext): PaletteCommand[] {
+  const snapshot = update === undefined ? useUpdateStore.getState().snapshot : update
+  if (snapshot === null || !snapshot.enabled) return []
+  const step = updateStep(snapshot)
+  return [
+    {
+      id: 'update-worfy',
+      group: 'Action',
+      title: 'Update worfy',
+      detail: step.kind === 'restart' ? 'ready — restart' : step.kind === 'install' ? `worfy ${step.version} available` : 'check for a new version',
+      keys: ['update', 'upgrade', 'new version', 'check now'],
+      run: () => (step.kind === 'restart' ? restartIntoUpdate(step.when) : step.kind === 'install' ? installUpdate() : checkForUpdateNow()),
+    },
+  ]
+}
+
 /** The commands the palette ranks for `query`: with an empty field, those without `queryOnly`. */
 export function forQuery(commands: readonly PaletteCommand[], query: string): readonly PaletteCommand[] {
   return normalizeQuery(query) === '' ? commands.filter((command) => command.queryOnly !== true) : commands
@@ -542,6 +567,7 @@ export function forQuery(commands: readonly PaletteCommand[], query: string): re
 export function buildCommands(context: CommandContext): PaletteCommand[] {
   return [
     ...actionCommands(context),
+    ...updateCommands(context),
     ...viewCommands(context),
     ...workflowActionCommands(context),
     ...machineCommands(context),

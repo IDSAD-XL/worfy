@@ -4,7 +4,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import { failureReason } from '../../shared/ipc/channels'
-import type { UpdateSnapshot } from '../../shared/ipc/update'
+import type { RestartAnswer, UpdateSnapshot } from '../../shared/ipc/update'
 import { invoke, subscribe } from '../ipc'
 
 export interface UpdateStore {
@@ -53,4 +53,46 @@ export async function checkForUpdateNow(): Promise<string | undefined> {
   if (!result.ok) return failureReason('update.check', result.error)
   accept(result.value)
   return undefined
+}
+
+// The presses of Settings → General → Updates and of the Command palette's "Update worfy" (ticket 09).
+
+/** What a press of an Update button can do now. */
+export type UpdateStep = { kind: 'check' } | { kind: 'install'; version: string; building: boolean } | { kind: 'restart'; version: string; when: 'now' | 'idle' }
+
+/**
+ * The step "Update worfy" stands for in this snapshot: restart into a built Update, build the
+ * Available update, or check. The commit rolled back from (`quiet`) is no Available update until
+ * the next one (spec R8).
+ */
+export function updateStep(snapshot: UpdateSnapshot): UpdateStep {
+  const { build, available } = snapshot
+  if (build.phase === 'ready' && build.version !== undefined) return { kind: 'restart', version: build.version, when: snapshot.idle ? 'now' : 'idle' }
+  if (available !== null && !available.quiet) return { kind: 'install', version: available.version, building: build.phase === 'building' }
+  return { kind: 'check' }
+}
+
+/** Builds the Available update (`update.install`) and takes the snapshot with the build begun; the reason when main refused. */
+export async function installUpdate(): Promise<string | undefined> {
+  const result = await invoke('update.install')
+  if (!result.ok) return failureReason('update.install', result.error)
+  accept(result.value)
+  return undefined
+}
+
+/** The reason of a refusal; nothing for an answer that worked or was cancelled. */
+function refusalOf(answer: RestartAnswer): string | undefined {
+  return answer.outcome === 'refused' ? answer.reason : undefined
+}
+
+/** "Restart now" or "Restart when idle" (`update.restart`); the reason when main refused. */
+export async function restartIntoUpdate(when: 'now' | 'idle'): Promise<string | undefined> {
+  const result = await invoke('update.restart', { when })
+  return result.ok ? refusalOf(result.value) : failureReason('update.restart', result.error)
+}
+
+/** "Roll back to previous version": main asks the native dialog first; `cancelled` is no problem. */
+export async function rollBackUpdate(): Promise<string | undefined> {
+  const result = await invoke('update.rollback')
+  return result.ok ? refusalOf(result.value) : failureReason('update.rollback', result.error)
 }
