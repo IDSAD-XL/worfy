@@ -1,0 +1,91 @@
+{
+  "title": "Browser",
+  "summary": [
+    "A Browser is a Node on the Canvas with a Chromium page. You browse in it by hand, and a Session drives it with tools. It opens under a Browser profile, the saved sign-in of one role, so Sessions arrive signed in and never see the passwords."
+  ],
+  "scene": {
+    "description": "The Browser in worfy. On the Canvas lie a Live Browser, a Session and an Asleep Browser. Outside the Canvas stand the Browser profile, the Session's MCP server worfy-browser and the sleep rules. The Browser opens under its profile, signed in. The Session calls the browser tools of its server, which opens and drives the Browser. The sleep rules put a Browser to sleep, and a click wakes it.",
+    "labels": {
+      "notNodes": "NOT NODES",
+      "canvas": "Canvas",
+      "canvasNote": "a Browser is a Node",
+      "browser": "Browser",
+      "browserNote": "Live: a Chromium page",
+      "session": "Session",
+      "sessionNote": "drives it with tools",
+      "asleep": "Asleep Browser",
+      "asleepNote": "no page; wakes on a click",
+      "profile": "Browser profile",
+      "profileNote": "the sign-in of one role",
+      "server": "worfy-browser",
+      "serverNote": "MCP server, one per Session",
+      "rules": "Sleep rules",
+      "rulesNote": "3 Live at once by default",
+      "signedIn": "opens signed in",
+      "tools": "browser_* tools",
+      "drives": "opens, drives",
+      "sleeps": "puts to sleep",
+      "step1": "You sign in by hand in a Browser. Its Browser profile keeps the cookies, which every Browser under that profile shares.",
+      "step2": "A Session opens a Browser next to its own Node with browser_open, under an existing profile, and arrives signed in.",
+      "step3": "The Session reads, clicks and types with the worfy-browser tools. It stays on the profile's origins and never types into a password field.",
+      "step4": "While a Session drives a Browser, a press or a key of yours on the page takes it over, and the Session's calls are refused. Return control to Claude gives it back.",
+      "step5": "A Browser left unused, or off screen, can go to sleep after a while. A click or a Session's call wakes it, and the page loads again."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "The data flow of a Browser's page. In this window: the page and the Browser layer. In the main process: the CdpPage, LiveBrowsers, the screencast and the MCP server worfy-browser. On the side of Claude Code: its process. Below: another screen. The layer reports what the window shows on browser.screen and gets Live and Asleep on browser.lives.changed. For each Live Browser this window owns, it draws a <webview> and hands it to main on browser.page.live, which makes a CdpPage, reaching the page through its debugger. Claude Code calls a tool of worfy-browser, which holds the Browser in LiveBrowsers and sends CDP commands to the CdpPage. LiveBrowsers tells the screencast of each new page; another screen watches on browser.frames.watch, gets browser.frame and sends browser.input to LiveBrowsers.",
+      "labels": {
+        "window": "THIS WINDOW",
+        "main": "MAIN PROCESS",
+        "claude": "CLAUDE CODE",
+        "others": "OTHER SCREENS",
+        "page": "Page",
+        "pageNote": "<webview>, no app powers",
+        "layer": "Browser layer",
+        "layerNote": "under all Nodes",
+        "other": "Another screen",
+        "otherNote": "window or full-access Linked machine",
+        "cdp": "CdpPage",
+        "cdpNote": "webContents.debugger",
+        "lives": "LiveBrowsers",
+        "livesNote": "Live or Asleep, who drives",
+        "screencast": "Screencast",
+        "screencastNote": "JPEG frames for watchers",
+        "server": "worfy-browser",
+        "serverNote": "MCP server, one per Session",
+        "process": "Claude Code",
+        "processNote": "the Session's process",
+        "draws": "draws",
+        "screen": "browser.screen",
+        "livesChanged": "browser.lives.changed",
+        "pageLive": "browser.page.live",
+        "debugger": "debugger",
+        "call": "tool call",
+        "commands": "CDP commands",
+        "holds": "holds, wakes",
+        "newPage": "each new page",
+        "watch": "browser.frames.watch",
+        "frame": "browser.frame",
+        "input": "browser.input"
+      }
+    },
+    "text": [
+      "Each page is a <webview> that a layer under all Nodes draws at its frame, so the Canvas zoom scales it and other Nodes cover it. It has no preload and no Node integration, and runs in the sandbox.",
+      "Main holds the state of every Browser and checks the sleep rules once a second. While a Session drives, a main-frame navigation off the profile's origins is cancelled in CDP's Fetch domain."
+    ],
+    "files": {
+      "src/main/browser/live.ts": "Life, control and owner of each Browser",
+      "src/main/browser/sleep.ts": "The rules of sleep and the limit",
+      "src/main/browser/cdp.ts": "The CDP session on one page",
+      "src/main/mcp/browser-server.ts": "The MCP server and its tools",
+      "src/renderer/canvas/overlays/BrowserLayer.tsx": "The layer of pages",
+      "src/main/browser/profiles.ts": "The Browser profiles of a Project"
+    },
+    "limits": [
+      "Live at once: 3 Browsers by default, up to 10, for the whole Machine. By default a Live one can sleep after 30 s off screen or 5 min unused.",
+      "browser_type takes up to 10,000 characters, and browser_read cuts at 60,000.",
+      "In Autopilot a Session sees only the profiles marked Available to Autopilot."
+    ]
+  }
+}

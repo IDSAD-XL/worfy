@@ -1,0 +1,11 @@
+{
+  "sources": [{ "page": "docs/features/browser.md", "sha": "244b3394" }],
+  "files": [
+    "src/main/browser/live.ts",
+    "src/main/browser/sleep.ts",
+    "src/main/browser/cdp.ts",
+    "src/main/mcp/browser-server.ts",
+    "src/renderer/canvas/overlays/BrowserLayer.tsx",
+    "src/main/browser/profiles.ts"
+  ]
+}
