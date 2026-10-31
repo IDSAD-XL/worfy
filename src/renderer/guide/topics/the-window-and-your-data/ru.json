@@ -1,0 +1,112 @@
+{
+  "title": "Окно и ваши данные",
+  "summary": [
+    "Вокруг Canvas — окно worfy: Command palette (⌘K), меню, Settings и уведомления, когда Session или Ticket ждут вас. Окно светлое или тёмное, как система. Своё состояние worfy хранит в папке данных на этой Machine, а Ticket-ы, ADR и транскрипты читает там, где они лежат."
+  ],
+  "scene": {
+    "description": "Окно и ваши данные. Слева — то, что worfy читает на месте: файлы workflow, то есть Ticket-ы, HANDOFF и ADR, их читают для каждого Ticket-а; и Claude home, где читают транскрипты для каждой Session. В середине — окно: Command palette и меню, оба открывают Settings; toast; и Canvas с Ticket-ом и Session. Справа, на этой Machine: папка данных, куда сохраняются Settings и Layout, Card-ы и корзина каждого Canvas и куда диагностика пишет свои логи; и системное уведомление, которое поднимает Session или Ticket, когда ждут вас. Автоматический архив Canvas показывает toast с Undo.",
+    "labels": {
+      "read": "ЧИТАЕТСЯ НА МЕСТЕ",
+      "window": "ОКНО",
+      "machine": "НА ЭТОЙ MACHINE",
+      "workflowFiles": "Файлы workflow",
+      "workflowFilesNote": "Ticket-ы, HANDOFF, ADR",
+      "claudeHome": "Claude home",
+      "claudeHomeNote": "~/.claude, там транскрипты",
+      "palette": "Command palette",
+      "paletteNote": "⌘K: найти и выполнить",
+      "menu": "Меню",
+      "menuNote": "Settings…, Help ▸ worfy Guide",
+      "settings": "Settings",
+      "settingsNote": "свои у worfy на этой Machine",
+      "toast": "Toast",
+      "toastNote": "короткое сообщение в окне",
+      "canvas": "Canvas",
+      "ticket": "Ticket",
+      "ticketNote": "читается из своего файла",
+      "session": "Session",
+      "sessionNote": "один разговор с Claude Code",
+      "diagnostics": "Диагностика",
+      "diagnosticsNote": "сбой запуска, завершённые процессы",
+      "dataFolder": "Папка данных",
+      "dataFolderNote": "собственное состояние worfy",
+      "notification": "Системное уведомление",
+      "notificationNote": "когда worfy не на переднем плане",
+      "opens": "открывает",
+      "opensToo": "Settings… (⌘,)",
+      "savesSettings": "app-settings.json",
+      "savesLayout": "Layout, Card-ы, корзина",
+      "archived": "Archived N · Undo",
+      "logs": "logs/",
+      "readsFiles": "читает, не копирует",
+      "readsTranscripts": "читает транскрипты",
+      "waits": "ждёт вас",
+      "needsYou": "закончила или ждёт вас",
+      "step1": "⌘K открывает Command palette: она находит команды и вещи Project-а и выполняет их. Command palette и меню открывают Settings — собственные настройки worfy на этой Machine.",
+      "step2": "Своё состояние worfy хранит в одной папке данных на этой Machine: список Project-ов, Settings, а для каждого Project-а — Layout, Card-ы и корзину. Ничего из этого не попадает в репозиторий Project-а.",
+      "step3": "Ticket-ов, HANDOFF, ADR и транскриптов в этой папке нет: worfy читает их там, где они лежат.",
+      "step4": "Пока ни одно окно worfy не в фокусе, системное уведомление говорит, что Session закончила ход или ждёт вашего ответа, или что Ticket ждёт вас. Внутри окна короткие сообщения показывают toast-ы.",
+      "step5": "Если worfy не может запуститься, окно называет шаг, который упал, и что попробовать. Завершившийся процесс оставляет строку в logs/ папки данных."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "Поток данных Settings, уведомлений и счётчика памяти. В renderer: окно Settings, копия настроек в renderer, NotificationTarget и счётчик памяти. В main process: хранилище настроек, SessionRegistry, Notifier и MemorySampler. Со стороны диска и системы: папка данных и системное уведомление. Окно Settings отправляет изменение по appSettings.set в хранилище; оно пишет его в папку данных через временный файл и переименование и шлёт appSettings.changed копии настроек в каждом окне, а копия отдаёт окну самое новое состояние. SessionRegistry передаёт Notifier-у результат Session, запрос разрешения или вопрос, и Notifier показывает системное уведомление; клик по нему возвращается в Notifier, и тот шлёт notify.open в NotificationTarget. Счётчик памяти открывает MemorySampler по memory.open и получает каждый замер по memory.changed.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "system": "ДИСК И СИСТЕМА",
+        "settingsWindow": "Окно Settings",
+        "settingsWindowNote": "по файлу на раздел",
+        "copy": "Копия в renderer",
+        "copyNote": "хранит самую новую revision",
+        "target": "NotificationTarget",
+        "targetNote": "открывает то, что назвал клик",
+        "figure": "Счётчик памяти",
+        "figureNote": "в toolbar",
+        "store": "Хранилище настроек",
+        "storeNote": "пишет только настоящее изменение",
+        "sessions": "SessionRegistry",
+        "sessionsNote": "Session-ы, которые запустил worfy",
+        "notifier": "Notifier",
+        "notifierNote": "решает; показывает NoteDisplay",
+        "sampler": "MemorySampler",
+        "samplerNote": "раз в 5 s, пока виден",
+        "dataFolder": "Папка данных",
+        "dataFolderNote": "app-settings.json и другие",
+        "os": "Системное уведомление",
+        "osNote": "macOS или Windows",
+        "set": "appSettings.set",
+        "write": "временный файл, затем rename",
+        "changed": "appSettings.changed",
+        "state": "новое состояние",
+        "events": "result, permission, question",
+        "show": "показ",
+        "click": "клик",
+        "open": "notify.open",
+        "memOpen": "memory.open",
+        "memChanged": "memory.changed"
+      }
+    },
+    "text": [
+      "Папка данных — worfy у собранного приложения и worfy-dev у сборки для разработки, поэтому обе работают одновременно; WORFY_DATA_DIR её переопределяет. Второй запуск над занятой папкой завершается и переводит фокус на уже работающий worfy.",
+      "JSON-файл состояния, который не разбирается или не подходит под свою схему, не перезаписывается: его откладывают как <name>.unreadable-<time>, и эта часть worfy стартует пустой.",
+      "Каждое сочетание клавиш записано один раз, в одном registry, и его читают обработчики клавиш, меню и окно Keyboard shortcuts."
+    ],
+    "files": {
+      "src/main/storage/paths.ts": "Единственный модуль, который знает, где папка данных",
+      "src/main/storage/json-file.ts": "Чтение по схеме и откладывание; атомарная запись",
+      "src/main/settings/store.ts": "Настройки Machine в app-settings.json",
+      "src/renderer/palette/commands.ts": "Команды Command palette, собранные из состояния окна",
+      "src/shared/shortcuts.ts": "Registry сочетаний клавиш",
+      "src/main/notify.ts": "Правила системных уведомлений и клик",
+      "src/renderer/toast/toasts.ts": "Хранилище toast-ов",
+      "src/main/startup-failure.ts": "Шаги запуска и окно неудачного запуска"
+    },
+    "limits": [
+      "Session или Ticket не дают уведомления, пока окно worfy в фокусе, а одна Session — не больше одного за 10 секунд.",
+      "На экране не больше 3 toast-ов; info и success скрываются через 4 секунды.",
+      "Записи старше 3 дней удаляются из корзины каждого Project-а при запуске приложения."
+    ]
+  }
+}

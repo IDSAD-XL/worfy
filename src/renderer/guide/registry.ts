@@ -31,6 +31,7 @@ export const GUIDE_TOPICS: readonly GuideTopicEntry[] = [
   { id: 'link', title: 'Link', keys: ['linked machine', 'tailscale', 'pairing code'] },
   { id: 'gate-and-github', title: 'Gate and GitHub', keys: ['gate full', 'ci badges', 'verdict'] },
   { id: 'projects', title: 'Projects', keys: ['silent mode', 'full mode', 'workflow folder'] },
+  { id: 'the-window-and-your-data', title: 'The window and your data', keys: ['data folder', 'notifications', 'diagnostics', 'theme'] },
   { id: 'skeleton', title: 'How the Guide works', keys: ['guide test', 'skeleton'], devOnly: true },
 ]
 
