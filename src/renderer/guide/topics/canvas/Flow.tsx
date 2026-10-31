@@ -4,6 +4,10 @@
 // call the same LayoutStore; main saves layout.json and sends `layout.changed` back to every window.
 // The Epic frames are not in the Layout: sources/epics.ts computes them from the workflow model, with
 // ELK in a Web Worker. Labels come from the texts' `underTheHood.flow.labels`.
+//
+// Groups (scene-colours.ts): no group names worfy's own code, so the window's code, main's LayoutStore,
+// layout.json and the ELK worker take the most neutral one, Machine; the agent's tools are Agents, and
+// the workflow model and the Epic frames computed from it Workflow.
 import type { SceneProps } from '../../content'
 import { LivingScene } from '../../scene/LivingScene'
 import type { SceneSpec } from '../../scene/model'
@@ -16,14 +20,14 @@ const SPEC: SceneSpec = {
     { label: 'main', x: 560, y: 28 },
   ],
   blocks: [
-    { id: 'reactflow', x: 16, y: 40, group: 'project' },
-    { id: 'uselayout', x: 280, y: 40, group: 'project' },
+    { id: 'reactflow', x: 16, y: 40, group: 'machine' },
+    { id: 'uselayout', x: 280, y: 40, group: 'machine' },
     { id: 'store', x: 560, y: 40, group: 'machine' },
     { id: 'file', x: 784, y: 150, group: 'machine' },
     { id: 'mcp', x: 560, y: 150, group: 'agents' },
     { id: 'epics', x: 16, y: 250, group: 'workflow' },
     { id: 'workflow', x: 560, y: 250, group: 'workflow' },
-    { id: 'elk', x: 16, y: 360, group: 'tools' },
+    { id: 'elk', x: 16, y: 360, group: 'machine' },
   ],
   edges: [
     { from: 'reactflow', to: 'uselayout', label: 'operation', fromShift: -10, toShift: -10 },

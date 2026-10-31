@@ -21,7 +21,7 @@ export interface GuideTopicEntry {
 export const GUIDE_TOPICS: readonly GuideTopicEntry[] = [
   { id: 'map-of-worfy', title: 'Map of worfy', keys: ['overview', 'concepts', 'how worfy fits together'] },
   { id: 'canvas', title: 'Canvas', keys: ['done shelf', 'focus mode'] },
-  { id: 'skeleton', title:'How the Guide works', keys: ['guide test', 'skeleton'], devOnly: true },
+  { id: 'skeleton', title: 'How the Guide works', keys: ['guide test', 'skeleton'], devOnly: true },
 ]
 
 /**

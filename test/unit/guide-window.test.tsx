@@ -202,7 +202,8 @@ describe('the Topics', () => {
     const under = within(dialog).getByTestId('guide-under-the-hood') as HTMLDetailsElement
     under.open = true
     const flow = within(under).getByRole('group', { name: strings.en.dataFlow })
-    expect(under.querySelector('figure')).toBe(flow)
+    // First in Under the hood: the element right after its summary line.
+    expect(under.querySelector('summary')?.nextElementSibling).toBe(flow)
     // Its own test id: the Topic's diagram stays the one `guide-scene` of the Topic.
     expect(within(flow).getByTestId('guide-flow')).toBeTruthy()
     expect(within(dialog).getAllByTestId('guide-scene')).toHaveLength(1)

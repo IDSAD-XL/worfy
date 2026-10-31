@@ -47,6 +47,16 @@ describe('palette ranking', () => {
     expect(rankItems([{ id: 'view', title: 'Go to canvas' }, { id: 'guide', title: 'Canvas', yields: true }], 'canvas').map((item) => item.id)).toEqual(['guide', 'view'])
   })
 
+  it('keeps a yielding match inside a title above a plain match of the detail, even at its start', () => {
+    // "anvas" inside "Guide: Canvas" is a title match (TIER_TITLE - 8); "anvas" at 0 of the detail is
+    // TIER_DETAIL exactly: a lower kind of match, which the Guide row does not yield to.
+    const items = [
+      { id: 'detail', title: 'Something', detail: 'anvas first' },
+      { id: 'guide', title: 'Guide: Canvas', yields: true },
+    ]
+    expect(rankItems(items, 'anvas').map((item) => item.id)).toEqual(['guide', 'detail'])
+  })
+
   it('still returns an item that yields, first, when nothing else matches', () => {
     const items = [
       { id: 'view', title: 'Switch to Canvas' },
