@@ -90,7 +90,7 @@ focus mode заканчивается.
 - **Последний Node покинул Canvas.**
 - **Активным стал другой Project.**
 - **Запрос к главной области.** Выполненный под слоем, он выглядел бы проигнорированным, поэтому focus mode на нём заканчивается.
-  Такие запросы: Session view; клик по Epic-у или Session в sidebar; «Go to» в Command palette; новый Node; «Tidy up», «Arrange by
+  Такие запросы: Session view или Pipeline view; клик по Epic-у или Session в sidebar; «Go to» в Command palette; новый Node; «Tidy up», «Arrange by
   Epic» и «Re-pack»; включение или снятие фильтра по тегу; открытие ADR. Открытие find bar таким запросом не считается.
 
 Что делает Esc, зависит от того, где фокус клавиатуры:
@@ -115,7 +115,7 @@ focus mode заканчивается.
 | ⌘B | Скрывает или показывает sidebar |
 | ⌘K | Открывает Command palette поверх слоя |
 | ⌘=, ⌘-, ⌘0 | Ничего не делают: Canvas не меняет zoom незаметно |
-| ⌥ с =, - или 0 | Доходят до пунктов масштаба интерфейса в меню View ([App shell](app-shell.md)) |
+| ⌥⌘=, ⌥⌘-, ⌥⌘0 | Доходят до пунктов масштаба интерфейса в меню View ([App shell](app-shell.md)) |
 | Tab | Ходит по элементам управления слоя и по sidebar, но никогда не по toolbar и не по Canvas под слоем |
 
 Когда фокус в слое, стрелки не двигают Node-ы на Canvas, а Delete, Backspace и ⌘Z на Canvas не действуют. Колесо мыши не двигает
