@@ -219,8 +219,10 @@ function typed(event: AgentEvent): string | null {
  * theirs when the file has none of their ids) that lie right before that point, after the last
  * event with an id. A prompt in the file that already has an answer,
  * or that an interruption closed, is a turn from before Resume and stays, even when the user typed
- * the same text again. A prompt from before Resume that got neither and reads like the first live
- * one cannot be told from it and is shown once.
+ * the same text again. A prompt from before Resume that got neither and reads like a live one the
+ * live events bring before that event cannot be told from it and is shown once. While the file has
+ * none of the live ids yet, that is any live prompt: such a prompt from before Resume is shown
+ * once, from the live events, until the file catches up with them.
  */
 export function joinPastAndLive(past: readonly AgentEvent[], live: readonly AgentEvent[]): readonly AgentEvent[] {
   if (live.length === 0) return past

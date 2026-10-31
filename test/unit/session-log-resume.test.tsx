@@ -112,6 +112,20 @@ describe('joinPastAndLive', () => {
     expect(joinPastAndLive([...before, user('hi')], live)).toEqual([...before, ...live])
   })
 
+  it('keeps a prompt from before Resume without answer when the same text comes live after the turn the file has', () => {
+    // Only the live prompts before the event the file has at the join point open the live part.
+    const past = [...before, user('hi'), user('a'), text('msg_a', 'A')]
+    const live: AgentEvent[] = [user('a'), text('msg_a', 'A'), user('hi'), text('msg_h', 'Hello')]
+    expect(joinPastAndLive(past, live)).toEqual([...before, user('hi'), ...live])
+  })
+
+  it('while the file has none of the live ids, cannot tell a prompt from before Resume without answer from any same live one, and shows it once', () => {
+    // A known gap (worfy-link ticket 41): until the file has the first live turn, every live prompt
+    // may be in it. Once it has that turn, the prompt from before Resume shows again (the test above).
+    const live: AgentEvent[] = [user('a'), text('msg_a', 'A'), user('hi'), text('msg_h', 'Hello')]
+    expect(joinPastAndLive([...before, user('hi')], live)).toEqual([...before, ...live])
+  })
+
   it('keeps every turn before Resume when no live event has come yet', () => {
     expect(joinPastAndLive(before, [])).toEqual(before)
   })

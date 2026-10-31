@@ -71,5 +71,11 @@ the live events open with an event the transcript does not record» и блок 
 opened from another Machine» (синтетические записи транскрипта той же формы, что у владельца, через
 `parseTranscriptLines`, и SDK-сообщения через `sdkMessageToEvents` и store); оба красные до правки.
 
+Побочный эффект правки (известный пробел, закреплён test-ом «while the file has none of the live ids, …»): пока у
+файла нет ни одного id из live-событий, prompt до Resume без ответа и без прерывания склеивается с любым live prompt с
+тем же текстом, а не только с первым. Он показан один раз, из live. Это временно: как только файл догонит первый
+live-ход, такой prompt снова показан отдельно (test «keeps a prompt from before Resume without answer when the same
+text comes live after the turn the file has»; он же красный на варианте «открывают все live prompt-ы»).
+
 Не исправлено: если файл прочитан раньше, чем live-событие с тем же id пришло (файл «впереди» live), дубль виден
 до прихода этого события; отличить такой случай от хода до Resume с тем же текстом без времени нельзя.
