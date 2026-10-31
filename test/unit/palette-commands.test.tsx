@@ -1,5 +1,5 @@
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { GateQueueView } from '../../src/shared/ipc/gate-queue'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
@@ -19,6 +19,9 @@ import { acceptLinkState } from '../../src/renderer/machines/useMachines'
 import type { LinkedMachineView, LinkState } from '../../src/shared/ipc/link'
 import { updateSnapshotSchema, type UpdateSnapshot } from '../../src/shared/ipc/update'
 import { useUpdateStore } from '../../src/renderer/update/store'
+import { useGuide } from '../../src/renderer/guide/store'
+import { GUIDE_TOPICS } from '../../src/renderer/guide/registry'
+import { useShortcutsWindow } from '../../src/renderer/shortcuts/shortcuts-window'
 
 function ticket(num: number, state: Ticket['state'], blockedNums: number[] = []): Ticket {
   return {
@@ -256,9 +259,65 @@ describe('palette commands', () => {
       'getting-started',
       'settings',
       'shortcuts',
+      'guide',
       'project:p1',
       'project:p2',
     ])
+  })
+
+  describe('the worfy Guide (worfy-guide/03)', () => {
+    const reset = () => useGuide.setState({ open: false, topic: null, build: { version: null, packaged: false } })
+    // Back to the state of a window whose build has not answered: the other tests count the rows.
+    afterEach(() => useGuide.setState({ open: false, topic: null, build: { version: null, packaged: null } }))
+
+    it('has a row in the View group, with or without a Project; running it opens the Guide where it was', async () => {
+      for (const project of [context().project, undefined]) {
+        reset()
+        useGuide.setState({ topic: 'skeleton' })
+        const command = buildCommands(context({ project })).find((each) => each.id === 'guide')
+        expect(command).toMatchObject({ group: 'View', title: 'worfy Guide' })
+        expect(command?.queryOnly).toBeFalsy()
+        for (const query of ['guide', 'help', 'docs']) expect(rankItems(buildCommands(context({ project })), query)[0]?.id, query).toBe('guide')
+        expect(await command!.run()).toBeUndefined()
+        expect(useGuide.getState()).toMatchObject({ open: true, topic: 'skeleton' })
+      }
+    })
+
+    it('has a row per Topic, found by typing; running it opens the Guide at that Topic', async () => {
+      reset()
+      const rows = buildCommands(context({ project: undefined })).filter((each) => each.id.startsWith('guide:'))
+      expect(rows.map((row) => row.id)).toEqual(GUIDE_TOPICS.map((topic) => `guide:${topic.id}`))
+      const row = rows.find((each) => each.id === 'guide:skeleton')
+      expect(row).toMatchObject({ group: 'View', title: 'Guide: How the Guide works', queryOnly: true })
+      expect(forQuery(buildCommands(context()), '').some((each) => each.id === 'guide:skeleton')).toBe(false)
+      expect(rankItems(buildCommands(context()), 'how the guide works')[0]?.id).toBe('guide:skeleton')
+      expect(await row!.run()).toBeUndefined()
+      expect(useGuide.getState()).toMatchObject({ open: true, topic: 'skeleton' })
+    })
+
+    it('leaves out the test Topic in a packaged build, and while the build has not answered', () => {
+      for (const packaged of [true, null]) {
+        reset()
+        useGuide.setState({ build: { version: null, packaged } })
+        expect(buildCommands(context()).some((each) => each.id === 'guide:skeleton'), String(packaged)).toBe(false)
+        expect(buildCommands(context()).some((each) => each.id === 'guide'), String(packaged)).toBe(true)
+      }
+    })
+
+    it('opening the Guide closes the Keyboard shortcuts and the Settings window: one modal', async () => {
+      reset()
+      useShortcutsWindow.setState({ open: true })
+      await buildCommands(context()).find((each) => each.id === 'guide')!.run()
+      expect(useShortcutsWindow.getState().open).toBe(false)
+      expect(useGuide.getState().open).toBe(true)
+      useSettingsWindow.setState({ open: true, section: null })
+      expect(useGuide.getState().open).toBe(false)
+      useSettingsWindow.setState({ open: false, section: null })
+      await buildCommands(context()).find((each) => each.id === 'guide')!.run()
+      useShortcutsWindow.setState({ open: true })
+      expect(useGuide.getState().open).toBe(false)
+      useShortcutsWindow.setState({ open: false })
+    })
   })
 
   it('has Settings… in the View group, with or without a Project, and running it opens the Settings window (worfy-ui/02)', async () => {

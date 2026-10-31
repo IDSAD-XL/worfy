@@ -158,7 +158,7 @@ beforeAll(async () => {
 
 describe('IPC wiring in src/main/index.ts', () => {
   it('answers a call from the window the app loads', async () => {
-    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3', packaged: true } })
   })
 
   it('rejects a call from any other frame', async () => {
@@ -190,20 +190,31 @@ describe('app.version in src/main/index.ts', () => {
 
   it('answers the version of the Harness copy bundled with the build', async () => {
     bundleHarness({ name: 'worfy', version: '0.2.0+abc1234' })
-    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '0.2.0+abc1234' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '0.2.0+abc1234', packaged: true } })
   })
 
   it('falls back to app.getVersion() when the build has no Harness copy', async () => {
-    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3', packaged: true } })
   })
 
   it('falls back to app.getVersion() when the copy has no version or an unreadable plugin.json', async () => {
     bundleHarness({ name: 'worfy' })
-    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3', packaged: true } })
     bundleHarness({ name: 'worfy', version: '' })
-    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3', packaged: true } })
     writeFileSync(pluginJson, '{ not json')
-    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3', packaged: true } })
+  })
+
+  it('says whether the build is packaged: the worfy Guide shows its test Topic only in one that is not (worfy-guide/03)', async () => {
+    const { app } = await import('electron')
+    const fake = app as unknown as { isPackaged: boolean }
+    fake.isPackaged = false
+    try {
+      expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3', packaged: false } })
+    } finally {
+      fake.isPackaged = true
+    }
   })
 })
 

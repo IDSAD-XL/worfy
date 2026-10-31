@@ -643,7 +643,7 @@ describe('Help ▸ Keyboard Shortcuts', () => {
     expect(menu.SHORTCUTS_MENU_ITEM_ID).toBe('help.shortcuts')
     // The help role gives the menu the search field of macOS.
     expect(help).toMatchObject({ role: 'help', label: 'Help' })
-    expect(help?.submenu).toEqual([shortcuts])
+    expect(help?.submenu?.filter((item) => item.id === menu.SHORTCUTS_MENU_ITEM_ID)).toEqual([shortcuts])
     expect(shortcuts).toMatchObject({ label: 'Keyboard Shortcuts', accelerator: 'CmdOrCtrl+/' })
     expect(shortcuts.role).toBeUndefined()
     expect(items(template).filter((item) => item.accelerator === 'CmdOrCtrl+/')).toEqual([shortcuts])
@@ -689,6 +689,44 @@ describe('Help ▸ Keyboard Shortcuts', () => {
   it('the installed menu carries it too', async () => {
     const { template } = await load()
     expect(items(template).filter((item) => item.label === 'Keyboard Shortcuts')).toHaveLength(1)
+  })
+})
+
+describe('Help ▸ worfy Guide (worfy-guide ticket 03)', () => {
+  async function templateFor(platform: NodeJS.Platform) {
+    vi.resetModules()
+    const menu = await import('../../src/main/menu')
+    const template = menu.menuTemplate(() => undefined, platform) as TemplateItem[]
+    const help = template.at(-1)
+    const guide = help?.submenu?.find((item) => item.id === menu.GUIDE_MENU_ITEM_ID)
+    if (!guide) throw new Error('Help ▸ worfy Guide is missing')
+    return { menu, help, guide }
+  }
+
+  it.each(['darwin', 'win32', 'linux'] as const)('on %s Help starts with worfy Guide, a separator and Keyboard Shortcuts; the Guide item has no key', async (platform) => {
+    const { menu, help, guide } = await templateFor(platform)
+    // test/e2e/guide.spec.ts clicks the item by this id.
+    expect(menu.GUIDE_MENU_ITEM_ID).toBe('help.guide')
+    expect(help?.submenu?.map((item) => item.id ?? item.type)).toEqual([menu.GUIDE_MENU_ITEM_ID, 'separator', menu.SHORTCUTS_MENU_ITEM_ID])
+    expect(guide).toMatchObject({ label: 'worfy Guide' })
+    expect(guide.accelerator).toBeUndefined()
+    expect(guide.role).toBeUndefined()
+  })
+
+  it('a click with a window tells that window `guide`, not the focused one', async () => {
+    const { guide } = await templateFor('darwin')
+    const other = new electron.FakeBrowserWindow('other')
+    await pageFollows(other, ['guide'])
+    await pageFollows(electron.window, ['guide'])
+    electron.FakeBrowserWindow.all = [electron.window, other]
+    electron.FakeBrowserWindow.focused = electron.window
+    guide.click?.({ checked: false }, other)
+    expect(electron.sent).toEqual([{ to: 'other', channel: `${IPC_CHANNEL_PREFIX}menu.command`, payload: 'guide' }])
+  })
+
+  it('the installed menu carries it once', async () => {
+    const { template } = await load()
+    expect(items(template).filter((item) => item.label === 'worfy Guide')).toHaveLength(1)
   })
 })
 
@@ -739,6 +777,7 @@ describe('a menu command chosen before the page follows it (worfy-windows ticket
       settings: clickOf(menu.SETTINGS_MENU_ITEM_ID),
       toggleSidebar: clickOf(menu.SIDEBAR_MENU_ITEM_ID),
       shortcuts: clickOf(menu.SHORTCUTS_MENU_ITEM_ID),
+      guide: clickOf(menu.GUIDE_MENU_ITEM_ID),
     }
     return { held, choose }
   }
@@ -968,7 +1007,8 @@ describe('menu contract', () => {
     expect(menuCommand.payload.parse('settings')).toBe('settings')
     expect(menuCommand.payload.parse('toggleSidebar')).toBe('toggleSidebar')
     expect(menuCommand.payload.parse('shortcuts')).toBe('shortcuts')
-    expect(menuCommand.payload.options).toEqual(['settings', 'toggleSidebar', 'shortcuts'])
+    expect(menuCommand.payload.parse('guide')).toBe('guide')
+    expect(menuCommand.payload.options).toEqual(['settings', 'toggleSidebar', 'shortcuts', 'guide'])
     expect(menuCommand.payload.safeParse('togglesidebar').success).toBe(false)
     expect(menuCommand.payload.safeParse('quit').success).toBe(false)
     expect(menuCommand.payload.safeParse({ command: 'settings' }).success).toBe(false)

@@ -288,6 +288,30 @@ describe('AppSettingsStore', () => {
     expect(new AppSettingsStore(file).get().autoUpdate).toBe(true)
   })
 
+  it('the language of the worfy Guide (worfy-guide ticket 03): absent until chosen, then written, read back and kept; a language it does not know reads as not chosen', () => {
+    expect(DEFAULT_APP_SETTINGS).not.toHaveProperty('guideLanguage')
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.1, revision: 2 }))
+    const store = new AppSettingsStore(file)
+    expect(store.get()).not.toHaveProperty('guideLanguage')
+
+    expect(store.set({ guideLanguage: 'ru' })).toMatchObject({ guideLanguage: 'ru', revision: 3 })
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ guideLanguage: 'ru' })
+    expect(new AppSettingsStore(file).get().guideLanguage).toBe('ru')
+    // The same value again changes nothing; another setting keeps it.
+    expect(store.set({ guideLanguage: 'ru' }).revision).toBe(3)
+    expect(store.set({ interfaceScale: 1.2 })).toMatchObject({ interfaceScale: 1.2, guideLanguage: 'ru' })
+    expect(store.set({ guideLanguage: 'en' }).guideLanguage).toBe('en')
+    expect(new AppSettingsStore(file).get().guideLanguage).toBe('en')
+
+    // A file edited by hand, or written by a newer version with a third language: not chosen, the rest stays.
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.3, guideLanguage: 'de', revision: 7 }))
+    const other = new AppSettingsStore(file)
+    expect(other.get()).not.toHaveProperty('guideLanguage')
+    expect(other.get()).toMatchObject({ interfaceScale: 1.3, revision: 7 })
+  })
+
   it('the archive of finished Sessions (worfy-canvas ticket 08): a file without the field gives the defaults; a choice is written, read back and kept apart from the defaults', () => {
     expect(SESSION_ARCHIVE_DEFAULTS).toEqual({ after: '24h', ticketDone: true })
     const file = freshFile()
@@ -553,6 +577,15 @@ describe('appSettings channels', () => {
       expect((await call('appSettings.set', { browserSleep: outside })).ok, JSON.stringify(outside)).toBe(false)
     }
     expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { browserSleep: { maxLive: 10, offscreenSeconds: 1, idleMinutes: 240, zoom: 0.1 } } })
+  })
+
+  it('appSettings.set takes the language of the Guide, en or ru, and refuses any other (worfy-guide ticket 03)', async () => {
+    const call = await windowCaller()
+    expect(await call('appSettings.set', { guideLanguage: 'ru' })).toMatchObject({ ok: true, value: { guideLanguage: 'ru' } })
+    for (const outside of ['de', 'RU', '', 1, null]) {
+      expect((await call('appSettings.set', { guideLanguage: outside })).ok, JSON.stringify(outside)).toBe(false)
+    }
+    expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { guideLanguage: 'ru' } })
   })
 
   it('appSettings.set takes the Autopilot budget within its bounds and refuses a reserve outside them (worfy-throughput ticket 41)', async () => {

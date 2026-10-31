@@ -1,0 +1,230 @@
+/* The worfy Guide (GuideWindow.tsx, ADR-0090): a modal window placed like the Settings window, in its
+   layer. Only the tokens of src/renderer/theme/tokens.css, so both themes follow on their own. The
+   Guide reads larger than the rest of worfy — a 22px Topic title, 14/21 text — and its diagrams may
+   colour blocks with the kind-* tokens: the two exceptions ADR-0090 makes from docs/design/F-SPEC.md.
+   Every text is --text, --text-secondary or --text-muted, at least 4.5:1 on --surface in both themes. */
+.w-guide__backdrop {
+  position: fixed;
+  inset: 0;
+  /* z-index: SETTINGS_LAYER (settings-window.ts), set inline. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+}
+.w-guide {
+  width: 920px;
+  max-width: calc(100vw - 32px);
+  height: min(640px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: var(--radius-popover);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-node);
+  font-size: var(--text-13);
+  outline: none;
+  overflow: hidden;
+}
+.w-guide__header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.w-guide__title {
+  flex: 1;
+  margin: 0;
+  font-size: var(--text-20);
+  font-weight: 600;
+}
+
+/* EN / RU: a segmented control, the track and thumb of the Settings segments. */
+.w-guide__languages {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--segment-track);
+}
+.w-guide__language {
+  min-width: 36px;
+  padding: 3px var(--space-2);
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12);
+  font-weight: 600;
+  cursor: pointer;
+}
+.w-guide__language[aria-pressed='true'] {
+  background: var(--segment-thumb);
+  color: var(--text);
+  box-shadow: var(--shadow-control);
+}
+.w-guide__language:focus-visible,
+.w-guide__list-item:focus-visible,
+.w-guide__under-summary:focus-visible,
+.w-guide a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.w-guide__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+}
+.w-guide__list {
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-2);
+  border-right: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+.w-guide__list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.w-guide__list .w-guide__heading {
+  padding: 0 var(--space-2);
+}
+.w-guide__list-item {
+  width: 100%;
+  padding: 6px var(--space-2);
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.w-guide__list-item:hover {
+  box-shadow: var(--hover-shadow);
+}
+.w-guide__list-item[aria-current='true'] {
+  background: var(--selected);
+  font-weight: 600;
+}
+
+.w-guide__content {
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-4) var(--space-4) 20px;
+}
+.w-guide__topic-title {
+  margin: 0 0 var(--space-3);
+  font-size: 22px;
+  font-weight: 650;
+}
+.w-guide__heading {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+}
+/* In Russian a heading keeps its case: a Latin term with a Russian ending (the plural of "Topic")
+   reads badly in capitals. */
+.w-guide[data-language='ru'] .w-guide__heading {
+  letter-spacing: normal;
+  text-transform: none;
+}
+.w-guide__text {
+  margin: 0 0 var(--space-2);
+  max-width: 64ch;
+  font-size: 14px;
+  line-height: 21px;
+}
+.w-guide__figure {
+  margin: 0 0 var(--space-3);
+}
+.w-guide__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.w-guide__under {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.w-guide__under-summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.w-guide__files {
+  border-collapse: collapse;
+  font-size: var(--text-13);
+}
+.w-guide__files td {
+  padding: 3px var(--space-3) 3px 0;
+  vertical-align: top;
+  color: var(--text-secondary);
+}
+.w-guide__file {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}
+.w-guide__limits {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+}
+.w-guide a {
+  color: var(--accent);
+}
+.w-guide__full-page {
+  font-weight: 600;
+}
+
+/* The diagram (topics/<id>/Scene.tsx): the Living Canvas style of the epic's spec. --c is the
+   colour of a block's group. */
+.w-guide-scene {
+  display: block;
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+}
+.w-guide-scene__canvas {
+  fill: var(--canvas);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+.w-guide-scene__edge {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+}
+.w-guide-scene__node {
+  fill: var(--surface);
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.w-guide-scene__header {
+  fill: color-mix(in srgb, var(--c) 13%, var(--surface));
+}
+.w-guide-scene__rule {
+  stroke: var(--border);
+}
+.w-guide-scene__title {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+.w-guide-scene__note {
+  fill: var(--text-secondary);
+  font-size: 11px;
+}

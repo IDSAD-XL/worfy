@@ -13,6 +13,8 @@
 // a file edited by hand — reads as not chosen, and the rest of the file stays. `autopilotBudget`
 // (worfy-throughput ticket 41) is kept the same way. `autoUpdate` ("Update automatically",
 // worfy-update ticket 03) is on in a file written before it existed, as `memoryIndicator` is.
+// `guideLanguage` (worfy-guide ticket 03) is absent until the person picks EN or RU in the Guide; a
+// language this version does not know reads as not chosen.
 //
 // One file for the Machine: every window shares it. The store announces `changed` with each new
 // state; the IPC module (src/main/ipc/app-settings.ts) passes it on to every window, and the modules
@@ -34,6 +36,8 @@ import {
   sessionArchiveAfterSchema,
   browserSleepChoiceSchema,
   autopilotBudgetChoiceSchema,
+  guideLanguageSchema,
+  type GuideLanguage,
   type AppSettings,
   type AutoCompactRole,
   type AppSettingsPatch,
@@ -84,6 +88,7 @@ const appSettingsFileSchema = z.object({
     })
     .optional()
     .catch(undefined),
+  guideLanguage: guideLanguageSchema.optional().catch(undefined),
   revision: z.number().int().nonnegative().default(0),
 })
 
@@ -120,6 +125,12 @@ function budgetChoice(current: BudgetChoice, patch?: BudgetChoice): Pick<AppSett
   return { autopilotBudget: { ...(enabled === undefined ? {} : { enabled }), ...(reservePercent === undefined ? {} : { reservePercent }) } }
 }
 
+/** The language of the Guide after `patch`: once chosen, it stays chosen. */
+function guideLanguageAfter(current: GuideLanguage | undefined, patched: GuideLanguage | undefined): Pick<AppSettings, 'guideLanguage'> {
+  const language = patched ?? current
+  return language === undefined ? {} : { guideLanguage: language }
+}
+
 /** One window and whether the person chose it. */
 interface RoleWindow {
   window: number | null
@@ -154,6 +165,7 @@ function copy(settings: AppSettings): AppSettings {
     ...archiveChoice(settings.sessionArchive),
     ...sleepChoice(settings.browserSleep),
     ...budgetChoice(settings.autopilotBudget),
+    ...(settings.guideLanguage === undefined ? {} : { guideLanguage: settings.guideLanguage }),
     revision: settings.revision,
   }
 }
@@ -182,6 +194,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     ...archiveChoice(current.sessionArchive, patch.sessionArchive),
     ...sleepChoice(current.browserSleep, patch.browserSleep),
     ...budgetChoice(current.autopilotBudget, patch.autopilotBudget),
+    ...guideLanguageAfter(current.guideLanguage, patch.guideLanguage),
     revision: current.revision,
   }
 }
@@ -203,6 +216,7 @@ function same(a: AppSettings, b: AppSettings): boolean {
     SLEEP_FIELDS.every((field) => a.browserSleep?.[field] === b.browserSleep?.[field]) &&
     a.autopilotBudget?.enabled === b.autopilotBudget?.enabled &&
     a.autopilotBudget?.reservePercent === b.autopilotBudget?.reservePercent &&
+    a.guideLanguage === b.guideLanguage &&
     a.autoCompactWindow.orchestrator === b.autoCompactWindow.orchestrator &&
     a.autoCompactWindow.other === b.autoCompactWindow.other &&
     autoCompactWindowChosen(a, 'orchestrator') === autoCompactWindowChosen(b, 'orchestrator') &&

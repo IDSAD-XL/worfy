@@ -1,0 +1,35 @@
+{
+  "title": "Как устроен Guide",
+  "summary": [
+    "Guide объясняет worfy короткими Topic-ами: схема, несколько строк текста и, в свёрнутом блоке ниже, как Feature устроен в коде.",
+    "Откройте его через Help ▸ worfy Guide или из Command palette. Ему не нужны ни Project, ни сеть, и сам он никогда не открывается."
+  ],
+  "scene": {
+    "description": "Help ▸ worfy Guide и строка Command palette открывают Guide. Guide берёт Topic-и из кода самого приложения.",
+    "labels": {
+      "menu": "Help menu",
+      "menuNote": "worfy Guide",
+      "palette": "Command palette",
+      "paletteNote": "строка на Topic",
+      "guide": "Guide",
+      "guideNote": "Topic-и на EN и RU",
+      "opens": "открывает"
+    }
+  },
+  "underTheHood": {
+    "text": [
+      "Guide — окно поверх интерфейса. Его код — отдельный чанк, он загружается при первом открытии, поэтому запуск worfy за него не платит.",
+      "Текст каждого Topic-а лежит в двух JSON-файлах, по одному на язык, рядом с его схемой. Test падает, если у строки есть только одна из двух версий. Выбор языка хранится в настройках приложения этой Machine."
+    ],
+    "files": {
+      "src/renderer/guide/GuideWindow.tsx": "Окно: список Topic-ов, Topic, переключатель языка",
+      "src/renderer/guide/registry.ts": "Строка на Topic для Command palette",
+      "src/main/menu.ts": "Пункт Help ▸ worfy Guide",
+      "scripts/guide-lag.mjs": "Отчёт о Topic-ах, отставших от страниц или перевода"
+    },
+    "limits": [
+      "Этот тестовый Topic не показывается в упакованной сборке.",
+      "Ссылки ведут на GitHub, на commit этой сборки, или на main, если сборка его не знает."
+    ]
+  }
+}

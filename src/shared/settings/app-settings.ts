@@ -41,8 +41,17 @@
 //   `sessionArchive`, it holds only what the person chose in Settings → Autopilot (off by default);
 //   autopilotBudgetOf() fills the rest with AUTOPILOT_BUDGET_DEFAULTS. Main reads it before every
 //   Wave of a run (src/main/ipc/autopilot.ts);
+// - `guideLanguage` — the language the worfy Guide is read in, EN or RU (worfy-guide ticket 03,
+//   ADR-0090): set by the switch in the Guide's header; absent while the person has not chosen, and
+//   the Guide follows the system language (src/renderer/guide/language.ts). The rest of the window
+//   stays English;
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
+
+/** The languages of the worfy Guide (ADR-0090): English, the main one, and Russian. */
+export const GUIDE_LANGUAGES = ['en', 'ru'] as const
+export const guideLanguageSchema = z.enum(GUIDE_LANGUAGES)
+export type GuideLanguage = z.output<typeof guideLanguageSchema>
 
 export const INTERFACE_SCALE_MIN = 0.8
 export const INTERFACE_SCALE_MAX = 1.5
@@ -209,6 +218,8 @@ export const appSettingsSchema = z.object({
   browserSleep: browserSleepChoiceSchema.optional(),
   /** The Autopilot budget settings the person chose; absent while none is (see autopilotBudgetOf). */
   autopilotBudget: autopilotBudgetChoiceSchema.optional(),
+  /** The language the person chose in the Guide; absent while none is (the system's language then). */
+  guideLanguage: guideLanguageSchema.optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
@@ -242,6 +253,8 @@ export const appSettingsPatchSchema = z.object({
   browserSleep: browserSleepChoiceSchema.optional(),
   /** Each field given is chosen, as in `sessionArchive`; a reserve outside AUTOPILOT_RESERVE_BOUNDS is refused. */
   autopilotBudget: autopilotBudgetChoiceSchema.optional(),
+  /** The language of the Guide; once chosen it stays chosen. */
+  guideLanguage: guideLanguageSchema.optional(),
 })
 export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 

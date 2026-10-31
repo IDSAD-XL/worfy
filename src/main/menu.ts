@@ -27,6 +27,9 @@
 // 11). Ctrl+B needs no such care: xterm.js cancels it in a terminal, and Electron hands the menu only
 // the presses the page did not cancel.
 //
+// Help ▸ worfy Guide asks the window to open the worfy Guide, the short visual help
+// (src/renderer/guide/, worfy-guide ticket 03, ADR-0090). It has no key of its own.
+//
 // Every accelerator comes from the registry of shortcuts (src/shared/shortcuts.ts), which the
 // labels and the Keyboard shortcuts window of the renderer read too.
 import { app, BrowserWindow, Menu, type BaseWindow, type MenuItem, type MenuItemConstructorOptions } from 'electron'
@@ -49,6 +52,8 @@ export const SCALE_ACTUAL_MENU_ITEM_ID = 'view.scale.actual'
 export const SIDEBAR_MENU_ITEM_ID = 'view.sidebar'
 /** The id of Help ▸ Keyboard Shortcuts (Cmd/Ctrl+/), for tests that click it. */
 export const SHORTCUTS_MENU_ITEM_ID = 'help.shortcuts'
+/** The id of Help ▸ worfy Guide, for tests that click it. */
+export const GUIDE_MENU_ITEM_ID = 'help.guide'
 
 /**
  * Tells one window's renderer to carry out `command`: the window the item was clicked for, else the
@@ -91,12 +96,14 @@ function fileMenu(platform: NodeJS.Platform): MenuItemConstructorOptions {
   return { label: 'File', submenu: [settingsItem(platform), { type: 'separator' }, { role: 'quit' }] }
 }
 
-/** Help with Electron's `help` role (the search field of macOS) and Keyboard Shortcuts in it. */
+/** Help with Electron's `help` role (the search field of macOS): worfy Guide, then Keyboard Shortcuts. */
 function helpMenu(platform: NodeJS.Platform): MenuItemConstructorOptions {
   return {
     role: 'help',
     label: 'Help',
     submenu: [
+      { id: GUIDE_MENU_ITEM_ID, label: 'worfy Guide', click: (_item, window) => sendMenuCommand('guide', window) },
+      { type: 'separator' },
       {
         id: SHORTCUTS_MENU_ITEM_ID,
         label: 'Keyboard Shortcuts',

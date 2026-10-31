@@ -181,5 +181,13 @@ Describes only what worfy-link ticket 25 (ADR-0066) needs: the screen of a Linke
 - **Sidebar**: beside the green "Online" chip of the Machine, the chip "Read only" — the surface raised, its border, secondary text — with the hint as its tooltip. In "Add project" the Machine cannot be chosen and shows the hint as its reason.
 - **Themes**: only roles from the Tokens table; no colors of its own.
 
+## worfy Guide
+The worfy Guide (Epic worfy-guide, ADR-0090) is a modal window drawn like the Settings window and in its layer. Its diagrams follow the Living Canvas style of `.scratch/worfy-guide/spec.md`. Two exceptions to this spec hold inside the Guide only, and nowhere else in worfy:
+
+- **Kind colours on its diagrams.** A block of a diagram may take a `kind-*` band as the colour of its group: the dot, the tinted header (`color-mix` of the band and the surface) and, while highlighted, its outline and its Edges. The rule of "Kind colours" above — never for status, never for an Edge — stays for the Canvas. A diagram never shows a status by colour alone, and every text on it keeps 4.5:1.
+- **Larger type.** The Topic title is 22 px / 650 and the text of a Topic 14 / 21 px, for reading rather than scanning. The sizes of "Typography" stay for the rest of the window, the Guide's list, header and tables included.
+
+Reference look in both themes and both languages: the e2e `test/e2e/guide.spec.ts` shoots the window as `guide-en` and `guide-ru`, each `light` and `dark` (kept as `.scratch/worfy-guide/evidence/03-guide-*.png`).
+
 ## Light/dark pairing rule
 Write the LIGHT file first. The DARK file must have the IDENTICAL markup structure, positions and copy — only token values differ (and light shadows removed in dark). Someone comparing the two should see the same screen in two appearances.

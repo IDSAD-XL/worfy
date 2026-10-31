@@ -1,7 +1,7 @@
 # App shell
 
-What surrounds the Canvas in every window, on every Project. Five Features: the **Command palette**, **Shortcuts**, the
-**Menu**, **Settings** and the **Theme**. [Notifications](notifications.md), the sixth, has a page of its own. Terms are
+What surrounds the Canvas in every window, on every Project. Six Features: the **Command palette**, **Shortcuts**, the
+**Menu**, **Settings**, the **worfy Guide** and the **Theme**. [Notifications](notifications.md), the sixth, has a page of its own. Terms are
 explained in [Concepts](concepts.md).
 
 ## Command palette
@@ -22,7 +22,7 @@ next typing or pick. While a command runs, another pick does nothing.
 | Group | Rows |
 |---|---|
 | Action | New session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Reconnect machine…; Remove machine…; Update worfy |
-| View | Switch to Canvas; Switch to Session; First-run checks; Getting started; Settings…; Keyboard shortcuts; Show only tag `<tag>`; Show all Nodes |
+| View | Switch to Canvas; Switch to Session; First-run checks; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>`, for each other Project |
 | Go to | Orchestrator; each Epic, Ticket and ADR; each Node of the Layout, except those worfy draws from the workflow and binding anchors |
 | Manual check | Each unchecked manual check of a Ticket. These rows appear only after typing |
@@ -36,6 +36,7 @@ Some rows exist only in some states:
 - Reconnect machine…: only for a Linked machine that is not online, or whose certificate changed. Remove machine…: for
   each Linked machine. The name of the Machine is in the detail of the row.
 - Show all Nodes: only while a tag filter is on.
+- Guide: `<Topic>`: only after typing. It opens the [worfy Guide](#worfy-guide) at that Topic.
 - Update worfy: only where Update is on, with or without a Project. It restarts into a built Update, builds the
   Available update, or checks for one, and its detail says which: see [Updates](updates.md).
 
@@ -205,7 +206,7 @@ The app menu is built on Electron's default menu, plus worfy's own items.
 | Edit | Electron's default |
 | View | Reload; Force Reload; Toggle Developer Tools; Actual size; Bigger; Smaller; Toggle Full Screen; Toggle Sidebar; Show Minimap |
 | Window | Electron's default |
-| Help | Keyboard Shortcuts; on macOS also the system's search field |
+| Help | worfy Guide; Keyboard Shortcuts; on macOS also the system's search field |
 
 - **Settings…** (⌘,) opens the [Settings](#settings) window of the window it was chosen for.
 - **Bigger and Smaller** change the interface scale of the Machine by a tenth, from 80 % to 150 %, and **Actual size** sets it
@@ -215,6 +216,7 @@ The app menu is built on Electron's default menu, plus worfy's own items.
   below. The normal view and focus mode have separate answers, and the switch changes the answer of what the window it was
   chosen for shows now. Both answers are settings of the Machine: every window in that mode follows, and they outlive a
   restart. The button in the toolbar and in the focus mode bar does the same.
+- **worfy Guide** opens the [worfy Guide](#worfy-guide). It has no key.
 - **Show Minimap** is a checkbox, on at first. It applies to every window and lasts until worfy quits.
 - A command chosen right after a window appears is carried out and not lost. It waits for the page for up to 10 seconds, and
   up to 8 commands per window wait. A reload of the page drops what waited.
@@ -370,6 +372,55 @@ the renderer with its path. The rows share `src/renderer/settings/controls.tsx`.
 Main tests: `test/contract/app-settings.test.ts`, `test/unit/use-app-settings.test.tsx`, `test/unit/settings-dialog.test.tsx`,
 `test/unit/interface-scale.test.tsx`, `test/e2e/settings.spec.ts`, `test/e2e/interface-scale.spec.ts`. Each section has its own
 test, such as `test/unit/settings-sessions.test.tsx`.
+
+## worfy Guide
+
+### Behaviour
+
+The worfy Guide is short visual help inside the app. It is a window over the app window: the list of Topics on the left, the
+Topic on the right. A Topic is one screen: a diagram, a short text, **Under the hood** folded below it (more text, a table of
+the main files, the limits) and **Full page**.
+
+- **Opening.** Help ▸ worfy Guide and the palette's "worfy Guide" open it where it was. Each Topic also has a palette row,
+  "Guide: `<Topic>`", that opens the Guide at that Topic. Nothing opens it by itself.
+- **Closing.** Esc, Close or a click outside the window closes it, and the focus goes back where it was. While it is open, no
+  key reaches a shortcut of the app.
+- **One modal window.** Opening the Guide closes Settings and Keyboard shortcuts, and either of them closes the Guide.
+- **Language.** EN / RU in the header switches the Guide between English and Russian. The rest of worfy stays English.
+  Until a choice is made, the Guide is Russian when the first language of the system is Russian, and English otherwise. The
+  choice is a setting of the Machine and outlives a restart.
+- **Links.** Full page and the files of Under the hood open GitHub in the system's browser, at the commit of this build. A
+  build that does not know its commit links to `main`.
+- **No Project and no network** are needed.
+- The test Topic "How the Guide works" is shown only when worfy runs from a build that is not packaged (`pnpm dev`, the e2e
+  tests). Until the first real Topics come, the Guide of the packaged app says "No Topics yet."
+
+### How it works
+
+The Guide's window, its texts and its diagrams are a chunk of their own. The app loads it the first time the Guide opens, so
+the start of worfy does not load it. The first chunk holds only the registry of Topics: one line per Topic with its id and
+English title, which the palette needs.
+
+Each Topic is a folder with `topic.json` (the pages of `docs/features/` it was checked against, each with a commit, and its
+main files), `en.json` and `ru.json` (every text, the same keys in both) and its diagram. A test fails when a string has only
+one of its two versions, or when a page or a file a Topic names is not in the repository. `scripts/guide-lag.mjs` reports
+Topics whose page has commits after the one they were checked at, and Russian texts older than their English ones. It is not
+part of `pnpm lint`: a lag does not fail a PR. The decisions are in ADR-0090.
+
+### Implementation
+
+| What | Where |
+|---|---|
+| The registry of Topics, read by the palette | `src/renderer/guide/registry.ts` |
+| Open, closed, the Topic on screen; the modal guard | `src/renderer/guide/store.ts` |
+| Loading the window on the first opening | `src/renderer/guide/GuideHost.tsx` |
+| The window | `src/renderer/guide/GuideWindow.tsx`, `src/renderer/guide/guide.css` |
+| The texts and Topics | `src/renderer/guide/content.ts`, `src/renderer/guide/strings/en.json`, `src/renderer/guide/topics/skeleton/topic.json` |
+| Language and links | `src/renderer/guide/language.ts`, `src/renderer/guide/links.ts` |
+| The report of lagging Topics | `scripts/guide-lag.mjs` |
+
+Main tests: `test/unit/guide.test.tsx`, `test/unit/guide-content.test.tsx`, `test/unit/guide-window.test.tsx`,
+`test/unit/guide-lag.test.ts`, `test/e2e/guide.spec.ts`.
 
 ## Theme
 
