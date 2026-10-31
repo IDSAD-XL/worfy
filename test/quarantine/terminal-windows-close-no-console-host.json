@@ -1,0 +1,12 @@
+{
+  "runner": "vitest",
+  "file": "test/contract/terminal-windows.test.ts",
+  "test": "closing a Terminal on Windows, on a real pty > close leaves no console host behind, neither conhost.exe nor OpenConsole.exe; it is done well inside its bound",
+  "reason": "On the owner's Windows PC, in the full vitest run only: the slowest of the three closes took 3122.6 ms on main 0be09773 and 3128 ms on main fc9279cf against the test's 3000 ms bound (test/contract/terminal-windows.test.ts:177); red in 2 of the 11 saved PC gate full runs (ADR-0086). Alone on the same SHA it passes (exit 0). Hypothesis, not established: under load the close helper runs into its own execFile timeout DESCENDANTS_TIMEOUT_MS = 3000 (src/main/terminal/windows-pty.ts:12, :231); the PC is measuring the helper's elapsed time and its timeout hits. The bound is not raised.",
+  "platforms": [
+    "win32"
+  ],
+  "owner": "worfy-polish 47",
+  "since": "2026-10-31",
+  "until": "2026-11-07"
+}
