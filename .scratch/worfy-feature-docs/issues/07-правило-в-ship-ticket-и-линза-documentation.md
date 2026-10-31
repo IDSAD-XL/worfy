@@ -116,4 +116,4 @@ Test-ы `bin/profile` и контракта Profile: поле есть, поля
 После merge (Orchestrator, 2026-10-31): на Mac Profile и `rules.md` записаны, `bin/profile --field docs.feature_pages` печатает
 `docs/features`, `review.lenses` содержит `documentation`, `review.ticket_lenses` прежний, `audit_lenses` с записью `documentation`.
 Вердикт Windows: job CI на head `fb7b8304`, отметка `check/windows`. Ждут владельца: Profile на ПК (на ПК нет `rules-merge.md`,
-строка Q21 идёт в `rules.md`, строка 23) и `pnpm install:stable`; это отслеживает Ticket 19.
+строка Q21 идёт в `rules.md`, строка 23); это отслеживает Ticket 19. Stable и Harness на Mac обновлены 2026-10-31, main `896d1369`.
