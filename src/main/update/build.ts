@@ -32,6 +32,12 @@ export const UPDATE_REPO = 'https://github.com/IDSAD-XL/worfy.git'
 /** The tools a build needs (spec, "Tools"; Settings → Health names the missing ones, ticket 08). */
 export const BUILD_TOOLS = ['git', 'node', 'pnpm'] as const
 
+/**
+ * How long a git step may run: a clone of worfy over a slow line takes minutes, a fetch or a clone
+ * that hangs (a network that stopped answering) would keep the build `building` for ever.
+ */
+export const GIT_STEP_TIMEOUT_MS = 30 * 60 * 1000
+
 /** The variables no step of a build gets. */
 const TOKEN_VARIABLES = new Set(['GH_TOKEN', 'GITHUB_TOKEN'])
 
@@ -96,8 +102,14 @@ export interface UpdateBuilderOptions {
   repo: string
   /** A `.mjs` that node runs in the clone in place of `pnpm package` (updateBuildOverride). */
   build?: string | undefined
-  /** worfy's environment for the steps (the login shell's in the app); the tokens are dropped from it. */
-  env: () => Promise<Env>
+  /**
+   * worfy's environment for the steps, asked for anew before each build (the login shell's in the
+   * app: a pnpm installed since the last build is found). The tokens are dropped from it. `error`:
+   * why the login shell was not read and a minimal environment came instead; it goes to build.log.
+   */
+  env: () => Promise<{ env: Env; error: string | null }>
+  /** How long a git step may run (GIT_STEP_TIMEOUT_MS). */
+  gitTimeoutMs?: number
   stateFile: () => string
   /** Hears each change of the build in the state file. */
   onChange?: () => void
@@ -159,7 +171,23 @@ export class UpdateBuilder implements UpdateBuilds {
     this.stopped = true
     this.waiting = null
     const child = this.child
-    if (child !== null) killTool(child, this.platform, process.env)
+    if (child !== null) this.kill(child)
+  }
+
+  /**
+   * Ends a step with everything it started: `pnpm package` runs electron-builder under it, which
+   * would go on writing the clone after worfy quit, under the next build. Off Windows the step leads
+   * a process group of its own (spawned `detached`), and the whole group gets SIGKILL; on Windows
+   * taskkill /T ends the tree (killTool).
+   */
+  private kill(child: ChildProcess): void {
+    if (this.platform === 'win32') return killTool(child, this.platform, process.env)
+    try {
+      if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL')
+    } catch {
+      // The group is gone already, or the step never started.
+      child.kill('SIGKILL')
+    }
   }
 
   private get platform(): NodeJS.Platform {
@@ -220,7 +248,9 @@ export class UpdateBuilder implements UpdateBuilds {
     const log = this.logFile
     const note = (text: string): void => appendFileSync(log, `${text}\n`)
     const failed = (extra: Partial<UpdateBuild> = {}): UpdateBuild => ({ phase: 'failed', sha: update.sha, version: update.version, log, ...extra })
-    const env = withoutTokens(await this.options.env())
+    const captured = await this.options.env()
+    if (captured.error !== null) note(`The environment of the login shell was not read; the build runs with a minimal one: ${captured.error}`)
+    const env = withoutTokens(captured.env)
 
     const missing = missingTools(env, this.platform)
     if (missing.length > 0) {
@@ -262,8 +292,12 @@ export class UpdateBuilder implements UpdateBuilds {
     return { phase: 'ready', sha: update.sha, version: update.version, appPath, log }
   }
 
-  /** Runs one step with its output into the log; answers whether it exited 0. */
+  /**
+   * Runs one step with its output into the log; answers whether it exited 0. None starts after
+   * stop(). A git step that runs past its limit is ended and fails.
+   */
   private step(tool: string, args: readonly string[], cwd: string, env: Env, log: string): Promise<boolean> {
+    if (this.stopped) return Promise.resolve(false)
     const start = toolStart(tool, args, env, this.platform)
     appendFileSync(log, `\n$ ${[tool, ...args].join(' ')}\n`)
     if (start === null) {
@@ -274,7 +308,9 @@ export class UpdateBuilder implements UpdateBuilds {
     return new Promise((resolveStep) => {
       let child: ChildProcess
       try {
-        child = spawn(start.file, start.args, { cwd, env: env as NodeJS.ProcessEnv, stdio: ['ignore', fd, fd], windowsHide: true, shell: start.shell })
+        // detached off Windows: a process group of its own, for kill(). The step is awaited to its
+        // end, so it is not unref'd; at quit stop() ends it.
+        child = spawn(start.file, start.args, { cwd, env: env as NodeJS.ProcessEnv, stdio: ['ignore', fd, fd], windowsHide: true, shell: start.shell, detached: this.platform !== 'win32' })
       } catch (error) {
         closeSync(fd)
         appendFileSync(log, `could not start ${tool}: ${error instanceof Error ? error.message : String(error)}\n`)
@@ -283,16 +319,27 @@ export class UpdateBuilder implements UpdateBuilds {
       }
       this.child = child
       let failure: Error | null = null
+      let timedOut = false
+      const limit = this.options.gitTimeoutMs ?? GIT_STEP_TIMEOUT_MS
+      const timer =
+        tool === 'git'
+          ? setTimeout(() => {
+              timedOut = true
+              this.kill(child)
+            }, limit)
+          : undefined
       child.once('error', (error) => {
         failure = error
       })
       // 'close' comes after 'error' too, when the process did not start.
       child.once('close', (code, signal) => {
+        clearTimeout(timer)
         this.child = null
         closeSync(fd)
-        if (failure !== null) appendFileSync(log, `could not start ${tool}: ${failure.message}\n`)
+        if (timedOut) appendFileSync(log, `${tool} did not end within ${limit % 60_000 === 0 ? `${limit / 60_000} min` : `${limit / 1000} s`} and was stopped\n`)
+        else if (failure !== null) appendFileSync(log, `could not start ${tool}: ${failure.message}\n`)
         else if (code !== 0) appendFileSync(log, `${tool} exited with ${code ?? signal ?? 'nothing'}\n`)
-        resolveStep(failure === null && code === 0)
+        resolveStep(!timedOut && failure === null && code === 0)
       })
     })
   }

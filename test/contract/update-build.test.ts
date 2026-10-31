@@ -35,6 +35,7 @@ let work: string
 let dir: string
 let bin: string
 let trace: string
+let pids: string
 
 /** git with an identity of its own, in `cwd`. */
 function git(cwd: string, ...args: string[]): string {
@@ -72,22 +73,59 @@ function putRecorder(folder: string, name: string, log: string): void {
 
 const available = (sha: string, version = `0.9.0+${sha.slice(0, 7)}`): AvailableUpdate => ({ sha, version, quiet: false })
 
-/** The environment of worfy in a test: the pnpm stand-in first on the PATH, and both tokens set. */
+/**
+ * The environment of worfy in a test: the pnpm stand-in first on the PATH, and both tokens set, in
+ * capitals and in small letters (Windows reads a variable's name in any case).
+ */
 function processEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
-  return { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`, GH_TOKEN: SECRET, GITHUB_TOKEN: SECRET, FAKE_UPDATE_TRACE: trace, ...extra }
+  return {
+    ...process.env,
+    PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`,
+    GH_TOKEN: SECRET,
+    GITHUB_TOKEN: SECRET,
+    gh_token: SECRET,
+    github_token: SECRET,
+    FAKE_UPDATE_TRACE: trace,
+    FAKE_UPDATE_PIDS: pids,
+    ...extra,
+  }
 }
 
 const stateFile = (): string => join(dir, 'state.json')
 
-function builder(options: { build?: string; env?: Record<string, string | undefined>; onChange?: () => void } = {}): UpdateBuilder {
+interface BuilderOptions {
+  build?: string
+  /** The environment each build gets; asked for anew before each one. */
+  env?: () => Record<string, string | undefined>
+  /** Why the login shell was not read, as captureLoginShellEnv says it. */
+  envError?: string
+  gitTimeoutMs?: number
+  onChange?: () => void
+}
+
+function builder(options: BuilderOptions = {}): UpdateBuilder {
   return new UpdateBuilder({
     dir,
     repo: origin,
     build: options.build ?? join(FIXTURES, 'build-ok.mjs'),
-    env: () => Promise.resolve(options.env ?? processEnv()),
+    env: () => Promise.resolve({ env: options.env?.() ?? processEnv(), error: options.envError ?? null }),
     stateFile,
+    ...(options.gitTimeoutMs === undefined ? {} : { gitTimeoutMs: options.gitTimeoutMs }),
     ...(options.onChange === undefined ? {} : { onChange: options.onChange }),
   })
+}
+
+/** The pids hang.mjs wrote. */
+const hangPids = (): number[] => (existsSync(pids) ? readFileSync(pids, 'utf8').trim().split('\n').map(Number) : [])
+
+/** Whether a process with this pid runs. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
 }
 
 const traceLines = (): string[] => (existsSync(trace) ? readFileSync(trace, 'utf8').trim().split('\n') : [])
@@ -101,6 +139,7 @@ beforeEach(() => {
   dir = join(root, 'data', 'update')
   bin = join(root, 'bin')
   trace = join(root, 'trace.log')
+  pids = join(root, 'pids.log')
   for (const folder of [work, bin]) mkdirSync(folder, { recursive: true })
   git(root, 'init', '-q', '--bare', origin)
   git(work, 'init', '-q')
@@ -110,6 +149,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // A process a failed test left running: it is not left for the next run.
+  for (const pid of hangPids()) if (alive(pid)) process.kill(pid, 'SIGKILL')
   removeTestTree(root)
 })
 
@@ -154,7 +195,7 @@ describe('UpdateBuilder', () => {
     mkdirSync(join(stable, 'Contents'), { recursive: true })
     writeFileSync(join(stable, 'Contents', 'Info.plist'), 'the copy that runs\n')
     const sha = commit('A')
-    const builds = builder({ build: join(FIXTURES, 'build-fail.mjs'), env: processEnv({ WORFY_UPDATE_STABLE: stable }) })
+    const builds = builder({ build: join(FIXTURES, 'build-fail.mjs'), env: () => processEnv({ WORFY_UPDATE_STABLE: stable }) })
     builds.install(available(sha))
     await builds.settled()
     expect(readUpdateState(stateFile()).build).toEqual({ phase: 'failed', sha, version: `0.9.0+${sha.slice(0, 7)}`, log: join(dir, 'build.log') })
@@ -171,7 +212,7 @@ describe('UpdateBuilder', () => {
     putRecorder(only, 'node', calls)
     const sha = commit('A')
     const env = { ...(WINDOWS && process.env.SystemRoot !== undefined ? { SystemRoot: process.env.SystemRoot } : {}), PATH: only, FAKE_UPDATE_TRACE: trace }
-    const builds = builder({ env })
+    const builds = builder({ env: () => env })
     builds.install(available(sha))
     await builds.settled()
     expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'failed', sha, missing: ['pnpm'] })
@@ -218,15 +259,15 @@ describe('UpdateBuilder', () => {
     expect(git(join(dir, 'repo'), 'remote', 'get-url', 'origin')).toBe(origin)
   })
 
-  it('no step gets GH_TOKEN or GITHUB_TOKEN, though worfy has both; build.log names neither value', async () => {
+  it('no step gets GH_TOKEN or GITHUB_TOKEN, in capitals or small letters, though worfy has all four; build.log names no value', async () => {
     const sha = commit('A')
     const builds = builder()
     builds.install(available(sha))
     await builds.settled()
     expect(readUpdateState(stateFile()).build.phase).toBe('ready')
     const log = buildLog()
-    expect(log).toContain('install: GH_TOKEN=absent GITHUB_TOKEN=absent')
-    expect(log).toContain('build: GH_TOKEN=absent GITHUB_TOKEN=absent')
+    expect(log).toContain('install: tokens=none')
+    expect(log).toContain('build: tokens=none')
     expect(log).not.toContain(SECRET)
   })
 
@@ -251,7 +292,7 @@ describe('UpdateBuilder', () => {
 
   it('an environment that does not come fails the build; it never stays `building`', async () => {
     const sha = commit('A')
-    const builds = new UpdateBuilder({ dir, repo: origin, env: () => Promise.reject(new Error('the login shell did not answer')), stateFile })
+    const builds = new UpdateBuilder({ dir, repo: origin, env: () => Promise.reject(new Error('the env capture threw')), stateFile })
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     builds.install(available(sha))
     await builds.settled()
@@ -276,6 +317,79 @@ describe('UpdateBuilder', () => {
     expect(builds.building).toBe(false)
     builder().recover()
     expect(readUpdateState(stateFile()).build).toEqual({ phase: 'idle' })
+  })
+
+  it('stop() ends the processes a step started too: nothing the build started outlives it (electron-builder under pnpm package)', async () => {
+    const sha = commit('A')
+    const builds = builder({ build: join(FIXTURES, 'build-grandchild.mjs') })
+    builds.install(available(sha))
+    await vi.waitFor(() => expect(hangPids()).toHaveLength(1), { timeout: ms(10_000), interval: 50 })
+    const [grandchild] = hangPids() as [number]
+    expect(alive(grandchild)).toBe(true)
+    builds.stop()
+    await builds.settled()
+    await vi.waitFor(() => expect(alive(grandchild)).toBe(false), { timeout: ms(5_000), interval: 50 })
+  })
+
+  it('stop() while the environment is being read: no step starts after it', async () => {
+    const sha = commit('A')
+    let give: (() => void) | undefined
+    const builds = new UpdateBuilder({
+      dir,
+      repo: origin,
+      build: join(FIXTURES, 'build-ok.mjs'),
+      env: () => new Promise((resolve) => (give = () => resolve({ env: processEnv(), error: null }))),
+      stateFile,
+    })
+    builds.install(available(sha))
+    await vi.waitFor(() => expect(give).toBeDefined())
+    builds.stop()
+    give?.()
+    await builds.settled()
+    expect(existsSync(join(dir, 'repo'))).toBe(false)
+    expect(buildLog()).not.toContain('$ git')
+    expect(traceLines()).toEqual([])
+  })
+
+  it('writes why the login shell was not read into build.log, and asks for the environment anew before each build: a pnpm installed after a failure is found', async () => {
+    const sha = commit('A')
+    let withPnpm = false
+    // git and node are there (they only note a call, and none may come), pnpm is not.
+    const bare = join(root, 'no-pnpm')
+    const calls = join(root, 'calls.log')
+    mkdirSync(bare)
+    putRecorder(bare, 'git', calls)
+    putRecorder(bare, 'node', calls)
+    const builds = builder({
+      envError: '/bin/zsh -ilc failed: did not answer within 10 s',
+      env: () => processEnv({ PATH: withPnpm ? `${bin}${delimiter}${process.env.PATH ?? ''}` : bare }),
+    })
+    builds.install(available(sha))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'failed', sha, missing: ['pnpm'] })
+    expect(buildLog()).toContain('The environment of the login shell was not read; the build runs with a minimal one: /bin/zsh -ilc failed: did not answer within 10 s')
+    expect(existsSync(calls)).toBe(false)
+
+    // The user installed pnpm, then "Check now" and "Update worfy": the same SHA again.
+    withPnpm = true
+    builds.install(available(sha))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha })
+  })
+
+  it('a git step that does not end within its limit is ended, and the build is `failed` with the reason', async () => {
+    const hanging = join(root, 'hanging-git')
+    mkdirSync(hanging)
+    putProgram(hanging, 'git', join(FIXTURES, 'hang.mjs'))
+    const sha = commit('A')
+    const builds = builder({ gitTimeoutMs: 300, env: () => processEnv({ PATH: `${hanging}${delimiter}${bin}${delimiter}${process.env.PATH ?? ''}` }) })
+    builds.install(available(sha))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'failed', sha })
+    expect(buildLog()).toContain('git did not end within 0.3 s and was stopped')
+    expect(traceLines()).toEqual([])
+    // The hanging git was ended with its step, whether or not it had started by then.
+    await vi.waitFor(() => expect(hangPids().filter(alive)).toEqual([]), { timeout: ms(5_000), interval: 50 })
   })
 
   it('a build left `building` by a worfy that quit is idle again at the next start', () => {

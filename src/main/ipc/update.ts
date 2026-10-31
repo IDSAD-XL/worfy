@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs'
 import { app, shell } from 'electron'
 import { updateChanged, updateCheck, updateInstall, updateShowLog, updateStateChannel, type UpdateSnapshot } from '../../shared/ipc/update'
 import { autoUpdateOf } from '../../shared/settings/app-settings'
-import { agentEnv } from '../agent/env'
+import { recaptureAgentEnv } from '../agent/env'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessVersion } from '../harness/bundled'
 import { appSettingsStore } from '../settings/store'
@@ -161,8 +161,10 @@ export function appUpdate(): UpdateService {
         dir: updateDir(),
         repo: updateRepo(process.env),
         build: updateBuildOverride(process.env),
-        // The login shell's environment: a packaged app started from the Dock has only the system PATH.
-        env: async () => (await agentEnv()).env,
+        // The login shell's environment, captured anew for each build: a packaged app started from
+        // the Dock has only the system PATH, and a pnpm installed since the last build is found
+        // (spec item 8: install the tool, then "Check now" and "Update worfy").
+        env: () => recaptureAgentEnv(),
         stateFile: () => updateStateFile(),
         onChange: () => broadcast(appUpdate().snapshot()),
       }),
