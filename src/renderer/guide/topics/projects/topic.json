@@ -1,0 +1,11 @@
+{
+  "sources": [{ "page": "docs/features/projects.md", "sha": "59164fed" }],
+  "files": [
+    "src/main/workflow/folder.ts",
+    "src/main/projects/connect.ts",
+    "harness/bin/project-connect",
+    "src/main/projects/store.ts",
+    "src/main/ipc/docs.ts",
+    "src/main/docs/watch.ts"
+  ]
+}
