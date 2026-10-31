@@ -40,6 +40,9 @@ function start(): void {
   })
 }
 
+/** Starts the reading outside React: the Update toasts of the start (ticket 07, update/toasts.ts). */
+export const followUpdate = start
+
 /** Main's Update snapshot; null until it has answered. The first call starts the reading. */
 export function useUpdate(): UpdateSnapshot | null {
   useEffect(start, [])

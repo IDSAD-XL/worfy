@@ -122,6 +122,7 @@ const APP_FILES = new Set([
   'test/flaky.ts',
   'test/time-scale.ts',
   'test/claude-home-legacy.ts',
+  'test/update-stub.ts',
 ])
 // The folders of test/fixtures that the e2e tests and their helpers read. The others (eval-stub,
 // sdk-messages, …) only unit and contract tests read: a pull request that changes one of them runs no
