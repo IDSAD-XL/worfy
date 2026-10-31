@@ -108,3 +108,5 @@ Source: решения владельца 2026-10-31, пункты 1 (GitHub API
   `tsc`, файл добавлен в `tsconfig.test.node.json` (вне «Где в коде»).
 - Test-ы: `test/unit/update-check.test.ts`, `test/contract/update-github.test.ts`,
   `test/contract/update-state.test.ts`.
+
+- Low из review (debt, Ticket-ами не становятся): ручная проверка, поставленная в очередь, стартует уже после `stop()`.
