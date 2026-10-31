@@ -65,6 +65,11 @@ A new Session resumes by running `wave-brief` first.
   the Orchestrator itself, unless it touches a script or a hook, is a platform PR, or deletes files, stops processes or
   replaces a copy. In `ship-ticket` a review of an `eco` Ticket's own diff is at depth `low`. The Verification gate of
   `epic-wave` keeps its depth.
+  The Eco mode switch writes this field together with `agents`, the model and effort of each role
+  ([Sessions](sessions.md)).
+- `docs.feature_pages`: a folder of pages that describe behaviour. In step 5 of `ship-ticket` a change that alters
+  behaviour a page there describes updates that page in the same PR, and a Ticket's file list in `epic-wave` is not
+  complete without such a page. With no field the step is skipped, and the agent says so.
 - `review.lenses` and `review.depth`: the lenses, and at the depths `low`, `medium`, `high` and `max` how many reviewers
   a round has. An argument of the skill or the owner's word in a message overrides the depth.
 - `workflow.pipeline`: the Stages, and so which steps run ([Workflow](workflow.md)).
@@ -129,12 +134,15 @@ report holds:
 the diff, an unmet item of the Ticket, or evidence that does not hold, and each carries a severity, a scenario and a
 fix. A defect next to the change goes on the line "outside the diff", and one outside its lens on the line "outside the
 lens". A removal that the Ticket, the spec or the brief states as intended is not a finding, unless its consequences
-seem underestimated or the change looks harmful. It asks `qmd` first whether the question was already decided. Two
+seem underestimated or the change looks harmful. It asks `qmd` first whether the question was already decided. Three
 lenses have written rules:
 
 - **Implementer's report**: the first characters of the answer are `VERIFIED`, or `REJECTED: <the unconfirmed claims>`.
 - **Simplification**: what can be deleted, reused or made simpler. A suggestion with nothing to point at is not
   reported.
+- **documentation**: whether the diff changes behaviour that a page from `docs.feature_pages` describes, without editing
+  that page. A sentence the change makes false is `med`. Refactoring, behaviour no page describes and a sentence already
+  wrong before the diff are not findings.
 
 Other lenses, from `review.lenses`, are read by their names. A UI Ticket needs screenshots in both themes.
 

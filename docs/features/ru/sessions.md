@@ -120,7 +120,9 @@ Orchestrator. Память об этом выборе живёт столько 
 
 - «New conversation» отклоняется в `busy` и пока работает Autopilot. Старый разговор остаётся в истории, а стоимость начинается с нуля.
 - Когда Orchestrator открывается, его сохранённая Session продолжается. Если transcript пропал, стартует новая Session.
-- Eco mode, переключатель под полем ввода Orchestrator, пишет `workflow.agents` в Profile Project-а. Действует со следующего Ticket-а.
+- Eco mode, переключатель под полем ввода Orchestrator, пишет два поля Profile Project-а: `workflow.agents` со значением `eco` и
+  `agents`, то есть Sonnet с effort medium для каждой роли агента. Выключение убирает оба поля, а прежние модели ролей не возвращаются.
+  Действует со следующего Ticket-а.
 - Autopilot ведёт эту Session без человека. См. [Autopilot](autopilot.md). В это время permission mode принудительно Bypass permissions и не
   сохраняется, смена режима отклоняется, а запросы разрешений и вопросы сразу отклоняются.
 
@@ -196,6 +198,7 @@ worfy. Session из терминала или Claude desktop уведомляе�
 | Store в renderer, соединение прошлых и live-событий | `src/renderer/session/store.ts` |
 | Карточки | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Элементы под полем ввода, находятся через glob | `src/renderer/session/composer/` |
+| Eco mode | `src/main/ipc/eco-mode.ts`, `src/shared/ipc/eco-mode.ts`, `src/shared/agent/plan-preset.ts`, `src/renderer/session/composer/EcoMode.tsx` |
 | Node | `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/overlays/SessionNodes.tsx` |
 | Настройки autocompact | `src/renderer/settings/SessionsSection.tsx`, `src/shared/settings/app-settings.ts` |
 | Уведомления | `src/main/notify.ts`, `src/renderer/session/notification-target.ts` |

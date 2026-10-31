@@ -35,7 +35,8 @@ Epic-ам и Ticket-ам.
 | [Notifications](notifications.md) | уведомления |
 | [Onboarding](onboarding.md) | First run, Getting started, Demo project |
 | [Storage и диагностика](storage-and-diagnostics.md) | папка данных, diagnostics |
-| [Harness](harness.md) | установка из приложения, plugin, skills, агенты, hooks |
+| [Harness](harness.md) | установка из приложения, plugin |
+| [Skills, agents and hooks](skills-agents-and-hooks.md) | skills, агенты, hooks |
 
 Страница, которая ещё не написана, содержит заголовок и одну строку об этом. PR, который пишет страницу, заменяет эту
 строку и индекс не правит.
