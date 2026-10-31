@@ -77,3 +77,19 @@ Session → GitHub «pushes, opens a PR» взята из skill-а, а не со
 | Лимит: обычно проверяется только то, что отличается от origin/main; `GATE_SCOPE=all`, больше 50 commit-ов впереди или 300 позади — всё | `g.md:50-57`, `harness/hooks/gate.mjs:883-891` |
 | Лимит: hook даёт Gate 900 секунд; ход с red удерживается не больше двух раз на Session и worktree | `g.md:15-16`, `:84`, `harness/hooks/hooks.json:68`, `:79`, `harness/hooks/stop.mjs:32` |
 | Лимит: `gh pr list` не чаще раза в 60 s на папку, после сбоев — до 32 минут, 100 последних PR-ов | `g.md:326-329`, `src/main/github/prs.ts:35-38` |
+
+**Снимки** (Playwright против сборки ветки, окно 1280×800; у каждого есть пара `-dark`):
+[EN](../evidence/12-gate-and-github-en-light.png), [RU](../evidence/12-gate-and-github-ru-light.png),
+[подсветка Gate](../evidence/12-gate-and-github-lit-en-light.png), [шаг 2](../evidence/12-gate-and-github-step-en-light.png),
+[reduced motion, RU](../evidence/12-gate-and-github-reduced-motion-ru-light.png),
+[Under the hood EN](../evidence/12-gate-and-github-under-the-hood-en-light.png) / [RU dark](../evidence/12-gate-and-github-under-the-hood-ru-dark.png),
+[таблица файлов и лимиты EN](../evidence/12-gate-and-github-under-the-hood-files-en-light.png) / [RU](../evidence/12-gate-and-github-under-the-hood-files-ru-light.png),
+[подсветка checks.get на потоке данных](../evidence/12-gate-and-github-flow-lit-en-light.png).
+Контраст текста: каждый видимый текст Topic-а (HTML, подписи блоков, областей и связей обеих схем, до 99 текстов на
+замер) против своего фона, обе темы, EN и RU — минимум 5,60:1 в светлой и 5,93:1 в тёмной, ниже 4,5:1 нет ни одного.
+
+**Объём.** Простой уровень — 53 слова EN / 47 RU, шаги — 153 / 128; Under the hood (текст, таблица файлов и лимиты
+вместе) — 170 / 160.
+
+**Tokens.** Автор: около 150 тыс. токенов контекста (точного счётчика у агента нет; оценка по объёму прочитанного и
+написанного). Проверка: заполняет ревьюер.
