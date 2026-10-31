@@ -29,7 +29,8 @@ focus mode.
 
 **Done stack.** The Done column label has a toggle. Opening the stack moves neither an open Ticket nor the strip. It is
 a view state: it is not saved and is not in undo. Esc with nothing selected, no dialog or menu open, and not in a text
-field folds the stack opened last.
+field folds the stack opened last. Under the [focus mode](focus-mode.md) layer it leaves focus mode instead, and the stack
+stays open.
 
 **Collapsing.** An Epic with Tickets, all done, is collapsed by default until the user opens it. The chevron is one step
 of undo.

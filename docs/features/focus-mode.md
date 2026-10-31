@@ -117,7 +117,8 @@ the press leaves focus mode and it stays open.
 | Tab | Walks the layer's controls and the sidebar, never the toolbar or the Canvas under the layer |
 
 Pressed with the focus in the layer or nowhere, arrow keys move no Canvas Node, and Delete, Backspace, ⌘Z and ⇧⌘Z do not
-act on the Canvas. The wheel does not pan or zoom it.
+act on the Canvas. With the focus nowhere, ⌘Z and ⇧⌘Z go to the undo of the Edit menu, which can undo typing in a Note's
+field in a tile. The wheel does not pan or zoom it.
 
 ### What stays and what is dropped
 
@@ -134,7 +135,8 @@ act on the Canvas. The wheel does not pan or zoom it.
 ### Windows
 
 Ctrl takes the place of ⌘: Ctrl+Enter opens focus mode, and the key label on the Focus button says so. In a Terminal tile
-Ctrl+= and Ctrl+- do nothing, as elsewhere in focus mode, and Ctrl+_ stays the shell's undo ([Terminal](terminal.md)).
+Ctrl+= and Ctrl+- do nothing, as elsewhere in focus mode, and Ctrl+_ stays the shell's undo ([Terminal](terminal.md)). In a Terminal tile Ctrl+F stays with the
+shell.
 
 With the sidebar hidden on macOS, the bar keeps 80 clear for the traffic lights. On Windows there are none, and it does not.
 
