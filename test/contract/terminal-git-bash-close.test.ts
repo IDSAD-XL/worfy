@@ -49,6 +49,18 @@ interface RecordingHelper {
   outOfTime: boolean
 }
 
+/**
+ * Skips a test whose helper ran out of time, and names the skip: vitest's default reporter counts
+ * skipped tests without naming them (the same lines as test/quarantine.ts).
+ */
+function skipWhenOutOfTime(context: { skip: (condition: boolean, note?: string) => void; task: { name: string } }, helper: RecordingHelper): void {
+  if (!helper.outOfTime) return
+  const message = `${context.task.name}: ${OUT_OF_TIME}`
+  process.stderr.write(`skip (out of time): ${message}\n`)
+  if (process.env.GITHUB_ACTIONS === 'true') process.stderr.write(`::warning title=out of time::${message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}\n`)
+  context.skip(true, OUT_OF_TIME)
+}
+
 /** The helper of the close with a stand-in of kill.exe; a helper ended by its time limit is told apart from a wrong answer. */
 function recordingHelper(hangup: string): RecordingHelper {
   const helper: RecordingHelper = {
@@ -99,6 +111,31 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
     expect(lines).toContain(second.command)
   }, ms(30_000))
 
+  // PROMPT_COMMAND of the Terminal runs `history -a` (gitBashEnv), so the file has a command while bash
+  // still runs, before any signal (worfy-windows ticket 118). The close then adds no line twice.
+  it('a command is in .bash_history before the close, and the close writes it no second time', async (context) => {
+    needsGitBash(context)
+    const h = await harness({ shell: 'git-bash' })
+    await h.open()
+    const word = `worfy-prompt-${process.pid}-${Date.now()}`
+    const first = unique(`${word}-one`)
+    await h.run(first.command, first.output)
+    const file = join(home, '.bash_history')
+    const lines = async (): Promise<string[]> => (existsSync(file) ? (await readFile(file, 'utf8')).split(/\r?\n/) : [])
+    await vi.waitFor(async () => expect(await lines()).toContain(first.command), { timeout: ms(10_000), interval: 50 })
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+    expect((await lines()).filter((line) => line === first.command)).toHaveLength(1)
+  }, ms(30_000))
+
+  it('`$?` of a command reaches the next command with `history -a` in PROMPT_COMMAND', async (context) => {
+    needsGitBash(context)
+    const h = await harness({ shell: 'git-bash' })
+    await h.open()
+    await h.run('(exit 7)', /exit 7\)/)
+    await h.run('echo status-$?', /status-7\r?\n/)
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+  }, ms(30_000))
+
   // On a busy machine kill.exe took longer than the 500 ms the helper used to give it: ended by then,
   // it had not delivered the SIGHUP, and bash wrote nothing (26 of 120 closes under a full vitest,
   // all 26 without a history file; worfy-windows ticket 116). That the history is written is the
@@ -108,7 +145,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
     const standIn = await spinningKill('slow-kill')
     const helper = recordingHelper(standIn.file)
     await openAndCloseWith(helper)
-    context.skip(helper.outOfTime, OUT_OF_TIME)
+    skipWhenOutOfTime(context, helper)
     expect(helper.answers).toEqual(['ended'])
     expect(statSync(standIn.beat).mtimeMs - statSync(standIn.started).mtimeMs).toBeGreaterThan(700)
   }, ms(30_000))
@@ -125,7 +162,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
     const standIn = await spinningKill('stuck-kill', `start "" /b "${kill}" %*`)
     const helper = recordingHelper(standIn.file)
     await openAndCloseWith(helper)
-    context.skip(helper.outOfTime, OUT_OF_TIME)
+    skipWhenOutOfTime(context, helper)
     expect(helper.answers).toEqual(['ended'])
     expect(existsSync(standIn.beat), 'the stand-in ran').toBe(true)
     await rm(standIn.beat, { force: true, maxRetries: 5, retryDelay: 100 })

@@ -40,7 +40,7 @@ vi.mock('node:fs', async (original) => {
 
 vi.mock('node:child_process', async (original) => ({ ...(await original<typeof import('node:child_process')>()), execFile: run.execFile }))
 
-const { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, KILL_GRACE_MS, SHELL_START_SLACK_MS, terminalEnv, terminalShell, terminalShellOptions, TerminalRegistry, WINDOWS_CLOSE_BOUND_MS } =
+const { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, gitBashEnv, KILL_GRACE_MS, SHELL_START_SLACK_MS, terminalEnv, terminalShell, terminalShellOptions, TerminalRegistry, WINDOWS_CLOSE_BOUND_MS } =
   await import('../../src/main/terminal/pty')
 const { projectSettingsSchema, savedProjectSettingsSchema } = await import('../../src/shared/projects/action-templates')
 const { readProjectSettings, settingsPath, writeProjectSettings } = await import('../../src/main/projects/settings')
@@ -113,7 +113,7 @@ describe('terminalShell on Windows', () => {
   it('is Git Bash with --login -i when the Project asks for it and it is there', () => {
     disk.files.add('C:\\Tools\\pwsh.exe').add('C:\\Program Files\\Git\\cmd\\git.exe').add(GIT_BASH)
     // With kill.exe of the same Git for Windows, for the SIGHUP of a close (worfy-windows ticket 93).
-    expect(win('git-bash')).toEqual({ file: GIT_BASH, args: ['--login', '-i'], name: 'bash.exe', note: null, hangup: 'C:\\Program Files\\Git\\usr\\bin\\kill.exe' })
+    expect(win('git-bash')).toEqual({ file: GIT_BASH, args: ['--login', '-i'], name: 'bash.exe', note: null, hangup: 'C:\\Program Files\\Git\\usr\\bin\\kill.exe', gitBash: true })
   })
 
   it('finds a 32-bit Git for Windows in %ProgramFiles(x86)% when Git is not on the Path', () => {
@@ -174,6 +174,31 @@ describe('terminalEnv: LANG by the system', () => {
     expect(terminalEnv({ LANG: 'ru_RU.UTF-8' }, 'C:\\p\\repo', 'win32').LANG).toBe('ru_RU.UTF-8')
     // The terminal variables are the same everywhere.
     expect(terminalEnv({}, 'C:\\p\\repo', 'win32')).toMatchObject({ PWD: 'C:\\p\\repo', TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'worfy' })
+  })
+})
+
+describe('gitBashEnv: bash appends its history after every command', () => {
+  it('without PROMPT_COMMAND, or with an empty one, sets `history -a`', () => {
+    expect(gitBashEnv({ HOME: 'C:\\h' })).toEqual({ HOME: 'C:\\h', PROMPT_COMMAND: 'history -a' })
+    expect(gitBashEnv({ PROMPT_COMMAND: '  ' }).PROMPT_COMMAND).toBe('history -a')
+  })
+
+  it('keeps a PROMPT_COMMAND that is set, and adds to it on a new line', () => {
+    expect(gitBashEnv({ PROMPT_COMMAND: 'update_title' }).PROMPT_COMMAND).toBe('update_title\nhistory -a')
+    // One that ends in `;` or in a comment stays valid: `;` as the separator would break both.
+    expect(gitBashEnv({ PROMPT_COMMAND: 'a; # note' }).PROMPT_COMMAND).toBe('a; # note\nhistory -a')
+  })
+
+  it('takes the variable whatever the case of its name: Windows has one name, bash would see two', () => {
+    const env = gitBashEnv({ Prompt_Command: 'update_title' })
+    expect(env.PROMPT_COMMAND).toBe('update_title\nhistory -a')
+    expect('Prompt_Command' in env).toBe(false)
+  })
+
+  it('does not change the environment it is given', () => {
+    const env = { PROMPT_COMMAND: 'a' }
+    gitBashEnv(env)
+    expect(env).toEqual({ PROMPT_COMMAND: 'a' })
   })
 })
 

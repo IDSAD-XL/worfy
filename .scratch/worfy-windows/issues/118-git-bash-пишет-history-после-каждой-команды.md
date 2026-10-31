@@ -1,7 +1,7 @@
 # 118 — Git Bash пишет history после каждой команды: закрытию не нужен сигнал
 
 Type: task
-Status: open
+Status: claimed 2026-10-31T23:07Z
 Branch: worfy-windows/118
 Blocked by: —
 Source: решение владельца Q10, 2026-10-31 («со всем согласен»); остаток тикета 116 (#1148): под нагрузкой 2 из 120

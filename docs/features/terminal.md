@@ -73,7 +73,9 @@ are accepted, the list has this one command, and attaching to a shell that alrea
   is zooming the Canvas: Ctrl+= and Ctrl+- still zoom, or do nothing in a tile of focus mode, and only Ctrl+\_ stays with the shell. On macOS nothing is given up,
   because worfy's shortcuts use ⌘.
 - Closing a Node ends every process under the shell, including one started with `Start-Process` and one two levels down,
-  and then the shell. Git Bash gets SIGHUP first, so bash writes its history.
+  and then the shell. Git Bash gets SIGHUP first, so bash writes its history. In worfy Git Bash also appends its history
+  after every command (`history -a` in `PROMPT_COMMAND`), so a close whose signal comes too late loses nothing. A
+  `PROMPT_COMMAND` in the environment is kept; one set by your `.bashrc` replaces worfy's.
 - Quitting worfy waits for at most 6 seconds.
 - Output that arrives after a shell exited is dropped. On macOS it is kept and shown.
 
