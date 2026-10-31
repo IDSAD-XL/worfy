@@ -62,6 +62,18 @@ async function settled(window: Page): Promise<void> {
   await window.evaluate(() => new Promise((resolve) => (globalThis as unknown as { requestAnimationFrame(callback: () => void): void }).requestAnimationFrame(() => resolve(null))))
 }
 
+/**
+ * The Guide stays off screen for two (scaled) seconds. A single look is not enough: its window is a
+ * React.lazy chunk with no fallback (GuideHost.tsx), so an opening shows only once the chunk has loaded.
+ */
+async function guideStaysClosed(window: Page): Promise<void> {
+  const end = Date.now() + ms(2_000)
+  while (Date.now() < end) {
+    expect(await guideOf(window).count(), 'the Guide opened by itself').toBe(0)
+    await window.waitForTimeout(100)
+  }
+}
+
 /** The contrast of `link`'s text against the first opaque background behind it (WCAG 2 formula). */
 async function contrastOf(link: Locator): Promise<number> {
   const [text, back] = await link.evaluate((element) => {
@@ -123,7 +135,7 @@ test('a new user: nothing opens the Guide; "worfy Guide" under the concepts and 
     const panel = window.getByTestId('getting-started')
     await expect(panel).toBeVisible()
     await settled(window)
-    await expect(guideOf(window)).toHaveCount(0)
+    await guideStaysClosed(window)
 
     // First run: the link under the concepts opens the Guide over it; Esc closes the Guide alone.
     const conceptsLink = dialog.getByRole('button', { name: 'worfy Guide' })
@@ -175,13 +187,13 @@ test('an existing user: First run on the checks and the notice, and nothing else
     await expect(dialog.getByRole('button', { name: 'worfy Guide' })).toHaveCount(0)
     await expect(dialog.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: ms(30_000) })
     await settled(window)
-    await expect(guideOf(window)).toHaveCount(0)
+    await guideStaysClosed(window)
     await dialog.getByRole('button', { name: 'Close' }).click()
     await expect(dialog).toHaveCount(0)
 
     await expect(window.getByTestId('getting-started-notice')).toBeVisible()
     await settled(window)
-    await expect(guideOf(window)).toHaveCount(0)
+    await guideStaysClosed(window)
     await expect(window.getByTestId('getting-started')).toHaveCount(0)
     await expect(window.getByTestId('getting-started-pill')).toHaveCount(0)
   } finally {
