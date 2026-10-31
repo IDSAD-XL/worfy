@@ -23,6 +23,7 @@ Epic-ам и Ticket-ам.
 | [Cards](cards.md) | Card как файл, Card API, Canvas MCP |
 | [Canvas](canvas.md) | Node и Layout, Find, вставка изображений |
 | [Epic frames](epic-frames.md) | Epic frame, Done shelf |
+| [Focus mode](focus-mode.md) | Focus mode |
 | [Projects](projects.md) | Full mode и Silent mode, переключатель, просмотр ADR и HANDOFF |
 | [Workflow](workflow.md) | Ticket и Epic на Canvas, Pipeline, Binding |
 | [Sessions](sessions.md) | Session, Subagent |

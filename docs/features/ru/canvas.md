@@ -71,7 +71,7 @@ Esc. В Command palette те же команды, а «New …» оттуда с
 - **Show family.** При одном выделенном Node с Family камера показывает всю Family, не увеличивая zoom. Участников, скрытых
   фильтром по тегу, она пропускает. Работает и на read-only экране.
 
-Кнопка Focus под выделением и ⌘↩ открывают выделение в focus mode.
+Кнопка Focus под выделением и ⌘↩ открывают выделение в [focus mode](focus-mode.md).
 
 **Клавиши.** Пока Canvas на экране, а фокус на нём или нигде и не в текстовом поле: Delete и Backspace отправляют выделение в
 Trash, ⌘Z и ⇧⌘Z отменяют и возвращают, Esc без выделения сворачивает стопку done, открытую последней.
@@ -152,7 +152,7 @@ Project-а Linked machine.
 #### Windows
 
 Ctrl заменяет ⌘. Внутри Terminal Node сочетания Ctrl с клавишей принадлежат shell-у, а не Canvas. Исключение — zoom: Ctrl+= и Ctrl+−
-оттуда всё равно меняют zoom Canvas, а в плитке focus mode не делают ничего. Ctrl+_ остаётся undo shell-а.
+оттуда всё равно меняют zoom Canvas, а в плитке [focus mode](focus-mode.md) не делают ничего. Ctrl+_ остаётся undo shell-а.
 
 ### How it works
 
