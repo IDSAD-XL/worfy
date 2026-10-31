@@ -207,31 +207,44 @@ test('two windows of one worfy: the shared state reaches both live; a closed win
 })
 
 // browser-family.spec.ts once got a Browser's <webview> page from openSecondWindow (gate full of e6802c9e): the
-// helper took the app's next page, whatever it was. Here a hidden window opens just before the second one, in the
-// helper's own first call into main, so its page comes to Playwright first every time.
+// helper took the app's next page, whatever it was. Here a hidden window opens just before the second one, at the
+// first call into main's window list after a one-shot stub is set, right before openSecondWindow, whose own first
+// call into main is such a call: its page comes to Playwright first every time. An app broadcast in between makes
+// the decoy a moment earlier, still before the second window. Until worfy-polish 47 the stub told the helper's call
+// from the app's own by the text of the call stack (a frame under out/main/); on the Windows PC under the load of
+// the whole suite the windows were counted 2 of 3, with no record of which one was missing.
 test('openSecondWindow gives the window it opened, not a page that opened just before it', async () => {
   const launched = await launch()
   try {
     const { app, window: one } = launched
     await expect(one.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT)
+    type Decoy = { decoyId?: number; decoyError?: string }
     await app.evaluate(({ BrowserWindow }) => {
       const original = BrowserWindow.getAllWindows
       BrowserWindow.getAllWindows = () => {
-        const windows = original.call(BrowserWindow)
-        // The app's own calls (a broadcast to every window) pass through: the decoy is for the helper's call.
-        if (/[\\/]out[\\/]main[\\/]/.test(new Error().stack ?? '')) return windows
+        // One shot: the next call, whoever makes it, gets the real list and leaves the decoy behind.
         BrowserWindow.getAllWindows = original
-        const decoy = new BrowserWindow({ show: false, width: 640, height: 410 })
-        ;(globalThis as { decoyId?: number }).decoyId = decoy.id
-        void decoy.loadURL('about:blank')
+        const windows = original.call(BrowserWindow)
+        try {
+          const decoy = new BrowserWindow({ show: false, width: 640, height: 410 })
+          ;(globalThis as Decoy).decoyId = decoy.id
+          void decoy.loadURL('about:blank')
+        } catch (error) {
+          ;(globalThis as Decoy).decoyError = String(error)
+        }
         return windows
       }
     })
     const two = await openSecondWindow(launched)
+    const decoy = await app.evaluate(() => ({ id: (globalThis as Decoy).decoyId, error: (globalThis as Decoy).decoyError }))
+    expect(decoy, 'the decoy window opened at the first call into the window list after the stub was set').toEqual({ id: expect.any(Number), error: undefined })
     expect(two.url()).toBe(one.url())
     await expect(two.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT)
-    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(3)
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.fromId((globalThis as { decoyId?: number }).decoyId ?? -1)?.destroy())
+    // The addresses, not only the count: a red run names the window that is missing or extra.
+    const addresses = (): Promise<string[]> =>
+      app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((each) => (each.isDestroyed() ? 'destroyed' : each.webContents.getURL())).sort())
+    await expect.poll(addresses, { message: 'the first window, the second one and the hidden decoy on about:blank' }).toEqual(['about:blank', one.url(), one.url()].sort())
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.fromId((globalThis as Decoy).decoyId ?? -1)?.destroy())
   } finally {
     await launched.close()
   }
