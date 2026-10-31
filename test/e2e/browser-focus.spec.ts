@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { creamInside, decodePng, pagePixelsOutside, type Box, type Image } from './browser-pixels'
-import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, EDGE_ROOM, launchApp, repoRoot, roomToEdges, type LaunchedApp } from './helpers'
 import { ms } from '../time-scale'
 
 // A Browser in focus mode (worfy-browser ticket 17). The page of a Browser is a <webview> of the
@@ -74,10 +74,12 @@ interface StartOptions {
   extra?: Record<string, unknown>[]
   /** Cards of the Project: id → its index.html. */
   cards?: Record<string, string>
+  /** The Note in place of `NOTE`. */
+  note?: typeof NOTE
 }
 
-/** Starts the app over a Project whose Layout holds the Browser frame `FRAME` on the first address, `NOTE` and `extra`, the Canvas at `zoom`. */
-async function start(zoom: number, { extra = [], cards = {} }: StartOptions = {}): Promise<Page> {
+/** Starts the app over a Project whose Layout holds the Browser frame `FRAME` on the first address, `note` (`NOTE` by default) and `extra`, the Canvas at `zoom`. */
+async function start(zoom: number, { extra = [], cards = {}, note = NOTE }: StartOptions = {}): Promise<Page> {
   const dataDir = join(scratch, 'data')
   const home = join(scratch, 'home')
   const repo = join(scratch, 'alpha')
@@ -85,7 +87,7 @@ async function start(zoom: number, { extra = [], cards = {} }: StartOptions = {}
   mkdirSync(repo)
   git(repo, 'init', '-q')
   const base = { hidden: false, locked: false, pinned: false, tags: [] }
-  const nodes = [{ ...FRAME, kind: 'browser', ...base, data: { url: `${origin}/page.html` } }, { ...NOTE, ...base }, ...extra.map((node) => ({ ...base, ...node }))]
+  const nodes = [{ ...FRAME, kind: 'browser', ...base, data: { url: `${origin}/page.html` } }, { ...note, ...base }, ...extra.map((node) => ({ ...base, ...node }))]
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   for (const [id, html] of Object.entries(cards)) {
     mkdirSync(join(dataDir, PROJECT, 'cards', id), { recursive: true })
@@ -293,12 +295,17 @@ for (const zoom of [1, 0.5]) {
 }
 
 test('with a Note beside it the page follows its tile when the tiling changes, and the Note tile is drawn as usual', async () => {
-  const window = await start(1)
+  // The Note level with the frame, no lower than it: the Focus button, 12 px under the selection, stays
+  // well inside the page even where the window's frame and menu leave it less than 900 px (issue #1153).
+  const window = await start(1, { note: { ...NOTE, y: FRAME.y } })
   const header = (await window.locator(`.react-flow__node[data-id="${FRAME.id}"] .w-browser-frame__header`).boundingBox())!
   await window.mouse.click(header.x + header.width - 30, header.y + header.height / 2)
   await window.locator(`.react-flow__node[data-id="${NOTE.id}"] .w-note__header`).click({ modifiers: ['ControlOrMeta'] })
   await expect(window.locator('.react-flow__node.selected')).toHaveCount(2)
-  await window.getByRole('button', { name: /^Focus/ }).click()
+  const focusButton = window.getByRole('button', { name: /^Focus/ })
+  await expect(focusButton, 'the Focus button is inside the window').toBeInViewport({ ratio: 1 })
+  expect(await roomToEdges(window, focusButton), 'the Focus button keeps its distance from the edges of the page').toBeGreaterThanOrEqual(EDGE_ROOM)
+  await focusButton.click()
   const focus = window.getByTestId('focus-mode')
   await expect(focus.getByTestId('focus-tile')).toHaveCount(2)
 
