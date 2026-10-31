@@ -32,7 +32,7 @@
 - Приёмка `worfy-link` 16 (Bonjour, запрос Local Network из 02) — код готов. Tailscale на Mac и ПК ставит владелец (ADR-0070, Ticket 31 — с Windows-частью onboarding 12).
 - Одной сессией после `worfy-terminal-ai` 09 — проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
-- `worfy-windows`, ПК: на C: нет места (Фото iCloud); 12 — SmartScreen установщика; 07 — Q31 и `Get-Process` установленного worfy.
+- `worfy-windows`, ПК: 12 — SmartScreen установщика; 07 — Q31 и `Get-Process` установленного worfy.
 - Приёмки (Q14).
 - `worfy-ui`: вручную — раздел Health (06) и ⌘B (10); AltGr на Windows-ПК (03) — пока владелец не скажет в чате ПК; gate full на Windows для 03 и 10 — после e2e Windows (`worfy-windows` 14); долги — «Итог» 03–06, 09, 10, 13–15; 11 — gate full на Windows-ПК и решения в PR #328.
 
