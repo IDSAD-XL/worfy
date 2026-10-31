@@ -44,8 +44,10 @@ Ticket-ов и Pipeline только подсвечиваются: это сам
 
 Решено без владельца: Topic показывает три Feature-а страницы — Ticket и Epic на Canvas, Pipeline и Binding — на одной
 схеме. Плашка Ready wave стоит на кромке рамки Epic-а, как на Map of worfy и схеме Autopilot; в приложении она — подпись
-колонки Level 1 внутри рамки. Связь «blocks» от сделанного Ticket 01 на приложении рисуется, только когда подсвечена
-(`w.md:48-49`); на схеме Guide все связи так и ведут себя, пока ничего не выбрано они бледные. Цвета: свой код окна
+колонки Level 1 внутри рамки. Ticket 01 нарисован карточкой в раскрытой стопке Done (подпись «done: Done stack
+opened»): по умолчанию стопка Done свёрнута, и тогда у сделанного Ticket-а нет карточки и стрелки к нему нет
+(`w.md:44`, `:50`, `src/renderer/canvas/edges/blocking.ts:5-6`). Стрелка от сделанного блокера в приложении видна, только
+когда подсвечена (`w.md:48-49`); на схеме Guide все связи так и ведут себя: пока ничего не выбрано, они бледные. Цвета: свой код окна
 worfy (общая копия, WorkflowHub) — нейтральный `machine`; Epic, Ticket-ы, Wave, Pipeline и то, что их рисует, —
 `workflow`; файлы Ticket-ов, git и GitHub — `project`; Orchestrator и epic-status — `harness`. Подписи рядом с вкладками
 Canvas и Epic убраны: при снимке в масштабе 1 их тонкий текст 11 px давал по пикселям 3,8–4,1:1.
@@ -60,7 +62,7 @@ Canvas и Epic убраны: при снимке в масштабе 1 их то
 | Статус worfy не пишет никогда, его ставят агенты; связь «ticket claim» Session → файлы Ticket-ов; шаг 3 «The agent marks its Ticket claimed itself» | `w.md:81`, `:95`, `src/main/actions/launch.ts:12`, ADR-0002 |
 | Pipeline показывает Stage каждого Ticket-а («a Stage for each Ticket») | `w.md:4`, `:167` |
 | Binding связывает агента с его Ticket-ом или Epic-ом | `w.md:4-5`, `:326`, `src/shared/binding/resolve.ts:1-2` |
-| Ticket 01 «done: in the Done column»; шаг 1: сделанные сложены в колонку Done, остальные — по уровням зависимостей | `w.md:42-45`, `src/renderer/canvas/epic-layout.ts:6-8`, `:219` |
+| Ticket 01 «done: Done stack opened» (карточка есть только в раскрытой стопке Done); шаг 1: сделанные сложены в колонку Done, остальные — по уровням зависимостей | `w.md:42-45`, `:50`, `src/renderer/canvas/epic-layout.ts:6-8`, `:219`, `src/renderer/canvas/edges/blocking.ts:5-6` |
 | Ticket 02 «open, its blocker done»; «ready now» в плашку «Ready wave · N»; «Tickets to take now, computed and stored nowhere» | `w.md:57-66`, `src/shared/workflow/waves.ts:4-5`, `:165-170`, `src/renderer/canvas/nodes/EpicFrameNode.tsx:140` |
 | Шаг 2: открытые Ticket-ы, все блокеры сделаны, файлы не держит другой Ticket — готовая Wave | `w.md:57-63`, `src/shared/workflow/waves.ts:165-169` |
 | «Run wave» с рамки Orchestrator-у; шаг 3: Run wave отправляет Wave Orchestrator-у | `w.md:68-70`, `:76`, `src/shared/projects/action-templates.ts:47`, `src/main/actions/launch.ts:1-12` |
@@ -78,12 +80,13 @@ Canvas и Epic убраны: при снимке в масштабе 1 их то
 | Таблица файлов: назначение каждого из шести | `w.md:131-135`, `:294-295`, `:401`; шапки самих файлов |
 | Лимит: событие файла — один epic-status после 300 мс тишины, самое позднее через 1 с | `w.md:105-106`, `src/main/workflow/watch.ts:5`, `:81-85` |
 | Лимит: Stage-и при изменении полей и раз в 60 с; gh раз в 60 с, удвоение до 32 минут | `w.md:273-275`, `src/main/workflow/stages.ts:301-306`, `src/main/github/prs.ts:9`, `:35`, `:37` |
-| Лимит: stuck по умолчанию — 2 часа на Implementing, CI, Agent review, Gate & merge; 24 часа, пока ждут человека | `w.md:215-221`, `src/shared/workflow/pipeline.ts:314-324` |
+| Лимит: stuck по умолчанию — 2 часа на Implementing, CI, Agent review, Gate & merge; 24 часа на Human review или Awaiting merge, или пока `Waits:` — owner или team | `w.md:215-221`, `src/shared/workflow/pipeline.ts:314-324`, `:326-332` |
 
 **Снимки** (Playwright против сборки ветки, окно 1280×800, у каждого есть пара `-dark`):
 [EN](../evidence/11-workflow-en-light.png) / [dark](../evidence/11-workflow-en-dark.png),
 [RU](../evidence/11-workflow-ru-light.png) / [dark](../evidence/11-workflow-ru-dark.png),
 [подсветка Ticket 02](../evidence/11-workflow-lit-en-light.png), [шаг 3](../evidence/11-workflow-step-en-light.png),
+[подсветка Epic, RU: Run wave и Binding](../evidence/11-workflow-lit-epic-ru-light.png), [шаг 2, RU: «блокирует»](../evidence/11-workflow-step-2-ru-light.png),
 [reduced motion, RU](../evidence/11-workflow-reduced-motion-ru-light.png),
 [Under the hood EN](../evidence/11-workflow-under-the-hood-en-light.png) / [RU](../evidence/11-workflow-under-the-hood-ru-light.png),
 [таблица файлов и лимиты EN](../evidence/11-workflow-under-the-hood-files-en-light.png) / [RU](../evidence/11-workflow-under-the-hood-files-ru-light.png).
@@ -98,4 +101,13 @@ Topic-а Autopilot, с подписями связей обеих схем и п
 toolbar), поэтому ключ `pipeline` ни у какой команды первого места не отнимает.
 
 **Tokens.** Автор: около 230 тыс. токенов контекста (точного счётчика у агента нет; оценка по объёму прочитанного и
-написанного). Проверка: ещё не было.
+написанного) за первый раунд и около 60 тыс. за доработку. Проверка: оценку называет ревьюер.
+
+**Доработка после REJECTED (PR #1165, ревью medium).** Подписи связей при подсветке больше не наезжают друг на друга и
+на блоки: «Binding» Orchestrator → Epic отведена вправо от «Run wave» (концы на Orchestrator-е +50, на вкладке Epic
++24), «Ship ticket» и «Binding» под Ticket 02 разведены до ±40, Ticket 01 сдвинут влево на 40, чтобы «блокирует» умещалась
+между карточками. Проверено throwaway Playwright-проверкой вне репозитория (удалена): наведение на каждый блок обеих схем
+и каждый шаг проигрывателя, EN и RU, рамки подписей по DOM против рамок подписей и блоков: 120 подсвеченных подписей,
+наложений 0. Та же проверка по геометрии `spec.ts` (ширина подписи по числу знаков) на прежней раскладке находила все три
+наложения ревью. Ticket 01 подписан как карточка
+раскрытой стопки Done. Лимит 24 часов сужен до Human review, Awaiting merge и `Waits:` owner или team.
