@@ -5,7 +5,9 @@
 // alike: an entry without an owner or an exit date, one that stays longer than 14 days, one dated
 // later than today, one past its exit date, one for a test or a spec file the repository does not
 // have, a mark without an entry, more than 15 entries of both runners together — each makes this
-// file red, with the name of the entry. The other blocks check the rules on fixtures, with a clock
+// file red, with the name of the entry. A Windows exception has its own rules: more than 30 of them,
+// one that stays longer than 45 days, names a platform other than win32 alone, or another owner
+// than worfy-windows 117, is red too. The other blocks check the rules on fixtures, with a clock
 // passed in, never the system clock, and the helper with a fake `it` in place of vitest's and of
 // Playwright's `test`.
 import { readdirSync, readFileSync } from 'node:fs'
@@ -13,7 +15,9 @@ import { join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   MAX_ENTRIES,
+  MAX_WINDOWS_EXCEPTIONS,
   QUARANTINE_DIR,
+  WINDOWS_EXCEPTION_OWNER,
   quarantineMode,
   quarantineProblems,
   quarantined,
@@ -299,6 +303,77 @@ describe('quarantineProblems: e2e entries', () => {
   })
 })
 
+/** A Windows exception of the fixtures: a test red on Windows only, with the one shared owner. */
+function exceptionEntry(id: string, fields: Record<string, unknown> = {}): EntryFile {
+  return entry(id, { kind: 'windows-exception', owner: WINDOWS_EXCEPTION_OWNER, until: '2026-11-27', ...fields })
+}
+
+describe('quarantineProblems: Windows exceptions', () => {
+  it('passes a Windows exception that stays 30 days, and one that stays exactly 45; 46 days are red', () => {
+    expect(problemsOf([exceptionEntry('watcher-event'), roundsEntry])).toEqual([])
+    expect(problemsOf([exceptionEntry('watcher-event', { until: '2026-12-12' }), roundsEntry])).toEqual([])
+    expect(problemsOf([exceptionEntry('watcher-event', { until: '2026-12-13' }), roundsEntry])).toEqual([
+      'watcher-event: until 2026-12-13 is more than 45 days after since 2026-10-28',
+    ])
+  })
+
+  it('the longer stay belongs to the Windows exception only: a quarantine entry of 30 days is red, with or without its kind', () => {
+    const red = ['watcher-event: until 2026-11-27 is more than 14 days after since 2026-10-28']
+    expect(problemsOf([entry('watcher-event', { until: '2026-11-27' }), roundsEntry])).toEqual(red)
+    expect(problemsOf([entry('watcher-event', { kind: 'quarantine', until: '2026-11-27' }), roundsEntry])).toEqual(red)
+    expect(problemsOf([entry('watcher-event', { kind: 'quarantine' }), roundsEntry])).toEqual([])
+  })
+
+  it('an unknown kind is red', () => {
+    expect(problemsOf([entry('watcher-event', { kind: 'windows' }), roundsEntry])).toEqual([
+      'watcher-event: kind must be quarantine or windows-exception (an entry without it is a quarantine one)',
+    ])
+  })
+
+  it(`a Windows exception names win32 alone, and its owner is ${WINDOWS_EXCEPTION_OWNER}`, () => {
+    const platforms = `watcher-event: a Windows exception must have platforms ["win32"] exactly`
+    expect(problemsOf([exceptionEntry('watcher-event', { platforms: ['darwin'] }), roundsEntry])).toEqual([platforms])
+    expect(problemsOf([exceptionEntry('watcher-event', { platforms: ['win32', 'linux'] }), roundsEntry])).toEqual([platforms])
+    expect(problemsOf([exceptionEntry('watcher-event', { owner: 'worfy-polish 47' }), roundsEntry])).toEqual([
+      `watcher-event: a Windows exception must have owner "${WINDOWS_EXCEPTION_OWNER}", not "worfy-polish 47"`,
+    ])
+    // A quarantine entry keeps any owner and any platforms.
+    expect(problemsOf([entry('watcher-event', { platforms: ['darwin', 'linux'], owner: 'worfy-polish 47' }), roundsEntry])).toEqual([])
+  })
+
+  it('a Windows exception past its exit date is red with its name', () => {
+    expect(problemsOf([exceptionEntry('watcher-event'), roundsEntry], { now: new Date('2026-11-28T00:00:00Z') })).toContain(
+      `watcher-event: expired on 2026-11-27 (owner ${WINDOWS_EXCEPTION_OWNER}): fix the test, or extend the entry with the owner’s word`,
+    )
+  })
+
+  const marks = (count: number) => Array.from({ length: count }, (_, n) => `quarantined('e${n}')('test ${n}', () => {})`).join('\n')
+  const exceptions = (count: number, start = 0) =>
+    Array.from({ length: count }, (_, n) => exceptionEntry(`e${start + n}`, { test: `test ${start + n}` }))
+  const quarantines = (count: number, start: number) =>
+    Array.from({ length: count }, (_, n) => entry(`e${start + n}`, { test: `test ${start + n}` }))
+
+  it(`more than ${MAX_WINDOWS_EXCEPTIONS} Windows exceptions are red; ${MAX_WINDOWS_EXCEPTIONS} pass`, () => {
+    expect(problemsOf(exceptions(MAX_WINDOWS_EXCEPTIONS), { text: marks(MAX_WINDOWS_EXCEPTIONS) })).toEqual([])
+    expect(problemsOf(exceptions(MAX_WINDOWS_EXCEPTIONS + 1), { text: marks(MAX_WINDOWS_EXCEPTIONS + 1) })).toEqual([
+      `${MAX_WINDOWS_EXCEPTIONS + 1} Windows exceptions in test/quarantine/, at most ${MAX_WINDOWS_EXCEPTIONS}: fix a test before adding another`,
+    ])
+  })
+
+  it(`Windows exceptions do not count in the ${MAX_ENTRIES} quarantine entries, nor quarantine entries in the ${MAX_WINDOWS_EXCEPTIONS} exceptions`, () => {
+    const all = MAX_WINDOWS_EXCEPTIONS + MAX_ENTRIES
+    expect(problemsOf([...exceptions(MAX_WINDOWS_EXCEPTIONS), ...quarantines(MAX_ENTRIES, MAX_WINDOWS_EXCEPTIONS)], { text: marks(all) })).toEqual([])
+    expect(problemsOf([...exceptions(MAX_WINDOWS_EXCEPTIONS), ...quarantines(MAX_ENTRIES + 1, MAX_WINDOWS_EXCEPTIONS)], { text: marks(all + 1) })).toEqual([
+      `${MAX_ENTRIES + 1} entries in test/quarantine/, at most ${MAX_ENTRIES} for vitest and Playwright together: fix a test before quarantining another`,
+    ])
+    // A broken entry counts in the kind it names.
+    const broken = { id: `e${all}`, text: JSON.stringify({ kind: 'windows-exception' }) }
+    expect(problemsOf([...exceptions(MAX_WINDOWS_EXCEPTIONS), ...quarantines(MAX_ENTRIES, MAX_WINDOWS_EXCEPTIONS), broken], { text: marks(all) })).toContain(
+      `${MAX_WINDOWS_EXCEPTIONS + 1} Windows exceptions in test/quarantine/, at most ${MAX_WINDOWS_EXCEPTIONS}: fix a test before adding another`,
+    )
+  })
+})
+
 /** A stand-in for vitest's `it` that records how each test was declared. */
 function fakeIt() {
   const calls: { how: 'run' | 'skip' | 'log'; name: string; timeout?: number }[] = []
@@ -395,6 +470,38 @@ describe('quarantined(): what the helper does with a test', () => {
     ])
   })
 
+  it('says "windows exception", not "quarantine", in the line, the annotation and the name of a skipped Windows exception', () => {
+    const files = { 'watcher-event': exceptionEntry('watcher-event') }
+    const until = `${WINDOWS_EXCEPTION_OWNER}, until 2026-11-27`
+    vi.stubEnv('GITHUB_ACTIONS', 'true')
+    expect(declare({ files })).toEqual([
+      { how: 'log', name: `skip (windows exception: ${until}): ${FIXTURE_FILE} > the watcher > ${name}` },
+      {
+        how: 'log',
+        name: `::warning title=windows exception::${FIXTURE_FILE} > the watcher > ${name} (owner ${until})`,
+      },
+      { how: 'skip', name: `${name} (windows exception: ${until})`, timeout: 30_000 },
+    ])
+    expect(declare({ files, env: 'run' })).toEqual([{ how: 'run', name: `${name} (windows exception: ${until})`, timeout: 30_000 }])
+    expect(declare({ files, platform: 'darwin' })).toEqual([{ how: 'run', name, timeout: 30_000 }])
+  })
+
+  it('skips each Windows exception of this repository on win32 alone: on the Mac and on Linux it runs', () => {
+    const exceptions = readEntryFiles(QUARANTINE_DIR).filter((file) => (JSON.parse(file.text) as { kind?: string }).kind === 'windows-exception')
+    expect(exceptions.map((file) => file.id)).toEqual(
+      expect.arrayContaining(['terminal-windows-close-no-console-host', 'workflow-branches-gone-worktree-then-repository']),
+    )
+    for (const file of exceptions) {
+      const raw = JSON.parse(file.text) as { test: string; since: string }
+      const testName = raw.test.split(' > ').at(-1) ?? ''
+      for (const platform of ['win32', 'darwin', 'linux'] as const) {
+        const fake = fakeIt()
+        quarantined(file.id, { it: fake.it, env: undefined, platform, now: new Date(`${raw.since}T12:00:00Z`), log: () => {} })(testName, () => {})
+        expect(fake.calls.map((call) => call.how), `${file.id} on ${platform}`).toEqual([platform === 'win32' ? 'skip' : 'run'])
+      }
+    }
+  })
+
   it('reads its entry from test/quarantine/ by default, for either runner', () => {
     for (const file of readEntryFiles(QUARANTINE_DIR)) {
       const raw = JSON.parse(file.text) as { runner?: string; test: string; platforms: NodeJS.Platform[]; since: string }
@@ -419,6 +526,7 @@ describe('quarantinedDeclaration(): which Playwright declaration an e2e test get
     menu: e2eEntry('menu'),
     broken: e2eEntry('broken', { owner: '' }),
     'watcher-event': entry('watcher-event'),
+    'menu-windows': e2eEntry('menu-windows', { kind: 'windows-exception', owner: WINDOWS_EXCEPTION_OWNER, platforms: ['win32'], until: '2026-11-27' }),
   }
   const name = 'the Canvas menu is drawn over the page'
 
@@ -451,6 +559,18 @@ describe('quarantinedDeclaration(): which Playwright declaration an e2e test get
       declaration: 'test.skip',
       lines: [line, `::warning title=quarantine::${E2E_FILE} > ${name} (owner worfy-throughput 23, until 2026-11-11)`],
     })
+  })
+
+  it('names a skipped Windows exception "windows exception" on stderr and in the annotation, on win32 alone', () => {
+    vi.stubEnv('GITHUB_ACTIONS', 'true')
+    expect(declare({ id: 'menu-windows', platform: 'win32' })).toEqual({
+      declaration: 'test.skip',
+      lines: [
+        `skip (windows exception: ${WINDOWS_EXCEPTION_OWNER}, until 2026-11-27): ${E2E_FILE} > ${name}`,
+        `::warning title=windows exception::${E2E_FILE} > ${name} (owner ${WINDOWS_EXCEPTION_OWNER}, until 2026-11-27)`,
+      ],
+    })
+    expect(declare({ id: 'menu-windows' })).toEqual({ declaration: 'test', lines: [] })
   })
 
   it('declares the test plainly under WORFY_QUARANTINE=run, and alone (test.only) under =only, without a line', () => {
