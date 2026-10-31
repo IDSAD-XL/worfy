@@ -295,8 +295,11 @@ done
 # The old tool prefix is spelled in two halves, so this file does not match itself.
 grep -rn 'mcp__''qmd__' "$PLUGIN" >/dev/null; rc=$?
 [ "$rc" -eq 1 ] && ok "no old qmd tool names (mcp__ + qmd__) left in the plugin (grep exit 1)" || bad "old qmd tool names in the plugin: grep exit $rc"
-jq -e '[.hooks.Stop[].hooks[].command] | index("\"${CLAUDE_PLUGIN_ROOT}/bin/qmd-refresh\" --quiet") != null' "$PLUGIN/hooks/hooks.json" >/dev/null \
-    && ok "hooks.json: Stop runs qmd-refresh --quiet" || bad "hooks.json: no Stop hook qmd-refresh --quiet"
+# The Stop hook is the node script hooks/qmd-refresh.mjs, which runs bin/qmd-refresh --quiet where zsh is.
+jq -e '[.hooks.Stop[].hooks[].command] | index("node \"${CLAUDE_PLUGIN_ROOT}/hooks/qmd-refresh.mjs\"") != null' "$PLUGIN/hooks/hooks.json" >/dev/null \
+    && ok "hooks.json: Stop runs the node hook qmd-refresh.mjs" || bad "hooks.json: no Stop hook qmd-refresh.mjs"
+grep -q '"--quiet"' "$PLUGIN/hooks/qmd-refresh.mjs" && grep -q '"bin", "qmd-refresh"' "$PLUGIN/hooks/qmd-refresh.mjs" \
+    && ok "hooks/qmd-refresh.mjs runs bin/qmd-refresh --quiet" || bad "hooks/qmd-refresh.mjs does not run bin/qmd-refresh --quiet"
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

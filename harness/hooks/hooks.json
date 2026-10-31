@@ -104,7 +104,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/qmd-refresh\" --quiet",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/qmd-refresh.mjs\"",
             "timeout": 15
           }
         ]
