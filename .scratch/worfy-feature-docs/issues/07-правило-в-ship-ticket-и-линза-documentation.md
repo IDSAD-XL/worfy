@@ -49,16 +49,16 @@ Source: «Проверки», «Исключения» и «Решено без 
 
 ## Готово, когда
 
-- [ ] Profile без поля: `ship-ticket` и его test-ы ведут себя как раньше; другие проекты не затронуты.
-- [ ] `bin/profile --field docs.feature_pages` в worfy печатает путь на обеих машинах.
-- [ ] Описание линзы есть в `harness/agents/reviewer.md`; `bin/profile --field review.lenses` содержит `documentation`,
+- [x] Profile без поля: `ship-ticket` и его test-ы ведут себя как раньше; другие проекты не затронуты.
+- [x] `bin/profile --field docs.feature_pages` в worfy печатает путь на обеих машинах.
+- [x] Описание линзы есть в `harness/agents/reviewer.md`; `bin/profile --field review.lenses` содержит `documentation`,
       `review.ticket_lenses` не изменился.
-- [ ] `bin/profile --field audit_lenses` в worfy не `null` и содержит запись `documentation` с настоящими путями.
-- [ ] Строка в `rules.md` есть на обеих машинах; строка в `rules-merge.md` есть на ПК.
-- [ ] Платформенный PR: вердикт Windows (ADR-0056, пункт 2; условие merge — ADR-0083). Текст plugin-а без кириллицы
+- [x] `bin/profile --field audit_lenses` в worfy не `null` и содержит запись `documentation` с настоящими путями.
+- [x] Строка в `rules.md` есть на обеих машинах; строка в `rules-merge.md` есть на ПК.
+- [x] Платформенный PR: вердикт Windows (ADR-0056, пункт 2; условие merge — ADR-0083). Текст plugin-а без кириллицы
       (`check-cyrillic` проверяет Markdown `harness/`).
-- [ ] Gate и review как у PR с кодом.
-- [ ] После merge — `pnpm install:stable` вне run-а Autopilot (ADR-0047), иначе правило не действует.
+- [x] Gate и review как у PR с кодом.
+- [x] После merge — `pnpm install:stable` вне run-а Autopilot (ADR-0047), иначе правило не действует.
 
 ## Тесты
 
@@ -115,5 +115,5 @@ Test-ы `bin/profile` и контракта Profile: поле есть, поля
 
 После merge (Orchestrator, 2026-10-31): на Mac Profile и `rules.md` записаны, `bin/profile --field docs.feature_pages` печатает
 `docs/features`, `review.lenses` содержит `documentation`, `review.ticket_lenses` прежний, `audit_lenses` с записью `documentation`.
-Вердикт Windows: job CI на head `fb7b8304`, отметка `check/windows`. Ждут владельца: Profile на ПК (на ПК нет `rules-merge.md`,
-строка Q21 идёт в `rules.md`, строка 23); это отслеживает Ticket 19. Stable и Harness на Mac обновлены 2026-10-31, main `896d1369`.
+Вердикт Windows: job CI на head `fb7b8304`, отметка `check/windows`. Profile на ПК внесён 2026-10-31 со слова владельца (на ПК нет `rules-merge.md`,
+строка Q21 в `rules.md`, строка 23); Stable и Harness на ПК этой заменой не обновлялись. Stable и Harness на Mac обновлены 2026-10-31, main `896d1369`.
