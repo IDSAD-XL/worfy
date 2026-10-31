@@ -1,7 +1,8 @@
 # 07 — Тексты skills для двух систем; перед Wave — открытые PR второго Epic-а
 
 Type: task
-Status: claimed 2026-10-31T10:24Z
+Status: done 2026-10-31T10:27Z
+PR: #1127
 Branch: worfy-windows/07
 Blocked by: 03, 12
 Source: решения владельца 2026-10-07: Q19 (скрипты Harness — на Node, команды skills — для обеих систем), Q25 (Session-ы Mac и Windows общаются через репозиторий; перед Wave — открытые PR второго Epic-а), Q12 (мерж в main по очереди); решения владельца 2026-10-08: Q30 (метка `needs-mac-gate`: PR Session Windows с общим кодом проверяет и вливает Session Mac; spec.md, «Соглашения», «Метка needs-mac-gate»), Q31 (Windows проверяет main после мержа: gate full на свежем main в начале каждой своей Wave, красный — первым делом чинит; уточняет ADR-0056, пункт 6), Q33 (раздел «Mac checks» в описании PR; Session Mac выполняет его вместе с gate full и пишет отчёт в PR; без отчёта мержа нет); spec.md, «Решения владельца», «Как работает очередь needs-mac-gate» ([spec.md](../spec.md)); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node», пункт 6; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions», пункты 4–6; [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness по-английски); evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
