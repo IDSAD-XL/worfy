@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { dropStdioError } from '../../src/main/diagnostics/closed-stdio'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
@@ -101,7 +102,12 @@ const startup: {
   servedBeforeWindow: boolean
   policies: ((url: string) => boolean)[]
   policyBeforeWindow: boolean
-} = { pauseFollows: [], linkStarts: [], linkAfterWindow: false, schemes: [], served: [], servedBeforeWindow: false, policies: [], policyBeforeWindow: false }
+  /** How many dropStdioError listeners process.stdout and process.stderr had gained once index.ts loaded. */
+  stdioErrorListeners: number[]
+} = { pauseFollows: [], linkStarts: [], linkAfterWindow: false, schemes: [], served: [], servedBeforeWindow: false, policies: [], policyBeforeWindow: false, stdioErrorListeners: [] }
+
+const STDIO = [process.stdout, process.stderr]
+const dropListeners = (stream: NodeJS.WriteStream): number => stream.listeners('error').filter((listener) => listener === dropStdioError).length
 
 // The mocked app is packaged, so src/main/harness/bundled.ts looks for the Harness copy of the build
 // in <process.resourcesPath>/harness: a temporary folder the tests fill or leave empty.
@@ -115,6 +121,9 @@ function bundleHarness(manifest: Record<string, unknown>): void {
 }
 
 afterAll(() => {
+  // The listeners index.ts put on this worker's stdout and stderr, of every load of it (vi.resetModules
+  // below makes a new dropStdioError): they would hide a failed write of the worker after this file.
+  for (const stream of STDIO) for (const listener of stream.listeners('error')) if ((listener as { name?: string }).name === 'dropStdioError') stream.removeListener('error', listener as () => void)
   if (originalResourcesPath) Object.defineProperty(process, 'resourcesPath', originalResourcesPath)
   else Reflect.deleteProperty(process, 'resourcesPath')
   removeTestTree(resources)
@@ -126,7 +135,9 @@ beforeAll(async () => {
     link.handlersAtStart.push(electron.handlers.size)
     return Promise.resolve({})
   })
+  const stdioBefore = STDIO.map(dropListeners)
   await import('../../src/main/index')
+  startup.stdioErrorListeners = STDIO.map((stream, i) => dropListeners(stream) - stdioBefore[i]!)
   // registerIpc runs inside whenReady().then(...); the window is created right after it.
   await vi.waitFor(() => expect(electron.createMainWindow).toHaveBeenCalled(), START_WAIT)
   // Taken now: mock call records do not outlive this hook.
@@ -162,6 +173,13 @@ describe('IPC wiring in src/main/index.ts', () => {
     expect(appMenus).toHaveLength(1)
     const { template } = appMenus[0] as { template: { label?: string; submenu?: { id?: string }[] }[] }
     expect(template.find((item) => item.label === 'View')?.submenu?.some((item) => item.id === 'view.minimap')).toBe(true)
+  })
+})
+
+describe('stdout and stderr wiring in src/main/index.ts', () => {
+  // A failed write to either stream is no reason for Electron's modal error box (worfy-link ticket 38).
+  it('puts the listener that drops write errors on process.stdout and process.stderr, once each', () => {
+    expect(startup.stdioErrorListeners).toEqual([1, 1])
   })
 })
 

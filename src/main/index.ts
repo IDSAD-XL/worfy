@@ -12,6 +12,7 @@ import { stopLiveBrowsers } from './browser/live'
 import { browserProfilePartitions } from './browser/profiles'
 import { installCardRuntime } from './cards/protocol'
 import { cardStore } from './cards/store'
+import { ignoreStdioErrors } from './diagnostics/closed-stdio'
 import { installProcessGone } from './diagnostics/process-gone'
 import { reportUncaughtToStderr } from './diagnostics/uncaught-stderr'
 import { BindingSignalReader } from './claude-home/binding-signals'
@@ -40,8 +41,11 @@ import { claudeHome, dataRoot, setBuildKind } from './storage/paths'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
 
 // Before anything else runs: an uncaught exception's stack reaches stderr before Electron's error box
-// blocks the main thread (diagnostics/uncaught-stderr.ts).
+// blocks the main thread (diagnostics/uncaught-stderr.ts). And a failed write to stdout or stderr (a
+// shell or console that started worfy and ended) is no reason for that box: every error of the two
+// streams is dropped (diagnostics/closed-stdio.ts).
 reportUncaughtToStderr()
+ignoreStdioErrors()
 
 // A dev run keeps its state in a folder of its own, apart from the stable copy of worfy.app that
 // runs Autopilot over worfy itself. Set before the first dataRoot() call.
