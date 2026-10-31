@@ -215,8 +215,9 @@ function typed(event: AgentEvent): string | null {
  *
  * The live part starts in the file at the first event that carries an id one of the live events
  * carries too (`identity`), or else at its end. The file records a prompt before its answer, so
- * the live part starts earlier, at the prompts the live events open with that lie right before
- * that point, after the last event with an id. A prompt in the file that already has an answer,
+ * the live part starts earlier, at the prompts the live events bring before that event (all of
+ * theirs when the file has none of their ids) that lie right before that point, after the last
+ * event with an id. A prompt in the file that already has an answer,
  * or that an interruption closed, is a turn from before Resume and stays, even when the user typed
  * the same text again. A prompt from before Resume that got neither and reads like the first live
  * one cannot be told from it and is shown once.
@@ -225,24 +226,26 @@ export function joinPastAndLive(past: readonly AgentEvent[], live: readonly Agen
   if (live.length === 0) return past
   if (past.length === 0) return live
   const ids = new Set<string>()
-  let firstWithId = -1
-  live.forEach((event, at) => {
+  for (const event of live) {
     const id = identity(event)
-    if (id === null) return
-    ids.add(id)
-    if (firstWithId < 0) firstWithId = at
-  })
-  // The prompts the live events open with, each as often as it comes.
-  const opening = new Map<string, number>()
-  for (const event of firstWithId < 0 ? live : live.slice(0, firstWithId)) {
-    const text = typed(event)
-    if (text !== null) opening.set(text, (opening.get(text) ?? 0) + 1)
+    if (id !== null) ids.add(id)
   }
   let cut = past.findIndex((event) => {
     const id = identity(event)
     return id !== null && ids.has(id)
   })
   if (cut < 0) cut = past.length
+  // The prompts the live events open with, each as often as it comes: those before the live event
+  // the file has at `cut`. A live event with an id the file never records — the end of a background
+  // task Claude Code took in without a turn — may come first; it does not end the opening
+  // (worfy-link ticket 41).
+  const anchor = cut < past.length ? identity(past[cut] as AgentEvent) : null
+  const anchorAt = anchor === null ? -1 : live.findIndex((event) => identity(event) === anchor)
+  const opening = new Map<string, number>()
+  for (const event of anchorAt < 0 ? live : live.slice(0, anchorAt)) {
+    const text = typed(event)
+    if (text !== null) opening.set(text, (opening.get(text) ?? 0) + 1)
+  }
   // Back to the last event with an id: the prompts in between are live ones as long as each is one
   // the live events open with. Any other — a prompt from before Resume, the interruption that
   // closed one — ends the live part there.
