@@ -1,7 +1,7 @@
 # 31 — e2e и приёмка с владельцем: связь Mac и Windows-ПК через Tailscale
 
 Type: task
-Status: open
+Status: done 2026-10-31T04:51Z
 Blocked by: 27, 28, 29, 36, 37
 Source: решения владельца 2026-10-18, Q16, Q21, Q24 ([ADR-0070](../../../docs/adr/0070-worfy-link-outside-the-lan-through-an-overlay-network.md)). Начинается после текущей очереди Epic-а `worfy-windows` и после Ticket-ов 27–29, 36 и 37; Ticket 30 приёмку не держит
 
@@ -28,7 +28,7 @@ Source: решения владельца 2026-10-18, Q16, Q21, Q24 ([ADR-0070](
 
 ## Готово, когда
 
-- [ ] e2e пункта 1 зелёный в gate full на Mac.
+- [x] Правило пункта 1 покрыто contract test-ами `test/contract/link-server.test.ts:626-890` (решение Orchestrator-а 2026-10-31, вместо e2e — см. «Итог»).
 - [x] (вручную) Все шаги пункта 2 пройдены с владельцем; результат каждого — в «Итог».
 
 ## Где в коде
@@ -60,5 +60,8 @@ Source: решения владельца 2026-10-18, Q16, Q21, Q24 ([ADR-0070](
   и исходящее), `linked.json` хранит имя.
 - Low, без ticket-ов: иконка уведомления — Electron, не worfy; на ПК отказ «Change address…» виден только в окне, не в
   `link.log`; путь Tailscale ПК → Mac шёл через `10.25.183.246:41641`, связь из другой сети не проверялась.
-- Не сделано: e2e пункта 1 (pairing по адресу Tailscale двух worfy и отказ при выключенной настройке) — в
-  `test/e2e/linked-tailscale.spec.ts` есть только показ адреса в «Link a machine». Ticket остаётся открытым до него.
+- e2e пункта 1 не сделан, решение Orchestrator-а 2026-10-31: на одном Mac второй worfy приходит с `127.0.0.1`, а loopback
+  проходит при любой настройке (`src/main/link/checks.ts:124-127`); адрес из `100.64.0.0/10` без root не поднять. e2e
+  потребовал бы обхода только для dev-сборки, выдающего loopback за адрес Tailscale, — лишний код в связи. Правило
+  проверяют 13 contract test-ов `test/contract/link-server.test.ts:626-890` (сервер и набор адреса, IPv6, CGNAT, обрыв
+  открытых соединений и pairing) и ручная приёмка выше.
