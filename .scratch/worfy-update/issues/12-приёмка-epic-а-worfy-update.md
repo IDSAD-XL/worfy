@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11
+Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 13
 Source: «Готово, когда» Epic-а worfy-update ([spec.md](../spec.md)); решения владельца 2026-10-31, пункты 1–11; [ADR-0089](../../../docs/adr/0089-update-builds-main-in-own-clone.md); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2 (платформенная часть — на Windows-ПК владельца)
 
 ## Что происходит

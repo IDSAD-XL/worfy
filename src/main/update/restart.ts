@@ -100,11 +100,31 @@ function sameCommit(a: string, b: string): boolean {
  * At the start of worfy: the result of the restart that ended the last run, if any, into the state
  * (`lastRestart`, its toast is ticket 07's), and `previous` as the disk has it. The result file is
  * removed once read; restart.json stays: ticket 05 only marks it `harnessTaken`, and the next restart replaces it.
+ *
+ * `running` is the copy that starts (RestartsOptions.running). An install the helper calls done while
+ * another commit runs did not take effect (ticket 13): the new copy fell over at its start and was
+ * rolled back by hand (install-stable.mjs --rollback leaves both files as they are). That is told as
+ * a failure, and the commit goes quiet as after a roll back (spec R8), or "Update automatically"
+ * would install it again. A running commit that is not known ('', a build without one) changes nothing.
  */
-export function settleLastRestart({ dir, stateFile, target, platform = process.platform }: { dir: string; stateFile: string; target: string; platform?: NodeJS.Platform }): void {
+export function settleLastRestart({
+  dir,
+  stateFile,
+  target,
+  running,
+  platform = process.platform,
+}: {
+  dir: string
+  stateFile: string
+  target: string
+  running?: { commit: string; version: string }
+  platform?: NodeJS.Platform
+}): void {
   const record = existsSync(restartFile(dir)) ? readJsonFile(restartFile(dir), restartRecordSchema) : undefined
   const resultPath = resultFile(dir)
   let lastRestart: NonNullable<UpdateState['lastRestart']> | undefined
+  /** The helper said ok to an install, but another commit runs: the install did not take effect. */
+  let noEffect = false
   if (existsSync(resultPath)) {
     let parsed: z.infer<typeof resultSchema> | undefined
     try {
@@ -119,6 +139,11 @@ export function settleLastRestart({ dir, stateFile, target, platform = process.p
       const ours = record !== undefined && record.action === parsed.action
       const version = ours ? record.version : (parsed.commit?.slice(0, 7) ?? '')
       lastRestart = { ok: parsed.ok, action: parsed.action, version, ...(parsed.ok || parsed.reason === undefined ? {} : { reason: parsed.reason }), ...(ours ? { at: record.at } : {}) }
+      if (ours && parsed.ok && record.action === 'install' && running !== undefined && running.commit !== '' && !sameCommit(running.commit, record.sha)) {
+        noEffect = true
+        const reason = `${running.version || running.commit.slice(0, 7)} runs instead: the new copy did not start, or was rolled back by hand`
+        lastRestart = { ok: false, action: 'install', version: record.version, reason, at: record.at }
+      }
     }
   }
   const previous = previousCopy(platform, target, record)
@@ -126,16 +151,16 @@ export function settleLastRestart({ dir, stateFile, target, platform = process.p
     let next: UpdateState = { ...state, previous: previous === null ? null : { version: previous.version } }
     if (lastRestart === undefined) return next
     next = { ...next, lastRestart }
-    if (!lastRestart.ok || record === undefined || record.action !== lastRestart.action) return next
-    // The build that was installed, or the one rolled back from, is no Update to restart into any more.
+    if (record === undefined || (!noEffect && (!lastRestart.ok || record.action !== lastRestart.action))) return next
+    // The build that was installed, the one rolled back from, or the one that did not take effect, is no Update to restart into any more.
     const done = record.action === 'install' ? record.sha : record.from.sha
     if (next.build.sha !== undefined && sameCommit(next.build.sha, done)) next = { ...next, build: { phase: 'idle' } }
-    if (record.action === 'install') {
+    if (record.action === 'install' && !noEffect) {
       return { ...next, rolledBackFrom: null, available: next.available !== null && sameCommit(next.available.sha, record.sha) ? null : next.available }
     }
-    // Spec R8: the commit rolled back from is quiet until the next one.
-    const available = next.available !== null && sameCommit(next.available.sha, record.from.sha) ? { ...next.available, quiet: true } : next.available
-    return { ...next, rolledBackFrom: record.from.sha, available }
+    // Spec R8: the commit rolled back from, or the one that did not take effect, is quiet until the next one.
+    const available = next.available !== null && sameCommit(next.available.sha, done) ? { ...next.available, quiet: true } : next.available
+    return { ...next, rolledBackFrom: done, available }
   }, stateFile)
   if (existsSync(resultPath)) {
     try {
@@ -180,7 +205,7 @@ export interface RestartsOptions {
   pid: number
   /** The environment the system's node is found and run in (the login shell's); the tokens are dropped. */
   env: () => Promise<Env>
-  /** The copy that runs: the roll back names it as the one it leaves. */
+  /** The copy that runs: the roll back names it as the one it leaves, and the start (settle) tells by it whether an install took effect. */
   running: () => { commit: string; version: string }
   idle: IdleSignal
   /** Quits worfy (app.quit). */
@@ -222,7 +247,13 @@ export class Restarts {
 
   /** At the start: the result of the restart that ended the last run, and `previous` (settleLastRestart). */
   settle(): void {
-    settleLastRestart({ dir: this.options.dir, stateFile: this.options.stateFile(), target: this.options.target(), platform: this.options.platform ?? process.platform })
+    settleLastRestart({
+      dir: this.options.dir,
+      stateFile: this.options.stateFile(),
+      target: this.options.target(),
+      running: this.options.running(),
+      platform: this.options.platform ?? process.platform,
+    })
   }
 
   restart(when: 'now' | 'idle' | 'cancel'): Promise<RestartAnswer> {

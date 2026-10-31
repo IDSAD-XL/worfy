@@ -50,7 +50,7 @@ The dot and the Health row stay until the Update is installed. The toasts:
 | "Harness out of date: <from> → <to>" | Update, Later | The installed Harness is behind this copy's |
 | "worfy updated to <version>. The new Harness applies from the next Session." | None | The first start after a restart into an Update |
 | "worfy is back to <version>. Automatic updates wait for the next commit on main." | None | The first start after a roll back |
-| "worfy was not updated to <version>: <reason>", or "rolled back" in place of "updated" | None | The restart or the roll back did not happen |
+| "worfy was not updated to <version>: <reason>", or "rolled back" in place of "updated" | None | The restart or the roll back did not happen, or the new copy does not run after it |
 | "The Harness was not updated" | Open Health | The Harness of the new copy did not install |
 
 "Later", or any other way of closing a toast, keeps it closed until the next start; the toast "available" comes once per
@@ -137,9 +137,12 @@ mv worfy-stable.previous.json worfy-stable.json
 On Windows, in `%LOCALAPPDATA%`, the same three renames: `worfy-stable` aside, `worfy-stable.previous` to
 `worfy-stable`, `worfy-stable.previous.json` to `worfy-stable.json`. The file names the commit the copy runs, and worfy
 compares that commit with `main`. The script of the clone does the same with checks:
-`node ~/"Library/Application Support/worfy/update/repo/scripts/install-stable.mjs" --rollback` on macOS. A roll back by
-hand does not make the commit quiet: turn "Update automatically" off until a newer commit is on `main`, or the same
-build comes back.
+`node ~/"Library/Application Support/worfy/update/repo/scripts/install-stable.mjs" --rollback` on macOS. When the new
+copy failed before it read how its restart ended, the first start after a roll back by hand sees that another commit
+runs than the one the restart installed. It shows "worfy was not updated to <version>: <old version> runs instead: the
+new copy did not start, or was rolled back by hand", and the commit rolled back from stays quiet, as after "Roll back".
+A new copy that failed later has read that already: then the commit is not quiet, and "Update automatically" builds it
+again; turn the setting off until a newer commit is on `main`.
 
 **What's new.** "What's new" in the chip menu opens a popover under the chip: "What's new in worfy <version>", a line
 "<PR title> #<number>" for each PR merged between the copy that runs and the new version, newest first, and the chip's
