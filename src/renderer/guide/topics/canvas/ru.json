@@ -1,0 +1,107 @@
+{
+  "title": "Canvas",
+  "summary": [
+    "Canvas — бесконечная плоскость, одна на Project. Всё, что на ней лежит, — Node: Session, Card, Terminal, Browser, Note, картинка. Node-ы можно тащить куда угодно: они никогда не перекрываются, выравниваются по соседям, а ⌘Z отменяет перемещение.",
+    "Каждый Epic worfy рисует рамкой с его Ticket-ами, по колонкам: что кого блокирует. Когда все Ticket-ы готовы и рамка свёрнута, Epic становится плашкой на Done shelf. Выделите Node-ы и нажмите ⌘↩: focus mode покажет их рядом, плитками, и в них можно работать, а Canvas под ними останется как был."
+  ],
+  "scene": {
+    "description": "В рамке Canvas лежат Node-ы: Epic frame с Ticket 01, готовым сейчас, который блокирует Ticket 02, и плашкой Ready wave · 1; под рамкой — плашка готового Epic-а на Done shelf; Session, Card, Terminal, Browser, Note и картинка. Вне рамки focus mode берёт выделенные Session, Card и Terminal плитками.",
+    "labels": {
+      "overCanvas": "СЛОЙ ПОВЕРХ",
+      "canvas": "Canvas",
+      "canvasNote": "одна на Project",
+      "epic": "Epic frame",
+      "epicNote": "рисуется по workflow",
+      "wave": "Ready wave · 1",
+      "ticket1": "Ticket 01",
+      "ticket1Note": "Level 1: готов сейчас",
+      "ticket2": "Ticket 02",
+      "ticket2Note": "Level 2: Blocked by 01",
+      "shelf": "Done shelf: ✓ old-epic 4/4",
+      "session": "Session",
+      "sessionNote": "один разговор Claude Code",
+      "card": "Card",
+      "cardNote": "HTML-приложение агента",
+      "terminal": "Terminal",
+      "terminalNote": "ваш shell",
+      "browser": "Browser",
+      "browserNote": "встроенный Chromium",
+      "note": "Note",
+      "noteNote": "двойной клик по плоскости",
+      "image": "Image",
+      "imageNote": "вставлена или перетащена",
+      "focus": "Focus mode",
+      "focusNote": "выделенное плитками",
+      "blocks": "блокирует",
+      "readyNow": "готов сейчас",
+      "allDone": "всё готово, свёрнут",
+      "focusKey": "⌘↩",
+      "step1": "Canvas — одна плоскость на Project. Каждый объект на ней — Node, и Node-ы никогда не перекрываются.",
+      "step2": "Каждый Epic — рамка его Ticket-ов, по колонкам Blocked by; готовые к работе сейчас образуют Ready wave. Готовый Epic со свёрнутой рамкой становится плашкой на Done shelf.",
+      "step3": "Выделите Node-ы и нажмите ⌘↩: focus mode раскладывает их плитками поверх Canvas, и каждый продолжает там работать."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "Перетаскивание идёт от React Flow через useLayout в main по layout.apply. LayoutStore, который вызывают и Canvas MCP tools агента, проверяет операцию, сохраняет layout.json и рассылает layout.changed во все окна. Epic frame-ы получаются из модели workflow через sources/epics.ts и ELK в Web Worker и не хранятся.",
+      "labels": {
+        "renderer": "ОКНО (RENDERER)",
+        "main": "MAIN PROCESS",
+        "reactflow": "React Flow",
+        "reactflowNote": "двигает Node сразу",
+        "uselayout": "useLayout",
+        "uselayoutNote": "берёт самую новую revision",
+        "store": "LayoutStore",
+        "storeNote": "проверяет, разводит Node-ы",
+        "file": "layout.json",
+        "fileNote": "в папке данных worfy",
+        "mcp": "Canvas MCP tools",
+        "mcpNote": "изменения агента",
+        "workflow": "Модель workflow",
+        "workflowNote": "main читает Ticket-ы",
+        "epics": "sources/epics.ts",
+        "epicsNote": "рамки, вычисляются",
+        "elk": "ELK",
+        "elkNote": "в Web Worker",
+        "operation": "операция",
+        "nodes": "Node-ы",
+        "apply": "layout.apply",
+        "changed": "layout.changed",
+        "sameOps": "те же операции",
+        "save": "через 250 ms тишины",
+        "model": "workflow.changed",
+        "request": "запрос раскладки",
+        "places": "места",
+        "frames": "рамки, Ticket-ы",
+        "step1": "Перетаскивание: React Flow сразу двигает Node, а useLayout отправляет операцию в main по layout.apply.",
+        "step2": "LayoutStore проверяет операцию и отодвигает Node от соседей. Canvas MCP tools агента идут тем же путём.",
+        "step3": "main сохраняет layout.json через 250 ms тишины и рассылает layout.changed во все окна; каждое берёт самую новую revision.",
+        "step4": "Epic frame-ы не хранятся: sources/epics.ts вычисляет их из модели workflow, а ELK расставляет Ticket-ы внутри рамки в Web Worker."
+      }
+    },
+    "text": [
+      "Layout — места и размеры Node-ов — пишет только main. Окно двигает Node сразу и отправляет операцию по IPC; Canvas MCP tools агента вызывают тот же LayoutStore.apply. Он проверяет операцию, отодвигает Node от соседей и через 250 ms тишины сохраняет layout.json в собственной папке данных worfy. Каждое окно получает layout.changed и берёт самую новую revision; отклонённая операция возвращает Node-ы на место.",
+      "Epic frame-ы и Ticket-ы не хранятся: они вычисляются из workflow, а ELK раскладывает каждую рамку в Web Worker. Layout хранит только то, что пользователь изменил в рамке: её сдвиг и то, свёрнута ли она.",
+      "Undo живёт в окне: каждый экран отменяет только свои жесты. Focus mode — дерево разбиений в памяти: он не отправляет операций Layout, поэтому после выхода Canvas точно такой же, каким был."
+    ],
+    "files": {
+      "src/main/layout/store.ts": "LayoutStore: применяет или отклоняет операцию, разводит Node-ы, сохраняет layout.json",
+      "src/shared/layout/types.ts": "Node, Layout, операции и их лимиты",
+      "src/shared/layout/free-place.ts": "Правило «без перекрытий», одно для main и для превью перетаскивания",
+      "src/main/mcp/canvas-server.ts": "Canvas MCP tools агента",
+      "src/renderer/canvas/Canvas.tsx": "Поверхность React Flow, жесты и zoom",
+      "src/renderer/canvas/useLayout.ts": "Layout в окне и sendLayoutOp",
+      "src/renderer/canvas/history.ts": "Undo и redo жестов этого экрана",
+      "src/renderer/canvas/sources/epics.ts": "Epic frame-ы, Ticket-ы и Done shelf из workflow",
+      "src/renderer/canvas/epic-layout.ts": "Размеры рамок, Level-ы, полоса рамок, Done shelf",
+      "src/renderer/focus/FocusMode.tsx": "Слой focus mode, его плитки и Esc"
+    },
+    "limits": [
+      "Zoom — от 0.2 до 2.5; координаты — до ±10 000 000.",
+      "Между Node-ами зазор 16; перетаскиваемый Node притягивается в пределах 6 пикселей экрана, иначе к сетке 8.",
+      "⌘Z помнит 40 шагов собственных жестов этого экрана; то, что сделали агент или другой экран, туда не входит.",
+      "Удалённые Node-ы ждут в Trash 3 дня. Законченные Session Node-ы по умолчанию уходят в архив через 24 ч; ничего не удаляется.",
+      "При доступе Read only Canvas Linked machine можно прокручивать, масштабировать и искать по нему, но его Node-ы не двигаются."
+    ]
+  }
+}
