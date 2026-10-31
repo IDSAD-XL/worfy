@@ -57,13 +57,14 @@ describe('the Topics of the Guide', () => {
     expect(Object.keys(TOPIC_FILES.en.get(id)?.underTheHood.files ?? {}).sort()).toEqual([...files].sort())
   })
 
-  it('every page a Topic was checked against, and its commit, are in the repository', () => {
+  it('every page a Topic was checked against is a file of the repository, and its commit is written as a SHA', () => {
+    // Whether the commit is in the history is for scripts/guide-lag.mjs to say: CI checks out only the
+    // last two commits (fetch-depth 2), so the commit a Topic names is usually not there.
     const tracked = trackedAtHead()
     for (const id of ids) {
       for (const { page, sha } of TOPIC_FILES.meta.get(id)?.sources ?? []) {
         expect(tracked.has(page), `${id}: ${page}`).toBe(true)
-        // The commit exists and the page was in it.
-        expect(() => execFileSync('git', ['-C', REPO, 'cat-file', '-e', `${sha}:${page}`], { stdio: 'ignore' }), `${id}: ${sha}:${page}`).not.toThrow()
+        expect(sha, `${id}: ${page}`).toMatch(/^[0-9a-f]{7,40}$/)
       }
     }
   })

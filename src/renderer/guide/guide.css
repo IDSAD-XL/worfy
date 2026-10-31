@@ -132,6 +132,12 @@
   text-align: left;
   text-transform: uppercase;
 }
+/* In Russian a heading keeps its case: a Latin term with a Russian ending (the plural of "Topic")
+   reads badly in capitals. */
+.w-guide[data-language='ru'] .w-guide__heading {
+  letter-spacing: normal;
+  text-transform: none;
+}
 .w-guide__text {
   margin: 0 0 var(--space-2);
   max-width: 64ch;

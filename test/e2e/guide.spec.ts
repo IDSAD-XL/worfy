@@ -141,6 +141,8 @@ test('snapshots of the Guide in both themes and both languages', async () => {
     for (const language of ['en', 'ru'] as const) {
       await guide.getByTestId(`guide-language-${language}`).click()
       await expect(guide).toHaveAttribute('data-language', language)
+      // Headings are capitals in English only: a Latin term with a Russian ending reads badly in capitals.
+      await expect(guide.locator('.w-guide__list .w-guide__heading')).toHaveCSS('text-transform', language === 'ru' ? 'none' : 'uppercase')
       const shots = await snapshotThemes(window, `guide-${language}`)
       if (evidence === undefined || evidence === '') continue
       await mkdir(evidence, { recursive: true })
