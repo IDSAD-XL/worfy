@@ -2,18 +2,20 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { createPortal } from 'react-dom'
 import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
-import { GETTING_STARTED_STEPS, type GettingStartedSnapshot, type GettingStartedStep } from '../../shared/ipc/getting-started'
+import { GETTING_STARTED_STEPS, type GettingStartedStep } from '../../shared/ipc/getting-started'
 import { invoke, subscribe } from '../ipc'
 import { usePipeline } from '../pipeline/usePipeline'
 import { requestAddProject } from '../projects/add-project'
 import { openProject } from '../projects/useProjects'
 import { openSession } from '../session/navigation'
-import { setPendingInput } from '../session/pending-input'
+import { setPendingInput, usePendingInput } from '../session/pending-input'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
-import { openFirstRun } from '../shell/first-run-store'
+import { openFirstRun, useFirstRun } from '../shell/first-run-store'
 import { showToast } from '../toast/toasts'
 import CostSwitch from './CostSwitch'
 import DoneScreen from './DoneScreen'
+import { currentStep, highlightTarget, RING_ATTRIBUTE, targetSelector, targetValue, type HighlightInput, type HighlightTarget } from './highlight'
+import './highlight.css'
 import { stageHint, type StageHint } from './hints'
 import ReviewExample from './ReviewExample'
 import { GETTING_STARTED_COLLAPSED_KEY, skipGettingStarted, useGettingStarted, useGettingStartedStore } from './store'
@@ -50,6 +52,11 @@ import { GETTING_STARTED_COLLAPSED_KEY, skipGettingStarted, useGettingStarted, u
  * Ticket 10: once step 6 is marked, the screen Done (DoneScreen.tsx) stands in place of the steps,
  * with "Connect your own project" and "Remove the demo project"; "Show steps" brings the list back
  * until the panel mounts again. A removal takes steps 2–6 back, so the list returns by itself.
+ *
+ * Ticket 14: while the panel is expanded, a ring marks the one element to press next (highlight.ts):
+ * the current step's button, "Check again" of First run, or Send of the demo Orchestrator's field
+ * while the text a step's button put there lies in it. The ring is only visual: a screen reader hears
+ * the current step from `aria-current="step"`, as before.
  */
 
 const QUESTION = 'What is planned in this project?'
@@ -172,11 +179,6 @@ const STEP_TEXTS: Record<GettingStartedStep, StepText> = {
   '6': { title: 'Merge', line: 'The Orchestrator merges the ticket into main.' },
 }
 
-/** The first step main has not marked; null once all six are. */
-function currentStep(snapshot: GettingStartedSnapshot): GettingStartedStep | null {
-  return GETTING_STARTED_STEPS.find((step) => snapshot.steps[step] === undefined) ?? null
-}
-
 function CheckIcon() {
   return (
     <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -243,6 +245,64 @@ function useCollapsed(): [boolean, (next: boolean) => void] {
   return [chosen ?? saved ?? false, choose]
 }
 
+/** On screen: not disabled, and laid out — an element inside `hidden` or `display: none` has no client rects. */
+function isOnScreen(element: Element): boolean {
+  if (element instanceof HTMLButtonElement && element.disabled) return false
+  return element.getClientRects().length > 0
+}
+
+/** The element of `target` that is on screen; null when there is none. */
+function findTarget(target: HighlightTarget): Element | null {
+  return [...document.querySelectorAll(targetSelector(target, CSS.escape))].find(isOnScreen) ?? null
+}
+
+/** Puts the ring on `element` alone; null takes it off everywhere. */
+function ringOnly(element: Element | null): void {
+  for (const ringed of document.querySelectorAll(`[${RING_ATTRIBUTE}]`)) if (ringed !== element) ringed.removeAttribute(RING_ATTRIBUTE)
+  if (element !== null && !element.hasAttribute(RING_ATTRIBUTE)) element.setAttribute(RING_ATTRIBUTE, '')
+}
+
+/** Puts the ring on the target of `input` as the DOM is now. */
+function ring(input: Omit<HighlightInput, 'onScreen'>): void {
+  const target = highlightTarget({ ...input, onScreen: (each) => findTarget(each) !== null })
+  ringOnly(target === null ? null : findTarget(target))
+}
+
+/**
+ * Keeps the ring of ticket 14 on the target of `input` (highlight.ts): again after each render and at
+ * each change of the DOM that can move it — a node added or removed, `hidden` or `disabled` changed (a
+ * Session view shown, Send enabled, First run opened). The DOM is read at most once a frame, and not
+ * at all while the panel is not expanded.
+ */
+function useHighlightRing(input: Omit<HighlightInput, 'onScreen'>): void {
+  const latest = useRef(input)
+  const active = input.snapshot?.section === 'shown' && input.expanded
+
+  // After each render: the state of this render, then the ring for it (a step marked, the text sent).
+  useEffect(() => {
+    latest.current = input
+    if (active) ring(input)
+  })
+
+  useEffect(() => {
+    if (!active) return undefined
+    let frame = 0
+    const observer = new MutationObserver(() => {
+      if (frame === 0)
+        frame = requestAnimationFrame(() => {
+          frame = 0
+          ring(latest.current)
+        })
+    })
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden', 'disabled'] })
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+      ringOnly(null)
+    }
+  }, [active])
+}
+
 /** `sessionView`: the window shows the Session view, and the panel stands under its header (TOP_IN_SESSION). */
 export function GettingStartedPanel({ sessionView = false }: { sessionView?: boolean } = {}) {
   const snapshot = useGettingStarted()
@@ -257,6 +317,10 @@ export function GettingStartedPanel({ sessionView = false }: { sessionView?: boo
   const [failure, setFailure] = useState<{ step: GettingStartedStep; text: string } | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [showSteps, setShowSteps] = useState(false)
+  // The demo Orchestrator's field that the button of step 3 or 4 filled last, and what became of its text.
+  const [filled, setFilled] = useState<{ step: GettingStartedStep; nodeId: string } | null>(null)
+  const fieldPhase = usePendingInput((state) => (filled === null ? undefined : state.fields[filled.nodeId]))
+  const firstRunOpen = useFirstRun((state) => state.open)
 
   // The steps of the demo's creation, for whichever window asked; shown only while this one waits.
   useEffect(() => {
@@ -295,6 +359,14 @@ export function GettingStartedPanel({ sessionView = false }: { sessionView?: boo
     target.focus()
   }, [collapsed])
 
+  useHighlightRing({
+    snapshot,
+    expanded: !collapsed,
+    firstRunOpen,
+    creating: busy === '2',
+    field: filled === null || fieldPhase === undefined ? null : { ...filled, phase: fieldPhase },
+  })
+
   if (snapshot === null || !shown) return null
   const place: CSSProperties | undefined = sessionView ? { top: TOP_IN_SESSION } : undefined
 
@@ -332,14 +404,15 @@ export function GettingStartedPanel({ sessionView = false }: { sessionView?: boo
     return reason === undefined ? undefined : `Could not create the demo project: ${reason}`
   }
 
-  /** The demo becomes the window's Project; its Orchestrator opens with `text` ready in the field, not sent. */
-  const openDemo = async (text: string): Promise<string | undefined> => {
+  /** The demo becomes the window's Project; its Orchestrator opens with `text` of `step` ready in the field, not sent. */
+  const openDemo = async (step: GettingStartedStep, text: string): Promise<string | undefined> => {
     if (demo === null) return undefined
     const selected = await openProject(null, demo.projectId)
     if (selected !== undefined) return failureReason('projects.select', selected)
     const result = await invoke('orchestrator.open', { projectId: demo.projectId })
     if (!result.ok) return failureReason('orchestrator.open', result.error)
     setPendingInput(result.value.nodeId, text)
+    setFilled({ step, nodeId: result.value.nodeId })
     openSession({ nodeId: result.value.nodeId, projectId: demo.projectId })
     return undefined
   }
@@ -347,7 +420,13 @@ export function GettingStartedPanel({ sessionView = false }: { sessionView?: boo
   const actionOf = (step: GettingStartedStep): ReactNode => {
     const button = (label: string, onClick: () => void, disabled = false) => (
       <div style={styles.action}>
-        <button type="button" className="w-action w-action--primary" disabled={disabled || busy !== null} onClick={onClick}>
+        <button
+          type="button"
+          className="w-action w-action--primary"
+          disabled={disabled || busy !== null}
+          data-getting-started-target={targetValue({ kind: 'step', step })}
+          onClick={onClick}
+        >
           {label}
         </button>
       </div>
@@ -358,9 +437,9 @@ export function GettingStartedPanel({ sessionView = false }: { sessionView?: boo
       case '2':
         return button('Create demo project', () => void run('2', createDemo))
       case '3':
-        return button('Open the Orchestrator', () => void run('3', () => openDemo(QUESTION)), demo === null)
+        return button('Open the Orchestrator', () => void run('3', () => openDemo('3', QUESTION)), demo === null)
       case '4':
-        return button('Ship the ticket', () => void run('4', () => openDemo(SHIP)), demo === null)
+        return button('Ship the ticket', () => void run('4', () => openDemo('4', SHIP)), demo === null)
       default:
         return null
     }

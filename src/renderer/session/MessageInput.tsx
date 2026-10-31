@@ -9,7 +9,7 @@ import { composerItems } from './composer/index'
 import { formatSize } from './attachment-format'
 import { composerHint } from './hints'
 import { stepHistory } from './history'
-import { takePendingInput, usePendingInput } from './pending-input'
+import { markField, takePendingInput, usePendingInput } from './pending-input'
 import { useSlashMenu } from './SlashMenu'
 
 // The input field of a Session: Return sends, Shift+Return starts a new line, ↑ and ↓ in an empty
@@ -35,7 +35,9 @@ import { useSlashMenu } from './SlashMenu'
 //
 // A ready text left for the field's Node (pending-input.ts; Getting started, worfy-onboarding
 // ticket 07) is taken as soon as it is there, and put in only when the field is empty. It is never
-// sent: the user sends it, as anything typed (decision 4 of the onboarding spec).
+// sent: the user sends it, as anything typed (decision 4 of the onboarding spec). The field tells
+// pending-input.ts whether that text lies in it or was sent (markField), and its Send button is a
+// target of the Getting started ring (worfy-onboarding ticket 14, getting-started/highlight.ts).
 
 /** A message as the field sends it. */
 export interface OutgoingMessage {
@@ -172,6 +174,12 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
     setAt(null)
   }
 
+  // A field emptied without sending no longer holds the offered text. Before the effect below, so the
+  // text that effect puts in at mount is not taken for gone in the same commit.
+  useEffect(() => {
+    if (nodeId !== undefined && text.trim() === '' && usePendingInput.getState().fields[nodeId] === 'ready') markField(nodeId, 'offered')
+  }, [nodeId, text])
+
   // A ready text for this Node: taken when the field opens or as soon as it comes, put in only into
   // an empty field, never sent.
   useEffect(() => {
@@ -180,6 +188,8 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
       const ready = takePendingInput(nodeId)
       if (ready === undefined) return
       setText((current) => (current === '' ? ready : current))
+      // Put in, or the field keeps what the user has there (perhaps an edit of an earlier offer): either is what Send sends now.
+      markField(nodeId, 'ready')
       setAt(null)
       field.current?.focus()
     }
@@ -247,6 +257,10 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
     const message = text
     const attached = chipsNow.current
     if (disabled || sending || (message.trim() === '' && attached.length === 0)) return
+    // A send from a field a step offered a text to, whatever it sends: no ring on Send or on the step's button now (Getting started).
+    const before = nodeId === undefined ? undefined : usePendingInput.getState().fields[nodeId]
+    const offeredIn = nodeId !== undefined && (before === 'offered' || before === 'ready') ? nodeId : null
+    if (offeredIn !== null) markField(offeredIn, 'sent')
     setSending(true)
     setError(null)
     setText('')
@@ -259,6 +273,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
     if (failure !== null) {
       // Not sent: the text and the attachments come back so nothing is lost.
       setText((current) => (current === '' ? message : current))
+      if (offeredIn !== null && before !== undefined) markField(offeredIn, before)
       changeChips((current) => [...attached, ...current])
       setError(failure)
     }
@@ -372,6 +387,8 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
                   className="w-composer__send"
                   aria-label={busy ? 'Queue message' : 'Send message'}
                   data-testid="input-send"
+                  data-getting-started-target={nodeId === undefined ? undefined : 'send'}
+                  data-getting-started-node={nodeId}
                   disabled={!canSend}
                   onClick={() => void send()}
                 >

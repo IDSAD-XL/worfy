@@ -462,7 +462,8 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLaye
           </span>
         ),
         checkAgain: (
-          <button type="button" className="w-action" aria-disabled={locked ? 'true' : undefined} onClick={() => !locked && void checkAgain()}>
+          // A target of the Getting started ring in First run (worfy-onboarding ticket 14, getting-started/highlight.ts).
+          <button type="button" className="w-action" aria-disabled={locked ? 'true' : undefined} data-getting-started-target="check-again" onClick={() => !locked && void checkAgain()}>
             Check again
           </button>
         ),
