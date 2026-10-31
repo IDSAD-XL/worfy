@@ -87,6 +87,14 @@ async function typedOnB(b: LaunchedApp): Promise<string | null> {
   })
 }
 
+/** The id of the element that has the focus in B's page, read in B's main as typedOnB reads the input. */
+async function focusedOnB(b: LaunchedApp): Promise<string | null> {
+  return b.app.evaluate(async ({ webContents }) => {
+    const guest = webContents.getAllWebContents().find((contents) => contents.getType() === 'webview' && !contents.isDestroyed() && !contents.getURL().includes('?second'))
+    return guest === undefined ? null : ((await guest.executeJavaScript('document.activeElement?.id ?? null')) as string | null)
+  })
+}
+
 test('a Browser of B: full access shows its frames and types in its page; read-only shows only the frame with the profile name', async () => {
   const scratch = realpathSync.native(await mkdtemp(join(tmpdir(), 'worfy-browser-07-linked-')))
   const alpha = join(scratch, 'alpha')
@@ -125,8 +133,16 @@ test('a Browser of B: full access shows its frames and types in its page; read-o
     expect(await a.window.locator('webview').count(), 'A draws no page of B').toBe(0)
     expect(await a.app.evaluate(({ webContents }) => webContents.getAllWebContents().filter((contents) => contents.getType() === 'webview').length), 'A has no page of B in main').toBe(0)
 
-    // A clicks into the page's input and types: the text lands in B's page.
-    await frames.click({ position: { x: 200, y: 60 } })
+    // A clicks into the page's input and types: the text lands in B's page. Each press and key goes to
+    // B on its own call, answered by nobody (sendBrowserInput): the keys wait until the click has
+    // focused the input on B, and the frames hold A's focus. A click that has not focused the input is
+    // made again (worfy-polish 47: under the load of the whole suite on the Windows PC the text did not
+    // reach B once; typing right after the click did not wait for either).
+    await expect(async () => {
+      await frames.click({ position: { x: 200, y: 60 } })
+      await expect.poll(() => focusedOnB(b!), { message: "the click of A focused the input of B's page" }).toBe('typed')
+    }).toPass({ timeout: ms(20_000) })
+    await expect(frames, "A's keys go to the frames").toBeFocused()
     await a.window.keyboard.type('hello')
     await expect.poll(() => typedOnB(b!), { timeout: ms(15_000), message: 'what A typed reached B\'s page' }).toBe('hello')
 
