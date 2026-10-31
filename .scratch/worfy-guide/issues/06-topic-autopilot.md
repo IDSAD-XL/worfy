@@ -100,7 +100,7 @@ Playwright, окно 1280×800, через временный spec вне PR:
 ### Раунд правок
 
 - Цвета групп на схеме потока: Orchestrator — `harness`, как на простой схеме и в `scene-colours.ts`; Launcher — `workflow`,
-  как Run и Cycle (это код worfy). Обе схемы вынесены в `spec.ts`; `test/unit/guide-autopilot.test.ts` требует одну группу
+  как Run и Cycle (это код worfy). Обе схемы вынесены в `spec.ts`; `test/unit/guide-autopilot.test.tsx` требует одну группу
   для блока с одним названием на обеих схемах. Мутанты (Orchestrator → `agents`, Launcher → `harness`) делают его красным.
 - «обычно» для новой SDK session; «строка JSON на шаг» в подписи и описании потока.
 - Сокращено: «экран не гаснет» на простом уровне; в Under the hood — абзац о взгляде на workflow, абзац о Stop и Force stop,
