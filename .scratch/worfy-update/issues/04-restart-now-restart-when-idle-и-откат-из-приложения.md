@@ -1,7 +1,8 @@
 # 04 — «Restart now», «Restart when idle» и откат из приложения
 
 Type: task
-Status: claimed 2026-10-31T07:23Z
+Status: done 2026-10-31T09:02Z
+PR: #1118
 Blocked by: 02, 03
 Source: решения владельца 2026-10-31, пункты 4 (нажатие — согласие на Harness), 7 (перезапуск только кнопкой; «Restart when idle», пока Session в ходе или идёт Autopilot), 9 (откат, после него автоматический Update молчит); [spec.md](../spec.md), «Как устроено», «Решено без владельца», Р5, Р6, Р7, Р8; [ADR-0089](../../../docs/adr/0089-update-builds-main-in-own-clone.md), пункты 4, 5
 
@@ -155,3 +156,5 @@ Source: решения владельца 2026-10-31, пункты 4 (нажат
   «Restart now» предлагал бы поставить уже стоящую копию.
 - Пока модули Session-ов и Autopilot не загружены, Autopilot считается работающим: ничего не
   считается тихим раньше времени.
+
+- Low из review (debt, Ticket-ами не становятся): круг 1 — четыре low исправлены кругом полировки (намерение «Restart when idle» при занятой Session, свежая проверка Autopilot перед spawn, восстановление `restart.json` при неудаче spawn, test-ы на `node.cmd`, `error`, `unref`). Круг 2: временный `restart.json.restoring-<pid>` остаётся, если `renameSync` упал (`restart.ts:382`); неудачное чтение прежней записи сообщается как «could not be written» (`:309`); idle → cancel → idle до конца первой попытки теряет новое намерение (`:484`, как и раньше); нет прямого test-а на захват попытки в `fire()`. Риск Windows (вне Ticket-а): `--wait-pid` ждёт только главный процесс, вспомогательные процессы Electron могут держать копию — проверить на ПК в приёмке 12.
