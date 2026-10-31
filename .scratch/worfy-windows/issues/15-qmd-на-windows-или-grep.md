@@ -149,10 +149,12 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 - [x] Подмены `test/fixtures/first-run-tools/npm.mjs` и `qmd.mjs` запускаются хотя бы одним test-ом до того,
       как сняты пропуски qmd на Windows: сейчас их не запускает ни один test ни на одной системе
       (`test/fixtures/first-run-tools/README.md:15`; ревью PR #523, low 2; добавлено 2026-10-20).
-- [ ] В e2e первого запуска нет веток Windows из-за qmd (тикет 81, ревью Mac PR #673; добавлено 2026-10-21):
+- [x] В e2e первого запуска нет веток Windows из-за qmd (тикет 81, ревью Mac PR #673; добавлено 2026-10-21):
       `NO_QMD` и `CHECK_RUN_CALL` в `test/e2e/first-run-sandbox.ts` убраны; `first-run.spec.ts` проходит
-      шаги моделей qmd и «Everything is ready» и на Windows; `settings-health.spec.ts` считает прогоны по
-      `qmd --version` и на Windows, а его сводка на Windows — без warning строки qmd.
+      шаги моделей qmd на Windows и кончается сводкой ровно с двумя известными warning-ами: нет bridge для Limits в
+      сборке для разработки и нет `pwsh` в PATH песочницы; на других системах — «Everything is ready». Третий warning —
+      красный. `settings-health.spec.ts` считает прогоны по `qmd --version` и на Windows, а его сводка на Windows — без
+      warning строки qmd (текст пункта уточнён Orchestrator-ом 2026-10-31).
 - [x] Сняты пропуски на Windows групп A–C в `harness/bin/tests/qmd-collections.test.sh` (`if [ "$WIN" = 1 ]` с
       причинами `NO_ZSH`, `NO_SH_QMD`, `NO_UPDATE_LINE`, а также ранний `return` в `accepted()`), и на Windows
       эти случаи зелёные: A — `qmd-sync-main` без zsh, B — запуск `qmd` (не по `#!`), C — строка `update:` на
@@ -366,8 +368,12 @@ PATH — код 1. Поэтому в skill написано запускать `
 **e2e.** `NO_QMD` и `CHECK_RUN_CALL` убраны. `first-run.spec.ts` проходит шаги моделей на Windows, но «Everything is ready»
 там недостижимо не из-за qmd: в сборке для разработки нет bridge для Limits, а в PATH песочницы нет `pwsh`. Поэтому сводка на
 Windows — `2 warnings`, в `settings-health.spec.ts` — `1 failed · 5 warnings`. Замер на ПК, 2026-10-31, каждый файл целиком,
-`--workers=1`: `first-run.spec.ts` — код 0, 8 passed; `settings-health.spec.ts` — код 0, 3 passed. Пункт о «Everything is ready»
-поэтому не отмечен: его текст требует того, что на Windows закрывают не qmd; решает Orchestrator.
+`--workers=1`: `first-run.spec.ts` — код 0, 8 passed; `settings-health.spec.ts` — код 0, 3 passed.
+
+**Два известных warning-а на Windows.** В сводке первого запуска на Windows ожидаются ровно два warning-а: нет bridge для
+Limits в сборке для разработки и нет `pwsh` в PATH песочницы; любой третий красный. Основание Orchestrator-а: решение
+владельца 2026-10-31 о приёмке Windows (исправить или Windows exception). Spec проверяет их число по тексту сводки
+(`2 warnings`), а имена называет только в комментарии: другой warning вместо одного из двух он не заметит.
 
 **Осталось.** Все проверки на Mac; снимок владельца `../evidence/15-qmd-windows.png` и
 проверка Session worfy (путь А); что показывает `/mcp` при коде 3 и 127 (предположение выше); на Mac — `node` из `.mcp.json`, когда
