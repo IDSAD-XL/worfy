@@ -1223,6 +1223,35 @@ check "batch mergeable, overnight-fix-loop: the command comment names UNKNOWN" \
     grep -qF 'gh pr view <N> --json mergeable -q .mergeable   # batch: MERGEABLE — merge; CONFLICTING — as DIRTY; UNKNOWN — ask again in a minute' \
     "$HARNESS/skills/overnight-fix-loop/SKILL.md"
 
+# --- docs.feature_pages: the conditional step of ship-ticket and the Profile contract -----------
+# The step lives in step 5, says that it is skipped without the field, and names neither a project
+# nor a language of the pages.
+pages_para="$(para_of "$ST" '**Feature pages**')"
+check "feature pages: the paragraph is found" test -n "$pages_para"
+step5="$(awk '/^## 5\. Implementation/{s=1; next} s && /^## /{exit} s' "$ST")"
+check "feature pages: the paragraph is in step 5" grep -qF -- '**Feature pages**' <<<"$step5"
+# The whole paragraph, as the lens in agents-text.test.sh: a sentence moved out of it or added to it fails.
+PAGES_WANT='**Feature pages** — `F docs.feature_pages`. Exit code 4 or `null`: say "feature pages skipped: the profile has no `docs.feature_pages`". Set, and the change alters behaviour a page in that folder describes: update that page in this same PR (with `local-green`, on this branch; in Silent mode too), even if the ticket'"'"'s file list does not name it. Refactoring and tests that keep the behaviour need no page edit.'
+check "feature pages: the paragraph is exactly these sentences" test "$(printf '%s' "$pages_para" | tr -d '\r' | sed 's/ $//')" = "$PAGES_WANT"
+check "feature pages: names no project and no language" bash -c '! grep -qiE "worfy|english|russian|translat" <<<"$1"' _ "$pages_para"
+pages_row="$(grep -F '| `docs.feature_pages` |' "$HARNESS/profiles/README.md")"
+for p in '| `docs.feature_pages` | path \| null |' 'The value is read as written and the path is not checked: an absolute path or one with `..` passes too; a relative one is taken from the root of the working tree in both modes' 'Absent or `null`' 'one warning on stderr' 'ship-ticket (step 5), reviewer (lens `documentation`)'; do
+    check "profiles/README.md, docs.feature_pages: '$p'" grep -qF -- "$p" <<<"$pages_row"
+done
+check "profiles/README.md, Silent mode: the pages are an exception to read-only documents" grep -qF -- 'and the pages of `docs.feature_pages`' "$HARNESS/profiles/README.md"
+# A rule elsewhere that still forbids the page edit would make the step above impossible to follow.
+impl_silent="$(para_of "$HARNESS/skills/ship-ticket/implementer-silent-mode.md" '**Silent mode**')"
+for p in 'a relative path in the profile'"'"'s `tickets` and `docs` fields (except `docs.feature_pages`, relative to the working tree), in `numbering.adr.dir`' \
+    'read-only unless the ticket'"'"'s goal is a document for the team or the document is a page of `docs.feature_pages`.'; do
+    check "implementer-silent-mode.md: says '$p'" grep -qF -- "$p" <<<"$impl_silent"
+done
+check "silent-mode.md: a page of docs.feature_pages is an exception to read-only documents" grep -qF -- \
+    'read-only, unless the ticket'"'"'s goal is a document for the team and it says so, or the document is a page of `docs.feature_pages` (step 5).' \
+    <<<"$(para_of "$HARNESS/skills/ship-ticket/silent-mode.md" '**Silent mode**')"
+check "epic-wave: a file list without the page that describes the changed behaviour is incomplete" grep -qF -- \
+    'An incomplete list (no test, no entry point, no page of `docs.feature_pages` that describes behaviour the ticket changes, or not what `rules.md` requires for such a change)' \
+    <<<"$(para_of "$EW" 'An incomplete list')"
+
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 check "the real ~/.claude and ~/.claude/worfy-harness are unchanged" test "$home_before" = "$home_after"
 

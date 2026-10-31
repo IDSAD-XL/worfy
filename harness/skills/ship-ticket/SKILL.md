@@ -198,6 +198,12 @@ stays first — and it never drops an item of the ticket's list of what "done" m
   nobody will know when to redo the code. `"${CLAUDE_PLUGIN_ROOT}/bin/shortcut-ledger"` lists the
   `shortcut:` comments of a work tree and marks the incomplete ones `no-trigger`.
 
+**Feature pages** — `F docs.feature_pages`. Exit code 4 or `null`: say "feature pages skipped: the
+profile has no `docs.feature_pages`". Set, and the change alters behaviour a page in that folder
+describes: update that page in this same PR (with `local-green`, on this branch; in Silent mode too),
+even if the ticket's file list does not name it. Refactoring and tests that keep the behaviour need
+no page edit.
+
 Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-5-source.md` only to maintain this step: it holds the source of its rules and their licence.
 
 ## 6. Checks — bare, with the exit code

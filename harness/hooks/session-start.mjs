@@ -167,7 +167,7 @@ function main() {
     let modetext = ""
     if (mode === "silent") {
         const wf = str(resolved.workflow_folder)
-        modetext += `This project works in Silent mode. Its workflow files — tickets, epic specs, the state file, ADRs, the glossary, lessons, evidence screenshots — live in the Workflow folder ${tilde(wf)}, not in the repository; relative paths of the profile's tickets and docs fields are taken from that folder, and \`ticket\` writes the status there from any worktree. Documents in the repository are read-only, unless the ticket's own goal is a document for the team.\n`
+        modetext += `This project works in Silent mode. Its workflow files — tickets, epic specs, the state file, ADRs, the glossary, lessons, evidence screenshots — live in the Workflow folder ${tilde(wf)}, not in the repository; relative paths of the profile's tickets and docs fields (except \`docs.feature_pages\`, relative to the working tree) are taken from that folder, and \`ticket\` writes the status there from any worktree. Documents in the repository are read-only, unless the ticket's own goal is a document for the team and it says so, or the document is a page of \`docs.feature_pages\` (step 5 of ship-ticket).\n`
         modetext += "Branches, commit messages, PR titles, descriptions and comments, and code comments describe the change itself: no epic names, ticket or ADR numbers, Workflow folder paths, `.scratch` or `HANDOFF`. Name a branch by what it changes (`fix/lot-withdraw-button`) and record it with `ticket claim <epic> <NN> --branch <branch>`. The Bash guard refuses commits, branch names and PR texts with such traces (`bin/silent-check` shows them).\n"
     }
     if (attribution === "off") {

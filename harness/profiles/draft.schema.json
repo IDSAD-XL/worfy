@@ -152,7 +152,8 @@
         "docs": {
           "type": ["object", "null"],
           "properties": {
-            "adr_status_label": { "type": ["string", "null"], "minLength": 1, "description": "The label before the colon of an ADR's status line; null or absent — Status." }
+            "adr_status_label": { "type": ["string", "null"], "minLength": 1, "description": "The label before the colon of an ADR's status line; null or absent — Status." },
+            "feature_pages": { "type": ["string", "null"], "minLength": 1, "description": "The folder of the project's feature pages. The value is read as written and the path is not checked; a relative one is taken from the root of the working tree. Null or absent — the project has none." }
           }
         },
         "lessons": { "type": "string" },

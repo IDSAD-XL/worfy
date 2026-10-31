@@ -201,6 +201,7 @@ the way the project really runs them.
 | `docs.handoff` | `{path, kind, check}` \| null | the project's state file and the check of its form | orchestrator, ship-ticket, epic-wave; implementer does not edit it |
 | `docs.adr_dir` | path \| null | the ADR directory; implementer does not edit it | implementer, reviewer |
 | `docs.adr_status_label` | string \| null | the label before the colon of an ADR's status line (`Status: accepted.`), looked for in the first 20 lines. Absent or `null` — `Status`; a malformed value — a warning and the default. A project whose documents are not in English names its own values for these four section names | the worfy app (the status of an ADR) |
+| `docs.feature_pages` | path \| null | the folder of the pages that describe the project's features to their readers. The value is read as written and the path is not checked: an absolute path or one with `..` passes too; a relative one is taken from the root of the working tree in both modes, because the pages are documents of the repository, not workflow files. A change that alters what a page describes updates that page in the same PR. Absent or `null` — the project has no such pages: ship-ticket skips the step and says so, the lens `documentation` has nothing to check. Another type or a blank string — one warning on stderr, and the field reads as absent: a typo must not stop the project from being read | ship-ticket (step 5), reviewer (lens `documentation`) |
 | `lessons` | `"repo:<path>"` \| `"profile"` | where lessons are written: into the repository or into the profile's `lessons/` | retro, ship-ticket, epic-wave, hooks/session-start.mjs |
 | `session.inject_rules` | bool | `true` — `hooks/session-start.mjs` mixes into every session of the project `rules.md` (without the sources section), the lessons index with `lessons: "profile"` and the map of the active epic (`state/active-epic` → `epics/<epic>/map.md`); the text of each section is at most 20000 bytes (`CLAUDE_SESSION_SECTION_CAP`), a longer one is cut with the line "… truncated, full text: <path>". No field or `false` — the session starts empty | hooks/session-start.mjs |
 | `session.rules_heading` | string | the heading under which `rules.md` is mixed in | hooks/session-start.mjs |
@@ -374,8 +375,9 @@ stays as it is. `bin/profile` prints the fields as written; `bin/ticket`, `bin/e
   `Repo: <name>` — the ticket's repository in a project of several repositories (one ticket — one
   repository); the name comes from `_resolved.repos`. Both are machine lines with English keys.
 - **Documents.** Skills and agents write workflow files only into the Workflow folder; the documents
-  in the repository are read-only. The exception is a ticket whose own goal is a document for the team
-  (a README of a feature), and its "what we do" section says so.
+  in the repository are read-only. The exceptions are a ticket whose own goal is a document for the team
+  (a README of a feature), and its "what we do" section says so, and the pages of `docs.feature_pages`
+  when a project sets that field.
 - **ADR numbers.** `bin/preflight` counts them from the files of the ADR directory in the Workflow
   folder (a duplicate number there — `BLOCKED`), not from `git ls-tree` of branches.
 - **Branches, commits, PRs.** A branch is named by what it changes (`fix/lot-withdraw-button`). Commit

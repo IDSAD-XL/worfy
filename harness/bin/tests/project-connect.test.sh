@@ -189,12 +189,23 @@ draft shop2 silent null "$T/shop2" | node -e 'const d=JSON.parse(require("fs").r
 check "a draft off the schema is exit 1, every reason named" 1 '"path": "profile.mode"' "$CONNECT" <"$T/broken.json"
 check "a field outside the schema is named" 1 '"path": "extra"' "$CONNECT" --schema-only <"$T/broken.json"
 # The names of the document sections: a blank one would make every later profile call warn and fall back.
-for f in tickets.done_section tickets.manual_mark docs.adr_status_label; do
+for f in tickets.done_section tickets.manual_mark docs.adr_status_label docs.feature_pages; do
     jq --arg f "$f" '.profile |= setpath($f | split("."); "")' "$T/shop.json" >"$T/blank.json"
     check "a blank $f is refused by the schema" 1 "\"path\": \"profile.$f\"" "$CONNECT" --schema-only <"$T/blank.json"
 done
 jq '.profile.tickets.done_section = "## Done when" | .profile.tickets.manual_mark = null | .profile.docs = {adr_status_label: "Status"}' "$T/shop.json" >"$T/named.json"
 check "the names of the document sections pass the schema" 0 '"ok": true' "$CONNECT" --schema-only <"$T/named.json"
+# docs.feature_pages: optional, a path or null. The draft above has none and passes.
+check "the schema describes docs.feature_pages as profiles/README.md does" 0 'The value is read as written and the path is not checked' \
+    jq -r '.. | objects | .feature_pages? // empty | .description' "$HARNESS/profiles/draft.schema.json"
+for v in 5 false '["docs/pages"]' '{"dir":"docs/pages"}'; do
+    jq --argjson v "$v" '.profile.docs = {feature_pages: $v}' "$T/shop.json" >"$T/pages-bad.json"
+    check "a docs.feature_pages $v is refused by the schema" 1 '"path": "profile.docs.feature_pages"' "$CONNECT" --schema-only <"$T/pages-bad.json"
+done
+for v in '"docs/pages"' null; do
+    jq --argjson v "$v" '.profile.docs = {feature_pages: $v}' "$T/shop.json" >"$T/pages.json"
+    check "docs.feature_pages $v passes the schema" 0 '"ok": true' "$CONNECT" --schema-only <"$T/pages.json"
+done
 check "a draft that is not JSON is exit 1" 1 "is not JSON" bash -c 'echo "{" | "$1"' _ "$CONNECT"
 draft shop2 full '"/tmp"' "$T/shop2" >"$T/full-folder.json"
 check "Full mode with a Workflow folder is exit 1" 1 "Full mode has no Workflow folder" "$CONNECT" --check <"$T/full-folder.json"

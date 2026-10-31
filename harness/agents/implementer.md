@@ -84,9 +84,10 @@ everyone.
   `## Required reading for the implementer`, if it has one. The
   rest of `rules.md` is facts about the project, not a reading list: open the paths in it only when
   your edit needs them.
-- Edit only the files in the ticket's trail (section `tickets.trail_section`) and those named in the
-  brief; anything outside the trail is a question for the orchestrator, not an edit on your own
-  initiative. What you notice along the way goes into the report, field `out_of_scope`, not into the
+- Edit only the files in the ticket's trail (section `tickets.trail_section`), those named in the
+  brief, and a page of `docs.feature_pages` when the change alters behaviour it describes, even
+  without a skill; anything else outside the trail is a question for the orchestrator, not an edit on
+  your own initiative. What you notice along the way goes into the report, field `out_of_scope`, not into the
   diff.
 - Take ADR and migration numbers from the brief; migrations — only with the command
   `numbering.migrations.generate`, if the profile has it.

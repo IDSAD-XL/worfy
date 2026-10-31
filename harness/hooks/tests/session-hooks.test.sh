@@ -244,6 +244,11 @@ if [[ "$c" == *"## Workflow mode (profile silent)"* && "$c" == *"This project wo
    && [[ "$c" == *"no epic names, ticket or ADR numbers"* && "$c" == *"Attribution is off for this project"* ]]; then
     ok "silent + attribution off: the mode and attribution lines are mixed in without inject_rules"
 else bad "silent session context: [$c]"; fi
+# Feature pages are the exception to both rules of this message: they read from the working tree and may be edited.
+[[ "$c" == *"relative paths of the profile's tickets and docs fields (except \`docs.feature_pages\`, relative to the working tree) are taken from that folder"* ]] \
+    && ok "silent: docs.feature_pages is not taken from the Workflow folder" || bad "silent, relative paths: [$c]"
+[[ "$c" == *"Documents in the repository are read-only, unless the ticket's own goal is a document for the team and it says so, or the document is a page of \`docs.feature_pages\` (step 5 of ship-ticket)."* ]] \
+    && ok "silent: a page of docs.feature_pages is an exception to read-only documents" || bad "silent, read-only documents: [$c]"
 out="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/f1" "$T/syn/f1")"; rc=$?
 [ "$rc" -eq 0 ] && [ -z "$out" ] && ok "full + attribution on: output as before (nothing)" || bad "full on: rc=$rc out=${out:0:200}"
 c="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/f2" "$T/syn/f2" | ctx)"
