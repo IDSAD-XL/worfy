@@ -2,7 +2,7 @@
   "title": "Autopilot",
   "summary": [
     "Autopilot ведёт Wave-ы одного Epic-а одну за другой, без человека у Orchestrator-а. Нажмите Autopilot на рамке Epic-а: прогон отправит готовую Wave, дождётся её конца и отправит следующую.",
-    "Он останавливается, когда готовой Wave нет, когда вы нажали Stop autopilot или когда что-то пошло не так. Пока он идёт, Orchestrator-у некому ответить, поэтому его вопросы отклоняются, экран не гаснет, а каждый шаг записывается в журнал. Сам прогон не начинается никогда."
+    "Он останавливается, когда готовой Wave нет, когда вы нажали Stop autopilot или когда что-то пошло не так. Пока он идёт, Orchestrator-у некому ответить, поэтому его вопросы отклоняются, а каждый шаг записывается в журнал. Сам прогон не начинается никогда."
   ],
   "scene": {
     "description": "Один прогон Autopilot. На Canvas рамка Epic-а держит его Ticket-ы и плашку Ready wave; ниже стоят Orchestrator и implementer-ы, которых он запускает. Вне Canvas Autopilot берёт готовую Wave и отправляет Orchestrator-у Run wave. Orchestrator запускает implementer-ов в фоне, они работают над Ticket-ами и сами ставят им статус. Когда ход закончился, Autopilot решает, кончилась ли Wave, и берёт следующую. Autopilot ждёт сброса Limits и записывает прогон в журнал.",
@@ -42,7 +42,7 @@
   },
   "underTheHood": {
     "flow": {
-      "description": "Поток данных прогона. Кнопка Autopilot вызывает autopilot.start через IPC, и прогон проверяет, можно ли начать. Прогон отдаёт циклу своё состояние и одно событие и получает следующее состояние и эффекты. Эффект send-wave идёт в launcher, который отправляет текст Run wave в Session Orchestrator-а. События Session и изменения, которые видит workflow watch, возвращаются в прогон. Прогон пишет журнал по одной строке JSON, держит экран включённым и отправляет каждое новое состояние обратно через IPC как autopilot.changed.",
+      "description": "Поток данных прогона. Кнопка Autopilot вызывает autopilot.start через IPC, и прогон проверяет, можно ли начать. Прогон отдаёт циклу своё состояние и одно событие и получает следующее состояние и эффекты. Эффект send-wave идёт в launcher, который отправляет текст Run wave в Session Orchestrator-а. События Session и изменения, которые видит workflow watch, возвращаются в прогон. Прогон пишет журнал, по строке JSON на шаг, держит экран включённым и отправляет каждое новое состояние обратно через IPC как autopilot.changed.",
       "labels": {
         "button": "Кнопка Autopilot",
         "buttonNote": "AutopilotAction.tsx",
@@ -72,7 +72,7 @@
         "text": "текст Run wave",
         "events": "prompt, result, state, tasks",
         "ticketsChanged": "Ticket-ы изменились",
-        "lines": "строка JSON на событие",
+        "lines": "строка JSON на шаг",
         "keepAwake": "экран не гаснет",
         "step1": "Кнопка вызывает autopilot.start. Проверки идут по порядку: в Project-е нет прогона, отказ на собственном репозитории worfy и шаблон, workflow и Epic, затем ключ origin и вопрос к Linked machine.",
         "step2": "setUnattended заново запускает Orchestrator без человека, продолжая его SDK session. Прогон открывает журнал, держит экран включённым и открывает workflow watch.",
@@ -81,27 +81,24 @@
       }
     },
     "text": [
-      "Прогон — взгляд на workflow (ADR-0002). О конце Wave никакое событие не сообщает, поэтому прогон выводит его из событий Session Orchestrator-а и свежего чтения workflow.",
       "Цикл — чистая функция: на входе состояние прогона и одно событие, на выходе следующее состояние и список эффектов. Его фазы: starting, sending, turn, tasks, settling и stopped. Каждый шаг прогона проходит через одну очередь, поэтому события обрабатываются по порядку.",
-      "Каждая Wave после первой уходит в новую SDK session Orchestrator-а, чтобы его контекст не рос. Stop autopilot мягкий: новых Wave нет, Ticket-ы в работе доделываются. Force stop, в меню ⋯, прерывает ход и закрывает процесс Claude Code вместе с его background task-ами."
+      "Каждая Wave после первой обычно уходит в новую SDK session Orchestrator-а, чтобы его контекст не рос."
     ],
     "files": {
-      "src/main/autopilot/run.ts": "Класс Autopilot и один Run: проверки старта, события Session, эффекты цикла, остановки, возврат Orchestrator-а человеку",
+      "src/main/autopilot/run.ts": "Один прогон: проверки старта, события Session, эффекты цикла, остановки",
       "src/shared/autopilot/cycle.ts": "Цикл: фазы, события, эффекты, причины остановки и их сроки. Чистый",
       "src/main/actions/launch.ts": "autopilotWave: текст Run wave из шаблона Project-а, отправленный Orchestrator-у",
       "src/main/agent/session-settings.ts": "Session без человека всегда идёт в bypassPermissions",
       "src/main/autopilot/limits-wait.ts": "Ожидание Limits по таймеру настенных часов и текст, который продолжает Wave",
       "src/shared/autopilot/budget.ts": "Дневной бюджет Limits и его решение перед Wave. Чистый",
-      "src/main/autopilot/journal.ts": "Файлы журнала: <папка данных>/autopilot/<run>.jsonl, один на прогон",
+      "src/main/autopilot/journal.ts": "Файлы журнала, один на прогон",
       "src/renderer/canvas/actions/AutopilotAction.tsx": "Кнопка, меню ⋯ с Force stop, строка статуса и плашки"
     },
     "limits": [
       "Один прогон на Project за раз. Тот же Epic того же репозитория, идущий на Linked machine, отклоняет старт; обойти это можно только кнопкой Start anyway.",
       "Dev-сборка отказывается вести прогон над собственным репозиторием worfy, включая его worktree.",
       "Ticket Wave всё ещё в работе после хода: прогон ждёт до 10 минут, затем останавливается с wave-unfinished. Background task-и без событий целый час — background-stalled.",
-      "Отказ Limits: прогон ждёт сброса плюс 2 минуты или пробует каждые 30 минут, когда время сброса неизвестно; дольше 24 часов — остановка с limits-timeout.",
-      "Дневной бюджет в Settings → Autopilot по умолчанию выключен. Включённый, он оставляет часть недели на вашу работу, по умолчанию 15 %.",
-      "Выход из приложения останавливает все прогоны с app-quit."
+      "Отказ Limits: прогон ждёт сброса плюс 2 минуты или пробует каждые 30 минут, когда время сброса неизвестно; дольше 24 часов — остановка с limits-timeout."
     ]
   }
 }

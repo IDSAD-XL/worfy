@@ -2,7 +2,7 @@
   "title": "Autopilot",
   "summary": [
     "Autopilot runs the Waves of one Epic one after another, with no person at the Orchestrator. Press Autopilot on the Epic frame: the run sends the ready Wave, waits until it is over, then sends the next one.",
-    "It stops when no Wave is ready, when you press Stop autopilot, or when something goes wrong. While it runs, no one answers the Orchestrator, so its questions are refused, the display stays on, and each step goes to a journal. No run starts by itself."
+    "It stops when no Wave is ready, when you press Stop autopilot, or when something goes wrong. While it runs, no one answers the Orchestrator, so its questions are refused, and each step goes to a journal. No run starts by itself."
   ],
   "scene": {
     "description": "One run of Autopilot. On the Canvas, the Epic frame holds its Tickets and the Ready wave chip; the Orchestrator and the implementers it starts stand below. Outside the Canvas, Autopilot takes the ready Wave and sends Run wave to the Orchestrator. The Orchestrator starts implementers in the background, and they work on the Tickets and set their status. When the turn has ended, Autopilot judges the Wave and takes the next one. Autopilot waits for the Limits to reset and records the run in a journal.",
@@ -42,7 +42,7 @@
   },
   "underTheHood": {
     "flow": {
-      "description": "The data flow of a run. The Autopilot button calls autopilot.start over IPC, and the run checks the start. The run gives the cycle its state and one event and gets back the next state and effects. The send-wave effect goes to the launcher, which sends the Run wave text to the Orchestrator's Session. The Session's events and the changes the workflow watch sees come back to the run. The run writes the journal, one JSON line each, keeps the display on, and sends each new state back over IPC as autopilot.changed.",
+      "description": "The data flow of a run. The Autopilot button calls autopilot.start over IPC, and the run checks the start. The run gives the cycle its state and one event and gets back the next state and effects. The send-wave effect goes to the launcher, which sends the Run wave text to the Orchestrator's Session. The Session's events and the changes the workflow watch sees come back to the run. The run writes the journal, one JSON line per step, keeps the display on, and sends each new state back over IPC as autopilot.changed.",
       "labels": {
         "button": "Autopilot button",
         "buttonNote": "AutopilotAction.tsx",
@@ -72,7 +72,7 @@
         "text": "Run wave text",
         "events": "prompt, result, state, tasks",
         "ticketsChanged": "Tickets changed",
-        "lines": "one JSON line each",
+        "lines": "one JSON line per step",
         "keepAwake": "display stays on",
         "step1": "The button calls autopilot.start. The checks go in order: no run in the Project, the self-project refusal and the template, the workflow and the Epic, then the origin key and the Linked machines.",
         "step2": "setUnattended starts the Orchestrator again unattended, continuing its SDK session. The run opens its journal, keeps the display on and opens a workflow watch.",
@@ -81,27 +81,24 @@
       }
     },
     "text": [
-      "A run is a view over the workflow (ADR-0002). The end of a Wave comes as no event, so the run works it out from the events of the Orchestrator's Session and fresh reads of the workflow.",
       "The cycle is a pure function: the state of a run and one event in, the next state and a list of effects out. Its phases are starting, sending, turn, tasks, settling and stopped. Every step of a run goes through one queue, so events are handled in order.",
-      "Every Wave after the first goes to a new SDK session of the Orchestrator, so its context does not grow. Stop autopilot is graceful: no new Wave, the Tickets in work finish. Force stop, under ⋯, interrupts the turn and closes the Claude Code process with its background tasks."
+      "Every Wave after the first usually goes to a new SDK session of the Orchestrator, so its context does not grow."
     ],
     "files": {
-      "src/main/autopilot/run.ts": "The Autopilot class and one Run: start checks, the Session's events, the cycle's effects, stops, give-back",
+      "src/main/autopilot/run.ts": "One run: start checks, the Session's events, the cycle's effects, stops",
       "src/shared/autopilot/cycle.ts": "The cycle: phases, events, effects, stop reasons and their time limits. Pure",
       "src/main/actions/launch.ts": "autopilotWave: the Run wave text from the Project's template, sent to the Orchestrator",
       "src/main/agent/session-settings.ts": "An unattended Session always runs in bypassPermissions",
       "src/main/autopilot/limits-wait.ts": "The wait for the Limits on a wall-clock timer, and the text that continues the Wave",
       "src/shared/autopilot/budget.ts": "The daily budget of the Limits and its decision before a Wave. Pure",
-      "src/main/autopilot/journal.ts": "The journal files: <data folder>/autopilot/<run>.jsonl, one per run",
+      "src/main/autopilot/journal.ts": "The journal files, one per run",
       "src/renderer/canvas/actions/AutopilotAction.tsx": "The button, the ⋯ menu with Force stop, the status line and the chips"
     },
     "limits": [
       "One run per Project at a time. The same Epic of the same repository running on a Linked machine refuses the start; Start anyway is the only way past.",
       "A development build refuses a run on worfy's own repository, its worktrees included.",
       "A Ticket of the Wave still in work after the turn: the run waits up to 10 minutes, then stops with wave-unfinished. Background tasks with no event for an hour: background-stalled.",
-      "A refusal by the Limits: the run waits until the reset plus 2 minutes, or tries every 30 minutes when no reset time is known; past 24 hours it stops with limits-timeout.",
-      "The daily budget in Settings → Autopilot is off by default. On, it keeps a reserve of the week for your own work, 15 % by default.",
-      "Quitting the app stops every run with app-quit."
+      "A refusal by the Limits: the run waits until the reset plus 2 minutes, or tries every 30 minutes when no reset time is known; past 24 hours it stops with limits-timeout."
     ]
   }
 }
