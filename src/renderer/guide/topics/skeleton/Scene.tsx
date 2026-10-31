@@ -4,12 +4,13 @@
 // ticket 04. Labels come from the Topic's texts, so the diagram speaks the Guide's language.
 import { useId } from 'react'
 import type { SceneProps } from '../../content'
+import { GROUP_COLOURS } from '../../scene-colours'
 
 interface Block {
   key: string
   x: number
   y: number
-  /** The colour of its group: a kind-* token (ADR-0090 allows them on the Guide's diagrams). */
+  /** The colour of its group (scene-colours.ts). */
   colour: string
 }
 
@@ -18,9 +19,9 @@ const H = 58
 const HEADER = 26
 
 const BLOCKS: readonly Block[] = [
-  { key: 'menu', x: 40, y: 30, colour: 'var(--kind-epic)' },
-  { key: 'palette', x: 40, y: 150, colour: 'var(--kind-session)' },
-  { key: 'guide', x: 420, y: 90, colour: 'var(--kind-orchestrator)' },
+  { key: 'menu', x: 40, y: 30, colour: GROUP_COLOURS.workflow },
+  { key: 'palette', x: 40, y: 150, colour: GROUP_COLOURS.agents },
+  { key: 'guide', x: 420, y: 90, colour: GROUP_COLOURS.harness },
 ]
 
 const EDGES: readonly (readonly [string, string])[] = [

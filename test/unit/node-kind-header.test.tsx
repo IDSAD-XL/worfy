@@ -474,12 +474,13 @@ describe('the kind colours of the Node files', () => {
     for (const file of files) expect(readFileSync(join(dir, file), 'utf8'), file).not.toMatch(/var\(--kind-/)
   })
 
-  it('outside the theme only kind-colours.ts and, for the Epic frame’s ground, epic-frame.css name a kind-* role', () => {
+  it('outside the theme only kind-colours.ts, for the Epic frame’s ground epic-frame.css, and for the worfy Guide’s diagrams scene-colours.ts name a kind-* role', () => {
     const root = join(process.cwd(), 'src/renderer')
     const files = readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((file) => /\.(tsx?|css)$/.test(file) && file !== join('theme', 'tokens.css'))
     expect(files.length).toBeGreaterThan(100)
     const naming = files.filter((file) => /var\(--kind-/.test(readFileSync(join(root, file), 'utf8'))).map((file) => file.split('\\').join('/'))
-    expect(naming.sort()).toEqual(['canvas/epic-frame.css', 'canvas/kind-colours.ts'])
+    // The Guide's diagrams may colour a block by its group (ADR-0090, point 10): through one file.
+    expect(naming.sort()).toEqual(['canvas/epic-frame.css', 'canvas/kind-colours.ts', 'guide/scene-colours.ts'])
   })
 
   it('each kind with a colour shows on the minimap in its band colour', async () => {
