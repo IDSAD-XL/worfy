@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { PERSISTENT_ENV_KEYS, REGISTRY_STAND_IN_VAR } from '../../src/main/agent/env'
 import { startUpdateStub, type UpdateStub } from '../update-stub'
 import { ms } from '../time-scale'
 
@@ -56,6 +57,20 @@ function failingBuild(): string {
   const path = join(scratch, 'build-fail.mjs')
   writeFileSync(path, "process.stderr.write('fake build failed: electron-builder said no\\n')\nprocess.exitCode = 1\n")
   return path
+}
+
+/**
+ * The PATH the build's steps get: on macOS and Linux the e2e login shell hands the app the test
+ * process's PATH (launch-env.ts), so git, node and pnpm are found. On Windows the app builds it from
+ * the registry (src/main/agent/env.ts), where a CI runner's pnpm is not: a registry stand-in
+ * (as in first-run-sandbox.ts) gives it the test process's Path.
+ */
+function buildPath(): Record<string, string> {
+  if (process.platform !== 'win32') return {}
+  const file = join(scratch, 'registry.json')
+  const user = [{ name: 'Path', type: 'REG_SZ', value: process.env.PATH ?? '' }]
+  writeFileSync(file, JSON.stringify({ [PERSISTENT_ENV_KEYS[0]]: user, [PERSISTENT_ENV_KEYS[1]]: [] }))
+  return { [REGISTRY_STAND_IN_VAR]: file }
 }
 
 /** The data folder with one Project, the Update state and, when given, the app settings. */
@@ -126,7 +141,7 @@ test('without "Update automatically" an Available update shows "New worfy <versi
   const version = `0.9.0+${repository.sha.slice(0, 7)}`
   makeData({ available: { sha: repository.sha, version, quiet: false } }, { autoUpdate: false })
   stub = await startUpdateStub({ head: repository.sha, version: '0.9.0' }, { stable: join(scratch, 'stable') })
-  const launched = await launch({ WORFY_UPDATE_REPO: repository.path, WORFY_UPDATE_BUILD: failingBuild() })
+  const launched = await launch({ WORFY_UPDATE_REPO: repository.path, WORFY_UPDATE_BUILD: failingBuild(), ...buildPath() })
   try {
     const { window } = launched
     await canvasReady(launched, { size: { width: 1400, height: 900 }, timeout: ms(20_000) })

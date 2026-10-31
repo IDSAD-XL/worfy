@@ -14,11 +14,13 @@
 //
 // Each toast is offered once per window load for the same state: "Later", or any other way the
 // user closes it, keeps it closed until the next start (R12). A new state (another build, a new
-// failure, another Harness version) is offered again. Nothing shows while Update is off for this
+// failure, another Harness version) is offered again; "available" is not: it comes once per window
+// load, whatever the commit. Nothing shows while Update is off for this
 // copy (`enabled`: only the Stable copy, or WORFY_UPDATE=1).
 //
 // Main keeps `lastRestart` in its state until the next restart, so the toast of it is remembered in
-// this window's localStorage (worfy's data folder, ADR-0005), not shown at every start.
+// this window's localStorage (worfy's data folder, ADR-0005), not shown at every start. Its `at`
+// (when that restart was asked) keeps two equal results of two restarts apart.
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import { failureReason } from '../../shared/ipc/channels'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
@@ -91,7 +93,7 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
   // What was offered in this window load, by what it was about: offered again only for another.
   let readyFor: string | undefined
   let readyButton: 'now' | 'idle' | undefined
-  let availableFor: string | undefined
+  let availableOffered = false
   let harnessFor: string | undefined
   let lastPhase: UpdateSnapshot['build']['phase'] | undefined
   let restartTold = false
@@ -146,8 +148,9 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
       dismissToast(AVAILABLE_KEY)
       return
     }
-    if (availableFor === available.sha) return
-    availableFor = available.sha
+    // Once per window load (R12): "Later" holds for a newer commit too, until the next start.
+    if (availableOffered) return
+    availableOffered = true
     showToast({
       kind: 'action',
       key: AVAILABLE_KEY,

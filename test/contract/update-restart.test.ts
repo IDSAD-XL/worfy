@@ -538,7 +538,7 @@ describe('At the start', () => {
     settle()
 
     const state = readUpdateState(stateFile)
-    expect(state.lastRestart).toEqual({ ok: true, action: 'install', version: '0.6.0+bbbbbbb' })
+    expect(state.lastRestart).toEqual({ ok: true, action: 'install', version: '0.6.0+bbbbbbb', at: '2026-10-31T10:00:00.000Z' })
     expect(state.previous).toEqual({ version: '0.5.0+aaaaaaa' })
     // The build installed is no Update to restart into any more.
     expect(state.build).toEqual({ phase: 'idle' })
@@ -555,10 +555,36 @@ describe('At the start', () => {
     settle()
 
     const state = readUpdateState(stateFile)
-    expect(state.lastRestart).toEqual({ ok: false, action: 'install', version: '0.6.0+bbbbbbb', reason: 'process 4242 is still running after 120 s: nothing was changed' })
+    expect(state.lastRestart).toEqual({ ok: false, action: 'install', version: '0.6.0+bbbbbbb', reason: 'process 4242 is still running after 120 s: nothing was changed', at: '2026-10-31T10:00:00.000Z' })
     expect(state.build.phase).toBe('ready')
     expect(state.previous).toBeNull()
     expect(existsSync(resultFile(dir))).toBe(false)
+  })
+
+  it('lastRestart carries the time of the restart it ends (restart.json `at`): two equal failures stay two', () => {
+    readyBuild()
+    const record = (at: string) => ({ action: 'install', version: '0.6.0+bbbbbbb', sha: BUILT_SHA, from: { sha: RUNNING_SHA, version: '0.5.0+aaaaaaa' }, harness: true, at })
+    const failure = { ok: false, action: 'install', commit: null, previous: null, reason: 'EBUSY: resource busy or locked', notes: [] }
+    writeFileSync(restartFile(dir), JSON.stringify(record('2026-10-31T10:00:00.000Z')))
+    writeFileSync(resultFile(dir), JSON.stringify(failure))
+    settle()
+    const first = readUpdateState(stateFile).lastRestart
+    writeFileSync(restartFile(dir), JSON.stringify(record('2026-10-31T11:00:00.000Z')))
+    writeFileSync(resultFile(dir), JSON.stringify(failure))
+    settle()
+    const second = readUpdateState(stateFile).lastRestart
+    expect(first).toMatchObject({ ok: false, reason: 'EBUSY: resource busy or locked', at: '2026-10-31T10:00:00.000Z' })
+    expect(second).toMatchObject({ ok: false, reason: 'EBUSY: resource busy or locked', at: '2026-10-31T11:00:00.000Z' })
+  })
+
+  it('without restart.json, or with one of the other action, lastRestart has no `at`', () => {
+    writeFileSync(resultFile(dir), JSON.stringify({ ok: false, action: 'install', commit: null, previous: null, reason: 'no record', notes: [] }))
+    settle()
+    expect(readUpdateState(stateFile).lastRestart).toEqual({ ok: false, action: 'install', version: '', reason: 'no record' })
+    writeFileSync(restartFile(dir), JSON.stringify({ action: 'rollback', version: '0.5.0+aaaaaaa', sha: RUNNING_SHA, from: { sha: BUILT_SHA, version: '0.6.0+bbbbbbb' }, harness: true, at: '2026-10-31T10:00:00.000Z' }))
+    writeFileSync(resultFile(dir), JSON.stringify({ ok: false, action: 'install', commit: null, previous: null, reason: 'not ours', notes: [] }))
+    settle()
+    expect(readUpdateState(stateFile).lastRestart).not.toHaveProperty('at')
   })
 
   it('a result that does not read is a failed restart', () => {
@@ -577,7 +603,7 @@ describe('At the start', () => {
     settle()
 
     const state = readUpdateState(stateFile)
-    expect(state.lastRestart).toEqual({ ok: true, action: 'rollback', version: '0.5.0+aaaaaaa' })
+    expect(state.lastRestart).toEqual({ ok: true, action: 'rollback', version: '0.5.0+aaaaaaa', at: '2026-10-31T10:00:00.000Z' })
     expect(state.rolledBackFrom).toBe(BUILT_SHA)
     expect(state.available).toEqual({ sha: BUILT_SHA, version: '0.6.0+bbbbbbb', quiet: true })
     expect(state.build).toEqual({ phase: 'idle' })

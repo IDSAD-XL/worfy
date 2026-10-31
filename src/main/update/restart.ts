@@ -115,7 +115,7 @@ export function settleLastRestart({ dir, stateFile, target, platform = process.p
     } else {
       const ours = record !== undefined && record.action === parsed.action
       const version = ours ? record.version : (parsed.commit?.slice(0, 7) ?? '')
-      lastRestart = { ok: parsed.ok, action: parsed.action, version, ...(parsed.ok || parsed.reason === undefined ? {} : { reason: parsed.reason }) }
+      lastRestart = { ok: parsed.ok, action: parsed.action, version, ...(parsed.ok || parsed.reason === undefined ? {} : { reason: parsed.reason }), ...(ours ? { at: record.at } : {}) }
     }
   }
   const previous = previousCopy(platform, target, record)

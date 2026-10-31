@@ -70,15 +70,20 @@ Source: решения владельца 2026-10-31, пункты 5 (один s
   «Restart when idle») и `update-error` (отказ или сбой вызова кнопки, текст — причина от main).
 - Ничего не показывается, пока Update выключен (`enabled: false`): dev-сборки и остальные e2e toast-ов не видят.
 - Каждый toast предлагается один раз на загрузку окна для того же состояния (другая сборка, новый переход в
-  `failed`, другая пара версий Harness — снова). «Update failed» показывается и при старте, если сборка уже
-  `failed`.
+  `failed`, другая пара версий Harness — снова). «available» — один раз на загрузку окна при любом commit-е
+  (Р12, ревью #1124). «Update failed» показывается и при старте, если сборка уже `failed`.
 - `lastRestart` main не очищает (`src/main/update/restart.ts` пишет его только при наличии файла результата),
   поэтому показанный `lastRestart` запоминается в localStorage окна (папка данных worfy, ADR-0005), иначе
-  toast шёл бы при каждом старте. Ограничение: два одинаковых неудачных перезапуска подряд — второй без toast-а.
+  toast шёл бы при каждом старте. Чтобы два одинаковых неудачных перезапуска не слились в один, `lastRestart`
+  несёт `at` из restart.json (необязательное поле schema, `settleLastRestart` в `src/main/update/restart.ts`).
+- Длинная причина в error toast-е обрезается на третьей строке (правило `src/renderer/toast/toast.css`
+  для всех toast-ов); полный текст — в `title`. Toast-система не менялась.
 - Текст неудачного перезапуска в spec-е не было; добавлен в «Тексты (черновик)» spec-а этим же PR:
   «worfy was not updated to <version>: <reason>» / «worfy was not rolled back to <version>: <reason>».
 - `harnessAfterUpdate` уже есть в schema на `main` (`src/shared/ipc/update.ts`); toast читает его, Ticket 05 его
   выставляет.
+- e2e на Windows: приложение берёт PATH из реестра, где у runner-а нет pnpm; test даёт ему Path процесса
+  test-а через `WORFY_REGISTRY_STAND_IN` (как `test/e2e/first-run-sandbox.ts`).
 - Вне следа, аддитивно: `followUpdate` в `src/renderer/update/store.ts` (запуск чтения без React);
   `test/update-stub.ts` в `APP_FILES` `scripts/ci-scope.mjs` (та же строка, что у Ticket 09).
 - Unit test — `test/unit/update-toasts.test.tsx`, не `.ts`: модуль тянет `settings-window.ts` с DOM, а

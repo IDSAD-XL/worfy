@@ -55,8 +55,14 @@ export const updateStateSchema = z.object({
   /** The installed Harness is behind the one of this copy (ticket 05). */
   harnessBehind: z.object({ from: z.string(), to: z.string() }).nullable().default(null),
   running: updateRunningSchema.nullable().default(null),
-  /** How the last restart into an Update ended (ticket 04). */
-  lastRestart: z.object({ ok: z.boolean(), action: z.string(), version: z.string(), reason: z.string().optional() }).nullable().default(null),
+  /**
+   * How the last restart into an Update ended (ticket 04). `at`: when that restart was asked
+   * (restart.json), so two equal results of two restarts stay two (ticket 07's toast).
+   */
+  lastRestart: z
+    .object({ ok: z.boolean(), action: z.string(), version: z.string(), reason: z.string().optional(), at: z.iso.datetime().optional() })
+    .nullable()
+    .default(null),
   /** The Harness of the new copy was not installed after the restart (ticket 05). */
   harnessAfterUpdate: z.literal('failed').nullable().default(null),
 })

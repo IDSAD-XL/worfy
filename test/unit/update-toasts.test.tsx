@@ -184,6 +184,16 @@ describe('Later (R12)', () => {
   })
 })
 
+describe('available once per window load (R12, ticket item 1.1)', () => {
+  it('after "Later" an Available update of a newer commit brings no toast in this window load', () => {
+    const update = make(false)
+    update.update(snapshot({ available }))
+    press(AVAILABLE_KEY, 'Later')
+    update.update(snapshot({ available: { sha: 'd'.repeat(40), version: `0.7.0+${'d'.repeat(7)}`, quiet: false } }))
+    expect(all()).toEqual([])
+  })
+})
+
 describe('failed', () => {
   it('a failed build shows "Update failed"; "Show log" opens the log through main', async () => {
     answers['update.showLog'] = { ok: true, value: undefined }
@@ -268,6 +278,17 @@ describe('the end of the last restart', () => {
     // The next window load (or the next start) with the same lastRestart in main's state.
     make().update(state)
     expect(all()).toEqual([])
+  })
+
+  it('two equal failed restarts at different times are told both; the same restart again is not', () => {
+    const failure = (at: string) => snapshot({ lastRestart: { ok: false, action: 'install', version: VERSION, reason: 'EBUSY: resource busy or locked', at } })
+    make().update(failure('2026-10-31T10:00:00.000Z'))
+    expect(toast(RESTART_RESULT_KEY)?.kind).toBe('error')
+    resetToasts()
+    make().update(failure('2026-10-31T10:00:00.000Z'))
+    expect(all()).toEqual([])
+    make().update(failure('2026-10-31T11:00:00.000Z'))
+    expect(toast(RESTART_RESULT_KEY)?.text).toBe(`worfy was not updated to ${VERSION}: EBUSY: resource busy or locked`)
   })
 
   it('a roll back: success "worfy is back to …"', () => {
