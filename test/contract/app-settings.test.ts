@@ -13,7 +13,7 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autoCompactWindowChosen, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
+import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -78,7 +78,7 @@ describe('AppSettingsStore', () => {
     const file = freshFile()
     const store = new AppSettingsStore(file)
     expect(store.get()).toStrictEqual(DEFAULT_APP_SETTINGS)
-    expect(store.get()).toStrictEqual({ interfaceScale: 1, sidebar: { collapsed: {}, visible: { normal: true, focus: true } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, memoryIndicator: true, revision: 0 })
+    expect(store.get()).toStrictEqual({ interfaceScale: 1, sidebar: { collapsed: {}, visible: { normal: true, focus: true } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, memoryIndicator: true, autoUpdate: true, revision: 0 })
     expect(existsSync(file)).toBe(false)
   })
 
@@ -86,7 +86,7 @@ describe('AppSettingsStore', () => {
     const file = freshFile()
     const store = new AppSettingsStore(file)
     const changed = store.set({ interfaceScale: 1.2, sidebar: { collapsed: { MachinesSection: true }, visible: { focus: false } } })
-    expect(changed).toStrictEqual({ interfaceScale: 1.2, sidebar: { collapsed: { MachinesSection: true }, visible: { normal: true, focus: false } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, memoryIndicator: true, revision: 1 })
+    expect(changed).toStrictEqual({ interfaceScale: 1.2, sidebar: { collapsed: { MachinesSection: true }, visible: { normal: true, focus: false } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, memoryIndicator: true, autoUpdate: true, revision: 1 })
     expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual(changed)
     expect(new AppSettingsStore(file).get()).toStrictEqual(changed)
   })
@@ -226,13 +226,14 @@ describe('AppSettingsStore', () => {
       JSON.stringify({ interfaceScale: 1.1, theme: 'dark', sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false, extra: 1 }, width: 300 }, revision: 2 }),
     )
     const store = new AppSettingsStore(file)
-    expect(store.get()).toStrictEqual({ interfaceScale: 1.1, sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, memoryIndicator: true, revision: 2 })
+    expect(store.get()).toStrictEqual({ interfaceScale: 1.1, sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, memoryIndicator: true, autoUpdate: true, revision: 2 })
     store.set({ interfaceScale: 1.2 })
     expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual({
       interfaceScale: 1.2,
       sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false } },
       autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
       memoryIndicator: true,
+      autoUpdate: true,
       revision: 3,
     })
   })
@@ -265,6 +266,26 @@ describe('AppSettingsStore', () => {
     expect(store.set({ interfaceScale: 1.2 })).toMatchObject({ interfaceScale: 1.2, memoryIndicator: false })
     expect(new AppSettingsStore(file).get().memoryIndicator).toBe(false)
     expect(store.set({ memoryIndicator: true }).memoryIndicator).toBe(true)
+  })
+
+  it('"Update automatically" is on by default and in a file without the field; off is written and read back (worfy-update ticket 03)', () => {
+    expect(DEFAULT_APP_SETTINGS.autoUpdate).toBe(true)
+    expect(autoUpdateOf({})).toBe(true)
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.1, memoryIndicator: false, revision: 2 }))
+    const store = new AppSettingsStore(file)
+    expect(store.get().autoUpdate).toBe(true)
+
+    expect(store.set({ autoUpdate: false })).toMatchObject({ autoUpdate: false, revision: 3 })
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ autoUpdate: false, memoryIndicator: false })
+    expect(new AppSettingsStore(file).get().autoUpdate).toBe(false)
+    expect(autoUpdateOf(new AppSettingsStore(file).get())).toBe(false)
+    // The same value again changes nothing; another setting keeps it off.
+    expect(store.set({ autoUpdate: false }).revision).toBe(3)
+    expect(store.set({ interfaceScale: 1.2 })).toMatchObject({ interfaceScale: 1.2, autoUpdate: false })
+    expect(store.set({ autoUpdate: true }).autoUpdate).toBe(true)
+    expect(new AppSettingsStore(file).get().autoUpdate).toBe(true)
   })
 
   it('the archive of finished Sessions (worfy-canvas ticket 08): a file without the field gives the defaults; a choice is written, read back and kept apart from the defaults', () => {

@@ -197,6 +197,12 @@ export const appSettingsSchema = z.object({
   autoCompactWindowChosen: z.object({ orchestrator: z.boolean(), other: z.boolean() }).optional(),
   /** Whether the toolbar shows worfy's own memory. */
   memoryIndicator: z.boolean(),
+  /**
+   * "Update automatically": a new Available update is built in the background (worfy-update ticket
+   * 03). The store always writes it, on by default; absent (a state made by hand) reads as on, see
+   * autoUpdateOf.
+   */
+  autoUpdate: z.boolean().optional(),
   /** The archive settings the person chose; absent while none is (see sessionArchiveOf). */
   sessionArchive: sessionArchiveChoiceSchema.optional(),
   /** The Browser sleep settings the person chose; absent while none is (see browserSleepOf). */
@@ -229,6 +235,7 @@ export const appSettingsPatchSchema = z.object({
     })
     .optional(),
   memoryIndicator: z.boolean().optional(),
+  autoUpdate: z.boolean().optional(),
   /** Each field given is chosen, the default value too; the others stay as they are. */
   sessionArchive: sessionArchiveChoiceSchema.optional(),
   /** Each field given is chosen, as in `sessionArchive`; a value outside BROWSER_SLEEP_BOUNDS is refused. */
@@ -244,6 +251,7 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   sidebar: Object.freeze({ collapsed: Object.freeze({}), visible: Object.freeze({ normal: true, focus: true }) }),
   autoCompactWindow: AUTO_COMPACT_WINDOW_DEFAULTS,
   memoryIndicator: true,
+  autoUpdate: true,
   revision: 0,
 })
 
@@ -254,8 +262,14 @@ export function defaultAppSettings(): AppSettings {
     sidebar: { collapsed: {}, visible: { normal: true, focus: true } },
     autoCompactWindow: { ...AUTO_COMPACT_WINDOW_DEFAULTS },
     memoryIndicator: true,
+    autoUpdate: true,
     revision: 0,
   }
+}
+
+/** Whether "Update automatically" is on: on unless set off. */
+export function autoUpdateOf(settings: Pick<AppSettings, 'autoUpdate'>): boolean {
+  return settings.autoUpdate ?? true
 }
 
 /** The archive settings in force: each field the person chose, else its default. */

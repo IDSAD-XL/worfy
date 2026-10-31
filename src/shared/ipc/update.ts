@@ -1,5 +1,5 @@
 // The `update` domain (worfy-update epic, ADR-0089): whether a newer `main` is there for the Stable
-// copy, and, from ticket 03 on, its build, the restart and the roll back. Main keeps the state in
+// copy, its build in worfy's own clone (ticket 03), and from ticket 04 on the restart and the roll back. Main keeps the state in
 // `<dataRoot>/update/state.json` (src/main/update/state.ts) and sends the whole snapshot on each
 // change. Every channel is `local`: each Machine updates its own Stable copy, and a Linked machine
 // never sees this one's.
@@ -75,6 +75,16 @@ export const updateStateChannel = invokeChannel('update.state', z.void(), update
 /** Checks now ("Check now"); a check that runs already is the one answered. Answers the snapshot after it. */
 export const updateCheck = invokeChannel('update.check', z.void(), updateSnapshotSchema, 'local')
 
+/**
+ * Builds the Available update in worfy's own clone ("Update worfy", ticket 03): again after a
+ * failure, not when it is built already or building. Answers the snapshot at once, with the build
+ * begun; its end comes as `update.changed`.
+ */
+export const updateInstall = invokeChannel('update.install', z.void(), updateSnapshotSchema, 'local')
+
+/** Opens build.log of the last build with the program of the system ("Show log"); fails when there is none. */
+export const updateShowLog = invokeChannel('update.showLog', z.void(), z.void(), 'local')
+
 /** The whole snapshot after a change. */
 export const updateChanged = eventChannel('update.changed', updateSnapshotSchema, 'local')
 
@@ -82,6 +92,8 @@ declare module './channels' {
   interface IpcContract {
     'update.state': typeof updateStateChannel
     'update.check': typeof updateCheck
+    'update.install': typeof updateInstall
+    'update.showLog': typeof updateShowLog
     'update.changed': typeof updateChanged
   }
 }
