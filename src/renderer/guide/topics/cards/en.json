@@ -1,0 +1,105 @@
+{
+  "title": "Cards",
+  "summary": [
+    "A Card is a small HTML app that an agent builds and that runs inside a Node on the Canvas. The agent creates it with a tool and writes its files, and the Node reloads when they change. The page is isolated from worfy, but it can keep its own data, read the workflow and ask you to send a message to a Session."
+  ],
+  "scene": {
+    "description": "A Card on the Canvas. The Canvas holds a Session, a Card and the Orchestrator. The Session calls the Canvas MCP tool create_card, which makes the Card's folder and its Node; the Session writes the Card's files, and the files run in the Card, which reloads when they change. Outside the Canvas: the Card's files, the Canvas MCP tools, the workflow, which the Card reads as a read-only snapshot, and the Card's saved data. Through worfy.ask the Card sends a message to the Session that last edited it, or to the Orchestrator.",
+    "labels": {
+      "canvas": "Canvas",
+      "canvasNote": "one per Project",
+      "session": "Session",
+      "sessionNote": "the agent that builds it",
+      "card": "Card",
+      "cardNote": "an HTML app in a Node",
+      "orchestrator": "Orchestrator",
+      "orchestratorNote": "the Project's main Session",
+      "files": "Card files",
+      "filesNote": "index.html and the rest",
+      "canvasMcp": "Canvas MCP",
+      "canvasMcpNote": "the agent's Canvas tools",
+      "workflow": "Workflow",
+      "workflowNote": "Epics and Tickets",
+      "data": "Saved data",
+      "dataNote": "survives a restart",
+      "writesFiles": "writes the files",
+      "createCard": "create_card",
+      "makesFolder": "makes the folder",
+      "makesNode": "makes the Node",
+      "reloads": "runs, reloads on change",
+      "snapshot": "read-only snapshot",
+      "saves": "worfy.data",
+      "ask": "worfy.ask: the last editor",
+      "orAsk": "or the Orchestrator",
+      "step1": "An agent calls create_card: worfy makes the Card's folder and its Node. The agent then writes index.html with its usual file tools; nothing is built.",
+      "step2": "When a file of the Card changes, the Node reloads the page within a second. Below zoom 0.4 a Card that is not pinned shows only its title, and the page does not run.",
+      "step3": "The page cannot reach the worfy window or another Card, and it goes online only over https. Through window.worfy it keeps its own data and reads the workflow, which it cannot change.",
+      "step4": "worfy.ask shows you the exact text, and only Send delivers it: to the Session that last edited the Card if it is live in worfy, otherwise to the Orchestrator."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "The data flow of a Card, in four columns: the Card's page, the window, the main process, and Claude Code above the Project data folder. canvas-server.ts serves Claude Code's create_card, which makes the Card's folder in cards/<id>/, and sees its writes; Claude Code writes the Card's files there itself. CardStore watches the folder and, after a change, sends cards.changed to CardNode, which makes a new iframe for the page; the worfy-card:// protocol reads the Card's files and serves them with window.worfy. The page posts each request to card-bridge.ts, which answers it; saved data goes over IPC to card-api.ts, which saves it in card-data/<id>.json.",
+      "labels": {
+        "pageArea": "CARD PAGE",
+        "renderer": "WINDOW (RENDERER)",
+        "main": "MAIN PROCESS",
+        "claude": "CLAUDE CODE",
+        "folder": "PROJECT DATA FOLDER",
+        "page": "Card page",
+        "pageNote": "on its own origin",
+        "cardNode": "CardNode",
+        "cardNodeNote": "a new iframe per revision",
+        "bridge": "card-bridge.ts",
+        "bridgeNote": "checks sender and schema",
+        "server": "canvas-server.ts",
+        "serverNote": "Canvas MCP, the last editor",
+        "store": "CardStore",
+        "storeNote": "watches, raises the revision",
+        "protocol": "worfy-card://",
+        "protocolNote": "only the Card's files, CSP",
+        "api": "card-api.ts",
+        "apiNote": "data, the dialog of worfy.ask",
+        "session": "Claude Code",
+        "sessionNote": "the Session's agent",
+        "files": "cards/<id>/",
+        "filesNote": "the Card's files",
+        "data": "card-data/<id>.json",
+        "dataNote": "the saved data",
+        "toolCalls": "create_card and its writes",
+        "makesFolder": "makes the folder",
+        "writes": "writes",
+        "change": "after 100 ms of quiet",
+        "changed": "cards.changed",
+        "iframe": "new iframe",
+        "reads": "reads",
+        "serves": "files + window.worfy",
+        "post": "postMessage",
+        "answer": "answer to its origin",
+        "ipc": "data, ask over IPC",
+        "saves": "saves",
+        "step1": "An agent calls create_card, and canvas-server.ts makes the Card's folder. The agent then writes the files itself.",
+        "step2": "CardStore waits for 100 ms of quiet and raises the revision. CardNode makes a new iframe, and the protocol serves the files, with window.worfy at the start of each HTML file's head.",
+        "step3": "A call of window.worfy is a postMessage. The bridge takes it only from that Card's frame and origin, checks it with a schema, and sends saved data and messages to main."
+      }
+    },
+    "text": [
+      "Each Card has its own origin, worfy-card://<card id>.<project label>, so its page reaches neither the worfy window nor another Card. Every file comes with a Content-Security-Policy, and main refuses new windows and web permissions.",
+      "A Session becomes a Card's last editor, the recipient of worfy.ask, by a file-writing tool call, such as Write or Edit, into the Card's folder, not by what the agent says; a change made through Bash does not count."
+    ],
+    "files": {
+      "src/main/cards/store.ts": "CardStore: the Card folders, their titles, the watch and the revisions",
+      "src/main/cards/protocol.ts": "The worfy-card:// handler: which files, the CSP, the window.worfy script",
+      "src/card-runtime/worfy-card.ts": "The source of window.worfy",
+      "src/renderer/canvas/nodes/CardNode.tsx": "The Node, its states and the iframe",
+      "src/renderer/canvas/card-bridge.ts": "The window's side of the Card's messages",
+      "src/main/ipc/card-api.ts": "Saved data, the dialog and the check for an unattended Session",
+      "src/main/mcp/canvas-server.ts": "The Canvas MCP tools and the last editor"
+    },
+    "limits": [
+      "worfy.data keeps up to 1 MB of JSON. worfy.ask sends up to 10,000 characters, one question per Card, which waits at most 10 minutes.",
+      "A page runs from zoom 0.4, or at any zoom when pinned or in a tile of focus mode. Find reads up to 100,000 characters of a running Card and waits 2 seconds.",
+      "A deleted Card's folder and data wait in the Project's trash for 3 days."
+    ]
+  }
+}
