@@ -73,7 +73,8 @@ covers nothing, otherwise the one that covers least. A pinned selection always g
 
 The Focus button under the selection and ⌘↩ open the selection in [focus mode](focus-mode.md).
 
-**Keys.** While the Canvas is on screen, with the focus on it or nowhere and not in a text field: Delete and Backspace
+**Keys.** While the Canvas is on screen and no focus mode layer covers it, with the focus on it or nowhere and not in a
+text field: Delete and Backspace
 move the selection to the Trash, ⌘Z and ⇧⌘Z undo and redo, and Esc with nothing selected folds the done stack opened
 last.
 
@@ -227,7 +228,7 @@ keeps the highest revision. A refused operation puts the Nodes back at main's pl
 
 ### Behaviour
 
-⌘F while the Canvas is on screen opens a bar at the top centre, "Find on the Canvas". A second ⌘F returns to the field,
+⌘F while the Canvas is on screen and not under the focus mode layer opens a bar at the top centre, "Find on the Canvas". A second ⌘F returns to the field,
 selects its text and takes the selection again.
 
 **What it reads:**

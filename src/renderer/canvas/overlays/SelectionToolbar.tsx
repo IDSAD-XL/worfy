@@ -26,6 +26,7 @@ import { create } from 'zustand'
 import type { LayoutNode } from '../../../shared/layout/types'
 import { SHORTCUTS } from '../../../shared/shortcuts'
 import { drawnUnderTagFilter, useCanvasRequests } from '../../find/canvas-requests'
+import { focusModeActive } from '../../focus/focus-state'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { isTextTarget, matches } from '../../shortcuts/match'
@@ -75,12 +76,15 @@ function useCanvasKeys(projectId: string | undefined): void {
   const store = useStoreApi<CanvasFlowNode>()
   useEffect(() => {
     if (projectId === undefined) return
-    /** The press is the Canvas's: the Canvas is the view on screen and the focus is on it or nowhere. */
+    /** The press is the Canvas's: the Canvas is the view on screen, no layer covers it and the focus is on it or nowhere. */
     const onCanvas = (event: globalThis.KeyboardEvent): boolean => {
       // Only while this Canvas is the view on screen (the Session view hides it).
       const canvas = store.getState().domNode
       if (!(canvas instanceof HTMLElement) || canvas.offsetParent === null) return false
-      // Keys typed elsewhere (the sidebar, the focus mode layer over the Canvas) are not the Canvas's.
+      // The focus mode layer leaves the Canvas laid out under it, and with the focus nowhere the
+      // target below is <body>: what happened would be out of sight.
+      if (focusModeActive()) return false
+      // Keys typed elsewhere (the sidebar) are not the Canvas's.
       return event.target === document.body || (event.target instanceof Node && canvas.contains(event.target))
     }
     const selectedNodes = () => flow.getNodes().filter((node) => node.selected && !node.hidden)
@@ -106,7 +110,8 @@ function useCanvasKeys(projectId: string | undefined): void {
     // Esc folds the done stack opened last, one per press. Capture phase: React Flow takes the
     // selection off a focused Node on Esc without preventDefault, so in the bubble phase the
     // selection would already be empty and the same press would fold a stack too. The Esc of the
-    // active Node (Canvas.tsx) and of Focus mode skip a press this one took (defaultPrevented).
+    // active Node (Canvas.tsx) skips a press this one took (defaultPrevented). Under focus mode this
+    // one takes none (onCanvas), and focus mode's own Esc gets the press.
     const onEscape = (event: globalThis.KeyboardEvent) => {
       if (!escapeFoldsDoneStack(event, selectedNodes().length, document) || !onCanvas(event)) return
       if (foldLastDoneStack(projectId)) event.preventDefault()
