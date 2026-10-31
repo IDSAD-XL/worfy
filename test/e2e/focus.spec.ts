@@ -1,9 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { FRAME_GAP } from '../../src/renderer/canvas/epic-layout'
+import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
+import { catScript } from '../harness-node'
+import { canvasReady, launchApp } from './helpers'
 import { printJoined, WINDOWS } from './terminal-shell'
 import { windowsProfileEnv } from '../windows-profile'
 import { settled } from './wait'
@@ -298,6 +302,187 @@ test('keys pressed in focus mode stay in the layer: the selected Nodes on the Ca
     const after = await stateOf(window)
     expect(after.revision).toBe(before.revision)
     expect(after.layout).toEqual(before.layout)
+  } finally {
+    await launched.close()
+  }
+})
+
+/**
+ * Takes the keyboard focus off everything: the next key press has <body> as its target, the state
+ * in which the Canvas takes a press as its own. Checked here, or a test of it proves nothing.
+ */
+async function focusNowhere(window: Page): Promise<void> {
+  const onBody = await window.evaluate(() => {
+    const { document } = globalThis as unknown as { document: { activeElement: { blur?(): void } | null; body: unknown } }
+    document.activeElement?.blur?.()
+    return document.activeElement === document.body
+  })
+  expect(onBody).toBe(true)
+}
+
+for (const key of ['Delete', 'Backspace']) {
+  test(`with the focus nowhere in focus mode, ${key} sends nothing to the Trash; out of focus mode it does`, async () => {
+    const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+    try {
+      const { window } = launched
+      await expect(window.getByTestId('note-node')).toHaveCount(4)
+      const before = await stateOf(window)
+      await select(window, ['n1', 'n2'])
+      await window.keyboard.press('ControlOrMeta+Enter')
+      const focus = window.getByTestId('focus-mode')
+      await expect(focus.getByTestId('focus-tile')).toHaveCount(2)
+
+      await focusNowhere(window)
+      await window.keyboard.press(key)
+      await settled(window)
+      await expect(focus.getByTestId('focus-tile')).toHaveCount(2)
+      const after = await stateOf(window)
+      expect(after.revision).toBe(before.revision)
+      expect(after.layout).toEqual(before.layout)
+      await focus.getByRole('button', { name: /Exit focus/ }).click()
+      await expect(focus).toHaveCount(0)
+
+      // The same press from the same place, with the layer gone, is the Canvas's.
+      await expect(window.locator('.react-flow__node.selected')).toHaveCount(2)
+      await focusNowhere(window)
+      await window.keyboard.press(key)
+      await expect(window.getByTestId('note-node')).toHaveCount(2)
+    } finally {
+      await launched.close()
+    }
+  })
+}
+
+// One step for ⌘Z (the move of n1) and one for ⇧⌘Z (the move of n3, taken back), each checked by its own key.
+for (const { name, key, moves } of [
+  { name: '⌘Z', key: 'ControlOrMeta+z', moves: 'n1' },
+  { name: '⇧⌘Z', key: 'ControlOrMeta+Shift+z', moves: 'n3' },
+]) {
+  test(`with the focus nowhere in focus mode, ${name} leaves the Layout alone; out of focus mode it changes it`, async () => {
+    const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+    try {
+      const { window } = launched
+      await expect(window.getByTestId('note-node')).toHaveCount(4)
+      const nodeX = async (id: string) => ((await stateOf(window)).layout.nodes.find((node) => node.id === id) as unknown as { x: number }).x
+      // To the right of every Note, so that neither lands on what is dragged next. Where a Node
+      // stops is the Canvas's business (it snaps); that it left x 40 is what counts.
+      const dropped: Record<string, number> = {}
+      for (const id of ['n1', 'n3']) {
+        const start = await box(canvasHeader(window, id))
+        await dragTo(window, canvasHeader(window, id), { x: start.x + start.width / 2 + 600, y: start.y + start.height / 2 })
+        await expect.poll(() => nodeX(id)).toBeGreaterThan(40)
+        dropped[id] = await nodeX(id)
+      }
+      await window.keyboard.press('ControlOrMeta+z')
+      await expect.poll(() => nodeX('n3')).toBe(40)
+      const before = await stateOf(window)
+
+      await select(window, ['n2'])
+      await window.keyboard.press('ControlOrMeta+Enter')
+      const focus = window.getByTestId('focus-mode')
+      await expect(focus.getByTestId('focus-tile')).toHaveCount(1)
+      await focusNowhere(window)
+      await window.keyboard.press(key)
+      await settled(window)
+      const after = await stateOf(window)
+      expect(after.layout).toEqual(before.layout)
+      expect(after.revision).toBe(before.revision)
+      await focus.getByRole('button', { name: /Exit focus/ }).click()
+      await expect(focus).toHaveCount(0)
+
+      await focusNowhere(window)
+      await window.keyboard.press(key)
+      await expect.poll(() => nodeX(moves)).toBe(moves === 'n1' ? 40 : dropped.n3)
+    } finally {
+      await launched.close()
+    }
+  })
+}
+
+test('with the focus nowhere in focus mode, ⌘F opens no find bar under the layer; out of focus mode it opens one', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const { window } = launched
+    await expect(window.getByTestId('note-node')).toHaveCount(4)
+    await select(window, ['n1'])
+    await window.keyboard.press('ControlOrMeta+Enter')
+    const focus = window.getByTestId('focus-mode')
+    await expect(focus.getByTestId('focus-tile')).toHaveCount(1)
+    const bar = window.getByTestId('canvas-find')
+
+    await focusNowhere(window)
+    await window.keyboard.press('ControlOrMeta+f')
+    await settled(window)
+    await expect(bar).toHaveCount(0)
+    await focus.getByRole('button', { name: /Exit focus/ }).click()
+    await expect(focus).toHaveCount(0)
+
+    await focusNowhere(window)
+    await window.keyboard.press('ControlOrMeta+f')
+    await expect(bar).toBeVisible()
+  } finally {
+    await launched.close()
+  }
+})
+
+test('with the focus nowhere and nothing selected, Esc leaves focus mode and the open done stack stays open; the next Esc folds it', async () => {
+  // An Epic with a done stack: the fixture of done-stack.spec.ts, cut to what the stack needs.
+  const EPIC = 'stack'
+  const repo = join(scratch, 'alpha')
+  const issues = join(repo, '.scratch', EPIC, 'issues')
+  mkdirSync(issues, { recursive: true })
+  writeFileSync(join(repo, '.scratch', EPIC, 'spec.md'), `# ${EPIC}\n`)
+  const statuses = { 1: 'done', 2: 'done', 3: 'open' } as const
+  const answer = { ref: 'main', epics: [{ epic: EPIC, hasSpec: true, hasMap: false }], tickets: [] as unknown[] }
+  for (const [key, state] of Object.entries(statuses)) {
+    const num = Number(key)
+    const nn = String(num).padStart(2, '0')
+    writeFileSync(join(issues, `${nn}-t${num}.md`), `# ${nn} — Ticket ${num}\n\nStatus: ${state}\nBlocked by: —\n`)
+    answer.tickets.push({ epic: EPIC, num, slug: `t${num}`, title: `Ticket ${num}`, statusRaw: state, state, blockedRaw: '—', blockedNums: [], blockedParsed: true })
+  }
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+  for (const args of [['init', '-q'], ['add', '.'], ['commit', '-q', '-m', 'init']]) execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd: repo, env })
+  const claudeHome = join(scratch, 'claude-home')
+  mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+  const answerFile = join(scratch, 'epic-status.json')
+  writeFileSync(answerFile, JSON.stringify(answer))
+  const script = join(claudeHome, 'bin', 'epic-status')
+  writeFileSync(script, catScript(answerFile))
+  chmodSync(script, 0o755)
+  // The frame's column starts right of the Orchestrator Node at (40, 40) (ADR-0032).
+  const zoom = 0.5
+  writeFileSync(layoutFile, JSON.stringify({ nodes: [], viewport: { x: 40 - (40 + ORCHESTRATOR_WIDTH + FRAME_GAP) * zoom, y: 40, zoom } }))
+
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome } })
+  try {
+    const { window } = launched
+    const toggle = window.getByTestId('done-stack-toggle')
+    const card = window.getByTestId('done-stack')
+    const done = window.locator(`[data-testid="ticket-node"][data-epic="${EPIC}"][data-ticket="1"]`)
+    const open = window.locator(`[data-testid="ticket-node"][data-epic="${EPIC}"][data-ticket="3"]`)
+    await canvasReady(launched, { size: { width: 1400, height: 1000 }, visible: [card, toggle] })
+    await card.click()
+    await expect(done).toBeVisible()
+    await expect(toggle).toHaveAccessibleName(`Collapse done tickets of ${EPIC}`)
+
+    // A plain click would select the Ticket. With ⌘ the two clicks of the double click select it
+    // and take the selection off again, and the double click still opens focus mode on it.
+    await open.dblclick({ modifiers: ['ControlOrMeta'] })
+    const focus = window.getByTestId('focus-mode')
+    await expect(focus.getByTestId('focus-tile')).toHaveCount(1)
+    await expect(window.locator('.react-flow__node.selected')).toHaveCount(0)
+
+    await focusNowhere(window)
+    await window.keyboard.press('Escape')
+    await expect(toggle).toHaveAccessibleName(`Collapse done tickets of ${EPIC}`)
+    await expect(done).toBeVisible()
+    await expect(focus).toHaveCount(0)
+
+    // With the layer gone the same press is the Canvas's.
+    await focusNowhere(window)
+    await window.keyboard.press('Escape')
+    await expect(toggle).toHaveAccessibleName(`Expand done tickets of ${EPIC}`)
+    await expect(done).toHaveCount(0)
   } finally {
     await launched.close()
   }

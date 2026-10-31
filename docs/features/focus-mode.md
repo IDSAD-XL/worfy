@@ -88,8 +88,7 @@ focus mode ends.
 - **Another Project becoming active.**
 - **A request to the main area.** Carried out under the layer, it would look ignored, so focus mode leaves on it. The
   requests are: the Session view or the Pipeline view; a click on an Epic or a Session in the sidebar; "Go to" of the Command palette; a new Node;
-  "Tidy up", "Arrange by Epic" and "Re-pack"; a tag filter set or taken off; an ADR opened. Opening the find bar is not such a
-  request.
+  "Tidy up", "Arrange by Epic" and "Re-pack"; a tag filter set or taken off; an ADR opened.
 
 Where the keyboard focus decides what Esc does:
 
@@ -112,12 +111,13 @@ the press leaves focus mode and it stays open.
 | Esc | Leaves, by the table above |
 | ⌘B | Hides or shows the sidebar |
 | ⌘K | Opens the Command palette above the layer |
+| ⌘F | Does nothing: the find bar of the Canvas does not open under the layer |
 | ⌘=, ⌘-, ⌘0 | Do nothing: the Canvas does not zoom unseen |
 | ⌥⌘=, ⌥⌘-, ⌥⌘0 | Reach the interface scale items of the View menu ([App shell](app-shell.md)) |
 | Tab | Walks the layer's controls and the sidebar, never the toolbar or the Canvas under the layer |
 
-Pressed with the focus in the layer, arrow keys move no Canvas Node, and Delete, Backspace and ⌘Z do not act on the
-Canvas. The wheel does not pan or zoom it.
+Pressed with the focus in the layer or nowhere, arrow keys move no Canvas Node, and Delete, Backspace, ⌘Z and ⇧⌘Z do not
+act on the Canvas. The wheel does not pan or zoom it.
 
 ### What stays and what is dropped
 

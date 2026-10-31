@@ -23,6 +23,7 @@ import { nodeTypes, type CanvasFlowNode } from '../canvas/nodes'
 import { createItems, newNodeData } from '../canvas/overlays/create-items'
 import { useLayout, useLayoutOps } from '../canvas/useLayout'
 import { useDocs, useDocText } from '../docs/useDocs'
+import { focusModeActive } from '../focus/focus-state'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { useSessionLogs } from '../session/store'
 import { label, matches as matchesShortcut } from '../shortcuts/match'
@@ -439,6 +440,8 @@ function ProjectFind({ projectId, root }: FindBarProps) {
       if (!matchesShortcut(event, SHORTCUTS.find)) return
       const dom = store.getState().domNode
       if (dom === null || dom.offsetParent === null) return
+      // The focus mode layer leaves the Canvas laid out under it: the bar would open out of sight.
+      if (focusModeActive()) return
       event.preventDefault()
       openFind()
     }
