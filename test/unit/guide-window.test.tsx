@@ -7,9 +7,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { defaultAppSettings, type AppSettings } from '../../src/shared/settings/app-settings'
-import { TOPIC_FILES } from '../../src/renderer/guide/content'
+import { GUIDE_STRINGS, TOPIC_FILES } from '../../src/renderer/guide/content'
 import { GuideHost } from '../../src/renderer/guide/GuideHost'
 import { GUIDE_REPO_URL } from '../../src/renderer/guide/links'
+import { GUIDE_TOPICS } from '../../src/renderer/guide/registry'
 import { closeGuide, openGuide, useGuide } from '../../src/renderer/guide/store'
 
 const globals = globalThis as { worfy?: WorfyBridge }
@@ -78,8 +79,11 @@ afterEach(() => {
 })
 
 const guide = () => screen.queryByRole('dialog', { name: 'worfy Guide' })
-const ru = TOPIC_FILES.ru.get('skeleton')!
-const en = TOPIC_FILES.en.get('skeleton')!
+// The Map of worfy is the first Topic, the one the Guide opens at (worfy-guide ticket 05).
+const ru = TOPIC_FILES.ru.get('map-of-worfy')!
+const en = TOPIC_FILES.en.get('map-of-worfy')!
+const test = TOPIC_FILES.en.get('skeleton')!
+const strings = GUIDE_STRINGS
 
 async function opened(): Promise<HTMLElement> {
   act(() => openGuide())
@@ -155,12 +159,15 @@ describe('opening and closing', () => {
 })
 
 describe('the Topics', () => {
-  it('lists the test Topic in a build that is not packaged and shows it, Under the hood folded', async () => {
+  it('lists the Map first and the test Topic in a build that is not packaged, and opens at the Map, Under the hood folded', async () => {
     render(<GuideHost />)
     const dialog = await opened()
-    expect(within(dialog).getAllByTestId('guide-topic-item').map((item) => item.textContent)).toEqual([en.title])
+    // In the registry's order, the Map first; other Topics come in with their tickets (06, 07, 08...).
+    expect(within(dialog).getAllByTestId('guide-topic-item').map((item) => item.textContent)).toEqual(GUIDE_TOPICS.map((entry) => entry.title))
+    expect(within(dialog).getAllByTestId('guide-topic-item')[0]?.textContent).toBe(en.title)
+    expect(within(dialog).getAllByTestId('guide-topic-item').map((item) => item.textContent)).toContain(test.title)
     const topic = within(dialog).getByTestId('guide-topic')
-    expect(topic.dataset.topic).toBe('skeleton')
+    expect(topic.dataset.topic).toBe('map-of-worfy')
     expect(within(topic).getByRole('heading', { name: en.title })).toBeTruthy()
     expect(within(topic).getByText(en.summary[0]!)).toBeTruthy()
     expect((within(topic).getByTestId('guide-under-the-hood') as HTMLDetailsElement).open).toBe(false)
@@ -174,8 +181,11 @@ describe('the Topics', () => {
     useGuide.setState({ build: { version: '0.3.0+e61cb1fe', packaged: true } })
     render(<GuideHost />)
     const dialog = await opened()
-    expect(within(dialog).queryAllByTestId('guide-topic-item')).toEqual([])
-    expect(within(dialog).getByTestId('guide-empty').textContent).toBe('No Topics yet.')
+    const shown = GUIDE_TOPICS.filter((entry) => entry.devOnly !== true).map((entry) => entry.id)
+    expect(shown[0]).toBe('map-of-worfy')
+    expect(within(dialog).getAllByTestId('guide-topic-item').map((item) => item.dataset.topic)).toEqual(shown)
+    expect(shown).not.toContain('skeleton')
+    expect(within(dialog).queryByTestId('guide-empty')).toBeNull()
   })
 
   it('opens at the Topic it is asked for', async () => {
@@ -183,6 +193,32 @@ describe('the Topics', () => {
     act(() => openGuide('skeleton'))
     const dialog = await screen.findByRole('dialog', { name: 'worfy Guide' })
     expect(within(dialog).getByTestId('guide-topic').dataset.topic).toBe('skeleton')
+  })
+
+  it('draws the data-flow diagram of a Topic with Flow.tsx first in Under the hood, with its own text for a screen reader', async () => {
+    render(<GuideHost />)
+    act(() => openGuide('skeleton'))
+    const dialog = await screen.findByRole('dialog', { name: 'worfy Guide' })
+    const under = within(dialog).getByTestId('guide-under-the-hood') as HTMLDetailsElement
+    under.open = true
+    const flow = within(under).getByRole('group', { name: strings.en.dataFlow })
+    expect(under.querySelector('figure')).toBe(flow)
+    // Its own test id: the Topic's diagram stays the one `guide-scene` of the Topic.
+    expect(within(flow).getByTestId('guide-flow')).toBeTruthy()
+    expect(within(dialog).getAllByTestId('guide-scene')).toHaveLength(1)
+    const description = document.getElementById(flow.getAttribute('aria-describedby') ?? '')
+    expect(description?.textContent).toBe(test.underTheHood.flow?.description)
+    expect(within(flow).getByText(test.underTheHood.flow?.labels.window ?? '-')).toBeTruthy()
+  })
+
+  it('draws no data-flow diagram for a Topic without Flow.tsx: Under the hood is as before', async () => {
+    expect(TOPIC_FILES.flow.has('map-of-worfy')).toBe(false)
+    render(<GuideHost />)
+    const dialog = await opened()
+    const under = within(dialog).getByTestId('guide-under-the-hood') as HTMLDetailsElement
+    under.open = true
+    expect(within(under).queryByRole('group', { name: strings.en.dataFlow })).toBeNull()
+    expect(under.querySelector('figure, svg')).toBeNull()
   })
 })
 
@@ -192,7 +228,7 @@ describe('the language', () => {
     render(<GuideHost />)
     const dialog = await opened()
     expect(dialog.dataset.language).toBe('ru')
-    expect(within(dialog).getByTestId('guide-topic-item').textContent).toBe(ru.title)
+    expect(within(dialog).getAllByTestId('guide-topic-item')[0]?.textContent).toBe(ru.title)
     expect(within(dialog).getByTestId('guide-language-ru').getAttribute('aria-pressed')).toBe('true')
   })
 
@@ -221,20 +257,20 @@ describe('the GitHub links', () => {
     render(<GuideHost />)
     const dialog = await opened()
     const fullPage = within(dialog).getByRole('link', { name: /Full page/ })
-    const url = `${GUIDE_REPO_URL}/blob/e61cb1fe/docs/features/app-shell.md`
+    const url = `${GUIDE_REPO_URL}/blob/e61cb1fe/docs/features/concepts.md`
     expect(fullPage.getAttribute('href')).toBe(url)
     const click = new MouseEvent('click', { bubbles: true, cancelable: true })
     fullPage.dispatchEvent(click)
     expect(click.defaultPrevented).toBe(true)
     await waitFor(() => expect(main.calls.filter((call) => call.channel === 'shell.openExternal').map((call) => call.input)).toEqual([{ url }]))
-    const file = within(dialog).getByRole('link', { name: 'src/main/menu.ts' })
-    expect(file.getAttribute('href')).toBe(`${GUIDE_REPO_URL}/blob/e61cb1fe/src/main/menu.ts`)
+    const file = within(dialog).getByRole('link', { name: 'src/main/workflow/reader.ts' })
+    expect(file.getAttribute('href')).toBe(`${GUIDE_REPO_URL}/blob/e61cb1fe/src/main/workflow/reader.ts`)
   })
 
   it('lead to main when the build does not know its commit', async () => {
     useGuide.setState({ build: { version: '0.3.0', packaged: false } })
     render(<GuideHost />)
     const dialog = await opened()
-    expect(within(dialog).getByRole('link', { name: /Full page/ }).getAttribute('href')).toBe(`${GUIDE_REPO_URL}/blob/main/docs/features/app-shell.md`)
+    expect(within(dialog).getByRole('link', { name: /Full page/ }).getAttribute('href')).toBe(`${GUIDE_REPO_URL}/blob/main/docs/features/concepts.md`)
   })
 })
