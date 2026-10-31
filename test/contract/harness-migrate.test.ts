@@ -457,7 +457,6 @@ describe('the move', () => {
     expect(readJson(join(sandbox.claudeHome, 'settings.json')).statusLine).toEqual({ ...before, command: bridgeLine(bridge) })
   })
 
-  // Windows: 29.9 s in a full run on the PC (main aa27fa89, 2026-10-19 22:55-23:20); twice that.
   it('the qmd group: "Remove" takes the three scripts, the hook and the record together; "Keep" leaves all five, .claude.json byte for byte', async () => {
     const claudeJson = read(sandbox.claudeJson)
     const result = await applyMigration(selection(plan(), (id) => (id === 'qmd' ? 'keep' : undefined)), applyOptions())
@@ -473,7 +472,7 @@ describe('the move', () => {
     expect(hookCommands(join(sandbox.claudeHome, 'settings.json'))).not.toContain('$HOME/.claude/bin/qmd-refresh --quiet')
     const servers = readJson(sandbox.claudeJson).mcpServers as Record<string, unknown>
     expect(Object.keys(servers)).toEqual(['freecad', 'telegram'])
-  }, process.platform === 'win32' ? ms(60_000) : undefined)
+  })
 
   quarantined('harness-migrate-toolbar-offer')('the toolbar offer: there before a move, gone after a move with the defaults, there while a Harness file is kept', async () => {
     const offered = (): boolean => hasLegacyHarness(omit(planOptions() as unknown as Record<string, unknown>, 'pluginState') as unknown as Omit<PlanOptions, 'pluginState'>)
@@ -493,11 +492,6 @@ describe('the move', () => {
   })
 
   it('removes bin/epic-status last, after the hook records left settings.json (ADR-0049)', async () => {
-    // The order of the steps does not depend on git, and the ~/.claude commit has its own test above.
-    // Without the repository the step "commit" skips that commit: about 40 of the move's 57 git
-    // processes, each 0.2 s or more on the Windows PC, where this test took 12 s alone and went over
-    // its 45 s limit in a gate with 8 workers.
-    removeTestTree(join(sandbox.claudeHome, '.git'))
     const seen: { step: MigrationStep; marker: boolean; hooks: number }[] = []
     const settingsPath = join(sandbox.claudeHome, 'settings.json')
     const look = (step: MigrationStep): void => {

@@ -187,17 +187,62 @@ function commitArgs(dir: string): string[] {
   return args
 }
 
+/** A path as git prints it: `/` between names (worfy writes `\` on Windows). */
+const gitSpelling = (rel: string): string => (sep === '\\' ? rel.replaceAll('\\', '/') : rel)
+
+/**
+ * Whether git reads `rel` as a plain path rather than a pattern: no glob characters, no `:` magic,
+ * no trailing separator. Only a plain path can be matched against the output of one git call by name.
+ */
+const plainPath = (rel: string): boolean => !/[*?[]/.test(rel) && !rel.startsWith(':') && !/[\\/]$/.test(rel)
+
+/** Whether one path is tracked in `dir`: a file of that name, or a file under that folder. */
+const trackedOne = (dir: string, rel: string): boolean => git(dir, ['ls-files', '-z', '--', rel]) !== ''
+
+/** Whether one path is not ignored in `dir` (any failure of check-ignore counts as not ignored). */
+function notIgnoredOne(dir: string, rel: string): boolean {
+  try {
+    git(dir, ['check-ignore', '-q', '--', rel])
+    return false
+  } catch {
+    return true
+  }
+}
+
+/**
+ * The paths of `paths` git knows (`tracked`: a tracked file at the path or under it) or may know
+ * (not `tracked`: not ignored). One git process for all plain paths, not one per path: a git process
+ * costs 0.2 s or more on Windows, and a move commits some 35 paths. The answer is the one a call per
+ * path would give: a path that is a pattern, or a check-ignore that fails outright (exit 128), is
+ * asked about one by one.
+ */
+export function knownPaths(dir: string, paths: string[], tracked: boolean): string[] {
+  const plain = paths.filter(plainPath)
+  if (tracked) {
+    const files = plain.length === 0 ? [] : git(dir, ['ls-files', '-z', '--', ...plain]).split('\0').filter((file) => file !== '')
+    const isTracked = (rel: string): boolean => {
+      const name = gitSpelling(rel)
+      return files.some((file) => file === name || file.startsWith(`${name}/`))
+    }
+    return paths.filter((rel) => (plainPath(rel) ? isTracked(rel) : trackedOne(dir, rel)))
+  }
+  let ignored: Set<string> | null = new Set()
+  if (plain.length > 0) {
+    try {
+      // -z only with --stdin: the names come back NUL-separated and unquoted, a space or a non-ASCII letter as it is.
+      const out = execFileSync('git', ['-C', dir, 'check-ignore', '-z', '--stdin'], { encoding: 'utf8', input: plain.map((rel) => `${rel}\0`).join(''), stdio: ['pipe', 'pipe', 'pipe'], env: gitEnv })
+      ignored = new Set(out.split('\0').filter((file) => file !== ''))
+    } catch (error) {
+      // Exit 1: none of the paths is ignored. Anything else: ask path by path, as before.
+      ignored = (error as { status?: unknown }).status === 1 ? new Set() : null
+    }
+  }
+  return paths.filter((rel) => (plainPath(rel) && ignored !== null ? !ignored.has(rel) && !ignored.has(gitSpelling(rel)) : notIgnoredOne(dir, rel)))
+}
+
 /** Commits exactly `paths` (those git knows or may know) in `dir`; returns the commit, or null when nothing changed. */
 function commitPaths(dir: string, paths: string[], message: string, tracked: boolean): string | null {
-  const known = paths.filter((rel) => {
-    if (tracked) return git(dir, ['ls-files', '-z', '--', rel]) !== ''
-    try {
-      git(dir, ['check-ignore', '-q', '--', rel])
-      return false
-    } catch {
-      return true
-    }
-  })
+  const known = knownPaths(dir, paths, tracked)
   if (known.length === 0) return null
   git(dir, ['add', '-A', '--', ...known])
   if (git(dir, ['diff', '--cached', '--name-only', '--', ...known]).trim() === '') return null
