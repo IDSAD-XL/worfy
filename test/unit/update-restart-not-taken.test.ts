@@ -4,20 +4,19 @@
 // leaves both files as they are). The start must tell a failure, not "worfy updated to B", and B goes
 // quiet, so "Update automatically" does not build and install it again in a loop.
 //
-// Over a temporary data folder and the real toast store; the Stable copy is a path in the temporary
-// folder (assertTemporaryStableCopy), GitHub an object in this file. Nothing is started.
+// Over a temporary data folder; the Stable copy is a path in the temporary folder
+// (assertTemporaryStableCopy), GitHub an object in this file. Nothing is started. The toast of such a
+// lastRestart is test/unit/update-toasts.test.tsx's ("an install that did not take effect").
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { updateSnapshotSchema, type UpdateState } from '../../src/shared/ipc/update'
+import type { UpdateState } from '../../src/shared/ipc/update'
 import { autoBuildFor } from '../../src/main/update/auto'
 import { checkForUpdate, type UpdateGitHub } from '../../src/main/update/check'
 import type { IdleSignal } from '../../src/main/update/idle'
 import { helperScript, restartFile, Restarts, resultFile } from '../../src/main/update/restart'
 import { changeUpdateState, readUpdateState } from '../../src/main/update/state'
-import { resetToasts, toasts } from '../../src/renderer/toast/toasts'
-import { createUpdateToasts, RESTART_RESULT_KEY, type UpdateToastActions } from '../../src/renderer/update/toasts'
 import { removeTestTree } from '../remove'
 import { assertTemporaryStableCopy } from '../update-stub'
 
@@ -40,11 +39,9 @@ beforeEach(() => {
   assertTemporaryStableCopy(target)
   stateFile = join(dir, 'state.json')
   mkdirSync(dirname(helperScript(dir)), { recursive: true })
-  resetToasts()
 })
 
 afterEach(() => {
-  resetToasts()
   removeTestTree(root)
 })
 
@@ -66,20 +63,6 @@ function startAs(running: { commit: string; version: string }): UpdateState {
   return readUpdateState(stateFile)
 }
 
-/** The toast of the end of the last restart a window shows for `state`. */
-function restartToast(state: UpdateState): { kind: string; text: string } | undefined {
-  const actions: UpdateToastActions = {
-    invoke: (() => Promise.resolve({ ok: false, error: 'not in this test' })) as UpdateToastActions['invoke'],
-    openHealth: () => undefined,
-    storage: { getItem: () => null, setItem: () => undefined },
-  }
-  const made = createUpdateToasts(actions)
-  made.autoUpdate(true)
-  made.update(updateSnapshotSchema.parse({ ...state, enabled: true, checking: false }))
-  const shown = toasts.getState().toasts.find((each) => each.id === RESTART_RESULT_KEY)
-  return shown === undefined ? undefined : { kind: shown.kind, text: shown.text }
-}
-
 /** GitHub with B as the green head of main, ahead of A and changing the app. */
 const github: UpdateGitHub = {
   headOfMain: () => Promise.resolve({ ok: true, value: B }),
@@ -89,7 +72,7 @@ const github: UpdateGitHub = {
 }
 
 describe('the start after an install of B, the helper said ok', () => {
-  it('A runs: a failure that names A, not "worfy updated to B"; B is rolled back from and quiet, its build idle', () => {
+  it('A runs: a failure that names A, not the success of B; B is rolled back from and quiet, its build idle', () => {
     restartedInto()
 
     const state = startAs({ commit: A, version: A_VERSION })
@@ -104,10 +87,6 @@ describe('the start after an install of B, the helper said ok', () => {
     expect(state.rolledBackFrom).toBe(B)
     expect(state.available).toEqual({ sha: B, version: B_VERSION, quiet: true })
     expect(state.build).toEqual({ phase: 'idle' })
-    expect(restartToast(state)).toEqual({
-      kind: 'error',
-      text: `worfy was not updated to ${B_VERSION}: ${A_VERSION} runs instead: the new copy did not start, or was rolled back by hand`,
-    })
   })
 
   it('A runs, named by its short SHA: the same failure', () => {
@@ -126,7 +105,6 @@ describe('the start after an install of B, the helper said ok', () => {
     expect(state.rolledBackFrom).toBeNull()
     expect(state.available).toBeNull()
     expect(state.build).toEqual({ phase: 'idle' })
-    expect(restartToast(state)).toEqual({ kind: 'success', text: `worfy updated to ${B_VERSION}. The new Harness applies from the next Session.` })
   })
 
   it('B runs, named by its short SHA: still the success', () => {

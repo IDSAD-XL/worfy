@@ -291,6 +291,13 @@ describe('the end of the last restart', () => {
     expect(toast(RESTART_RESULT_KEY)?.text).toBe(`worfy was not updated to ${VERSION}: EBUSY: resource busy or locked`)
   })
 
+  it('an install that did not take effect (ticket 13): an error that names the copy that runs, not "worfy updated to …"', () => {
+    // The lastRestart settleLastRestart writes when the previous copy starts after an install the helper called done.
+    const reason = '0.5.0+aaaaaaa runs instead: the new copy did not start, or was rolled back by hand'
+    make().update(snapshot({ lastRestart: { ok: false, action: 'install', version: VERSION, reason, at: '2026-10-31T10:00:00.000Z' }, rolledBackFrom: SHA }))
+    expect(toast(RESTART_RESULT_KEY)).toMatchObject({ kind: 'error', text: `worfy was not updated to ${VERSION}: ${reason}` })
+  })
+
   it('a roll back: success "worfy is back to …"', () => {
     make().update(snapshot({ lastRestart: { ok: true, action: 'rollback', version: '0.5.0+aaaaaaa' } }))
     expect(toast(RESTART_RESULT_KEY)).toMatchObject({ kind: 'success', text: 'worfy is back to 0.5.0+aaaaaaa. Automatic updates wait for the next commit on main.' })

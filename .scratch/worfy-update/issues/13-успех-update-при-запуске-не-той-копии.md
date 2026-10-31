@@ -40,10 +40,10 @@ Source: находка implementer-а Ticket-а 11 (out of scope), подтве�
 
 ## Готово, когда
 
-- [ ] Unit test: `restart.json` install на `B`, `result.json` ok, запущен `A` — `lastRestart.ok === false`
+- [x] Unit test: `restart.json` install на `B`, `result.json` ok, запущен `A` — `lastRestart.ok === false`
       с причиной, `rolledBackFrom === B`, Available update `B` — `quiet: true`; toast — текст ошибки, не успеха.
-- [ ] Unit test: тот же случай, запущен `B` — прежнее поведение (успех, `rolledBackFrom: null`).
-- [ ] Unit test: с «Update automatically» после такого старта `auto` не собирает `B` снова.
+- [x] Unit test: тот же случай, запущен `B` — прежнее поведение (успех, `rolledBackFrom: null`).
+- [x] Unit test: с «Update automatically» после такого старта `auto` не собирает `B` снова.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты
@@ -59,3 +59,20 @@ Source: находка implementer-а Ticket-а 11 (out of scope), подтве�
 - `test/unit/` — test-ы `restart` и `auto`
 
 ## Итог
+
+- `settleLastRestart` (`src/main/update/restart.ts`) получает `running` (запущенная копия); `Restarts.settle` берёт его
+  из `running()` опций. `restart.json` — install на `B`, `result.json` — `ok: true`, а запущенный commit не равен `B`
+  (`sameCommit`, короткий SHA тоже считается): `lastRestart` = `{ ok: false, action: 'install', version: <B>,
+  reason: '<запущенная версия> runs instead: the new copy did not start, or was rolled back by hand', at }`,
+  `rolledBackFrom = B`, Available update `B` — `quiet: true`, сборка `B` — `idle`. Ветка общая с откатом из
+  приложения: commit, с которого откатились или который не вступил в силу, — `done`.
+- Запущен `B` или commit неизвестен (`''`) — прежнее поведение (успех, `rolledBackFrom: null`).
+- Toast — прежний текст ошибки (`toasts.ts` не менялся): «worfy was not updated to <B>: <A> runs instead: the new copy
+  did not start, or was rolled back by hand». Settings с `rolledBackFrom` пишет «worfy is back to <A>…».
+- Test-ы: `test/unit/update-restart-not-taken.test.ts` (7: запущен A полным и коротким SHA, запущен B полным и коротким,
+  commit неизвестен, «Update automatically» не собирает B — ни по состоянию, ни после следующей проверки с
+  `rolledBackFrom`, при запущенном B следующий commit собирается); toast — в `test/unit/update-toasts.test.tsx`.
+  Сначала падал: запущен A, `lastRestart.ok === true` (toast успеха). 7 мутантов `restart.ts` — все красные.
+- Отклонение от тикета: test-ы `settleLastRestart` Ticket-а 04 лежат в `test/contract/update-restart.test.ts`, а не в
+  `test/unit/update-restart*.test.ts`; новый файл — в `test/unit/` по следу брифа. Проверка toast-а — отдельно в
+  `.tsx`: test-проект renderer-а (`tsconfig.test.web.json`) не видит `src/main`.
