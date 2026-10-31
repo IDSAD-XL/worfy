@@ -12,15 +12,15 @@ import type { SceneSpec } from '../../scene/model'
 const PROJECTS_SPEC: SceneSpec = {
   width: 976,
   height: 500,
-  frames: [{ block: 'canvas', kind: 'canvas', x: 248, y: 40, width: 552, height: 176 }],
+  frames: [{ block: 'canvas', kind: 'canvas', x: 288, y: 40, width: 552, height: 176 }],
   blocks: [
     // worfy's window, outside the Canvas.
     { id: 'projects', x: 16, y: 40, group: 'machine' },
     { id: 'addProject', x: 16, y: 160, group: 'machine' },
     // On the Canvas.
-    { id: 'canvas', x: 264, y: 24, group: 'project', topic: 'canvas', page: 'docs/features/canvas.md', shape: 'tab', width: 92 },
-    { id: 'orchestrator', x: 296, y: 104, group: 'harness' },
-    { id: 'handoff', x: 600, y: 104, group: 'workflow' },
+    { id: 'canvas', x: 304, y: 24, group: 'project', topic: 'canvas', page: 'docs/features/canvas.md', shape: 'tab', width: 92 },
+    { id: 'orchestrator', x: 336, y: 104, group: 'harness' },
+    { id: 'handoff', x: 640, y: 104, group: 'workflow' },
     // The Harness, the Profile and the files.
     { id: 'harness', x: 16, y: 290, group: 'harness', topic: 'harness', page: 'docs/features/harness.md' },
     { id: 'profile', x: 296, y: 290, group: 'harness', topic: 'harness', page: 'docs/features/harness.md' },
