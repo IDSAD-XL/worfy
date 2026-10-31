@@ -17,11 +17,11 @@ import type { SceneSpec } from '../../scene/model'
 const page = (name: string): string => `docs/features/${name}.md`
 
 export const GATE_SCENE: SceneSpec = {
-  width: 796,
+  width: 836,
   height: 494,
   regions: [
     { label: 'thisMachine', x: 16, y: 24 },
-    { label: 'githubRegion', x: 620, y: 258 },
+    { label: 'githubRegion', x: 660, y: 258 },
   ],
   frames: [{ block: 'canvas', kind: 'canvas', x: 300, y: 56, width: 240, height: 330 }],
   blocks: [
@@ -33,7 +33,7 @@ export const GATE_SCENE: SceneSpec = {
     { id: 'ticket', x: 340, y: 110, group: 'workflow', topic: 'workflow', page: page('workflow') },
     { id: 'session', x: 340, y: 290, group: 'agents', topic: 'sessions', page: page('sessions') },
     // GitHub.
-    { id: 'github', x: 620, y: 270, group: 'project' },
+    { id: 'github', x: 660, y: 270, group: 'project' },
   ],
   edges: [
     // There and back between the Session and the Gate: two level lines, apart.
