@@ -1,8 +1,7 @@
 {
   "title": "Sessions",
   "summary": [
-    "A Session is one conversation with Claude Code. worfy runs your Sessions itself, each as a Node on the Canvas, and the Orchestrator is the Project's main Session. Sessions you started in a terminal or Claude desktop show up too, read-only.",
-    "Claude Code keeps each conversation in a file in its own folder. worfy only reads that file and shows it as the Transcript. The Limits in the toolbar show how much of your subscription's 5-hour and 7-day windows is used."
+    "A Session is one conversation with Claude Code. worfy runs your Sessions itself, each as a Node on the Canvas, and the Orchestrator is the Project's main Session. Sessions you started in a terminal or Claude desktop show up too, read-only."
   ],
   "scene": {
     "description": "Sessions in worfy. On the Canvas lie the Orchestrator, the Project's main Session; a Session, which starts a Subagent shown to its right; and a read-only Session. worfy passes your messages from the Orchestrator and the Session to Claude Code. Claude Code writes each conversation to a file in Claude home and reports the Limits. worfy reads the file, adds the live events and shows both as the Transcript. A terminal or Claude desktop writes its Sessions there too; worfy shows such a Session as a read-only Node, and Resume continues it in worfy once it has finished.",
@@ -86,8 +85,8 @@
     },
     "text": [
       "Each Session is one long-running query of the Claude Agent SDK in the main process. Its input is a queue, so a new message goes into the running Claude Code process instead of starting another one. Each SDK message becomes AgentEvents, which go to every window on agent.event.",
-      "The transcript file is the record, and the renderer store saves nothing. Transcript lines are parsed into the same AgentEvents as the live ones, so one fold draws both. worfy writes nothing in Claude home.",
-      "A Session belongs to a Project when its working directory is the Project's root or one of its worktrees, or a folder inside them. The Limits merge three sources: each Session's rate_limit_event, the rate_limits that Claude Code gives the status line, and a usage request."
+      "The transcript file is the record, and the renderer store saves nothing. Transcript lines are parsed into the same AgentEvents as the live ones, so one fold draws both. worfy only reads the transcripts in Claude home.",
+      "The Limits merge three sources: each Session's rate_limit_event, the rate_limits that Claude Code gives the status line, and a usage request."
     ],
     "files": {
       "src/main/agent/session.ts": "One Session: its states, send, the queue, Interrupt and a crash",
@@ -102,10 +101,7 @@
     "limits": [
       "A message takes up to 20 attachments. An image may be up to 3.75 MB, and a file copied into the Project's data folder up to 20 MB.",
       "A Transcript opens on the last 4 MB of its file, and Load earlier reads further back. The renderer keeps the newest 5000 live events of each Session.",
-      "Only a finished Session can be resumed, because two processes must not write one transcript.",
-      "The autocompact window can be set from 100K to 1M tokens. worfy's defaults are 400K for the Orchestrator and 500K for other Sessions.",
-      "The usage request for the Limits runs every 30 minutes and is skipped while the other two sources keep the bars fresh. It spends no model tokens.",
-      "Left out for readability: permissions and questions, Model, Effort and Permission mode, Eco mode, notifications, Memory, find in the Transcript and the Linked machine."
+      "Only a finished Session can be resumed, because two processes must not write one transcript."
     ]
   }
 }
