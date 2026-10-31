@@ -1,0 +1,103 @@
+{
+  "title": "Workflow",
+  "summary": [
+    "The work of a Project lives in Ticket files, grouped into Epics. worfy reads them and draws each Epic as a frame on the Canvas, with a card per Ticket and arrows from blockers. It never writes a status: the agents do. The Pipeline shows the Stage each Ticket stands on, and a Binding ties each agent to its Ticket or Epic."
+  ],
+  "scene": {
+    "description": "Workflow in worfy. worfy reads the Ticket files and draws the Epic as a frame on the Canvas with a card per Ticket. Ticket 01 is done and blocks Ticket 02, which is open and ready now, so it is in the Ready wave chip on the frame. Run wave on the frame sends the Wave to the Orchestrator, which is bound to the Epic. Ship ticket on Ticket 02 starts a Session, which is bound to the Ticket and claims it in the Ticket files with ticket claim. The Pipeline takes the status from the Ticket files and the PR, checks and marks from GitHub, and shows the Ticket's Stage on its card as a stepper.",
+    "labels": {
+      "notNodes": "NOT NODES",
+      "canvas": "Canvas",
+      "epic": "Epic",
+      "wave": "Ready wave · N",
+      "waveNote": "Tickets to take now, computed and stored nowhere",
+      "ticketDone": "Ticket 01",
+      "ticketDoneNote": "done: in the Done column",
+      "ticketReady": "Ticket 02",
+      "ticketReadyNote": "open, its blocker done",
+      "orchestrator": "Orchestrator",
+      "orchestratorNote": "the Project's main Session",
+      "session": "Session",
+      "sessionNote": "started by Ship ticket",
+      "files": "Ticket files",
+      "filesNote": "the source of truth",
+      "pipeline": "Pipeline",
+      "pipelineNote": "a Stage for each Ticket",
+      "github": "GitHub",
+      "githubNote": "PRs, CI checks, marks",
+      "readsFiles": "worfy reads them",
+      "blocks": "blocks",
+      "readyNow": "ready now",
+      "runWave": "Run wave",
+      "binding": "Binding",
+      "shipTicket": "Ship ticket",
+      "ticketClaim": "ticket claim",
+      "stepper": "stepper on the card",
+      "status": "status",
+      "facts": "PR, checks, marks",
+      "step1": "worfy reads the Ticket files and draws each Epic as a frame with a card per Ticket. Done Tickets fold into the Done column; the others stand in levels by dependency.",
+      "step2": "Open Tickets whose blockers are all done, and whose files no other Ticket holds, form the ready Wave.",
+      "step3": "Ship ticket starts a Session for one Ticket; Run wave sends the Wave to the Orchestrator. The agent marks its Ticket claimed itself, with ticket claim.",
+      "step4": "The Pipeline puts each Ticket on a Stage by its status, its PR, CI checks and marks. The card shows the Stage as a stepper, the Pipeline board as columns.",
+      "step5": "A Binding ties each agent to one Ticket or Epic: by its launch, its ticket claim, its branch, or your drop of its Node. A dashed line shows it."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "The data flow of the workflow and its Stages. In the renderer: the frames and cards, the shared copy and the Pipeline board with the stepper. In the main process: WorkflowHub and StageHub. Outside worfy: the Ticket files, the Harness's epic-status, git and GitHub. The shared copy asks WorkflowHub on workflow.open. The hub watches the Ticket files and the git refs, runs epic-status, which reads the files, and gets the model back. It sends the shared copy only what changed, on workflow.changed, and the copy is turned into Nodes. The board asks StageHub on pipeline.get. StageHub follows the hub's changes of the Tickets' fields, takes branch heads from git and PRs, checks and marks from GitHub, and sends a changed snapshot on pipeline.changed.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "outside": "OUTSIDE WORFY",
+        "nodes": "Frames and cards",
+        "nodesNote": "computed, not saved",
+        "copy": "Shared copy",
+        "copyNote": "one model per Project",
+        "stages": "Board and stepper",
+        "stagesNote": "the Stage of each Ticket",
+        "hub": "WorkflowHub",
+        "hubNote": "one watcher per Project",
+        "stageHub": "StageHub",
+        "stageHubNote": "facts, then stageOf",
+        "files": "Ticket files",
+        "filesNote": "Epic folders, spec.md, issues/",
+        "epicStatus": "epic-status",
+        "epicStatusNote": "the Harness's reader",
+        "git": "git",
+        "gitNote": "branches, worktrees",
+        "github": "GitHub",
+        "githubNote": "read with gh",
+        "open": "workflow.open",
+        "changed": "workflow.changed",
+        "toNodes": "Nodes",
+        "fileEvents": "file events",
+        "runs": "runs",
+        "model": "--json model",
+        "reads": "reads",
+        "refs": "moved branches",
+        "fields": "changed fields",
+        "get": "pipeline.get",
+        "pipelineChanged": "pipeline.changed",
+        "heads": "branch heads",
+        "prs": "PRs, checks, marks"
+      }
+    },
+    "text": [
+      "worfy never writes the workflow (ADR-0002): epic-status is the only reader of the Ticket format. In Full mode a worktree branch's status goes over the checkout's, so a claim shows at once, but a branch never undoes blocked or done.",
+      "Frames, cards, Stages and automatic Bindings are computed and stored nowhere. Of all this, worfy keeps only a frame's offset and collapse, and manual and launch Bindings, in its data folder."
+    ],
+    "files": {
+      "src/main/workflow/reader.ts": "Runs epic-status and lays branch statuses over the checkout",
+      "src/main/workflow/watch.ts": "WorkflowHub and the watch it shares",
+      "src/shared/workflow/waves.ts": "Levels and the ready Wave",
+      "src/shared/workflow/pipeline.ts": "The Stage catalogue, stageOf, stuck",
+      "src/main/workflow/stages.ts": "StageReader and StageHub: the facts",
+      "src/shared/binding/resolve.ts": "The Binding rules, strongest first"
+    },
+    "limits": [
+      "A file event starts one epic-status after 300 ms of quiet, at the latest 1 s after the first event.",
+      "Stages are recomputed on each change of a Ticket's fields and every 60 s. gh runs every 60 s, doubling up to 32 minutes while it fails.",
+      "Stuck, by default: after 2 h on Implementing, CI, Agent review or Gate & merge; after 24 h while a person is awaited."
+    ]
+  }
+}
