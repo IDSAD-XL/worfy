@@ -1,4 +1,5 @@
 {
+  "kind": "windows-exception",
   "runner": "vitest",
   "file": "test/contract/terminal-windows.test.ts",
   "test": "closing a Terminal on Windows, on a real pty > close leaves no console host behind, neither conhost.exe nor OpenConsole.exe; it is done well inside its bound",
@@ -6,7 +7,7 @@
   "platforms": [
     "win32"
   ],
-  "owner": "worfy-polish 47",
+  "owner": "worfy-windows 117",
   "since": "2026-10-31",
-  "until": "2026-11-07"
+  "until": "2026-12-15"
 }

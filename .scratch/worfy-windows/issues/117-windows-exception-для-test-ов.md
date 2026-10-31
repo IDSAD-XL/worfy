@@ -56,3 +56,13 @@ Windows плюс 30 дней, один общий Ticket-владелец). Та
 - профиль worfy `rules.md` — только если там описан лимит quarantine (правит Orchestrator)
 
 ## Итог
+
+Windows exception-ы, которыми владеет этот Ticket (`test/quarantine/<id>.json`, `"kind": "windows-exception"`):
+
+| id | test | since | until |
+|---|---|---|---|
+| `terminal-windows-close-no-console-host` | `test/contract/terminal-windows.test.ts` — close не оставляет console host-а | 2026-10-31 | 2026-12-15 |
+| `workflow-branches-gone-worktree-then-repository` | `test/contract/workflow-branches-gone.test.ts` — удаление worktree, затем репозитория | 2026-10-31 | 2026-12-15 |
+
+Quarantine после перевода — 11 из 15 записей. Даты `until` — предел «since + 45 дней»; после приёмки
+`worfy-windows` 16 их ставят на «приёмка + 30 дней».

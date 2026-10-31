@@ -1,8 +1,9 @@
 // The quarantine of flaky e2e tests: `quarantined('<id>')(name, body)` in place of Playwright's
 // `test(name, body)`; in a loop, `quarantined('<id>', { when: <the round the entry names> })`. The
-// rules, the entries (test/quarantine/<id>.json, with "runner": "playwright") and the modes of
-// WORFY_QUARANTINE are those of test/quarantine.ts (quarantinedDeclaration); this file only hands it
-// Playwright's `test`, `test.skip` and `test.only`, and gives back one of them for the spec to call.
+// rules, the entries (test/quarantine/<id>.json, with "runner": "playwright"; a quarantine entry or a
+// Windows exception) and the modes of WORFY_QUARANTINE are those of test/quarantine.ts
+// (quarantinedDeclaration); this file only hands it Playwright's `test`, `test.skip` and
+// `test.only`, and gives back one of them for the spec to call.
 //
 // test/quarantine.ts imports vitest's `it`; loading vitest in a Playwright process is harmless while
 // nothing calls it, and nothing here does.
