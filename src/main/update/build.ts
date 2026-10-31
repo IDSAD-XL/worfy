@@ -38,6 +38,16 @@ export const BUILD_TOOLS = ['git', 'node', 'pnpm'] as const
  */
 export const GIT_STEP_TIMEOUT_MS = 30 * 60 * 1000
 
+/**
+ * The checkout settings of the clone: the bytes of `main`, whatever the machine's git asks for
+ * (Git for Windows defaults to core.autocrlf=true). The repository's own .gitattributes still
+ * applies; with core.eol=lf a `text=auto` file comes out as it is in the repository.
+ */
+const CHECKOUT_CONFIG = [
+  ['core.autocrlf', 'false'],
+  ['core.eol', 'lf'],
+] as const
+
 /** The variables no step of a build gets. */
 const TOKEN_VARIABLES = new Set(['GH_TOKEN', 'GITHUB_TOKEN'])
 
@@ -263,13 +273,16 @@ export class UpdateBuilder implements UpdateBuilds {
     const clone = join(dir, 'repo')
     const step = (tool: string, args: readonly string[], cwd = clone): Promise<boolean> => this.step(tool, args, cwd, env, log)
     if (existsSync(join(clone, '.git'))) {
-      // The remote is the configured one, whatever the clone had.
+      // The remote and the checkout settings are the configured ones, whatever the clone had.
       if (!(await step('git', ['remote', 'set-url', 'origin', repo]))) return failed()
+      for (const [key, value] of CHECKOUT_CONFIG) if (!(await step('git', ['config', key, value]))) return failed()
       if (!(await step('git', ['fetch', 'origin', '+refs/heads/main:refs/remotes/origin/main']))) return failed()
     } else {
       // A clone that did not finish leaves a folder without .git, and git clone refuses a folder with files.
       if (existsSync(clone)) removeTree(clone)
-      if (!(await step('git', ['clone', '--', repo, clone], dir))) return failed()
+      // `-c` of git clone is written into the new clone's config and applies to its first checkout too.
+      const config = CHECKOUT_CONFIG.flatMap(([key, value]) => ['-c', `${key}=${value}`])
+      if (!(await step('git', ['clone', ...config, '--', repo, clone], dir))) return failed()
     }
     if (this.stopped) return failed()
     if (!(await step('git', ['merge-base', '--is-ancestor', update.sha, 'refs/remotes/origin/main']))) {

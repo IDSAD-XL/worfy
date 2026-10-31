@@ -181,7 +181,7 @@ describe('UpdateBuilder', () => {
     await builds.settled()
     expect(readUpdateState(stateFile()).build).toEqual({ phase: 'ready', sha: first, version: `0.9.0+${first.slice(0, 7)}`, appPath: expectedApp(), log: join(dir, 'build.log') })
     expect(readFileSync(join(expectedApp(), 'marker.txt'), 'utf8')).toBe('A\n')
-    expect(buildLog()).toContain(`$ git clone -- ${origin}`)
+    expect(buildLog()).toContain(`$ git clone -c core.autocrlf=false -c core.eol=lf -- ${origin}`)
 
     const second = commit('B')
     builds.install(available(second))
@@ -248,6 +248,28 @@ describe('UpdateBuilder', () => {
     expect(buildLog()).toContain('$ git fetch origin')
     expect(buildLog()).toContain(`${unknown} is not a commit of main of ${origin}`)
     expect(traceLines()).toEqual([])
+  })
+
+  it('builds the bytes of main: no line-ending conversion, though the global git config (Git for Windows: core.autocrlf=true) or the clone asks for one', async () => {
+    const globalConfig = join(root, 'gitconfig-crlf')
+    writeFileSync(globalConfig, '[core]\n\tautocrlf = true\n\teol = crlf\n')
+    const env = (): Record<string, string | undefined> => processEnv({ GIT_CONFIG_GLOBAL: globalConfig })
+    const first = commit('A')
+    const builds = builder({ env })
+    builds.install(available(first))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: first })
+    expect(readFileSync(join(dir, 'repo', 'marker.txt'), 'utf8')).toBe('A\n')
+    expect(readFileSync(join(expectedApp(), 'marker.txt'), 'utf8')).toBe('A\n')
+
+    // A clone whose own config asks for the conversion: the next build sets it back before checkout.
+    git(join(dir, 'repo'), 'config', 'core.autocrlf', 'true')
+    const second = commit('B')
+    builds.install(available(second))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: second })
+    expect(readFileSync(join(dir, 'repo', 'marker.txt'), 'utf8')).toBe('B\n')
+    expect(readFileSync(join(expectedApp(), 'marker.txt'), 'utf8')).toBe('B\n')
   })
 
   it('fetches from the origin it was given, whatever the clone had: the remote comes from the configuration only', async () => {
