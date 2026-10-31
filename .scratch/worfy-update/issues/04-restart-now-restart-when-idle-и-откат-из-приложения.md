@@ -57,6 +57,8 @@ Source: решения владельца 2026-10-31, пункты 4 (нажат
       process» (настоящий `spawn`, подменный helper).
 - [ ] Платформенный PR (ADR-0056, пункт 2; ADR-0086; процесс detached и запуск копии на Windows): вердикт
       Windows по `scripts/windows-verdict-scope.mjs`.
+      `windows-verdict-scope.mjs origin/main worfy-update/04` → `runner` (exit 0): вердикт — job-ы Windows
+      в `ci-ok` этого PR.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты
