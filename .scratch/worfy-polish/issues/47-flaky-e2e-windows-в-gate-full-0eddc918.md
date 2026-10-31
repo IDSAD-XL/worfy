@@ -26,7 +26,7 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   3128 ms на main `fc9279cf` при пределе 3000 ms (строка 177); красный в 2 из 11 сохранённых gate full на ПК, в одиночку
   зелёный. Гипотеза, не установлена: под нагрузкой helper закрытия упирается в свой же execFile timeout
   `DESCENDANTS_TIMEOUT_MS = 3000` (`src/main/terminal/windows-pty.ts:12`, `:231`). ПК замеряет время helper-а и
-  срабатывания timeout-а. В quarantine только на win32 до 2026-11-07: запись
+  срабатывания timeout-а. С 2026-10-31 — Windows exception (worfy-windows 117, до 2026-12-15): запись
   `test/quarantine/terminal-windows-close-no-console-host.json`. Предел не поднимать.
 - `test/contract/terminal-git-bash-close.test.ts:33` (закрытие Git Bash сохраняет его history): ушёл из этого
   Ticket-а — баг продукта подтверждён замером ПК 2026-10-31 (26 из 120 закрытий под нагрузкой без `.bash_history`,
@@ -35,7 +35,7 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   itself…»): gate full на ПК, main `c01cd364`, 2026-10-31, 8 workers — `expected 328 to be less than 300`: время
   процессора worker-а за секунду после удаления (`process.cpuUsage`, строки 63–67; проверки на 87 и 104). Красный и
   в сохранённом gate full `e6802c9e`, то есть повторяется; в одиночку exit 0, 8 s. По ADR-0086 п.3 — quarantine только
-  на win32 до 2026-11-07: запись `test/quarantine/workflow-branches-gone-worktree-then-repository.json`. Предел 300 ms
+  на win32; с 2026-10-31 — Windows exception (worfy-windows 117, до 2026-12-15): запись `test/quarantine/workflow-branches-gone-worktree-then-repository.json`. Предел 300 ms
   не поднимать.
 - `test/e2e/chat-attachments.spec.ts:148` (png и pdf, брошенные в чат Orchestrator-а): gate full на ПК, main
   `c01cd364` — `Cannot read properties of null (reading 'dispatchEvent')` на строке 158; в одиночку exit 0. Test
@@ -102,7 +102,7 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
 
 ### 2026-10-31, ветка `worfy-polish/47-c01cd364`: две находки gate full на ПК `c01cd364`
 
-- `test/contract/workflow-branches-gone.test.ts:71` (после правки) — в quarantine на win32 до 2026-11-07, запись
+- `test/contract/workflow-branches-gone.test.ts:71` (после правки) — Windows exception (worfy-windows 117, до 2026-12-15), запись
   `test/quarantine/workflow-branches-gone-worktree-then-repository.json`, обёртка `quarantined('<id>')(name, fn)`.
   Причина не установлена. Гипотеза: замер — `process.cpuUsage()` всего worker-а за одну секунду (строки 64–68 после
   правки, проверки на 88 и 105), и при 8 workers в эту секунду попадает его собственная работа (сборка мусора,
