@@ -36,7 +36,9 @@ const QUITTING: RestartAnswer = { outcome: 'refused', reason: 'worfy is quitting
 /**
  * `<update>/restart.json`: what the restart does and from which copy. `version` and `sha` name the
  * copy it goes to (for a roll back, the previous one), `from` the copy that ran. `harness`: the
- * press was the consent to the Harness of that copy too (spec R5, R8; ticket 05).
+ * press was the consent to the Harness of that copy too (spec R5, R8; ticket 05). `harnessTaken`:
+ * the start after the restart has used that consent (src/main/update/harness-after-update.ts); the
+ * record stays, so the previous copy keeps the name it gives it (previousCopy).
  */
 export const restartRecordSchema = z.object({
   action: z.enum(['install', 'rollback']),
@@ -44,6 +46,7 @@ export const restartRecordSchema = z.object({
   sha: z.string(),
   from: z.object({ sha: z.string(), version: z.string() }),
   harness: z.literal(true),
+  harnessTaken: z.literal(true).optional(),
   at: z.iso.datetime(),
 })
 export type RestartRecord = z.infer<typeof restartRecordSchema>
@@ -96,7 +99,7 @@ function sameCommit(a: string, b: string): boolean {
 /**
  * At the start of worfy: the result of the restart that ended the last run, if any, into the state
  * (`lastRestart`, its toast is ticket 07's), and `previous` as the disk has it. The result file is
- * removed once read; restart.json stays for ticket 05.
+ * removed once read; restart.json stays: ticket 05 only marks it `harnessTaken`, and the next restart replaces it.
  */
 export function settleLastRestart({ dir, stateFile, target, platform = process.platform }: { dir: string; stateFile: string; target: string; platform?: NodeJS.Platform }): void {
   const record = existsSync(restartFile(dir)) ? readJsonFile(restartFile(dir), restartRecordSchema) : undefined

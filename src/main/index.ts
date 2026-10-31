@@ -3,11 +3,13 @@ import { randomUUID } from 'node:crypto'
 import './quit-listeners'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
+import { updateChanged } from '../shared/ipc/update'
 import { sessionArchiveOf } from '../shared/settings/app-settings'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
+import { toEveryWindow } from './broadcast'
 import { stopLiveBrowsers } from './browser/live'
 import { browserProfilePartitions } from './browser/profiles'
 import { installCardRuntime } from './cards/protocol'
@@ -23,8 +25,9 @@ import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
 import { startGettingStarted } from './ipc/getting-started'
-import { appUrlMatcher, registerIpc } from './ipc/index'
-import { startUpdateChecks } from './ipc/update'
+import { appInstaller, onHarnessInstalled } from './ipc/harness'
+import { appUrlMatcher, emit, registerIpc } from './ipc/index'
+import { appUpdate, startUpdateChecks } from './ipc/update'
 import { appNoteLink } from './link/notes'
 import { appLinkService, onAppLinkStart, startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
@@ -39,6 +42,11 @@ import { registerAppSchemes } from './schemes'
 import { appSettingsStore } from './settings/store'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
 import { claudeHome, dataRoot, setBuildKind } from './storage/paths'
+import { updateGitHub } from './update/github'
+import { installHarnessAfterUpdate } from './update/harness-after-update'
+import { HarnessLagChecks } from './update/harness-lag'
+import { updateEnabled } from './update/stable-copy'
+import { updateDir, updateStateFile } from './update/state'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
 
 // Before anything else runs: an uncaught exception's stack reaches stderr before Electron's error box
@@ -202,6 +210,15 @@ function start(): void {
       } catch (error) {
         console.error('[update] the Update checks did not start', error)
       }
+      // The Harness of this copy after an Update or a roll back, without a second dialog, and then
+      // whether the installed Harness is behind (worfy-update ticket 05). After the Update checks
+      // started: their start has read the result of the last restart, restart.json included. Not
+      // awaited and not a startup step: the first window comes meanwhile, and worfy runs without it.
+      try {
+        app.on('will-quit', startHarnessAfterUpdate())
+      } catch (error) {
+        console.error('[update] the Harness after an Update did not start', error)
+      }
       // The Limits asked from Claude Code every 30 minutes, at zero model tokens, while the
       // Sessions and the status line bring nothing fresh (limits-usage.ts). Not a startup step:
       // without it the Limits keep their passive sources.
@@ -274,5 +291,32 @@ function installAutoArchive(): () => void {
     stop()
     liveSessionListeners.delete(onLive)
     void workflowHub.drop(ARCHIVE_WORKFLOW_SUBSCRIBER)
+  }
+}
+
+/**
+ * The Harness of this copy at the start after an Update or a roll back (src/main/update/harness-after-update.ts),
+ * through the app's one installer, so it never runs beside an install of the toolbar or the first-run
+ * screen; then the check of "Harness out of date" (src/main/update/harness-lag.ts), first when that
+ * install has ended, then every hour, and again after each install that answers `done`. Only while
+ * Update is on, as the rest of Update. Returns the stop of the check.
+ */
+function startHarnessAfterUpdate(): () => void {
+  if (!updateEnabled({ packaged: app.isPackaged, execPath: process.execPath, env: process.env })) return () => undefined
+  const announce = (): void => toEveryWindow((client) => emit(client, updateChanged, appUpdate().snapshot()))
+  const installer = appInstaller()
+  const installed = installHarnessAfterUpdate({ dir: updateDir(), stateFile: updateStateFile(), bundled: bundledHarnessVersion(), installer, onChange: announce })
+  const lag = new HarnessLagChecks({
+    status: () => installer.status(),
+    // Only WORFY_UPDATE_API is passed, as to the Update check: the client never sees GH_TOKEN or GITHUB_TOKEN.
+    client: updateGitHub({ env: { WORFY_UPDATE_API: process.env.WORFY_UPDATE_API } }),
+    stateFile: () => updateStateFile(),
+    onChange: announce,
+  })
+  const stopChecks = lag.start(installed)
+  const stopListening = onHarnessInstalled(() => void lag.run())
+  return () => {
+    stopListening()
+    stopChecks()
   }
 }
