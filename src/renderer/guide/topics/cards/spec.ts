@@ -58,7 +58,7 @@ export const CARDS_SCENE: SceneSpec = {
 }
 
 export const CARDS_FLOW: SceneSpec = {
-  width: 942,
+  width: 1000,
   height: 496,
   regions: [
     { label: 'pageArea', x: 16, y: 30 },
@@ -87,7 +87,8 @@ export const CARDS_FLOW: SceneSpec = {
     // create_card and the agent's writes.
     { from: 'session', to: 'server', label: 'toolCalls' },
     { from: 'server', to: 'files', label: 'makesFolder', toShift: -14 },
-    { from: 'session', to: 'files', label: 'writes', fromSide: 'bottom', toSide: 'top', fromShift: 64, toShift: 64 },
+    // Round the right sides, clear of the caption PROJECT DATA FOLDER over the files.
+    { from: 'session', to: 'files', label: 'writes', fromSide: 'right', toSide: 'right' },
     // A file change: the watch, cards.changed, a new iframe that loads the files.
     { from: 'files', to: 'store', label: 'change', fromShift: 0 },
     { from: 'store', to: 'cardNode', label: 'changed' },
@@ -95,8 +96,9 @@ export const CARDS_FLOW: SceneSpec = {
     { from: 'files', to: 'protocol', label: 'reads', fromShift: 14 },
     { from: 'protocol', to: 'page', label: 'serves', toShift: 14 },
     // A request of window.worfy and its answer.
-    { from: 'page', to: 'bridge', label: 'post', fromShift: -20, toShift: -20 },
-    { from: 'bridge', to: 'page', label: 'answer', fromShift: 20, toShift: 20 },
+    // Down into the bridge's left side, and back up from its top: two curves apart, their labels apart.
+    { from: 'page', to: 'bridge', label: 'post', fromSide: 'bottom', toSide: 'left', fromShift: -20 },
+    { from: 'bridge', to: 'page', label: 'answer', fromSide: 'top', toSide: 'bottom', toShift: 30 },
     { from: 'bridge', to: 'api', label: 'ipc' },
     { from: 'api', to: 'data', label: 'saves' },
   ],

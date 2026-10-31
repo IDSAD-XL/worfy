@@ -39,7 +39,7 @@
   },
   "underTheHood": {
     "flow": {
-      "description": "The data flow of a Card, in four columns: the Card's page, the window, the main process, and Claude Code above the Project data folder. canvas-server.ts serves Claude Code's create_card, which makes the Card's folder in cards/<id>/, and sees its writes; Claude Code writes the Card's files there itself. CardStore watches the folder and, after a change, sends cards.changed to CardNode, which makes a new iframe for the page; the worfy-card:// protocol reads the Card's files and serves them with window.worfy. The page posts each request to card-bridge.ts, which answers it; saved data goes over IPC to card-api.ts, which saves it in card-data/<id>.json.",
+      "description": "The data flow of a Card, in four columns: the Card's page, the window, the main process, and Claude Code above the Project data folder. canvas-server.ts serves Claude Code's create_card, which makes the Card's folder in cards/<id>/, and sees its writes; Claude Code writes the Card's files there itself. CardStore watches the folder and raises the revision after a change, and main sends cards.changed to CardNode, which makes a new iframe for the page; the worfy-card:// protocol reads the Card's files and serves them with window.worfy. The page posts each request to card-bridge.ts, which answers it; saved data goes over IPC to card-api.ts, which saves it in card-data/<id>.json.",
       "labels": {
         "pageArea": "CARD PAGE",
         "renderer": "WINDOW (RENDERER)",
@@ -66,17 +66,17 @@
         "filesNote": "the Card's files",
         "data": "card-data/<id>.json",
         "dataNote": "the saved data",
-        "toolCalls": "create_card and its writes",
+        "toolCalls": "tool calls",
         "makesFolder": "makes the folder",
         "writes": "writes",
-        "change": "after 100 ms of quiet",
+        "change": "a change",
         "changed": "cards.changed",
         "iframe": "new iframe",
         "reads": "reads",
         "serves": "files + window.worfy",
         "post": "postMessage",
         "answer": "answer to its origin",
-        "ipc": "data, ask over IPC",
+        "ipc": "IPC",
         "saves": "saves",
         "step1": "An agent calls create_card, and canvas-server.ts makes the Card's folder. The agent then writes the files itself.",
         "step2": "CardStore waits for 100 ms of quiet and raises the revision. CardNode makes a new iframe, and the protocol serves the files, with window.worfy at the start of each HTML file's head.",
@@ -85,7 +85,7 @@
     },
     "text": [
       "Each Card has its own origin, worfy-card://<card id>.<project label>, so its page reaches neither the worfy window nor another Card. Every file comes with a Content-Security-Policy, and main refuses new windows and web permissions.",
-      "A Session becomes a Card's last editor, the recipient of worfy.ask, by a file-writing tool call, such as Write or Edit, into the Card's folder, not by what the agent says; a change made through Bash does not count."
+      "A Session becomes a Card's last editor, the first choice for worfy.ask, by a file-writing tool call, such as Write or Edit, into the Card's folder, not by what the agent says; a change made through Bash does not count."
     ],
     "files": {
       "src/main/cards/store.ts": "CardStore: the Card folders, their titles, the watch and the revisions",

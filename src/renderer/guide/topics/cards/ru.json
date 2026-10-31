@@ -20,13 +20,13 @@
       "canvasMcpNote": "инструменты агента для Canvas",
       "workflow": "Workflow",
       "workflowNote": "Epic-и и Ticket-ы",
-      "data": "Сохранённые данные",
+      "data": "Данные Card",
       "dataNote": "переживают перезапуск",
       "writesFiles": "пишет файлы",
       "createCard": "create_card",
       "makesFolder": "создаёт папку",
       "makesNode": "создаёт Node",
-      "reloads": "работают, обновляются при правке",
+      "reloads": "запуск и перезагрузка",
       "snapshot": "снимок только для чтения",
       "saves": "worfy.data",
       "ask": "worfy.ask: последнему автору",
@@ -39,7 +39,7 @@
   },
   "underTheHood": {
     "flow": {
-      "description": "Поток данных Card, в четыре колонки: страница Card, окно, main process и Claude Code над папкой данных Project-а. canvas-server.ts обслуживает create_card от Claude Code, который создаёт папку Card в cards/<id>/, и видит его записи; файлы Card Claude Code пишет туда сам. CardStore следит за папкой и после изменения отправляет cards.changed в CardNode, который создаёт для страницы новый iframe; протокол worfy-card:// читает файлы Card и отдаёт их вместе с window.worfy. Страница отправляет каждый запрос в card-bridge.ts, который на него отвечает; сохранённые данные идут по IPC в card-api.ts, а он сохраняет их в card-data/<id>.json.",
+      "description": "Поток данных Card, в четыре колонки: страница Card, окно, main process и Claude Code над папкой данных Project-а. canvas-server.ts обслуживает create_card от Claude Code, который создаёт папку Card в cards/<id>/, и видит его записи; файлы Card Claude Code пишет туда сам. CardStore следит за папкой и после изменения поднимает ревизию, а main отправляет cards.changed в CardNode, который создаёт для страницы новый iframe; протокол worfy-card:// читает файлы Card и отдаёт их вместе с window.worfy. Страница отправляет каждый запрос в card-bridge.ts, который на него отвечает; сохранённые данные идут по IPC в card-api.ts, а он сохраняет их в card-data/<id>.json.",
       "labels": {
         "pageArea": "СТРАНИЦА CARD",
         "renderer": "ОКНО (RENDERER)",
@@ -66,17 +66,17 @@
         "filesNote": "файлы Card",
         "data": "card-data/<id>.json",
         "dataNote": "сохранённые данные",
-        "toolCalls": "create_card и его записи",
+        "toolCalls": "вызовы",
         "makesFolder": "создаёт папку",
         "writes": "пишет",
-        "change": "после 100 мс тишины",
+        "change": "изменение",
         "changed": "cards.changed",
         "iframe": "новый iframe",
         "reads": "читает",
         "serves": "файлы + window.worfy",
         "post": "postMessage",
         "answer": "ответ на её origin",
-        "ipc": "данные, ask по IPC",
+        "ipc": "IPC",
         "saves": "сохраняет",
         "step1": "Агент вызывает create_card, и canvas-server.ts создаёт папку Card. Потом агент сам пишет файлы.",
         "step2": "CardStore ждёт 100 мс тишины и поднимает ревизию. CardNode создаёт новый iframe, а протокол отдаёт файлы, вставляя window.worfy в начало head каждого HTML-файла.",
@@ -85,7 +85,7 @@
     },
     "text": [
       "У каждой Card свой origin, worfy-card://<card id>.<project label>, поэтому её страница не достаёт ни до окна worfy, ни до другой Card. Каждый файл приходит с Content-Security-Policy, а main отказывает в новых окнах и web-разрешениях.",
-      "Session становится последним автором Card, получателем worfy.ask, по вызову инструмента записи файла, например Write или Edit, в папку Card, а не по тому, что агент говорит о себе; изменение через Bash не считается."
+      "Session становится последним автором Card, первым кандидатом в получатели worfy.ask, по вызову инструмента записи файла, например Write или Edit, в папку Card, а не по тому, что агент говорит о себе; изменение через Bash не считается."
     ],
     "files": {
       "src/main/cards/store.ts": "CardStore: папки Card, их заголовки, слежение и ревизии",

@@ -35,7 +35,7 @@ Topic сжимает `docs/features/cards.md` до одного экрана. С
 ## Итог
 
 Topic `cards` (`src/renderer/guide/topics/cards/`): `spec.ts` с двумя схемами, `Scene.tsx` (простой уровень,
-`viewBox` 820×510, 8 блоков, 9 связей, 4 шага проигрывателя), `Flow.tsx` (поток данных в Under the hood, 942×496,
+`viewBox` 820×510, 8 блоков, 9 связей, 4 шага проигрывателя), `Flow.tsx` (поток данных в Under the hood, 1000×496,
 10 блоков, 12 связей, 3 шага), `en.json`, `ru.json`, `topic.json` и одна строка `registry.ts` перед строкой `skeleton`.
 `topic.json` сверен с `docs/features/cards.md` на 02be335e (последний commit страницы). Блоки Card на Map of worfy и в
 Topic `canvas` уже ведут в `cards`: с этим PR они открывают Topic, а не страницу. Блок Workflow ведёт в Topic `workflow`
@@ -47,8 +47,8 @@ Topic `canvas` уже ведут в `cards`: с этим PR они открыв�
   пересекали Card.
 - Цвета: Card и CardNode — Tools (как на Map), файлы и данные Card — Machine (папка данных worfy, не репозиторий), Session и
   Claude Code — Agents, Orchestrator — Harness, Canvas MCP — Agents, как блок `mcp` в потоке данных Topic-а Canvas.
-- Связь Claude Code → canvas-server.ts подписана «create_card and its writes»: `create_card` — вызов инструмента
-  сервера, а Write и Edit сервер не выполняет, он видит их в событиях Session (`editRecorder`) и пишет последнего автора.
+- Связь Claude Code → canvas-server.ts подписана «tool calls»: `create_card` — вызов инструмента сервера, а Write и Edit
+  сервер не выполняет, он видит их в событиях Session (`editRecorder`) и пишет последнего автора.
 - Ключи поиска: `card api`, `canvas mcp`, `create_card`, `window.worfy`. Ключа `card` / `cards` нет. Проверено временным
   test-ом (удалён до commit): для каждой команды `buildCommands` её заголовок и её ключи по-прежнему не отдают первое
   место строке `guide:cards`.
@@ -58,7 +58,7 @@ Topic `canvas` уже ведут в `cards`: с этим PR они открыв�
 | Что на схеме или в тексте | Источник |
 |---|---|
 | Card — маленькое HTML-приложение, которое строит агент, работает в Node-е на Canvas («an HTML app in a Node») | `c.md:3`, `CONTEXT.md:21-22`, `src/renderer/canvas/nodes/CardNode.tsx:15-16` |
-| Canvas «one per Project» | `CONTEXT.md:13-14` |
+| Canvas «one per Project» | `docs/features/canvas.md:12` |
 | Orchestrator — «the Project's main Session»; группа Harness | `CONTEXT.md:161-162`, `src/renderer/guide/scene-colours.ts:19-20` |
 | Session «the agent that builds it»; агент создаёт Card инструментом и пишет файлы обычными инструментами для файлов («writes the files»), сборки нет (шаг 1) | `c.md:11-14`, `:247`, `src/main/agent/options.ts:488`, `src/main/cards/store.ts:2-3` |
 | `create_card` от Session к Canvas MCP; «makes the folder», «makes the Node» (шаг 1; поток: «makes the folder») | `c.md:259`, `:333-334`, `src/main/mcp/canvas-server.ts:199-210` |
@@ -73,14 +73,14 @@ Topic `canvas` уже ведут в `cards`: с этим PR они открыв�
 | Summary: страница отделена от worfy, хранит данные, читает workflow, просит отправить сообщение в Session | `c.md:79`, `:155-161`, `src/renderer/canvas/card-bridge.ts:1-7` |
 | UTH-поток: колонки CARD PAGE, WINDOW (RENDERER), MAIN PROCESS, CLAUDE CODE над PROJECT DATA FOLDER | `c.md:132-134`, `:231-233`, `:333-336` |
 | UTH: Card page «on its own origin»; текст: origin `worfy-card://<card id>.<project label>`, до окна и другой Card не достаёт | `c.md:79-83`, `src/main/cards/protocol.ts:5-11` |
-| UTH: CardStore «watches, raises the revision», «after 100 ms of quiet» (шаг 2 потока) | `c.md:30`, `:90-92`, `:132-133`, `src/main/cards/store.ts:17-19`, `:36`, `:287` |
-| UTH: `cards.changed` во все окна; CardNode «a new iframe per revision», «new iframe» | `c.md:133-134`, `src/main/ipc/cards.ts:11-12`, `src/renderer/canvas/nodes/CardNode.tsx:133-135` |
+| UTH: CardStore «watches, raises the revision», «a change» и 100 мс тишины (шаг 2 потока) | `c.md:30`, `:90-92`, `:132-133`, `src/main/cards/store.ts:17-19`, `:36`, `:287` |
+| UTH: после изменения main (`src/main/ipc/cards.ts`, по `store.onChange`) шлёт `cards.changed` во все окна; CardNode «a new iframe per revision», «new iframe» | `c.md:133-134`, `src/main/ipc/cards.ts:11-12`, `src/renderer/canvas/nodes/CardNode.tsx:133-135` |
 | UTH: `worfy-card://` «only the Card's files, CSP», «reads», «files + window.worfy» в начале head каждого HTML-файла | `c.md:85-86`, `:190-192`, `src/main/cards/protocol.ts:13-21` |
 | UTH: `postMessage`; card-bridge.ts «checks sender and schema», «answer to its origin»; шаг 3 потока | `c.md:189`, `:193`, `:231-233`, `src/card-runtime/worfy-card.ts:10-12`, `src/renderer/canvas/card-bridge.ts:2-7`, `:91`, `:97` |
-| UTH: «data, ask over IPC» в card-api.ts «data, the dialog of worfy.ask»; «saves» в `card-data/<id>.json` | `c.md:193-194`, `:222`, `src/main/ipc/card-api.ts:1-8`, `:97`, `src/main/cards/data.ts:1-2` |
+| UTH: «IPC» из card-bridge.ts в card-api.ts «data, the dialog of worfy.ask»; «saves» в `card-data/<id>.json` | `c.md:193-194`, `:222`, `src/main/ipc/card-api.ts:1-8`, `:97`, `src/main/cards/data.ts:1-2` |
 | UTH: canvas-server.ts «Canvas MCP, the last editor»; Claude Code «the Session's agent» | `c.md:229`, `:323`, `src/main/mcp/canvas-server.ts:10-12`, `:324-334` |
 | UTH-текст: CSP с каждым файлом; main отказывает в новых окнах и web-разрешениях | `c.md:85-87`, `src/main/cards/protocol.ts:13-17`, `src/main/window.ts:381-383` |
-| UTH-текст: последний автор — по вызову инструмента записи файла (Write, Edit…) в папку Card, не по словам агента; Bash не считается | `c.md:198-202`, `src/shared/cards/last-editor.ts:1-4`, `:13-17` |
+| UTH-текст: последний автор — первый кандидат в получатели `worfy.ask` (`c.md:172-173`: если его Session живая в worfy, иначе Orchestrator; `:178-179`: Session без человека сообщения не получает); становится им по вызову инструмента записи файла (Write, Edit…) в папку Card, не по словам агента; Bash не считается | `c.md:198-202`, `src/shared/cards/last-editor.ts:1-4`, `:13-17` |
 | Таблица файлов: назначение каждого из семи | `c.md:117-118`, `:126`, `:219`, `:222-223`, `:226`, `:323`; шапки самих файлов |
 | Лимит: `worfy.data` до 1 МБ JSON; `worfy.ask` до 10 000 символов, один вопрос на Card, ждёт не больше 10 минут | `c.md:158-159`, `:176-177`, `src/shared/cards/bridge.ts:21`, `:23`, `src/main/cards/ask.ts:11-13`, `:21` |
 | Лимит: Find читает до 100 000 символов работающей Card и ждёт 2 секунды | `c.md:57-58`, `src/shared/cards/bridge.ts:25`, `src/renderer/canvas/card-bridge.ts:77` |
@@ -100,6 +100,18 @@ Topic `canvas` уже ведут в `cards`: с этим PR они открыв�
 
 **Объём.** EN: простой уровень 64 слова; Under the hood — текст 73, лимиты 71, таблица файлов 58 (вместе около 200,
 у пилотных Topic-ов 250–267). RU: 47 и около 170.
+
+**Доработка после REJECTED (PR #1169, ревью medium, round 1).** Последний автор назван первым кандидатом в получатели
+`worfy.ask`, а не получателем (EN и RU). В описании потока `cards.changed` отправляет main, а CardStore поднимает ревизию.
+Источник «one per Project» — `docs/features/canvas.md:12`. Связи Card page ↔ card-bridge.ts разведены: запрос идёт
+вниз в левую сторону моста, ответ — вверх из его верха, подписи стоят врозь. Блок данных на RU — «Данные Card». Подписи
+в узких промежутках между колонками укорочены: «tool calls» / «вызовы», «a change» / «изменение», «IPC»; на RU «запуск и
+перезагрузка». Связь «writes» идёт по правым сторонам блоков и не пересекает подпись PROJECT DATA FOLDER; схема потока
+шире, 1000. Проверка временным Playwright spec-ом вне репозитория: наведение на каждый блок и каждый шаг обеих схем, EN
+и RU — ни одна подсвеченная подпись не перекрывает другую подпись, блок, подпись области или наконечник стрелки, ни
+один текст блока не выходит за блок. Новые снимки шагов 1–3 потока: [шаг 1](../evidence/15-cards-flow-step1-en-light.png),
+[шаг 2](../evidence/15-cards-flow-step2-en-light.png), [шаг 3](../evidence/15-cards-flow-step3-en-light.png), у каждого есть
+пара `-dark`; остальные снимки сняты заново с головы ветки.
 
 **Tokens.** Автор: около 230 тыс. токенов контекста (точного счётчика у агента нет; оценка по объёму прочитанного и
 написанного). Проверка: ещё не было.
