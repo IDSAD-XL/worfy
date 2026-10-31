@@ -1,4 +1,4 @@
-# 47 — Flaky e2e Windows в gate full на ПК: two-windows, linked-browser, subagent-tree, epic-frame
+# 47 — Flaky test-ы Windows в gate full на ПК: two-windows, linked-browser, subagent-tree, epic-frame
 
 Type: task
 Status: open

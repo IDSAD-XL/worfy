@@ -20,7 +20,7 @@
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
-- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 8/12, влиты 01–07, 09; 08, 10 в работе. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): 01 сдан (три направления на Card); 02 ждёт выбора владельца.
+- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 11/13; 13 в работе, 12 — приёмка. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): 02 ждёт выбора владельца (Card).
 
 ## Ждёт владельца
 
