@@ -1,7 +1,8 @@
 # 05 — Harness новой копии после Update и отстающий Harness того же semver
 
 Type: task
-Status: open
+Status: done 2026-10-31T10:32Z
+PR: #1123
 Blocked by: 04
 Source: решения владельца 2026-10-31, пункты 4 (Harness новой копии без второго диалога; «Update Harness» остаётся; действует со следующей Session), 5 (сигнал «Harness out of date»); [spec.md](../spec.md), «Как устроено», «Решено без владельца», Р8, Р10; [ADR-0089](../../../docs/adr/0089-update-builds-main-in-own-clone.md), пункт 5
 
@@ -71,3 +72,5 @@ Source: решения владельца 2026-10-31, пункты 4 (Harness н
 - `src/main/index.ts`: оба шага — сразу после `startUpdateChecks()` (тот уже прочитал результат прошлого restart через `settleLastRestart`), не ждут первого окна и не ломают старт; только при включённом Update.
 - `docs/features/harness.md`: два абзаца — install после Update без диалога и проверка «Harness out of date».
 - Test-ы: contract `test/contract/update-harness.test.ts` (18, песочница `WORFY_CLAUDE_HOME`, подменный `claude`; в том числе settle → install → settle сохраняет имя прошлой копии), unit `test/unit/update-harness-lag.test.ts` (12, ответы `test/update-stub.ts`, fake timers), wiring `test/contract/update-harness-wiring.test.ts` (4, порядок в `src/main/index.ts`). Mutant-ы: 16 первого раунда и 14 раунда ревью — все красные.
+
+- Low из review (debt, Ticket-ами не становятся): ветка «пометку `harnessTaken` не удалось записать» (`harness-after-update.ts:79-82`) без test-а. Решено без владельца: установка, присоединившаяся к установке из toolbar, при Cancel — `declined`, без установки и без признака сбоя; проверка отставания Harness — по своему часовому таймеру и после каждой установки с `done`, «Check now» её не запускает.
