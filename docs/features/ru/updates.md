@@ -53,7 +53,7 @@ GitHub даёт 60 запросов в час с одного адреса, пр
 | «Harness out of date: <from> → <to>» | Update, Later | Установленный Harness отстаёт от Harness этой копии |
 | «worfy updated to <version>. The new Harness applies from the next Session.» | Нет | Первый старт после перезапуска в Update |
 | «worfy is back to <version>. Automatic updates wait for the next commit on main.» | Нет | Первый старт после отката |
-| «worfy was not updated to <version>: <reason>» или «rolled back» вместо «updated» | Нет | Перезапуск или откат не случился |
+| «worfy was not updated to <version>: <reason>» или «rolled back» вместо «updated» | Нет | Перезапуск или откат не случился, или после него запущена не новая копия |
 | «The Harness was not updated» | Open Health | Harness новой копии не встал |
 
 «Later» или любой другой способ закрыть toast держит его закрытым до следующего старта; toast «available» приходит один
@@ -139,9 +139,12 @@ mv worfy-stable.previous.json worfy-stable.json
 На Windows, в `%LOCALAPPDATA%`, те же три переименования: `worfy-stable` в сторону, `worfy-stable.previous` в
 `worfy-stable`, `worfy-stable.previous.json` в `worfy-stable.json`. Файл называет commit, который запущен, и worfy сравнивает
 с `main` именно его. Скрипт из clone делает то же с проверками:
-`node ~/"Library/Application Support/worfy/update/repo/scripts/install-stable.mjs" --rollback` на macOS. Откат руками не
-делает commit молчащим: выключите «Update automatically», пока в `main` не появится более новый commit, иначе та же сборка
-вернётся.
+`node ~/"Library/Application Support/worfy/update/repo/scripts/install-stable.mjs" --rollback` на macOS. Если новая
+копия упала раньше, чем прочитала, чем кончился её перезапуск, первый старт после отката руками видит, что запущен не тот
+commit, который поставил перезапуск. Он показывает «worfy was not updated to <version>: <old version> runs instead: the
+new copy did not start, or was rolled back by hand», и commit, с которого откатились, молчит, как после «Roll back».
+Новая копия, упавшая позже, это уже прочитала: тогда commit не молчит, и «Update automatically» собирает его снова;
+выключите эту настройку, пока в `main` не появится более новый commit.
 
 **What's new.** «What's new» в меню chip-а открывает popover под chip-ом: «What's new in worfy <version>», строку «<PR
 title> #<number>» на каждый PR, влитый между запущенной копией и новой версией, новые сверху, и первый пункт меню chip-а
