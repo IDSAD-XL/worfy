@@ -155,9 +155,9 @@ describe('ci.yml: every pull request and every push to main, one check for the m
       expect(value(job(name), 'needs'), name).toBe('changes')
       expect(value(job(name), 'if'), name).toBe(`fromJSON(needs.changes.outputs.expect)['${name}']`)
     }
-    expect(value(job('changes'), 'runs-on')).toBe('ubuntu-latest')
-    expect(value(job('lint-typecheck'), 'runs-on')).toBe('ubuntu-latest')
-    expect(value(job('linux-tests'), 'runs-on')).toBe('ubuntu-latest')
+    expect(value(job('changes'), 'runs-on')).toBe('ubuntu-26.04')
+    expect(value(job('lint-typecheck'), 'runs-on')).toBe('ubuntu-26.04')
+    expect(value(job('linux-tests'), 'runs-on')).toBe('ubuntu-26.04')
     for (const name of ['macos-tests', 'macos-e2e', 'macos-package']) expect(value(job(name), 'runs-on'), name).toBe('macos-latest')
     expect(value(job('windows-e2e'), 'runs-on')).toBe('windows-latest')
   })
@@ -759,13 +759,13 @@ describe('scripts/ci-scope.mjs', () => {
     '  pull_request:',
     'jobs:',
     '  changes:',
-    '    runs-on: ubuntu-latest',
+    '    runs-on: ubuntu-26.04',
     '    steps:',
     '      - run: node scripts/ci-scope.mjs',
     '  lint-typecheck:',
-    '    runs-on: ubuntu-latest',
+    '    runs-on: ubuntu-26.04',
     '  linux-tests:',
-    '    runs-on: ubuntu-latest',
+    '    runs-on: ubuntu-26.04',
     '  macos-tests:',
     '    runs-on: macos-latest',
     '  macos-e2e:',
@@ -782,7 +782,7 @@ describe('scripts/ci-scope.mjs', () => {
     '  windows-e2e:',
     '    runs-on: windows-latest',
     '  ci-ok:',
-    '    runs-on: ubuntu-latest',
+    '    runs-on: ubuntu-26.04',
     '',
   ].join('\n')
   const CI_PATH = '.github/workflows/ci.yml'
@@ -897,7 +897,7 @@ describe('scripts/ci-scope.mjs', () => {
   // decides what they run, the jobs macos-e2e, macos-package and windows-e2e, and what comes before
   // `jobs:` (the triggers, the env of every job). Comments and blank lines are not code.
   it.each([
-    ['the job changes', ciWith('    runs-on: ubuntu-latest\n    steps:\n      - run: node scripts/ci-scope.mjs', '      - run: echo more')],
+    ['the job changes', ciWith('    runs-on: ubuntu-26.04\n    steps:\n      - run: node scripts/ci-scope.mjs', '      - run: echo more')],
     ['the job macos-e2e', ciWith('  macos-e2e:', '    timeout-minutes: 40')],
     ['the job macos-package', ciWith('  macos-package:', '    timeout-minutes: 40')],
     ['the job windows-e2e', ciWith('  windows-e2e:', '    timeout-minutes: 40')],
@@ -910,7 +910,7 @@ describe('scripts/ci-scope.mjs', () => {
     ['a # line of a block scalar of macos-e2e', CI_YML.replace('          # a line of the script', '          # another line of the script')],
     ['a blank line in a block scalar of macos-e2e', ciWith('          echo one', '')],
     // An anchor or an alias ties parts together: a change of one may change another.
-    ['an anchor or an alias', CI_YML.replace('  lint-typecheck:\n    runs-on: ubuntu-latest', '  lint-typecheck:\n    runs-on: &linux ubuntu-latest')],
+    ['an anchor or an alias', CI_YML.replace('  lint-typecheck:\n    runs-on: ubuntu-26.04', '  lint-typecheck:\n    runs-on: &linux ubuntu-26.04')],
   ])('a pull request that changes %s of ci.yml runs every job, macos-package and every e2e spec file too', (_name, text) => {
     commitTexts({ [CI_PATH]: text })
     const result = scope({ EVENT: 'pull_request', BASE: base })
@@ -1003,12 +1003,12 @@ describe('scripts/ci-scope.mjs', () => {
   })
 
   it('a pull request that changes only the anchor an alias of macos-e2e reads runs every job', () => {
-    const anchored = CI_YML.replace('  lint-typecheck:\n    runs-on: ubuntu-latest', '  lint-typecheck:\n    runs-on: &os ubuntu-latest').replace(
+    const anchored = CI_YML.replace('  lint-typecheck:\n    runs-on: ubuntu-26.04', '  lint-typecheck:\n    runs-on: &os ubuntu-26.04').replace(
       '  macos-e2e:\n    runs-on: macos-latest',
       '  macos-e2e:\n    runs-on: *os',
     )
     const first = commitTexts({ [CI_PATH]: anchored })
-    commitTexts({ [CI_PATH]: anchored.replace('&os ubuntu-latest', '&os ubuntu-24.04') }, first)
+    commitTexts({ [CI_PATH]: anchored.replace('&os ubuntu-26.04', '&os ubuntu-24.04') }, first)
     const result = scope({ EVENT: 'pull_request', BASE: first })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(ALL)

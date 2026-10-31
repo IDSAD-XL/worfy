@@ -170,6 +170,10 @@ _Avoid_: job; «task» и «задача» без «background»
 Связь Session или Subagent с Ticket либо Epic, над которым он работает. Определяется по сигналам из работы агента или задаётся пользователем вручную.
 _Avoid_: привязка, assignment, линк
 
+**Eco mode**:
+Настройка Project-а: на Ticket работает меньше агентов, а роли Subagent-ов (implementer, reviewer, scout, verifier) идут на модели подешевле. Действует с раздачи следующего Ticket-а, идущие Ticket-ы не меняются. Противоположность — full; дневной бюджет Autopilot — отдельная настройка Machine, Eco mode его не меняет.
+_Avoid_: эко-режим, режим экономии, lite, cheap mode
+
 ## App
 
 **Settings**:
