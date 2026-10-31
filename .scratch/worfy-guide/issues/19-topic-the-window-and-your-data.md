@@ -96,7 +96,7 @@ Shortcuts (кроме ⌘K и Settings… ⌘,), Theme (одна фраза), ha
 | Лимит: не больше 3 toast-ов; info и success скрываются через 4 секунды | `n.md:48`, `:52`, `src/renderer/toast/toasts.ts:8`, `:21`, `:24` |
 | Лимит: записи старше 3 дней удаляются из корзины каждого Project-а при запуске | `s.md:40-41`, `src/shared/ipc/trash.ts:13`, `src/main/ipc/trash.ts:38-45` |
 
-**Снимки** (Playwright против сборки ветки, окно 1280×800, у каждого есть пара `-dark`):
+**Снимки** (Playwright против сборки commit-а 240e080f без незакоммиченных правок, окно 1280×800, у каждого есть пара `-dark`):
 [EN](../evidence/19-the-window-and-your-data-en-light.png) / [dark](../evidence/19-the-window-and-your-data-en-dark.png),
 [RU](../evidence/19-the-window-and-your-data-ru-light.png) / [dark](../evidence/19-the-window-and-your-data-ru-dark.png),
 [подсветка Data folder](../evidence/19-the-window-and-your-data-lit-en-light.png), [шаг 2](../evidence/19-the-window-and-your-data-step-en-light.png),
@@ -104,8 +104,9 @@ Shortcuts (кроме ⌘K и Settings… ⌘,), Theme (одна фраза), ha
 [Under the hood EN](../evidence/19-the-window-and-your-data-under-the-hood-en-light.png) / [RU dark](../evidence/19-the-window-and-your-data-under-the-hood-ru-dark.png),
 [таблица файлов и лимиты EN](../evidence/19-the-window-and-your-data-under-the-hood-files-en-light.png) / [RU](../evidence/19-the-window-and-your-data-under-the-hood-files-ru-light.png),
 [подсветка Notifier на потоке данных](../evidence/19-the-window-and-your-data-flow-lit-en-light.png).
-Контраст текста: каждый видимый текст Topic-а (HTML, подписи блоков, областей и связей обеих схем, 130 текстов) против
+Контраст текста: каждый видимый текст Topic-а (HTML, подписи блоков, областей и связей обеих схем, 129 текстов) против
 своего фона, обе темы, EN и RU — минимум 5,60:1 в светлой и 5,93:1 в тёмной, ниже 4,5:1 нет ни одного.
+Перекрытия: одноразовый Playwright-check (вне репозитория, удалён) навёл указатель на каждый блок Scene и Flow и нажал каждый шаг, EN и RU — 54 состояния. Ни одна подсвеченная подпись связи не перекрывает другую подпись, блок, подпись вкладки или наконечник стрелки. Первый прогон нашёл перекрытия в трёх узких промежутках (связи из левой колонки, palette → Settings, Canvas → Toast); раскладка раздвинута, у palette → Settings подпись снята.
 Объём: простой уровень 53 слова EN / 44 RU, Under the hood (текст, таблица файлов, лимиты) 153 EN / 126 RU.
 
 **Tokens.** Автор: около 230 тыс. токенов контекста (точного счётчика у агента нет; оценка по объёму прочитанного и написанного: три страницы-источника, пилот 08 как образец, сверка кода, снимки). Проверка — ещё не было.
