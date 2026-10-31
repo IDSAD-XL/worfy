@@ -21,7 +21,7 @@
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 12 — приёмка владельцем, 15 — #1176. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): 11–21 в работе.
-- `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md)): на приёмке у владельца; Ticket-ы 10–25 — потом.
+- `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md)): принят 2026-11-01; 0/16, Wave 1 — 10, 12, 21.
 
 ## Ждёт владельца
 

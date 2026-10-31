@@ -2,7 +2,7 @@
 
 Type: research
 Status: done 2026-10-31T22:15Z
-Blocked by:
+Blocked by: —
 Source: [map.md](../map.md), пожелание владельца в ответе 01
 
 ## Question
