@@ -5,19 +5,27 @@
 // block leads to one of the Topics of the epic's spec, or to that Topic's page while it is not
 // written; every Topic of the registry has a block. In the DOM, a click on a block of a Topic that is
 // not written opens its Full page on GitHub, and a click on one whose Topic is shown opens the Topic.
+// The Full-page check hides the Topics it clicks from the registry (the mock below), so it keeps
+// working once every block's Topic is written (worfy-guide 11–19).
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, fireEvent, render } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { GUIDE_STRINGS, TOPIC_FILES } from '../../src/renderer/guide/content'
 import { GUIDE_REPO_URL } from '../../src/renderer/guide/links'
 import { GUIDE_TOPICS, shownTopics } from '../../src/renderer/guide/registry'
-import { LivingScene } from '../../src/renderer/guide/scene/LivingScene'
-import { CHIP_HEIGHT, boxOf, edgeId, edgeShape, noteLines, NODE_WIDTH, type Box, type SceneBlock } from '../../src/renderer/guide/scene/model'
+import { CHIP_HEIGHT, boxOf, edgeId, edgeShape, noteLines, NODE_WIDTH, type Box } from '../../src/renderer/guide/scene/model'
 import { useGuide } from '../../src/renderer/guide/store'
 import Scene from '../../src/renderer/guide/topics/map-of-worfy/Scene'
 import { MAP_SPEC } from '../../src/renderer/guide/topics/map-of-worfy/spec'
+
+/** Topics a test pretends are not written yet: the registry stays real, shownTopics leaves these out. */
+const registry = vi.hoisted(() => ({ hidden: new Set<string>() }))
+vi.mock('../../src/renderer/guide/registry', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/renderer/guide/registry')>()
+  return { ...actual, shownTopics: (packaged: boolean | null) => actual.shownTopics(packaged).filter((topic) => !registry.hidden.has(topic.id)) }
+})
 
 const REPO = join(import.meta.dirname, '..', '..')
 const ID = 'map-of-worfy'
@@ -253,14 +261,16 @@ describe('a click on a block of the Map', () => {
     delete globals.worfy
     delete svgPrototype.getTotalLength
     delete svgPrototype.getPointAtLength
+    registry.hidden.clear()
     useGuide.setState({ open: false, topic: null, build: { version: null, packaged: null } })
   })
 
   const blockOf = (id: string) => document.querySelector<SVGGElement>(`[data-block="${id}"]`)!
 
   it('opens the Full page on GitHub, at the build commit, while its Topic is not written', async () => {
+    // Whether worfy-guide 12 and 18 have registered these Topics or not, the Guide does not show them here.
+    registry.hidden.add('harness').add('gate-and-github')
     render(<Scene labels={en.scene.labels} strings={GUIDE_STRINGS.en} />)
-    // Blocks whose Topics no ticket of the pilot writes (worfy-guide 06-08 write autopilot, canvas, sessions).
     const harness = blockOf('harness')
     expect(harness.getAttribute('role')).toBe('link')
     expect(harness.dataset.target).toBe('page')
@@ -274,16 +284,26 @@ describe('a click on a block of the Map', () => {
   })
 
   it('opens the Topic instead once the Guide shows it, and nothing on GitHub', async () => {
-    // The Topics the Map names are not written yet; the Map itself is a Topic the Guide shows.
-    const spec = { ...MAP_SPEC, blocks: MAP_SPEC.blocks.map((block): SceneBlock => (block.id === 'machine' ? { ...block, topic: ID } : block)) }
-    render(<LivingScene spec={spec} labels={en.scene.labels} strings={GUIDE_STRINGS.en} />)
-    useGuide.setState({ topic: null })
-    expect(blockOf('machine').dataset.target).toBe('topic')
-    expect(blockOf('machine').dataset.to).toBe(ID)
-    expect(blockOf('machine').querySelector('title')).toBeNull()
-    fireEvent.click(blockOf('machine'))
+    // The Autopilot block has a Full page too (docs/features/autopilot.md); its Topic is written (worfy-guide 06).
+    expect(shownTopics(true).map((topic) => topic.id)).toContain('autopilot')
+    render(<Scene labels={en.scene.labels} strings={GUIDE_STRINGS.en} />)
+    const autopilot = blockOf('autopilot')
+    expect(autopilot.dataset.target).toBe('topic')
+    expect(autopilot.dataset.to).toBe('autopilot')
+    expect(autopilot.querySelector('title')).toBeNull()
+    fireEvent.click(autopilot)
     await act(() => Promise.resolve())
-    expect(useGuide.getState().topic).toBe(ID)
+    expect(useGuide.getState().topic).toBe('autopilot')
     expect(opened).toEqual([])
+  })
+
+  it('leads each block to its Topic when the Guide shows it, else to its Full page', () => {
+    const shown = new Set(shownTopics(true).map((topic) => topic.id))
+    render(<Scene labels={en.scene.labels} strings={GUIDE_STRINGS.en} />)
+    for (const block of MAP_SPEC.blocks) {
+      const written = shown.has(block.topic!)
+      expect(blockOf(block.id).dataset.target, block.id).toBe(written ? 'topic' : 'page')
+      expect(blockOf(block.id).dataset.to, block.id).toBe(written ? block.topic : block.page)
+    }
   })
 })
