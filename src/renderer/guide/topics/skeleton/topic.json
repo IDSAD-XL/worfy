@@ -1,4 +1,4 @@
 {
-  "sources": [{ "page": "docs/features/app-shell.md", "sha": "cb077695" }],
+  "sources": [{ "page": "docs/features/app-shell.md", "sha": "ca34275a" }],
   "files": ["src/renderer/guide/GuideWindow.tsx", "src/renderer/guide/registry.ts", "src/main/menu.ts", "scripts/guide-lag.mjs"]
 }
