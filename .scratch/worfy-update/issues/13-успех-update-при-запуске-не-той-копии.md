@@ -1,7 +1,7 @@
 # 13 — Успех Update не показывается, когда запущена не та копия
 
 Type: bug
-Status: open
+Status: claimed 2026-10-31T12:07Z
 Branch: worfy-update/13
 Blocked by: 04, 07
 Source: находка implementer-а Ticket-а 11 (out of scope), подтверждена чтением кода 2026-10-31; [spec.md](../spec.md), R8 (commit, с которого откатились, «тихий» до следующего)
