@@ -1,7 +1,8 @@
 # 01 — Страницы Sessions и Skills называют оба поля Eco mode и линзу documentation
 
 Type: task
-Status: open
+Status: done 2026-10-31T00:24Z
+PR: #1093
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Находки», находки documentation-1, documentation-2
 
