@@ -83,6 +83,19 @@ lists are both compared, because they differ after a failed `plugin update`.
 With the folder removed by hand, the dialog says that it installs an older Harness. A copy that an interrupted install
 set aside counts as installed for this comparison.
 
+**After an Update or a roll back of the Stable copy there is no second dialog.** The press of "Restart now" or "Roll
+back" was the consent to that copy's Harness. At the first start of the new copy, worfy installs its Harness when the
+installed one is outdated or missing, through the same installer and commands as above. It does so once: the record of
+the restart is removed first, so a failed install is not tried again until the user presses the button. A failure is
+the usual error state with Retry, and the Update state marks it for a notice. When the copy that starts is not the one
+the restart named, because the swap did not happen, nothing is installed. Claude Code takes the new Harness from the
+next Session on.
+
+**Harness out of date.** While Update is on, worfy also checks whether the installed Harness is behind this copy's. A
+lower semver is behind at once. For the same semver from another commit, worfy asks GitHub without sign-in whether this
+copy's commit comes after the installed one's. No answer from GitHub means no signal. The check runs after the install
+of the start, then once an hour.
+
 **Moving an old Harness.** Before the plugin, the Harness lived directly in `~/.claude`. While anything of it is left
 there, the First run row offers "Move…", and in a run that may install the toolbar also shows the icon "Move old
 Harness…". The form "Move the old Harness out of ~/.claude" has a row for each thing:

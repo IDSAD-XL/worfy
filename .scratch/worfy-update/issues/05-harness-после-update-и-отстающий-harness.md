@@ -34,15 +34,15 @@ Source: решения владельца 2026-10-31, пункты 4 (Harness н
 
 ## Готово, когда
 
-- [ ] Contract test (песочница `WORFY_CLAUDE_HOME`, подменный `claude` установщика, как в
+- [x] Contract test (песочница `WORFY_CLAUDE_HOME`, подменный `claude` установщика, как в
       `test/contract/harness-install.test.ts`): `restart.json` с версией копии и Harness `outdated` —
       install без вызова диалога; `restart.json` удалён.
-- [ ] Contract test: `restart.json` с другой версией — install не зовётся.
-- [ ] Contract test: install падает — `harnessAfterUpdate: 'failed'`, второй попытки нет после перезапуска.
-- [ ] Contract test: `action: 'rollback'` — ставится Harness откатанной копии.
-- [ ] Unit test `harness-lag`: `sameVersion` и `ahead` из заглушки — `harnessBehind`; `behind` —
+- [x] Contract test: `restart.json` с другой версией — install не зовётся.
+- [x] Contract test: install падает — `harnessAfterUpdate: 'failed'`, второй попытки нет после перезапуска.
+- [x] Contract test: `action: 'rollback'` — ставится Harness откатанной копии.
+- [x] Unit test `harness-lag`: `sameVersion` и `ahead` из заглушки — `harnessBehind`; `behind` —
       `null`; заглушка не отвечает — `null`; `newer` — без запроса к заглушке.
-- [ ] Без `restart.json` поведение установщика прежнее: существующие test-ы `harness-install` зелёные.
+- [x] Без `restart.json` поведение установщика прежнее: существующие test-ы `harness-install` зелёные.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты
@@ -64,4 +64,10 @@ Source: решения владельца 2026-10-31, пункты 4 (Harness н
 
 ## Итог
 
-Заполняется при закрытии.
+- `src/main/update/harness-after-update.ts`: при старте копии `restart.json` читается и удаляется **до** install — один раз; вторая попытка без нажатия невозможна, даже если worfy упал во время install. Install без диалога (`confirm` → `true`) идёт через `appInstaller()` — тот же единственный установщик, что у toolbar и first-run screen, поэтому два install не идут одновременно. Ошибка install (состояние `error` или отказ `install()`) → `harnessAfterUpdate: 'failed'`; успешный install сбрасывает это поле в `null`.
+- Копия из `restart.json` узнаётся по `version` **или по commit** из build version (`<semver>+<SHA>`). Решено без владельца: только по `version` откат почти всегда промахивается — после первого Update `restart.json` удалён, и `previousCopy` называет прошлую копию коротким SHA (`aaaaaaa`), а не `0.3.0+aaaaaaa`.
+- `src/main/update/harness-lag.ts`: `harnessBehind` — для `outdated` с `sameVersion` через `compare/<SHA установленного>...<SHA копии>` (`ahead` → сигнал), для `newer` без запроса; ошибка GitHub → `null`. Один commit с `.dirty` с одной стороны — без запроса, `null`.
+- Решено без владельца: проверка отставания идёт на своём таймере с периодом проверки Update (`CHECK_EVERY_MS`, раз в час), первый раз — когда закончился install этого старта; `src/main/ipc/update.ts` (вне следа тикета) не менялся. «Check now» её не запускает.
+- `src/main/index.ts`: оба шага — сразу после `startUpdateChecks()` (тот уже прочитал результат прошлого restart через `settleLastRestart`), не ждут первого окна и не ломают старт; только при включённом Update.
+- `docs/features/harness.md`: два абзаца — install после Update без диалога и проверка «Harness out of date».
+- Test-ы: contract `test/contract/update-harness.test.ts` (13, песочница `WORFY_CLAUDE_HOME`, подменный `claude`), unit `test/unit/update-harness-lag.test.ts` (11, ответы `test/update-stub.ts`, fake timers). 19 mutant-ов обоих модулей — все красные.
