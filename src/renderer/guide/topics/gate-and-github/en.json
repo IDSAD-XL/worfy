@@ -1,7 +1,7 @@
 {
   "title": "Gate and GitHub",
   "summary": [
-    "The Gate is the Harness's check of whether the changes in a worktree are ready: it runs the Project's checks on what changed and gives one verdict. worfy never runs it. worfy reads the verdict, and the PR, its CI and review on GitHub, and shows them as chips on Tickets and Sessions."
+    "The Gate is the Harness's check of whether the changes in a worktree are ready: it runs the Project's checks on what changed and gives one verdict. worfy never runs it. It shows the verdict as a chip on Tickets and Sessions, and the PR, its CI and review on GitHub as chips on Tickets."
   ],
   "scene": {
     "description": "The Gate and GitHub in worfy. On this Machine, outside the Canvas, stand the Gate and the worktree it checks. On the Canvas lie a Ticket and a Session, the Nodes that show the chips. On GitHub is the PR, with its CI checks and the review mark. A Session runs the Gate, which checks what changed in the worktree; worfy shows the Gate's verdict as a chip on the Ticket and the Session. The Session opens a PR on GitHub; worfy shows the PR, its CI and the review verdict as chips on the Ticket.",
@@ -28,13 +28,13 @@
       "step1": "An agent or a hook of the Harness runs the Gate in a worktree. The Gate runs the Project's checks on what changed there.",
       "step2": "The verdict is green, red, not verified, or nothing ran. worfy reads it and shows it as a chip on the Ticket and the Session. Nothing ran is never green.",
       "step3": "While the worktree's last run is red, a hook of the Harness holds the end of the agent's turn and tells it to run the Gate and fix what it points to, at most twice.",
-      "step4": "The agent pushes its branch and opens a PR. worfy reads the PR, its CI checks and the review mark with gh and shows them as chips. It changes nothing on GitHub.",
-      "step5": "What a merge needs, the Profile says: Gate full, the complete check, on the branch; or, as in worfy's own repository, the final CI check and the review mark on the PR."
+      "step4": "The agent pushes its branch and opens a PR. worfy reads the PR, its CI checks and the review mark with gh and shows them as chips on the Ticket. It changes nothing on GitHub.",
+      "step5": "What a merge needs, the Profile says: Gate full, the complete check, before the merge; or, as in worfy's own repository, the final CI check and the review mark on the PR."
     }
   },
   "underTheHood": {
     "flow": {
-      "description": "The data flow of the badges. The Gate writes the outcome of each run into its state folder: markers and a verdict file. GitHub holds the PRs, their checks and the review mark. In the main process, GateReader reads the Gate's state for each worktree, and PrTracker lists the PRs with gh pr list. The checks.get handler joins both into one snapshot for useChecks in the renderer, which ChecksBadges draws as chips.",
+      "description": "The data flow of the badges. The Gate writes the outcome of a run into its state folder: markers and a verdict file. GitHub holds the PRs, their checks and the review mark. In the main process, GateReader reads the Gate's state for each worktree, and PrTracker lists the PRs with gh pr list. The checks.get handler joins both into one snapshot for useChecks in the renderer, which ChecksBadges draws as chips.",
       "labels": {
         "renderer": "RENDERER",
         "main": "MAIN PROCESS",
@@ -48,7 +48,7 @@
         "handler": "checks.get",
         "handlerNote": "readChecks, git worktree list",
         "prTracker": "PrTracker",
-        "prTrackerNote": "gh at most once per 60 s",
+        "prTrackerNote": "PR list at most once per 60 s",
         "gate": "Gate",
         "gateNote": "gate.mjs: scope, cache, scripts",
         "state": "Gate state",
@@ -67,7 +67,7 @@
     },
     "text": [
       "A marker of the worktree goes before the verdict file, because a run that checked nothing never clears red. A verdict about another commit than HEAD is set aside.",
-      "The renderer may ask often: one tracker in main decides when gh runs, for the badges, Autopilot and the Stage alike. gh runs as the Profile's GitHub account, and the token is never kept."
+      "The renderer may ask often: one tracker in main decides when gh runs, for the badges, Autopilot and the Stage alike. gh runs as the Profile's github.account when the Profile names one, else as the login shell's account; the token is never kept."
     ],
     "files": {
       "harness/hooks/gate.mjs": "The Gate: scope, cache, scripts, the verdict",
@@ -81,7 +81,7 @@
     "limits": [
       "Normally the Gate checks only what differs from origin/main. GATE_SCOPE=all, or a branch over 50 commits ahead or 300 behind, makes it check everything.",
       "A hook gives the Gate 900 seconds. A red turn is held at most twice per session and worktree.",
-      "gh pr list runs at most once per 60 s per folder, up to 32 minutes after failures, and reads the 100 latest PRs."
+      "The list of PRs is read at most once per 60 s per folder, up to 32 minutes after failures, and holds the 100 latest PRs. A Ticket branch missing from it is looked up on its own, each at most once per 5 minutes."
     ]
   }
 }
