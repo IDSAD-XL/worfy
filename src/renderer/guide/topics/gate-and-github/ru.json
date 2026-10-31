@@ -20,7 +20,7 @@
       "worktreeNote": "ветка, выложенная в папку",
       "github": "GitHub",
       "githubNote": "PR, CI, review mark",
-      "runsIt": "запускает, или это делает hook",
+      "runsIt": "запускает",
       "gateChip": "chip gate",
       "checksChanges": "проверяет изменения",
       "opensPr": "push, открывает PR",

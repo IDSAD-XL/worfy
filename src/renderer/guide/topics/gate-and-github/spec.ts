@@ -17,23 +17,23 @@ import type { SceneSpec } from '../../scene/model'
 const page = (name: string): string => `docs/features/${name}.md`
 
 export const GATE_SCENE: SceneSpec = {
-  width: 756,
+  width: 796,
   height: 494,
   regions: [
     { label: 'thisMachine', x: 16, y: 24 },
-    { label: 'githubRegion', x: 580, y: 188 },
+    { label: 'githubRegion', x: 620, y: 188 },
   ],
-  frames: [{ block: 'canvas', kind: 'canvas', x: 260, y: 56, width: 240, height: 330 }],
+  frames: [{ block: 'canvas', kind: 'canvas', x: 300, y: 56, width: 240, height: 330 }],
   blocks: [
     // This Machine, outside the Canvas: the Gate and, under it, the worktree it checks.
     { id: 'gate', x: 16, y: 290, group: 'harness' },
     { id: 'worktree', x: 16, y: 420, group: 'project' },
     // On the Canvas: the Nodes that show the chips.
-    { id: 'canvas', x: 276, y: 40, group: 'project', topic: 'canvas', page: page('canvas'), shape: 'tab', width: 92 },
-    { id: 'ticket', x: 300, y: 110, group: 'workflow', topic: 'workflow', page: page('workflow') },
-    { id: 'session', x: 300, y: 290, group: 'agents', topic: 'sessions', page: page('sessions') },
+    { id: 'canvas', x: 316, y: 40, group: 'project', topic: 'canvas', page: page('canvas'), shape: 'tab', width: 92 },
+    { id: 'ticket', x: 340, y: 110, group: 'workflow', topic: 'workflow', page: page('workflow') },
+    { id: 'session', x: 340, y: 290, group: 'agents', topic: 'sessions', page: page('sessions') },
     // GitHub.
-    { id: 'github', x: 580, y: 200, group: 'project' },
+    { id: 'github', x: 620, y: 200, group: 'project' },
   ],
   edges: [
     // There and back between the Session and the Gate: two level lines, apart.

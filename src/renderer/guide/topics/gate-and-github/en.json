@@ -20,7 +20,7 @@
       "worktreeNote": "a branch checked out",
       "github": "GitHub",
       "githubNote": "the PR, CI, the review mark",
-      "runsIt": "runs it, or a hook does",
+      "runsIt": "runs it",
       "gateChip": "gate chip",
       "checksChanges": "checks what changed",
       "opensPr": "pushes, opens a PR",

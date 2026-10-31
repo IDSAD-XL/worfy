@@ -34,7 +34,7 @@ Topic сжимает `docs/features/gate-and-github.md` до одного экр
 ## Итог
 
 Topic `gate-and-github` (`src/renderer/guide/topics/gate-and-github/`): `spec.ts` с двумя схемами, `Scene.tsx` (простой
-уровень, `viewBox` 756×494, 6 блоков, 6 связей, 5 шагов проигрывателя), `Flow.tsx` (поток данных badges в Under the hood,
+уровень, `viewBox` 796×494, 6 блоков, 6 связей, 5 шагов проигрывателя), `Flow.tsx` (поток данных badges в Under the hood,
 976×476, 8 блоков, 8 связей), `en.json`, `ru.json`, `topic.json` и одна строка `registry.ts`. `topic.json` сверен с
 `docs/features/gate-and-github.md` на 1c9d99c7 (последний commit страницы). Блок Gate на Map of worfy теперь открывает этот
 Topic. Блоки Canvas, Ticket и Session ведут в Topic-и `canvas`, `workflow`, `sessions`, пока Topic-а нет — на его страницу.
@@ -60,7 +60,7 @@ Session → GitHub «pushes, opens a PR» взята из skill-а, а не со
 | PR, его CI и review на GitHub worfy читает и показывает chip-ами на Ticket-ах и Session-ах; Ticket «gate, PR, CI, verdict chips»; Session «its worktree's gate chip»; Canvas «the chips are on its Nodes» | `g.md:268`, `:271-281`, `src/renderer/canvas/badges/ChecksBadges.tsx:40-50`, `:61-68` |
 | Worktree «a branch checked out»; Session берёт свой worktree | `g.md:300-303`, `src/shared/ipc/checks.ts:239` |
 | GitHub «the PR, CI, the review mark» | `g.md:277-279`, `:313-318`, `src/main/github/prs.ts:22`, `:204` |
-| Связь Session → Gate «runs it, or a hook does»; шаг 1: агент или hook из Harness запускает Gate в worktree | `g.md:13`, `:15-16`, `harness/hooks/hooks.json:62-79` |
+| Связь Session → Gate «runs it»; шаг 1: агент или hook из Harness запускает Gate в worktree | `g.md:13`, `:15-16`, `harness/hooks/hooks.json:62-79` |
 | Шаг 2 и связи «gate chip»: вердикт green, red, not verified или nothing ran; worfy показывает chip на Ticket-е и Session; nothing ran никогда не green | `g.md:20-28`, `:105-107`, `:273-276`, `src/renderer/canvas/badges/ChecksBadges.tsx:41-48` |
 | Шаг 3: пока последний run red, hook удерживает конец хода и говорит запустить Gate и исправить, не больше двух раз | `g.md:83-85`, `harness/hooks/stop.mjs:6`, `:32`, `:223-229` |
 | Шаг 4 и связь «pushes, opens a PR»: агент открывает PR | `harness/skills/ship-ticket/step-8-pr-and-ci.md:14`, `harness/skills/ship-ticket/implementer-finish.md:6` |
