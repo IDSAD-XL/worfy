@@ -28,13 +28,9 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   `DESCENDANTS_TIMEOUT_MS = 3000` (`src/main/terminal/windows-pty.ts:12`, `:231`). ПК замеряет время helper-а и
   срабатывания timeout-а. В quarantine только на win32 до 2026-11-07: запись
   `test/quarantine/terminal-windows-close-no-console-host.json`. Предел не поднимать.
-- `test/contract/terminal-git-bash-close.test.ts:33` (закрытие Git Bash сохраняет его history): красный один раз в
-  gate full на ПК, main `fc9279cf` — `.bash_history` после закрытия нет; в одиночку зелёный, 5 s. НЕ в quarantine:
-  возможен баг продукта. `HANGUP_GRACE_MS` 1000 ms (`src/main/terminal/windows-pty.ts:28`) и собственный предел
-  kill.exe 500 ms `HANGUP_SIGNAL_BOUND_MS` (`:52`, применяется на `:125`): под нагрузкой hangup может не дойти до bash
-  или bash может выйти поздно, тогда его завершает `Stop-Process` (`:206`), и history Session-а теряется. ПК замеряет
-  время от сигнала до выхода, время helper-а и закрытия без `.bash_history`; если подтвердится — отдельный bug
-  Ticket в `worfy-windows`.
+- `test/contract/terminal-git-bash-close.test.ts:33` (закрытие Git Bash сохраняет его history): ушёл из этого
+  Ticket-а — баг продукта подтверждён замером ПК 2026-10-31 (26 из 120 закрытий под нагрузкой без `.bash_history`,
+  все 26 — когда kill.exe оборван пределом 500 ms), Ticket worfy-windows 116. Test остаётся без quarantine.
 - `test/contract/workflow-branches-gone.test.ts:70` («`git worktree remove` of the last worktree, then the repository
   itself…»): gate full на ПК, main `c01cd364`, 2026-10-31, 8 workers — `expected 328 to be less than 300`: время
   процессора worker-а за секунду после удаления (`process.cpuUsage`, строки 63–67; проверки на 87 и 104). Красный и
@@ -61,7 +57,6 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
 - `test/e2e/two-windows.spec.ts`, `test/e2e/linked-browser.spec.ts`, `test/e2e/subagent-tree.spec.ts`,
   `test/e2e/epic-frame.spec.ts`
 - `test/contract/terminal-windows.test.ts`, `test/quarantine/terminal-windows-close-no-console-host.json`
-- `test/contract/terminal-git-bash-close.test.ts`, `src/main/terminal/windows-pty.ts` (helper закрытия, hangup)
 - `test/contract/workflow-branches-gone.test.ts`, `test/quarantine/workflow-branches-gone-worktree-then-repository.json`
 - `test/e2e/chat-attachments.spec.ts`
 - код, на который укажет причина
