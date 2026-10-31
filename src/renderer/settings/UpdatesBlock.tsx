@@ -9,7 +9,7 @@
 import { useState } from 'react'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { autoUpdateOf } from '../../shared/settings/app-settings'
-import { checkForUpdateNow, installUpdate, restartIntoUpdate, rollBackUpdate, updateStep, useUpdate } from '../update/store'
+import { checkForUpdateNow, installUpdate, restartIntoUpdate, rollBackUpdate, updateStep, updateVersionLabel, useUpdate } from '../update/store'
 import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
 
@@ -23,15 +23,17 @@ function checkedAt(at: string, now: Date = new Date()): string {
 /**
  * The line of the state, as the spec words it. The copy that runs is main's `running`, filled in by
  * the first check; before it, `version`, the build version the line "Version" shows. Neither known —
- * only the last check, or no line.
+ * only the last check, or no line. The versions are numbered where the snapshot knows their build
+ * number (ticket 14).
  */
 function statusLine(snapshot: UpdateSnapshot, version: string | undefined): string {
   const step = updateStep(snapshot)
-  if (step.kind === 'restart') return `worfy ${step.version} is ready.`
-  if (step.kind === 'install') return step.building ? `Building worfy ${step.version}…` : `worfy ${step.version} is available.`
+  const label = (each: string): string => updateVersionLabel(snapshot, each)
+  if (step.kind === 'restart') return `worfy ${label(step.version)} is ready.`
+  if (step.kind === 'install') return step.building ? `Building worfy ${label(step.version)}…` : `worfy ${label(step.version)} is available.`
   const running = snapshot.running?.version ?? version
   const checked = snapshot.lastCheck === null ? undefined : `Last checked ${checkedAt(snapshot.lastCheck.at)}.`
-  return [running === undefined ? undefined : `worfy ${running}.`, checked].filter((part) => part !== undefined).join(' ')
+  return [running === undefined ? undefined : `worfy ${label(running)}.`, checked].filter((part) => part !== undefined).join(' ')
 }
 
 /** The row "Updates": the state, its notes and the buttons. */
@@ -62,7 +64,7 @@ function UpdatesRow({ snapshot, version }: { snapshot: UpdateSnapshot; version: 
 
   const notes: { text: string; testId: string; alert?: boolean }[] = []
   if (snapshot.rolledBackFrom !== null && snapshot.running !== null) {
-    notes.push({ text: `worfy is back to ${snapshot.running.version}. Automatic updates wait for the next commit on main.`, testId: 'settings-updates-rolled-back' })
+    notes.push({ text: `worfy is back to ${updateVersionLabel(snapshot, snapshot.running.version)}. Automatic updates wait for the next commit on main.`, testId: 'settings-updates-rolled-back' })
   }
   if (step.kind === 'restart' && snapshot.restartWhenIdle) {
     notes.push({ text: 'worfy restarts when no Session is working and Autopilot has stopped', testId: 'settings-updates-waiting' })
@@ -161,7 +163,7 @@ function RollbackRow({ snapshot }: { snapshot: UpdateSnapshot }) {
       label="Roll back to previous version"
       description={
         <>
-          {previous === null ? 'No previous version is kept.' : `Return to worfy ${previous.version}. Automatic updates wait for the next commit on main.`}
+          {previous === null ? 'No previous version is kept.' : `Return to worfy ${updateVersionLabel(snapshot, previous.version)}. Automatic updates wait for the next commit on main.`}
           {problem === undefined ? null : (
             <span style={{ display: 'block' }} role="alert" data-testid="settings-updates-rollback-problem">
               {problem}

@@ -7,6 +7,8 @@ import { z } from 'zod'
 import { eventChannel, invokeChannel } from './channels'
 
 const sha = z.string().regex(/^[0-9a-f]{7,40}$/u)
+/** A build number (scripts/build-version.ts, buildNumber): the commits from the start of the history. */
+const buildNumberSchema = z.number().int().positive()
 
 /** The repository the Stable copy updates from: GitHub's API (src/main/update/github.ts) and its pages ("What's new"). */
 export const UPDATE_REPO = 'IDSAD-XL/worfy'
@@ -25,8 +27,10 @@ export type UpdateLastCheck = z.infer<typeof updateLastCheckSchema>
  * A newer head of `main` with a green `ci-ok` that changes the app or the Harness. `version` is
  * `<package.json version on that commit>+<7 characters of the SHA>`. `quiet`: it is the commit the
  * user rolled back from, so the signals of tickets 03, 06 and 07 stay silent until the next commit.
+ * `number`: its build number (ticket 14), the number of the copy that runs plus GitHub's `ahead_by`;
+ * absent when either is not known, and the texts then name `version`.
  */
-export const availableUpdateSchema = z.object({ sha, version: z.string().min(1), quiet: z.boolean() })
+export const availableUpdateSchema = z.object({ sha, version: z.string().min(1), quiet: z.boolean(), number: buildNumberSchema.optional() })
 export type AvailableUpdate = z.infer<typeof availableUpdateSchema>
 
 /** The build of an Update in worfy's own clone (ticket 03). */
@@ -40,8 +44,12 @@ export const updateBuildSchema = z.object({
   missing: z.array(z.string()).optional(),
 })
 
-/** The commit and the build version of the copy that runs. `commit` is a full or a short SHA. */
-export const updateRunningSchema = z.object({ commit: z.string(), version: z.string() })
+/**
+ * The commit and the build version of the copy that runs. `commit` is a full or a short SHA.
+ * `number`: its build number (ticket 14), absent for a build without one.
+ */
+export const updateRunningSchema = z.object({ commit: z.string(), version: z.string(), number: buildNumberSchema.optional() })
+export type UpdateRunning = z.infer<typeof updateRunningSchema>
 
 /**
  * The whole state of the epic; the later tickets fill in their fields. Every field has its empty
@@ -53,8 +61,8 @@ export const updateStateSchema = z.object({
   build: updateBuildSchema.default({ phase: 'idle' }),
   /** Nothing works: no Session in a turn, no Autopilot run (ticket 04, spec R6). */
   idle: z.boolean().default(false),
-  /** The copy kept as worfy-stable.previous (tickets 02, 04). */
-  previous: z.object({ version: z.string() }).nullable().default(null),
+  /** The copy kept as worfy-stable.previous (tickets 02, 04), with its build number when known (ticket 14). */
+  previous: z.object({ version: z.string(), number: buildNumberSchema.optional() }).nullable().default(null),
   /** The SHA the user rolled back from (ticket 04): its Update is quiet. */
   rolledBackFrom: z.string().nullable().default(null),
   /** The installed Harness is behind the one of this copy (ticket 05). */
@@ -76,9 +84,17 @@ export type UpdateState = z.output<typeof updateStateSchema>
 /**
  * What a window sees: the state, whether Update is on for this copy (only the packaged Stable copy,
  * or WORFY_UPDATE=1; spec R1), whether a check runs now and whether "Restart when idle" waits (ticket
- * 04; kept in memory only: a wish of this run, not of the next).
+ * 04; kept in memory only: a wish of this run, not of the next). `current`: the build version and
+ * the build number of this run (ticket 14), only when it has a number; unlike `running`, which the
+ * last check wrote, it is never a copy of an earlier run, so the texts of the first start after a
+ * restart name the new copy by its number.
  */
-export const updateSnapshotSchema = updateStateSchema.extend({ enabled: z.boolean(), checking: z.boolean(), restartWhenIdle: z.boolean().default(false) })
+export const updateSnapshotSchema = updateStateSchema.extend({
+  enabled: z.boolean(),
+  checking: z.boolean(),
+  restartWhenIdle: z.boolean().default(false),
+  current: z.object({ version: z.string().min(1), number: buildNumberSchema }).optional(),
+})
 export type UpdateSnapshot = z.output<typeof updateSnapshotSchema>
 
 /** The snapshot now; the window then follows `update.changed`. */

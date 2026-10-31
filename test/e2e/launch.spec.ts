@@ -1,6 +1,8 @@
 import { readFile, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import { buildNumber } from '../../scripts/build-version'
+import { numberedVersion } from '../../src/shared/version-number'
 import { launchApp, repoRoot } from './helpers'
 
 test('the app opens a window titled worfy that shows the text worfy', async () => {
@@ -34,7 +36,11 @@ test('the window shows the build version of the Harness copy, which main returns
   const launched = await launchApp()
   try {
     expect(manifest.version).not.toBe(await launched.app.evaluate(() => process.versions.electron))
-    await expect(launched.window.getByTestId('app-version')).toHaveText(`v${manifest.version}`)
+    // Numbered by the build number of this checkout (worfy-update ticket 14), which the build wrote
+    // into main; the build version as it is in a shallow clone (CI's fetch-depth), and in the tooltip.
+    const number = buildNumber(repoRoot)
+    await expect(launched.window.getByTestId('app-version')).toHaveText(`v${numberedVersion(manifest.version, number)}`)
+    if (number !== null) await expect(launched.window.getByTestId('app-version')).toHaveAttribute('title', new RegExp(`^worfy ${manifest.version.replaceAll('.', '\\.').replace('+', '\\+')}`))
   } finally {
     await launched.close()
   }

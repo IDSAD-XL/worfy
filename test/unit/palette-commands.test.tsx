@@ -724,6 +724,11 @@ describe('Update worfy', () => {
     return asked
   }
 
+  it('names the Available update by its build number in the detail where it is known (worfy-update ticket 14)', () => {
+    expect(row(context({ update: update({ available: { ...available, number: 1191 } }) }))?.detail).toBe('worfy 1.5.1191 available')
+    expect(row(context({ update: update({ available }) }))?.detail).toBe('worfy 1.5.0+bbbbbbb available')
+  })
+
   it('is an Action with Update on, with or without a Project, found by "update"; its detail follows the state', () => {
     for (const project of [context().project, undefined]) {
       expect(row(context({ project, update: update() }))).toMatchObject({ group: 'Action', title: 'Update worfy', detail: 'check for a new version' })

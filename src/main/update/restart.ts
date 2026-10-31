@@ -21,6 +21,7 @@ import { closeSync, existsSync, openSync, readFileSync, renameSync, statSync, wr
 import { join, posix, win32 } from 'node:path'
 import { z } from 'zod'
 import type { RestartAnswer, UpdateState } from '../../shared/ipc/update'
+import { numberedVersion } from '../../shared/version-number'
 import { toolStart } from '../first-run/checks'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { removeFile } from '../storage/remove'
@@ -38,13 +39,15 @@ const QUITTING: RestartAnswer = { outcome: 'refused', reason: 'worfy is quitting
  * copy it goes to (for a roll back, the previous one), `from` the copy that ran. `harness`: the
  * press was the consent to the Harness of that copy too (spec R5, R8; ticket 05). `harnessTaken`:
  * the start after the restart has used that consent (src/main/update/harness-after-update.ts); the
- * record stays, so the previous copy keeps the name it gives it (previousCopy).
+ * record stays, so the previous copy keeps the name it gives it (previousCopy). `from.number`: the
+ * build number of the copy that ran (worfy-update ticket 14), so the roll back can name it by number;
+ * a record of a build without one, or written before the ticket, has none.
  */
 export const restartRecordSchema = z.object({
   action: z.enum(['install', 'rollback']),
   version: z.string(),
   sha: z.string(),
-  from: z.object({ sha: z.string(), version: z.string() }),
+  from: z.object({ sha: z.string(), version: z.string(), number: z.number().int().positive().optional() }),
   harness: z.literal(true),
   harnessTaken: z.literal(true).optional(),
   at: z.iso.datetime(),
@@ -75,8 +78,11 @@ export function previousPaths(platform: NodeJS.Platform, target: string): { copy
   return { copy: stem, metadata: `${stem}.json` }
 }
 
-/** The previous copy, when there is a whole one with its file; its version as the restart that kept it named it, else its short SHA. */
-export function previousCopy(platform: NodeJS.Platform, target: string, record: RestartRecord | undefined): { version: string; commit: string } | null {
+/**
+ * The previous copy, when there is a whole one with its file; its version as the restart that kept it
+ * named it, else its short SHA, and its build number when that restart knew it (ticket 14).
+ */
+export function previousCopy(platform: NodeJS.Platform, target: string, record: RestartRecord | undefined): { version: string; commit: string; number?: number } | null {
   const paths = previousPaths(platform, target)
   try {
     if (!statSync(paths.copy).isDirectory()) return null
@@ -84,7 +90,8 @@ export function previousCopy(platform: NodeJS.Platform, target: string, record: 
     if (!parsed.success) return null
     const { commit } = parsed.data
     const named = record !== undefined && sameCommit(record.from.sha, commit)
-    return { version: named ? record.from.version : commit.slice(0, 7), commit }
+    if (!named) return { version: commit.slice(0, 7), commit }
+    return { version: record.from.version, commit, ...(record.from.number === undefined ? {} : { number: record.from.number }) }
   } catch {
     return null
   }
@@ -117,7 +124,7 @@ export function settleLastRestart({
   dir: string
   stateFile: string
   target: string
-  running?: { commit: string; version: string }
+  running?: { commit: string; version: string; number?: number | undefined }
   platform?: NodeJS.Platform
 }): void {
   const record = existsSync(restartFile(dir)) ? readJsonFile(restartFile(dir), restartRecordSchema) : undefined
@@ -141,14 +148,18 @@ export function settleLastRestart({
       lastRestart = { ok: parsed.ok, action: parsed.action, version, ...(parsed.ok || parsed.reason === undefined ? {} : { reason: parsed.reason }), ...(ours ? { at: record.at } : {}) }
       if (ours && parsed.ok && record.action === 'install' && running !== undefined && running.commit !== '' && !sameCommit(running.commit, record.sha)) {
         noEffect = true
-        const reason = `${running.version || running.commit.slice(0, 7)} runs instead: the new copy did not start, or was rolled back by hand`
+        // The copy that runs by its number where it has one (ticket 14), else its build version or short SHA.
+        const reason = `${running.version === '' ? running.commit.slice(0, 7) : numberedVersion(running.version, running.number)} runs instead: the new copy did not start, or was rolled back by hand`
         lastRestart = { ok: false, action: 'install', version: record.version, reason, at: record.at }
       }
     }
   }
   const previous = previousCopy(platform, target, record)
   changeUpdateState((state) => {
-    let next: UpdateState = { ...state, previous: previous === null ? null : { version: previous.version } }
+    let next: UpdateState = {
+      ...state,
+      previous: previous === null ? null : { version: previous.version, ...(previous.number === undefined ? {} : { number: previous.number }) },
+    }
     if (lastRestart === undefined) return next
     next = { ...next, lastRestart }
     if (record === undefined || (!noEffect && (!lastRestart.ok || record.action !== lastRestart.action))) return next
@@ -205,8 +216,11 @@ export interface RestartsOptions {
   pid: number
   /** The environment the system's node is found and run in (the login shell's); the tokens are dropped. */
   env: () => Promise<Env>
-  /** The copy that runs: the roll back names it as the one it leaves, and the start (settle) tells by it whether an install took effect. */
-  running: () => { commit: string; version: string }
+  /**
+   * The copy that runs: the roll back names it as the one it leaves, and the start (settle) tells by
+   * it whether an install took effect. `number`: its build number (ticket 14), kept in restart.json.
+   */
+  running: () => { commit: string; version: string; number?: number | undefined }
   idle: IdleSignal
   /** Quits worfy (app.quit). */
   quit: () => void
@@ -220,6 +234,8 @@ export interface RestartsOptions {
 /** What a restart that may go ahead does. */
 interface Plan {
   record: Omit<RestartRecord, 'at'>
+  /** The build number of the copy it goes to, when known (ticket 14): the dialog of a roll back names it. */
+  number?: number
   /** The built app; only for an install. */
   appPath?: string
 }
@@ -305,7 +321,7 @@ export class Restarts {
   private async rollbackAfter(confirm: (version: string) => Promise<boolean>): Promise<RestartAnswer> {
     const first = this.plan('rollback')
     if ('outcome' in first) return first
-    if (!(await confirm(first.record.version))) return { outcome: 'cancelled' }
+    if (!(await confirm(numberedVersion(first.record.version, first.number)))) return { outcome: 'cancelled' }
     const env = await this.options.env()
     return this.launch(env, 'rollback')
   }
@@ -394,7 +410,7 @@ export class Restarts {
     if (!existsSync(helperScript(dir))) return { outcome: 'refused', reason: `the clone of Update has no ${helperScript(dir)}` }
     const state = readUpdateState(this.options.stateFile())
     const running = this.options.running()
-    const from = { sha: running.commit, version: running.version }
+    const from = { sha: running.commit, version: running.version, ...(running.number === undefined ? {} : { number: running.number }) }
     if (action === 'install') {
       const { build } = state
       if (build.phase !== 'ready' || build.sha === undefined || build.version === undefined || build.appPath === undefined) return { outcome: 'refused', reason: 'no Update is built and ready' }
@@ -403,7 +419,7 @@ export class Restarts {
     }
     const previous = previousCopy(this.options.platform ?? process.platform, this.options.target(), existsSync(restartFile(dir)) ? readJsonFile(restartFile(dir), restartRecordSchema) : undefined)
     if (previous === null) return { outcome: 'refused', reason: 'no previous version is kept' }
-    return { record: { action, version: previous.version, sha: previous.commit, from, harness: true } }
+    return { record: { action, version: previous.version, sha: previous.commit, from, harness: true }, ...(previous.number === undefined ? {} : { number: previous.number }) }
   }
 
   /** Puts back the restart.json a restart that did not start replaced: removed when there was none. */

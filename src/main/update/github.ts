@@ -32,6 +32,8 @@ export interface Comparison {
   files: string[]
   /** The commits from base to head, at most 250; ticket 10 reads their messages. */
   commits: { sha: string; message: string }[]
+  /** GitHub's `ahead_by`: how many commits head has that base does not (ticket 14); absent when GitHub did not say. */
+  aheadBy?: number
 }
 
 export interface UpdateGitHub {
@@ -54,6 +56,8 @@ const compareSchema = z.object({
   status: z.enum(['ahead', 'behind', 'diverged', 'identical']),
   files: z.array(z.object({ filename: z.string() })).default([]),
   commits: z.array(z.object({ sha: z.string(), commit: z.object({ message: z.string() }) })).default([]),
+  // Only a number for the screen (ticket 14): an odd value drops the number, never the comparison.
+  ahead_by: z.number().int().nonnegative().optional().catch(undefined),
 })
 const contentsSchema = z.object({ content: z.string(), encoding: z.literal('base64') })
 const packageSchema = z.object({ version: z.string().min(1) })
@@ -139,6 +143,7 @@ export function updateGitHub(options: GitHubClientOptions = {}): UpdateGitHub {
               status: comparison.status,
               files: comparison.files.map((file) => file.filename),
               commits: comparison.commits.map((commit) => ({ sha: commit.sha, message: commit.commit.message })),
+              ...(comparison.ahead_by === undefined ? {} : { aheadBy: comparison.ahead_by }),
             },
       ),
     packageVersion: async (sha) => {

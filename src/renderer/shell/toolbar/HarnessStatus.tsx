@@ -100,6 +100,8 @@ export interface HarnessStatusViewProps {
   onMigrate?: (() => void) | undefined
   /** The app version, the second line; nothing until it arrives. */
   version?: string | undefined
+  /** The build number of the app (`app.version`, worfy-update ticket 14): the line shows `v<major>.<minor>.<N>`. */
+  versionNumber?: number | undefined
   /** worfy's own memory, after the version on the second line. */
   memory?: ReactNode
   /** Main's Update snapshot for the version chip; null or absent: the plain version line. */
@@ -109,20 +111,20 @@ export interface HarnessStatusViewProps {
 }
 
 /** The item for a given status: the Harness line, and the app version under it; exported for tests. */
-export function HarnessStatusView({ version, memory, update = null, ...props }: HarnessStatusViewProps) {
+export function HarnessStatusView({ version, versionNumber, memory, update = null, ...props }: HarnessStatusViewProps) {
   const harness = <HarnessLine {...props} />
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', flex: 'none' }} data-testid="harness-column">
       {harness}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }} data-testid="app-line">
-        {version ? <UpdateChip version={version} update={update} /> : null}
+        {version ? <UpdateChip version={version} number={versionNumber} update={update} /> : null}
         {memory}
       </div>
     </div>
   )
 }
 
-function HarnessLine({ status, busy, failure, onInstall, onMigrate, harnessBehind = null }: Omit<HarnessStatusViewProps, 'version' | 'update'>) {
+function HarnessLine({ status, busy, failure, onInstall, onMigrate, harnessBehind = null }: Omit<HarnessStatusViewProps, 'version' | 'versionNumber' | 'update'>) {
   if (failure !== undefined) {
     return (
       <span style={{ ...textStyle, color: 'var(--blocked-text)' }} title={failure} data-testid="harness-status">
@@ -202,14 +204,14 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
   const [failure, setFailure] = useState<string>()
   const [migration, setMigration] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
-  const [version, setVersion] = useState<string>()
+  const [version, setVersion] = useState<{ version: string; number?: number | undefined }>()
   const update = useUpdate()
 
   useEffect(() => {
     let active = true
     void invoke('app.version').then((result) => {
       if (!active) return
-      if (result.ok) setVersion(result.value.version)
+      if (result.ok) setVersion({ version: result.value.version, number: result.value.number })
       else console.error('app.version failed:', result.error)
     })
     return () => {
@@ -285,7 +287,8 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
         failure={failure}
         onInstall={onInstall}
         onMigrate={migration ? () => setFormOpen(true) : undefined}
-        version={version}
+        version={version?.version}
+        versionNumber={version?.number}
         memory={memory ? <AppMemory /> : undefined}
         update={update}
         harnessBehind={update?.enabled ? update.harnessBehind : null}

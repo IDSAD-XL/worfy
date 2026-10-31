@@ -305,6 +305,11 @@ setting stays as it was. Most sections word it "Not saved: …".
   size change the same setting.
 - **Memory in the toolbar** shows how much memory worfy's own processes use. Terminal sessions are not counted. Main samples
   the memory only while the setting is on.
+- **Version** is the build number, `<major>.<minor>.<N>`, as the toolbar shows it: N counts the commits from the start of
+  the history to the commit worfy was built from (`git rev-list --count HEAD`), so a newer build of `main` has a bigger
+  number, and one commit gives one number on every Machine. Next to it, in brackets, is the build version
+  `<semver>+<short SHA>`, which names the commit. A build with uncommitted changes ends in `.dirty`: it does not match its
+  commit. A build from a shallow clone or from a folder outside git has no number and shows the build version alone.
 - **Sessions.** A field takes thousands of tokens, and a typed value is brought into range and onto a step. A line under each
   role names where the window comes from: Custom, Claude Code default, Claude Code's settings file, or worfy default. The
   window applies after restarting the Session, and worfy restarts none by itself. When the login shell sets

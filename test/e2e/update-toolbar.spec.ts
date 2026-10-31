@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { buildVersionTooltip } from '../../src/shared/version-number'
 import { startUpdateStub, type UpdateStub } from '../update-stub'
 import { launchApp, type LaunchedApp } from './helpers'
 import { E2E_SHELL } from './launch-env'
@@ -154,6 +155,11 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   const toolbar = window.locator('.w-toolbar')
   const chip = toolbar.getByTestId('app-version')
   const update = `${VERSION}+${head.slice(0, 7)}`
+  // worfy-update ticket 14: while the line shows a build number, the tooltip's second line is this
+  // copy's build version with its commit; a build without one (CI's shallow clone) has none.
+  const app = (await bridgeCall(window, 'app.version')) as { ok: true; value: { version: string; number?: number } }
+  const built = buildVersionTooltip(app.value.version, app.value.number)
+  const withBuild = (text: string): string => (built === undefined ? text : `${text}\n${built}`)
 
   // No Update yet: the plain version line.
   await expect(chip).toBeVisible()
@@ -172,7 +178,7 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   // The dot, the tooltip, and the column and the version line as high as before.
   await expect(chip).toHaveAttribute('data-update', 'available')
   await expect(chip.locator('.w-update-dot')).toBeVisible()
-  await expect(chip).toHaveAttribute('title', `worfy ${update} is available`)
+  await expect(chip).toHaveAttribute('title', withBuild(`worfy ${update} is available`))
   expect(await heights()).toEqual(before)
   await snapshots(window, toolbar, 'update-available')
 
@@ -219,7 +225,7 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   await menu.getByRole('menuitem', { name: 'Update worfy' }).click()
   await expect(menu).toBeHidden()
   await expect(chip).toHaveAttribute('data-update', 'building')
-  await expect(chip).toHaveAttribute('title', `Building worfy ${update}…`)
+  await expect(chip).toHaveAttribute('title', withBuild(`Building worfy ${update}…`))
   await chip.click()
   const building = menu.getByRole('menuitem', { name: `Building worfy ${update}…` })
   await expect(building).toHaveAttribute('aria-disabled', 'true')
@@ -231,7 +237,7 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   // Built: nothing works in this app, so "Restart now".
   writeFileSync(release, '')
   await expect(chip).toHaveAttribute('data-update', 'ready')
-  await expect(chip).toHaveAttribute('title', `worfy ${update} is ready — restart to update`)
+  await expect(chip).toHaveAttribute('title', withBuild(`worfy ${update} is ready — restart to update`))
   await snapshots(window, toolbar, 'update-ready')
   await chip.click()
   await expect(menu.getByRole('menuitem')).toHaveText(['Restart now', "What's new", 'Later'])

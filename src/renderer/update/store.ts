@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import { failureReason } from '../../shared/ipc/channels'
 import type { RestartAnswer, UpdateSnapshot } from '../../shared/ipc/update'
+import { numberedBuilds, versionLabel } from '../../shared/version-number'
 import { invoke, subscribe } from '../ipc'
 
 export interface UpdateStore {
@@ -56,6 +57,14 @@ export async function checkForUpdateNow(): Promise<string | undefined> {
   if (!result.ok) return failureReason('update.check', result.error)
   accept(result.value)
   return undefined
+}
+
+/**
+ * `version` as the Update texts name it (ticket 14): `<major>.<minor>.<N>` when the snapshot knows its
+ * build number (this run's is `current`), else the build version.
+ */
+export function updateVersionLabel(snapshot: UpdateSnapshot | null, version: string): string {
+  return snapshot === null ? version : versionLabel(version, numberedBuilds(snapshot))
 }
 
 // The presses of Settings → General → Updates and of the Command palette's "Update worfy" (ticket 09).

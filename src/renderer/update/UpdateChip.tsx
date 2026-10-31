@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
+import { buildVersionTooltip, numberedVersion } from '../../shared/version-number'
 import { invoke } from '../ipc'
+import { updateVersionLabel } from './store'
 import WhatsNew, { type WhatsNewAction } from './WhatsNew'
 
 // The version chip of the toolbar (worfy-update ticket 06; spec items 5 and 6, R11, R12): the app
@@ -17,6 +19,10 @@ import WhatsNew, { type WhatsNewAction } from './WhatsNew'
 // Texts: .scratch/worfy-update/spec.md, its section of the draft texts. Main answers each press with
 // `update.changed`, which the store (src/renderer/update/store.ts) takes; the chip draws the snapshot
 // it is given.
+//
+// The versions show numbered, `v<major>.<minor>.<N>` (worfy-update ticket 14,
+// src/shared/version-number.ts), where the build number is known; the plain line then has the full
+// build version with its commit as its tooltip. Without a number, everything reads as before.
 //
 // It lives here, not in src/renderer/shell/toolbar/: every .tsx file there is a toolbar item of its
 // own (src/renderer/shell/Toolbar.tsx), and the chip is a part of the Harness item.
@@ -49,6 +55,11 @@ const TOOLTIP: Record<Phase, (version: string) => string> = {
   failed: (version) => `The update to ${version} failed — see Settings → Health`,
 }
 
+/** The Update's text, and under it the build version with its commit when the line shows a number (ticket 14). */
+function withBuild(text: string, build: string | undefined): string {
+  return build === undefined ? text : `${text}\n${build}`
+}
+
 const menuStyle: CSSProperties = {
   position: 'fixed',
   // Over the toasts (z-index 120, src/renderer/toast/toast.css), as "What's new": the sticky Update
@@ -76,8 +87,8 @@ function restart(when: 'now' | 'idle'): void {
 }
 
 /** The first item of the menu and the button of "What's new": without `run`, inactive. */
-function primaryOf(signal: Signal, idle: boolean): WhatsNewAction {
-  if (signal.phase === 'building') return { label: TOOLTIP.building(signal.version) }
+function primaryOf(signal: Signal, idle: boolean, label: (version: string) => string): WhatsNewAction {
+  if (signal.phase === 'building') return { label: TOOLTIP.building(label(signal.version)) }
   if (signal.phase === 'ready') return idle ? { label: 'Restart now', run: () => restart('now') } : { label: 'Restart when idle', run: () => restart('idle') }
   return { label: 'Update worfy', run: install }
 }
@@ -186,34 +197,38 @@ function ChipMenu({ primary, anchor, onClose, onWhatsNew }: MenuProps) {
 export interface UpdateChipProps {
   /** The app version (`app.version`). */
   version: string
+  /** Its build number (`app.version`, ticket 14); without it the line shows `version` itself. */
+  number?: number | undefined
   /** Main's Update snapshot; null until it has answered. */
   update: UpdateSnapshot | null
 }
 
 /** The app version line of the toolbar, a button with a dot and a menu while an Update waits. */
-export default function UpdateChip({ version, update }: UpdateChipProps) {
+export default function UpdateChip({ version, number, update }: UpdateChipProps) {
   // The chip while its menu or "What's new" is open, else null.
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [view, setView] = useState<'menu' | 'whatsNew'>('menu')
   const signal = updateSignal(update)
+  const shown = numberedVersion(version, number)
+  const label = (each: string): string => updateVersionLabel(update, each)
   if (signal === null) {
     // The signal went (installed from Settings or another window): the menu goes with it, so a later
     // signal shows a closed chip rather than a menu that opens by itself. Adjusted during render, as
     // React advises for state that follows a prop.
     if (anchor !== null) setAnchor(null)
     return (
-      <small className="w-mono w-toolbar__version" data-testid="app-version">
-        v{version}
+      <small className="w-mono w-toolbar__version" data-testid="app-version" title={buildVersionTooltip(version, number)}>
+        v{shown}
       </small>
     )
   }
-  const primary = primaryOf(signal, update?.idle ?? false)
+  const primary = primaryOf(signal, update?.idle ?? false, label)
   return (
     <>
       <button
         type="button"
         className="w-mono w-toolbar__version w-toolbar__version-chip"
-        title={TOOLTIP[signal.phase](signal.version)}
+        title={withBuild(TOOLTIP[signal.phase](label(signal.version)), buildVersionTooltip(version, number))}
         aria-haspopup="menu"
         aria-expanded={anchor !== null}
         data-testid="app-version"
@@ -224,7 +239,7 @@ export default function UpdateChip({ version, update }: UpdateChipProps) {
           setAnchor((was) => (was === null ? target : null))
         }}
       >
-        v{version}
+        v{shown}
         {signal.dot ? <span className="w-update-dot" aria-hidden="true" /> : null}
       </button>
       {anchor === null ? null : view === 'menu' ? (
@@ -235,7 +250,7 @@ export default function UpdateChip({ version, update }: UpdateChipProps) {
           onWhatsNew={() => setView('whatsNew')}
         />
       ) : (
-        <WhatsNew version={signal.version} anchor={anchor} action={primary} onClose={() => setAnchor(null)} />
+        <WhatsNew version={signal.version} label={label} anchor={anchor} action={primary} onClose={() => setAnchor(null)} />
       )}
     </>
   )

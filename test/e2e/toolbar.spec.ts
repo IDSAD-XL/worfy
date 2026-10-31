@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { buildNumber } from '../../scripts/build-version'
 import { launchApp, repoRoot } from './helpers'
 import { profileJsonScript } from '../harness-node'
 
@@ -106,8 +107,13 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     await expect(toolbar.getByTestId('app-version')).toBeVisible()
     await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
     await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
-    // The build version from the Harness copy (out/harness, scripts/build-version.ts), longer than v0.0.0 was.
-    await expect(toolbar.getByTestId('app-version')).toHaveText(new RegExp(`^v${packageVersion.replaceAll('.', '\\.')}\\+[0-9a-f]{7,}(\\.dirty)?$`))
+    // The build version from the Harness copy (out/harness, scripts/build-version.ts), longer than v0.0.0 was;
+    // numbered `v<major>.<minor>.<N>` where the checkout has its whole history (worfy-update ticket 14).
+    const number = buildNumber(repoRoot)
+    const [major, minor] = packageVersion.split('.')
+    await expect(toolbar.getByTestId('app-version')).toHaveText(
+      number === null ? new RegExp(`^v${packageVersion.replaceAll('.', '\\.')}\\+[0-9a-f]{7,}(\\.dirty)?$`) : new RegExp(`^v${major}\\.${minor}\\.${number}(\\.dirty)?$`),
+    )
     // worfy's own memory after the version, on the same line of the Harness column (worfy-ui ticket 20):
     // the column measured below carries it.
     await expect(toolbar.getByTestId('app-line').getByTestId('app-memory')).toHaveText(/^\d+(\.\d)? (MB|GB)$/)
