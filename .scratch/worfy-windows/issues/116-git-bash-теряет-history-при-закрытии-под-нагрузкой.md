@@ -75,7 +75,7 @@ full на ПК, main `fc9279cf` (раньше в worfy-polish 47). Платфо�
 `WINDOWS_CLOSE_BOUND_MS` = 5000 ms не менялись. kill.exe, ещё работающий после ожидания, helper завершает до ответа:
 kill.exe, переживший helper, держал бы его ответ. `Stop-Process` — только для оставшегося после ожидания.
 
-Замер на ПК, коммит с исправлением `50dabaec`, тот же способ, что на `c01cd364`: 120 закрытий Git Bash под полным vitest на
+Замер на ПК, коммит с исправлением `50dabaec` (после rebase — `79bac120`, тот же код), тот же способ, что на `c01cd364`: 120 закрытий Git Bash под полным vitest на
 8 workers (данные на ПК в `evidence/windows-close-measure/`, `loadfix116.jsonl`, `idlefix116.jsonl`).
 
 | Git Bash, под нагрузкой | до, `c01cd364` | исправление |
