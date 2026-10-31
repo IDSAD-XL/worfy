@@ -33,14 +33,16 @@
 //
 // The helper of an Update (worfy-update ticket 02, ADR-0089 item 4) runs it with flags:
 //
-//   --wait-pid <pid>   first waits for that process to quit, 120 s at most; still running — a refusal,
-//                      nothing changed.
+//   --wait-pid <pid>   first waits for that process to quit, 120 s at most; still running then, and a
+//                      copy at the target runs — a refusal, nothing changed (no copy runs: the number
+//                      may be another program's by now, and the run goes on).
 //   --keep-previous    keeps the copy it replaces next to the target as <name>.previous
 //                      (worfy-stable.previous) and its file as <name>.previous.json, instead of removing
 //                      them; the one kept before is removed first. Sets no deploy mark.
 //   --rollback         puts <name>.previous and its file back at the target and removes the copy it
-//                      rolled back from; no build. With no previous copy — a refusal, nothing changed.
-//   --relaunch         afterwards, also after a refusal, starts what is at the target, detached: macOS
+//                      rolled back from; no build. With no previous copy, or one without the file every
+//                      build has (Contents/Info.plist, worfy.exe) — a refusal, nothing changed.
+//   --relaunch         afterwards, also after any refusal, starts what is at the target, detached: macOS
 //                      `open <target>`, Windows <target>\worfy.exe. WORFY_STABLE_LAUNCH=<program> runs
 //                      `<program> <target>` in its place, for the tests.
 //   --result <file>    last, also after a refusal, writes { ok, action, commit, previous, reason?, notes }.
@@ -763,6 +765,17 @@ function plainFile(path) {
   }
 }
 
+/** The file every whole build of worfy has, the last one the build writes: its time is the time of the build. */
+function markerOf(platform, app) {
+  const rules = rulesOf(platform)
+  return platform === 'win32' ? rules.join(app, `${APP}.exe`) : rules.join(app, 'Contents', 'Info.plist')
+}
+
+/** True when a folder is at the path, not a link to one, and it holds the marker of a whole build. */
+function wholeCopy(platform, path) {
+  return plainFolder(path) && existsSync(markerOf(platform, path))
+}
+
 /** The message of an error, or what was thrown as text. */
 const why = (error) => (error instanceof Error ? error.message : String(error))
 
@@ -804,7 +817,7 @@ function writeResult(file, outcome) {
  * starts the copy for --relaunch, detached.
  */
 export function installStable(argv, deps = {}) {
-  const { platform = process.platform, env = process.env, start = startDetached } = deps
+  const { platform = process.platform, env = process.env, home = homedir(), start = startDetached } = deps
   const { options, problem } = parseArgs(argv)
   const outcome = { ok: false, action: options.rollback ? 'rollback' : 'install', commit: null, previous: null, notes: [] }
   // What the run has learnt by the time it ends, a refusal included: the target --relaunch starts, and
@@ -820,7 +833,10 @@ export function installStable(argv, deps = {}) {
     failure = error
   }
   const late = []
-  if (options.relaunch && known.target !== null) {
+  // Refused before the target was checked (by its arguments, or by the target itself): what stands at
+  // the target given, or at the default one, is started all the same.
+  if (options.relaunch && known.target === null) known.target = rulesOf(platform).resolve(options.target ?? defaultTarget(platform, env, home))
+  if (options.relaunch) {
     const launch = launchCommand(platform, known.target, env)
     if (!there(known.target)) late.push(`nothing is at ${known.target} to start`)
     else if (launch === null) late.push(`there is no way to start ${known.target} on ${platform}`)
@@ -833,7 +849,8 @@ export function installStable(argv, deps = {}) {
     }
   }
   outcome.notes.push(...late)
-  if (known.previous !== null) outcome.previous = plainFolder(known.previous) ? known.previous : null
+  // Only a whole copy is named: a half-removed one is no copy to roll back to.
+  if (known.previous !== null) outcome.previous = wholeCopy(platform, known.previous) ? known.previous : null
   if (options.result !== undefined) {
     const { ok, action, commit, previous, notes } = outcome
     writeResult(options.result, failure === null ? { ok, action, commit, previous, notes } : { ok, action, commit, previous, reason: why(failure), notes })
@@ -851,12 +868,16 @@ function changeCopy(options, { platform = process.platform, env = process.env, h
   const target = checkTarget(platform, options.target ?? defaultTarget(platform, env, home), env, home)
   known.target = rules.resolve(target)
   // The running worfy holds the files of the copy: nothing is looked at or changed before it has quit.
-  if (options.waitPid !== undefined && !waitForExit(options.waitPid, alive, { now, sleep })) {
-    fail(`process ${options.waitPid} is still running after ${WAIT_LIMIT_MS / 1000} s: nothing was changed`)
-  }
+  // When it still runs at the limit, the list of processes decides (refuseIfRunning): Windows gives a
+  // number out again, so the process may be another program by now, and no copy runs.
+  const waited = options.waitPid === undefined || waitForExit(options.waitPid, alive, { now, sleep })
   const prior = previousPaths(platform, known.target)
   known.previous = prior.copy
   if (options.rollback && !plainFolder(prior.copy)) fail(`there is no previous copy at ${prior.copy} to roll back to`)
+  // A copy an interrupted removal left half is no copy: putting it at the target would remove the one that works.
+  if (options.rollback && !wholeCopy(platform, prior.copy)) {
+    fail(`the previous copy at ${prior.copy} is not a whole ${APP}: there is no ${rulesOf(platform).relative(prior.copy, markerOf(platform, prior.copy))} in it. Nothing was changed`)
+  }
   /**
    * Removes a copy, or what is left of one. On Windows a removal that busy entries stopped is run
    * again (removeInRounds).
@@ -896,8 +917,14 @@ function changeCopy(options, { platform = process.platform, env = process.env, h
 
   const refuseIfRunning = () => {
     const running = runningCopies(platform, [...spellings], listing(platform), platform === 'win32' ? onDisk : undefined)
-    if (running.length === 0) return
+    if (running.length === 0) {
+      if (!waited && !outcome.notes.some((each) => each.startsWith(`process ${options.waitPid} `))) {
+        outcome.notes.push(`process ${options.waitPid} still ran after ${WAIT_LIMIT_MS / 1000} s, but no copy at ${logical} runs: it is taken for another program with that number`)
+      }
+      return
+    }
     process.stderr.write(`${running.join('\n')}\n`)
+    if (!waited) fail(`process ${options.waitPid} is still running after ${WAIT_LIMIT_MS / 1000} s: nothing was changed`)
     fail(`the stable copy at ${logical} is running. Quit it (stop Autopilot first, or wait for the gap between waves), then run this again.`)
   }
 
@@ -916,8 +943,7 @@ function changeCopy(options, { platform = process.platform, env = process.env, h
       const dist = rules.join(repo, 'dist')
       source = builtApp(platform, dist, existsSync(dist) ? readdirSync(dist) : [], existsSync)
     }
-    // The file whose time is the time of the build: the last one the build writes into the app.
-    const marker = platform === 'win32' ? rules.join(source, `${APP}.exe`) : rules.join(source, 'Contents', 'Info.plist')
+    const marker = markerOf(platform, source)
     if (!existsSync(marker)) fail(`${source} does not look like a built ${APP}: there is no ${rules.relative(source, marker)} in it`)
 
     const commit = run('git', ['-C', repo, 'rev-parse', 'HEAD']).trim()
@@ -1016,10 +1042,21 @@ function changeCopy(options, { platform = process.platform, env = process.env, h
 
   // --keep-previous: the earlier copy, moved aside by the swap, goes to the place of the previous copy
   // instead of being removed, and its file with it, before the new file is written. The copy kept
-  // before is removed first. What cannot be done is named, and the install stands.
+  // before goes first: it is moved to the name of this run's unfinished copy (free again once the swap
+  // is done) and removed there, so the name of the previous copy never holds a copy a removal stopped
+  // half way; what is left under that name the next run removes. What cannot be done is named, and
+  // the install stands.
   const keep = (earlier) => {
     try {
-      if (there(prior.copy)) remove(prior.copy)
+      if (there(prior.copy)) {
+        if (there(staging)) fail(`${staging} is in the way of the copy kept before`)
+        move(prior.copy, staging)
+        try {
+          remove(staging)
+        } catch (error) {
+          notes.push(`the copy kept before could not be removed and is left at ${staging} (${why(error)}); the next run removes it`)
+        }
+      }
       move(earlier, prior.copy)
     } catch (error) {
       notes.push(`the earlier copy could not be kept at ${prior.copy} (${why(error)}) and is left at ${earlier}; the next run removes it`)
