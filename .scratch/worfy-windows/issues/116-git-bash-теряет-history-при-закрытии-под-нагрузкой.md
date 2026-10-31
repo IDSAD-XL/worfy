@@ -1,7 +1,8 @@
 # 116 — Git Bash теряет history при закрытии под нагрузкой: kill.exe обрывается раньше SIGHUP
 
 Type: bug
-Status: open
+Status: claimed 2026-10-31T15:26Z
+Branch: worfy-windows/116
 Blocked by: —
 Source: замер ПК 2026-10-31 на main `c01cd364` (через мост; данные на ПК в `evidence/windows-close-measure/`:
 `idle.jsonl`, `load.jsonl`, `stats.mjs`, `stats2.mjs`); красный `test/contract/terminal-git-bash-close.test.ts:33` в gate

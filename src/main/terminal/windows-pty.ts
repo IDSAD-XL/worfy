@@ -19,13 +19,16 @@ export const DESCENDANTS_TIMEOUT_MS = 3000
  */
 export const SHELL_START_SLACK_MS = 100
 /**
- * How long the helper waits for the bash of Git Bash to exit after its SIGHUP before it ends what
- * is left. The wait ends as soon as bash exits; the whole of it is spent only by a bash that ignores
- * the signal (`trap '' HUP`) or is stuck. On the owner's PC bash exited 14–670 ms after the
- * signal (30 closes, most under 60 ms); 1000 ms is KILL_GRACE_MS of macOS and Linux. The helper of
- * Git Bash gets it on top of DESCENDANTS_TIMEOUT_MS (HANGUP_TIMEOUT_MS).
+ * How long the helper waits, from the start of kill.exe, for the bash of Git Bash to exit before it
+ * ends what is left. kill.exe and bash share it, and the wait ends as soon as bash exits; the whole
+ * of it is spent only by a kill.exe that delivers no SIGHUP, or by a bash that ignores the signal
+ * (`trap '' HUP`) or is stuck. On the owner's PC bash exited 14–670 ms after the signal (30 closes,
+ * most under 60 ms). kill.exe took 48–103 ms on the idle PC; under a full vitest it often took
+ * longer than 500 ms, and when a bound of 500 ms ended it, bash never got the signal and wrote no
+ * history (26 of 120 closes, worfy-windows ticket 116). The helper of Git Bash gets this wait on top
+ * of DESCENDANTS_TIMEOUT_MS (HANGUP_TIMEOUT_MS).
  */
-export const HANGUP_GRACE_MS = 1000
+export const HANGUP_WAIT_MS = 1500
 
 /** A shell of Windows as the registry started it. */
 export interface StartedShell {
@@ -41,21 +44,11 @@ export interface StartedShell {
 }
 
 /**
- * How long kill.exe may take to deliver the SIGHUP before the helper ends it and goes on: it took
- * 48–103 ms on the owner's PC. kill.exe gets pipes of its own for its input and output, but .NET
- * starts it inheriting every inheritable handle of the helper, the helper's stdout among them: a
- * kill.exe that outlived a helper which answered held back the answer until it exited (measured
- * with a stand-in that sleeps 10 s: 12.4 s instead of about 0.5 s). The helper therefore ends it
- * after this bound, before it answers. A helper ended by its own time limit is not waited for
- * (measured: 1.3 s with the stand-in still running).
- */
-export const HANGUP_SIGNAL_BOUND_MS = 500
-/**
- * The time limit of the helper for Git Bash: DESCENDANTS_TIMEOUT_MS and the hangup's waits. It
+ * The time limit of the helper for Git Bash: DESCENDANTS_TIMEOUT_MS and the hangup's wait. It
  * stays inside WINDOWS_CLOSE_BOUND_MS (pty.ts), so the close of Git Bash still releases its pty by
  * itself before the bound of the close.
  */
-export const HANGUP_TIMEOUT_MS = DESCENDANTS_TIMEOUT_MS + HANGUP_GRACE_MS + HANGUP_SIGNAL_BOUND_MS
+export const HANGUP_TIMEOUT_MS = DESCENDANTS_TIMEOUT_MS + HANGUP_WAIT_MS
 
 /** A literal of PowerShell in single quotes: PowerShell takes U+2018–U+201B for a single quote as well, and a doubled one for one of it. */
 function quoted(text: string): string {
@@ -67,8 +60,8 @@ function quoted(text: string): string {
  * it only when it exits by itself, and SIGHUP makes it do that (on the owner's PC: Stop-Process of
  * bash, as for any other shell, left no history file; SIGHUP, then the rest, left both commands).
  *
- * First the launcher (bin\bash.exe, the shell node-pty started) is suspended, then bash under it
- * gets SIGHUP, and the helper waits up to HANGUP_GRACE_MS for it to exit. The launcher exits as soon
+ * First the launcher (bin\bash.exe, the shell node-pty started) is suspended, then kill.exe sends
+ * bash under it SIGHUP, and the helper waits up to HANGUP_WAIT_MS for bash to exit. The launcher exits as soon
  * as bash does, and node-pty forgets the pseudo-console of a shell that exits by itself without
  * closing it: two handles of this process per closed Git Bash (node-pty 1.2.0-beta.15,
  * microsoft/node-pty#965). A suspended launcher cannot exit, so node-pty still knows the console
@@ -77,6 +70,13 @@ function quoted(text: string): string {
  * pid given out again is neither held nor signalled. A running launcher that could not be held is
  * said with the line `not held` (one that has exited by itself leaks nothing more and is not said);
  * bash gets its SIGHUP all the same.
+ *
+ * A kill.exe still running after the wait is ended before the helper answers. kill.exe gets pipes of
+ * its own for its input and output, but .NET starts it inheriting every inheritable handle of the
+ * helper, the helper's stdout among them: a kill.exe that outlived a helper which answered held back
+ * the answer until it exited (measured with a stand-in that sleeps 10 s: 12.4 s instead of about
+ * 0.5 s). A helper ended by its own time limit is not waited for (measured: 1.3 s with the stand-in
+ * still running).
  */
 function hangupLines(shell: StartedShell, kill: string): string[] {
   const pid = Math.trunc(shell.pid)
@@ -113,6 +113,7 @@ function hangupLines(shell: StartedShell, kill: string): string[] {
     '}',
     `$kill = ${quoted(kill)}`,
     'if (Test-Path -LiteralPath $kill) {',
+    '  $signals = New-Object System.Collections.ArrayList',
     '  foreach ($bash in $bashes) {',
     '    try {',
     "      $info = New-Object System.Diagnostics.ProcessStartInfo -ArgumentList $kill, ('-HUP -W ' + $bash.Id)",
@@ -121,14 +122,16 @@ function hangupLines(shell: StartedShell, kill: string): string[] {
     '      $info.RedirectStandardInput = $true',
     '      $info.RedirectStandardOutput = $true',
     '      $info.RedirectStandardError = $true',
-    '      $signal = [System.Diagnostics.Process]::Start($info)',
-    `      if (-not $signal.WaitForExit(${HANGUP_SIGNAL_BOUND_MS})) { $signal.Kill() }`,
+    '      [void]$signals.Add([System.Diagnostics.Process]::Start($info))',
     '    } catch { }',
     '  }',
-    `  $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_GRACE_MS})`,
+    `  $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_WAIT_MS})`,
     '  foreach ($bash in $bashes) {',
     '    $wait = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds',
-    '    if ($wait -gt 0) { [void]$bash.WaitForExit($wait) }',
+    '    try { if ($wait -gt 0) { [void]$bash.WaitForExit($wait) } } catch { }',
+    '  }',
+    '  foreach ($signal in $signals) {',
+    '    try { if (-not $signal.HasExited) { $signal.Kill() } } catch { }',
     '  }',
     '}',
   ]

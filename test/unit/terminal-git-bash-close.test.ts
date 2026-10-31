@@ -1,6 +1,6 @@
 // How a Git Bash Terminal of Windows is closed (worfy-windows ticket 93): the helper that ends the
 // processes under the shell first holds the launcher (bin\bash.exe), sends SIGHUP to bash through
-// kill.exe of the same Git for Windows and waits up to HANGUP_GRACE_MS, and only then ends what is
+// kill.exe of the same Git for Windows and waits up to HANGUP_WAIT_MS, and only then ends what is
 // left; the registry asks for that for Git Bash only. The real close is in
 // test/contract/terminal-git-bash-close.test.ts; here the script text, the choice of kill.exe and
 // what the registry passes, on any machine.
@@ -12,7 +12,7 @@ const run = vi.hoisted(() => ({ execFile: vi.fn() }))
 vi.mock('node:child_process', async (original) => ({ ...(await original<typeof import('node:child_process')>()), execFile: run.execFile }))
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
-const { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, endShell, endShellScript, HANGUP_GRACE_MS, HANGUP_SIGNAL_BOUND_MS, HANGUP_TIMEOUT_MS } = await import('../../src/main/terminal/windows-pty')
+const { DESCENDANTS_TIMEOUT_MS, descendantsScript, endDescendants, endShell, endShellScript, HANGUP_TIMEOUT_MS, HANGUP_WAIT_MS } = await import('../../src/main/terminal/windows-pty')
 const { gitBashKill } = await import('../../src/main/agent/env')
 const { TerminalRegistry, WINDOWS_CLOSE_BOUND_MS } = await import('../../src/main/terminal/pty')
 type StartedShell = import('../../src/main/terminal/windows-pty').StartedShell
@@ -49,13 +49,15 @@ describe('descendantsScript with hangup: the order of a Git Bash close', () => {
   it('walks the tree, holds the launcher, sends SIGHUP to bash, waits, and only then ends what is left', () => {
     const walked = at('$queue.Enqueue($child)')
     const held = at('NtSuspendProcess($launcher.Handle)')
-    const hungUp = at('$signal = [System.Diagnostics.Process]::Start($info)')
+    const hungUp = at('$signals.Add([System.Diagnostics.Process]::Start($info))')
     const waited = at('$bash.WaitForExit($wait)')
+    const killEnded = at('$signal.Kill()')
     const stopped = at('Stop-Process -InputObject $process -Force')
     expect(walked).toBeLessThan(held)
     expect(held).toBeLessThan(hungUp)
     expect(hungUp).toBeLessThan(waited)
-    expect(waited).toBeLessThan(stopped)
+    expect(waited).toBeLessThan(killEnded)
+    expect(killEnded).toBeLessThan(stopped)
     // The launcher is the shell the walk took for the one that was started, by its start time:
     // a process that got its pid since is never suspended.
     expect(lines[at('$launcher = Get-Process')]).toBe('$launcher = Get-Process -Id 4242 -ErrorAction SilentlyContinue')
@@ -83,22 +85,24 @@ describe('descendantsScript with hangup: the order of a Git Bash close', () => {
     ])
   })
 
-  it('runs kill.exe with pipes of its own and ends it after HANGUP_SIGNAL_BOUND_MS', () => {
+  it('runs kill.exe with pipes of its own and does not cut it off before the wait for bash', () => {
     const start = at('$info = New-Object System.Diagnostics.ProcessStartInfo')
-    expect(lines.slice(start, at('$signal = [System.Diagnostics.Process]::Start($info)') + 2)).toEqual([
+    expect(lines.slice(start, at('$signals.Add([System.Diagnostics.Process]::Start($info))') + 1)).toEqual([
       "      $info = New-Object System.Diagnostics.ProcessStartInfo -ArgumentList $kill, ('-HUP -W ' + $bash.Id)",
       '      $info.UseShellExecute = $false',
       '      $info.CreateNoWindow = $true',
       '      $info.RedirectStandardInput = $true',
       '      $info.RedirectStandardOutput = $true',
       '      $info.RedirectStandardError = $true',
-      '      $signal = [System.Diagnostics.Process]::Start($info)',
-      `      if (-not $signal.WaitForExit(${HANGUP_SIGNAL_BOUND_MS})) { $signal.Kill() }`,
+      '      [void]$signals.Add([System.Diagnostics.Process]::Start($info))',
     ])
+    expect(lines.filter((line) => line.includes('$signal.Kill()'))).toEqual(['    try { if (-not $signal.HasExited) { $signal.Kill() } } catch { }'])
   })
 
-  it('waits at most HANGUP_GRACE_MS from the signal', () => {
-    expect(lines[at('$deadline =')]).toBe(`  $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_GRACE_MS})`)
+  it('waits at most HANGUP_WAIT_MS from the start of kill.exe, and ends a kill.exe still running before it answers', () => {
+    expect(lines[at('$deadline =')]).toBe(`  $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_WAIT_MS})`)
+    expect(at('$signals.Add(')).toBeLessThan(at('$deadline ='))
+    expect(at('$signal.Kill()')).toBeLessThan(lines.length - 1)
   })
 
   it('names kill.exe as a literal: every quote PowerShell takes for a single quote is doubled, and the script has no double quote', () => {
@@ -185,6 +189,7 @@ describe('descendantsScript with hangup, as a whole', () => {
       '}',
       "$kill = 'C:\\Program Files\\Git\\usr\\bin\\kill.exe'",
       'if (Test-Path -LiteralPath $kill) {',
+      '  $signals = New-Object System.Collections.ArrayList',
       '  foreach ($bash in $bashes) {',
       '    try {',
       "      $info = New-Object System.Diagnostics.ProcessStartInfo -ArgumentList $kill, ('-HUP -W ' + $bash.Id)",
@@ -193,14 +198,16 @@ describe('descendantsScript with hangup, as a whole', () => {
       '      $info.RedirectStandardInput = $true',
       '      $info.RedirectStandardOutput = $true',
       '      $info.RedirectStandardError = $true',
-      '      $signal = [System.Diagnostics.Process]::Start($info)',
-      '      if (-not $signal.WaitForExit(500)) { $signal.Kill() }',
+      '      [void]$signals.Add([System.Diagnostics.Process]::Start($info))',
       '    } catch { }',
       '  }',
-      '  $deadline = [DateTime]::UtcNow.AddMilliseconds(1000)',
+      '  $deadline = [DateTime]::UtcNow.AddMilliseconds(1500)',
       '  foreach ($bash in $bashes) {',
       '    $wait = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds',
-      '    if ($wait -gt 0) { [void]$bash.WaitForExit($wait) }',
+      '    try { if ($wait -gt 0) { [void]$bash.WaitForExit($wait) } } catch { }',
+      '  }',
+      '  foreach ($signal in $signals) {',
+      '    try { if (-not $signal.HasExited) { $signal.Kill() } } catch { }',
       '  }',
       '}',
       '$ended = 0',
@@ -265,8 +272,9 @@ describe('endDescendants with hangup', () => {
     await expect(endDescendants({ ...SHELL, hangup: KILL })).resolves.toBe('ended')
     const [, args, options] = run.execFile.mock.calls[0] as [string, string[], { timeout: number }]
     expect(args).toEqual(['-NoProfile', '-NonInteractive', '-Command', descendantsScript({ ...SHELL, hangup: KILL })])
-    // The waits of the hangup come on top of the limit of every other shell.
-    expect(options.timeout).toBe(DESCENDANTS_TIMEOUT_MS + HANGUP_GRACE_MS + HANGUP_SIGNAL_BOUND_MS)
+    // The wait of the hangup comes on top of the limit of every other shell.
+    expect(options.timeout).toBe(DESCENDANTS_TIMEOUT_MS + HANGUP_WAIT_MS)
+    expect(HANGUP_TIMEOUT_MS).toBe(4500)
     // The pty of Git Bash is still released by the close itself, before the bound of the close.
     expect(HANGUP_TIMEOUT_MS).toBeLessThan(WINDOWS_CLOSE_BOUND_MS)
     run.execFile.mockClear()

@@ -6,10 +6,10 @@
 // (src/main/terminal/windows-pty.ts, hangupLines). Only on Windows with Git for Windows; the shells
 // run in the temporary home of the harness (windowsEnv), never in the profile of the machine.
 import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFile, rm, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { findGitBash } from '../../src/main/agent/env'
+import { findGitBash, gitBashKill } from '../../src/main/agent/env'
 import { spawnShellPty, type SpawnPty } from '../../src/main/terminal/pty'
 import { endDescendants, endShell, type StartedShell } from '../../src/main/terminal/windows-pty'
 import { alive, consoleHosts, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, settledHandleCount, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
@@ -48,6 +48,55 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
     const lines = (await readFile(file, 'utf8')).split(/\r?\n/)
     expect(lines).toContain(first.command)
     expect(lines).toContain(second.command)
+  }, ms(30_000))
+
+  // On a busy machine kill.exe took longer than the 500 ms the helper used to give it: ended by then,
+  // it had not delivered the SIGHUP, and bash wrote nothing (26 of 120 closes under a full vitest,
+  // all 26 without a history file; worfy-windows ticket 116). The stand-in is a batch file, so
+  // that it takes 700 ms on any machine: the same sleep.exe and kill.exe of Git for Windows.
+  it('a kill.exe that delivers its SIGHUP only after 700 ms: terminal.close still leaves the history', async (context) => {
+    needsGitBash(context)
+    const kill = gitBashKill(findGitBash(windowsEnv(home)) ?? '') ?? ''
+    const standIn = join(home, 'slow-kill.cmd')
+    await writeFile(standIn, `@"${join(dirname(kill), 'sleep.exe')}" 0.7\r\n@"${kill}" %*\r\n`)
+    const h = await harness({ shell: 'git-bash', endDescendants: (shell) => endDescendants({ ...shell, hangup: standIn }) })
+    await h.open()
+    const { command, output } = unique(`worfy-slow-kill-${process.pid}-${Date.now()}`)
+    await h.run(command, output)
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+    const file = join(home, '.bash_history')
+    expect(existsSync(file), `${file} after the close`).toBe(true)
+    expect((await readFile(file, 'utf8')).split(/\r?\n/)).toContain(command)
+  }, ms(30_000))
+
+  // kill.exe inherits the stdout of the helper, so one that outlives the helper holds back its answer
+  // until execFile gives up at the time limit. execFile then still reports the exit code 0 of the
+  // helper, so only the stand-in itself tells: it is one process with no child, as kill.exe is, and
+  // rewrites a file in a loop until the scratch folder of the test is removed.
+  it('a kill.exe that never exits: the helper ends it before it answers', async (context) => {
+    needsGitBash(context)
+    const standIn = join(home, 'stuck-kill.cmd')
+    const beat = `${standIn}.beat`
+    await writeFile(standIn, '@echo off\r\n:again\r\necho.>"%~f0.beat"\r\nif exist "%~f0" goto again\r\n')
+    const answers: unknown[] = []
+    const h = await harness({
+      shell: 'git-bash',
+      endDescendants: async (shell) => {
+        const answer = await endDescendants({ ...shell, hangup: standIn })
+        answers.push(answer)
+        return answer
+      },
+    })
+    await h.open()
+    const { command, output } = unique('ready')
+    await h.run(command, output)
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+    expect(answers).toEqual(['ended'])
+    expect(h.registry.size).toBe(0)
+    expect(existsSync(beat), 'the stand-in ran').toBe(true)
+    await rm(beat, { force: true, maxRetries: 5, retryDelay: 100 })
+    await new Promise((done) => setTimeout(done, 500))
+    expect(existsSync(beat), 'the stand-in still runs after the answer').toBe(false)
   }, ms(30_000))
 
   // node-pty 1.2.0-beta.15 forgets the pseudo-console of a shell that exits by itself and never
