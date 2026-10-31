@@ -146,12 +146,13 @@
         "test/e2e/first-run.spec.ts",
         "test/e2e/getting-started-entry.spec.ts",
         "test/e2e/getting-started-highlight.spec.ts",
+        "test/e2e/guide-entry-links.spec.ts",
         "test/e2e/harness-migrate.spec.ts",
         "test/e2e/projects-connect.spec.ts",
         "test/e2e/settings-health.spec.ts",
         "test/e2e/settings.spec.ts"
       ],
-      "why": "The checks and actions of the first-run screen (worfy-throughput ticket 58). Only src/main/ipc/first-run.ts imports them (and actions.ts imports checks.ts); their code runs through four doors: firstRun.startup when WORFY_FIRST_RUN_AUTO is not 0 (launch-env.ts sets 0 for every launch; first-run.spec.ts, getting-started-entry.spec.ts and harness-migrate.spec.ts set 1), firstRun.checks and firstRun.run from the first-run screen (the palette's \"First-run checks\": first-run.spec.ts, settings-health.spec.ts; the button \"First-run checks…\" of Connect Project: projects-connect.spec.ts; \"Open checks\" of Getting started, the ring then on \"Check again\": getting-started-highlight.spec.ts) or from Settings → Health (settings-health.spec.ts), and askAccount through askSignedInAccount, which Settings → Plan asks (planPreset.read and apply, settings.spec.ts). Settings opens on General and shows one section at a time. Left out: src/main/ipc/first-run.ts, whose firstRun.startup every launch calls (it returns at once with WORFY_FIRST_RUN_AUTO=0)."
+      "why": "The checks and actions of the first-run screen (worfy-throughput ticket 58). Only src/main/ipc/first-run.ts imports them (and actions.ts imports checks.ts); their code runs through four doors: firstRun.startup when WORFY_FIRST_RUN_AUTO is not 0 (launch-env.ts sets 0 for every launch; first-run.spec.ts, getting-started-entry.spec.ts, guide-entry-links.spec.ts and harness-migrate.spec.ts set 1), firstRun.checks and firstRun.run from the first-run screen (the palette's \"First-run checks\": first-run.spec.ts, settings-health.spec.ts; the button \"First-run checks…\" of Connect Project: projects-connect.spec.ts; \"Open checks\" of Getting started, the ring then on \"Check again\": getting-started-highlight.spec.ts) or from Settings → Health (settings-health.spec.ts), and askAccount through askSignedInAccount, which Settings → Plan asks (planPreset.read and apply, settings.spec.ts). Settings opens on General and shows one section at a time. Left out: src/main/ipc/first-run.ts, whose firstRun.startup every launch calls (it returns at once with WORFY_FIRST_RUN_AUTO=0)."
     }
   ]
 }

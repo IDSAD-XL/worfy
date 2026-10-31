@@ -4,6 +4,7 @@ import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
 import { GETTING_STARTED_STEPS, type GettingStartedStep } from '../../shared/ipc/getting-started'
 import { invoke, subscribe } from '../ipc'
+import { openGuide } from '../guide/store'
 import { usePipeline } from '../pipeline/usePipeline'
 import { requestAddProject } from '../projects/add-project'
 import { openProject } from '../projects/useProjects'
@@ -57,6 +58,10 @@ import { GETTING_STARTED_COLLAPSED_KEY, skipGettingStarted, useGettingStarted, u
  * the current step's button, "Check again" of First run, or Send of the demo Orchestrator's field
  * while the text a step's button put there lies in it. The ring is only visual: a screen reader hears
  * the current step from `aria-current="step"`, as before.
+ *
+ * worfy-guide ticket 09: "worfy Guide" at the bottom, left of "Skip", under the steps and under Done
+ * alike, opens the worfy Guide (ADR-0090) over the window; the panel stays as it was. Nothing in the
+ * panel opens the Guide by itself.
  */
 
 const QUESTION = 'What is planned in this project?'
@@ -150,7 +155,18 @@ const styles = {
   progress: { margin: '4px 0 0', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--working-text)' },
   error: { margin: '4px 0 0', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--blocked-text)', overflowWrap: 'anywhere' },
   connect: { margin: '6px 8px 0', padding: '8px 0 0', borderTop: '1px solid var(--border)' },
-  footer: { display: 'flex', justifyContent: 'flex-end', padding: '4px 8px 2px' },
+  footer: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px 2px' },
+  // --accent on --surface is at least 4.5:1 in both themes (test/e2e/guide-entry-links.spec.ts).
+  guide: {
+    border: 0,
+    padding: '2px 4px',
+    borderRadius: 'var(--radius-button)',
+    background: 'transparent',
+    color: 'var(--accent)',
+    font: 'inherit',
+    fontSize: 'var(--text-12)',
+    textDecoration: 'underline',
+  },
   skip: {
     border: 0,
     padding: '2px 4px',
@@ -535,6 +551,9 @@ export function GettingStartedPanel({ sessionView = false }: { sessionView?: boo
           </>
         )}
         <div style={styles.footer}>
+          <button type="button" style={styles.guide} onClick={() => openGuide()}>
+            worfy Guide
+          </button>
           <button type="button" style={styles.skip} onClick={() => void skip()}>
             Skip
           </button>
