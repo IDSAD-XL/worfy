@@ -1,0 +1,111 @@
+{
+  "title": "Sessions",
+  "summary": [
+    "Session — один разговор с Claude Code. Свои Session-ы worfy запускает сам, каждая — Node на Canvas, а Orchestrator — главная Session Project-а. Session-ы, которые вы начали в терминале или в Claude desktop, тоже видны, только для чтения.",
+    "Claude Code хранит каждый разговор в файле в своей папке. worfy этот файл только читает и показывает как Transcript. Limits в toolbar показывают, какая доля окон подписки на 5 часов и на 7 дней уже израсходована."
+  ],
+  "scene": {
+    "description": "Session-ы в worfy. На Canvas лежат Orchestrator, главная Session Project-а; Session, которая запускает Subagent-а, он стоит справа от неё; и Session только для чтения. worfy передаёт ваши сообщения из Orchestrator-а и из Session в Claude Code. Claude Code пишет каждый разговор в файл в Claude home и сообщает Limits. worfy читает файл, добавляет живые события и показывает всё вместе как Transcript. Терминал или Claude desktop тоже пишут туда свои Session-ы; такую Session worfy показывает как Node только для чтения, а Resume продолжает её в worfy, когда она закончилась.",
+    "labels": {
+      "canvas": "Canvas",
+      "canvasNote": "по Node-у на Session",
+      "orchestrator": "Orchestrator",
+      "orchestratorNote": "главная Session Project-а",
+      "session": "Session",
+      "sessionNote": "один разговор с Claude Code",
+      "subagent": "Subagent",
+      "subagentNote": "его запустила Session",
+      "readOnly": "Read-only Session",
+      "readOnlyNote": "начата вне worfy",
+      "claudeCode": "Claude Code",
+      "claudeCodeNote": "по процессу на Session",
+      "claudeHome": "Claude home",
+      "claudeHomeNote": "~/.claude, там транскрипты",
+      "limits": "Limits",
+      "limitsNote": "окна на 5 часов и 7 дней",
+      "transcript": "Transcript",
+      "transcriptNote": "разговор на экране",
+      "outside": "Вне worfy",
+      "outsideNote": "терминал или Claude desktop",
+      "messages": "ваши сообщения",
+      "starts": "запускает",
+      "liveEvents": "живые события",
+      "reports": "сообщает Limits",
+      "writes": "пишет файл",
+      "readsFile": "worfy его читает",
+      "writesToo": "тоже пишет туда",
+      "readOnlyNode": "Node только для чтения",
+      "resume": "Resume, когда закончилась",
+      "step1": "Вы пишете Session из её Node-а или из Session view, и worfy передаёт сообщение в Claude Code. Сообщение, отправленное во время хода, ждёт в очереди.",
+      "step2": "Claude Code пишет разговор в файл в Claude home. worfy читает файл, добавляет живые события и показывает всё вместе как Transcript.",
+      "step3": "Session может запускать Subagent-ов. Каждый получает Node справа от своей Session, со своим статусом.",
+      "step4": "Session-ы, начатые в терминале или в Claude desktop, видны как Node-ы только для чтения. Resume продолжает такую Session в worfy, когда она закончилась.",
+      "step5": "Claude Code сообщает Limits: какая доля окон подписки на 5 часов и на 7 дней уже израсходована."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "Поток данных Session. В renderer: полоски Limits, renderer store, Session view и дерево Subagent-ов. В main process: LimitsTracker, Session, Transcript reader и SubagentReader. На стороне Claude Code: его процесс и Claude home. Session view отправляет сообщение по agent.send в Session, а та кладёт его во входную очередь процесса Claude Code. Процесс отвечает сообщениями SDK; Session отправляет их как AgentEvent-ы по agent.event в renderer store, а тот отдаёт живые события в Session view. Каждый rate_limit_event идёт из Session в LimitsTracker, а тот шлёт limits.changed полоскам Limits. Процесс пишет транскрипт в Claude home; Transcript reader читает новые строки и отвечает на claudeHome.transcript в Session view. SubagentReader читает то, что дописано в файлы Subagent-ов, и отвечает на claudeHome.subagents дереву Subagent-ов.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "claude": "CLAUDE CODE",
+        "bars": "Полоски Limits",
+        "barsNote": "toolbar, перерисовка раз в 60 с",
+        "store": "Renderer store",
+        "storeNote": "5000 новых событий на Session",
+        "view": "Session view",
+        "viewNote": "склеивает файл и живые события",
+        "tree": "Subagent-ы",
+        "treeNote": "дерево: rail и Node-ы на Canvas",
+        "tracker": "LimitsTracker",
+        "trackerNote": "сводит и хранит limits.json",
+        "session": "Session",
+        "sessionNote": "состояния, очередь, Interrupt",
+        "reader": "Transcript reader",
+        "readerNote": "читает дальше от курсора",
+        "subagents": "SubagentReader",
+        "subagentsNote": "читает только дописанное",
+        "process": "Claude Code",
+        "processNote": "один долгий query SDK",
+        "home": "Claude home",
+        "homeNote": "~/.claude: транскрипты",
+        "send": "agent.send",
+        "input": "входная очередь",
+        "messages": "сообщения SDK",
+        "event": "agent.event",
+        "rateLimit": "rate_limit_event",
+        "changed": "limits.changed",
+        "live": "живые события",
+        "writes": "пишет",
+        "lines": "новые строки",
+        "transcript": "claudeHome.transcript",
+        "appended": "файлы subagents/",
+        "subagentsCall": "claudeHome.subagents"
+      }
+    },
+    "text": [
+      "Каждая Session — один долгий query Claude Agent SDK в main process. Его вход — очередь, поэтому новое сообщение уходит в уже работающий процесс Claude Code, а не запускает новый. Каждое сообщение SDK становится AgentEvent-ами, и они идут во все окна по agent.event.",
+      "Запись разговора — файл транскрипта, а renderer store ничего не сохраняет. Строки транскрипта разбираются в те же AgentEvent-ы, что и живые, поэтому оба рисует одна свёртка. В Claude home worfy ничего не пишет.",
+      "Session принадлежит Project-у, когда её рабочая папка — корень Project-а, один из его worktree или папка внутри них. Limits сводят три источника: rate_limit_event каждой Session, rate_limits, которые Claude Code передаёт status line, и запрос usage."
+    ],
+    "files": {
+      "src/main/agent/session.ts": "Одна Session: состояния, отправка, очередь, Interrupt и падение",
+      "src/main/agent/options.ts": "Параметры query: MCP-серверы и skills по Profile, autocompact",
+      "src/main/agent/resume.ts": "Правила Resume и закрытия",
+      "src/shared/transcript/parse.ts": "Строки транскрипта в AgentEvent-ы; на входе никогда не падает",
+      "src/main/claude-home/registry.ts": "Живые и прошлые Session-ы Project-а, прочитанные из Claude home",
+      "src/main/claude-home/subagents.ts": "Читает файлы Subagent-ов, только дописанное",
+      "src/renderer/session/store.ts": "Renderer store и склейка прошлых и живых событий",
+      "src/main/agent/limits.ts": "LimitsTracker: сводит Limits и хранит limits.json"
+    },
+    "limits": [
+      "К сообщению можно приложить до 20 вложений. Картинка — до 3,75 МБ, файл, который копируется в папку данных Project-а, — до 20 МБ.",
+      "Transcript открывается на последних 4 МБ файла, а Load earlier читает дальше назад. Renderer хранит 5000 самых новых живых событий каждой Session.",
+      "Продолжить можно только законченную Session: два процесса не должны писать один транскрипт.",
+      "Окно autocompact задаётся от 100K до 1M токенов. По умолчанию worfy ставит 400K для Orchestrator-а и 500K для остальных Session-ов.",
+      "Запрос usage для Limits идёт раз в 30 минут и пропускается, пока два других источника держат полоски свежими. Токенов модели он не тратит.",
+      "Ради читаемости не показаны: разрешения и вопросы, Model, Effort и Permission mode, Eco mode, уведомления, Memory, поиск в Transcript и Linked machine."
+    ]
+  }
+}
