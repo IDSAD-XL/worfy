@@ -1,7 +1,7 @@
 # 08 — Строки Settings → Health: версия worfy и отстающий Harness
 
 Type: task
-Status: open
+Status: claimed 2026-10-31T10:20Z
 Blocked by: 01, 05
 Source: решения владельца 2026-10-31, пункты 5 (красная строка в Settings → Health для обоих сигналов), 8 (недостающие инструменты видны в Health); [spec.md](../spec.md), «Решено без владельца», Р9, «Тексты (черновик)», «Health»
 
@@ -58,4 +58,24 @@ Source: решения владельца 2026-10-31, пункты 5 (красн
 
 ## Итог
 
-Заполняется при закрытии.
+- `checks.ts`: строка `worfy-update` («worfy version», группа `worfy`, между GitHub и Harness) — только при
+  `enabled` snapshot-а Update; `CheckDeps.update` отдаёт snapshot (`appUpdate().snapshot()`) и версию сборки
+  (`bundledHarnessVersion() ?? app.getVersion()`). Порядок: сбой сборки с `missing` (только git, node, pnpm;
+  команды через `; `) → сбой сборки («update failed», последняя строка хвоста `build.log`, 16 KiB, «Show log»)
+  → Available update без `quiet` → `ok`. Строка `harness`: `outdated` без `sameVersion` — `fail` «Update»;
+  `sameVersion` — `warn` «Replace», с `harnessBehind` — `fail` «Update».
+- Правило открытия First run (Р9) — новое необязательное поле `Check.opensFirstRun: false`
+  (`src/shared/ipc/first-run.ts`): его ставят все строки `worfy-update` и `fail` строки `harness` при отставании;
+  `firstRun.startup` такие `fail` не считает. `not-installed` и `error` — без поля, как раньше.
+- Вне следа тикета (без них тикет не сделать): `src/shared/ipc/first-run.ts` (id, группа, действие
+  `update-log`, поле), `src/main/first-run/actions.ts` (`RunnableAction` без `update-log`),
+  `src/renderer/shell/FirstRunChecks.tsx` (группа `worfy`; «Show log» зовёт `update.showLog`, ошибка — alert),
+  Feature page `docs/features/onboarding.md`.
+- Решено без владельца: группа `worfy` стоит перед Harness; при нескольких недостающих инструментах — одна
+  строка «git, pnpm not found» и команды через `; `; сбой сборки показывается, пока следующая сборка не
+  сменит фазу, даже если вышел новый commit.
+- Снимки ревью (обе темы) — в scratchpad, в репозиторий не кладутся.
+- Ревью PR #1129, раунд 1: mark `first-run.json` пишет только `fail` без `opensFirstRun: false` (иначе
+  отстающий Harness в mark прятал бы его позже `not-installed`); строка `worfy-update`, которая не прочла
+  состояние Update (EACCES), тоже не открывает First run; `harnessBehind` считается, только когда его `from` —
+  установленный сейчас Harness (как в toolbar, Ticket 06); `docs/design/F-SPEC.md`, «First run», дополнен.

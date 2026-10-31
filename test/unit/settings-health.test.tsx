@@ -306,6 +306,33 @@ describe('Settings → Health: actions', () => {
     expect(isInactive(within(health).getByRole('button', { name: 'Check again' }))).toBe(false)
   })
 
+  // worfy-update ticket 08: the row of a failed Update build, in the group "worfy".
+  it('a failed Update shows "worfy version" red in the group "worfy"; "Show log" asks main for update.showLog, not for an action, and its error is an alert', async () => {
+    const failed = report()
+    failed.checks.push(
+      check('worfy-update', 'worfy', 'worfy version', { status: 'fail', detail: 'update failed', hint: 'pnpm exited with 1', actions: [{ id: 'update-log', label: 'Show log' }], opensFirstRun: false }),
+    )
+    handlers['firstRun.checks'] = () => ({ ok: true, value: failed })
+    handlers['update.showLog'] = () => ({ ok: true, value: undefined })
+    renderApp()
+    const health = await openHealth()
+    const row = rowOf(health, 'worfy-update')
+    expect(readRow(row)).toEqual({ id: 'worfy-update', name: 'worfy version', status: 'fail', chip: 'Failed', detail: 'update failed' })
+    expect(row.textContent).toContain('pnpm exited with 1')
+    expect(within(health).getByRole('region', { name: 'worfy' }).contains(row)).toBe(true)
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Show log' }))
+    await flush()
+    expect(callsOf('update.showLog')).toEqual([undefined])
+    expect(callsOf('firstRun.run')).toEqual([])
+    expect(within(health).queryByRole('alert')).toBeNull()
+
+    handlers['update.showLog'] = () => ({ ok: false, error: 'there is no build log yet: no Update was built' })
+    fireEvent.click(within(row).getByRole('button', { name: 'Show log' }))
+    await flush()
+    expect(within(health).getByRole('alert').textContent).toContain('there is no build log yet')
+  })
+
   it('without a Project the GitHub sign-in is a command to copy, as in First run', async () => {
     renderApp()
     const health = await openHealth()

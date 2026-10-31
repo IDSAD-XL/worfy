@@ -2,11 +2,11 @@
 // dialog (FirstRun.tsx) and Settings → Health (settings/HealthSection.tsx). The checks main runs
 // over this Machine, grouped, each with its status, what was found and what to do, and the buttons
 // of the actions; the look is docs/design/F-SPEC.md, "First run". main asks before each action in a
-// dialog with "Confirm"; this file only calls `firstRun.run` and shows what came back. Two actions
+// dialog with "Confirm"; this file only calls `firstRun.run` and shows what came back. Three actions
 // are its own: "Move…" opens the move form of the old Harness (src/renderer/harness/MigrationForm.tsx),
-// and a confirmed GitHub sign-in puts a Terminal Node on the active Project's Canvas with
-// `gh auth login` typed in. Without a Project there is no Canvas for it: the row shows the command
-// to copy instead.
+// "Show log" of "worfy version" asks main for `update.showLog`, and a confirmed GitHub sign-in puts
+// a Terminal Node on the active Project's Canvas with `gh auth login` typed in. Without a Project
+// there is no Canvas for it: the row shows the command to copy instead.
 //
 // The checks and whether one is running are the store's (first-run-store.ts); the action that is
 // running is kept here, outside React. So both places show the same thing, and a section that left
@@ -28,7 +28,7 @@ import { checkAgain, useFirstRun } from './first-run-store'
 /** The size of the Terminal Node the GitHub sign-in opens: the default of the Terminal Node type. */
 const TERMINAL_SIZE = { w: 560, h: 340 }
 // Windows has rows only on Windows (worfy-windows ticket 13); a group without rows is not shown.
-const GROUPS: readonly CheckGroup[] = ['Claude Code', 'Windows', 'Command-line tools', 'GitHub', 'Harness', 'qmd']
+const GROUPS: readonly CheckGroup[] = ['Claude Code', 'Windows', 'Command-line tools', 'GitHub', 'worfy', 'Harness', 'qmd']
 
 type ChipState = CheckStatus | 'running'
 const CHIP_LABEL: Record<ChipState, string> = { ok: 'OK', warn: 'Warning', fail: 'Failed', running: 'Running…' }
@@ -390,6 +390,12 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLaye
   const act = async (action: FirstRunAction): Promise<void> => {
     if (action === 'migration-form') {
       setMigrating(true)
+      return
+    }
+    // "Show log" of a failed Update build (worfy-update ticket 08): main opens build.log, no dialog.
+    if (action === 'update-log') {
+      const opened = await invoke('update.showLog')
+      setMessage(opened.ok ? null : { error: true, text: failureReason('update.showLog', opened.error) })
       return
     }
     if (useAction.getState().running !== null) return

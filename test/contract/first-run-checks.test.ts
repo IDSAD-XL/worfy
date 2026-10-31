@@ -11,7 +11,13 @@ import { FirstRunActions, type Confirmation } from '../../src/main/first-run/act
 import { askAccount, HARNESS_SCRIPT_HINTS, oldHarnessPresent, runChecks, runTool, type AccountQuery, type CheckDeps, type ProjectProfile } from '../../src/main/first-run/checks'
 import { HarnessInstaller } from '../../src/main/harness/install'
 import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
+import { UpdateService } from '../../src/main/ipc/update'
+import { updateGitHub } from '../../src/main/update/github'
+import { updateEnabled } from '../../src/main/update/stable-copy'
+import { emptyUpdateState } from '../../src/main/update/state'
 import type { Check, CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
+import type { HarnessStatus } from '../../src/shared/ipc/harness'
+import type { UpdateSnapshot } from '../../src/shared/ipc/update'
 import { NODE, nodeScript, OUT_OF_MEMORY, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 import { shellStub } from '../shell-stub'
@@ -339,7 +345,7 @@ describe('first-run checks', () => {
     expect(checkOf(report, 'claude-login').hint).toContain('Claude Code exited with code 1')
   })
 
-  it('the Harness: not installed fails with Install, an older version warns with Update, this build is ok', async () => {
+  it('the Harness: not installed fails with Install, an older version fails with Update (worfy-update ticket 08), this build is ok', async () => {
     tools(...ALL_TOOLS)
     const env = loginEnv()
     let report = await runChecks(deps(env))
@@ -350,7 +356,7 @@ describe('first-run checks', () => {
     writeFileSync(join(state, 'marketplace'), `${join(harnessHome, 'plugin')}\n`)
     writeFileSync(join(state, 'plugin-version'), '1.0.0+0000000\n')
     report = await runChecks(deps(env))
-    expect(checkOf(report, 'harness')).toMatchObject({ status: 'warn', actions: [{ id: 'harness-install', label: 'Update' }] })
+    expect(checkOf(report, 'harness')).toMatchObject({ status: 'fail', actions: [{ id: 'harness-install', label: 'Update' }], opensFirstRun: false })
     expect(checkOf(report, 'harness').detail).toContain(BUNDLED_HARNESS)
 
     writeFileSync(join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json'), `{ "name": "worfy", "version": "${BUNDLED_HARNESS}" }\n`)
@@ -669,6 +675,121 @@ describe('first-run checks', () => {
     // Not `qmd --version` on Windows: qmd.ts does not find a qmd.cmd yet (itWithQmd above, ticket 15).
     const qmd = WINDOWS ? [] : ['qmd --version']
     expect(calls()).toEqual(expect.arrayContaining(['claude --version', 'claude plugin list --json', 'gh auth status', 'node --version', 'jq --version', 'git --version', ...qmd]))
+  })
+})
+
+// worfy-update ticket 08: the row "worfy version" of the group "worfy", and the Harness behind this
+// build as a `fail` (spec, "Texts", "Health"; R9). The Harness state is given as the installer would
+// answer it: no Claude Code runs for these rows.
+describe('the worfy version row and the Harness behind this build (worfy-update ticket 08)', () => {
+  const VERSION = '0.4.0+1111111'
+  const NEWER = '0.4.0+2222222'
+  const snapshot = (state: Partial<UpdateSnapshot> = {}): UpdateSnapshot => ({ ...emptyUpdateState(), enabled: true, checking: false, restartWhenIdle: false, ...state })
+  const withUpdate = (state: Partial<UpdateSnapshot> = {}, harnessState: HarnessStatus['state'] = { kind: 'installed', version: BUNDLED_HARNESS, enabled: true }): CheckDeps =>
+    deps(loginEnv(), {
+      update: () => ({ snapshot: snapshot(state), version: VERSION }),
+      harness: () => Promise.resolve({ state: harnessState, bundledVersion: BUNDLED_HARNESS, canInstall: true, pluginDir: join(harnessHome, 'plugin'), dependencies: [] }),
+    })
+  const updateRow = async (state: Partial<UpdateSnapshot>): Promise<Check> => checkOf(await runChecks(withUpdate(state)), 'worfy-update')
+
+  it('without an Update: "worfy version" is OK with the running version, in the group "worfy" before the Harness', async () => {
+    const report = await runChecks(withUpdate())
+    expect(checkOf(report, 'worfy-update')).toEqual({ id: 'worfy-update', group: 'worfy', title: 'worfy version', status: 'ok', detail: `${VERSION}, up to date`, hint: '', command: null, actions: [], opensFirstRun: false })
+    const ids = report.checks.map((check) => check.id)
+    expect(ids.indexOf('worfy-update')).toBe(ids.indexOf('harness') - 1)
+  })
+
+  it('an Available update fails with its version; a quiet one (rolled back from) is OK', async () => {
+    expect(await updateRow({ available: { sha: '2222222', version: NEWER, quiet: false } })).toMatchObject({
+      status: 'fail',
+      detail: `${NEWER} available`,
+      hint: 'Update worfy from the toolbar or Settings → General',
+      command: null,
+      actions: [],
+    })
+    expect(await updateRow({ available: { sha: '2222222', version: NEWER, quiet: true } })).toMatchObject({ status: 'ok', detail: `${VERSION}, up to date` })
+  })
+
+  it('a failed build fails with the last line of build.log and "Show log"', async () => {
+    const buildLog = join(root, 'build.log')
+    writeFileSync(buildLog, `worfy Update ${NEWER} (2222222)\n\n$ pnpm install --frozen-lockfile\nERR_PNPM_OUTDATED_LOCKFILE\npnpm exited with 1\n\n`)
+    const row = await updateRow({ available: { sha: '2222222', version: NEWER, quiet: false }, build: { phase: 'failed', sha: '2222222', version: NEWER, log: buildLog } })
+    expect(row).toMatchObject({ status: 'fail', detail: 'update failed', hint: 'pnpm exited with 1', command: null, actions: [{ id: 'update-log', label: 'Show log' }] })
+    // A log that is gone: the row still fails and still offers the button, whose own error then says so.
+    expect(await updateRow({ build: { phase: 'failed', log: join(root, 'gone.log') } })).toMatchObject({ status: 'fail', detail: 'update failed', hint: '', actions: [{ id: 'update-log' }] })
+  })
+
+  it('tools the build did not find: each named, with its install command', async () => {
+    expect(await updateRow({ build: { phase: 'failed', missing: ['pnpm'] } })).toMatchObject({
+      status: 'fail',
+      detail: 'pnpm not found',
+      hint: 'Updates need git, node and pnpm',
+      command: 'npm install -g pnpm',
+      actions: [],
+    })
+    const two = await updateRow({ build: { phase: 'failed', missing: ['git', 'pnpm'] } })
+    expect(two).toMatchObject({ status: 'fail', detail: 'git, pnpm not found', command: 'brew install git; npm install -g pnpm' })
+    expect((await updateRow({ build: { phase: 'failed', missing: ['node'] } })).command).toBe('brew install node')
+  })
+
+  // Review of PR #1129: a state file that does not read (EACCES) fails the row, which still does not open First run.
+  it('an Update state that cannot be read: "worfy version" fails with the error and does not open First run; the Harness row goes by the installer', async () => {
+    const denied = Object.assign(new Error(`EACCES: permission denied, open '${join(root, 'update', 'state.json')}'`), { code: 'EACCES' })
+    const report = await runChecks(
+      deps(loginEnv(), {
+        update: () => {
+          throw denied
+        },
+        harness: () => Promise.resolve({ state: { kind: 'installed', version: BUNDLED_HARNESS, enabled: true }, bundledVersion: BUNDLED_HARNESS, canInstall: true, pluginDir: join(harnessHome, 'plugin'), dependencies: [] }),
+      }),
+    )
+    expect(checkOf(report, 'worfy-update')).toMatchObject({ status: 'fail', detail: 'the check failed', hint: denied.message, opensFirstRun: false })
+    expect(checkOf(report, 'harness')).toMatchObject({ status: 'ok', detail: BUNDLED_HARNESS })
+  })
+
+  it('a dev build without WORFY_UPDATE=1 has no "worfy version" row; with it, the row is there', async () => {
+    const service = (env: Record<string, string>) =>
+      new UpdateService({
+        enabled: updateEnabled({ packaged: false, execPath: '/Users/dev/worfy/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron', env }),
+        running: () => ({ commit: '1111111', version: VERSION }),
+        // Never asked: no check runs in these cases.
+        client: updateGitHub({ env: { WORFY_UPDATE_API: 'http://127.0.0.1:9' } }),
+        stateFile: () => join(root, 'update', 'state.json'),
+        broadcast: () => undefined,
+      })
+    const ids = async (env: Record<string, string>) => (await runChecks(deps(loginEnv(), { update: () => ({ snapshot: service(env).snapshot(), version: VERSION }) }))).checks.map((check) => check.id)
+    expect(await ids({})).not.toContain('worfy-update')
+    expect(await ids({ WORFY_UPDATE: '1' })).toContain('worfy-update')
+    expect((await runChecks(deps(loginEnv()))).checks.map((check) => check.id)).not.toContain('worfy-update')
+  })
+
+  it('the Harness of an older version fails with "Update"; the same version from another commit warns with "Replace" until GitHub says it is behind', async () => {
+    const harnessRow = async (state: HarnessStatus['state'], update: Partial<UpdateSnapshot> = {}) => checkOf(await runChecks(withUpdate(update, state)), 'harness')
+    expect(await harnessRow({ kind: 'outdated', from: '1.1.0+0000000', to: BUNDLED_HARNESS, sameVersion: false })).toMatchObject({
+      status: 'fail',
+      detail: `1.1.0+0000000 → ${BUNDLED_HARNESS}`,
+      hint: 'Update it to the Harness of this build',
+      actions: [{ id: 'harness-install', label: 'Update' }],
+      opensFirstRun: false,
+    })
+    const same = { kind: 'outdated', from: '1.2.0+fffffff', to: BUNDLED_HARNESS, sameVersion: true } as const
+    const replace = await harnessRow(same)
+    expect(replace).toMatchObject({ status: 'warn', detail: `1.2.0+fffffff, this build ${BUNDLED_HARNESS}`, actions: [{ id: 'harness-install', label: 'Replace' }] })
+    expect(replace.opensFirstRun).toBeUndefined()
+    expect(await harnessRow(same, { harnessBehind: { from: '1.2.0+fffffff', to: BUNDLED_HARNESS } })).toMatchObject({
+      status: 'fail',
+      detail: `1.2.0+fffffff → ${BUNDLED_HARNESS}`,
+      hint: 'Update it to the Harness of this build',
+      actions: [{ id: 'harness-install', label: 'Update' }],
+      opensFirstRun: false,
+    })
+    // Review of PR #1129: GitHub's answer is about another installed Harness than this one (the
+    // toolbar of ticket 06 reads it so too): Replace, as without it.
+    expect(await harnessRow(same, { harnessBehind: { from: '1.2.0+eeeeeee', to: BUNDLED_HARNESS } })).toMatchObject({ status: 'warn', actions: [{ id: 'harness-install', label: 'Replace' }] })
+    // Not installed fails as before, and opens First run.
+    const missing = await harnessRow({ kind: 'not-installed' })
+    expect(missing.status).toBe('fail')
+    expect(missing.opensFirstRun).toBeUndefined()
   })
 })
 
@@ -1032,10 +1153,10 @@ describe('the first-run screen at start (src/main/ipc/first-run.ts)', () => {
   })
 
   /**
-   * The module's handlers, with the checks answering one Harness row of `harness()` status and the
-   * Harness install failing with "no network".
+   * The module's handlers, with the checks answering one Harness row of `harness()` status (or the
+   * rows of `others()`, when given) and the Harness install failing with "no network".
    */
-  async function handlers(harness: () => CheckStatus): Promise<{ startup: () => Promise<unknown>; run: (input: unknown) => Promise<unknown> }> {
+  async function handlers(harness: () => CheckStatus, others?: () => Check[]): Promise<{ startup: () => Promise<unknown>; run: (input: unknown) => Promise<unknown>; close: () => Promise<unknown> }> {
     vi.doMock('electron', () => ({
       app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined, quit: () => undefined },
       BrowserWindow: { getAllWindows: () => [], fromWebContents: () => null },
@@ -1055,19 +1176,19 @@ describe('the first-run screen at start (src/main/ipc/first-run.ts)', () => {
       ...(await original<object>()),
       runChecks: (): Promise<FirstRunReport> =>
         Promise.resolve({
-          checks: [{ id: 'harness', group: 'Harness', title: 'Harness', status: harness(), detail: '', hint: '', command: null, actions: [] }],
+          checks: others?.() ?? [{ id: 'harness', group: 'Harness', title: 'Harness', status: harness(), detail: '', hint: '', command: null, actions: [] }],
           checkedAt: new Date(0).toISOString(),
         }),
     }))
     const module = (await import('../../src/main/ipc/first-run')).default as unknown as { channel: unknown; handle: (input: unknown, context: unknown) => Promise<unknown> }[]
     // The channels of this module load: the modules were loaded again after vi.resetModules().
-    const { firstRunRun, firstRunStartup } = await import('../../src/shared/ipc/first-run')
+    const { firstRunClose, firstRunRun, firstRunStartup } = await import('../../src/shared/ipc/first-run')
     const handle = (channel: unknown) => {
       const found = module.find((handler) => handler.channel === channel)
       if (found === undefined) throw new Error('no handler of the channel')
       return (input?: unknown) => found.handle(input, { event: { sender: {} } })
     }
-    return { startup: handle(firstRunStartup), run: handle(firstRunRun) }
+    return { startup: handle(firstRunStartup), run: handle(firstRunRun), close: handle(firstRunClose) }
   }
 
   // worfy-onboarding ticket 08 (decision 8): the page of the three concepts is for a first start of
@@ -1102,6 +1223,55 @@ describe('the first-run screen at start (src/main/ipc/first-run.ts)', () => {
     const fixed = (await app.startup()) as { show: boolean; report: FirstRunReport }
     expect(fixed.show).toBe(false)
     expect(checkOf(fixed.report, 'harness')).toMatchObject({ status: 'ok', hint: '' })
+  })
+
+  // worfy-update ticket 08, spec R9: the Update signals are a toast at the start, not this dialog.
+  it('a new fail of "worfy version" or of the Harness behind this build does not open the screen; a new fail of git does', async () => {
+    writeFileSync(join(data, 'first-run.json'), `${JSON.stringify({ closedAt: new Date(0).toISOString(), failing: [] })}\n`)
+    // The rows as checks.ts makes them (the cases above): a failed "worfy version" and the Harness behind this build.
+    const status = (state: HarnessStatus['state']): Promise<HarnessStatus> => Promise.resolve({ state, bundledVersion: BUNDLED_HARNESS, canInstall: true, pluginDir: join(harnessHome, 'plugin'), dependencies: [] })
+    const real = await runChecks(
+      deps(loginEnv(), {
+        update: () => ({ snapshot: { ...emptyUpdateState(), enabled: true, checking: false, restartWhenIdle: false, available: { sha: '2222222', version: '0.4.0+2222222', quiet: false } }, version: '0.4.0+1111111' }),
+        harness: () => status({ kind: 'outdated', from: '1.1.0+0000000', to: BUNDLED_HARNESS, sameVersion: false }),
+      }),
+    )
+    const update = checkOf(real, 'worfy-update')
+    const behind = checkOf(real, 'harness')
+    expect([update.status, behind.status]).toEqual(['fail', 'fail'])
+    let rows: Check[] = [update, behind]
+    const app = await handlers(() => 'ok', () => rows)
+    expect(await app.startup()).toMatchObject({ show: false })
+
+    rows = [update, behind, { id: 'git', group: 'Command-line tools', title: 'git', status: 'fail', detail: 'not found', hint: '', command: null, actions: [] }]
+    expect(await app.startup()).toMatchObject({ show: true })
+  })
+
+  // Review of PR #1129: the mark keeps only the fails that open the screen, so a lagging Harness
+  // closed with the dialog does not hide its later not-installed or error from the start.
+  it('closed while the Harness lags: the mark leaves it out, and the Harness not installed later opens the screen', async () => {
+    const status = (state: HarnessStatus['state']): Promise<HarnessStatus> => Promise.resolve({ state, bundledVersion: BUNDLED_HARNESS, canInstall: true, pluginDir: join(harnessHome, 'plugin'), dependencies: [] })
+    const rowsWith = async (state: HarnessStatus['state']): Promise<Check[]> => {
+      const real = await runChecks(
+        deps(loginEnv(), {
+          update: () => ({ snapshot: { ...emptyUpdateState(), enabled: true, checking: false, restartWhenIdle: false, available: { sha: '2222222', version: '0.4.0+2222222', quiet: false } }, version: '0.4.0+1111111' }),
+          harness: () => status(state),
+        }),
+      )
+      return [checkOf(real, 'worfy-update'), checkOf(real, 'harness')]
+    }
+    const git: Check = { id: 'git', group: 'Command-line tools', title: 'git', status: 'fail', detail: 'not found', hint: '', command: null, actions: [] }
+    writeFileSync(join(data, 'first-run.json'), `${JSON.stringify({ closedAt: new Date(0).toISOString(), failing: [] })}\n`)
+    let rows: Check[] = [...(await rowsWith({ kind: 'outdated', from: '1.1.0+0000000', to: BUNDLED_HARNESS, sameVersion: false })), git]
+    const app = await handlers(() => 'ok', () => rows)
+    // git opens the screen; the user closes it with the Harness behind and worfy version failing.
+    expect(await app.startup()).toMatchObject({ show: true })
+    await app.close()
+    expect(JSON.parse(readFileSync(join(data, 'first-run.json'), 'utf8'))).toMatchObject({ failing: ['git'] })
+
+    rows = [...(await rowsWith({ kind: 'not-installed' })), git]
+    expect(checkOf({ checks: rows, checkedAt: '' }, 'harness')).toMatchObject({ status: 'fail', detail: 'not installed' })
+    expect(await app.startup()).toMatchObject({ show: true })
   })
 })
 

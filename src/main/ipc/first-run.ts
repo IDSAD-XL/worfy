@@ -7,7 +7,8 @@
 // that the screen was closed once is worfy's own state (ADR-0005): <data folder>/first-run.json,
 // with the checks that failed at that moment. At start the screen opens by itself when there is no
 // mark, or when a check fails now that did not fail then (decided without the owner, F-SPEC
-// "First run"). WORFY_FIRST_RUN_AUTO=0 keeps it from opening by itself (e2e runs other than its own);
+// "First run"); a row marked `opensFirstRun: false` (worfy version, the Harness behind this build;
+// worfy-update spec R9) does not count. WORFY_FIRST_RUN_AUTO=0 keeps it from opening by itself (e2e runs other than its own);
 // the command palette opens it always.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -23,12 +24,14 @@ import { FirstRunActions, type Confirmation } from '../first-run/actions'
 import { ACCOUNT_TIMEOUT_MS, askAccount, ghOverride, oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
 import { noteFirstRunReport } from '../getting-started/progress'
 import { gettingStartedState } from '../getting-started/state'
+import { bundledHarnessVersion } from '../harness/bundled'
 import { harnessScriptEnv, recaptureForCheckAgain } from '../harness/script-env'
 import { bridgeFile } from '../harness/status-line'
 import { projectStore } from '../projects/store'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { profileRunner } from '../workflow/profile'
 import { appInstaller } from './harness'
+import { appUpdate } from './update'
 import { workflowHub } from './workflow'
 import { planOptions } from './harness-migration'
 import { defineHandler, type HandlerModule } from './index'
@@ -116,6 +119,8 @@ async function checks(): Promise<FirstRunReport> {
     homes: { harnessHome: harnessHome(), claudeHome: claudeHome() },
     projects: () => projectProfiles(env),
     limitsBridge: limitsBridge(),
+    // The build version that runs, as the Update check names it (src/main/ipc/update.ts, appRunning).
+    update: () => ({ snapshot: appUpdate().snapshot(), version: bundledHarnessVersion() ?? app.getVersion() }),
   })
 }
 
@@ -212,9 +217,11 @@ export default [
     const mark = readMark()
     if (mark === null) return { show: true, firstTime: newUser(), report: null }
     // A failed action counts here only while its row's check does not pass (FirstRunActions.report):
-    // a cause fixed outside worfy does not open the screen.
+    // a cause fixed outside worfy does not open the screen. "worfy version" and the Harness behind
+    // this build (opensFirstRun: false) do not either: their signal at the start is a toast
+    // (worfy-update spec R9).
     const report = remember(await appActions().report())
-    const fresh = report.checks.some((check) => check.status === 'fail' && !mark.failing.includes(check.id))
+    const fresh = report.checks.some((check) => check.status === 'fail' && check.opensFirstRun !== false && !mark.failing.includes(check.id))
     return { show: fresh, firstTime: false, report }
   }),
   // "Check again", and Settings → Health each time it shows: the login shell is captured again
@@ -238,6 +245,8 @@ export default [
     }
   }),
   defineHandler(firstRunClose, () => {
-    writeMark({ closedAt: new Date().toISOString(), failing: (lastReport?.checks ?? []).filter((check) => check.status === 'fail').map((check) => check.id) })
+    // Only the fails that open the screen: a lagging Harness kept here would hide its later
+    // not-installed or error from the start (review of PR #1129).
+    writeMark({ closedAt: new Date().toISOString(), failing: (lastReport?.checks ?? []).filter((check) => check.status === 'fail' && check.opensFirstRun !== false).map((check) => check.id) })
   }),
 ] satisfies HandlerModule
