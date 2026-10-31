@@ -203,6 +203,9 @@ describe('the Topics', () => {
     under.open = true
     const flow = within(under).getByRole('group', { name: strings.en.dataFlow })
     expect(under.querySelector('figure')).toBe(flow)
+    // Its own test id: the Topic's diagram stays the one `guide-scene` of the Topic.
+    expect(within(flow).getByTestId('guide-flow')).toBeTruthy()
+    expect(within(dialog).getAllByTestId('guide-scene')).toHaveLength(1)
     const description = document.getElementById(flow.getAttribute('aria-describedby') ?? '')
     expect(description?.textContent).toBe(test.underTheHood.flow?.description)
     expect(within(flow).getByText(test.underTheHood.flow?.labels.window ?? '-')).toBeTruthy()
