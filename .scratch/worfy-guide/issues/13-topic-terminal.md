@@ -1,7 +1,7 @@
 # 13 — Topic Terminal
 
 Type: task
-Status: open
+Status: claimed 2026-10-31T21:42Z
 Blocked by: 10
 Source: [spec.md](../spec.md), Q5, Q6, Q17, Q18, Q19
 

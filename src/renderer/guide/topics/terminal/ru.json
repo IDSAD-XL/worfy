@@ -1,0 +1,97 @@
+{
+  "title": "Terminal",
+  "summary": [
+    "Terminal — Node на Canvas с вашим собственным shell внутри; агенты им не пользуются. В Terminal-е с zsh Terminal AI, помощь модели Claude, предлагает текст для вашей строки ввода."
+  ],
+  "scene": {
+    "description": "Terminal в worfy. На Canvas лежит Node Terminal-а. Его shell запускается в папке Project-а; ваши клавиши идут в shell, а его вывод возвращается в Node. Другой экран, окно или Linked machine, открывает тот же shell. В zsh shell отправляет набранную строку в Terminal AI и получает обратно серый текст; Fix в шапке Node-а тоже обращается к Terminal AI. Terminal AI спрашивает Claude Code, тот сообщает Limits, а Limits могут поставить Terminal AI на паузу.",
+    "labels": {
+      "canvas": "Canvas",
+      "canvasNote": "New terminal в его меню",
+      "terminal": "Terminal",
+      "terminalNote": "ваш shell; агенты им не пользуются",
+      "other": "Другой экран",
+      "otherNote": "окно или Linked machine",
+      "folder": "Папка Project-а",
+      "folderNote": "корень Project-а",
+      "shell": "Shell",
+      "shellNote": "login shell; на Windows PowerShell",
+      "terminalAi": "Terminal AI",
+      "terminalAiNote": "только zsh; команд не запускает",
+      "limits": "Limits",
+      "limitsNote": "окна на 5 часов и 7 дней",
+      "claude": "Claude Code",
+      "claudeNote": "один ход на запрос, без tools",
+      "keys": "ваши клавиши",
+      "output": "вывод",
+      "startsIn": "стартует в",
+      "sameShell": "тот же shell",
+      "typedLine": "набранная строка",
+      "greyText": "серый текст",
+      "fix": "Fix, ⌘I",
+      "asks": "спрашивает",
+      "reports": "сообщает Limits",
+      "pauses": "может поставить на паузу",
+      "step1": "New terminal в меню Canvas создаёт Node. Его shell запускается в папке Project-а: на macOS ваш login shell, на Windows PowerShell или Git Bash.",
+      "step2": "Shell продолжает работать, когда Node уходит из виду или окно перезагружается, и следующий вид перерисовывает его последний вывод. Закрытие Node-а завершает shell.",
+      "step3": "Другие окна и Linked machine с доступом на запись показывают тот же shell и могут в нём печатать. Размер задаёт экран, который последним печатал или кликал.",
+      "step4": "В Terminal-е с zsh Terminal AI показывает серый текст после курсора — из вашей истории или от Claude. → принимает его; Enter остаётся за вами.",
+      "step5": "После упавшей команды Fix в шапке Node-а просит у Claude исправленную команду и вставляет её в строку. У порога Limits Terminal AI встаёт на паузу до сброса окна."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "Поток данных Terminal-а. В renderer: Node Terminal-а. В main process: TerminalRegistry, ReplayBuffer, headless-экран, ShellLink и AssistService. Процессы: shell в node-pty и Claude Code. Node открывает shell через terminal.open и шлёт клавиши по terminal.input; registry пишет их в shell. Каждый кусок вывода идёт в ReplayBuffer, в headless-экран и в Node по terminal.output. Headless-экран отвечает на вопросы программы к shell. zsh отправляет ask через Unix socket в ShellLink, тот передаёт его в AssistService; сервис просит у Claude Code один ход, а ShellLink отправляет show или insert обратно в shell. Fix начинается в Node-е с terminalAi.fix.run.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "processes": "ПРОЦЕССЫ",
+        "node": "Node Terminal-а",
+        "nodeNote": "xterm.js, 5000 строк",
+        "replay": "ReplayBuffer",
+        "replayNote": "последние 256 КБ, с размерами",
+        "registry": "TerminalRegistry",
+        "registryNote": "запуск, подписчики, размер",
+        "screen": "Headless-экран",
+        "screenNote": "в worker thread",
+        "shellLink": "ShellLink",
+        "shellLinkNote": "ведёт ask к его функции",
+        "assist": "AssistService",
+        "assistNote": "один запрос в работе",
+        "shell": "Shell",
+        "shellNote": "в node-pty",
+        "claude": "Claude Code",
+        "claudeNote": "запасной процесс, один ход",
+        "open": "terminal.open, input",
+        "output": "terminal.output",
+        "keys": "пишет",
+        "chunks": "куски вывода",
+        "appends": "дописывает",
+        "posts": "передаёт",
+        "answers": "отвечает один раз",
+        "ask": "ask, Unix socket",
+        "show": "show, insert",
+        "request": "запрос",
+        "turn": "один ход",
+        "fix": "terminalAi.fix.run"
+      }
+    },
+    "text": [
+      "Shell принадлежит main, а вид его только рисует: поэтому shell переживает свой вид, и несколько экранов делят один shell. Renderer называет Project и Node, но никогда не папку или программу.",
+      "В zsh скрипт worfy отмечает каждый prompt и каждую команду последовательностями OSC 633 с nonce, которого программы не знают. Terminal AI — не Session: у его процесса Claude Code нет tools и нет транскрипта."
+    ],
+    "files": {
+      "src/main/terminal/pty.ts": "TerminalRegistry: запуск, подписчики, размер, закрытие",
+      "src/main/ipc/terminal.ts": "Обработчики и то, что завершает shell",
+      "src/main/terminal/cursor-answers.ts": "Ответы main на вопросы программы",
+      "src/renderer/canvas/nodes/TerminalNode.tsx": "Node: xterm.js, статус, шапка",
+      "src/main/terminal-ai/assist.ts": "Процесс Terminal AI, очередь и отказы",
+      "src/main/terminal-ai/shell-link.ts": "Ведёт ask shell-а к его функции"
+    },
+    "limits": [
+      "Terminal хранит последние 256 КБ вывода для следующего вида, а вид держит 5000 строк scrollback.",
+      "Terminal AI сдаётся через 5 с на Suggestion, 8 с на Next command и 30 с на Command request и Fix.",
+      "Suggestion и Next command встают на паузу выше 80 % окна на 5 часов или при предупреждении Limits; Command request и Fix — только когда Limits отказывают."
+    ]
+  }
+}

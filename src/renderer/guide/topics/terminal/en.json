@@ -1,0 +1,97 @@
+{
+  "title": "Terminal",
+  "summary": [
+    "A Terminal is a Node on the Canvas with your own shell in it; agents do not use it. In a zsh Terminal, Terminal AI, help from a Claude model, proposes text for your input line."
+  ],
+  "scene": {
+    "description": "The Terminal in worfy. On the Canvas lies a Terminal Node. Its shell starts in the Project folder; your keys go to the shell, and its output comes back to the Node. Another screen, a window or a Linked machine, opens the same shell. In zsh, the shell sends the typed line to Terminal AI and gets grey text back; Fix in the Node's header asks Terminal AI too. Terminal AI asks Claude Code, which reports the Limits, and the Limits may pause Terminal AI.",
+    "labels": {
+      "canvas": "Canvas",
+      "canvasNote": "New terminal in its menu",
+      "terminal": "Terminal",
+      "terminalNote": "your shell; agents do not use it",
+      "other": "Another screen",
+      "otherNote": "a window or a Linked machine",
+      "folder": "Project folder",
+      "folderNote": "the root of the Project",
+      "shell": "Shell",
+      "shellNote": "login shell; PowerShell on Windows",
+      "terminalAi": "Terminal AI",
+      "terminalAiNote": "zsh only; never runs a command",
+      "limits": "Limits",
+      "limitsNote": "5-hour and 7-day windows",
+      "claude": "Claude Code",
+      "claudeNote": "one turn per request, no tools",
+      "keys": "your keys",
+      "output": "output",
+      "startsIn": "starts in",
+      "sameShell": "the same shell",
+      "typedLine": "the typed line",
+      "greyText": "grey text",
+      "fix": "Fix, ⌘I",
+      "asks": "asks",
+      "reports": "reports the Limits",
+      "pauses": "may pause it",
+      "step1": "New terminal in the Canvas menu creates the Node. Its shell starts in the Project folder: your login shell on macOS, PowerShell or Git Bash on Windows.",
+      "step2": "The shell keeps running when the Node scrolls out of sight or the window reloads, and the next view redraws its last output. Closing the Node ends the shell.",
+      "step3": "Other windows, and a Linked machine with write access, show the same shell and may type in it. The screen that typed or clicked last sets its size.",
+      "step4": "In a zsh Terminal, Terminal AI shows grey text after the cursor, from your history or from Claude. → takes it; Enter stays with you.",
+      "step5": "After a failed command, Fix in the Node's header asks Claude for a corrected command and puts it into the line. Near the Limits, Terminal AI pauses until the window resets."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "The data flow of a Terminal. In the renderer: the Terminal Node. In the main process: the TerminalRegistry, the ReplayBuffer, the headless screen, ShellLink and AssistService. The processes: the shell in node-pty and Claude Code. The Node opens the shell with terminal.open and sends keys on terminal.input; the registry writes them to the shell. Each chunk of output goes to the ReplayBuffer, to the headless screen and to the Node on terminal.output. The headless screen answers a program's questions to the shell. A zsh sends an ask over a Unix socket to ShellLink, which passes it to AssistService; the service asks Claude Code for one turn, and ShellLink sends show or insert back to the shell. Fix starts at the Node with terminalAi.fix.run.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "processes": "PROCESSES",
+        "node": "Terminal Node",
+        "nodeNote": "xterm.js, 5000 lines",
+        "replay": "ReplayBuffer",
+        "replayNote": "last 256 KB, with sizes",
+        "registry": "TerminalRegistry",
+        "registryNote": "start, subscribers, size",
+        "screen": "Headless screen",
+        "screenNote": "in a worker thread",
+        "shellLink": "ShellLink",
+        "shellLinkNote": "routes an ask to its function",
+        "assist": "AssistService",
+        "assistNote": "one request in flight",
+        "shell": "Shell",
+        "shellNote": "in node-pty",
+        "claude": "Claude Code",
+        "claudeNote": "spare process, one turn",
+        "open": "terminal.open, input",
+        "output": "terminal.output",
+        "keys": "writes",
+        "chunks": "chunks",
+        "appends": "appends",
+        "posts": "posts",
+        "answers": "answers once",
+        "ask": "ask, Unix socket",
+        "show": "show, insert",
+        "request": "request",
+        "turn": "one turn",
+        "fix": "terminalAi.fix.run"
+      }
+    },
+    "text": [
+      "main owns each shell and a view only draws it, so a shell outlives its view and several screens share one. The renderer names a Project and a Node, never a folder or a program.",
+      "In zsh, worfy's script marks each prompt and command with OSC 633 sequences and a nonce that programs do not know. Terminal AI is not a Session: its Claude Code process has no tools and no transcript."
+    ],
+    "files": {
+      "src/main/terminal/pty.ts": "TerminalRegistry: start, subscribers, size, close",
+      "src/main/ipc/terminal.ts": "The handlers, and what ends a shell",
+      "src/main/terminal/cursor-answers.ts": "main's answers to a program's questions",
+      "src/renderer/canvas/nodes/TerminalNode.tsx": "The Node: xterm.js, status, header",
+      "src/main/terminal-ai/assist.ts": "Terminal AI's process, queue and refusals",
+      "src/main/terminal-ai/shell-link.ts": "Routes a shell's ask to its function"
+    },
+    "limits": [
+      "A Terminal keeps the last 256 KB of output for the next view, and a view keeps 5000 lines of scrollback.",
+      "Terminal AI gives up after 5 s for a Suggestion, 8 s for Next command and 30 s for Command request and Fix.",
+      "Suggestion and Next command pause above 80 % of the 5-hour window or on a Limits warning; Command request and Fix only when the Limits reject."
+    ]
+  }
+}

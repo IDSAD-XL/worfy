@@ -1,0 +1,11 @@
+{
+  "sources": [{ "page": "docs/features/terminal.md", "sha": "a36324a0" }],
+  "files": [
+    "src/main/terminal/pty.ts",
+    "src/main/ipc/terminal.ts",
+    "src/main/terminal/cursor-answers.ts",
+    "src/renderer/canvas/nodes/TerminalNode.tsx",
+    "src/main/terminal-ai/assist.ts",
+    "src/main/terminal-ai/shell-link.ts"
+  ]
+}
