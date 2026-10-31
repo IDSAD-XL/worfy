@@ -295,6 +295,9 @@ describe('palette commands', () => {
       expect(row).toMatchObject({ group: 'View', title: 'Guide: How the Guide works', queryOnly: true })
       expect(forQuery(buildCommands(context()), '').some((each) => each.id === 'guide:skeleton')).toBe(false)
       expect(rankItems(buildCommands(context()), 'how the guide works')[0]?.id).toBe('guide:skeleton')
+      // Every Guide row yields to a command matched the same way (search-index.ts): "canvas" finds
+      // Switch to Canvas before a Topic named Canvas.
+      for (const each of rows) expect(each.yields, each.id).toBe(true)
       expect(await row!.run()).toBeUndefined()
       expect(useGuide.getState()).toMatchObject({ open: true, topic: 'skeleton' })
     })
