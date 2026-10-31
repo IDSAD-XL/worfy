@@ -262,8 +262,11 @@ test('Getting started: the panel in the top right corner, the demo created, the 
     const find = session.getByTestId('session-find')
     await expect(find).toBeVisible()
     expect(await hitsAtCentre(window, inSession('session-find'))).toBe(true)
-    // The toast of Skip, still shown, moves below the panel there too (toasts are placed again every 200 ms).
+    // The toast of Skip moves below the panel there too (toasts are placed again every 200 ms). It hides itself
+    // after 4 s and creating the demo can take longer, so it is shown afresh and held under the pointer.
+    await skipAndReopen(window)
     const skipped = window.getByTestId('toasts').getByText(SKIPPED)
+    await skipped.hover()
     await expect
       .poll(async () => {
         const [toast, panel] = [await skipped.boundingBox(), await sectionOf(window).boundingBox()]
