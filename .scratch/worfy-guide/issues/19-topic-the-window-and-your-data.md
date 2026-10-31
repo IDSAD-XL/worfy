@@ -74,9 +74,9 @@ Shortcuts (кроме ⌘K и Settings… ⌘,), Theme (одна фраза), ha
 | Системное уведомление «when worfy is not in front»; шаг 4: пока ни одно окно worfy не в фокусе | `n.md:3-4`, `:26-27`, `src/main/notify.ts:4-5` |
 | Связь Session → уведомление «finished or needs you»; шаг 4: Session закончила ход или ждёт ответа | `n.md:13-16`, `src/main/notify.ts:7-12` |
 | Связь Ticket → уведомление «waits for you» | `n.md:17`, `:30-31`, `src/main/workflow/waits-notify.ts:1-8` |
-| Область «ON THIS MACHINE»: папка данных, диагностика, уведомление | `s.md:12`, `:60`, `:304-305`, `n.md:81` |
-| «Diagnostics: a failed start, ended processes»; шаг 5: окно называет упавший шаг и что попробовать | `s.md:3-5`, `:191-196`, `:205-206`, `src/main/startup-failure.ts:27`, `:37-53` |
-| Связь диагностика → папка данных «logs/»; шаг 5: завершившийся процесс оставляет строку в logs/ | `s.md:155`, `:233-234`, `src/main/diagnostics/process-gone.ts:4`, `:36-38` |
+| Область «OUTSIDE THE WINDOW» («ВНЕ ОКНА»): папка данных, диагностика (окно неудачного запуска — отдельное окно с ошибкой), системное уведомление — баннер операционной системы. Claude home тоже вне окна, но стоит под своей подписью «READ WHERE THEY LIE» | `s.md:12`, `:193`, `:205`, `n.md:3-4` |
+| «Diagnostics: a failed start, ended processes»; шаг 5: окно и stderr называют упавший шаг и что попробовать | `s.md:3-5`, `:191-196`, `:205-206`, `:215`, `src/main/startup-failure.ts:27`, `:37-53` |
+| Связь диагностика → папка данных «logs/: ended processes»; шаг 5: только завершившийся процесс renderer или вспомогательный процесс оставляет строку в logs/ | `s.md:155`, `:194`, `:233-234`, `src/main/diagnostics/process-gone.ts:4`, `:36-38` |
 | UTH Flow: окно Settings «one file per section» | `a.md:368-369` |
 | UTH Flow: `appSettings.set` из окна Settings в хранилище | `src/renderer/settings/useAppSettings.ts:56-60`, `src/renderer/settings/GeneralSection.tsx:38`, `src/shared/ipc/app-settings.ts:15` |
 | UTH Flow: хранилище «writes only a real change» | `a.md:346`, `src/main/settings/store.ts:266` |
@@ -90,7 +90,7 @@ Shortcuts (кроме ⌘K и Settings… ⌘,), Theme (одна фраза), ha
 | UTH Flow: MemorySampler «every 5 s, while shown» | `s.md:291`, `:320-321`, `src/main/diagnostics/memory.ts:13`, `:72` |
 | UTH Flow: папка данных «app-settings.json and more» | `s.md:140-155` |
 | UTH текст 1: worfy у собранного приложения, worfy-dev у сборки для разработки, обе работают одновременно; WORFY_DATA_DIR переопределяет; второй запуск над занятой папкой завершается | `s.md:16-21`, `:25`, `src/main/storage/paths.ts:28`, `:36-38`, `src/main/index.ts:124-128` |
-| UTH текст 2: нечитаемый JSON-файл состояния откладывается как `<name>.unreadable-<time>`, не перезаписывается, часть стартует пустой | `s.md:43-45`, `src/main/storage/json-file.ts:8` |
+| UTH текст 2: большинство нечитаемых JSON-файлов состояния откладываются как `<name>.unreadable-<time>`, не перезаписываются, часть стартует пустой. «Большинство», потому что положение окна, отметка First run и Limits status line не откладываются | `s.md:43-45`, `:48-49`, `src/main/storage/json-file.ts:8` |
 | Таблица файлов: назначение каждого из восьми | `s.md:112-113`, `:116`, `:329`, `a.md:103`, `:187`, `:359-360`, `n.md:117`, `:126`; шапки самих файлов (`src/shared/shortcuts.ts:1-4`, `src/renderer/toast/toasts.ts:1-3`) |
 | Лимит: нет уведомлений Session или Ticket-а, пока окно worfy в фокусе; от одной Session — не больше одного за 10 секунд | `n.md:26-29`, `src/main/notify.ts:85` |
 | Лимит: не больше 3 toast-ов; info и success скрываются через 4 секунды | `n.md:48`, `:52`, `src/renderer/toast/toasts.ts:8`, `:21`, `:24` |
@@ -110,3 +110,12 @@ Shortcuts (кроме ⌘K и Settings… ⌘,), Theme (одна фраза), ha
 Объём: простой уровень 53 слова EN / 44 RU, Under the hood (текст, таблица файлов, лимиты) 153 EN / 126 RU.
 
 **Tokens.** Автор: около 230 тыс. токенов контекста (точного счётчика у агента нет; оценка по объёму прочитанного и написанного: три страницы-источника, пилот 08 как образец, сверка кода, снимки). Проверка — ещё не было.
+
+**Доработка после REJECTED (PR #1181, ревью medium).** Три замечания линзы утверждений, EN и RU. (1) medium: фраза об
+откладывании нечитаемых файлов сужена до «Most JSON state files…» / «Большинство JSON-файлов состояния…»: положение
+окна, отметка First run и файл Limits status line не откладываются (`s.md:48-49`). (2) low: подпись связи Diagnostics →
+Data folder теперь «logs/: ended processes», шаг 5 и описание схемы говорят, что неудачный запуск пишет в окно и stderr,
+а в logs/ пишет только завершившийся процесс renderer или вспомогательный процесс (`s.md:191-194`, `:233`). (3) low:
+область справа переименована из «ON THIS MACHINE» в «OUTSIDE THE WINDOW» («ВНЕ ОКНА»): Claude home тоже лежит на этой
+Machine (`src/main/storage/paths.ts:50`), и старая подпись выглядела так, будто его там нет. Проверка перекрытий
+повторена на новой подписи, EN и RU; снимки пересняты со сборки нового закоммиченного head.

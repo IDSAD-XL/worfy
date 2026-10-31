@@ -4,11 +4,11 @@
     "Around the Canvas is worfy's window: the Command palette (⌘K), the menu, Settings, and notifications when a Session or a Ticket needs you. It is light or dark as the system is. worfy keeps its own state in a data folder on this Machine, and reads Tickets, ADRs and transcripts where they lie."
   ],
   "scene": {
-    "description": "The window and your data. On the left, what worfy reads where it lies: the workflow files, Tickets, HANDOFF and ADRs, from which a Ticket on the Canvas is read; and Claude home, from whose transcripts a Session's conversation is read. In the middle, the window: the Command palette and the menu, which both open Settings; a toast; and the Canvas with a Ticket and a Session. On the right, on this Machine: the data folder, where Settings and each Canvas's Layout, Cards and trash are saved and the diagnostics write their logs; and the system notification, which a Session or a Ticket that needs you raises. The Canvas's automatic archive shows a toast with Undo.",
+    "description": "The window and your data. On the left, what worfy reads where it lies: the workflow files, Tickets, HANDOFF and ADRs, from which a Ticket on the Canvas is read; and Claude home, from whose transcripts a Session's conversation is read. In the middle, the window: the Command palette and the menu, which both open Settings; a toast; and the Canvas with a Ticket and a Session. On the right, outside the window: the data folder, where Settings and each Canvas's Layout, Cards and trash are saved and where a renderer or helper process that ended leaves a line in logs/; and the system notification, which a Session or a Ticket that needs you raises. The Canvas's automatic archive shows a toast with Undo.",
     "labels": {
       "read": "READ WHERE THEY LIE",
       "window": "THE WINDOW",
-      "machine": "ON THIS MACHINE",
+      "machine": "OUTSIDE THE WINDOW",
       "workflowFiles": "Workflow files",
       "workflowFilesNote": "Tickets, HANDOFF, ADRs",
       "claudeHome": "Claude home",
@@ -36,7 +36,7 @@
       "savesSettings": "app-settings.json",
       "savesLayout": "Layout, Cards, trash",
       "archived": "Archived N · Undo",
-      "logs": "logs/",
+      "logs": "logs/: ended processes",
       "readsFiles": "read, not copied",
       "readsTranscripts": "transcripts read",
       "waits": "waits for you",
@@ -45,7 +45,7 @@
       "step2": "worfy keeps its own state in one data folder on this Machine: the Project list, Settings, and each Project's Layout, Cards and trash. None of it goes into the Project's repository.",
       "step3": "Tickets, HANDOFF, ADRs and transcripts are not in that folder: worfy reads them where they lie.",
       "step4": "While no worfy window has focus, a system notification says that a Session finished its turn or needs your answer, or that a Ticket waits for you. Inside the window, toasts give short messages.",
-      "step5": "If worfy cannot start, a window names the step that failed and what to try. A process that ended leaves a line in logs/ of the data folder."
+      "step5": "If worfy cannot start, a window and stderr name the step that failed and what to try. A renderer or helper process that ended leaves a line in logs/ of the data folder."
     }
   },
   "underTheHood": {
@@ -89,7 +89,7 @@
     },
     "text": [
       "The data folder is worfy for a packaged build and worfy-dev for a development build, so both run at once; WORFY_DATA_DIR overrides it. A second start over a folder in use quits.",
-      "A JSON state file that does not parse or match its schema is set aside as <name>.unreadable-<time>, not overwritten, and that part of worfy starts empty."
+      "Most JSON state files that do not parse or match their schema are set aside as <name>.unreadable-<time>, not overwritten, and that part of worfy starts empty."
     ],
     "files": {
       "src/main/storage/paths.ts": "Where the data folder is",
