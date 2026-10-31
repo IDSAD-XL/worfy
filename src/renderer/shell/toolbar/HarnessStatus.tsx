@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { HarnessStatus as Status } from '../../../shared/ipc/harness'
+import type { UpdateSnapshot } from '../../../shared/ipc/update'
 import MigrationForm from '../../harness/MigrationForm'
 import AppMemory from '../../memory/AppMemory'
 import { invoke, subscribe } from '../../ipc'
+import { useUpdate } from '../../update/store'
+import UpdateChip from '../../update/UpdateChip'
 
 // The Harness in the toolbar (worfy-harness ticket 13): whether the plugin `worfy` of this build is
 // installed, and the Install or Update button that opens main's consent dialog (src/main/ipc/harness.ts).
@@ -22,12 +25,17 @@ import { invoke, subscribe } from '../../ipc'
 // both describe the running app, and the line is shorter than the Harness line above it.
 // The actions are icon buttons with a native tooltip and an aria-label: Install, Update Harness,
 // Retry and "Move old Harness…".
+//
+// worfy-update ticket 06: the version is the version chip (src/renderer/update/UpdateChip.tsx), a button with a dot
+// and a menu while an Update of worfy waits. A Harness to update is the same kind of signal: an
+// outdated Harness of an older semver, or one of the same semver that main found behind this copy
+// (`harnessBehind` of the Update snapshot, ticket 05), gets the accent and a dot on its "Update
+// Harness" button. A Harness of the same semver main could not order stays "Replace Harness", plain.
 
 // After the Limits (100), last of the toolbar items.
 export const order = 500
 
 const textStyle = { fontSize: 'var(--text-11)', lineHeight: '20px', color: 'var(--text-muted)', whiteSpace: 'nowrap' } as const
-const versionStyle = { fontSize: 'var(--text-11)', lineHeight: '13px', color: 'var(--text-muted)', opacity: 0.8, whiteSpace: 'nowrap' } as const
 
 const iconProps = { width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const
 
@@ -68,12 +76,16 @@ interface IconButtonProps {
   title?: string
   onClick: () => void
   testId: string
+  /** A signal: the accent and a dot (worfy-update ticket 06). */
+  accent?: boolean
 }
 
-function IconButton({ icon, label, title, onClick, testId }: IconButtonProps) {
+function IconButton({ icon, label, title, onClick, testId, accent = false }: IconButtonProps) {
+  const className = `w-toolbar__icon-button w-toolbar__icon-button--compact${accent ? ' w-toolbar__icon-button--accent' : ''}`
   return (
-    <button type="button" className="w-toolbar__icon-button w-toolbar__icon-button--compact" aria-label={label} title={title ?? label} onClick={onClick} data-testid={testId}>
+    <button type="button" className={className} aria-label={label} title={title ?? label} onClick={onClick} data-testid={testId}>
       {ICONS[icon]}
+      {accent ? <span className="w-update-dot" aria-hidden="true" /> : null}
     </button>
   )
 }
@@ -90,27 +102,27 @@ export interface HarnessStatusViewProps {
   version?: string | undefined
   /** worfy's own memory, after the version on the second line. */
   memory?: ReactNode
+  /** Main's Update snapshot for the version chip; null or absent: the plain version line. */
+  update?: UpdateSnapshot | null
+  /** The installed Harness of the same semver is behind this copy's (the Update snapshot's `harnessBehind`). */
+  harnessBehind?: UpdateSnapshot['harnessBehind'] | undefined
 }
 
 /** The item for a given status: the Harness line, and the app version under it; exported for tests. */
-export function HarnessStatusView({ version, memory, ...props }: HarnessStatusViewProps) {
+export function HarnessStatusView({ version, memory, update = null, ...props }: HarnessStatusViewProps) {
   const harness = <HarnessLine {...props} />
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', flex: 'none' }} data-testid="harness-column">
       {harness}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }} data-testid="app-line">
-        {version ? (
-          <small className="w-mono" style={versionStyle} data-testid="app-version">
-            v{version}
-          </small>
-        ) : null}
+        {version ? <UpdateChip version={version} update={update} /> : null}
         {memory}
       </div>
     </div>
   )
 }
 
-function HarnessLine({ status, busy, failure, onInstall, onMigrate }: Omit<HarnessStatusViewProps, 'version'>) {
+function HarnessLine({ status, busy, failure, onInstall, onMigrate, harnessBehind = null }: Omit<HarnessStatusViewProps, 'version' | 'update'>) {
   if (failure !== undefined) {
     return (
       <span style={{ ...textStyle, color: 'var(--blocked-text)' }} title={failure} data-testid="harness-status">
@@ -127,8 +139,8 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate }: Omit<Harne
     )
   }
   const { state, canInstall } = status
-  const action = (icon: IconButtonProps['icon'], label: string, title: string) =>
-    canInstall ? <IconButton icon={icon} label={label} title={title} onClick={onInstall} testId="harness-action" /> : null
+  const action = (icon: IconButtonProps['icon'], label: string, title: string, accent = false) =>
+    canInstall ? <IconButton icon={icon} label={label} title={title} onClick={onInstall} testId="harness-action" accent={accent} /> : null
 
   let text: string
   let title: string | undefined
@@ -144,6 +156,13 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate }: Omit<Harne
       title = state.enabled ? undefined : 'The plugin worfy is disabled in Claude Code'
       break
     case 'outdated':
+      if (state.sameVersion && harnessBehind !== null && harnessBehind.from === state.from) {
+        // Main found the installed commit behind this copy's (worfy-update ticket 05): an update, as for an older semver.
+        // Only for the version this state names as installed: a snapshot about another one is stale.
+        text = canInstall ? `Harness ${harnessBehind.from}` : `Harness ${harnessBehind.from} → ${harnessBehind.to}`
+        button = action('update', 'Update Harness', `Update Harness: ${harnessBehind.from} → ${harnessBehind.to}`, true)
+        break
+      }
       if (state.sameVersion) {
         // The same semver from another commit (worfy-harness ticket 67): no arrow, as worfy cannot tell which one is newer.
         text = canInstall ? `Harness ${state.from ?? '?'}` : `Harness ${state.from ?? '?'}, this build ${state.to}`
@@ -152,7 +171,7 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate }: Omit<Harne
       }
       // With the update offered the line names the installed version and the icon the new one.
       text = canInstall ? `Harness ${state.from ?? '?'}` : `Harness ${state.from ?? '?'} → ${state.to}`
-      button = action('update', 'Update Harness', `Update Harness: ${state.from ?? 'unknown'} → ${state.to}`)
+      button = action('update', 'Update Harness', `Update Harness: ${state.from ?? 'unknown'} → ${state.to}`, true)
       break
     case 'error':
       text = `Harness error: ${state.step}`
@@ -184,6 +203,7 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
   const [migration, setMigration] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [version, setVersion] = useState<string>()
+  const update = useUpdate()
 
   useEffect(() => {
     let active = true
@@ -259,7 +279,17 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
 
   return (
     <>
-      <HarnessStatusView status={status} busy={busy} failure={failure} onInstall={onInstall} onMigrate={migration ? () => setFormOpen(true) : undefined} version={version} memory={memory ? <AppMemory /> : undefined} />
+      <HarnessStatusView
+        status={status}
+        busy={busy}
+        failure={failure}
+        onInstall={onInstall}
+        onMigrate={migration ? () => setFormOpen(true) : undefined}
+        version={version}
+        memory={memory ? <AppMemory /> : undefined}
+        update={update}
+        harnessBehind={update?.enabled ? update.harnessBehind : null}
+      />
       {formOpen ? (
         <MigrationForm
           onClose={() => {

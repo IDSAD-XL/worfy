@@ -112,6 +112,61 @@ describe('HarnessStatusView', () => {
     expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.3.0+aaaaaaa, this build 0.3.0+bbbbbbb')
   })
 
+  // worfy-update ticket 06: a Harness to update is a signal, as a new worfy is — the accent and a dot on its button.
+  it('an outdated Harness: the Update Harness button carries the accent and a dot', () => {
+    render(<HarnessStatusView status={status(STATES[1]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
+    const update = screen.getByRole('button', { name: 'Update Harness' })
+    expect(update.classList.contains('w-toolbar__icon-button--accent')).toBe(true)
+    expect(update.querySelector('.w-update-dot')).not.toBeNull()
+    expect(update.textContent).toBe('')
+  })
+
+  it('the same version from another commit that is behind the copy (harnessBehind): "Update Harness: FROM → TO" with the accent and a dot, and the same action', () => {
+    const same: HarnessState = { kind: 'outdated', from: '0.3.0+aaaaaaa', to: '0.3.0+bbbbbbb', sameVersion: true }
+    const onInstall = vi.fn()
+    render(<HarnessStatusView status={status(same, true)} busy={false} failure={undefined} onInstall={onInstall} harnessBehind={{ from: '0.3.0+aaaaaaa', to: '0.3.0+bbbbbbb' }} />)
+    expect(screen.queryByRole('button', { name: 'Replace Harness' })).toBeNull()
+    const update = screen.getByRole('button', { name: 'Update Harness' })
+    expect(update.getAttribute('title')).toBe('Update Harness: 0.3.0+aaaaaaa → 0.3.0+bbbbbbb')
+    expect(update.classList.contains('w-toolbar__icon-button--accent')).toBe(true)
+    expect(update.querySelector('.w-update-dot')).not.toBeNull()
+    fireEvent.click(update)
+    expect(onInstall).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.3.0+aaaaaaa')
+    cleanup()
+    // Without the install offered: the arrow, as for an older semver.
+    render(<HarnessStatusView status={status(same, false)} busy={false} failure={undefined} onInstall={() => undefined} harnessBehind={{ from: '0.3.0+aaaaaaa', to: '0.3.0+bbbbbbb' }} />)
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.3.0+aaaaaaa → 0.3.0+bbbbbbb')
+  })
+
+  it('the same version from another commit without harnessBehind: "Replace Harness" with no accent and no dot', () => {
+    const same: HarnessState = { kind: 'outdated', from: '0.3.0+aaaaaaa', to: '0.3.0+bbbbbbb', sameVersion: true }
+    render(<HarnessStatusView status={status(same, true)} busy={false} failure={undefined} onInstall={() => undefined} harnessBehind={null} />)
+    const replace = screen.getByRole('button', { name: 'Replace Harness' })
+    expect(replace.classList.contains('w-toolbar__icon-button--accent')).toBe(false)
+    expect(replace.querySelector('.w-update-dot')).toBeNull()
+  })
+
+  it('a harnessBehind about another installed version than the one on the line (a stale snapshot) is not shown: "Replace Harness", plain', () => {
+    const same: HarnessState = { kind: 'outdated', from: '0.3.0+ccccccc', to: '0.3.0+bbbbbbb', sameVersion: true }
+    render(<HarnessStatusView status={status(same, true)} busy={false} failure={undefined} onInstall={() => undefined} harnessBehind={{ from: '0.3.0+aaaaaaa', to: '0.3.0+bbbbbbb' }} />)
+    expect(screen.queryByRole('button', { name: 'Update Harness' })).toBeNull()
+    const replace = screen.getByRole('button', { name: 'Replace Harness' })
+    expect(replace.classList.contains('w-toolbar__icon-button--accent')).toBe(false)
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.3.0+ccccccc')
+  })
+
+  it('no other button of the item carries the accent', () => {
+    for (const state of [STATES[0]!, STATES[2]!]) {
+      render(<HarnessStatusView status={status(state, true)} busy={false} failure={undefined} onInstall={() => undefined} onMigrate={() => undefined} />)
+      for (const icon of [screen.getByTestId('harness-action'), screen.getByTestId('harness-migrate')]) {
+        expect(icon.classList.contains('w-toolbar__icon-button--accent')).toBe(false)
+        expect(icon.querySelector('.w-update-dot')).toBeNull()
+      }
+      cleanup()
+    }
+  })
+
   it('"Move old Harness…" is an icon button with that name and tooltip', () => {
     const onMigrate = vi.fn()
     render(<HarnessStatusView status={status({ kind: 'installed', version: '0.2.0+bbbbbbb', enabled: true }, true)} busy={false} failure={undefined} onInstall={() => undefined} onMigrate={onMigrate} />)
