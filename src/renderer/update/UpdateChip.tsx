@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { invoke } from '../ipc'
+import WhatsNew, { type WhatsNewAction } from './WhatsNew'
 
 // The version chip of the toolbar (worfy-update ticket 06; spec items 5 and 6, R11, R12): the app
 // version on the second line of the Harness item (src/renderer/shell/toolbar/HarnessStatus.tsx), in
@@ -9,7 +10,9 @@ import { invoke } from '../ipc'
 // there is something to do (an Available update that is not quiet, a build that runs, is ready or
 // failed), a tooltip that says what, and a menu — "Update worfy" (`update.install`), once built
 // "Restart now" or "Restart when idle" (`update.restart`), while it builds an inactive "Building worfy
-// <version>…" — and "Later", which only closes the menu: the dot stays until the Update is installed.
+// <version>…" —, "What's new" (ticket 10: a popover under the chip with the PRs merged since the copy
+// that runs, src/renderer/update/WhatsNew.tsx) and "Later", which only closes the menu: the dot stays
+// until the Update is installed.
 // Without Update in this copy (`enabled: false`), or with nothing to install, it is the plain line.
 // Texts: .scratch/worfy-update/spec.md, its section of the draft texts. Main answers each press with
 // `update.changed`, which the store (src/renderer/update/store.ts) takes; the chip draws the snapshot
@@ -48,7 +51,9 @@ const TOOLTIP: Record<Phase, (version: string) => string> = {
 
 const menuStyle: CSSProperties = {
   position: 'fixed',
-  zIndex: 90,
+  // Over the toasts (z-index 120, src/renderer/toast/toast.css), as "What's new": the sticky Update
+  // toast of the start lies right under the chip.
+  zIndex: 130,
   minWidth: 180,
   padding: 'var(--space-1)',
   borderRadius: 'var(--radius-popover)',
@@ -70,18 +75,25 @@ function restart(when: 'now' | 'idle'): void {
   })
 }
 
+/** The first item of the menu and the button of "What's new": without `run`, inactive. */
+function primaryOf(signal: Signal, idle: boolean): WhatsNewAction {
+  if (signal.phase === 'building') return { label: TOOLTIP.building(signal.version) }
+  if (signal.phase === 'ready') return idle ? { label: 'Restart now', run: () => restart('now') } : { label: 'Restart when idle', run: () => restart('idle') }
+  return { label: 'Update worfy', run: install }
+}
+
 interface MenuProps {
-  signal: Signal
-  idle: boolean
+  primary: WhatsNewAction
   anchor: HTMLElement
   onClose: () => void
+  onWhatsNew: () => void
 }
 
 /**
  * The chip's menu, drawn over everything under the chip with its left edge on the chip's. Escape, a
  * click elsewhere, the window losing focus and choosing an item close it; the focus goes back to the chip.
  */
-function ChipMenu({ signal, idle, anchor, onClose }: MenuProps) {
+function ChipMenu({ primary, anchor, onClose, onWhatsNew }: MenuProps) {
   const menu = useRef<HTMLDivElement>(null)
   const close = useRef(onClose)
   useEffect(() => {
@@ -119,27 +131,17 @@ function ChipMenu({ signal, idle, anchor, onClose }: MenuProps) {
     items[(at + step + items.length) % items.length]?.focus()
   }
 
-  let first
-  if (signal.phase === 'building') {
-    first = (
+  const { run } = primary
+  const first =
+    run === undefined ? (
       <button type="button" role="menuitem" className="w-row" aria-disabled="true" style={{ color: 'var(--text-muted)' }}>
-        {TOOLTIP.building(signal.version)}
+        {primary.label}
+      </button>
+    ) : (
+      <button type="button" role="menuitem" className="w-row" onClick={choose(run)}>
+        {primary.label}
       </button>
     )
-  } else if (signal.phase === 'ready') {
-    const when = idle ? 'now' : 'idle'
-    first = (
-      <button type="button" role="menuitem" className="w-row" onClick={choose(() => restart(when))}>
-        {idle ? 'Restart now' : 'Restart when idle'}
-      </button>
-    )
-  } else {
-    first = (
-      <button type="button" role="menuitem" className="w-row" onClick={choose(install)}>
-        Update worfy
-      </button>
-    )
-  }
 
   return createPortal(
     <div
@@ -160,6 +162,15 @@ function ChipMenu({ signal, idle, anchor, onClose }: MenuProps) {
       }}
     >
       {first}
+      <button
+        type="button"
+        role="menuitem"
+        className="w-row"
+        // The popover takes the menu's place and the focus; the chip gets it back when it closes.
+        onClick={onWhatsNew}
+      >
+        What's new
+      </button>
       <button type="button" role="menuitem" className="w-row" onClick={choose(() => undefined)}>
         Later
       </button>
@@ -177,8 +188,9 @@ export interface UpdateChipProps {
 
 /** The app version line of the toolbar, a button with a dot and a menu while an Update waits. */
 export default function UpdateChip({ version, update }: UpdateChipProps) {
-  // The chip while its menu is open, else null.
+  // The chip while its menu or "What's new" is open, else null.
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const [view, setView] = useState<'menu' | 'whatsNew'>('menu')
   const signal = updateSignal(update)
   if (signal === null) {
     // The signal went (installed from Settings or another window): the menu goes with it, so a later
@@ -191,6 +203,7 @@ export default function UpdateChip({ version, update }: UpdateChipProps) {
       </small>
     )
   }
+  const primary = primaryOf(signal, update?.idle ?? false)
   return (
     <>
       <button
@@ -203,13 +216,23 @@ export default function UpdateChip({ version, update }: UpdateChipProps) {
         data-update={signal.phase}
         onClick={(event) => {
           const target = event.currentTarget
+          setView('menu')
           setAnchor((was) => (was === null ? target : null))
         }}
       >
         v{version}
         {signal.dot ? <span className="w-update-dot" aria-hidden="true" /> : null}
       </button>
-      {anchor === null ? null : <ChipMenu signal={signal} idle={update?.idle ?? false} anchor={anchor} onClose={() => setAnchor(null)} />}
+      {anchor === null ? null : view === 'menu' ? (
+        <ChipMenu
+          primary={primary}
+          anchor={anchor}
+          onClose={() => setAnchor(null)}
+          onWhatsNew={() => setView('whatsNew')}
+        />
+      ) : (
+        <WhatsNew version={signal.version} anchor={anchor} action={primary} onClose={() => setAnchor(null)} />
+      )}
     </>
   )
 }

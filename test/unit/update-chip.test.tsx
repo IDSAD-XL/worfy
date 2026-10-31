@@ -9,7 +9,8 @@ import UpdateChip from '../../src/renderer/update/UpdateChip'
 // worfy-update ticket 06: the version chip of the toolbar. The app version is the same small line
 // as before; an Available update, a build that runs, is ready or failed puts an accent dot on it and
 // makes it a button with a menu: "Update worfy" (or "Restart now" / "Restart when idle" once built,
-// an inactive "Building worfy <version>…" while it builds) and "Later". Texts: the draft texts of the spec.
+// an inactive "Building worfy <version>…" while it builds), "What's new" (ticket 10,
+// test/unit/whats-new-view.test.tsx) and "Later". Texts: the draft texts of the spec.
 
 const SHA = 'b'.repeat(40)
 const NEW = '0.5.0+bbbbbbb'
@@ -64,7 +65,7 @@ describe('UpdateChip', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('an Available update: a dot and its tooltip; the menu has "Update worfy" and "Later", and "Update worfy" calls update.install', async () => {
+  it(`an Available update: a dot and its tooltip; the menu has "Update worfy", "What's new" and "Later", and "Update worfy" calls update.install`, async () => {
     const calls = fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available() })} />)
     expect(chip().tagName).toBe('BUTTON')
@@ -76,7 +77,7 @@ describe('UpdateChip', () => {
     expect(screen.queryByRole('menu')).toBeNull()
     fireEvent.click(chip())
     expect(chip().getAttribute('aria-expanded')).toBe('true')
-    expect(items()).toEqual(['Update worfy', 'Later'])
+    expect(items()).toEqual(['Update worfy', "What's new", 'Later'])
     await act(async () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Update worfy' }))
       await Promise.resolve()
@@ -127,7 +128,7 @@ describe('UpdateChip', () => {
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(true) })} />)
     expect(dot()).toBeNull()
     fireEvent.click(chip())
-    expect(items()).toEqual(['Update worfy', 'Later'])
+    expect(items()).toEqual(['Update worfy', "What's new", 'Later'])
   })
 
   it('while it builds: the dot, "Building worfy <version>…" as the tooltip and as an inactive item that calls nothing', () => {
@@ -136,7 +137,7 @@ describe('UpdateChip', () => {
     expect(dot()).not.toBeNull()
     expect(chip().getAttribute('title')).toBe(`Building worfy ${NEW}…`)
     fireEvent.click(chip())
-    expect(items()).toEqual([`Building worfy ${NEW}…`, 'Later'])
+    expect(items()).toEqual([`Building worfy ${NEW}…`, "What's new", 'Later'])
     const building = screen.getByRole('menuitem', { name: `Building worfy ${NEW}…` })
     expect(building.getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(building)
@@ -149,7 +150,7 @@ describe('UpdateChip', () => {
     expect(dot()).not.toBeNull()
     expect(chip().getAttribute('title')).toBe(`worfy ${NEW} is ready — restart to update`)
     fireEvent.click(chip())
-    expect(items()).toEqual(['Restart now', 'Later'])
+    expect(items()).toEqual(['Restart now', "What's new", 'Later'])
     await act(async () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Restart now' }))
       await Promise.resolve()
@@ -161,7 +162,7 @@ describe('UpdateChip', () => {
     const calls = fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(), idle: false, build: { phase: 'ready', sha: SHA, version: NEW } })} />)
     fireEvent.click(chip())
-    expect(items()).toEqual(['Restart when idle', 'Later'])
+    expect(items()).toEqual(['Restart when idle', "What's new", 'Later'])
     await act(async () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Restart when idle' }))
       await Promise.resolve()

@@ -1,7 +1,8 @@
 # 10 — What's new: заголовки PR между запущенной копией и новой версией
 
 Type: task
-Status: open
+Status: claimed 2026-10-31T10:45Z
+Branch: worfy-update/10
 Blocked by: 01, 06
 Source: решения владельца 2026-10-31, пункты 6 (пункт «What's new» в меню version chip-а), 10 (заголовки PR, влитых между копией и новой версией, с GitHub; без changelog); [spec.md](../spec.md), «Решено без владельца», Р13, «Тексты (черновик)», «What's new»
 
@@ -25,10 +26,10 @@ Source: решения владельца 2026-10-31, пункты 6 (пункт
 
 ## Готово, когда
 
-- [ ] Unit test `whats-new`: три commit-а с `(#1)`, `(#2)` и без номера — две строки, новые сверху;
+- [x] Unit test `whats-new`: три commit-а с `(#1)`, `(#2)` и без номера — две строки, новые сверху;
       250 commit-ов — `more: true` и ссылка сравнения; отдельных запросов к PR нет (счётчик заглушки).
-- [ ] Unit test вида: строки и ссылка; «Update worfy» зовёт `update.install`; ошибка — текст причины.
-- [ ] (вручную) снимки popover-а в светлой и тёмной теме.
+- [x] Unit test вида: строки и ссылка; «Update worfy» зовёт `update.install`; ошибка — текст причины.
+- [x] (вручную) снимки popover-а в светлой и тёмной теме.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты
@@ -42,7 +43,7 @@ Source: решения владельца 2026-10-31, пункты 6 (пункт
 - `src/main/update/whats-new.ts` (новый)
 - `src/shared/ipc/update.ts`, `src/main/ipc/update.ts`
 - `src/renderer/update/WhatsNew.tsx` (новый)
-- `src/renderer/shell/toolbar/UpdateChip.tsx`
+- `src/renderer/update/UpdateChip.tsx` (chip лежит не в `shell/toolbar/`: каждый файл там — отдельный пункт toolbar, Toolbar.tsx)
 - `test/unit/update-whats-new.test.ts` (новый)
 - `test/unit/whats-new-view.test.tsx` (новый)
 
@@ -50,4 +51,21 @@ Source: решения владельца 2026-10-31, пункты 6 (пункт
 
 ## Итог
 
-Заполняется при закрытии.
+- `src/main/update/whats-new.ts`: `pullRequestsOf` берёт из `commits` сравнения первую строку, которая кончается на
+  `(#<номер>)`, новые сверху; commit без номера пропускается. 250 commit-ов — `more: true`. `WhatsNewReader` делает
+  одно сравнение `compare/<running>...<new>`, держит ответ для пары SHA до конца run-а, сбой (нет сети, 403/5xx, 404)
+  — Error с причиной, в cache не попадает. SHA проверяются до запроса.
+- Канал `update.whatsNew` (`local`), ответ `{ version, items, more, compareUrl }`; `UpdateService.whatsNew()` сравнивает
+  запущенный commit со сборкой, которая идёт или готова, иначе с Available update; Update выключен или сравнивать не с
+  чем — ошибка с причиной.
+- `src/renderer/update/WhatsNew.tsx`: popover под chip-ом — «What's new in worfy <version>», строки «<title> #<number>»
+  (номер открывает PR через `shell.openExternal`), «…and more on GitHub», кнопка — первый пункт меню chip-а («Update
+  worfy», после сборки «Restart now» / «Restart when idle»). Заголовки — только текст.
+- Меню chip-а: «Update worfy · What's new · Later».
+- Решено без владельца: текст ожидания «Reading the pull requests on GitHub…» и пустого списка «No pull requests between
+  this copy and the new version.» (в черновике текстов их нет); кнопка popover-а повторяет первый пункт меню, а не всегда
+  «Update worfy» (после сборки `update.install` ничего не делает); menu и popover chip-а — над toast-ами (z-index 130
+  против 120): sticky toast старта лежит прямо под chip-ом и закрывал их.
+- Tests: `test/unit/update-whats-new.test.ts`, `test/unit/whats-new-view.test.tsx`; e2e `test/e2e/update-toolbar.spec.ts`
+  проверяет пункт меню и popover в собранном приложении через stub. Снимки ревью (обе темы) — в scratchpad, в
+  репозиторий не кладутся.

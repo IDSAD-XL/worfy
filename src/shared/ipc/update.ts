@@ -116,6 +116,29 @@ export const updateRestart = invokeChannel('update.restart', z.object({ when: z.
 /** "Roll back to previous version": a native dialog asks first (spec R8); `cancelled` when it was said no. */
 export const updateRollback = invokeChannel('update.rollback', z.void(), restartAnswerSchema, 'local')
 
+/** One PR of "What's new": its title, as GitHub has it (text to show as text only), and its number. */
+export const whatsNewItemSchema = z.object({ title: z.string().min(1), number: z.number().int().positive() })
+export type WhatsNewItem = z.infer<typeof whatsNewItemSchema>
+
+/**
+ * "What's new" (ticket 10, spec R13): the PRs merged between the copy that runs and the new
+ * `version`, newest first. `more`: the comparison gave all the commits it can (250), so there may be
+ * more; `compareUrl` is its page on github.com.
+ */
+export const whatsNewSchema = z.object({
+  version: z.string().min(1),
+  items: z.array(whatsNewItemSchema),
+  more: z.boolean(),
+  compareUrl: z.string().startsWith('https://github.com/'),
+})
+export type WhatsNew = z.infer<typeof whatsNewSchema>
+
+/**
+ * The PRs between the copy that runs and the Available update (or the build that runs or is ready).
+ * Fails with the reason: Update off, nothing to compare with, no network, GitHub refused.
+ */
+export const updateWhatsNew = invokeChannel('update.whatsNew', z.void(), whatsNewSchema, 'local')
+
 /** The whole snapshot after a change. */
 export const updateChanged = eventChannel('update.changed', updateSnapshotSchema, 'local')
 
@@ -127,6 +150,7 @@ declare module './channels' {
     'update.showLog': typeof updateShowLog
     'update.restart': typeof updateRestart
     'update.rollback': typeof updateRollback
+    'update.whatsNew': typeof updateWhatsNew
     'update.changed': typeof updateChanged
   }
 }
