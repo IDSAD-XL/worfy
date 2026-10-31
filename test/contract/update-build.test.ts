@@ -99,6 +99,8 @@ interface BuilderOptions {
   env?: () => Record<string, string | undefined>
   /** Why the login shell was not read, as captureLoginShellEnv says it. */
   envError?: string
+  /** Where the environment came from, as CapturedEnv says it; `fallback` when `envError` is given, else `login-shell`. */
+  envFrom?: 'login-shell' | 'registry' | 'fallback'
   gitTimeoutMs?: number
   onChange?: () => void
 }
@@ -108,7 +110,12 @@ function builder(options: BuilderOptions = {}): UpdateBuilder {
     dir,
     repo: origin,
     build: options.build ?? join(FIXTURES, 'build-ok.mjs'),
-    env: () => Promise.resolve({ env: options.env?.() ?? processEnv(), error: options.envError ?? null }),
+    env: () =>
+      Promise.resolve({
+        env: options.env?.() ?? processEnv(),
+        error: options.envError ?? null,
+        from: options.envFrom ?? (options.envError === undefined ? 'login-shell' : 'fallback'),
+      }),
     stateFile,
     ...(options.gitTimeoutMs === undefined ? {} : { gitTimeoutMs: options.gitTimeoutMs }),
     ...(options.onChange === undefined ? {} : { onChange: options.onChange }),
@@ -338,7 +345,7 @@ describe('UpdateBuilder', () => {
       dir,
       repo: origin,
       build: join(FIXTURES, 'build-ok.mjs'),
-      env: () => new Promise((resolve) => (give = () => resolve({ env: processEnv(), error: null }))),
+      env: () => new Promise((resolve) => (give = () => resolve({ env: processEnv(), error: null, from: 'login-shell' }))),
       stateFile,
     })
     builds.install(available(sha))
@@ -375,6 +382,16 @@ describe('UpdateBuilder', () => {
     builds.install(available(sha))
     await builds.settled()
     expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha })
+  })
+
+  it('a note of a full environment (Windows: from the registry, Git Bash not found) is no fallback: build.log does not say the minimal one was used', async () => {
+    const sha = commit('A')
+    const builds = builder({ envError: 'Git Bash not found', envFrom: 'registry' })
+    builds.install(available(sha))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha })
+    expect(buildLog()).not.toContain('The environment of the login shell was not read')
+    expect(buildLog()).not.toContain('Git Bash not found')
   })
 
   it('a git step that does not end within its limit is ended, and the build is `failed` with the reason', async () => {

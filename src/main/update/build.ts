@@ -18,7 +18,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { AvailableUpdate, UpdateState } from '../../shared/ipc/update'
-import { getVar } from '../agent/env'
+import { getVar, type CapturedEnv } from '../agent/env'
 import { killTool, toolStart } from '../first-run/checks'
 import { removeTree } from '../storage/remove'
 import { changeUpdateState } from './state'
@@ -104,10 +104,12 @@ export interface UpdateBuilderOptions {
   build?: string | undefined
   /**
    * worfy's environment for the steps, asked for anew before each build (the login shell's in the
-   * app: a pnpm installed since the last build is found). The tokens are dropped from it. `error`:
-   * why the login shell was not read and a minimal environment came instead; it goes to build.log.
+   * app: a pnpm installed since the last build is found). The tokens are dropped from it. With
+   * `from: 'fallback'`, `error` says why the login shell was not read and a minimal environment
+   * came instead; it goes to build.log. Any other `from` is a full environment, whose `error` is
+   * only a note (Windows: Git Bash not found) and is not written.
    */
-  env: () => Promise<{ env: Env; error: string | null }>
+  env: () => Promise<{ env: Env; error: string | null; from: CapturedEnv['from'] }>
   /** How long a git step may run (GIT_STEP_TIMEOUT_MS). */
   gitTimeoutMs?: number
   stateFile: () => string
@@ -249,7 +251,7 @@ export class UpdateBuilder implements UpdateBuilds {
     const note = (text: string): void => appendFileSync(log, `${text}\n`)
     const failed = (extra: Partial<UpdateBuild> = {}): UpdateBuild => ({ phase: 'failed', sha: update.sha, version: update.version, log, ...extra })
     const captured = await this.options.env()
-    if (captured.error !== null) note(`The environment of the login shell was not read; the build runs with a minimal one: ${captured.error}`)
+    if (captured.from === 'fallback' && captured.error !== null) note(`The environment of the login shell was not read; the build runs with a minimal one: ${captured.error}`)
     const env = withoutTokens(captured.env)
 
     const missing = missingTools(env, this.platform)

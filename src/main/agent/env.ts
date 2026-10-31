@@ -658,8 +658,9 @@ export function agentEnv(): Promise<CapturedEnv> {
  * file (nvm, fnm, volta, asdf, mise), a shell that failed the capture fixed (worfy-harness ticket
  * 37). Who calls it (src/main/harness/script-env.ts): a watcher's retry of a failed layout that
  * asks `fresh` — always after exit code 127 or 126, otherwise only while the held environment is
- * the fallback — and First run's handler of its checks (src/main/ipc/first-run.ts), which runs on
- * "Check again", when First run opens without a report, and each time Settings → Health shows.
+ * the fallback — First run's handler of its checks (src/main/ipc/first-run.ts), which runs on
+ * "Check again", when First run opens without a report, and each time Settings → Health shows —
+ * and the Update build before each build (src/main/ipc/update.ts, worfy-update ticket 03).
  *
  * Callers that come while a recapture runs share it, and get that run's answer: a recapture asked
  * right after an rc file was saved may join one that started before the save, and gets the
