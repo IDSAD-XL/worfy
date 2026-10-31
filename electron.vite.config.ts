@@ -3,7 +3,7 @@ import { join, relative, resolve, sep } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import type { Plugin } from 'vite'
-import { buildVersion } from './scripts/build-version'
+import { buildNumber, buildVersion } from './scripts/build-version'
 import { useDevBundle } from './scripts/dev-bundle'
 import { removeTree } from './src/main/storage/remove'
 
@@ -52,13 +52,28 @@ function bundleHarness(): Plugin {
   }
 }
 
+/**
+ * Writes the build number (scripts/build-version.ts, buildNumber; worfy-update ticket 14) into the
+ * bundle of main as __WORFY_BUILD_NUMBER__ (src/main/build-number.ts): a number, or null for a shallow
+ * clone or a folder outside git. Counted once per run of the build: under `pnpm dev` a commit made
+ * while it runs shows after the next start.
+ */
+function defineBuildNumber(): Plugin {
+  return {
+    name: 'worfy:build-number',
+    config(config) {
+      return { define: { __WORFY_BUILD_NUMBER__: JSON.stringify(buildNumber(resolve(config.root ?? process.cwd()))) } }
+    },
+  }
+}
+
 export default defineConfig(({ command }) => {
   // `pnpm dev` on macOS runs Electron from a bundle with worfy's name and icon, so its notifications
   // are worfy's, not Electron's (scripts/dev-bundle.ts). A build, and every e2e run, keeps Electron.app.
   if (command === 'serve') useDevBundle()
   return {
     main: {
-      plugins: [bundleHarness()],
+      plugins: [bundleHarness(), defineBuildNumber()],
     },
     preload: {
       build: {

@@ -532,7 +532,11 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     expect(inArchive.filter((path) => path.startsWith('out/harness'))).toEqual([])
     const launched = await launchApp({ executablePath: executableOf(stableApp) })
     try {
-      await expect(launched.window.getByTestId('app-version')).toHaveText(`v${version}`)
+      // The build version, or the same numbered (worfy-update ticket 14) when the copy was built from a
+      // checkout with its whole history; a copy given by WORFY_PACKAGED_APP may come from another one.
+      const [major, minor] = version.split('.')
+      const dirty = version.endsWith('.dirty') ? '\\.dirty' : ''
+      await expect(launched.window.getByTestId('app-version')).toHaveText(new RegExp(`^v(${version.replaceAll('.', '\\.').replace('+', '\\+')}|${major}\\.${minor}\\.\\d+${dirty})$`))
       // A packaged app offers the install (worfy-harness ticket 13); the Claude home of launchApp is
       // a sandbox without the plugin, so reading the state runs no `claude` at all.
       await expect(launched.window.getByTestId('harness-text')).toHaveText('Harness not installed')

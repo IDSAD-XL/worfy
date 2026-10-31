@@ -29,6 +29,8 @@ export interface CheckInput {
   client: UpdateGitHub
   /** The commit the copy runs, full or short; empty when not known. */
   running: string
+  /** The build number of the copy that runs (ticket 14); without it the Available update has none. */
+  runningNumber?: number | undefined
   /** The SHA the user rolled back from (ticket 04). */
   rolledBackFrom: string | null
   /** Asked for (`update.check`, "Check now"): its Update is never quiet. */
@@ -42,7 +44,7 @@ export interface CheckOutcome {
   available?: AvailableUpdate | null
 }
 
-export async function checkForUpdate({ client, running, rolledBackFrom, manual, now = () => new Date() }: CheckInput): Promise<CheckOutcome> {
+export async function checkForUpdate({ client, running, runningNumber, rolledBackFrom, manual, now = () => new Date() }: CheckInput): Promise<CheckOutcome> {
   const skipped = (reason: string): CheckOutcome => ({ lastCheck: { at: now().toISOString(), result: 'skipped', reason } })
   const none = (): CheckOutcome => ({ lastCheck: { at: now().toISOString(), result: 'ok' }, available: null })
   const commit = running.toLowerCase()
@@ -66,9 +68,18 @@ export async function checkForUpdate({ client, running, rolledBackFrom, manual, 
   // Spec R4: the version as a build version shows it.
   const version = await client.packageVersion(head.value)
   if (!version.ok) return skipped(version.reason)
+  // Ticket 14: the head's build number is the running one plus the commits it is ahead by, as
+  // `git rev-list --count` would count it on the head; unknown when either is.
+  const { aheadBy } = comparison.value
+  const number = runningNumber !== undefined && aheadBy !== undefined ? runningNumber + aheadBy : undefined
   return {
     lastCheck: { at: now().toISOString(), result: 'ok' },
-    available: { sha: head.value, version: `${version.value}+${head.value.slice(0, 7)}`, quiet: !manual && rolledBackFrom === head.value },
+    available: {
+      sha: head.value,
+      version: `${version.value}+${head.value.slice(0, 7)}`,
+      quiet: !manual && rolledBackFrom === head.value,
+      ...(number === undefined ? {} : { number }),
+    },
   }
 }
 

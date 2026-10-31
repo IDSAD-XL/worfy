@@ -28,12 +28,14 @@ import {
   updateStateChannel,
   updateWhatsNew,
   type RestartAnswer,
+  type UpdateRunning,
   type UpdateSnapshot,
   type WhatsNew,
 } from '../../shared/ipc/update'
 import { autoUpdateOf } from '../../shared/settings/app-settings'
 import { agentEnv, recaptureAgentEnv } from '../agent/env'
 import { toEveryWindow } from '../broadcast'
+import { appBuildNumber } from '../build-number'
 import { bundledHarnessVersion } from '../harness/bundled'
 import { appSettingsStore } from '../settings/store'
 import { autoBuildFor, installTarget } from '../update/auto'
@@ -49,8 +51,8 @@ import { defineHandler, emit, type HandlerModule } from './index'
 
 export interface UpdateServiceOptions {
   enabled: boolean
-  /** The commit and the build version of the copy that runs. */
-  running: () => { commit: string; version: string }
+  /** The commit and the build version of the copy that runs, and its build number when it has one (ticket 14). */
+  running: () => UpdateRunning
   client: UpdateGitHub
   /** The state file; asked for at each use. */
   stateFile: () => string
@@ -86,7 +88,14 @@ export class UpdateService {
 
   snapshot(): UpdateSnapshot {
     if (!this.options.enabled) return { ...emptyUpdateState(), enabled: false, checking: false, restartWhenIdle: false }
-    return { ...readUpdateState(this.options.stateFile()), enabled: true, checking: this.checks.checking, restartWhenIdle: this.options.restarts?.pending ?? false }
+    const { version, number } = this.options.running()
+    return {
+      ...readUpdateState(this.options.stateFile()),
+      enabled: true,
+      checking: this.checks.checking,
+      restartWhenIdle: this.options.restarts?.pending ?? false,
+      ...(number === undefined || version === '' ? {} : { current: { version, number } }),
+    }
   }
 
   /** "Restart now", "Restart when idle" or the cancel of that wish. */
@@ -205,6 +214,7 @@ export class UpdateService {
     const outcome = await checkForUpdate({
       client: this.options.client,
       running: running.commit,
+      ...(running.number === undefined ? {} : { runningNumber: running.number }),
       rolledBackFrom,
       manual,
       ...(this.options.now === undefined ? {} : { now: this.options.now }),
@@ -223,12 +233,16 @@ export class UpdateService {
   }
 }
 
-/** The copy that runs: the commit of the file next to the Stable copy when this run is that copy (or names one for a test), else the build version's. */
-function appRunning(): { commit: string; version: string } {
+/**
+ * The copy that runs: the commit of the file next to the Stable copy when this run is that copy (or
+ * names one for a test), else the build version's; and the build number of this build (ticket 14).
+ */
+function appRunning(): UpdateRunning {
   const version = bundledHarnessVersion() ?? app.getVersion()
   const copy = stableCopyPath()
   const named = runsFromStableCopy({ packaged: app.isPackaged, execPath: process.execPath, env: process.env }) || Boolean(process.env.WORFY_UPDATE_STABLE)
-  return runningOf(named ? readStableMetadata(process.platform, copy) : undefined, version)
+  const number = appBuildNumber()
+  return { ...runningOf(named ? readStableMetadata(process.platform, copy) : undefined, version), ...(number === undefined ? {} : { number }) }
 }
 
 /** The live Sessions as the rule of spec R6 reads them. */
@@ -283,7 +297,7 @@ let shared: UpdateService | undefined
 /** The app's service, made on first use: after src/main/index.ts has set the build kind of the data folder. */
 export function appUpdate(): UpdateService {
   if (shared === undefined) {
-    let running: { commit: string; version: string } | undefined
+    let running: UpdateRunning | undefined
     const idle = appIdleWatch()
     shared = new UpdateService({
       enabled: updateEnabled({ packaged: app.isPackaged, execPath: process.execPath, env: process.env }),

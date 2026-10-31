@@ -28,7 +28,7 @@ import { autoUpdateOf, type AppSettings } from '../../shared/settings/app-settin
 import { invoke, subscribe } from '../ipc'
 import { openSettings } from '../settings/settings-window'
 import { dismissToast, isToastShown, showToast } from '../toast/toasts'
-import { followUpdate, useUpdateStore } from './store'
+import { followUpdate, updateVersionLabel, useUpdateStore } from './store'
 
 export const AVAILABLE_KEY = 'update-available'
 export const READY_KEY = 'update-ready'
@@ -65,15 +65,15 @@ export interface UpdateToasts {
 
 type LastRestart = NonNullable<UpdateSnapshot['lastRestart']>
 
-/** The text of the end of the last restart. */
-function restartText(last: LastRestart): string {
+/** The text of the end of the last restart; `label` numbers a version where its build number is known (ticket 14). */
+function restartText(last: LastRestart, label: (version: string) => string): string {
   if (last.ok) {
     return last.action === 'rollback'
-      ? `worfy is back to ${last.version}. Automatic updates wait for the next commit on main.`
-      : `worfy updated to ${last.version}. The new Harness applies from the next Session.`
+      ? `worfy is back to ${label(last.version)}. Automatic updates wait for the next commit on main.`
+      : `worfy updated to ${label(last.version)}. The new Harness applies from the next Session.`
   }
   const what = last.action === 'rollback' ? 'rolled back' : 'updated'
-  const to = last.version === '' ? '' : ` to ${last.version}`
+  const to = last.version === '' ? '' : ` to ${label(last.version)}`
   return `worfy was not ${what}${to}${last.reason === undefined ? '' : `: ${last.reason}`}`
 }
 
@@ -136,8 +136,8 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
     const version = build.version ?? state.available?.version ?? ''
     if (readyFor !== about) {
       readyFor = about
-      showReady(version, state.idle)
-    } else if (isToastShown(READY_KEY) && readyButton !== (state.idle ? 'now' : 'idle')) showReady(version, state.idle)
+      showReady(updateVersionLabel(state, version), state.idle)
+    } else if (isToastShown(READY_KEY) && readyButton !== (state.idle ? 'now' : 'idle')) showReady(updateVersionLabel(state, version), state.idle)
     return true
   }
 
@@ -155,7 +155,7 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
       kind: 'action',
       key: AVAILABLE_KEY,
       testId: AVAILABLE_KEY,
-      text: `New worfy ${available.version} available`,
+      text: `New worfy ${updateVersionLabel(state, available.version)} available`,
       actions: [{ label: 'Update', run: () => call('update.install') }, later],
     })
   }
@@ -202,7 +202,7 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
     } catch (error) {
       console.error('update toasts: localStorage cannot be used', error)
     }
-    showToast({ kind: last.ok ? 'success' : 'error', key: RESTART_RESULT_KEY, testId: RESTART_RESULT_KEY, text: restartText(last) })
+    showToast({ kind: last.ok ? 'success' : 'error', key: RESTART_RESULT_KEY, testId: RESTART_RESULT_KEY, text: restartText(last, (version) => updateVersionLabel(state, version)) })
   }
 
   function tellHarnessAfterUpdate(state: UpdateSnapshot): void {

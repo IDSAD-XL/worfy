@@ -39,3 +39,24 @@ export function buildVersion(root: string): string {
   }
   return formatBuildVersion(version, sha, git('status', '--porcelain') !== '')
 }
+
+/**
+ * The build number of the checkout at `root` (worfy-update ticket 14): the number of commits from the
+ * start of the history to HEAD, `git rev-list --count HEAD`, which grows with every commit of `main`
+ * and is the same for one commit on every machine. The app shows it as `v<major>.<minor>.<N>`
+ * (src/shared/version-number.ts); the build version above stays as it is. null when there is no
+ * honest count: outside git, before the first commit, or in a shallow clone (CI's `fetch-depth`),
+ * whose cut history would give a smaller number. A number is never guessed.
+ */
+export function buildNumber(root: string): number | null {
+  // As in buildVersion: git is called right here, so the search of test/unit/e2e-no-spawn-on-load.test.ts sees it.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+  const git = (...args: string[]): string => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  try {
+    if (git('rev-parse', '--is-shallow-repository') !== 'false') return null
+    const count = Number(git('rev-list', '--count', 'HEAD'))
+    return Number.isSafeInteger(count) && count > 0 ? count : null
+  } catch {
+    return null
+  }
+}

@@ -29,6 +29,8 @@ export interface WhatsNewAction {
 export interface WhatsNewProps {
   /** The new version, shown until main answers. */
   version: string
+  /** How a version shows: numbered where its build number is known (ticket 14); without it, as it is. */
+  label?: (version: string) => string
   /** The chip: the popover lies under it, and the focus goes back to it. */
   anchor: HTMLElement
   action: WhatsNewAction
@@ -82,7 +84,7 @@ function GitHubLink({ url, children }: { url: string; children: string }) {
 }
 
 /** The popover; it asks main once, when it opens. Escape, a click elsewhere and the focus elsewhere close it. */
-export default function WhatsNew({ version, anchor, action, onClose }: WhatsNewProps) {
+export default function WhatsNew({ version, label = (each) => each, anchor, action, onClose }: WhatsNewProps) {
   const popover = useRef<HTMLDivElement>(null)
   const close = useRef(onClose)
   useEffect(() => {
@@ -121,7 +123,7 @@ export default function WhatsNew({ version, anchor, action, onClose }: WhatsNewP
     }
   }, [anchor])
 
-  const shown = reading.kind === 'read' ? reading.answer.version : version
+  const shown = label(reading.kind === 'read' ? reading.answer.version : version)
   let body
   if (reading.kind === 'reading') {
     body = (

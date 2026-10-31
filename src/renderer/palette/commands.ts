@@ -67,7 +67,7 @@ import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
 import { label } from '../shortcuts/match'
 import { openShortcuts } from '../shortcuts/shortcuts-window'
-import { checkForUpdateNow, installUpdate, restartIntoUpdate, updateStep, useUpdateStore } from '../update/store'
+import { checkForUpdateNow, installUpdate, restartIntoUpdate, updateStep, updateVersionLabel, useUpdateStore } from '../update/store'
 
 export type CommandGroup = 'Action' | 'Go to' | 'View' | 'Project' | 'Manual check'
 
@@ -582,7 +582,7 @@ function updateCommands({ update }: CommandContext): PaletteCommand[] {
       id: 'update-worfy',
       group: 'Action',
       title: 'Update worfy',
-      detail: step.kind === 'restart' ? 'ready — restart' : step.kind === 'install' ? `worfy ${step.version} available` : 'check for a new version',
+      detail: step.kind === 'restart' ? 'ready — restart' : step.kind === 'install' ? `worfy ${updateVersionLabel(snapshot, step.version)} available` : 'check for a new version',
       keys: ['update', 'upgrade', 'new version', 'check now'],
       run: () => (step.kind === 'restart' ? restartIntoUpdate(step.when) : step.kind === 'install' ? installUpdate() : checkForUpdateNow()),
     },

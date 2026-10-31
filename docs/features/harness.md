@@ -17,8 +17,10 @@ use one installer. A second request during an install gets the same run, and an 
 reaches every window.
 
 **The toolbar item.** It is the last item of the toolbar. Its second line holds the app version and worfy's own memory
-([Storage and diagnostics](storage-and-diagnostics.md)). In the Stable copy the version is the version chip of
-[Update](updates.md).
+([Storage and diagnostics](storage-and-diagnostics.md)). The version is `v<major>.<minor>.<N>` with the build number
+([Settings → General → Version](app-shell.md#settings)), and its tooltip is the build version with the commit; a build
+without a number shows the build version `v<semver>+<short SHA>` with no tooltip. In the Stable copy the version is the
+version chip of [Update](updates.md), whose tooltip names the Update while one waits.
 
 | State | Text | Icon button | When |
 |---|---|---|---|

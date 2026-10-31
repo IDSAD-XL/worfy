@@ -23,8 +23,11 @@ public repository `IDSAD-XL/worfy`, without sign-in. The head is an Available up
 - the commits between the two change at least one path outside `docs/`, `.scratch/`, `test/`, `.github/` and the
   Markdown files of the repository root. A list of 300 files, where GitHub cuts it, counts as a change.
 
-Texts name the new version as `<version of package.json on that commit>+<short SHA>`, the form of the app's build
-version. Only the head of `main` is a candidate: there are no update channels and no Update to another commit. No
+Texts name a version by its build number, as the toolbar does: `<major>.<minor>.<N>`, where N counts the commits from the
+start of the history to that commit ([Settings → General → Version](app-shell.md#settings)). The number of the new
+version is the number of the copy that runs plus `ahead_by` of GitHub's comparison. Where it cannot be counted (the copy
+that runs has no number, GitHub gives no `ahead_by`, the previous copy of a roll back), the text names
+`<version of package.json on that commit>+<short SHA>`, the form of the app's build version. Only the head of `main` is a candidate: there are no update channels and no Update to another commit. No
 network, a refusal or a failure of GitHub, or a request over 15 seconds skips the check: one line goes to the log of the
 main process. A scheduled check shows nothing on the screen; one that "Check now" ran shows its reason in Settings.
 Without sign-in GitHub allows 60 requests an hour from one address, and a check spends one to four.
@@ -210,6 +213,7 @@ updates its own Stable copy.
 | The Harness at the first start after a restart | `src/main/update/harness-after-update.ts` |
 | Harness out of date | `src/main/update/harness-lag.ts` |
 | What's new | `src/main/update/whats-new.ts` |
+| The build number, and a version as the screen names it | `scripts/build-version.ts`, `src/main/build-number.ts`, `src/shared/version-number.ts` |
 | The swap, `--keep-previous`, `--rollback`, `--wait-pid`, `--relaunch`, `--result` | `scripts/install-stable.mjs` |
 | The `update` channels and the service behind them; the native dialog of the roll back | `src/shared/ipc/update.ts`, `src/main/ipc/update.ts` |
 | Start and quit in the app | `src/main/index.ts` |

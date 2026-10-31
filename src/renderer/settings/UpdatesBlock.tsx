@@ -8,8 +8,9 @@
 // `update` channels. Without Update in this copy (`enabled: false`) there is no block.
 import { useState } from 'react'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
+import type { NumberedBuild } from '../../shared/version-number'
 import { autoUpdateOf } from '../../shared/settings/app-settings'
-import { checkForUpdateNow, installUpdate, restartIntoUpdate, rollBackUpdate, updateStep, useUpdate } from '../update/store'
+import { checkForUpdateNow, installUpdate, restartIntoUpdate, rollBackUpdate, updateStep, updateVersionLabel, useUpdate } from '../update/store'
 import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
 
@@ -22,20 +23,21 @@ function checkedAt(at: string, now: Date = new Date()): string {
 
 /**
  * The line of the state, as the spec words it. The copy that runs is main's `running`, filled in by
- * the first check; before it, `version`, the build version the line "Version" shows. Neither known —
- * only the last check, or no line.
+ * the first check; before it, the app's build, which the line "Version" shows. Neither known — only
+ * the last check, or no line. The versions are numbered where their build number is known (ticket 14).
  */
-function statusLine(snapshot: UpdateSnapshot, version: string | undefined): string {
+function statusLine(snapshot: UpdateSnapshot, app: NumberedBuild | undefined): string {
   const step = updateStep(snapshot)
-  if (step.kind === 'restart') return `worfy ${step.version} is ready.`
-  if (step.kind === 'install') return step.building ? `Building worfy ${step.version}…` : `worfy ${step.version} is available.`
-  const running = snapshot.running?.version ?? version
+  const label = (version: string): string => updateVersionLabel(snapshot, version, app)
+  if (step.kind === 'restart') return `worfy ${label(step.version)} is ready.`
+  if (step.kind === 'install') return step.building ? `Building worfy ${label(step.version)}…` : `worfy ${label(step.version)} is available.`
+  const running = snapshot.running?.version ?? app?.version
   const checked = snapshot.lastCheck === null ? undefined : `Last checked ${checkedAt(snapshot.lastCheck.at)}.`
-  return [running === undefined ? undefined : `worfy ${running}.`, checked].filter((part) => part !== undefined).join(' ')
+  return [running === undefined ? undefined : `worfy ${label(running)}.`, checked].filter((part) => part !== undefined).join(' ')
 }
 
 /** The row "Updates": the state, its notes and the buttons. */
-function UpdatesRow({ snapshot, version }: { snapshot: UpdateSnapshot; version: string | undefined }) {
+function UpdatesRow({ snapshot, app }: { snapshot: UpdateSnapshot; app: NumberedBuild | undefined }) {
   // The reason of the last press here: a refusal, or the skipped check that "Check now" ran.
   const [problem, setProblem] = useState<string>()
   const [checkedHere, setCheckedHere] = useState(false)
@@ -62,7 +64,7 @@ function UpdatesRow({ snapshot, version }: { snapshot: UpdateSnapshot; version: 
 
   const notes: { text: string; testId: string; alert?: boolean }[] = []
   if (snapshot.rolledBackFrom !== null && snapshot.running !== null) {
-    notes.push({ text: `worfy is back to ${snapshot.running.version}. Automatic updates wait for the next commit on main.`, testId: 'settings-updates-rolled-back' })
+    notes.push({ text: `worfy is back to ${updateVersionLabel(snapshot, snapshot.running.version, app)}. Automatic updates wait for the next commit on main.`, testId: 'settings-updates-rolled-back' })
   }
   if (step.kind === 'restart' && snapshot.restartWhenIdle) {
     notes.push({ text: 'worfy restarts when no Session is working and Autopilot has stopped', testId: 'settings-updates-waiting' })
@@ -77,7 +79,7 @@ function UpdatesRow({ snapshot, version }: { snapshot: UpdateSnapshot; version: 
       label="Updates"
       description={
         <>
-          <span data-testid="settings-updates-status">{statusLine(snapshot, version)}</span>
+          <span data-testid="settings-updates-status">{statusLine(snapshot, app)}</span>
           {notes.map((note) => (
             <span key={note.testId} style={{ display: 'block' }} data-testid={note.testId} role={note.alert === true ? 'alert' : undefined}>
               {note.text}
@@ -195,14 +197,15 @@ function RollbackRow({ snapshot }: { snapshot: UpdateSnapshot }) {
 
 /**
  * The block "Updates" of Settings → General; nothing without Update in this copy. `version`: the
- * build version of this copy (`app.version`), for the line before main knows the copy that runs.
+ * build version of this copy (`app.version`), for the line before main knows the copy that runs;
+ * `number`: its build number, when it has one (ticket 14).
  */
-export function UpdatesBlock({ version }: { version?: string | undefined } = {}) {
+export function UpdatesBlock({ version, number }: { version?: string | undefined; number?: number | undefined } = {}) {
   const snapshot = useUpdate()
   if (snapshot === null || !snapshot.enabled) return null
   return (
     <>
-      <UpdatesRow snapshot={snapshot} version={version} />
+      <UpdatesRow snapshot={snapshot} app={version === undefined ? undefined : { version, number }} />
       <AutoUpdateRow />
       <RollbackRow snapshot={snapshot} />
     </>

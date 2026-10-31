@@ -710,6 +710,15 @@ describe('the worfy version row and the Harness behind this build (worfy-update 
     expect(await updateRow({ available: { sha: '2222222', version: NEWER, quiet: true } })).toMatchObject({ status: 'ok', detail: `${VERSION}, up to date` })
   })
 
+  it('names the versions by their build numbers where they are known (worfy-update ticket 14)', async () => {
+    const numbered = (state: Partial<UpdateSnapshot>): CheckDeps => ({ ...withUpdate(state), update: () => ({ snapshot: snapshot(state), version: VERSION, number: 1187 }) })
+    expect(checkOf(await runChecks(numbered({})), 'worfy-update')).toMatchObject({ status: 'ok', detail: '0.4.1187, up to date' })
+    expect(checkOf(await runChecks(numbered({ available: { sha: '2222222', version: NEWER, quiet: false, number: 1191 } })), 'worfy-update')).toMatchObject({
+      status: 'fail',
+      detail: '0.4.1191 available',
+    })
+  })
+
   it('a failed build fails with the last line of build.log and "Show log"', async () => {
     const buildLog = join(root, 'build.log')
     writeFileSync(buildLog, `worfy Update ${NEWER} (2222222)\n\n$ pnpm install --frozen-lockfile\nERR_PNPM_OUTDATED_LOCKFILE\npnpm exited with 1\n\n`)

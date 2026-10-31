@@ -30,6 +30,7 @@ import { bridgeFile } from '../harness/status-line'
 import { projectStore } from '../projects/store'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { profileRunner } from '../workflow/profile'
+import { appBuildNumber } from '../build-number'
 import { appInstaller } from './harness'
 import { appUpdate } from './update'
 import { workflowHub } from './workflow'
@@ -119,8 +120,9 @@ async function checks(): Promise<FirstRunReport> {
     homes: { harnessHome: harnessHome(), claudeHome: claudeHome() },
     projects: () => projectProfiles(env),
     limitsBridge: limitsBridge(),
-    // The build version that runs, as the Update check names it (src/main/ipc/update.ts, appRunning).
-    update: () => ({ snapshot: appUpdate().snapshot(), version: bundledHarnessVersion() ?? app.getVersion() }),
+    // The build version that runs, as the Update check names it (src/main/ipc/update.ts, appRunning),
+    // and its build number (worfy-update ticket 14).
+    update: () => ({ snapshot: appUpdate().snapshot(), version: bundledHarnessVersion() ?? app.getVersion(), number: appBuildNumber() }),
   })
 }
 

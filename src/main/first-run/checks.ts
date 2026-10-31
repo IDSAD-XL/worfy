@@ -75,6 +75,7 @@ import { programStart, windowsProgramPath } from '../program'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { Check, CheckGroup, CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
+import { numberedVersion } from '../../shared/version-number'
 
 export type Env = Readonly<Record<string, string | undefined>>
 
@@ -131,10 +132,10 @@ export interface CheckDeps {
   limitsBridge?: string | null
   /**
    * Update of this copy (worfy-update ticket 08): its snapshot (src/main/ipc/update.ts) and the build
-   * version that runs. Unset, or `enabled: false` (a dev build without WORFY_UPDATE=1): no "worfy
+   * version that runs, with its build number when it has one (ticket 14). Unset, or `enabled: false` (a dev build without WORFY_UPDATE=1): no "worfy
    * version" row, and no Harness is taken for behind by GitHub's word.
    */
-  update?: () => { snapshot: Pick<UpdateSnapshot, 'enabled' | 'available' | 'build' | 'harnessBehind'>; version: string }
+  update?: () => { snapshot: Pick<UpdateSnapshot, 'enabled' | 'available' | 'build' | 'harnessBehind'>; version: string; number?: number | undefined }
 }
 
 /** The machine: process.platform, os.release() (`10.0.<build>` on Windows) and the architecture. */
@@ -664,15 +665,16 @@ const updateToolCommand = (machine: Machine, tool: string): string | null => {
 
 /** "worfy version" (worfy-update ticket 08): the Update of this copy, as its snapshot says. */
 function worfyUpdate(update: NonNullable<CheckDeps['update']>, machine: Machine): Row {
-  const { snapshot, version } = update()
+  const { snapshot, version, number } = update()
   const { available, build } = snapshot
   if (build.phase === 'failed') {
     const missing = (build.missing ?? []).filter((tool) => updateToolCommand(machine, tool) !== null)
     if (missing.length > 0) return noFirstRun(row('fail', `${missing.join(', ')} not found`, 'Updates need git, node and pnpm', missing.map((tool) => updateToolCommand(machine, tool)).join('; ')))
     return noFirstRun(row('fail', 'update failed', build.log === undefined ? '' : lastLineOf(build.log), null, [action('update-log', 'Show log')]))
   }
-  if (available !== null && !available.quiet) return noFirstRun(row('fail', `${available.version} available`, 'Update worfy from the toolbar or Settings → General'))
-  return noFirstRun(row('ok', `${version}, up to date`))
+  // The versions numbered as the toolbar shows them (ticket 14), the build version where a number is not known.
+  if (available !== null && !available.quiet) return noFirstRun(row('fail', `${numberedVersion(available.version, available.number)} available`, 'Update worfy from the toolbar or Settings → General'))
+  return noFirstRun(row('ok', `${numberedVersion(version, number)}, up to date`))
 }
 
 /** `harnessBehind` of the Update state (worfy-update ticket 05). */
