@@ -1,7 +1,8 @@
 # 39 — Связь по имени MagicDNS даёт 403, когда имя машины в tailnet не совпадает с hostname; отказ не пишется в журнал
 
 Type: bug
-Status: claimed 2026-10-31T03:15Z
+Status: done 2026-10-31T04:28Z
+PR: #1105
 Branch: worfy-link/39
 Blocked by: —
 Source: приёмка link 31 с владельцем 2026-10-31, шаг 2: «Link a machine» с ПК по адресу

@@ -1,7 +1,8 @@
 # 38 — Закрытый stdout роняет main в окно «A JavaScript error occurred in the main process»
 
 Type: bug
-Status: claimed 2026-10-31T02:05Z
+Status: done 2026-10-31T04:28Z
+PR: #1101
 Blocked by: —
 Source: находка ПК 2026-10-31 при замене Stable на 773915d8 (через мост): старая Stable 408b25c7 не вышла сама —
 main показал модальное окно «A JavaScript error occurred in the main process», `Error: write EPIPE`, из

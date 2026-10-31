@@ -1,7 +1,8 @@
 # 115 — Stop hook `qmd-refresh` на Windows: exit 127 и «Stop hook error occurred» в конце каждого хода
 
 Type: bug
-Status: claimed 2026-10-31T02:33Z
+Status: done 2026-10-31T04:28Z
+PR: #1103
 Blocked by: —
 Source: находка ПК 2026-10-31 при проходе onboarding 12 (через мост): в демо-Project-е в конце каждого хода пользователь
 видит «Stop hook error occurred» (журнал 02:23:15Z и 02:25:57Z, ход не блокируется). Новый пользователь Windows видит это
