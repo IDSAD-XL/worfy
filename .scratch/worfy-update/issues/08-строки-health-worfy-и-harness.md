@@ -75,3 +75,7 @@ Source: решения владельца 2026-10-31, пункты 5 (красн
   строка «git, pnpm not found» и команды через `; `; сбой сборки показывается, пока следующая сборка не
   сменит фазу, даже если вышел новый commit.
 - Снимки ревью (обе темы) — в scratchpad, в репозиторий не кладутся.
+- Ревью PR #1129, раунд 1: mark `first-run.json` пишет только `fail` без `opensFirstRun: false` (иначе
+  отстающий Harness в mark прятал бы его позже `not-installed`); строка `worfy-update`, которая не прочла
+  состояние Update (EACCES), тоже не открывает First run; `harnessBehind` считается, только когда его `from` —
+  установленный сейчас Harness (как в toolbar, Ticket 06); `docs/design/F-SPEC.md`, «First run», дополнен.

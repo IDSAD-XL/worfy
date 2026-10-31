@@ -732,6 +732,21 @@ describe('the worfy version row and the Harness behind this build (worfy-update 
     expect((await updateRow({ build: { phase: 'failed', missing: ['node'] } })).command).toBe('brew install node')
   })
 
+  // Review of PR #1129: a state file that does not read (EACCES) fails the row, which still does not open First run.
+  it('an Update state that cannot be read: "worfy version" fails with the error and does not open First run; the Harness row goes by the installer', async () => {
+    const denied = Object.assign(new Error(`EACCES: permission denied, open '${join(root, 'update', 'state.json')}'`), { code: 'EACCES' })
+    const report = await runChecks(
+      deps(loginEnv(), {
+        update: () => {
+          throw denied
+        },
+        harness: () => Promise.resolve({ state: { kind: 'installed', version: BUNDLED_HARNESS, enabled: true }, bundledVersion: BUNDLED_HARNESS, canInstall: true, pluginDir: join(harnessHome, 'plugin'), dependencies: [] }),
+      }),
+    )
+    expect(checkOf(report, 'worfy-update')).toMatchObject({ status: 'fail', detail: 'the check failed', hint: denied.message, opensFirstRun: false })
+    expect(checkOf(report, 'harness')).toMatchObject({ status: 'ok', detail: BUNDLED_HARNESS })
+  })
+
   it('a dev build without WORFY_UPDATE=1 has no "worfy version" row; with it, the row is there', async () => {
     const service = (env: Record<string, string>) =>
       new UpdateService({
@@ -768,6 +783,9 @@ describe('the worfy version row and the Harness behind this build (worfy-update 
       actions: [{ id: 'harness-install', label: 'Update' }],
       opensFirstRun: false,
     })
+    // Review of PR #1129: GitHub's answer is about another installed Harness than this one (the
+    // toolbar of ticket 06 reads it so too): Replace, as without it.
+    expect(await harnessRow(same, { harnessBehind: { from: '1.2.0+eeeeeee', to: BUNDLED_HARNESS } })).toMatchObject({ status: 'warn', actions: [{ id: 'harness-install', label: 'Replace' }] })
     // Not installed fails as before, and opens First run.
     const missing = await harnessRow({ kind: 'not-installed' })
     expect(missing.status).toBe('fail')
@@ -1138,7 +1156,7 @@ describe('the first-run screen at start (src/main/ipc/first-run.ts)', () => {
    * The module's handlers, with the checks answering one Harness row of `harness()` status (or the
    * rows of `others()`, when given) and the Harness install failing with "no network".
    */
-  async function handlers(harness: () => CheckStatus, others?: () => Check[]): Promise<{ startup: () => Promise<unknown>; run: (input: unknown) => Promise<unknown> }> {
+  async function handlers(harness: () => CheckStatus, others?: () => Check[]): Promise<{ startup: () => Promise<unknown>; run: (input: unknown) => Promise<unknown>; close: () => Promise<unknown> }> {
     vi.doMock('electron', () => ({
       app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined, quit: () => undefined },
       BrowserWindow: { getAllWindows: () => [], fromWebContents: () => null },
@@ -1164,13 +1182,13 @@ describe('the first-run screen at start (src/main/ipc/first-run.ts)', () => {
     }))
     const module = (await import('../../src/main/ipc/first-run')).default as unknown as { channel: unknown; handle: (input: unknown, context: unknown) => Promise<unknown> }[]
     // The channels of this module load: the modules were loaded again after vi.resetModules().
-    const { firstRunRun, firstRunStartup } = await import('../../src/shared/ipc/first-run')
+    const { firstRunClose, firstRunRun, firstRunStartup } = await import('../../src/shared/ipc/first-run')
     const handle = (channel: unknown) => {
       const found = module.find((handler) => handler.channel === channel)
       if (found === undefined) throw new Error('no handler of the channel')
       return (input?: unknown) => found.handle(input, { event: { sender: {} } })
     }
-    return { startup: handle(firstRunStartup), run: handle(firstRunRun) }
+    return { startup: handle(firstRunStartup), run: handle(firstRunRun), close: handle(firstRunClose) }
   }
 
   // worfy-onboarding ticket 08 (decision 8): the page of the three concepts is for a first start of
@@ -1226,6 +1244,33 @@ describe('the first-run screen at start (src/main/ipc/first-run.ts)', () => {
     expect(await app.startup()).toMatchObject({ show: false })
 
     rows = [update, behind, { id: 'git', group: 'Command-line tools', title: 'git', status: 'fail', detail: 'not found', hint: '', command: null, actions: [] }]
+    expect(await app.startup()).toMatchObject({ show: true })
+  })
+
+  // Review of PR #1129: the mark keeps only the fails that open the screen, so a lagging Harness
+  // closed with the dialog does not hide its later not-installed or error from the start.
+  it('closed while the Harness lags: the mark leaves it out, and the Harness not installed later opens the screen', async () => {
+    const status = (state: HarnessStatus['state']): Promise<HarnessStatus> => Promise.resolve({ state, bundledVersion: BUNDLED_HARNESS, canInstall: true, pluginDir: join(harnessHome, 'plugin'), dependencies: [] })
+    const rowsWith = async (state: HarnessStatus['state']): Promise<Check[]> => {
+      const real = await runChecks(
+        deps(loginEnv(), {
+          update: () => ({ snapshot: { ...emptyUpdateState(), enabled: true, checking: false, restartWhenIdle: false, available: { sha: '2222222', version: '0.4.0+2222222', quiet: false } }, version: '0.4.0+1111111' }),
+          harness: () => status(state),
+        }),
+      )
+      return [checkOf(real, 'worfy-update'), checkOf(real, 'harness')]
+    }
+    const git: Check = { id: 'git', group: 'Command-line tools', title: 'git', status: 'fail', detail: 'not found', hint: '', command: null, actions: [] }
+    writeFileSync(join(data, 'first-run.json'), `${JSON.stringify({ closedAt: new Date(0).toISOString(), failing: [] })}\n`)
+    let rows: Check[] = [...(await rowsWith({ kind: 'outdated', from: '1.1.0+0000000', to: BUNDLED_HARNESS, sameVersion: false })), git]
+    const app = await handlers(() => 'ok', () => rows)
+    // git opens the screen; the user closes it with the Harness behind and worfy version failing.
+    expect(await app.startup()).toMatchObject({ show: true })
+    await app.close()
+    expect(JSON.parse(readFileSync(join(data, 'first-run.json'), 'utf8'))).toMatchObject({ failing: ['git'] })
+
+    rows = [...(await rowsWith({ kind: 'not-installed' })), git]
+    expect(checkOf({ checks: rows, checkedAt: '' }, 'harness')).toMatchObject({ status: 'fail', detail: 'not installed' })
     expect(await app.startup()).toMatchObject({ show: true })
   })
 })

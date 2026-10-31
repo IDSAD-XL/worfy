@@ -675,11 +675,16 @@ function worfyUpdate(update: NonNullable<CheckDeps['update']>, machine: Machine)
   return noFirstRun(row('ok', `${version}, up to date`))
 }
 
+/** `harnessBehind` of the Update state (worfy-update ticket 05). */
+type HarnessBehind = NonNullable<UpdateSnapshot['harnessBehind']>
+
 /**
- * The Harness plugin. `behind`: the Update state says the installed Harness is behind this build's
- * (`harnessBehind`, worfy-update ticket 05), which only GitHub can say for the same semver.
+ * The Harness plugin. `behind`: the Update state says a Harness is behind this build's
+ * (`harnessBehind`, worfy-update ticket 05), which only GitHub can say for the same semver. It counts
+ * only for the Harness installed now (`from`), as the toolbar reads it (ticket 06): an answer
+ * about one installed before is not about this one.
  */
-function harness(status: HarnessStatus, behind: boolean): Row {
+function harness(status: HarnessStatus, behind: HarnessBehind | null): Row {
   const { state } = status
   const install = (label: string): Check['actions'] => (status.canInstall ? [action('harness-install', label)] : [])
   const devRun = status.canInstall ? '' : ' (a dev run only shows the state: start the packaged app to install)'
@@ -695,7 +700,7 @@ function harness(status: HarnessStatus, behind: boolean): Row {
       // The same semver from another commit (ticket 67): no arrow and no "update", as worfy cannot
       // tell which one is newer — unless GitHub said this build's commit comes after it (`behind`).
       if (state.sameVersion) {
-        if (behind) return noFirstRun(update('fail'))
+        if (behind !== null && behind.from === state.from) return noFirstRun(update('fail'))
         return row(
           'warn',
           `${state.from ?? 'unknown version'}, this build ${state.to}`,
@@ -886,11 +891,11 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
       throw error
     }
   }
-  const behind = (): boolean => {
+  const behind = (): HarnessBehind | null => {
     try {
-      return (update?.().snapshot.harnessBehind ?? null) !== null
+      return update?.().snapshot.harnessBehind ?? null
     } catch {
-      return false
+      return null
     }
   }
   const listed = CHECKS.filter((check) => (machine.windows || check.windows !== true) && (check.id !== 'worfy-update' || update !== undefined))
@@ -909,7 +914,8 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
     node: guarded(() => node(deps, machine, timeoutMs)),
     jq: guarded(() => tool('jq', deps, machine, timeoutMs)),
     'gh-auth': guarded(() => ghAuth(deps, machine, timeoutMs)),
-    'worfy-update': update === undefined ? null : guarded(() => worfyUpdate(update, machine)),
+    // Even a row that could not be read stays out of the start rule (spec R9).
+    'worfy-update': update === undefined ? null : guarded(() => worfyUpdate(update, machine)).then(noFirstRun),
     harness: guarded(async () => harness(await harnessStatus, behind())),
     'harness-dependencies': guarded(async () => harnessDependencies(await harnessStatus)),
     'harness-scripts': guarded(() => harnessScripts(deps)),

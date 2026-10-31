@@ -245,6 +245,8 @@ export default [
     }
   }),
   defineHandler(firstRunClose, () => {
-    writeMark({ closedAt: new Date().toISOString(), failing: (lastReport?.checks ?? []).filter((check) => check.status === 'fail').map((check) => check.id) })
+    // Only the fails that open the screen: a lagging Harness kept here would hide its later
+    // not-installed or error from the start (review of PR #1129).
+    writeMark({ closedAt: new Date().toISOString(), failing: (lastReport?.checks ?? []).filter((check) => check.status === 'fail' && check.opensFirstRun !== false).map((check) => check.id) })
   }),
 ] satisfies HandlerModule
