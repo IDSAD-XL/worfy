@@ -112,6 +112,23 @@ async function snapshotBar(window: Page, bar: Locator, name: string): Promise<vo
   }
 }
 
+/** The switch's knob draws no ring and no disc of its own in the light and the dark theme: only its icon shows. */
+async function expectBareKnob(window: Page, eco: Locator): Promise<void> {
+  const knob = eco.locator('.w-eco__knob')
+  try {
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      const look = await knob.evaluate((element) => {
+        const style = (globalThis as unknown as { getComputedStyle: (node: object) => { boxShadow: string; backgroundColor: string } }).getComputedStyle(element)
+        return { boxShadow: style.boxShadow, backgroundColor: style.backgroundColor }
+      })
+      expect(look, `${scheme}: the knob`).toEqual({ boxShadow: 'none', backgroundColor: 'rgba(0, 0, 0, 0)' })
+    }
+  } finally {
+    await window.emulateMedia({ colorScheme: null })
+  }
+}
+
 type Written = typeof PROFILE & { agents?: unknown; workflow: { agents?: unknown } }
 const written = (): Written => JSON.parse(readFileSync(profileJson, 'utf8')) as Written
 
@@ -142,6 +159,9 @@ test("the Orchestrator's Eco mode switch writes the Project's Profile: on, off, 
     await expect(eco).toHaveAttribute('aria-checked', 'true')
     await expect(eco).not.toHaveAttribute('aria-busy', 'true')
     await expect(eco.getByTestId('eco-mode-icon')).toHaveAttribute('data-icon', 'leaf')
+    // The track's border is the switch's only outline: the knob has no ring and no fill of its own,
+    // on and off, in both themes (the owner's request, 2026-10-31).
+    await expectBareKnob(window, eco)
     expect(written().workflow.agents).toBe('eco')
     expect(written().agents).toEqual({ implementer: SONNET_MEDIUM, reviewer: SONNET_MEDIUM, scout: SONNET_MEDIUM, verifier: SONNET_MEDIUM })
     await snapshotBar(window, bar, 'eco-on-wide')
@@ -157,6 +177,7 @@ test("the Orchestrator's Eco mode switch writes the Project's Profile: on, off, 
     await expect(eco).toHaveAttribute('aria-checked', 'false')
     await expect(eco).not.toHaveAttribute('aria-busy', 'true')
     await expect(eco.getByTestId('eco-mode-icon')).toHaveAttribute('data-icon', 'bolt')
+    await expectBareKnob(window, eco)
     expect(written()).toEqual(PROFILE)
     await snapshotBar(window, bar, 'eco-off-narrow')
 
