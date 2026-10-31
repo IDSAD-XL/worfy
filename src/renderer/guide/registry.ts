@@ -20,6 +20,7 @@ export interface GuideTopicEntry {
 /** In the order of the Guide's list; the first one shown is the Topic the Guide opens at. */
 export const GUIDE_TOPICS: readonly GuideTopicEntry[] = [
   { id: 'map-of-worfy', title: 'Map of worfy', keys: ['overview', 'concepts', 'how worfy fits together'] },
+  { id: 'autopilot', title: 'Autopilot', keys: ['run waves', 'unattended', 'stop autopilot', 'force stop', 'journal'] },
   { id: 'canvas', title: 'Canvas', keys: ['done shelf', 'focus mode'] },
   { id: 'skeleton', title: 'How the Guide works', keys: ['guide test', 'skeleton'], devOnly: true },
 ]
