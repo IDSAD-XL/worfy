@@ -1,0 +1,13 @@
+{
+  "sources": [{ "page": "docs/features/autopilot.md", "sha": "02be335e" }],
+  "files": [
+    "src/main/autopilot/run.ts",
+    "src/shared/autopilot/cycle.ts",
+    "src/main/actions/launch.ts",
+    "src/main/agent/session-settings.ts",
+    "src/main/autopilot/limits-wait.ts",
+    "src/shared/autopilot/budget.ts",
+    "src/main/autopilot/journal.ts",
+    "src/renderer/canvas/actions/AutopilotAction.tsx"
+  ]
+}
