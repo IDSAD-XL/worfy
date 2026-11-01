@@ -128,7 +128,8 @@ The **Epic forecast** says what share of the week's Limits the Waves left of an 
 is shown in the tooltip of the **Autopilot** button and in the dialog of `autopilot_start`. It stops nothing: the run is
 led by its Run mode alone.
 
-The tooltip of an active **Autopilot** button ends with these lines, joined by ". ":
+The tooltip of an active **Autopilot** button ends with these lines, joined by ". ". Until main answers with the samples,
+it ends with the mode line alone.
 
 1. The mode the button starts in: `Mode: Budget-aware (Settings → Autopilot)`.
 2. The forecast: `This Epic: 4 Waves, 11 Tickets left, usually 18–31% of the week. Used now: 41%, resets in 2 d 5 h`.
@@ -188,9 +189,11 @@ the `actual` field of `run-stopped`. `run-started` names the mode, and each wait
 
 ### How it works
 
-**The mode acts only at the boundary of a Wave.** Stopping a Wave in work would leave Tickets half done, so the mode
-only decides whether the next Wave starts, and the refusal by the Limits inside a Wave stays as it was
-([ADR-0093](../adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md)). A wait for the window and a wait for the
+**The mode acts only at the boundary of a Wave.** An interrupted Ticket would leave its worktree and branch in the
+middle of the work for a person to sort out in the morning, so the mode only decides whether the next Wave starts, and
+the refusal by the Limits inside a Wave stays as it was
+([ADR-0093](../adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md)). The window limits the start of a Wave, not
+the work: a Wave started just before the window's end may run for hours after it. A wait for the window and a wait for the
 budget are one wait before the Wave: one at a time, and ended alike by a Stop, a Force stop and the quit.
 
 **The order of the checks.** Fastest checks nothing. Budget-aware checks the budget with the switch taken as on. Start
