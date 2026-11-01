@@ -605,7 +605,7 @@ describe('Autopilot and the Limits on the fake agent', () => {
     expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'resumed', 'wave-finished', 'wave-started', 'limits-hit', 'waiting-until'])
   })
 
-  it("a person's turn that goes through during the wait cancels it: the timer sends no continuation", async () => {
+  it("a person's turn that goes through during the wait cancels it and writes resumed at its end: the timer sends no continuation (worfy-resource-planner ticket 02)", async () => {
     const h = harness()
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.state().status === 'waiting', 'the wait for the Limits')
@@ -616,13 +616,17 @@ describe('Autopilot and the Limits on the fake agent', () => {
     await until(() => h.state().status === 'running', 'the wait to end')
     expect(timer.cancelled).toBe(true)
     expect(h.state().resumesAt).toBeNull()
+    // The wait ends with the person's turn, not at the timer and not at wave-finished: its
+    // resumed is in the journal already (the Wave's duration counts the wait until here).
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'resumed'])
     // A timer that fired all the same resumes nothing.
     clock = timer.at
     timer.fire()
     await tick()
     expect(h.messages()).toEqual([WAVE_1, 'how is it going?'])
     expect(h.messages().some((text) => text.startsWith(CONTINUE_TEXT))).toBe(false)
-    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until'])
+    // The late timer writes no second resumed.
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'resumed'])
   })
 
   it("the timer of a wait that a person's turn ended does not resume the next wait", async () => {
@@ -642,7 +646,8 @@ describe('Autopilot and the Limits on the fake agent', () => {
     await tick()
     expect(h.messages()).toEqual([WAVE_1, 'how is it going?', WAVE_2])
     expect(h.state()).toMatchObject({ status: 'waiting', resumesAt: second[0]!.at })
-    expect(await h.kinds()).not.toContain('resumed')
+    // The person's turn closed the first wait with resumed; the late timer adds none.
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'resumed', 'wave-finished', 'wave-started', 'limits-hit', 'waiting-until'])
   })
 
   it('a refusal of an earlier turn does not make a later error of another kind a refusal', async () => {
