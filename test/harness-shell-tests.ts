@@ -58,7 +58,7 @@ export const UNMEASURED_SECONDS = 20
 
 /**
  * Seconds each shell test took, five at a time in one file: `windows` on the GitHub Windows runner (CI run
- * 40927995527 of 2026-10-29, jobs `harness-scripts 1/2` and `2/2`; qmd.test.sh was still skipped there, so it counts UNMEASURED_SECONDS), `other`
+ * 40927995527 of 2026-10-29, jobs `harness-scripts 1/2` and `2/2`; qmd.test.sh and most of gate-shim.test.sh were still skipped there, so they count UNMEASURED_SECONDS), `other`
  * on the owner's Mac in a whole `pnpm test --maxWorkers=9` (2026-10-29; code-map.test.sh in the four
  * harness-scripts files alone, 2026-10-30, and not yet on Windows), used on macOS and Linux. They
  * split the shell tests across HARNESS_SCRIPTS_FILES (inFile) and set the order they start in (startOrder).
@@ -109,7 +109,6 @@ export const MEASURED_SECONDS: { windows: Seconds; other: Seconds } = {
     'hooks/tests/gh-token-env.test.sh': 9,
     'bin/tests/gh-override.test.sh': 8,
     'bin/tests/review-depth.test.sh': 8,
-    'hooks/tests/gate-shim.test.sh': 7,
     'hooks/tests/gate-verdict-signals.test.sh': 7,
     'bin/tests/qmd-collections.test.sh': 6,
     'bin/tests/wave-gate-lock-killed.test.sh': 5,

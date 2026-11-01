@@ -321,8 +321,9 @@ verdict "not registered -> outcome unverified, exit 3, key null" "$U" '.outcome 
 NONODE="" why="" LAUNCHER="$HOOKS/gate.sh"
 if [ -x /opt/homebrew/bin/node ] || [ -x /usr/local/bin/node ]; then
     LAUNCHER="$T/gate-no-usual-node.sh"
-    sed 's#/opt/homebrew/bin /usr/local/bin#/worfy-test-no-such-folder-a /worfy-test-no-such-folder-b#' "$HOOKS/gate.sh" >"$LAUNCHER"
-    grep -q '/worfy-test-no-such-folder-a /worfy-test-no-such-folder-b' "$LAUNCHER" || bad "gate.sh no longer names /opt/homebrew/bin and /usr/local/bin in one line: the test cannot take them out"
+    # Each folder on its own, whatever the order of the list (eval-env.test.sh says why).
+    sed 's#/opt/homebrew/bin#/worfy-test-no-such-folder-a#g; s#/usr/local/bin#/worfy-test-no-such-folder-b#g' "$HOOKS/gate.sh" >"$LAUNCHER"
+    grep -qE '/opt/homebrew/bin|/usr/local/bin' "$LAUNCHER" && bad "the copy of gate.sh still looks in /opt/homebrew/bin or /usr/local/bin"
 fi
 if [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:$(dirname "$(command -v git)")"
 else
