@@ -101,14 +101,29 @@ download Electron, без toast-а «идёт сборка» (индикатор
 - Стиль кольца — в `src/renderer/shell/shell.css` рядом со стилем точки (файл вне «Где в коде»).
 - `docs/features/ru/updates.md` не правился: по ADR-0088 в PR с поведением правится только английская страница.
 
-**Mutant-ы** (каждый ломает новый test, прогон `node scripts/vitest-electron.mjs run <файлы>`, exit 1):
+**Mutant-ы** (каждый ломает новый test; прогон на копии дерева вне репозитория,
+`node scripts/vitest-electron.mjs run <файлы>`, exit 1 у всех 23):
 M1 шаг не пишется и не шлётся на смене (`stepTo` без `write`) — contract; M2 chip без шага («Updating» без `N/M` и
 текста) — unit chip; M3 отказ только в console — unit chip и palette; M4 нет «Starting update…» до ответа main — unit
 chip, Settings, toasts; M5 `restarting` не ставится — contract; M6 отказ «being built already» убран — contract; M7 время
 не тикает — unit chip и Settings; M8 шаг `electron` не делает счёт 4 — contract; M9 reduced motion не останавливает
-кольцо — unit chip; M10 нет «Show log» в Settings — unit Settings.
+кольцо — unit chip; M10 нет «Show log» в Settings — unit Settings; M11 строка Settings без шага — unit Settings;
+M12 chip не смотрит на `restarting` — unit chip; M13 отказ из toast-а «Update» молчит — unit toasts; M14 «Update failed»
+не называет недостающий инструмент — unit toasts; M15 отказ «there is no new version to build» убран — contract;
+M16 шаг `install` не пишется — contract; M17 toast отказа никогда не даёт «Show log» — unit chip; M18 «Starting update…»
+не снимается при отказе — unit chip, Settings, toasts, palette; M19 snapshot с `restarting` не уходит в окна до `quit` —
+contract; M20 `step` обязателен (старое состояние не читается) — contract; M21 Settings без «Starting update…», пока у
+сборки нет шага — unit Settings; M22 шаг `electron` не пишется — contract; M23 chip без «Starting update…» у начатой
+сборки без шага — unit chip.
 
-**Снимки** (Playwright, e2e `update-toolbar.spec.ts` и `update-settings.spec.ts` с закоммиченного head; контраст текста
-chip-а ≥ 4.5:1 проверяет e2e в обеих темах): [chip, светлая](../evidence/16-chip-building-light.png),
+**Снимки** (Playwright, e2e `update-toolbar.spec.ts` и `update-settings.spec.ts` с закоммиченного head после rebase на
+`main`; контраст текста chip-а ≥ 4.5:1 проверяет e2e в обеих темах; по самим снимкам: chip 5.4:1 в светлой и 6.1:1 в
+тёмной, строка Settings 9.1:1 и 9.2:1): [chip, светлая](../evidence/16-chip-building-light.png),
 [chip, тёмная](../evidence/16-chip-building-dark.png), [Settings, светлая](../evidence/16-settings-building-light.png),
 [Settings, тёмная](../evidence/16-settings-building-dark.png).
+
+**e2e.** `update-toolbar.spec.ts` и `update-settings.spec.ts` зелёные с закоммиченного head (3 из 3), и вместе с
+`update-toasts.spec.ts` (его «Update» теперь идёт через `installUpdate`) — 15 из 15 при `--repeat-each=3`. Упавший
+прогон этих spec-ов в log-ах и транскрипте прошлой сессии не нашёлся: оба её прогона e2e тоже зелёные. Сбой не
+повторился ни разу из 4 прогонов: признаков ошибки кода нет, вероятная причина — окружение (прошлую сессию прервал
+перезапуск worfy); точная причина не установлена.

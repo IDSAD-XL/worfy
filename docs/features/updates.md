@@ -98,7 +98,8 @@ version chip shows a turning ring in place of the dot, and "Updating · 2/3 Inst
 when the system asks for reduced motion. Its tooltip is "Building worfy <version>… 3:12", the time since the build began,
 counting each second while the pointer or the focus is on the chip. A press of "Update worfy" in the chip, Settings, the
 Command palette or the toast answers at once with "Starting update…", until the build reaches its first step. When main
-refuses the press, a toast says why (see the toasts above). There is no toast while a build runs: the chip is the sign of
+refuses a press of the chip, the Command palette or the toast, a toast says why (see the toasts above); in Settings the
+reason shows under the line. There is no toast while a build runs: the chip is the sign of
 it. Once a restart into an Update (or a roll back) began, the chip says "Restarting…" until the window closes.
 
 **A failed build** leaves the running Stable copy as it is. The chip's tooltip names the failure, the toast "Update
