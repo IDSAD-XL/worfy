@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { journalFacts, STOP_OUTCOMES, type JournalFacts } from '../../src/shared/flight-recorder/from-journal'
+import { summarize } from '../../src/shared/flight-recorder/summary'
 import { buildTimeline, type RunFacts, type StageEventFact, type WorkFact } from '../../src/shared/flight-recorder/spans'
 import { AUTOPILOT_STOP_REASONS } from '../../src/shared/autopilot/cycle'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
@@ -97,7 +98,10 @@ describe('from-journal: the Waits', () => {
     ])
     // Written in the millisecond of wave-finished, where the model still counts Wave 1 open.
     const wait = buildTimeline(runFacts(facts)).spans.find((item) => item.kind === 'wait')
-    expect(wait).toMatchObject({ waitCause: 'limits-budget', links: { tickets: ['e/02'] } })
+    expect(wait).toMatchObject({ waitCause: 'limits-budget', start: Date.parse(T('10:40')), end: Date.parse(T('12:00')), links: { tickets: ['e/02'] } })
+    // A Wave sent in the very millisecond of the budget-stop is the one that stood.
+    const same = read(started(), line('10:40', 'budget-stop', { cause: 'five-hour', until: T('10:40') }), wave('10:40', 1, ['03']), stopped('11:00'))
+    expect(same.waits).toMatchObject([{ cause: 'limits-budget', tickets: ['e/03'] }])
     // No Wave after it: no Ticket stood.
     const last = read(started(), wave('10:01', 1, ['01']), finished('10:40', 1, ['01']), line('10:40', 'budget-stop', { cause: 'five-hour', until: T('12:00') }), stopped('11:00', 'user-stop'))
     expect(last.waits).toMatchObject([{ cause: 'limits-budget', end: T('11:00'), tickets: [] }])
@@ -120,6 +124,11 @@ describe('from-journal: the Waits', () => {
       { id: 'background-tasks:1', cause: 'background-tasks', start: T('10:05'), end: T('10:40'), detail: 'Implement ticket 01; Run gate fast', startSource: 'journal', endSource: 'journal' },
       { id: 'background-tasks:2', cause: 'background-tasks', start: T('10:50'), end: T('11:00'), detail: 'Verify ticket 01', startSource: 'journal', endSource: 'journal' },
     ])
+    const spans = buildTimeline(runFacts(facts)).spans.filter((item) => item.waitCause === 'background-tasks')
+    expect(spans.map(({ start, end, outcome }) => ({ start, end, outcome }))).toEqual([
+      { start: Date.parse(T('10:05')), end: Date.parse(T('10:40')), outcome: 'ok' },
+      { start: Date.parse(T('10:50')), end: Date.parse(T('11:00')), outcome: 'ok' },
+    ])
   })
 
   it('ends a Wait still open at run-stopped there, and drops what the Journal holds after it', () => {
@@ -130,9 +139,16 @@ describe('from-journal: the Waits', () => {
       line('10:30', 'limits-hit', { window: null, resetsAt: null }),
       stopped('11:00', 'user-stop'),
       tasks('11:05'),
+      status('11:05', '01', 'done', { statusAt: '2026-10-17T11:05Z' }),
       line('11:06', 'human-input', { source: 'worfy', what: 'typed in the Orchestrator' }),
+      line('11:06', 'tasks-killed', { reason: 'app-quit', tasks: [] }),
       line('11:07', 'orchestrator-returned'),
     )
+    // The Run stopped inside Wave 1: the Wave is last seen at the stop, never past it.
+    expect(facts.waves).toMatchObject([{ number: 1, finishedAt: null, lastSeenAt: T('11:00') }])
+    expect(facts.ticketEvents).toEqual([])
+    const timeline = buildTimeline(runFacts(facts))
+    expect(timeline.spans.find((item) => item.kind === 'wave')?.until).toBe(Date.parse(T('11:00')))
     expect(facts.waits.map(({ cause, start, end }) => ({ cause, start, end }))).toEqual([
       { cause: 'background-tasks', start: T('10:05'), end: T('11:00') },
       { cause: 'limits', start: T('10:30'), end: T('11:00') },
@@ -153,9 +169,11 @@ describe('from-journal: the Waits', () => {
   it('turns gate-queue … gate-queue-finished into a Wait `gate-queue`', () => {
     const facts = read(started(), line('10:01', 'gate-queue', { text: 'Process gate queue' }), tasks('10:05', 'gate full of PR 7'), tasks('10:20'), line('10:22', 'gate-queue-finished'), stopped('10:22'))
     expect(facts.waits.filter((item) => item.cause === 'gate-queue')).toEqual([{ id: 'gate-queue:1', cause: 'gate-queue', start: T('10:01'), end: T('10:22'), startSource: 'journal', endSource: 'journal' }])
+    const span = buildTimeline(runFacts(facts)).spans.find((item) => item.waitCause === 'gate-queue')
+    expect(span).toMatchObject({ start: Date.parse(T('10:01')), end: Date.parse(T('10:22')), outcome: 'ok', reason: 'gate-queue' })
   })
 
-  it('cuts a gate-queue of an old Journal (no gate-queue-finished) off at its last line before run-stopped, by the rule of the model', () => {
+  it('cuts a gate-queue of an old Journal (no gate-queue-finished) off at run-stopped, which follows its turn, by the rule of the model', () => {
     const facts = read(
       line('10:00', 'run-started', { origin: 'github.com/owner/repo' }),
       line('10:01', 'gate-queue', { text: 'Process gate queue' }),
@@ -164,9 +182,27 @@ describe('from-journal: the Waits', () => {
       stopped('10:40', 'no-ready-wave'),
     )
     const gate = facts.waits.find((item) => item.cause === 'gate-queue')
-    expect(gate).toEqual({ id: 'gate-queue:1', cause: 'gate-queue', start: T('10:01'), end: null, lastSeenAt: T('10:20'), startSource: 'journal' })
+    expect(gate).toEqual({ id: 'gate-queue:1', cause: 'gate-queue', start: T('10:01'), end: null, lastSeenAt: T('10:40'), startSource: 'journal' })
     const span = buildTimeline(runFacts(facts)).spans.find((item) => item.waitCause === 'gate-queue')
-    expect(span).toMatchObject({ outcome: 'cut-off', end: Date.parse(T('10:20')), reason: 'gate-queue' })
+    expect(span).toMatchObject({ outcome: 'cut-off', start: Date.parse(T('10:01')), end: Date.parse(T('10:40')), reason: 'gate-queue' })
+    // No line between the two: still not a Wait of no length.
+    const bare = read(line('10:00', 'run-started'), line('10:01', 'gate-queue', { text: 'Process gate queue' }), stopped('10:30', 'no-ready-wave'))
+    expect(bare.waits).toMatchObject([{ cause: 'gate-queue', end: null, lastSeenAt: T('10:30') }])
+  })
+
+  it('takes a waiting-until alone as a Wait `limits`, and the last until of several', () => {
+    const lone = read(started(), wave('10:01', 1, ['01']), line('10:10', 'waiting-until', { until: T('10:30') }), line('10:30', 'resumed'), stopped('11:00'))
+    expect(lone.waits).toEqual([{ id: 'limits:1', cause: 'limits', start: T('10:10'), end: T('10:30'), detail: `until ${T('10:30')}`, startSource: 'journal', endSource: 'journal' }])
+    const twice = read(
+      started(),
+      wave('10:01', 1, ['01']),
+      line('10:10', 'limits-hit', { window: 'seven_day', resetsAt: null }),
+      line('10:10', 'waiting-until', { until: T('10:30') }),
+      line('10:30', 'waiting-until', { until: T('10:50') }),
+      line('10:50', 'resumed'),
+      stopped('11:00'),
+    )
+    expect(twice.waits).toMatchObject([{ cause: 'limits', start: T('10:10'), end: T('10:50'), detail: `seven_day, until ${T('10:50')}` }])
   })
 })
 
@@ -220,7 +256,7 @@ describe('from-journal: the statuses of the Tickets', () => {
     ])
   })
 
-  it('keeps the statuses of a Ticket in their Journal order when a statusAt of the minute falls before the previous change', () => {
+  it('takes the sighting when a statusAt falls before the Ticket’s previous status (a Status line git brought in)', () => {
     const facts = read(
       started(),
       wave('10:01', 1, ['01']),
@@ -229,7 +265,13 @@ describe('from-journal: the statuses of the Tickets', () => {
       status('10:06', '01', 'blocked', { statusAt: '2026-10-17T10:05Z', reason: 'r' }),
       stopped('12:00'),
     )
-    expect(facts.ticketEvents.map(({ at }) => at)).toEqual(['2026-10-17T10:05:40.000Z', '2026-10-17T10:05:40.000Z'])
+    // The block keeps its length instead of none.
+    expect(facts.ticketEvents.map(({ at }) => at)).toEqual(['2026-10-17T10:05:40.000Z', T('10:06')])
+  })
+
+  it('takes the sighting when a statusAt falls before the Run started', () => {
+    const facts = read(started(), wave('10:01', 1, ['01']), status('10:30', '01', 'claimed', { statusAt: '2026-10-16T18:00Z' }), status('10:40', '01', 'blocked', { statusAt: '2026-10-17T10:35Z' }), stopped('12:00'))
+    expect(facts.ticketEvents.map(({ at }) => at)).toEqual([T('10:30'), T('10:35')])
   })
 
   it('claims each Ticket of an old Journal (no ticket-status, no run-started.by) at the first wave-started that names it', () => {
@@ -251,6 +293,13 @@ describe('from-journal: the statuses of the Tickets', () => {
     const facts = read(started(), wave('10:01', 1, ['01', '02']), status('10:05', '01', 'claimed'), stopped('12:00'))
     expect(facts.ticketEvents.map(({ ticket }) => ticket)).toEqual(['e/01'])
     expect(read(started(), wave('10:01', 1, ['01']), stopped('12:00')).ticketEvents).toEqual([])
+    // A ticket-status line alone tells a later Journal, run-started without `by` too.
+    const noBy = read(line('10:00', 'run-started'), wave('10:01', 1, ['01', '02']), status('10:05', '01', 'claimed'), stopped('12:00'))
+    expect(noBy.ticketEvents.map(({ ticket, at }) => ({ ticket, at }))).toEqual([{ ticket: 'e/01', at: T('10:05') }])
+    // A `by` the format does not know reads as none, but still marks a later Journal.
+    const odd = read(started({ by: 'robot' }), wave('10:01', 1, ['01']), stopped('12:00'))
+    expect(odd.by).toBeUndefined()
+    expect(odd.ticketEvents).toEqual([])
   })
 
   it('lets the claim of an old Journal and the implied claim of a PR event before it agree: no step back', () => {
@@ -354,10 +403,24 @@ describe('from-journal: the frame of the Run', () => {
 
   it('maps every stop reason to an outcome', () => {
     expect(Object.keys(STOP_OUTCOMES).sort()).toEqual([...AUTOPILOT_STOP_REASONS].sort())
-    expect(STOP_OUTCOMES['tickets-done']).toBe('ok')
-    expect(STOP_OUTCOMES['blocked-tickets']).toBe('blocked')
-    expect(STOP_OUTCOMES['session-error']).toBe('failed')
-    expect(STOP_OUTCOMES['user-stop']).toBe('stopped')
+    expect(STOP_OUTCOMES).toEqual({
+      'tickets-done': 'ok',
+      'no-ready-wave': 'ok',
+      'blocked-tickets': 'blocked',
+      'user-stop': 'stopped',
+      'user-force-stop': 'stopped',
+      'app-quit': 'stopped',
+      interrupted: 'stopped',
+      'no-progress': 'failed',
+      'wave-unfinished': 'failed',
+      'session-error': 'failed',
+      'turn-error': 'failed',
+      'session-closed': 'failed',
+      'send-failed': 'failed',
+      'workflow-error': 'failed',
+      'limits-timeout': 'failed',
+      'background-stalled': 'failed',
+    })
     expect(read(started(), stopped('10:01', 'tickets-done')).run.outcome).toBe('ok')
     // A reason the format does not know stays the reason; the outcome is the model's default.
     const unknown = read(started(), stopped('10:01', 'something-new')).run
@@ -427,6 +490,17 @@ describe('from-journal: the night-Run fixture', () => {
     const timeline = buildTimeline(runFacts(facts))
     expect(timeline.spans.filter((item) => item.kind === 'wave')).toHaveLength(2)
     expect(timeline.spans.filter((item) => item.kind === 'ticket')).toHaveLength(4)
+  })
+
+  // The baseline of the model's rule to come (a background-tasks Wait counts only where no work of
+  // the Run runs): today the Journal's Waits cover the agents' own work, nearly the whole Run.
+  it('pins the raw background-tasks Waits of the night Run: their number and length', () => {
+    const facts = night()
+    const total = facts.waits.reduce((sum, wait) => sum + Date.parse(wait.end ?? wait.start) - Date.parse(wait.start), 0)
+    expect({ count: facts.waits.length, total }).toEqual({ count: 13, total: 15_808_308 })
+    const [row] = summarize(buildTimeline(runFacts(facts))).waits
+    expect(row).toMatchObject({ cause: 'background-tasks', total })
+    expect(row?.share).toBeCloseTo(0.915, 3)
   })
 })
 

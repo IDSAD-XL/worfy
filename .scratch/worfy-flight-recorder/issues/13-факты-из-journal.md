@@ -27,6 +27,8 @@ Journal задаёт каркас Run (решение 08, Q5).
    `background-tasks` (из событий `background-tasks`), `gate-queue` (`gate-queue` → `gate-queue-finished`).
 3. **Статусы Ticket-ов** из `ticket-status`: claim, блокировка-отметка с `reason` и `waits`, снятие, `done`.
 4. **Повторы**: `narrow-round` и перезапуск после `session-error` — новая попытка `#N` со ссылкой на причину.
+   В одном Run за `session-error` всегда следует `run-stopped` (`src/shared/autopilot/cycle.ts:262`): перезапуск
+   идёт уже в следующем Run. Связать Run-ы — работа Ticket-а 14 или 17; reader отдаёт причину без Ticket-а.
 5. **Отметки на дорожке Orchestrator**: `refused-dialog` и `human-input` — отметки, не Wait (решение 03, Q5).
 6. **Старый Journal** (без `ticket-status`): claim Ticket-а — по `wave-started`, где он назван.
 7. Fixture ночного Run (соглашения spec-а): обезличенный Journal Run `2026-10-17T22-29-32-707Z-58e783`, пути
@@ -65,7 +67,7 @@ Journal задаёт каркас Run (решение 08, Q5).
 
 ## Итог
 
-- `src/shared/flight-recorder/from-journal.ts` — чистая функция `journalFacts({ run, lines })` (from-journal.ts:123),
+- `src/shared/flight-recorder/from-journal.ts` — чистая функция `journalFacts({ run, lines })` (from-journal.ts:134),
   без Node и DOM (test на импорты). Строки разбирает `parseJournal`, Run и Wave — `walkRun` из `journal-walk.mjs`
   (тикет 10, не изменён). Отдаёт часть `RunFacts`, которую по таблице `facts.ts` заполняет Journal: `run` (без `live`),
   `waves`, `ticketEvents` (`status`), `waits`, `retryCauses`, `orchestratorMarks`, плюс `epic`, `tickets` (все
@@ -74,30 +76,42 @@ Journal задаёт каркас Run (решение 08, Q5).
 - Ticket — `<epic>/<NN>`, номер как в `wave-started.tickets`: тот же ключ, что у `walkJournals` и в contract test
   reader-а 14.
 - Run кончается на `run-stopped`: строки после него (background tasks, пока Run ждёт вернуть Orchestrator-а,
-  `orchestrator-returned`, `tasks-killed`) — не Run-а (from-journal.ts:135), они дают только `lastSeenAt`. Строка
-  другого Run (observer дописал не в тот файл) пропускается и считается (from-journal.ts:125). Исход Run — по
-  причине остановки, таблица `STOP_OUTCOMES` (from-journal.ts:73) на все `AUTOPILOT_STOP_REASONS` (test сверяет
-  ключи): `tickets-done`, `no-ready-wave` — `ok`; `blocked-tickets` — `blocked`; `user-stop`, `user-force-stop`,
-  `app-quit` — `stopped`; ошибки, `no-progress`, `wave-unfinished`, `limits-timeout`, `background-stalled` — `failed`.
-  Незнакомая причина остаётся `reason`, исход — по умолчанию модели.
+  `orchestrator-returned`, `tasks-killed`) — не Run-а (from-journal.ts:146), они дают только `lastSeenAt`. Строка
+  другого Run (observer дописал не в тот файл) пропускается и считается (from-journal.ts:136). Исход Run — по
+  причине остановки, таблица `STOP_OUTCOMES` (from-journal.ts:84) на все `AUTOPILOT_STOP_REASONS` (test сверяет
+  ключи и значения): `tickets-done`, `no-ready-wave` — `ok`; `blocked-tickets` — `blocked`; `user-stop`,
+  `user-force-stop`, `app-quit`, `interrupted` — `stopped` (ход прерывает только кнопка Interrupt Session-а через
+  `agent.interrupt`, `src/main/ipc/agent.ts:167`); ошибки, `session-closed` (Session закрывает человек, но и
+  новая Session для следующей Wave может не подняться, `src/main/autopilot/run.ts:1270`), `no-progress`,
+  `wave-unfinished`, `limits-timeout`, `background-stalled` — `failed`. Незнакомая причина остаётся `reason`, исход —
+  по умолчанию модели. `by` — только `button`, `command`, `tool` (`RUN_STARTED_BY`); другое значение читается как
+  его отсутствие.
 - Wave без `wave-finished` (Run остановился внутри, или её сменил следующий `wave-started`) — `finishedAt: null`,
-  `lastSeenAt` — её последняя строка до следующего `wave-started` или до `run-stopped` включительно.
+  `lastSeenAt` — её последняя строка до следующего `wave-started` или до `run-stopped` включительно, никогда не
+  позже `run-stopped`: строки после него (`tasks-killed`, `orchestrator-returned`, background tasks) Wave не
+  удлиняют и статусов не дают (test).
 - Wait-ы: `limits` — `limits-hit` (или одинокий `waiting-until`) → `resumed`, detail — окно и `until`;
   `limits-budget` — `budget-stop` → `resumed`, detail — причина и `until`, `tickets` — Ticket-ы следующей Wave
-  (from-journal.ts:302): `budget-stop` пишется до Wave и часто в ту же миллисекунду, что `wave-finished`, а модель
+  (from-journal.ts:313): `budget-stop` пишется до Wave и часто в ту же миллисекунду, что `wave-finished`, а модель
   считает Wave открытой в момент её конца и иначе отдала бы Wait прошлой Wave; без следующей Wave — `[]`.
-  `background-tasks` — от строки с живыми задачами до строки без них, detail — описания задач (from-journal.ts:244);
-  Journal не знает, шёл ли ещё ход Orchestrator-а, поэтому Wait начинается с первой живой задачи.
-  `gate-queue` → `gate-queue-finished` (from-journal.ts:255). Limits и background tasks, открытые на `run-stopped`,
+  `background-tasks` — от строки с живыми задачами до строки без них, detail — описания задач. **Ограничение:**
+  эти задачи — сами агенты, запуски gate и scripts Orchestrator-а, поэтому Wait покрывает их собственную работу;
+  Journal не знает и того, шёл ли ещё ход Orchestrator-а. На ночном Run — 13 Wait-ов, 15 808 с, 0,915 Run: итог
+  скажет «ждали background tasks» почти о каждом настоящем Run. Reader верен Journal; правило модели (Wait
+  `background-tasks` считается только там, где не идёт ни одна работа Run) — новый Ticket этого Epic-а (пишет
+  Orchestrator), spans.ts и summary.ts здесь не менялись. Test на fixture закрепляет эти числа как baseline.
+  `gate-queue` → `gate-queue-finished` (from-journal.ts:266). Limits и background tasks, открытые на `run-stopped`,
   кончаются им; `gate-queue` без `gate-queue-finished` (Journal до тикета 11) остаётся открытым с `lastSeenAt` —
-  последней строкой до `run-stopped`, и модель обрывает его там (`cut-off`, test через `buildTimeline`). Journal
+  временем `run-stopped`, который идёт за ходом gate queue, и модель обрывает его там (`cut-off`, test через
+  `buildTimeline`; без строк между ними Wait не получается нулевой длины). Journal
   оборван без `run-stopped` — открытые Wait-ы с `lastSeenAt` последней строки.
-- Статусы из `ticket-status` (from-journal.ts:174): время смены — `statusAt`, если это полный timestamp с зоной
-  (`FULL_TIME`, from-journal.ts:97); иначе — `at` (когда worfy увидел смену). Голая дата (`2026-10-17`) и время без
-  зоны момента не дают — берётся `at`. `statusAt` не позже `at`, не раньше старта Run и не раньше прошлого статуса
-  этого Ticket-а: `Status:` пишет время до минуты, и без этого `blocked` мог встать раньше `claimed`. Блокировка
-  с `reason` и `waits`, снятие и `done` проверены через `buildTimeline` (`blocks`, исход Ticket-а).
-- Старый Journal (from-journal.ts:189) — нет ни одной строки `ticket-status` и у `run-started` нет `by` (оба
+- Статусы из `ticket-status`: время смены — `statusAt`, если это полный timestamp с зоной (`FULL_TIME`) и он лежит
+  между прошлым статусом этого Ticket-а (без него — стартом Run) и `at`; иначе — `at` (когда worfy увидел смену).
+  Голая дата (`2026-10-17`) и время без зоны момента не дают; `statusAt` позже `at` — не время уже увиденной
+  смены; раньше прошлого статуса или старта Run — строка `Status:` старше смены (файл принёс git: merge,
+  fast-forward main checkout-а). Во всех трёх случаях — `at`, и блокировка не теряет длину. Блокировка с `reason`
+  и `waits`, снятие и `done` проверены через `buildTimeline` (`blocks`, исход Ticket-а).
+- Старый Journal — нет ни одной строки `ticket-status` и у `run-started` нет `by` (оба
   появились в тикете 11): claim каждого Ticket-а — время первого `wave-started`, где он назван. В новом Journal claim
   по `wave-started` не ставится: Ticket без `ticket-status` весь Run не менял статус; если Run взял его уже в работе,
   claim даст первое его другое событие (правило модели, spans.ts:335). Совместно с этим правилом: событие PR до
@@ -105,20 +119,23 @@ Journal задаёт каркас Run (решение 08, Q5).
 - Повторы: `narrow-round` `started` — причина повтора агента этого Ticket-а «narrow round: <text>»;
   `session-error` — причина без Ticket-а «session-error: <message>» (как в контракте `facts.ts`). Модель ставит
   каждую на первую работу агента после неё: test через `buildTimeline` даёт `#2` со ссылкой на прошлую попытку.
+  В одном Run за `session-error` всегда идёт `run-stopped` (`cycle.ts:262`): перезапуск — уже в следующем Run, и
+  связать Run-ы — работа Ticket-а 14 или 17.
   `verified` и `rejected` причиной не считаются.
 - `refused-dialog` (что, агент, причина) и `human-input` (что, кто) — `orchestratorMarks`, не Wait (test).
 - Fixture ночного Run уже лежал в `test/fixtures/flight-recorder/night-run/data/autopilot/` (тикет 10), новый не
   нужен. Test на нём: две Wave (03, 07 и 04, 05), `blocked-tickets`, 4 ч 48 мин 1,885 с; Journal старый — claim-ы по
   `wave-started`; Wait-ы — только `background-tasks`.
-- Tests: `test/unit/flight-recorder-journal.test.ts` (26 tests). Первым был красный test Wait `limits`. 13 мутантов
-  reader-а (statusAt, монотонность, старый Journal, конец `gate-queue`, обрезка после `run-stopped`, чужой Run,
-  `narrow-round`, tickets у budget и др.) — все убиты.
+- Tests: `test/unit/flight-recorder-journal.test.ts` (29 tests). Первым был красный test Wait `limits`. Начала и
+  концы Wait-ов `background-tasks`, `gate-queue`, `limits-budget` проверены и через `buildTimeline`. Мутанты
+  reader-а — 11 первого круга и 12 доработки (statusAt до прошлого статуса и до старта Run, `interrupted`, `by`,
+  Wave после `run-stopped`, статусы после него, `gate-queue` без строк, одинокий и повторный `waiting-until`, `>=` у
+  budget и др.) — все убиты.
 
 Не проверено:
 - Journal с `ticket-status` от настоящего Run: такого Run ещё нет (тикет 11 влит только что), строки в test-ах —
   литералы по формату из `src/shared/autopilot/journal.ts`.
-- `session-error` «с новой Wave»: в одном Run его не бывает — `session-error` останавливает Run
-  (`src/shared/autopilot/cycle.ts:262`), новая Wave идёт уже в следующем Run. Test проверяет reader на литерале с
-  Wave после ошибки; в настоящем Journal причина встанет на агента, который начал работу до `run-stopped`.
+- `session-error` «с новой Wave»: в одном Run его не бывает (см. выше). Test проверяет reader на литерале с Wave
+  после ошибки.
 - `narrow-round` пишется с опозданием до 1–2 минут после комментария, поэтому причина может встать на работу,
   начатую чуть позже, чем доработка; точного времени комментария в строке нет.

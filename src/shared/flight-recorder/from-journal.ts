@@ -13,13 +13,20 @@
 //   `limits-budget` from budget-stop to resumed, `background-tasks` from a background-tasks line with
 //   live tasks to the next one with none, `gate-queue` from gate-queue to gate-queue-finished. A
 //   Limits or background-tasks Wait still open at run-stopped ends there; a gate-queue has its own
-//   end, so one without it (a Journal of before ticket 11) is left open with its last line before
-//   run-stopped, and the model cuts it off there. The Journal cannot tell whether the Orchestrator's
-//   turn still went on while its background tasks lived, so the Wait starts with the first live task.
+//   end, so one without it (a Journal of before ticket 11) is left open, last seen at run-stopped
+//   (which follows the gate queue's turn), and the model cuts it off there.
+// - The `background-tasks` Wait is the Journal's word, not the Run standing idle: the tasks are the
+//   Orchestrator's agents, gate runs and scripts, so the Wait covers their own work (on the night Run,
+//   most of the Run). The Journal cannot tell whether the Orchestrator's turn still went on meanwhile
+//   either, so the Wait starts with the first live task. The reader stays faithful to the Journal;
+//   counting such a Wait only where no work of the Run runs is the model's rule, a later ticket of
+//   this Epic.
 // - Statuses from ticket-status. Its `at` is when worfy saw the change, maybe only at the read right
-//   before run-stopped; the time of the change is `statusAt` when it is a full timestamp with a zone,
-//   never later than the sighting nor before the Run or the Ticket's previous status. A bare date (or
-//   a time without a zone) gives no moment, so the sighting stands.
+//   before run-stopped; the time of the change is `statusAt` when it is a full timestamp with a zone
+//   and lies between the Ticket's previous status (else the Run's start) and the sighting. A bare
+//   date or a time without a zone gives no moment, a later one is no time of a change seen before, and
+//   an earlier one is a Status line older than the change (git brought the file in: a merge, a
+//   fast-forward of the main checkout): the sighting stands for all three.
 // - A Journal of before ticket 11 (no ticket-status line, run-started without `by`) claims each Ticket
 //   at the first wave-started that names it. A later Journal claims nothing there: a Ticket with no
 //   ticket-status kept its status through the Run (one a resumed Run took over in work counts as
@@ -28,6 +35,7 @@
 //   Ticket); the model puts each on the first agent work at or after it.
 // - refused-dialog and human-input are marks on the Orchestrator's lane, not Waits.
 import type { AutopilotStopReason } from '../autopilot/cycle'
+import { RUN_STARTED_BY } from '../autopilot/journal'
 import type { OrchestratorMarkFact, RetryCauseFact, RunFact, SpanOutcome, StageEventFact, WaitCause, WaitFact, WaveFact } from './facts'
 import { parseJournal, walkRun, type JournalEvent } from './journal-walk.mjs'
 
@@ -68,7 +76,10 @@ export interface JournalFacts {
 /**
  * How a Run ended, by the reason of its run-stopped (AUTOPILOT_STOP_REASONS of
  * src/shared/autopilot/cycle.ts): nothing left to send is `ok`, a stop on blocked Tickets `blocked`,
- * a person's or the app's stop `stopped`, the rest — an error, a stall, a Wave that made no progress — `failed`.
+ * a person's or the app's stop `stopped` (`interrupted`: the Orchestrator's turn was interrupted, which
+ * only the Interrupt button of a Session does, through agent.interrupt), the rest — an error, a stall,
+ * a Wave that made no progress — `failed`. `session-closed` is `failed`: the Session closes under the
+ * Run when a person closes it, and also when a new Session for the next Wave does not come up.
  */
 export const STOP_OUTCOMES: Readonly<Record<AutopilotStopReason, SpanOutcome>> = {
   'tickets-done': 'ok',
@@ -81,7 +92,7 @@ export const STOP_OUTCOMES: Readonly<Record<AutopilotStopReason, SpanOutcome>> =
   'wave-unfinished': 'failed',
   'session-error': 'failed',
   'turn-error': 'failed',
-  interrupted: 'failed',
+  interrupted: 'stopped',
   'session-closed': 'failed',
   'send-failed': 'failed',
   'workflow-error': 'failed',
@@ -154,7 +165,7 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
     if (wave.end === null) {
       // Its last line: before the next wave-started, else up to run-stopped or the end of the file.
       const next = starts[n + 1]
-      const through = next !== undefined ? next - 1 : stopIndex !== -1 && stopIndex > index ? stopIndex : events.length - 1
+      const through = Math.min(next === undefined ? events.length - 1 : next - 1, stopIndex === -1 ? events.length - 1 : stopIndex)
       fact.lastSeenAt = iso(Math.max(...events.slice(index, through + 1).map((event) => event.at)))
     }
     const session = text(line?.session)
@@ -172,7 +183,7 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
     if (event.kind !== 'ticket-status') continue
     const ticket = key(event.ticket as string)
     const told = moment(event.statusAt)
-    const at = Math.max(told === null ? event.at : Math.min(told, event.at), startedAt, previous.get(ticket) ?? -Infinity)
+    const at = told !== null && told <= event.at && told >= (previous.get(ticket) ?? startedAt) ? told : event.at
     previous.set(ticket, at)
     const reason = text(event.reason)
     const waits = text(event.waits)
@@ -225,7 +236,7 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
 
   for (const event of inRun) {
     const { at } = event
-    if (event.kind !== 'run-stopped') for (const wait of [limits, tasks, gate]) if (wait !== null) wait.lastSeen = at
+    for (const wait of [limits, tasks, gate]) if (wait !== null) wait.lastSeen = at
     switch (event.kind) {
       case 'limits-hit':
         limits ??= open('limits', at, text(event.window) === undefined ? [] : [event.window as string])
@@ -303,7 +314,8 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
   }
 
   const facts: JournalFacts = { run, epic, tickets, waves, ticketEvents, retryCauses, waits, orchestratorMarks, skipped }
-  const by = text(runStarted?.by)
+  // Another value of `by` reads as none (the run-started header of src/shared/autopilot/journal.ts).
+  const by = (RUN_STARTED_BY as readonly unknown[]).includes(runStarted?.by) ? (runStarted?.by as string) : undefined
   if (by !== undefined) facts.by = by
   const named = numbers(runStarted?.tickets)
   if (named !== undefined) facts.named = named.map(key)
