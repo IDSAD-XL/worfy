@@ -103,6 +103,15 @@ describe('layoutLabels', () => {
     expect(place([own, mark, foreign]).get('block')).toEqual({ id: 'block', placement: 'none' })
   })
 
+  it('the outline of the selected bar: a label right of it keeps its gap from the outline, and no other label lies on it', () => {
+    const selected = { id: 'sel', left: 100, right: 200, label: 150, outline: 2 }
+    expect(place([selected]).get('sel')).toEqual({ id: 'sel', placement: 'after', x: 200 + 2 + LABEL_GAP, width: 150 })
+    // The label right of a short bar would end at 64; the selected bar's outline starts at 63.
+    const short = { id: 'short', left: 0, right: 10, label: 50 }
+    expect(place([short, { id: 'next', left: 65, right: 300, label: 0, outline: 2 }]).get('short')).toEqual({ id: 'short', placement: 'none' })
+    expect(place([short, { id: 'next', left: 65, right: 300, label: 0 }]).get('short')?.placement).toBe('after')
+  })
+
   it('no label crosses a foreign bar on a crowded row of random bars', () => {
     let seed = 7
     const random = () => {

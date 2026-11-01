@@ -5,12 +5,13 @@
 // registers them (createLinkIpc), on a service stand-in: what the service computes is
 // flight-recorder-service.test.ts's.
 import { afterEach, describe, expect, it } from 'vitest'
+import type { IpcMainInvokeEvent } from 'electron'
 import type { ClientId } from '../../src/main/clients'
 import type { FlightRecorder, RunSubscriber } from '../../src/main/flight-recorder/service'
-import { handlerModules } from '../../src/main/ipc/index'
+import { handlerModules, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { runsHandlers } from '../../src/main/ipc/runs'
 import { accessOffRefusal, createLinkIpc, LinkPeer } from '../../src/main/link/ipc-adapter'
-import { accessOf, useOf } from '../../src/shared/ipc/channels'
+import { accessOf, IPC_CHANNEL_PREFIX, useOf } from '../../src/shared/ipc/channels'
 import { runsChanged, runsClose, runsList, runsOpen, runsRetry, runViewSchema, type RunView } from '../../src/shared/ipc/runs'
 import type { AccessLevel } from '../../src/shared/ipc/link'
 
@@ -125,5 +126,33 @@ describe('the runs channels', () => {
     const answer = await machine.call('runs.open', { projectId: PROJECT, run: '../../etc/passwd' })
     expect(answer.ok).toBe(false)
     expect(machine.stub.calls).toEqual([])
+  })
+})
+
+describe('the runs channels of a window', () => {
+  const APP_URL = 'app://worfy/index.html'
+
+  /** The handlers as the app registers them for its windows (registerIpc), and one window calling them. */
+  async function windowCalls() {
+    const stub = stubService()
+    const listeners = new Map<string, (event: IpcMainInvokeEvent, input: unknown) => unknown>()
+    const ipc: IpcMainLike = { handle: (channel, listener) => listeners.set(channel, listener) }
+    await registerIpc(ipc, { modules: { './runs.ts': () => Promise.resolve(runsHandlers(async () => stub.service)) }, isTrustedSender: (url) => url === APP_URL })
+    const sender = { id: 'window-1' as ClientId, send: () => undefined, isDestroyed: () => false, once: () => undefined }
+    const call = (channel: string, input: unknown) => listeners.get(IPC_CHANNEL_PREFIX + channel)!({ senderFrame: { url: APP_URL }, sender } as unknown as IpcMainInvokeEvent, input)
+    return { stub, call }
+  }
+
+  // The Run history screen (src/renderer/flight-recorder/store.ts) sends a close and the next open without
+  // waiting for the answers, and trusts that the service gets them in that order.
+  it('take one window\'s open and close in the order they were sent, the answers not awaited in between', async () => {
+    const { stub, call } = await windowCalls()
+    const input = { projectId: PROJECT, run: RUN }
+    await Promise.all([call('runs.open', input), call('runs.close', input)])
+    expect(stub.calls).toEqual([`open ${PROJECT} ${RUN}`, `close ${PROJECT} ${RUN}`])
+    expect(stub.subscribers.size).toBe(0)
+    await Promise.all([call('runs.open', input), call('runs.close', input), call('runs.open', input)])
+    expect(stub.calls.slice(2)).toEqual([`open ${PROJECT} ${RUN}`, `close ${PROJECT} ${RUN}`, `open ${PROJECT} ${RUN}`])
+    expect([...stub.subscribers.keys()]).toEqual(['window-1'])
   })
 })

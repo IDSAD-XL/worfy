@@ -203,6 +203,8 @@ test('openRunHistory shows a Run over the whole main area: header, zoom, rows, l
     await expect(window.getByTestId('run-history-duration')).toHaveText('4h 48m')
     await expect(window.getByTestId('run-history-reason')).toHaveText('stopped: blocked-tickets')
     await expect(window.getByTestId('run-history-stage-card')).toHaveCount(3)
+    // The keyboard is on the screen at once: the focus is on the Run picker.
+    await expect(window.getByTestId('run-history-choose')).toBeFocused()
     // No tab of the toolbar is pressed: the view has none.
     await expect(window.locator('.w-toolbar [role="group"][aria-label="View"] [aria-pressed="true"]')).toHaveCount(0)
     expect(await expectLabelsClear(window)).toBeGreaterThan(0)
@@ -391,6 +393,8 @@ test('the live timeline: a line appended to the Journal while the screen is open
     await expect(window.locator('[data-testid="run-history-row"][data-kind="wait"]')).toHaveCount(1, { timeout: ms(30_000) })
     await expect.poll(async () => Number(await now.getAttribute('data-at')), { timeout: ms(30_000) }).toBeGreaterThan(before)
     await expect(window.locator('[data-testid="run-history-row"][data-kind="wait"]')).toContainText('RUNNING')
+    // The fake agent writes no transcript: for work still running that is «not found yet», not «deleted».
+    await expect(window.getByTestId('run-history')).toContainText('transcript not found yet')
     await snapshots(window, 'live')
 
     await window.keyboard.press('Escape')

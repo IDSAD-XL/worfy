@@ -30,9 +30,11 @@ export interface RunHistoryState {
   expanded: ReadonlySet<string>
   /** The stretch on screen; null — the whole Run («Fit»), which follows a live Run's end. */
   window: TimeWindow | null
+  /** Bumped by each openRunHistory: the screen moves the focus to the Run picker once the list is there. */
+  focusAsked: number
 }
 
-const INITIAL: RunHistoryState = { projectId: null, epic: null, runs: undefined, run: null, view: undefined, error: null, selected: null, expanded: new Set(), window: null }
+const INITIAL: RunHistoryState = { projectId: null, epic: null, runs: undefined, run: null, view: undefined, error: null, selected: null, expanded: new Set(), window: null, focusAsked: 0 }
 
 export const useRunHistory = create<RunHistoryState>(() => INITIAL)
 
@@ -40,14 +42,37 @@ export const useRunHistory = create<RunHistoryState>(() => INITIAL)
 export const WAIT_LANE = 'lane:wait'
 export const ORCHESTRATOR_LANE = 'lane:orchestrator'
 
-/** The Run whose `runs.changed` this window takes, as main knows it: opened and not closed yet. */
+/**
+ * The Run whose `runs.changed` this window takes, as main knows it: opened and not closed yet. Main
+ * takes this window's calls in the order they are sent, and an open registers the window before it
+ * computes anything (src/main/flight-recorder/service.ts, `open`; test/contract/runs-ipc.test.ts), so
+ * what main holds follows the opens and closes sent from here, whatever order their answers come in.
+ */
 let held: { projectId: string; run: string } | null = null
 let subscribed = false
+/**
+ * Bumped by every showRuns and by leaving the view: a list main answers after either is for a screen
+ * that is no longer there, and opens nothing.
+ */
+let shown = 0
 
 function onChanged(view: RunView): void {
   const state = useRunHistory.getState()
   if (view.projectId !== state.projectId || view.run !== state.run) return
+  const stopped = state.view?.run === view.run && state.view.timeline.live && !view.timeline.live
   useRunHistory.setState({ view })
+  // The Run stopped on screen: the list read while it went on still calls it live.
+  if (stopped) void relist()
+}
+
+/** Reads the list of Runs again for the screen as it is; dropped when the screen changed meanwhile. */
+async function relist(): Promise<void> {
+  const { projectId, epic } = useRunHistory.getState()
+  if (projectId === null) return
+  const asked = shown
+  const listed = await invoke('runs.list', epic === null ? { projectId } : { projectId, epic })
+  if (asked !== shown || !listed.ok) return
+  useRunHistory.setState({ runs: listed.value.runs })
 }
 
 function ensureSubscribed(): void {
@@ -81,12 +106,10 @@ async function openRun(projectId: string, run: string): Promise<void> {
   const mine = { projectId, run }
   held = mine
   const result = await invoke('runs.open', { projectId, run })
-  // Another Run was chosen, or the window left the view, while main computed this one. The close sent
-  // then may have reached main before the open held the Run, so it goes once more.
-  if (held !== mine) {
-    if (result.ok) void invoke('runs.close', { projectId, run })
-    return
-  }
+  // Another Run was chosen, or the window left the view, while main computed this one: its close went
+  // to main after this open, and main holds nothing for it. No second close: the same Run may be open
+  // again since, and main keeps one subscription per window and Run, which that close would end.
+  if (held !== mine) return
   if (!result.ok) {
     held = null
     useRunHistory.setState({ error: result.error })
@@ -101,10 +124,14 @@ async function openRun(projectId: string, run: string): Promise<void> {
  */
 export async function showRuns(projectId: string, run?: string, epic?: string): Promise<void> {
   letGo()
-  useRunHistory.setState({ ...INITIAL, projectId, epic: epic ?? null, run: run ?? null })
+  shown += 1
+  const asked = shown
+  const { focusAsked } = useRunHistory.getState()
+  useRunHistory.setState({ ...INITIAL, projectId, epic: epic ?? null, run: run ?? null, focusAsked })
   const listed = await invoke('runs.list', epic === undefined ? { projectId } : { projectId, epic })
+  // Another showRuns, or the window left the view, while main read the list.
+  if (asked !== shown) return
   const state = useRunHistory.getState()
-  if (state.projectId !== projectId) return
   if (!listed.ok) {
     useRunHistory.setState({ runs: [], error: listed.error })
     return
@@ -122,9 +149,18 @@ export async function chooseRun(run: string): Promise<void> {
   await openRun(projectId, run)
 }
 
-/** The window left the view: main stops sending this Run's timeline. What is on screen stays. */
+/**
+ * The window left the view: main stops sending this Run's timeline, and a list or a timeline main
+ * answers later opens nothing. What is on screen stays.
+ */
 export function leaveRunHistory(): void {
+  shown += 1
   letGo()
+}
+
+/** Asks the screen to put the focus on the Run picker (openRunHistory). */
+export function askFocus(): void {
+  useRunHistory.setState((state) => ({ focusAsked: state.focusAsked + 1 }))
 }
 
 /** Whether the screen holds the Run open in main now (for the tests). */
@@ -246,6 +282,7 @@ export function expandableIds(spans: readonly Span[]): string[] {
 /** Back to nothing shown, for the tests. */
 export function resetRunHistory(): void {
   held = null
+  shown += 1
   // A test gives each case a bridge of its own: the next open subscribes to it.
   subscribed = false
   useRunHistory.setState(INITIAL)

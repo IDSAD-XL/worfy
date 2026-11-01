@@ -6,6 +6,10 @@
   background: var(--bg);
 }
 
+/* The screen takes the focus when it has no Run picker (openRunHistory): no ring for that. */
+.w-fr:focus {
+  outline: none;
+}
 .w-fr {
   --w-fr-tree: 360px;
   --w-fr-row: 24px;
@@ -338,9 +342,10 @@
 .w-fr-bar.is-blocked {
   box-shadow: inset 0 -3px var(--span-problem);
 }
+/* Fades to 0.3, not to nothing: the teeth of the end stay seen. */
 .w-fr-bar.is-cut-off {
-  -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent);
-  mask-image: linear-gradient(90deg, #000 60%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, #000 60%, rgb(0 0 0 / 30%));
+  mask-image: linear-gradient(90deg, #000 60%, rgb(0 0 0 / 30%));
   clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 25%, calc(100% - 6px) 50%, 100% 75%, calc(100% - 6px) 100%, 0 100%);
 }
 

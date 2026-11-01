@@ -16,9 +16,10 @@ import { summarize, WITHOUT_WORK_NOTE } from '../../src/shared/flight-recorder/s
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { runViewSchema, type RunListItem, type RunView } from '../../src/shared/ipc/runs'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
+import { LABEL_GAP } from '../../src/renderer/flight-recorder/label-layout'
 import { openRunHistory } from '../../src/renderer/flight-recorder/open'
 import { RunHistoryView } from '../../src/renderer/flight-recorder/RunHistoryView'
-import { formatDuration, holdsRun, resetRunHistory, setTimeWindow, useRunHistory } from '../../src/renderer/flight-recorder/store'
+import { chooseRun, formatDuration, holdsRun, resetRunHistory, setTimeWindow, useRunHistory } from '../../src/renderer/flight-recorder/store'
 import { setView, useNavigation } from '../../src/renderer/session/navigation'
 
 const NIGHT: RunView = runViewSchema.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../fixtures/flight-recorder/night-run-view.json'), 'utf8')))
@@ -271,5 +272,294 @@ describe('a block, another Run and a live timeline', () => {
     // A timeline of another Run is not this screen's.
     act(() => main.send('runs.changed', { ...live('11:45'), run: '2026-10-22T10-00-00-000Z-cccccc' }))
     expect(Number(screen.getByTestId('run-history-now').dataset.at)).toBe(Date.parse(T('11:30')))
+  })
+})
+
+// ── the rework of round 1: races with main, Esc, a Run that stops, another Project, the focus ─────────
+
+const RUN_X = SMALL_RUN
+const RUN_Y = '2026-10-21T10-00-00-000Z-bbbbbb'
+const RUN_Z = '2026-10-22T10-00-00-000Z-cccccc'
+const threeRuns = () => {
+  const ids = [RUN_Z, RUN_Y, RUN_X]
+  const items = ids.map((run, index) => smallItem({ run, startedAt: `2026-10-2${2 - index}T10:00:00.000Z` }))
+  const views = Object.fromEntries(ids.map((run) => [run, viewOf(smallFacts({ run: { ...smallFacts().run, id: run } }), run)]))
+  return { items, views }
+}
+
+/**
+ * Main whose answers to runs.list and runs.open wait until the test lets them go. It holds a Run for this
+ * window from the open sent to the close sent, one subscription per Run, as the service does: an open
+ * registers before the timeline is computed, and the calls of one window come in the order they were sent.
+ */
+function slowMain(items: RunListItem[], views: Record<string, RunView>) {
+  const held = new Set<string>()
+  const calls: string[] = []
+  const waiting: (() => void)[] = []
+  const handlers = new Set<(payload: unknown) => void>()
+  const bridge: WorfyBridge = {
+    invoke: (channel, input) => {
+      const { run } = (input ?? {}) as { run?: string }
+      calls.push(`${channel}${run === undefined ? '' : ` ${run}`}`)
+      if (channel === 'runs.close') {
+        held.delete(run ?? '')
+        return Promise.resolve({ ok: true, value: { closed: true } })
+      }
+      if (channel === 'runs.open') held.add(run ?? '')
+      const answer = channel === 'runs.list' ? { ok: true, value: { runs: items } } : { ok: true, value: views[run ?? ''] }
+      return new Promise((resolve) => waiting.push(() => resolve(answer as never)))
+    },
+    on: (_channel, handler) => {
+      handlers.add(handler)
+      return handlers.size
+    },
+    off: () => undefined,
+  }
+  ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
+  /**
+   * Lets every waiting answer go, the latest first when `reverse`, until no call waits any more; with
+   * `once`, only the calls waiting now.
+   */
+  const answer = async (reverse = false, once = false) => {
+    while (waiting.length > 0) {
+      const now = waiting.splice(0)
+      if (reverse) now.reverse()
+      await act(async () => {
+        for (const go of now) go()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      if (once) return
+    }
+  }
+  return { held, calls, answer }
+}
+
+describe('the screen and main hold the same Run, whatever order main answers in', () => {
+  it('X, then Y, then X again before the first open is answered: main still holds X, and the screen shows it', async () => {
+    const { items, views } = threeRuns()
+    const main = slowMain(items, views)
+    render(<RunHistoryView />)
+    act(() => void openRunHistory('p-1', RUN_X))
+    expect(main.calls).toEqual(['runs.list'])
+    // The list comes; the open of X waits.
+    await main.answer(false, true)
+    expect(main.calls).toEqual(['runs.list', `runs.open ${RUN_X}`])
+    act(() => {
+      void chooseRun(RUN_Y)
+      void chooseRun(RUN_X)
+    })
+    await main.answer(true)
+    expect([...main.held]).toEqual([RUN_X])
+    expect(holdsRun()).toBe(true)
+    expect(useRunHistory.getState().view?.run).toBe(RUN_X)
+    // No close went after the opens were answered: the late answer of the first X closes nothing.
+    expect(main.calls.at(-1)).toBe(`runs.open ${RUN_X}`)
+  })
+
+  it('20 quick choices over three Runs, every open answered in reverse: main holds only the Run on screen', async () => {
+    const { items, views } = threeRuns()
+    const main = slowMain(items, views)
+    render(<RunHistoryView />)
+    act(() => void openRunHistory('p-1', RUN_Z))
+    await main.answer(false, true)
+    const order = [RUN_Y, RUN_X, RUN_Y, RUN_Z]
+    act(() => {
+      for (let index = 0; index < 20; index += 1) void chooseRun(order[index % order.length]!)
+    })
+    await main.answer(true)
+    const last = order[19 % order.length]!
+    expect(useRunHistory.getState().run).toBe(last)
+    expect(useRunHistory.getState().view?.run).toBe(last)
+    expect([...main.held]).toEqual([last])
+  })
+
+  it('leaving the view while main reads the list opens no Run when the list comes', async () => {
+    const { items, views } = threeRuns()
+    const main = slowMain(items, views)
+    render(<RunHistoryView />)
+    act(() => void openRunHistory('p-1'))
+    act(() => setView('canvas'))
+    await main.answer()
+    expect(main.calls).toEqual(['runs.list'])
+    expect([...main.held]).toEqual([])
+    expect(holdsRun()).toBe(false)
+  })
+
+  it('leaving the view while main computes the Run: the close goes once, and the late timeline is not taken', async () => {
+    const { items, views } = threeRuns()
+    const main = slowMain(items, views)
+    render(<RunHistoryView />)
+    act(() => void openRunHistory('p-1', RUN_X))
+    await main.answer(false, true)
+    act(() => setView('canvas'))
+    await main.answer()
+    expect(main.calls).toEqual(['runs.list', `runs.open ${RUN_X}`, `runs.close ${RUN_X}`])
+    expect([...main.held]).toEqual([])
+    expect(useRunHistory.getState().view).toBeUndefined()
+  })
+})
+
+describe('Esc on the screen', () => {
+  const open = () => show(NIGHT.projectId, [NIGHT_ITEM], { [NIGHT.run]: NIGHT })
+  const menu = (removeOnEscape: boolean) => {
+    const element = document.createElement('div')
+    element.setAttribute('role', 'menu')
+    const item = document.createElement('button')
+    item.setAttribute('role', 'menuitem')
+    element.append(item)
+    document.body.append(element)
+    // A menu that closes on Esc, as the sidebar's does (ProjectsSection.tsx): gone before the press reaches the window.
+    if (removeOnEscape) element.addEventListener('keydown', () => element.remove())
+    item.focus()
+    return { element, item }
+  }
+  afterEach(() => {
+    for (const element of document.querySelectorAll('[role="menu"], [role="dialog"]')) element.remove()
+  })
+
+  it('that closes a menu leaves the screen open: the menu took it', async () => {
+    await open()
+    const { item } = menu(true)
+    fireEvent.keyDown(item, { key: 'Escape' })
+    expect(useNavigation.getState().view).toBe('history')
+  })
+
+  it('with a menu open elsewhere, or a dialog, leaves the screen open', async () => {
+    await open()
+    menu(false)
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(useNavigation.getState().view).toBe('history')
+    for (const element of document.querySelectorAll('[role="menu"]')) element.remove()
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    document.body.append(dialog)
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(useNavigation.getState().view).toBe('history')
+    dialog.remove()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(useNavigation.getState().view).toBe('canvas')
+  })
+
+  it('in a text field stays there; on the Run picker it goes back to the Canvas', async () => {
+    await open()
+    const field = document.createElement('input')
+    screen.getByTestId('run-history').append(field)
+    field.focus()
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(useNavigation.getState().view).toBe('history')
+    const picker = screen.getByTestId('run-history-choose')
+    picker.focus()
+    fireEvent.keyDown(picker, { key: 'Escape' })
+    expect(useNavigation.getState().view).toBe('canvas')
+  })
+})
+
+describe('a Run that stops on screen, another Project, the focus', () => {
+  const live = (now: string) => viewOf(smallFacts({ run: { id: SMALL_RUN, startedAt: T('10:00'), stoppedAt: null, live: true }, now: T(now) }))
+
+  it('a live Run that stops while on screen shows its stop reason, loses the now line and «live» in the picker', async () => {
+    const items = [smallItem({ live: true, stoppedAt: null, reason: null })]
+    const main = await show('p-1', items, { [SMALL_RUN]: live('11:00') })
+    expect(screen.getByTestId('run-history-reason').textContent).toBe('running')
+    expect(screen.getByTestId('run-history-now')).not.toBeNull()
+    expect(screen.getByRole('option').textContent).toContain('· live')
+    // Main has the run-stopped line: the list says so too from now on.
+    items[0] = smallItem()
+    await act(async () => {
+      main.send('runs.changed', viewOf(smallFacts()))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.getByTestId('run-history-reason').textContent).toBe('stopped: blocked-tickets')
+    expect(screen.queryByTestId('run-history-now')).toBeNull()
+    expect(main.calls.filter((call) => call === 'runs.list')).toHaveLength(2)
+    expect(screen.getByRole('option').textContent).not.toContain('live')
+  })
+
+  it('another Project picked in the sidebar: the screen gives way to the Canvas and lets the Run go', async () => {
+    const main = fakeMain('p-1', [smallItem()], { [SMALL_RUN]: viewOf(smallFacts()) })
+    const { rerender } = render(<RunHistoryView activeProjectId="p-1" />)
+    await act(() => openRunHistory('p-1'))
+    rerender(<RunHistoryView activeProjectId="p-1" />)
+    expect(useNavigation.getState().view).toBe('history')
+    rerender(<RunHistoryView activeProjectId="p-2" />)
+    expect(useNavigation.getState().view).toBe('canvas')
+    expect(main.calls.at(-1)).toBe(`runs.close ${SMALL_RUN}`)
+    // On the Canvas, a Project change is nothing to the screen.
+    rerender(<RunHistoryView activeProjectId="p-1" />)
+    expect(useNavigation.getState().view).toBe('canvas')
+  })
+
+  it('openRunHistory puts the focus on the Run picker, which keeps it while another Run is computed', async () => {
+    const { items, views } = threeRuns()
+    await show('p-1', items, views)
+    const picker = screen.getByTestId('run-history-choose')
+    expect(document.activeElement).toBe(picker)
+    await act(async () => {
+      fireEvent.change(picker, { target: { value: RUN_X } })
+    })
+    expect(useRunHistory.getState().view?.run).toBe(RUN_X)
+    expect(document.activeElement).toBe(screen.getByTestId('run-history-choose'))
+  })
+
+  it('with no Run in the Project, the focus goes to the screen itself', async () => {
+    await show('p-1', [], {})
+    expect(screen.getByTestId('run-history').textContent).toContain('This Project has no Autopilot Runs yet.')
+    expect(document.activeElement).toBe(screen.getByTestId('run-history'))
+  })
+})
+
+describe('the rows and labels of the rework', () => {
+  it('a span of no length is still a bar of 2 px', async () => {
+    const facts = smallFacts()
+    const work = [...facts.work, { id: 'a-0', kind: 'agent' as const, ticket: 'e/02', name: 'impl-09', agentType: 'worfy:implementer', start: T('10:05'), end: T('10:05'), startSource: 'transcript' as const }]
+    await show('p-1', [smallItem()], { [SMALL_RUN]: viewOf({ ...facts, work }) })
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }))
+    const span = useRunHistory.getState().view!.timeline.spans.find((each) => each.name === 'impl-09')!
+    const bar = rowOf(span.id).querySelector<HTMLElement>('[data-testid="run-history-bar"]')!
+    expect(px(bar.style.width)).toBe(2)
+  })
+
+  it('a bar with no room for its full label gets the short one: the duration alone', async () => {
+    // Two Waits a minute apart on the collapsed Wait lane: the first has no room for «cause · duration»
+    // inside, and none right of its end, where the second starts.
+    const facts = smallFacts({
+      waits: [
+        { id: 'w-1', cause: 'background-tasks', start: T('10:40'), end: T('10:50'), startSource: 'journal' },
+        { id: 'w-2', cause: 'background-tasks', start: T('10:51'), end: T('11:00'), startSource: 'journal' },
+      ],
+    })
+    await show('p-1', [smallItem()], { [SMALL_RUN]: viewOf(facts) })
+    fireEvent.click(within(rowOf('lane:wait')).getByRole('button', { name: 'Collapse Waits' }))
+    const first = useRunHistory.getState().view!.timeline.spans.find((each) => each.kind === 'wait' && each.start === Date.parse(T('10:40')))!
+    const label = rowOf('lane:wait').querySelector<HTMLElement>(`[data-label-for="${CSS.escape(`${first.id}@0`)}"]`)
+    expect(label?.textContent).toBe('10m 00s')
+    expect(label?.dataset.placement).toBe('inside')
+    expectLabelsClear()
+  })
+
+  it('the label right of the selected bar keeps its gap from the bar\'s outline', async () => {
+    const view = viewOf(smallFacts())
+    await show('p-1', [smallItem()], { [SMALL_RUN]: view })
+    const wait = view.timeline.spans.find((each) => each.kind === 'wait')!
+    const labelOf = () => rowOf(wait.id).querySelector<HTMLElement>(`[data-label-for="${CSS.escape(`${wait.id}@0`)}"]`)!
+    const bar = rowOf(wait.id).querySelector<HTMLElement>('[data-testid="run-history-bar"]')!
+    const end = px(bar.style.left) + px(bar.style.width)
+    expect(labelOf().dataset.placement).toBe('after')
+    expect(px(labelOf().style.left)).toBe(end + LABEL_GAP)
+    fireEvent.click(rowOf(wait.id))
+    expect(rowOf(wait.id).className).toContain('is-selected')
+    expect(px(labelOf().style.left)).toBe(end + 2 + LABEL_GAP)
+  })
+
+  it('a transcript not there for work still running reads «not found yet», and «deleted» once the Run stopped', async () => {
+    const lost = [{ ticket: 'e/02', kind: 'agent' as const, name: 'impl-05', source: 'transcript-deleted' as const }]
+    const running = viewOf(smallFacts({ run: { id: SMALL_RUN, startedAt: T('10:00'), stoppedAt: null, live: true }, now: T('11:00'), lost }))
+    const main = await show('p-1', [smallItem({ live: true, stoppedAt: null, reason: null })], { [SMALL_RUN]: running })
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }))
+    const id = running.timeline.spans.find((each) => each.lost !== null)!.id
+    expect(rowOf(id).textContent).toContain('transcript not found yet')
+    expect(rowOf(id).textContent).not.toContain('transcript deleted')
+    act(() => main.send('runs.changed', viewOf(smallFacts({ lost }))))
+    expect(rowOf(id).textContent).toContain('transcript deleted')
   })
 })

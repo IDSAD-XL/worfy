@@ -27,6 +27,11 @@ export interface LabelItem {
    * point 7), never over another bar.
    */
   over?: readonly string[]
+  /**
+   * An outline drawn around the item, px (the selected bar): a label right of it keeps its gap from the
+   * outline, and no other label lies on the outline.
+   */
+  outline?: number
 }
 
 export type LabelPlace = { id: string; placement: 'inside' | 'after'; x: number; width: number } | { id: string; placement: 'none' }
@@ -37,7 +42,10 @@ const crosses = (a0: number, a1: number, b0: number, b1: number): boolean => a0 
 export function layoutLabels(items: readonly LabelItem[], width: number): LabelPlace[] {
   const taken: [number, number][] = []
   const free = (self: LabelItem, x0: number, x1: number): boolean =>
-    x0 >= 0 && x1 <= width && items.every((other) => other === self || self.over?.includes(other.id) === true || !crosses(x0, x1, other.left, other.right)) && taken.every(([t0, t1]) => !crosses(x0, x1, t0, t1))
+    x0 >= 0 &&
+    x1 <= width &&
+    items.every((other) => other === self || self.over?.includes(other.id) === true || !crosses(x0, x1, other.left - (other.outline ?? 0), other.right + (other.outline ?? 0))) &&
+    taken.every(([t0, t1]) => !crosses(x0, x1, t0, t1))
   // Left to right: an earlier bar's label right of its end is checked against the later bars too.
   const order = [...items].sort((a, b) => a.left - b.left)
   const places = new Map<LabelItem, LabelPlace>()
@@ -46,7 +54,7 @@ export function layoutLabels(items: readonly LabelItem[], width: number): LabelP
     let place: LabelPlace = { id: item.id, placement: 'none' }
     if (label > 0) {
       const inside = item.left + LABEL_PADDING
-      const after = item.right + LABEL_GAP
+      const after = item.right + (item.outline ?? 0) + LABEL_GAP
       if (item.inside !== false && item.right - item.left >= label + 2 * LABEL_PADDING && free(item, inside, inside + label)) place = { id: item.id, placement: 'inside', x: inside, width: label }
       else if (free(item, after, after + label)) place = { id: item.id, placement: 'after', x: after, width: label }
     }

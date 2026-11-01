@@ -90,7 +90,7 @@ export function App() {
         }
         session={<SessionView projectId={active?.id} projectName={active?.name} />}
         pipeline={<PipelineBoard project={active} />}
-        history={<RunHistoryView />}
+        history={<RunHistoryView activeProjectId={active?.id} />}
       />
       <ToastRegion projectId={active?.id} />
     </>

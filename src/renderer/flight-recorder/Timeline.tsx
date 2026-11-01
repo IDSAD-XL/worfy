@@ -75,11 +75,23 @@ function outcomeWord(span: Span, live: boolean): string | null {
   return span.outcome === 'ok' ? null : span.outcome
 }
 
+/**
+ * The words for a span whose source is gone (LOST_SOURCE_LABELS, facts.ts). A span still running has no
+ * transcript «deleted»: main marks it `transcript-deleted` when it finds none, and while the work goes on
+ * its transcript may simply not be there yet.
+ */
+function lostWord(span: Span): string | null {
+  if (span.lost === null) return null
+  if (span.lost === 'transcript-deleted' && span.end === null) return 'transcript not found yet'
+  return LOST_SOURCE_LABELS[span.lost]
+}
+
 function tooltipOf(span: Span): string {
   const lines = [`${displayName(span)}${span.attempt > 1 ? ` #${span.attempt}` : ''}`, `${formatLocal(span.start)} – ${formatClock(span.until)} · ${formatDuration(spanDuration(span))}`]
   if (span.outcome !== null) lines.push(`Outcome: ${span.outcome}`)
   if (span.reason !== null) lines.push(`Reason: ${span.reason}`)
-  if (span.lost !== null) lines.push(LOST_SOURCE_LABELS[span.lost])
+  const lost = lostWord(span)
+  if (lost !== null) lines.push(lost)
   if (span.note !== null) lines.push(span.note)
   return lines.join('\n')
 }
@@ -100,6 +112,8 @@ function textWidth(text: string, bold = false): number {
 
 /** The padding and border of a block's chip (flight-recorder.css, .w-fr-label--block), both sides. */
 const CHIP_EXTRA = 8
+/** The width of the selected bar's outline, px (flight-recorder.css, .w-fr-bar.is-selected). */
+const SELECTED_OUTLINE = 2
 
 function useWidth(): [(element: HTMLDivElement | null) => void, number] {
   const [width, setWidth] = useState(DEFAULT_WIDTH)
@@ -238,7 +252,7 @@ interface DrawnMark {
 }
 
 /** The bars and marks of a row, and where their labels go. */
-function drawRow(row: Row, view: RunView, x: (at: number) => number, width: number): { bars: DrawnBar[]; marks: DrawnMark[]; hatches: { key: string; left: number; right: number }[]; places: Map<string, LabelPlace> } {
+function drawRow(row: Row, view: RunView, x: (at: number) => number, width: number, selected: string | null): { bars: DrawnBar[]; marks: DrawnMark[]; hatches: { key: string; left: number; right: number }[]; places: Map<string, LabelPlace> } {
   const bars: DrawnBar[] = []
   const visible = (left: number, right: number) => right >= 0 && left <= width
   const barsOf = (span: Span, thin: boolean) => {
@@ -250,7 +264,7 @@ function drawRow(row: Row, view: RunView, x: (at: number) => number, width: numb
       // At least 2 px: a span of no length (a cut-off one) is still seen.
       const right = Math.min(width, Math.max(x(part.end), x(part.start) + 2))
       if (!visible(left, right)) return
-      const lost = span.lost === null ? null : LOST_SOURCE_LABELS[span.lost]
+      const lost = lostWord(span)
       const named = index === longest && !thin
       bars.push({
         key: `${span.id}@${index}`,
@@ -294,7 +308,15 @@ function drawRow(row: Row, view: RunView, x: (at: number) => number, width: numb
   // Labels: the full text first; a bar left without a place tries its short one; the rest stay in the tooltip.
   const main = bars.filter((bar) => !bar.thin)
   const items = (short: ReadonlySet<string>): LabelItem[] => [
-    ...main.map((bar) => ({ id: bar.key, left: bar.left, right: bar.right, label: (short.has(bar.key) ? bar.short : bar.label) === '' ? 0 : textWidth(short.has(bar.key) ? bar.short : bar.label), inside: bar.inside })),
+    ...main.map((bar) => ({
+      id: bar.key,
+      left: bar.left,
+      right: bar.right,
+      label: (short.has(bar.key) ? bar.short : bar.label) === '' ? 0 : textWidth(short.has(bar.key) ? bar.short : bar.label),
+      inside: bar.inside,
+      // The selected bar's outline (flight-recorder.css, .w-fr-bar.is-selected) is part of it here.
+      outline: bar.span.id === selected ? SELECTED_OUTLINE : 0,
+    })),
     ...marks.map((mark) => ({ id: mark.key, left: x(mark.at) - MARK_HALF, right: x(mark.at) + MARK_HALF, label: mark.kind === 'block' ? textWidth(mark.label, true) + CHIP_EXTRA : textWidth(mark.label), inside: false, over: mark.over })),
   ]
   const first = layoutLabels(items(new Set()), width)
@@ -307,7 +329,7 @@ function drawRow(row: Row, view: RunView, x: (at: number) => number, width: numb
 
 function RowView({ row, view, x, width }: { row: Row; view: RunView; x: (at: number) => number; width: number }) {
   const selected = useRunHistory((state) => state.selected)
-  const { bars, marks, hatches, places } = drawRow(row, view, x, width)
+  const { bars, marks, hatches, places } = drawRow(row, view, x, width, selected)
   const span = row.span
   const isSelected = span !== null && span.id === selected
   const name = span === null ? (row.lane === 'wait' ? 'Waits' : 'Orchestrator') : displayName(span)
@@ -344,7 +366,7 @@ function RowView({ row, view, x, width }: { row: Row; view: RunView; x: (at: num
           </span>
         ) : null}
         {word !== null ? <span className={`w-fr-outcome w-fr-outcome--${word}`}>{word.toUpperCase()}</span> : null}
-        {span?.lost != null ? <span className="w-fr-lost-word">{LOST_SOURCE_LABELS[span.lost]}</span> : null}
+        {span !== null && span.lost !== null ? <span className="w-fr-lost-word">{lostWord(span)}</span> : null}
         {span === null ? (
           <span className="w-fr-muted">({row.children.length})</span>
         ) : span.kind === 'stage' || span.kind === 'ticket' ? (
