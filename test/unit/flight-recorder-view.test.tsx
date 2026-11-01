@@ -248,6 +248,17 @@ describe('a block, another Run and a live timeline', () => {
     expectLabelsClear()
   })
 
+  // worfy-resource-planner ticket 08: the wait for the Start window has its own words, on the
+  // Wait lane and in «Waits by cause».
+  it('names a Start window Wait «Start window» on its bar and in the Waits by cause', async () => {
+    const waits = [{ id: 'start-window:1', cause: 'start-window' as const, start: T('10:40'), end: T('10:50'), detail: `outside, until ${T('10:50')}`, tickets: ['e/02'], startSource: 'journal' as const, endSource: 'journal' as const }]
+    await show('p-1', [smallItem()], { [SMALL_RUN]: viewOf(smallFacts({ waits })) })
+    const bar = document.querySelector<HTMLElement>('[data-span-id="wait:start-window:1"]')
+    expect(bar?.title.split('\n')[0]).toBe('Start window')
+    const row = screen.getByTestId('run-history-waits').querySelector<HTMLElement>('[data-cause="start-window"]')
+    expect(row?.querySelector('.w-fr-total__name')?.textContent).toBe('Start window')
+  })
+
   it('chooses another Run of the list: the first is let go, the second opened', async () => {
     const other = '2026-10-21T10-00-00-000Z-bbbbbb'
     const main = await show('p-1', [smallItem({ run: other, startedAt: '2026-10-21T10:00:00.000Z' }), smallItem()], { [SMALL_RUN]: viewOf(smallFacts()), [other]: viewOf(smallFacts({ run: { ...smallFacts().run, id: other } }), other) })

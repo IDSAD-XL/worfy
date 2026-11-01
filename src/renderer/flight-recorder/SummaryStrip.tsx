@@ -3,12 +3,21 @@
 // Stage on the timeline), the work inside Stages by subkind, summed over parallel spans, and the Waits by
 // cause. A cause that counts only its time with no work running (COUNTED_WITHOUT_WORK, ticket 26) says
 // so: its total is shorter than its bars on the Wait lane.
+import type { WaitCause } from '../../shared/flight-recorder/facts'
 import { COUNTED_WITHOUT_WORK, WITHOUT_WORK_NOTE } from '../../shared/flight-recorder/summary'
 import type { RunView } from '../../shared/ipc/runs'
 import { formatDuration, revealSpan } from './store'
 
 const WORK_WORDS: Record<string, string> = { implementer: 'implementers', verifier: 'verifiers', other: 'other agents', ci: 'CI runs', gate: 'gate runs', script: 'scripts' }
-const WAIT_WORDS: Record<string, string> = { limits: 'Limits', 'limits-budget': 'Limits budget', 'background-tasks': 'background tasks', 'gate-queue': 'gate queue', 'other-machine': 'other Machine' }
+// Every cause has its words: a new cause in WAIT_CAUSES fails typecheck here until it gets them.
+const WAIT_WORDS: Readonly<Record<WaitCause, string>> = {
+  limits: 'Limits',
+  'limits-budget': 'Limits budget',
+  'start-window': 'Start window',
+  'background-tasks': 'background tasks',
+  'gate-queue': 'gate queue',
+  'other-machine': 'other Machine',
+}
 const percent = (share: number): string => `${Math.round(share * 100)}%`
 
 export function SummaryStrip({ view }: { view: RunView }) {
@@ -54,7 +63,7 @@ export function SummaryStrip({ view }: { view: RunView }) {
         {summary.waits.map((row) => (
           <div key={row.cause} className="w-fr-total" data-cause={row.cause}>
             <span className="w-fr-total__name">
-              {WAIT_WORDS[row.cause] ?? row.cause}
+              {WAIT_WORDS[row.cause]}
               {COUNTED_WITHOUT_WORK.has(row.cause) ? <span className="w-fr-muted"> · {WITHOUT_WORK_NOTE}</span> : null}
             </span>
             <span className="w-fr-total__bar w-fr-total__bar--wait" style={{ width: Math.max(3, (row.total / waitMax) * 96) }} />

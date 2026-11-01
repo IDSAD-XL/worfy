@@ -128,7 +128,60 @@ describe('from-journal: the Waits', () => {
     expect(wait).toMatchObject({ waitCause: 'start-window', start: Date.parse(T('10:40')), end: Date.parse(T('23:00')), links: { tickets: ['e/02'] } })
     // A Wave too long for what is left of the window: the reason is the detail.
     const tooLong = read(started({ mode: 'start-window' }), line('10:40', 'start-window', { reason: 'wave-too-long', until: T('23:00'), text: 'the Wave would end after 07:00', durationP90Ms: 3_600_000 }), line('10:40', 'waiting-until', { until: T('23:00') }), line('23:00', 'resumed'), wave('23:00', 1, ['03']), stopped('23:30'))
-    expect(tooLong.waits).toMatchObject([{ cause: 'start-window', detail: `wave-too-long, until ${T('23:00')}`, end: T('23:00'), tickets: ['e/03'] }])
+    expect(tooLong.waits).toEqual([
+      { id: 'start-window:1', cause: 'start-window', start: T('10:40'), end: T('23:00'), detail: `wave-too-long, until ${T('23:00')}`, tickets: ['e/03'], startSource: 'journal', endSource: 'journal' },
+    ])
+  })
+
+  // One Wait at a time for the Limits, the budget and the Start window (they share the waiting-until and
+  // resumed that follow): the line that comes while one is open neither closes it nor opens another.
+  // No writer does so — a start-window is checked before a Wave, a limits-hit comes inside one — but a
+  // Journal that does keeps its time in one Wait.
+  it('keeps a Limits Wait that is open when a start-window comes: no second Wait, nothing closed early', () => {
+    const facts = read(
+      started({ mode: 'start-window' }),
+      wave('10:01', 1, ['01']),
+      line('10:10', 'limits-hit', { window: 'seven_day', resetsAt: T('11:00') }),
+      line('10:20', 'start-window', { reason: 'outside', until: T('11:00'), text: 'outside the Start window' }),
+      line('10:20', 'waiting-until', { until: T('11:00') }),
+      line('11:00', 'resumed'),
+      finished('11:30', 1, ['01']),
+      stopped('11:30'),
+    )
+    expect(facts.waits).toEqual([{ id: 'limits:1', cause: 'limits', start: T('10:10'), end: T('11:00'), detail: `seven_day, until ${T('11:00')}`, startSource: 'journal', endSource: 'journal' }])
+  })
+
+  it('leaves a background-tasks Wait open across a start-window: the Start window Wait runs beside it', () => {
+    const facts = read(
+      started({ mode: 'start-window' }),
+      wave('10:01', 1, ['01']),
+      tasks('10:05', 'Run gate fast'),
+      finished('10:40', 1, ['01']),
+      line('10:40', 'start-window', { reason: 'outside', until: T('23:00'), text: 'outside the Start window' }),
+      line('10:40', 'waiting-until', { until: T('23:00') }),
+      tasks('10:50'),
+      line('23:00', 'resumed'),
+      stopped('23:00'),
+    )
+    expect(facts.waits).toEqual([
+      { id: 'background-tasks:1', cause: 'background-tasks', start: T('10:05'), end: T('10:50'), detail: 'Run gate fast', startSource: 'journal', endSource: 'journal' },
+      { id: 'start-window:1', cause: 'start-window', start: T('10:40'), end: T('23:00'), detail: `outside, until ${T('23:00')}`, tickets: [], startSource: 'journal', endSource: 'journal' },
+    ])
+  })
+
+  it('keeps a Start window Wait when a limits-hit comes inside it: no Wait `limits` opens', () => {
+    const facts = read(
+      started({ mode: 'start-window' }),
+      line('10:00', 'start-window', { reason: 'outside', until: T('23:00'), text: 'outside the Start window' }),
+      line('10:00', 'waiting-until', { until: T('23:00') }),
+      line('12:00', 'limits-hit', { window: 'seven_day', resetsAt: null }),
+      line('23:00', 'resumed'),
+      wave('23:00', 1, ['01']),
+      stopped('23:30'),
+    )
+    expect(facts.waits).toEqual([
+      { id: 'start-window:1', cause: 'start-window', start: T('10:00'), end: T('23:00'), detail: `outside, until ${T('23:00')}`, tickets: ['e/01'], startSource: 'journal', endSource: 'journal' },
+    ])
   })
 
   it('ends a Wait `start-window` still open at run-stopped there: no Ticket stood without a Wave after it', () => {
@@ -455,13 +508,16 @@ describe('from-journal: the frame of the Run', () => {
       finished('12:00', 2, ['02']),
       stopped('12:00', 'tickets-done', { actual: ACTUAL }),
     )
-    expect(journal).toMatchObject({ mode: 'budget-aware', forecast: { low: 0.18, high: 0.31, waves: 3, tickets: 7, uncounted: 1, samples: 12, fit: 2 }, actual: { share: 0.24, waves: 2, counted: 2 }, skipped: 0 })
+    expect(journal.mode).toBe('budget-aware')
     // The forecast keeps only what Run history shows.
     expect(journal.forecast).toEqual({ low: 0.18, high: 0.31, waves: 3, tickets: 7, uncounted: 1, samples: 12, fit: 2 })
+    expect(journal.actual).toEqual({ share: 0.24, waves: 2, counted: 2 })
+    expect(journal.skipped).toBe(0)
     // Not enough data: the range and K are null, and stay null.
     const few = read(started({ mode: 'fastest' }), line('10:00', 'forecast', { ...FORECAST, mode: 'fastest', samples: 3, low: null, high: null, fit: null }), stopped('10:01'))
-    expect(few).toMatchObject({ mode: 'fastest', forecast: { low: null, high: null, samples: 3, fit: null } })
-    expect(few.actual).toBeUndefined()
+    expect(few.mode).toBe('fastest')
+    expect(few.forecast).toEqual({ low: null, high: null, waves: 3, tickets: 7, uncounted: 1, samples: 3, fit: null })
+    expect('actual' in few).toBe(false)
   })
 
   it('has no mode, forecast or actual in a Journal of before the Epic, and reads the rest as before', () => {
@@ -487,6 +543,8 @@ describe('from-journal: the frame of the Run', () => {
     for (const shape of shapes) {
       const journal = read(started(), line('10:00', 'forecast', shape), wave('10:01', 1, ['01']), stopped('10:30'))
       expect('forecast' in journal, JSON.stringify(shape)).toBe(false)
+      // The mode is run-started's alone: the forecast line's `mode` does not stand in for a missing one.
+      expect('mode' in journal, JSON.stringify(shape)).toBe(false)
       expect(journal.skipped).toBe(0)
       expect(journal.waves).toHaveLength(1)
     }
@@ -505,9 +563,18 @@ describe('from-journal: the frame of the Run', () => {
       started({ mode: 'start-window' }),
       line('10:00', 'forecast', FORECAST),
       line('10:00', 'forecast', { ...FORECAST, low: 0.5, high: 0.6 }),
-      stopped('10:30', 'user-stop', { actual: { share: 0.1, waves: 1, counted: 0 } }),
+      wave('10:01', 1, ['01']),
+      finished('10:20', 1, ['01']),
+      // An earlier run-stopped with an actual of its own: the Run ends at the last one.
+      stopped('10:20', 'user-stop', { actual: { share: 0.05, waves: 1, counted: 1 } }),
+      wave('10:21', 2, ['02']),
+      finished('10:30', 2, ['02']),
+      stopped('10:30', 'tickets-done', { actual: { share: 0.1, waves: 2, counted: 1 } }),
     )
-    expect(journal).toMatchObject({ mode: 'start-window', forecast: { low: 0.18, high: 0.31 }, actual: { share: 0.1, waves: 1, counted: 0 } })
+    expect(journal.mode).toBe('start-window')
+    expect(journal.forecast).toEqual({ low: 0.18, high: 0.31, waves: 3, tickets: 7, uncounted: 1, samples: 12, fit: 2 })
+    expect(journal.actual).toEqual({ share: 0.1, waves: 2, counted: 1 })
+    expect(journal.run).toMatchObject({ stoppedAt: T('10:30'), reason: 'tickets-done' })
   })
 
   it('does not break on a wave-started after run-stopped: that Wave is last seen at its own line', () => {
