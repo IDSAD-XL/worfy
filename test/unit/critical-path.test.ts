@@ -10,6 +10,8 @@ import { join, posix, relative, resolve, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { JOURNAL_EVENT_KINDS } from '../../src/shared/autopilot/journal'
+import * as journalWalk from '../../src/shared/flight-recorder/journal-walk.mjs'
+import * as prFacts from '../../src/shared/flight-recorder/pr-facts.mjs'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 
@@ -270,6 +272,49 @@ describe('critical-path: what it reads from the journal', () => {
       expect(stdout).not.toContain('Tickets 01, 02, 03 of epic')
       expect(stdout).not.toContain(FIXTURE)
       expect(stdout).not.toContain('the wait never ends')
+    }
+  })
+})
+
+describe('critical-path: the report after the reading moved to src/shared/flight-recorder', () => {
+  // The reports the script gave before its reading of journals and PRs moved into journal-walk.mjs and
+  // pr-facts.mjs (worfy-flight-recorder ticket 10), kept as JSON strings so that a checkout with CRLF line
+  // ends does not change them. The night Run's PR data carries file lists, so the budget lines are in it too.
+  const before = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'fixtures', 'flight-recorder', 'critical-path-before.json'), 'utf8')) as Record<string, string>
+  const NIGHT = join(import.meta.dirname, '..', 'fixtures', 'flight-recorder', 'night-run')
+  const reports: [string, string[]][] = [
+    ['demo', DEMO],
+    ['all', ['--journals', JOURNALS, '--root', ROOT, '--prs', PRS]],
+    ['night', ['--journals', join(NIGHT, 'data', 'autopilot'), '--prs', join(NIGHT, 'prs.json')]],
+  ]
+
+  // The static imports of the two modules also tell CI (scripts/affected-tests.mjs) to run this file when they change.
+  it('holds no reading of its own: the kinds are journal-walk.mjs’s, the gh fields pr-facts.mjs’s', async () => {
+    expect(JOURNAL_KINDS).toBe(journalWalk.JOURNAL_KINDS)
+    const calls: string[][] = []
+    await criticalPath(['--journals', JOURNALS, '--root', ROOT, '--epic', 'demo-epic', '--tickets', '01'], {
+      env: {},
+      home: '/Users/someone',
+      cwd: tempDir(),
+      gh: async (args) => {
+        calls.push(args)
+        return { code: 0, stdout: '[]', stderr: '' }
+      },
+      out: () => undefined,
+      err: () => undefined,
+    })
+    expect(calls[0]).toContain(prFacts.GH_FIELDS)
+  })
+
+  it.each(reports)('gives the %s report byte for byte as before, in Markdown and CSV', (name, args) => {
+    for (const [ext, extra] of [
+      ['md', []],
+      ['csv', ['--csv']],
+    ] as const) {
+      const { status, stdout, stderr } = run([...args, ...extra])
+      expect(stderr).toBe('')
+      expect(status).toBe(0)
+      expect(stdout).toBe(before[`${name}.${ext}`])
     }
   })
 })

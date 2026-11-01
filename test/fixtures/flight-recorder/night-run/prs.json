@@ -1,0 +1,822 @@
+[
+  {
+    "comments": [
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdB3LmA",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "VERIFIED\nConsider: [low] src/main/github/prs.ts:39 — the test \"an older gh without the fields\" checks only JSON without the four new fields; a gh that does not know one of them rejects `--json` as a whole and the PR/CI badges show \"gh unavailable\" (the acceptance item about an older gh holds only at the JSON level); fix: rename the test or retry with the old FIELDS on \"Unknown JSON field\". [low] s…[cut]",
+        "createdAt": "2026-10-17T23:29:05Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/457#issuecomment-6243077016",
+        "viewerDidAuthor": true
+      },
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdCIuwQ",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "Pre-merge basis: rebased on origin/main b07527f, head c616dac; GATE_SCOPE=all gate full exit 0; mergeable MERGEABLE; workflow.ci=batch — CI runs once on main after the wave.",
+        "createdAt": "2026-10-17T23:51:16Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/457#issuecomment-6243364545",
+        "viewerDidAuthor": true
+      }
+    ],
+    "commits": [
+      {
+        "authoredDate": "2026-10-17T23:04:08Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-17T23:36:58Z",
+        "messageBody": "A pure stageOf over a fixed catalogue of Stage kinds, and the facts main\ncollects for it: the workflow model, the shared PR tracker (head SHA,\nreviewDecision, merge commit and time, CI checks one by o…[cut]",
+        "messageHeadline": "Stage of every Ticket computed in main from the Project's Pipeline",
+        "oid": "c616dac10715928a7302632ef8d240cda66cd0ea"
+      }
+    ],
+    "createdAt": "2026-10-17T23:21:15Z",
+    "files": [
+      {
+        "path": ".scratch/worfy-pipeline/issues/03-stage-вычисляется-в-main-по-pipeline-project-а.md",
+        "additions": 55,
+        "deletions": 7,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/main/github/deployments.ts",
+        "additions": 117,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/main/github/prs.ts",
+        "additions": 88,
+        "deletions": 7,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/main/ipc/pipeline.ts",
+        "additions": 70,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/main/workflow/marks.ts",
+        "additions": 95,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/main/workflow/profile.ts",
+        "additions": 67,
+        "deletions": 2,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/main/workflow/stages.ts",
+        "additions": 372,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/renderer/pipeline/usePipeline.ts",
+        "additions": 97,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/shared/ipc/pipeline.ts",
+        "additions": 62,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/shared/workflow/pipeline.ts",
+        "additions": 294,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "test/contract/github-prs.test.ts",
+        "additions": 94,
+        "deletions": 6,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "test/contract/harness-script-wiring.test.ts",
+        "additions": 25,
+        "deletions": 0,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "test/contract/workflow-stages.test.ts",
+        "additions": 460,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "test/unit/link-access.test.ts",
+        "additions": 3,
+        "deletions": 0,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "test/unit/pipeline.test.ts",
+        "additions": 223,
+        "deletions": 0,
+        "changeType": "ADDED"
+      }
+    ],
+    "headRefName": "worfy-pipeline/03",
+    "labels": [],
+    "mergeCommit": {
+      "oid": "8f0f945fbe948747df606a4aa02cfa65f77c0777"
+    },
+    "mergedAt": "2026-10-17T23:51:19Z",
+    "number": 457,
+    "state": "MERGED",
+    "statusCheckRollup": [],
+    "ciRuns": []
+  },
+  {
+    "comments": [
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdCaCnA",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "REJECTED: [med] .scratch/worfy-pipeline/issues/07-epic-wave-и-ship-ticket-идут-по-workflow-pipeline.md:105-107 — the result section says that without the worfy Profile edit \"the wave's behaviour does not change\", which is false: the diff removes from harness/skills/epic-wave/SKILL.md (old lines 630-636) the rule that keeps platform PRs out of the set until the other platform's verdict, and `PLATFO…[cut]",
+        "createdAt": "2026-10-18T00:19:24Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/460#issuecomment-6243648156",
+        "viewerDidAuthor": true
+      },
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdCkixg",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "VERIFIED; debt: [low] harness/skills/epic-wave/SKILL.md:797 — the comment `# its \"ready, PLATFORM\" lines` (and the list at :724) does not mention the fallback, so an orchestrator reading only the code block could leave `PLATFORM=()` empty with no `check` Stage; the paragraph at :743-746 and the block's output line say otherwise. [low] harness/skills/ship-ticket/SKILL.md:72 — removing this line kee…[cut]",
+        "createdAt": "2026-10-18T00:39:35Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/460#issuecomment-6243820230",
+        "viewerDidAuthor": true
+      },
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdCrXVA",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "Pre-merge basis: rebased on origin/main 0e60b0f, head c209008; GATE_SCOPE=all gate full exit 0; mergeable MERGEABLE; workflow.ci=batch — CI runs once on main after the wave.",
+        "createdAt": "2026-10-18T00:53:04Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/460#issuecomment-6243931988",
+        "viewerDidAuthor": true
+      }
+    ],
+    "commits": [
+      {
+        "authoredDate": "2026-10-18T00:00:34Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-18T00:39:42Z",
+        "messageBody": "Both skills read _resolved.pipeline and act on its Stages: Agent review\nruns where the Pipeline puts it (none in the Pipeline - no review by\nagents), a Check keeps a PR out of the wave-gate set until …[cut]",
+        "messageHeadline": "epic-wave and ship-ticket follow workflow.pipeline",
+        "oid": "da338bf3ab032173accd590626fef77e1a6f6e61"
+      },
+      {
+        "authoredDate": "2026-10-18T00:24:00Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-18T00:39:42Z",
+        "messageBody": "Without a check Stage the marks cannot tell platform PRs apart, so the\nrule in words stays as the fallback: PRs the project's rules send to\nanother platform's verdict go into PLATFORM=() and merge the…[cut]",
+        "messageHeadline": "Keep platform PRs waiting when the Pipeline has no Check",
+        "oid": "c209008d175a1f3207c839566e98ccd2a98febf1"
+      }
+    ],
+    "createdAt": "2026-10-18T00:11:54Z",
+    "files": [
+      {
+        "path": ".scratch/worfy-pipeline/issues/07-epic-wave-и-ship-ticket-идут-по-workflow-pipeline.md",
+        "additions": 92,
+        "deletions": 6,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "harness/bin/tests/epic-wave-ship-ticket.test.sh",
+        "additions": 217,
+        "deletions": 0,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "harness/skills/epic-wave/SKILL.md",
+        "additions": 162,
+        "deletions": 12,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "harness/skills/ship-ticket/SKILL.md",
+        "additions": 39,
+        "deletions": 1,
+        "changeType": "MODIFIED"
+      }
+    ],
+    "headRefName": "worfy-pipeline/07",
+    "labels": [],
+    "mergeCommit": {
+      "oid": "62a4c4ab2456d342a243a33de8ee67ea72a161a6"
+    },
+    "mergedAt": "2026-10-18T00:53:06Z",
+    "number": 460,
+    "state": "MERGED",
+    "statusCheckRollup": [],
+    "ciRuns": []
+  },
+  {
+    "comments": [
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdDUXjA",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "VERIFIED\n\nGate fast green (EXIT=0, `[gate] зелено (fast)`, from cache). Unit `pipeline-board.test.tsx` 13 passed. E2E pipeline, sidebar-sections, binding, canvas-layout, harness-migrate, terminal: 23 passed under the e2e lock. PR MERGEABLE at head ce30fa42. Screenshots in both themes (board, sidebar section, toolbar at 1280 and 1600 px, MigrationForm against main) match the ticket and F-SPEC's gen…[cut]",
+        "createdAt": "2026-10-18T02:12:44Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/467#issuecomment-6244603788",
+        "viewerDidAuthor": true
+      },
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdDlPVQ",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "VERIFIED (pre-merge fix)\n\nGate full before merge (GATE_SCOPE=all) was red at head d17a3966: `test/e2e/silent-project.spec.ts:302` saw gh run in the root of a Project over two repositories; 24 `spawnSync bash EAGAIN` failures in `test/contract/harness-scripts.test.ts` came from machine load (the file alone: 37 passed). Fix checked: `git diff d17a3966..7e1553c5`.\n\n**Act on:** nothing.\n\n**Consider**\n…[cut]",
+        "createdAt": "2026-10-18T02:48:07Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/467#issuecomment-6244880213",
+        "viewerDidAuthor": true
+      },
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdDrjqA",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "Pre-merge basis: rebased on origin/main 1ef87f8, head 42dc199; GATE_SCOPE=all gate full exit 0; mergeable MERGEABLE; workflow.ci=batch — CI runs once on main after the wave.",
+        "createdAt": "2026-10-18T03:01:48Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/467#issuecomment-6244983720",
+        "viewerDidAuthor": true
+      }
+    ],
+    "commits": [
+      {
+        "authoredDate": "2026-10-18T01:30:37Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-18T02:48:15Z",
+        "messageBody": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+        "messageHeadline": "Pipeline tab and Pipeline sidebar section",
+        "oid": "9949c533f92c4f074bd1080abd1cf10f1d3f79fc"
+      },
+      {
+        "authoredDate": "2026-10-18T01:46:57Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-18T02:48:15Z",
+        "messageBody": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+        "messageHeadline": "Record the result of the Pipeline tab change in its ticket",
+        "oid": "2fa6cc64aa5a3cc17da36f1233dec6d37eb2d298"
+      },
+      {
+        "authoredDate": "2026-10-18T02:26:30Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-18T02:48:15Z",
+        "messageBody": "A Profile that cannot be read names no repositories, and the Stages then\nread the PRs of the Project's root. In a Project over several\nrepositories the root is a plain folder, so gh ran outside any\nre…[cut]",
+        "messageHeadline": "Run gh for Pipeline Stages only in a folder inside a git work tree",
+        "oid": "241b84fb2b6cdc9aa81e053debef5b6dcc8fda87"
+      },
+      {
+        "authoredDate": "2026-10-18T02:37:07Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-18T02:48:15Z",
+        "messageBody": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+        "messageHeadline": "Record the gh location fix in the ticket",
+        "oid": "d7fca252b977994515440d77c30f8de641f3ef2d"
+      },
+      {
+        "authoredDate": "2026-10-18T02:37:58Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-18T02:48:15Z",
+        "messageBody": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+        "messageHeadline": "Pipeline stages: keep the branchHeads comment on its method",
+        "oid": "42dc199b3a7ee01ceb788e6910a1b6308a781218"
+      }
+    ],
+    "createdAt": "2026-10-18T01:52:33Z",
+    "files": [
+      {
+        "path": ".scratch/worfy-pipeline/issues/04-вкладка-pipeline-и-секция-pipeline-боковой-панели.md",
+        "additions": 67,
+        "deletions": 6,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/main/workflow/stages.ts",
+        "additions": 11,
+        "deletions": 1,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/renderer/main.tsx",
+        "additions": 2,
+        "deletions": 0,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/renderer/pipeline/PipelineBoard.tsx",
+        "additions": 178,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/renderer/pipeline/board.ts",
+        "additions": 24,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/renderer/pipeline/pipeline.css",
+        "additions": 274,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/renderer/shell/AppShell.tsx",
+        "additions": 10,
+        "deletions": 2,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/renderer/shell/Toolbar.tsx",
+        "additions": 13,
+        "deletions": 1,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/renderer/shell/shell.css",
+        "additions": 11,
+        "deletions": 0,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/renderer/shell/sidebar/PipelineSection.tsx",
+        "additions": 133,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/renderer/theme/primitives.tsx",
+        "additions": 4,
+        "deletions": 1,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "test/contract/workflow-stages.test.ts",
+        "additions": 50,
+        "deletions": 2,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "test/e2e/pipeline.spec.ts",
+        "additions": 212,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "test/e2e/sidebar-sections.spec.ts",
+        "additions": 1,
+        "deletions": 1,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "test/unit/pipeline-board.test.tsx",
+        "additions": 447,
+        "deletions": 0,
+        "changeType": "ADDED"
+      }
+    ],
+    "headRefName": "worfy-pipeline/04",
+    "labels": [],
+    "mergeCommit": {
+      "oid": "e074b41f7f1ed5fd641b2595fee051fbfab3ae93"
+    },
+    "mergedAt": "2026-10-18T03:01:51Z",
+    "number": 467,
+    "state": "MERGED",
+    "statusCheckRollup": [],
+    "ciRuns": []
+  },
+  {
+    "comments": [
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdDUYKA",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "REJECTED\n\nHead before rework: 8b3cb187.\n\n**Act on**\n- [med] `src/renderer/canvas/nodes/TicketNode.tsx:118`, `src/renderer/pipeline/stepper.css:65`: on a 9-Stage Pipeline (worfy's own) the Stage name itself is truncated on a normal 204 px Card, and the \"waits for\" part disappears: Implementing + rework shows \"Impl…\", Implementing + blocked \"Implement…\", Check «windows» \"Check «wind…\". With both the…[cut]",
+        "createdAt": "2026-10-18T02:12:45Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/468#issuecomment-6244603944",
+        "viewerDidAuthor": true
+      },
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdDikmw",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "REJECTED (round 2)\n\nRework diff checked: 4239f8d0..94773dec.\n\n**Act on**\n- [med] Round-1 item 1 is not fully fixed. On a 9-Stage Pipeline, a Card with both the repository chip and the Ready chip still truncates the Stage name: \"a… Queu… 1/9 Ready\" (repository names `app`, `web-client`, `application-server`, both themes). \"Queued\" needs 42.66 px and gets 42 px, but `scrollWidth` and `clientWidth` r…[cut]",
+        "createdAt": "2026-10-18T02:42:19Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/468#issuecomment-6244836507",
+        "viewerDidAuthor": true
+      },
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdJsQfA",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "## Mac review, round 3 (medium, lens: correctness and tests) on `a065de16`\n\nThe round 2 finding is fixed: the sub-pixel cut of the Stage name beside `app`, `web-client` and `application-server` is gone (`test/e2e/checks-badges.spec.ts:523` green). The fractional-pixel measuring (`Stepper.tsx:55`, `:67`, `:80`) is right and caught by tests.\n\n**[med] blocking:** `src/renderer/pipeline/stepper.css:23…[cut]",
+        "createdAt": "2026-10-18T14:48:57Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/468#issuecomment-6251286652",
+        "viewerDidAuthor": true
+      },
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdJ-d-w",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "## Mac review, round 4 (low, the owner's extra narrow round) on `c08f2d20`\n\nNo findings — can merge after the Mac gate full.\n- Round 3's [med] is fixed: the narrow stepper's `flex-shrink: 0` is gone from `src/renderer/pipeline/stepper.css`; the repository chip has `flexShrink: 100000` (`src/renderer/canvas/nodes/TicketNode.tsx:62`). Putting the rule back turns the new e2e `test/e2e/checks-badges.s…[cut]",
+        "createdAt": "2026-10-18T15:18:38Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/468#issuecomment-6251585019",
+        "viewerDidAuthor": true
+      },
+      {
+        "id": "IC_kwDOU7xS_s8AAAABdKXNdw",
+        "author": {
+          "login": "owner"
+        },
+        "authorAssociation": "OWNER",
+        "body": "Mac checks report: green\n\nHead checked: `c3ff2d02`. The serve pass rebased the PR onto main `01ae750e` and pushed it with a lease on `c08f2d20`.\n\n- `check` (`GATE_SCOPE=all node \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs\" full </dev/null`): `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package`, exit 0.\n- Mac checks section: `ticket-stepper` (unit) gre…[cut]",
+        "createdAt": "2026-10-18T15:58:37Z",
+        "includesCreatedEdit": false,
+        "isMinimized": false,
+        "minimizedReason": "",
+        "reactionGroups": [],
+        "url": "https://github.com/owner/worfy/pull/468#issuecomment-6251990391",
+        "viewerDidAuthor": true
+      }
+    ],
+    "commits": [
+      {
+        "authoredDate": "2026-10-18T01:45:14Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-18T15:42:16Z",
+        "messageBody": "The Ticket Card shows a row of dots for the Stages of the Project's\nPipeline in place of the status word: passed, current (with the Stage\nname and who it waits for), future, a Check passed by a skippe…[cut]",
+        "messageHeadline": "Stepper of Stages on the Ticket Card; verdict badge from the review mark",
+        "oid": "ce79c756ad267e20e83d491fb2ee9915fe4139ed"
+      },
+      {
+        "authoredDate": "2026-10-18T02:30:17Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-18T15:42:16Z",
+        "messageBody": "The full stepper (nine dots, the Stage name and its flags) did not fit a\n204 px Card for long Stage names with rework or blocked, and the name was\ncut. The stepper now measures its full form before pa…[cut]",
+        "messageHeadline": "Stepper: narrow form when the full one does not fit; check on Done",
+        "oid": "21f8de151898d9c23aec9f45695d12195c47220d"
+      },
+      {
+        "authoredDate": "2026-10-18T14:33:17Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-18T15:42:16Z",
+        "messageBody": "On a 204 px Card with a repository chip and the Ready chip, the narrow\nstepper still shrank by its share of the row's deficit and cut the Stage\nname by under a pixel (\"Queued\" 42.49 px in 42.09). scro…[cut]",
+        "messageHeadline": "Stepper: the narrow form keeps its width; measure in fractional pixels",
+        "oid": "92010bd6dd15cafc6a483dd4720d8e2d973a24a0"
+      },
+      {
+        "authoredDate": "2026-10-18T15:05:22Z",
+        "authors": [
+          {
+            "email": "someone@example.com",
+            "id": "U_owner",
+            "login": "owner",
+            "name": "Someone"
+          },
+          {
+            "email": "noreply@anthropic.com",
+            "id": "MDQ6VXNlcjgxODQ3",
+            "login": "claude",
+            "name": "Claude Opus 5.5"
+          }
+        ],
+        "committedDate": "2026-10-18T15:42:16Z",
+        "messageBody": "… first\n\nWith flex-shrink: 0 on the narrow stepper, a row that did not fit even in\nthe narrow form ran past the Card edge and was clipped without an\nellipsis: N/M, the blocked mark and Ready vanished …[cut]",
+        "messageHeadline": "Stepper: the narrow form shrinks again; the repository chip gives way…",
+        "oid": "c3ff2d024d7049ddb8c20a8fa839658dfd6b5bc0"
+      }
+    ],
+    "createdAt": "2026-10-18T02:00:50Z",
+    "files": [
+      {
+        "path": ".scratch/worfy-pipeline/issues/05-stepper-на-card-ticket-а-вместо-слова-статуса.md",
+        "additions": 131,
+        "deletions": 4,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "harness/bin/tests/max-review.test.sh",
+        "additions": 7,
+        "deletions": 6,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/main/github/prs.ts",
+        "additions": 20,
+        "deletions": 19,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/renderer/canvas/badges/ChecksBadges.tsx",
+        "additions": 4,
+        "deletions": 2,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/renderer/canvas/nodes/TicketNode.tsx",
+        "additions": 23,
+        "deletions": 7,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "src/renderer/pipeline/Stepper.tsx",
+        "additions": 187,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/renderer/pipeline/stepper.css",
+        "additions": 121,
+        "deletions": 0,
+        "changeType": "ADDED"
+      },
+      {
+        "path": "src/shared/ipc/checks.ts",
+        "additions": 3,
+        "deletions": 2,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "test/contract/github-prs.test.ts",
+        "additions": 29,
+        "deletions": 28,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "test/e2e/checks-badges.spec.ts",
+        "additions": 264,
+        "deletions": 5,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "test/e2e/epic-frame.spec.ts",
+        "additions": 42,
+        "deletions": 26,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "test/unit/checks-badges.test.tsx",
+        "additions": 20,
+        "deletions": 0,
+        "changeType": "MODIFIED"
+      },
+      {
+        "path": "test/unit/ticket-stepper.test.tsx",
+        "additions": 470,
+        "deletions": 0,
+        "changeType": "ADDED"
+      }
+    ],
+    "headRefName": "worfy-pipeline/05",
+    "labels": [],
+    "mergeCommit": {
+      "oid": "786aee9709da7075f465cea45e33569ea17770f4"
+    },
+    "mergedAt": "2026-10-18T15:58:40Z",
+    "number": 468,
+    "state": "MERGED",
+    "statusCheckRollup": [
+      {
+        "__typename": "StatusContext",
+        "context": "check/windows",
+        "startedAt": "2026-10-18T15:58:23Z",
+        "state": "SUCCESS",
+        "targetUrl": ""
+      },
+      {
+        "__typename": "StatusContext",
+        "context": "review",
+        "startedAt": "2026-10-18T15:58:22Z",
+        "state": "SUCCESS",
+        "targetUrl": ""
+      }
+    ],
+    "ciRuns": []
+  }
+]

@@ -113,7 +113,9 @@ export default defineConfig(
     extends: [reactRefresh.configs.vite()],
   },
   {
-    files: ['src/renderer/**/*.{ts,tsx}', 'src/card-runtime/**/*.{ts,tsx}', 'src/shared/**/*.{ts,tsx}'],
+    // .mjs and .mts too: src/shared/flight-recorder holds plain ES modules (with .d.mts declarations) that a
+    // script runs without a build, and they cross the same boundary as the TypeScript next to them.
+    files: ['src/renderer/**/*.{ts,tsx,mjs,mts}', 'src/card-runtime/**/*.{ts,tsx,mjs,mts}', 'src/shared/**/*.{ts,tsx,mjs,mts}'],
     plugins: { worfy },
     rules: { 'worfy/process-boundary': 'error' },
   },

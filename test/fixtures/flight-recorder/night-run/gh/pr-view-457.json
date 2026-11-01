@@ -1,0 +1,159 @@
+{
+  "comments": [
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdB3LmA",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "VERIFIED\nConsider: [low] src/main/github/prs.ts:39 — the test \"an older gh without the fields\" checks only JSON without the four new fields; a gh that does not know one of them rejects `--json` as a whole and the PR/CI badges show \"gh unavailable\" (the acceptance item about an older gh holds only at the JSON level); fix: rename the test or retry with the old FIELDS on \"Unknown JSON field\". [low] s…[cut]",
+      "createdAt": "2026-10-17T23:29:05Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/457#issuecomment-6243077016",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdCIuwQ",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "Pre-merge basis: rebased on origin/main b07527f, head c616dac; GATE_SCOPE=all gate full exit 0; mergeable MERGEABLE; workflow.ci=batch — CI runs once on main after the wave.",
+      "createdAt": "2026-10-17T23:51:16Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/457#issuecomment-6243364545",
+      "viewerDidAuthor": true
+    }
+  ],
+  "commits": [
+    {
+      "authoredDate": "2026-10-17T23:04:08Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-17T23:36:58Z",
+      "messageBody": "A pure stageOf over a fixed catalogue of Stage kinds, and the facts main\ncollects for it: the workflow model, the shared PR tracker (head SHA,\nreviewDecision, merge commit and time, CI checks one by o…[cut]",
+      "messageHeadline": "Stage of every Ticket computed in main from the Project's Pipeline",
+      "oid": "c616dac10715928a7302632ef8d240cda66cd0ea"
+    }
+  ],
+  "createdAt": "2026-10-17T23:21:15Z",
+  "files": [
+    {
+      "path": ".scratch/worfy-pipeline/issues/03-stage-вычисляется-в-main-по-pipeline-project-а.md",
+      "additions": 55,
+      "deletions": 7,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/main/github/deployments.ts",
+      "additions": 117,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/main/github/prs.ts",
+      "additions": 88,
+      "deletions": 7,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/main/ipc/pipeline.ts",
+      "additions": 70,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/main/workflow/marks.ts",
+      "additions": 95,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/main/workflow/profile.ts",
+      "additions": 67,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/main/workflow/stages.ts",
+      "additions": 372,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/renderer/pipeline/usePipeline.ts",
+      "additions": 97,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/shared/ipc/pipeline.ts",
+      "additions": 62,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/shared/workflow/pipeline.ts",
+      "additions": 294,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "test/contract/github-prs.test.ts",
+      "additions": 94,
+      "deletions": 6,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "test/contract/harness-script-wiring.test.ts",
+      "additions": 25,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "test/contract/workflow-stages.test.ts",
+      "additions": 460,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "test/unit/link-access.test.ts",
+      "additions": 3,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "test/unit/pipeline.test.ts",
+      "additions": 223,
+      "deletions": 0,
+      "changeType": "ADDED"
+    }
+  ],
+  "headRefName": "worfy-pipeline/03",
+  "labels": [],
+  "mergeCommit": {
+    "oid": "8f0f945fbe948747df606a4aa02cfa65f77c0777"
+  },
+  "mergedAt": "2026-10-17T23:51:19Z",
+  "number": 457,
+  "state": "MERGED",
+  "statusCheckRollup": []
+}

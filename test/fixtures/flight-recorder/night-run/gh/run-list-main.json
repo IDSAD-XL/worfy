@@ -1,0 +1,46 @@
+[
+  {
+    "attempt": 1,
+    "conclusion": "success",
+    "createdAt": "2026-10-18T03:02:21Z",
+    "databaseId": 39092198641,
+    "event": "workflow_dispatch",
+    "headSha": "e074b41f7f1ed5fd641b2595fee051fbfab3ae93",
+    "name": "CI",
+    "status": "completed",
+    "updatedAt": "2026-10-18T03:15:26Z"
+  },
+  {
+    "attempt": 1,
+    "conclusion": "success",
+    "createdAt": "2026-10-18T00:53:30Z",
+    "databaseId": 39084438682,
+    "event": "workflow_dispatch",
+    "headSha": "62a4c4ab2456d342a243a33de8ee67ea72a161a6",
+    "name": "CI",
+    "status": "completed",
+    "updatedAt": "2026-10-18T01:11:29Z"
+  },
+  {
+    "attempt": 1,
+    "conclusion": "success",
+    "createdAt": "2026-10-18T00:39:39Z",
+    "databaseId": 39083575894,
+    "event": "workflow_dispatch",
+    "headSha": "0e60b0f7cedb888c97891cb25e54169d5009b454",
+    "name": "CI",
+    "status": "completed",
+    "updatedAt": "2026-10-18T00:55:49Z"
+  },
+  {
+    "attempt": 1,
+    "conclusion": "success",
+    "createdAt": "2026-10-17T23:51:46Z",
+    "databaseId": 39080623515,
+    "event": "workflow_dispatch",
+    "headSha": "9cbe67943a2972ede7d5ffb25f08545d7c6d6129",
+    "name": "CI",
+    "status": "completed",
+    "updatedAt": "2026-10-18T00:07:18Z"
+  }
+]

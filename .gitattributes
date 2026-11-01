@@ -15,3 +15,7 @@ scripts/** text=auto eol=lf
 
 # The brand sources of the app icon: build/icons.json records their sha256.
 build/brand/*.svg text eol=lf
+
+# The Flight Recorder fixtures are byte for byte as recorded: a later ticket reads the transcripts from a byte
+# offset, which CRLF on a Windows checkout would move.
+test/fixtures/flight-recorder/** -text
