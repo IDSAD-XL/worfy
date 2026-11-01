@@ -234,7 +234,7 @@ test('the command typed in the Session view starts Autopilot over the named Tick
     await expect(toast).toHaveAttribute('data-kind', 'error')
     await snapshots(window, toast, view, 'session-view-refused')
     expect(messages(log)).toEqual([WAVE_OF_01])
-    expect(journals(dataDir)).toEqual([['run-started', 'wave-started']])
+    expect(journals(dataDir)).toEqual([['run-started', 'forecast', 'wave-started']])
 
     // The status line on the Epic frame, as after the button.
     await window.getByRole('button', { name: 'Canvas', exact: true }).click()
@@ -277,7 +277,7 @@ test('the command typed in the chat of a Session Node starts Autopilot; a second
     await expect(toast).toHaveText(RUNNING)
     await expect(node.getByTestId('session-node-error')).toHaveCount(0)
     expect(messages(log)).toEqual([WAVE_OF_01])
-    expect(journals(dataDir)).toEqual([['run-started', 'wave-started']])
+    expect(journals(dataDir)).toEqual([['run-started', 'forecast', 'wave-started']])
     await expectHeaderClear(window, frame, toast)
     await forceStop(window, frame)
   } finally {

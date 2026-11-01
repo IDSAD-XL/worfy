@@ -2491,10 +2491,12 @@ describe('the Epic forecast at the start of the run and the actual share at its 
     })
   }
   const FIVE = [0.01, 0.02, 0.03, 0.04, 0.05]
+  /** The Limits with only the 7-day number: `utilization` got at `receivedAt`, resetting at `resets`. */
+  const weekState = (utilization: number, receivedAt = NOW, resets = RESETS): LimitsState => ({ windows: { seven_day: { utilization, receivedAt, resetsAt: resets / 1000, status: null, source: 'usage' } } })
 
   /** A stand-in with the Limits (`limits.value`, read at each call) and the journals of past runs (`past`, null: they cannot be read). */
   function forecasting(past: readonly (readonly JournalEvent[])[] | null, budget = { enabled: false, reserve: 0.15 }, overrides: Partial<AutopilotDeps> = {}) {
-    const limits = { value: { windows: { seven_day: { utilization: 0.4, receivedAt: NOW, resetsAt: RESETS / 1000 } } } as LimitsState }
+    const limits = { value: weekState(0.4) }
     const s = standIn({
       limits: { state: () => limits.value, observeSession: () => () => undefined, send: () => undefined, now: () => NOW, schedule: () => () => undefined },
       budget: { settings: () => budget, runs: () => (past === null ? Promise.reject(new Error('the journals are gone')) : Promise.resolve(past)) },
@@ -2553,7 +2555,7 @@ describe('the Epic forecast at the start of the run and the actual share at its 
   })
 
   it('K by the mode: with the reserve when the budget acts in the Run, without it in Fastest; no fresh week, no K and no week', async () => {
-    const tight = { windows: { seven_day: { utilization: 0.8, receivedAt: NOW, resetsAt: RESETS / 1000 } } } as LimitsState
+    const tight = weekState(0.8)
     const aware = forecasting([pastRun(FIVE)], { enabled: false, reserve: 0.15 })
     aware.limits.value = tight
     await aware.s.autopilot.start(PROJECT, EPIC, { mode: 'budget-aware' })
@@ -2565,7 +2567,7 @@ describe('the Epic forecast at the start of the run and the actual share at its 
     await settle()
     expect(forecastOf(fastest.s)).toMatchObject({ mode: 'fastest', fit: 2 })
     const stale = forecasting([pastRun(FIVE)])
-    stale.limits.value = { windows: { seven_day: { utilization: 0.4, receivedAt: NOW - 31 * MIN, resetsAt: RESETS / 1000 } } } as LimitsState
+    stale.limits.value = weekState(0.4, NOW - 31 * MIN)
     await stale.s.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
     await settle()
     expect(forecastOf(stale.s)).toMatchObject({ fit: null, week: null })
@@ -2592,7 +2594,7 @@ describe('the Epic forecast at the start of the run and the actual share at its 
     await s.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
     await settle()
     const endWave = async (utilization: number, nums: number[], resets = RESETS) => {
-      limits.value = { windows: { seven_day: { utilization, receivedAt: NOW, resetsAt: resets / 1000 } } } as LimitsState
+      limits.value = weekState(utilization, NOW, resets)
       done(s, ...nums)
       s.emit(result())
       await settle()

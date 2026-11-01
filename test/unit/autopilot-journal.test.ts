@@ -24,11 +24,28 @@ const stopped: JournalEvent = { ...base, at: at(9), kind: 'run-stopped', reason:
 const line = (value: unknown): string => `${JSON.stringify(value)}\n`
 
 const harnessBehind: JournalEvent = { ...base, at: at(0), kind: 'harness-behind', harness: '0.1.0+abcdef1', main: 'origin/main', commits: 2 }
+const forecast: JournalEvent = {
+  ...base,
+  at: at(0),
+  kind: 'forecast',
+  mode: 'budget-aware',
+  waves: 4,
+  tickets: 11,
+  uncounted: 1,
+  samples: 7,
+  low: 0.18,
+  high: 0.31,
+  fit: 2,
+  week: { utilization: 0.41, resetsAt: at(50) },
+  durationP90Ms: 6_000_000,
+  durationSamples: 6,
+}
 
 /** One valid event of every kind, in the order of JOURNAL_EVENT_KINDS. */
 const everyKind: JournalEvent[] = [
   started,
   harnessBehind,
+  forecast,
   waveStarted,
   { ...base, at: at(1), kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-10-06T01:01Z' },
   { ...base, at: at(2), kind: 'narrow-round', ticket: '02', outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x' },
@@ -114,6 +131,36 @@ describe('parseJournal', () => {
     const later = { ...started, by: 'button', mode: 'overnight' }
     expect(parseJournal(line(later))).toEqual({ events: [{ ...started, by: 'button' }], skipped: 0 })
     expect(parseJournal(line({ ...started, mode: 3 }))).toEqual({ events: [started], skipped: 0 })
+  })
+
+  // The Epic forecast and the actual share (worfy-resource-planner ticket 07, ADR-0093).
+  it('reads forecast with and without the range, K, the week and the duration, and with the Start window; skips one outside the format', () => {
+    const unknown: JournalEvent = { ...forecast, mode: 'fastest', samples: 0, low: null, high: null, fit: null, week: null, durationP90Ms: null, durationSamples: 0 }
+    const windowed: JournalEvent = { ...forecast, mode: 'start-window', week: { utilization: 0.41, resetsAt: null }, window: { from: 23, to: 7 } }
+    expect(parseJournal([started, forecast, unknown, windowed, stopped].map(line).join(''))).toEqual({ events: [started, forecast, unknown, windowed, stopped], skipped: 0 })
+    const bad = [{ ...forecast, mode: 'overnight' }, { ...forecast, samples: -1 }, { ...forecast, low: '18%' }, { ...forecast, fit: 1.5 }, { ...forecast, durationSamples: undefined }, { ...forecast, high: undefined }]
+    expect(parseJournal(line(started) + bad.map(line).join('') + line(stopped))).toEqual({ events: [started, stopped], skipped: bad.length })
+  })
+
+  it('reads a week or a window of another shape in forecast as none, and the line stays', () => {
+    expect(parseJournal(line({ ...forecast, week: { utilization: '41%' } }))).toEqual({ events: [{ ...forecast, week: null }], skipped: 0 })
+    expect(parseJournal(line({ ...forecast, window: { from: 24, to: 7 } }))).toEqual({ events: [forecast], skipped: 0 })
+    expect(parseJournal(line({ ...forecast, window: 'night' }))).toEqual({ events: [forecast], skipped: 0 })
+  })
+
+  it('reads run-stopped with actual; a line before ticket 07 reads as before; an actual of another shape reads as none', () => {
+    const withActual: JournalEvent = { ...stopped, actual: { share: 0.1, waves: 2, counted: 1 } }
+    expect(parseJournal(line(withActual) + line(stopped))).toEqual({ events: [withActual, stopped], skipped: 0 })
+    const others = [{ share: -0.1, waves: 2, counted: 1 }, { share: 0.1, waves: 0, counted: 0 }, { share: 0.1, waves: 1, counted: 2 }, { share: 0.1, waves: 2 }, '10%']
+    for (const actual of others) expect(parseJournal(line({ ...stopped, actual }))).toEqual({ events: [stopped], skipped: 0 })
+  })
+
+  it('the shared Journal walk (journal-walk.mjs) reads forecast and run-stopped.actual, and its Run is the same with them', () => {
+    const plain = [started, waveStarted, stopped].map(line).join('')
+    const withNew = [started, harnessBehind, forecast, waveStarted, { ...stopped, actual: { share: 0.1, waves: 1, counted: 1 } }].map(line).join('')
+    const parsed = walkParse(withNew)
+    expect(parsed).toMatchObject({ lines: 5, notJson: 0, unknownKind: 0, badFields: 0 })
+    expect(walkRun(parsed.events)).toEqual(walkRun(walkParse(plain).events))
   })
 
   it('reads start-window with both reasons, with and without the p90; skips one with another reason, no until or no text', () => {
