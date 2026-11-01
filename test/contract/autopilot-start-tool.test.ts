@@ -249,7 +249,15 @@ function world(options: { running?: string | null; orchestratorInTurn?: boolean 
 function tool(
   w: ReturnType<typeof world>,
   box: ReturnType<typeof messageBox>['box'],
-  options: { owner?: BrowserWindow; workflow?: () => Promise<WorkflowModel>; runs?: () => Promise<JournalEvent[][]>; mode?: RunMode } = {},
+  options: {
+    owner?: BrowserWindow
+    workflow?: () => Promise<WorkflowModel>
+    runs?: () => Promise<JournalEvent[][]>
+    mode?: RunMode
+    limits?: LimitsState
+    window?: { from: number; to: number }
+    reserve?: number
+  } = {},
 ) {
   const owner = options.owner ?? localWindow('project machine')
   const confirmations = vi.fn((prompt: Parameters<typeof confirm.confirmAutopilotStart>[1]) => confirm.confirmAutopilotStart(owner, prompt, box))
@@ -262,8 +270,8 @@ function tool(
     startFromChat: (request) => w.chat.startFromChat(request),
     forecast: {
       runs: options.runs ?? (() => Promise.resolve([])),
-      limits: () => LIMITS,
-      settings: () => ({ run: { mode: options.mode ?? 'budget-aware', window: { from: 23, to: 7 } }, budget: { enabled: false, reserve: 0.15 } }),
+      limits: () => options.limits ?? LIMITS,
+      settings: () => ({ run: { mode: options.mode ?? 'budget-aware', window: options.window ?? { from: 23, to: 7 } }, budget: { enabled: false, reserve: options.reserve ?? 0.15 } }),
       now: () => NOW,
     },
   })
@@ -645,20 +653,20 @@ describe("autopilot_start: the app's wiring (appDeps().autopilotStart, appAutopi
   it("the forecast reads the Project's run journals, the app's Limits and Settings → Autopilot: the default mode marked, the lines in the box", async () => {
     const { box, starter } = appWorld()
     app.windows = [localWindow('main')]
-    app.settings = { autopilotRun: { mode: 'start-window' } }
+    // A reserve of 5 % and a window of 21:00–05:00 in Settings: at 60 % used, 35 % free holds the 30 % of the one Wave.
+    app.settings = { autopilotRun: { mode: 'start-window', windowFrom: 21, windowTo: 5 }, autopilotBudget: { reservePercent: 5 } }
     app.runs = pastRuns(5)
     const now = Date.now()
-    app.limits = { windows: { seven_day: { utilization: 0.8, resetsAt: Math.floor(now / 1000) + 48 * 3600 + 600, status: null, receivedAt: now, source: 'usage' } } }
+    app.limits = { windows: { seven_day: { utilization: 0.6, resetsAt: Math.floor(now / 1000) + 48 * 3600 + 600, status: null, receivedAt: now, source: 'usage' } } }
     const call = (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC })
     await vi.waitFor(() => expect(box.shown).toHaveLength(1))
     expect(app.runReads).toEqual([PROJECT])
     const { options } = box.shown[0]!
     expect(options.buttons).toEqual(['Start: Fastest', 'Start: Budget-aware', 'Start: Start window (default)', 'Cancel'])
     expect(forecastOf(options.detail)).toEqual([
-      'Forecast: This Epic: 1 Wave, 3 Tickets left, usually about 30% of the week. Used now: 80%, resets in 2 d 0 h.',
-      'Budget-aware: Recommended: no Wave now, 1 after the reset.',
-      'Fastest: No Wave fits before the reset: then the run waits for the Limits.',
-      'Start window 23:00–07:00: a Wave usually takes up to 1 h 0 min.',
+      'Forecast: This Epic: 1 Wave, 3 Tickets left, usually about 30% of the week. Used now: 60%, resets in 2 d 0 h.',
+      'Budget-aware: 1 Wave fits before the reset without the reserve.',
+      'Start window 21:00–05:00: a Wave usually takes up to 1 h 0 min.',
     ])
     box.answer(CANCEL)
     expect(textOf(await call)).toBe(confirm.CANCELED_MESSAGE)
@@ -743,6 +751,24 @@ describe('autopilot_start: the Run mode buttons and the forecast (worfy-resource
 })
 
 describe('confirmationOptions: the forecast lines (worfy-resource-planner ticket 06)', () => {
+  it('the reserve and the Start window are those of Settings: at 60 % used the reserve keeps Wave 1 back, and the window is 21:00–05:00', async () => {
+    const w = world()
+    const { box, shown, answer } = messageBox()
+    const at60: LimitsState = { windows: { seven_day: { ...LIMITS.windows.seven_day!, utilization: 0.6 } } }
+    const options = { runs: () => Promise.resolve(pastRuns(5)), limits: at60, window: { from: 21, to: 5 }, reserve: 0.15 }
+    const call = (await connect(NODE_SESSION, tool(w, box, options).starter)).call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(shown).toHaveLength(1))
+    // 1 − 0.15 − 0.6 = 25 % free under the 30 % of the one Wave; without the reserve 40 % would hold it,
+    // so there is no Fastest line.
+    expect(forecastOf(shown[0]!.options.detail)).toEqual([
+      'Forecast: This Epic: 1 Wave, 3 Tickets left, usually about 30% of the week. Used now: 60%, resets in 2 d 0 h.',
+      'Budget-aware: Recommended: no Wave now, 1 after the reset.',
+      'Start window 21:00–05:00: a Wave usually takes up to 1 h 0 min.',
+    ])
+    answer(CANCEL)
+    await call
+  })
+
   /** The forecast lines of the box for a call with `tickets`, over the journals `runs`. */
   async function linesFor(runs: () => Promise<JournalEvent[][]>, tickets?: string[]): Promise<string[] | undefined> {
     const w = world()

@@ -135,15 +135,6 @@ export function estimateAnswer(runs: readonly (readonly JournalEvent[])[], limit
   }
 }
 
-/**
- * The Limits as the forecast lines read them (forecast-lines.ts), from the 7-day window of an
- * `autopilot.estimate` answer: that window alone, or none.
- */
-export function answerLimits(sevenDay: WeekAnswer | null): LimitsState {
-  if (sevenDay === null) return { windows: {} }
-  return { windows: { seven_day: { utilization: sevenDay.utilization, resetsAt: sevenDay.resetsAt, status: null, receivedAt: sevenDay.receivedAt, source: 'usage' } } }
-}
-
 export interface EstimateLineInput {
   estimate: WaveEstimate | null
   /** How many Tickets the Wave about to go has. */

@@ -86,7 +86,6 @@ Source: [spec.md](../spec.md), «Цель», п. 1, «Решения» (Q7, Q14,
 
 - `src/shared/autopilot/limits-estimate.ts` — `estimateAnswer` отвечает ещё `samples` (`waveSamples`), `durations`
   (`waveDurationP90`) и `sevenDay.receivedAt` (время числа окна `seven_day`, не `five_hour`); прежние поля как были.
-  `answerLimits(sevenDay)` — `LimitsState` из ответа для строк прогноза (`forecast-lines.ts` берёт `LimitsState`).
 - `src/shared/ipc/autopilot.ts` — схема ответа `autopilot.estimate`: `samples` не длиннее `ESTIMATE_WAVES`, `durations.samples`
   не больше `DURATION_WAVES`, доли неотрицательные; `sevenDay.receivedAt` обязателен. Ответ старой формы не проходит
   схему — tooltip тогда кончается строкой режима.
@@ -94,7 +93,8 @@ Source: [spec.md](../spec.md), «Цель», п. 1, «Решения» (Q7, Q14,
   Settings (каждое поле — отдельным selector-ом `useAppSettings`), `forecastLine`, затем для режима: рекомендация, когда
   budget действует (Budget-aware, Start window с включённым budget), предупреждение, когда нет, строка окна в Start window
   (`forecastHint`). `remainingWaves` — по Ticket-ам кадра Epic-а; bootstrap — `useMemo` по `samples`, Ticket-ам и Epic-у,
-  строки — `useMemo` по входам (и по минуте `useNow`).
+  строки — `useMemo` по входам (и по минуте `useNow`). Из ответа `autopilot.estimate` tooltip берёт только `samples` и
+  `durations`; Limits — живые, из `useLimits` (то же состояние, что у toolbar, через `limits.changed`).
 - `src/main/autopilot/chat-confirm.ts` — кнопки `Start: Fastest`, `Start: Budget-aware`, `Start: Start window`, `Cancel`
   (порядок `RUN_MODES`), ` (default)` у режима из Settings, `defaultId` и `cancelId` — `Cancel`; ответ — режим
   (`RUN_MODES[response]`, иначе `cancel`). `detail`: первый абзац, строки `dialogLines`, абзац про 10 минут. Прогноз считает
@@ -124,4 +124,21 @@ Mutant-ы (каждый — красный test; скрипт в scratchpad, 13 
 - Tooltip: Start window без учёта переключателя budget — красный; рекомендация во всех режимах — 3 красных; нет строки
   окна — 2 красных; reserve в процентах вместо доли — 3 красных.
 
-Оценка токенов автора: ~190 тыс.
+Долг без правки: у `waveEstimateLine` (`limits-estimate.ts`) нет вызовов в `src`; удаление трогает
+`test/unit/autopilot-forecast-lines.test.ts` вне следа Ticket-а — оставлено.
+
+Раунд 1 ревью (PR 1218):
+- Tooltip брал число `seven_day` из ответа `autopilot.estimate`, который спрашивается только при смене статуса Run: через
+  ~30 минут простоя он говорил «Used now: unknown» и терял рекомендацию. Теперь Limits — живые (`useLimits`), строки
+  пересчитываются на `limits.changed`; `answerLimits` и `shortcut:`-комментарий убраны.
+- Contract test диалога доказывает, что reserve и окно — из Settings: 60 % при reserve 15 % — «no Wave now», при reserve
+  5 % в Settings приложения — «1 Wave fits…»; окно 21:00–05:00.
+- Unit test-ы tooltip сравнивают полный текст; новый test: смена режима в Settings (`appSettings.changed`) сразу
+  перерисовывает tooltip.
+- Mutant-ы раунда (все красные): tooltip читает `sevenDay` ответа вместо живых Limits — 10 красных; строки без зависимости
+  от Limits — красный «follows limits.changed…»; без зависимости от режима — красный «a change of the mode…»; без
+  зависимости от переключателя budget — тот же test; диалог с reserve 0 — красный «the reserve and the Start window are
+  those of Settings…»; окно диалога 23–07 — 2 красных; budget Settings не доходит до диалога в приложении — красный test
+  проводки. Mutant-ы M1–M13 первого раунда снова прогнаны на новых test-ах — все красные.
+
+Оценка токенов автора: ~190 тыс. (раунд 1 ревью — ещё ~60 тыс.)

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { create } from 'zustand'
+import type { LimitsState } from '../../../shared/agent/limits'
 import { epicForecast, remainingWaves, type EpicForecast } from '../../../shared/autopilot/forecast'
 import { fitBeforeReset, forecastLine, modeLine, recommendationLine, warningLine, windowLine } from '../../../shared/autopilot/forecast-lines'
-import { answerLimits } from '../../../shared/autopilot/limits-estimate'
 import type { RunMode, StartWindow } from '../../../shared/autopilot/run-mode'
 import {
   autopilotEstimateAnswerSchema,
@@ -16,7 +16,7 @@ import {
 import { failureReason } from '../../../shared/ipc/channels'
 import { invoke, subscribe } from '../../ipc'
 import { autopilotBudgetOf, autopilotRunOf } from '../../../shared/settings/app-settings'
-import { useNow } from '../../limits/useLimits'
+import { useLimits, useNow } from '../../limits/useLimits'
 import { useReadOnly } from '../../projects/useProjects'
 import { useAppSettings } from '../../settings/useAppSettings'
 import type { SlotProps } from '../badges'
@@ -77,10 +77,13 @@ import { hasRunWave, useRunWaveState } from './gates'
 // week. Used now: 41%, resets in 2 d 5 h", forecastLine), then for that mode: the recommendation
 // when the budget acts in it (Budget-aware, or Start window with the budget on), the Fastest warning
 // when it does not, and the Start window line in Start window (forecastHint). The forecast counts the
-// Waves left of the Tickets this frame holds; the samples, the Wave duration and the 7-day window come
-// from main, which reads the run journals and the Limits (`autopilot.estimate`). It is asked when the
-// button appears and again whenever the run's status changes. An answer that does not parse leaves
-// the hint with the mode line alone. The bootstrap runs again only when its inputs change.
+// Waves left of the Tickets this frame holds; the samples and the Wave duration come from main, which
+// reads the run journals (`autopilot.estimate`, asked when the button appears and again whenever the
+// run's status changes). The Limits — "Used now" and the 30-minute freshness of the 7-day number the
+// recommendation and the warning need — are the live state the toolbar shows (useLimits), not the
+// window in that answer: an idle canvas asks main nothing for hours. An answer that does not parse
+// leaves the hint with the mode line alone. The bootstrap runs again only when the samples or the
+// Tickets change; the lines whenever the Limits, Settings or the minute do.
 
 export const order = 30
 
@@ -271,13 +274,12 @@ interface HintSettings {
 
 /**
  * The end of the Autopilot button's hint: the mode line, then with an answer of main the forecast
- * line and, for the mode, the recommendation (the budget acts), the Fastest warning (it does not) and
+ * line over the live `limits` and, for the mode, the recommendation (the budget acts), the Fastest warning (it does not) and
  * the Start window line. A line with nothing to say is left out.
  */
-function forecastHint(answer: AutopilotEstimateAnswer | null, forecast: EpicForecast | null, settings: HintSettings, now: number): string[] {
+function forecastHint(answer: AutopilotEstimateAnswer | null, forecast: EpicForecast | null, limits: LimitsState, settings: HintSettings, now: number): string[] {
   const lines = [modeLine(settings.mode)]
   if (answer === null || forecast === null) return lines
-  const limits = answerLimits(answer.sevenDay)
   lines.push(forecastLine({ forecast, limits, now }))
   const budgetActs = settings.mode === 'budget-aware' || (settings.mode === 'start-window' && settings.budgetOn)
   const advice = budgetActs
@@ -289,10 +291,8 @@ function forecastHint(answer: AutopilotEstimateAnswer | null, forecast: EpicFore
 }
 
 /**
- * The Project's estimate answer (samples, Wave duration, 7-day window), asked once per `key`; null
- * until main answers or when it fails.
- * shortcut: "Used now" and the freshness of the 7-day number are as of the last ask, not live; redo if
- * the hint is seen to lag the toolbar's Limits for long (then join useLimits here).
+ * The Project's estimate answer, asked once per `key`; null until main answers or when it fails. The
+ * hint reads its samples and Wave duration only: the Limits are live (useLimits).
  */
 function useWaveEstimate(projectId: string, key: string): AutopilotEstimateAnswer | null {
   const [answer, setAnswer] = useState<AutopilotEstimateAnswer | null>(null)
@@ -328,6 +328,8 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   // Before main's first state the Project counts as without a run: that state asks again only when it is a run.
   const estimate = useWaveEstimate(projectId, state?.status ?? 'stopped')
   const now = useNow()
+  // The Limits as the toolbar shows them, kept current by limits.changed.
+  const limits = useLimits()
   // Each field alone: a selector that builds an object would give a new one on every read.
   const mode = useAppSettings((settings) => autopilotRunOf(settings).mode)
   const windowFrom = useAppSettings((settings) => autopilotRunOf(settings).window.from)
@@ -338,8 +340,8 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   // The bootstrap of FORECAST_DRAWS draws: once per change of the samples or the Tickets, not on every redraw.
   const forecast = useMemo(() => (samples === null ? null : epicForecast({ samples, waves: remainingWaves(tickets, epic.epic) })), [samples, tickets, epic.epic])
   const hint = useMemo(
-    () => (wave.enabled ? forecastHint(estimate, forecast, { mode, window: { from: windowFrom, to: windowTo }, budgetOn, reserve: reservePercent / 100 }, now) : null),
-    [wave.enabled, estimate, forecast, mode, windowFrom, windowTo, budgetOn, reservePercent, now],
+    () => (wave.enabled ? forecastHint(estimate, forecast, limits, { mode, window: { from: windowFrom, to: windowTo }, budgetOn, reserve: reservePercent / 100 }, now) : null),
+    [wave.enabled, estimate, forecast, limits, mode, windowFrom, windowTo, budgetOn, reservePercent, now],
   )
   if (!hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined) return null
 
