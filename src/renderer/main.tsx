@@ -60,7 +60,7 @@ export function App() {
   // (shell/sidebar/ProjectsSection.tsx).
   const active = activeProject(useProjects())
   const shown = useShownMachine()
-  const project = active ? { name: shown ? `${active.name} · ${shown.name}` : active.name, branch: active.branch ?? '—' } : undefined
+  const project = active ? { id: active.id, name: shown ? `${active.name} · ${shown.name}` : active.name, branch: active.branch ?? '—' } : undefined
   // The view is the app's, not the shell's: a double click on a Session's Node switches to the
   // Session view (session/navigation.ts).
   const view = useNavigation((store) => store.view)

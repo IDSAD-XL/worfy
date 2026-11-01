@@ -161,6 +161,9 @@
 .w-segmented__item[aria-pressed='true']:hover:where(:not(:disabled, [aria-disabled='true'])) {
   box-shadow: var(--shadow-control), var(--hover-shadow);
 }
+.w-segmented__item:disabled {
+  opacity: 0.5;
+}
 .w-segmented__item:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;

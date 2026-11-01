@@ -13,8 +13,13 @@ Flight Recorder показывает на одной оси времени, чт
 
 #### Открытие экрана
 
-Run history занимает всю главную область окна вместо Canvas. Вкладки для него на панели инструментов нет. Он открывается
-из четырёх мест:
+Run history занимает всю главную область окна вместо Canvas. Он открывается
+из пяти мест:
+
+- **Runs** в переключателе видов на панели инструментов, после Canvas, Session и Pipeline: экран на самом новом run-е
+  активного Project-а, в списке run-ы всех его Epic-ов. Пока экран открыт, вкладка выбрана, а любая другая вкладка
+  уводит с экрана. У Project-а без run-ов вкладка тоже есть, экран показывает своё пустое состояние. Без Project-а
+  вкладка неактивна, с tooltip "Open a Project to see its Runs".
 
 - **Toast остановки.** Когда run останавливается, по любой причине, toast говорит `Run stopped: <reason> · N done,
   M blocked · <duration>` с кнопкой **Open history**, которая открывает экран на этом run-е. Toast не исчезает сам.
@@ -263,6 +268,7 @@ badge-и PR. Оконченный run читается целиком, один 
 | `src/renderer/flight-recorder/open.ts` | `openRunHistory`, который вызывает каждый вход. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | «History» у строки состояния и «Run history» в «⋯». |
 | `src/renderer/palette/commands.ts` | «Open Run history». |
+| `src/renderer/shell/Toolbar.tsx` | Вкладка **Runs** переключателя видов. |
 | `src/renderer/theme/tokens.css` | Цвета `--span-*` обеих тем. |
 
 #### Поток данных
