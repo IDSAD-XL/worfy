@@ -446,21 +446,23 @@ const pidAlive = (pid) => {
 // `ps -o lstart=` when a reused pid is reported on Linux or macOS.
 const START_SLACK_MS = 1000
 const STARTED = Math.floor(Date.now() - process.uptime() * 1000)
-const NO_PROCESS_EXIT = 3
 // When the process with this pid started, in ms since the epoch, NO_PROCESS when the system says none has this pid, or
-// null when it cannot be told. The exceptions are told by their type: the text of their messages is in the system's language.
+// null when it cannot be told. The exceptions are told by their type: the text of their messages is in the system's
+// language. get_StartTime(), not .StartTime: PowerShell turns an exception of a property into $null. The answer is a
+// word on stdout, not an exit code, which a crash of PowerShell can give too: it would end the wait for a live check.
 const NO_PROCESS = "no process"
 function startedAt(pid) {
     if (process.platform !== "win32") return null
     const shell = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-    const ask = `try { [System.Diagnostics.Process]::GetProcessById(${pid}).StartTime.ToUniversalTime().ToString('o') } catch [System.ArgumentException],[System.InvalidOperationException] { exit ${NO_PROCESS_EXIT} }`
+    const ask = `try { [System.Diagnostics.Process]::GetProcessById(${pid}).get_StartTime().ToUniversalTime().ToString('o') } catch [System.ArgumentException],[System.InvalidOperationException] { '${NO_PROCESS}' }`
     const r = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", ask], {
         encoding: "utf8",
         timeout: 15000,
         windowsHide: true,
     })
-    if (r.status === NO_PROCESS_EXIT) return NO_PROCESS
-    const at = r.status === 0 ? Date.parse(r.stdout.trim()) : NaN
+    const answer = r.status === 0 ? r.stdout.trim() : ""
+    if (answer === NO_PROCESS) return NO_PROCESS
+    const at = Date.parse(answer)
     return Number.isFinite(at) ? at : null
 }
 // Test-only: with WAVE_GATE_PID_SYNC=<folder> that holds `hold-<at>`, the check stops at the point `at`: it creates

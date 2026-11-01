@@ -157,6 +157,20 @@ if on_windows; then
     wait "$ewg"; rc=$?
     [ "$rc" -eq 0 ] && grep -q "pid $ep, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] \
         && ok "pid: a pid whose process ends while its start time is asked is taken over" || bad "pid ended while asked: exit $rc: $(tail -3 "$W/out")"
+    # The system says no process has the pid, and a look at the pid then finds it running: on a busy machine another
+    # process has just got it, and the check was refused as if a check still ran (2 of 120 under load on the PC). Windows
+    # pids are multiples of 4 and OpenProcess ignores the lower bits, so a pid one above a running one shows both answers.
+    sleep 60 & op=$! ojob=$!
+    until_ok 5 grep -q sleep "/proc/$op/exename"; op=$(( $(cat "/proc/$op/winpid") + 1 ))
+    if node -e 'process.kill(Number(process.argv[1]), 0)' "$op" 2>/dev/null; then
+        echo "$op" >"$(PIDF)"; echo "$op $(( $(date +%s) * 1000 ))" >"$(SIDE)"
+        "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+        [ "$rc" -eq 0 ] && grep -q "pid $op, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] \
+            && ok "pid: the system says no process has the pid: taken over, whatever a later look finds" || bad "pid no process: exit $rc: $(tail -3 "$W/out")"
+    else
+        bad "pid no process: a pid one above a running one is no longer found running: this case needs another way to show both answers"
+    fi
+    kill "$ojob"; wait "$ojob" 2>/dev/null
 fi
 # an empty pid file: young — its writer is between open and write; old — stale
 new_world pidempty 1:a.txt
