@@ -18,8 +18,9 @@
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 14/15; 14 и 15 влиты, 12 ждёт приёмки владельцем. `worfy-guide`: закрыт, 21/21.
-- `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): 26/27; 20 и 24 влиты; открыт 25 — приёмка владельцем.
-- `worfy-resource-planner`: 10/12; 01–10 влиты; 11 в работе, 12 — приёмка владельцем.
+- `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): принят владельцем 2026-11-01; открыт только 28 (вкладка Runs в шапке, в работе); Windows-часть 25 не проводилась.
+- `worfy-resource-planner`: закрыт, 12/12, принят владельцем 2026-11-01.
+- Пауза: новое не раздаётся до сброса недельных Limits пн 2026-11-02 18:00.
 
 ## Ждёт владельца
 
@@ -33,7 +34,7 @@
 - `worfy-windows`, ПК: 12 — SmartScreen установщика; 07 закрыт (#1127, отступления Q31 подтвердить).
 - Приёмки (Q14).
 - `worfy-ui`: вручную — раздел Health (06) и ⌘B (10); AltGr на Windows-ПК (03) — пока владелец не скажет в чате ПК; gate full на Windows для 03 и 10 — после e2e Windows (`worfy-windows` 14); долги — «Итог» 03–06, 09, 10, 13–15; 11 — gate full на Windows-ПК и решения в PR #328.
-- Решено без владельца, подтвердить: toast-ы обходят заголовок рамки Epic-а, отход от `worfy-ui` 16 («Итог» `worfy-flight-recorder` 22); Wait `background-tasks` только без работы и ходы Orchestrator-а («Итог» 26); видно ли новое описание аудита в приложении Claude (`worfy-guide` 20 п. 1 сделан).
+- Решено без владельца, подтвердить: видно ли новое описание аудита в приложении Claude (`worfy-guide` 20 п. 1 сделан).
 
 ## Риски и долги
 

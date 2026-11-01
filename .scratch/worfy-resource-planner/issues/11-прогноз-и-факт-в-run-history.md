@@ -1,7 +1,8 @@
 # 11 — Прогноз и факт в Run history
 
 Type: task
-Status: claimed 2026-11-01T15:49Z
+Status: done 2026-11-01T17:16Z
+PR: #1225
 Branch: worfy-resource-planner/11
 Blocked by: 08, 10
 Source: [spec.md](../spec.md), «Цель», п. 4, «Решения» (Q10), «Что видит пользователь» (Run history), «Волны» (Wave 6); spec Epic-а `worfy-flight-recorder` ([spec.md](../../worfy-flight-recorder/spec.md), «Экран», п. 1 — шапка Run)
@@ -126,3 +127,5 @@ Source: [spec.md](../spec.md), «Цель», п. 4, «Решения» (Q10), «
     `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (565 файлов test-ов); `test/e2e/flight-recorder.spec.ts` под
     замком `/tmp/worfy-e2e.lock` — 2 passed; gate fast — green.
 - Оценка автора: около 250 тысяч токенов (первый раунд) и около 120 тысяч (раунд 1 ревью).
+
+Влит 08f94f63 (#1225).

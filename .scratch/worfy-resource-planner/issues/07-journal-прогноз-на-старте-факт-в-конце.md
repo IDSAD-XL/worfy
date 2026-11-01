@@ -74,7 +74,7 @@ Source: [spec.md](../spec.md), «Решения» (Q10), «Journal» (`forecast`
   `null`), `actual` чужой формы или с `counted > waves` — как отсутствующее; строка остаётся.
   `src/shared/flight-recorder/journal-walk.mjs`: `forecast` в `JOURNAL_KINDS` на том же месте.
 - `docs/features/autopilot.md`: строка `forecast` и поле `actual` в таблице видов Journal.
-- Решено без владельца, подтвердить:
+- Решено без владельца, подтверждено владельцем 2026-11-01:
   1. (Ревью, раунд 1: решение Orchestrator-а — по spec буквально.) `fit` — K рекомендации, с reserve Settings,
      только когда у Run есть рекомендация: Budget-aware и Start window с включённым budget. В Fastest и в Start
      window без budget — `null`, как и без диапазона или свежего числа `seven_day` со сбросом впереди.
