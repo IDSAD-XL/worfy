@@ -19,6 +19,7 @@ Epic-ам и Ticket-ам.
 | Страница | Разделы |
 |---|---|
 | [Autopilot](autopilot.md) | Autopilot |
+| [Run planning](run-planning.md) | Run mode и Epic forecast: Start window, budget Limits |
 | [Terminal](terminal.md) | Terminal, Terminal AI |
 | [Cards](cards.md) | Card как файл, Card API, Canvas MCP |
 | [Canvas](canvas.md) | Node и Layout, Find, вставка изображений |

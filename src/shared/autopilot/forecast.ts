@@ -43,7 +43,9 @@ const closed = (ticket: ForecastTicket): boolean => ticket.state === 'done' && !
 
 /**
  * The Waves left of `epic` by waveNumbers, and its Tickets that are not closed and get no Wave
- * number: in work, done only in a worktree branch, blocked, or waiting on such a Ticket. In a run
+ * number: in work or done only in a worktree branch (their dependants do get numbers: waveNumbers
+ * counts them closed after the first Wave), blocked, waiting on a blocked Ticket, in a cycle, or
+ * naming an unparsed or missing blocker. In a run
  * over named Tickets only the named ones count; an open Ticket the run does not name is never
  * taken, so a named Ticket that waits on it gets no Wave either.
  */

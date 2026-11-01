@@ -15,25 +15,8 @@ done and the Epic has no run going on, no status line of a past run, no stop on 
 refusal. So after a finished run it stays, inactive, until the app restarts or the Project runs another Epic. It is active
 when "Run wave" could run now and the Project's "Run wave" template names the Wave's Tickets with `{tickets}`. Its tooltip
 says what it does, that the display stays on until the run ends, the Run mode the button starts in (the default of
-Settings → Autopilot), and the forecast of what is left of the Epic:
-
-> Mode: Budget-aware (Settings → Autopilot). This Epic: 4 Waves, 11 Tickets left, usually 18–31% of the week. Used now: 41%, resets in 2 d 5 h. Recommended: 2 Waves now, the other 2 after the reset
-
-The range is drawn from the share of the week each Ticket of the last 10 past Waves took, by the run journals of this
-Machine. It counts the Waves left of the Tickets shown in the frame; Tickets without a Wave number are named as not
-counted. With fewer than 5 past Waves that have fresh Limits numbers, the tooltip says there is not enough data for a
-forecast. Then, for the default mode:
-
-- **Budget-aware**, or **Start window** with **Daily budget of the Limits** on: how many Waves fit before the 7-day
-  window resets without touching the reserve ("Recommended: …", or "All 4 Waves fit before the reset without the
-  reserve").
-- **Fastest**, or **Start window** with the budget off: a warning when not all Waves fit before the reset ("Only 2 of 4
-  Waves fit before the reset: then the run waits for the Limits").
-- **Start window**: the window and how long a Wave usually takes ("Start window 23:00–07:00: a Wave usually takes up to
-  1 h 40 min"), or that there is not enough data on Wave duration.
-
-The recommendation and the warning need a 7-day number no older than 30 minutes; without one the tooltip says
-"Used now: unknown" and gives neither. They are words only: the run itself is led by its Run mode.
+Settings → Autopilot), and the Epic forecast of what is left of the Epic. [Run planning](run-planning.md) gives these
+lines.
 
 A start is refused, with the reason on the button, in these cases:
 
@@ -78,20 +61,10 @@ read as a command.
 
 **From a chat, by the agent.** When the user asks a Session in words to run an Epic, or some of its Tickets, on autopilot,
 the agent calls the canvas tool `autopilot_start` with the Epic and, for named Tickets, their numbers. worfy then asks the
-user in a dialog that names the Project, the Epic and the Tickets. Its text has the same forecast as the button's
-tooltip, one line per mode:
-
-```
-Forecast: This Epic: 4 Waves, 11 Tickets left, usually 18–31% of the week. Used now: 41%, resets in 2 d 5 h.
-Budget-aware: Recommended: 2 Waves now, the other 2 after the reset.
-Fastest: Only 2 of 4 Waves fit before the reset: then the run waits for the Limits.
-Start window 23:00–07:00: a Wave usually takes up to 1 h 40 min.
-```
-
-A run over named Tickets forecasts only those. A line with nothing to say is left out, and when the run journals cannot
-be read the dialog has no forecast. The person chooses the Run mode of this one run with **Start: Fastest**,
-**Start: Budget-aware** or **Start: Start window**; the default mode of Settings ends with "(default)". **Cancel** is the
-default button, so Enter or Escape alone start nothing. The dialog is on a window of the Project's Machine, the Machine
+user in a dialog that names the Project, the Epic and the Tickets. Its text has the Epic forecast, one line per mode.
+The person chooses the Run mode of this one run with **Start: Fastest**, **Start: Budget-aware** or **Start: Start
+window**. **Cancel** is the default button, so Enter or Escape alone start nothing. [Run planning](run-planning.md)
+gives the forecast lines and the buttons. The dialog is on a window of the Project's Machine, the Machine
 that runs the Session: the focused window, else one on screen, else a minimised or hidden one brought back first. A
 Linked machine's window gets no dialog and cannot confirm. Without an answer in 10 minutes the dialog closes and the
 agent gets "No one confirmed …"; Cancel is a refusal too. A start button starts the same run as the Autopilot button,
@@ -178,45 +151,13 @@ refusal, the run stops with `limits-timeout`.
 When the time comes, the Orchestrator gets one message: continue from where it stopped, and first add an entry about the
 pause to HANDOFF. worfy does not write that entry itself.
 
-#### The budget of the Limits
+#### The Run mode, the Start window and the budget
 
-The budget keeps Autopilot from using the whole week before the owner gets to work by hand. It is in Settings → Autopilot
-and is off by default:
-
-- **Daily budget of the Limits** turns it on. The Pro preset in Settings → Plan turns it on too.
-- **Reserve for your own work** is the share of the week Autopilot leaves, from 0 to 50 %, by default 15 %.
-
-These settings belong to the Machine. They are read before each Wave and never cut a Wave in work. When the budget stops the
-next Wave, the run is `waiting` until the time in the status line, and then the check runs again. The Wave does not start
-when:
-
-- nothing is left of today's share, or less than the estimate of the Wave once something of today is used. The run
-  continues at the start of the next local day, or at the 7-day reset when that comes first;
-- today's share is left but the 5-hour window is full. The run continues at the 5-hour reset, or at the start of the next
-  day when that comes first.
-
-The first Wave of a day goes whenever the day has a share, so a Wave estimated above the whole share does not wait forever.
-A 7-day number that is unknown or older than 30 minutes stops nothing. A refusal by the Limits inside a Wave remains the
-hard limit.
-
-#### The Run mode
-
-Every run goes in a Run mode, fixed when it starts. A start takes the default mode of Settings → Autopilot (**Default run
-mode**), unless the person chose another one in the dialog of `autopilot_start`. The mode acts only before a Wave, never
-inside one:
-
-- **Fastest**: the next Wave goes at once. Neither the budget nor the Start window is checked.
-- **Budget-aware**: the budget above, with its reserve, whether **Daily budget of the Limits** is on or off.
-- **Start window**: a new Wave starts only inside the window of local time (**Start window from** and **to**, 23:00–07:00 by
-  default). It also does not start when the 90th percentile of the last Waves' durations would end it after the window. With
-  fewer than 5 past Waves there is no such number, the Wave goes, and the tooltip says it went without that check. After
-  the window, the budget is checked too, when **Daily budget of the Limits** is on.
-
-When the Waves usually take longer than the whole window, no night would let the next one start: the run stops at
-once with `window-too-short` instead of waiting. The window and the budget are read again before each Wave. The mode stays the same for the whole run. Outside the window
-the run waits as it does for the budget: it is `waiting` until the window opens, keeps the display on, and checks
-again then. A Stop during that wait ends the run at once. A Wave that started inside the window runs to its end, also
-after the window has closed.
+Every run goes in a Run mode, fixed when it starts: **Fastest**, **Budget-aware** or **Start window**. Before each Wave,
+never inside one, the mode decides whether the next Wave starts now or waits: for the daily budget of the Limits, or for
+the Start window. A refusal by the Limits inside a Wave remains the hard limit in every mode.
+[Run planning](run-planning.md#run-mode-and-epic-forecast) describes the modes, the Start window, the budget and the Epic
+forecast.
 
 #### Stopping
 
@@ -304,7 +245,7 @@ phases are:
 | Phase | Meaning |
 |---|---|
 | `starting` | Nothing is sent yet. |
-| `sending` | "Run wave" is on its way, or the run waits for the budget before sending it. |
+| `sending` | "Run wave" is on its way, or the run waits for the budget or the Start window before sending it. |
 | `turn` | The Wave is sent and a turn runs. |
 | `tasks` | The turn ended with background tasks alive. |
 | `settling` | The turn ended with Tickets of the Wave still in work. |
@@ -343,18 +284,8 @@ so a Machine that slept does not continue late by the time it slept.
 that turn, or when its error text is about the Limits. Claude Code reports the status only when it changes, so an old `rejected`
 does not turn a later error of another kind into a refusal.
 
-**The budget.** All of it is computed from the 7-day window:
-
-- Today's share = (1 − reserve − the 7-day share at the start of the day) / the days until the 7-day reset, today included.
-- Used today = the 7-day share now − the 7-day share at the start of the day.
-- The start of the day is the first number of today in the Project's journals, for the same 7-day window. So the share stays the
-  same all day, and a reset of the window starts it anew. What was used by hand before the first Wave of the day is therefore not
-  counted as today's.
-
-**The estimate.** A Wave's sample is the growth of the 7-day share between its `wave-started` and `wave-finished` lines, divided by
-its Tickets. The estimate is the median of the last 10 samples and needs at least 3. A Wave with a number older than 30 minutes at
-either end, or with a window reset inside it, gives no sample. The numbers are shares of the week, without prices. Before these two
-lines the run asks the usage once when its number is older than 5 minutes, which costs no model tokens.
+**The budget, the Start window and the forecast.** How the budget, the Start window and the Epic forecast are computed
+from the run journals is on the [Run planning](run-planning.md#how-it-works) page.
 
 **One run per Epic and repository.** One repository on two Machines is two Projects, so a run is keyed by the Epic and the normalized
 address of remote `origin` ([ADR-0053](../adr/0053-several-screens-on-one-project.md)). A start counts itself among this Machine's
@@ -398,8 +329,6 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | `src/main/agent/session.ts` | `halt` for Force stop, `refuseDialog`. |
 | `src/main/autopilot/limits-wait.ts` | The wait for the Limits, the wall-clock timer, the continuation text. |
 | `src/shared/autopilot/resume-at.ts` | When a run continues after a refusal. Pure. |
-| `src/shared/autopilot/budget.ts` | The budget and its decision before a Wave. Pure. |
-| `src/shared/autopilot/limits-estimate.ts` | The estimate of a Wave and the line of the tooltip. Pure. |
 | `src/shared/autopilot/journal.ts` | The journal format, specified in the comment at its top, with parsing and writing of a line. Pure. |
 | `src/main/autopilot/journal.ts` | The journal files: open, append, list, read. |
 | `src/main/autopilot/power.ts` | `KeepAwake`, over Electron's `powerSaveBlocker`. |
@@ -410,17 +339,19 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | `src/main/ipc/card-api.ts` | The refusal of a Card's `session.ask` to an unattended Session. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | The button, the "⋯" menu, the status line and the chips. |
 | `src/renderer/settings/AutopilotSection.tsx` | Settings → Autopilot. |
-| `src/shared/settings/app-settings.ts` | `autopilotBudget` and its defaults. |
 | `scripts/install-stable.mjs` | `pnpm install:stable`: the Stable copy. |
+
+The modules of the Run mode, the budget and the Epic forecast are listed on the [Run planning](run-planning.md#modules)
+page.
 
 #### Data flow
 
 1. The button calls `autopilot.start`. `Autopilot.start` runs the checks in order: the Project has no run, the self-project refusal
    and the template, the workflow and the Epic, then the origin key and the question to the Linked machines.
 2. `setUnattended` starts the Orchestrator's Session again unattended, continuing its SDK session, or refuses. Then the run opens the
-   journal (`run-started`), starts keep-awake, subscribes to the Session's events and opens a workflow watch that reports changes of
+   journal (`run-started`, then `forecast`), starts keep-awake, subscribes to the Session's events and opens a workflow watch that reports changes of
    Tickets' fields only.
-3. The `start` event goes to the cycle. Its `send-wave` effect runs `sendWave` in the run: it asks the usage, checks the budget, starts
+3. The `start` event goes to the cycle. Its `send-wave` effect runs `sendWave` in the run: it asks the usage, checks the Run mode (the Start window and the budget), starts
    a new SDK session for a Wave after the first, and calls `autopilotWave`. The launcher reads the workflow once and takes the text,
    the Tickets and the skipped Tickets from that read. It sends the text through the Session, which starts a turn or queues it, and
    binds the Session to the Epic.
@@ -488,8 +419,6 @@ a replaced `powerSaveBlocker`, and not what the display does.
 |---|---|
 | `test/unit/autopilot-cycle.test.ts` | The cycle: when a Wave counts as finished and every reason to stop. |
 | `test/unit/autopilot-run.test.ts` | A run over a scripted Session: which result ends a Wave, both stops, the narrow fix round, the gate queue, a new session per Wave, one run per Epic and origin. |
-| `test/unit/autopilot-budget.test.ts` | The budget and its decision. |
-| `test/unit/autopilot-limits-estimate.test.ts` | The estimate. |
 | `test/unit/autopilot-resume-at.test.ts` | When a run continues after a refusal. |
 | `test/unit/autopilot-journal.test.ts` | The journal format. |
 | `test/unit/autopilot-origin.test.ts` | The origin key. |
