@@ -494,9 +494,9 @@ export function gitBashKill(bash: string): string | undefined {
 
 /**
  * Git Bash of Git for Windows, or null. First from git.exe on the Path: the root of Git for Windows
- * is the folder above `cmd`, `bin` or `mingw64\bin`, and Git Bash is <root>\bin\bash.exe. Then
- * %ProgramFiles%\Git, %ProgramFiles(x86)%\Git (a 32-bit Git) and %LOCALAPPDATA%\Programs\Git (a
- * per-user install). The registry is not asked. The WSL launcher
+ * is the folder above `cmd`, `bin`, `mingw64\bin` or, in a newer Git, `ucrt64\bin`, and Git Bash is
+ * <root>\bin\bash.exe. Then %ProgramFiles%\Git, %ProgramFiles(x86)%\Git (a 32-bit Git) and
+ * %LOCALAPPDATA%\Programs\Git (a per-user install). The registry is not asked. The WSL launcher
  * C:\Windows\System32\bash.exe is never taken.
  */
 export function findGitBash(env: SourceEnv, exists: FileExists = fileOrAlias): string | null {
@@ -506,7 +506,7 @@ export function findGitBash(env: SourceEnv, exists: FileExists = fileOrAlias): s
     let root = win32.dirname(git)
     const tail = win32.basename(root).toLowerCase()
     if (tail === 'cmd' || tail === 'bin') root = win32.dirname(root)
-    if (win32.basename(root).toLowerCase() === 'mingw64') root = win32.dirname(root)
+    if (['mingw64', 'ucrt64'].includes(win32.basename(root).toLowerCase())) root = win32.dirname(root)
     candidates.push(win32.join(root, 'bin', 'bash.exe'))
   }
   const programFiles = getVar(env, 'ProgramFiles')

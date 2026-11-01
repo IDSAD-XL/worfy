@@ -130,7 +130,7 @@ export function gitBash(env = process.env, exists = existsSync) {
     if (!clean || !exists(win32.join(clean, 'git.exe'))) continue
     let root = clean
     if (['cmd', 'bin'].includes(win32.basename(root).toLowerCase())) root = win32.dirname(root)
-    if (win32.basename(root).toLowerCase() === 'mingw64') root = win32.dirname(root)
+    if (['mingw64', 'ucrt64'].includes(win32.basename(root).toLowerCase())) root = win32.dirname(root)
     candidates.push(win32.join(root, 'bin', 'bash.exe'))
     break
   }

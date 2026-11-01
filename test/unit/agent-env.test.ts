@@ -550,6 +550,8 @@ describe('findGitBash', () => {
     ['cmd', 'D:\\Git\\cmd\\git.exe'],
     ['bin', 'D:\\Git\\bin\\git.exe'],
     ['mingw64\\bin', 'D:\\Git\\mingw64\\bin\\git.exe'],
+    // A newer Git for Windows has ucrt64 in place of mingw64 (worfy-windows ticket 119).
+    ['ucrt64\\bin', 'D:\\Git\\ucrt64\\bin\\git.exe'],
   ])('finds it from git.exe in <Git>\\%s', (_dir, git) => {
     const path = win32.dirname(git)
     expect(findGitBash(env(`C:\\Windows\\System32;${path}`), files(git, 'D:\\Git\\bin\\bash.exe'))).toBe('D:\\Git\\bin\\bash.exe')

@@ -433,6 +433,9 @@ describe('statusline-bridge.mjs: folders and shell by platform', () => {
     const bash = 'C:\\Program Files\\Git\\bin\\bash.exe'
     const has = (...files: string[]) => (path: string): boolean => files.includes(path)
     expect(commandRunner('echo hi', 'win32', { PATH: `C:\\Windows\\System32;${gitCmd}` }, has(win32.join(gitCmd, 'git.exe'), bash, 'C:\\Windows\\System32\\bash.exe'))).toEqual({ file: bash, args: ['-c', 'echo hi'], shell: false })
+    for (const folder of ['mingw64', 'ucrt64']) {
+      expect(commandRunner('echo hi', 'win32', { PATH: `D:\\g\\${folder}\\bin` }, has(`D:\\g\\${folder}\\bin\\git.exe`, 'D:\\g\\bin\\bash.exe'))).toMatchObject({ file: 'D:\\g\\bin\\bash.exe' })
+    }
     expect(commandRunner('echo hi', 'win32', { CLAUDE_CODE_GIT_BASH_PATH: 'D:\\g\\bin\\bash.exe' }, has('D:\\g\\bin\\bash.exe'))).toMatchObject({ file: 'D:\\g\\bin\\bash.exe' })
     expect(commandRunner('echo hi', 'win32', { ProgramFiles: 'C:\\Program Files' }, has(bash))).toMatchObject({ file: bash })
     // The WSL launcher is never taken; without Git Bash the command goes to Node's default shell.
