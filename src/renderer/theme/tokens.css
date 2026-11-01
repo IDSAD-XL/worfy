@@ -81,6 +81,34 @@
   --kind-epic: #9a7a00;
   --kind-epic-tint: #f6f0d9;
 
+  /*
+   * Span kinds of the Run history timeline (worfy-flight-recorder ticket 18): an exception to the
+   * Kind colours rule, held inside that screen only (F-SPEC, "Run history"). A work kind fills its
+   * bar with its band and writes its label in --span-label; Run, Wave, Stage and Wait fill with a
+   * tint and outline with the band. An outcome is always a word as well. Checked by
+   * test/unit/flight-recorder-span-tokens.test.ts against the F-SPEC table.
+   */
+  --span-label: #ffffff;
+  --span-ticket: #4e3ffa;
+  --span-implementer: #3175cd;
+  --span-verifier: #6336c3;
+  --span-agent: #647182;
+  --span-ci: #986800;
+  --span-gate: #147b3b;
+  --span-script: #344f85;
+  --span-orchestrator: #a6205a;
+  --span-run: #5a6476;
+  --span-run-tint: #e8eaee;
+  --span-wave: #6c7890;
+  --span-wave-tint: #eceef3;
+  --span-stage: #71869e;
+  --span-stage-tint: #e6ecf3;
+  --span-wait: #b25a17;
+  --span-wait-tint: #fbeee4;
+  --span-wait-stripe: #f5dcc8;
+  --span-problem: #c4262e;
+  --span-hatch: #86868b;
+
   /* Segmented control, as drawn in the F mockups */
   --segment-track: #e2e2e6;
   --segment-thumb: #ffffff;
@@ -140,6 +168,27 @@
     --kind-session-tint: #1b2730;
     --kind-epic: #f0e442;
     --kind-epic-tint: #2a2716;
+
+    --span-label: #121110;
+    --span-ticket: #8a6af7;
+    --span-implementer: #6079cf;
+    --span-verifier: #be9fff;
+    --span-agent: #95b0ba;
+    --span-ci: #e0a020;
+    --span-gate: #2cd168;
+    --span-script: #39a2c6;
+    --span-orchestrator: #db668d;
+    --span-run: #8f99ad;
+    --span-run-tint: #25282f;
+    --span-wave: #7d889d;
+    --span-wave-tint: #21242b;
+    --span-stage: #6a83a3;
+    --span-stage-tint: #1d232c;
+    --span-wait: #e0874a;
+    --span-wait-tint: #2c1f15;
+    --span-wait-stripe: #3f2a1a;
+    --span-problem: #ff6b70;
+    --span-hatch: #77726b;
 
     --segment-track: #22201e;
     --segment-thumb: #3b3834;

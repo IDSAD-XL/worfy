@@ -37,6 +37,7 @@
     "src/renderer/getting-started/hints.ts",
     "src/renderer/getting-started/highlight.ts",
     "src/renderer/toast/placement.ts",
+    "src/renderer/flight-recorder/label-layout.ts",
     "test/app-url.ts",
     "test/big-transcript.ts",
     "test/claude-home-legacy.ts",

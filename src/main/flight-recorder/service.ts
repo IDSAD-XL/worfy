@@ -263,7 +263,7 @@ export class FlightRecorder {
       if (journal === null) continue
       const live = this.isLive(projectId, summary.run, journal.facts, newest)
       const { run } = journal.facts
-      items.push({ run: summary.run, epic: journal.facts.epic, startedAt: run.startedAt, stoppedAt: run.stoppedAt, reason: run.reason ?? null, live, tickets: journal.facts.tickets })
+      items.push({ run: summary.run, epic: journal.facts.epic, startedAt: run.startedAt, stoppedAt: run.stoppedAt, reason: run.reason ?? null, live, tickets: journal.facts.tickets, by: (journal.facts.by as RunListItem['by'] | undefined) ?? null })
     }
     return items
   }

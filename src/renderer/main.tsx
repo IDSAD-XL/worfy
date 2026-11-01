@@ -6,9 +6,12 @@ import { AppShell } from './shell/AppShell'
 import { installArchiveToasts } from './canvas/archive-toast'
 import { Canvas } from './canvas/Canvas'
 import { guardFileDrops } from './drop-guard'
+// Loaded at start: the e2e hook of the Run history screen is set while the app's scripts run (open.ts).
+import './flight-recorder/open'
 import { installGettingStartedNotice } from './getting-started/notice'
 import { windowMachine } from './ipc'
 import { useMachines } from './machines/useMachines'
+import { RunHistoryView } from './flight-recorder/RunHistoryView'
 import { markPlatform } from './platform'
 import { PipelineBoard } from './pipeline/PipelineBoard'
 import { activeProject, useLinked, useProjects } from './projects/useProjects'
@@ -87,6 +90,7 @@ export function App() {
         }
         session={<SessionView projectId={active?.id} projectName={active?.name} />}
         pipeline={<PipelineBoard project={active} />}
+        history={<RunHistoryView activeProjectId={active?.id} />}
       />
       <ToastRegion projectId={active?.id} />
     </>
