@@ -1,11 +1,11 @@
 {
   "title": "Autopilot",
   "summary": [
-    "Autopilot ведёт Wave-ы одного Epic-а одну за другой, без человека у Orchestrator-а. Нажмите Autopilot на рамке Epic-а: прогон отправит готовую Wave, дождётся её конца и отправит следующую. Тот же прогон, по всему Epic-у или по части его Ticket-ов, начинает и команда /worfy:epic-wave, набранная в чате Session, и просьба к агенту словами — после того как вы подтвердите диалог worfy.",
-    "Он останавливается, когда готовой Wave нет, когда вы нажали Stop autopilot или когда что-то пошло не так. Пока он идёт, Orchestrator-у некому ответить, поэтому его вопросы отклоняются, а каждый шаг записывается в журнал. Сам прогон не начинается никогда."
+    "Autopilot ведёт Wave-ы одного Epic-а одну за другой, без человека у Orchestrator-а. Нажмите Autopilot на рамке Epic-а: Run отправит готовую Wave, дождётся её конца и отправит следующую. Тот же Run начинает и команда /worfy:epic-wave, набранная в чате Session, и просьба к агенту словами — после того как вы подтвердите диалог worfy.",
+    "Он останавливается, когда готовой Wave нет, когда вы нажали Stop autopilot или когда что-то пошло не так. Пока он идёт, Orchestrator-у некому ответить, поэтому его вопросы отклоняются, а каждый шаг записывается в журнал. Сам Run не начинается никогда."
   ],
   "scene": {
-    "description": "Один прогон Autopilot. На Canvas рамка Epic-а держит его Ticket-ы и плашку Ready wave; ниже стоят Orchestrator и implementer-ы, которых он запускает. Вне Canvas Autopilot берёт готовую Wave и отправляет Orchestrator-у Run wave. Orchestrator запускает implementer-ов в фоне, они работают над Ticket-ами и сами ставят им статус. Когда ход закончился, Autopilot решает, кончилась ли Wave, и берёт следующую. Autopilot ждёт сброса Limits и записывает прогон в журнал.",
+    "description": "Один Run Autopilot. На Canvas рамка Epic-а держит его Ticket-ы и плашку Ready wave; ниже стоят Orchestrator и implementer-ы, которых он запускает. Вне Canvas Autopilot берёт готовую Wave и отправляет Orchestrator-у Run wave. Orchestrator запускает implementer-ов в фоне, они работают над Ticket-ами и сами ставят им статус. Когда ход закончился, Autopilot решает, кончилась ли Wave, и берёт следующую. Autopilot ждёт сброса Limits и записывает Run в журнал.",
     "labels": {
       "canvas": "Canvas",
       "epic": "Epic",
@@ -17,14 +17,14 @@
       "implementers": "Implementer-ы",
       "implementersNote": "Subagent-ы в фоне",
       "orchestrator": "Orchestrator",
-      "orchestratorNote": "без человека на время прогона",
+      "orchestratorNote": "без человека на время Run-а",
       "notNodes": "Не Node-ы",
       "limits": "Limits",
       "limitsNote": "5 часов и 7 дней",
       "autopilot": "Autopilot",
       "autopilotNote": "Wave за Wave-ой",
       "journal": "Журнал",
-      "journalNote": "один файл на прогон",
+      "journalNote": "один файл на Run",
       "readyNow": "готов сейчас",
       "takes": "берёт",
       "sendsRunWave": "шлёт Run wave",
@@ -32,17 +32,17 @@
       "startsInBackground": "запускает в фоне",
       "workOn": "работают, ставят статус",
       "waitsForReset": "ждёт сброса",
-      "records": "пишет прогон",
-      "step1": "Кнопка Autopilot на рамке Epic-а начинает прогон. Прогон берёт готовую Wave: Ticket-ы Epic-а, которые можно брать параллельно прямо сейчас.",
-      "step2": "Он отправляет Orchestrator-у текст Run wave из настроек Project-а, и в тексте названы эти Ticket-ы. На время прогона Orchestrator работает без человека: его запросы разрешений и вопросы отклоняются.",
+      "records": "пишет Run",
+      "step1": "Кнопка Autopilot на рамке Epic-а начинает Run. Run берёт готовую Wave: Ticket-ы Epic-а, которые можно брать параллельно прямо сейчас.",
+      "step2": "Он отправляет Orchestrator-у текст Run wave из настроек Project-а, и в тексте названы эти Ticket-ы. На время Run-а Orchestrator работает без человека: его запросы разрешений и вопросы отклоняются.",
       "step3": "Orchestrator ведёт Wave, обычно запуская implementer-ов в фоне. Статус Ticket-ов ставят сами агенты: worfy его не пишет.",
-      "step4": "Wave закончилась, когда её ход завершён, в фоне ничего не работает и ни один Ticket Wave не в работе. Тогда прогон отправляет следующую готовую Wave или останавливается, если её нет.",
-      "step5": "Если Limits отказали в ходе, прогон ждёт сброса плюс 2 минуты и продолжает. Каждая Wave, ожидание и остановка записываются в журнал прогона."
+      "step4": "Wave закончилась, когда её ход завершён, в фоне ничего не работает и ни один Ticket Wave не в работе. Тогда Run отправляет следующую готовую Wave или останавливается, если её нет.",
+      "step5": "Если Limits отказали в ходе, Run ждёт сброса плюс 2 минуты и продолжает. Каждая Wave, ожидание и остановка записываются в журнал Run-а."
     }
   },
   "underTheHood": {
     "flow": {
-      "description": "Поток данных прогона. Кнопка Autopilot вызывает autopilot.start через IPC, и прогон проверяет, можно ли начать. Прогон отдаёт циклу своё состояние и одно событие и получает следующее состояние и эффекты. Эффект send-wave идёт в launcher, который отправляет текст Run wave в Session Orchestrator-а. События Session и изменения, которые видит workflow watch, возвращаются в прогон. Прогон пишет журнал, по строке JSON на шаг, держит экран включённым и отправляет каждое новое состояние обратно через IPC как autopilot.changed.",
+      "description": "Поток данных Run-а. Кнопка Autopilot вызывает autopilot.start через IPC, и Run проверяет, можно ли начать. Run отдаёт циклу своё состояние и одно событие и получает следующее состояние и эффекты. Эффект send-wave идёт в launcher, который отправляет текст Run wave в Session Orchestrator-а. События Session и изменения, которые видит workflow watch, возвращаются в Run. Run пишет журнал, по строке JSON на шаг, держит экран включённым и отправляет каждое новое состояние обратно через IPC как autopilot.changed.",
       "labels": {
         "button": "Кнопка Autopilot",
         "buttonNote": "AutopilotAction.tsx",
@@ -74,33 +74,33 @@
         "ticketsChanged": "Ticket-ы изменились",
         "lines": "строка JSON на шаг",
         "keepAwake": "экран не гаснет",
-        "step1": "Кнопка вызывает autopilot.start. Проверки идут по порядку: в Project-е нет прогона, отказ на собственном репозитории worfy и шаблон, workflow и Epic, затем ключ origin и вопрос к Linked machine.",
-        "step2": "setUnattended заново запускает Orchestrator без человека, продолжая его SDK session. Прогон открывает журнал, держит экран включённым и открывает workflow watch.",
+        "step1": "Кнопка вызывает autopilot.start. Проверки идут по порядку: в Project-е нет Run-а, отказ на собственном репозитории worfy и шаблон, workflow и Epic, затем ключ origin и вопрос к Linked machine.",
+        "step2": "setUnattended заново запускает Orchestrator без человека, продолжая его SDK session. Run открывает журнал, держит экран включённым и открывает workflow watch.",
         "step3": "Каждое событие идёт в цикл, а его эффекты — в журнал или в Session. send-wave доходит до launcher-а, который читает workflow один раз: текст называет Ticket-ы Wave.",
         "step4": "События Session и изменения workflow возвращаются событиями цикла. Каждое новое состояние уходит во все окна как autopilot.changed."
       }
     },
     "text": [
-      "Цикл — чистая функция: на входе состояние прогона и одно событие, на выходе следующее состояние и список эффектов. Его фазы: starting, sending, turn, tasks, settling и stopped. Каждый шаг прогона проходит через одну очередь, поэтому события обрабатываются по порядку.",
+      "Цикл — чистая функция: на входе состояние Run-а и одно событие, на выходе следующее состояние и список эффектов. Его фазы: starting, sending, turn, tasks, settling и stopped. Каждый шаг Run-а проходит через одну очередь, поэтому события обрабатываются по порядку.",
       "Каждая Wave после первой обычно уходит в новую SDK session Orchestrator-а, чтобы его контекст не рос.",
-      "/worfy:epic-wave, набранная с Epic-ом, Wave или Ticket-ами, до агента не доходит: agent.send передаёт её в ChatStarts.startFromChat, как и инструмент Canvas MCP autopilot_start после своего диалога. Прогон по названным Ticket-ам берёт в Wave-ы только их и останавливается с tickets-done, когда все они done."
+      "/worfy:epic-wave, набранная с Epic-ом, Wave или Ticket-ами и без вложений, до агента не доходит: agent.send передаёт её в ChatStarts.startFromChat, как и инструмент Canvas MCP autopilot_start после своего диалога. Run по названным Ticket-ам берёт в Wave-ы только их и останавливается с tickets-done, когда все они done."
     ],
     "files": {
-      "src/main/autopilot/run.ts": "Один прогон: проверки старта, события Session, эффекты цикла, остановки",
+      "src/main/autopilot/run.ts": "Один Run: проверки старта, события Session, эффекты цикла, остановки",
       "src/shared/autopilot/cycle.ts": "Цикл: фазы, события, эффекты, причины остановки и их сроки. Чистый",
       "src/main/actions/launch.ts": "autopilotWave: текст Run wave из шаблона Project-а, отправленный Orchestrator-у",
       "src/main/agent/session-settings.ts": "Session без человека всегда идёт в bypassPermissions",
       "src/main/autopilot/limits-wait.ts": "Ожидание Limits по таймеру настенных часов и текст, который продолжает Wave",
       "src/shared/autopilot/budget.ts": "Дневной бюджет Limits и его решение перед Wave. Чистый",
-      "src/main/autopilot/journal.ts": "Файлы журнала, один на прогон",
+      "src/main/autopilot/journal.ts": "Файлы журнала, один на Run",
       "src/renderer/canvas/actions/AutopilotAction.tsx": "Кнопка, меню ⋯ с Force stop, строка статуса и плашки",
       "src/main/autopilot/chat-start.ts": "Старт из чата, командой или инструментом"
     },
     "limits": [
-      "Один прогон на Project за раз. Тот же Epic того же репозитория, идущий на Linked machine, отклоняет старт; обойти это можно только кнопкой Start anyway.",
-      "Dev-сборка отказывается вести прогон над собственным репозиторием worfy, включая его worktree.",
-      "Ticket Wave всё ещё в работе после хода: прогон ждёт до 10 минут, затем останавливается с wave-unfinished. Background task-и без событий целый час — background-stalled.",
-      "Отказ Limits: прогон ждёт сброса плюс 2 минуты или пробует каждые 30 минут, когда время сброса неизвестно; дольше 24 часов — остановка с limits-timeout.",
+      "Один Run на Project за раз. Тот же Epic того же репозитория, идущий на Linked machine, отклоняет старт; обойти это можно только кнопкой Start anyway.",
+      "Dev-сборка отказывается вести Run над собственным репозиторием worfy, включая его worktree.",
+      "Ticket Wave всё ещё в работе после хода: Run ждёт до 10 минут, затем останавливается с wave-unfinished. Background task-и без событий целый час — background-stalled.",
+      "Отказ Limits: Run ждёт сброса плюс 2 минуты или пробует каждые 30 минут, когда время сброса неизвестно; дольше 24 часов — остановка с limits-timeout.",
       "Диалог autopilot_start ждёт 10 минут; Session без человека получает отказ без диалога."
     ]
   }

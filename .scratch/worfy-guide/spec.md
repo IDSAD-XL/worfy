@@ -262,8 +262,8 @@ Guide дополняет `docs/features/`, а не заменяет их. Стр
 - [x] Закрытый Guide не загружает чанк при старте и не анимирует. — `test/e2e/guide.spec.ts:42` (старт не грузит чанк
   `GuideWindow-*.js`), `:213` (точки движутся только в открытом Guide и в поле видимости),
   `test/unit/guide-scene.test.tsx:398` (после закрытия не остаётся ни кадра, ни observer-а).
-- [ ] `scripts/guide-lag.mjs` входит в ежемесячный аудит. — не сделано в Ticket-е 20: текст запланированной задачи
-  лежит в `~/.claude/scheduled-tasks`, его правит Orchestrator.
+- [x] `scripts/guide-lag.mjs` входит в ежемесячный аудит. — сделал orchestrator 2026-11-01: файл задачи правлен напрямую,
+  после `feature-docs-lag` задача запускает `node scripts/guide-lag.mjs`; показывает ли приложение Claude новое описание — взглянуть владельцу.
 - [ ] README причёсан, Map of worfy в нём (21). — Ticket 21 ещё не начат.
 
 ## Волны
