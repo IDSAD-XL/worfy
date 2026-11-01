@@ -41,8 +41,9 @@ run-а, который ещё идёт. При открытии из меню Ep
 - Epic, старт и конец (`now`, пока run идёт) по местному времени и длительность;
 - как он остановился: `running`, `stopped: <reason>` или `no stop in the Journal`, когда journal просто обрывается.
   Остановка из-за блокировки или сбоя показана цветом проблемы;
-- число Wave и Ticket-ы `done`, `blocked` и `cut-off`. Ticket-ы, которые не попали ни в одну из этих групп, считаются
-  `not done yet`, пока run идёт, и `stopped` после него;
+- число Wave и Ticket-ы `done`, `blocked` и `cut-off`. `blocked` и `cut-off` считаются только после остановки run-а:
+  пока он идёт, Ticket, который не `done`, в том числе заблокированный, считается `not done yet`. После остановки
+  Ticket-ы, не попавшие ни в одну из этих трёх групп, считаются `stopped`;
 - `Retries`: попытки агентов, CI run-ов, gate run-ов и скриптов начиная с `#2`;
 - `Started by`: `the Autopilot button`, `a command in a chat` или `the Orchestrator (autopilot_start)`. Последнее
   стоит у любого run-а, который запустил инструмент `autopilot_start`, чей бы агент Session его ни вызвал. В journal,

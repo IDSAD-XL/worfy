@@ -39,8 +39,9 @@ Then the facts of the chosen run:
 - the Epic, the start and the end (`now` while it goes on) in local time, and the duration;
 - how it stopped: `running`, `stopped: <reason>`, or `no stop in the Journal` when the journal just ends. A stop for a
   block or a failure is in the problem colour;
-- the number of Waves, and the Tickets `done`, `blocked` and `cut-off`. Tickets that are none of these are counted as
-  `not done yet` while the run goes on and as `stopped` after it;
+- the number of Waves, and the Tickets `done`, `blocked` and `cut-off`. `blocked` and `cut-off` are counted only once
+  the run has stopped: while it goes on, a Ticket that is not done, a blocked one included, counts as `not done yet`.
+  After the stop, Tickets that are none of these three count as `stopped`;
 - `Retries`: the attempts from `#2` on of agents, CI runs, gate runs and scripts;
 - `Started by`: `the Autopilot button`, `a command in a chat`, or `the Orchestrator (autopilot_start)`. The last one
   stands for any run the tool `autopilot_start` started, whichever Session's agent called it. A journal written before
