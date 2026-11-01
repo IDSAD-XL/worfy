@@ -124,7 +124,9 @@ describe('summary: a background-tasks Wait counts only where no work runs', () =
     expect(WITHOUT_WORK_NOTE).toBe('without work')
     // The exported set is the one the summary uses: under work that covers every Wait, exactly
     // the causes in it drop to 0, every other cause stays whole.
-    const waits = WAIT_CAUSES.map((cause, index) => wait(`w${index}`, cause, `1${index}:00`, `1${index}:30`))
+    // Back to back from 10:00, 30 minutes each: every cause fits in the Run's four hours.
+    const hhmm = (minutes: number): string => `${10 + Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`
+    const waits = WAIT_CAUSES.map((cause, index) => wait(`w${index}`, cause, hhmm(index * 30), hhmm(index * 30 + 30)))
     const rows = summarize(buildTimeline(facts({ waits, work: [agent('a', '10:00', '14:00')] }))).waits
     for (const cause of WAIT_CAUSES) expect(rows.find((item) => item.cause === cause)?.total).toBe(COUNTED_WITHOUT_WORK.has(cause) ? 0 : 30 * MIN)
   })

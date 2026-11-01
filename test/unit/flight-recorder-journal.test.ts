@@ -107,6 +107,45 @@ describe('from-journal: the Waits', () => {
     expect(last.waits).toMatchObject([{ cause: 'limits-budget', end: T('11:00'), tickets: [] }])
   })
 
+  // worfy-resource-planner ticket 08: the wait of the Run mode `start-window` is its own cause, not
+  // the Limits — a Run started at 08:00 that waited for 23:00 did not stand on the Limits for 15 hours.
+  it('turns start-window … resumed before a Wave into a Wait `start-window` that stands for the next Wave, not a Wait `limits`', () => {
+    const facts = read(
+      started({ mode: 'start-window' }),
+      wave('10:01', 1, ['01']),
+      finished('10:40', 1, ['01']),
+      line('10:40', 'start-window', { reason: 'outside', until: T('23:00'), text: 'outside the Start window 23:00–07:00' }),
+      line('10:40', 'waiting-until', { until: T('23:00') }),
+      line('23:00', 'resumed'),
+      wave('23:00', 2, ['02']),
+      finished('23:30', 2, ['02']),
+      stopped('23:30'),
+    )
+    expect(facts.waits).toEqual([
+      { id: 'start-window:1', cause: 'start-window', start: T('10:40'), end: T('23:00'), detail: `outside, until ${T('23:00')}`, tickets: ['e/02'], startSource: 'journal', endSource: 'journal' },
+    ])
+    const wait = buildTimeline(runFacts(facts)).spans.find((item) => item.kind === 'wait')
+    expect(wait).toMatchObject({ waitCause: 'start-window', start: Date.parse(T('10:40')), end: Date.parse(T('23:00')), links: { tickets: ['e/02'] } })
+    // A Wave too long for what is left of the window: the reason is the detail.
+    const tooLong = read(started({ mode: 'start-window' }), line('10:40', 'start-window', { reason: 'wave-too-long', until: T('23:00'), text: 'the Wave would end after 07:00', durationP90Ms: 3_600_000 }), line('10:40', 'waiting-until', { until: T('23:00') }), line('23:00', 'resumed'), wave('23:00', 1, ['03']), stopped('23:30'))
+    expect(tooLong.waits).toMatchObject([{ cause: 'start-window', detail: `wave-too-long, until ${T('23:00')}`, end: T('23:00'), tickets: ['e/03'] }])
+  })
+
+  it('ends a Wait `start-window` still open at run-stopped there: no Ticket stood without a Wave after it', () => {
+    const facts = read(
+      started({ mode: 'start-window' }),
+      wave('10:01', 1, ['01']),
+      finished('10:40', 1, ['01']),
+      line('10:40', 'start-window', { reason: 'outside', until: T('23:00'), text: 'outside the Start window' }),
+      line('10:40', 'waiting-until', { until: T('23:00') }),
+      stopped('12:00', 'user-stop'),
+      line('12:05', 'resumed'),
+    )
+    expect(facts.waits).toEqual([
+      { id: 'start-window:1', cause: 'start-window', start: T('10:40'), end: T('12:00'), detail: `outside, until ${T('23:00')}`, tickets: [], startSource: 'journal', endSource: 'journal' },
+    ])
+  })
+
   it('turns the stretches with live background tasks into Waits `background-tasks`, each with its tasks', () => {
     const facts = read(
       started(),
@@ -399,6 +438,76 @@ describe('from-journal: the frame of the Run', () => {
       // The Run stopped inside Wave 2: no end, last seen at the stop.
       { number: 2, startedAt: T('11:00'), finishedAt: null, lastSeenAt: T('12:00'), tickets: ['e/02'] },
     ])
+  })
+
+  // worfy-resource-planner ticket 08: the Run mode, the Epic forecast and the actual share, for the
+  // head of the Run in Run history (ticket 11 of that Epic shows them).
+  const FORECAST = { mode: 'budget-aware', waves: 3, tickets: 7, uncounted: 1, samples: 12, low: 0.18, high: 0.31, fit: 2, week: { utilization: 0.4, resetsAt: T('20:00') }, durationP90Ms: 5_400_000, durationSamples: 9 }
+  const ACTUAL = { share: 0.24, waves: 2, counted: 2 }
+
+  it('gives the Run mode, the Epic forecast and the actual share of the Journal', () => {
+    const journal = read(
+      started({ mode: 'budget-aware' }),
+      line('10:00', 'forecast', FORECAST),
+      wave('10:01', 1, ['01']),
+      finished('11:00', 1, ['01']),
+      wave('11:00', 2, ['02']),
+      finished('12:00', 2, ['02']),
+      stopped('12:00', 'tickets-done', { actual: ACTUAL }),
+    )
+    expect(journal).toMatchObject({ mode: 'budget-aware', forecast: { low: 0.18, high: 0.31, waves: 3, tickets: 7, uncounted: 1, samples: 12, fit: 2 }, actual: { share: 0.24, waves: 2, counted: 2 }, skipped: 0 })
+    // The forecast keeps only what Run history shows.
+    expect(journal.forecast).toEqual({ low: 0.18, high: 0.31, waves: 3, tickets: 7, uncounted: 1, samples: 12, fit: 2 })
+    // Not enough data: the range and K are null, and stay null.
+    const few = read(started({ mode: 'fastest' }), line('10:00', 'forecast', { ...FORECAST, mode: 'fastest', samples: 3, low: null, high: null, fit: null }), stopped('10:01'))
+    expect(few).toMatchObject({ mode: 'fastest', forecast: { low: null, high: null, samples: 3, fit: null } })
+    expect(few.actual).toBeUndefined()
+  })
+
+  it('has no mode, forecast or actual in a Journal of before the Epic, and reads the rest as before', () => {
+    const lines = [started(), wave('10:01', 1, ['01']), finished('11:00', 1, ['01']), stopped('11:00', 'tickets-done')]
+    const journal = read(...lines)
+    expect('mode' in journal || 'forecast' in journal || 'actual' in journal).toBe(false)
+    expect(journal).toMatchObject({ by: 'button', tickets: ['e/01'], skipped: 0, waits: [] })
+    expect(journal.run).toEqual({ id: RUN, startedAt: T('10:00'), stoppedAt: T('11:00'), lastSeenAt: T('11:00'), outcome: 'ok', reason: 'tickets-done' })
+  })
+
+  it('reads a mode, a forecast or an actual of another shape as none, and skips no line for it', () => {
+    const shapes: Record<string, unknown>[] = [
+      { ...FORECAST, low: '18%' },
+      { ...FORECAST, high: -0.1 },
+      { ...FORECAST, waves: 1.5 },
+      { ...FORECAST, tickets: -1 },
+      { ...FORECAST, uncounted: null },
+      { ...FORECAST, samples: '12' },
+      { ...FORECAST, fit: 0.5 },
+      { ...FORECAST, fit: -1 },
+      { mode: 'budget-aware' },
+    ]
+    for (const shape of shapes) {
+      const journal = read(started(), line('10:00', 'forecast', shape), wave('10:01', 1, ['01']), stopped('10:30'))
+      expect('forecast' in journal, JSON.stringify(shape)).toBe(false)
+      expect(journal.skipped).toBe(0)
+      expect(journal.waves).toHaveLength(1)
+    }
+    for (const actual of [{ share: -0.1, waves: 2, counted: 2 }, { share: 0.2, waves: 0, counted: 0 }, { share: 0.2, waves: 2, counted: 3 }, { share: 0.2, waves: 2 }, 'a lot', null]) {
+      const journal = read(started(), stopped('10:30', 'tickets-done', { actual }))
+      expect('actual' in journal, JSON.stringify(actual)).toBe(false)
+      expect(journal).toMatchObject({ skipped: 0, run: { reason: 'tickets-done', outcome: 'ok' } })
+    }
+    const night = read(started({ mode: 'night' }), stopped('10:30'))
+    expect('mode' in night).toBe(false)
+    expect(night).toMatchObject({ by: 'button', skipped: 0 })
+  })
+
+  it('takes the forecast of the first forecast line and the actual of the run-stopped that ends the Run', () => {
+    const journal = read(
+      started({ mode: 'start-window' }),
+      line('10:00', 'forecast', FORECAST),
+      line('10:00', 'forecast', { ...FORECAST, low: 0.5, high: 0.6 }),
+      stopped('10:30', 'user-stop', { actual: { share: 0.1, waves: 1, counted: 0 } }),
+    )
+    expect(journal).toMatchObject({ mode: 'start-window', forecast: { low: 0.18, high: 0.31 }, actual: { share: 0.1, waves: 1, counted: 0 } })
   })
 
   it('does not break on a wave-started after run-stopped: that Wave is last seen at its own line', () => {

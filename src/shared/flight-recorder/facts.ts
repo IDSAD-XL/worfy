@@ -21,8 +21,12 @@ export type AgentSubkind = (typeof AGENT_SUBKINDS)[number]
 export const SPAN_OUTCOMES = ['ok', 'failed', 'rejected', 'blocked', 'stopped', 'cut-off'] as const
 export type SpanOutcome = (typeof SPAN_OUTCOMES)[number]
 
-/** Why the work of a Run stood (the spec's Model section, on Waits, blocks and retries). */
-export const WAIT_CAUSES = ['limits', 'limits-budget', 'background-tasks', 'gate-queue', 'other-machine'] as const
+/**
+ * Why the work of a Run stood (the spec's Model section, on Waits, blocks and retries). `start-window`:
+ * the Run mode Start window held the next Wave until the next start of its hours (worfy-resource-planner
+ * ticket 08).
+ */
+export const WAIT_CAUSES = ['limits', 'limits-budget', 'start-window', 'background-tasks', 'gate-queue', 'other-machine'] as const
 export type WaitCause = (typeof WAIT_CAUSES)[number]
 
 /** Where a fact came from: the source of a span's start and of its end. */
@@ -55,7 +59,7 @@ export type LostSource = keyof typeof LOST_SOURCE_LABELS
 // | `work` `agent`       | transcripts (14): `Agent` … report, `SendMessage` … report; `worktree` a canonical path |
 // | `work` `ci`          | GitHub (15)                                                            |
 // | `work` `gate`, `script` | gate logs (16): a gate run by `sha`/`worktree` (a canonical path), its steps with `parentWork` |
-// | `waits`              | Journal (13): `limits`, `limits-budget`, `background-tasks`, `gate-queue`; GitHub (15): `other-machine` |
+// | `waits`              | Journal (13): `limits`, `limits-budget`, `start-window` (worfy-resource-planner 08), `background-tasks`, `gate-queue`; GitHub (15): `other-machine` |
 // | `retryCauses`        | Journal (13): `narrow-round`, `session-error`                         |
 // | `turns`              | the Orchestrator's transcript (14)                                     |
 // | `lost`               | the reader of the source that is gone: 14 transcripts, 15 GitHub, 16 gate logs and branches |

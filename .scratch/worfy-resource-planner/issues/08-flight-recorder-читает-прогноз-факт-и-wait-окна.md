@@ -1,7 +1,7 @@
 # 08 — Flight Recorder читает прогноз, факт и Wait окна запуска
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T14:18Z
 Branch: worfy-resource-planner/08
 Blocked by: 05, 07
 Source: [spec.md](../spec.md), «Решения» (Q10, Q13), «Journal» (последний абзац), «Что видит пользователь» (Run history); [ADR-0092](../../../docs/adr/0092-run-history.md) (шкала вычисляется при открытии); [ADR-0093](../../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md), п. 3, 6
