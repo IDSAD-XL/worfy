@@ -38,10 +38,23 @@ describe('watchWithNode, the real fs.watch', () => {
 
   it('recursive: a file in a subfolder is reported by its path under the folder', async () => {
     const names: (string | null)[] = []
-    handles.push(watchWithNode(dir, true, (name) => names.push(name), () => undefined))
+    const events: unknown[] = []
+    handles.push(
+      watchWithNode(
+        dir,
+        true,
+        (name, event) => {
+          names.push(name)
+          events.push(event)
+        },
+        () => undefined,
+      ),
+    )
     const wanted = join('sub', 'file.txt')
     await writeUntil(wanted, () => names.includes(wanted), 5000)
     expect(names).toContain(wanted)
+    // The kind of event goes along, as fs.watch gives it: the watch of the Cards on Windows goes by it.
+    expect(new Set(events.map((event) => event === 'rename' || event === 'change'))).toEqual(new Set([true]))
   })
 
   it('not recursive: a file of the folder is reported, a file in a subfolder is not', async () => {
