@@ -986,7 +986,7 @@ export class Autopilot {
         // The background tasks the turn left alive, as of its end: a task that ends later starts a
         // turn of its own (its task-notification), and that turn's result judges the Wave.
         const tasks = this.liveTasks(run).length
-        void run.enqueue(() => {
+        void run.enqueue(async () => {
           // A turn ahead of the Wave that finished normally after an Interrupt still leaves the
           // queue held: the Wave waits in it until a person resumes, so the run stops as interrupted.
           const interrupted = event.interrupted || (!run.endsWave(turn) && this.waveHeld(run))
@@ -995,8 +995,12 @@ export class Autopilot {
           if (run.endsWave(turn) && event.text !== null && event.text.trim() !== '') run.lastText = clipLastText(event.text)
           if (hit !== null && !interrupted) return this.limitsHit(run, hit)
           // A turn of the Wave that was not refused ends any wait (a person's turn during it, too).
+          // A wait it ends gets its `resumed`, so the journal shows where the wait stopped and
+          // the Wave's duration does not count the rest of the Wave as waiting (wave-duration.ts).
+          const waiting = run.limits?.until != null
           run.limits?.passed()
           run.turnMayCome = false
+          if (waiting) await this.write(run, { kind: 'resumed' })
           return this.readAndFeed(run, 'stop', (tickets) => ({
             type: 'turn-ended',
             isError: event.isError,

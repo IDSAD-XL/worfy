@@ -1,7 +1,9 @@
 // How long a Wave takes (worfy-resource-planner ticket 02, ADR-0093): the samples a Start window
 // judges by whether a Wave still fits before the window ends. A sample is the time from a Run's
 // wave-started to its wave-finished of the same Wave number, minus the waits for the Limits inside
-// that pair: from limits-hit to resumed, or to wave-finished when no resumed came. The waits for
+// that pair: from limits-hit to resumed, or to wave-finished when no resumed came. The Run writes
+// resumed both when the wait's timer goes off and when a turn that goes through ends the wait
+// earlier (a person's turn, a background task's notification; run.ts). The waits for
 // the budget and for the window never fall inside the pair: the Run decides them before it sends
 // Run wave, and writes wave-started after that. A Wave with no wave-finished (the Run broke off, a
 // Force stop) gives no sample; the turn of Process gate queue is not a Wave. The last
@@ -52,7 +54,10 @@ export function waveDurations(runs: readonly (readonly JournalEvent[])[]): numbe
         open.waitFrom = null
       } else if (event.kind === 'wave-finished') {
         const waited = open.waited + (open.waitFrom === null ? 0 : at - open.waitFrom)
-        if (event.wave === open.wave) samples.push({ end: at, ms: at - open.start - waited })
+        const ms = at - open.start - waited
+        // Below 0 only when the lines' times go back (the clock was set back): no sample, since a
+        // 0 or a negative one would pull the p90 down.
+        if (event.wave === open.wave && ms >= 0) samples.push({ end: at, ms })
         open = null
       }
     }

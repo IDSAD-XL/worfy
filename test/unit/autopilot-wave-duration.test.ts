@@ -62,6 +62,20 @@ describe('waveDurations', () => {
     expect(waveDurations([events])).toEqual([2 * HOUR])
   })
 
+  it('a wait a turn ended before its timer counts until that resumed: 09:00 start, 10:00 hit, 11:00 pass, 13:00 finish is 3 hours', () => {
+    // The Run writes resumed when a person's turn goes through during the wait (run.ts).
+    const events = run(
+      RUN_A,
+      started(1, T0),
+      limitsHit(T0 + HOUR),
+      waitingUntil(T0 + HOUR, T0 + 5 * HOUR),
+      resumed(T0 + 2 * HOUR),
+      { kind: 'ticket-status', at: T0 + 2 * HOUR, ticket: '01', state: 'claimed' },
+      finished(1, T0 + 4 * HOUR),
+    )
+    expect(waveDurations([events])).toEqual([3 * HOUR])
+  })
+
   it('takes every wait inside the Wave off it', () => {
     const events = run(RUN_A, started(1, T0), limitsHit(T0 + 10 * MINUTE), resumed(T0 + 30 * MINUTE), limitsHit(T0 + 40 * MINUTE), resumed(T0 + 70 * MINUTE), finished(1, T0 + 80 * MINUTE))
     expect(waveDurations([events])).toEqual([30 * MINUTE])
@@ -120,6 +134,18 @@ describe('waveDurations', () => {
   it('a wave-finished of another number than the open Wave gives no sample', () => {
     const events = run(RUN_A, started(1, T0), finished(2, T0 + 30 * MINUTE))
     expect(waveDurations([events])).toEqual([])
+  })
+
+  it('a wave-finished of another number closes the open Wave: its own wave-finished after it gives no sample', () => {
+    const events = run(RUN_A, started(1, T0), finished(2, T0 + 30 * MINUTE), finished(1, T0 + 40 * MINUTE))
+    expect(waveDurations([events])).toEqual([])
+  })
+
+  it('lines whose time goes back (the clock was set back) give no sample; a Wave of no time gives 0', () => {
+    const back = run(RUN_A, started(1, T0 + HOUR), finished(1, T0 + 30 * MINUTE))
+    const waitedBack = run(RUN_B, started(1, T0 + 2 * HOUR), limitsHit(T0 + 2 * HOUR), finished(1, T0 + 3 * HOUR), started(2, T0 + 4 * HOUR), finished(2, T0 + 4 * HOUR))
+    // Run B's Wave 1 waited all of its hour: 0, kept. Its Wave 2 starts and ends at once: 0, kept.
+    expect(waveDurations([back, waitedBack])).toEqual([0, 0])
   })
 
   it('a wave-finished written twice gives one sample', () => {
@@ -188,6 +214,10 @@ describe('waveDurationP90', () => {
 
   it('5 samples: a p90', () => {
     expect(waveDurationP90([waves(RUN_A, T0, [1, 2, 3, 4, 5])])).toEqual({ p90: 5 * MINUTE, samples: 5 })
+  })
+
+  it('7 samples of 1…7 minutes: p90 is 7 minutes (p85 would give 6)', () => {
+    expect(waveDurationP90([waves(RUN_A, T0, [1, 2, 3, 4, 5, 6, 7])])).toEqual({ p90: 7 * MINUTE, samples: 7 })
   })
 
   it('10 samples of 1…10 minutes: p90 is 9 minutes by the nearest rank', () => {
