@@ -98,8 +98,10 @@ describe('the Start window on the days the clocks change (Europe/Kyiv)', () => {
     expect((end - start) / HOUR).toBe(7)
     expect(inWindow(Date.UTC(2026, 2, 29, 3, 59), NIGHT)).toBe(true)
     expect(inWindow(end, NIGHT)).toBe(false)
-    // The next start after the end is 23:00 EEST of the same day.
+    // The next start after the end is 23:00 EEST of the same day; from inside the window, after its
+    // start, too: the next day counts by the calendar, and that day has 23 hours.
     expect(nextWindowStart(end, NIGHT)).toBe(Date.UTC(2026, 2, 29, 20, 0))
+    expect(nextWindowStart(at(2026, 3, 28, 23, 30), NIGHT)).toBe(Date.UTC(2026, 2, 29, 20, 0))
   })
 
   it('the night the clocks go back (25 October 2026, 04:00 → 03:00): 23:00 to 07:00 by the wall clock, 9 hours', () => {
