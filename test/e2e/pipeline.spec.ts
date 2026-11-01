@@ -117,7 +117,7 @@ test('the Pipeline tab shows the board, a claim moves a card without a reload, a
   try {
     const { window } = launched
     const views = window.getByRole('group', { name: 'View', exact: true })
-    await expect(views.getByRole('button')).toHaveText(['Canvas', 'Session', 'Pipeline'])
+    await expect(views.getByRole('button')).toHaveText(['Canvas', 'Session', 'Pipeline', 'Runs'])
     await expect(views.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
     const board = window.getByTestId('pipeline-board')
     await expect(board).toBeHidden()
@@ -181,7 +181,7 @@ test('the View switch shows its icons alone in a window under 1400 px and keeps 
   try {
     const { app, window } = launched
     const views = window.getByRole('group', { name: 'View', exact: true })
-    await expect(views.getByRole('button')).toHaveCount(3)
+    await expect(views.getByRole('button')).toHaveCount(4)
     const sizes = [
       { width: 1280, labels: false },
       { width: 1600, labels: true },
