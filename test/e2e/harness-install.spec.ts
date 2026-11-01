@@ -57,7 +57,8 @@ else if (command === 'plugin install' || command === 'plugin update') {
 else if (command === 'plugin list') {
   process.stdout.write(JSON.stringify(Object.entries(state.plugins).map(([id, version]) => ({ id, version, scope: 'user', enabled: true, errors: [] }))) + '\\n')
 }
-writeFileSync(statePath, JSON.stringify(state))
+// Reads write nothing, as with the real claude: a list that read before a test wrote the state would put the old state back.
+if (!command.endsWith(' list')) writeFileSync(statePath, JSON.stringify(state))
 `
 
 let scratch: string
@@ -207,7 +208,7 @@ test('Cancel in the dialog writes nothing: claude ran only its two reads', async
     await expect.poll(async () => (await shownDialogs(launched)).length).toBe(1)
     await expect(item.getByTestId('harness-text')).toHaveText('Harness not installed')
     expect(calls()).toEqual([LIST, MARKETPLACES])
-    expect(JSON.parse(readFileSync(stub.state, 'utf8'))).toEqual({ marketplaces: {}, plugins: {} })
+    expect(existsSync(stub.state)).toBe(false)
     expect(existsSync(join(launched.claudeHome, 'worfy-harness'))).toBe(false)
   } finally {
     await launched.close()
