@@ -21,21 +21,23 @@
 // - Times: only the `timestamp` of the records; the time a file changed is never read.
 //
 // The lines come from `readLines` of the options, a streamed read of the whole file by default.
-// shortcut: each call reads the Orchestrator's file whole (160 MB in a long Session) and parses it again; ticket 17 passes a `readLines` that tails the files (src/main/claude-home/tail.ts) and keeps what it parsed.
-import { createReadStream, realpath } from 'node:fs'
+// The service (src/main/flight-recorder/service.ts, ticket 17) passes a `readLines` that reads a live
+// Run's files on from where the last read stopped (src/main/claude-home/tail.ts) and keeps the lines.
+// The worktree of an agent is handed over by `canonicalWorktree` (worktree-path.ts), the helper reader
+// 16 calls too, so an agent and a gate run of one worktree meet.
+import { createReadStream } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { promisify } from 'node:util'
 import type { LostFact, TurnFact, WaveFact, WorkFact } from '../../shared/flight-recorder/facts'
 import { agentIdsIn, transcriptCwd, transcriptFacts, wavePromptTimes, type SubagentLines } from '../../shared/flight-recorder/from-transcript'
+import { AGENT_TOOLS } from '../../shared/transcript/subagents'
 import { isInsidePath, projectDirName } from '../claude-home/registry'
 import { claudeHome } from '../storage/paths'
+import { canonicalWorktree, type CanonicalOptions } from './worktree-path'
 
 type Env = Readonly<Record<string, string | undefined>>
 type Iso = string
-
-const realpathNative = promisify(realpath.native)
 
 /** How far the prompt of a Wave may lie from its `wave-started` for the search by text. */
 export const WAVE_SLACK_MS = 60_000
@@ -62,13 +64,6 @@ export interface TranscriptRun {
   waves: readonly TranscriptWave[]
 }
 
-export interface CanonicalOptions {
-  /** `process.platform` by default; `win32` checks the Windows rules on any system. */
-  platform?: string
-  /** realpath(3) by default. */
-  realpath?: (path: string) => Promise<string>
-}
-
 /** The lines of a file, empty ones left out; null when there is no such file. */
 export type ReadLines = (file: string) => Promise<readonly string[] | null>
 
@@ -84,43 +79,89 @@ export interface RunTranscripts {
   lost: LostFact[]
 }
 
-/**
- * A worktree path in the form the model compares as a string (facts.ts): realpath(3), which
- * resolves a link, expands an 8.3 short name like `RUNNER~1` and gives the drive letter's case,
- * else the path as written (a worktree that is gone); then `comparablePath`. The same rule as
- * reader 16's `canonicalWorktree` (src/main/flight-recorder/gate-logs.ts), so a gate run and an
- * agent of one worktree meet.
- */
-export async function canonicalPath(path: string, options: CanonicalOptions = {}): Promise<string> {
-  const resolve = options.realpath ?? ((target: string) => realpathNative(target))
-  let real = path
-  try {
-    real = await resolve(path)
-  } catch {
-    // A worktree that is gone keeps the spelling the report gave.
-  }
-  return comparablePath(real, options.platform ?? process.platform)
-}
-
-/**
- * On Windows `\` and `/` are one separator and letter case does not tell two names apart, so the
- * path gets `/` and lower case, and the `\\?\` prefix of a long path goes; elsewhere it is the path
- * itself. A trailing separator goes too, except on a root (`/`, `c:/`). Reader 16's
- * `comparablePath` (src/shared/flight-recorder/from-gate.ts), character for character.
- */
-export function comparablePath(path: string, platform: string): string {
-  let result = path
-  if (platform === 'win32') {
-    result = result.replaceAll('\\', '/')
-    if (result.startsWith('//?/UNC/')) result = `//${result.slice('//?/UNC/'.length)}`
-    else if (result.startsWith('//?/')) result = result.slice('//?/'.length)
-    result = result.toLowerCase()
-  }
-  while (result.length > 1 && result.endsWith('/') && !/^[a-z]:\/$/u.test(result)) result = result.slice(0, -1)
-  return result
-}
-
 const missing = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as { code?: string }).code ?? '')
+
+/** The tool that resumes an agent (from-transcript.ts). */
+const SEND_TOOL = 'SendMessage'
+
+type Json = Record<string, unknown>
+const isJson = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** The fields of a record the facts of the transcripts read (from-transcript.ts and the parse it calls); the rest is dropped. */
+const KEPT_FIELDS = ['type', 'timestamp', 'cwd', 'isSidechain', 'isMeta', 'isCompactSummary', 'operation'] as const
+/** What the facts read of a call of an agent (`Agent`, `Task`) and of `SendMessage`, and of the result of either. */
+const AGENT_INPUT = ['name', 'subagent_type', 'description', 'prompt'] as const
+const SEND_INPUT = ['to', 'recipient'] as const
+const AGENT_RESULT = ['agentId', 'status', 'resumedAgentId', 'description', 'agentType'] as const
+
+/** Only these fields of an object, those it has. */
+function only(value: Json, fields: readonly string[]): Json {
+  const kept: Json = {}
+  for (const field of fields) if (value[field] !== undefined) kept[field] = value[field]
+  return kept
+}
+
+/**
+ * Turns the lines of one transcript file, in file order, into the lines the facts are read from,
+ * with only what from-transcript.ts reads: so a live Run keeps them in memory and parses them again
+ * on each recompute at a fraction of the cost of the raw lines (worfy-flight-recorder ticket 17).
+ * Dropped: the input of every tool call but `Agent`, `Task` and `SendMessage`, the content and the
+ * `toolUseResult` of their results (a file read, a command's output), thinking and image blocks,
+ * the attachments but a queued command, the content of a queue operation but an enqueue, and the
+ * fields no reader looks at. Kept whole: the text of every message, the result of an agent's call
+ * (its report); of the call itself and of its `toolUseResult`, the fields the facts read. A line that is
+ * not a JSON object reads as nothing, as it does in from-transcript.ts. One instance per file: it
+ * remembers the agent calls it has seen, whose results follow them in the file.
+ */
+export class TranscriptCompactor {
+  private readonly agentCalls = new Set<string>()
+
+  /** The line as the facts need it; null for a line no reader takes. */
+  line(line: string): string | null {
+    let record: unknown
+    try {
+      record = JSON.parse(line)
+    } catch {
+      return null
+    }
+    if (!isJson(record)) return null
+    const kept = only(record, KEPT_FIELDS)
+    // A queue operation's text is read only when it is enqueued (a prompt typed early, a task-notification).
+    if (typeof record.content === 'string' && (record.type !== 'queue-operation' || record.operation === 'enqueue')) kept.content = record.content
+    const attachment = record.attachment
+    if (isJson(attachment) && attachment.type === 'queued_command') kept.attachment = { type: attachment.type, prompt: attachment.prompt }
+    const message = record.message
+    let ofAgent = false
+    if (isJson(message)) {
+      const content = message.content
+      const blocks = Array.isArray(content)
+        ? content.flatMap((block: unknown) => {
+            if (!isJson(block)) return [block]
+            if (block.type === 'text') return [block]
+            if (block.type === 'tool_use') {
+              if (typeof block.id === 'string' && typeof block.name === 'string' && (AGENT_TOOLS.has(block.name) || block.name === SEND_TOOL)) {
+                this.agentCalls.add(block.id)
+                const input = isJson(block.input) ? only(block.input, block.name === SEND_TOOL ? SEND_INPUT : AGENT_INPUT) : block.input
+                return [{ type: 'tool_use', id: block.id, name: block.name, input }]
+              }
+              return [{ type: 'tool_use', id: block.id, name: block.name, input: {} }]
+            }
+            if (block.type === 'tool_result') {
+              if (typeof block.tool_use_id === 'string' && this.agentCalls.has(block.tool_use_id)) {
+                ofAgent = true
+                return [block]
+              }
+              return [{ type: 'tool_result', tool_use_id: block.tool_use_id, content: '' }]
+            }
+            return []
+          })
+        : content
+      kept.message = { role: message.role, content: blocks }
+    }
+    if (ofAgent && isJson(record.toolUseResult)) kept.toolUseResult = only(record.toolUseResult, AGENT_RESULT)
+    return JSON.stringify(kept)
+  }
+}
 
 /** The default line source: the file streamed line by line, so no single string holds it whole. */
 export const streamLines: ReadLines = async (file) => {
@@ -239,7 +280,7 @@ export async function readRunTranscripts(run: TranscriptRun, options: Transcript
     const inside = (at: Iso) => ms(at) >= window.start && ms(at) <= window.end
     const subagents = await subagentFiles(dir, session, agentIdsIn(lines, inside), readLines)
     const facts = transcriptFacts({ session, epic: run.epic, tickets, lines, subagents })
-    for (const fact of facts.work.filter((item) => inside(item.start))) work.push(fact.worktree === undefined ? fact : { ...fact, worktree: await canonicalPath(fact.worktree, options) })
+    for (const fact of facts.work.filter((item) => inside(item.start))) work.push(fact.worktree === undefined ? fact : { ...fact, worktree: await canonicalWorktree(fact.worktree, options) })
     turns.push(...facts.turns.filter((item) => inside(item.start)))
   }
 
