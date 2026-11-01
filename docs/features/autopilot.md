@@ -12,7 +12,8 @@ pass over an Epic is a **run**. New to the terms: start with [Concepts](concepts
 
 The frame of an Epic on the Canvas has an **Autopilot** button. The button is hidden only when every Ticket of the Epic is
 done and the Epic has no run going on, no status line of a past run, no stop on its way and no "running on <Machine>"
-refusal. So after a finished run it stays, inactive, until the app restarts or the Project runs another Epic. It is active
+refusal. So after a finished run it stays, inactive, until the app restarts or the Project runs another Epic. A frame
+without the button still has the "⋯" menu, with **Run history** only, when the Epic has past runs. The button is active
 when "Run wave" could run now and the Project's "Run wave" template names the Wave's Tickets with `{tickets}`. Its tooltip
 says what it does, that the display stays on until the run ends, the Run mode the button starts in (the default of
 Settings → Autopilot), and the Epic forecast of what is left of the Epic. [Run planning](run-planning.md) gives these
@@ -79,6 +80,10 @@ is over, and the agent gets "Autopilot starts after this turn". Without a dialog
 - an Epic or a Ticket the Project does not have, or a workflow that cannot be read;
 - a second call while a dialog of the same Project waits;
 - a Machine with no worfy window open: a box without a window would block worfy on macOS.
+
+**What is not a run.** "Run wave" on the Canvas or in the Command palette sends one Wave to the Orchestrator and starts
+no run. So does a Wave that Claude Code runs in a terminal. Such a Wave has no journal, no status line, no stop toast and
+no Run history.
 
 #### During a run
 
@@ -175,7 +180,8 @@ Session's queue (the first case below).
 - During a wait for the Limits, the same message goes together with the continuation, at the reset. Until then the run stays
   `waiting`.
 
-**Force stop** is the one item of the "⋯" menu right of the button, also while a graceful Stop goes on. It does not wait. It
+**Force stop** is in the "⋯" menu right of the button while this Epic's run goes on, also while a graceful Stop goes on. The
+other item of that menu is **Run history**. Force stop does not wait. It
 interrupts the turn (up to 15 seconds), closes the Claude Code process and with it every background task, cancels any wait,
 and gives the Orchestrator back to the person. Worktrees and branches stay. A message a person queued stays, held, in the
 new Session's queue. The Wave and the stop message leave the queue.
@@ -219,6 +225,9 @@ task-notification starts, then goes back.
 
 The tooltip of the status line gives the error in words when there is one.
 
+After any stop, a toast says how the run ended, with **Open history**, and **History** stands right of the status line
+until the next run starts. Both open the run in Run history, which the [Flight Recorder](flight-recorder.md) page describes.
+
 On a Machine with the role `serve` of the cross-machine gate, before stopping with `no-ready-wave` or `blocked-tickets` the
 run sends the Orchestrator the "Process gate queue" template, once per run. It follows that turn as a Wave's and then stops
 with the reason it had, even if the turn made a Ticket ready. A Stop before it skips it.
@@ -228,7 +237,7 @@ with the reason it had, even if the turn made a Ticket ready. A Stop before it s
 Each run writes a journal: one text file with one JSON object per line. It is the record of what happened: each Wave with the
 text sent, Tickets left out, the changes of the Tickets' status, refused dialogs, a person's actions on the Session, waits,
 background tasks and the reason of the stop.
-The app has no screen for it, so read the file. An observer outside worfy may append a `human-input` line with `>>`, for a
+The [Run history](flight-recorder.md) screen draws a run from its journal and the other sources. An observer outside worfy may append a `human-input` line with `>>`, for a
 touch that only the screen shows, such as a system dialog.
 
 ### How it works
