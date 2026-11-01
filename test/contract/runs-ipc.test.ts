@@ -37,7 +37,7 @@ function stubService() {
   const service: Pick<FlightRecorder, 'list' | 'open' | 'close' | 'drop' | 'retry'> = {
     list: async (projectId, epic) => {
       calls.push(`list ${projectId} ${epic ?? '-'}`)
-      return [{ run: RUN, epic: 'e', startedAt: '2026-10-17T22:29:32.707Z', stoppedAt: null, reason: null, live: true, tickets: ['e/01'] }]
+      return [{ run: RUN, epic: 'e', startedAt: '2026-10-17T22:29:32.707Z', stoppedAt: null, reason: null, live: true, tickets: ['e/01'], by: 'button' }]
     },
     open: async (projectId, run, subscriber) => {
       calls.push(`open ${projectId} ${run}`)

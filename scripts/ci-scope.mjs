@@ -128,7 +128,7 @@ const APP_FILES = new Set([
 // The folders of test/fixtures that the e2e tests and their helpers read. The others (eval-stub,
 // sdk-messages, …) only unit and contract tests read: a pull request that changes one of them runs no
 // e2e test.
-const E2E_FIXTURES = ['agent-scripts', 'browser', 'claude-home', 'claude-home-legacy', 'e2e-shell', 'first-run-tools', 'gh', 'update', 'worfy-mvp-epic']
+const E2E_FIXTURES = ['agent-scripts', 'browser', 'claude-home', 'claude-home-legacy', 'e2e-shell', 'first-run-tools', 'flight-recorder', 'gh', 'update', 'worfy-mvp-epic']
 const APP_FOLDERS = ['src/', 'test/e2e/', 'test/quarantine/', ...E2E_FIXTURES.map((name) => `test/fixtures/${name}/`)]
 // test/contract/ci-workflow.test.ts checks that this is HARNESS_NOT_BUNDLED of electron.vite.config.ts.
 const HARNESS_NOT_BUNDLED = ['bin/tests', 'hooks/tests', 'evals', 'evals-outcome']

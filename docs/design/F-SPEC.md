@@ -189,5 +189,31 @@ The worfy Guide (Epic worfy-guide, ADR-0090) is a modal window drawn like the Se
 
 Reference look in both themes and both languages: the e2e `test/e2e/guide.spec.ts` shoots the window as `guide-en` and `guide-ru`, each `light` and `dark` (kept as `.scratch/worfy-guide/evidence/03-guide-*.png`).
 
+## Run history
+The Run history screen (Epic worfy-flight-recorder, `src/renderer/flight-recorder/`) takes the whole main area instead of the Canvas: the header of the Run, the summary strip, the Wait and Orchestrator lanes, then the tree on the left and the bars on one time axis on the right. It has no tab in the toolbar; Esc goes back to the Canvas. One exception to this spec holds on this screen only, and nowhere else in worfy:
+
+- **Span colours.** A bar takes the colour of its span kind from the `span-*` tokens below, so the eye finds the implementers, the CI runs and the gate runs of a long night. The rule of "Kind colours" above stays for the Canvas. An outcome is never a colour alone: it is written as a word in the row (`FAILED`, `BLOCKED`, `CUT-OFF`…), and a bar of a failed span adds a bottom edge in `span-problem`. A work kind fills its bar with its band and writes its label in `span-label`; Run, Wave and Stage fill with their tint and outline with the band; a Wait fills with stripes of its tint and stripe colours. A block is a `span-problem` mark «!» with its reason and `Waits:`, and the row is hatched with `span-hatch` after it; a span whose source is gone is hatched the same way and labelled («transcript deleted»…); a cut-off span ends in a zigzag that fades.
+- **Labels never cross bars.** A label sits whole inside its bar after a 4 px padding, or right of the bar's end on the ground of the row; with room for neither it is not drawn and stays in the tooltip (`label-layout.ts`).
+
+The values pass the checks of `test/unit/flight-recorder-span-tokens.test.ts`: `span-label` ≥ 4.5:1 on every work band; text and secondary text ≥ 4.5:1 on every tint and on the Wait stripe; every band and `span-hatch` ≥ 3:1 to the window ground, surface and surface raised; `span-problem` ≥ 4.5:1 on them, as it is text; every pair of work bands ΔE (CIE76) ≥ 15 under protanopia, deuteranopia and tritanopia (Machado 2009), and `span-problem` ΔE ≥ 15 from each work band. A Wait is told apart by its stripes and its lane, not by its hue.
+
+| role | LIGHT | DARK |
+|---|---|---|
+| span-label (text on a work band) | text #FFFFFF | text #121110 |
+| span-ticket (Ticket) | band #4E3FFA | band #8A6AF7 |
+| span-implementer (agent: implementer) | band #3175CD | band #6079CF |
+| span-verifier (agent: verifier) | band #6336C3 | band #BE9FFF |
+| span-agent (agent: other) | band #647182 | band #95B0BA |
+| span-ci (CI run) | band #986800 | band #E0A020 |
+| span-gate (gate run) | band #147B3B | band #2CD168 |
+| span-script (script) | band #344F85 | band #39A2C6 |
+| span-orchestrator (Orchestrator turn) | band #A6205A | band #DB668D |
+| span-run (Run) | band #5A6476, tint #E8EAEE | band #8F99AD, tint #25282F |
+| span-wave (Wave) | band #6C7890, tint #ECEEF3 | band #7D889D, tint #21242B |
+| span-stage (Stage) | band #71869E, tint #E6ECF3 | band #6A83A3, tint #1D232C |
+| span-wait (Wait) | band #B25A17, tint #FBEEE4, stripe #F5DCC8 | band #E0874A, tint #2C1F15, stripe #3F2A1A |
+| span-problem (block mark, failed edge) | text #C4262E | text #FF6B70 |
+| span-hatch (after a block, lost source) | band #86868B | band #77726B |
+
 ## Light/dark pairing rule
 Write the LIGHT file first. The DARK file must have the IDENTICAL markup structure, positions and copy — only token values differ (and light shadows removed in dark). Someone comparing the two should see the same screen in two appearances.

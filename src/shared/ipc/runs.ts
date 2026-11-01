@@ -5,7 +5,7 @@
 // reads the Runs on the Machine where they ran (decision 01, Q7); «Retry» only reads gh again.
 import { z } from 'zod'
 import { epicNameSchema } from '../binding/resolve'
-import { isRunId } from '../autopilot/journal'
+import { isRunId, RUN_STARTED_BY } from '../autopilot/journal'
 import { AGENT_SUBKINDS, FACT_SOURCES, LOST_SOURCE_LABELS, SPAN_KINDS, SPAN_OUTCOMES, WAIT_CAUSES, WORK_KINDS } from '../flight-recorder/facts'
 import { WORK_NOTE } from '../flight-recorder/summary'
 import { eventChannel, invokeChannel } from './channels'
@@ -32,6 +32,8 @@ export const runListItemSchema = z.object({
   live: z.boolean(),
   /** The Tickets its Waves were sent with, `<epic>/<NN>`. */
   tickets: z.array(z.string()),
+  /** Who started the Run (`run-started.by`); null for a Journal written before the field. */
+  by: z.enum(RUN_STARTED_BY).nullable(),
 })
 export type RunListItem = z.infer<typeof runListItemSchema>
 

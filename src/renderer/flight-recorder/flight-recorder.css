@@ -1,0 +1,445 @@
+/* The Run history screen (RunHistoryView.tsx, Timeline.tsx, SummaryStrip.tsx; worfy-flight-recorder
+   ticket 18). Colours come from tokens.css only — the `--span-*` tokens of F-SPEC "Run history" for the
+   bars — so both themes come for free. */
+
+.w-shell__content--history {
+  background: var(--bg);
+}
+
+.w-fr {
+  --w-fr-tree: 360px;
+  --w-fr-row: 24px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--text-12);
+}
+
+.w-fr-empty {
+  margin: var(--space-4);
+  color: var(--text-secondary);
+}
+
+.w-fr-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.w-fr-header__title {
+  margin: 0;
+  font-size: var(--text-13);
+  font-weight: 650;
+}
+.w-fr-header b {
+  font-weight: 600;
+}
+
+.w-fr-select,
+.w-fr-button {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  padding: 1px var(--space-2);
+}
+
+.w-fr-chip {
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+.w-fr-chip--problem {
+  color: var(--span-problem);
+}
+
+.w-fr-muted {
+  color: var(--text-secondary);
+}
+
+.w-fr-notice {
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--blocked-text);
+}
+
+.w-fr-footnote {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+/* The summary */
+
+.w-fr-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+.w-fr-summary__group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+}
+.w-fr-summary__title {
+  margin: 0 0 2px;
+  font-size: var(--text-11);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.w-fr-cards {
+  display: flex;
+  gap: 6px;
+}
+.w-fr-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 170px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  text-align: left;
+}
+.w-fr-card__value {
+  font-size: var(--text-15);
+  font-weight: 650;
+}
+.w-fr-total {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.w-fr-total__name {
+  width: 150px;
+}
+.w-fr-total__bar {
+  height: 9px;
+  border-radius: 2px;
+  background: var(--span-agent);
+}
+.w-fr-total__bar.w-fr-bar--implementer { background: var(--span-implementer); }
+.w-fr-total__bar.w-fr-bar--verifier { background: var(--span-verifier); }
+.w-fr-total__bar.w-fr-bar--ci { background: var(--span-ci); }
+.w-fr-total__bar.w-fr-bar--gate { background: var(--span-gate); }
+.w-fr-total__bar.w-fr-bar--script { background: var(--span-script); }
+.w-fr-total__bar--wait {
+  border: 1px solid var(--span-wait);
+  background: repeating-linear-gradient(45deg, var(--span-wait-stripe) 0 3px, var(--span-wait-tint) 3px 6px);
+}
+.w-fr-total__value {
+  font-weight: 600;
+}
+
+/* The timeline */
+
+.w-fr-timeline {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.w-fr-timeline__head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.w-fr-timeline__axis {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.w-fr-controls {
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-1) 6px;
+  height: auto;
+}
+
+.w-fr-axis {
+  position: relative;
+  height: 40px;
+  cursor: crosshair;
+  overflow: hidden;
+}
+.w-fr-minimap {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  right: 0;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--surface-raised);
+}
+.w-fr-minimap__bar {
+  position: absolute;
+  top: 3px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--span-ticket);
+}
+.w-fr-minimap__bar--wait {
+  background: var(--span-wait);
+}
+.w-fr-minimap__window {
+  position: absolute;
+  top: 0;
+  height: 12px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--accent);
+  border-radius: 3px;
+}
+.w-fr-tick {
+  position: absolute;
+  top: 18px;
+  bottom: 0;
+  padding-left: 3px;
+  border-left: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  font-size: var(--text-11);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.w-fr-brush {
+  position: absolute;
+  top: 16px;
+  bottom: 0;
+  border: 1px dashed var(--accent);
+  pointer-events: none;
+}
+.w-fr-brush--map {
+  top: 0;
+  height: 16px;
+}
+
+.w-fr-rows {
+  position: relative;
+}
+.w-fr-row {
+  display: flex;
+  height: var(--w-fr-row);
+  border-bottom: 1px solid var(--border);
+}
+.w-fr-row:hover {
+  background: var(--surface-raised);
+}
+.w-fr-row.is-selected {
+  background: var(--selected);
+}
+.w-fr-row__tree {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  width: var(--w-fr-tree);
+  padding-right: 6px;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.w-fr-row__bars {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.w-fr-twisty {
+  flex: none;
+  width: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-align: center;
+}
+.w-fr-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.w-fr-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-fr-name--strong {
+  font-weight: 600;
+}
+.w-fr-badge {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  font-size: var(--text-11);
+  font-weight: 600;
+}
+.w-fr-outcome {
+  font-size: var(--text-11);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+.w-fr-outcome--failed,
+.w-fr-outcome--rejected,
+.w-fr-outcome--blocked {
+  color: var(--span-problem);
+}
+.w-fr-lost-word {
+  font-size: var(--text-11);
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+/* A bar: top 3 to 19 px of the 24 px row. Its label takes 3 to 16 px, above the problem edge of a failed
+   bar (16 to 19 px); the thin bars of the children of a collapsed row lie under it, 20 to 23 px, so no
+   label ever crosses one. Labels and marks are drawn over every bar, the selected one too. */
+.w-fr-bar {
+  position: absolute;
+  top: 3px;
+  height: 16px;
+  box-sizing: border-box;
+  border-radius: 3px;
+  min-width: 2px;
+}
+.w-fr-bar.is-selected {
+  outline: 2px solid var(--text);
+  z-index: 2;
+}
+.w-fr-bar--thin {
+  top: 20px;
+  height: 3px;
+  border-radius: 1px;
+  border: 0;
+}
+.w-fr-bar.is-failed,
+.w-fr-bar.is-rejected,
+.w-fr-bar.is-blocked {
+  box-shadow: inset 0 -3px var(--span-problem);
+}
+.w-fr-bar.is-cut-off {
+  -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent);
+  mask-image: linear-gradient(90deg, #000 60%, transparent);
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 25%, calc(100% - 6px) 50%, 100% 75%, calc(100% - 6px) 100%, 0 100%);
+}
+
+.w-fr-dot--ticket, .w-fr-bar--solid.w-fr-bar--ticket, .w-fr-bar--thin.w-fr-bar--ticket { background: var(--span-ticket); }
+.w-fr-dot--implementer, .w-fr-bar--solid.w-fr-bar--implementer, .w-fr-bar--thin.w-fr-bar--implementer { background: var(--span-implementer); }
+.w-fr-dot--verifier, .w-fr-bar--solid.w-fr-bar--verifier, .w-fr-bar--thin.w-fr-bar--verifier { background: var(--span-verifier); }
+.w-fr-dot--agent, .w-fr-bar--solid.w-fr-bar--agent, .w-fr-bar--thin.w-fr-bar--agent { background: var(--span-agent); }
+.w-fr-dot--ci, .w-fr-bar--solid.w-fr-bar--ci, .w-fr-bar--thin.w-fr-bar--ci { background: var(--span-ci); }
+.w-fr-dot--gate, .w-fr-bar--solid.w-fr-bar--gate, .w-fr-bar--thin.w-fr-bar--gate { background: var(--span-gate); }
+.w-fr-dot--script, .w-fr-bar--solid.w-fr-bar--script, .w-fr-bar--thin.w-fr-bar--script { background: var(--span-script); }
+.w-fr-dot--orchestrator, .w-fr-bar--solid.w-fr-bar--orchestrator, .w-fr-bar--thin.w-fr-bar--orchestrator { background: var(--span-orchestrator); }
+.w-fr-dot--run, .w-fr-bar--thin.w-fr-bar--run { background: var(--span-run); }
+.w-fr-dot--wave, .w-fr-bar--thin.w-fr-bar--wave { background: var(--span-wave); }
+.w-fr-dot--stage, .w-fr-bar--thin.w-fr-bar--stage { background: var(--span-stage); }
+.w-fr-dot--wait, .w-fr-bar--thin.w-fr-bar--wait { background: var(--span-wait); }
+
+.w-fr-bar--tinted.w-fr-bar--run { background: var(--span-run-tint); border: 1px solid var(--span-run); }
+.w-fr-bar--tinted.w-fr-bar--wave { background: var(--span-wave-tint); border: 1px solid var(--span-wave); }
+.w-fr-bar--tinted.w-fr-bar--stage { background: var(--span-stage-tint); border: 1px solid var(--span-stage); }
+.w-fr-bar--tinted.w-fr-bar--wait {
+  border: 1px solid var(--span-wait);
+  background: repeating-linear-gradient(45deg, var(--span-wait-stripe) 0 4px, var(--span-wait-tint) 4px 8px);
+}
+
+/* A span whose source is gone, and the row after a block: grey hatching (decision 08). */
+.w-fr-bar--lost,
+.w-fr-bar--lost.w-fr-bar--solid,
+.w-fr-bar--lost.w-fr-bar--tinted {
+  border: 1px dashed var(--span-hatch);
+  background: repeating-linear-gradient(-45deg, var(--span-hatch) 0 1px, transparent 1px 6px);
+}
+.w-fr-hatch {
+  position: absolute;
+  z-index: 1;
+  top: 3px;
+  height: 16px;
+  background: repeating-linear-gradient(-45deg, var(--span-hatch) 0 1px, transparent 1px 6px);
+  border-top: 1px solid var(--span-hatch);
+  border-bottom: 1px solid var(--span-hatch);
+  pointer-events: none;
+}
+
+.w-fr-label {
+  position: absolute;
+  z-index: 3;
+  top: 3px;
+  height: 13px;
+  line-height: 13px;
+  font-size: var(--text-11);
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--text);
+  pointer-events: none;
+}
+.w-fr-label--on-band {
+  color: var(--span-label);
+}
+/* A block's label lies on its own Ticket's bar: a chip of the window ground keeps it readable there. */
+.w-fr-label--block {
+  box-sizing: border-box;
+  padding: 0 3px;
+  border: 1px solid var(--span-problem);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--span-problem);
+  font-weight: 600;
+  line-height: 11px;
+}
+.w-fr-label--info {
+  color: var(--text-secondary);
+}
+
+.w-fr-mark {
+  position: absolute;
+  top: 4px;
+  z-index: 4;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  line-height: 14px;
+  text-align: center;
+  font-size: var(--text-11);
+  font-weight: 700;
+}
+.w-fr-mark--block {
+  background: var(--span-problem);
+  color: var(--bg);
+}
+.w-fr-mark--info {
+  background: var(--span-orchestrator);
+  color: var(--span-label);
+}
+
+.w-fr-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 4;
+  width: 0;
+  border-left: 2px solid var(--accent);
+  pointer-events: none;
+}

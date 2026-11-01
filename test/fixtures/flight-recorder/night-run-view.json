@@ -1,0 +1,2983 @@
+{
+ "projectId": "CanvasForAI-38cb72ec",
+ "run": "2026-10-17T22-29-32-707Z-58e783",
+ "epic": "worfy-pipeline",
+ "timeline": {
+  "runId": "2026-10-17T22-29-32-707Z-58e783",
+  "live": false,
+  "now": 1793527200000,
+  "spans": [
+   {
+    "id": "run",
+    "kind": "run",
+    "subkind": null,
+    "lane": "tree",
+    "parent": null,
+    "name": "2026-10-17T22-29-32-707Z-58e783",
+    "start": 1792276172707,
+    "end": 1792293454592,
+    "until": 1792293454592,
+    "segments": [
+     {
+      "start": 1792276172707,
+      "end": 1792293454592
+     }
+    ],
+    "outcome": "blocked",
+    "reason": "blocked-tickets",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783"
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "wave:1",
+    "kind": "wave",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "run",
+    "name": "Wave 1",
+    "start": 1792276173879,
+    "end": 1792285981175,
+    "until": 1792285981175,
+    "segments": [
+     {
+      "start": 1792276173879,
+      "end": 1792285981175
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "wave": 1
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "wave:2",
+    "kind": "wave",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "run",
+    "name": "Wave 2",
+    "start": 1792285982542,
+    "end": 1792293454592,
+    "until": 1792293454592,
+    "segments": [
+     {
+      "start": 1792285982542,
+      "end": 1792293454592
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "wave": 2
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/03",
+    "kind": "ticket",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "run",
+    "name": "worfy-pipeline/03",
+    "start": 1792276173879,
+    "end": 1792285981175,
+    "until": 1792285981175,
+    "segments": [
+     {
+      "start": 1792276173879,
+      "end": 1792285981175,
+      "wave": 1
+     }
+    ],
+    "outcome": "stopped",
+    "reason": "the Wave finished before the Ticket was done",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "waves": [
+      1
+     ],
+     "ticket": "worfy-pipeline/03",
+     "pr": 457,
+     "sha": "c616dac10715928a7302632ef8d240cda66cd0ea"
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/03/stage:1",
+    "kind": "stage",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/03",
+    "name": "Implementing + CI",
+    "start": 1792276173879,
+    "end": 1792279275000,
+    "until": 1792279275000,
+    "segments": [
+     {
+      "start": 1792276173879,
+      "end": 1792279275000,
+      "wave": 1
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03"
+    },
+    "startSource": "journal",
+    "endSource": "github",
+    "lost": null,
+    "note": "no boundary in sources",
+    "stages": [
+     "implementing",
+     "ci"
+    ],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/03/stage:2",
+    "kind": "stage",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/03",
+    "name": "Agent review + Gate & merge",
+    "start": 1792279275000,
+    "end": 1792281079000,
+    "until": 1792281079000,
+    "segments": [
+     {
+      "start": 1792279275000,
+      "end": 1792281079000,
+      "wave": 1
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03",
+     "pr": 457,
+     "sha": "c616dac10715928a7302632ef8d240cda66cd0ea"
+    },
+    "startSource": "github",
+    "endSource": "github",
+    "lost": null,
+    "note": "no boundary in sources",
+    "stages": [
+     "agent-review",
+     "gate-merge"
+    ],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/03/stage:3",
+    "kind": "stage",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/03",
+    "name": "Closing",
+    "start": 1792281079000,
+    "end": 1792285981175,
+    "until": 1792285981175,
+    "segments": [
+     {
+      "start": 1792281079000,
+      "end": 1792285981175,
+      "wave": 1
+     }
+    ],
+    "outcome": "stopped",
+    "reason": "the Wave finished before the Ticket was done",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03",
+     "pr": 457,
+     "sha": "c616dac10715928a7302632ef8d240cda66cd0ea"
+    },
+    "startSource": "github",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [
+     "closing"
+    ],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/07",
+    "kind": "ticket",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "run",
+    "name": "worfy-pipeline/07",
+    "start": 1792276173879,
+    "end": 1792285981175,
+    "until": 1792285981175,
+    "segments": [
+     {
+      "start": 1792276173879,
+      "end": 1792285981175,
+      "wave": 1
+     }
+    ],
+    "outcome": "stopped",
+    "reason": "the Wave finished before the Ticket was done",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "waves": [
+      1
+     ],
+     "ticket": "worfy-pipeline/07",
+     "pr": 460,
+     "sha": "c209008d175a1f3207c839566e98ccd2a98febf1"
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/07/stage:1",
+    "kind": "stage",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/07",
+    "name": "Implementing + CI",
+    "start": 1792276173879,
+    "end": 1792282314000,
+    "until": 1792282314000,
+    "segments": [
+     {
+      "start": 1792276173879,
+      "end": 1792282314000,
+      "wave": 1
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07"
+    },
+    "startSource": "journal",
+    "endSource": "github",
+    "lost": null,
+    "note": "no boundary in sources",
+    "stages": [
+     "implementing",
+     "ci"
+    ],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/07/stage:2",
+    "kind": "stage",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/07",
+    "name": "Agent review + Gate & merge",
+    "start": 1792282314000,
+    "end": 1792284786000,
+    "until": 1792284786000,
+    "segments": [
+     {
+      "start": 1792282314000,
+      "end": 1792284786000,
+      "wave": 1
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07",
+     "pr": 460,
+     "sha": "c209008d175a1f3207c839566e98ccd2a98febf1"
+    },
+    "startSource": "github",
+    "endSource": "github",
+    "lost": null,
+    "note": "no boundary in sources",
+    "stages": [
+     "agent-review",
+     "gate-merge"
+    ],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/07/stage:3",
+    "kind": "stage",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/07",
+    "name": "Closing",
+    "start": 1792284786000,
+    "end": 1792285981175,
+    "until": 1792285981175,
+    "segments": [
+     {
+      "start": 1792284786000,
+      "end": 1792285981175,
+      "wave": 1
+     }
+    ],
+    "outcome": "stopped",
+    "reason": "the Wave finished before the Ticket was done",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07",
+     "pr": 460,
+     "sha": "c209008d175a1f3207c839566e98ccd2a98febf1"
+    },
+    "startSource": "github",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [
+     "closing"
+    ],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/04",
+    "kind": "ticket",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "run",
+    "name": "worfy-pipeline/04",
+    "start": 1792285982542,
+    "end": 1792293454592,
+    "until": 1792293454592,
+    "segments": [
+     {
+      "start": 1792285982542,
+      "end": 1792293454592,
+      "wave": 2
+     }
+    ],
+    "outcome": "stopped",
+    "reason": "the Wave finished before the Ticket was done",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "waves": [
+      2
+     ],
+     "ticket": "worfy-pipeline/04",
+     "pr": 467,
+     "sha": "42dc199b3a7ee01ceb788e6910a1b6308a781218"
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/04/stage:1",
+    "kind": "stage",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/04",
+    "name": "Implementing + CI",
+    "start": 1792285982542,
+    "end": 1792288353000,
+    "until": 1792288353000,
+    "segments": [
+     {
+      "start": 1792285982542,
+      "end": 1792288353000,
+      "wave": 2
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/04"
+    },
+    "startSource": "journal",
+    "endSource": "github",
+    "lost": null,
+    "note": "no boundary in sources",
+    "stages": [
+     "implementing",
+     "ci"
+    ],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/04/stage:2",
+    "kind": "stage",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/04",
+    "name": "Agent review + Gate & merge",
+    "start": 1792288353000,
+    "end": 1792292511000,
+    "until": 1792292511000,
+    "segments": [
+     {
+      "start": 1792288353000,
+      "end": 1792292511000,
+      "wave": 2
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/04",
+     "pr": 467,
+     "sha": "42dc199b3a7ee01ceb788e6910a1b6308a781218"
+    },
+    "startSource": "github",
+    "endSource": "github",
+    "lost": null,
+    "note": "no boundary in sources",
+    "stages": [
+     "agent-review",
+     "gate-merge"
+    ],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/04/stage:3",
+    "kind": "stage",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/04",
+    "name": "Closing",
+    "start": 1792292511000,
+    "end": 1792293454592,
+    "until": 1792293454592,
+    "segments": [
+     {
+      "start": 1792292511000,
+      "end": 1792293454592,
+      "wave": 2
+     }
+    ],
+    "outcome": "stopped",
+    "reason": "the Wave finished before the Ticket was done",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/04",
+     "pr": 467,
+     "sha": "42dc199b3a7ee01ceb788e6910a1b6308a781218"
+    },
+    "startSource": "github",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [
+     "closing"
+    ],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/05",
+    "kind": "ticket",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "run",
+    "name": "worfy-pipeline/05",
+    "start": 1792285982542,
+    "end": 1792293454592,
+    "until": 1792293454592,
+    "segments": [
+     {
+      "start": 1792285982542,
+      "end": 1792293454592,
+      "wave": 2
+     }
+    ],
+    "outcome": "stopped",
+    "reason": "the Wave finished before the Ticket was done",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "waves": [
+      2
+     ],
+     "ticket": "worfy-pipeline/05",
+     "pr": 468
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/05/stage:1",
+    "kind": "stage",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/05",
+    "name": "Implementing + CI",
+    "start": 1792285982542,
+    "end": 1792288850000,
+    "until": 1792288850000,
+    "segments": [
+     {
+      "start": 1792285982542,
+      "end": 1792288850000,
+      "wave": 2
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/05"
+    },
+    "startSource": "journal",
+    "endSource": "github",
+    "lost": null,
+    "note": "no boundary in sources",
+    "stages": [
+     "implementing",
+     "ci"
+    ],
+    "waitCause": null
+   },
+   {
+    "id": "ticket:worfy-pipeline/05/stage:2",
+    "kind": "stage",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/05",
+    "name": "Agent review",
+    "start": 1792288850000,
+    "end": 1792293454592,
+    "until": 1792293454592,
+    "segments": [
+     {
+      "start": 1792288850000,
+      "end": 1792293454592,
+      "wave": 2
+     }
+    ],
+    "outcome": "stopped",
+    "reason": "the Wave finished before the Ticket was done",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/05",
+     "pr": 468
+    },
+    "startSource": "github",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [
+     "agent-review"
+    ],
+    "waitCause": null
+   },
+   {
+    "id": "agent:a1a04fe1bfe94e08b#1",
+    "kind": "agent",
+    "subkind": "other",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/03/stage:1",
+    "name": "Map ticket 03 IPC wiring files",
+    "start": 1792276256223,
+    "end": 1792276292254,
+    "until": 1792276292254,
+    "segments": [
+     {
+      "start": 1792276256223,
+      "end": 1792276292254
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "a1a04fe1bfe94e08b"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:a4f4ef600ce73b83a#1",
+    "kind": "agent",
+    "subkind": "implementer",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/03/stage:1",
+    "name": "impl-03",
+    "start": 1792276320524,
+    "end": 1792279350560,
+    "until": 1792279350560,
+    "segments": [
+     {
+      "start": 1792276320524,
+      "end": 1792279350560
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "a4f4ef600ce73b83a",
+     "pr": 457
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:aa037f56c7bb8ed93#1",
+    "kind": "agent",
+    "subkind": "verifier",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/03/stage:2",
+    "name": "verify-03",
+    "start": 1792279384746,
+    "end": 1792279719566,
+    "until": 1792279719566,
+    "segments": [
+     {
+      "start": 1792279384746,
+      "end": 1792279719566
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "aa037f56c7bb8ed93",
+     "verdict": "VERIFIED"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:a60e687cd0ab6803e#1",
+    "kind": "agent",
+    "subkind": "implementer",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/07/stage:1",
+    "name": "impl-07",
+    "start": 1792279800601,
+    "end": 1792282371975,
+    "until": 1792282371975,
+    "segments": [
+     {
+      "start": 1792279800601,
+      "end": 1792282371975
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "a60e687cd0ab6803e",
+     "pr": 460
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "gate:0a6c108b/2026-10-17T23-37-10Z-41210",
+    "kind": "gate",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/03/stage:2",
+    "name": "gate full",
+    "start": 1792280230000,
+    "end": 1792281040000,
+    "until": 1792281040000,
+    "segments": [
+     {
+      "start": 1792280230000,
+      "end": 1792281040000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03",
+     "sha": "c616dac10715928a7302632ef8d240cda66cd0ea"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": "gate log: a run answered wholly by the green cache writes no timings.json and is not shown",
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "script:0a6c108b/2026-10-17T23-37-10Z-41210/1",
+    "kind": "script",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "gate:0a6c108b/2026-10-17T23-37-10Z-41210",
+    "name": "lint",
+    "start": 1792280230000,
+    "end": 1792280252000,
+    "until": 1792280252000,
+    "segments": [
+     {
+      "start": 1792280230000,
+      "end": 1792280252000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "script:0a6c108b/2026-10-17T23-37-10Z-41210/2",
+    "kind": "script",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "gate:0a6c108b/2026-10-17T23-37-10Z-41210",
+    "name": "typecheck",
+    "start": 1792280252000,
+    "end": 1792280257000,
+    "until": 1792280257000,
+    "segments": [
+     {
+      "start": 1792280252000,
+      "end": 1792280257000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "script:0a6c108b/2026-10-17T23-37-10Z-41210/3",
+    "kind": "script",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "gate:0a6c108b/2026-10-17T23-37-10Z-41210",
+    "name": "test",
+    "start": 1792280257000,
+    "end": 1792280558000,
+    "until": 1792280558000,
+    "segments": [
+     {
+      "start": 1792280257000,
+      "end": 1792280558000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "script:0a6c108b/2026-10-17T23-37-10Z-41210/4",
+    "kind": "script",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "gate:0a6c108b/2026-10-17T23-37-10Z-41210",
+    "name": "test:e2e",
+    "start": 1792280558000,
+    "end": 1792280990000,
+    "until": 1792280990000,
+    "segments": [
+     {
+      "start": 1792280558000,
+      "end": 1792280990000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "script:0a6c108b/2026-10-17T23-37-10Z-41210/5",
+    "kind": "script",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "gate:0a6c108b/2026-10-17T23-37-10Z-41210",
+    "name": "test:package",
+    "start": 1792280990000,
+    "end": 1792281040000,
+    "until": 1792281040000,
+    "segments": [
+     {
+      "start": 1792280990000,
+      "end": 1792281040000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/03"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:adb147aa44e4451c4#1",
+    "kind": "agent",
+    "subkind": "verifier",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/07/stage:2",
+    "name": "verify-07",
+    "start": 1792282418412,
+    "end": 1792282746648,
+    "until": 1792282746648,
+    "segments": [
+     {
+      "start": 1792282418412,
+      "end": 1792282746648
+     }
+    ],
+    "outcome": "rejected",
+    "reason": "REJECTED",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "adb147aa44e4451c4",
+     "verdict": "REJECTED"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:a60e687cd0ab6803e#2",
+    "kind": "agent",
+    "subkind": "implementer",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/07/stage:2",
+    "name": "impl-07",
+    "start": 1792282779312,
+    "end": 1792283698262,
+    "until": 1792283698262,
+    "segments": [
+     {
+      "start": 1792282779312,
+      "end": 1792283698262
+     }
+    ],
+    "outcome": "ok",
+    "reason": "after verify-07 rejected",
+    "attempt": 2,
+    "retryOf": "agent:adb147aa44e4451c4#1",
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "a60e687cd0ab6803e",
+     "pr": 460
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:afc1f7e33caf5dcc3#1",
+    "kind": "agent",
+    "subkind": "verifier",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/07/stage:2",
+    "name": "verify-07r2",
+    "start": 1792283717913,
+    "end": 1792283960446,
+    "until": 1792283960446,
+    "segments": [
+     {
+      "start": 1792283717913,
+      "end": 1792283960446
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "afc1f7e33caf5dcc3",
+     "verdict": "VERIFIED"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "gate:a880013a/2026-10-18T00-40-05Z-52344",
+    "kind": "gate",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/07/stage:2",
+    "name": "gate full",
+    "start": 1792284005000,
+    "end": 1792284770000,
+    "until": 1792284770000,
+    "segments": [
+     {
+      "start": 1792284005000,
+      "end": 1792284770000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07",
+     "sha": "c209008d175a1f3207c839566e98ccd2a98febf1"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": "gate log: a run answered wholly by the green cache writes no timings.json and is not shown",
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "script:a880013a/2026-10-18T00-40-05Z-52344/1",
+    "kind": "script",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "gate:a880013a/2026-10-18T00-40-05Z-52344",
+    "name": "lint",
+    "start": 1792284005000,
+    "end": 1792284026000,
+    "until": 1792284026000,
+    "segments": [
+     {
+      "start": 1792284005000,
+      "end": 1792284026000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "script:a880013a/2026-10-18T00-40-05Z-52344/2",
+    "kind": "script",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "gate:a880013a/2026-10-18T00-40-05Z-52344",
+    "name": "typecheck",
+    "start": 1792284026000,
+    "end": 1792284031000,
+    "until": 1792284031000,
+    "segments": [
+     {
+      "start": 1792284026000,
+      "end": 1792284031000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "script:a880013a/2026-10-18T00-40-05Z-52344/3",
+    "kind": "script",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "gate:a880013a/2026-10-18T00-40-05Z-52344",
+    "name": "test",
+    "start": 1792284031000,
+    "end": 1792284321000,
+    "until": 1792284321000,
+    "segments": [
+     {
+      "start": 1792284031000,
+      "end": 1792284321000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "script:a880013a/2026-10-18T00-40-05Z-52344/4",
+    "kind": "script",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "gate:a880013a/2026-10-18T00-40-05Z-52344",
+    "name": "test:e2e",
+    "start": 1792284321000,
+    "end": 1792284725000,
+    "until": 1792284725000,
+    "segments": [
+     {
+      "start": 1792284321000,
+      "end": 1792284725000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "script:a880013a/2026-10-18T00-40-05Z-52344/5",
+    "kind": "script",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "gate:a880013a/2026-10-18T00-40-05Z-52344",
+    "name": "test:package",
+    "start": 1792284725000,
+    "end": 1792284770000,
+    "until": 1792284770000,
+    "segments": [
+     {
+      "start": 1792284725000,
+      "end": 1792284770000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07"
+    },
+    "startSource": "gate-log",
+    "endSource": "gate-log",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "ci:gh-run:39084438682",
+    "kind": "ci",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/07/stage:3",
+    "name": "CI on main",
+    "start": 1792284810000,
+    "end": 1792285889000,
+    "until": 1792285889000,
+    "segments": [
+     {
+      "start": 1792284810000,
+      "end": 1792285889000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/07",
+     "pr": 460,
+     "sha": "62a4c4ab2456d342a243a33de8ee67ea72a161a6"
+    },
+    "startSource": "github",
+    "endSource": "github",
+    "lost": null,
+    "note": "CI on main after the merge",
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:a466b2d852949d8e6#1",
+    "kind": "agent",
+    "subkind": "implementer",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/04/stage:1",
+    "name": "impl-04",
+    "start": 1792286048462,
+    "end": 1792288407678,
+    "until": 1792288407678,
+    "segments": [
+     {
+      "start": 1792286048462,
+      "end": 1792288407678
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/04",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "a466b2d852949d8e6",
+     "pr": 467
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:aecf4b62de8340a93#1",
+    "kind": "agent",
+    "subkind": "implementer",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/05/stage:1",
+    "name": "impl-05",
+    "start": 1792286062597,
+    "end": 1792288889883,
+    "until": 1792288889883,
+    "segments": [
+     {
+      "start": 1792286062597,
+      "end": 1792288889883
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/05",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "aecf4b62de8340a93",
+     "pr": 468
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:a86b9a2c40161ee3c#1",
+    "kind": "agent",
+    "subkind": "verifier",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/04/stage:2",
+    "name": "verify-04",
+    "start": 1792288436493,
+    "end": 1792289452573,
+    "until": 1792289452573,
+    "segments": [
+     {
+      "start": 1792288436493,
+      "end": 1792289452573
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/04",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "a86b9a2c40161ee3c",
+     "verdict": "VERIFIED"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:a710999976a65bea0#1",
+    "kind": "agent",
+    "subkind": "verifier",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/05/stage:2",
+    "name": "verify-05",
+    "start": 1792288918437,
+    "end": 1792289442132,
+    "until": 1792289442132,
+    "segments": [
+     {
+      "start": 1792288918437,
+      "end": 1792289442132
+     }
+    ],
+    "outcome": "rejected",
+    "reason": "REJECTED",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/05",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "a710999976a65bea0",
+     "verdict": "REJECTED"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:aecf4b62de8340a93#2",
+    "kind": "agent",
+    "subkind": "implementer",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/05/stage:2",
+    "name": "impl-05",
+    "start": 1792289585315,
+    "end": 1792290996433,
+    "until": 1792290996433,
+    "segments": [
+     {
+      "start": 1792289585315,
+      "end": 1792290996433
+     }
+    ],
+    "outcome": "ok",
+    "reason": "after verify-05 rejected",
+    "attempt": 2,
+    "retryOf": "agent:a710999976a65bea0#1",
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/05",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "aecf4b62de8340a93",
+     "pr": 468
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:a466b2d852949d8e6#2",
+    "kind": "agent",
+    "subkind": "implementer",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/04/stage:2",
+    "name": "impl-04",
+    "start": 1792290279557,
+    "end": 1792291064365,
+    "until": 1792291064365,
+    "segments": [
+     {
+      "start": 1792290279557,
+      "end": 1792291064365
+     }
+    ],
+    "outcome": "ok",
+    "reason": "after impl-04",
+    "attempt": 2,
+    "retryOf": "agent:a466b2d852949d8e6#1",
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/04",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "a466b2d852949d8e6",
+     "pr": 467
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:a782351206c4b1fd3#1",
+    "kind": "agent",
+    "subkind": "verifier",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/05/stage:2",
+    "name": "verify-05-r2",
+    "start": 1792291034434,
+    "end": 1792291309492,
+    "until": 1792291309492,
+    "segments": [
+     {
+      "start": 1792291034434,
+      "end": 1792291309492
+     }
+    ],
+    "outcome": "rejected",
+    "reason": "REJECTED: пункт 1 первого круга (обрезанное имя Stage) исправлен не до конца. Во втором кейсе этого …[cut]",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/05",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "a782351206c4b1fd3",
+     "verdict": "REJECTED"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "agent:a32cc88c3f121f70a#1",
+    "kind": "agent",
+    "subkind": "verifier",
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/04/stage:2",
+    "name": "verify-04-r2",
+    "start": 1792291097284,
+    "end": 1792291670488,
+    "until": 1792291670488,
+    "segments": [
+     {
+      "start": 1792291097284,
+      "end": 1792291670488
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/04",
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a",
+     "agent": "a32cc88c3f121f70a",
+     "verdict": "VERIFIED"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "ci:gh-run:39092198641",
+    "kind": "ci",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/04/stage:3",
+    "name": "CI on main",
+    "start": 1792292541000,
+    "end": 1792293326000,
+    "until": 1792293326000,
+    "segments": [
+     {
+      "start": 1792292541000,
+      "end": 1792293326000
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/04",
+     "pr": 467,
+     "sha": "e074b41f7f1ed5fd641b2595fee051fbfab3ae93"
+    },
+    "startSource": "github",
+    "endSource": "github",
+    "lost": null,
+    "note": "CI on main after the merge",
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "wait:background-tasks:1",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792276320533,
+    "end": 1792279350560,
+    "until": 1792279350560,
+    "segments": [
+     {
+      "start": 1792276320533,
+      "end": 1792279350560
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Implement worfy-pipeline ticket 03",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03",
+      "worfy-pipeline/07"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:2",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792279384756,
+    "end": 1792279719566,
+    "until": 1792279719566,
+    "segments": [
+     {
+      "start": 1792279384756,
+      "end": 1792279719566
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Verify worfy-pipeline ticket 03 PR; Run gate fast in worktree, save log",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03",
+      "worfy-pipeline/07"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:3",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792279766508,
+    "end": 1792282371975,
+    "until": 1792282371975,
+    "segments": [
+     {
+      "start": 1792279766508,
+      "end": 1792282371975
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Rebase, gate full and merge PR 457; Implement worfy-pipeline ticket 07; Log CI dispatch and wait for the CI run",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03",
+      "worfy-pipeline/07"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:4",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792282418417,
+    "end": 1792282746647,
+    "until": 1792282746647,
+    "segments": [
+     {
+      "start": 1792282418417,
+      "end": 1792282746647
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Verify worfy-pipeline ticket 07 PR",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03",
+      "worfy-pipeline/07"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:5",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792282779330,
+    "end": 1792283698262,
+    "until": 1792283698262,
+    "segments": [
+     {
+      "start": 1792282779330,
+      "end": 1792283698262
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Implement worfy-pipeline ticket 07",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03",
+      "worfy-pipeline/07"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:6",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792283717924,
+    "end": 1792283960445,
+    "until": 1792283960445,
+    "segments": [
+     {
+      "start": 1792283717924,
+      "end": 1792283960445
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Second-round verify of ticket 07",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03",
+      "worfy-pipeline/07"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:7",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792283981553,
+    "end": 1792284789249,
+    "until": 1792284789249,
+    "segments": [
+     {
+      "start": 1792283981553,
+      "end": 1792284789249
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Rebase, gate full and merge PR 460",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03",
+      "worfy-pipeline/07"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:8",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792285458779,
+    "end": 1792285897826,
+    "until": 1792285897826,
+    "segments": [
+     {
+      "start": 1792285458779,
+      "end": 1792285897826
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Wait for the second batch CI run",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03",
+      "worfy-pipeline/07"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:9",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792285935583,
+    "end": 1792285942144,
+    "until": 1792285942144,
+    "segments": [
+     {
+      "start": 1792285935583,
+      "end": 1792285942144
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Merge the docs PR under the main lock",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03",
+      "worfy-pipeline/07"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:10",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792286048468,
+    "end": 1792289452573,
+    "until": 1792289452573,
+    "segments": [
+     {
+      "start": 1792286048468,
+      "end": 1792289452573
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Implement worfy-pipeline ticket 04; Implement worfy-pipeline ticket 05; Verify worfy-pipeline ticket 04 PR; Verify and gate fast after rebase; Verify worfy-pipeline ticket 05 PR; Run branch e2e specs and main migrate spec under lock; Run the ad-hoc focus e2e under lock",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/04",
+      "worfy-pipeline/05"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:11",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792289585341,
+    "end": 1792291670487,
+    "until": 1792291670487,
+    "segments": [
+     {
+      "start": 1792289585341,
+      "end": 1792291670487
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Implement worfy-pipeline ticket 05; Merge PR #467 after rebase and full gate; Implement worfy-pipeline ticket 04; Run harness-scripts alone and gate fast; Second-round verify of ticket 05; Verify ticket 04 pre-merge fix",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/04",
+      "worfy-pipeline/05"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:12",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792291694202,
+    "end": 1792292513689,
+    "until": 1792292513689,
+    "segments": [
+     {
+      "start": 1792291694202,
+      "end": 1792292513689
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Retry merge of PR #467 with full gate",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/04",
+      "worfy-pipeline/05"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "wait:background-tasks:13",
+    "kind": "wait",
+    "subkind": null,
+    "lane": "wait",
+    "parent": "run",
+    "name": "background-tasks",
+    "start": 1792292549969,
+    "end": 1792293336248,
+    "until": 1792293336248,
+    "segments": [
+     {
+      "start": 1792292549969,
+      "end": 1792293336248
+     }
+    ],
+    "outcome": "ok",
+    "reason": "background-tasks: Wait for the batch CI run",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/04",
+      "worfy-pipeline/05"
+     ]
+    },
+    "startSource": "journal",
+    "endSource": "journal",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": "background-tasks"
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:1",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792276173907,
+    "end": 1792276334158,
+    "until": 1792276334158,
+    "segments": [
+     {
+      "start": 1792276173907,
+      "end": 1792276334158
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:2",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792279350612,
+    "end": 1792279392534,
+    "until": 1792279392534,
+    "segments": [
+     {
+      "start": 1792279350612,
+      "end": 1792279392534
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:3",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792279719572,
+    "end": 1792279813952,
+    "until": 1792279813952,
+    "segments": [
+     {
+      "start": 1792279719572,
+      "end": 1792279813952
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/03",
+      "worfy-pipeline/07"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:4",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792281081191,
+    "end": 1792281721736,
+    "until": 1792281721736,
+    "segments": [
+     {
+      "start": 1792281081191,
+      "end": 1792281721736
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:5",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792282058420,
+    "end": 1792282075078,
+    "until": 1792282075078,
+    "segments": [
+     {
+      "start": 1792282058420,
+      "end": 1792282075078
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/07"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:6",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792282372018,
+    "end": 1792282427291,
+    "until": 1792282427291,
+    "segments": [
+     {
+      "start": 1792282372018,
+      "end": 1792282427291
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/07"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:7",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792282746716,
+    "end": 1792282791294,
+    "until": 1792282791294,
+    "segments": [
+     {
+      "start": 1792282746716,
+      "end": 1792282791294
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/07"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:8",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792283698349,
+    "end": 1792283725601,
+    "until": 1792283725601,
+    "segments": [
+     {
+      "start": 1792283698349,
+      "end": 1792283725601
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/07"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:9",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792283960509,
+    "end": 1792283988468,
+    "until": 1792283988468,
+    "segments": [
+     {
+      "start": 1792283960509,
+      "end": 1792283988468
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/07"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:10",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792284789351,
+    "end": 1792285469508,
+    "until": 1792285469508,
+    "segments": [
+     {
+      "start": 1792284789351,
+      "end": 1792285469508
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:11",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792285897906,
+    "end": 1792285940600,
+    "until": 1792285940600,
+    "segments": [
+     {
+      "start": 1792285897906,
+      "end": 1792285940600
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:12",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792285941185,
+    "end": 1792285979546,
+    "until": 1792285979546,
+    "segments": [
+     {
+      "start": 1792285941185,
+      "end": 1792285979546
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:13",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792285982513,
+    "end": 1792287578090,
+    "until": 1792287578090,
+    "segments": [
+     {
+      "start": 1792285982513,
+      "end": 1792287578090
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/04",
+      "worfy-pipeline/05"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:14",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792288407741,
+    "end": 1792288446264,
+    "until": 1792288446264,
+    "segments": [
+     {
+      "start": 1792288407741,
+      "end": 1792288446264
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/04",
+      "worfy-pipeline/05"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:15",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792288889918,
+    "end": 1792288925983,
+    "until": 1792288925983,
+    "segments": [
+     {
+      "start": 1792288889918,
+      "end": 1792288925983
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/05"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:16",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792289442204,
+    "end": 1792289442204,
+    "until": 1792289442204,
+    "segments": [],
+    "outcome": "cut-off",
+    "reason": "no end in sources",
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/05",
+      "worfy-pipeline/04"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": null,
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:17",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792289509842,
+    "end": 1792289607933,
+    "until": 1792289607933,
+    "segments": [
+     {
+      "start": 1792289509842,
+      "end": 1792289607933
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/04",
+      "worfy-pipeline/05"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:18",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792290221688,
+    "end": 1792290288630,
+    "until": 1792290288630,
+    "segments": [
+     {
+      "start": 1792290221688,
+      "end": 1792290288630
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/04",
+      "worfy-pipeline/05"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:19",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792290996477,
+    "end": 1792291043311,
+    "until": 1792291043311,
+    "segments": [
+     {
+      "start": 1792290996477,
+      "end": 1792291043311
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/05",
+      "worfy-pipeline/04"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:20",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792291064402,
+    "end": 1792291107487,
+    "until": 1792291107487,
+    "segments": [
+     {
+      "start": 1792291064402,
+      "end": 1792291107487
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/04",
+      "worfy-pipeline/05"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:21",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792291309499,
+    "end": 1792291360273,
+    "until": 1792291360273,
+    "segments": [
+     {
+      "start": 1792291309499,
+      "end": 1792291360273
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/05",
+      "worfy-pipeline/04"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:22",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792291670532,
+    "end": 1792291703590,
+    "until": 1792291703590,
+    "segments": [
+     {
+      "start": 1792291670532,
+      "end": 1792291703590
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [
+      "worfy-pipeline/04"
+     ],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:23",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792292513714,
+    "end": 1792292644131,
+    "until": 1792292644131,
+    "segments": [
+     {
+      "start": 1792292513714,
+      "end": 1792292644131
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "turn:f6ab7045-416c-471a-a78d-433567aefa5a:24",
+    "kind": "orchestrator-turn",
+    "subkind": null,
+    "lane": "orchestrator",
+    "parent": "run",
+    "name": "Orchestrator",
+    "start": 1792293336323,
+    "end": 1792293453054,
+    "until": 1792293453054,
+    "segments": [
+     {
+      "start": 1792293336323,
+      "end": 1792293453054
+     }
+    ],
+    "outcome": "ok",
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "tickets": [],
+     "session": "f6ab7045-416c-471a-a78d-433567aefa5a"
+    },
+    "startSource": "transcript",
+    "endSource": "transcript",
+    "lost": null,
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "lost:1",
+    "kind": "gate",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/04",
+    "name": "gate",
+    "start": 1792285982542,
+    "end": 1792293454592,
+    "until": 1792293454592,
+    "segments": [
+     {
+      "start": 1792285982542,
+      "end": 1792293454592,
+      "wave": 2
+     }
+    ],
+    "outcome": null,
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/04"
+    },
+    "startSource": null,
+    "endSource": null,
+    "lost": "gate-logs-deleted",
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   },
+   {
+    "id": "lost:2",
+    "kind": "gate",
+    "subkind": null,
+    "lane": "tree",
+    "parent": "ticket:worfy-pipeline/05",
+    "name": "gate",
+    "start": 1792285982542,
+    "end": 1792293454592,
+    "until": 1792293454592,
+    "segments": [
+     {
+      "start": 1792285982542,
+      "end": 1792293454592,
+      "wave": 2
+     }
+    ],
+    "outcome": null,
+    "reason": null,
+    "attempt": 1,
+    "retryOf": null,
+    "links": {
+     "run": "2026-10-17T22-29-32-707Z-58e783",
+     "ticket": "worfy-pipeline/05"
+    },
+    "startSource": null,
+    "endSource": null,
+    "lost": "gate-logs-deleted",
+    "note": null,
+    "stages": [],
+    "waitCause": null
+   }
+  ],
+  "blocks": [],
+  "orchestratorMarks": []
+ },
+ "summary": {
+  "topStages": [
+   {
+    "spanId": "ticket:worfy-pipeline/03/stage:3",
+    "ticket": "worfy-pipeline/03",
+    "name": "Closing",
+    "attempt": 1,
+    "selfTime": 4902175,
+    "duration": 4902175
+   },
+   {
+    "spanId": "ticket:worfy-pipeline/07/stage:1",
+    "ticket": "worfy-pipeline/07",
+    "name": "Implementing + CI",
+    "attempt": 1,
+    "selfTime": 3626722,
+    "duration": 6140121
+   },
+   {
+    "spanId": "ticket:worfy-pipeline/05/stage:2",
+    "ticket": "worfy-pipeline/05",
+    "name": "Agent review",
+    "attempt": 1,
+    "selfTime": 2394721,
+    "duration": 4604592
+   }
+  ],
+  "waits": [
+   {
+    "cause": "background-tasks",
+    "total": 921911,
+    "share": 0.05334551178878924
+   }
+  ],
+  "work": [
+   {
+    "subkind": "implementer",
+    "total": 13902788,
+    "count": 7
+   },
+   {
+    "subkind": "verifier",
+    "total": 3293626,
+    "count": 7
+   },
+   {
+    "subkind": "ci",
+    "total": 1864000,
+    "count": 2
+   },
+   {
+    "subkind": "gate",
+    "total": 1575000,
+    "count": 2
+   },
+   {
+    "subkind": "other",
+    "total": 36031,
+    "count": 1
+   }
+  ],
+  "workNote": "summed; parallel",
+  "runDuration": 17281885
+ },
+ "github": {
+  "state": "answered",
+  "at": 1793527200000,
+  "account": "owner",
+  "accountReason": null
+ },
+ "profileReason": null,
+ "skippedLines": 0,
+ "error": null
+}

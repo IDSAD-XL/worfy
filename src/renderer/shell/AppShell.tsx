@@ -21,6 +21,8 @@ export interface AppShellProps {
   session?: ReactNode
   /** Content of the Pipeline view: the board of the active Project (worfy-pipeline ticket 04). */
   pipeline?: ReactNode
+  /** Content of the Run history view: the timeline of an Autopilot Run (worfy-flight-recorder ticket 18). */
+  history?: ReactNode
   /**
    * The view on screen, when the caller decides it (main.tsx: a double click on a Session's Node
    * opens the Session view). Without it the shell keeps the view itself.
@@ -59,11 +61,11 @@ class SidebarFocusKeeper extends Component<{ visible: boolean; shell: RefObject<
   }
 }
 
-/** The name of the main area for each view, as its tab in the toolbar says it. */
-const VIEW_NAMES: Record<ShellView, string> = { canvas: 'Canvas', session: 'Session', pipeline: 'Pipeline' }
+/** The name of the main area for each view, as its tab in the toolbar says it (Run history has no tab). */
+const VIEW_NAMES: Record<ShellView, string> = { canvas: 'Canvas', session: 'Session', pipeline: 'Pipeline', history: 'Run history' }
 
 /** The window of design F: sidebar, unified toolbar and the main area under it. */
-export function AppShell({ project, canvas, session, pipeline, view: controlledView, onViewChange }: AppShellProps) {
+export function AppShell({ project, canvas, session, pipeline, history, view: controlledView, onViewChange }: AppShellProps) {
   const [ownView, setOwnView] = useState<ShellView>('canvas')
   const view = controlledView ?? ownView
   const setView = (next: ShellView) => {
@@ -101,6 +103,9 @@ export function AppShell({ project, canvas, session, pipeline, view: controlledV
           </div>
           <div className="w-shell__view" data-view="pipeline" hidden={view !== 'pipeline'}>
             {pipeline}
+          </div>
+          <div className="w-shell__view" data-view="history" hidden={view !== 'history'}>
+            {history}
           </div>
         </main>
       </div>

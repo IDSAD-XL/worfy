@@ -8,7 +8,11 @@ import { SidebarToggle } from './sidebar-visibility'
 // switch and the command palette field; this file never changes when an item is added.
 const items = collectExtensions(import.meta.glob('./toolbar/*.tsx', { eager: true }))
 
-export type ShellView = 'canvas' | 'session' | 'pipeline'
+/**
+ * The views of the main area. `history` — the Run history of Flight Recorder
+ * (flight-recorder/RunHistoryView.tsx) — has no tab here: its entries open it, Esc leaves it.
+ */
+export type ShellView = 'canvas' | 'session' | 'pipeline' | 'history'
 
 /** The Project the window shows. Until Projects exist (ticket 04) the toolbar shows none. */
 export interface ToolbarProject {
