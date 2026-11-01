@@ -23,7 +23,8 @@ export interface WaveEstimate {
 }
 
 type Window = NonNullable<JournalLimits['seven_day']>
-type WaveLine = Extract<JournalEvent, { kind: 'wave-started' | 'wave-finished' }>
+/** A wave-started or wave-finished line of a run's journal. */
+export type WaveLine = Extract<JournalEvent, { kind: 'wave-started' | 'wave-finished' }>
 
 /** The 7-day window of a line, when its number is fresh at the line's time. */
 function freshWeek(line: WaveLine): (Window & { utilization: number }) | null {
@@ -34,11 +35,12 @@ function freshWeek(line: WaveLine): (Window & { utilization: number }) | null {
 }
 
 /**
- * The growth per Ticket of one Wave, or null when it gives no sample. A reset inside the Wave: the
+ * The growth of the 7-day share over one Wave (its sample times its Tickets), or null when the
+ * Wave gives no sample: an old number at either end, no Tickets, or a reset inside the Wave — the
  * reset times of the two ends further apart than one window's rounding (SAME_WINDOW_RESET_GAP_S),
  * the start's reset time at or before the end, or a share that fell.
  */
-function sample(started: WaveLine, finished: WaveLine): number | null {
+export function waveGrowth(started: WaveLine, finished: WaveLine): number | null {
   const from = freshWeek(started)
   const to = freshWeek(finished)
   if (from === null || to === null || started.tickets.length === 0) return null
@@ -48,7 +50,13 @@ function sample(started: WaveLine, finished: WaveLine): number | null {
     if (resets <= Date.parse(finished.at)) return null
     if (to.resetsAt !== null && Math.abs(Date.parse(to.resetsAt) - resets) > SAME_WINDOW_RESET_GAP_S * 1000) return null
   }
-  return (to.utilization - from.utilization) / started.tickets.length
+  return to.utilization - from.utilization
+}
+
+/** The growth per Ticket of one Wave, or null when it gives no sample (waveGrowth). */
+function sample(started: WaveLine, finished: WaveLine): number | null {
+  const growth = waveGrowth(started, finished)
+  return growth === null ? null : growth / started.tickets.length
 }
 
 function median(values: readonly number[]): number {
@@ -57,8 +65,12 @@ function median(values: readonly number[]): number {
   return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2
 }
 
-/** The estimate from the events of each past run (one list per journal file), or null when too few Waves count. */
-export function waveEstimate(runs: readonly (readonly JournalEvent[])[]): WaveEstimate | null {
+/**
+ * The per-Ticket samples of the last ESTIMATE_WAVES Waves that give one, oldest first, from the
+ * events of each past run (one list per journal file). The Epic forecast draws from them
+ * (forecast.ts, worfy-resource-planner ticket 01).
+ */
+export function waveSamples(runs: readonly (readonly JournalEvent[])[]): number[] {
   const samples: { at: number; perTicket: number }[] = []
   for (const events of runs) {
     const started = new Map<number, WaveLine>()
@@ -72,9 +84,17 @@ export function waveEstimate(runs: readonly (readonly JournalEvent[])[]): WaveEs
       }
     }
   }
-  const last = samples.sort((a, b) => a.at - b.at).slice(-ESTIMATE_WAVES)
+  return samples
+    .sort((a, b) => a.at - b.at)
+    .slice(-ESTIMATE_WAVES)
+    .map((each) => each.perTicket)
+}
+
+/** The estimate from the events of each past run (one list per journal file), or null when too few Waves count. */
+export function waveEstimate(runs: readonly (readonly JournalEvent[])[]): WaveEstimate | null {
+  const last = waveSamples(runs)
   if (last.length < ESTIMATE_MIN_WAVES) return null
-  return { perTicket: median(last.map((each) => each.perTicket)), waves: last.length }
+  return { perTicket: median(last), waves: last.length }
 }
 
 /** The 7-day window as the hint needs it: the share 0..1 and the reset in Unix seconds, each null when unknown. */
