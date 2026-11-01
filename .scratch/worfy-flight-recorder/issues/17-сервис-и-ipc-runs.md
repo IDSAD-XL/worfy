@@ -1,7 +1,8 @@
 # 17 — Сервис и IPC `runs`
 
 Type: task
-Status: claimed 2026-11-01T05:51Z
+Status: done 2026-11-01T11:06Z
+PR: #1198
 Blocked by: 13, 14, 15, 16
 Source: [spec.md](../spec.md), «Экран» («Живая шкала», «Link»), «Модель» (шкала вычисляется при открытии), «Ticket-ы» (17), «Риски», п. 3 и 6, «Соглашения для Ticket-ов этого Epic-а» (глубина ревью `high`), «Готово, когда» (живая шкала; «Retry»); решение 01, Q4, Q7 ([01-destination-единица-истории-хранение-id.md](01-destination-единица-истории-хранение-id.md)); решение 07 ([07-живая-шкала-или-после-остановки.md](07-живая-шкала-или-после-остановки.md)); решение 08, Q7 ([08-неполная-история.md](08-неполная-история.md)); [ADR-0006](../../../docs/adr/0006-ipc-contract-by-declaration-merging.md); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
 

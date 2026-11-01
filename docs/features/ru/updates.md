@@ -162,6 +162,12 @@ GitHub», ссылка на страницу сравнения. Номера и
 - Перезапуску нужен `node.exe` в Path. Один `node.cmd` отказывается: «the node found is no program worfy can start by
   itself (node.exe)».
 - Clone берёт байты `main` как есть (`core.autocrlf` выключен), что бы ни просил Git for Windows.
+- `pnpm package` пишет ещё и неподписанный установщик, `dist\worfy Setup <version>.exe`, который ставит worfy в
+  `%LOCALAPPDATA%\Programs\worfy`; перед его первым запуском спрашивает SmartScreen (More info → Run anyway). Установщик
+  останавливает каждую запущенную программу, путь которой начинается с этой папки, поэтому `pnpm install:stable`
+  отказывается от цели внутри неё, вокруг неё или с путём, который начинается с её пути (`…\Programs\worfy-stable`), от
+  папки, где лежит `Uninstall worfy.exe`, и от папки, которая не пуста и не прежняя копия. Папка с `worfy.exe` считается
+  прежней копией и заменяется целиком: не держите в ней ничего своего.
 
 #### On a Linked machine
 
@@ -189,6 +195,9 @@ Update принадлежит Machine, на которой запущен. Вс�
   ([ADR-0089](../../adr/0089-update-builds-main-in-own-clone.md), пункт 5).
 - **Одна прежняя копия.** Замена хранит заменённую копию как прежнюю и удаляет ту, что хранилась до неё. Ручной `pnpm
   install:stable` прежней не хранит: он, как раньше, удаляет копию, которую заменяет.
+- **Временные папки рядом с целью.** Пока `pnpm install:stable` работает, он держит рядом с целью
+  `<target>.installing-<pid>` и `<target>.replaced-<pid>`, а следующий запуск убирает то, что оставил прерванный; не
+  держите ничего своего под такими именами.
 - **Не здесь: подписанные сборки.** GitHub Releases, `electron-updater`, подпись Developer ID, нотаризация Apple и
   подпись установщика Windows остаются в E4 [roadmap](../../roadmap.md)
   ([ADR-0089](../../adr/0089-update-builds-main-in-own-clone.md), пункт 8;

@@ -121,6 +121,27 @@ with one exception: when the registry cannot be read, for example because a poli
 only those session variables, the `Path` of worfy's process and, when Git Bash is found, `CLAUDE_CODE_GIT_BASH_PATH`, the
 variable through which Claude Code gets Git Bash for its Bash tool.
 
+#### Closing a Terminal
+
+Closing a Terminal Node on Windows ends every process that is below the shell in the process tree at that moment, not
+only the shell. worfy first ends each process below the shell (`Stop-Process -Force`), then closes the pseudo-console,
+which ends the shell and what is on its console. That includes programs with a window of their own started from the
+Terminal, an editor for example: they are ended at once and get no request to close, so what was not saved in them is
+lost. worfy does not ask before it closes a Terminal. The tree is walked from the shell down through parents that are
+still running: a program whose parent has already exited, one started through a launcher or `cmd /c start` for example,
+is not found and stays, unless it is on the console of the shell.
+
+The same happens when the Node leaves the Layout by any other route, when its Project is removed from worfy, when the
+last window or Linked machine that opened the Terminal goes away, and when worfy quits. A program worfy cannot end, an
+elevated one for example, stays, and its pid goes to the log. The step that ends the processes below the shell has a
+limit of 3 seconds, and 4.5 seconds for Git Bash, which first gets a hangup signal and 1.5 seconds to exit; when it
+fails or reaches its limit, the processes it had not ended stay. When no process has the pid of the shell any more, or
+the one that has it was created later than the shell worfy started, worfy ends nothing below it. In each of these cases
+the pseudo-console is still closed.
+
+On macOS closing a Terminal sends SIGHUP to the shell and its process group, and SIGKILL a second later when the shell
+has not exited by then.
+
 ### Implementation
 
 | What | Where |

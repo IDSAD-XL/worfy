@@ -1,7 +1,8 @@
 # 01 — Прогноз Epic-а: ядро
 
 Type: task
-Status: claimed 2026-11-01T08:33Z
+Status: done 2026-11-01T11:06Z
+PR: #1206
 Branch: worfy-resource-planner/01
 Blocked by: —
 Source: [spec.md](../spec.md), «Решения» (Q4, Q5, Q8, Q17), «Прогноз Epic-а» («Выборки на Ticket», «Что осталось», «Bootstrap»), «Не решено» (выбрано без решения, п. 5, 7), «Соглашения для Ticket-ов этого Epic-а»; [ADR-0093](../../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md), п. 4
