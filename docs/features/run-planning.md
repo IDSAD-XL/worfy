@@ -189,6 +189,16 @@ A run journals its forecast once, at its start, in a `forecast` line, and the sh
 the `actual` field of `run-stopped`. `run-started` names the mode, and each wait for the Start window is a
 `start-window` line. The [Autopilot](autopilot.md) page lists every line of the journal.
 
+#### The forecast and the actual share in Run history
+
+The header of a run on the [Run history](flight-recorder.md) screen names its mode, `Mode Budget-aware`, and sets the
+forecast beside the actual share: `Forecast 18–31% · actual 24%`. A forecast with too few samples reads
+`Forecast: not enough data`. The actual reads `actual: unknown` while the run goes on, when it stopped before any Wave
+finished, and when no finished Wave counted. When fewer Waves counted than finished, a tooltip says how many:
+`Actual counts 3 of 4 Waves`, and that a Wave counts only with fresh Limits at both ends and no week reset inside it.
+A run journaled before the forecast existed shows neither the mode nor this line. The percents are whole, rounded the
+way the forecast lines round them. The advice of K is not shown here.
+
 ### How it works
 
 **The mode acts only at the boundary of a Wave.** An interrupted Ticket would leave its worktree and branch in the
@@ -271,6 +281,7 @@ statistics file of its own.
 | `src/shared/autopilot/budget.ts` | The budget and its decision before a Wave, and the words of a budget stop. Pure. |
 | `src/main/autopilot/run.ts` | The run: the mode set at the start, the check at the boundary of a Wave, the waits, the `forecast` line and `actual`. |
 | `src/main/autopilot/chat-confirm.ts` | The dialog of `autopilot_start`: the forecast lines and one start button per mode. |
+| `src/renderer/flight-recorder/RunHistoryView.tsx` | The header of a run in Run history: the mode, the forecast and the actual share. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | The tooltip of the **Autopilot** button: the mode, the forecast and its advice. |
 | `src/shared/ipc/autopilot.ts` | `autopilotStatusLine`: the status lines of the waits. |
 | `src/renderer/settings/AutopilotSection.tsx` | Settings → Autopilot. |
@@ -288,6 +299,8 @@ statistics file of its own.
 4. Before each Wave, `sendWave` asks the usage, then the boundary check by the mode. A wait writes `start-window` or
    `budget-stop` and `waiting-until`, and schedules the same step again at its time, after `resumed`.
 5. Each `wave-finished` adds to `actual`, and `run-stopped` carries it.
+6. Run history reads the mode, the forecast range and `actual` from the journal and gets them in the run's entry of
+   `runs.list`, as it gets who started the run.
 
 #### Tests
 
@@ -307,4 +320,7 @@ zone for the days the clocks change.
 | `test/unit/settings-autopilot.test.tsx` | Settings → Autopilot. |
 | `test/contract/autopilot-limits.test.ts` | The waits for the budget and the Start window, `window-too-short`, the 5-hour window and its absence, with a clock the test moves. |
 | `test/contract/autopilot-start-tool.test.ts` | The mode buttons of the dialog and its forecast lines. |
+| `test/unit/flight-recorder-view.test.tsx` | The header of Run history: the mode, the forecast beside the actual, `not enough data`, `actual: unknown`, the tooltip of the counted Waves. |
+| `test/contract/flight-recorder-run-by.test.ts` | The mode, the forecast range and `actual` in `runs.list`, and null for an older journal. |
+| `test/e2e/flight-recorder.spec.ts` | The built app: the header of a run in the Start window mode with its forecast and actual, and its wait on the Wait lane. |
 | `test/e2e/autopilot.spec.ts` | The built app: the wait outside the Start window and a Stop during it, the forecast in the tooltip in each mode. |

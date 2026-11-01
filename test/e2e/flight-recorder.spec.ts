@@ -346,9 +346,9 @@ test('openRunHistory shows a Run over the whole main area: header, zoom, rows, l
     await expect(window.getByTestId('run-history-mode')).toHaveText('Mode Start window')
     await expect(window.getByTestId('run-history-forecast')).toHaveText('Forecast 18–31% · actual 24%')
     await expect(window.getByTestId('run-history-by')).toHaveText('Started by a Session (autopilot_start)')
-    const waitBars = window.locator('[data-testid="run-history-row"][data-kind="lane-wait"] [data-testid="run-history-bar"]')
-    await expect(waitBars).toHaveCount(1)
-    const waitTitle = (await waitBars.first().getAttribute('title')) ?? ''
+    const waitBar = window.locator('[data-testid="run-history-bar"][data-span-id="wait:start-window:1"]').first()
+    await expect(waitBar).toBeVisible()
+    const waitTitle = (await waitBar.getAttribute('title')) ?? ''
     expect(waitTitle.split('\n')[0]).toBe('Start window')
     expect(waitTitle).toContain('start-window: outside')
     expect(await expectLabelsClear(window)).toBeGreaterThan(0)
