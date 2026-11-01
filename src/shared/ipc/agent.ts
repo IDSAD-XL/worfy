@@ -18,6 +18,9 @@
 //
 // worfy-ui ticket 17: Claude Code's questions with answer options arrive as a `question_request`
 // event and `agent.answerQuestion` answers them.
+//
+// worfy-flight-recorder ticket 22: an Autopilot command typed in a chat starts Autopilot instead of
+// reaching the agent, and `agent.send` answers what became of it.
 import { z } from 'zod'
 import { attachmentSchema, attachmentSourceSchema, attachResultSchema, MAX_ATTACHMENTS } from '../agent/attachments'
 import { slashCommandSchema } from '../agent/commands'
@@ -42,12 +45,24 @@ export const agentStart = invokeChannel(
   'write',
 )
 
+/**
+ * What became of an Autopilot command typed in a chat (worfy-flight-recorder ticket 22): the run
+ * started, it starts after the Orchestrator's turn, or it was refused; `message` says it in words.
+ */
+export const chatCommandAnswerSchema = z.object({ kind: z.enum(['started', 'after-turn', 'refused']), epic: z.string(), message: z.string() })
+export type ChatCommandAnswer = z.infer<typeof chatCommandAnswerSchema>
+
+/**
+ * Sends a message the person typed. A message that is an Autopilot command (`/worfy:epic-wave …`,
+ * src/shared/autopilot/chat-command.ts) does not reach the agent: it starts Autopilot, and the
+ * answer says what became of it. Any other message answers nothing.
+ */
 export const agentSend = invokeChannel(
   'agent.send',
   z
     .object({ sessionId, text: z.string(), attachments: z.array(attachmentSchema).max(MAX_ATTACHMENTS).default([]) })
     .refine((message) => message.text.trim() !== '' || message.attachments.length > 0, 'the message is empty'),
-  z.void(),
+  z.object({ autopilot: chatCommandAnswerSchema }).optional(),
   'project',
   'write',
 )

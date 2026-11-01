@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type FormEvent } from 'react'
 import type { AgentEvent } from '../../../shared/agent/events'
+import { chatCommandToast } from '../../../shared/autopilot/chat-command'
 import { TRANSCRIPT_WINDOW_BYTES } from '../../../shared/ipc/claude-home'
 import type { ProjectView } from '../../../shared/ipc/projects'
 import type { WorfySessionNodeData } from '../../../shared/ipc/sessions'
@@ -26,6 +27,7 @@ import { openSession } from '../../session/navigation'
 import { isRunning, useSessionNodeView } from '../../session/node-sessions'
 import { useSessionLog } from '../../session/store'
 import { StatusChip, type Status } from '../../theme/primitives'
+import { showToast } from '../../toast/toasts'
 import { badges, type SlotSubject } from '../badges'
 import { KIND, type NodeKindColour } from '../kind-colours'
 import { KindBand, KindIcon } from '../kind-icons'
@@ -299,6 +301,8 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
         // The transcript shows the message when main gives it to Claude Code (a `prompt` event).
         const result = await invoke('agent.send', { sessionId, text, attachments: attached.map((chip) => chip.attachment) })
         if (!result.ok) failure = { named: false, problem: result.error }
+        // An Autopilot command started Autopilot, or was refused, instead of reaching the agent (worfy-flight-recorder ticket 22).
+        else if (result.value?.autopilot) showToast(chatCommandToast(result.value.autopilot))
       }
     } catch (error) {
       failure = { named: false, problem: error instanceof Error ? error.message : String(error) }

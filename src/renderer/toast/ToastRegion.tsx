@@ -3,7 +3,7 @@
 // and the Settings window (toast.css), at the right edge of the window. Its height in that column is
 // measured, not fixed: while a toast is shown, the region finds what the user works with there —
 // the toolbar, a view's header with its buttons (focus mode, a focused Ticket, the Session view, an
-// ADR), an open popup (the Command palette, Settings, a menu) — and puts the stack into the first
+// ADR, an Epic frame on the Canvas), an open popup (the Command palette, Settings, a menu) — and puts the stack into the first
 // free band from the top that holds it (placement.ts). An element marks itself with
 // `data-toast-keep-out` (the toolbar, the headers, the Session's message field with Send); a dialog
 // or a menu is kept clear of without a mark, unless it says `data-toast-over` (the ADR panel, a

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentEvent } from '../../shared/agent/events'
+import { chatCommandToast } from '../../shared/autopilot/chat-command'
 import { ORCHESTRATOR_KIND, readOrchestratorData } from '../../shared/ipc/orchestrator'
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
@@ -8,6 +9,7 @@ import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useProjects, useReadOnly } from '../projects/useProjects'
 import { StatusChip } from '../theme/primitives'
+import { showToast } from '../toast/toasts'
 import { formatCost, permissionLabel, STATE_CHIPS } from './format'
 import { promptHistory } from './history'
 import { ExternalSessionPanel } from './ExternalSessionPanel'
@@ -211,7 +213,10 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const send = async ({ text, attachments }: OutgoingMessage): Promise<string | null> => {
     if (sessionId === null) return 'The Session is not running'
     const result = await invoke('agent.send', { sessionId, text, ...(attachments.length > 0 ? { attachments } : {}) })
-    return result.ok ? null : result.error
+    if (!result.ok) return result.error
+    // An Autopilot command started Autopilot, or was refused, instead of reaching the agent (worfy-flight-recorder ticket 22).
+    if (result.value?.autopilot) showToast(chatCommandToast(result.value.autopilot))
+    return null
   }
 
   // A file dropped anywhere on the chat, the transcript too, goes to the input field (worfy-ui ticket 28).

@@ -38,6 +38,29 @@ remote `origin` asks no one.
 
 No run starts by itself, also not after the app restarts.
 
+#### Starting a run from a chat
+
+The command `/worfy:epic-wave`, typed in the chat of a Session inside worfy (the Session view or a Session Node on the
+Canvas), starts the same run as the button. It does not reach the agent, and worfy asks no confirmation: the person
+typed it. These forms are commands:
+
+- `/worfy:epic-wave tickets 05, 06 of epic X`, and the older form `Ticket-ы 05, 06 эпика X`: a run over these Tickets only.
+- `/worfy:epic-wave wave N of epic X` (also `run wave N of epic X`), and the older form `волна N эпика X`: a run over the
+  Tickets of row N of the Waves table in the Epic's `spec.md` that are not done yet. The table may have one row per
+  Ticket (`Ticket | Files | Wave`) or one row per Wave (`Wave | Tickets`, with lists and ranges such as `11–19`). A table
+  that cannot be read, or that has no Wave N, gives a refusal that asks to name the Tickets:
+  "name the Tickets: tickets NN, NN of epic X".
+- `/worfy:epic-wave epic X`: the whole Epic. `/worfy:epic-wave X` too, when the Project has Epic X.
+
+Any other text after `/worfy:epic-wave` goes to the agent as before, for example "resume after a session break", a word
+that is no Epic of the Project, an argument such as `depth medium`, or a message with attachments. A toast says what
+became of the command: "Autopilot started on Epic X", or the refusal. While a run of the Project goes on, the refusal is
+"Autopilot is already running Epic X. Stop it first." A refused command writes no journal, and a running run does not
+count it as a person stepping in. A message sent right after a command waits for its answer, so it reaches the run that
+command started, and the run journals it as a person stepping in. Typed in the Orchestrator's own Session during its turn, the run starts once that turn
+is over, and the toast says "Autopilot starts after this turn". The Waves Autopilot sends to the Orchestrator are never
+read as a command.
+
 #### During a run
 
 The line above the button shows the state of the run:
@@ -289,7 +312,10 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | Path | What it holds |
 |---|---|
 | `src/main/autopilot/run.ts` | The `Autopilot` class and one `Run`: start checks, events of the Session, effects of the cycle, stops, give-back. |
-| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: the start from a chat, over the Epic or named Tickets; the refusal while a run goes on, and the start after the asking Orchestrator's turn. Nothing calls it yet. |
+| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: the start from a chat, over the Epic or named Tickets; the refusal while a run goes on, and the start after the asking Orchestrator's turn. The command typed in a chat calls it. |
+| `src/shared/autopilot/chat-command.ts` | `parseChatCommand`: which typed messages are a command, with what Epic and Tickets; the toast of its answer. |
+| `src/shared/workflow/wave-plan.ts` | `parseWavePlan`, `waveTickets`: the Waves table of an Epic's `spec.md`, and the Tickets of Wave N not done yet. |
+| `src/main/ipc/agent.ts` | `agent.send`: a command does not reach the agent; it starts the run through `startFromChat` and answers what became of it. |
 | `src/shared/autopilot/cycle.ts` | The cycle: phases, events, effects, stop reasons and their time limits. Pure. |
 | `src/main/ipc/autopilot.ts` | The IPC handlers, and `sharedAutopilot`, which wires the app's Projects, Orchestrators, Sessions, watch and journal to a run. |
 | `src/shared/ipc/autopilot.ts` | The `autopilot` IPC channels, the state of a run and the text of the status line. |
@@ -400,6 +426,10 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/unit/settings-autopilot.test.tsx` | Settings → Autopilot. |
 | `test/unit/install-stable.test.ts` | The install script of the Stable copy. |
 | `test/contract/autopilot.test.ts` | A whole run: unattended and back, refusals, `human-input`, the self-project refusal, the IPC channels. |
+| `test/unit/autopilot-chat-command.test.ts` | The forms of the command typed in a chat, and the text that is no command. |
+| `test/unit/wave-plan.test.ts` | Both shapes of the Waves table, ranges, done Tickets, and the refusals. |
+| `test/contract/agent-send-autopilot.test.ts` | `agent.send` with a command: the start, the refusal while a run goes on, and what still reaches the agent. |
+| `test/e2e/autopilot-chat.spec.ts` | The command typed in the Session view and in a Session Node: the toasts and the status line. |
 | `test/contract/autopilot-background.test.ts` | Background tasks, and stops while they live. |
 | `test/contract/autopilot-limits.test.ts` | The wait for the Limits and the budget, with a clock the test moves. |
 | `test/contract/autopilot-journal.test.ts` | The journal files, a line appended from outside, no write outside the data folder. |
