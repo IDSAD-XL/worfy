@@ -193,11 +193,15 @@ test('the detail panel, «Retry» of GitHub, the outline of a retry cause, the r
     await expect(window.locator('[data-testid="run-history-row"][data-related="true"]')).toHaveCount(2)
     await expect(rowOf(window, 'ticket:worfy-pipeline/04')).toHaveAttribute('data-related', 'true')
     await expect(rowOf(window, 'ticket:worfy-pipeline/05')).toHaveAttribute('data-related', 'true')
-    await snapshots(window, 'wait-related')
     await window.locator(`[data-testid="run-history-row"][data-row-id="turn:${SESSION}:3"] .w-fr-row__tree`).click()
     await expect(window.locator('[data-testid="run-history-row"][data-related="true"]')).toHaveCount(2)
     await expect(rowOf(window, 'ticket:worfy-pipeline/03')).toHaveAttribute('data-related', 'true')
     await expect(rowOf(window, 'ticket:worfy-pipeline/07')).toHaveAttribute('data-related', 'true')
+    // The marked Ticket rows on screen for the picture: the lanes and Tickets closed, the turn still selected.
+    await window.getByRole('button', { name: 'Collapse', exact: true }).click()
+    await expect(rowOf(window, 'ticket:worfy-pipeline/03')).toHaveAttribute('data-related', 'true')
+    await snapshots(window, 'turn-related')
+    await window.getByRole('button', { name: 'Expand all', exact: true }).click()
 
     // «Problems only»: the first implementer of 03 ended well and goes; the retry stays. Pressed again, all is back.
     const rows = window.getByTestId('run-history-row')

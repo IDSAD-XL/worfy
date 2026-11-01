@@ -496,7 +496,8 @@
   flex: none;
   display: flex;
   flex-direction: column;
-  height: 196px;
+  /* The nine fields of Overview without a scroll. */
+  height: 260px;
   border-top: 1px solid var(--border-strong);
   background: var(--surface);
 }
