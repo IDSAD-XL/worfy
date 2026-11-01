@@ -55,7 +55,7 @@ Source: [spec.md](../spec.md), «Решения» (Q2, Q3, Q11–Q13, Q15), «Р
 - [ ] Contract test: 5 прошлых Wave по 2 часа, сейчас 06:00 — `start-window wave-too-long` до 23:00; 4 прошлые Wave —
       Wave идёт, `message` — «Not enough data on Wave duration…».
 - [ ] Contract test: Wave, начатая в 06:50, доходит до `wave-finished` в 08:00; следующая ждёт окна.
-- [ ] Contract test: Fastest при включённом budget и израсходованной дневной доле — Wave идёт, `budget-stop` нет.
+- [ ] Contract test: Fastest при включённом budget и использованной дневной доле — Wave идёт, `budget-stop` нет.
       Budget-aware при выключенном переключателе — `budget-stop`. Start window при выключенном budget — только окно.
 - [ ] Contract test `five_hour` (stub Limits): Start window, budget включён, окно `five_hour` полно до 07:30 — сначала
       `budget-stop five-hour`; после `resumed` в 07:32 — `start-window outside` до 23:00. Без окна `five_hour` в

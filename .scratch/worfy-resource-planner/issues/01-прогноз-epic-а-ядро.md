@@ -47,7 +47,7 @@ Source: [spec.md](../spec.md), «Решения» (Q4, Q5, Q8, Q17), «Прог�
 - [ ] Unit test `epicForecast`: 4 выборки — `range: null`; 5 одинаковых выборок `s` на N Ticket-ов — `low = high = N·s`;
       известный набор выборок с seed — фиксированные `low`, `high`, `cumulativeHigh`; `low ≤ high`; `cumulativeHigh`
       не убывает; тот же вход дважды — тот же ответ.
-- [ ] Test-ы краснеют на mutant-ах: порог 5 → 4; p90 → p50; выборка без возвращения; `uncounted` считает Ticket в работе.
+- [ ] Test-ы краснеют на mutant-ах: порог 5 → 4; p90 → p50; выборка без возвращения; Ticket в работе получает номер Wave.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
 
 ## Тесты

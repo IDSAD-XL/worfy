@@ -23,7 +23,9 @@ Source: [spec.md](../spec.md), «Цель», п. 1, «Решения» (Q7, Q14,
 ## Что делаем
 
 1. **Ответ `autopilot.estimate`** получает `samples` (выборки на Ticket, `waveSamples`) и `durations` (p90 длительности
-   и число выборок, `waveDurationP90`); старые поля остаются (ими пользуется budget). Схема — с верхними пределами длины.
+   и число выборок, `waveDurationP90`), а `sevenDay` — `receivedAt` (когда получено число): без него tooltip не может
+   проверить свежесть `seven_day` (не старше 30 минут, `BUDGET_FRESH_MS`), а рекомендации и предупреждению она нужна.
+   Старые поля остаются (ими пользуется budget). Схема — с верхними пределами длины.
 2. **Tooltip кнопки.** Вместо строки Ticket-а 40 — `modeLine`, `forecastLine`, затем для режима по умолчанию:
    рекомендация (budget действует), предупреждение (не действует) и строка окна (Start window). Прогноз считает
    renderer: `remainingWaves` по Ticket-ам, которые кнопка уже держит, и `epicForecast` по `samples`; вычисление —
@@ -44,10 +46,13 @@ Source: [spec.md](../spec.md), «Цель», п. 1, «Решения» (Q7, Q14,
 - [ ] Test `confirmationOptions` (там же): «мало данных» — без строк Budget-aware и Fastest; Run по названным — прогноз по ним.
 - [ ] Unit test `chat-start`: `mode` доходит до `AutopilotStartOptions`; без него — без поля.
 - [ ] Unit test `estimateAnswer` (`test/unit/autopilot-limits-estimate.test.ts`): `samples` и `durations` по Journal-ам
-      test-а; Journal-ы без Wave — пустые; прежние поля — как раньше.
+      test-а; Journal-ы без Wave — пустые; `sevenDay.receivedAt` — время числа Limits; прежние поля — как раньше.
+- [ ] Unit test tooltip (`test/unit/canvas-actions.test.tsx`): число `seven_day` старше 30 минут — без рекомендации и
+      предупреждения; то же число моложе 30 минут — с рекомендацией.
 - [ ] e2e (`test/e2e/autopilot.spec.ts`): строка tooltip кнопки без прошлых Wave — режим и «Not enough data for a
-      forecast…» (меняет ожидание `:272-275`); с пятью прошлыми Wave в `WORFY_DATA_DIR` и `limits.json` — `This Epic: …`
-      и `Recommended: …`; Start window в Settings — строка окна. Снимки обеих тем в
+      forecast…» (меняет ожидание `:272-275`); с пятью прошлыми Wave в `WORFY_DATA_DIR`, свежим `limits.json` и
+      режимом по умолчанию Budget-aware в app settings (`autopilotRun.mode: 'budget-aware'`) — `This Epic: …` и
+      `Recommended: …`; тот же fixture в режиме Fastest — `Only K of W Waves…` вместо рекомендации; Start window в Settings — строка окна. Снимки обеих тем в
       `.scratch/worfy-resource-planner/evidence/06/`.
 - [ ] Test-ы краснеют на mutant-ах: кнопка `Cancel` перестаёт быть по умолчанию; ответ кнопки сопоставлен не тому режиму;
       tooltip берёт режим не из Settings.

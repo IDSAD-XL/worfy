@@ -9,8 +9,10 @@ Source: [spec.md](../spec.md), «Решения» (Q11, Q12), «Прогноз E
 ## Что происходит
 
 - Journal Run-а хранит `wave-started` и `wave-finished` с номером Wave и временем, ожидания Limits — `limits-hit`,
-  `waiting-until`, `resumed`; ожидание budget — `budget-stop` … `resumed` (`src/shared/autopilot/journal.ts:220`,
-  схема `:309`). После Ticket-а 05 к ним добавится `start-window` … `resumed`.
+  `waiting-until`, `resumed` (`src/shared/autopilot/journal.ts:220`, схема `:309`).
+- Ожидание budget (`budget-stop` … `resumed`) внутрь пары `wave-started` … `wave-finished` не попадает: оно решается
+  до «Run wave» (`src/main/autopilot/run.ts:1206-1207`), а `wave-started` пишется после него (`:1094`). Так же будет и
+  с ожиданием окна Ticket-а 05. Внутри Wave бывают только ожидания Limits.
 - Длительность Wave никто не считает; окно запуска (Ticket 05) не может решить, успеет ли Wave.
 - `percentile` (nearest-rank) — в `src/shared/autopilot/forecast.ts` (Ticket 01).
 
@@ -19,13 +21,12 @@ Source: [spec.md](../spec.md), «Решения» (Q11, Q12), «Прогноз E
 Новый чистый модуль `src/shared/autopilot/wave-duration.ts`.
 
 1. `waveDurations(runs)` — по каждому Run: для пары `wave-started` … `wave-finished` одного номера — разница `at`
-   минус ожидания внутри неё: от `limits-hit`, `budget-stop` или `start-window` до `resumed`; ожидание без `resumed`
+   минус ожидания Limits внутри неё: от `limits-hit` до `resumed`; ожидание без `resumed`
    до `wave-finished` — до него. Wave без `wave-finished` (Run оборвался, Force stop) выборки не даёт. Ход «Process
    gate queue» — не Wave.
 2. 10 последних выборок по времени конца (`DURATION_WAVES = 10`).
 3. `waveDurationP90(runs)` — p90 через `percentile` Ticket-а 01 и число выборок; меньше 5
    (`DURATION_MIN_SAMPLES = 5`) — `p90: null` («мало данных о длительности»).
-4. Тип `start-window` в журнале появится только с Ticket-ом 05: читать строку по `kind`, не требуя её в схеме.
 
 ## Готово, когда
 
@@ -48,5 +49,4 @@ Source: [spec.md](../spec.md), «Решения» (Q11, Q12), «Прогноз E
 - `test/unit/autopilot-wave-duration.test.ts` (новый)
 
 Только читать: `src/shared/autopilot/journal.ts` (виды `:220`, схема `:309`), `src/shared/autopilot/forecast.ts`
-(Ticket 01, `percentile`), `src/shared/flight-recorder/from-journal.ts` `:248-249` (как Flight Recorder открывает
-Wait по `budget-stop`).
+(Ticket 01, `percentile`), `src/main/autopilot/run.ts` (`wave-started` `:1094`, ожидание budget `:1206-1207`).
