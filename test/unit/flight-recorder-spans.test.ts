@@ -277,6 +277,20 @@ describe('Stages', () => {
     }
   })
 
+  it('count a Ticket claimed before the Run (no status event) as claimed by its first other event', () => {
+    // A resumed Run takes a Ticket in work into its Wave: ticket-status is written only on a change.
+    const timeline = buildTimeline(facts({ ticketEvents: [prOpened('10:30'), ciFinished('10:50'), mark('11:30', 'review', 'success')] }))
+    expect(stages(timeline).map((span) => [span.name, span.start, span.end, span.note])).toEqual([
+      ['Queued + Implementing', at('10:00'), at('10:30'), NO_BOUNDARY_NOTE],
+      ['CI', at('10:30'), at('10:50'), null],
+      ['Agent review', at('10:50'), at('11:30'), null],
+      ['Gate & merge', at('11:30'), at('14:00'), null],
+    ])
+    // A status the Journal does write still decides: an explicit `open` keeps the Ticket queued.
+    const reopened = buildTimeline(facts({ ticketEvents: [ev('10:10', { event: 'status', state: 'open' }), prOpened('10:30')] }))
+    expect(stages(reopened).map((span) => span.name)).toEqual(['Queued'])
+  })
+
   it('ignore a check of an older head once a new commit is pushed', () => {
     const timeline = buildTimeline(
       facts({
@@ -414,6 +428,24 @@ describe('retries', () => {
     expect(byId(plain, 'ci:q').parent).toBe('run')
   })
 
+  it('attach a narrow-round only to work of its own Ticket', () => {
+    const timeline = buildTimeline(
+      facts({
+        waves: [{ number: 1, startedAt: T('10:00'), finishedAt: T('14:00'), tickets: ['e/01', 'e/02'] }],
+        ticketEvents: [claimed('10:05'), claimed('10:05', 'e/02')],
+        work: [
+          work('x1', '10:10', '10:20'),
+          work('y1', '10:10', '10:20', { ticket: 'e/02', name: 'impl-02' }),
+          // e/01's second stretch starts first after the cause, but the cause names e/02.
+          work('x2', '10:40', '10:50'),
+          work('y2', '10:45', '10:55', { ticket: 'e/02', name: 'impl-02' }),
+        ],
+        retryCauses: [{ ticket: 'e/02', kind: 'agent', at: T('10:30'), reason: 'narrow-round: e/02', source: 'journal' }],
+      }),
+    )
+    expect([byId(timeline, 'agent:y2').reason, byId(timeline, 'agent:x2').reason]).toEqual(['narrow-round: e/02', 'after impl-01'])
+  })
+
   it('take the cause the source names, under another name too', () => {
     const named = buildTimeline(
       facts({
@@ -476,6 +508,33 @@ describe('gate runs and their steps', () => {
     expect(byId(timeline, 'script:g1-lint')).toMatchObject({ parent: 'gate:g1', links: { ticket: 'e/01' } })
     expect(byId(timeline, 'gate:g2').links.ticket).toBe('e/02')
     expect(timeline.spans.some((span) => span.id === 'gate:g3')).toBe(false)
+  })
+})
+
+describe('work from before the Run', () => {
+  it('is left out: a gate run of an older worktree at the same path, work over before its Ticket row began', () => {
+    const timeline = buildTimeline(
+      facts({
+        waves: [
+          { number: 1, startedAt: T('10:00'), finishedAt: T('11:00'), tickets: ['e/01'] },
+          { number: 2, startedAt: T('12:00'), finishedAt: T('14:00'), tickets: ['e/02'] },
+        ],
+        ticketEvents: [claimed('10:05'), claimed('12:05', 'e/02')],
+        work: [
+          work('i1', '10:10', '10:40', { worktree: 'wt/01' }),
+          work('i2', '12:10', '12:40', { ticket: 'e/02', name: 'impl-02', worktree: 'wt/02' }),
+          // Five days before the Run, from the same worktree path, with a sha of no Ticket.
+          { id: 'old', kind: 'gate', name: 'gate', sha: 'gone', worktree: 'wt/01', start: '2026-10-12T10:00:00.000Z', end: '2026-10-12T10:10:00.000Z', startSource: 'gate-log', endSource: 'gate-log' },
+          { id: 'now', kind: 'gate', name: 'gate', worktree: 'wt/01', start: T('10:41'), end: T('10:50'), startSource: 'gate-log', endSource: 'gate-log' },
+          // Over in Wave 1, while e/02 has its row only in Wave 2.
+          { id: 'early', kind: 'gate', name: 'gate', worktree: 'wt/02', start: T('10:30'), end: T('10:45'), startSource: 'gate-log', endSource: 'gate-log' },
+          { id: 'before-run', kind: 'agent', ticket: null, name: 'helper', start: '2026-10-16T10:00:00.000Z', end: '2026-10-16T11:00:00.000Z', startSource: 'transcript', endSource: 'transcript' },
+        ],
+      }),
+    )
+    const gates = timeline.spans.filter((span) => span.kind === 'gate').map((span) => span.id)
+    expect(gates).toEqual(['gate:now'])
+    expect(timeline.spans.some((span) => span.id === 'agent:before-run')).toBe(false)
   })
 })
 
@@ -710,7 +769,7 @@ describe('lost sources', () => {
 describe('the module', () => {
   it('imports neither Node nor the DOM', () => {
     const builtins = new Set(builtinModules)
-    for (const file of ['spans.ts', 'summary.ts']) {
+    for (const file of ['facts.ts', 'spans.ts', 'summary.ts']) {
       const text = readFileSync(join(import.meta.dirname, '../../src/shared/flight-recorder', file), 'utf8')
       const sources = [...text.matchAll(/^\s*(?:import|export)[^'"]*from\s*['"]([^'"]+)['"]/gmu)].map((match) => match[1] ?? '')
       expect(sources.length).toBeGreaterThan(0)

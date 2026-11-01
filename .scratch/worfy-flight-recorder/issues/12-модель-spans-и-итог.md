@@ -118,6 +118,13 @@ Source: [spec.md](../spec.md), «Модель» (все пункты), «Ticket-
   (и `fetch`, `import()`, `require`) и lint `worfy/process-boundary`.
 - Ревью 1-го круга (high, REJECTED): исправлено всё; M01 (слияние касающихся интервалов) и M11 (`limit` вместо
   `now` в живом Run) — эквивалентные мутанты: длина объединения и граница в живом Run от них не меняются.
+- Ревью 2-го круга (REJECTED, два medium): Ticket без события `status` (Run подхватил его в работе) считается
+  claimed с первого другого своего события — «Queued + Implementing» с `no boundary in sources`, а не Queued на весь
+  Run; работа, кончившаяся до начала строки своего Ticket-а (или Run-а), не попадает в шкалу — старый gate run из
+  того же пути worktree. Readers 14 и 16 передают канонический путь `worktree`. Контракт `RunFacts` вынесен в
+  `src/shared/flight-recorder/facts.ts` (spans.ts его реэкспортирует), там же — что reader 14 ставит агенту без
+  известного Ticket-а.
+- Не проверено: блокировка Ticket-а, поставленная до начала Run-а, в шкале не видна: в Journal нет её события.
 - Не проверено: модель на fixture ночного Run (Ticket 10, параллельно) — первым это сделает Ticket 13; отрисовка —
   Ticket-ы 18–19. Deploy-событий во входе нет: Stage Deploy (если он есть в Pipeline) проходится только
   статусом `done`.
