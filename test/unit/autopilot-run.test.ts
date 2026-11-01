@@ -246,6 +246,10 @@ describe('the Wave a result ends', () => {
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave', wave: 2 })
     expect(kinds(s).slice(3)).toEqual([
       ['wave-finished', 2],
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      ['ticket-status', null],
+      ['ticket-status', null],
+      ['ticket-status', null],
       ['run-stopped', 'no-ready-wave'],
     ])
   })
@@ -323,7 +327,7 @@ describe('the Wave a result ends', () => {
     s.emit(result())
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'interrupted', wave: 2 })
-    expect(kinds(s).slice(3)).toEqual([['run-stopped', 'interrupted']])
+    expect(kinds(s).slice(3)).toEqual([['ticket-status', null], ['ticket-status', null], ['run-stopped', 'interrupted']])
     expect(s.removed).toEqual(['queued-2'])
   })
 
@@ -611,6 +615,8 @@ describe('the graceful Stop: no new Ticket, the ones in work finish (worfy-week 
     expect(lines(s)).toEqual([
       { kind: 'wave-started' },
       { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      { kind: 'ticket-status' },
       { kind: 'run-stopped', reason: 'user-stop' },
     ])
     // After a graceful Stop the next run takes nothing along, though 01 is still in work.
@@ -638,7 +644,7 @@ describe('the graceful Stop: no new Ticket, the ones in work finish (worfy-week 
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop', wave: 1 })
     // Wave 2 (03) was ready, and still did not go.
     expect(s.resumes).toHaveLength(1)
-    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'run-stopping', 'run-stopped'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'run-stopping', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 
   it('while background tasks live: STOP_TEXT starts a turn at once, and the run ends with the turn after the last task', async () => {
@@ -737,7 +743,7 @@ describe('the graceful Stop: no new Ticket, the ones in work finish (worfy-week 
     expect(s.removed).toEqual(['queued-2'])
     expect(s.sent).toEqual([])
     expect(s.halts).toBe(0)
-    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'wave-started', 'run-stopped'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'wave-started', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 })
 
@@ -770,7 +776,7 @@ describe('the click on Stop is noted at once: no Wave goes after it (worfy-week 
     expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop', stopping: false })
     expect(s.resumes).toHaveLength(1)
     expect(s.sent).toEqual([])
-    expect(kindsOnly(s)).toEqual(['wave-started', 'wave-finished', 'run-stopped'])
+    expect(kindsOnly(s)).toEqual(['wave-started', 'wave-finished', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 
   it('the state says stopping from the click on, while the step for it still waits', async () => {
@@ -822,7 +828,7 @@ describe('the click on Stop is noted at once: no Wave goes after it (worfy-week 
     expect(await answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
     await settle()
     expect(s.resumes).toHaveLength(1)
-    expect(kindsOnly(s)).toEqual(['wave-started', 'run-stopped'])
+    expect(kindsOnly(s)).toEqual(['wave-started', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 
   it('Stop while "Run wave" is on its way: the Wave goes out stopping, and STOP_TEXT follows it once', async () => {
@@ -1147,6 +1153,9 @@ describe('the narrow fix round from the PR comments (worfy-harness ticket 20)', 
       ['narrow-round', null],
       ['wave-finished', 1],
       ['narrow-round', null],
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      ['ticket-status', null],
+      ['ticket-status', null],
       ['run-stopped', 'blocked-tickets'],
     ])
     expect(s.journal.at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'blocked-tickets', tickets: ['02'] })
@@ -1340,6 +1349,9 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
       { kind: 'wave-finished' },
       { kind: 'gate-queue', text: GATE_TEXT },
       { kind: 'gate-queue-finished' },
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      { kind: 'ticket-status' },
+      { kind: 'ticket-status' },
       { kind: 'run-stopped', reason: 'blocked-tickets', tickets: ['03'], lastText: 'done' },
     ])
     expect(calls).toHaveLength(1)
@@ -1360,7 +1372,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'blocked-tickets' })
     expect(s.resumes).toHaveLength(1)
-    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'gate-queue', 'gate-queue-finished', 'run-stopped'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'gate-queue', 'gate-queue-finished', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 
   it('request, no field or no template (null): no gate-queue, the run stops at once', async () => {
@@ -1471,7 +1483,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'limits-timeout' })
     expect(calls).toEqual([])
-    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'limits-hit', 'run-stopped'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'limits-hit', 'ticket-status', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 })
 
@@ -1555,6 +1567,10 @@ describe('a new SDK session for every Wave after the first (worfy-throughput tic
       ['wave-finished', 1],
       ['wave-started', 2],
       ['wave-finished', 2],
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      ['ticket-status', null],
+      ['ticket-status', null],
+      ['ticket-status', null],
       ['run-stopped', 'no-ready-wave'],
     ])
   })
@@ -2097,6 +2113,9 @@ describe('a run over named Tickets', () => {
     expect(kinds(s)).toEqual([
       ['wave-started', 1],
       ['wave-finished', 1],
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      ['ticket-status', null],
+      ['ticket-status', null],
       ['run-stopped', 'tickets-done'],
     ])
     // A usual end, as no-ready-wave: the Orchestrator's last answer in the Wave goes along.
@@ -2292,12 +2311,93 @@ describe('the Status changes of the Epic\'s Tickets during a run (ticket-status)
     await settle()
     expect(statusLines(s)).toEqual([])
     const changed = s.workflowChanged
+    // A Force stop does not wait for a last read: a change the watch has not reported writes nothing.
+    set(s, 2, { state: 'done', statusAt: '2026-11-01T02:59Z' })
     await s.autopilot.forceStop(PROJECT)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped' })
     set(s, 1, { state: 'done', statusAt: '2026-11-01T03:00Z' })
     changed()
     await settle()
     expect(statusLines(s)).toEqual([])
+  })
+
+  // Review round 1 of #1187: `ticket block … --waits W` on a blocked Ticket changes only Waits:, and a second
+  // block in the same minute changes only Blocked reason: (the Status time has minutes only).
+  it('a blocked Ticket whose Waits changes alone, then whose reason changes alone, gives one line each', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    set(s, 2, { state: 'blocked', statusAt: '2026-11-01T01:40Z', blockedReason: 'needs the owner', waits: 'owner' })
+    s.workflowChanged()
+    await settle()
+    set(s, 2, { waits: 'team' })
+    s.workflowChanged()
+    await settle()
+    set(s, 2, { blockedReason: 'needs the owner and the PC' })
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([
+      { kind: 'ticket-status', ticket: '02', state: 'blocked', statusAt: '2026-11-01T01:40Z', reason: 'needs the owner', waits: 'owner' },
+      { kind: 'ticket-status', ticket: '02', state: 'blocked', statusAt: '2026-11-01T01:40Z', reason: 'needs the owner', waits: 'team' },
+      { kind: 'ticket-status', ticket: '02', state: 'blocked', statusAt: '2026-11-01T01:40Z', reason: 'needs the owner and the PC', waits: 'team' },
+    ])
+  })
+
+  it('a Ticket whose file appears during the run writes the status it is first seen with', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    // Created and claimed between two reports of the watch.
+    s.tickets = [...s.tickets, { ...t(4, 'work'), statusAt: '2026-11-01T01:45Z' }]
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([{ kind: 'ticket-status', ticket: '04', state: 'claimed', statusAt: '2026-11-01T01:45Z' }])
+  })
+
+  // Review round 1 of #1187: the read after the turn may see the last `done` first and stop the run; the watch's
+  // read queued behind it then finds the run stopped.
+  it('the last done that only the read after the turn saw is journaled before run-stopped', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    set(s, 1, { state: 'done', statusAt: '2026-11-01T02:00Z' })
+    set(s, 2, { state: 'done', statusAt: '2026-11-01T02:01Z' })
+    set(s, 3, { state: 'done', statusAt: '2026-11-01T02:02Z' })
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave' })
+    expect(s.journal.map((line) => line.kind).slice(-4)).toEqual(['ticket-status', 'ticket-status', 'ticket-status', 'run-stopped'])
+    expect(statusLines(s)).toEqual([
+      { kind: 'ticket-status', ticket: '01', state: 'done', statusAt: '2026-11-01T02:00Z' },
+      { kind: 'ticket-status', ticket: '02', state: 'done', statusAt: '2026-11-01T02:01Z' },
+      { kind: 'ticket-status', ticket: '03', state: 'done', statusAt: '2026-11-01T02:02Z' },
+    ])
+    // The watch's report that comes after the stop writes nothing again.
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toHaveLength(3)
+  })
+
+  it('a last read that does not answer within endReadMs does not hold run-stopped back', async () => {
+    let reads = 0
+    let hangAfter = Infinity
+    const s = standIn({ endReadMs: 5 })
+    const read = s.deps.workflow
+    s.deps.workflow = (root) => {
+      reads += 1
+      return reads > hangAfter ? new Promise<WorkflowModel>(() => undefined) : read(root)
+    }
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    // The read after the turn answers; the last read before run-stopped never does.
+    hangAfter = reads + 1
+    done(s, 1, 2, 3)
+    s.emit(result())
+    await settle()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave' })
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'run-stopped'])
   })
 })
 

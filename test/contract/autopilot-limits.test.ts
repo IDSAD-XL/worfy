@@ -432,7 +432,7 @@ describe('Autopilot and the Limits on the fake agent', () => {
     expect(h.messages()[1]).not.toMatch(CYRILLIC)
     expect(h.state()).toMatchObject({ reason: 'user-stop', wave: 1, stopping: false, resumable: [] })
     // Wave 2 was ready after the continuation's turn and did not go.
-    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'run-stopping', 'resumed', 'run-stopped'])
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'run-stopping', 'resumed', 'ticket-status', 'ticket-status', 'run-stopped'])
     await until(() => !h.orchestrators.isUnattended(PROJECT), 'the Orchestrator to be given back')
     expect(autopilotStatusLine(h.state())).toBe('stopped: user stop')
     expect(h.power).toEqual(['start', 'stop'])
@@ -451,7 +451,7 @@ describe('Autopilot and the Limits on the fake agent', () => {
     await answer
     expect(h.messages()).toEqual([WAVE_1, `${continueText(START_MS, timer.at)}\n\n${STOP_TEXT}`])
     expect(h.state()).toMatchObject({ reason: 'user-stop', wave: 1 })
-    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'resumed', 'run-stopping', 'run-stopped'])
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'resumed', 'run-stopping', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 
   it('Force stop during the wait cancels the timer: no continuation goes out (worfy-week tickets 17, 18)', async () => {
@@ -501,7 +501,7 @@ describe('Autopilot and the Limits on the fake agent', () => {
     const attended = h.registry.get(orchestratorSession(h.registry))
     expect(attended.unattended).toBe(false)
     expect(attended.queued().items).toEqual([])
-    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'session-error', 'run-stopped'])
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'session-error', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 
   it('the Tickets a Force stop interrupted go with the first Wave of the next run only: the continuation after the Limits and the next Wave do not take them again', async () => {
@@ -583,6 +583,9 @@ describe('Autopilot and the Limits on the fake agent', () => {
       'waiting-until',
       'resumed',
       'limits-hit',
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      'ticket-status',
+      'ticket-status',
       'run-stopped',
     ])
     expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'limits-timeout' })
@@ -838,7 +841,7 @@ describe('the budget of the Limits before a Wave (worfy-throughput ticket 41)', 
     timer.fire()
     await until(() => h.state().status === 'stopped', 'the run to stop after Wave 2')
     expect(h.messages()).toEqual([WAVE_1, WAVE_2])
-    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'wave-finished', 'budget-stop', 'waiting-until', 'resumed', 'wave-started', 'wave-finished', 'run-stopped'])
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'wave-finished', 'budget-stop', 'waiting-until', 'resumed', 'wave-started', 'wave-finished', 'ticket-status', 'ticket-status', 'ticket-status', 'run-stopped'])
     expect(h.state()).toMatchObject({ status: 'stopped', reason: 'no-ready-wave', message: null })
     expect(h.state().waitingFor).toBeUndefined()
     expect(h.power).toEqual(['start', 'stop'])
@@ -889,7 +892,7 @@ describe('the budget of the Limits before a Wave (worfy-throughput ticket 41)', 
     await tick()
     expect(h.messages()).toEqual([WAVE_1])
     const events = await h.journal()
-    expect(events.map((event) => event.kind)).toEqual(['run-started', 'wave-started', 'wave-finished', 'budget-stop', 'waiting-until', 'run-stopped'])
+    expect(events.map((event) => event.kind)).toEqual(['run-started', 'wave-started', 'wave-finished', 'budget-stop', 'waiting-until', 'ticket-status', 'ticket-status', 'run-stopped'])
     expect(events.filter((event) => event.kind === 'run-stopped')).toMatchObject([{ reason: 'user-stop' }])
     expect(events.at(-1)).not.toHaveProperty('tickets')
     expect(h.power).toEqual(['start', 'stop'])
@@ -930,7 +933,7 @@ describe('the budget of the Limits before a Wave (worfy-throughput ticket 41)', 
     await answer
     expect(h.messages()).toEqual([WAVE_1])
     const events = await h.journal()
-    expect(events.map((event) => event.kind)).toEqual(['run-started', 'wave-started', 'wave-finished', 'budget-stop', 'waiting-until', 'resumed', 'run-stopped'])
+    expect(events.map((event) => event.kind)).toEqual(['run-started', 'wave-started', 'wave-finished', 'budget-stop', 'waiting-until', 'resumed', 'ticket-status', 'ticket-status', 'run-stopped'])
     expect(events.at(-1)).toMatchObject({ reason: 'user-stop' })
   })
 

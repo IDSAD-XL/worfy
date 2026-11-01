@@ -37,6 +37,7 @@
 //                                    of a run over named Tickets, numbers as in wave-started, in
 //                                    number order, absent for a run over the whole Epic
 //                                    (worfy-flight-recorder tickets 11, 21; ADR-0091, ADR-0092).
+//                                    A `by` of another value reads as none, the line stays.
 //                                    Lines written before ticket 11 have neither
 //   harness-behind harness, main,    the Harness in worfy's main has changes in harness/ that the
 //                  commits           running build's Harness has not (worfy-harness ticket 21,
@@ -62,9 +63,13 @@
 //                                    ADR-0092; lines written before it have none)
 //   ticket-status  ticket, state,    the `Status:` line of a Ticket of the run's Epic changed while
 //                  statusAt?,        the run went on (worfy-flight-recorder ticket 11, ADR-0092):
-//                  reason?, waits?   worfy reads the workflow on each change of the Tickets' files
-//                                    and writes a line for every Ticket whose status differs from
-//                                    its last read; none before the run or after it. ticket: its
+//                  reason?, waits?   worfy reads the workflow on each change of the Tickets' files,
+//                                    and once more right before run-stopped (not on a Force stop
+//                                    or a quit), and writes a line for every Ticket whose status
+//                                    differs from its last read; the read at the start only
+//                                    records them, so none before the run, and none after it. A
+//                                    Ticket whose file appeared during the run writes the status
+//                                    it is first seen with, `open` too. ticket: its
 //                                    number, as in wave-started; state: `claimed` (`Status:
 //                                    claimed`, in work), `blocked`, `done` or `open`; a Ticket
 //                                    whose Status cannot be read writes none. statusAt: the time
@@ -300,7 +305,7 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
   z.object({ ...common, kind: z.literal(kind), ...fields })
 
 export const journalEventSchema = z.discriminatedUnion('kind', [
-  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional(), tickets: z.array(text).optional() }),
+  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional() }),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
   event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional(), limits, session: text.optional() }),
   event('ticket-status', { ticket: text, state: z.enum(TICKET_STATUS_STATES), statusAt: text.optional(), reason: text.optional(), waits: text.optional() }),

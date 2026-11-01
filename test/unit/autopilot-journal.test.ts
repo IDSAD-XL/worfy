@@ -99,8 +99,11 @@ describe('parseJournal', () => {
     const withSession: JournalEvent = { ...waveStarted, session: '6f1c2a3b-0000-4000-8000-000000000001' }
     expect(parseJournal(line(named) + line(button) + line(withSession) + line(stopped))).toEqual({ events: [named, button, withSession, stopped], skipped: 0 })
     expect(parseJournal(line(started) + line(waveStarted) + line(stopped))).toEqual({ events: [started, waveStarted, stopped], skipped: 0 })
-    const bad = [{ ...started, by: 'menu' }, { ...started, tickets: [''] }, { ...waveStarted, session: '' }, { ...waveStarted, session: null }]
+    const bad = [{ ...started, tickets: [''] }, { ...waveStarted, session: '' }, { ...waveStarted, session: null }]
     expect(parseJournal(bad.map(line).join(''))).toEqual({ events: [], skipped: bad.length })
+    // A `by` a later worfy may add reads as none: the line, with its origin and Tickets, stays.
+    const later = { ...started, origin: 'github.com/o/r', by: 'schedule', tickets: ['01'] }
+    expect(parseJournal(line(later))).toEqual({ events: [{ ...started, origin: 'github.com/o/r', tickets: ['01'] }], skipped: 0 })
   })
 
   it('the shared Journal walk (journal-walk.mjs) reads both new kinds, skips a ticket-status outside the format, and its Run is the same with them', () => {

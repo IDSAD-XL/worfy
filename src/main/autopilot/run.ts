@@ -105,8 +105,9 @@
 //   on the run, and run-started carries it with the named list (worfy-flight-recorder ticket 11).
 // - The history of a run (worfy-flight-recorder ticket 11, ADR-0092): on each change of the
 //   workflow the watch reports, the run journals `ticket-status` for every Ticket of its Epic whose
-//   `Status:` differs from the last read (statusChanges); the read at the start is the first, so a
-//   status from before the run writes nothing. `wave-started` names the SDK session the Wave went
+//   `Status:` differs from the last read (statusChanges), and does so once more from a last read
+//   right before `run-stopped` (endRead, not on a Force stop or a quit); the read at the start is
+//   the first, so a status from before the run writes nothing. `wave-started` names the SDK session the Wave went
 //   to, and the end of the gate queue's turn is `gate-queue-finished`, before `run-stopped`.
 //
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
@@ -439,7 +440,9 @@ const STATUS_STATES: Record<WorkflowModel['tickets'][number]['state'], TicketSta
  * The `ticket-status` lines for the Tickets of the run's Epic whose status differs from the last
  * read (Run.statuses), in the model's order; the read becomes the last one. A status is the state
  * with the header facts beside it (time, blocked reason, who it waits for), so a claim again with
- * a new time is a change too. A Ticket whose Status cannot be read (`none`) writes no line.
+ * a new time is a change too. A Ticket whose Status cannot be read (`none`) writes no line. A
+ * Ticket whose file appeared during the run writes the status it is first seen with, `open` too
+ * (ADR-0092); the start's read, whose lines are dropped, is what keeps those before the run out.
  */
 function statusChanges(run: Run, tickets: WorkflowModel['tickets']): JournalEventFields[] {
   const lines: JournalEventFields[] = []
@@ -454,7 +457,7 @@ function statusChanges(run: Run, tickets: WorkflowModel['tickets']): JournalEven
     const key = JSON.stringify([state, fields])
     const before = run.statuses.get(ticket.num)
     run.statuses.set(ticket.num, key)
-    if (before !== undefined && before !== key && state !== null) lines.push({ kind: 'ticket-status', ticket: ticketNumber(ticket.num), state, ...fields })
+    if (before !== key && state !== null) lines.push({ kind: 'ticket-status', ticket: ticketNumber(ticket.num), state, ...fields })
   }
   return lines
 }
@@ -752,6 +755,7 @@ export class Autopilot {
       run.resume = last?.epic === epic ? [...last.resumable] : []
       const named = options.tickets
       if (named !== undefined) run.carried = run.resume.filter((num) => !named.includes(num))
+      // The first read of the statuses: a status from before the run is not a change of it.
       statusChanges(run, model.tickets)
       if (this.deps.limits !== undefined) run.limits = new LimitsWait(this.deps.limits)
       const view = await this.deps.orchestrators.setUnattended(projectId, true)
@@ -1518,8 +1522,15 @@ export class Autopilot {
    */
   private async end(run: Run, reason: AutopilotStopReason, tickets?: number[]): Promise<void> {
     // The narrow round's last states before the end: a Ticket blocked on `NARROW: REJECTED` is
-    // journaled ahead of the run-stopped that names it. A Force stop and a quit do not wait for gh.
-    if (reason !== 'user-force-stop' && reason !== 'app-quit') await this.journalNarrow(run, await this.lastPrs(run))
+    // journaled ahead of the run-stopped that names it. So are the Tickets' last changes of status:
+    // the read after the turn that stopped the run may have seen a `done` before the watch reported
+    // it, and the watch's read after the stop writes nothing (worfy-flight-recorder ticket 11). A
+    // Force stop and a quit wait for neither read.
+    if (reason !== 'user-force-stop' && reason !== 'app-quit') {
+      const [pulls, tickets] = await Promise.all([this.lastPrs(run), this.endRead(run, () => this.freshTickets(run), [])])
+      await this.journalNarrow(run, pulls)
+      for (const fields of statusChanges(run, tickets)) await this.write(run, fields)
+    }
     const live = this.liveTasks(run)
     const lastText = reason === 'no-progress' || reason === 'no-ready-wave' || reason === 'blocked-tickets' || reason === 'tickets-done' ? run.lastText : null
     await this.write(run, {
@@ -1670,19 +1681,24 @@ export class Autopilot {
     }
   }
 
+  /** The read of the PRs before `run-stopped` (endRead). */
+  private lastPrs(run: Run): Promise<readonly PullRequest[]> {
+    return this.endRead(run, () => this.readPrs(run), [])
+  }
+
   /**
-   * The read before `run-stopped`: END_READ_MS at most, and over as soon as a Force stop or the app's
-   * quit comes (Run.rush); none when one has come already. An answer after that is dropped.
+   * A read before `run-stopped`: END_READ_MS at most, and over as soon as a Force stop or the app's
+   * quit comes (Run.rush); `none` when one has come already or the time is up. An answer after that is dropped.
    */
-  private async lastPrs(run: Run): Promise<readonly PullRequest[]> {
-    if (run.rushed) return []
+  private async endRead<T>(run: Run, read: () => Promise<T>, none: T): Promise<T> {
+    if (run.rushed) return none
     const clock = this.deps.prsClock ?? realClock
     let timer: unknown = null
-    const limit = new Promise<readonly PullRequest[]>((done) => {
-      timer = clock.setTimeout(() => done([]), this.deps.endReadMs ?? END_READ_MS)
+    const limit = new Promise<T>((done) => {
+      timer = clock.setTimeout(() => done(none), this.deps.endReadMs ?? END_READ_MS)
     })
     try {
-      return await Promise.race([this.readPrs(run), limit, run.rushing.then(() => [])])
+      return await Promise.race([read(), limit, run.rushing.then(() => none)])
     } finally {
       clock.clearTimeout(timer)
     }
