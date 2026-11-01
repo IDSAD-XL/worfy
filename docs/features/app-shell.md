@@ -297,6 +297,9 @@ setting stays as it was. Most sections word it "Not saved: …".
 | Sleep when off screen after | 10 s, 30 s, 1, 2, 5, 10 min | 30 s |
 | Sleep when unused after | 1, 2, 5, 10, 15, 30 min, 1 h | 5 min |
 | Readable from zoom | 25, 30, 40, 50, 60, 75 % | 40 % |
+| Default run mode | Fastest, Budget-aware, Start window | Budget-aware with the budget on, Fastest with it off |
+| Start window from | 00:00–23:00 by whole hours | 23:00 |
+| Start window to | 00:00–23:00 by whole hours | 07:00 |
 | Daily budget of the Limits | on, off | off |
 | Reserve for your own work | 0, 5, 10, 15, 20, 25, 30, 40, 50 % of the week | 15 % |
 
@@ -316,7 +319,9 @@ setting stays as it was. Most sections word it "Not saved: …".
   `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, the section says that it overrides both settings.
 - **Canvas.** A finished Session leaves the Canvas this long after its last message, and nothing is deleted. A Session of a
   done Ticket leaves an hour after its last message while the second switch is on.
-- **Autopilot.** The reserve is disabled while the budget is off.
+- **Autopilot.** While no run mode is chosen, the default follows the budget switch. The Start window is local time and may
+  go across midnight. Its two hours are disabled unless the default run mode is Start window, and an hour equal to the other
+  edge is not saved. The reserve is disabled while the budget is off, unless the default run mode is Budget-aware.
 - **Plan.** Max and plans worfy does not know get no offer. Nothing is written without the click on Apply.
 - A value set by hand outside the offered list, within the bounds, shows as it is. This holds for the Browser values and the
   reserve.

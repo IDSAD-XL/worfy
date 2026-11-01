@@ -1,5 +1,6 @@
-// Settings → Autopilot (src/renderer/settings/AutopilotSection.tsx, worfy-throughput ticket 41): the
-// daily budget of the Limits on or off, and the reserve of the week for work by hand, over the real
+// Settings → Autopilot (src/renderer/settings/AutopilotSection.tsx, worfy-throughput ticket 41 and
+// worfy-resource-planner ticket 04): the default Run mode and the Start window, the daily budget of the
+// Limits on or off, and the reserve of the week for work by hand, over the real
 // renderer IPC client and a fake preload of this Machine. A choice goes to main as that field alone;
 // main's answer is what the section shows. How main keeps the choice is checked in
 // test/contract/app-settings.test.ts.
@@ -8,12 +9,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { AppSettings } from '../../src/shared/settings/app-settings'
 
-const settings = (revision: number, autopilotBudget?: AppSettings['autopilotBudget']): AppSettings => ({
+const settings = (revision: number, autopilotBudget?: AppSettings['autopilotBudget'], autopilotRun?: AppSettings['autopilotRun']): AppSettings => ({
   interfaceScale: 1,
   sidebar: { collapsed: {}, visible: { normal: true, focus: true } },
   autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
   memoryIndicator: true,
   ...(autopilotBudget === undefined ? {} : { autopilotBudget }),
+  ...(autopilotRun === undefined ? {} : { autopilotRun }),
   revision,
 })
 
@@ -55,6 +57,12 @@ const BUDGET = 'Daily budget of the Limits'
 const RESERVE = 'Reserve for your own work'
 const budgetSwitch = (): HTMLButtonElement => screen.getByRole<HTMLButtonElement>('switch', { name: BUDGET })
 const reserve = (): HTMLButtonElement => screen.getByRole<HTMLButtonElement>('combobox', { name: RESERVE })
+const MODE = 'Default run mode'
+const WINDOW_FROM = 'Start window from'
+const WINDOW_TO = 'Start window to'
+const mode = (): HTMLButtonElement => screen.getByRole<HTMLButtonElement>('combobox', { name: MODE })
+const windowFrom = (): HTMLButtonElement => screen.getByRole<HTMLButtonElement>('combobox', { name: WINDOW_FROM })
+const windowTo = (): HTMLButtonElement => screen.getByRole<HTMLButtonElement>('combobox', { name: WINDOW_TO })
 
 describe('Settings → Autopilot', () => {
   it('is a section of its own, titled Autopilot, after Browser and before Pipeline', async () => {
@@ -98,6 +106,74 @@ describe('Settings → Autopilot', () => {
     await act(async () => main.sets[0]!.answer({ ok: true, value: settings(2, { enabled: true, reservePercent: 25 }) }))
     expect(main.sets.map((each) => each.input)).toEqual([{ autopilotBudget: { reservePercent: 25 } }])
     expect(reserve().textContent).toContain('25 %')
+  })
+
+  it('the default Run mode and the Start window (worfy-resource-planner ticket 04): three rows; with nothing chosen and the budget off — Fastest, 23:00–07:00, the window disabled', async () => {
+    await mount(settings(1))
+    await waitFor(() => expect(mode().textContent).toContain('Fastest'))
+    for (const row of ['settings-autopilot-mode-row', 'settings-autopilot-window-from-row', 'settings-autopilot-window-to-row']) expect(screen.getByTestId(row)).toBeTruthy()
+    expect(screen.getByTestId('settings-autopilot-mode-row').textContent).toContain('Waves go one after another: no budget, no window')
+    expect(windowFrom().textContent).toContain('23:00')
+    expect(windowTo().textContent).toContain('07:00')
+    expect(windowFrom().disabled).toBe(true)
+    expect(windowTo().disabled).toBe(true)
+    expect(screen.getByTestId('settings-autopilot-window-from-row').hasAttribute('data-disabled')).toBe(true)
+    fireEvent.click(mode())
+    const listbox = screen.getByRole('listbox', { name: MODE })
+    expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual(['Fastest', 'Budget-aware', 'Start window'])
+  })
+
+  it('with the budget on and no mode chosen the default is Budget-aware; the window stays disabled', async () => {
+    await mount(settings(1, { enabled: true }))
+    await waitFor(() => expect(mode().textContent).toContain('Budget-aware'))
+    expect(screen.getByTestId('settings-autopilot-mode-row').textContent).toContain('The daily budget of the Limits, with the reserve')
+    expect(windowFrom().disabled).toBe(true)
+  })
+
+  it('Budget-aware chosen with the switch off: the reserve is enabled, Budget-aware applies the budget whatever the switch says', async () => {
+    await mount(settings(1, { enabled: false }, { mode: 'budget-aware' }))
+    await waitFor(() => expect(mode().textContent).toContain('Budget-aware'))
+    expect(budgetSwitch().getAttribute('aria-checked')).toBe('false')
+    expect(reserve().disabled).toBe(false)
+    expect(windowTo().disabled).toBe(true)
+  })
+
+  it('picks Start window: the mode goes to main alone; then the window is enabled and an edge goes to main alone', async () => {
+    const main = await mount(settings(1))
+    await waitFor(() => expect(mode().textContent).toContain('Fastest'))
+    fireEvent.click(mode())
+    fireEvent.click(within(screen.getByRole('listbox', { name: MODE })).getByRole('option', { name: 'Start window' }))
+    await act(async () => main.sets[0]!.answer({ ok: true, value: settings(2, undefined, { mode: 'start-window' }) }))
+    expect(mode().textContent).toContain('Start window')
+    expect(screen.getByTestId('settings-autopilot-mode-row').textContent).toContain('New Waves start only between the times below; the daily budget too, when it is on')
+    expect(windowFrom().disabled).toBe(false)
+    expect(windowTo().disabled).toBe(false)
+    expect(reserve().disabled).toBe(true)
+
+    fireEvent.click(windowFrom())
+    const hours = screen.getByRole('listbox', { name: WINDOW_FROM })
+    const labels = within(hours).getAllByRole('option').map((option) => option.textContent)
+    expect(labels).toHaveLength(24)
+    expect([labels[0], labels[9], labels[23]]).toEqual(['00:00', '09:00', '23:00'])
+    fireEvent.click(within(hours).getByRole('option', { name: '22:00' }))
+    await act(async () => main.sets[1]!.answer({ ok: true, value: settings(3, undefined, { mode: 'start-window', windowFrom: 22 }) }))
+    expect(main.sets.map((each) => each.input)).toEqual([{ autopilotRun: { mode: 'start-window' } }, { autopilotRun: { windowFrom: 22 } }])
+    expect(windowFrom().textContent).toContain('22:00')
+  })
+
+  it('an edge picked at the hour of the other one is not sent, and the line says why', async () => {
+    const main = await mount(settings(1, undefined, { mode: 'start-window' }))
+    await waitFor(() => expect(windowFrom().disabled).toBe(false))
+    fireEvent.click(windowFrom())
+    fireEvent.click(within(screen.getByRole('listbox', { name: WINDOW_FROM })).getByRole('option', { name: '07:00' }))
+    expect(main.sets).toHaveLength(0)
+    expect(screen.getByTestId('settings-autopilot-problem').textContent).toBe('Not saved: the Start window cannot start and end at the same hour')
+    expect(windowFrom().textContent).toContain('23:00')
+    fireEvent.click(windowTo())
+    fireEvent.click(within(screen.getByRole('listbox', { name: WINDOW_TO })).getByRole('option', { name: '06:00' }))
+    await act(async () => main.sets[0]!.answer({ ok: true, value: settings(2, undefined, { mode: 'start-window', windowTo: 6 }) }))
+    expect(main.sets.map((each) => each.input)).toEqual([{ autopilotRun: { windowTo: 6 } }])
+    expect(screen.queryByTestId('settings-autopilot-problem')).toBeNull()
   })
 
   it('a reserve set by hand outside the offered ones is shown as it is; a choice main refuses shows the reason', async () => {

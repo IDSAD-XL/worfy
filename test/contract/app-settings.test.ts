@@ -13,7 +13,7 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
+import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -419,6 +419,65 @@ describe('AppSettingsStore', () => {
     expect(autopilotBudgetOf(new AppSettingsStore(outside).get())).toEqual({ enabled: false, reservePercent: 15 })
   })
 
+  it('the default Run mode and the Start window (worfy-resource-planner ticket 04): an older file gives none chosen; a choice is kept field by field and outlives the budget switch', () => {
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.2, autopilotBudget: { enabled: true }, revision: 4 }))
+    const store = new AppSettingsStore(file)
+    expect(store.get().autopilotRun).toBeUndefined()
+    expect(autopilotRunOf(store.get())).toEqual({ mode: 'budget-aware', window: { from: 23, to: 7 } })
+
+    expect(store.set({ autopilotRun: { mode: 'start-window' } })).toMatchObject({ autopilotRun: { mode: 'start-window' }, revision: 5 })
+    expect(JSON.parse(readFileSync(file, 'utf8')).autopilotRun).toStrictEqual({ mode: 'start-window' })
+    expect(store.set({ autopilotRun: { windowFrom: 22 } }).autopilotRun).toStrictEqual({ mode: 'start-window', windowFrom: 22 })
+    expect(store.set({ autopilotRun: { windowTo: 6 } }).autopilotRun).toStrictEqual({ mode: 'start-window', windowFrom: 22, windowTo: 6 })
+    expect(store.set({ autopilotBudget: { enabled: false } }).autopilotRun).toStrictEqual({ mode: 'start-window', windowFrom: 22, windowTo: 6 })
+    const reread = new AppSettingsStore(file).get()
+    expect(autopilotRunOf(reread)).toEqual({ mode: 'start-window', window: { from: 22, to: 6 } })
+    expect(reread.autopilotBudget).toStrictEqual({ enabled: false })
+    // The same choice again changes nothing.
+    expect(store.set({ autopilotRun: { windowTo: 6 } }).revision).toBe(8)
+  })
+
+  it('a Start window whose edges meet is refused, given both at once or one against the other in force; nothing is written', () => {
+    const file = freshFile()
+    const store = new AppSettingsStore(file)
+    store.set({ autopilotRun: { windowFrom: 22 } })
+    const written = readFileSync(file, 'utf8')
+    // 7 against the default end 07:00, and 22 against the chosen start.
+    expect(() => store.set({ autopilotRun: { windowFrom: 7 } })).toThrow('the Start window cannot start and end at the same hour')
+    expect(() => store.set({ autopilotRun: { windowTo: 22 } })).toThrow('the Start window cannot start and end at the same hour')
+    expect(() => store.set({ autopilotRun: { mode: 'start-window', windowFrom: 5, windowTo: 5 } })).toThrow('the Start window cannot start and end at the same hour')
+    expect(readFileSync(file, 'utf8')).toBe(written)
+    expect(store.get().autopilotRun).toStrictEqual({ windowFrom: 22 })
+    // Moving both edges at once past each other is one change, and allowed.
+    expect(store.set({ autopilotRun: { windowFrom: 7, windowTo: 22 } }).autopilotRun).toStrictEqual({ windowFrom: 7, windowTo: 22 })
+  })
+
+  it('a Run choice the file holds by hand — a mode it does not know, an hour out of range, edges that meet — reads as not chosen; the rest of the file stays', () => {
+    const unknown = freshFile()
+    mkdirSync(join(unknown, '..'), { recursive: true })
+    writeFileSync(unknown, JSON.stringify({ interfaceScale: 1.1, autopilotBudget: { reservePercent: 20 }, autopilotRun: { mode: 'overnight', windowFrom: 24, windowTo: 6.5 } }))
+    const odd = new AppSettingsStore(unknown).get()
+    expect(odd).toMatchObject({ interfaceScale: 1.1, autopilotBudget: { reservePercent: 20 } })
+    expect(odd.autopilotRun).toBeUndefined()
+    expect(autopilotRunOf(odd)).toEqual({ mode: 'fastest', window: { from: 23, to: 7 } })
+    expect(readdirSync(join(unknown, '..')).some((name) => name.includes('.unreadable-'))).toBe(false)
+
+    const meeting = freshFile()
+    mkdirSync(join(meeting, '..'), { recursive: true })
+    writeFileSync(meeting, JSON.stringify({ interfaceScale: 1.3, autopilotRun: { mode: 'start-window', windowFrom: 7 } }))
+    const met = new AppSettingsStore(meeting).get()
+    expect(met).toMatchObject({ interfaceScale: 1.3, autopilotRun: { mode: 'start-window' } })
+    expect(autopilotRunOf(met)).toEqual({ mode: 'start-window', window: { from: 23, to: 7 } })
+
+    const wrongType = freshFile()
+    mkdirSync(join(wrongType, '..'), { recursive: true })
+    writeFileSync(wrongType, JSON.stringify({ interfaceScale: 1.4, autopilotRun: 'start-window' }))
+    expect(new AppSettingsStore(wrongType).get()).toMatchObject({ interfaceScale: 1.4 })
+    expect(new AppSettingsStore(wrongType).get().autopilotRun).toBeUndefined()
+  })
+
   it('a Browser sleep field of the wrong type reads as not chosen, and the file is not set aside', () => {
     const file = freshFile()
     mkdirSync(join(file, '..'), { recursive: true })
@@ -595,6 +654,16 @@ describe('appSettings channels', () => {
       expect((await call('appSettings.set', { autopilotBudget: outside })).ok, JSON.stringify(outside)).toBe(false)
     }
     expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { autopilotBudget: { enabled: true, reservePercent: 50 } } })
+  })
+
+  it('appSettings.set takes the Run mode and the Start window by whole hours, and refuses a mode it does not know, an hour off 0–23 and edges that meet (worfy-resource-planner ticket 04)', async () => {
+    const call = await windowCaller()
+    expect(await call('appSettings.set', { autopilotRun: { mode: 'start-window', windowFrom: 22, windowTo: 6 } })).toMatchObject({ ok: true, value: { autopilotRun: { mode: 'start-window', windowFrom: 22, windowTo: 6 } } })
+    for (const outside of [{ mode: 'overnight' }, { windowFrom: 24 }, { windowTo: -1 }, { windowFrom: 1.5 }, { windowFrom: 3, windowTo: 3 }, { windowFrom: 6 }]) {
+      expect((await call('appSettings.set', { autopilotRun: outside })).ok, JSON.stringify(outside)).toBe(false)
+    }
+    expect(await call('appSettings.set', { autopilotRun: { windowTo: 22 } })).toMatchObject({ ok: false, error: 'appSettings.set failed: the Start window cannot start and end at the same hour' })
+    expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { autopilotRun: { mode: 'start-window', windowFrom: 22, windowTo: 6 } } })
   })
 
   it('a change made in main (a menu item) reaches every window too', async () => {
