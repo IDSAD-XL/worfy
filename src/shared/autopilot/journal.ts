@@ -61,18 +61,20 @@
 //                  samples, low,     wave-started. The run reckons it from what it reads at the
 //                  high, fit, week,  start: the workflow model, the journals of the Project's recent
 //                  durationP90Ms,    runs on this Machine, the Limits and Settings (forecast.ts,
-//                  durationSamples,  forecast-lines.ts, wave-duration.ts). mode: as in run-started;
+//                  durationSamples,  forecast-lines.ts, wave-duration.ts). mode: as in run-started, a
+//                                    mode of another value reads as none and the line stays;
 //                  window?           waves, tickets: the Waves left and the Tickets in them (over
 //                                    the named Tickets only in a run over named Tickets); uncounted:
 //                                    Tickets not closed and without a Wave number; samples: the
 //                                    per-Ticket samples the range is drawn from, 0 when the
 //                                    journals could not be read; low, high: p10 and p90 of the share
 //                                    of the week all those Waves take, 0..1, both null under 5
-//                                    samples or with no Wave left; fit: K, how many of the first
-//                                    Waves fit before the 7-day reset by their p90 — with the reserve
-//                                    of Settings when the budget acts in the run (Budget-aware, or
-//                                    Start window with the budget on), without it otherwise — null
-//                                    without a range or a fresh 7-day number with its reset ahead;
+//                                    samples or with no Wave left; fit: K of the recommendation, how
+//                                    many of the first Waves fit before the 7-day reset by their p90
+//                                    with the reserve of Settings, only when the budget acts in the
+//                                    run (Budget-aware, or Start window with the budget on); null
+//                                    without a recommendation (Fastest, Start window with the budget
+//                                    off), a range, or a fresh 7-day number with its reset ahead;
 //                                    week: the 7-day number at the start, {utilization, resetsAt}
 //                                    (resetsAt an ISO time or null), null without a fresh one (30
 //                                    minutes); durationP90Ms: the p90 of the Waves' duration in ms,
@@ -376,7 +378,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional(), mode: z.enum(RUN_MODES).optional().catch(undefined) }),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
   event('forecast', {
-    mode: z.enum(RUN_MODES),
+    mode: z.enum(RUN_MODES).optional().catch(undefined),
     waves: count,
     tickets: count,
     uncounted: count,

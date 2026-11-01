@@ -74,10 +74,9 @@ Source: [spec.md](../spec.md), «Решения» (Q10), «Journal» (`forecast`
   `src/shared/flight-recorder/journal-walk.mjs`: `forecast` в `JOURNAL_KINDS` на том же месте.
 - `docs/features/autopilot.md`: строка `forecast` и поле `actual` в таблице видов Journal.
 - Решено без владельца, подтвердить:
-  1. `fit` — K по правилу режима: с reserve Settings, когда budget действует в Run (Budget-aware; Start window с
-     включённым budget), без reserve в Fastest и в Start window без budget, как предупреждение Ticket-а 03. В spec
-     «`null` без рекомендации»; здесь `null` — когда K нет вовсе (нет диапазона или свежего числа `seven_day` со
-     сбросом впереди).
+  1. (Ревью, раунд 1: решение Orchestrator-а — по spec буквально.) `fit` — K рекомендации, с reserve Settings,
+     только когда у Run есть рекомендация: Budget-aware и Start window с включённым budget. В Fastest и в Start
+     window без budget — `null`, как и без диапазона или свежего числа `seven_day` со сбросом впереди.
   2. `week` — только свежее число `seven_day` (не старше 30 минут, `BUDGET_FRESH_MS`), как «Used now» строки
      прогноза; старое — `null`. Usage перед `forecast` отдельно не запрашивается: первая Wave запрашивает его сама.
   3. `forecast` пишется только когда у Run есть источник Journal-ов (`deps.budget`); в приложении он есть всегда.
@@ -93,16 +92,34 @@ Source: [spec.md](../spec.md), «Решения» (Q10), «Journal» (`forecast`
   индексы строк и длины срезов; `test/e2e/autopilot.spec.ts`, `test/e2e/autopilot-chat.spec.ts`,
   `test/e2e/linked-autopilot.spec.ts` — приложение всегда даёт Run `deps.budget`, так что e2e-Journal-ы тоже
   получают `forecast` после `run-started`. `docs/features/autopilot.md` — страница описывает виды Journal.
-- Test-ы: `test/unit/autopilot-run.test.ts` — 12 новых (порядок `forecast`, с `harness-behind`, поля при 5 и 4
+- Test-ы (до ревью): `test/unit/autopilot-run.test.ts` — 12 новых (порядок `forecast`, с `harness-behind`, поля при 5 и 4
   выборках, нечитаемые Journal-ы, K по режиму и устаревшее число, окно Start window, без `deps.budget`; `actual`
   при 0.04 + 0.06, со сбросом недели во Wave 2, без законченной Wave, Force stop во Wave 2). Сначала все 10 test-ов
   `forecast`/`actual` были красными. `test/unit/autopilot-journal.test.ts` — 4 новых (схема `forecast`, чужие
   `week`/`window`, `actual` и старые строки, `journal-walk.mjs`); `test/contract/autopilot-journal.test.ts` —
   `forecast` и `actual` в строке каждого вида и новый test записи и чтения.
-- Mutant-ы, на каждом test красный: `forecast` после `wave-started` (3 test-а); `actual` считает Wave со сбросом
+- Ревью, раунд 1 (PR #1219, REJECTED: один medium, одно решение, семь low), всё исправлено:
+  - test-ы сравнивают точные округлённые значения: `actual.share` — `0.1` и `0.04` (без округления в файле было бы
+    `0.09999999999999998`), `low`/`high` — литералы `0.06`/`0.12` и `0.01`/`0.05`;
+  - `fit` по spec (выше, п. 1), test на все четыре случая;
+  - `forecast.mode` чужого значения или без него читается как отсутствующий, строка остаётся (как `run-started.mode`);
+  - новые test-ы Run: одна Wave через сброс недели — `actual` `{share: 0, waves: 1, counted: 0}`; число `seven_day`
+    старше 40 минут в конце Wave — Wave не считается; выход из приложения во Wave 2 пишет `actual`; два прошлых
+    Journal-а и Run по названным Ticket-ам — выборки из обоих, прогноз только по названным, `uncounted` 1; граница
+    свежести — ровно 30 минут ещё свежо, 31 — нет;
+  - test Journal: отрицательные `low`/`high` — строка пропущена; отрицательная `week.utilization` — `week: null`.
+  - Mutant-ы раунда, на каждом test красный (vitest, восстановление из копии): `actual.share` без округления (4
+    test-а); `low`/`high` без округления (2); K и без рекомендации — правило раунда 1 (1); reserve в Start window
+    всегда (1) и никогда (1); граница свежести `<` вместо `<=` (1); выборки из одного Journal-а (1); названные
+    Ticket-ы не учитываются (1); `uncounted` 0 (1); `actual` только при засчитанной Wave (2); без `actual` при
+    выходе из приложения (1); свежесть выборок 60 минут вместо 30 (1); `low`/`high` < 0 принимаются (1);
+    `week.utilization` < 0 принимается (1); `forecast.mode` строгий (1).
+  - Долг, без изменений: выход из приложения, пока Run ещё стартует (`run.ts`, `stopAll`), его не останавливает —
+    так было до Ticket-а.
+- Mutant-ы раунда 0, на каждом test красный: `forecast` после `wave-started` (3 test-а); `actual` считает Wave со сбросом
   (рост — простая разность, 1 test); `low`/`high` при 4 выборках (`FORECAST_MIN_SAMPLES` = 4, 1 test); `actual` без
-  законченных Wave (1 test); reserve и в Fastest (1 test); нечитаемые Journal-ы роняют строку (1 test).
+  законченных Wave (1 test); нечитаемые Journal-ы роняют строку (1 test).
 - `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (560 файлов, 12081 test). e2e `autopilot.spec.ts`,
   `autopilot-chat.spec.ts`, `linked-autopilot.spec.ts` под замком — 11 passed.
-- Оценка автора: около 300 тыс. token-ов.
+- Оценка автора: около 300 тыс. token-ов, раунд 1 — ещё около 120 тыс.
 

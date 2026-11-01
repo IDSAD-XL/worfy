@@ -1550,8 +1550,9 @@ export class Autopilot {
       const forecast = epicForecast({ samples: waveSamples(runs), waves: remainingWaves(tickets, run.epic, run.cycle.named) })
       const duration = waveDurationP90(runs)
       const settings = budget.settings()
-      // The budget acts in Budget-aware whatever its switch says, in Start window only with it on (boundaryCheck).
-      const reserve = run.mode === 'budget-aware' || (run.mode === 'start-window' && settings.enabled) ? settings.reserve : null
+      // The budget acts in Budget-aware whatever its switch says, in Start window only with it on
+      // (boundaryCheck); only then has the Run a recommendation, and `fit` its K (the spec: null without one).
+      const budgetActs = run.mode === 'budget-aware' || (run.mode === 'start-window' && settings.enabled)
       const week = limits.windows.seven_day
       const fresh = week !== undefined && week.utilization !== null && now - week.receivedAt <= BUDGET_FRESH_MS
       await this.write(run, {
@@ -1563,7 +1564,7 @@ export class Autopilot {
         samples: forecast.samples,
         low: forecast.range === null ? null : millionths(forecast.range.low),
         high: forecast.range === null ? null : millionths(forecast.range.high),
-        fit: fitBeforeReset({ forecast, limits, now, reserve }),
+        fit: budgetActs ? fitBeforeReset({ forecast, limits, now, reserve: settings.reserve }) : null,
         week: fresh ? { utilization: week.utilization!, resetsAt: week.resetsAt === null ? null : new Date(toMs(week.resetsAt)).toISOString() } : null,
         durationP90Ms: duration.p90 === null ? null : Math.round(duration.p90),
         durationSamples: duration.samples,

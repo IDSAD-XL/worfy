@@ -138,12 +138,17 @@ describe('parseJournal', () => {
     const unknown: JournalEvent = { ...forecast, mode: 'fastest', samples: 0, low: null, high: null, fit: null, week: null, durationP90Ms: null, durationSamples: 0 }
     const windowed: JournalEvent = { ...forecast, mode: 'start-window', week: { utilization: 0.41, resetsAt: null }, window: { from: 23, to: 7 } }
     expect(parseJournal([started, forecast, unknown, windowed, stopped].map(line).join(''))).toEqual({ events: [started, forecast, unknown, windowed, stopped], skipped: 0 })
-    const bad = [{ ...forecast, mode: 'overnight' }, { ...forecast, samples: -1 }, { ...forecast, low: '18%' }, { ...forecast, fit: 1.5 }, { ...forecast, durationSamples: undefined }, { ...forecast, high: undefined }]
+    const bad = [{ ...forecast, samples: -1 }, { ...forecast, low: '18%' }, { ...forecast, low: -0.01 }, { ...forecast, high: -0.01 }, { ...forecast, fit: 1.5 }, { ...forecast, durationSamples: undefined }, { ...forecast, high: undefined }]
     expect(parseJournal(line(started) + bad.map(line).join('') + line(stopped))).toEqual({ events: [started, stopped], skipped: bad.length })
   })
 
-  it('reads a week or a window of another shape in forecast as none, and the line stays', () => {
+  it('reads a mode, a week or a window of another shape in forecast as none, and the line stays', () => {
+    const modeless: Record<string, unknown> = { ...forecast }
+    delete modeless.mode
+    expect(parseJournal(line({ ...forecast, mode: 'overnight' }))).toEqual({ events: [{ ...modeless, mode: undefined }], skipped: 0 })
+    expect(parseJournal(line(modeless))).toEqual({ events: [{ ...modeless, mode: undefined }], skipped: 0 })
     expect(parseJournal(line({ ...forecast, week: { utilization: '41%' } }))).toEqual({ events: [{ ...forecast, week: null }], skipped: 0 })
+    expect(parseJournal(line({ ...forecast, week: { utilization: -0.01, resetsAt: null } }))).toEqual({ events: [{ ...forecast, week: null }], skipped: 0 })
     expect(parseJournal(line({ ...forecast, window: { from: 24, to: 7 } }))).toEqual({ events: [forecast], skipped: 0 })
     expect(parseJournal(line({ ...forecast, window: 'night' }))).toEqual({ events: [forecast], skipped: 0 })
   })
