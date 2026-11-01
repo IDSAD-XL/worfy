@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { AUTOPILOT_STOP_REASONS, initialCycle, SETTLE_MS, step, type CycleEvent, type CycleState } from '../../src/shared/autopilot/cycle'
 import { runWaveState } from '../../src/shared/actions/render-template'
 import type { Ticket } from '../../src/shared/workflow/types'
+import { readyWave } from '../../src/shared/workflow/waves'
 
 const EPIC = 'demo'
 
@@ -412,6 +413,23 @@ describe('the Autopilot cycle over named Tickets', () => {
 
   it('a named Ticket waiting for an open Ticket outside the list is not ready: no-ready-wave', () => {
     expect(run([{ type: 'start', tickets: [t(4, 'open'), t(6, 'open', [4])] }], named([6])).effects).toEqual([{ kind: 'stopped', reason: 'no-ready-wave' }])
+  })
+
+  it('a Ticket outside the list still blocks a named one, and holds its files while in work', () => {
+    // 06 waits for 04, open and not named: 06 is not ready, and 04 does not go either.
+    expect(readyWave([t(4, 'open'), t(6, 'open', [4])], EPIC, [6])).toMatchObject({ ready: [], waiting: [{ num: 6, reason: { kind: 'blockers', blockers: [4] } }] })
+    // 04 is in work and shares a file with 06: 06 waits for the file.
+    const shared = { ...t(6, 'open'), files: ['src/f4.ts'] }
+    expect(readyWave([t(4, 'work'), shared], EPIC, [6])).toMatchObject({ ready: [], waiting: [{ num: 6, reason: { kind: 'files', heldBy: [4] } }] })
+    // An open 04 outside the list holds nothing: 06 goes.
+    expect(readyWave([t(4, 'open'), shared], EPIC, [6]).ready).toEqual([{ num: 6, filesNotListed: false }])
+  })
+
+  it('a blocked Ticket outside the list is not counted as skipped: no-ready-wave, not blocked-tickets', () => {
+    // 06 waits for an open 04; 07 is blocked with nothing to wait for, and not named.
+    const tickets = [t(4, 'open'), t(6, 'open', [4]), t(7, 'blocked')]
+    expect(run([{ type: 'start', tickets }], named([6])).effects).toEqual([{ kind: 'stopped', reason: 'no-ready-wave' }])
+    expect(run([{ type: 'start', tickets: [t(4, 'work'), t(6, 'open', [4]), t(7, 'blocked')] }]).effects).toEqual([{ kind: 'stopped', reason: 'blocked-tickets', tickets: [7] }])
   })
 
   it('takes along only the interrupted Tickets of the list', () => {

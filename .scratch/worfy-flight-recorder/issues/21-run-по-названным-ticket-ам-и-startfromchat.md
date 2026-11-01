@@ -100,11 +100,11 @@ Source: [spec.md](../spec.md), «Запуск Autopilot из чата» («Run �
   `runWaveState({ …, named })` (`src/shared/actions/render-template.ts`). `{wave}` считается по плану всего Epic-а.
 - **Проверка старта** — `startRefusal(model, epic, tickets)` (`run.ts:358`): нет Epic-а, пустой список, Ticket-а нет в
   Epic-е («Epic demo has no Tickets 07, 09»). Его зовут и `Autopilot.start`, и `startFromChat`. `Autopilot.runningEpic`
-  (`run.ts:659`) — Epic живого или стартующего Run-а.
-- **`src/main/autopilot/chat-start.ts`** — `ChatStarts.startFromChat` (`:60`): проверки, отказ «Autopilot is already
+  (`run.ts:674`) — Epic живого или стартующего Run-а.
+- **`src/main/autopilot/chat-start.ts`** — `ChatStarts.startFromChat` (`:91`): проверки, отказ «Autopilot is already
   running Epic X. Stop it first.» без строк Journal, `Autopilot.start` с `override: false`, списком и `by`
   (`command`/`tool`); из хода Orchestrator-а этого Project-а — ответ «Autopilot starts after this turn» и старт после
-  idle Session (`whenIdle`, `:130`); ожидающий старт считается живым Run-ом. App-экземпляр — `sharedChatStarts()`
+  idle Session (`whenIdle`, `:188`); пока старт ждёт, следующий запрос получает свой отказ (`chatWaitingHint`). App-экземпляр — `sharedChatStarts()`
   (`src/main/ipc/autopilot.ts:215`); его зовут Ticket-ы 22 и 23.
 - `by` хранится в `Run.by`; в Journal его пишет Ticket 11. Формат Journal этот Ticket не меняет.
 - Feature page `docs/features/autopilot.md`: строка `tickets-done`, уточнение `blocked-tickets`, модуль `chat-start.ts`.
@@ -115,10 +115,22 @@ Test-ы: `test/unit/autopilot-cycle.test.ts` (блок «over named Tickets», 1
 Первый падающий — test cycle со списком 05, 06 (в Wave попадал и 07). 12 ручных mutant-ов по новой логике — все
 убиты test-ами.
 
+Круг 1 после ревью (REJECTED, 5 medium):
+- Run по списку больше не теряет Ticket-ы прерванной Wave вне списка: они остаются в `resumable` после него
+  (`Run.carried`, `resumableOf`, `run.ts:428`); test-ы — `test/unit/autopilot-run.test.ts`, блок «a run over named
+  Tickets after a Force stop». Решение — в ADR-0091, пункт 2.
+- Перед ответом «Autopilot starts after this turn» — все отказы, известные сейчас: `orchestratorRefusal` (tasks,
+  очередь) и `Autopilot.startCheck` (`run.ts:776`: Run, свой репозиторий, шаблон, workflow, Epic, Ticket-ы, Run на Linked
+  machine). Отказ после хода показывается на Session Orchestrator-а как notice (`Session.notice`,
+  `src/main/agent/session.ts`). Решение — в ADR-0091, пункт 4.
+- Test-ы на Ticket-ы вне списка (блокируют и держат файлы), на `skipped` без чужих Ticket-ов, на Card Session в своём
+  ходу; гонки: кнопка нажата во время проверок, два запроса в одном ходу, проигранный старт.
+- Мелкие: `lastText` пишется и для `tickets-done`; канал берёт `ticketNumSchema` (Ticket 00 допустим) и не больше
+  `MAX_NAMED_TICKETS` (500); `orchestratorSession` в `try`.
+
 Не проверено:
 - Сужение счёта Ticket-ов для оценки бюджета (`budgetCheck`, `readyWave(…, run.cycle.named)`) test-ом не покрыто: mutant
   там выживет.
-- Отказ старта после конца хода (например, в очереди Orchestrator-а сообщение) никому не возвращается — только
-  `console.warn` в main process; спросивший уже получил «Autopilot starts after this turn».
+- Отказ после хода видит человек в окне Session, но не агент: notice в Claude Code не уходит.
 - Ход «Process gate queue» перед остановкой с `tickets-done` не делается (только `no-ready-wave`/`blocked-tickets`, как
   было).

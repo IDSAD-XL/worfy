@@ -5,8 +5,20 @@
 // workflow and the Sessions are stand-ins; the journal is the stand-in Autopilot's, which a refusal
 // never reaches.
 import { describe, expect, it } from 'vitest'
-import { AFTER_TURN_MESSAGE, ChatStarts, chatRunningHint, whenIdle, type ChatStartDeps } from '../../src/main/autopilot/chat-start'
+import { ORCHESTRATOR_HAS_QUEUE, ORCHESTRATOR_HAS_TASKS } from '../../src/main/agent/orchestrator'
+import {
+  AFTER_TURN_MESSAGE,
+  ChatStarts,
+  chatRunningHint,
+  chatWaitingHint,
+  lateRefusalNotice,
+  orchestratorRefusal,
+  whenIdle,
+  type ChatStartDeps,
+  type ChatStartRequest,
+} from '../../src/main/autopilot/chat-start'
 import type { AutopilotStartOptions } from '../../src/main/autopilot/run'
+import type { BackgroundTask } from '../../src/shared/agent/background-tasks'
 import type { AgentEvent, SessionState } from '../../src/shared/agent/events'
 import type { AutopilotState } from '../../src/shared/ipc/autopilot'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
@@ -37,13 +49,20 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 20; i += 1) await new Promise((done) => setTimeout(done, 0))
 }
 
-/** A stand-in Autopilot, workflow and Orchestrator; every start and every journal line is recorded. */
+/** A stand-in Autopilot, workflow and Orchestrator; every start, journal line and notice is recorded. */
 function standIn(options: { running?: string | null; orchestratorBusy?: boolean; workflowError?: string } = {}) {
   const out = {
     starts: [] as [string, string, AutopilotStartOptions | undefined][],
+    checks: [] as [string, string, AutopilotStartOptions | undefined][],
     journal: [] as string[],
+    notices: [] as [string, string][],
     running: options.running ?? null,
+    /** Every Session runs a turn while true: the Orchestrator's and any other. */
     busy: options.orchestratorBusy ?? false,
+    /** What Autopilot.startCheck answers. */
+    check: null as string | null,
+    /** What the Orchestrator's state refuses (tasks, queue). */
+    orchestrator: null as string | null,
     /** Ends the Orchestrator's turn: true — it is idle; false — its Session closed first. */
     endTurn: (idle: boolean) => {
       out.busy = false
@@ -60,18 +79,26 @@ function standIn(options: { running?: string | null; orchestratorBusy?: boolean;
         out.running = epic
         return Promise.resolve({ projectId, epic, status: 'running' } as AutopilotState)
       },
+      startCheck: (projectId, epic, start) => {
+        out.checks.push([projectId, epic, start])
+        return Promise.resolve(out.check)
+      },
       runningEpic: () => out.running,
     },
     workflow: () => Promise.resolve(model(options.workflowError ?? null)),
     orchestratorSession: () => Promise.resolve(ORCHESTRATOR),
-    inTurn: (sessionId) => sessionId === ORCHESTRATOR && out.busy,
+    inTurn: () => out.busy,
     whenIdle: () =>
       new Promise<boolean>((done) => {
         turnEnded = done
       }),
+    orchestratorRefusal: () => out.orchestrator,
+    notify: (sessionId, text) => void out.notices.push([sessionId, text]),
   }
   return out
 }
+
+const fromTurn = (extra: Partial<ChatStartRequest> = {}): ChatStartRequest => ({ projectId: PROJECT, epic: EPIC, by: 'tool', session: ORCHESTRATOR, ...extra })
 
 describe('startFromChat', () => {
   it('refuses an Epic the Project has not, and a named Ticket the Epic has not, by name; nothing starts', async () => {
@@ -83,10 +110,13 @@ describe('startFromChat', () => {
     expect(s.journal).toEqual([])
   })
 
-  it('refuses when the workflow cannot be read', async () => {
+  it('refuses when the workflow cannot be read, or the Orchestrator of a Project gone meanwhile cannot be asked', async () => {
     const s = standIn({ workflowError: 'no .scratch' })
     expect(await new ChatStarts(s.deps).startFromChat({ projectId: PROJECT, epic: EPIC, by: 'command' })).toEqual({ kind: 'refused', message: 'Cannot read the workflow: no .scratch' })
-    expect(s.starts).toEqual([])
+    const gone = standIn({ orchestratorBusy: true })
+    gone.deps.orchestratorSession = () => Promise.reject(new Error('the Orchestrator of demo was stopped'))
+    expect(await new ChatStarts(gone.deps).startFromChat(fromTurn())).toEqual({ kind: 'refused', message: 'the Orchestrator of demo was stopped' })
+    expect([...s.starts, ...gone.starts]).toEqual([])
   })
 
   it('refuses while a run goes on in the Project, naming its Epic, and writes nothing to the journal', async () => {
@@ -110,45 +140,117 @@ describe('startFromChat', () => {
     ])
   })
 
-  it('answers a refusal of Autopilot.start in its own words', async () => {
+  it('answers a refusal of Autopilot.start in its own words, and a start that lost to another one with the running hint', async () => {
     const s = standIn()
     s.deps.autopilot.start = () => Promise.reject(new Error('The Orchestrator is in a turn'))
     expect(await new ChatStarts(s.deps).startFromChat({ projectId: PROJECT, epic: EPIC, by: 'command' })).toEqual({ kind: 'refused', message: 'The Orchestrator is in a turn' })
+    // The button started Epic billing while this start was on its way.
+    s.deps.autopilot.start = () => {
+      s.running = 'billing'
+      return Promise.reject(new Error('Autopilot is already running in this Project (Epic billing): stop it first'))
+    }
+    expect(await new ChatStarts(s.deps).startFromChat({ projectId: PROJECT, epic: EPIC, by: 'command' })).toEqual({ kind: 'refused', message: chatRunningHint('billing') })
   })
 
-  it('asked from the turn of the Project\'s Orchestrator: answers "Autopilot starts after this turn" and starts only once the Session is idle', async () => {
+  it('asked from the turn of the Project\'s Orchestrator: checks first, answers "Autopilot starts after this turn", starts only once the Session is idle', async () => {
     const s = standIn({ orchestratorBusy: true })
     const starts = new ChatStarts(s.deps)
-    const answer = await starts.startFromChat({ projectId: PROJECT, epic: EPIC, tickets: [5], by: 'tool', session: ORCHESTRATOR })
+    const answer = await starts.startFromChat(fromTurn({ tickets: [5] }))
     expect(answer).toEqual({ kind: 'after-turn', message: AFTER_TURN_MESSAGE })
     expect(AFTER_TURN_MESSAGE).toBe('Autopilot starts after this turn')
+    expect(s.checks).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', tickets: [5] }]])
     await settle()
     expect(s.starts).toEqual([])
-    // A second ask before the turn is over: the start waiting counts as a run.
-    expect(await starts.startFromChat({ projectId: PROJECT, epic: EPIC, by: 'tool', session: ORCHESTRATOR })).toEqual({ kind: 'refused', message: chatRunningHint(EPIC) })
+    // A second ask before the turn is over: the start waiting has its own words, there is nothing to stop.
+    expect(await starts.startFromChat(fromTurn())).toEqual({ kind: 'refused', message: chatWaitingHint(EPIC) })
+    expect(chatWaitingHint(EPIC)).toBe("Autopilot is about to start Epic demo after the Orchestrator's turn.")
     s.endTurn(true)
     await settle()
     expect(s.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', tickets: [5] }]])
+    expect(s.notices).toEqual([])
   })
 
-  it('a Session that closes before its turn ends starts nothing, and frees the Project for the next ask', async () => {
+  it('does not promise a start the Orchestrator\'s tasks or queue, or Autopilot\'s own checks, refuse now; nothing waits after it', async () => {
     const s = standIn({ orchestratorBusy: true })
     const starts = new ChatStarts(s.deps)
-    await starts.startFromChat({ projectId: PROJECT, epic: EPIC, by: 'tool', session: ORCHESTRATOR })
+    s.orchestrator = ORCHESTRATOR_HAS_TASKS
+    expect(await starts.startFromChat(fromTurn())).toEqual({ kind: 'refused', message: ORCHESTRATOR_HAS_TASKS })
+    s.orchestrator = null
+    s.check = 'Autopilot is already running Epic demo of this repository on Studio'
+    expect(await starts.startFromChat(fromTurn())).toEqual({ kind: 'refused', message: 'Autopilot is already running Epic demo of this repository on Studio' })
+    s.check = null
+    expect(await starts.startFromChat(fromTurn())).toEqual({ kind: 'after-turn', message: AFTER_TURN_MESSAGE })
+    expect(s.starts).toEqual([])
+  })
+
+  it('a button pressed while the checks are read wins: the ask is refused and does not wait', async () => {
+    const s = standIn({ orchestratorBusy: true })
+    s.deps.autopilot.startCheck = () => {
+      s.running = 'billing'
+      return Promise.resolve(null)
+    }
+    const starts = new ChatStarts(s.deps)
+    expect(await starts.startFromChat(fromTurn())).toEqual({ kind: 'refused', message: chatRunningHint('billing') })
+    s.endTurn(true)
+    await settle()
+    expect(s.starts).toEqual([])
+  })
+
+  it('two asks in one turn at once: one waits, the other is refused', async () => {
+    const s = standIn({ orchestratorBusy: true })
+    const starts = new ChatStarts(s.deps)
+    const answers = await Promise.all([starts.startFromChat(fromTurn()), starts.startFromChat(fromTurn({ tickets: [6] }))])
+    expect(answers).toEqual([
+      { kind: 'after-turn', message: AFTER_TURN_MESSAGE },
+      { kind: 'refused', message: chatWaitingHint(EPIC) },
+    ])
+    s.endTurn(true)
+    await settle()
+    expect(s.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool' }]])
+  })
+
+  it('a refusal after the turn is told on the Orchestrator\'s Session, and frees the Project', async () => {
+    const s = standIn({ orchestratorBusy: true })
+    const starts = new ChatStarts(s.deps)
+    await starts.startFromChat(fromTurn())
+    s.deps.autopilot.start = () => Promise.reject(new Error(ORCHESTRATOR_HAS_QUEUE))
+    s.endTurn(true)
+    await settle()
+    expect(s.notices).toEqual([[ORCHESTRATOR, lateRefusalNotice(EPIC, ORCHESTRATOR_HAS_QUEUE)]])
+    expect(lateRefusalNotice(EPIC, 'x')).toBe('Autopilot did not start Epic demo: x')
+    expect(await starts.startFromChat({ projectId: PROJECT, epic: EPIC, by: 'command' })).toEqual({ kind: 'refused', message: ORCHESTRATOR_HAS_QUEUE })
+  })
+
+  it('a Session that closes before its turn ends starts nothing, tells nothing, and frees the Project for the next ask', async () => {
+    const s = standIn({ orchestratorBusy: true })
+    const starts = new ChatStarts(s.deps)
+    await starts.startFromChat(fromTurn())
     s.endTurn(false)
     await settle()
     expect(s.starts).toEqual([])
+    expect(s.notices).toEqual([])
     expect(await starts.startFromChat({ projectId: PROJECT, epic: EPIC, by: 'command' })).toMatchObject({ kind: 'started' })
   })
 
-  it('another Session\'s ask, or the Orchestrator\'s while idle, starts at once', async () => {
+  it('another Session\'s ask during its own turn, or the Orchestrator\'s while idle, starts at once', async () => {
     const s = standIn({ orchestratorBusy: true })
     const starts = new ChatStarts(s.deps)
-    expect(await starts.startFromChat({ projectId: PROJECT, epic: EPIC, by: 'tool', session: 'card-session' })).toMatchObject({ kind: 'started' })
+    // A Card's Session in a turn is not the Orchestrator: the run starts now.
+    expect(await starts.startFromChat(fromTurn({ session: 'card-session' }))).toMatchObject({ kind: 'started' })
     s.running = null
     s.busy = false
     expect(await starts.startFromChat({ projectId: PROJECT, epic: EPIC, by: 'command', session: ORCHESTRATOR })).toMatchObject({ kind: 'started' })
     expect(s.starts).toHaveLength(2)
+    expect(s.checks).toEqual([])
+  })
+})
+
+describe('orchestratorRefusal', () => {
+  const task = { taskId: 't1' } as unknown as BackgroundTask
+  it('names live background tasks first, then queued messages; none when free', () => {
+    expect(orchestratorRefusal({ backgroundTasks: () => [task], queued: () => ({ items: [{}] }) })).toBe(ORCHESTRATOR_HAS_TASKS)
+    expect(orchestratorRefusal({ backgroundTasks: () => [], queued: () => ({ items: [{}] }) })).toBe(ORCHESTRATOR_HAS_QUEUE)
+    expect(orchestratorRefusal({ backgroundTasks: () => [], queued: () => ({ items: [] }) })).toBeNull()
   })
 })
 

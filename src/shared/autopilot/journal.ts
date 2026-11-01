@@ -135,7 +135,8 @@
 //                                    Tickets of the Wave it interrupted, none before the first Wave
 //                                    (worfy-week tickets 17, 18; lines written before ticket 18 say
 //                                    `user-stop` for it); lastText: with `no-progress`,
-//                                    `no-ready-wave` and `blocked-tickets`, the first 1000
+//                                    `no-ready-wave`, `blocked-tickets` and `tickets-done`
+//                                    (worfy-flight-recorder ticket 21), the first 1000
 //                                    characters of the Orchestrator's last answer in the turns of
 //                                    the Wave, none when no Wave was sent (ADR-0033)
 //   orchestrator-returned            after a run-stopped with live tasks: they have ended and the

@@ -34,7 +34,7 @@ import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import { appLimits, observeSessionLimits } from '../agent/limits'
 import { refreshAppUsage } from '../agent/limits-usage'
-import { ChatStarts, whenIdle } from '../autopilot/chat-start'
+import { ChatStarts, orchestratorRefusal, whenIdle } from '../autopilot/chat-start'
 import { harnessDriftWatch } from '../autopilot/harness-drift'
 import { openRun, readRecentRuns } from '../autopilot/journal'
 import { KeepAwake } from '../autopilot/power'
@@ -226,6 +226,14 @@ export function sharedChatStarts(): ChatStarts {
       }
     },
     whenIdle: (sessionId) => whenIdle(sharedRegistry(), sessionId),
+    orchestratorRefusal: (sessionId) => orchestratorRefusal(sharedRegistry().get(sessionId)),
+    notify: (sessionId, text) => {
+      try {
+        sharedRegistry().get(sessionId).notice(text)
+      } catch {
+        // The Session is gone: there is no one to tell.
+      }
+    },
   })
   return sharedStarts
 }

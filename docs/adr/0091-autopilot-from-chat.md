@@ -17,6 +17,11 @@ Autopilot (keep-awake, ожидание Limits, бюджет, очередь gat
    `autopilot.start` (целые положительные номера, хотя бы один). Cycle (`src/shared/autopilot/cycle.ts`) держит список в
    состоянии (`named`) и считает готовыми, пропущенными (`skipped`) и подхваченными после Force stop (`resume`) только
    Ticket-ы списка; остальные Ticket-ы Epic-а по-прежнему блокируют названные и держат свои файлы, пока в работе.
+   **Прерванная Wave и список.** Если последний Force stop этого Epic-а прервал Wave (`resumable`), Run по списку берёт
+   из неё только Ticket-ы списка. Остальные он не трогает и оставляет в `resumable`, когда останавливается, с любой
+   причиной (`Run.carried`, `run.ts`): их подхватит следующий Run всего Epic-а. После Force stop самого Run-а по
+   списку в `resumable` — и его Wave, и эти Ticket-ы. Без этого они остались бы `work` навсегда: не `open`, не
+   `resumable`, и держали бы свои файлы.
    Тот же список получает «Run wave» Autopilot-а (`ActionLauncher.autopilotWave` → `runWaveState` → `readyWave(…, named)`),
    так что текст Wave называет только Ticket-ы из списка; `{wave}` считается по плану всего Epic-а. Без списка Run ведёт
    весь Epic, как кнопка; кнопка списка не передаёт.
@@ -34,15 +39,25 @@ Autopilot (keep-awake, ожидание Limits, бюджет, очередь gat
    - иначе — `Autopilot.start` с теми же аргументами, что у кнопки (`override: false`), плюс список и кто начал;
    - если спросил Orchestrator этого Project-а из своего хода, Run стартует, когда его Session станет idle
      (`Autopilot.start` отказывает Orchestrator-у в ходе); ответ — «Autopilot starts after this turn». Пока такой старт
-     ждёт, он считается живым Run-ом для следующих запросов. Session закрылась или упала раньше — Run не стартует.
+     ждёт, следующий запрос получает отказ «Autopilot is about to start Epic X after the Orchestrator's turn.» (остановить
+     ещё нечего). Session закрылась или упала раньше — Run не стартует, и ничего не сообщается.
+   - **Перед обещанием «после хода»** спрашиваются все отказы, известные уже сейчас: живые background tasks и
+     сообщения в очереди Orchestrator-а (`orchestratorRefusal`, те же тексты, что у `setUnattended`) и
+     `Autopilot.startCheck` — Run в Project-е, свой репозиторий worfy в development-сборке, шаблон «Run wave», workflow,
+     Epic и Ticket-ы, Run того же Epic-а и origin на Linked machine (у старта из чата нет «Start anyway»). Любой из них —
+     отказ сразу, ничего не ждёт.
+   - **Отказ после хода** (например, человек успел поставить сообщение в очередь, или нажал кнопку Autopilot)
+     ответом инструмента уже не вернуть: он показывается на Session Orchestrator-а как notice вида `notification`
+     («Autopilot did not start Epic X: <причина>», `Session.notice`, событие `notice` уже есть в протоколе Session) и
+     пишется в log main process. В Journal он не попадает: Run не начался.
 5. **Кто начал Run** (`button`, `command`, `tool`) передаётся в `Autopilot.start` и хранится в Run. В Journal
    (`run-started.by`, `run-started.tickets`) его пишет Ticket 11; этот ADR формат Journal не меняет.
 6. **Без Run остаются** (решение 09, Q7): «Run wave» с Canvas и из Command palette, и Wave, начатая в Claude в терминале
    вне worfy. worfy их не видит как запуск и Journal для них не ведёт.
 
-**Цена.** Отказ старта после конца хода (например, в очереди Orchestrator-а лежит сообщение, и Session сразу начинает
-следующий ход) никому не возвращается: его видно только в логе main process. Тот, кто спросил, уже получил «Autopilot
-starts after this turn».
+**Цена.** Отказ, который приходит только после конца хода, Orchestrator не видит: notice показывается человеку в окне
+Session, а агенту не уходит. Ticket-ы, отложенные Run-ом по списку в `resumable`, переживают только до перезапуска
+приложения, как и `resumable` после Force stop.
 
 ## Considered Options
 
@@ -50,6 +65,8 @@ starts after this turn».
   cycle; без списка там Wave назвала бы и Ticket-ы вне списка.
 - **Убирать Ticket-ы вне списка из чтения workflow до `readyWave`.** Отвергнуто: блокер вне списка тогда стал бы
   «missing-blocker», а Ticket вне списка в работе перестал бы держать свои файлы, и Wave взяла бы Ticket с общим файлом.
+- **Отказывать в старте по списку, пока есть прерванная Wave с Ticket-ами вне списка.** Отвергнуто: заставляет
+  человека сначала запускать весь Epic, хотя он назвал другие Ticket-ы; перенос остатка в `resumable` ничего не теряет.
 - **Только запись (worfy замечает Wave из чата и ведёт для неё Journal, но без поведения Autopilot).** Отвергнуто
   владельцем (решение 09, вариант «а»).
 - **Отдельная причина остановки не нужна, хватит `no-ready-wave`.** Отвергнуто: `no-ready-wave` значит «в Epic-е нечего

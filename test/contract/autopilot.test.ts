@@ -25,9 +25,10 @@ import { sendFromCard } from '../../src/main/ipc/card-api'
 import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
 import { LayoutStore } from '../../src/main/layout/store'
 import { applyBranches, readCheckout, readWorkflow, type BranchCache, type EpicStatusRunner } from '../../src/main/workflow/reader'
+import type { AgentEvent } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { REASON_MAX, type JournalEvent } from '../../src/shared/autopilot/journal'
-import { autopilotChanged, autopilotEpicAtWork, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
+import { autopilotChanged, autopilotEpicAtWork, autopilotStatusLine, MAX_NAMED_TICKETS, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, PLUGIN_HARNESS_TEMPLATES, type HarnessKind } from '../../src/shared/projects/action-templates'
 import { APP_URL, INDEX_HTML } from '../app-url'
@@ -505,6 +506,19 @@ describe('an Autopilot run on the fake agent', () => {
       ['worfy', 'sent a message'],
       ['worfy', 'pressed Send queued'],
     ])
+  })
+
+  it('Session.notice shows worfy\'s text on the Session as a notification notice (worfy-flight-recorder ticket 21)', async () => {
+    const h = harness({ script: 'orchestrator' })
+    await h.autopilot.start(PROJECT, EPIC)
+    const session = await h.session()
+    const seen: AgentEvent[] = []
+    const stop = h.registry.observe((sessionId, event) => {
+      if (sessionId === session.id && event.type === 'notice') seen.push(event)
+    })
+    session.notice('Autopilot did not start Epic demo: x')
+    stop()
+    expect(seen).toMatchObject([{ type: 'notice', kind: 'notification', text: 'Autopilot did not start Epic demo: x' }])
   })
 
   it('journals a dialog the unattended Orchestrator refused', async () => {
@@ -1104,10 +1118,16 @@ describe('the autopilot channels', () => {
   it('autopilot.start passes named Tickets to a run over them, and refuses a list that is empty or not of Ticket numbers (worfy-flight-recorder ticket 21)', async () => {
     const { invoke, calls } = await register()
     expect(await invoke('autopilot.start', { projectId: 'p', epic: 'e', tickets: [5, 6] })).toEqual({ ok: true, value: state() })
-    for (const tickets of [[], [0], [1.5], ['05'], 5]) {
-      expect((await invoke('autopilot.start', { projectId: 'p', epic: 'e', tickets })).ok, JSON.stringify(tickets)).toBe(false)
+    // Ticket 00 is a Ticket number like any other (ticketNumSchema).
+    expect(await invoke('autopilot.start', { projectId: 'p', epic: 'e', tickets: [0] })).toEqual({ ok: true, value: state() })
+    const tooMany = Array.from({ length: MAX_NAMED_TICKETS + 1 }, (_, index) => index + 1)
+    for (const tickets of [[], [-1], [1.5], ['05'], 5, tooMany]) {
+      expect((await invoke('autopilot.start', { projectId: 'p', epic: 'e', tickets })).ok, JSON.stringify(tickets).slice(0, 40)).toBe(false)
     }
-    expect(calls).toEqual([['start', 'p', 'e', [5, 6]]])
+    expect(calls).toEqual([
+      ['start', 'p', 'e', [5, 6]],
+      ['start', 'p', 'e', [0]],
+    ])
   })
 
   it('autopilot.start refuses a wrong type before Autopilot runs, and answers its refusal as {ok:false}', async () => {

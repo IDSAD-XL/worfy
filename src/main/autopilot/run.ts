@@ -420,6 +420,16 @@ export async function selfProjectRefusal(input: {
   return null
 }
 
+/**
+ * What a stopped run leaves resumable (AutopilotState.resumable): after a Force stop the Tickets of
+ * the Wave it interrupted, and in a run over named Tickets those of the last Force stop it did not
+ * take; in number order.
+ */
+function resumableOf(run: Run): number[] {
+  const interrupted = run.cycle.reason === 'user-force-stop' ? run.interrupted : []
+  return [...new Set([...interrupted, ...run.carried])].sort((a, b) => a - b)
+}
+
 /** One run of one Project. */
 class Run {
   cycle: CycleState
@@ -466,6 +476,11 @@ class Run {
   stopSent = false
   /** After a Force stop: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
   interrupted: number[] = []
+  /**
+   * A run over named Tickets: the Tickets of the last Force stop's Wave that are not on its list. It
+   * does not take them, so they stay resumable after it, for a later run of the whole Epic (ADR-0091).
+   */
+  carried: number[] = []
   /**
    * The gate queue's turn before the run stops for want of a Wave (worfy-windows ticket 17): the stop
    * it was sent instead of, while its turn goes on; null otherwise. Once per run: whatever ends the
@@ -676,13 +691,7 @@ export class Autopilot {
     const starting = { epic, origin: null as string | null }
     this.starting.set(projectId, starting)
     try {
-      const root = this.deps.projectRoot(projectId)
-      const refusal = (await this.deps.selfRefusal(root)) ?? this.deps.waves.autopilotRefusal(projectId)
-      if (refusal !== null) throw new Error(refusal)
-      const model = await this.deps.workflow(root)
-      if (model.error !== null) throw new Error(`Cannot read the workflow: ${model.error.message}`)
-      const unknown = startRefusal(model, epic, options.tickets)
-      if (unknown !== null) throw new Error(unknown)
+      const { root, model } = await this.ownChecks(projectId, epic, options.tickets)
       // Counted among this Machine's runs before anyone is asked: a Linked machine starting the same
       // key meanwhile hears of this start (runKeys), as this one hears of its.
       starting.origin = await this.originOf(projectId, root)
@@ -697,8 +706,11 @@ export class Autopilot {
       run.origin = starting.origin
       run.unasked = unasked
       // The Wave the last Force stop of this Epic interrupted goes along with the first Wave (worfy-week tickets 17, 18).
+      // A run over named Tickets takes only those of its list, and keeps the rest resumable (ADR-0091).
       const last = this.last.get(projectId)
       run.resume = last?.epic === epic ? [...last.resumable] : []
+      const named = options.tickets
+      if (named !== undefined) run.carried = run.resume.filter((num) => !named.includes(num))
       if (this.deps.limits !== undefined) run.limits = new LimitsWait(this.deps.limits)
       const view = await this.deps.orchestrators.setUnattended(projectId, true)
       try {
@@ -735,6 +747,43 @@ export class Autopilot {
       return this.snapshot(run)
     } finally {
       this.starting.delete(projectId)
+    }
+  }
+
+  /**
+   * The checks of a start that need no Orchestrator and no Linked machine: worfy's own repository in
+   * a development build, the "Run wave" template, the workflow, the Epic and the named Tickets.
+   * Throws the refusal; answers the root and the model read.
+   */
+  private async ownChecks(projectId: string, epic: string, tickets: readonly number[] | undefined): Promise<{ root: string; model: WorkflowModel }> {
+    const root = this.deps.projectRoot(projectId)
+    const refusal = (await this.deps.selfRefusal(root)) ?? this.deps.waves.autopilotRefusal(projectId)
+    if (refusal !== null) throw new Error(refusal)
+    const model = await this.deps.workflow(root)
+    if (model.error !== null) throw new Error(`Cannot read the workflow: ${model.error.message}`)
+    const unknown = startRefusal(model, epic, tickets)
+    if (unknown !== null) throw new Error(unknown)
+    return { root, model }
+  }
+
+  /**
+   * Why a start of `epic` would be refused now, without starting anything: a run of the Project,
+   * the checks of start() that need no Orchestrator (ownChecks), and — without `override` — a run
+   * of the same Epic and origin elsewhere. Null when start() would go past them. The Orchestrator's
+   * own state is not asked here (chat-start.ts asks it). Used by a start from a chat before it
+   * promises to start after the Orchestrator's turn (ADR-0091).
+   */
+  async startCheck(projectId: string, epic: string, options: AutopilotStartOptions = {}): Promise<string | null> {
+    const running = this.runningEpic(projectId)
+    if (running !== null) return alreadyRunning(running)
+    try {
+      const { root } = await this.ownChecks(projectId, epic, options.tickets)
+      if (options.override === true) return null
+      const origin = await this.originOf(projectId, root)
+      if (origin === null) return null
+      return (await this.checkElsewhere(projectId, epic, origin)).elsewhere?.message ?? null
+    } catch (error) {
+      return messageOf(error)
     }
   }
 
@@ -1416,7 +1465,7 @@ export class Autopilot {
 
   /**
    * The run is over: its reason in the journal, keep-awake released, the Orchestrator given back.
-   * A stop for want of a Wave carries the Orchestrator's last answer in the Wave (ADR-0033), and
+   * A stop for want of a Wave, and `tickets-done`, carry the Orchestrator's last answer in the Wave (ADR-0033), and
    * `blocked-tickets` the Tickets it stopped on.
    */
   private async end(run: Run, reason: AutopilotStopReason, tickets?: number[]): Promise<void> {
@@ -1424,7 +1473,7 @@ export class Autopilot {
     // journaled ahead of the run-stopped that names it. A Force stop and a quit do not wait for gh.
     if (reason !== 'user-force-stop' && reason !== 'app-quit') await this.journalNarrow(run, await this.lastPrs(run))
     const live = this.liveTasks(run)
-    const lastText = reason === 'no-progress' || reason === 'no-ready-wave' || reason === 'blocked-tickets' ? run.lastText : null
+    const lastText = reason === 'no-progress' || reason === 'no-ready-wave' || reason === 'blocked-tickets' || reason === 'tickets-done' ? run.lastText : null
     await this.write(run, {
       kind: 'run-stopped',
       reason,
@@ -1651,7 +1700,7 @@ export class Autopilot {
       ...(waitingFor === undefined ? {} : { waitingFor }),
       reason: run.done ? run.cycle.reason : null,
       message: run.message,
-      resumable: run.done && run.cycle.reason === 'user-force-stop' ? [...run.interrupted] : [],
+      resumable: run.done ? resumableOf(run) : [],
       stopping,
       ticketsInWork: stopping ? run.cycle.inWork.length : 0,
       harnessBehind: this.harness.get(run.projectId) ?? null,

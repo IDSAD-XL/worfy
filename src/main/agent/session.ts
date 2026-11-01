@@ -193,6 +193,15 @@ export class Session {
     this.emit({ type: 'refused_dialog', dialog, subject, message, ...details })
   }
 
+  /**
+   * Shows `text` in the Session's view as a notice of worfy's own (kind `notification`), outside any
+   * turn; Claude Code does not see it. A start of Autopilot promised after the Orchestrator's turn
+   * says so when it is refused then (src/main/autopilot/chat-start.ts, worfy-flight-recorder ticket 21).
+   */
+  notice(text: string): void {
+    this.emit({ type: 'notice', kind: 'notification', text })
+  }
+
   get id(): string {
     return this.current
   }
