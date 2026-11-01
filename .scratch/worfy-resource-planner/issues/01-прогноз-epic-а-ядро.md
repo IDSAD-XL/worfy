@@ -85,11 +85,24 @@ Source: [spec.md](../spec.md), «Решения» (Q4, Q5, Q8, Q17), «Прог�
      тоже `null`. Ticket 03 берёт K как наибольшее k с `cumulativeHigh[k]` ≤ свободного, K = 0 выходит само.
   3. `uncounted` в ответе `epicForecast` — число, в ответе `remainingWaves` — список номеров.
   4. Seed — `0x5eed`: в spec числа нет, только «постоянный seed».
-- Test — `test/unit/autopilot-forecast.test.ts`, 17 test-ов. Сначала падал весь файл (модуля не было). Мутанты, на
+- Test — `test/unit/autopilot-forecast.test.ts`, 24 test-а. Сначала падал весь файл (модуля не было). Мутанты, на
   каждом test красный: порог 5 → 4 (`:180`); p90 → p50 во всём ответе, только в `range` и только в
   `cumulativeHigh` (`:186`, `:198`, `:205`); выборка без возвращения (`:186`, `:198`); Ticket в работе получает
   Wave 1 (`:130`); Run по названным считает все Ticket-ы (`:153`); `waveSamples` без отбора 10 последних (`:80` и
   `autopilot-limits-estimate.test.ts`), без сортировки по времени (`:66`); `waveGrowth` делит на Ticket-ы (`:102`,
   `:66` и `autopilot-limits-estimate.test.ts`).
 - `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (549 файлов, 11814 test-ов).
-- Оценка автора: около 120 тыс. токенов.
+- Ревью, раунд 1 (PR #1206): закрыты один medium и шесть low. Каждый mutant из замечаний прогнан на копии дерева в
+  scratchpad, test красный на каждом (vitest exit 1):
+  - Run по названным: названный Ticket ждёт закрытый неназванный — Wave 1, неназванный в работе — Wave 2. Mutant-ы:
+    снять `&& ticket.state === 'open'` и `=== 'open'` → `!== 'done'`;
+  - другой seed даёт другой ответ (mutant: seed не учитывается);
+  - `draws: 1` даёт `low = high` (mutant: `draws` не учитывается); `draws` не целое или меньше 1 — `RangeError`
+    с «draws» в тексте (mutant: проверки нет, `draws: 0` доходил до `percentile([])`);
+  - Ticket-ы подаются не по порядку номеров, `uncounted` всё равно отсортирован (mutant: без сортировки);
+  - `waveGrowth` у Wave без Ticket-ов — `null` (mutant: без этой проверки);
+  - `percentile` с p 101, −1 и NaN — `RangeError` (mutant: без проверки 0..100);
+  - выборки идут по концу Wave, а не по началу: две Wave разной длины (mutant: сортировка по `wave-started`). Этот
+    test — в `autopilot-forecast.test.ts`, а не в `autopilot-limits-estimate.test.ts`: «Готово, когда» требует,
+    чтобы тот файл остался без правок.
+- Оценка автора: около 160 тыс. токенов (два раунда).

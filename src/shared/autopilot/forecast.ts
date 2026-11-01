@@ -67,7 +67,7 @@ export interface EpicForecastInput {
   /** The per-Ticket samples, waveSamples. */
   samples: readonly number[]
   waves: RemainingWaves
-  /** FORECAST_DRAWS unless named. */
+  /** FORECAST_DRAWS unless named; a whole number from 1 up, otherwise a RangeError. */
   draws?: number
   /** FORECAST_SEED unless named. */
   seed?: number
@@ -105,6 +105,7 @@ function random(seed: number): () => number {
 
 /** The Epic forecast: the bootstrap range of the share of the week the Waves left take. */
 export function epicForecast({ samples, waves, draws = FORECAST_DRAWS, seed = FORECAST_SEED }: EpicForecastInput): EpicForecast {
+  if (!Number.isInteger(draws) || draws < 1) throw new RangeError(`bootstrap draws must be a whole number from 1 up: ${draws}`)
   const tickets = waves.waves.reduce((sum, count) => sum + count, 0)
   const answer = { waves: waves.waves.length, tickets, uncounted: waves.uncounted.length, samples: samples.length }
   if (samples.length < FORECAST_MIN_SAMPLES || waves.waves.length === 0) return { ...answer, range: null, cumulativeHigh: null }
