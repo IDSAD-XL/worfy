@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { userInfo } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SCHEMES, renderMapSvg, svgPath } from '../../scripts/map-of-worfy-svg.mjs'
@@ -10,7 +11,8 @@ import { MAP_SPEC } from '../../src/renderer/guide/topics/map-of-worfy/spec'
 // cannot fall behind the diagram; every text must reach 4.5:1 on the ground it is drawn on; every
 // arrow must be an Edge of spec.ts; and README.md must show the dark file on a dark page.
 const root = join(import.meta.dirname, '../..')
-const labels = (JSON.parse(readFileSync(join(root, 'src/renderer/guide/topics/map-of-worfy/en.json'), 'utf8')) as { scene: { labels: Record<string, string> } }).scene.labels
+const topic = JSON.parse(readFileSync(join(root, 'src/renderer/guide/topics/map-of-worfy/en.json'), 'utf8')) as { scene: { description: string; labels: Record<string, string> } }
+const labels = topic.scene.labels
 
 function luminance(hex: string): number {
   const linear = [1, 3, 5].map((offset) => {
@@ -56,11 +58,17 @@ for (const scheme of SCHEMES) {
     it('draws an arrow for each Edge of spec.ts and for nothing else', () => {
       const drawn = [...svg.matchAll(/data-edge="([^"]+)"/g)].map((match) => (match[1] ?? '').replace('-&gt;', '->'))
       expect(drawn).toEqual(MAP_SPEC.edges.map((edge) => `${edge.from}->${edge.to}`))
+      // Every arrowhead, with or without a data-edge of its own, is placed by a rotate().
+      expect(svg.match(/rotate\(/g)?.length ?? 0).toBe(MAP_SPEC.edges.length)
     })
 
     it('carries no link, script, web font or local path', () => {
       expect(svg).not.toMatch(/<script|<a |href=|@import|@font-face|url\((?!#)/)
-      expect(svg).not.toMatch(/\/Users\/|\/home\/|[A-Z]:\\|file:/)
+      expect(svg).not.toMatch(/\/Users\/|\/home\/|~\/|[A-Z]:\\|file:/)
+      // The name of the user who ran the script, as a whole word and of three letters or more: a shorter
+      // name ("a", "on") is a word of the labels themselves.
+      const user = userInfo().username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      if (userInfo().username.length >= 3) expect(svg).not.toMatch(new RegExp(`\\b${user}\\b`, 'i'))
     })
   })
 }
@@ -72,6 +80,9 @@ describe('README.md', () => {
     const picture = /<picture>([\s\S]*?)<\/picture>/.exec(readme)?.[1] ?? ''
     expect(picture).toContain(`<source media="(prefers-color-scheme: dark)" srcset="${svgPath('dark')}">`)
     expect(picture).toMatch(new RegExp(`<img [^>]*src="${svgPath('light')}"`))
-    expect(picture).toMatch(/<img [^>]*alt="[^"]{40,}"/)
+    // The alt text is the Map's own description, as a screen reader hears it in the Guide.
+    const alt = /<img [^>]*alt="([^"]*)"/.exec(picture)?.[1]
+    const escaped = topic.scene.description.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
+    expect(alt).toBe(escaped)
   })
 })

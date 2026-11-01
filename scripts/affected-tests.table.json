@@ -60,6 +60,18 @@
   "links": [
     {
       "paths": [
+        "docs/images/map-of-worfy-light.svg",
+        "docs/images/map-of-worfy-dark.svg",
+        "src/renderer/theme/tokens.css",
+        "src/renderer/guide/guide.css"
+      ],
+      "files": [
+        "test/unit/map-of-worfy-svg.test.tsx"
+      ],
+      "why": "the test reaches the SVG files through svgPath() of scripts/map-of-worfy-svg.mjs, which reads the colours of both CSS files by path: the generated rows see neither"
+    },
+    {
+      "paths": [
         "test/**"
       ],
       "files": [

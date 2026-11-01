@@ -44,7 +44,7 @@ On the first start the First run dialog lists what worfy and the Harness need an
 
 ## Updating
 
-In the Stable copy, "Update worfy" in the Version chip, in Settings → General or in the Command palette builds the head of `main` once its `ci-ok` check is green, in a clone of its own, and replaces the copy after worfy quits; the restart is your press. It keeps the copy it replaced as the previous one. A manual `pnpm install:stable` still works and keeps no previous copy. Details: [Updates](docs/features/updates.md).
+In the Stable copy at its default place, "Update worfy" in the Version chip, in Settings → General or in the Command palette builds the head of `main` once its `ci-ok` check is green, in a clone of its own, and replaces the copy after worfy quits; the restart is your press. It keeps the copy it replaced as the previous one. A manual `pnpm install:stable` still works and keeps no previous copy. Details: [Updates](docs/features/updates.md).
 
 ## Learn worfy
 
@@ -105,9 +105,11 @@ pnpm install:stable                        # Windows: %LOCALAPPDATA%\worfy-stabl
 pnpm install:stable D:\apps\worfy-stable   # any other folder
 ```
 
-It builds the app (`pnpm package`), swaps it in and writes the commit and the build time into a file next to the copy (`worfy-stable.json` for the default target); nothing is written inside the copy. It refuses with a non-zero exit code while the copy is running: stop Autopilot first, or wait for the gap between Waves. While it works it keeps `<target>.installing-<pid>` and `<target>.replaced-<pid>` next to the target, and the next run clears what an interrupted one left; keep nothing of your own under such names.
+It builds the app (`pnpm package`) and swaps it in: the previous copy is moved aside until the new one is in place, and put back when the swap fails. It writes the commit and the build time into a file next to the copy (`worfy-stable.json` for the default target); nothing is written inside the copy. It refuses with a non-zero exit code while the copy is running: stop Autopilot first, or wait for the gap between Waves. While it works it keeps `<target>.installing-<pid>` and `<target>.replaced-<pid>` next to the target, and the next run clears what an interrupted one left; keep nothing of your own under such names.
 
-On Windows `pnpm package` also writes an unsigned installer, `dist\worfy Setup <version>.exe`, which installs worfy into `%LOCALAPPDATA%\Programs\worfy`; SmartScreen asks before its first run. The installer stops every running program whose path starts with that folder, so the command refuses a target inside it, around it or starting with its path (`…\Programs\worfy-stable`), a folder that holds `Uninstall worfy.exe`, and a folder that is neither empty nor an earlier copy. A folder with `worfy.exe` counts as an earlier copy and is replaced whole: keep nothing of your own in it.
+On Windows the Stable copy is a copy of the unpacked app, `dist\win-unpacked`, started by `worfy.exe`; it gets no shortcut in the Start menu. `pnpm package` also writes an unsigned installer, `dist\worfy Setup <version>.exe`, which installs worfy into `%LOCALAPPDATA%\Programs\worfy`; SmartScreen asks before its first run (More info → Run anyway). The installer stops every running program whose path starts with that folder, so the command refuses a target inside it, around it or starting with its path (`…\Programs\worfy-stable`), a folder that holds `Uninstall worfy.exe`, and a folder that is neither empty nor an earlier copy. A folder with `worfy.exe` counts as an earlier copy and is replaced whole: keep nothing of your own in it.
+
+After a new copy is installed on a Mac, answer its dialogs (notifications and other permissions) before Autopilot starts: the ad-hoc signature changes with every build, so macOS may ask again.
 
 The copy and `pnpm dev` keep separate data folders ([Storage and diagnostics](docs/features/storage-and-diagnostics.md)). While Autopilot runs, worfy keeps the display on, also while it waits for Limits to reset and, after Stop, for background tasks. For a run overnight on a Mac, leave the lid open and do not lock the screen by hand: with the lid closed the Mac sleeps, and on a locked screen Electron shows no window, so the agents of a Wave cannot run e2e tests.
 
