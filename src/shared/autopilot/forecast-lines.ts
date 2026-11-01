@@ -33,6 +33,13 @@ function weekNow(limits: LimitsState, now: number): WeekNow | null {
   return week === null ? null : { utilization: week.utilization, resetsAt: week.resetsAt === null ? null : toMs(week.resetsAt) / 1000 }
 }
 
+/**
+ * A share of the week in whole millionths, so that "at most" compares what the numbers mean and not
+ * their binary error: 1 − 0.15 − 0.45 is 0.39999999999999997 in floating point, and a Wave whose p90
+ * is 0.4 still fits.
+ */
+const shareUnits = (share: number): number => Math.round(share * 1_000_000)
+
 export interface FitInput {
   forecast: EpicForecast
   limits: LimitsState
@@ -50,8 +57,8 @@ export function fitBeforeReset({ forecast, limits, now, reserve }: FitInput): nu
   const week = freshWeek(limits, now)
   if (week === null || week.resetsAt === null || toMs(week.resetsAt) <= now) return null
   if (forecast.cumulativeHigh === null || forecast.waves === 0) return null
-  const free = 1 - (reserve ?? 0) - week.utilization
-  return Math.max(0, forecast.cumulativeHigh.findLastIndex((high) => high <= free))
+  const free = shareUnits(1 - (reserve ?? 0) - week.utilization)
+  return Math.max(0, forecast.cumulativeHigh.findLastIndex((high) => shareUnits(high) <= free))
 }
 
 const count = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`

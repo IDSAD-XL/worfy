@@ -4,7 +4,7 @@ import type { LimitsState, LimitWindowState } from '../../src/shared/agent/limit
 import { BUDGET_FRESH_MS } from '../../src/shared/autopilot/budget'
 import type { EpicForecast } from '../../src/shared/autopilot/forecast'
 import { dialogLines, fitBeforeReset, forecastLine, modeLine, recommendationLine, warningLine, windowLine } from '../../src/shared/autopilot/forecast-lines'
-import { duration, waveEstimateLine } from '../../src/shared/autopilot/limits-estimate'
+import { duration, usedNowText, waveEstimateLine } from '../../src/shared/autopilot/limits-estimate'
 import { DEFAULT_START_WINDOW } from '../../src/shared/autopilot/run-mode'
 import type { WaveDuration } from '../../src/shared/autopilot/wave-duration'
 
@@ -53,6 +53,12 @@ describe('fitBeforeReset', () => {
     expect(fit(FOUR, limits(0.75), null)).toBe(2)
   })
 
+  it('lets it in when the share free misses it only by the floating-point error', () => {
+    // 1 − 0.15 − 0.45 is 0.39999999999999997, the p90 of the first three Waves is 0.4.
+    expect(1 - 0.15 - 0.45).toBeLessThan(0.4)
+    expect(fit(FOUR, limits(0.45), 0.15)).toBe(3)
+  })
+
   it('reads the p90 edge, not the low edge of the range', () => {
     // free 0.2: above the low edge of all four (0.18), below the p90 of the first two (0.25).
     expect(fit(FOUR, limits(0.8), null)).toBe(1)
@@ -68,6 +74,8 @@ describe('fitBeforeReset', () => {
     expect(fit(FOUR, limits(0.41, { age: BUDGET_FRESH_MS + 1 }), null)).toBeNull()
     expect(fit(FOUR, limits(0.41, { resetsAt: null }), null)).toBeNull()
     expect(fit(FOUR, limits(0.41, { resetsAt: (NOW - 1000) / 1000 }), null)).toBeNull()
+    expect(fit(FOUR, limits(0.41, { resetsAt: NOW / 1000 }), null)).toBeNull()
+    expect(fit(FOUR, limits(0.41, { resetsAt: (NOW + 1000) / 1000 }), null)).toBe(4)
     expect(fit(FOUR, { windows: {} }, null)).toBeNull()
     expect(fit(FOUR, { windows: { seven_day: window(null) } }, null)).toBeNull()
   })
@@ -86,6 +94,12 @@ describe('fitBeforeReset', () => {
     expect(fit(FOUR, limits(0.7, { fiveHour: full }), 0.15)).toBe(fit(FOUR, limits(0.7), 0.15))
     expect(fit(FOUR, limits(0.7, { fiveHour: full }), null)).toBe(2)
   })
+
+  it('does not read a 5-hour window that is merely high', () => {
+    const high = window(0.9, { status: 'allowed', resetsAt: (NOW + HOUR) / 1000 })
+    expect(fit(FOUR, limits(0.41, { fiveHour: high }), 0.15)).toBe(3)
+    expect(fit(FOUR, limits(0.41, { fiveHour: high }), null)).toBe(4)
+  })
 })
 
 describe('forecastLine', () => {
@@ -99,6 +113,19 @@ describe('forecastLine', () => {
     expect(line({ ...FOUR, range: { low: 0.176, high: 0.184 } })).toBe('This Epic: 4 Waves, 11 Tickets left, usually about 18% of the week. Used now: 41%, resets in 2 d 5 h')
     expect(line({ ...FOUR, range: { low: 0.002, high: 0.008 } })).toBe('This Epic: 4 Waves, 11 Tickets left, usually less than 1% of the week. Used now: 41%, resets in 2 d 5 h')
     expect(line({ ...FOUR, range: { low: 0.004, high: 0.012 } })).toBe('This Epic: 4 Waves, 11 Tickets left, usually 0–1% of the week. Used now: 41%, resets in 2 d 5 h')
+  })
+
+  it('rounds each edge to the nearest whole percent', () => {
+    const share = (low: number, high: number): string => line({ ...FOUR, range: { low, high } }).split(', usually ')[1]!.split(' of the week')[0]!
+    expect(share(0.176, 0.316)).toBe('18–32%')
+    expect(share(0.184, 0.324)).toBe('18–32%')
+  })
+
+  it('says less than 1% only below 1 %', () => {
+    const share = (low: number, high: number): string => line({ ...FOUR, range: { low, high } }).split(', usually ')[1]!.split(' of the week')[0]!
+    expect(share(0.004, 0.01)).toBe('0–1%')
+    expect(share(0.006, 0.01)).toBe('about 1%')
+    expect(share(0.004, 0.0099)).toBe('less than 1%')
   })
 
   it('says there is not enough data under the minimum of samples', () => {
@@ -143,6 +170,12 @@ describe('waveEstimateLine keeps its tail', () => {
     )
   })
 
+  it('rounds the share used now to the nearest percent and says resets now at the reset itself', () => {
+    expect(usedNowText({ utilization: 0.416, resetsAt: RESETS }, NOW)).toBe('Used now: 42%, resets in 2 d 5 h')
+    expect(usedNowText({ utilization: 0.9, resetsAt: NOW / 1000 }, NOW)).toBe('Used now: 90%, resets now')
+    expect(usedNowText({ utilization: 0.9, resetsAt: (NOW + MIN) / 1000 }, NOW)).toBe('Used now: 90%, resets in 1 min')
+  })
+
   it('exports duration', () => {
     expect([duration(2 * DAY + 5 * HOUR), duration(3 * HOUR + 10 * MIN), duration(25 * MIN)]).toEqual(['2 d 5 h', '3 h 10 min', '25 min'])
   })
@@ -171,6 +204,7 @@ describe('warningLine', () => {
     expect(warningLine(2, 4)).toBe('Only 2 of 4 Waves fit before the reset: then the run waits for the Limits')
     expect(warningLine(1, 4)).toBe('Only 1 of 4 Waves fits before the reset: then the run waits for the Limits')
     expect(warningLine(0, 4)).toBe('No Wave fits before the reset: then the run waits for the Limits')
+    expect(warningLine(0, 1)).toBe('No Wave fits before the reset: then the run waits for the Limits')
   })
 
   it('says nothing when all fit or without a K', () => {
@@ -215,7 +249,10 @@ describe('dialogLines', () => {
   })
 
   it('has no Budget-aware and no Fastest line without a 7-day number', () => {
-    expect(lines(FOUR, { windows: {} }).map((each) => each.split(':')[0])).toEqual(['Forecast', 'Start window 23'])
+    expect(lines(FOUR, { windows: {} })).toEqual([
+      'Forecast: This Epic: 4 Waves, 11 Tickets left, usually 18–31% of the week. Used now: unknown.',
+      'Start window 23:00–07:00: a Wave usually takes up to 1 h 40 min.',
+    ])
   })
 
   it('has no Fastest line when all Waves fit without the reserve', () => {
