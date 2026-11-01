@@ -41,12 +41,19 @@
 //   `sessionArchive`, it holds only what the person chose in Settings → Autopilot (off by default);
 //   autopilotBudgetOf() fills the rest with AUTOPILOT_BUDGET_DEFAULTS. Main reads it before every
 //   Wave of a run (src/main/ipc/autopilot.ts);
+// - `autopilotRun` — the default Run mode and the Start window (worfy-resource-planner ticket 04,
+//   src/shared/autopilot/run-mode.ts): `mode` — Fastest, Budget-aware or Start window; `windowFrom`
+//   and `windowTo` — the whole local hours the window starts and ends at, never the same. Like
+//   `autopilotBudget`, it holds only what the person chose in Settings → Autopilot; autopilotRunOf()
+//   fills the rest: the window 23:00–07:00, and while no mode is chosen, Budget-aware with the budget
+//   on and Fastest with it off, so a Run goes as it did before the modes;
 // - `guideLanguage` — the language the worfy Guide is read in, EN or RU (worfy-guide ticket 03,
 //   ADR-0090): set by the switch in the Guide's header; absent while the person has not chosen, and
 //   the Guide follows the system language (src/renderer/guide/language.ts). The rest of the window
 //   stays English;
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
+import { DEFAULT_START_WINDOW, RUN_MODES, type RunMode, type StartWindow } from '../autopilot/run-mode'
 
 /** The languages of the worfy Guide (ADR-0090): English, the main one, and Russian. */
 export const GUIDE_LANGUAGES = ['en', 'ru'] as const
@@ -189,6 +196,37 @@ export type AutopilotBudgetSettings = { [K in keyof AutopilotBudgetChoice]-?: No
  */
 export const AUTOPILOT_BUDGET_DEFAULTS: Readonly<AutopilotBudgetSettings> = Object.freeze({ enabled: false, reservePercent: 15 })
 
+/** An edge of the Start window: a whole local hour, 0–23. */
+export const startWindowHourSchema = z.number().int().min(0).max(23)
+
+/** What the person chose in Settings → Autopilot for the Run: each field only once chosen. */
+export const autopilotRunChoiceSchema = z.object({
+  mode: z.enum(RUN_MODES).optional(),
+  windowFrom: startWindowHourSchema.optional(),
+  windowTo: startWindowHourSchema.optional(),
+})
+export type AutopilotRunChoice = z.output<typeof autopilotRunChoiceSchema>
+
+/** Why a Start window is refused: it would start and end at the same hour. */
+export const START_WINDOW_SAME_HOURS = 'the Start window cannot start and end at the same hour'
+
+/** The Start window a choice gives: each edge chosen, else its default. */
+export function startWindowOf(choice: AutopilotRunChoice | undefined): StartWindow {
+  return { from: choice?.windowFrom ?? DEFAULT_START_WINDOW.from, to: choice?.windowTo ?? DEFAULT_START_WINDOW.to }
+}
+
+/** Whether the window a choice gives has two different edges. */
+export function startWindowValid(choice: AutopilotRunChoice | undefined): boolean {
+  const window = startWindowOf(choice)
+  return window.from !== window.to
+}
+
+/** The Run settings in force: the default mode and the Start window. */
+export interface AutopilotRunSettings {
+  mode: RunMode
+  window: StartWindow
+}
+
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),
   sidebar: z.object({
@@ -218,6 +256,8 @@ export const appSettingsSchema = z.object({
   browserSleep: browserSleepChoiceSchema.optional(),
   /** The Autopilot budget settings the person chose; absent while none is (see autopilotBudgetOf). */
   autopilotBudget: autopilotBudgetChoiceSchema.optional(),
+  /** The default Run mode and the Start window the person chose; absent while none is (see autopilotRunOf). */
+  autopilotRun: autopilotRunChoiceSchema.refine(startWindowValid, START_WINDOW_SAME_HOURS).optional(),
   /** The language the person chose in the Guide; absent while none is (the system's language then). */
   guideLanguage: guideLanguageSchema.optional(),
   revision: z.number().int().nonnegative(),
@@ -253,6 +293,11 @@ export const appSettingsPatchSchema = z.object({
   browserSleep: browserSleepChoiceSchema.optional(),
   /** Each field given is chosen, as in `sessionArchive`; a reserve outside AUTOPILOT_RESERVE_BOUNDS is refused. */
   autopilotBudget: autopilotBudgetChoiceSchema.optional(),
+  /**
+   * Each field given is chosen, as in `sessionArchive`. A change that leaves the edges of the window
+   * at the same hour — both given so, or one against the other in force — is refused by the store.
+   */
+  autopilotRun: autopilotRunChoiceSchema.optional(),
   /** The language of the Guide; once chosen it stays chosen. */
   guideLanguage: guideLanguageSchema.optional(),
 })
@@ -310,6 +355,15 @@ export function autopilotBudgetOf(settings: Pick<AppSettings, 'autopilotBudget'>
     enabled: settings.autopilotBudget?.enabled ?? AUTOPILOT_BUDGET_DEFAULTS.enabled,
     reservePercent: settings.autopilotBudget?.reservePercent ?? AUTOPILOT_BUDGET_DEFAULTS.reservePercent,
   }
+}
+
+/**
+ * The Run settings in force: the window from each edge the person chose, else 23:00–07:00; the mode
+ * the person chose, else Budget-aware while the daily budget is on and Fastest while it is off.
+ */
+export function autopilotRunOf(settings: Pick<AppSettings, 'autopilotRun' | 'autopilotBudget'>): AutopilotRunSettings {
+  const mode = settings.autopilotRun?.mode ?? (autopilotBudgetOf(settings).enabled ? 'budget-aware' : 'fastest')
+  return { mode, window: startWindowOf(settings.autopilotRun) }
 }
 
 type WindowSettings = Pick<AppSettings, 'autoCompactWindow' | 'autoCompactWindowChosen'>

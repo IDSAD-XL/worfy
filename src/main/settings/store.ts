@@ -11,7 +11,9 @@
 // `after` this version does not know (written by a newer one) reads as not chosen. `browserSleep`
 // (worfy-browser ticket 05) keeps only the fields a change named too; a value outside its bounds —
 // a file edited by hand — reads as not chosen, and the rest of the file stays. `autopilotBudget`
-// (worfy-throughput ticket 41) is kept the same way. `autoUpdate` ("Update automatically",
+// (worfy-throughput ticket 41) is kept the same way, and so is `autopilotRun` (the default Run mode and
+// the Start window, worfy-resource-planner ticket 04); a window whose edges meet in the file reads as
+// not chosen, and a change that would make them meet is refused. `autoUpdate` ("Update automatically",
 // worfy-update ticket 03) is on in a file written before it existed, as `memoryIndicator` is.
 // `guideLanguage` (worfy-guide ticket 03) is absent until the person picks EN or RU in the Guide; a
 // language this version does not know reads as not chosen.
@@ -36,7 +38,10 @@ import {
   sessionArchiveAfterSchema,
   browserSleepChoiceSchema,
   autopilotBudgetChoiceSchema,
+  autopilotRunChoiceSchema,
   guideLanguageSchema,
+  START_WINDOW_SAME_HOURS,
+  startWindowValid,
   type GuideLanguage,
   type AppSettings,
   type AutoCompactRole,
@@ -88,6 +93,16 @@ const appSettingsFileSchema = z.object({
     })
     .optional()
     .catch(undefined),
+  autopilotRun: z
+    .object({
+      mode: autopilotRunChoiceSchema.shape.mode.catch(undefined),
+      windowFrom: autopilotRunChoiceSchema.shape.windowFrom.catch(undefined),
+      windowTo: autopilotRunChoiceSchema.shape.windowTo.catch(undefined),
+    })
+    // Edges that meet — the file edited by hand — read as no window chosen; the mode stays.
+    .transform(({ mode, windowFrom, windowTo }) => (startWindowValid({ windowFrom, windowTo }) ? { mode, windowFrom, windowTo } : { mode }))
+    .optional()
+    .catch(undefined),
   guideLanguage: guideLanguageSchema.optional().catch(undefined),
   revision: z.number().int().nonnegative().default(0),
 })
@@ -123,6 +138,23 @@ function budgetChoice(current: BudgetChoice, patch?: BudgetChoice): Pick<AppSett
   const reservePercent = patch?.reservePercent ?? current?.reservePercent
   if (enabled === undefined && reservePercent === undefined) return {}
   return { autopilotBudget: { ...(enabled === undefined ? {} : { enabled }), ...(reservePercent === undefined ? {} : { reservePercent }) } }
+}
+
+type RunChoice = AppSettings['autopilotRun']
+
+/** The Run choice after `patch`, with only its chosen fields, or nothing while none is chosen. */
+function runChoice(current: RunChoice, patch?: RunChoice): Pick<AppSettings, 'autopilotRun'> {
+  const mode = patch?.mode ?? current?.mode
+  const windowFrom = patch?.windowFrom ?? current?.windowFrom
+  const windowTo = patch?.windowTo ?? current?.windowTo
+  if (mode === undefined && windowFrom === undefined && windowTo === undefined) return {}
+  return {
+    autopilotRun: {
+      ...(mode === undefined ? {} : { mode }),
+      ...(windowFrom === undefined ? {} : { windowFrom }),
+      ...(windowTo === undefined ? {} : { windowTo }),
+    },
+  }
 }
 
 /** The language of the Guide after `patch`: once chosen, it stays chosen. */
@@ -165,6 +197,7 @@ function copy(settings: AppSettings): AppSettings {
     ...archiveChoice(settings.sessionArchive),
     ...sleepChoice(settings.browserSleep),
     ...budgetChoice(settings.autopilotBudget),
+    ...runChoice(settings.autopilotRun),
     ...(settings.guideLanguage === undefined ? {} : { guideLanguage: settings.guideLanguage }),
     revision: settings.revision,
   }
@@ -194,6 +227,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     ...archiveChoice(current.sessionArchive, patch.sessionArchive),
     ...sleepChoice(current.browserSleep, patch.browserSleep),
     ...budgetChoice(current.autopilotBudget, patch.autopilotBudget),
+    ...runChoice(current.autopilotRun, patch.autopilotRun),
     ...guideLanguageAfter(current.guideLanguage, patch.guideLanguage),
     revision: current.revision,
   }
@@ -216,6 +250,9 @@ function same(a: AppSettings, b: AppSettings): boolean {
     SLEEP_FIELDS.every((field) => a.browserSleep?.[field] === b.browserSleep?.[field]) &&
     a.autopilotBudget?.enabled === b.autopilotBudget?.enabled &&
     a.autopilotBudget?.reservePercent === b.autopilotBudget?.reservePercent &&
+    a.autopilotRun?.mode === b.autopilotRun?.mode &&
+    a.autopilotRun?.windowFrom === b.autopilotRun?.windowFrom &&
+    a.autopilotRun?.windowTo === b.autopilotRun?.windowTo &&
     a.guideLanguage === b.guideLanguage &&
     a.autoCompactWindow.orchestrator === b.autoCompactWindow.orchestrator &&
     a.autoCompactWindow.other === b.autoCompactWindow.other &&
@@ -264,11 +301,13 @@ export class AppSettingsStore extends EventEmitter<{ changed: [AppSettings] }> {
   /**
    * Applies a change in parts, writes the file, then announces `changed`; answers the new state.
    * A change that changes nothing writes and announces nothing and keeps the revision. When the
-   * write throws, the settings stay as they were.
+   * write throws, the settings stay as they were. A change that leaves the Start window starting and
+   * ending at the same hour throws and changes nothing.
    */
   set(patch: AppSettingsPatch): AppSettings {
     const current = this.current()
     const merged = merge(current, patch)
+    if (!startWindowValid(merged.autopilotRun)) throw new Error(START_WINDOW_SAME_HOURS)
     if (same(merged, current)) return this.get()
     const next: AppSettings = { ...merged, revision: current.revision + 1 }
     writeJsonFile(this.file, appSettingsSchema, next)

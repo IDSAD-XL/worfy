@@ -216,8 +216,8 @@ Start window 23:00–07:00: a Wave usually takes up to 1 h 40 min.
 
 **Settings → Autopilot:** `Default run mode` (Select: `Fastest`, `Budget-aware`, `Start window`), `Start window from` и
 `Start window to` (Select по часам `00:00` … `23:00`; неактивны, пока режим по умолчанию не Start window). Описания:
-Fastest — `Waves go one after another: no budget, no window`; Budget-aware — `The daily budget of the Limits, with the reserve`;
-Start window — `New Waves start only between the times below; the daily budget too, when it is on`.
+Fastest — `Waves go one after another: no budget, no window.`; Budget-aware — `The daily budget of the Limits, with the reserve.`;
+Start window — `New Waves start only between the times below; the daily budget too, when it is on.`.
 
 **Run history** (Flight Recorder): в шапке Run — `Forecast 18–31% · actual 24%` (или `Forecast: not enough data ·
 actual 24%`, `actual: unknown`, когда фактической доли нет) и режим Run; Wait с причиной `start-window` на дорожке Wait.

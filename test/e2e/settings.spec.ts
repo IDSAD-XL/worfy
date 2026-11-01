@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { launchApp, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
 
@@ -297,6 +297,73 @@ test('Settings → Autopilot: the daily budget is off at first with the reserve 
     await expect(reserve).toHaveText(/25 % of the week/)
   } finally {
     await launched.close()
+  }
+})
+
+test('Settings → Autopilot: Start window as the default run mode with the window 22:00–06:00 outlives a restart of the app', async () => {
+  // worfy-resource-planner ticket 04: the default Run mode and the Start window. Two launches over one
+  // data folder: the second reads what the first wrote to app-settings.json.
+  const dataDir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-run-mode-')))
+  const openAutopilot = async (launched: LaunchedApp): Promise<Locator> => {
+    await clickMenuItem(launched.app, SETTINGS_MENU_ITEM_ID)
+    const dialog = launched.window.getByRole('dialog', { name: 'Settings' })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Autopilot', exact: true }).click()
+    await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Autopilot')
+    return dialog
+  }
+  try {
+    const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+    try {
+      const dialog = await openAutopilot(first)
+      const mode = dialog.getByTestId('settings-autopilot-mode')
+      const from = dialog.getByTestId('settings-autopilot-window-from')
+      const to = dialog.getByTestId('settings-autopilot-window-to')
+      await expect(mode).toHaveText(/Fastest/)
+      await expect(from).toHaveText(/23:00/)
+      await expect(to).toHaveText(/07:00/)
+      await expect(from).toBeDisabled()
+      await expect(to).toBeDisabled()
+
+      await mode.click()
+      await first.window.getByRole('option', { name: 'Start window', exact: true }).click()
+      await expect(mode).toHaveText(/Start window/)
+      await expect(from).toBeEnabled()
+      await from.click()
+      await first.window.getByRole('option', { name: '22:00', exact: true }).click()
+      await expect(from).toHaveText(/22:00/)
+      await to.click()
+      await first.window.getByRole('option', { name: '06:00', exact: true }).click()
+      await expect(to).toHaveText(/06:00/)
+      await expect(dialog.getByTestId('settings-autopilot-problem')).toHaveCount(0)
+      await expect(dialog).not.toContainText(/overnight|night mode/i)
+      await snapshotThemes(first.window, 'settings-autopilot-start-window')
+      await expect
+        .poll(() => (JSON.parse(readFileSync(join(dataDir, 'app-settings.json'), 'utf8')) as { autopilotRun?: unknown }).autopilotRun)
+        .toEqual({ mode: 'start-window', windowFrom: 22, windowTo: 6 })
+
+      // An edge at the hour of the other one is not saved, and the line says why.
+      await from.click()
+      await first.window.getByRole('option', { name: '06:00', exact: true }).click()
+      await expect(dialog.getByTestId('settings-autopilot-problem')).toHaveText('Not saved: the Start window cannot start and end at the same hour')
+      await expect(from).toHaveText(/22:00/)
+      await snapshotThemes(first.window, 'settings-autopilot-not-saved')
+    } finally {
+      await first.close()
+    }
+
+    const second = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+    try {
+      const dialog = await openAutopilot(second)
+      await expect(dialog.getByTestId('settings-autopilot-mode')).toHaveText(/Start window/)
+      await expect(dialog.getByTestId('settings-autopilot-window-from')).toHaveText(/22:00/)
+      await expect(dialog.getByTestId('settings-autopilot-window-to')).toHaveText(/06:00/)
+      await expect(dialog.getByTestId('settings-autopilot-window-from')).toBeEnabled()
+    } finally {
+      await second.close()
+    }
+  } finally {
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
