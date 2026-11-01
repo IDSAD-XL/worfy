@@ -14,9 +14,10 @@ Autopilot (keep-awake, ожидание Limits, бюджет, очередь gat
 1. **Тот же Run.** Команда в чате (Ticket 22) и инструмент Orchestrator-а `autopilot_start` (Ticket 23) запускают тот же
    `Autopilot.start`, что кнопка: тот же Run, Journal, строка статуса и всё поведение. Отдельного «Run из чата» нет.
 2. **Run по названным Ticket-ам.** `Autopilot.start(projectId, epic, { tickets })` и необязательное поле `tickets` канала
-   `autopilot.start` (целые положительные номера, хотя бы один). Cycle (`src/shared/autopilot/cycle.ts`) держит список в
-   состоянии (`named`) и считает готовыми, пропущенными (`skipped`) и подхваченными после Force stop (`resume`) только
-   Ticket-ы списка; остальные Ticket-ы Epic-а по-прежнему блокируют названные и держат свои файлы, пока в работе.
+   `autopilot.start` (целые неотрицательные номера по `ticketNumSchema`, то есть и Ticket `00`; хотя бы один). Cycle
+   (`src/shared/autopilot/cycle.ts`) держит список в состоянии (`named`) и считает готовыми, пропущенными (`skipped`) и
+   подхваченными после Force stop (`resume`) только Ticket-ы списка; остальные Ticket-ы Epic-а по-прежнему
+   блокируют названные и держат свои файлы, пока в работе.
    **Прерванная Wave и список.** Если последний Force stop этого Epic-а прервал Wave (`resumable`), Run по списку берёт
    из неё только Ticket-ы списка. Остальные он не трогает и оставляет в `resumable`, когда останавливается, с любой
    причиной (`Run.carried`, `run.ts`): их подхватит следующий Run всего Epic-а. После Force stop самого Run-а по

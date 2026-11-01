@@ -1,7 +1,8 @@
 # 14 — Topic Browser
 
 Type: task
-Status: claimed 2026-10-31T21:42Z
+Status: done 2026-11-01T01:54Z
+PR: #1168
 Blocked by: 10
 Source: [spec.md](../spec.md), Q5, Q6, Q17, Q18, Q19
 

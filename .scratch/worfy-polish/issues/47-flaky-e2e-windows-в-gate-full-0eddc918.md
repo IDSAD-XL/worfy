@@ -40,6 +40,12 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
 - `test/e2e/chat-attachments.spec.ts:148` (png и pdf, брошенные в чат Orchestrator-а): gate full на ПК, main
   `c01cd364` — `Cannot read properties of null (reading 'dispatchEvent')` на строке 158; в одиночку exit 0. Test
   сразу после `launchApp` берёт `document.querySelector` для `.react-flow__pane` и `.w-sidebar-section`.
+- `test/unit/docs-watch-root-gone.test.ts:450` («another name at the top of the root asks for no read; the root's own
+  name and HANDOFF.md do»): gate full на ПК, main `ba7e09e5`, 2026-11-01 ~01:30Z — красный один раз, строка 457:
+  `expected [ { handoff: …, adrs: [] } ] to deeply equal []`; в одиночку на том же коммите зелёный. Гипотеза, не
+  установлена: чтение пришлось на момент, когда `writeFileSync` уже опустошил `HANDOFF.md`. Единственное основание —
+  версия `e3b0c44298fc1c14` — начало SHA-256 пустого файла. Возможное исправление: в test-е писать через временный
+  файл и rename.
 
 ## Что делаем
 

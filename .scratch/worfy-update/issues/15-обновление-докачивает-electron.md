@@ -1,7 +1,8 @@
 # 15 — Сборка Update докачивает Electron, если его download в clone не закончился
 
 Type: task
-Status: claimed 2026-10-31T22:22Z
+Status: done 2026-11-01T01:52Z
+PR: #1176
 Branch: worfy-update/15
 Blocked by: —
 Source: отчёт Session на ПК 2026-11-01: Update из приложения упал на `pnpm package` с «The specified electronDist does not

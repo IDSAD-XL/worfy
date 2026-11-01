@@ -6,7 +6,7 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` ([spec](.scratch/worfy-link/spec.md)): 41/42; 31 (Tailscale) принят 2026-10-31; 41 (дубль сообщения, #1114) и 42 (поток строк смены сети, #1119) — проверка после Stable. Осталась приёмка 16.
-- `worfy-windows` (ADR 0054–0057, 0062, 0063, 0069, 0071): 115/118; 116 #1148, 117 #1143, 118 history -a (Q10, ПК). Красный только на Windows — fix или Windows exception (Q1/Q9). Первый зелёный gate full ПК — 15932ac9 (#1153 закрыт); 16 ждёт 15 и 17.
+- `worfy-windows` (ADR 0054–0057, 0062, 0063, 0069, 0071): 116/118; 15 — #1173 («Итог» 15); открыты 118 history -a (Q10, ПК) и приёмка 16. Красный только на Windows — fix или Windows exception (Q1/Q9).
 - `worfy-windows`: 60 не нужен — остаёмся на `node-pty@1.2.0-beta.15`; 90 и 92 вынесены из Epic-а (upstream, приёмку не блокируют) — владелец 2026-10-23.
 - `worfy-windows` 39 влит (#512): main отвечает на `ESC[6n`, ответы view — не ввод. Цена — скорость flood-а (один worker разбора), владелец принял; 67 (#1020) — пул worker-ов, 2–8 shell-ов в 1.4–4.2 раза быстрее (ПК и Mac).
 - `worfy-windows` 66, ADR-0071: полный `pnpm test` на Windows-runner-е; его зелёный run — `check/windows` для платформенных PR без Terminal, окон, e2e и упаковки. Baseline runner-а починил 108 (#802).
@@ -20,8 +20,8 @@
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
-- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 12 — приёмка владельцем, 15 — #1176. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): 11–21 в работе.
-- `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md)): принят 2026-11-01; 0/16, Wave 1 — 10, 12, 21.
+- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 14/15; 14 и 15 влиты, 12 ждёт приёмки владельцем. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): 13/21; 11–19 вливаются по одному, затем 20 и 21.
+- `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): 12/25; Wave 1 влита; в работе 11, 14, 15, 16, 22, 23.
 
 ## Ждёт владельца
 
@@ -51,13 +51,14 @@
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
 - Ложный таймаут первого окна в e2e: заблокированный экран, сеанс macOS владельца в фоне, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают; на Mac владельца ещё и `defaults` для `com.github.Electron`) — [agents.md](docs/lessons/agents.md).
 - Замок e2e: в `rules.md` Profile владельца heartbeat ещё старый (без выхода при снятом замке); новая строка — в PR `worfy-harness` 49, вносит владелец.
+- [low] `worfy-flight-recorder`, low ревью: `spans.ts:335` implied claim; `spans.ts:613-620` edge filters; `main/ipc/autopilot.ts:229` get без try; схема `resumable` и Ticket `00` (`shared/ipc/autopilot.ts:58`) — Ticket 20.
 - Долги low — в «Итог» Ticket-ов (абзацы «Долг» и подраздел «Долги из HANDOFF (2026-10-08)»), разбор — шаг документов при закрытии Epic-а.
 
 ## Дальше
 
 - Очередь мержа (владелец, Q7, Q10) пройдена: #517, #496, #508 влиты; `worfy-pipeline` 08 влит (#552).
 - `worfy-harness` 50, 51 — платный повтор кейса eval (`~/.docker/bin` вынести на время run-а); 52 — Session без plugin-а для задач и платные шаги 2б, 4, 5.
-- `worfy-windows`, очередь ПК (2026-10-24): 113 (замер на worfy, запущенной вручную) → 07 (первая настоящая Wave на ПК) → 15 (краш qmd — `better-sqlite3` на node < 22.14, «Итог» 15), 67, 68 → приёмка 16; 61 — low; 73 — правка на ПК (`worfy-windows/70-lows`).
+- `worfy-windows`, очередь ПК: 118 → приёмка 16.
 - `worfy-onboarding` ([spec](.scratch/worfy-onboarding/spec.md)): 13/14; 12 — Mac принят, ПК пройден, «Итог» ПК записан; 13, 14 влиты.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.

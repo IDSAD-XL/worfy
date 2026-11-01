@@ -1,7 +1,8 @@
 # 12 — Модель spans и итог
 
 Type: task
-Status: claimed 2026-11-01T00:14Z
+Status: done 2026-11-01T01:52Z
+PR: #1183
 Branch: worfy-flight-recorder/12
 Blocked by: —
 Source: [spec.md](../spec.md), «Модель» (все пункты), «Ticket-ы» (12), «Соглашения для Ticket-ов этого Epic-а» (глубина ревью `high`); решение 03, Q1–Q9 ([03-модель-spans.md](03-модель-spans.md)); решение 01, Q4, Q8 ([01-destination-единица-истории-хранение-id.md](01-destination-единица-истории-хранение-id.md)); решение 07 ([07-живая-шкала-или-после-остановки.md](07-живая-шкала-или-после-остановки.md)); решение 08, Q5–Q7 ([08-неполная-история.md](08-неполная-история.md)); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md) (Stage вычисляется)
