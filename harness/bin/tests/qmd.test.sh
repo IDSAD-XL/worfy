@@ -627,8 +627,8 @@ if [ "$WIN" = 1 ]; then
         && ok "qmd-mcp, Windows: Git Bash comes next on the PATH of qmd update" || bad "qmd-mcp PATH of the update: [$(cut -c1-300 "$T/update.path" 2>/dev/null)]"
 fi
 # Git Bash is found whatever the case of the variables: a copy of process.env keeps the key `Path` on Windows.
-GB="$T/git-root"; mkdir -p "$GB/cmd" "$GB/bin" "$T/pf/Git/bin" "$T/lad/Programs/Git/bin"
-: >"$GB/cmd/git.exe"; : >"$GB/bin/bash.exe"; : >"$T/pf/Git/bin/bash.exe"; : >"$T/lad/Programs/Git/bin/bash.exe"
+GB="$T/git-root"; mkdir -p "$GB/cmd" "$GB/bin" "$GB/mingw64/bin" "$GB/ucrt64/bin" "$T/pf/Git/bin" "$T/lad/Programs/Git/bin"
+: >"$GB/cmd/git.exe"; : >"$GB/mingw64/bin/git.exe"; : >"$GB/ucrt64/bin/git.exe"; : >"$GB/bin/bash.exe"; : >"$T/pf/Git/bin/bash.exe"; : >"$T/lad/Programs/Git/bin/bash.exe"
 cat >"$T/git-bash.cjs" <<'EOF'
 const { gitBashDir } = require(process.argv[2])
 const name = process.argv[3]
@@ -638,6 +638,11 @@ for row in "Path|$GB/cmd|$GB/bin" "programfiles|$T/pf|$T/pf/Git/bin" "localappda
     IFS='|' read -r name value want <<<"$row"
     got="$(node "$T/git-bash.cjs" "$LIB" "$name" "$value")"
     [ "$(printed "$got")" = "$(printed "$want")" ] && ok "Git Bash: the variable spelled $name is read" || bad "Git Bash, $name: [$got], not [$want]"
+done
+# git.exe of a Git Bash shell lies in <root>\mingw64\bin, in a newer Git for Windows in <root>\ucrt64\bin (the GitHub runner).
+for folder in mingw64 ucrt64; do
+    got="$(node "$T/git-bash.cjs" "$LIB" Path "$GB/$folder/bin")"
+    [ "$(printed "$got")" = "$(printed "$GB/bin")" ] && ok "Git Bash: found from a git.exe in $folder\\bin" || bad "Git Bash, $folder: [$got], not [$GB/bin]"
 done
 if [ "$WIN" = 1 ]; then
     cat >"$T/git-bash-win.cjs" <<'EOF'

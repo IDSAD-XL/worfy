@@ -198,7 +198,8 @@ function gitBashDir(env = process.env) {
         if (!dir || !fs.existsSync(path.join(dir, "git.exe"))) continue
         let root = dir
         if (/^(cmd|bin)$/i.test(path.basename(root))) root = path.dirname(root)
-        if (/^mingw64$/i.test(path.basename(root))) root = path.dirname(root)
+        // A newer Git for Windows has ucrt64 in place of mingw64 (the GitHub runner).
+        if (/^(mingw64|ucrt64)$/i.test(path.basename(root))) root = path.dirname(root)
         candidates.push(path.join(root, "bin", "bash.exe"))
         break
     }
