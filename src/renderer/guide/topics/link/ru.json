@@ -41,7 +41,7 @@
         "windowNote": "направляет по метке доступа",
         "own": "Свои обработчики",
         "ownNote": "main этой Machine",
-        "linked": "Каналы linked",
+        "linked": "linked handlers",
         "linkedNote": "считают окна на корень",
         "remote": "RemoteCalls",
         "remoteNote": "текущее соединение с M",
