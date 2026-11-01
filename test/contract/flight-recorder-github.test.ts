@@ -90,7 +90,7 @@ async function nightWorld(account: string = ACCOUNT) {
 
 async function factsOf(read: GithubRead, local: RunFacts, crossMachineGate = null as Parameters<typeof githubFacts>[1]['crossMachineGate']): Promise<GithubFacts> {
   if (read.answer === null) return githubNoAnswer()
-  return githubFacts(read.answer, { tickets: TICKETS, window: { start: local.run.startedAt, end: local.run.stoppedAt }, crossMachineGate })
+  return githubFacts(read.answer, { tickets: TICKETS, window: { start: local.run.startedAt, end: local.run.stoppedAt }, account: 'owner', crossMachineGate })
 }
 
 const withFacts = (local: RunFacts, facts: GithubFacts): RunFacts => ({ ...local, ticketEvents: facts.ticketEvents, work: facts.work, waits: facts.waits, lost: facts.lost })
@@ -117,16 +117,19 @@ describe('the night Run from gh', () => {
       { ticket: '04', id: 'gh-run:39092198641', kind: 'ci', start: '2026-10-18T03:02:21Z', end: '2026-10-18T03:15:26Z', outcome: 'ok' },
       { ticket: '07', id: 'gh-run:39084438682', kind: 'ci', start: '2026-10-18T00:53:30Z', end: '2026-10-18T01:11:29Z', outcome: 'ok' },
     ])
-    // #460: REJECTED, then VERIFIED, from the comments; #468 has review statuses, and its comments are no marks.
-    const marks = facts.ticketEvents.flatMap((event) => (event.event === 'mark' ? [[event.ticket, event.mark, event.verdict]] : []))
+    // #460: REJECTED, then VERIFIED, from the comments. #468: the review and check/windows statuses of its head, and
+    // its two REJECTED comments of 02:12 and 02:42, written before its head commit (rebased at 15:42).
+    const marks = facts.ticketEvents.flatMap((event) => (event.event === 'mark' ? [[event.ticket, event.mark, event.verdict, event.at]] : []))
     expect(marks).toEqual([
-      ['03', 'review', 'success'],
-      ['04', 'review', 'success'],
-      ['04', 'review', 'success'],
-      ['05', 'check/windows', 'success'],
-      ['05', 'review', 'success'],
-      ['07', 'review', 'failure'],
-      ['07', 'review', 'success'],
+      ['03', 'review', 'success', '2026-10-17T23:29:05Z'],
+      ['04', 'review', 'success', '2026-10-18T02:12:44Z'],
+      ['04', 'review', 'success', '2026-10-18T02:48:07Z'],
+      ['05', 'check/windows', 'success', '2026-10-18T15:58:23Z'],
+      ['05', 'review', 'success', '2026-10-18T15:58:22Z'],
+      ['05', 'review', 'failure', '2026-10-18T02:12:45Z'],
+      ['05', 'review', 'failure', '2026-10-18T02:42:19Z'],
+      ['07', 'review', 'failure', '2026-10-18T00:19:24Z'],
+      ['07', 'review', 'success', '2026-10-18T00:39:35Z'],
     ])
 
     const timeline = buildTimeline(withFacts(local, facts))
@@ -163,7 +166,7 @@ describe('the night Run from gh', () => {
   it('gives the Wait other-machine of #468: from its opening to the Mac checks report', async () => {
     const world = await nightWorld()
     const local = await nightLocal()
-    const facts = await factsOf(await world.reader.read(world.root, BRANCHES), local, { label: 'needs-mac-gate', checksSection: 'Mac checks', account: 'owner' })
+    const facts = await factsOf(await world.reader.read(world.root, BRANCHES), local, { label: 'needs-mac-gate', checksSection: 'Mac checks' })
     expect(facts.waits.map(({ cause, start, end, tickets }) => ({ cause, start, end, tickets }))).toEqual([{ cause: 'other-machine', start: '2026-10-18T02:00:50Z', end: '2026-10-18T15:58:37Z', tickets: ['05'] }])
   })
 })
@@ -200,6 +203,32 @@ describe('GitHub did not answer', () => {
     const healed = await world.reader.read(world.root, BRANCHES)
     expect(healed.error).toBeNull()
     expect((await factsOf(healed, local)).lost).toEqual([])
+  })
+
+  it('a branch gh would read as an option is not asked for, nor a merge commit that is not a sha', async () => {
+    const asked: string[][] = []
+    const answer = JSON.stringify([{ number: 3, headRefName: 'e/03', state: 'MERGED', mergeCommit: { oid: '--foo' } }])
+    const reader = new GithubReader({ gh: async (_root, args) => (asked.push([...args]), args[0] === 'pr' ? answer : '[]') })
+    const read = await reader.read('/r', ['-x', 'e/03'])
+    expect(read.answer?.prs.map((pr) => [pr.number, pr.mergeRuns])).toEqual([[3, []]])
+    expect(asked.map((args) => args.slice(0, 4))).toEqual([
+      ['pr', 'list', '--state', 'all'],
+      ['run', 'list', '--branch', 'e/03'],
+    ])
+    expect(asked.flat()).not.toContain('-x')
+  })
+
+  it('two reads at once run gh once and share its answer', async () => {
+    let calls = 0
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const reader = new GithubReader({ gh: async () => (calls++, await gate, '[]') })
+    const first = reader.read('/r', ['e/01'])
+    const second = reader.read('/r', ['e/01'], { retry: true })
+    release()
+    const [a, b] = await Promise.all([first, second])
+    expect(a).toBe(b)
+    expect(calls).toBe(1)
   })
 
   it('an answer that is not JSON, or not a list, is no answer either', async () => {

@@ -8,6 +8,7 @@ import { builtinModules } from 'node:module'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { githubFacts, githubNoAnswer, type GithubFactsInput, type GithubPr, type GithubRun } from '../../src/shared/flight-recorder/from-github'
+import { prFacts, verdictComments, verdicts } from '../../src/shared/flight-recorder/pr-facts.mjs'
 import { buildTimeline, LOST_SOURCE_LABELS, type RunFacts, type StageEventFact } from '../../src/shared/flight-recorder/spans'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
 
@@ -19,6 +20,7 @@ const MERGE = 'c'.repeat(40)
 const input = (over: Partial<GithubFactsInput> = {}): GithubFactsInput => ({
   tickets: [{ ticket: '01', branch: 'e/01' }],
   window: { start: T('10:00'), end: T('14:00') },
+  account: 'owner',
   ...over,
 })
 
@@ -89,6 +91,21 @@ describe('CI runs and their retries', () => {
     ])
   })
 
+  it('three runs on one head: each is a retry of the one before it', () => {
+    const ci = githubFacts({ prs: [pr({ ciRuns: [run(1, '10:40', '10:50', { conclusion: 'failure' }), run(2, '11:00', '11:10', { conclusion: 'failure' }), run(3, '11:20', '11:30')] })] }, input()).work
+    expect(ci.map((work) => [work.id, work.retryOf?.id])).toEqual([
+      ['gh-run:1', undefined],
+      ['gh-run:2', 'gh-run:1'],
+      ['gh-run:3', 'gh-run:2'],
+    ])
+  })
+
+  it('a manual run of the branch (workflow_dispatch) is not the PR’s CI: no work, no event', () => {
+    const facts = githubFacts({ prs: [pr({ ciRuns: [run(1, '10:30', '10:40'), run(2, '11:20', '11:30', { event: 'workflow_dispatch', conclusion: 'failure' })] })] }, input())
+    expect(facts.work.map((work) => work.id)).toEqual(['gh-run:1'])
+    expect(facts.ticketEvents.filter((event) => event.event === 'ci-finished').map((event) => event.at)).toEqual([T('10:40')])
+  })
+
   it('a run on a new head is no retry of a run on the old head; a re-run attempt GitHub keeps alone is noted', () => {
     const ci = githubFacts({ prs: [pr({ ciRuns: [run(1, '10:40', '10:50'), run(2, '11:10', '11:20', { headSha: NEXT, attempt: 3 })] })] }, input()).work
     expect(ci.map((work) => [work.id, work.retryOf, work.note])).toEqual([
@@ -139,12 +156,37 @@ describe('the PR, its heads, verdicts, marks and merge', () => {
     ])
   })
 
-  it('the agents’ marks on the head are its commit statuses, and with a review status the comments are no marks', () => {
+  it('the agents’ marks on the head are its commit statuses; with a review status only the comments after the head commit are left out', () => {
     const prs = [pr({ comments: [comment('11:00', 'REJECTED')], statusCheckRollup: [status('review', 'SUCCESS', '11:50'), status('check/windows', 'FAILURE', '11:55'), status('ci/external', 'SUCCESS', '11:56')] })]
     expect(kinds(prs, 'mark')).toEqual([
       { ticket: '01', at: T('11:50'), source: 'github', event: 'mark', mark: 'review', verdict: 'success', sha: HEAD },
       { ticket: '01', at: T('11:55'), source: 'github', event: 'mark', mark: 'check/windows', verdict: 'failure', sha: HEAD },
     ])
+  })
+
+  it('a REJECTED of an earlier head stays beside the review status of the new head: the model sees the rework round', () => {
+    // REJECTED at 11:00, the rework pushed at 11:30, VERIFIED with the review status at 12:00.
+    const commits = [
+      { oid: HEAD, authoredDate: T('10:20'), committedDate: T('10:20') },
+      { oid: NEXT, authoredDate: T('11:30'), committedDate: T('11:30') },
+    ]
+    const github = pr({ commits, headRefOid: NEXT, comments: [comment('11:00', 'REJECTED\n[high] a bug'), comment('12:00', 'VERIFIED')], statusCheckRollup: [status('review', 'SUCCESS', '12:00')] })
+    expect(kinds([github], 'mark').map((event) => (event.event === 'mark' ? [event.at, event.verdict, event.sha] : null))).toEqual([
+      [T('12:00'), 'success', NEXT],
+      [T('11:00'), 'failure', null],
+    ])
+    const facts = githubFacts({ prs: [github] }, input())
+    const stages = buildTimeline(runFacts({ ticketEvents: [...runFacts().ticketEvents, ...facts.ticketEvents] })).spans.filter((span) => span.kind === 'stage')
+    expect(stages.filter((span) => span.name === 'Agent review').map((span) => [span.attempt, span.outcome])).toEqual([
+      [1, 'rejected'],
+      [2, 'ok'],
+    ])
+    expect(stages.filter((span) => span.name.startsWith('Implementing')).map((span) => span.attempt)).toEqual([1, 2])
+  })
+
+  it('a verdict comment counts only by the Project’s account: a stranger’s VERIFIED is no mark, and with no account none is', () => {
+    expect(kinds([pr({ comments: [comment('11:00', 'VERIFIED', 'stranger')] })], 'mark')).toEqual([])
+    expect(events([pr({ comments: [comment('11:00', 'VERIFIED')] })], { account: null }).filter((event) => event.event === 'mark')).toEqual([])
   })
 
   it('an approved PR gives approved at the last approving review; the merge names the PR and its merge commit', () => {
@@ -167,8 +209,18 @@ describe('the PR, its heads, verdicts, marks and merge', () => {
 
   it('the CI runs of the merge commit (batch CI on main) are the Ticket’s CI, and they change no Stage', () => {
     const facts = githubFacts({ prs: [pr({ state: 'MERGED', mergedAt: T('12:30'), mergeCommit: { oid: MERGE }, baseRefName: 'main', mergeRuns: [run(9, '12:31', '12:50', { headSha: MERGE, event: 'workflow_dispatch' })] })] }, input())
-    expect(facts.work.map(({ id, ticket, sha, pr: number, note }) => ({ id, ticket, sha, pr: number, note }))).toEqual([{ id: 'gh-run:9', ticket: '01', sha: MERGE, pr: 7, note: 'CI on main after the merge' }])
+    expect(facts.work.map(({ id, name, ticket, sha, pr: number, note }) => ({ id, name, ticket, sha, pr: number, note }))).toEqual([{ id: 'gh-run:9', name: 'CI on main', ticket: '01', sha: MERGE, pr: 7, note: 'CI on main after the merge' }])
     expect(facts.ticketEvents.some((event) => event.event === 'ci-started' || event.event === 'ci-finished')).toBe(false)
+  })
+
+  it('the CI after the merge is no retry of the PR’s CI in the model', () => {
+    const github = pr({ state: 'MERGED', mergedAt: T('12:30'), mergeCommit: { oid: MERGE }, baseRefName: 'main', ciRuns: [run(1, '10:40', '10:50')], mergeRuns: [run(9, '12:31', '12:50', { headSha: MERGE })] })
+    const facts = githubFacts({ prs: [github] }, input())
+    const spans = buildTimeline(runFacts({ ticketEvents: [...runFacts().ticketEvents, ...facts.ticketEvents], work: facts.work })).spans.filter((span) => span.kind === 'ci')
+    expect(spans.map((span) => [span.name, span.attempt])).toEqual([
+      ['CI', 1],
+      ['CI on main', 1],
+    ])
   })
 
   it('every time is GitHub’s: a fact without a time on GitHub is left out', () => {
@@ -186,8 +238,14 @@ describe('which PRs are the Run’s', () => {
       pr({ number: 2, state: 'MERGED', createdAt: T('08:00'), mergedAt: T('09:00') }),
       pr({ number: 3, createdAt: T('15:00') }),
       pr({ number: 4, createdAt: T('09:00') }),
+      pr({ number: 5, state: 'CLOSED', createdAt: T('08:00'), closedAt: T('09:00'), statusCheckRollup: [status('review', 'SUCCESS', '08:50')] }),
+      pr({ number: 6, state: 'CLOSED', createdAt: T('08:00'), closedAt: T('10:30') }),
     ]
-    expect(kinds(prs, 'pr-opened').map((event) => (event.event === 'pr-opened' ? event.pr : null))).toEqual([4])
+    expect(kinds(prs, 'pr-opened').map((event) => (event.event === 'pr-opened' ? event.pr : null))).toEqual([4, 6])
+  })
+
+  it('the same PR twice in gh’s answer is one PR', () => {
+    expect(kinds([pr(), pr()], 'pr-opened').length).toBe(1)
   })
 
   it('a live Run has no end: a PR opened just now is the Run’s', () => {
@@ -197,7 +255,7 @@ describe('which PRs are the Run’s', () => {
 })
 
 describe('the Wait other-machine', () => {
-  const gate = { crossMachineGate: { label: 'needs-mac-gate', checksSection: 'Mac checks', account: 'owner' } }
+  const gate = { crossMachineGate: { label: 'needs-mac-gate', checksSection: 'Mac checks' } }
   const labelled = (over: Partial<GithubPr> = {}) => pr({ labels: [{ name: 'needs-mac-gate' }], ...over })
   const waits = (prs: GithubPr[], over: Partial<GithubFactsInput> = gate) => githubFacts({ prs }, input(over)).waits
 
@@ -214,16 +272,26 @@ describe('the Wait other-machine', () => {
     expect(timeline.spans.filter((span) => span.kind === 'wait').map(({ outcome, end }) => ({ outcome, end }))).toEqual([{ outcome: 'cut-off', end: Date.parse(T('10:30')) }])
   })
 
-  it('a red report, a fix commit, a green report: two Waits; the rebase of the serving machine starts none', () => {
+  it('a red report, the author’s rebase, a green report: two Waits, the second from the committed time of the rebase', () => {
+    // The rebase keeps the authored time; the committed time is when the PR could wait again (rule 1 of the gate queue).
     const commits = [
-      { oid: HEAD, authoredDate: T('10:20'), committedDate: T('12:59') },
-      { oid: NEXT, authoredDate: T('12:10'), committedDate: T('12:59') },
+      { oid: HEAD, authoredDate: T('10:20'), committedDate: T('12:30') },
+      { oid: NEXT, authoredDate: T('10:25'), committedDate: T('12:30') },
     ]
-    const comments = [comment('11:00', 'Mac checks report: red\nunit failed'), comment('13:00', 'Mac checks report: green')]
+    const comments = [comment('12:00', 'Mac checks report: red\nrebase conflict'), comment('13:30', 'Mac checks report: green')]
     expect(waits([labelled({ commits, comments })]).map(({ start, end }) => ({ start, end }))).toEqual([
-      { start: T('10:30'), end: T('11:00') },
-      { start: T('12:10'), end: T('13:00') },
+      { start: T('10:30'), end: T('12:00') },
+      { start: T('12:30'), end: T('13:30') },
     ])
+  })
+
+  it('the serving machine’s rebase before its report starts no Wait', () => {
+    const commits = [{ oid: HEAD, authoredDate: T('10:20'), committedDate: T('11:55') }]
+    expect(waits([labelled({ commits, comments: [comment('12:00', 'Mac checks report: green')] })]).map(({ start, end }) => ({ start, end }))).toEqual([{ start: T('10:30'), end: T('12:00') }])
+  })
+
+  it('with no account no report counts: the labelled PR still waits', () => {
+    expect(waits([labelled({ comments: [comment('12:00', 'Mac checks report: green')] })], { ...gate, account: null }).map((wait) => wait.end)).toEqual([null])
   })
 
   it('the label is gone after the merge: a report still shows the Wait; no label and no report — none; a report of another account counts not', () => {
@@ -235,6 +303,32 @@ describe('the Wait other-machine', () => {
 
   it('a labelled PR merged without a report waited until its merge', () => {
     expect(waits([labelled({ state: 'MERGED', mergedAt: T('12:05') })]).map(({ end }) => end)).toEqual([T('12:05')])
+  })
+})
+
+describe('verdictComments of pr-facts.mjs: who speaks for the Gate', () => {
+  const github = (comments: object[]) => ({ number: 1, comments }) as Parameters<typeof verdictComments>[0]
+  const one = { createdAt: T('11:00'), body: 'VERIFIED' }
+
+  it('with an account only its comments; with null none', () => {
+    const both = github([{ ...one, author: { login: 'owner' } }, { ...one, createdAt: T('11:10'), author: { login: 'stranger' } }])
+    expect(verdictComments(both, 'owner').map((item) => item.at)).toEqual([Date.parse(T('11:00'))])
+    expect(verdictComments(both, null)).toEqual([])
+    expect(verdicts(both, null).gate).toBeNull()
+    expect(prFacts(both, 'stranger').verdicts.map((item) => item.at)).toEqual([Date.parse(T('11:10'))])
+  })
+
+  it('without an account (scripts/critical-path.mjs): not a comment gh marks as written from outside the repository; one without the mark counts', () => {
+    const comments = github([
+      { ...one, authorAssociation: 'OWNER' },
+      { ...one, createdAt: T('11:10'), authorAssociation: 'NONE' },
+      { ...one, createdAt: T('11:20'), authorAssociation: 'CONTRIBUTOR' },
+      { ...one, createdAt: T('11:30'), authorAssociation: 'COLLABORATOR' },
+      { ...one, createdAt: T('11:40'), authorAssociation: 'MEMBER' },
+      { ...one, createdAt: T('11:50') },
+    ])
+    expect(verdictComments(comments).map((item) => new Date(item.at ?? 0).toISOString().slice(11, 16))).toEqual(['11:00', '11:30', '11:40', '11:50'])
+    expect(verdicts(github([{ ...one, authorAssociation: 'NONE' }])).gate).toBeNull()
   })
 })
 

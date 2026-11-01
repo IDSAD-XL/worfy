@@ -4,17 +4,22 @@
 // no Node, no DOM; src/main/flight-recorder/github.ts runs gh and hands the answers over.
 //
 // - A PR belongs to a Ticket by its branch (`tickets.branch` of the Profile); nothing is stamped into
-//   commits or PRs. A PR merged before the Run's window or opened after it is not the Run's; every
-//   event of a PR that is kept is handed over, also those before the Run: the model clamps them to the
-//   Ticket's row (an event before the Ticket's first status counts as an implied claim).
+//   commits or PRs. A PR merged or closed before the Run's window, or opened after it, is not the Run's;
+//   every event of a PR that is kept is handed over, also those before the Run: the model clamps them to
+//   the Ticket's row (an event before the Ticket's first status counts as an implied claim).
+// - Only the Project's GitHub account speaks for the Gate (the repository may be public): a verdict
+//   comment or a report of the cross-machine gate by anyone else counts not, and with no account none does.
 // - Events: the PR opened on the head it had then, each later commit a push, the CI of the branch
 //   started and finished on its head, the agents' marks on the head (its commit statuses `review`,
-//   `check/<name>`, `deploy`; ADR-0067), the approval, the merge. A PR whose head has no `review` status
-//   (before ADR-0067) gives its Gate verdict comments as `review` marks instead.
+//   `check/<name>`, `deploy`; ADR-0067), the approval, the merge. gh gives the statuses of the head only,
+//   so the Gate's verdict comments written before the head commit are `review` marks too (a REJECTED of
+//   an earlier head); after it, a `review` status on the head stands for them.
 // - CI work: one span per workflow run of the branch, else per check run of the head when the branch
 //   has no runs; a run on the same head as an earlier run of the same name is its retry, linked to it.
-//   The runs of a merged PR's merge commit (CI in batch on main) are the Ticket's CI too, and change
-//   no Stage. A re-run GitHub keeps as one run with `attempt` N has no earlier attempt to link: noted.
+//   A manual run (workflow_dispatch) of the branch is not the PR's CI, as for ciMark of pr-facts.mjs.
+//   The runs of a merged PR's merge commit (CI in batch on main, started by hand too) are the Ticket's
+//   CI under the name `<workflow> on <base>`, and change no Stage. A re-run GitHub keeps as one run with
+//   `attempt` N has no earlier attempt to link: noted.
 // - Every time is GitHub's, as gh printed it; a fact without a time is left out.
 import type { LostFact, StageEventFact, WaitFact, WorkFact } from './facts'
 import { time } from './journal-walk.mjs'
@@ -55,8 +60,6 @@ export interface GithubAnswer {
 export interface CrossMachineGate {
   label: string
   checksSection: string
-  /** The Project's GitHub account: only its comments are reports (rule 1 of the gate queue); null — any author. */
-  account?: string | null
 }
 
 export interface GithubFactsInput {
@@ -64,6 +67,8 @@ export interface GithubFactsInput {
   tickets: readonly { ticket: string; branch: string }[]
   /** The Run's window: its start, and its end (null while it is live). */
   window: { start: Iso; end: Iso | null }
+  /** The Project's GitHub account (`github.account`): only its comments are verdicts and reports; null — none are. */
+  account: string | null
   crossMachineGate?: CrossMachineGate | null
 }
 
@@ -96,9 +101,9 @@ function prsOfRun(answer: GithubAnswer, input: GithubFactsInput): { ticket: stri
   for (const pr of answer.prs) {
     const ticket = typeof pr.headRefName === 'string' ? ticketOf.get(pr.headRefName) : undefined
     if (ticket === undefined || !Number.isInteger(pr.number) || seen.has(pr.number)) continue
-    const merged = time(pr.mergedAt)
+    const ended = time(pr.mergedAt) ?? time(pr.closedAt)
     const opened = time(pr.createdAt)
-    if (start !== null && merged !== null && merged < start) continue
+    if (start !== null && ended !== null && ended < start) continue
     if (end !== null && opened !== null && opened > end) continue
     seen.add(pr.number)
     found.push({ ticket, pr })
@@ -131,8 +136,18 @@ const MARK_STATES: Record<string, 'success' | 'failure' | 'pending'> = { SUCCESS
 /** The commit statuses that are agents' marks (MARK_CONTEXTS of src/main/github/prs.ts). */
 const isMark = (context: string): boolean => context === 'review' || context === 'deploy' || (context.startsWith('check/') && context.length > 'check/'.length)
 
-/** The agents' marks on the head; without a `review` status, the Gate's verdict comments as `review` marks. */
-function markEvents(ticket: string, pr: GithubPr): StageEventFact[] {
+/** When the head commit was committed: from it on, a `review` status on the head stands for the verdict comments. */
+function headTime(pr: GithubPr): number | null {
+  const head = headOf(pr)
+  const commit = (pr.commits ?? []).find((item) => item?.oid === head) ?? pr.commits?.at(-1)
+  return time(commit?.committedDate)
+}
+
+/**
+ * The agents' marks on the head, and the Gate's verdict comments (by the Project's account) as `review` marks:
+ * all of them without a `review` status on the head, else those written before the head commit.
+ */
+function markEvents(ticket: string, pr: GithubPr, account: string | null): StageEventFact[] {
   const head = headOf(pr)
   const events: StageEventFact[] = []
   let review = false
@@ -146,10 +161,11 @@ function markEvents(ticket: string, pr: GithubPr): StageEventFact[] {
     if (verdict === undefined || !timed(when)) continue
     events.push({ ticket, at: when, source: 'github', event: 'mark', mark: context, verdict, sha: head })
   }
-  if (review) return events
+  const covered = review ? headTime(pr) : null
   for (const comment of pr.comments ?? []) {
-    const verdict = verdictComments({ number: pr.number, comments: [comment] })[0]?.verdict
+    const verdict = verdictComments({ number: pr.number, comments: [comment] }, account)[0]?.verdict
     if (verdict === undefined || verdict === null || !timed(comment.createdAt)) continue
+    if (covered !== null && at(comment.createdAt) >= covered) continue
     events.push({ ticket, at: comment.createdAt, source: 'github', event: 'mark', mark: 'review', verdict: verdict === 'VERIFIED' ? 'success' : 'failure', sha: null, reason: `${verdict} comment` })
   }
   return events
@@ -182,7 +198,7 @@ function runEnding(run: GithubRun): { outcome: WorkFact['outcome']; reason?: str
 function ciFacts(ticket: string, pr: GithubPr): { events: StageEventFact[]; work: WorkFact[] } {
   const events: StageEventFact[] = []
   const work: WorkFact[] = []
-  const runs = (pr.ciRuns ?? []).filter((run) => run && typeof run === 'object' && timed(run.startedAt ?? run.createdAt))
+  const runs = (pr.ciRuns ?? []).filter((run) => run && typeof run === 'object' && run.event !== 'workflow_dispatch' && timed(run.startedAt ?? run.createdAt))
   if (runs.length > 0) {
     for (const item of runFacts(ticket, pr, runs)) {
       work.push(item.work)
@@ -220,11 +236,13 @@ function ciFacts(ticket: string, pr: GithubPr): { events: StageEventFact[]; work
 }
 
 /** Work facts of workflow runs in start order; a run on the head of an earlier run of its name is that run's retry. */
-function runFacts(ticket: string, pr: GithubPr, runs: readonly GithubRun[], note?: string): { work: WorkFact }[] {
+function runFacts(ticket: string, pr: GithubPr, runs: readonly GithubRun[], merge?: { base: string }): { work: WorkFact }[] {
+  const note = merge === undefined ? undefined : `CI on ${merge.base} after the merge`
   const sorted = [...runs].sort((a, b) => at(a.startedAt ?? a.createdAt ?? '') - at(b.startedAt ?? b.createdAt ?? ''))
   const last = new Map<string, string>()
   return sorted.map((run, index) => {
-    const name = run.name || 'CI'
+    // CI after the merge has a name of its own: the model would number it as a retry of the PR's CI.
+    const name = `${run.name || 'CI'}${merge === undefined ? '' : ` on ${merge.base}`}`
     const id = `gh-run:${run.databaseId ?? `${pr.number}:${index + 1}`}`
     const start = (timed(run.startedAt) ? run.startedAt : run.createdAt) ?? ''
     const ending = runEnding(run)
@@ -258,21 +276,22 @@ function runFacts(ticket: string, pr: GithubPr, runs: readonly GithubRun[], note
 const isReport = (body: string, gate: CrossMachineGate): boolean => body.startsWith(`${gate.checksSection} report: green`) || body.startsWith(`${gate.checksSection} report: red`)
 
 /**
- * The Waits `other-machine` of a PR: it waits from its opening, or from a commit written after the last
- * report, to the next report of the serving machine. A commit counts by its authored time: the rebase
- * of the serving machine rewrites every commit's committed time, not the authored one. A PR that never
+ * The Waits `other-machine` of a PR: it waits from its opening, or from a commit after the last report, to
+ * the next report of the serving machine by the Project's account (none without an account). A commit
+ * counts by its committed time, as rule 1 of the gate queue: a rebase by the author after a red report
+ * makes the PR wait again; the serving machine's own rebase comes before its report. A PR that never
  * had the label nor a report did not wait; the label is removed at the merge, so a report also tells
  * that it waited. A labelled PR merged or closed without a report waited until then; an open one
  * without a report still waits (no end: the model cuts it off or stretches it to now).
  */
-function waitsOf(ticket: string, pr: GithubPr, gate: CrossMachineGate): WaitFact[] {
+function waitsOf(ticket: string, pr: GithubPr, gate: CrossMachineGate, account: string | null): WaitFact[] {
   const reports = (pr.comments ?? [])
     .filter((comment) => typeof comment?.body === 'string' && isReport(comment.body, gate) && timed(comment.createdAt))
-    .filter((comment) => gate.account == null || comment.author?.login === gate.account)
+    .filter((comment) => account !== null && comment.author?.login === account)
     .map((comment) => comment.createdAt ?? '')
   if (!labelNames(pr).includes(gate.label) && reports.length === 0) return []
   if (!timed(pr.createdAt)) return []
-  const commits = (pr.commits ?? []).map((commit) => commit?.authoredDate ?? commit?.committedDate).filter(timed)
+  const commits = (pr.commits ?? []).map((commit) => commit?.committedDate).filter(timed)
   const steps = [...commits.map((when) => ({ when, report: false })), ...reports.map((when) => ({ when, report: true }))].sort((a, b) => at(a.when) - at(b.when) || Number(a.report) - Number(b.report))
   const waits: WaitFact[] = []
   let open: Iso | null = pr.createdAt
@@ -296,12 +315,11 @@ export function githubFacts(answer: GithubAnswer, input: GithubFactsInput): Gith
   const facts: GithubFacts = { ticketEvents: [], work: [], waits: [], lost: [] }
   for (const { ticket, pr } of prsOfRun(answer, input)) {
     const ci = ciFacts(ticket, pr)
-    facts.ticketEvents.push(...headEvents(ticket, pr), ...ci.events, ...markEvents(ticket, pr), ...endEvents(ticket, pr))
+    facts.ticketEvents.push(...headEvents(ticket, pr), ...ci.events, ...markEvents(ticket, pr, input.account), ...endEvents(ticket, pr))
     facts.work.push(...ci.work)
-    const base = pr.baseRefName ?? 'the main branch'
     const merged = (pr.mergeRuns ?? []).filter((run) => run && typeof run === 'object' && timed(run.startedAt ?? run.createdAt))
-    facts.work.push(...runFacts(ticket, pr, merged, `CI on ${base} after the merge`).map((item) => item.work))
-    if (input.crossMachineGate) facts.waits.push(...waitsOf(ticket, pr, input.crossMachineGate))
+    facts.work.push(...runFacts(ticket, pr, merged, { base: pr.baseRefName ?? 'main' }).map((item) => item.work))
+    if (input.crossMachineGate) facts.waits.push(...waitsOf(ticket, pr, input.crossMachineGate, input.account))
   }
   return facts
 }

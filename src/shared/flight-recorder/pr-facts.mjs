@@ -97,13 +97,29 @@ export function headMarks(pr) {
 const VERDICT = /^\s*(NARROW:\s*)?(VERIFIED|REJECTED)\b/
 const NARROW = /^\s*NARROW:/
 
+/** gh's `authorAssociation` of the people who may write in the repository: the Gate writes as one of them. */
+const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
+
+/**
+ * Whether a comment may be the Gate's. `account` — the Project's GitHub account: only its comments; `null` — no
+ * account, so no comment; absent — any comment but one gh marks as written by someone outside the repository (a
+ * stranger on a public repository: `authorAssociation` other than OWNER, MEMBER or COLLABORATOR). A comment
+ * without the field (an older answer, a file of --prs) counts.
+ */
+function byGate(comment, account) {
+  // null matches no login: no account, no comment.
+  if (account !== undefined) return comment.author?.login === account
+  return typeof comment.authorAssociation !== 'string' || TRUSTED.has(comment.authorAssociation)
+}
+
 /**
  * The Gate's comments on the PR in order: a verdict (`VERIFIED`, `REJECTED`, either after `NARROW:`) and the
  * opening of a narrow fix round (`NARROW: …` without a verdict; one per Ticket, harness/skills/epic-wave/SKILL.md).
- * { at, verdict, narrow }: verdict null for an opening, at null for a comment without a time.
+ * { at, verdict, narrow }: verdict null for an opening, at null for a comment without a time. Only the comments
+ * `byGate` lets through count.
  */
-export function verdictComments(pr) {
-  const comments = (Array.isArray(pr.comments) ? pr.comments : []).filter((c) => typeof c?.body === 'string')
+export function verdictComments(pr, account) {
+  const comments = (Array.isArray(pr.comments) ? pr.comments : []).filter((c) => typeof c?.body === 'string' && byGate(c, account))
   const found = []
   for (const comment of comments) {
     const verdict = VERDICT.exec(comment.body)
@@ -118,12 +134,12 @@ export function verdictComments(pr) {
  * REJECTED outside a narrow round (`NARROW: REJECTED` is that round's verdict), and the narrow rounds are the
  * `NARROW: …` openings.
  */
-export function verdicts(pr) {
+export function verdicts(pr, account) {
   let gate = null
   let rejected = 0
   let narrow = 0
   let narrowVerdict = false
-  for (const comment of verdictComments(pr)) {
+  for (const comment of verdictComments(pr, account)) {
     if (comment.verdict === 'VERIFIED') {
       if (comment.at !== null && (gate === null || comment.at > gate)) gate = comment.at
     } else if (comment.verdict === 'REJECTED' && !comment.narrow) rejected++
@@ -145,9 +161,9 @@ export function labelNames(pr) {
   return (Array.isArray(pr.labels) ? pr.labels : []).map((label) => label?.name).filter((name) => typeof name === 'string' && name !== '')
 }
 
-/** Every fact of one PR, times in ms. */
-export function prFacts(pr) {
-  const gate = verdicts(pr).gate
+/** Every fact of one PR, times in ms; `account` as for verdictComments. */
+export function prFacts(pr, account) {
+  const gate = verdicts(pr, account).gate
   return {
     number: pr.number,
     branch: typeof pr.headRefName === 'string' ? pr.headRefName : null,
@@ -162,7 +178,7 @@ export function prFacts(pr) {
     ci: ciMark(pr, gate),
     headCi: headCi(pr),
     headMarks: headMarks(pr),
-    verdicts: verdictComments(pr),
+    verdicts: verdictComments(pr, account),
     labels: labelNames(pr),
   }
 }

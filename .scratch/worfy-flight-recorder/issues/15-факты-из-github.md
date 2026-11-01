@@ -37,7 +37,8 @@ Source: [spec.md](../spec.md), «Модель» (Wait `other-machine`, повт�
 - [ ] Contract test (`gh` — stand-in `.mjs` через `WORFY_GH`): ответы ночного Run дают PR и CI runs Ticket-ов по
       ветке; второе чтение в пределах минуты не зовёт `gh`.
 - [ ] Contract test: stand-in выходит с ошибкой — факты помечены «GitHub did not answer», локальная часть
-      шкалы есть; следующее чтение после ошибки снова зовёт `gh`.
+      шкалы есть; ответ-ошибка держится минуту, как удачный (решение 07), «Retry» (`retry: true`) читает сразу,
+      через минуту чтение снова зовёт `gh` (решено оркестратором 2026-11-01).
 - [ ] Contract test: `gh` зовётся аккаунтом Profile-а Project-а (как `gh()` в `prs.ts`).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
 
@@ -63,40 +64,53 @@ Source: [spec.md](../spec.md), «Модель» (Wait `other-machine`, повт�
 ## Итог
 
 - `src/shared/flight-recorder/from-github.ts` — чистый разбор (без Node и DOM; импортирует только `./facts`,
-  `./journal-walk.mjs`, `./pr-facts.mjs`). `githubFacts(answer, { tickets, window, crossMachineGate })` (`:295`)
-  отдаёт часть `RunFacts` GitHub-а: `ticketEvents`, `work` вида `ci`, `waits` `other-machine`; `githubNoAnswer()`
-  (`:82`) — только `lost` «GitHub did not answer» (`GITHUB_NO_ANSWER`, `:79`).
+  `./journal-walk.mjs`, `./pr-facts.mjs`). `githubFacts(answer, { tickets, window, account, crossMachineGate })`
+  (`:314`) отдаёт часть `RunFacts` GitHub-а: `ticketEvents`, `work` вида `ci`, `waits` `other-machine`;
+  `githubNoAnswer()` (`:87`) — только `lost` «GitHub did not answer» (`GITHUB_NO_ANSWER`, `:84`).
 - PR связывается с Ticket-ом по ветке (`tickets` — пары Ticket и ветка, форму `tickets.branch` подставляет сервис 17).
-  **Что выбрано по окну Run:** PR, влитый до начала Run, и PR, открытый после его конца, отбрасываются (`prsOfRun`,
-  `:90`); у оставленного PR отдаются все события, и до Run тоже: модель прижимает их к строке Ticket-а (событие до
-  первого статуса — неявный claim, `spans.ts:335`), а события после конца Run модель сама не читает. Живой Run
-  (`window.end: null`) берёт и только что открытый PR.
+  **Что выбрано по окну Run:** PR, влитый или закрытый (`mergedAt`, иначе `closedAt`) до начала Run, и PR, открытый
+  после его конца, отбрасываются (`prsOfRun`, `:95`); у оставленного PR отдаются все события, и до Run тоже: модель
+  прижимает их к строке Ticket-а (событие до первого статуса — неявный claim, `spans.ts:335`), а события после конца
+  Run модель сама не читает. Живой Run (`window.end: null`) берёт и только что открытый PR. Один PR дважды в ответе —
+  один PR.
+- За Gate говорит только `github.account` Project-а (репозиторий публичный): verdict-комментарий и отчёт
+  cross-machine gate другого автора не считаются, без аккаунта (`account: null`) не считается ни один (как правило 1
+  gate queue). `verdictComments` в `pr-facts.mjs` (`byGate`, `:109`) получил второй аргумент: login — только его
+  комментарии, `null` — никакие; без аргумента (`scripts/critical-path.mjs`) не считается комментарий, который gh
+  помечает `authorAssociation` не OWNER/MEMBER/COLLABORATOR, а комментарий без этого поля считается. Отчёт
+  critical-path на ночной fixture-е побайтно тот же (`cmp` текстового и `--csv` до и после, exit 0).
 - События: `pr-opened` на head, который был у PR в момент открытия; каждый commit с `committedDate` после открытия —
   `push`; CI ветки — `ci-started`/`ci-finished` на своём head; отметки агентов — commit statuses `review`,
-  `check/<name>`, `deploy` на head (`markEvents`, `:135`); `approved` — время последнего APPROVED review при
-  `reviewDecision` APPROVED; `merge` с номером PR и merge commit. Verdict-комментарии (`VERIFIED`, `REJECTED`, и
-  после `NARROW:`) становятся отметками `review` только у PR без status `review` на head (до ADR-0067), иначе
-  verdict — status, а комментарии отметками не считаются (`:149`): так нет двойных отметок.
-- CI: span на каждый workflow run ветки (`gh run list --branch`); у ветки без runs — на каждый check run head-а.
-  Run на том же head, что более ранний run того же имени, — его повтор: `retryOf` на прошлый, модель рисует `#2`
-  (`runFacts`, `:223`). Re-run, который GitHub хранит одним run с `attempt` N, связать не с чем — пометка
-  `attempt N on GitHub`. Runs merge commit-а (batch CI на main, `gh run list --commit <mergeCommit>`) — CI Ticket-а
-  с пометкой `CI on <base> after the merge`, Stage не двигают. Ночной Run: runs #460 и #467 привязаны к 07 и 04;
-  run `9cbe6794` (docs commit поверх merge #457) по точному sha не привязывается — предка без git не узнать.
-- Wait `other-machine` (`waitsOf`, `:268`): PR ждёт, если на нём метка `cross_machine_gate.label` или есть отчёт
+  `check/<name>`, `deploy` на head (`markEvents`, `:150`); `approved` — время последнего APPROVED review при
+  `reviewDecision` APPROVED; `merge` с номером PR и merge commit. gh даёт statuses только head-а, поэтому
+  verdict-комментарии (`VERIFIED`, `REJECTED`, и после `NARROW:`), написанные до commit-а head-а, — тоже отметки
+  `review` (REJECTED прошлого head-а даёт модели круг доработки); после него при status `review` на head
+  комментарии не берутся (`:164`): status их покрывает.
+- CI: span на каждый workflow run ветки (`gh run list --branch`), ручные runs ветки (`workflow_dispatch`) — не CI PR,
+  как в `ciMark` (`:201`); у ветки без runs — на каждый check run head-а. Run на том же head, что более ранний run
+  того же имени, — его повтор: `retryOf` на прошлый, модель рисует `#2`, `#3` (`runFacts`, `:239`). Re-run, который
+  GitHub хранит одним run с `attempt` N, связать не с чем — пометка `attempt N on GitHub`. Runs merge commit-а (batch
+  CI на main, `gh run list --commit <mergeCommit>`; в batch-период их запускали вручную, поэтому здесь
+  `workflow_dispatch` остаётся) — CI Ticket-а под именем `<workflow> on <base>` (`CI on main`, чтобы модель не
+  считала его повтором CI PR), Stage не двигают. Ночной Run: runs #460 и #467 привязаны к 07 и 04; run `9cbe6794`
+  (docs commit поверх merge #457) по точному sha не привязывается — предка без git не узнать.
+- Wait `other-machine` (`waitsOf`, `:287`): PR ждёт, если на нём метка `cross_machine_gate.label` или есть отчёт
   `<checks_section> report: green|red` аккаунта Project-а (метку снимают при merge, поэтому отчёт тоже доказывает
-  ожидание). Начало — открытие PR или commit после отчёта, по `authoredDate` (rebase на serve-машине переписывает
-  `committedDate` всех commit-ов); конец — отчёт; без отчёта: merge/закрытие, а у открытого PR — `end: null`
-  (обрыв модели). Ночной #468: с 02:00:50 до отчёта 15:58:37.
-- `src/main/flight-recorder/github.ts` — `GithubReader` (`:68`): `gh` через `PrTracker.gh` (аккаунт Profile-а,
-  `WORFY_GH`, правила Windows `ghRunner`); на ветку — `pr list --state all --head <ветка>`, для ветки с PR — runs
-  ветки, для влитого PR — runs merge commit-а; вызовы по одному. Не чаще раза в минуту на Project и набор веток
-  (`:93`), ответ — только в памяти. Ошибка gh или ответ не JSON/не список — `{ answer: null, error }`; этот ответ
-  тоже держится минуту (упавший gh не дёргается чаще), `read(..., { retry: true })` читает сразу — это «Retry» для 17.
-- Тесты: `test/unit/flight-recorder-github.test.ts` (19), `test/contract/flight-recorder-github.test.ts` (8) со
+  ожидание). Начало — открытие PR или commit после отчёта, по `committedDate`, как правило 1 gate queue (rebase
+  автора после красного отчёта снова ставит PR в ожидание; rebase serve-машины идёт до её отчёта); конец — отчёт;
+  без отчёта: merge/закрытие, а у открытого PR — `end: null` (обрыв модели). Ночной #468: с 02:00:50 до отчёта
+  15:58:37.
+- `src/main/flight-recorder/github.ts` — `GithubReader`: `gh` через `PrTracker.gh` (аккаунт Profile-а, `WORFY_GH`,
+  правила Windows `ghRunner`); на ветку — `pr list --state all --head <ветка>`, для ветки с PR — runs ветки, для
+  влитого PR — runs merge commit-а (только oid вида sha); ветка, которую gh прочёл бы как опцию (`-x`), не
+  спрашивается; вызовы по одному. Не чаще раза в минуту на Project и набор веток, ответ — только в памяти; два
+  чтения сразу делят один запуск gh. Ошибка gh или ответ не JSON/не список — `{ answer: null, error }`; этот ответ
+  тоже держится минуту, `read(..., { retry: true })` читает сразу — это «Retry» для 17 (решено оркестратором
+  2026-11-01).
+- Тесты: `test/unit/flight-recorder-github.test.ts` (29), `test/contract/flight-recorder-github.test.ts` (10) со
   stand-in `test/fixtures/flight-recorder/gh-night-run.mjs` через `WORFY_GH` (новый файл fixture-ы: общий
-  `test/fixtures/gh/gh-stub.mjs` не знает `pr list --head` с этими полями и `run list`). Mutation pass: 23 мутанта
-  `from-github.ts` и `github.ts`, все убиты.
+  `test/fixtures/gh/gh-stub.mjs` не знает `pr list --head` с этими полями и `run list`). Mutation pass: 33 мутанта
+  `from-github.ts`, `github.ts` и `pr-facts.mjs`, все убиты.
 
 Не проверено:
 
@@ -104,5 +118,6 @@ Source: [spec.md](../spec.md), «Модель» (Wait `other-machine`, повт�
   без CI span; Stage-ы при этом строятся только из Journal.
 - Настоящий gh не запускался (только stand-in): поля `reviews`, `closedAt`, `startedAt` run-а и флаг
   `run list --commit` проверены по `gh --help` 2.97, не ответом GitHub.
-- Время push по GitHub не отдаёт; `push` стоит на `committedDate` commit-а — после rebase все commit-ы получают
-  время rebase.
+- Время push по GitHub не отдаёт; `push` и начало Wait после отчёта стоят на `committedDate` commit-а — после rebase
+  все commit-ы получают время rebase, так что второй Wait после позднего rebase начинается с него.
+- `retry` во время уже идущего чтения не запускает второе: возвращает идущее (его ответ свежий).
