@@ -276,7 +276,7 @@ nothing.
 | Sessions | The autocompact window of Sessions |
 | Canvas | The automatic archive of finished Sessions |
 | Browser | When a Live Browser goes to sleep |
-| Autopilot | The daily budget of the Limits: see [Autopilot](autopilot.md) |
+| Autopilot | The default Run mode, the Start window and the daily budget of the Limits: see [Run planning](run-planning.md#settings--autopilot) |
 | Plan | The plan Claude Code is signed in with, and for Pro a preset with an Apply button |
 | Pipeline | The Pipeline of the active Project: see [Workflow](workflow.md) |
 

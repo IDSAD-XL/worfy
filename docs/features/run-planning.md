@@ -99,10 +99,10 @@ The budget is read before each Wave and never cuts a Wave in work. When it stops
 until the time in the status line, and then the check runs again. The Wave does not start when:
 
 - nothing is left of today's share, or less than the estimate of the Wave once something of today is used. The status
-  line says `today's share used · resumes 00:00`. The run continues at the start of the next local day, or at the
-  7-day reset when that comes first;
+  line says `today's share used · resumes 00:00`. The run continues at the start of the next local day, or 2 minutes
+  after the 7-day reset when that comes first;
 - today's share is left but the 5-hour window is full. The status line says `5-hour limits full · resumes 02:12`. The
-  run continues at the 5-hour reset, or at the start of the next day when that comes first.
+  run continues 2 minutes after the 5-hour reset, or at the start of the next day when that comes first.
 
 The tooltip of the status line gives the reason in words: "Today's share of the Limits is used: Autopilot continues at
 00:00", or "The 5-hour Limits are used, today's share is not: Autopilot continues at 02:12".
@@ -150,7 +150,9 @@ The forecast line has these forms:
 | No 7-day number, or one older than 30 minutes | the tail is `Used now: unknown` |
 | No reset time | the tail has no `resets in …` |
 
-A Ticket gets no Wave number when it is in work, done only in a worktree branch, blocked, or waits on such a Ticket.
+A Ticket gets no Wave number when it is in work or done only in a worktree branch, though the Tickets that wait on it
+get numbers: they count it as finished after the first Wave. No number goes either to a Ticket that is blocked, waits
+on a blocked Ticket, sits in a cycle of blockers, or names a blocker that cannot be read or does not exist.
 
 The recommendation and the warning have these forms:
 
