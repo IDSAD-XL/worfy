@@ -3,6 +3,7 @@
 // src/main/autopilot/run.ts, handled in src/main/ipc/autopilot.ts (ADR-0006).
 import { z } from 'zod'
 import { AUTOPILOT_STOP_REASONS } from '../autopilot/cycle'
+import { RUN_MODES, WINDOW_WAIT_REASONS } from '../autopilot/run-mode'
 import { epicNameSchema, ticketNumSchema } from '../binding/resolve'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -41,10 +42,14 @@ export const autopilotStateSchema = z.object({
    * While `waiting`: what for. `limits` — a turn of the Wave was refused by the Limits (worfy-daily
    * ticket 05); `daily-share` — today's share of the budget is used, and the next Wave waits;
    * `five-hour` — today's share is left but the 5-hour window is full, and the next Wave waits for
-   * its reset (worfy-throughput ticket 41, src/shared/autopilot/budget.ts). Then `message` says it
-   * in words. Absent otherwise, and in states of builds before ticket 41.
+   * its reset (worfy-throughput ticket 41, src/shared/autopilot/budget.ts); `start-window` — the
+   * Run mode Start window holds the next Wave back until the window's next start, `windowReason`
+   * says why (worfy-resource-planner ticket 05, src/shared/autopilot/run-mode.ts). Then `message`
+   * says it in words. Absent otherwise, and in states of builds before ticket 41.
    */
-  waitingFor: z.enum(['limits', 'daily-share', 'five-hour']).optional(),
+  waitingFor: z.enum(['limits', 'daily-share', 'five-hour', 'start-window']).optional(),
+  /** While `waitingFor` is `start-window`: `outside` the window, or the next Wave `wave-too-long` for it. Absent otherwise. */
+  windowReason: z.enum(WINDOW_WAIT_REASONS).optional(),
   reason: z.enum(AUTOPILOT_STOP_REASONS).nullable(),
   message: z.string().nullable(),
   /**
@@ -52,8 +57,9 @@ export const autopilotStateSchema = z.object({
    * Wave it interrupted, for `epic`. A new run of that Epic takes those still in work into its first
    * Wave, also when nothing else is ready; the button and main filter them by the Tickets they read.
    * A run over named Tickets takes only those of its list and leaves the others here when it stops,
-   * whatever its reason (worfy-flight-recorder ticket 21, ADR-0091). Empty while running and after any
-   * other stop, the graceful Stop (`user-stop`) included.
+   * whatever its reason (worfy-flight-recorder ticket 21, ADR-0091). A run that sent no Wave (a Stop
+   * during the wait for the Start window, worfy-resource-planner ticket 05) leaves the Tickets it was
+   * given. Empty while running and after any other stop, the graceful Stop (`user-stop`) included.
    */
   resumable: z.array(z.number().int().positive()),
   /**
@@ -114,10 +120,18 @@ export const MAX_NAMED_TICKETS = 500
  * ticket 15); `override` ("Start anyway") starts anyway: it still asks, and the run journals the
  * override only when it went past such a run. `tickets` (worfy-flight-recorder ticket 21): a run over
  * these Tickets of the Epic only, ending with `tickets-done`; absent, the whole Epic, as the button.
+ * `mode` (worfy-resource-planner ticket 05): the Run mode of this run; absent, the default mode of
+ * Settings → Autopilot at the start.
  */
 export const autopilotStart = invokeChannel(
   'autopilot.start',
-  z.object({ projectId, epic: epicNameSchema, override: z.boolean().optional(), tickets: z.array(ticketNumSchema).min(1).max(MAX_NAMED_TICKETS).optional() }),
+  z.object({
+    projectId,
+    epic: epicNameSchema,
+    override: z.boolean().optional(),
+    tickets: z.array(ticketNumSchema).min(1).max(MAX_NAMED_TICKETS).optional(),
+    mode: z.enum(RUN_MODES).optional(),
+  }),
   autopilotStartAnswerSchema,
   'project',
   'write',
@@ -166,11 +180,12 @@ export interface StatusLineOptions {
  * The status line of the Epic's Autopilot action: `Wave 3 · running`, `Wave 3 · 4 background
  * tasks` (ADR-0029), `stopping · 2 tickets in work` and `stopping` (a graceful Stop, worfy-week
  * ticket 18), `waiting for limits · resumes 14:20`, `today's share used · resumes 00:00` and
- * `5-hour limits full · resumes 02:12` (the budget, worfy-throughput ticket 41), `stopped: no
- * ready wave`, `stopped: user force stop`.
+ * `5-hour limits full · resumes 02:12` (the budget, worfy-throughput ticket 41), `outside start
+ * window · resumes 23:00` and `wave too long for window · resumes 23:00` (the Start window,
+ * worfy-resource-planner ticket 05), `stopped: no ready wave`, `stopped: user force stop`.
  */
 export function autopilotStatusLine(
-  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
+  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
   options: StatusLineOptions = {},
 ): string | null {
   if (state.status === 'running') {
@@ -184,7 +199,16 @@ export function autopilotStatusLine(
     return `Wave ${state.wave} · running`
   }
   if (state.status === 'waiting') {
-    const what = state.waitingFor === 'daily-share' ? "today's share used" : state.waitingFor === 'five-hour' ? '5-hour limits full' : 'waiting for limits'
+    const what =
+      state.waitingFor === 'daily-share'
+        ? "today's share used"
+        : state.waitingFor === 'five-hour'
+          ? '5-hour limits full'
+          : state.waitingFor === 'start-window'
+            ? state.windowReason === 'wave-too-long'
+              ? 'wave too long for window'
+              : 'outside start window'
+            : 'waiting for limits'
     if (state.resumesAt === null || state.resumesAt === undefined) return what
     const at = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: options.timeZone }).format(state.resumesAt)
     return `${what} · resumes ${at}`

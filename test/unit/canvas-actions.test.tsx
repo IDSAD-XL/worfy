@@ -569,6 +569,16 @@ describe('the graceful Stop and the "⋯" menu (worfy-week ticket 18)', () => {
     // A state of an older build, without the field, is a wait for the Limits.
     expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: at }, utc)).toBe('waiting for limits · resumes 00:00')
   })
+
+  it('autopilotStatusLine says why the Start window holds the next Wave back: outside it, or the Wave too long for it (worfy-resource-planner ticket 05)', () => {
+    const at = Date.UTC(2026, 10, 1, 23, 0)
+    const utc = { timeZone: 'UTC' }
+    expect(autopilotStatusLine({ status: 'waiting', wave: 0, reason: null, resumesAt: at, waitingFor: 'start-window', windowReason: 'outside' }, utc)).toBe('outside start window · resumes 23:00')
+    expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: at, waitingFor: 'start-window', windowReason: 'wave-too-long' }, utc)).toBe('wave too long for window · resumes 23:00')
+    expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: null, waitingFor: 'start-window', windowReason: 'outside' }, utc)).toBe('outside start window')
+    // A Wave that went without the check of its duration reads as any running Wave; its tooltip says the rest.
+    expect(autopilotStatusLine({ status: 'running', wave: 2, reason: null }, utc)).toBe('Wave 2 · running')
+  })
 })
 
 describe('Autopilot status line hint (ticket 32, ADR-0034)', () => {

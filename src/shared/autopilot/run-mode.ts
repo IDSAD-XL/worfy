@@ -9,6 +9,16 @@
 // change, the window still starts and ends at its hours by the wall clock, so it lasts an hour less
 // or more. Settings → Autopilot keeps the default mode and the window (`autopilotRun`,
 // src/shared/settings/app-settings.ts).
+//
+// At the boundary of a Wave (worfy-resource-planner ticket 05, ADR-0093 points 2–3) windowDecision
+// says whether the Start window lets the next Wave go: outside the window it waits for the next
+// start; inside, a Wave whose p90 of duration (wave-duration.ts) would end after the window's end
+// waits too; without enough samples the Wave goes unchecked. A Wave that started inside the window
+// is never stopped at its end. The Run asks again after every wait, so an edge the clocks skipped
+// (a wake-up that lands outside the window) only makes it wait once more. A Wave whose p90 is longer
+// than the whole window never fits in it: the Run stops instead of waiting every night
+// (`window-too-short`, windowNeverFitsText).
+import { duration } from './limits-estimate'
 
 /** The modes of a Run, in the order Settings and the start dialog offer them. */
 export const RUN_MODES = ['fastest', 'budget-aware', 'start-window'] as const
@@ -74,3 +84,75 @@ export function windowEnd(now: number, window: StartWindow): number {
 export function nextWindowStart(now: number, window: StartWindow): number {
   return nextHour(now, window.from)
 }
+
+/** Why the Start window holds the next Wave back: the window is not open, or the Wave would end after it. */
+export const WINDOW_WAIT_REASONS = ['outside', 'wave-too-long'] as const
+export type WindowWaitReason = (typeof WINDOW_WAIT_REASONS)[number]
+
+export interface WindowInput {
+  window: StartWindow
+  now: number
+  /** The p90 of the Waves' duration in ms (waveDurationP90); null under its minimum of samples. */
+  p90: number | null
+}
+
+/** How long the window is by its hours, from `from` to `to`, across midnight too: 23:00–07:00 is 8 hours. */
+export function windowLength(window: StartWindow): number {
+  return (((window.to - window.from) % 24) + 24) % 24 * 3_600_000
+}
+
+/**
+ * Whether the Start window lets the next Wave go at `now`. `go` with `unknownDuration` when it goes
+ * without the check of its duration (no p90); `never` when the p90 is longer than the whole window
+ * (windowLength), wherever `now` is: no night would let it start; `wait` until the next start of the
+ * window otherwise. A Wave whose p90 ends exactly at the window's end, or is exactly as long as the
+ * window, still goes (or waits for the window's start).
+ *
+ * shortcut: the length is the window's hours, not the night's: on the night the clocks go back a
+ * window is an hour longer, and a Wave that would fit only then still stops the Run; redo if a Run
+ * should wait for such a night.
+ */
+export type WindowDecision =
+  | { kind: 'go'; unknownDuration: boolean }
+  | { kind: 'wait'; reason: WindowWaitReason; until: number }
+  | { kind: 'never'; p90: number }
+
+export function windowDecision({ window, now, p90 }: WindowInput): WindowDecision {
+  if (p90 !== null && p90 > windowLength(window)) return { kind: 'never', p90 }
+  if (!inWindow(now, window)) return { kind: 'wait', reason: 'outside', until: nextWindowStart(now, window) }
+  if (p90 === null) return { kind: 'go', unknownDuration: true }
+  if (now + p90 > windowEnd(now, window)) return { kind: 'wait', reason: 'wave-too-long', until: nextWindowStart(now, window) }
+  return { kind: 'go', unknownDuration: false }
+}
+
+export interface WindowTextOptions {
+  /** IANA time zone of the time the Run continues at; the system's when omitted. Tests pass a fixed one. */
+  timeZone?: string
+}
+
+export type WindowWait = { reason: 'outside'; window: StartWindow; until: number } | { reason: 'wave-too-long'; window: StartWindow; until: number; wave: number; p90: number }
+
+/**
+ * Why the Run waits for the Start window, in words, for the Autopilot status and the Journal:
+ * `Outside the start window 23:00–07:00: Autopilot continues at 23:00`, or `Wave 3 usually takes up
+ * to 2 h 10 min and would end after 07:00: Autopilot continues at 23:00`.
+ */
+export function windowWaitText(wait: WindowWait, options: WindowTextOptions = {}): string {
+  const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: options.timeZone }).format(wait.until)
+  const why =
+    wait.reason === 'outside'
+      ? `Outside the start window ${hourText(wait.window.from)}–${hourText(wait.window.to)}`
+      : `Wave ${wait.wave} usually takes up to ${duration(wait.p90)} and would end after ${hourText(wait.window.to)}`
+  return `${why}: Autopilot continues at ${time}`
+}
+
+/**
+ * Why the Run stopped with `window-too-short`: `Wave 2 usually takes up to 1 h 10 min, longer than the
+ * Start window 03:00–04:00: widen the window or start the Run in another mode.`
+ */
+export function windowNeverFitsText(window: StartWindow, wave: number, p90: number): string {
+  return `Wave ${wave} usually takes up to ${duration(p90)}, longer than the Start window ${hourText(window.from)}–${hourText(window.to)}: widen the window or start the Run in another mode.`
+}
+
+/** What the Autopilot status says while Wave `wave` runs: it went without the check of its duration. */
+export const unknownDurationText = (wave: number): string => `Not enough data on Wave duration: Wave ${wave} started without the window check`

@@ -39,6 +39,10 @@
 //                                    (worfy-flight-recorder tickets 11, 21; ADR-0091, ADR-0092).
 //                                    A `by` of another value reads as none, the line stays.
 //                                    Lines written before ticket 11 have neither
+//                  mode?             the Run mode (worfy-resource-planner ticket 05, ADR-0093):
+//                                    `fastest`, `budget-aware` or `start-window`; a `mode` of
+//                                    another value reads as none, the line stays. Lines written
+//                                    before ticket 05 have none
 //   harness-behind harness, main,    the Harness in worfy's main has changes in harness/ that the
 //                  commits           running build's Harness has not (worfy-harness ticket 21,
 //                                    ADR-0047): the Stable copy is due `pnpm install:stable` once
@@ -113,6 +117,17 @@
 //   the number, resetsAt the ISO time the window resets or null. Before both lines worfy asks the
 //   usage once when the number is older than 5 minutes. A limits value outside this shape is
 //   dropped and the line read without it. Lines written before ticket 40 have no limits
+//   start-window   reason, until,    the next Wave did not start for the Start window of the Run
+//                  text,             mode `start-window` (worfy-resource-planner ticket 05,
+//                  durationP90Ms?    ADR-0093): checked before each Wave, never inside one, and
+//                                    before the budget. reason: `outside` (the window is not open)
+//                                    or `wave-too-long` (open, but the p90 of the Waves' duration
+//                                    would end the Wave after the window's end); until: the ISO
+//                                    time of the window's next start, when the run checks again;
+//                                    text: the reason in words; durationP90Ms: that p90 in ms,
+//                                    absent with fewer than 5 samples. waiting-until with the same
+//                                    time follows, and resumed when the time comes. Journals
+//                                    written before ticket 05 have none
 //   budget-stop    cause, share,     the next Wave did not start for the budget of the Limits
 //                  used, need,       (worfy-throughput ticket 41, Settings → Autopilot): checked
 //                  until, text       before each Wave, never inside one. cause: `daily-share`
@@ -215,6 +230,7 @@
 // Everything here is pure; src/main/autopilot/journal.ts reads and writes the files.
 import { z } from 'zod'
 import type { LimitWindowId, LimitsState } from '../agent/limits'
+import { RUN_MODES, WINDOW_WAIT_REASONS } from './run-mode'
 
 /** Every kind of event, in the order a run usually meets them. */
 export const JOURNAL_EVENT_KINDS = [
@@ -224,6 +240,7 @@ export const JOURNAL_EVENT_KINDS = [
   'ticket-status',
   'narrow-round',
   'wave-finished',
+  'start-window',
   'budget-stop',
   'limits-hit',
   'waiting-until',
@@ -307,12 +324,13 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
   z.object({ ...common, kind: z.literal(kind), ...fields })
 
 export const journalEventSchema = z.discriminatedUnion('kind', [
-  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional() }),
+  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional(), mode: z.enum(RUN_MODES).optional().catch(undefined) }),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
   event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional(), limits, session: text.optional() }),
   event('ticket-status', { ticket: text, state: z.enum(TICKET_STATUS_STATES), statusAt: text.optional(), reason: text.optional(), waits: text.optional() }),
   event('narrow-round', { ticket: text, outcome: z.enum(NARROW_OUTCOMES), text: text.max(LAST_TEXT_MAX) }),
   event('wave-finished', { ...wave, limits }),
+  event('start-window', { reason: z.enum(WINDOW_WAIT_REASONS), until: isoTime, text, durationP90Ms: z.number().int().nonnegative().optional() }),
   event('budget-stop', { cause: z.enum(BUDGET_CAUSES), share: z.number().nonnegative(), used: z.number().nonnegative(), need: z.number().nonnegative(), until: isoTime, text }),
   event('limits-hit', { window: z.string().min(1).nullable(), resetsAt: isoTime.nullable() }),
   event('waiting-until', { until: isoTime }),

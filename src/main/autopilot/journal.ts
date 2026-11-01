@@ -20,6 +20,7 @@ import {
   type ParsedJournal,
   type RunStartedBy,
 } from '../../shared/autopilot/journal'
+import type { RunMode } from '../../shared/autopilot/run-mode'
 import { dataRoot } from '../storage/paths'
 
 type Env = Readonly<Record<string, string | undefined>>
@@ -97,12 +98,15 @@ export interface RunStart {
   by?: RunStartedBy
   /** A run over named Tickets: their numbers, `01`; absent for the whole Epic. */
   tickets?: string[]
+  /** The Run mode (worfy-resource-planner ticket 05); absent in a start that does not say. */
+  mode?: RunMode
 }
 
 /**
  * Starts a new run of `epic` in `project`: creates its file with the `run-started` line, which
  * carries the run's origin key, `override` and the Linked machines not asked when given
- * (worfy-link ticket 15), who started it and its named Tickets (worfy-flight-recorder ticket 11).
+ * (worfy-link ticket 15), who started it and its named Tickets (worfy-flight-recorder ticket 11), and
+ * its Run mode (worfy-resource-planner ticket 05).
  */
 export async function openRun(start: RunStart, options: JournalOptions = {}): Promise<RunJournal> {
   const now = options.now ?? (() => new Date())
@@ -125,6 +129,7 @@ export async function openRun(start: RunStart, options: JournalOptions = {}): Pr
       ...(start.unasked === undefined || start.unasked.length === 0 ? {} : { unasked: [...start.unasked] }),
       ...(start.by === undefined ? {} : { by: start.by }),
       ...(start.tickets === undefined ? {} : { tickets: [...start.tickets] }),
+      ...(start.mode === undefined ? {} : { mode: start.mode }),
     })
     try {
       // 'wx': a new run never appends to the file of another one.

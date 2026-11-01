@@ -15,7 +15,9 @@
 // elsewhere answers `runningElsewhere`, not an error. The question goes after the quit's wait
 // (before-quit) has begun no more: the link stops in will-quit, after it (service.ts). Before each
 // Wave the run weighs the budget of the Limits (worfy-throughput ticket 41) with the settings of
-// Settings → Autopilot and the journals of the Project's recent runs.
+// Settings → Autopilot and the journals of the Project's recent runs; a run goes in its Run mode,
+// the default one of Settings when the start names none, and reads the Start window there before each
+// Wave (worfy-resource-planner ticket 05).
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
 import type { LimitsState } from '../../shared/agent/limits'
@@ -30,6 +32,7 @@ import {
   autopilotStop,
   type AutopilotState,
 } from '../../shared/ipc/autopilot'
+import { autopilotRunOf } from '../../shared/settings/app-settings'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import { appLimits, observeSessionLimits } from '../agent/limits'
@@ -70,9 +73,9 @@ export function autopilotHandlers(
   sources: EstimateSources = appEstimateSources,
 ): HandlerModule {
   return [
-    defineHandler(autopilotStart, async ({ projectId, epic, override, tickets }) => {
+    defineHandler(autopilotStart, async ({ projectId, epic, override, tickets, mode }) => {
       try {
-        return await autopilot().start(projectId, epic, { override: override === true, ...(tickets === undefined ? {} : { tickets }) })
+        return await autopilot().start(projectId, epic, { override: override === true, ...(tickets === undefined ? {} : { tickets }), ...(mode === undefined ? {} : { mode }) })
       } catch (error) {
         if (!(error instanceof RunningElsewhere)) throw error
         return { runningElsewhere: { epic: error.epic, machine: error.machine, message: error.message } }
@@ -183,6 +186,8 @@ export function sharedAutopilot(): Autopilot {
       settings: () => budgetFromSettings(appSettingsStore().get()),
       runs: (projectId) => readRecentRuns(projectId),
     },
+    // The default Run mode at a start without one, and the Start window before each Wave (worfy-resource-planner ticket 05).
+    runSettings: () => autopilotRunOf(appSettingsStore().get()),
     limits: {
       state: () => appLimits().snapshot(),
       observeSession: (isSession, listener) => observeSessionLimits((sink) => sharedRegistry().observe(sink), isSession, listener),

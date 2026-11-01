@@ -91,6 +91,8 @@ The line above the button shows the state of the run:
 | `waiting for limits · resumes 14:20` | The Limits refused a turn. The run continues at this time. |
 | `today's share used · resumes 00:00` | The budget stopped the next Wave. |
 | `5-hour limits full · resumes 02:12` | The budget stopped the next Wave: today's share is left, the 5-hour window is full. |
+| `outside start window · resumes 23:00` | The Run mode is Start window and the window is not open. The run continues when it opens. |
+| `wave too long for window · resumes 23:00` | The Run mode is Start window: the next Wave usually takes longer than what is left of the window. |
 | `stopping · 2 tickets in work` | A Stop came. Two Tickets of the current Wave are in work. Without any it says `stopping`. |
 | `stopped: no ready wave` | The run is over, with its reason (see below). |
 
@@ -169,6 +171,24 @@ The first Wave of a day goes whenever the day has a share, so a Wave estimated a
 A 7-day number that is unknown or older than 30 minutes stops nothing. A refusal by the Limits inside a Wave remains the
 hard limit.
 
+#### The Run mode
+
+Every run goes in a Run mode, fixed when it starts. A start takes the default mode of Settings → Autopilot (**Default run
+mode**). The mode acts only before a Wave, never inside one:
+
+- **Fastest**: the next Wave goes at once. Neither the budget nor the Start window is checked.
+- **Budget-aware**: the budget above, with its reserve, whether **Daily budget of the Limits** is on or off.
+- **Start window**: a new Wave starts only inside the window of local time (**Start window from** and **to**, 23:00–07:00 by
+  default). It also does not start when the 90th percentile of the last Waves' durations would end it after the window. With
+  fewer than 5 past Waves there is no such number, the Wave goes, and the tooltip says it went without that check. After
+  the window, the budget is checked too, when **Daily budget of the Limits** is on.
+
+When the Waves usually take longer than the whole window, no night would let the next one start: the run stops at
+once with `window-too-short` instead of waiting. The window and the budget are read again before each Wave. The mode stays the same for the whole run. Outside the window
+the run waits as it does for the budget: it is `waiting` until the window opens, keeps the display on, and checks
+again then. A Stop during that wait ends the run at once. A Wave that started inside the window runs to its end, also
+after the window has closed.
+
 #### Stopping
 
 **Stop autopilot** is graceful: the run sends no new Wave. A click before "Run wave" is sent keeps that Wave from going. A click
@@ -191,7 +211,8 @@ and gives the Orchestrator back to the person. Worktrees and branches stay. A me
 new Session's queue. The Wave and the stop message leave the queue.
 
 The next run of the same Epic takes the Tickets interrupted by a Force stop into its first Wave, if they are still in work,
-even when nothing else is ready. After a graceful Stop it takes none. worfy keeps this list in memory only, so it does not
+even when nothing else is ready. After a graceful Stop it takes none. A run that stops before its first Wave, for example
+during the wait for the Start window, took none of those Tickets, so the next run still gets them. worfy keeps this list in memory only, so it does not
 survive a restart of the app.
 
 **Quitting the app** stops every run with `app-quit`. The quit waits up to 3 seconds for the run to write its end. The
@@ -215,6 +236,7 @@ task-notification starts, then goes back.
 | `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn. |
 | `background-stalled` | Background tasks gave no event for an hour. |
 | `limits-timeout` | The wait for the Limits would pass 24 hours. |
+| `window-too-short` | The Run mode is Start window, and the next Wave usually takes longer than the whole window. The tooltip names the Wave, its usual duration and the window. |
 | `interrupted` | A turn of the Wave was interrupted, or a person's turn was, leaving the Wave held in the queue. |
 | `turn-error` | A turn of the Wave ended with an error that is not a refusal by the Limits. |
 | `session-error` | The Orchestrator's Session failed. |
@@ -393,11 +415,12 @@ it cannot read.
 
 | Kind | Written when |
 |---|---|
-| `run-started` | The run began. Has `origin`, and `override` or `unasked` when they apply. `by` says who started it: `button`, `command` or `tool`. `tickets` names the Tickets of a run over named Tickets. |
+| `run-started` | The run began. Has `origin`, and `override` or `unasked` when they apply. `by` says who started it: `button`, `command` or `tool`. `tickets` names the Tickets of a run over named Tickets. `mode` is the Run mode: `fastest`, `budget-aware` or `start-window`. |
 | `harness-behind` | The Harness in `main` is newer: after `run-started`, and before a `wave-started` when the count changed. |
 | `wave-started`, `wave-finished` | A Wave went or ended. `wave-started` has the text sent, the skipped Tickets and `session`, the id of the Orchestrator's SDK session the Wave went to (its transcript's name). Both may have `limits`. |
 | `ticket-status` | The `Status:` of a Ticket of the run's Epic changed during the run, seen on a change the workflow watch reports or in a last read right before `run-stopped` (not on a Force stop). A Ticket whose file appeared during the run gets the status it was first seen with. Has `state` (`claimed`, `blocked`, `done`, `open`), and `statusAt`, `reason` and `waits` when the Ticket has those lines ([ADR-0092](../adr/0092-run-history.md)). |
 | `narrow-round` | A state of the narrow fix round on a Wave Ticket's PR, once per Ticket and outcome. |
+| `start-window` | The Start window held the next Wave back: `reason` is `outside` or `wave-too-long`. `waiting-until` follows. |
 | `budget-stop` | The budget stopped the next Wave. `waiting-until` follows. |
 | `limits-hit` | The Limits refused a turn. |
 | `waiting-until`, `resumed` | A wait began or ended. |

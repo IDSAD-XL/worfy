@@ -1094,8 +1094,14 @@ describe('the autopilot channels', () => {
   async function register() {
     const calls: unknown[][] = []
     const autopilot = {
-      start: (projectId: string, epic: string, options?: { tickets?: readonly number[] }) => {
-        calls.push(options?.tickets === undefined ? ['start', projectId, epic] : ['start', projectId, epic, options.tickets])
+      start: (projectId: string, epic: string, options?: { tickets?: readonly number[]; mode?: string }) => {
+        calls.push([
+          'start',
+          projectId,
+          epic,
+          ...(options?.tickets === undefined ? [] : [options.tickets]),
+          ...(options?.mode === undefined ? [] : [{ mode: options.mode }]),
+        ])
         if (epic === 'busy') return Promise.reject(new Error('The Orchestrator is in a turn'))
         return Promise.resolve({ ...state(), extra: 'secret' } as AutopilotState)
       },
@@ -1134,6 +1140,19 @@ describe('the autopilot channels', () => {
     expect(calls).toEqual([
       ['start', 'p', 'e', [5, 6]],
       ['start', 'p', 'e', [0]],
+    ])
+  })
+
+  it('autopilot.start passes the Run mode to the run, and refuses a mode it does not know (worfy-resource-planner ticket 05)', async () => {
+    const { invoke, calls } = await register()
+    for (const mode of ['fastest', 'budget-aware', 'start-window']) expect(await invoke('autopilot.start', { projectId: 'p', epic: 'e', mode })).toEqual({ ok: true, value: state() })
+    expect(await invoke('autopilot.start', { projectId: 'p', epic: 'e', tickets: [5], mode: 'fastest' })).toEqual({ ok: true, value: state() })
+    for (const mode of ['overnight', '', 1, null]) expect((await invoke('autopilot.start', { projectId: 'p', epic: 'e', mode })).ok, JSON.stringify(mode)).toBe(false)
+    expect(calls).toEqual([
+      ['start', 'p', 'e', { mode: 'fastest' }],
+      ['start', 'p', 'e', { mode: 'budget-aware' }],
+      ['start', 'p', 'e', { mode: 'start-window' }],
+      ['start', 'p', 'e', [5], { mode: 'fastest' }],
     ])
   })
 
