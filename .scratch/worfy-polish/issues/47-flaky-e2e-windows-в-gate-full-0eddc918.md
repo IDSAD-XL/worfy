@@ -86,6 +86,7 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
 ## Итог
 
 Заполняется при закрытии. Ticket open: `subagent-tree`, `terminal-windows` и Git Bash ждут замеров ПК.
+Часть 5: зелёный shell test Harness печатает в журнал свои строки `skip` (раздел «Часть 5» ниже).
 
 ### 2026-10-31, ветка `worfy-polish/47-e2e-logic`: логика двух e2e test-ов, третий — вопрос владельцу; пределы не тронуты
 
@@ -188,3 +189,17 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   папки дала единственный `change` с её именем; test с настоящим `fs.watch` идёт на Windows, macOS и Linux. На macOS и Linux отбрасывания нет, там chokidar.
   Осталось: такой же `change` бывает у папки внутри Card (`c1\js`, виден в журнале test-а сразу после записи). Он по-прежнему поднимает revision: без
   чтения диска его не отличить от файла. В Card test-а `card-api` вложенных папок нет.
+
+### Часть 5. 2026-11-01, ветка `worfy-polish/47-skip-lines`: строки `skip` зелёного shell test-а видны в журнале
+
+- Shell test Harness печатает строку `skip …`, когда проверку нельзя выполнить на этой машине. Обёртка vitest
+  (`test/harness-scripts-suite.ts`) показывала вывод shell test-а только при красном run-е. Поэтому по зелёному job-у
+  не было видно, какая ветка проверки выполнилась: в PR #1201 строка `skip the dangerous direction …` ни разу не
+  попала в зелёный журнал Windows CI.
+- Правка: `judge` печатает в stderr каждую строку вывода зелёного shell test-а, которая после trim начинается с `skip `,
+  с именем файла впереди (`[harness-scripts] bin/tests/profile.test.sh: skip …`). Остальной вывод зелёного test-а не
+  печатается. Красный run, как и раньше, печатает свой отчёт целиком. Запись идёт прямо в stderr, как у
+  `test/quarantine.ts`: vitest под агентом скрывает console output файла, где все test-ы прошли.
+- Test: случай обёртки в `harness-scripts-1` запускает подставной shell test с одной строкой `skip` и exit 0 и ждёт
+  ровно эту строку с именем. Без печати он красный (проверено мутантом). На Mac run `harness-scripts-1` напечатал три
+  строки `skip`, из `profile.test.sh` и `session-hooks.test.sh`. На Windows правку проверят job-ы Windows CI.

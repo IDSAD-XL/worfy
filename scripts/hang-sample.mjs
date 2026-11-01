@@ -4,7 +4,8 @@
 //   node scripts/hang-sample.mjs <pid> [seconds]
 //
 // <pid> is the main process of a packaged worfy — the exact pid got when it was started, for
-// example the stable copy that Autopilot drives over CDP (README.md, "Stable copy"). A CDP call
+// example the stable copy that Autopilot drives over CDP (docs/features/storage-and-diagnostics.md,
+// "Stacks of a hung app"). A CDP call
 // such as Runtime.evaluate runs in the renderer process, a child of the main one, so the script
 // samples the main process and its children from the same .app, all at once, with
 // /usr/bin/sample: the stacks of every thread over [seconds] (1–60, default 3) without stopping

@@ -242,6 +242,25 @@ function failure(file: string, run: Run, timeoutMs: number): string | null {
   return null
 }
 
+/** The lines a shell test prints for a check it could not run on this machine: those that start with "skip ", trimmed. */
+const skipLines = (output: string): string[] =>
+  output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('skip '))
+
+/**
+ * Judges a run of shell test `name` (at `path`): failure. A passed run's output is not printed, so its skip
+ * lines go to `log`, one per line with the name in front: a green job then still shows which check did not
+ * run on its machine (worfy-polish 47, part 5). Written to stderr directly, as test/quarantine.ts does: vitest
+ * under an agent hides the console output of a passing file. A failed run prints its whole report anyway.
+ */
+function judge(name: string, path: string, run: Run, timeoutMs: number, log: (line: string) => void = (line) => process.stderr.write(`${line}\n`)): string | null {
+  const problem = failure(path, run, timeoutMs)
+  if (problem === null) for (const line of skipLines(run.output)) log(`[harness-scripts] ${name}: ${line}`)
+  return problem
+}
+
 // How long a case waits for the process group of a killed run to end. The kill is a SIGKILL to the
 // group: it cannot be caught, so the wait is for the kernel, not for the script.
 const GROUP_END_MS = 2_000
@@ -371,6 +390,24 @@ export function harnessScripts(file: number): void {
         expect(failureReport('ok   one\npassed 1, failed 0')).toBe('ok   one\npassed 1, failed 0')
       })
 
+      it('prints the skip lines of a green shell test, with its name, and nothing else of its output', async () => {
+        const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-skip-')))
+        try {
+          const script = join(dir, 'skips.test.sh')
+          writeFileSync(script, 'echo "ok   one, not a skip line"\necho "  skip the other: not on this machine"\necho "passed 1, failed 0"\nexit 0\n')
+          const { run } = await runInEmptyHome(script, ms(60_000))
+          const printed: string[] = []
+          expect(judge('bin/tests/skips.test.sh', script, run, ms(60_000), (line) => printed.push(line))).toBeNull()
+          expect(printed).toEqual(['[harness-scripts] bin/tests/skips.test.sh: skip the other: not on this machine'])
+          // A red run prints its whole report instead, the skip line in it.
+          const red: string[] = []
+          expect(judge('bin/tests/skips.test.sh', script, { ...run, status: 1 }, ms(60_000), (line) => red.push(line))).toContain('skip the other')
+          expect(red).toEqual([])
+        } finally {
+          removeTestTree(dir)
+        }
+      })
+
       it('gives a shell test the system temp folder as TMPDIR, TEMP and TMP, outside the HOME it removes', () => {
         const home = join(tmpdir(), 'worfy-harness-home-x')
         const env = emptyHomeEnv(home)
@@ -415,7 +452,7 @@ export function harnessScripts(file: number): void {
       const { run } = await runInEmptyHome(path, FILE_TIMEOUT_MS).finally(() => {
         running -= 1
       })
-      const problem = failure(path, run, FILE_TIMEOUT_MS)
+      const problem = judge(name, path, run, FILE_TIMEOUT_MS)
       // vitest prints a test's error only when its retry in CI fails too: a failed first try and a passed retry
       // leave a FLAKY line alone (test/flaky.ts), with no word of the check that failed. A failed try that a retry
       // follows is in the log here, written directly, as test/quarantine.ts writes its lines; the last try's error

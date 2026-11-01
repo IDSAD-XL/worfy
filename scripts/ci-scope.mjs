@@ -54,8 +54,9 @@ const MACOS = ['macos-tests', 'macos-e2e', 'macos-package']
 // reads scripts/eval-outcome/README.md, test/unit/kind-tokens.test.ts reads docs/design/F-SPEC.md.
 const CODE_FOLDERS = ['src/', 'test/', 'harness/', 'scripts/', 'docs/design/']
 // Single documents outside those folders that a test reads: test/contract/node-version.test.ts reads
-// README.md, test/unit/check-lessons.test.ts the lessons index.
-const READ_BY_TESTS = new Set(['README.md', 'docs/lessons/README.md'])
+// README.md, test/unit/check-lessons.test.ts the lessons index, test/unit/map-of-worfy-svg.test.tsx
+// the two SVG files of the Map of worfy in README.md.
+const READ_BY_TESTS = new Set(['README.md', 'docs/lessons/README.md', 'docs/images/map-of-worfy-light.svg', 'docs/images/map-of-worfy-dark.svg'])
 
 /** A path (from the repository root, forward slashes) whose change needs no test run. */
 function isDocument(path) {
