@@ -7,6 +7,7 @@ import { expect, test } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { PERSISTENT_ENV_KEYS, REGISTRY_STAND_IN_VAR } from '../../src/main/agent/env'
+import { putElectron } from '../fixtures/update/electron.mjs'
 import { startUpdateStub, type UpdateStub } from '../update-stub'
 import { ms } from '../time-scale'
 
@@ -35,7 +36,10 @@ function git(cwd: string, ...args: string[]): string {
 
 /**
  * A bare repository whose main is one commit: an empty pnpm project, so the real `pnpm install
- * --frozen-lockfile` of the build passes and the stand-in build is the step that fails. Answers its path and the SHA.
+ * --frozen-lockfile` of the build passes, with a committed node_modules/electron as a finished
+ * download leaves it (path.txt and the program it names in dist), so the build's Electron check
+ * passes too (worfy-update ticket 15; pnpm install of a project without dependencies leaves the
+ * folder as it is). The stand-in build is then the step that fails. Answers its path and the SHA.
  */
 function bareRepository(): { path: string; sha: string } {
   const path = join(scratch, 'origin.git')
@@ -46,6 +50,9 @@ function bareRepository(): { path: string; sha: string } {
   writeFileSync(join(work, 'package.json'), `${JSON.stringify({ name: 'worfy-update-e2e', private: true })}\n`)
   writeFileSync(join(work, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n")
   writeFileSync(join(work, 'marker.txt'), 'update-toasts\n')
+  putElectron(work)
+  // -f: a global excludes file of the machine may ignore node_modules.
+  git(work, 'add', '-f', 'node_modules')
   git(work, 'add', '-A')
   git(work, 'commit', '-qm', 'the Update of the test')
   git(work, 'push', '-q', 'origin', 'HEAD:refs/heads/main')
@@ -154,12 +161,15 @@ test('without "Update automatically" an Available update shows "New worfy <versi
     await available.getByRole('button', { name: 'Update' }).click()
     await expect(available).toHaveCount(0)
     const failed = window.getByTestId('update-failed')
-    // The clone, the real `pnpm install` of an empty project and the stand-in build.
+    // The clone, the real `pnpm install` of an empty project, the Electron check and the stand-in build.
     await expect(failed).toBeVisible({ timeout: ms(60_000) })
     await expect(failed).toContainText('Update failed')
     await expect(failed.getByRole('button', { name: 'Show log' })).toBeVisible()
-    // The step that failed is the stand-in build, not the clone or the install.
-    expect(readFileSync(join(dataDir, 'update', 'build.log'), 'utf8')).toContain('fake build failed')
+    // The step that failed is the stand-in build, not the clone, the install or the Electron check:
+    // the committed Electron is whole, so no download of it is started either.
+    const log = readFileSync(join(dataDir, 'update', 'build.log'), 'utf8')
+    expect(log).toContain('fake build failed')
+    expect(log).not.toContain('electron/install.js')
     await snapshotThemes(window, '07-update-failed')
   } finally {
     await launched.close()

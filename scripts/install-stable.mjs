@@ -231,7 +231,8 @@ export const ELECTRON_INSTALL = 'node node_modules/electron/install.js'
  * installs at once, 2026-10-19) leaves dist empty or missing and no path.txt, and electron-builder
  * fails late with "electronDist does not exist". `exists` says whether a path is there, `read`
  * reads a text file. On Windows path.txt says electron.exe; on macOS
- * Electron.app/Contents/MacOS/Electron.
+ * Electron.app/Contents/MacOS/Electron. The Update build keeps a copy (electronBinary of
+ * src/main/update/electron-binary.ts); test/unit/update-electron-binary.test.ts runs both.
  */
 export function electronMissing(platform, repo, exists = existsSync, read = (file) => readFileSync(file, 'utf8')) {
   const rules = rulesOf(platform)
