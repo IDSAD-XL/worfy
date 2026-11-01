@@ -1,7 +1,7 @@
 {
   "sources": [
-    { "page": "docs/features/harness.md", "sha": "8c6fc399" },
-    { "page": "docs/features/skills-agents-and-hooks.md", "sha": "3f662f1c" }
+    { "page": "docs/features/harness.md", "sha": "1745e4bb" },
+    { "page": "docs/features/skills-agents-and-hooks.md", "sha": "1745e4bb" }
   ],
   "files": [
     "src/main/harness/install.ts",

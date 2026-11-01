@@ -1,7 +1,7 @@
 {
   "title": "Autopilot",
   "summary": [
-    "Autopilot runs the Waves of one Epic one after another, with no person at the Orchestrator. Press Autopilot on the Epic frame: the run sends the ready Wave, waits until it is over, then sends the next one.",
+    "Autopilot runs the Waves of one Epic one after another, with no person at the Orchestrator. Press Autopilot on the Epic frame: the run sends the ready Wave, waits until it is over, then sends the next one. The same run, over the Epic or some of its Tickets, also starts from /worfy:epic-wave typed in a Session's chat, or from asking the agent in words once you confirm worfy's dialog.",
     "It stops when no Wave is ready, when you press Stop autopilot, or when something goes wrong. While it runs, no one answers the Orchestrator, so its questions are refused, and each step goes to a journal. No run starts by itself."
   ],
   "scene": {
@@ -82,7 +82,8 @@
     },
     "text": [
       "The cycle is a pure function: the state of a run and one event in, the next state and a list of effects out. Its phases are starting, sending, turn, tasks, settling and stopped. Every step of a run goes through one queue, so events are handled in order.",
-      "Every Wave after the first usually goes to a new SDK session of the Orchestrator, so its context does not grow."
+      "Every Wave after the first usually goes to a new SDK session of the Orchestrator, so its context does not grow.",
+      "/worfy:epic-wave typed with an Epic, a Wave or Tickets does not reach the agent: agent.send hands it to ChatStarts.startFromChat, as the Canvas MCP tool autopilot_start does after its dialog. A run over named Tickets takes only those into its Waves and stops with tickets-done once they are done."
     ],
     "files": {
       "src/main/autopilot/run.ts": "One run: start checks, the Session's events, the cycle's effects, stops",
@@ -92,13 +93,15 @@
       "src/main/autopilot/limits-wait.ts": "The wait for the Limits on a wall-clock timer, and the text that continues the Wave",
       "src/shared/autopilot/budget.ts": "The daily budget of the Limits and its decision before a Wave. Pure",
       "src/main/autopilot/journal.ts": "The journal files, one per run",
-      "src/renderer/canvas/actions/AutopilotAction.tsx": "The button, the ⋯ menu with Force stop, the status line and the chips"
+      "src/renderer/canvas/actions/AutopilotAction.tsx": "The button, the ⋯ menu with Force stop, the status line and the chips",
+      "src/main/autopilot/chat-start.ts": "The start from a chat, by the command or the tool"
     },
     "limits": [
       "One run per Project at a time. The same Epic of the same repository running on a Linked machine refuses the start; Start anyway is the only way past.",
       "A development build refuses a run on worfy's own repository, its worktrees included.",
       "A Ticket of the Wave still in work after the turn: the run waits up to 10 minutes, then stops with wave-unfinished. Background tasks with no event for an hour: background-stalled.",
-      "A refusal by the Limits: the run waits until the reset plus 2 minutes, or tries every 30 minutes when no reset time is known; past 24 hours it stops with limits-timeout."
+      "A refusal by the Limits: the run waits until the reset plus 2 minutes, or tries every 30 minutes when no reset time is known; past 24 hours it stops with limits-timeout.",
+      "The dialog of autopilot_start waits 10 minutes; an unattended Session gets a refusal with no dialog."
     ]
   }
 }

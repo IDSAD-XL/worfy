@@ -1,5 +1,5 @@
 {
-  "sources": [{ "page": "docs/features/terminal.md", "sha": "a36324a0" }],
+  "sources": [{ "page": "docs/features/terminal.md", "sha": "d2ca34cf" }],
   "files": [
     "src/main/terminal/pty.ts",
     "src/main/ipc/terminal.ts",

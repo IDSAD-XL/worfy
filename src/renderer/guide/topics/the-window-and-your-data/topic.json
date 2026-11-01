@@ -1,7 +1,7 @@
 {
   "sources": [
-    { "page": "docs/features/app-shell.md", "sha": "058d618b" },
-    { "page": "docs/features/notifications.md", "sha": "41f4e01b" },
+    { "page": "docs/features/app-shell.md", "sha": "8c6fc399" },
+    { "page": "docs/features/notifications.md", "sha": "9d967195" },
     { "page": "docs/features/storage-and-diagnostics.md", "sha": "fc627df0" }
   ],
   "files": [

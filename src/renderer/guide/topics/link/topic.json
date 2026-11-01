@@ -1,5 +1,5 @@
 {
-  "sources": [{ "page": "docs/features/link.md", "sha": "c1ea91d9" }],
+  "sources": [{ "page": "docs/features/link.md", "sha": "9d967195" }],
   "files": [
     "src/main/link/service.ts",
     "src/main/link/pairing.ts",

@@ -1,5 +1,5 @@
 {
-  "sources": [{ "page": "docs/features/autopilot.md", "sha": "02be335e" }],
+  "sources": [{ "page": "docs/features/autopilot.md", "sha": "ee30655f" }],
   "files": [
     "src/main/autopilot/run.ts",
     "src/shared/autopilot/cycle.ts",
@@ -8,6 +8,7 @@
     "src/main/autopilot/limits-wait.ts",
     "src/shared/autopilot/budget.ts",
     "src/main/autopilot/journal.ts",
-    "src/renderer/canvas/actions/AutopilotAction.tsx"
+    "src/renderer/canvas/actions/AutopilotAction.tsx",
+    "src/main/autopilot/chat-start.ts"
   ]
 }
