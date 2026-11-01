@@ -269,9 +269,14 @@ describe('from-journal: the statuses of the Tickets', () => {
     expect(facts.ticketEvents.map(({ at }) => at)).toEqual(['2026-10-17T10:05:40.000Z', T('10:06')])
   })
 
-  it('takes the sighting when a statusAt falls before the Run started', () => {
-    const facts = read(started(), wave('10:01', 1, ['01']), status('10:30', '01', 'claimed', { statusAt: '2026-10-16T18:00Z' }), status('10:40', '01', 'blocked', { statusAt: '2026-10-17T10:35Z' }), stopped('12:00'))
-    expect(facts.ticketEvents.map(({ at }) => at)).toEqual([T('10:30'), T('10:35')])
+  it('clamps a first statusAt from before the Run to the Run’s start: the Ticket’s work does not land in Queued', () => {
+    const facts = read(started(), wave('10:01', 1, ['01']), status('10:30', '01', 'claimed', { statusAt: '2026-10-17T09:50Z' }), status('10:40', '01', 'blocked', { statusAt: '2026-10-17T10:35Z' }), stopped('10:40'))
+    expect(facts.ticketEvents.map(({ at }) => at)).toEqual([T('10:00'), T('10:35')])
+    const timeline = buildTimeline(runFacts(facts, { work: [agent('a1', 'impl-01', 'e/01', '10:05', '10:38')] }))
+    const stages = timeline.spans.filter((item) => item.kind === 'stage')
+    expect(stages[0]).toMatchObject({ start: Date.parse(T('10:01')) })
+    expect(stages[0]?.stages).not.toContain(DEFAULT_PIPELINE[0]?.kind)
+    expect(timeline.spans.find((item) => item.id === 'agent:a1')?.parent).toBe(stages[0]?.id)
   })
 
   it('claims each Ticket of an old Journal (no ticket-status, no run-started.by) at the first wave-started that names it', () => {
@@ -394,6 +399,11 @@ describe('from-journal: the frame of the Run', () => {
       // The Run stopped inside Wave 2: no end, last seen at the stop.
       { number: 2, startedAt: T('11:00'), finishedAt: null, lastSeenAt: T('12:00'), tickets: ['e/02'] },
     ])
+  })
+
+  it('does not break on a wave-started after run-stopped: that Wave is last seen at its own line', () => {
+    const journal = read(started(), wave('10:01', 1, ['01']), stopped('10:30'), wave('10:40', 2, ['02']))
+    expect(journal.waves[1]).toMatchObject({ number: 2, finishedAt: null, lastSeenAt: T('10:40') })
   })
 
   it('gives a Wave a later wave-started replaced its last line before that start', () => {

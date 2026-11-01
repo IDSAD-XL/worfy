@@ -23,10 +23,12 @@
 //   this Epic.
 // - Statuses from ticket-status. Its `at` is when worfy saw the change, maybe only at the read right
 //   before run-stopped; the time of the change is `statusAt` when it is a full timestamp with a zone
-//   and lies between the Ticket's previous status (else the Run's start) and the sighting. A bare
-//   date or a time without a zone gives no moment, a later one is no time of a change seen before, and
-//   an earlier one is a Status line older than the change (git brought the file in: a merge, a
-//   fast-forward of the main checkout): the sighting stands for all three.
+//   and lies between the Ticket's previous status and the sighting. A bare date or a time without a
+//   zone gives no moment, a later one is no time of a change seen before, and one before the previous
+//   status is a Status line older than the change (git brought the file in: a merge, a fast-forward
+//   of the main checkout): the sighting stands for all three. A first status from before the Run
+//   (claimed before it, the line brought in later) is clamped to the Run's start: the Ticket was in
+//   that state when the Run began.
 // - A Journal of before ticket 11 (no ticket-status line, run-started without `by`) claims each Ticket
 //   at the first wave-started that names it. A later Journal claims nothing there: a Ticket with no
 //   ticket-status kept its status through the Run (one a resumed Run took over in work counts as
@@ -166,7 +168,8 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
       // Its last line: before the next wave-started, else up to run-stopped or the end of the file.
       const next = starts[n + 1]
       const through = Math.min(next === undefined ? events.length - 1 : next - 1, stopIndex === -1 ? events.length - 1 : stopIndex)
-      fact.lastSeenAt = iso(Math.max(...events.slice(index, through + 1).map((event) => event.at)))
+      // A wave-started after run-stopped (no writer does that) is last seen at its own line.
+      fact.lastSeenAt = iso(through < index ? wave.start : Math.max(...events.slice(index, through + 1).map((event) => event.at)))
     }
     const session = text(line?.session)
     if (session !== undefined) fact.session = session
@@ -183,7 +186,8 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
     if (event.kind !== 'ticket-status') continue
     const ticket = key(event.ticket as string)
     const told = moment(event.statusAt)
-    const at = told !== null && told <= event.at && told >= (previous.get(ticket) ?? startedAt) ? told : event.at
+    const before = previous.get(ticket)
+    const at = told === null || told > event.at || (before !== undefined && told < before) ? event.at : Math.max(told, startedAt)
     previous.set(ticket, at)
     const reason = text(event.reason)
     const waits = text(event.waits)

@@ -106,10 +106,12 @@ Journal задаёт каркас Run (решение 08, Q5).
   `buildTimeline`; без строк между ними Wait не получается нулевой длины). Journal
   оборван без `run-stopped` — открытые Wait-ы с `lastSeenAt` последней строки.
 - Статусы из `ticket-status`: время смены — `statusAt`, если это полный timestamp с зоной (`FULL_TIME`) и он лежит
-  между прошлым статусом этого Ticket-а (без него — стартом Run) и `at`; иначе — `at` (когда worfy увидел смену).
-  Голая дата (`2026-10-17`) и время без зоны момента не дают; `statusAt` позже `at` — не время уже увиденной
-  смены; раньше прошлого статуса или старта Run — строка `Status:` старше смены (файл принёс git: merge,
-  fast-forward main checkout-а). Во всех трёх случаях — `at`, и блокировка не теряет длину. Блокировка с `reason`
+  между прошлым статусом этого Ticket-а и `at`; иначе — `at` (когда worfy увидел смену). Голая дата (`2026-10-17`)
+  и время без зоны момента не дают; `statusAt` позже `at` — не время уже увиденной смены; раньше прошлого статуса
+  — строка `Status:` старше смены (файл принёс git: merge, fast-forward main checkout-а). Во всех трёх случаях —
+  `at`, и блокировка не теряет длину. Первый статус Ticket-а со `statusAt` до старта Run (claim до Run, строку
+  принёс git позже) прижимается к старту Run: Ticket был в этом статусе, когда Run начался, и его работа не
+  попадает в Queued (test через `buildTimeline`). Блокировка с `reason`
   и `waits`, снятие и `done` проверены через `buildTimeline` (`blocks`, исход Ticket-а).
 - Старый Journal — нет ни одной строки `ticket-status` и у `run-started` нет `by` (оба
   появились в тикете 11): claim каждого Ticket-а — время первого `wave-started`, где он назван. В новом Journal claim
@@ -126,11 +128,11 @@ Journal задаёт каркас Run (решение 08, Q5).
 - Fixture ночного Run уже лежал в `test/fixtures/flight-recorder/night-run/data/autopilot/` (тикет 10), новый не
   нужен. Test на нём: две Wave (03, 07 и 04, 05), `blocked-tickets`, 4 ч 48 мин 1,885 с; Journal старый — claim-ы по
   `wave-started`; Wait-ы — только `background-tasks`.
-- Tests: `test/unit/flight-recorder-journal.test.ts` (29 tests). Первым был красный test Wait `limits`. Начала и
+- Tests: `test/unit/flight-recorder-journal.test.ts` (30 tests). Первым был красный test Wait `limits`. Начала и
   концы Wait-ов `background-tasks`, `gate-queue`, `limits-budget` проверены и через `buildTimeline`. Мутанты
   reader-а — 11 первого круга и 12 доработки (statusAt до прошлого статуса и до старта Run, `interrupted`, `by`,
   Wave после `run-stopped`, статусы после него, `gate-queue` без строк, одинокий и повторный `waiting-until`, `>=` у
-  budget и др.) — все убиты.
+  budget и др.) и 2 второго круга (прижим к старту Run, Wave после `run-stopped`) — все убиты.
 
 Не проверено:
 - Journal с `ticket-status` от настоящего Run: такого Run ещё нет (тикет 11 влит только что), строки в test-ах —
