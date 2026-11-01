@@ -183,7 +183,8 @@ mode**). The mode acts only before a Wave, never inside one:
   fewer than 5 past Waves there is no such number, the Wave goes, and the tooltip says it went without that check. After
   the window, the budget is checked too, when **Daily budget of the Limits** is on.
 
-The window and the budget are read again before each Wave. The mode stays the same for the whole run. Outside the window
+When the Waves usually take longer than the whole window, no night would let the next one start: the run stops at
+once with `window-too-short` instead of waiting. The window and the budget are read again before each Wave. The mode stays the same for the whole run. Outside the window
 the run waits as it does for the budget: it is `waiting` until the window opens, keeps the display on, and checks
 again then. A Stop during that wait ends the run at once. A Wave that started inside the window runs to its end, also
 after the window has closed.
@@ -210,7 +211,8 @@ and gives the Orchestrator back to the person. Worktrees and branches stay. A me
 new Session's queue. The Wave and the stop message leave the queue.
 
 The next run of the same Epic takes the Tickets interrupted by a Force stop into its first Wave, if they are still in work,
-even when nothing else is ready. After a graceful Stop it takes none. worfy keeps this list in memory only, so it does not
+even when nothing else is ready. After a graceful Stop it takes none. A run that stops before its first Wave, for example
+during the wait for the Start window, took none of those Tickets, so the next run still gets them. worfy keeps this list in memory only, so it does not
 survive a restart of the app.
 
 **Quitting the app** stops every run with `app-quit`. The quit waits up to 3 seconds for the run to write its end. The
@@ -234,6 +236,7 @@ task-notification starts, then goes back.
 | `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn. |
 | `background-stalled` | Background tasks gave no event for an hour. |
 | `limits-timeout` | The wait for the Limits would pass 24 hours. |
+| `window-too-short` | The Run mode is Start window, and the next Wave usually takes longer than the whole window. The tooltip names the Wave, its usual duration and the window. |
 | `interrupted` | A turn of the Wave was interrupted, or a person's turn was, leaving the Wave held in the queue. |
 | `turn-error` | A turn of the Wave ended with an error that is not a refusal by the Limits. |
 | `session-error` | The Orchestrator's Session failed. |

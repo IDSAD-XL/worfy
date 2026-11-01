@@ -57,8 +57,9 @@ export const autopilotStateSchema = z.object({
    * Wave it interrupted, for `epic`. A new run of that Epic takes those still in work into its first
    * Wave, also when nothing else is ready; the button and main filter them by the Tickets they read.
    * A run over named Tickets takes only those of its list and leaves the others here when it stops,
-   * whatever its reason (worfy-flight-recorder ticket 21, ADR-0091). Empty while running and after any
-   * other stop, the graceful Stop (`user-stop`) included.
+   * whatever its reason (worfy-flight-recorder ticket 21, ADR-0091). A run that sent no Wave (a Stop
+   * during the wait for the Start window, worfy-resource-planner ticket 05) leaves the Tickets it was
+   * given. Empty while running and after any other stop, the graceful Stop (`user-stop`) included.
    */
   resumable: z.array(z.number().int().positive()),
   /**

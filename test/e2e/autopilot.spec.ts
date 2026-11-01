@@ -554,6 +554,16 @@ test('Autopilot in the Run mode Start window: outside the window the status line
     await expectStatusClear(window, header, status)
     // No Wave went: the Orchestrator got no message, and the journal says why the run waits.
     await expect.poll(kinds).toEqual(['run-started start-window', 'start-window outside', 'waiting-until'])
+    // Both lines name the window's next start, by the test's clock.
+    const [file] = readdirSync(join(dataDir, 'autopilot'))
+    const lines = readFileSync(join(dataDir, 'autopilot', file!), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { kind: string; until?: string })
+    expect(lines.filter((line) => line.until !== undefined).map((line) => [line.kind, line.until])).toEqual([
+      ['start-window', new Date(until).toISOString()],
+      ['waiting-until', new Date(until).toISOString()],
+    ])
     expect(messages(log)).toEqual([])
     expect(await power()).toEqual(['start prevent-display-sleep'])
     await snapshots(window, header, 'autopilot-start-window-waiting')

@@ -28,9 +28,10 @@ import type { AgentEvent } from '../../src/shared/agent/events'
 import { budgetDecision, budgetFromSettings, budgetResumeAt, budgetStopText, daysToReset, nextLocalDayStart, type AutopilotBudget } from '../../src/shared/autopilot/budget'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { MAX_WAIT_MS, RECHECK_MS, RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
-import { unknownDurationText, windowWaitText, type RunMode, type StartWindow } from '../../src/shared/autopilot/run-mode'
+import { unknownDurationText, windowNeverFitsText, windowWaitText, type RunMode, type StartWindow } from '../../src/shared/autopilot/run-mode'
 import { autopilotChanged, autopilotStateSchema, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
+import type { AutopilotRunSettings } from '../../src/shared/settings/app-settings'
 import { ms } from '../time-scale'
 
 vi.mock('electron', () => ({
@@ -197,6 +198,8 @@ interface HarnessOptions {
   budget?: AutopilotBudget | (() => AutopilotBudget)
   /** The Start window the run reads before each Wave (worfy-resource-planner ticket 05); the start names the mode. */
   window?: StartWindow
+  /** The Run settings the run reads, in place of `window`: the default mode at the start, the window before each Wave. */
+  runSettings?: () => AutopilotRunSettings
 }
 
 function budgetSettings(budget: AutopilotBudget | (() => AutopilotBudget)): () => AutopilotBudget {
@@ -276,6 +279,8 @@ function harness(options: HarnessOptions = {}) {
     marks = value
   }
   const env = { WORFY_DATA_DIR: dataRoot }
+  /** The run's workflow watch: calling one is a change of the Tickets' files. */
+  const watchers: (() => void)[] = []
   const timers: Timer[] = []
   const states: AutopilotState[] = []
   const power: string[] = []
@@ -284,13 +289,20 @@ function harness(options: HarnessOptions = {}) {
     projectRoot: () => repo,
     selfRefusal: () => Promise.resolve(null),
     workflow,
-    watchWorkflow: () => Promise.resolve(() => undefined),
+    watchWorkflow: (_root, onChange) => {
+      watchers.push(onChange)
+      return Promise.resolve(() => undefined)
+    },
     orchestrators,
     registry,
     waves: launcher,
     ...(refresher === null ? {} : { usage: { refresh: (olderThanMs: number) => refresher.refreshIfOlder(olderThanMs) } }),
     ...(options.budget === undefined ? {} : { budget: { settings: budgetSettings(options.budget), runs: (projectId: string) => readRecentRuns(projectId, { env }) } }),
-    ...(options.window === undefined ? {} : { runSettings: () => ({ mode: 'fastest' as const, window: options.window! }) }),
+    ...(options.runSettings !== undefined
+      ? { runSettings: options.runSettings }
+      : options.window === undefined
+        ? {}
+        : { runSettings: () => ({ mode: 'fastest' as const, window: options.window! }) }),
     journal: (start) => openRun(start, { env }),
     harness: () => 'plugin',
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
@@ -335,7 +347,7 @@ function harness(options: HarnessOptions = {}) {
     }
     return out
   }
-  return { autopilot, registry, orchestrators, tracker, timers, live, states, power, journal, kinds, messages, state, releases, processes, setMarks, launcher }
+  return { autopilot, registry, orchestrators, tracker, timers, live, states, power, journal, kinds, messages, state, releases, processes, setMarks, launcher, watchers }
 }
 
 const iso = (ms: number): string => new Date(ms).toISOString()
@@ -1012,8 +1024,8 @@ describe('the Run mode at the boundary of a Wave (worfy-resource-planner ticket 
   const oct5 = (hour: number, minute = 0): number => Date.UTC(2026, 9, 5, hour, minute)
   const utc = { timeZone: 'UTC' }
 
-  /** A past run of the Project: `waves` Waves of `hours` hours each, before this test's run. */
-  function pastWaves(waves: number, hours: number): void {
+  /** A past run of the Project: `waves` Waves of `minutes` minutes each, before this test's run. */
+  function pastWaves(waves: number, minutes: number): void {
     const dir = join(scratch, 'data-root', 'autopilot')
     mkdirSync(dir, { recursive: true })
     const run = PAST_RUN
@@ -1021,10 +1033,10 @@ describe('the Run mode at the boundary of a Wave (worfy-resource-planner ticket 
     const line = (at: number, fields: Record<string, unknown>) => JSON.stringify({ at: iso(at), run, project: PROJECT, epic: EPIC, ...fields })
     const lines = [line(start, { kind: 'run-started' })]
     for (let wave = 1; wave <= waves; wave++) {
-      const from = start + (wave - 1) * (hours + 1) * HOUR
-      lines.push(line(from, { kind: 'wave-started', wave, tickets: ['01'] }), line(from + hours * HOUR, { kind: 'wave-finished', wave, tickets: ['01'] }))
+      const from = start + (wave - 1) * (minutes + 60) * 60_000
+      lines.push(line(from, { kind: 'wave-started', wave, tickets: ['01'] }), line(from + minutes * 60_000, { kind: 'wave-finished', wave, tickets: ['01'] }))
     }
-    lines.push(line(start + waves * (hours + 1) * HOUR, { kind: 'run-stopped', reason: 'no-ready-wave' }))
+    lines.push(line(start + waves * (minutes + 60) * 60_000, { kind: 'run-stopped', reason: 'no-ready-wave' }))
     writeFileSync(join(dir, `${run}.jsonl`), lines.join('\n') + '\n')
   }
 
@@ -1105,7 +1117,7 @@ describe('the Run mode at the boundary of a Wave (worfy-resource-planner ticket 
   })
 
   it('5 past Waves of 2 hours, now 06:00: start-window wave-too-long until 23:00, with the p90', async () => {
-    pastWaves(5, 2)
+    pastWaves(5, 120)
     const h = await started('start-window', oct5(6))
     await until(() => h.state().status === 'waiting', 'the wait for the next window')
     const opens = oct5(23)
@@ -1120,7 +1132,7 @@ describe('the Run mode at the boundary of a Wave (worfy-resource-planner ticket 
   })
 
   it('4 past Waves of 2 hours, now 06:00: too few samples, the Wave goes, and its state says so while it runs; with the fifth sample the next Wave is checked', async () => {
-    pastWaves(4, 2)
+    pastWaves(4, 120)
     const h = await started('start-window', oct5(6))
     await until(() => h.state().status === 'waiting', 'the wait before Wave 2')
     expect(h.messages()).toEqual([WAVE_1])
@@ -1292,6 +1304,126 @@ describe('the Run mode at the boundary of a Wave (worfy-resource-planner ticket 
     expect(h.messages()).toEqual([])
     expect(await h.kinds()).toEqual(['run-started', 'start-window', 'waiting-until', 'resumed', 'run-stopped'])
     expect((await h.journal()).at(-1)).toMatchObject({ reason: 'user-stop' })
+  })
+
+  // Round 1 of the review of PR 1215.
+
+  it('p90 of the Waves longer than the whole window: started at 14:00 with the window 03:00–04:00 and a p90 of 1 h 10 min, the run stops at once with window-too-short', async () => {
+    const SHORT: StartWindow = { from: 3, to: 4 }
+    // 5 past Waves of 70 minutes: the p90 is 1 h 10 min.
+    pastWaves(5, 70)
+    clock = oct5(14)
+    const h = harness({ lines: twoPassingWaves(), budget: { enabled: false, reserve: 0.15 }, runSettings: () => ({ mode: 'start-window', window: SHORT }) })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    const text = windowNeverFitsText(SHORT, 1, 70 * 60_000)
+    expect(text).toBe('Wave 1 usually takes up to 1 h 10 min, longer than the Start window 03:00–04:00: widen the window or start the Run in another mode.')
+    expect(h.state()).toMatchObject({ status: 'stopped', reason: 'window-too-short', message: text, resumesAt: null })
+    expect(autopilotStatusLine(h.state())).toBe('stopped: window too short')
+    expect(autopilotStateSchema.parse(h.state())).toEqual(h.state())
+    expect(h.messages()).toEqual([])
+    expect(await h.kinds()).toEqual(['run-started', 'run-stopped'])
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'window-too-short' })
+    expect(h.timers).toEqual([])
+    expect(h.power).toEqual(['start', 'stop'])
+  })
+
+  it('p90 exactly as long as the window: no stop, the run waits for the window to open', async () => {
+    const SHORT: StartWindow = { from: 3, to: 4 }
+    pastWaves(5, 60)
+    clock = oct5(14)
+    const h = harness({ lines: twoPassingWaves(), budget: { enabled: false, reserve: 0.15 }, runSettings: () => ({ mode: 'start-window', window: SHORT }) })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the wait for the window')
+    expect(h.state()).toMatchObject({ waitingFor: 'start-window', windowReason: 'outside', resumesAt: Date.UTC(2026, 9, 6, 3, 0) })
+  })
+
+  it('a Stop or a Force stop during the wait for the window, before any Wave: the Tickets of the last Force stop stay resumable for the next run', async () => {
+    // Run A: its Wave takes 01 and 02 and is interrupted by Force stop during the wait for the Limits.
+    clock = START_MS
+    const h = harness({ window: NIGHT })
+    const waves = vi.spyOn(h.launcher, 'autopilotWave')
+    h.setMarks('claimed')
+    await h.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
+    await until(() => h.state().status === 'waiting', 'the wait for the Limits')
+    expect(await h.autopilot.forceStop(PROJECT)).toMatchObject({ reason: 'user-force-stop', resumable: [1, 2] })
+    // Run B in Start window at 20:00: it waits, and a Stop ends it before any Wave.
+    clock = oct5(20)
+    await h.autopilot.start(PROJECT, EPIC, { mode: 'start-window' })
+    await until(() => h.state().status === 'waiting' && h.state().waitingFor === 'start-window', 'run B to wait for the window')
+    expect(await h.autopilot.stop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop', resumable: [1, 2] })
+    // Run C, the same, ended by Force stop.
+    await h.autopilot.start(PROJECT, EPIC, { mode: 'start-window' })
+    await until(() => h.state().status === 'waiting' && h.state().waitingFor === 'start-window', 'run C to wait for the window')
+    expect(await h.autopilot.forceStop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop', resumable: [1, 2] })
+    // Run D goes at once and takes them along.
+    h.setMarks('done')
+    await h.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
+    await until(() => waves.mock.calls.length === 2, 'the first Wave of run D')
+    expect(waves.mock.calls.map((call) => call[2])).toEqual([[], [1, 2]])
+    await h.autopilot.forceStop(PROJECT)
+  })
+
+  it('Settings changed between Wave 1 and Wave 2: the mode stays the run\'s, the new window counts from Wave 2', async () => {
+    let settings: AutopilotRunSettings = { mode: 'start-window', window: NIGHT }
+    clock = START_MS
+    const h = harness({ lines: twoPassingWaves(), runSettings: () => settings })
+    // While Wave 1 runs the person picks Fastest and the window 09:00–17:00.
+    h.registry.observe((_sessionId, event) => {
+      if (event.type === 'prompt' && event.text === WAVE_1) settings = { mode: 'fastest', window: { from: 9, to: 17 } }
+    })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the wait before Wave 2')
+    expect(h.messages()).toEqual([WAVE_1])
+    expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', mode: 'start-window' })
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'wave-finished', 'start-window', 'waiting-until'])
+    expect(h.state()).toMatchObject({ waitingFor: 'start-window', windowReason: 'outside', resumesAt: oct5(9) })
+  })
+
+  it('Force stop during a Wave that went without the check of its duration: the stopped state has no message', async () => {
+    // 06:10, inside the window, no past Waves: Wave 1 goes unchecked; its turn is refused by the Limits.
+    clock = START_MS
+    const h = harness({ window: NIGHT })
+    await h.autopilot.start(PROJECT, EPIC, { mode: 'start-window' })
+    await until(() => h.state().status === 'waiting', 'the wait for the Limits')
+    expect(h.state()).toMatchObject({ waitingFor: 'limits', wave: 1, message: unknownDurationText(1) })
+    const stopped = await h.autopilot.forceStop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop', message: null })
+    expect(h.state().message).toBeNull()
+  })
+
+  it('a Limits wait begun while the Wave settles does not live on into the wait for the window: the refused turn puts the cycle back in `turn`, the files do not end the Wave, and the continuation goes before the boundary', async () => {
+    const { refused, passing } = fixtureTurns()
+    // Wave 1 goes through; a person's turn while its Tickets are still in work is refused by the Limits.
+    clock = START_MS
+    const h = harness({ lines: [...passing, ...refused, ...passing], window: NIGHT })
+    h.setMarks('claimed')
+    await h.autopilot.start(PROJECT, EPIC, { mode: 'start-window' })
+    await until(() => h.messages().length === 1, 'Wave 1')
+    const session = h.registry.get(orchestratorSession(h.registry))
+    await until(() => session.state === 'idle', 'the turn of Wave 1 to end')
+    session.send('how is it going?')
+    await until(() => h.state().status === 'waiting' && h.state().waitingFor === 'limits', 'the wait for the Limits while the Wave settles')
+    const limitsTimer = h.live()[0]!
+    // The Tickets are done at 08:00, after the window. The Wave does not end by the files while the Limits wait goes on.
+    clock = oct5(8)
+    for (const num of [1, 2]) writeTicket(num, 'done — 2026-10-06')
+    for (const watcher of h.watchers) watcher()
+    await until(async () => (await h.kinds()).filter((kind) => kind === 'ticket-status').length === 2, 'the files read')
+    await tick(100)
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'ticket-status', 'ticket-status'])
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'limits', wave: 1 })
+    expect(h.live()).toEqual([limitsTimer])
+    // At the reset the continuation goes; its turn ends the Wave, and only then the boundary waits for the window.
+    clock = limitsTimer.at
+    limitsTimer.fire()
+    await until(async () => (await h.kinds()).includes('start-window'), 'the wait for the window')
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'ticket-status', 'ticket-status', 'resumed', 'wave-finished', 'start-window', 'waiting-until'])
+    expect(h.messages()).toHaveLength(3)
+    expect(h.messages()[2]!.startsWith(CONTINUE_TEXT)).toBe(true)
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'start-window', windowReason: 'outside' })
+    expect(h.live()).toHaveLength(1)
+    expect(h.live()[0]!.at).toBe(oct5(23))
   })
 
   it('a start that names no mode goes in the default of Settings, read at the start', async () => {

@@ -138,7 +138,7 @@ import { budgetDecision, budgetStopText, type AutopilotBudget, type BudgetCause,
 import type { JournalEvent } from '../../shared/autopilot/journal'
 import { waveEstimate } from '../../shared/autopilot/limits-estimate'
 import { toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
-import { DEFAULT_START_WINDOW, unknownDurationText, windowDecision, windowWaitText, type RunMode, type WindowWait, type WindowWaitReason } from '../../shared/autopilot/run-mode'
+import { DEFAULT_START_WINDOW, unknownDurationText, windowDecision, windowNeverFitsText, windowWaitText, type RunMode, type WindowWait, type WindowWaitReason } from '../../shared/autopilot/run-mode'
 import { waveDurationP90 } from '../../shared/autopilot/wave-duration'
 import {
   BACKGROUND_STALL_MS,
@@ -397,6 +397,7 @@ type Boundary =
   | { kind: 'go'; unknownDuration: boolean }
   | { kind: 'budget'; decision: Extract<BudgetDecision, { kind: 'stop' }> }
   | { kind: 'window'; reason: WindowWaitReason; until: number; window: AutopilotRunSettings['window']; p90: number | null }
+  | { kind: 'never'; window: AutopilotRunSettings['window']; p90: number }
 
 /**
  * Why a start of `epic` (over `tickets`, when named) is refused by the workflow model: the Project
@@ -499,12 +500,15 @@ function statusChanges(run: Run, tickets: WorkflowModel['tickets']): JournalEven
 
 /**
  * What a stopped run leaves resumable (AutopilotState.resumable): after a Force stop the Tickets of
- * the Wave it interrupted, and in a run over named Tickets those of the last Force stop it did not
- * take; in number order.
+ * the Wave it interrupted, in a run over named Tickets those of the last Force stop it did not take,
+ * and in a run that sent no Wave the Tickets it was given; in number order.
  */
 function resumableOf(run: Run): number[] {
+  // A run that sent no Wave took none of the Tickets it was given: they stay resumable, whatever
+  // ended it (a Stop during the wait for the Start window, worfy-resource-planner ticket 05).
+  const given = run.cycle.wave === 0 ? run.given : []
   const interrupted = run.cycle.reason === 'user-force-stop' ? run.interrupted : []
-  return [...new Set([...interrupted, ...run.carried])].sort((a, b) => a - b)
+  return [...new Set([...given, ...interrupted, ...run.carried])].sort((a, b) => a - b)
 }
 
 /** One run of one Project. */
@@ -544,6 +548,8 @@ class Run {
   lastText: string | null = null
   /** The Tickets of an interrupted Wave the next "Run wave" takes along; emptied once it is sent. */
   resume: readonly number[] = []
+  /** The Tickets the run was given at its start to take along (`resume` before any Wave): resumable again if no Wave goes. */
+  given: readonly number[] = []
   /** Set at the click on Stop (Autopilot.stop, through requestStop), before its step runs: no new Wave goes from then on. */
   stopRequested = false
   /** Settles when `stopRequested` is set. */
@@ -794,6 +800,7 @@ export class Autopilot {
       // A run over named Tickets takes only those of its list, and keeps the rest resumable (ADR-0091).
       const last = this.last.get(projectId)
       run.resume = last?.epic === epic ? [...last.resumable] : []
+      run.given = run.resume
       const named = options.tickets
       if (named !== undefined) run.carried = run.resume.filter((num) => !named.includes(num))
       // The first read of the statuses: a status from before the run is not a change of it.
@@ -1252,6 +1259,12 @@ export class Autopilot {
     // A Force stop or the app's quit came meanwhile, without a Stop: its stop step waits behind this
     // one and stops the run with its own reason; the Wave does not go.
     if (run.rushed) return
+    if (boundary?.kind === 'never') {
+      // No night of this window fits the Wave: the run stops rather than waiting every night (ticket 05).
+      run.message = windowNeverFitsText(boundary.window, run.cycle.wave + 1, boundary.p90)
+      await this.feed(run, { type: 'stop', reason: 'window-too-short' })
+      return
+    }
     if (boundary?.kind === 'window') {
       await this.windowWait(run, boundary)
       return
@@ -1382,6 +1395,7 @@ export class Autopilot {
       const window = this.deps.runSettings?.().window ?? DEFAULT_START_WINDOW
       const { p90 } = waveDurationP90(runs ?? [])
       const decision = windowDecision({ window, now: this.now(), p90 })
+      if (decision.kind === 'never') return { kind: 'never', window, p90: decision.p90 }
       if (decision.kind === 'wait') return { kind: 'window', reason: decision.reason, until: decision.until, window, p90 }
       unknownDuration = decision.unknownDuration
     }
@@ -1464,7 +1478,9 @@ export class Autopilot {
 
   /** The wait `id` before a Wave is over: `resumed`, and the step that sends the Wave again. A wait cancelled or replaced since resumes nothing. */
   private async boundaryResume(run: Run, id: number): Promise<void> {
-    if (run.boundary === null || run.boundary.id !== id || run.cycle.phase !== 'sending') return
+    // Every way out of phase `sending` is a stop, and every stop cancels the wait (stopTimers) in the
+    // step that ends the run, ahead of this one: a wait still current is one in `sending`.
+    if (run.boundary === null || run.boundary.id !== id) return
     this.cancelBoundary(run)
     await this.write(run, { kind: 'resumed' })
     this.publish(run.projectId)

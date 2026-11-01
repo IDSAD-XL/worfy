@@ -430,8 +430,11 @@ describe('from-journal: the frame of the Run', () => {
       'workflow-error': 'failed',
       'limits-timeout': 'failed',
       'background-stalled': 'failed',
+      'window-too-short': 'failed',
     })
     expect(read(started(), stopped('10:01', 'tickets-done')).run.outcome).toBe('ok')
+    // The Start window too short for any Wave (worfy-resource-planner ticket 05): the Run did not do its work.
+    expect(read(started(), stopped('10:01', 'window-too-short')).run.outcome).toBe('failed')
     // A reason the format does not know stays the reason; the outcome is the model's default.
     const unknown = read(started(), stopped('10:01', 'something-new')).run
     expect(unknown).toMatchObject({ reason: 'something-new' })

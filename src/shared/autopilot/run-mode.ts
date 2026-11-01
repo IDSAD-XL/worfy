@@ -15,7 +15,10 @@
 // start; inside, a Wave whose p90 of duration (wave-duration.ts) would end after the window's end
 // waits too; without enough samples the Wave goes unchecked. A Wave that started inside the window
 // is never stopped at its end. The Run asks again after every wait, so an edge the clocks skipped
-// (a wake-up that lands outside the window) only makes it wait once more.
+// (a wake-up that lands outside the window) only makes it wait once more. A Wave whose p90 is longer
+// than the whole window never fits in it: the Run stops instead of waiting every night
+// (`window-too-short`, windowNeverFitsText).
+import { duration } from './limits-estimate'
 
 /** The modes of a Run, in the order Settings and the start dialog offer them. */
 export const RUN_MODES = ['fastest', 'budget-aware', 'start-window'] as const
@@ -93,33 +96,33 @@ export interface WindowInput {
   p90: number | null
 }
 
+/** How long the window is by its hours, from `from` to `to`, across midnight too: 23:00–07:00 is 8 hours. */
+export function windowLength(window: StartWindow): number {
+  return (((window.to - window.from) % 24) + 24) % 24 * 3_600_000
+}
+
 /**
  * Whether the Start window lets the next Wave go at `now`. `go` with `unknownDuration` when it goes
- * without the check of its duration (no p90); `wait` until the next start of the window otherwise.
- * A Wave whose p90 ends exactly at the window's end still goes.
+ * without the check of its duration (no p90); `never` when the p90 is longer than the whole window
+ * (windowLength), wherever `now` is: no night would let it start; `wait` until the next start of the
+ * window otherwise. A Wave whose p90 ends exactly at the window's end, or is exactly as long as the
+ * window, still goes (or waits for the window's start).
+ *
+ * shortcut: the length is the window's hours, not the night's: on the night the clocks go back a
+ * window is an hour longer, and a Wave that would fit only then still stops the Run; redo if a Run
+ * should wait for such a night.
  */
-export type WindowDecision = { kind: 'go'; unknownDuration: boolean } | { kind: 'wait'; reason: WindowWaitReason; until: number }
+export type WindowDecision =
+  | { kind: 'go'; unknownDuration: boolean }
+  | { kind: 'wait'; reason: WindowWaitReason; until: number }
+  | { kind: 'never'; p90: number }
 
 export function windowDecision({ window, now, p90 }: WindowInput): WindowDecision {
+  if (p90 !== null && p90 > windowLength(window)) return { kind: 'never', p90 }
   if (!inWindow(now, window)) return { kind: 'wait', reason: 'outside', until: nextWindowStart(now, window) }
   if (p90 === null) return { kind: 'go', unknownDuration: true }
   if (now + p90 > windowEnd(now, window)) return { kind: 'wait', reason: 'wave-too-long', until: nextWindowStart(now, window) }
   return { kind: 'go', unknownDuration: false }
-}
-
-/**
- * `2 d 5 h` from a day on, `3 h 10 min` under it, `25 min` under an hour.
- *
- * shortcut: a copy of duration() of limits-estimate.ts, which worfy-resource-planner ticket 03 changes
- * while this one is written; redo once both are merged: export that one and use it here.
- */
-function durationText(ms: number): string {
-  const minutes = Math.floor(ms / 60_000)
-  const days = Math.floor(minutes / 1440)
-  const hours = Math.floor((minutes % 1440) / 60)
-  if (days > 0) return `${days} d ${hours} h`
-  if (hours > 0) return `${hours} h ${minutes % 60} min`
-  return `${minutes} min`
 }
 
 export interface WindowTextOptions {
@@ -139,8 +142,16 @@ export function windowWaitText(wait: WindowWait, options: WindowTextOptions = {}
   const why =
     wait.reason === 'outside'
       ? `Outside the start window ${hourText(wait.window.from)}–${hourText(wait.window.to)}`
-      : `Wave ${wait.wave} usually takes up to ${durationText(wait.p90)} and would end after ${hourText(wait.window.to)}`
+      : `Wave ${wait.wave} usually takes up to ${duration(wait.p90)} and would end after ${hourText(wait.window.to)}`
   return `${why}: Autopilot continues at ${time}`
+}
+
+/**
+ * Why the Run stopped with `window-too-short`: `Wave 2 usually takes up to 1 h 10 min, longer than the
+ * Start window 03:00–04:00: widen the window or start the Run in another mode.`
+ */
+export function windowNeverFitsText(window: StartWindow, wave: number, p90: number): string {
+  return `Wave ${wave} usually takes up to ${duration(p90)}, longer than the Start window ${hourText(window.from)}–${hourText(window.to)}: widen the window or start the Run in another mode.`
 }
 
 /** What the Autopilot status says while Wave `wave` runs: it went without the check of its duration. */

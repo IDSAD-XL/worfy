@@ -54,6 +54,7 @@ export const AUTOPILOT_STOP_REASONS = [
   'workflow-error',
   'limits-timeout',
   'background-stalled',
+  'window-too-short',
   'user-stop',
   'user-force-stop',
   'app-quit',
@@ -136,10 +137,11 @@ export type CycleEvent =
   | { type: 'graceful-stop'; tickets: readonly CycleTicket[] }
   /**
    * The user chose Force stop, the app quits, the wait for the Limits would pass its limit
-   * (src/shared/autopilot/resume-at.ts, MAX_WAIT_MS), or the run ends a graceful Stop itself
+   * (src/shared/autopilot/resume-at.ts, MAX_WAIT_MS), the next Wave never fits the Start window
+   * (`window-too-short`, worfy-resource-planner ticket 05), or the run ends a graceful Stop itself
    * (`user-stop`: its Wave still waited in the Session's queue).
    */
-  | { type: 'stop'; reason: 'user-stop' | 'user-force-stop' | 'app-quit' | 'limits-timeout' }
+  | { type: 'stop'; reason: 'user-stop' | 'user-force-stop' | 'app-quit' | 'limits-timeout' | 'window-too-short' }
 
 export type CycleEffect =
   /** Send "Run wave" to the Orchestrator; answer with `wave-sent` or `send-failed`. */

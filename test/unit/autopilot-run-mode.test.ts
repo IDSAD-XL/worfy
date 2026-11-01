@@ -13,6 +13,8 @@ import {
   unknownDurationText,
   windowDecision,
   windowEnd,
+  windowLength,
+  windowNeverFitsText,
   windowWaitText,
   type StartWindow,
 } from '../../src/shared/autopilot/run-mode'
@@ -214,6 +216,17 @@ describe('windowDecision: whether the Start window lets the next Wave go (worfy-
     expect(windowDecision({ window: NIGHT, now: at(2026, 11, 1, 23, 0), p90: 8 * HOUR })).toEqual({ kind: 'go', unknownDuration: false })
     // Inside a day window after its start: the next start is the next day's.
     expect(windowDecision({ window: DAY, now: at(2026, 11, 2, 16, 0), p90: 2 * HOUR })).toEqual({ kind: 'wait', reason: 'wave-too-long', until: at(2026, 11, 3, 9, 0) })
+  })
+
+  it('a p90 longer than the whole window: `never`, inside the window or outside it; exactly as long: no `never`', () => {
+    const SHORT: StartWindow = { from: 3, to: 4 }
+    expect([NIGHT, DAY, SHORT, { from: 4, to: 3 }].map(windowLength)).toEqual([8 * HOUR, 8 * HOUR, HOUR, 23 * HOUR])
+    expect(windowDecision({ window: SHORT, now: at(2026, 11, 2, 14, 0), p90: 70 * 60_000 })).toEqual({ kind: 'never', p90: 70 * 60_000 })
+    expect(windowDecision({ window: SHORT, now: at(2026, 11, 2, 3, 0), p90: HOUR + 1 })).toEqual({ kind: 'never', p90: HOUR + 1 })
+    expect(windowDecision({ window: SHORT, now: at(2026, 11, 2, 14, 0), p90: HOUR })).toEqual({ kind: 'wait', reason: 'outside', until: at(2026, 11, 3, 3, 0) })
+    expect(windowDecision({ window: SHORT, now: at(2026, 11, 2, 3, 0), p90: HOUR })).toEqual({ kind: 'go', unknownDuration: false })
+    expect(windowDecision({ window: NIGHT, now: at(2026, 11, 2, 1, 0), p90: 8 * HOUR + 1 })).toMatchObject({ kind: 'never' })
+    expect(windowNeverFitsText(SHORT, 2, 70 * 60_000)).toBe('Wave 2 usually takes up to 1 h 10 min, longer than the Start window 03:00–04:00: widen the window or start the Run in another mode.')
   })
 
   it('inside with no p90 (fewer samples than the minimum): goes, marked as unchecked', () => {

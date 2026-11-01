@@ -129,8 +129,11 @@ Source: [spec.md](../spec.md), «Решения» (Q2, Q3, Q11–Q13, Q15), «Р
 
 Решено без владельца, подтвердить:
 - Поле состояния `windowReason` рядом с `waitingFor: 'start-window'`.
-- Если p90 длительности длиннее всего окна, Start window ждёт каждую ночь и Wave не начнётся никогда (Run жив,
-  keep-awake держится); spec этого случая не называет, предела нет.
+- Если p90 длительности Wave длиннее всего окна (по его часам, `windowLength`), Run сразу останавливается с причиной
+  `window-too-short` (решение Orchestrator-а в раунде 1 ревью PR 1215 вместо ожидания каждую ночь). `message`:
+  `Wave N usually takes up to 1 h 10 min, longer than the Start window 03:00–04:00: widen the window or start the Run
+  in another mode.`; keep-awake отпускается; во Flight Recorder исход `failed`. Длина окна берётся по часам, а не по
+  ночи: в ночь перевода назад окно на час длиннее, но Run всё равно остановится.
 
 Mutant-ы (каждый — красный test, скрипт в scratchpad):
 - Fastest проверяет budget — красный «Fastest with the budget on…».
@@ -143,4 +146,26 @@ Mutant-ы (каждый — красный test, скрипт в scratchpad):
 - `>=` вместо `>` на конце окна — 3 красных unit.
 - Wave без проверки длительности молчит — красный «4 past Waves…».
 
-Оценка токенов автора: около 450 тысяч.
+Раунд 1 ревью (PR 1215):
+- Rebase на `43d98801` (RP 03): копия `duration` из `run-mode.ts` убрана, импорт из `limits-estimate.ts`.
+- p90 длиннее окна — стоп `window-too-short` (см. выше): вердикт `never` в `windowDecision` (проверяется до «вне окна»),
+  причина в `AUTOPILOT_STOP_REASONS`, событие `stop` цикла, `STOP_OUTCOMES` Flight Recorder-а, таблица причин в
+  `docs/features/autopilot.md`.
+- `resumable`: Run, который не отправил ни одной Wave, оставляет Ticket-ы, полученные на старте (`run.given`),
+  при любой причине конца — Stop или Force stop во время ожидания окна их больше не теряет.
+- Проверка `phase !== 'sending'` в `boundaryResume` убрана: из `sending` выходят только остановкой, а любая остановка
+  отменяет ожидание (`stopTimers`) в шаге, который стоит в очереди Run раньше шага таймера; закрепить эту проверку test-ом
+  нельзя — до неё не дойти.
+- Пункт 7 (ожидание Limits, начатое в `settling`, доживает до `sending`) не воспроизводится: ход человека сначала
+  ставит в очередь `busy` (фаза `turn`), потом его отказ; в `turn` событие файлов Wave не заканчивает, а из `turn` выходят
+  только проходящий ход (сначала `passed()` снимает ожидание Limits) или остановка (`stopTimers`). Contract test
+  держит это: файлы готовы — Wave не кончается, продолжение уходит по таймеру Limits, и только после его хода —
+  `wave-finished` и ожидание окна.
+- Новые test-ы: смена Settings между Wave (режим остаётся, окно — со следующей Wave), Force stop во время Wave без
+  данных о длительности (`message` пуст), `autopilot.start` с `mode` по IPC, `until` строк `start-window` и
+  `waiting-until` в e2e.
+- Mutant-ы раунда, каждый красный: нет вердикта `never` (2); `never` при равной длине (3); стоп без `message` (1);
+  `given` не учитывается (1); режим перечитывается перед каждой Wave (17); окно читается один раз (1); `message` остаётся
+  после конца (1); IPC не передаёт `mode` (1); файлы заканчивают Wave в фазе `turn` (1).
+
+Оценка токенов автора: около 450 тысяч, раунд 1 — ещё около 250 тысяч.
