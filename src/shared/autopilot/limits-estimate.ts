@@ -122,7 +122,7 @@ export interface EstimateLineInput {
 }
 
 /** `2 d 5 h` from a day on, `3 h 10 min` under it, `25 min` under an hour. */
-function duration(ms: number): string {
+export function duration(ms: number): string {
   const minutes = Math.floor(ms / 60_000)
   const days = Math.floor(minutes / 1440)
   const hours = Math.floor((minutes % 1440) / 60)
@@ -142,9 +142,17 @@ export function waveEstimateLine({ estimate, tickets, sevenDay, now }: EstimateL
     const percent = Math.round(estimate.perTicket * Math.max(tickets, 1) * 100)
     head = `A Wave like this usually takes ${percent < 1 ? 'less than 1%' : `about ${percent}%`} of the week`
   }
-  if (sevenDay === null || sevenDay.utilization === null) return `${head}. Used now: unknown`
+  return `${head}. ${usedNowText(sevenDay, now)}`
+}
+
+/**
+ * The tail of the hint lines: "Used now: 41%, resets in 2 d 5 h", "Used now: 40%" without a reset
+ * time, "Used now: unknown" without a number. The Epic forecast line ends with it too (forecast-lines.ts).
+ */
+export function usedNowText(sevenDay: WeekNow | null, now: number): string {
+  if (sevenDay === null || sevenDay.utilization === null) return 'Used now: unknown'
   const used = `Used now: ${Math.round(sevenDay.utilization * 100)}%`
-  if (sevenDay.resetsAt === null) return `${head}. ${used}`
+  if (sevenDay.resetsAt === null) return used
   const left = sevenDay.resetsAt * 1000 - now
-  return `${head}. ${used}, ${left <= 0 ? 'resets now' : `resets in ${duration(left)}`}`
+  return `${used}, ${left <= 0 ? 'resets now' : `resets in ${duration(left)}`}`
 }
