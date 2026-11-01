@@ -123,6 +123,13 @@
 //   right before `run-stopped` (endRead, not on a Force stop or a quit); the read at the start is
 //   the first, so a status from before the run writes nothing. `wave-started` names the SDK session the Wave went
 //   to, and the end of the gate queue's turn is `gate-queue-finished`, before `run-stopped`.
+// - The Epic forecast and the actual share (worfy-resource-planner ticket 07, ADR-0093): right after
+//   `run-started` and `harness-behind` the run journals `forecast`, reckoned from the start's read
+//   of the workflow, the journals of the Project's recent runs (deps.budget.runs; journals that
+//   cannot be read give no samples, and the run goes on), the Limits and Settings. Each Wave's
+//   `wave-started` and `wave-finished` are kept as written; `run-stopped` carries `actual`, the
+//   growth of the 7-day share over the run's Waves by the rule of the samples (waveGrowth), once any
+//   Wave has finished, on a Force stop and a quit too.
 //
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
 import { realpath } from 'node:fs/promises'
@@ -134,9 +141,11 @@ import { messageText } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import { clipLastText, journalLimits, journalReason, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
-import { budgetDecision, budgetStopText, type AutopilotBudget, type BudgetCause, type BudgetDecision } from '../../shared/autopilot/budget'
+import { BUDGET_FRESH_MS, budgetDecision, budgetStopText, type AutopilotBudget, type BudgetCause, type BudgetDecision } from '../../shared/autopilot/budget'
+import { epicForecast, remainingWaves } from '../../shared/autopilot/forecast'
+import { fitBeforeReset } from '../../shared/autopilot/forecast-lines'
 import type { JournalEvent } from '../../shared/autopilot/journal'
-import { waveEstimate } from '../../shared/autopilot/limits-estimate'
+import { waveEstimate, waveGrowth, waveSamples, type WaveLine } from '../../shared/autopilot/limits-estimate'
 import { toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
 import { DEFAULT_START_WINDOW, unknownDurationText, windowDecision, windowNeverFitsText, windowWaitText, type RunMode, type WindowWait, type WindowWaitReason } from '../../shared/autopilot/run-mode'
 import { waveDurationP90 } from '../../shared/autopilot/wave-duration'
@@ -355,6 +364,9 @@ export const END_READ_MS = 1000
 const journalTasks = (tasks: readonly BackgroundTask[]) => tasks.map((task) => ({ id: task.taskId, type: task.taskType, description: task.description }))
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+/** A share of the week rounded to millionths: the journal keeps 0.1, not the 0.09999999999999998 of a sum. */
+const millionths = (share: number): number => Math.round(share * 1_000_000) / 1_000_000
 
 /**
  * The journal line of a dialog the run's Session refused: which request, the Subagent that asked
@@ -599,6 +611,14 @@ class Run {
   mode: RunMode = 'fastest'
   /** The words of `message` while a Wave goes without the check of its duration; null otherwise. */
   durationNote: string | null = null
+  /** The `wave-started` of the Wave in work as the run wrote it, its `at` by the run's clock; null otherwise. */
+  waveStart: WaveLine | null = null
+  /**
+   * What the run's finished Waves took of the week (worfy-resource-planner ticket 07): the sum of
+   * their growths that count by the rule of the samples, the Waves finished, and how many counted;
+   * `run-stopped.actual` once `waves` is above 0.
+   */
+  readonly actual = { share: 0, waves: 0, counted: 0 }
   /** Set once a Force stop or the app's quit has come: the end does not wait for gh any more. */
   rushed = false
   /** Settles when `rushed` is set. */
@@ -821,6 +841,7 @@ export class Autopilot {
           mode: run.mode,
         })
         await this.journalHarness(run)
+        await this.journalForecast(run, model.tickets)
         run.awake = this.deps.keepAwake()
         run.awake.start()
         this.subscribe(run)
@@ -1144,10 +1165,12 @@ export class Autopilot {
         case 'wave-started': {
           const sent = run.sent
           await this.journalHarness(run)
+          const tickets = effect.tickets.map(ticketNumber)
+          run.waveStart = this.waveLine(run, { kind: 'wave-started', wave: effect.wave, tickets, ...(run.sentLimits === undefined ? {} : { limits: run.sentLimits }) })
           await this.write(run, {
             kind: 'wave-started',
             wave: effect.wave,
-            tickets: effect.tickets.map(ticketNumber),
+            tickets,
             ...(sent === null ? {} : { text: sent.text, skipped: sent.skipped.map((each) => ({ num: ticketNumber(each.num), state: each.state })) }),
             ...(run.sentLimits === undefined ? {} : { limits: run.sentLimits }),
             ...(run.session === null ? {} : { session: run.session.sdkId ?? run.session.id }),
@@ -1161,7 +1184,9 @@ export class Autopilot {
           if (run.gateQueue !== null) break
           this.noteDuration(run, null)
           const limits = await this.freshLimits(run)
-          await this.write(run, { kind: effect.kind, wave: effect.wave, tickets: effect.tickets.map(ticketNumber), ...(limits === undefined ? {} : { limits }) })
+          const fields = { kind: effect.kind, wave: effect.wave, tickets: effect.tickets.map(ticketNumber), ...(limits === undefined ? {} : { limits }) }
+          this.countActual(run, this.waveLine(run, fields))
+          await this.write(run, fields)
           break
         }
         case 'stopping':
@@ -1504,6 +1529,68 @@ export class Autopilot {
   }
 
   /**
+   * The run's `forecast` line (worfy-resource-planner ticket 07), right after run-started and
+   * harness-behind: the Epic forecast from the start's read of the workflow (`tickets`), the samples
+   * and durations of the Project's recent runs, the Limits and Settings. Written only with
+   * deps.budget, the source of those journals; journals that cannot be read give no samples. Never
+   * throws: the run goes on without the line.
+   */
+  private async journalForecast(run: Run, tickets: WorkflowModel['tickets']): Promise<void> {
+    const budget = this.deps.budget
+    if (budget === undefined) return
+    try {
+      let runs: readonly (readonly JournalEvent[])[] = []
+      try {
+        runs = await budget.runs(run.projectId)
+      } catch (error) {
+        console.warn(`[autopilot] ${run.projectId}: could not read the journals for the forecast; it goes without samples`, error)
+      }
+      const now = this.now()
+      const limits = this.deps.limits?.state() ?? { windows: {} }
+      const forecast = epicForecast({ samples: waveSamples(runs), waves: remainingWaves(tickets, run.epic, run.cycle.named) })
+      const duration = waveDurationP90(runs)
+      const settings = budget.settings()
+      // The budget acts in Budget-aware whatever its switch says, in Start window only with it on (boundaryCheck).
+      const reserve = run.mode === 'budget-aware' || (run.mode === 'start-window' && settings.enabled) ? settings.reserve : null
+      const week = limits.windows.seven_day
+      const fresh = week !== undefined && week.utilization !== null && now - week.receivedAt <= BUDGET_FRESH_MS
+      await this.write(run, {
+        kind: 'forecast',
+        mode: run.mode,
+        waves: forecast.waves,
+        tickets: forecast.tickets,
+        uncounted: forecast.uncounted,
+        samples: forecast.samples,
+        low: forecast.range === null ? null : millionths(forecast.range.low),
+        high: forecast.range === null ? null : millionths(forecast.range.high),
+        fit: fitBeforeReset({ forecast, limits, now, reserve }),
+        week: fresh ? { utilization: week.utilization!, resetsAt: week.resetsAt === null ? null : new Date(toMs(week.resetsAt)).toISOString() } : null,
+        durationP90Ms: duration.p90 === null ? null : Math.round(duration.p90),
+        durationSamples: duration.samples,
+        ...(run.mode === 'start-window' ? { window: { ...(this.deps.runSettings?.().window ?? DEFAULT_START_WINDOW) } } : {}),
+      })
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not reckon the forecast; the run goes on without it`, error)
+    }
+  }
+
+  /** A Wave's line as the journal gets it, with `at` by the run's clock (the Limits' in a test), for waveGrowth. */
+  private waveLine(run: Run, fields: Omit<WaveLine, 'at' | 'run' | 'project' | 'epic'>): WaveLine {
+    return { ...fields, at: new Date(this.now()).toISOString(), run: run.journal?.run ?? '', project: run.projectId, epic: run.epic } as WaveLine
+  }
+
+  /** A Wave has finished: it counts in `actual`, and its growth too when it gives one by the rule of the samples. */
+  private countActual(run: Run, finished: WaveLine): void {
+    const started = run.waveStart?.wave === finished.wave ? run.waveStart : null
+    run.waveStart = null
+    run.actual.waves += 1
+    const growth = started === null ? null : waveGrowth(started, finished)
+    if (growth === null) return
+    run.actual.counted += 1
+    run.actual.share += growth
+  }
+
+  /**
    * The Limits refused a turn of the Wave: the run waits until they reset (resume-at.ts) and then
    * sends the Orchestrator on, or stops with `limits-timeout` when the wait would be too long.
    */
@@ -1677,6 +1764,7 @@ export class Autopilot {
       ...(live.length > 0 ? { tasks: journalTasks(live) } : {}),
       ...(tickets === undefined ? {} : { tickets: tickets.map(ticketNumber) }),
       ...(lastText === null ? {} : { lastText }),
+      ...(run.actual.waves === 0 ? {} : { actual: { ...run.actual, share: millionths(run.actual.share) } }),
     })
     this.dropQueuedWave(run)
     if (reason === 'user-force-stop') {

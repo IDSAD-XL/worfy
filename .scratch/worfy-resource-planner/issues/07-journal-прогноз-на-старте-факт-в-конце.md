@@ -1,7 +1,7 @@
 # 07 — Journal: прогноз на старте Run, факт в конце
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T13:08Z
 Branch: worfy-resource-planner/07
 Blocked by: 01, 03, 05
 Source: [spec.md](../spec.md), «Решения» (Q10), «Journal» (`forecast`, `run-stopped.actual`), «Риски», п. 4, «Не решено» (выбрано без решения, п. 9); [ADR-0093](../../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md), п. 6

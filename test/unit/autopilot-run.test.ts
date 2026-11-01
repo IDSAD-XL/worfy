@@ -12,7 +12,9 @@ import { ASK_RUNS_TIMEOUT_MS, AutopilotRunsLink, type RunsLinkService } from '..
 import { MessageRegistry, type LinkMessage, type MessageHandler } from '../../src/main/link/messages'
 import type { BackgroundTask } from '../../src/shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../src/shared/agent/events'
-import { journalEventSchema, type JournalEventFields } from '../../src/shared/autopilot/journal'
+import type { LimitsState } from '../../src/shared/agent/limits'
+import { epicForecast } from '../../src/shared/autopilot/forecast'
+import { journalEventSchema, type JournalEvent, type JournalEventFields } from '../../src/shared/autopilot/journal'
 import type { AutopilotState, HarnessBehind } from '../../src/shared/ipc/autopilot'
 import type { PullRequest } from '../../src/shared/ipc/checks'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
@@ -2465,5 +2467,174 @@ describe('who started the run, its named Tickets and the Session each Wave went 
     await plain.autopilot.start(PROJECT, EPIC)
     await settle()
     expect(plain.journal[0]).toMatchObject({ kind: 'wave-started', wave: 1, session: SESSION })
+  })
+})
+
+describe('the Epic forecast at the start of the run and the actual share at its end (worfy-resource-planner ticket 07)', () => {
+  const MIN = 60_000
+  const HOUR = 60 * MIN
+  const DAY = 24 * HOUR
+  const NOW = Date.parse('2026-10-20T01:00:00.000Z')
+  const RESETS = NOW + 3 * DAY
+  const iso = (ms: number): string => new Date(ms).toISOString()
+  const COMMON = { run: '2026-10-19T00-00-00-000Z-abcdef', project: PROJECT, epic: EPIC }
+  const week = (utilization: number, at: number, resets = RESETS) => ({ five_hour: null, seven_day: { utilization, receivedAt: iso(at), resetsAt: iso(resets) } })
+  /** A past run: one Wave of one Ticket per growth, two hours apart, the n-th taking n × 10 minutes. */
+  function pastRun(growths: readonly number[]): JournalEvent[] {
+    return growths.flatMap((growth, index) => {
+      const start = NOW - (growths.length - index) * 2 * HOUR
+      const end = start + (index + 1) * 10 * MIN
+      return [
+        { ...COMMON, at: iso(start), kind: 'wave-started' as const, wave: index + 1, tickets: ['01'], limits: week(0.1, start) },
+        { ...COMMON, at: iso(end), kind: 'wave-finished' as const, wave: index + 1, tickets: ['01'], limits: week(0.1 + growth, end) },
+      ]
+    })
+  }
+  const FIVE = [0.01, 0.02, 0.03, 0.04, 0.05]
+
+  /** A stand-in with the Limits (`limits.value`, read at each call) and the journals of past runs (`past`, null: they cannot be read). */
+  function forecasting(past: readonly (readonly JournalEvent[])[] | null, budget = { enabled: false, reserve: 0.15 }, overrides: Partial<AutopilotDeps> = {}) {
+    const limits = { value: { windows: { seven_day: { utilization: 0.4, receivedAt: NOW, resetsAt: RESETS / 1000 } } } as LimitsState }
+    const s = standIn({
+      limits: { state: () => limits.value, observeSession: () => () => undefined, send: () => undefined, now: () => NOW, schedule: () => () => undefined },
+      budget: { settings: () => budget, runs: () => (past === null ? Promise.reject(new Error('the journals are gone')) : Promise.resolve(past)) },
+      ...overrides,
+    })
+    return { s, limits }
+  }
+  const forecastOf = (s: StandIn) => s.journal.find((line) => line.kind === 'forecast')
+  const stoppedOf = (s: StandIn) => s.journal.find((line) => line.kind === 'run-stopped')
+  const valid = (s: StandIn) => {
+    for (const line of s.journal) expect(journalEventSchema.safeParse({ ...line, ...COMMON, at: iso(NOW) }).error?.issues ?? []).toEqual([])
+  }
+
+  it('the order: run-started, forecast, wave-started', async () => {
+    const { s } = forecasting([pastRun(FIVE)])
+    await s.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
+    await settle()
+    expect(kinds(s).map(([kind]) => kind)).toEqual(['forecast', 'wave-started'])
+    valid(s)
+  })
+
+  it('with the Harness behind: run-started, harness-behind, forecast, wave-started', async () => {
+    const { s } = forecasting([pastRun(FIVE)], undefined, { harnessDrift: () => Promise.resolve({ harness: '0.1.0+abcdef1', main: 'origin/main', commits: 1 }) })
+    await s.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
+    await settle()
+    expect(kinds(s).map(([kind]) => kind)).toEqual(['harness-behind', 'forecast', 'wave-started'])
+  })
+
+  it("five samples: the range, K and the duration from the test's journals; the week at the start; no window outside Start window", async () => {
+    const { s } = forecasting([pastRun(FIVE)])
+    await s.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
+    await settle()
+    const expected = epicForecast({ samples: FIVE, waves: { waves: [2, 1], uncounted: [] } })
+    const line = forecastOf(s)
+    expect(line).toMatchObject({ kind: 'forecast', mode: 'fastest', waves: 2, tickets: 3, uncounted: 0, samples: 5, fit: 2, week: { utilization: 0.4, resetsAt: iso(RESETS) }, durationP90Ms: 50 * MIN, durationSamples: 5 })
+    expect(line).not.toHaveProperty('window')
+    expect(line && 'low' in line ? line.low : undefined).toBeCloseTo(expected.range!.low, 6)
+    expect(line && 'high' in line ? line.high : undefined).toBeCloseTo(expected.range!.high, 6)
+    valid(s)
+  })
+
+  it('four samples: no range and no K, the duration not known either; the counts stay', async () => {
+    const { s } = forecasting([pastRun(FIVE.slice(0, 4))])
+    await s.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
+    await settle()
+    expect(forecastOf(s)).toEqual({ kind: 'forecast', mode: 'fastest', waves: 2, tickets: 3, uncounted: 0, samples: 4, low: null, high: null, fit: null, week: { utilization: 0.4, resetsAt: iso(RESETS) }, durationP90Ms: null, durationSamples: 4 })
+  })
+
+  it('journals that cannot be read: samples 0, nothing drawn, and the run goes on', async () => {
+    const { s } = forecasting(null)
+    await s.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
+    await settle()
+    expect(forecastOf(s)).toMatchObject({ samples: 0, low: null, high: null, fit: null, durationP90Ms: null, durationSamples: 0, waves: 2, tickets: 3 })
+    expect(kinds(s).map(([kind]) => kind)).toEqual(['forecast', 'wave-started'])
+    expect(s.autopilot.state(PROJECT).status).toBe('running')
+  })
+
+  it('K by the mode: with the reserve when the budget acts in the Run, without it in Fastest; no fresh week, no K and no week', async () => {
+    const tight = { windows: { seven_day: { utilization: 0.8, receivedAt: NOW, resetsAt: RESETS / 1000 } } } as LimitsState
+    const aware = forecasting([pastRun(FIVE)], { enabled: false, reserve: 0.15 })
+    aware.limits.value = tight
+    await aware.s.autopilot.start(PROJECT, EPIC, { mode: 'budget-aware' })
+    await settle()
+    expect(forecastOf(aware.s)).toMatchObject({ mode: 'budget-aware', fit: 0 })
+    const fastest = forecasting([pastRun(FIVE)], { enabled: true, reserve: 0.15 })
+    fastest.limits.value = tight
+    await fastest.s.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
+    await settle()
+    expect(forecastOf(fastest.s)).toMatchObject({ mode: 'fastest', fit: 2 })
+    const stale = forecasting([pastRun(FIVE)])
+    stale.limits.value = { windows: { seven_day: { utilization: 0.4, receivedAt: NOW - 31 * MIN, resetsAt: RESETS / 1000 } } } as LimitsState
+    await stale.s.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
+    await settle()
+    expect(forecastOf(stale.s)).toMatchObject({ fit: null, week: null })
+  })
+
+  it('Start window: the window of Settings goes into the line', async () => {
+    const { s } = forecasting([pastRun(FIVE)], undefined, { runSettings: () => ({ mode: 'start-window', window: { from: 22, to: 6 } }) })
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(forecastOf(s)).toMatchObject({ mode: 'start-window', window: { from: 22, to: 6 } })
+    valid(s)
+  })
+
+  it('without the journals of past runs (no budget dep): no forecast line', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.journal.some((line) => line.kind === 'forecast')).toBe(false)
+  })
+
+  /** Starts a run whose Wave 1 starts at 0.40 of the week; answers how to end the current Wave at `utilization`. */
+  async function twoWaves() {
+    const { s, limits } = forecasting([pastRun(FIVE)])
+    await s.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
+    await settle()
+    const endWave = async (utilization: number, nums: number[], resets = RESETS) => {
+      limits.value = { windows: { seven_day: { utilization, receivedAt: NOW, resetsAt: resets / 1000 } } } as LimitsState
+      done(s, ...nums)
+      s.emit(result())
+      await settle()
+    }
+    return { s, endWave }
+  }
+
+  it('two Waves growing the week by 0.04 and 0.06: actual 0.10 over 2 Waves, both counted', async () => {
+    const { s, endWave } = await twoWaves()
+    await endWave(0.44, [1, 2])
+    await endWave(0.5, [3])
+    const stopped = stoppedOf(s)
+    expect(stopped).toMatchObject({ reason: 'no-ready-wave', actual: { waves: 2, counted: 2 } })
+    expect(stopped && 'actual' in stopped ? stopped.actual?.share : undefined).toBeCloseTo(0.1, 6)
+    valid(s)
+  })
+
+  it('a week that resets inside Wave 2: 2 Waves, 1 counted, the share of Wave 1 only', async () => {
+    const { s, endWave } = await twoWaves()
+    await endWave(0.44, [1, 2])
+    await endWave(0.02, [3], RESETS + 7 * DAY)
+    const stopped = stoppedOf(s)
+    expect(stopped).toMatchObject({ actual: { waves: 2, counted: 1 } })
+    expect(stopped && 'actual' in stopped ? stopped.actual?.share : undefined).toBeCloseTo(0.04, 6)
+  })
+
+  it('a run with no finished Wave: run-stopped has no actual', async () => {
+    const { s } = forecasting([pastRun(FIVE)])
+    await s.autopilot.start(PROJECT, EPIC, { mode: 'fastest' })
+    await settle()
+    await s.autopilot.forceStop(PROJECT)
+    expect(stoppedOf(s)).toBeDefined()
+    expect(stoppedOf(s)).not.toHaveProperty('actual')
+  })
+
+  it('a Force stop in Wave 2: actual of the Wave that finished', async () => {
+    const { s, endWave } = await twoWaves()
+    await endWave(0.44, [1, 2])
+    await s.autopilot.forceStop(PROJECT)
+    const stopped = stoppedOf(s)
+    expect(stopped).toMatchObject({ reason: 'user-force-stop', actual: { waves: 1, counted: 1 } })
+    expect(stopped && 'actual' in stopped ? stopped.actual?.share : undefined).toBeCloseTo(0.04, 6)
+    valid(s)
   })
 })

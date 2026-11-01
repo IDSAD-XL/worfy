@@ -55,6 +55,33 @@
 //                                    merged during the run). Only packaged builds over worfy's own
 //                                    repository write it; journals written before ticket 21 have
 //                                    none
+//   forecast       mode, waves,      the Epic forecast at the start of the run (worfy-resource-
+//                  tickets,          planner ticket 07, ADR-0093), once, after run-started and
+//                  uncounted,        harness-behind (when that is written) and before the first
+//                  samples, low,     wave-started. The run reckons it from what it reads at the
+//                  high, fit, week,  start: the workflow model, the journals of the Project's recent
+//                  durationP90Ms,    runs on this Machine, the Limits and Settings (forecast.ts,
+//                  durationSamples,  forecast-lines.ts, wave-duration.ts). mode: as in run-started;
+//                  window?           waves, tickets: the Waves left and the Tickets in them (over
+//                                    the named Tickets only in a run over named Tickets); uncounted:
+//                                    Tickets not closed and without a Wave number; samples: the
+//                                    per-Ticket samples the range is drawn from, 0 when the
+//                                    journals could not be read; low, high: p10 and p90 of the share
+//                                    of the week all those Waves take, 0..1, both null under 5
+//                                    samples or with no Wave left; fit: K, how many of the first
+//                                    Waves fit before the 7-day reset by their p90 — with the reserve
+//                                    of Settings when the budget acts in the run (Budget-aware, or
+//                                    Start window with the budget on), without it otherwise — null
+//                                    without a range or a fresh 7-day number with its reset ahead;
+//                                    week: the 7-day number at the start, {utilization, resetsAt}
+//                                    (resetsAt an ISO time or null), null without a fresh one (30
+//                                    minutes); durationP90Ms: the p90 of the Waves' duration in ms,
+//                                    null under 5 samples; durationSamples: how many durations there
+//                                    are; window: {from, to}, the whole local hours of the Start
+//                                    window, only in mode `start-window`. A week or a window of
+//                                    another shape reads as none, the line stays. Written only when
+//                                    the run reads past journals (the app's runs always do).
+//                                    Journals written before ticket 07 have none
 //   wave-started   wave, tickets,    wave: number from 1; tickets: Ticket numbers, ["01", "02"];
 //                  text?, skipped?,  text: the text the Orchestrator got; skipped: Tickets left
 //                  session?          out because they are not open though their blockers are all
@@ -188,6 +215,16 @@
 //                                    (worfy-flight-recorder ticket 21), the first 1000
 //                                    characters of the Orchestrator's last answer in the turns of
 //                                    the Wave, none when no Wave was sent (ADR-0033)
+//                  actual?           actual: the share of the week the run's Waves took
+//                                    (worfy-resource-planner ticket 07): {share, waves, counted};
+//                                    share: the sum of the growth of the 7-day share over each Wave
+//                                    of the run that gives one by the rule of the samples
+//                                    (waveGrowth, limits-estimate.ts: fresh numbers at both ends, no
+//                                    reset inside), 0..1; waves: the Waves the run finished
+//                                    (wave-finished); counted: how many of them gave a growth. None
+//                                    when the run finished no Wave. A Force stop and a quit write
+//                                    it too. An actual of another shape reads as none, the line
+//                                    stays. Lines written before ticket 07 have none
 //   orchestrator-returned            after a run-stopped with live tasks: they have ended and the
 //                                    Orchestrator runs as a person's Session again; after
 //                                    `user-force-stop`: it was given back at once (ADR-0050)
@@ -236,6 +273,7 @@ import { RUN_MODES, WINDOW_WAIT_REASONS } from './run-mode'
 export const JOURNAL_EVENT_KINDS = [
   'run-started',
   'harness-behind',
+  'forecast',
   'wave-started',
   'ticket-status',
   'narrow-round',
@@ -312,6 +350,17 @@ export const journalLimitsSchema = z.object({ five_hour: limitsWindow, seven_day
 export type JournalLimits = z.output<typeof journalLimitsSchema>
 // A value outside the shape reads as no value: the Wave's line itself is not lost for it.
 const limits = journalLimitsSchema.optional().catch(undefined)
+const count = z.number().int().nonnegative()
+const share = z.number().nonnegative()
+const hour = z.number().int().min(0).max(23)
+/** The 7-day number at the start of the run, as `forecast` keeps it; another shape reads as none. */
+const forecastWeek = z.object({ utilization: share, resetsAt: isoTime.nullable() }).nullable().catch(null)
+/** `run-stopped.actual`: another shape, or more counted Waves than finished, reads as no value. */
+const actual = z
+  .object({ share, waves: z.number().int().positive(), counted: count })
+  .refine((value) => value.counted <= value.waves)
+  .optional()
+  .catch(undefined)
 
 const common = {
   at: isoTime,
@@ -326,6 +375,20 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
 export const journalEventSchema = z.discriminatedUnion('kind', [
   event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional(), mode: z.enum(RUN_MODES).optional().catch(undefined) }),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
+  event('forecast', {
+    mode: z.enum(RUN_MODES),
+    waves: count,
+    tickets: count,
+    uncounted: count,
+    samples: count,
+    low: share.nullable(),
+    high: share.nullable(),
+    fit: count.nullable(),
+    week: forecastWeek,
+    durationP90Ms: count.nullable(),
+    durationSamples: count,
+    window: z.object({ from: hour, to: hour }).optional().catch(undefined),
+  }),
   event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional(), limits, session: text.optional() }),
   event('ticket-status', { ticket: text, state: z.enum(TICKET_STATUS_STATES), statusAt: text.optional(), reason: text.optional(), waits: text.optional() }),
   event('narrow-round', { ticket: text, outcome: z.enum(NARROW_OUTCOMES), text: text.max(LAST_TEXT_MAX) }),
@@ -342,7 +405,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('run-stopping', { reason: text, ...wave, inWork: z.array(text) }),
   event('gate-queue', { text }),
   event('gate-queue-finished', {}),
-  event('run-stopped', { reason: text, tasks: tasks.optional(), tickets: z.array(text).optional(), lastText: z.string().max(LAST_TEXT_MAX).optional() }),
+  event('run-stopped', { reason: text, tasks: tasks.optional(), tickets: z.array(text).optional(), lastText: z.string().max(LAST_TEXT_MAX).optional(), actual }),
   event('orchestrator-returned', {}),
   event('tasks-killed', { reason: text, tasks }),
 ])
