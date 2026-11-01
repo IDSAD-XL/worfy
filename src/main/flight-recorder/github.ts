@@ -38,7 +38,20 @@ export const RUNS_PER_COMMIT = 20
  */
 export function repoPageUrl(remote: string): string | null {
   const repo = parseRemote(remote)
-  return repo === null ? null : `https://${repo.host}/${repo.owner}/${repo.repo}`
+  if (repo === null) return null
+  // Through a URL, never by concatenation: a credential left in the host (`a@token@host:owner/repo`) is
+  // dropped, not handed to the browser and the tooltip.
+  let page: URL
+  try {
+    page = new URL(`https://${repo.host}`)
+  } catch {
+    return null
+  }
+  page.username = ''
+  page.password = ''
+  page.port = ''
+  page.pathname = `/${repo.owner}/${repo.repo}`
+  return page.href
 }
 
 /** A read: gh's answer, or the reason GitHub did not answer; `at` — when gh ran. */

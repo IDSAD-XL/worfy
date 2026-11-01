@@ -9,7 +9,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import type { BlockMark, OrchestratorMark, Span } from '../../shared/flight-recorder/spans'
 import type { RunView } from '../../shared/ipc/runs'
-import { filterSpans, highlightsOf, NO_FILTER, type Highlights, type SpanFilter } from './filter'
+import { filterSpans, highlightsOf, NO_FILTER, rowsAbove, type Highlights, type SpanFilter } from './filter'
 import { layoutLabels, type LabelItem, type LabelPlace } from './label-layout'
 import { displayName, lostWord, outcomeWord, spanDuration, tokenOf } from './span-words'
 import {
@@ -414,6 +414,21 @@ export function Timeline({ view }: { view: RunView }) {
   const changeFilter = (next: SpanFilter) => {
     setFilter(next)
     setShut(new Set())
+  }
+  // A span selected from outside the tree (a card of the summary, a link of the panel) shows under the
+  // filter: the rows above it closed under the filter open again, and a filter that hides it is cleared.
+  // Only a new selection does so: a filter set while a span is selected may hide it. The state is
+  // adjusted while rendering, as React advises for state that follows a prop, not in an effect.
+  const [seen, setSeen] = useState(selected)
+  if (seen !== selected) {
+    setSeen(selected)
+    if (selected !== null && kept !== null) {
+      if (!kept.some((span) => span.id === selected)) changeFilter(NO_FILTER)
+      else {
+        const above = rowsAbove(selected, view.timeline.spans)
+        if (above.some((id) => shut.has(id))) setShut(new Set([...shut].filter((id) => !above.includes(id))))
+      }
+    }
   }
   const onToggle = (id: string) => {
     if (kept === null) {

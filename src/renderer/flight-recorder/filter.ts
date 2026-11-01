@@ -107,6 +107,34 @@ function firstWave(ticket: Span, spans: readonly Span[]): Span | undefined {
   return spans.find((span) => span.kind === 'wave' && span.links.wave === first)
 }
 
+/** The ids of the lane rows (WAIT_LANE and ORCHESTRATOR_LANE of store.ts, which a pure module does not import). */
+export const LANE_ROWS = { wait: 'lane:wait', orchestrator: 'lane:orchestrator' } as const
+
+/**
+ * The rows above a span on the timeline, which must be open for its row to show: its parents, the Wave a
+ * Ticket is drawn under, and the lane of a Wait or an Orchestrator turn. Empty for an unknown span.
+ */
+export function rowsAbove(id: string, spans: readonly Span[]): string[] {
+  const byId = new Map(spans.map((span) => [span.id, span]))
+  const span = byId.get(id)
+  if (span === undefined) return []
+  if (span.lane !== 'tree') return [LANE_ROWS[span.lane]]
+  const rows: string[] = []
+  let at = span.parent === null ? undefined : byId.get(span.parent)
+  let below: Span = span
+  for (;;) {
+    if (below.kind === 'ticket') {
+      const wave = firstWave(below, spans)
+      if (wave !== undefined) rows.push(wave.id)
+    }
+    if (at === undefined) break
+    rows.push(at.id)
+    below = at
+    at = at.parent === null ? undefined : byId.get(at.parent)
+  }
+  return rows
+}
+
 /** What the selected span highlights on the timeline. */
 export interface Highlights {
   /** The span whose failure caused the selected retry: outlined dashed. */

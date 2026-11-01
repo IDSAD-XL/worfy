@@ -277,6 +277,11 @@ describe('the address of the repository page (repoPageUrl), for the PR and commi
     expect(repoPageUrl('git@ghe.example.com:team/app.git')).toBe('https://ghe.example.com/team/app')
   })
 
+  it('carries no credential of the remote: a token in an scp remote or in an https one is dropped', () => {
+    expect(repoPageUrl('a@tok@github.com:o/r')).toBe('https://github.com/o/r')
+    expect(repoPageUrl('https://user:secret@github.com/o/r.git')).toBe('https://github.com/o/r')
+  })
+
   it('is null for a remote that is no repository page: a folder, nothing, a nested group', () => {
     expect(repoPageUrl('/srv/git/worfy.git')).toBeNull()
     expect(repoPageUrl('')).toBeNull()

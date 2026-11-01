@@ -11,13 +11,15 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Span } from '../../src/shared/flight-recorder/spans'
-import { selfTime } from '../../src/shared/flight-recorder/summary'
+import { buildTimeline, type RunFacts, type Span } from '../../src/shared/flight-recorder/spans'
+import { selfTime, summarize } from '../../src/shared/flight-recorder/summary'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { runViewSchema, type RunListItem, type RunView } from '../../src/shared/ipc/runs'
+import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
 import { openRunHistory } from '../../src/renderer/flight-recorder/open'
 import { RunHistoryView } from '../../src/renderer/flight-recorder/RunHistoryView'
-import { formatDuration, formatLocal, resetRunHistory, revealSpan, useRunHistory } from '../../src/renderer/flight-recorder/store'
+import { LANE_ROWS } from '../../src/renderer/flight-recorder/filter'
+import { chooseRun, formatDuration, formatLocal, ORCHESTRATOR_LANE, resetRunHistory, revealSpan, WAIT_LANE, useRunHistory } from '../../src/renderer/flight-recorder/store'
 import { setView, useNavigation } from '../../src/renderer/session/navigation'
 
 const NIGHT: RunView = runViewSchema.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../fixtures/flight-recorder/night-run-view.json'), 'utf8')))
@@ -27,23 +29,67 @@ const IMPL_07_RETRY = 'agent:a60e687cd0ab6803e#2'
 const VERIFY_07 = 'agent:adb147aa44e4451c4#1'
 const spanOf = (id: string): Span => NIGHT.timeline.spans.find((span) => span.id === id)!
 
+const T = (hhmm: string): string => `2026-10-20T${hhmm}:00.000Z`
+const TWO_WAVES = '2026-10-20T10-00-00-000Z-bbbbbb'
+
+/** A small Run of Epic `e` whose Ticket 01 ran in Wave 1 and again in Wave 2, with an hour between. */
+function twoWaves(): RunView {
+  const facts: RunFacts = {
+    run: { id: TWO_WAVES, startedAt: T('10:00'), stoppedAt: T('14:00'), live: false, outcome: 'ok', reason: 'tickets-done' },
+    now: T('14:00'),
+    pipeline: DEFAULT_PIPELINE,
+    waves: [
+      { number: 1, startedAt: T('10:00'), finishedAt: T('11:00'), tickets: ['e/01'] },
+      { number: 2, startedAt: T('12:00'), finishedAt: T('13:30'), tickets: ['e/01'] },
+    ],
+    ticketEvents: [
+      { ticket: 'e/01', at: T('10:01'), source: 'journal', event: 'status', state: 'claimed' },
+      { ticket: 'e/01', at: T('13:00'), source: 'journal', event: 'status', state: 'done' },
+    ],
+    work: [],
+    retryCauses: [],
+    waits: [],
+    turns: [],
+    lost: [],
+    orchestratorMarks: [],
+  }
+  const timeline = buildTimeline(facts)
+  return { projectId: NIGHT.projectId, run: TWO_WAVES, epic: 'e', timeline, summary: summarize(timeline), github: { state: 'unused', reason: 'test' }, repoUrl: null, profileReason: null, skippedLines: 0, error: null }
+}
+const TWO_WAVES_ITEM: RunListItem = { run: TWO_WAVES, epic: 'e', startedAt: T('10:00'), stoppedAt: T('14:00'), reason: 'tickets-done', live: false, tickets: ['e/01'], by: null }
+
 /** The night Run as gh failing gives it: «GitHub did not answer» on a CI span of each Ticket. */
 function withoutGithub(): RunView {
   const spans = NIGHT.timeline.spans.map((span) => (span.kind === 'ci' ? { ...span, lost: 'github-no-answer' as const, outcome: null } : span))
   return { ...NIGHT, github: { state: 'no-answer', at: 1, reason: 'error connecting to api.github.com' }, timeline: { ...NIGHT.timeline, spans } }
 }
 
-/** Main as a fake bridge: the list, the Run, «Retry» answering `retried`, and every call kept. */
-function fakeMain(view: RunView, retried: RunView = NIGHT) {
+type Answer = { ok: true; value: unknown } | { ok: false; error: string }
+
+/** What main answers beside the list and the Run: «Retry» and shell.openExternal, replaceable per test. */
+interface MainAnswers {
+  /** Further Runs of the list and their timelines, beside the one shown first. */
+  more?: { item: RunListItem; view: RunView }[]
+  retry?: () => Promise<Answer>
+  openExternal?: (url: string) => Promise<Answer>
+}
+
+/** Main as a fake bridge: the list, the Runs, «Retry» answering `retried`, and every call kept. */
+function fakeMain(view: RunView, retried: RunView = NIGHT, answers: MainAnswers = {}) {
   const calls: { channel: string; input: unknown }[] = []
+  const views = new Map([[view.run, view], ...(answers.more ?? []).map(({ view: other }) => [other.run, other] as const)])
   const bridge: WorfyBridge = {
     invoke: (channel, input) => {
       calls.push({ channel, input })
-      if (channel === 'runs.list') return Promise.resolve({ ok: true, value: { runs: [ITEM] } })
-      if (channel === 'runs.open') return Promise.resolve({ ok: true, value: view })
-      if (channel === 'runs.retry') return Promise.resolve({ ok: true, value: retried })
+      const { run } = (input ?? {}) as { run?: string }
+      if (channel === 'runs.list') return Promise.resolve({ ok: true, value: { runs: [ITEM, ...(answers.more ?? []).map(({ item }) => item)] } })
+      if (channel === 'runs.open') return Promise.resolve(run !== undefined && views.has(run) ? { ok: true, value: views.get(run) } : { ok: false, error: `no Run ${run}` })
+      if (channel === 'runs.retry') return answers.retry?.() ?? Promise.resolve({ ok: true, value: retried })
       if (channel === 'runs.close') return Promise.resolve({ ok: true, value: { closed: true } })
-      if (channel === 'shell.openExternal') return Promise.resolve({ ok: true, value: { url: (input as { url: string }).url } })
+      if (channel === 'shell.openExternal') {
+        const { url } = input as { url: string }
+        return answers.openExternal?.(url) ?? Promise.resolve({ ok: true, value: { url } })
+      }
       return Promise.resolve({ ok: false, error: `not in this test: ${channel}` })
     },
     on: () => 1,
@@ -53,11 +99,20 @@ function fakeMain(view: RunView, retried: RunView = NIGHT) {
   return calls
 }
 
-async function show(view: RunView = NIGHT, retried?: RunView) {
-  const calls = fakeMain(view, retried)
+async function show(view: RunView = NIGHT, retried?: RunView, answers?: MainAnswers) {
+  const calls = fakeMain(view, retried, answers)
   render(<RunHistoryView />)
   await act(() => openRunHistory(view.projectId, view.run))
   return calls
+}
+
+/** An answer a test gives when it wants: `answer` resolves the promise main returned. */
+function deferred() {
+  let answer!: (value: Answer) => void
+  const promise = new Promise<Answer>((resolve) => {
+    answer = resolve
+  })
+  return { promise, answer }
 }
 
 const select = (id: string) => act(() => revealSpan(id))
@@ -276,5 +331,140 @@ describe('the filter and the highlights on the timeline', () => {
     expect(related()).toEqual(['ticket:worfy-pipeline/03', 'ticket:worfy-pipeline/07'])
     await select('ticket:worfy-pipeline/03')
     expect(related()).toEqual([])
+  })
+})
+
+describe('round 1 of the review', () => {
+  it('Duration of a Ticket of two Waves is the sum of its parts, «in 2 parts», not its whole stretch', async () => {
+    const view = twoWaves()
+    await show(view)
+    const ticket = view.timeline.spans.find((span) => span.kind === 'ticket')!
+    expect(ticket.segments).toHaveLength(2)
+    const parts = ticket.segments.reduce((sum, part) => sum + part.end - part.start, 0)
+    expect(parts).toBeLessThan(ticket.until - ticket.start)
+    await select(ticket.id)
+    expect(field('duration')).toBe(`${formatDuration(parts)} in 2 parts`)
+  })
+
+  it('Source names the note of the source', async () => {
+    await show()
+    await select('gate:0a6c108b/2026-10-17T23-37-10Z-41210')
+    tab('Source')
+    expect(field('source-note')).toBe('gate log: a run answered wholly by the green cache writes no timings.json and is not shown')
+  })
+
+  it('a «Retry» whose call fails says so next to the notice; the next «Retry» clears it', async () => {
+    const failing = vi.fn(() => Promise.resolve<Answer>({ ok: false, error: 'the Run is gone' }))
+    const answers: MainAnswers = { retry: () => failing() }
+    await show(withoutGithub(), NIGHT, answers)
+    const notice = screen.getByTestId('run-history-github')
+    await act(async () => {
+      fireEvent.click(within(notice).getByRole('button', { name: 'Retry' }))
+    })
+    expect(within(notice).getByTestId('run-history-retry-error').textContent).toBe(' Retry failed: the Run is gone')
+    failing.mockImplementation(() => Promise.resolve<Answer>({ ok: true, value: NIGHT }))
+    await act(async () => {
+      fireEvent.click(within(notice).getByRole('button', { name: 'Retry' }))
+    })
+    expect(screen.queryByTestId('run-history-github')).toBeNull()
+  })
+
+  it('both «Retry» buttons share one call in flight: the second does not read gh again', async () => {
+    const pending = deferred()
+    const calls = await show(withoutGithub(), NIGHT, { retry: () => pending.promise })
+    await select('ci:gh-run:39084438682')
+    tab('Source')
+    const notice = screen.getByTestId('run-history-github')
+    await act(async () => {
+      fireEvent.click(within(notice).getByRole('button', { name: 'Retry' }))
+    })
+    const inPanel = within(panel()).getByTestId('run-history-retry-github')
+    expect(inPanel.textContent).toBe('Retrying…')
+    expect((inPanel as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => {
+      fireEvent.click(inPanel)
+    })
+    expect(calls.filter((call) => call.channel === 'runs.retry')).toHaveLength(1)
+    await act(async () => {
+      pending.answer({ ok: true, value: NIGHT })
+      await pending.promise
+    })
+    expect(screen.queryByTestId('run-history-github')).toBeNull()
+  })
+
+  it('«The page could not be opened» goes with another selection, and an answer after it changed is dropped', async () => {
+    const late = deferred()
+    let opens = 0
+    await show(NIGHT, NIGHT, { openExternal: () => (++opens === 1 ? Promise.resolve<Answer>({ ok: false, error: 'no browser' }) : late.promise) })
+    await select('ticket:worfy-pipeline/07')
+    tab('Links')
+    await act(async () => {
+      fireEvent.click(within(panel()).getByRole('button', { name: 'PR #460' }))
+    })
+    expect(within(panel()).getByRole('alert').textContent).toBe('The page could not be opened: no browser')
+    await select('ticket:worfy-pipeline/04')
+    expect(within(panel()).queryByRole('alert')).toBeNull()
+    // A second open fails only once 03 is selected: its error is about 04 and is not shown.
+    await act(async () => {
+      fireEvent.click(within(panel()).getByRole('button', { name: 'PR #467' }))
+    })
+    await select('ticket:worfy-pipeline/03')
+    await act(async () => {
+      late.answer({ ok: false, error: 'late' })
+      await late.promise
+    })
+    expect(within(panel()).queryByRole('alert')).toBeNull()
+  })
+
+  it('a new filter opens the rows the previous filter had closed', async () => {
+    await show()
+    fireEvent.click(screen.getByTestId('run-history-problems'))
+    fireEvent.click(within(rowOf('ticket:worfy-pipeline/07/stage:2')!).getByRole('button', { name: /^Collapse/ }))
+    expect(rowOf(IMPL_07_RETRY)).toBeNull()
+    fireEvent.change(screen.getByTestId('run-history-filter'), { target: { value: '07' } })
+    expect(rowOf(IMPL_07_RETRY)).not.toBeNull()
+  })
+
+  it('each Run has its own filter: another Run shows unfiltered, with an empty field', async () => {
+    await show(NIGHT, NIGHT, { more: [{ item: TWO_WAVES_ITEM, view: twoWaves() }] })
+    fireEvent.change(screen.getByTestId('run-history-filter'), { target: { value: '05' } })
+    fireEvent.click(screen.getByTestId('run-history-problems'))
+    await act(() => chooseRun(TWO_WAVES))
+    expect((screen.getByTestId('run-history-filter') as HTMLInputElement).value).toBe('')
+    expect(screen.getByTestId('run-history-problems').getAttribute('aria-pressed')).toBe('false')
+    // The successful Ticket of that Run shows: no Problems only carried over.
+    expect(rowOf(twoWaves().timeline.spans.find((span) => span.kind === 'ticket')!.id)).not.toBeNull()
+  })
+
+  it('each Run has its own filter even when its timeline replaces the other with no loading between', async () => {
+    await show()
+    fireEvent.change(screen.getByTestId('run-history-filter'), { target: { value: '05' } })
+    // chooseRun shows «loading» first, which drops the Timeline; the key keeps a Run's filter its own
+    // without relying on that.
+    act(() => useRunHistory.setState({ run: TWO_WAVES, view: twoWaves() }))
+    expect((screen.getByTestId('run-history-filter') as HTMLInputElement).value).toBe('')
+  })
+
+  it('a span selected from outside the tree shows under the filter: its closed rows open, a filter that hides it is cleared', async () => {
+    await show()
+    fireEvent.click(screen.getByTestId('run-history-problems'))
+    fireEvent.click(within(rowOf('ticket:worfy-pipeline/07')!).getByRole('button', { name: /^Collapse/ }))
+    expect(rowOf(IMPL_07_RETRY)).toBeNull()
+    // As a card of the summary or a link of the panel selects it.
+    await select(IMPL_07_RETRY)
+    expect(rowOf(IMPL_07_RETRY)).not.toBeNull()
+    expect(screen.getByTestId('run-history-problems').getAttribute('aria-pressed')).toBe('true')
+    // The first implementer of 03 ended well: Problems only hides it, so the filter goes.
+    await select('agent:a4f4ef600ce73b83a#1')
+    expect(screen.getByTestId('run-history-problems').getAttribute('aria-pressed')).toBe('false')
+    expect(rowOf('agent:a4f4ef600ce73b83a#1')).not.toBeNull()
+    // A filter set while a span is selected may hide it: it stays.
+    fireEvent.click(screen.getByTestId('run-history-problems'))
+    expect(screen.getByTestId('run-history-problems').getAttribute('aria-pressed')).toBe('true')
+    expect(rowOf('agent:a4f4ef600ce73b83a#1')).toBeNull()
+  })
+
+  it('the lane rows of the filter are those of the store', () => {
+    expect(LANE_ROWS).toEqual({ wait: WAIT_LANE, orchestrator: ORCHESTRATOR_LANE })
   })
 })

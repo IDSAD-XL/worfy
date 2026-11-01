@@ -211,12 +211,19 @@ export class TailLines {
   }
 }
 
+/** Remote `origin` of a Project root: `url` — what git answered, null — git has none (not a repository, no such remote). */
+interface OriginRead {
+  url: string | null
+}
+
 /** One Run a window holds open. */
 interface OpenRun {
   projectId: string
   run: string
   subscribers: Map<ClientId, RunSubscriber>
   profile: RunProfile | null
+  /** Remote `origin` of the Project root as the last compute read it; undefined — not read yet (OriginRead). */
+  origin: OriginRead | undefined
   lines: TailLines
   journalSize: number
   live: boolean
@@ -230,6 +237,8 @@ interface OpenRun {
 /** One computation's inputs that the next one may reuse. */
 interface ComputeState {
   profile: RunProfile | null
+  /** Read once per open Run, again only on «Retry», like the Profile: a live Run recomputes every 5 s. */
+  origin: OriginRead | undefined
   lines: TailLines | null
   retry: boolean
 }
@@ -270,7 +279,7 @@ export class FlightRecorder {
 
   /** The timeline of a Run of the Project, computed now. */
   async view(projectId: string, run: string): Promise<RunView> {
-    return (await this.compute(projectId, run, { profile: null, lines: null, retry: false })).view
+    return (await this.compute(projectId, run, { profile: null, origin: undefined, lines: null, retry: false })).view
   }
 
   /**
@@ -283,7 +292,7 @@ export class FlightRecorder {
     const key = `${projectId}\n${run}`
     let entry = this.open_.get(key)
     if (entry === undefined) {
-      entry = { projectId, run, subscribers: new Map(), profile: null, lines: new TailLines(this.options.tail), journalSize: -1, live: false, githubAt: null, last: null, busy: null }
+      entry = { projectId, run, subscribers: new Map(), profile: null, origin: undefined, lines: new TailLines(this.options.tail), journalSize: -1, live: false, githubAt: null, last: null, busy: null }
       this.open_.set(key, entry)
     }
     // The same client opening the Run again comes with a new subscriber; a failed open gives the old one back.
@@ -331,7 +340,7 @@ export class FlightRecorder {
   async retry(projectId: string, run: string): Promise<RunView> {
     const key = `${projectId}\n${run}`
     const entry = this.open_.get(key)
-    if (entry === undefined) return (await this.compute(projectId, run, { profile: null, lines: null, retry: true })).view
+    if (entry === undefined) return (await this.compute(projectId, run, { profile: null, origin: undefined, lines: null, retry: true })).view
     const view = await this.recompute(entry, true)
     if (this.open_.get(key) === entry) for (const subscriber of entry.subscribers.values()) subscriber.send(view)
     this.sync()
@@ -418,9 +427,13 @@ export class FlightRecorder {
   private recompute(entry: OpenRun, retry: boolean): Promise<RunView> {
     const run = async (): Promise<RunView> => {
       entry.journalSize = await this.journalSize(entry.run)
-      if (retry) entry.profile = null
-      const result = await this.compute(entry.projectId, entry.run, { profile: entry.profile, lines: entry.lines, retry })
+      if (retry) {
+        entry.profile = null
+        entry.origin = undefined
+      }
+      const result = await this.compute(entry.projectId, entry.run, { profile: entry.profile, origin: entry.origin, lines: entry.lines, retry })
       entry.profile = result.profile
+      entry.origin = result.origin
       entry.live = result.view.timeline.live
       entry.githubAt = result.view.github.state === 'unused' ? null : result.view.github.at
       entry.last = result.view
@@ -462,13 +475,13 @@ export class FlightRecorder {
     return { facts }
   }
 
-  /** The page of the Project's repository (remote `origin` of its root, which gh reads); null without one. */
-  private async repoUrl(root: string): Promise<string | null> {
+  /** Remote `origin` of the Project root (the repository gh reads): its URL, or null when git has none. */
+  private async readOrigin(root: string): Promise<OriginRead> {
     const origin = await this.git(root, ['remote', 'get-url', 'origin']).catch(() => null)
-    return origin?.code === 0 ? repoPageUrl(origin.stdout) : null
+    return origin?.code === 0 ? { url: origin.stdout.trim() } : { url: null }
   }
 
-  private async compute(projectId: string, run: string, state: ComputeState): Promise<{ view: RunView; profile: RunProfile }> {
+  private async compute(projectId: string, run: string, state: ComputeState): Promise<{ view: RunView; profile: RunProfile; origin: OriginRead }> {
     const journal = (await this.journal(run, projectId)).facts
     const root = this.options.projectRoot(projectId)
     const now = this.now()
@@ -476,6 +489,9 @@ export class FlightRecorder {
     const live = this.isLive(projectId, run, journal, newest)
     const end = journal.run.stoppedAt ?? (live ? null : (journal.run.lastSeenAt ?? null))
     const profile = state.profile ?? (await this.options.profile(root))
+    // Remote `origin`, read at most once here and kept by an open Run: the marks file and the repository page ask it.
+    let origin = state.origin
+    const originOf = async (): Promise<OriginRead> => (origin ??= await this.readOrigin(root))
 
     // The transcripts: tailed while the Run goes on and every Wave names its Session; a Wave found by
     // its text would make the reader scan every transcript of the folder, and none of them is kept.
@@ -529,7 +545,7 @@ export class FlightRecorder {
             return worked.has(ticket) && !withPr.has(branch) && num !== null ? [{ ticket, epic: journal.epic, num, branch }] : []
           })
     if (localTickets.length > 0) {
-      const inFile = profile.name !== null && (await marksInFile(profile, async () => (await this.git(root, ['remote', 'get-url', 'origin'])).code === 0))
+      const inFile = profile.name !== null && (await marksInFile(profile, async () => (await originOf()).url !== null))
       local = await readLocalVerdicts({ repo: root, tickets: localTickets, marksFile: inFile && profile.name !== null ? { harnessHome: this.options.harnessHome, project: profile.name } : null, git: this.git })
     }
 
@@ -547,9 +563,10 @@ export class FlightRecorder {
       orchestratorMarks: journal.orchestratorMarks,
     }
     const timeline = buildTimeline(facts)
-    const repoUrl = await this.repoUrl(root)
+    const read = await originOf()
+    const repoUrl = read.url === null ? null : repoPageUrl(read.url)
     const view: RunView = { projectId, run, epic: journal.epic, timeline, summary: summarize(timeline), github: githubState, repoUrl, profileReason: profile.reason, skippedLines: journal.skipped, error: null }
-    return { view, profile }
+    return { view, profile, origin: read }
   }
 }
 

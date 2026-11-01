@@ -449,6 +449,34 @@ describe('the live timeline', () => {
     recorder.dispose()
   })
 
+  it('reads remote origin once per open Run — for the repository page and the marks file — and again only on «Retry»', async () => {
+    const world = await liveWorld()
+    // Ticket 01 was worked on and the Project ends without a PR: the marks file asks whether there is an origin too.
+    await appendFile(world.journal, journalLine({ at: at(2), run: world.run, project: world.project, epic: 'e', kind: 'ticket-status', ticket: '01', state: 'claimed' }))
+    const timer = manualTimer()
+    let now = T0 + 10_000
+    let origins = 0
+    const git: NonNullable<FlightRecorderOptions['git']> = async (_cwd, args) => {
+      if (args.join(' ') !== 'remote get-url origin') return { code: 128, stdout: '' }
+      origins += 1
+      return { code: 0, stdout: 'git@github.com:someone/live.git\n' }
+    }
+    const recorder = await liveRecorder(world, timer, { git, profile: async () => profileOf({ finish: 'local-green' }), now: () => now })
+    const subscriber = collector()
+    expect((await recorder.open(world.project, world.run, subscriber)).repoUrl).toBe('https://github.com/someone/live')
+    expect(origins).toBe(1)
+    for (let step = 0; step < 3; step++) {
+      await appendFile(world.journal, journalLine({ at: at(20 + step), run: world.run, project: world.project, epic: 'e', kind: 'background-tasks', tasks: [] }))
+      now += RECOMPUTE_INTERVAL_MS
+      await timer.fire()
+    }
+    expect(subscriber.views.map((view) => view.repoUrl)).toEqual(Array(3).fill('https://github.com/someone/live'))
+    expect(origins).toBe(1)
+    await recorder.retry(world.project, world.run)
+    expect(origins).toBe(2)
+    recorder.dispose()
+  })
+
   it('stops the timer when the last window lets the Run go', async () => {
     const world = await liveWorld()
     const timer = manualTimer()

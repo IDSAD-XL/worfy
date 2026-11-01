@@ -11,11 +11,12 @@ import { describe, expect, it } from 'vitest'
 import { buildTimeline, type RunFacts, type Span } from '../../src/shared/flight-recorder/spans'
 import { runViewSchema } from '../../src/shared/ipc/runs'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
-import { filterSpans, highlightsOf, isFiltering, isProblem, NO_FILTER, type SpanFilter } from '../../src/renderer/flight-recorder/filter'
+import { filterSpans, highlightsOf, isFiltering, isProblem, NO_FILTER, rowsAbove, type SpanFilter } from '../../src/renderer/flight-recorder/filter'
 
 const NIGHT = runViewSchema.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../fixtures/flight-recorder/night-run-view.json'), 'utf8'))).timeline
 const byId = new Map(NIGHT.spans.map((span) => [span.id, span]))
 const SESSION = 'f6ab7045-416c-471a-a78d-433567aefa5a'
+const IMPL_07 = 'agent:a60e687cd0ab6803e#2'
 
 const ids = (spans: readonly Span[] | null): string[] => (spans ?? []).map((span) => span.id)
 const kept = (filter: Partial<SpanFilter>, timeline = NIGHT): readonly Span[] => {
@@ -167,5 +168,16 @@ describe('what a selection highlights', () => {
     expect(highlightsOf(byId.get('wait:background-tasks:10'), NIGHT.spans).tickets).toEqual(new Set(['ticket:worfy-pipeline/04', 'ticket:worfy-pipeline/05']))
     expect(highlightsOf(byId.get(`turn:${SESSION}:3`), NIGHT.spans).tickets).toEqual(new Set(['ticket:worfy-pipeline/03', 'ticket:worfy-pipeline/07']))
     expect(highlightsOf(byId.get('agent:a60e687cd0ab6803e#2'), NIGHT.spans).tickets).toEqual(new Set())
+  })
+})
+
+describe('the rows above a span', () => {
+  it('are its parents, the Wave its Ticket is drawn under, and the lane of a Wait or a turn', () => {
+    expect(rowsAbove(IMPL_07, NIGHT.spans)).toEqual(['ticket:worfy-pipeline/07/stage:2', 'ticket:worfy-pipeline/07', 'wave:1', 'run'])
+    expect(rowsAbove('ticket:worfy-pipeline/05', NIGHT.spans)).toEqual(['wave:2', 'run'])
+    expect(rowsAbove('wait:background-tasks:3', NIGHT.spans)).toEqual(['lane:wait'])
+    expect(rowsAbove(`turn:${SESSION}:3`, NIGHT.spans)).toEqual(['lane:orchestrator'])
+    expect(rowsAbove('run', NIGHT.spans)).toEqual([])
+    expect(rowsAbove('no such span', NIGHT.spans)).toEqual([])
   })
 })

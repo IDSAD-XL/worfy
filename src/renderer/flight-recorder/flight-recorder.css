@@ -461,6 +461,10 @@
   border-radius: var(--radius-button);
   padding: 1px var(--space-2);
 }
+/* The placeholder in the text colour of muted text: Chromium's own grey is 3.77:1 on the dark surface. */
+.w-fr-filter::placeholder {
+  color: var(--text-muted);
+}
 .w-fr-button.is-on {
   background: var(--selected);
   border-color: var(--accent);

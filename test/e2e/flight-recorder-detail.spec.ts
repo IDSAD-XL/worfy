@@ -89,7 +89,12 @@ function prepareNight() {
     // No token of the developer's shell reaches the stand-in, which logs it.
     GH_TOKEN: '',
   }
-  return { env, heal: () => rm(fail, { force: true }) }
+  /** The calls gh got so far, but the keyring's `auth token`. */
+  const ghCalls = () =>
+    readFileSync(log, 'utf8')
+      .split('\n')
+      .filter((line) => line !== '' && (JSON.parse(line) as { args: string[] }).args.join(' ') !== 'auth token').length
+  return { env, heal: () => rm(fail, { force: true }), ghCalls }
 }
 
 /** Defines the page's hook before the app's scripts run, loads the window again, and waits for the shell. */
@@ -116,12 +121,38 @@ async function snapshots(window: Page, name: string): Promise<void> {
   await window.emulateMedia({ colorScheme: null })
 }
 
+/** The contrast of the filter's placeholder on the field's ground (WCAG), in the theme shown. */
+const placeholderContrast = (window: Page): Promise<number> =>
+  window.getByTestId('run-history-filter').evaluate((input) => {
+    // The spec has no DOM types: the page's own, as narrow as needed.
+    interface Box {
+      parentElement: Box | null
+    }
+    const { getComputedStyle } = globalThis as unknown as { getComputedStyle: (element: Box, pseudo?: string) => { color: string; backgroundColor: string } }
+    const rgb = (color: string) => (color.match(/[\d.]+/g) ?? []).map(Number)
+    let ground: Box | null = input as unknown as Box
+    let back = rgb(getComputedStyle(ground).backgroundColor)
+    while (ground !== null && (back.length === 4 && back[3] === 0)) {
+      ground = ground.parentElement
+      back = ground === null ? [255, 255, 255] : rgb(getComputedStyle(ground).backgroundColor)
+    }
+    const luminance = ([r, g, b]: number[]) => {
+      const channel = (value: number) => {
+        const c = value / 255
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+      }
+      return 0.2126 * channel(r!) + 0.7152 * channel(g!) + 0.0722 * channel(b!)
+    }
+    const [a, b] = [luminance(rgb(getComputedStyle(input as unknown as Box, '::placeholder').color)), luminance(back)].sort((x, y) => y - x)
+    return (a! + 0.05) / (b! + 0.05)
+  })
+
 const rowOf = (window: Page, id: string): Locator => window.locator(`[data-testid="run-history-row"][data-row-id="${id}"]`)
 const ticketRows = (window: Page) => window.locator('[data-testid="run-history-row"][data-kind="ticket"]')
 
 test('the detail panel, «Retry» of GitHub, the outline of a retry cause, the rows of a Wait and a turn, «Problems only» and the filter', async () => {
   test.setTimeout(ms(180_000))
-  const { env, heal } = prepareNight()
+  const { env, heal, ghCalls } = prepareNight()
   const launched = await launchApp({ env })
   try {
     const { window, app } = launched
@@ -146,8 +177,10 @@ test('the detail panel, «Retry» of GitHub, the outline of a retry cause, the r
     await expect(window.locator('.w-fr-bar--lost.w-fr-bar--ci').first()).toBeVisible()
     await expect(window.getByTestId('run-history-rows')).toContainText('GitHub did not answer')
     await snapshots(window, 'github-did-not-answer')
-    // «Retry» while gh still fails: the label stays.
+    // «Retry» while gh still fails: gh is asked again, and the label stays.
+    const before = ghCalls()
     await notice.getByRole('button', { name: 'Retry' }).click()
+    await expect.poll(ghCalls).toBeGreaterThan(before)
     await expect(notice.getByRole('button', { name: 'Retry' })).toBeEnabled()
     await expect(notice).toBeVisible()
     // gh answers: after «Retry» the label is gone.
@@ -216,9 +249,16 @@ test('the detail panel, «Retry» of GitHub, the outline of a retry cause, the r
     await window.getByTestId('run-history-problems').click()
     await expect(rows).toHaveCount(all)
     // The filter by Ticket: only 05 among the Tickets; cleared, all is back.
+    // The placeholder reads in both themes (4.5:1 for text).
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      expect(await placeholderContrast(window)).toBeGreaterThanOrEqual(4.5)
+    }
+    await window.emulateMedia({ colorScheme: null })
     await window.getByTestId('run-history-filter').fill('05')
     await expect(ticketRows(window)).toHaveCount(1)
     await expect(rowOf(window, 'ticket:worfy-pipeline/05')).toHaveCount(1)
+    await snapshots(window, 'filter-ticket')
     await window.getByTestId('run-history-filter').fill('')
     await expect(ticketRows(window)).toHaveCount(4)
     await expect(rows).toHaveCount(all)

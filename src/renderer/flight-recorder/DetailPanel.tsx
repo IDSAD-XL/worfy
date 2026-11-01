@@ -12,6 +12,7 @@
 // «Retry» (`runs.retry`, ticket 17) reads gh at once; its answer is the new timeline, which replaces the one on
 // screen, so «GitHub did not answer» goes once gh answers.
 import { useState, type ReactNode } from 'react'
+import { create } from 'zustand'
 import { type FactSource, type Span } from '../../shared/flight-recorder/spans'
 import { selfTime } from '../../shared/flight-recorder/summary'
 import type { RunView } from '../../shared/ipc/runs'
@@ -74,32 +75,66 @@ function pathOf(span: Span, spans: readonly Span[]): string[] {
   return names
 }
 
-/** Reads gh for the Run at once; the answer replaces the timeline on screen if the screen still shows it. Answers the error, or null. */
-async function retryGithub(projectId: string, run: string): Promise<string | null> {
-  const result = await invoke('runs.retry', { projectId, run })
-  if (!result.ok) return result.error
-  const state = useRunHistory.getState()
-  if (state.projectId === projectId && state.run === run) useRunHistory.setState({ view: result.value })
-  return null
+/**
+ * «Retry» of each Run, shared by every button of the screen (the notice, the Source tab): one gh read of a
+ * Run at a time, whichever button was pressed, and the last failure of the call per Run. Keyed by
+ * `<projectId>\n<run>`, so a «Retry» still in flight for another Run neither disables nor fails this one.
+ */
+interface RetryState {
+  running: ReadonlySet<string>
+  errors: Readonly<Record<string, string>>
 }
 
-/** «Retry» next to «GitHub did not answer». */
-export function RetryButton({ view }: { view: RunView }) {
-  const [running, setRunning] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const retry = async () => {
-    setRunning(true)
-    setError(null)
-    const failed = await retryGithub(view.projectId, view.run).catch((reason: unknown) => String(reason))
-    setRunning(false)
-    setError(failed)
+const useGithubRetry = create<RetryState>(() => ({ running: new Set(), errors: {} }))
+
+const retryKey = (view: Pick<RunView, 'projectId' | 'run'>): string => `${view.projectId}\n${view.run}`
+
+/**
+ * Reads gh for the Run at once, unless a «Retry» of it is in flight; the answer replaces the timeline on
+ * screen if the screen still shows that Run. A failed call is kept as the Run's error until its next «Retry».
+ */
+async function retryGithub(projectId: string, run: string): Promise<void> {
+  const key = retryKey({ projectId, run })
+  if (useGithubRetry.getState().running.has(key)) return
+  useGithubRetry.setState((state) => {
+    const errors = { ...state.errors }
+    delete errors[key]
+    return { running: new Set([...state.running, key]), errors }
+  })
+  let error: string | null = null
+  try {
+    const result = await invoke('runs.retry', { projectId, run })
+    if (!result.ok) error = result.error
+    else {
+      const shown = useRunHistory.getState()
+      if (shown.projectId === projectId && shown.run === run) useRunHistory.setState({ view: result.value })
+    }
+  } catch (reason) {
+    error = String(reason)
   }
+  useGithubRetry.setState((state) => {
+    const running = new Set(state.running)
+    running.delete(key)
+    return { running, errors: error === null ? state.errors : { ...state.errors, [key]: error } }
+  })
+}
+
+/** «Retry» next to «GitHub did not answer»; `withError` — the button that says when the call failed (the notice's). */
+export function RetryButton({ view, withError = false }: { view: RunView; withError?: boolean }) {
+  const key = retryKey(view)
+  const running = useGithubRetry((state) => state.running.has(key))
+  const error = useGithubRetry((state) => state.errors[key])
   return (
     <>
-      <button type="button" className="w-fr-button" data-testid="run-history-retry-github" disabled={running} onClick={() => void retry()}>
+      <button type="button" className="w-fr-button" data-testid="run-history-retry-github" disabled={running} onClick={() => void retryGithub(view.projectId, view.run)}>
         {running ? 'Retrying…' : 'Retry'}
       </button>
-      {error !== null ? <span className="w-fr-problem-text"> Retry failed: {error}</span> : null}
+      {withError && error !== undefined ? (
+        <span className="w-fr-problem-text" data-testid="run-history-retry-error">
+          {' '}
+          Retry failed: {error}
+        </span>
+      ) : null}
     </>
   )
 }
@@ -112,7 +147,7 @@ export function GithubNotice({ view }: { view: RunView }) {
       <span>
         GitHub did not answer: {view.github.reason}. The PR and CI bars are drawn from the local sources.
       </span>{' '}
-      <RetryButton view={view} />
+      <RetryButton view={view} withError />
     </div>
   )
 }
@@ -351,6 +386,14 @@ export function DetailPanel({ view }: { view: RunView }) {
   const selected = useRunHistory((state) => state.selected)
   const [tab, setTab] = useState<Tab>('overview')
   const [error, setError] = useState<string | null>(null)
+  // A page that could not be opened is about the span it was opened from: another selection clears it,
+  // and an answer that comes after the selection changed is dropped. Adjusted while rendering, not in an
+  // effect, as React advises for state that follows other state.
+  const [seen, setSeen] = useState(selected)
+  if (seen !== selected) {
+    setSeen(selected)
+    setError(null)
+  }
   const span = selected === null ? undefined : view.timeline.spans.find((each) => each.id === selected)
   if (span === undefined)
     return (
@@ -382,7 +425,7 @@ export function DetailPanel({ view }: { view: RunView }) {
         </button>
       </div>
       <div className="w-fr-detail__body" role="tabpanel">
-        {tab === 'overview' ? <Overview span={span} view={view} /> : tab === 'links' ? <Links span={span} view={view} onError={setError} /> : <Source span={span} view={view} />}
+        {tab === 'overview' ? <Overview span={span} view={view} /> : tab === 'links' ? <Links span={span} view={view} onError={(text) => (useRunHistory.getState().selected === span.id ? setError(text) : undefined)} /> : <Source span={span} view={view} />}
         {error !== null ? (
           <p className="w-fr-problem-text" role="alert">
             {error}
