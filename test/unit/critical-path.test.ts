@@ -10,6 +10,8 @@ import { join, posix, relative, resolve, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { JOURNAL_EVENT_KINDS } from '../../src/shared/autopilot/journal'
+import * as journalWalk from '../../src/shared/flight-recorder/journal-walk.mjs'
+import * as prFacts from '../../src/shared/flight-recorder/pr-facts.mjs'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 
@@ -285,6 +287,24 @@ describe('critical-path: the report after the reading moved to src/shared/flight
     ['all', ['--journals', JOURNALS, '--root', ROOT, '--prs', PRS]],
     ['night', ['--journals', join(NIGHT, 'data', 'autopilot'), '--prs', join(NIGHT, 'prs.json')]],
   ]
+
+  // The static imports of the two modules also tell CI (scripts/affected-tests.mjs) to run this file when they change.
+  it('holds no reading of its own: the kinds are journal-walk.mjs’s, the gh fields pr-facts.mjs’s', async () => {
+    expect(JOURNAL_KINDS).toBe(journalWalk.JOURNAL_KINDS)
+    const calls: string[][] = []
+    await criticalPath(['--journals', JOURNALS, '--root', ROOT, '--epic', 'demo-epic', '--tickets', '01'], {
+      env: {},
+      home: '/Users/someone',
+      cwd: tempDir(),
+      gh: async (args) => {
+        calls.push(args)
+        return { code: 0, stdout: '[]', stderr: '' }
+      },
+      out: () => undefined,
+      err: () => undefined,
+    })
+    expect(calls[0]).toContain(prFacts.GH_FIELDS)
+  })
 
   it.each(reports)('gives the %s report byte for byte as before, in Markdown and CSV', (name, args) => {
     for (const [ext, extra] of [
