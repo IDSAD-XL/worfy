@@ -277,6 +277,9 @@ than macOS, or a pid that is not the main process of a packaged worfy, such as a
 The files are `hang-<time>-<pid>.txt` in the `logs` folder of the packaged build's data folder. The script reads
 `WORFY_DATA_DIR` from its own environment and not from the process it samples.
 
+When the file of the main process holds `NSPersistentUIRestorer` and, under it, `NSAlert runModal`, macOS is asking
+whether to restore the windows and waits for an answer ([lessons](../lessons/agents.md)).
+
 #### The memory figure
 
 The toolbar shows how much memory worfy's own processes use, on the second line of the Harness column, after the app

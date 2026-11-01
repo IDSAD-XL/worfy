@@ -1101,6 +1101,9 @@ describe('scripts/ci-scope.mjs', () => {
     ['any file under docs/design/', 'docs/design/F-1.dc.html', NO_MACOS],
     ['README.md, which a test reads', 'README.md', NO_MACOS],
     ['the lessons index, which a test reads', 'docs/lessons/README.md', NO_MACOS],
+    // test/unit/map-of-worfy-svg.test.tsx compares them with the output of scripts/map-of-worfy-svg.mjs.
+    ['the light SVG of the Map of worfy, which a test reads', 'docs/images/map-of-worfy-light.svg', NO_MACOS],
+    ['the dark SVG of the Map of worfy, which a test reads', 'docs/images/map-of-worfy-dark.svg', NO_MACOS],
     ['ci.yml, rewritten', '.github/workflows/ci.yml', ALL],
     ['a workflow that packages nothing', '.github/workflows/windows-tests.yml', NO_MACOS],
     ['package.json', 'package.json', ALL],

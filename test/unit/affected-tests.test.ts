@@ -658,3 +658,18 @@ describe('scripts/affected-tests.table.json of this repository', () => {
     for (const path of ['scripts/affected-tests.mjs', 'scripts/affected-tests-table.mjs', 'scripts/affected-tests.table.json']) expect(all(path), path).toBe(true)
   })
 })
+
+// Outside the describe above: its beforeAll parses every test source, and its tests are quarantined on macOS.
+describe('scripts/affected-tests.table.json of this repository, the rows written by hand', () => {
+  const links = (JSON.parse(readFileSync(join(REPO, 'scripts', 'affected-tests.table.json'), 'utf8')) as { links: { paths: string[]; files: string[]; scan?: boolean }[] }).links
+
+  it('sends the SVG files of the Map of worfy and the CSS files of their colours to the test that compares them', () => {
+    // test/unit/map-of-worfy-svg.test.tsx reaches these files through scripts/map-of-worfy-svg.mjs, not by a
+    // path of its own, so no generated row names them. A row that is not a scan covers the path: a change of
+    // only an SVG, of tokens.css or of guide.css runs the test.
+    for (const path of ['docs/images/map-of-worfy-light.svg', 'docs/images/map-of-worfy-dark.svg', 'src/renderer/theme/tokens.css', 'src/renderer/guide/guide.css']) {
+      const rows = links.filter((entry) => entry.scan !== true && entry.paths.some((pattern) => posix.matchesGlob(path, pattern)))
+      expect(rows.flatMap((entry) => entry.files), path).toContain('test/unit/map-of-worfy-svg.test.tsx')
+    }
+  })
+})
