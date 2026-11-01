@@ -411,14 +411,17 @@ async function expectHistoryAt(window: Page, run: string): Promise<void> {
 
 test('the stop of a Run: a toast with its count that stays; "Open history", "History" by the status line, "Run history" under "⋯" and "Open Run history" in the palette open Run history of the active Project (worfy-flight-recorder ticket 20)', async () => {
   const { dataDir, claudeHome, log } = prepare()
-  // `orchestrator` with the Wave's turn held until the test releases it, as in the graceful Stop above;
-  // its third turn (the next run's Wave) holds until Force stop closes the Session.
+  // `orchestrator` with the Wave's turn held until the test releases it, as in the graceful Stop above.
+  // The next run's Session reads the script again: by then it is `orchestrator` as it is, whose first
+  // turn holds until Force stop interrupts it; its third turn holds the same way, should the run keep
+  // the Session.
   const scripts = join(scratch, 'scripts')
   mkdirSync(scripts, { recursive: true })
+  const script = join(scripts, 'autopilot-graceful.jsonl')
   const fixture = readFileSync(join(repoRoot, 'test', 'fixtures', 'agent-scripts', 'orchestrator.jsonl'), 'utf8').split('\n').filter(Boolean)
+  const interruptible = fixture.toSpliced(fixture.findIndex((line) => line.includes('msg_orch_3')) + 1, 0, '{"fake":"wait_interrupt"}')
   const held = fixture.map((line) => (line.includes('"wait_interrupt"') ? '{"fake":"wait_release","name":"turn"}' : line))
-  held.splice(held.findIndex((line) => line.includes('msg_orch_3')) + 1, 0, '{"fake":"wait_release","name":"next"}')
-  writeFileSync(join(scripts, 'autopilot-graceful.jsonl'), `${held.join('\n')}\n`)
+  writeFileSync(script, `${held.join('\n')}\n`)
   const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'autopilot-graceful', WORFY_AGENT_LOG: log }
   const launched = await launchApp({ env })
   try {
@@ -476,7 +479,8 @@ test('the stop of a Run: a toast with its count that stays; "Open history", "His
     await window.keyboard.press('ControlOrMeta+k')
     await window.getByTestId('palette-input').fill('Switch to project worfy')
     await window.keyboard.press('Enter')
-    await expect(frame).toHaveCount(0)
+    const subtitle = window.locator('.w-toolbar__subtitle')
+    await expect(subtitle).toHaveAttribute('title', /^worfy · /)
     await expect(toast).toHaveCount(0)
     await window.keyboard.press('ControlOrMeta+k')
     await window.getByTestId('palette-input').fill('Open Run history')
@@ -488,6 +492,7 @@ test('the stop of a Run: a toast with its count that stays; "Open history", "His
     await window.keyboard.press('ControlOrMeta+k')
     await window.getByTestId('palette-input').fill('Switch to project demo')
     await window.keyboard.press('Enter')
+    await expect(subtitle).toHaveAttribute('title', /^demo · /)
     await expect(toast).toBeVisible()
 
     // "Open history": the screen at this Run; the toast closes.
@@ -518,6 +523,7 @@ test('the stop of a Run: a toast with its count that stays; "Open history", "His
 
     // The next run, over 02 open again: "History" goes with its start; its own stop has a toast of its own.
     setState(2, 'open')
+    writeFileSync(script, `${interruptible.join('\n')}\n`)
     await frame.getByTestId('action-autopilot').click()
     await expect(status).toHaveText('Wave 1 · running')
     await expect(history).toHaveCount(0)
