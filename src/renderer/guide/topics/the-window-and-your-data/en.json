@@ -1,0 +1,110 @@
+{
+  "title": "The window and your data",
+  "summary": [
+    "Around the Canvas is worfy's window: the Command palette (⌘K), the menu, Settings, and notifications when a Session or a Ticket needs you. It is light or dark as the system is. worfy keeps its own state in a data folder on this Machine, and reads Tickets, ADRs and transcripts where they lie."
+  ],
+  "scene": {
+    "description": "The window and your data. On the left, what worfy reads where it lies: the workflow files, Tickets, HANDOFF and ADRs, from which a Ticket on the Canvas is read; and Claude home, from whose transcripts a Session's conversation is read. In the middle, the window: the Command palette and the menu, which both open Settings; a toast; and the Canvas with a Ticket and a Session. On the right, outside the window: the data folder, where Settings and each Canvas's Layout, Cards and trash are saved and where a renderer or helper process that ended leaves a line in logs/; and the system notification, which a Session or a Ticket that needs you raises. The Canvas's automatic archive shows a toast with Undo.",
+    "labels": {
+      "read": "READ WHERE THEY LIE",
+      "window": "THE WINDOW",
+      "machine": "OUTSIDE THE WINDOW",
+      "workflowFiles": "Workflow files",
+      "workflowFilesNote": "Tickets, HANDOFF, ADRs",
+      "claudeHome": "Claude home",
+      "claudeHomeNote": "~/.claude, the transcripts",
+      "palette": "Command palette",
+      "paletteNote": "⌘K: find and run",
+      "menu": "Menu",
+      "menuNote": "Settings…, Help ▸ worfy Guide",
+      "settings": "Settings",
+      "settingsNote": "worfy's own, on this Machine",
+      "toast": "Toast",
+      "toastNote": "a short message in the window",
+      "canvas": "Canvas",
+      "ticket": "Ticket",
+      "ticketNote": "read from its file",
+      "session": "Session",
+      "sessionNote": "one Claude Code conversation",
+      "diagnostics": "Diagnostics",
+      "diagnosticsNote": "a failed start, ended processes",
+      "dataFolder": "Data folder",
+      "dataFolderNote": "worfy's own state",
+      "notification": "System notification",
+      "notificationNote": "when worfy is not in front",
+      "opensToo": "Settings… (⌘,)",
+      "savesSettings": "app-settings.json",
+      "savesLayout": "Layout, Cards, trash",
+      "archived": "Archived N · Undo",
+      "logs": "logs/: ended processes",
+      "readsFiles": "read, not copied",
+      "readsTranscripts": "transcripts read",
+      "waits": "waits for you",
+      "needsYou": "finished or needs you",
+      "step1": "⌘K opens the Command palette: it finds commands and things of the Project and runs them. The palette and the menu open Settings, worfy's own settings on this Machine.",
+      "step2": "worfy keeps its own state in one data folder on this Machine: the Project list, Settings, and each Project's Layout, Cards and trash. None of it goes into the Project's repository.",
+      "step3": "Tickets, HANDOFF, ADRs and transcripts are not in that folder: worfy reads them where they lie.",
+      "step4": "While no worfy window has focus, a system notification says that a Session finished its turn or needs your answer, or that a Ticket waits for you. Inside the window, toasts give short messages.",
+      "step5": "If worfy cannot start, a window and stderr name the step that failed and what to try. A renderer or helper process that ended leaves a line in logs/ of the data folder."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "The data flow of Settings, notifications and the memory figure. In the renderer: the Settings window, the renderer copy of the settings, NotificationTarget and the memory figure. In the main process: the settings store, the SessionRegistry, the Notifier and the MemorySampler. On the side of the disk and the system: the data folder and the system notification. The Settings window sends a change on appSettings.set to the store, which writes it to the data folder through a temporary file and a rename, and sends appSettings.changed to the renderer copy of every window, which gives the window the newest state. The SessionRegistry passes a Session's result, permission request or question to the Notifier, which shows a system notification; its click comes back to the Notifier, which sends notify.open to NotificationTarget. The memory figure opens the MemorySampler with memory.open and gets each sample on memory.changed.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "system": "DISK AND SYSTEM",
+        "settingsWindow": "Settings window",
+        "settingsWindowNote": "one file per section",
+        "copy": "Renderer copy",
+        "copyNote": "keeps the newest revision",
+        "target": "NotificationTarget",
+        "targetNote": "opens what a click names",
+        "figure": "Memory figure",
+        "figureNote": "in the toolbar",
+        "store": "Settings store",
+        "storeNote": "writes only a real change",
+        "sessions": "SessionRegistry",
+        "sessionsNote": "the Sessions worfy runs",
+        "notifier": "Notifier",
+        "notifierNote": "decides; NoteDisplay shows",
+        "sampler": "MemorySampler",
+        "samplerNote": "every 5 s, while shown",
+        "dataFolder": "Data folder",
+        "dataFolderNote": "app-settings.json and more",
+        "os": "System notification",
+        "osNote": "macOS or Windows",
+        "set": "appSettings.set",
+        "write": "temp file, then rename",
+        "changed": "appSettings.changed",
+        "state": "newest state",
+        "events": "result, permission, question",
+        "show": "show",
+        "click": "click",
+        "open": "notify.open",
+        "memOpen": "memory.open",
+        "memChanged": "memory.changed"
+      }
+    },
+    "text": [
+      "The data folder is worfy for a packaged build and worfy-dev for a development build, so both run at once; WORFY_DATA_DIR overrides it. A second start over a folder in use quits.",
+      "Most JSON state files that do not parse or match their schema are set aside as <name>.unreadable-<time>, not overwritten, and that part of worfy starts empty."
+    ],
+    "files": {
+      "src/main/storage/paths.ts": "Where the data folder is",
+      "src/main/storage/json-file.ts": "Read with a schema, set-aside, atomic write",
+      "src/main/settings/store.ts": "The Machine's settings, app-settings.json",
+      "src/renderer/palette/commands.ts": "The palette's commands, from the window's state",
+      "src/shared/shortcuts.ts": "The one registry of shortcuts",
+      "src/main/notify.ts": "The rules of system notifications",
+      "src/renderer/toast/toasts.ts": "The store of toasts",
+      "src/main/startup-failure.ts": "The steps of the start; the failed-start window"
+    },
+    "limits": [
+      "No notification of a Session or a Ticket while a worfy window has focus; at most one per Session in 10 seconds.",
+      "At most 3 toasts are on screen; info and success toasts hide after 4 seconds.",
+      "Entries older than 3 days leave each Project's trash when the app starts."
+    ]
+  }
+}
