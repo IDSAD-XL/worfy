@@ -1,7 +1,7 @@
 # 02 — Длительность Wave
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T10:12Z
 Branch: worfy-resource-planner/02
 Blocked by: 01
 Source: [spec.md](../spec.md), «Решения» (Q11, Q12), «Прогноз Epic-а» («Длительность Wave»), «Не решено» (выбрано без решения, п. 5); [ADR-0093](../../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md), п. 3, 4
@@ -30,11 +30,11 @@ Source: [spec.md](../spec.md), «Решения» (Q11, Q12), «Прогноз E
 
 ## Готово, когда
 
-- [ ] Unit test: Wave 40 минут без ожиданий — 40 минут; Wave с `limits-hit` 10:00 → `resumed` 12:00 внутри — минус
+- [x] Unit test: Wave 40 минут без ожиданий — 40 минут; Wave с `limits-hit` 10:00 → `resumed` 12:00 внутри — минус
       2 часа; ожидание без `resumed` — до `wave-finished`; Wave без `wave-finished` — нет выборки; две Wave в разных Run.
-- [ ] Unit test: 4 выборки — `p90: null`; 10 выборок 1…10 минут — p90 9 минут (nearest-rank); 12 выборок — берутся 10
+- [x] Unit test: 4 выборки — `p90: null`; 10 выборок 1…10 минут — p90 9 минут (nearest-rank); 12 выборок — берутся 10
       последних.
-- [ ] Test-ы краснеют на mutant-ах: ожидания не вычитаются; порог 5 → 4; берутся первые 10, а не последние.
+- [x] Test-ы краснеют на mutant-ах: ожидания не вычитаются; порог 5 → 4; берутся первые 10, а не последние.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
 
 ## Тесты
@@ -50,3 +50,30 @@ Source: [spec.md](../spec.md), «Решения» (Q11, Q12), «Прогноз E
 
 Только читать: `src/shared/autopilot/journal.ts` (виды `:220`, схема `:309`), `src/shared/autopilot/forecast.ts`
 (Ticket 01, `percentile`), `src/main/autopilot/run.ts` (`wave-started` `:1094`, ожидание budget `:1206-1207`).
+
+## Итог
+
+- `src/shared/autopilot/wave-duration.ts` (новый, чистый, без Node и DOM): `DURATION_WAVES` = 10 (`:16`),
+  `DURATION_MIN_SAMPLES` = 5 (`:18`). `waveDurations(runs)` (`:41`) — длительности в ms 10 последних Wave по
+  времени `wave-finished`, старшая первой: от `wave-started` до `wave-finished` того же номера в одном Run минус
+  ожидания Limits внутри пары (`limits-hit` … `resumed`; не закрытое — до `wave-finished`). `waveDurationP90(runs)`
+  (`:67`) — `{ p90, samples }`, p90 через `percentile` Ticket-а 01; меньше 5 выборок — `p90: null` («мало данных о
+  длительности»). Время — `at` строк со смещением, поэтому смена часов (DST) и полночь длительность не искажают.
+- Решено без владельца, подтвердить:
+  1. Второй `limits-hit` при открытом ожидании ожидание не перезапускает: оно идёт от первого.
+  2. Ожидание, начатое до `wave-started` (Run так не пишет, но Journal может), из Wave не вычитается — вычитается
+     только ожидание, начатое внутри пары. `resumed` без открытого ожидания ничего не вычитает.
+  3. `wave-started` при открытой Wave без `wave-finished` бросает прежнюю: она выборки не даёт, её открытое ожидание
+     в новую Wave не переходит. `wave-finished` другого номера, чем открытая Wave, выборки не даёт и закрывает её;
+     повторный `wave-finished` даёт одну выборку.
+  4. Ответ `waveDurationP90` — `{ p90: number | null, samples: number }`, длительности в миллисекундах.
+- Test — `test/unit/autopilot-wave-duration.test.ts`, 29 test-ов; строки fixture-ов проходят `journalEventSchema`.
+  Сначала падали test-ы ожиданий Limits и порядка по концу Wave (заготовка без вычитания и сортировки: 6 из 26
+  красные). Mutant-ы, прогнаны скриптом на файле модуля, test красный на каждом (17 из 17):
+  ожидания не вычитаются; ожидание без `resumed` не закрывается на `wave-finished`; порог 5 → 4; `<` → `<=`;
+  берутся первые 10; без сортировки; сортировка по началу Wave; `DURATION_WAVES` 10 → 11; p90 → p50; второй
+  `limits-hit` перезапускает ожидание; `resumed` без открытого ожидания; без проверки номера Wave; открытая Wave
+  переходит в следующий Run; ожидание прежней Wave переходит в новую; Wave не закрывается после `wave-finished`;
+  время по стенным часам без смещения; ожидание вне Wave вычитается.
+- `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (551 файл, 11864 test-а).
+- Оценка автора: около 90 тысяч token-ов.
