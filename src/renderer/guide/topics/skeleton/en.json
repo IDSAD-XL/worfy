@@ -1,8 +1,8 @@
 {
   "title": "How the Guide works",
   "summary": [
-    "The Guide explains worfy in short Topics: a diagram, a few lines of text and, folded below, how the Feature is built in code.",
-    "Open it from Help ▸ worfy Guide or from the Command palette. It needs no Project and no network, and it never opens by itself."
+    "The Guide explains worfy in short Topics: a diagram, a few lines of text and, folded below, how the Feature is built in code. Point at a block to light it and its connections; Play goes through the steps.",
+    "Open it from Help ▸ worfy Guide, from the Command palette, or from the link worfy Guide in Getting started and on First run's page of concepts. It needs no Project and no network, and it never opens by itself."
   ],
   "scene": {
     "description": "Help ▸ worfy Guide and a row of the Command palette both open the Guide. The Guide reads each Topic from its folder in the app's own code: the texts in English and Russian and the diagram.",

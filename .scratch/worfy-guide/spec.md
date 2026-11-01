@@ -245,13 +245,26 @@ Guide дополняет `docs/features/`, а не заменяет их. Стр
 
 ## Готово, когда
 
-- [ ] Owner выбрал направление (02) и принял пилот (10).
-- [ ] Guide открывается из меню, Command palette, Getting started и First run, без Project и без сети, и сам не открывается.
-- [ ] Map of worfy и все 12 Topic-ов есть на двух языках, каждое утверждение сверено с кодом.
-- [ ] `prefers-reduced-motion` и текстовые описания работают во всех схемах.
-- [ ] Закрытый Guide не загружает чанк при старте и не анимирует.
-- [ ] `scripts/guide-lag.mjs` входит в ежемесячный аудит.
-- [ ] README причёсан, Map of worfy в нём (21).
+- [x] Owner выбрал направление (02) и принял пилот (10). — «Итог» 02: «2 вариант номер 1» (Living Canvas); «Итог» 10:
+  «Гайд посмотрел, принимаю».
+- [x] Guide открывается из меню, Command palette, Getting started и First run, без Project и без сети, и сам не открывается. —
+  `test/e2e/guide.spec.ts:42` (старт его не открывает), `:70` (Help ▸ worfy Guide и palette, без Project и без сети — шапка
+  файла), `test/e2e/guide-entry-links.spec.ts:127` и `:175` (Getting started, First run, у старого пользователя ничего не
+  открывается само), `test/unit/guide-window.test.tsx:94`.
+- [x] Map of worfy и все 12 Topic-ов есть на двух языках, каждое утверждение сверено с кодом. — папки
+  `src/renderer/guide/topics/` (Map, 12 Topic-ов и тестовый `skeleton`), у каждой `en.json` и `ru.json`; пробелы
+  перевода ловит `test/unit/guide-content.test.tsx:59`; утверждения с источником `file:line` — «Итог» 05–08 и 11–19,
+  каждый проверен вторым агентом; правки Ticket-а 20 — в его «Итог».
+- [x] `prefers-reduced-motion` и текстовые описания работают во всех схемах. — общий набор схем:
+  `test/unit/guide-scene.test.tsx:167` (screen reader читает каждую связь), `:384` (Reduce motion: кадров нет);
+  `test/e2e/guide.spec.ts:258`; у каждой схемы и диаграммы потока есть `description` на двух языках; снимки Reduce motion
+  каждого Topic-а — `evidence/NN-<id>-reduced-motion-ru-*.png`.
+- [x] Закрытый Guide не загружает чанк при старте и не анимирует. — `test/e2e/guide.spec.ts:42` (старт не грузит чанк
+  `GuideWindow-*.js`), `:213` (точки движутся только в открытом Guide и в поле видимости),
+  `test/unit/guide-scene.test.tsx:398` (после закрытия не остаётся ни кадра, ни observer-а).
+- [x] `scripts/guide-lag.mjs` входит в ежемесячный аудит. — сделал orchestrator 2026-11-01: файл задачи правлен напрямую,
+  после `feature-docs-lag` задача запускает `node scripts/guide-lag.mjs`; показывает ли приложение Claude новое описание — взглянуть владельцу.
+- [ ] README причёсан, Map of worfy в нём (21). — Ticket 21 ещё не начат.
 
 ## Волны
 

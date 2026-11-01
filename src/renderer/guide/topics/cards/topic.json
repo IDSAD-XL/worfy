@@ -1,5 +1,5 @@
 {
-  "sources": [{ "page": "docs/features/cards.md", "sha": "02be335e" }],
+  "sources": [{ "page": "docs/features/cards.md", "sha": "ee30655f" }],
   "files": [
     "src/main/cards/store.ts",
     "src/main/cards/protocol.ts",
