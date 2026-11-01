@@ -1,7 +1,8 @@
 # 21 — Причесать README и показать в нём Map of worfy
 
 Type: task
-Status: claimed 2026-11-01T08:19Z
+Status: done 2026-11-01T11:06Z
+PR: #1204
 Blocked by: 20
 Source: [spec.md](../spec.md), Q22, слово владельца 2026-10-31
 
@@ -36,7 +37,7 @@ PR: #1204, ветка `worfy-guide/21`. План README владелец при�
 **Что сделано.**
 
 - `README.md` переписан по плану: что такое worfy, Map of worfy, для кого, статус, требования, первый запуск, обновление, Guide и документация, разработка (с Windows), закрытие Terminal на Windows, Stable copy. Исправлены 7 неверных и 3 неточных утверждения из раздела 1 плана. Убраны история winget, подробности data-папок, второго запуска, status line bridge и `hang-sample.mjs`: они есть в `docs/features/storage-and-diagnostics.md:17,25-27,126-128,338`.
-- Оставлены, хотя план предлагал убрать: раздел о закрытии Terminal на Windows (в `docs/features/terminal.md` нет `Stop-Process -Force`, отсутствия подтверждения, потери несохранённого, судьбы процессов без родителя и elevated, проверки pid, предела 3 s и сигналов macOS: переносить отдельным docs-PR) и подробности `pnpm install:stable` (папки `.installing-`/`.replaced-`, отказы на Windows: их нет на страницах docs/features). На раздел «Stable copy» ссылаются `scripts/install-stable.mjs:3`, `scripts/hang-sample.mjs:7` и ADR-0034:31, на «Development on Windows» — `test/contract/windows-tests-workflow.test.ts:525`; заголовки сохранены.
+- Оставлены, хотя план предлагал убрать: раздел о закрытии Terminal на Windows (в `docs/features/terminal.md` нет `Stop-Process -Force`, отсутствия подтверждения, потери несохранённого, судьбы процессов без родителя и elevated, проверки pid, предела 3 s и сигналов macOS: переносить отдельным docs-PR) и подробности `pnpm install:stable` (папки `.installing-`/`.replaced-`, отказы на Windows: их нет на страницах docs/features). Перенесены docs-PR 2026-11-01 (ветка `docs/day-2026-11-01`): закрытие Terminal — в `docs/features/terminal.md` («Closing a Terminal»), папки и отказы — в `docs/features/updates.md`, с переводом в `docs/features/ru/`; README ссылается туда. На раздел «Stable copy» ссылаются `scripts/install-stable.mjs:3`, `scripts/hang-sample.mjs:7` и ADR-0034:31, на «Development on Windows» — `test/contract/windows-tests-workflow.test.ts:525`; заголовки сохранены.
 - Map of worfy — два SVG, `docs/images/map-of-worfy-light.svg` и `-dark.svg`, в `<picture>` с `media="(prefers-color-scheme: dark)"`. Их пишет `node scripts/map-of-worfy-svg.mjs` из данных самой Map: блоки, рамки, подписи областей и Edge-и — `src/renderer/guide/topics/map-of-worfy/spec.ts`, тексты — его `en.json`, геометрия — `src/renderer/guide/scene/model.ts` (`edgeShape`, `noteLines`, размеры), группы — `src/renderer/guide/scene-colours.ts`, цвета — hex из `src/renderer/theme/tokens.css` и `src/renderer/guide/guide.css` (светлые и блок `@media (prefers-color-scheme: dark)`). Отличия от живой схемы: свой непрозрачный фон `--surface`, все подписи Edge-ей видны сразу, нет бегущих точек и шагов.
 - `test/unit/map-of-worfy-svg.test.tsx`: закоммиченные SVG совпадают с выводом скрипта (CRLF Windows-checkout-а приводится к LF); каждый текст ≥4.5:1 к своему фону; на схеме все блоки, подписи и метки Edge-ей Map; стрелки — ровно Edge-и `spec.ts`; нет ссылок, script, web-шрифтов и локальных путей; README показывает тёмный файл через `<source>` и светлый через `<img>` с alt.
 

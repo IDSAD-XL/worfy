@@ -168,6 +168,12 @@ and the new version.", and on a failure it shows the reason. There is no changel
 - The restart needs `node.exe` on the Path. A `node.cmd` alone is refused: "the node found is no program worfy can
   start by itself (node.exe)".
 - The clone checks out the bytes of `main` (`core.autocrlf` off), whatever Git for Windows asks for.
+- `pnpm package` also writes an unsigned installer, `dist\worfy Setup <version>.exe`, which installs worfy into
+  `%LOCALAPPDATA%\Programs\worfy`; SmartScreen asks before its first run (More info → Run anyway). The installer stops
+  every running program whose path starts with that folder, so `pnpm install:stable` refuses a target inside it, around
+  it or starting with its path (`…\Programs\worfy-stable`), a folder that holds `Uninstall worfy.exe`, and a folder that
+  is neither empty nor an earlier copy. A folder with `worfy.exe` counts as an earlier copy and is replaced whole: keep
+  nothing of your own in it.
 
 #### On a Linked machine
 
@@ -196,6 +202,9 @@ updates its own Stable copy.
   ([ADR-0089](../adr/0089-update-builds-main-in-own-clone.md), point 5).
 - **One previous copy.** The swap keeps the copy it replaces as the previous one and removes the one kept before. A
   manual `pnpm install:stable` keeps none: it removes the copy it replaces, as before.
+- **Temporary folders next to the target.** While `pnpm install:stable` works it keeps `<target>.installing-<pid>` and
+  `<target>.replaced-<pid>` next to the target, and the next run clears what an interrupted one left; keep nothing of
+  your own under such names.
 - **Not here: signed builds.** GitHub Releases, `electron-updater`, the Developer ID signature, Apple notarisation and
   the signature of the Windows installer stay in E4 of the [roadmap](../roadmap.md)
   ([ADR-0089](../adr/0089-update-builds-main-in-own-clone.md), point 8;

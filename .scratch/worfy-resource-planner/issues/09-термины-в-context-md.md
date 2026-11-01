@@ -1,7 +1,8 @@
 # 09 — Термины в CONTEXT.md: Run mode, Start window, Epic forecast
 
 Type: task
-Status: claimed 2026-11-01T08:32Z
+Status: done 2026-11-01T11:06Z
+PR: #1205
 Branch: worfy-resource-planner/09
 Blocked by: —
 Source: [spec.md](../spec.md), «Термины», «Решения» (Q6′), «Не решено» (выбрано без решения, п. 12)

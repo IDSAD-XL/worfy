@@ -88,6 +88,23 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
 Заполняется при закрытии. Ticket open: `subagent-tree`, `terminal-windows` и Git Bash ждут замеров ПК.
 Часть 5: зелёный shell test Harness печатает в журнал свои строки `skip` (раздел «Часть 5» ниже).
 
+- Merged: часть 2 `wave-gate` — #1201 (`b0164889`); часть 3 `docs-watch-root-gone` — #1202 (`d6b0f908`); часть 4
+  `card-api` — #1207 (`5c5b7693`); часть 5 — #1209. Ticket закрывается после приёмки: строка `skip the dangerous
+  direction` в журнале job-а `harness-scripts` Windows CI и 20 зелёных `windows-e2e` для `card-api`.
+- `docs-watch-root-gone.test.ts:450`: гипотеза из «Что происходит» (чтение опустошённого `HANDOFF.md`) поправлена.
+  Запись через rename не помогла бы. Причина — гонка в test-е: он ждал таймер последнего чтения плюс 100 ms, а чтение
+  под нагрузкой шло дольше и попадало на запись `HANDOFF.md` (раздел «2026-11-01, ПК: три test-а» ниже).
+- Gate full на ПК, main `b0164889`: зелёный, 3121 s (lint 43.2, typecheck 52.8, test 1194.6, e2e 1700.3, package
+  128.9). Первый зелёный gate full на main после #1173/#1182/#1193/#1198–#1205; на ПК 4 зелёных из 7. Журнал на ПК:
+  `throughput-56/gate-b0164889-w8/`.
+- Замечены flaky test-ы, причина не установлена; второй случай — Ticket `worfy-polish`:
+  - `harness/bin/tests/agents-text.test.sh:515-519` («a held e2e lock»): красный один раз в полном `pnpm test` на Mac
+    под нагрузкой, в одиночку зелёный.
+  - `test/contract/login-shell-capture.test.ts:146`: читает `after` раньше, чем он записан; красный один раз под полной
+    нагрузкой, в одиночку зелёный. Второй случай кандидата из «Что происходит».
+  - `test/unit/chat-attachments.test.tsx:293` и `:298`: вызов `agent.attach` попадает в следующий test; load average
+    40–57, в одиночку зелёный.
+
 ### 2026-10-31, ветка `worfy-polish/47-e2e-logic`: логика двух e2e test-ов, третий — вопрос владельцу; пределы не тронуты
 
 - `test/e2e/linked-browser.spec.ts:90`. Путь ввода от A к B прочитан: каждое нажатие — отдельный `browser.input`

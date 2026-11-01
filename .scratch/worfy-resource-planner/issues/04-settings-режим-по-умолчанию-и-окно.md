@@ -1,7 +1,8 @@
 # 04 — Settings: режим по умолчанию и окно запуска
 
 Type: task
-Status: claimed 2026-11-01T08:42Z
+Status: done 2026-11-01T11:06Z
+PR: #1208
 Branch: worfy-resource-planner/04
 Blocked by: —
 Source: [spec.md](../spec.md), «Термины», «Решения» (Q6′, Q14, Q15), «Режим запуска» («Выбор»), «Что видит пользователь» (Settings → Autopilot), «Не решено» (выбрано без решения, п. 3, 8), «Риски», п. 2; [ADR-0093](../../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md), п. 1

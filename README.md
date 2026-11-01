@@ -83,11 +83,7 @@ Visual Studio Build Tools are not needed: on Windows `pnpm install` does not reb
 
 ### Closing a Terminal on Windows
 
-Closing a Terminal Node on Windows ends every process that is below the shell in the process tree at that moment, not only the shell. worfy first ends each process below the shell (`Stop-Process -Force`), then closes the pseudo-console, which ends the shell and what is on its console. That includes programs with a window of their own started from the Terminal, an editor for example: they are ended at once and get no request to close, so what was not saved in them is lost. worfy does not ask before it closes a Terminal. The tree is walked from the shell down through parents that are still running: a program whose parent has already exited, one started through a launcher or `cmd /c start` for example, is not found and stays, unless it is on the console of the shell.
-
-The same happens when the Node leaves the Layout by any other route, when its Project is removed from worfy, when the last window or Linked machine that opened the Terminal goes away, and when worfy quits. A program worfy cannot end, an elevated one for example, stays, and its pid goes to the log. The step that ends the processes below the shell has a limit of 3 seconds, and 4.5 seconds for Git Bash, which first gets a hangup signal and 1.5 seconds to exit; when it fails or reaches its limit, the processes it had not ended stay. When no process has the pid of the shell any more, or the one that has it was created later than the shell worfy started, worfy ends nothing below it. In each of these cases the pseudo-console is still closed.
-
-On macOS closing a Terminal sends SIGHUP to the shell and its process group, and SIGKILL a second later when the shell has not exited by then.
+Closing a Terminal Node on Windows ends every process that is below the shell in the process tree at that moment, not only the shell, and worfy does not ask before it closes a Terminal: what was not saved in a program started from it is lost. The details, the limits of each step and what closing does on macOS: [Terminal](docs/features/terminal.md#closing-a-terminal).
 
 ## Stable copy
 
@@ -105,9 +101,9 @@ pnpm install:stable                        # Windows: %LOCALAPPDATA%\worfy-stabl
 pnpm install:stable D:\apps\worfy-stable   # any other folder
 ```
 
-It builds the app (`pnpm package`) and swaps it in: the previous copy is moved aside until the new one is in place, and put back when the swap fails. It writes the commit and the build time into a file next to the copy (`worfy-stable.json` for the default target); nothing is written inside the copy. It refuses with a non-zero exit code while the copy is running: stop Autopilot first, or wait for the gap between Waves. While it works it keeps `<target>.installing-<pid>` and `<target>.replaced-<pid>` next to the target, and the next run clears what an interrupted one left; keep nothing of your own under such names.
+It builds the app (`pnpm package`) and swaps it in: the previous copy is moved aside until the new one is in place, and put back when the swap fails. It writes the commit and the build time into a file next to the copy (`worfy-stable.json` for the default target); nothing is written inside the copy. It refuses with a non-zero exit code while the copy is running: stop Autopilot first, or wait for the gap between Waves. The temporary folders it keeps next to the target: [Updates](docs/features/updates.md#how-it-works).
 
-On Windows the Stable copy is a copy of the unpacked app, `dist\win-unpacked`, started by `worfy.exe`; it gets no shortcut in the Start menu. `pnpm package` also writes an unsigned installer, `dist\worfy Setup <version>.exe`, which installs worfy into `%LOCALAPPDATA%\Programs\worfy`; SmartScreen asks before its first run (More info → Run anyway). The installer stops every running program whose path starts with that folder, so the command refuses a target inside it, around it or starting with its path (`…\Programs\worfy-stable`), a folder that holds `Uninstall worfy.exe`, and a folder that is neither empty nor an earlier copy. A folder with `worfy.exe` counts as an earlier copy and is replaced whole: keep nothing of your own in it.
+On Windows the Stable copy is a copy of the unpacked app, `dist\win-unpacked`, started by `worfy.exe`; it gets no shortcut in the Start menu. The unsigned installer and the targets the command refuses there: [Updates](docs/features/updates.md#on-windows).
 
 After a new copy is installed on a Mac, answer its dialogs (notifications and other permissions) before Autopilot starts: the ad-hoc signature changes with every build, so macOS may ask again.
 

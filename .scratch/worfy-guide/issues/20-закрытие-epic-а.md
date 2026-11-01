@@ -1,7 +1,8 @@
 # 20 — Закрытие Epic-а: отчёт об отставании в ежемесячном аудите
 
 Type: task
-Status: open
+Status: done 2026-11-01T11:06Z
+PR: #1200
 Blocked by: 11, 12, 13, 14, 15, 16, 17, 18, 19
 Source: [spec.md](../spec.md), Q9, Q17
 

@@ -1,7 +1,8 @@
 # 02 — Длительность Wave
 
 Type: task
-Status: claimed 2026-11-01T10:12Z
+Status: done 2026-11-01T11:06Z
+PR: #1212
 Branch: worfy-resource-planner/02
 Blocked by: 01
 Source: [spec.md](../spec.md), «Решения» (Q11, Q12), «Прогноз Epic-а» («Длительность Wave»), «Не решено» (выбрано без решения, п. 5); [ADR-0093](../../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md), п. 3, 4
@@ -77,6 +78,8 @@ Source: [spec.md](../spec.md), «Решения» (Q11, Q12), «Прогноз E
   Сначала падали test-ы ожиданий Limits и порядка по концу Wave (заготовка без вычитания и сортировки: 6 из 26
   красные). `test/contract/autopilot-limits.test.ts`: test хода человека во время ожидания теперь требует
   `resumed` сразу после хода, до срабатывания таймера; test позднего таймера — ровно один `resumed`.
+- Долг [low] из ревью #1212: `test/contract/autopilot-limits.test.ts:618-621` ждёт `running` до того, как
+  дописан `resumed`.
 - Mutant-ы, прогнаны скриптами на файлах, test красный на каждом. Модуль (20 из 20): ожидания не вычитаются;
   ожидание без `resumed` не закрывается на `wave-finished`; порог 5 → 4; `<` → `<=`; берутся первые 10; без
   сортировки; сортировка по началу Wave; `DURATION_WAVES` 10 → 11; p90 → p50; p90 → p85 (7 выборок); второй
