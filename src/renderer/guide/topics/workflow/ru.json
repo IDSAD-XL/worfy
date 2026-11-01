@@ -1,0 +1,103 @@
+{
+  "title": "Workflow",
+  "summary": [
+    "Работа Project-а живёт в файлах Ticket-ов, собранных в Epic-и. worfy читает их и рисует каждый Epic рамкой на Canvas: в ней карточка на каждый Ticket и стрелки от блокеров. Статус worfy не пишет никогда, его ставят агенты. Pipeline показывает, на каком Stage стоит каждый Ticket, а Binding связывает каждого агента с его Ticket-ом или Epic-ом."
+  ],
+  "scene": {
+    "description": "Workflow в worfy. worfy читает файлы Ticket-ов и рисует Epic рамкой на Canvas с карточкой на каждый Ticket. Ticket 01 сделан и блокирует Ticket 02, который открыт и готов сейчас, поэтому входит в плашку Ready wave на рамке. Run wave на рамке отправляет Wave Orchestrator-у, и он привязан к Epic-у. Ship ticket на Ticket 02 запускает Session, она привязана к Ticket-у и берёт его в файлах Ticket-ов командой ticket claim. Pipeline берёт статус из файлов Ticket-ов, а PR, проверки и отметки — из GitHub, и показывает Stage Ticket-а на его карточке как stepper.",
+    "labels": {
+      "notNodes": "Не Node-ы",
+      "canvas": "Canvas",
+      "epic": "Epic",
+      "wave": "Ready wave · N",
+      "waveNote": "Ticket-ы, которые можно брать сейчас; вычисляется и нигде не хранится",
+      "ticketDone": "Ticket 01",
+      "ticketDoneNote": "сделан: стопка Done раскрыта",
+      "ticketReady": "Ticket 02",
+      "ticketReadyNote": "открыт, блокер сделан",
+      "orchestrator": "Orchestrator",
+      "orchestratorNote": "главная Session Project-а",
+      "session": "Session",
+      "sessionNote": "запущена Ship ticket",
+      "files": "Файлы Ticket-ов",
+      "filesNote": "источник правды",
+      "pipeline": "Pipeline",
+      "pipelineNote": "Stage для каждого Ticket-а",
+      "github": "GitHub",
+      "githubNote": "PR, проверки CI, отметки",
+      "readsFiles": "worfy их читает",
+      "blocks": "блокирует",
+      "readyNow": "готов сейчас",
+      "runWave": "Run wave",
+      "binding": "Binding",
+      "shipTicket": "Ship ticket",
+      "ticketClaim": "ticket claim",
+      "stepper": "stepper на карточке",
+      "status": "статус",
+      "facts": "PR, проверки, отметки",
+      "step1": "worfy читает файлы Ticket-ов и рисует каждый Epic рамкой с карточкой на каждый Ticket. Сделанные Ticket-ы сложены в колонку Done, остальные стоят по уровням зависимостей.",
+      "step2": "Открытые Ticket-ы, у которых все блокеры сделаны, а файлы не держит другой Ticket, образуют готовую Wave.",
+      "step3": "Ship ticket запускает Session на один Ticket, Run wave отправляет Wave Orchestrator-у. Агент сам отмечает свой Ticket взятым командой ticket claim.",
+      "step4": "Pipeline ставит каждый Ticket на Stage по его статусу, PR, проверкам CI и отметкам. Карточка показывает Stage как stepper, доска Pipeline — колонками.",
+      "step5": "Binding связывает каждого агента с одним Ticket-ом или Epic-ом: по запуску, по его ticket claim, по его ветке или по тому, что вы бросили его Node на цель. Его показывает пунктирная линия."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "Поток данных workflow и его Stage-ей. В renderer: рамки и карточки, общая копия и доска Pipeline со stepper-ом. В main process: WorkflowHub и StageHub. Вне worfy: файлы Ticket-ов, epic-status из Harness, git и GitHub. Общая копия запрашивает WorkflowHub по workflow.open. Hub следит за файлами Ticket-ов и ref-ами git, запускает epic-status, который читает файлы, и получает модель обратно. Общей копии он шлёт только изменённое, по workflow.changed, и из копии получаются Node-ы. Доска запрашивает StageHub по pipeline.get. StageHub следит за изменениями полей Ticket-ов в hub, берёт головы веток из git и PR, проверки и отметки из GitHub и шлёт изменённый снимок по pipeline.changed.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "outside": "ВНЕ WORFY",
+        "nodes": "Рамки и карточки",
+        "nodesNote": "вычисляются, не сохраняются",
+        "copy": "Общая копия",
+        "copyNote": "одна модель на Project",
+        "stages": "Доска и stepper",
+        "stagesNote": "Stage каждого Ticket-а",
+        "hub": "WorkflowHub",
+        "hubNote": "один watcher на Project",
+        "stageHub": "StageHub",
+        "stageHubNote": "факты, затем stageOf",
+        "files": "Файлы Ticket-ов",
+        "filesNote": "папки Epic-ов, spec.md, issues/",
+        "epicStatus": "epic-status",
+        "epicStatusNote": "читатель из Harness",
+        "git": "git",
+        "gitNote": "ветки, worktree",
+        "github": "GitHub",
+        "githubNote": "читается через gh",
+        "open": "workflow.open",
+        "changed": "workflow.changed",
+        "toNodes": "Node-ы",
+        "fileEvents": "события файлов",
+        "runs": "запускает",
+        "model": "модель --json",
+        "reads": "читает",
+        "refs": "сдвинутые ветки",
+        "fields": "изменённые поля",
+        "get": "pipeline.get",
+        "pipelineChanged": "pipeline.changed",
+        "heads": "головы веток",
+        "prs": "PR, проверки, отметки"
+      }
+    },
+    "text": [
+      "worfy никогда не пишет workflow (ADR-0002): единственный читатель формата Ticket-а — epic-status. В Full mode статус ветки worktree идёт поверх статуса checkout-а, поэтому взятый Ticket виден сразу, но ветка никогда не отменяет blocked или done.",
+      "Рамки, карточки, Stage-и и автоматические Binding-и вычисляются и нигде не хранятся. Из всего этого worfy хранит в своей папке данных только сдвиг и свёрнутость рамки, а также ручные Binding-и и Binding-и запуска."
+    ],
+    "files": {
+      "src/main/workflow/reader.ts": "Запускает epic-status и кладёт статусы веток поверх checkout-а",
+      "src/main/workflow/watch.ts": "WorkflowHub и общий watcher",
+      "src/shared/workflow/waves.ts": "Уровни и готовая Wave",
+      "src/shared/workflow/pipeline.ts": "Каталог Stage-ей, stageOf, stuck",
+      "src/main/workflow/stages.ts": "StageReader и StageHub: факты",
+      "src/shared/binding/resolve.ts": "Правила Binding-а, сильнейшее первым"
+    },
+    "limits": [
+      "Событие файла запускает один epic-status после 300 мс тишины, самое позднее через 1 с после первого события.",
+      "Stage-и пересчитываются при каждом изменении полей Ticket-а и раз в 60 с. gh запускается раз в 60 с, а пока он падает, интервал удваивается до 32 минут.",
+      "Stuck по умолчанию: через 2 часа на Implementing, CI, Agent review или Gate & merge; через 24 часа на Human review или Awaiting merge, или пока Waits: — owner или team."
+    ]
+  }
+}

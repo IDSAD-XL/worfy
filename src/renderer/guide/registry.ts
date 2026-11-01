@@ -26,6 +26,7 @@ export const GUIDE_TOPICS: readonly GuideTopicEntry[] = [
   { id: 'browser', title: 'Browser', keys: ['chromium', 'sign-in', 'origins'] },
   { id: 'terminal', title: 'Terminal', keys: ['terminal ai', 'shell', 'zsh'] },
   { id: 'harness', title: 'Harness', keys: ['plugin', 'skills', 'hooks', 'profile'] },
+  { id: 'workflow', title: 'Workflow', keys: ['pipeline', 'binding', 'epics and tickets'] },
   { id: 'skeleton', title: 'How the Guide works', keys: ['guide test', 'skeleton'], devOnly: true },
 ]
 

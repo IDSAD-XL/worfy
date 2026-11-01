@@ -1,0 +1,11 @@
+{
+  "sources": [{ "page": "docs/features/workflow.md", "sha": "74d5ad8d" }],
+  "files": [
+    "src/main/workflow/reader.ts",
+    "src/main/workflow/watch.ts",
+    "src/shared/workflow/waves.ts",
+    "src/shared/workflow/pipeline.ts",
+    "src/main/workflow/stages.ts",
+    "src/shared/binding/resolve.ts"
+  ]
+}
