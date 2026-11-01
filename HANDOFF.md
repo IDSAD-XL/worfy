@@ -18,8 +18,8 @@
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 14/15; 14 и 15 влиты, 12 ждёт приёмки владельцем. `worfy-guide`: закрыт, 21/21.
-- `worfy-flight-recorder` (ADR-0091): 24/27; открыты 20 (после `worfy-resource-planner` 06, 07: общие `run.ts`, `ipc/autopilot.ts`, `AutopilotAction.tsx`, `autopilot.spec.ts`), 24, 25.
-- `worfy-resource-planner`: 6/12; 06, 07 в работе, затем 08.
+- `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): 26/27; 20 и 24 влиты; открыт 25 — приёмка владельцем.
+- `worfy-resource-planner`: 10/12; 01–10 влиты; 11 в работе, 12 — приёмка владельцем.
 
 ## Ждёт владельца
 
@@ -50,8 +50,8 @@
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
 - Ложный таймаут первого окна в e2e: заблокированный экран, сеанс macOS владельца в фоне, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают; на Mac владельца ещё и `defaults` для `com.github.Electron`) — [agents.md](docs/lessons/agents.md).
 - Замок e2e: в `rules.md` Profile владельца heartbeat ещё старый (без выхода при снятом замке); новая строка — в PR `worfy-harness` 49, вносит владелец.
-- Windows exception-ы `terminal-windows-close-no-console-host` и `workflow-branches-gone` (`test/quarantine/`) до 2026-12-15 — решает Orchestrator.
-- [low] `worfy-flight-recorder` — «Долг» в «Итог» 11–16, 21–23: `spans.ts:335`, `:613-620`, `:742`; `resumable` и Ticket `00` — в brief 20; helper `transcripts.ts`, account `githubFacts` — в 17.
+- Windows exception-ы `terminal-windows-close-no-console-host` и `workflow-branches-gone-worktree-then-repository` (`test/quarantine/`) до 2026-12-15 — решает Orchestrator.
+- [low] `worfy-flight-recorder` — «Долг» в «Итог» 11–16, 21–23: `spans.ts:335`, `:613-620`, `:742`; helper `transcripts.ts`, account `githubFacts` — в 17.
 - [low] `worfy-windows` — «Долг» в «Итог» 119, 120: test-ы порядка папок, `UCRT64` и skip под `WIN=1`.
 - Долги low — в «Итог» Ticket-ов (абзацы «Долг» и подраздел «Долги из HANDOFF (2026-10-08)»), разбор — шаг документов при закрытии Epic-а.
 

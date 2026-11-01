@@ -1,7 +1,8 @@
 # 20 — Входы и toast при остановке
 
 Type: task
-Status: claimed 2026-11-01T14:19Z
+Status: done 2026-11-01T15:55Z
+PR: #1222
 Branch: worfy-flight-recorder/20
 Blocked by: 18, 21
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 1, 2, 7, «Экран» («Входы»; `run` и счёт Ticket-ов в `AutopilotState`), «Ticket-ы» (20), «Готово, когда» (toast, «History», «Run history», «Open Run history»); решение 06, Q1–Q3 ([06-предложение-после-остановки-и-прошлые-run.md](06-предложение-после-остановки-и-прошлые-run.md)); решение 09, Q1 ([09-что-значит-autopilot-из-чата.md](09-что-значит-autopilot-из-чата.md))
@@ -106,3 +107,7 @@ Mutants: 17 unit mutants (toast без таймера, один на Run, гра
 Mutants раунда 1, все убиты: R1 — старый toast остаётся; R2 — старая остановка показывается; R3 — `main.tsx` теряет run id (e2e ждал свой Run, получил самый новый); R4 и R5 — Run-ы Epic никогда не найдены или всегда найдены; R6 — `runs.list` без Epic-а; R7 — `open` считается blocked.
 
 Долги без изменений: `test/e2e/autopilot.spec.ts` больше 1000 строк; `docs/features/autopilot.md` («Force stop is the one item of "⋯"») исправит Ticket 24.
+
+Влит 4d6f099a (#1222).
+- Долг: `usePastRuns` спрашивает `runs.list` один раз, пока у Epic нет кнопки Autopilot.
+- Долг: после перезапуска приложения «History» в строке статуса не показывается.

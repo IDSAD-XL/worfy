@@ -1,7 +1,8 @@
 # 08 — Flight Recorder читает прогноз, факт и Wait окна запуска
 
 Type: task
-Status: claimed 2026-11-01T14:18Z
+Status: done 2026-11-01T15:55Z
+PR: #1221
 Branch: worfy-resource-planner/08
 Blocked by: 05, 07
 Source: [spec.md](../spec.md), «Решения» (Q10, Q13), «Journal» (последний абзац), «Что видит пользователь» (Run history); [ADR-0092](../../../docs/adr/0092-run-history.md) (шкала вычисляется при открытии); [ADR-0093](../../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md), п. 3, 6
@@ -99,3 +100,6 @@ Source: [spec.md](../spec.md), «Решения» (Q10, Q13), «Journal» (по�
   - Долг без правки: проверки формы `forecast` и `actual` повторяют zod-схему `src/shared/autopilot/journal.ts`
     вручную.
 - Оценка автора: около 220 тыс. токенов вместе с раундом 1.
+
+Влит cfe3fafa (#1221).
+- Долг: `walkRun` (`src/shared/flight-recorder/journal-walk.mjs`) в `scripts/critical-path.mjs` считает Wait окна Start window как Limits.
