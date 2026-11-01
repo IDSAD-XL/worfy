@@ -171,12 +171,13 @@ if on_windows; then
         bad "pid no process: a pid one above a running one is no longer found running: this case needs another way to show both answers"
     fi
     kill "$ojob"; wait "$ojob" 2>/dev/null
-    # The dangerous direction: a live pid must never read as "no process", or the lock of a live check is taken. Without
-    # elevation the start time of pid 4 cannot be read; elevated, as on the GitHub runner, it can. Either way it is waited for.
-    echo 4 >"$(PIDF)"; echo "4 $(( $(date +%s) * 1000 ))" >"$(SIDE)"
+    # The dangerous direction: a live pid must never read as "no process", or the lock of a live check is taken. Windows
+    # PowerShell 5.1 opens a process with PROCESS_QUERY_INFORMATION, and csrss.exe refuses it even to an administrator.
+    cs="$(powershell.exe -NoProfile -NonInteractive -Command '(Get-Process csrss)[0].Id' | tr -d '\r')"
+    echo "$cs" >"$(PIDF)"; echo "$cs $(( $(date +%s) * 1000 ))" >"$(SIDE)"
     "$WG" check "$S" >"$W/out" 2>&1; rc=$?
-    [ "$rc" -eq 1 ] && grep -Eq "another wave-gate check runs in this repository \(pid 4, (its start time could not be read|it started at .*, no later than the file says)" "$W/out" && [ "$(cat "$(PIDF)")" = 4 ] \
-        && ok "pid: a live pid whose start time may not be read is waited for; its pid file stays" || bad "pid 4: exit $rc: $(tail -3 "$W/out")"
+    [ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $cs, its start time could not be read" "$W/out" && [ "$(cat "$(PIDF)")" = "$cs" ] \
+        && ok "pid: a live pid whose start time may not be read is waited for; its pid file stays" || bad "pid csrss ($cs): exit $rc: $(tail -3 "$W/out")"
     rm -f "$(PIDF)" "$(SIDE)"
 else
     echo "skip the cases of a pid's start time: it is read on Windows only"
