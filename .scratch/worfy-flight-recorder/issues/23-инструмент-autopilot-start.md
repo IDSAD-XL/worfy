@@ -1,7 +1,8 @@
 # 23 — Инструмент `autopilot_start`
 
 Type: task
-Status: claimed 2026-11-01T01:52Z
+Status: done 2026-11-01T07:06Z
+PR: #1191
 Blocked by: 21
 Source: [spec.md](../spec.md), «Запуск Autopilot из чата» (вступление — просьба словами, «Инструмент `autopilot_start(epic, tickets?)`», «Отказ, пока Run идёт»), «Ticket-ы» (23), «Решения владельца при приёмке», п. 2 (где подтверждать, 10 минут, «No one confirmed», не из окна Linked machine-а) и п. 4 (необязательный `tickets`), «Готово, когда» (пункт про запуск из чата); решение 09, Q1, Q2, Q5, Q6 ([09-что-значит-autopilot-из-чата.md](09-что-значит-autopilot-из-чата.md)); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
 
@@ -131,3 +132,8 @@ Autopilot — stand-in с journal; диалог — подменённый `show
 - Отказ unattended Session не пишет событие `refused_dialog`: в `src/main/agent/session.ts` (`refuseDialog`) и
   `src/shared/agent/events.ts` только `permission_request` и `card_ask`, а запись в Journal делает `run.ts`
   (Ticket 11) — это долг вне этого Ticket-а.
+
+**Долг (low, 2026-11-01).** Из ревью #1191, не исправлено:
+- Приоритет окна в фокусе (`chat-confirm.ts:124`) без test-а: мутант `void focused` выживает.
+- Отказ unattended `autopilot_start` не доходит до Journal (абзац выше): нужно `session.ts`, `events.ts` и `run.ts:327` —
+  кандидат в brief Ticket-а 18 или 20.

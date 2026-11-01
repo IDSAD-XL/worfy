@@ -135,3 +135,9 @@ Test-ы: `test/unit/autopilot-cycle.test.ts` (блок «over named Tickets», 1
 - Отказ после хода видит человек в окне Session, но не агент: notice в Claude Code не уходит.
 - Ход «Process gate queue» перед остановкой с `tickets-done` не делается (только `no-ready-wave`/`blocked-tickets`, как
   было).
+
+**Долг (low, 2026-11-01).** Из ревью #1185 (круг 2), не исправлено; естественное место — brief Ticket-а 20:
+- `src/main/ipc/autopilot.ts:229` — чтение без `try`.
+- `src/shared/ipc/autopilot.ts:58` — схема `resumable` не через `ticketNumSchema`: Ticket `00` ломает отправку состояния.
+- `AutopilotAction.tsx:38`, `:280` — комментарии говорят, что `resumable` бывает только после Force stop.
+- Test-ов нет: пустой `resumable` у Run всего Epic-а, guard у forget, `budgetCheck` с названными Ticket-ами.

@@ -46,6 +46,22 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   установлена: чтение пришлось на момент, когда `writeFileSync` уже опустошил `HANDOFF.md`. Единственное основание —
   версия `e3b0c44298fc1c14` — начало SHA-256 пустого файла. Возможное исправление: в test-е писать через временный
   файл и rename.
+- `bin/tests/wave-gate-merge.test.sh:159` («pid ended while asked»): gate full на ПК, main `d2ca34cf`, 2026-11-01 —
+  красный один раз; в одиночку зелёный 3 из 3. Гипотеза, не установлена: `harness/bin/wave-gate:483` снова проверяет
+  `pidAlive`, когда PowerShell не дал время старта процесса, а процесс Windows, который уже завершается, ещё проходит
+  `pidAlive` — отсюда ложный отказ «another wave-gate check runs». Так может случиться и в настоящей работе, окно очень
+  короткое.
+- `test/e2e/card-api.spec.ts:124`: job `windows-e2e` (1 из 4), CI run 41275774521 (PR #1194, 2026-11-01) — `data.get`
+  дал `{starts: 2}` вместо 1 в обеих попытках, то есть frame Card-а стартовал дважды (это не подделанная запись: нет
+  `forged: true`). В Windows CI run-ах #1190 и #1195 зелёный. Гипотеза, не установлена: iframe Card-а на Windows
+  перезагружается во время старта приложения.
+- Кандидат во flaky test: `test/contract/login-shell-capture.test.ts:144-146` читает файл `after` сразу после
+  `existsSync`; под нагрузкой файл может быть ещё пуст (замечено в gate PR #1190, не воспроизведено).
+
+**Gate full на ПК, сводка на 2026-11-01.** Из последних шести gate full на ПК три зелёные (`15932ac9`, `ddfb35ce`,
+`5557f744`), три красные (`ba7e09e5` — `docs-watch-root-gone.test.ts:450`, `d2ca34cf` — `wave-gate-merge.test.sh:159`,
+`bf16bb7f` — `terminal-git-bash-close.test.ts:212`). Каждый красный — другой test, в одиночку зелёный. Orchestrator
+отдал ПК исправление этих трёх, по одному PR на каждый; `terminal-git-bash-close` исправлен в #1197 (раздел ниже).
 
 ## Что делаем
 

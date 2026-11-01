@@ -1,7 +1,8 @@
 # 26 — Wait `background-tasks` считается только там, где не идёт работа Run
 
 Type: task
-Status: claimed 2026-11-01T05:56Z
+Status: done 2026-11-01T07:06Z
+PR: #1196
 Branch: worfy-flight-recorder/26
 Blocked by: 13
 Source: [spec.md](../spec.md), «Модель» («Wait, блокировка, повтор»; «Собственное время и итог»), «Ticket-ы» (26); решение 03, Q5 ([03-модель-spans.md](03-модель-spans.md)): Wait — время, когда работа стоит по внешней причине; «Итог» Ticket-а 13 ([13-факты-из-journal.md](13-факты-из-journal.md)), ограничение Wait-ов `background-tasks`. Правило принял Orchestrator без владельца (ночь 2026-11-01), владелец подтверждает утром: изменение маленькое и обратимое.
@@ -115,3 +116,7 @@ Source: [spec.md](../spec.md), «Модель» («Wait, блокировка, �
   собирает `src/main/flight-recorder/github.ts` (PR, runs ветки, runs merge commit). На живом сервисе число может
   отличаться.
 - Правило принял Orchestrator без владельца; подтверждение — утром.
+
+**Решено без владельца, подтвердить утром (2026-11-01).** Доля Wait `background-tasks` в ночном Run: 0.915 (один
+Journal) → 0.053 (921.9 s без работы ни в одном источнике; `test/unit/flight-recorder-summary-waits.test.ts:198`, `:217`).
+Альтернатива — не считать `background-tasks` Wait-ом вовсе. Второй вопрос — считать ли ход Orchestrator-а работой (выше).

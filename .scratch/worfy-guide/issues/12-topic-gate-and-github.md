@@ -1,7 +1,8 @@
 # 12 — Topic Gate and GitHub
 
 Type: task
-Status: claimed 2026-10-31T22:11Z
+Status: done 2026-11-01T07:06Z
+PR: #1179
 Blocked by: 10
 Source: [spec.md](../spec.md), Q5, Q6, Q17, Q18, Q19
 

@@ -1,7 +1,8 @@
 # 13 — Факты из Journal
 
 Type: task
-Status: claimed 2026-11-01T04:31Z
+Status: done 2026-11-01T07:06Z
+PR: #1194
 Blocked by: 11, 12
 Source: [spec.md](../spec.md), «Модель» («Wait, блокировка, повтор», «Неполная история» — каркас Run), «Источники и что меняется в них» (строка Journal), «Ticket-ы» (13), «Соглашения для Ticket-ов этого Epic-а» (fixture ночного Run); решение 03, Q5 ([03-модель-spans.md](03-модель-spans.md)); решение 04, Q4, Q7 ([04-дыры-источников.md](04-дыры-источников.md)); решение 08, Q5 ([08-неполная-история.md](08-неполная-история.md))
 
@@ -45,7 +46,9 @@ Journal задаёт каркас Run (решение 08, Q5).
 - [ ] Unit test статусов: `ticket-status` `claimed` → `blocked` (с `reason`, `waits`) → `claimed` → `done` дают
       claim, отметку блокировки, снятие, `done`.
 - [ ] Unit test старого Journal: без `ticket-status` claim Ticket-а — время `wave-started`, где он назван.
-- [ ] Unit test повторов: `narrow-round` и `session-error` с новой Wave дают `#2` со ссылкой на причину.
+- [ ] Unit test повторов: `narrow-round` даёт `#2` со ссылкой на причину; `session-error` — причина без Ticket-а
+  (за ним в том же Run идёт `run-stopped`, `cycle.ts:262`), `#2` после него test проверяет на литерале Journal с Wave
+  после ошибки.
 - [ ] Unit test: `refused-dialog` и `human-input` — отметки дорожки Orchestrator, не Wait.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
 
@@ -141,3 +144,8 @@ Journal задаёт каркас Run (решение 08, Q5).
   после ошибки.
 - `narrow-round` пишется с опозданием до 1–2 минут после комментария, поэтому причина может встать на работу,
   начатую чуть позже, чем доработка; точного времени комментария в строке нет.
+
+**Долг (low, 2026-11-01).** Из ревью #1194, вне этого Ticket-а:
+- `spans.ts:742` считает Wave открытой и в ту ms, где она кончается (`start <= waveSpan.until`): Wait без Ticket-ов,
+  начатый на `wave-finished`, уходит в прошлую Wave. Reader 13 обходит это только для `limits-budget`. Кандидат в
+  brief Ticket-а 17 или 18.
