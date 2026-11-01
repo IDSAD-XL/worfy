@@ -78,7 +78,6 @@ export default function AutopilotSection() {
           options={HOUR_OPTIONS}
           onChange={(value) => chooseEdge('windowFrom', Number(value))}
           disabled={windowOff}
-          mono
           data-testid="settings-autopilot-window-from"
         />
       </SettingRow>
@@ -89,7 +88,6 @@ export default function AutopilotSection() {
           options={HOUR_OPTIONS}
           onChange={(value) => chooseEdge('windowTo', Number(value))}
           disabled={windowOff}
-          mono
           data-testid="settings-autopilot-window-to"
         />
       </SettingRow>
