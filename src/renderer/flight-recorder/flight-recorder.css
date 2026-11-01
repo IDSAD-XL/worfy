@@ -448,3 +448,142 @@
   border-left: 2px solid var(--accent);
   pointer-events: none;
 }
+
+/* The filter, the highlights of a selection and the detail panel (worfy-flight-recorder ticket 19). */
+
+.w-fr-filter {
+  flex: 1 1 140px;
+  min-width: 120px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  padding: 1px var(--space-2);
+}
+.w-fr-button.is-on {
+  background: var(--selected);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.w-fr-button:disabled {
+  color: var(--text-secondary);
+}
+
+/* The cause of the selected retry: a dashed outline on its bar and its row. */
+.w-fr-bar.is-cause {
+  outline: 2px dashed var(--text);
+  z-index: 2;
+}
+.w-fr-row.is-cause {
+  outline: 1px dashed var(--text-secondary);
+  outline-offset: -2px;
+}
+/* The Ticket rows of the selected Wait or Orchestrator turn: an edge in the Orchestrator's colour. */
+.w-fr-row.is-related .w-fr-row__tree {
+  box-shadow: inset 3px 0 var(--span-orchestrator);
+  background: var(--surface-raised);
+}
+
+.w-fr-notice--github {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.w-fr-detail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  height: 196px;
+  border-top: 1px solid var(--border-strong);
+  background: var(--surface);
+}
+.w-fr-detail--empty {
+  height: auto;
+  padding: 6px var(--space-3);
+}
+.w-fr-detail--empty p {
+  margin: 0;
+}
+.w-fr-detail__head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: 4px var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.w-fr-detail__tabs {
+  display: flex;
+  gap: 2px;
+}
+.w-fr-detail__tab {
+  font: inherit;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  padding: 2px var(--space-2);
+}
+.w-fr-detail__tab.is-on {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--border);
+  font-weight: 600;
+}
+.w-fr-detail__title {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.w-fr-detail__title .w-fr-dot {
+  display: inline-block;
+}
+.w-fr-detail__close {
+  margin-bottom: 3px;
+  line-height: 1;
+}
+.w-fr-detail__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px var(--space-3);
+  background: var(--bg);
+}
+.w-fr-detail__table {
+  border-collapse: collapse;
+}
+.w-fr-detail__table th {
+  padding: 1px var(--space-3) 1px 0;
+  color: var(--text-secondary);
+  font-weight: 400;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.w-fr-detail__table td {
+  padding: 1px 0;
+  overflow-wrap: anywhere;
+}
+.w-fr-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.w-fr-link-off {
+  color: var(--text);
+  text-decoration: underline dotted;
+}
+.w-fr-problem-text {
+  color: var(--span-problem);
+}

@@ -1,12 +1,14 @@
 // The Run history screen (worfy-flight-recorder ticket 18; decision 05): the view `history` of the main
 // area, over the whole viewport instead of the Canvas. No tab of the toolbar opens it — the entries of
 // ticket 20 call openRunHistory (open.ts) — and Esc goes back to the Canvas. Top to bottom: the header
-// of the Run with the choice of another Run of the Project, the summary, the timeline. Times are local.
+// of the Run with the choice of another Run of the Project, «GitHub did not answer» with «Retry» while gh
+// fails, the summary, the timeline with its filter, the details of the selected span (ticket 19). Times are local.
 import { useEffect, useRef } from 'react'
 import type { Span } from '../../shared/flight-recorder/spans'
 import type { RunListItem, RunView } from '../../shared/ipc/runs'
 import { setView, useNavigation } from '../session/navigation'
 import { chooseRun, formatDuration, formatLocal, leaveRunHistory, useRunHistory } from './store'
+import { DetailPanel, GithubNotice } from './DetailPanel'
 import { SummaryStrip } from './SummaryStrip'
 import { Timeline } from './Timeline'
 import './flight-recorder.css'
@@ -189,8 +191,11 @@ export function RunHistoryView({ activeProjectId }: { activeProjectId?: string }
             The timeline stopped following the Run: {view.error}
           </div>
         ) : null}
+        <GithubNotice view={view} />
         <SummaryStrip view={view} />
-        <Timeline view={view} />
+        {/* A Run of its own: the filter of another Run does not carry over. */}
+        <Timeline key={view.run} view={view} />
+        <DetailPanel view={view} />
         {view.skippedLines > 0 ? <p className="w-fr-footnote">{view.skippedLines} lines of the Journal were left out: not JSON, or of an unknown kind.</p> : null}
       </>
     )
