@@ -3,7 +3,7 @@
 // src/main/autopilot/run.ts, handled in src/main/ipc/autopilot.ts (ADR-0006).
 import { z } from 'zod'
 import { AUTOPILOT_STOP_REASONS } from '../autopilot/cycle'
-import { epicNameSchema } from '../binding/resolve'
+import { epicNameSchema, ticketNumSchema } from '../binding/resolve'
 import { eventChannel, invokeChannel } from './channels'
 
 const projectId = z.string().min(1)
@@ -51,7 +51,9 @@ export const autopilotStateSchema = z.object({
    * After a Force stop (`user-force-stop`, worfy-week tickets 17, 18): the Ticket numbers of the
    * Wave it interrupted, for `epic`. A new run of that Epic takes those still in work into its first
    * Wave, also when nothing else is ready; the button and main filter them by the Tickets they read.
-   * Empty while running and after any other stop, the graceful Stop (`user-stop`) included.
+   * A run over named Tickets takes only those of its list and leaves the others here when it stops,
+   * whatever its reason (worfy-flight-recorder ticket 21, ADR-0091). Empty while running and after any
+   * other stop, the graceful Stop (`user-stop`) included.
    */
   resumable: z.array(z.number().int().positive()),
   /**
@@ -101,17 +103,21 @@ export type RunningElsewhereRefusal = z.infer<typeof runningElsewhereSchema>
 export const autopilotStartAnswerSchema = z.union([autopilotStateSchema, z.object({ runningElsewhere: runningElsewhereSchema })])
 export type AutopilotStartAnswer = z.infer<typeof autopilotStartAnswerSchema>
 
+/** The most Tickets one start may name: more than any Epic has. */
+export const MAX_NAMED_TICKETS = 500
+
 /**
  * Starts Autopilot over the Epic: the Orchestrator goes unattended, keep-awake is held, and the
  * ready Wave is sent. Refused while the Project has a run, while the Orchestrator is in a turn, and
  * on worfy's own repository in a development build. A run of the same Epic and origin on a Linked
  * machine (or in another Project of this Machine) answers `runningElsewhere` instead (worfy-link
  * ticket 15); `override` ("Start anyway") starts anyway: it still asks, and the run journals the
- * override only when it went past such a run.
+ * override only when it went past such a run. `tickets` (worfy-flight-recorder ticket 21): a run over
+ * these Tickets of the Epic only, ending with `tickets-done`; absent, the whole Epic, as the button.
  */
 export const autopilotStart = invokeChannel(
   'autopilot.start',
-  z.object({ projectId, epic: epicNameSchema, override: z.boolean().optional() }),
+  z.object({ projectId, epic: epicNameSchema, override: z.boolean().optional(), tickets: z.array(ticketNumSchema).min(1).max(MAX_NAMED_TICKETS).optional() }),
   autopilotStartAnswerSchema,
   'project',
   'write',

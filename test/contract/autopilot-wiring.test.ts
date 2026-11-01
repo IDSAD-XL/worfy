@@ -52,12 +52,14 @@ describe('the deps of the app\'s Autopilot (worfy-throughput ticket 52)', () => 
     expect(stand.orchestrators.newUnattendedSession).toHaveBeenCalledWith('demo-00000052')
   })
 
-  it('"Run wave" goes to the app\'s launcher with the brief, both ways', async () => {
+  it('"Run wave" goes to the app\'s launcher with the brief, both ways, and with the named Tickets of the run (worfy-flight-recorder ticket 21)', async () => {
     await expect(deps().waves.autopilotWave('demo-00000052', 'demo', [1], true)).resolves.toMatchObject({ text: 'with brief' })
     await expect(deps().waves.autopilotWave('demo-00000052', 'demo', [], false)).resolves.toMatchObject({ text: 'without' })
+    await deps().waves.autopilotWave('demo-00000052', 'demo', [], false, [5, 6])
     expect(stand.launcher.autopilotWave.mock.calls).toEqual([
-      ['demo-00000052', 'demo', [1], true],
-      ['demo-00000052', 'demo', [], false],
+      ['demo-00000052', 'demo', [1], true, undefined],
+      ['demo-00000052', 'demo', [], false, undefined],
+      ['demo-00000052', 'demo', [], false, [5, 6]],
     ])
   })
 

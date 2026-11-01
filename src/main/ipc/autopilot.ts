@@ -34,6 +34,7 @@ import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import { appLimits, observeSessionLimits } from '../agent/limits'
 import { refreshAppUsage } from '../agent/limits-usage'
+import { ChatStarts, orchestratorRefusal, whenIdle } from '../autopilot/chat-start'
 import { harnessDriftWatch } from '../autopilot/harness-drift'
 import { openRun, readRecentRuns } from '../autopilot/journal'
 import { KeepAwake } from '../autopilot/power'
@@ -69,9 +70,9 @@ export function autopilotHandlers(
   sources: EstimateSources = appEstimateSources,
 ): HandlerModule {
   return [
-    defineHandler(autopilotStart, async ({ projectId, epic, override }) => {
+    defineHandler(autopilotStart, async ({ projectId, epic, override, tickets }) => {
       try {
-        return await autopilot().start(projectId, epic, { override: override === true })
+        return await autopilot().start(projectId, epic, { override: override === true, ...(tickets === undefined ? {} : { tickets }) })
       } catch (error) {
         if (!(error instanceof RunningElsewhere)) throw error
         return { runningElsewhere: { epic: error.epic, machine: error.machine, message: error.message } }
@@ -158,7 +159,7 @@ export function sharedAutopilot(): Autopilot {
       observeInput: (listener) => sharedRegistry().observeInput(listener),
     },
     waves: {
-      autopilotWave: (projectId, epic, resume, brief) => sharedLauncher().autopilotWave(projectId, epic, resume, brief),
+      autopilotWave: (projectId, epic, resume, brief, named) => sharedLauncher().autopilotWave(projectId, epic, resume, brief, named),
       autopilotRefusal: (projectId) => sharedLauncher().autopilotRefusal(projectId),
       autopilotGateQueue: (projectId) => sharedLauncher().autopilotGateQueue(projectId),
     },
@@ -203,6 +204,38 @@ export function sharedAutopilot(): Autopilot {
   })
   shared = autopilot
   return autopilot
+}
+
+let sharedStarts: ChatStarts | undefined
+
+/**
+ * The app's starts of Autopilot from a chat (src/main/autopilot/chat-start.ts, worfy-flight-recorder
+ * ticket 21): the command typed in a chat and the Orchestrator's tool `autopilot_start` call it.
+ */
+export function sharedChatStarts(): ChatStarts {
+  sharedStarts ??= new ChatStarts({
+    autopilot: sharedAutopilot(),
+    workflow: async (projectId) => (await readWorkflow({ root: projectStore().get(projectId).path, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
+    orchestratorSession: async (projectId) => (await sharedOrchestrators().open(projectId)).sessionId,
+    inTurn: (sessionId) => {
+      try {
+        const state = sharedRegistry().get(sessionId).state
+        return state === 'busy' || state === 'needs_permission'
+      } catch {
+        return false
+      }
+    },
+    whenIdle: (sessionId) => whenIdle(sharedRegistry(), sessionId),
+    orchestratorRefusal: (sessionId) => orchestratorRefusal(sharedRegistry().get(sessionId)),
+    notify: (sessionId, text) => {
+      try {
+        sharedRegistry().get(sessionId).notice(text)
+      } catch {
+        // The Session is gone: there is no one to tell.
+      }
+    },
+  })
+  return sharedStarts
 }
 
 export default autopilotHandlers(sharedAutopilot) satisfies HandlerModule

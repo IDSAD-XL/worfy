@@ -153,12 +153,21 @@ export type WaveState = { enabled: true; text: string; tickets: number[]; skippe
  * For Autopilot (`autopilot`) the template must also name the Wave's Tickets ({tickets}): a run
  * has no person to read a Wave number against the plan. By hand any template runs. `resumable`
  * (Autopilot after a Stop, worfy-week ticket 17): the interrupted Wave's Tickets; those still in
- * work join the ready ones.
+ * work join the ready ones. `named` (Autopilot over named Tickets, worfy-flight-recorder ticket 21):
+ * the Wave takes only those, the interrupted ones included; {wave} still counts in the whole plan.
  */
-export function runWaveState(input: { epic: string; tickets: readonly WaveTicket[]; template: string; branch: string | null; autopilot?: boolean; resumable?: readonly number[] }): WaveState {
-  const { epic, tickets, template, branch, autopilot = false, resumable = [] } = input
-  const { ready, skipped } = readyWave(tickets, epic)
-  const resumed = resumedTickets(tickets, epic, resumable)
+export function runWaveState(input: {
+  epic: string
+  tickets: readonly WaveTicket[]
+  template: string
+  branch: string | null
+  autopilot?: boolean
+  resumable?: readonly number[]
+  named?: readonly number[]
+}): WaveState {
+  const { epic, tickets, template, branch, autopilot = false, resumable = [], named } = input
+  const { ready, skipped } = readyWave(tickets, epic, named)
+  const resumed = resumedTickets(tickets, epic, named === undefined ? resumable : resumable.filter((num) => named.includes(num)))
   const nums = [...new Set([...resumed, ...ready.map((entry) => entry.num)])].sort((a, b) => a - b)
   if (nums.length === 0) return { enabled: false, reason: 'No ready wave' }
   if (!isActionConfigured(template)) return { enabled: false, reason: emptyTemplateHint('runWave') }

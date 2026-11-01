@@ -262,9 +262,10 @@ export class ActionLauncher {
    * Autopilot's "Run wave": the same text to the same Orchestrator, and the Tickets it was for.
    * `resume`: the Tickets of the Wave a Stop interrupted; those still in work join the Wave.
    * `brief`: the Orchestrator's Session is a new SDK session, so the text goes as waveBriefText.
+   * `named`: a run over named Tickets (worfy-flight-recorder ticket 21): the Wave takes only those.
    */
-  autopilotWave(projectId: string, epic: string, resume: readonly number[] = [], brief = false): Promise<AutopilotWaveResult> {
-    return this.sendWave(projectId, epic, true, resume, brief)
+  autopilotWave(projectId: string, epic: string, resume: readonly number[] = [], brief = false, named?: readonly number[]): Promise<AutopilotWaveResult> {
+    return this.sendWave(projectId, epic, true, resume, brief, named)
   }
 
   /**
@@ -277,12 +278,12 @@ export class ActionLauncher {
     return namesWaveTickets(template) ? null : AUTOPILOT_TEMPLATE_HINT
   }
 
-  private async sendWave(projectId: string, epic: string, autopilot: boolean, resumable: readonly number[] = [], brief = false): Promise<AutopilotWaveResult> {
+  private async sendWave(projectId: string, epic: string, autopilot: boolean, resumable: readonly number[] = [], brief = false, named?: readonly number[]): Promise<AutopilotWaveResult> {
     const root = this.deps.projectRoot(projectId)
     const [model, branch] = await Promise.all([this.model(root), this.deps.branch(root)])
     if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
     // One read: the text, the Tickets it names and the skipped ones all come from `model`.
-    const state = runWaveState({ epic, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.runWave, branch, autopilot, resumable })
+    const state = runWaveState({ epic, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.runWave, branch, autopilot, resumable, ...(named === undefined ? {} : { named }) })
     if (!state.enabled) throw new Error(state.reason)
     const view = await this.deps.orchestrators.open(projectId)
     if (view.sessionId === null) throw new Error('The Orchestrator has no Session')

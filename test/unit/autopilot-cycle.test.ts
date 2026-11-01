@@ -3,7 +3,9 @@
 // one is sent, and every reason a run stops.
 import { describe, expect, it } from 'vitest'
 import { AUTOPILOT_STOP_REASONS, initialCycle, SETTLE_MS, step, type CycleEvent, type CycleState } from '../../src/shared/autopilot/cycle'
+import { runWaveState } from '../../src/shared/actions/render-template'
 import type { Ticket } from '../../src/shared/workflow/types'
+import { readyWave } from '../../src/shared/workflow/waves'
 
 const EPIC = 'demo'
 
@@ -349,5 +351,96 @@ describe('the graceful Stop (worfy-week ticket 18)', () => {
     expect(tasks.state).toMatchObject({ phase: 'tasks', inWork: [2] })
     // A workflow change outside stopping keeps inWork empty.
     expect(run([{ type: 'workflow', tickets: ONE_IN_WORK }], inWave1()).state.inWork).toEqual([])
+  })
+})
+
+// A run over named Tickets (worfy-flight-recorder ticket 21, ADR-0091): the Wave takes only the ready
+// Tickets of the list, and the run ends with `tickets-done` once every one of them is done.
+describe('the Autopilot cycle over named Tickets', () => {
+  const TEMPLATE = '/worfy:epic-wave tickets {tickets} of epic {epic}'
+  // 05, 06 and 07 are all ready: no blockers, no shared files.
+  const READY3 = [t(5, 'open'), t(6, 'open'), t(7, 'open')]
+  const named = (tickets: number[]) => initialCycle(EPIC, tickets)
+  const wave = (from: CycleState, tickets: Ticket[], sent: number[]) => run([{ type: 'start', tickets }, { type: 'wave-sent', tickets: sent }], from).state
+
+  it('the Wave of a run over 05 and 06 has only 05 and 06, without a list 05, 06 and 07', () => {
+    const withList = runWaveState({ epic: EPIC, tickets: READY3, template: TEMPLATE, branch: null, autopilot: true, named: [5, 6] })
+    expect(withList).toMatchObject({ enabled: true, tickets: [5, 6], text: `/worfy:epic-wave tickets 05, 06 of epic ${EPIC}` })
+    expect(runWaveState({ epic: EPIC, tickets: READY3, template: TEMPLATE, branch: null, autopilot: true })).toMatchObject({ enabled: true, tickets: [5, 6, 7] })
+  })
+
+  it('keeps the list in its state; without one the state has none', () => {
+    expect(named([6, 5])).toMatchObject({ epic: EPIC, phase: 'starting', named: [5, 6] })
+    expect(initialCycle(EPIC)).not.toHaveProperty('named')
+  })
+
+  it('stops with tickets-done once 05 and 06 are done, though 07 is ready; without the list sends 07', () => {
+    const after = [t(5, 'done'), t(6, 'done'), t(7, 'open')]
+    const listed = run([ok(after)], wave(named([5, 6]), READY3, [5, 6]))
+    expect(listed.effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [5, 6] }, { kind: 'stopped', reason: 'tickets-done' }])
+    expect(listed.state).toMatchObject({ phase: 'stopped', reason: 'tickets-done' })
+    expect(AUTOPILOT_STOP_REASONS).toContain('tickets-done')
+    const whole = run([ok(after)], wave(initialCycle(EPIC), READY3, [5, 6, 7]))
+    expect(whole.effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [5, 6, 7] }, { kind: 'send-wave' }])
+  })
+
+  it('a named Ticket done only in its unmerged branch is not done yet', () => {
+    const inBranch = { ...t(6, 'done'), fromBranch: 'demo/06' }
+    const { effects } = run([ok([t(5, 'done'), inBranch, t(7, 'open')])], wave(named([5, 6]), READY3, [5, 6]))
+    expect(effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [5, 6] }, { kind: 'stopped', reason: 'no-ready-wave' }])
+  })
+
+  it('stops at once with tickets-done when every named Ticket is done already', () => {
+    expect(run([{ type: 'start', tickets: [t(5, 'done'), t(6, 'done'), t(7, 'open')] }], named([5, 6])).effects).toEqual([{ kind: 'stopped', reason: 'tickets-done' }])
+  })
+
+  it('a blocked named Ticket stops the run with blocked-tickets, as without a list', () => {
+    const tickets = [t(5, 'open'), t(6, 'blocked'), t(7, 'open')]
+    const after = [t(5, 'done'), t(6, 'blocked'), t(7, 'open')]
+    const listed = run([ok(after)], wave(named([5, 6]), tickets, [5]))
+    expect(listed.effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [5] }, { kind: 'stopped', reason: 'blocked-tickets', tickets: [6] }])
+    expect(run([{ type: 'start', tickets }], named([6])).effects).toEqual([{ kind: 'stopped', reason: 'blocked-tickets', tickets: [6] }])
+    // Without a list the same Ticket stops the run once nothing open is ready.
+    expect(run([{ type: 'start', tickets: [t(5, 'done'), t(6, 'blocked'), t(7, 'done')] }]).effects).toEqual([{ kind: 'stopped', reason: 'blocked-tickets', tickets: [6] }])
+  })
+
+  it('a blocked Ticket outside the list does not stop the run, nor go into its Wave', () => {
+    const tickets = [t(5, 'open'), t(6, 'blocked'), t(7, 'open')]
+    expect(run([{ type: 'start', tickets }], named([5])).effects).toEqual([{ kind: 'send-wave' }])
+    const { effects } = run([ok([t(5, 'done'), t(6, 'blocked'), t(7, 'open')])], wave(named([5]), tickets, [5]))
+    expect(effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [5] }, { kind: 'stopped', reason: 'tickets-done' }])
+  })
+
+  it('a named Ticket waiting for an open Ticket outside the list is not ready: no-ready-wave', () => {
+    expect(run([{ type: 'start', tickets: [t(4, 'open'), t(6, 'open', [4])] }], named([6])).effects).toEqual([{ kind: 'stopped', reason: 'no-ready-wave' }])
+  })
+
+  it('a Ticket outside the list still blocks a named one, and holds its files while in work', () => {
+    // 06 waits for 04, open and not named: 06 is not ready, and 04 does not go either.
+    expect(readyWave([t(4, 'open'), t(6, 'open', [4])], EPIC, [6])).toMatchObject({ ready: [], waiting: [{ num: 6, reason: { kind: 'blockers', blockers: [4] } }] })
+    // 04 is in work and shares a file with 06: 06 waits for the file.
+    const shared = { ...t(6, 'open'), files: ['src/f4.ts'] }
+    expect(readyWave([t(4, 'work'), shared], EPIC, [6])).toMatchObject({ ready: [], waiting: [{ num: 6, reason: { kind: 'files', heldBy: [4] } }] })
+    // An open 04 outside the list holds nothing: 06 goes.
+    expect(readyWave([t(4, 'open'), shared], EPIC, [6]).ready).toEqual([{ num: 6, filesNotListed: false }])
+  })
+
+  it('a blocked Ticket outside the list is not counted as skipped: no-ready-wave, not blocked-tickets', () => {
+    // 06 waits for an open 04; 07 is blocked with nothing to wait for, and not named.
+    const tickets = [t(4, 'open'), t(6, 'open', [4]), t(7, 'blocked')]
+    expect(run([{ type: 'start', tickets }], named([6])).effects).toEqual([{ kind: 'stopped', reason: 'no-ready-wave' }])
+    expect(run([{ type: 'start', tickets: [t(4, 'work'), t(6, 'open', [4]), t(7, 'blocked')] }]).effects).toEqual([{ kind: 'stopped', reason: 'blocked-tickets', tickets: [7] }])
+  })
+
+  it('takes along only the interrupted Tickets of the list', () => {
+    const inWork = [t(5, 'work'), t(6, 'work'), t(7, 'done')]
+    expect(run([{ type: 'start', tickets: inWork, resume: [6] }], named([5])).effects).toEqual([{ kind: 'stopped', reason: 'no-ready-wave' }])
+    expect(run([{ type: 'start', tickets: inWork, resume: [5] }], named([5])).effects).toEqual([{ kind: 'send-wave' }])
+  })
+
+  it('keeps the no-progress rule: the same Wave ready again stops the run', () => {
+    // 06 never left `open`: the Orchestrator did nothing with it.
+    const { effects } = run([ok([t(5, 'open'), t(6, 'open'), t(7, 'open')])], wave(named([5, 6]), READY3, [5, 6]))
+    expect(effects).toEqual([{ kind: 'wave-finished', wave: 1, tickets: [5, 6] }, { kind: 'stopped', reason: 'no-progress' }])
   })
 })

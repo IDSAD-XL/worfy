@@ -98,6 +98,12 @@
 //   work); Force stop and the quit end it with their own reasons and no Tickets; every end cancels
 //   the wait's timer.
 //
+// - A run may be over named Tickets (`tickets`, worfy-flight-recorder ticket 21, ADR-0091): each Wave
+//   takes only the ready Tickets of the list (launch.ts, autopilotWave), and the run ends with
+//   `tickets-done` once all of them are done (cycle.ts). A start names Tickets of the Epic only. Who
+//   started the run (`by`: the button, a command typed in a chat, the Orchestrator's tool) is kept
+//   on the run; the journal gets it with worfy-flight-recorder ticket 11.
+//
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
 import { realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -224,7 +230,7 @@ export interface AutopilotDeps {
    * before it stops for want of a Wave (worfy-windows ticket 17).
    */
   waves: {
-    autopilotWave(projectId: string, epic: string, resume: readonly number[], brief: boolean): Promise<AutopilotWaveResult>
+    autopilotWave(projectId: string, epic: string, resume: readonly number[], brief: boolean, named?: readonly number[]): Promise<AutopilotWaveResult>
     autopilotRefusal(projectId: string): string | null
     autopilotGateQueue?(projectId: string): Promise<string | null>
   }
@@ -331,6 +337,33 @@ function refusedDialogLine(event: Extract<AgentEvent, { type: 'refused_dialog' }
 /** Whether a Session state is a running turn: the Orchestrator is not given back during one (orchestrator.ts). */
 const inTurn = (state: SessionState): boolean => state === 'busy' || state === 'needs_permission'
 
+/** Who started a run: the Autopilot button, a command typed in a chat, or the Orchestrator's tool `autopilot_start`. */
+export type AutopilotStartedBy = 'button' | 'command' | 'tool'
+
+/** What `Autopilot.start` takes besides the Project and the Epic. */
+export interface AutopilotStartOptions {
+  /** "Start anyway": past a run of the same Epic and origin elsewhere. */
+  override?: boolean
+  /** A run over these Tickets of the Epic only (worfy-flight-recorder ticket 21); absent: the whole Epic. */
+  tickets?: readonly number[]
+  /** Who started the run; the button when absent. */
+  by?: AutopilotStartedBy
+}
+
+/**
+ * Why a start of `epic` (over `tickets`, when named) is refused by the workflow model: the Project
+ * has no such Epic, no Ticket is named in an empty list, or a named Ticket is not one of the Epic's.
+ * Null when it may start. Used again by chat-start.ts before it answers the chat.
+ */
+export function startRefusal(model: Pick<WorkflowModel, 'epics' | 'tickets'>, epic: string, tickets?: readonly number[]): string | null {
+  if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) return `The Project has no Epic ${epic}`
+  if (tickets === undefined) return null
+  if (tickets.length === 0) return `Name at least one Ticket of Epic ${epic}`
+  const missing = [...new Set(tickets)].filter((num) => !model.tickets.some((each) => each.epic === epic && each.num === num)).sort((a, b) => a - b)
+  if (missing.length === 0) return null
+  return `Epic ${epic} has no ${missing.length === 1 ? 'Ticket' : 'Tickets'} ${missing.map(ticketNumber).join(', ')}`
+}
+
 /** What the start of a run is refused with while another run of the Project goes on. */
 export const alreadyRunning = (epic: string): string => `Autopilot is already running in this Project (Epic ${epic}): stop it first`
 
@@ -387,6 +420,16 @@ export async function selfProjectRefusal(input: {
   return null
 }
 
+/**
+ * What a stopped run leaves resumable (AutopilotState.resumable): after a Force stop the Tickets of
+ * the Wave it interrupted, and in a run over named Tickets those of the last Force stop it did not
+ * take; in number order.
+ */
+function resumableOf(run: Run): number[] {
+  const interrupted = run.cycle.reason === 'user-force-stop' ? run.interrupted : []
+  return [...new Set([...interrupted, ...run.carried])].sort((a, b) => a - b)
+}
+
 /** One run of one Project. */
 class Run {
   cycle: CycleState
@@ -434,6 +477,11 @@ class Run {
   /** After a Force stop: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
   interrupted: number[] = []
   /**
+   * A run over named Tickets: the Tickets of the last Force stop's Wave that are not on its list. It
+   * does not take them, so they stay resumable after it, for a later run of the whole Epic (ADR-0091).
+   */
+  carried: number[] = []
+  /**
    * The gate queue's turn before the run stops for want of a Wave (worfy-windows ticket 17): the stop
    * it was sent instead of, while its turn goes on; null otherwise. Once per run: whatever ends the
    * turn ends the run (endGateQueue).
@@ -474,8 +522,12 @@ class Run {
     readonly projectId: string,
     readonly epic: string,
     readonly root: string,
+    /** The Tickets of a run over named Tickets; absent for the whole Epic. */
+    named?: readonly number[],
+    /** Who started the run (worfy-flight-recorder ticket 21); the journal gets it with ticket 11. */
+    readonly by: AutopilotStartedBy = 'button',
   ) {
-    this.cycle = initialCycle(epic)
+    this.cycle = initialCycle(epic, named)
     this.rushing = new Promise((done) => {
       this.rushDone = done
     })
@@ -618,24 +670,28 @@ export class Autopilot {
     return this.starting.has(projectId) || this.runs.get(projectId)?.running === true
   }
 
+  /** The Epic of the Project's run that goes on or is starting; null when none does. */
+  runningEpic(projectId: string): string | null {
+    const starting = this.starting.get(projectId)
+    if (starting !== undefined) return starting.epic
+    const run = this.runs.get(projectId)
+    return run?.running === true ? run.epic : null
+  }
+
   /**
-   * Starts a run of `epic`. Refused while the Project has a run, on worfy's own repository in a
-   * development build, when the workflow cannot be read or has no such Epic, and while the
-   * Orchestrator is in a turn. Answers the run's first state.
+   * Starts a run of `epic`, or of its Tickets `options.tickets` only. Refused while the Project has a
+   * run, on worfy's own repository in a development build, when the workflow cannot be read, has no
+   * such Epic or no such Ticket in it (startRefusal), and while the Orchestrator is in a turn.
+   * Answers the run's first state.
    */
-  async start(projectId: string, epic: string, options: { override?: boolean } = {}): Promise<AutopilotState> {
+  async start(projectId: string, epic: string, options: AutopilotStartOptions = {}): Promise<AutopilotState> {
     // Taken before the first await: two starts that arrive together do not both pass.
     const live = this.runs.get(projectId)
     if (this.starting.has(projectId) || live?.running === true) throw new Error(alreadyRunning(live?.epic ?? epic))
     const starting = { epic, origin: null as string | null }
     this.starting.set(projectId, starting)
     try {
-      const root = this.deps.projectRoot(projectId)
-      const refusal = (await this.deps.selfRefusal(root)) ?? this.deps.waves.autopilotRefusal(projectId)
-      if (refusal !== null) throw new Error(refusal)
-      const model = await this.deps.workflow(root)
-      if (model.error !== null) throw new Error(`Cannot read the workflow: ${model.error.message}`)
-      if (!model.epics.some((each) => each.epic === epic) && !model.tickets.some((each) => each.epic === epic)) throw new Error(`The Project has no Epic ${epic}`)
+      const { root, model } = await this.ownChecks(projectId, epic, options.tickets)
       // Counted among this Machine's runs before anyone is asked: a Linked machine starting the same
       // key meanwhile hears of this start (runKeys), as this one hears of its.
       starting.origin = await this.originOf(projectId, root)
@@ -646,12 +702,15 @@ export class Autopilot {
       const unasked = check.unasked
       if (this.quitting) throw new Error(QUITTING_MESSAGE)
 
-      const run = new Run(projectId, epic, root)
+      const run = new Run(projectId, epic, root, options.tickets, options.by)
       run.origin = starting.origin
       run.unasked = unasked
       // The Wave the last Force stop of this Epic interrupted goes along with the first Wave (worfy-week tickets 17, 18).
+      // A run over named Tickets takes only those of its list, and keeps the rest resumable (ADR-0091).
       const last = this.last.get(projectId)
       run.resume = last?.epic === epic ? [...last.resumable] : []
+      const named = options.tickets
+      if (named !== undefined) run.carried = run.resume.filter((num) => !named.includes(num))
       if (this.deps.limits !== undefined) run.limits = new LimitsWait(this.deps.limits)
       const view = await this.deps.orchestrators.setUnattended(projectId, true)
       try {
@@ -688,6 +747,43 @@ export class Autopilot {
       return this.snapshot(run)
     } finally {
       this.starting.delete(projectId)
+    }
+  }
+
+  /**
+   * The checks of a start that need no Orchestrator and no Linked machine: worfy's own repository in
+   * a development build, the "Run wave" template, the workflow, the Epic and the named Tickets.
+   * Throws the refusal; answers the root and the model read.
+   */
+  private async ownChecks(projectId: string, epic: string, tickets: readonly number[] | undefined): Promise<{ root: string; model: WorkflowModel }> {
+    const root = this.deps.projectRoot(projectId)
+    const refusal = (await this.deps.selfRefusal(root)) ?? this.deps.waves.autopilotRefusal(projectId)
+    if (refusal !== null) throw new Error(refusal)
+    const model = await this.deps.workflow(root)
+    if (model.error !== null) throw new Error(`Cannot read the workflow: ${model.error.message}`)
+    const unknown = startRefusal(model, epic, tickets)
+    if (unknown !== null) throw new Error(unknown)
+    return { root, model }
+  }
+
+  /**
+   * Why a start of `epic` would be refused now, without starting anything: a run of the Project,
+   * the checks of start() that need no Orchestrator (ownChecks), and — without `override` — a run
+   * of the same Epic and origin elsewhere. Null when start() would go past them. The Orchestrator's
+   * own state is not asked here (chat-start.ts asks it). Used by a start from a chat before it
+   * promises to start after the Orchestrator's turn (ADR-0091).
+   */
+  async startCheck(projectId: string, epic: string, options: AutopilotStartOptions = {}): Promise<string | null> {
+    const running = this.runningEpic(projectId)
+    if (running !== null) return alreadyRunning(running)
+    try {
+      const { root } = await this.ownChecks(projectId, epic, options.tickets)
+      if (options.override === true) return null
+      const origin = await this.originOf(projectId, root)
+      if (origin === null) return null
+      return (await this.checkElsewhere(projectId, epic, origin)).elsewhere?.message ?? null
+    } catch (error) {
+      return messageOf(error)
     }
   }
 
@@ -1074,7 +1170,7 @@ export class Autopilot {
     const resume = run.resume
     run.resume = []
     try {
-      sent = await this.deps.waves.autopilotWave(run.projectId, run.epic, resume, fresh === 'fresh')
+      sent = await this.deps.waves.autopilotWave(run.projectId, run.epic, resume, fresh === 'fresh', run.cycle.named)
     } catch (error) {
       run.message = messageOf(error)
       await this.feed(run, { type: 'send-failed', message: run.message })
@@ -1173,7 +1269,7 @@ export class Autopilot {
       return { kind: 'go' }
     }
     const estimate = waveEstimate(runs)
-    const tickets = estimate === null ? 0 : readyWave(await this.freshTickets(run), run.epic).ready.length
+    const tickets = estimate === null ? 0 : readyWave(await this.freshTickets(run), run.epic, run.cycle.named).ready.length
     return budgetDecision({ budget, now: (limits.now ?? Date.now)(), limits: limits.state(), runs, estimate, tickets })
   }
 
@@ -1369,7 +1465,7 @@ export class Autopilot {
 
   /**
    * The run is over: its reason in the journal, keep-awake released, the Orchestrator given back.
-   * A stop for want of a Wave carries the Orchestrator's last answer in the Wave (ADR-0033), and
+   * A stop for want of a Wave, and `tickets-done`, carry the Orchestrator's last answer in the Wave (ADR-0033), and
    * `blocked-tickets` the Tickets it stopped on.
    */
   private async end(run: Run, reason: AutopilotStopReason, tickets?: number[]): Promise<void> {
@@ -1377,7 +1473,7 @@ export class Autopilot {
     // journaled ahead of the run-stopped that names it. A Force stop and a quit do not wait for gh.
     if (reason !== 'user-force-stop' && reason !== 'app-quit') await this.journalNarrow(run, await this.lastPrs(run))
     const live = this.liveTasks(run)
-    const lastText = reason === 'no-progress' || reason === 'no-ready-wave' || reason === 'blocked-tickets' ? run.lastText : null
+    const lastText = reason === 'no-progress' || reason === 'no-ready-wave' || reason === 'blocked-tickets' || reason === 'tickets-done' ? run.lastText : null
     await this.write(run, {
       kind: 'run-stopped',
       reason,
@@ -1604,7 +1700,7 @@ export class Autopilot {
       ...(waitingFor === undefined ? {} : { waitingFor }),
       reason: run.done ? run.cycle.reason : null,
       message: run.message,
-      resumable: run.done && run.cycle.reason === 'user-force-stop' ? [...run.interrupted] : [],
+      resumable: run.done ? resumableOf(run) : [],
       stopping,
       ticketsInWork: stopping ? run.cycle.inWork.length : 0,
       harnessBehind: this.harness.get(run.projectId) ?? null,

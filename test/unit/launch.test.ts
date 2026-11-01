@@ -422,6 +422,21 @@ describe('ActionLauncher.autopilotWave (ticket 30)', () => {
     expect(orchestrator.sent).toEqual(['/epic-wave Ticket-ы 13 эпика worfy-mvp'])
   })
 
+  it('a run over named Tickets sends only the ready ones of its list, the interrupted ones of the list included (worfy-flight-recorder ticket 21)', async () => {
+    const workflow: LaunchDeps['workflow'] = (root) =>
+      Promise.resolve({
+        root,
+        epics: [{ epic: 'worfy-mvp', hasSpec: true, hasMap: false, title: null }],
+        tickets: [t(11, 'open'), t(12, 'work'), t(13, 'work'), t(15, 'blocked'), t(23, 'open')],
+        error: null,
+        branchErrors: [],
+      })
+    const { launch, orchestrator } = launcher({ workflow })
+    expect(await launch.autopilotWave('p', 'worfy-mvp', [12, 13], false, [11, 13])).toMatchObject({ text: '/epic-wave Ticket-ы 11, 13 эпика worfy-mvp', tickets: [11, 13], skipped: [] })
+    expect(await launch.autopilotWave('p', 'worfy-mvp', [], false, [15, 23])).toMatchObject({ tickets: [23], skipped: [{ num: 15, state: 'blocked' }] })
+    expect(orchestrator.sent).toEqual(['/epic-wave Ticket-ы 11, 13 эпика worfy-mvp', '/epic-wave Ticket-ы 23 эпика worfy-mvp'])
+  })
+
   it('refuses a template without {tickets} and sends nothing; autopilotRefusal says the same before a run', async () => {
     const own = launcher({ templates: { runWave: LEGACY_RUN_WAVE_TEMPLATE } })
     await expect(own.launch.autopilotWave('p', 'worfy-mvp')).rejects.toThrow(AUTOPILOT_TEMPLATE_HINT)
