@@ -270,10 +270,11 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     // Before a run: active, no status line.
     await expect(autopilot).toHaveAttribute('aria-disabled', 'false')
     await expect(autopilot).toHaveText('Autopilot')
-    // The hint ends with the Wave estimate (worfy-throughput ticket 40): no past Waves here, and no usage known.
+    // The hint ends with the Run mode and the Epic forecast (worfy-resource-planner ticket 06): the
+    // default mode with nothing chosen and the budget off, no past Waves here, and no usage known.
     await expect(autopilot).toHaveAttribute(
       'title',
-      `Run the Waves of ${EPIC} one after another, without a person. ${DISPLAY_STAYS_ON}. No estimate for a Wave yet: fewer than 3 past Waves with fresh Limits. Used now: unknown`,
+      `Run the Waves of ${EPIC} one after another, without a person. ${DISPLAY_STAYS_ON}. Mode: Fastest (Settings → Autopilot). This Epic: 2 Waves, 3 Tickets left. Not enough data for a forecast: fewer than 5 past Waves with fresh Limits. Used now: unknown`,
     )
     await expect(status).toHaveCount(0)
     await snapshots(window, header, 'autopilot-idle')
@@ -575,6 +576,67 @@ test('Autopilot in the Run mode Start window: outside the window the status line
     expect(kinds()).toEqual(['run-started start-window', 'forecast start-window', 'start-window outside', 'waiting-until', 'run-stopped user-stop'])
     expect(messages(log)).toEqual([])
     expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
+    expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
+    expect(files(claudeHome)).toEqual(claudeHomeBefore)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('the hint of Autopilot: the Epic forecast of five past Waves, with the recommendation in Budget-aware, the warning in Fastest and the window line in Start window (worfy-resource-planner ticket 06)', async () => {
+  const { dataDir, claudeHome, log, repo, statusBefore, claudeHomeBefore } = prepare()
+  // Five past Waves of one Ticket, an hour each, each 10 % of the week with fresh numbers at both ends.
+  const now = Date.now()
+  const weekReset = now + 3 * 86_400_000 + 30 * 60_000
+  let clock = now - 20 * 3_600_000
+  const past = await openRun({ project: PROJECT, epic: EPIC }, { env: { WORFY_DATA_DIR: dataDir }, now: () => new Date(clock) })
+  const reading = (utilization: number) => ({ five_hour: null, seven_day: { utilization, receivedAt: new Date(clock).toISOString(), resetsAt: new Date(weekReset).toISOString() } })
+  for (let wave = 1; wave <= 5; wave += 1) {
+    await past.append({ kind: 'wave-started', wave, tickets: ['01'], limits: reading((wave - 1) / 10) })
+    clock += 3_600_000
+    await past.append({ kind: 'wave-finished', wave, tickets: ['01'], limits: reading(wave / 10) })
+    clock += 3_600_000
+  }
+  await past.append({ kind: 'run-stopped', reason: 'user-stop' })
+  // The week stands at 75 % now, the number fresh; no 5-hour window (the owner's subscription has none).
+  writeFileSync(
+    join(dataDir, 'limits.json'),
+    JSON.stringify({ windows: { seven_day: { utilization: 0.75, resetsAt: Math.floor(weekReset / 1000), status: null, receivedAt: now, source: 'usage' } } }),
+  )
+  writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ autopilotRun: { mode: 'budget-aware' } }))
+  const journalsBefore = readdirSync(join(dataDir, 'autopilot'))
+
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    const header = frame.locator('header')
+    const autopilot = frame.getByTestId('action-autopilot')
+    await expect(autopilot).toHaveAttribute('aria-disabled', 'false')
+    // Left: Wave 1 of 01 and 02, Wave 2 of 03; 10 % a Ticket by the samples, 30 % in all.
+    const head = `Run the Waves of ${EPIC} one after another, without a person. ${DISPLAY_STAYS_ON}`
+    const forecast = 'This Epic: 2 Waves, 3 Tickets left, usually about 30% of the week. Used now: 75%, resets in 3 d 0 h'
+
+    // Budget-aware: 1 − 15 % − 75 % = 10 % free, under the 20 % of Wave 1.
+    await expect(autopilot).toHaveAttribute('title', `${head}. Mode: Budget-aware (Settings → Autopilot). ${forecast}. Recommended: no Wave now, all 2 after the reset`)
+    await snapshots(window, header, 'autopilot-forecast-budget-aware')
+
+    // Fastest: 25 % free to the full week, Wave 1 fits, both do not.
+    expect(await bridgeCall(window, 'appSettings.set', { autopilotRun: { mode: 'fastest' } })).toMatchObject({ ok: true })
+    await expect(autopilot).toHaveAttribute('title', `${head}. Mode: Fastest (Settings → Autopilot). ${forecast}. Only 1 of 2 Waves fits before the reset: then the run waits for the Limits`)
+
+    // Start window, the budget off: the warning, then the window and the p90 of the Waves' hour.
+    expect(await bridgeCall(window, 'appSettings.set', { autopilotRun: { mode: 'start-window' } })).toMatchObject({ ok: true })
+    await expect(autopilot).toHaveAttribute(
+      'title',
+      `${head}. Mode: Start window (Settings → Autopilot). ${forecast}. Only 1 of 2 Waves fits before the reset: then the run waits for the Limits. Start window 23:00–07:00: a Wave usually takes up to 1 h 0 min`,
+    )
+
+    // Showing the forecast starts nothing and writes nothing: no run, no journal, no message.
+    expect(readdirSync(join(dataDir, 'autopilot'))).toEqual(journalsBefore)
+    expect(messages(log)).toEqual([])
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
     expect(files(claudeHome)).toEqual(claudeHomeBefore)
   } finally {

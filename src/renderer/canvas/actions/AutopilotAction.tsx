@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { create } from 'zustand'
-import { waveEstimateLine } from '../../../shared/autopilot/limits-estimate'
+import type { LimitsState } from '../../../shared/agent/limits'
+import { epicForecast, remainingWaves, type EpicForecast } from '../../../shared/autopilot/forecast'
+import { fitBeforeReset, forecastLine, modeLine, recommendationLine, warningLine, windowLine } from '../../../shared/autopilot/forecast-lines'
+import type { RunMode, StartWindow } from '../../../shared/autopilot/run-mode'
 import {
   autopilotEstimateAnswerSchema,
   autopilotStatusLine,
@@ -12,8 +15,10 @@ import {
 } from '../../../shared/ipc/autopilot'
 import { failureReason } from '../../../shared/ipc/channels'
 import { invoke, subscribe } from '../../ipc'
-import { useNow } from '../../limits/useLimits'
+import { autopilotBudgetOf, autopilotRunOf } from '../../../shared/settings/app-settings'
+import { useLimits, useNow } from '../../limits/useLimits'
 import { useReadOnly } from '../../projects/useProjects'
+import { useAppSettings } from '../../settings/useAppSettings'
 import type { SlotProps } from '../badges'
 import { ActionButton } from './action-button'
 import { ActionMenu } from './action-menu'
@@ -65,12 +70,20 @@ import { hasRunWave, useRunWaveState } from './gates'
 // - Each button role has its own key: "Stop autopilot" after "Start anyway" is a new button, not
 //   the Autopilot button with its refusal still on.
 //
-// What a Wave usually takes of the week (worfy-throughput ticket 40): the hint of an active
-// "Autopilot" ends with "A Wave like this usually takes about 6% of the week. Used now: 41%,
-// resets in 2 d 5 h" (waveEstimateLine; no estimate from fewer than three past Waves, and it says
-// so), for as many Tickets as the Wave about to go has. Main answers it from the run journals
-// (`autopilot.estimate`); it is asked when the button appears and again whenever the run's status
-// changes. An answer that does not parse leaves the hint without the line.
+// The Epic forecast (worfy-resource-planner ticket 06, ADR-0093; it replaced the Wave line of
+// worfy-throughput ticket 40): the hint of an active "Autopilot" ends with the Run mode the button
+// starts in, the default of Settings → Autopilot ("Mode: Budget-aware (Settings → Autopilot)",
+// modeLine), then the forecast line ("This Epic: 4 Waves, 11 Tickets left, usually 18–31% of the
+// week. Used now: 41%, resets in 2 d 5 h", forecastLine), then for that mode: the recommendation
+// when the budget acts in it (Budget-aware, or Start window with the budget on), the Fastest warning
+// when it does not, and the Start window line in Start window (forecastHint). The forecast counts the
+// Waves left of the Tickets this frame holds; the samples and the Wave duration come from main, which
+// reads the run journals (`autopilot.estimate`, asked when the button appears and again whenever the
+// run's status changes). The Limits — "Used now" and the 30-minute freshness of the 7-day number the
+// recommendation and the warning need — are the live state the toolbar shows (useLimits), not the
+// window in that answer: an idle canvas asks main nothing for hours. An answer that does not parse
+// leaves the hint with the mode line alone. The bootstrap runs again only when the samples or the
+// Tickets change; the lines whenever the Limits, Settings or the minute do.
 
 export const order = 30
 
@@ -248,10 +261,38 @@ async function stop(projectId: string, kind: StopKind): Promise<string | undefin
 
 const noRun = (): Promise<undefined> => Promise.resolve(undefined)
 
+/** What the hint's forecast reads of Settings → Autopilot. */
+interface HintSettings {
+  /** The default Run mode: the button starts in it. */
+  mode: RunMode
+  window: StartWindow
+  /** Whether "Daily budget of the Limits" is on: the budget acts in Start window only then. */
+  budgetOn: boolean
+  /** The reserve of the week, 0..1. */
+  reserve: number
+}
+
 /**
- * The Project's Wave estimate, asked once per `key`; null until main answers or when it fails.
- * shortcut: "Used now" is as of the last ask, not live; redo if the hint is seen to lag the toolbar's
- * Limits for long (then join useLimits here).
+ * The end of the Autopilot button's hint: the mode line, then with an answer of main the forecast
+ * line over the live `limits` and, for the mode, the recommendation (the budget acts), the Fastest warning (it does not) and
+ * the Start window line. A line with nothing to say is left out.
+ */
+function forecastHint(answer: AutopilotEstimateAnswer | null, forecast: EpicForecast | null, limits: LimitsState, settings: HintSettings, now: number): string[] {
+  const lines = [modeLine(settings.mode)]
+  if (answer === null || forecast === null) return lines
+  lines.push(forecastLine({ forecast, limits, now }))
+  const budgetActs = settings.mode === 'budget-aware' || (settings.mode === 'start-window' && settings.budgetOn)
+  const advice = budgetActs
+    ? recommendationLine(fitBeforeReset({ forecast, limits, now, reserve: settings.reserve }), forecast.waves)
+    : warningLine(fitBeforeReset({ forecast, limits, now, reserve: null }), forecast.waves)
+  if (advice !== null) lines.push(advice)
+  if (settings.mode === 'start-window') lines.push(windowLine(settings.window, answer.durations))
+  return lines
+}
+
+/**
+ * The Project's estimate answer, asked once per `key`; null until main answers or when it fails. The
+ * hint reads its samples and Wave duration only: the Limits are live (useLimits).
  */
 function useWaveEstimate(projectId: string, key: string): AutopilotEstimateAnswer | null {
   const [answer, setAnswer] = useState<AutopilotEstimateAnswer | null>(null)
@@ -287,8 +328,21 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   // Before main's first state the Project counts as without a run: that state asks again only when it is a run.
   const estimate = useWaveEstimate(projectId, state?.status ?? 'stopped')
   const now = useNow()
-  const estimateLine =
-    estimate === null || !wave.enabled ? null : waveEstimateLine({ estimate: estimate.estimate, tickets: wave.tickets.length, sevenDay: estimate.sevenDay, now })
+  // The Limits as the toolbar shows them, kept current by limits.changed.
+  const limits = useLimits()
+  // Each field alone: a selector that builds an object would give a new one on every read.
+  const mode = useAppSettings((settings) => autopilotRunOf(settings).mode)
+  const windowFrom = useAppSettings((settings) => autopilotRunOf(settings).window.from)
+  const windowTo = useAppSettings((settings) => autopilotRunOf(settings).window.to)
+  const budgetOn = useAppSettings((settings) => autopilotBudgetOf(settings).enabled)
+  const reservePercent = useAppSettings((settings) => autopilotBudgetOf(settings).reservePercent)
+  const samples = estimate?.samples ?? null
+  // The bootstrap of FORECAST_DRAWS draws: once per change of the samples or the Tickets, not on every redraw.
+  const forecast = useMemo(() => (samples === null ? null : epicForecast({ samples, waves: remainingWaves(tickets, epic.epic) })), [samples, tickets, epic.epic])
+  const hint = useMemo(
+    () => (wave.enabled ? forecastHint(estimate, forecast, limits, { mode, window: { from: windowFrom, to: windowTo }, budgetOn, reserve: reservePercent / 100 }, now) : null),
+    [wave.enabled, estimate, forecast, limits, mode, windowFrom, windowTo, budgetOn, reservePercent, now],
+  )
   if (!hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined) return null
 
   const button =
@@ -315,7 +369,7 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
             : running
             ? `Autopilot is ${stopping ? 'stopping' : 'running'} Epic ${state?.epic ?? ''}`
             : wave.enabled
-              ? `Run the Waves of ${epic.epic} one after another, without a person. ${DISPLAY_STAYS_ON}${estimateLine === null ? '' : `. ${estimateLine}`}`
+              ? `Run the Waves of ${epic.epic} one after another, without a person. ${DISPLAY_STAYS_ON}${hint === null ? '' : `. ${hint.join('. ')}`}`
               : wave.reason
         }
         run={() => start(projectId, epic.epic)}

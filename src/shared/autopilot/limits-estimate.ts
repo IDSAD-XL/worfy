@@ -7,6 +7,7 @@
 // used now (waveEstimateLine). No prices. Everything here is pure.
 import { SAME_WINDOW_RESET_GAP_S, type LimitsState } from '../agent/limits'
 import type { JournalEvent, JournalLimits } from './journal'
+import { waveDurationP90, type WaveDuration } from './wave-duration'
 
 /** How many of the last Waves the median takes. */
 export const ESTIMATE_WAVES = 10
@@ -103,13 +104,35 @@ export interface WeekNow {
   resetsAt: number | null
 }
 
+/** The 7-day window of `autopilot.estimate`: WeekNow and when its number came (ms), which the forecast's freshness needs. */
+export interface WeekAnswer extends WeekNow {
+  receivedAt: number
+}
+
+/** What `autopilot.estimate` answers. */
+export interface EstimateAnswer {
+  estimate: WaveEstimate | null
+  sevenDay: WeekAnswer | null
+  /** The per-Ticket samples the Epic forecast draws from (waveSamples), oldest first. */
+  samples: number[]
+  /** The p90 of the Wave duration and its number of samples (waveDurationP90). */
+  durations: WaveDuration
+}
+
 /**
  * What `autopilot.estimate` answers (src/shared/ipc/autopilot.ts): the estimate from the events of
- * the Project's past runs, and the 7-day window of the Limits now, null when nothing is known of it.
+ * the Project's past runs, the 7-day window of the Limits now (null when nothing is known of it), and
+ * for the Epic forecast of the Autopilot button (worfy-resource-planner ticket 06) the per-Ticket
+ * samples and the Wave duration of the same runs.
  */
-export function estimateAnswer(runs: readonly (readonly JournalEvent[])[], limits: LimitsState): { estimate: WaveEstimate | null; sevenDay: WeekNow | null } {
+export function estimateAnswer(runs: readonly (readonly JournalEvent[])[], limits: LimitsState): EstimateAnswer {
   const week = limits.windows.seven_day
-  return { estimate: waveEstimate(runs), sevenDay: week === undefined ? null : { utilization: week.utilization, resetsAt: week.resetsAt } }
+  return {
+    estimate: waveEstimate(runs),
+    sevenDay: week === undefined ? null : { utilization: week.utilization, resetsAt: week.resetsAt, receivedAt: week.receivedAt },
+    samples: waveSamples(runs),
+    durations: waveDurationP90(runs),
+  }
 }
 
 export interface EstimateLineInput {

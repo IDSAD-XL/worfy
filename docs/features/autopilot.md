@@ -14,11 +14,26 @@ The frame of an Epic on the Canvas has an **Autopilot** button. The button is hi
 done and the Epic has no run going on, no status line of a past run, no stop on its way and no "running on <Machine>"
 refusal. So after a finished run it stays, inactive, until the app restarts or the Project runs another Epic. It is active
 when "Run wave" could run now and the Project's "Run wave" template names the Wave's Tickets with `{tickets}`. Its tooltip
-says what it does, that the display stays on until the run ends, and how much of the week a Wave like this usually takes:
+says what it does, that the display stays on until the run ends, the Run mode the button starts in (the default of
+Settings → Autopilot), and the forecast of what is left of the Epic:
 
-> A Wave like this usually takes about 6% of the week. Used now: 41%, resets in 2 d 5 h
+> Mode: Budget-aware (Settings → Autopilot). This Epic: 4 Waves, 11 Tickets left, usually 18–31% of the week. Used now: 41%, resets in 2 d 5 h. Recommended: 2 Waves now, the other 2 after the reset
 
-With fewer than three past Waves that have fresh Limits numbers, the tooltip says that there is no estimate yet.
+The range is drawn from the share of the week each Ticket of the last 10 past Waves took, by the run journals of this
+Machine. It counts the Waves left of the Tickets shown in the frame; Tickets without a Wave number are named as not
+counted. With fewer than 5 past Waves that have fresh Limits numbers, the tooltip says there is not enough data for a
+forecast. Then, for the default mode:
+
+- **Budget-aware**, or **Start window** with **Daily budget of the Limits** on: how many Waves fit before the 7-day
+  window resets without touching the reserve ("Recommended: …", or "All 4 Waves fit before the reset without the
+  reserve").
+- **Fastest**, or **Start window** with the budget off: a warning when not all Waves fit before the reset ("Only 2 of 4
+  Waves fit before the reset: then the run waits for the Limits").
+- **Start window**: the window and how long a Wave usually takes ("Start window 23:00–07:00: a Wave usually takes up to
+  1 h 40 min"), or that there is not enough data on Wave duration.
+
+The recommendation and the warning need a 7-day number no older than 30 minutes; without one the tooltip says
+"Used now: unknown" and gives neither. They are words only: the run itself is led by its Run mode.
 
 A start is refused, with the reason on the button, in these cases:
 
@@ -63,12 +78,25 @@ read as a command.
 
 **From a chat, by the agent.** When the user asks a Session in words to run an Epic, or some of its Tickets, on autopilot,
 the agent calls the canvas tool `autopilot_start` with the Epic and, for named Tickets, their numbers. worfy then asks the
-user in a dialog that names the Project, the Epic and the Tickets, with **Start Autopilot** and **Cancel** (Cancel is the
-default button). The dialog is on a window of the Project's Machine, the Machine that runs the Session: the focused
-window, else one on screen, else a minimised or hidden one brought back first. A Linked machine's window gets no dialog
-and cannot confirm. Without an answer in 10 minutes the dialog closes and the agent gets
-"No one confirmed …"; Cancel is a refusal too. **Start Autopilot** starts the same run as the button, over the named
-Tickets when there are any. When the asking Session is the Project's Orchestrator in its turn, the run starts once that turn
+user in a dialog that names the Project, the Epic and the Tickets. Its text has the same forecast as the button's
+tooltip, one line per mode:
+
+```
+Forecast: This Epic: 4 Waves, 11 Tickets left, usually 18–31% of the week. Used now: 41%, resets in 2 d 5 h.
+Budget-aware: Recommended: 2 Waves now, the other 2 after the reset.
+Fastest: Only 2 of 4 Waves fit before the reset: then the run waits for the Limits.
+Start window 23:00–07:00: a Wave usually takes up to 1 h 40 min.
+```
+
+A run over named Tickets forecasts only those. A line with nothing to say is left out, and when the run journals cannot
+be read the dialog has no forecast. The person chooses the Run mode of this one run with **Start: Fastest**,
+**Start: Budget-aware** or **Start: Start window**; the default mode of Settings ends with "(default)". **Cancel** is the
+default button, so Enter or Escape alone start nothing. The dialog is on a window of the Project's Machine, the Machine
+that runs the Session: the focused window, else one on screen, else a minimised or hidden one brought back first. A
+Linked machine's window gets no dialog and cannot confirm. Without an answer in 10 minutes the dialog closes and the
+agent gets "No one confirmed …"; Cancel is a refusal too. A start button starts the same run as the Autopilot button,
+in the chosen mode, over the named Tickets when there are any. The Autopilot button and a command typed in a chat
+always start in the default mode. When the asking Session is the Project's Orchestrator in its turn, the run starts once that turn
 is over, and the agent gets "Autopilot starts after this turn". Without a dialog the tool refuses:
 
 - a Session that runs unattended, such as the Orchestrator during a run: no one is there to confirm;
@@ -174,7 +202,8 @@ hard limit.
 #### The Run mode
 
 Every run goes in a Run mode, fixed when it starts. A start takes the default mode of Settings → Autopilot (**Default run
-mode**). The mode acts only before a Wave, never inside one:
+mode**), unless the person chose another one in the dialog of `autopilot_start`. The mode acts only before a Wave, never
+inside one:
 
 - **Fastest**: the next Wave goes at once. Neither the budget nor the Start window is checked.
 - **Budget-aware**: the budget above, with its reserve, whether **Daily budget of the Limits** is on or off.

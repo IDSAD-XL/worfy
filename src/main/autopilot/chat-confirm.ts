@@ -14,13 +14,31 @@
 //   hidden is brought back first; with no worfy window at all the answer is NO_WINDOW_MESSAGE. A
 //   Linked machine's screen is a client without a window (src/main/clients.ts): it gets no dialog,
 //   and no channel lets it answer one. The dialog names the Project, the Epic and the named
-//   Tickets; "Start Autopilot" or "Cancel", Cancel the default. Without an answer in CONFIRM_WAIT_MS
-//   the dialog closes and the answer is NO_ONE_CONFIRMED. One dialog per Project at a time.
-// - "Start Autopilot" goes to startFromChat with `by: 'tool'` (src/main/autopilot/chat-start.ts),
-//   exactly as the command typed in a chat: the same run as the button. Asked from the turn of the
+//   Tickets. Without an answer in CONFIRM_WAIT_MS the dialog closes and the answer is
+//   NO_ONE_CONFIRMED. One dialog per Project at a time.
+// - The person chooses the Run mode of this run in the dialog (worfy-resource-planner ticket 06,
+//   ADR-0093): "Start: Fastest", "Start: Budget-aware", "Start: Start window" (RUN_MODES, in that
+//   order), then "Cancel"; the default mode of Settings → Autopilot ends with " (default)". Cancel is
+//   the default button and the cancel button, so Enter or Escape alone start nothing.
+// - The dialog's `detail` has the Epic forecast (dialogLines, src/shared/autopilot/forecast-lines.ts)
+//   after its first paragraph: the per-Ticket samples and Wave durations of the Project's recent run
+//   journals, the Waves left of the same fresh workflow read the start is checked on (only the named
+//   Tickets in a run over them), the app's Limits now and the reserve and window of Settings. Journals
+//   that cannot be read leave the forecast out; the dialog still asks.
+// - A start button goes to startFromChat with `by: 'tool'` and its mode (src/main/autopilot/chat-start.ts),
+//   as the command typed in a chat: the same run as the button. Asked from the turn of the
 //   Project's own Orchestrator, the run starts after that turn (AFTER_TURN_MESSAGE).
 import { BrowserWindow, dialog, type Dialog, type MessageBoxOptions } from 'electron'
 import { ticketNumber } from '../../shared/actions/render-template'
+import type { LimitsState } from '../../shared/agent/limits'
+import { budgetFromSettings, type AutopilotBudget } from '../../shared/autopilot/budget'
+import { epicForecast, remainingWaves } from '../../shared/autopilot/forecast'
+import { dialogLines } from '../../shared/autopilot/forecast-lines'
+import type { JournalEvent } from '../../shared/autopilot/journal'
+import { waveSamples } from '../../shared/autopilot/limits-estimate'
+import { RUN_MODE_LABELS, RUN_MODES, type RunMode } from '../../shared/autopilot/run-mode'
+import { waveDurationP90 } from '../../shared/autopilot/wave-duration'
+import { autopilotRunOf, type AutopilotRunSettings } from '../../shared/settings/app-settings'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
@@ -32,8 +50,11 @@ import { startRefusal } from './run'
 /** How long the dialog waits for a person: as long as a Card's `session.ask` (owner's answer Q2). */
 export const CONFIRM_WAIT_MS = 10 * 60_000
 
-/** The button that starts the run; button 0 of the dialog. */
-export const START_BUTTON = 'Start Autopilot'
+/** The button that starts the run in `mode`; the default mode of Settings is marked. */
+export const startButton = (mode: RunMode, defaultMode: RunMode): string => `Start: ${RUN_MODE_LABELS[mode]}${mode === defaultMode ? ' (default)' : ''}`
+
+/** "Cancel": the button after the start buttons, one per mode. */
+const CANCEL_ID = RUN_MODES.length
 
 /** The answer when the dialog had no answer in CONFIRM_WAIT_MS. */
 export const NO_ONE_CONFIRMED = 'No one confirmed the start of Autopilot within 10 minutes. Nothing started.'
@@ -60,27 +81,37 @@ export interface AutopilotPrompt {
   epic: string
   /** The named Tickets; absent: the whole Epic. */
   tickets?: readonly number[] | undefined
+  /** The default Run mode of Settings → Autopilot, marked on its button. */
+  mode: RunMode
+  /** The forecast lines of the detail (dialogLines); empty: none. */
+  forecast: readonly string[]
 }
 
-/** What became of the dialog; 'no-window': there was no window to show it on. */
-export type Confirmation = 'start' | 'cancel' | 'timeout' | 'no-window'
+/** What became of the dialog: the Run mode of the start button chosen, or why nothing starts; 'no-window': there was no window to show it on. */
+export type Confirmation = RunMode | 'cancel' | 'timeout' | 'no-window'
 
 const ticketsText = (tickets: readonly number[]): string => `${tickets.length === 1 ? 'Ticket' : 'Tickets'} ${tickets.map(ticketNumber).join(', ')}`
 
-/** The message box: button 0 starts, Cancel is the default, so Enter alone starts nothing. */
+/**
+ * The message box: a start button per Run mode, in the order of RUN_MODES, then Cancel, the default,
+ * so Enter alone starts nothing. The forecast lines go between the first paragraph and the last.
+ */
 export function confirmationOptions(prompt: AutopilotPrompt): MessageBoxOptions {
   const named = prompt.tickets !== undefined && prompt.tickets.length > 0 ? prompt.tickets : null
   const what = named === null ? `Epic "${prompt.epic}"` : `${ticketsText(named)} of Epic "${prompt.epic}"`
+  const paragraphs = [
+    `An agent asked for it in a chat. Autopilot then runs the ${named === null ? "Epic's" : 'named'} Waves without asking anyone, as the Autopilot button does.`,
+    ...(prompt.forecast.length === 0 ? [] : [prompt.forecast.join('\n')]),
+    'Without an answer in 10 minutes nothing starts.',
+  ]
   return {
     type: 'question',
-    buttons: [START_BUTTON, 'Cancel'],
-    defaultId: 1,
-    cancelId: 1,
+    buttons: [...RUN_MODES.map((mode) => startButton(mode, prompt.mode)), 'Cancel'],
+    defaultId: CANCEL_ID,
+    cancelId: CANCEL_ID,
     title: 'Start Autopilot',
     message: `Start Autopilot on ${what} in Project "${prompt.project}"?`,
-    detail:
-      `An agent asked for it in a chat. Autopilot then runs the ${named === null ? "Epic's" : 'named'} Waves without asking anyone, as the Autopilot button does.\n\n` +
-      'Without an answer in 10 minutes nothing starts.',
+    detail: paragraphs.join('\n\n'),
     noLink: true,
   }
 }
@@ -99,7 +130,7 @@ export async function confirmAutopilotStart(owner: BrowserWindow, prompt: Autopi
       done('timeout')
     }, waitMs)
   })
-  const answered = box.showMessageBox(owner, options).then(({ response }): Confirmation => (response === 0 ? 'start' : 'cancel'))
+  const answered = box.showMessageBox(owner, options).then(({ response }): Confirmation => RUN_MODES[response] ?? 'cancel')
   try {
     // The box closed by the abort answers its cancelId too: the race has gone to the timer by then.
     return await Promise.race([answered, timedOut])
@@ -156,6 +187,32 @@ export interface AutopilotToolDeps {
   confirm(prompt: AutopilotPrompt): Promise<Confirmation>
   /** The start from a chat (ChatStarts.startFromChat). */
   startFromChat(request: ChatStartRequest): Promise<ChatStartAnswer>
+  /** What the dialog's forecast and its default mode read. */
+  forecast: ForecastSources
+}
+
+/** What the dialog's forecast and its default mode read (worfy-resource-planner ticket 06). */
+export interface ForecastSources {
+  /** The events of the Project's recent runs, one list per journal (readRecentRuns); a rejection leaves the forecast out. */
+  runs(projectId: string): Promise<JournalEvent[][]>
+  /** The app's Limits now. */
+  limits(): LimitsState
+  /** Settings → Autopilot: the default Run mode and the Start window, and the budget with its reserve. */
+  settings(): { run: AutopilotRunSettings; budget: AutopilotBudget }
+  now(): number
+}
+
+/** The forecast lines of the dialog for `epic` (only the named Tickets when there are any); none when the journals cannot be read. */
+async function forecastLines(sources: ForecastSources, projectId: string, model: Pick<WorkflowModel, 'tickets'>, epic: string, tickets: readonly number[] | undefined, settings: ReturnType<ForecastSources['settings']>): Promise<string[]> {
+  let runs: JournalEvent[][]
+  try {
+    runs = await sources.runs(projectId)
+  } catch (error) {
+    console.warn(`[autopilot] ${projectId}: the start dialog shows no forecast, the run journals cannot be read`, error)
+    return []
+  }
+  const forecast = epicForecast({ samples: waveSamples(runs), waves: remainingWaves(model.tickets, epic, tickets) })
+  return dialogLines({ forecast, wave: waveDurationP90(runs), limits: sources.limits(), now: sources.now(), reserve: settings.budget.reserve, window: settings.run.window })
 }
 
 /** Answers a call of the tool: the text of a start, or throws the refusal. */
@@ -178,11 +235,13 @@ export function autopilotStarter(deps: AutopilotToolDeps): AutopilotStarter {
       if (model.error !== null) throw new Error(`Cannot read the workflow: ${model.error.message}`)
       const refusal = startRefusal(model, epic, tickets)
       if (refusal !== null) throw new Error(refusal)
-      const answer = await deps.confirm({ project: deps.projectName(projectId), epic, ...(tickets === undefined ? {} : { tickets }) })
+      const settings = deps.forecast.settings()
+      const forecast = await forecastLines(deps.forecast, projectId, model, epic, tickets, settings)
+      const answer = await deps.confirm({ project: deps.projectName(projectId), epic, ...(tickets === undefined ? {} : { tickets }), mode: settings.run.mode, forecast })
       if (answer === 'no-window') throw new Error(NO_WINDOW_MESSAGE)
       if (answer === 'timeout') throw new Error(NO_ONE_CONFIRMED)
       if (answer === 'cancel') throw new Error(CANCELED_MESSAGE)
-      const started = await deps.startFromChat({ projectId, epic, ...(tickets === undefined ? {} : { tickets }), by: 'tool', session })
+      const started = await deps.startFromChat({ projectId, epic, ...(tickets === undefined ? {} : { tickets }), by: 'tool', session, mode: answer })
       if (started.kind === 'refused') throw new Error(started.message)
       if (started.kind === 'after-turn') return started.message
       return `Autopilot started ${tickets === undefined ? `Epic ${epic}` : `${ticketsText(tickets)} of Epic ${epic}`}.`
@@ -193,14 +252,20 @@ export function autopilotStarter(deps: AutopilotToolDeps): AutopilotStarter {
 }
 
 /**
- * The app's tool: the Session registry, the app's starts from a chat, the Project list, and a
- * message box on a window of this Machine. The Autopilot module and the registry are loaded on the
+ * The app's tool: the Session registry, the app's starts from a chat, the Project list, the run
+ * journals, Limits and Settings of the forecast, and a message box on a window of this Machine. The Autopilot module and the registry are loaded on the
  * first call: they load the canvas server, which loads this module.
  */
 export function appAutopilotStarter(): AutopilotStarter {
   let tool: Promise<AutopilotStarter> | null = null
   const load = async (): Promise<AutopilotStarter> => {
-    const [{ sharedChatStarts }, { sharedRegistry }] = await Promise.all([import('../ipc/autopilot'), import('../agent/app-registry')])
+    const [{ sharedChatStarts }, { sharedRegistry }, { appLimits }, { appSettingsStore }, { readRecentRuns }] = await Promise.all([
+      import('../ipc/autopilot'),
+      import('../agent/app-registry'),
+      import('../agent/limits'),
+      import('../settings/store'),
+      import('./journal'),
+    ])
     return autopilotStarter({
       unattended: (sessionId) => {
         try {
@@ -217,6 +282,16 @@ export function appAutopilotStarter(): AutopilotStarter {
         return owner === null ? Promise.resolve('no-window') : confirmAutopilotStart(owner, prompt)
       },
       startFromChat: (request) => sharedChatStarts().startFromChat(request),
+      // The same sources as the button's estimate (autopilot.estimate) and the run's start.
+      forecast: {
+        runs: (projectId) => readRecentRuns(projectId),
+        limits: () => appLimits().snapshot(),
+        settings: () => {
+          const settings = appSettingsStore().get()
+          return { run: autopilotRunOf(settings), budget: budgetFromSettings(settings) }
+        },
+        now: () => Date.now(),
+      },
     })
   }
   return async (request) => {
