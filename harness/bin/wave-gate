@@ -447,14 +447,19 @@ const pidAlive = (pid) => {
 const START_SLACK_MS = 1000
 const STARTED = Math.floor(Date.now() - process.uptime() * 1000)
 // When the process with this pid started, in ms since the epoch, NO_PROCESS when the system says none has this pid, or
-// null when it cannot be told. The exceptions are told by their type: the text of their messages is in the system's
-// language. get_StartTime(), not .StartTime: PowerShell turns an exception of a property into $null. The answer is a
-// word on stdout, not an exit code, which a crash of PowerShell can give too: it would end the wait for a live check.
+// null when it cannot be told. The exceptions are told by their exact type, not by inheritance: the text of their
+// messages is in the system's language, and a subclass, as a refusal under a language restriction may be, says nothing
+// about the process. Any other exception leaves it untold, which keeps the wait for a live check. get_StartTime(), not
+// .StartTime: PowerShell turns an exception of a property into $null. The answer is a word on stdout, not an exit code,
+// which a crash of PowerShell can give too.
 const NO_PROCESS = "no process"
 function startedAt(pid) {
     if (process.platform !== "win32") return null
     const shell = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-    const ask = `try { [System.Diagnostics.Process]::GetProcessById(${pid}).get_StartTime().ToUniversalTime().ToString('o') } catch [System.ArgumentException],[System.InvalidOperationException] { '${NO_PROCESS}' }`
+    const ask =
+        `try { [System.Diagnostics.Process]::GetProcessById(${pid}).get_StartTime().ToUniversalTime().ToString('o') } ` +
+        `catch { $e = $_.Exception; if ($e -is [System.Management.Automation.MethodInvocationException]) { $e = $e.InnerException }; ` +
+        `if (@('System.ArgumentException', 'System.InvalidOperationException') -contains $e.GetType().FullName) { '${NO_PROCESS}' } else { throw } }`
     const r = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", ask], {
         encoding: "utf8",
         timeout: 15000,
