@@ -134,6 +134,59 @@ async function snapshots(window: Page, toast: Locator, around: Locator, name: st
   await window.emulateMedia({ colorScheme: null })
 }
 
+type Box = { x: number; y: number; width: number; height: number }
+
+const intersects = (a: Box, b: Box): boolean => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
+/**
+ * Pans the Canvas with the wheel, over the empty plane, until the frame's "⋯" button lies where the
+ * toast is now: the place a toast takes when nothing keeps it away. Whatever the window's size, the
+ * refusal "Stop it first" then has the frame's Stop and "⋯" in its way, as it had on a narrow screen.
+ */
+async function bringUnderToast(window: Page, frame: Locator, toast: Locator): Promise<void> {
+  const pane = (await window.locator('.react-flow').boundingBox())!
+  await window.mouse.move(pane.x + 8, pane.y + pane.height - 8)
+  // The toast settles first: coming from the Session view it still keeps clear of that view's header
+  // until the region measures again (every 200 ms, ToastRegion.tsx).
+  let last: number | null = null
+  await expect
+    .poll(
+      async () => {
+        const top = (await toast.boundingBox())!.y
+        const settled = top === last
+        last = top
+        return settled
+      },
+      { intervals: [300], message: 'the toast settles' },
+    )
+    .toBe(true)
+  const goal = (await toast.boundingBox())!
+  const more = frame.getByTestId('action-autopilot-more')
+  for (let step = 0; step < 20; step += 1) {
+    const box = (await more.boundingBox())!
+    const dx = goal.x + goal.width / 2 - (box.x + box.width / 2)
+    const dy = goal.y + goal.height / 2 - (box.y + box.height / 2)
+    if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return
+    await window.mouse.wheel(-dx, -dy)
+    // Two frames: React Flow has drawn the new viewport.
+    await window.evaluate('new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))')
+  }
+  throw new Error('the frame did not come under the toast')
+}
+
+/**
+ * The refusal toast keeps clear of the Epic frame's header (toast/ToastRegion.tsx) once the header
+ * lies in its column, so the person reaches Stop and "⋯" as the toast tells them to.
+ */
+async function expectHeaderClear(window: Page, frame: Locator, toast: Locator): Promise<void> {
+  await bringUnderToast(window, frame, toast)
+  const header = frame.locator('header')
+  await expect
+    .poll(async () => intersects((await toast.boundingBox())!, (await header.boundingBox())!), { message: 'the toast keeps clear of the Epic frame header' })
+    .toBe(false)
+  await expect(toast).toBeVisible()
+}
+
 /** Chooses Force stop under "⋯" of the frame, and waits for the run's end. */
 async function forceStop(window: Page, frame: Locator): Promise<void> {
   await frame.getByTestId('action-autopilot-more').click()
@@ -187,6 +240,7 @@ test('the command typed in the Session view starts Autopilot over the named Tick
     await window.getByRole('button', { name: 'Canvas', exact: true }).click()
     await expect(status).toHaveText('Wave 1 · running')
     await expect(frame.getByTestId('action-stop-autopilot')).toHaveText('Stop autopilot')
+    await expectHeaderClear(window, frame, toast)
     await forceStop(window, frame)
   } finally {
     await launched.close()
@@ -224,6 +278,7 @@ test('the command typed in the chat of a Session Node starts Autopilot; a second
     await expect(node.getByTestId('session-node-error')).toHaveCount(0)
     expect(messages(log)).toEqual([WAVE_OF_01])
     expect(journals(dataDir)).toEqual([['run-started', 'wave-started']])
+    await expectHeaderClear(window, frame, toast)
     await forceStop(window, frame)
   } finally {
     await launched.close()

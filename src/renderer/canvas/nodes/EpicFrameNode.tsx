@@ -98,7 +98,8 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
       <div className="w-epic__ground" aria-hidden="true">
         <KindBand kind="epic" />
       </div>
-      <header className="w-epic__header">
+      {/* Toasts keep clear of the header (toast/ToastRegion.tsx): a refusal that says "Stop it first" must not lie over Stop. */}
+      <header className="w-epic__header" data-toast-keep-out="">
         <div className="w-epic__drag">
           <span className="w-epic__tag">
             <KindIcon kind="epic" size={12} />

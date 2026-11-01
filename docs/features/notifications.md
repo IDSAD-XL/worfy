@@ -56,7 +56,7 @@ button.
 - The pointer or the keyboard focus on a toast stops its time. When both have left, the time starts again in full.
 - A toast never takes the focus. Tab reaches its buttons, and Esc on a toast in focus closes it and gives the focus back.
 - The stack moves out of the way. It goes into the first free band from the top of its column, clear of the toolbar, a view's
-  header, the minimap, an open dialog or menu, by a margin of 12 pixels. The place is measured again every 200 ms while a toast
+  header, the header of an Epic frame on the Canvas (its Run wave, Autopilot and Stop buttons), the minimap, an open dialog or menu, by a margin of 12 pixels. The place is measured again every 200 ms while a toast
   is shown. When no band holds the stack whole, it is cut to the tallest band of at least 40 pixels and scrolls. When no such band
   exists, it stays under the toolbar and covers the popup, so an error is still seen.
 - The area is a landmark "Notifications". `error` toasts are announced as alerts, the others politely.
