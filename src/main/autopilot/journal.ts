@@ -18,6 +18,7 @@ import {
   type JournalEvent,
   type JournalEventFields,
   type ParsedJournal,
+  type RunStartedBy,
 } from '../../shared/autopilot/journal'
 import { dataRoot } from '../storage/paths'
 
@@ -92,12 +93,16 @@ export interface RunStart {
   override?: true
   /** The Linked machines that could not be asked; absent when every one answered. */
   unasked?: string[]
+  /** Who started the run (worfy-flight-recorder ticket 11); absent in a start that does not say. */
+  by?: RunStartedBy
+  /** A run over named Tickets: their numbers, `01`; absent for the whole Epic. */
+  tickets?: string[]
 }
 
 /**
  * Starts a new run of `epic` in `project`: creates its file with the `run-started` line, which
  * carries the run's origin key, `override` and the Linked machines not asked when given
- * (worfy-link ticket 15).
+ * (worfy-link ticket 15), who started it and its named Tickets (worfy-flight-recorder ticket 11).
  */
 export async function openRun(start: RunStart, options: JournalOptions = {}): Promise<RunJournal> {
   const now = options.now ?? (() => new Date())
@@ -118,6 +123,8 @@ export async function openRun(start: RunStart, options: JournalOptions = {}): Pr
       ...(start.origin === undefined ? {} : { origin: start.origin }),
       ...(start.override === true ? { override: true } : {}),
       ...(start.unasked === undefined || start.unasked.length === 0 ? {} : { unasked: [...start.unasked] }),
+      ...(start.by === undefined ? {} : { by: start.by }),
+      ...(start.tickets === undefined ? {} : { tickets: [...start.tickets] }),
     })
     try {
       // 'wx': a new run never appends to the file of another one.

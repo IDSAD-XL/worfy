@@ -65,6 +65,7 @@ const rawLines = (file: string): string[] => readFileSync(file, 'utf8').split('\
 const appended: JournalEventFields[] = [
   { kind: 'harness-behind', harness: '0.1.0+abcdef1', main: 'origin/main', commits: 2 },
   { kind: 'wave-started', wave: 1, tickets: ['01', '02'] },
+  { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-10-06T01:02Z' },
   { kind: 'narrow-round', ticket: '02', outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open' },
   { kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
   { kind: 'budget-stop', cause: 'five-hour', share: 0.0925, used: 0.04, need: 0.06, until: '2026-10-06T05:02:00.000Z', text: "The 5-hour Limits are used, today's share is not: Autopilot continues at 05:02" },
@@ -77,6 +78,7 @@ const appended: JournalEventFields[] = [
   { kind: 'background-tasks', tasks: [] },
   { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },
   { kind: 'gate-queue', text: '/worfy:gate-queue' },
+  { kind: 'gate-queue-finished' },
   { kind: 'run-stopped', reason: 'user-stop', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }] },
   { kind: 'orchestrator-returned' },
   { kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task-2', type: 'local_bash', description: null }] },
@@ -216,6 +218,34 @@ describe('readRun', () => {
     ])
     expect(parsed?.events[2]).not.toHaveProperty('agent')
     expect(parsed?.events[2]).not.toHaveProperty('reason')
+  })
+
+  it('writes the history of a Run (worfy-flight-recorder ticket 11): who started it, its named Tickets, the Session of a Wave, ticket-status and gate-queue-finished; listRuns and readRun read them', async () => {
+    const journal = await openRun({ project: PROJECT, epic: EPIC, by: 'command', tickets: ['01', '02'] }, { now: ticking(T0), suffix: suffixes('a1b2c3') })
+    const history: JournalEventFields[] = [
+      { kind: 'wave-started', wave: 1, tickets: ['01', '02'], session: '6f1c2a3b-0000-4000-8000-000000000001' },
+      { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-10-06T01:01Z' },
+      { kind: 'ticket-status', ticket: '02', state: 'blocked', statusAt: '2026-10-06T01:02Z', reason: 'needs the owner', waits: 'owner' },
+      { kind: 'ticket-status', ticket: '01', state: 'done', statusAt: '2026-10-06T01:03Z' },
+      { kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
+      { kind: 'gate-queue', text: '/worfy:gate-queue' },
+      { kind: 'gate-queue-finished' },
+      { kind: 'run-stopped', reason: 'blocked-tickets', tickets: ['02'] },
+    ]
+    for (const fields of history) await journal.append(fields)
+
+    expect(journal.file).toBe(join(dataDir, 'autopilot', `${journal.run}.jsonl`))
+    const lines = rawLines(journal.file).map((line) => JSON.parse(line) as Record<string, unknown>)
+    expect(lines[0]).toEqual({ kind: 'run-started', at: new Date(T0).toISOString(), run: journal.run, project: PROJECT, epic: EPIC, by: 'command', tickets: ['01', '02'] })
+    expect(lines.slice(1)).toEqual(history.map((fields, index) => ({ ...fields, at: new Date(T0 + (index + 1) * 1000).toISOString(), run: journal.run, project: PROJECT, epic: EPIC })))
+    expect(await readRun(journal.run)).toEqual({ events: lines, skipped: 0 })
+    expect((await listRuns(PROJECT)).map((run) => run.run)).toEqual([journal.run])
+
+    // A run opened without `by` or named Tickets writes neither, as before ticket 11.
+    const plain = await openRun({ project: PROJECT, epic: EPIC }, { now: () => new Date(T0 + 60_000), suffix: () => 'bbbbbb' })
+    expect(JSON.parse(rawLines(plain.file)[0]!)).not.toHaveProperty('by')
+    expect(JSON.parse(rawLines(plain.file)[0]!)).not.toHaveProperty('tickets')
+    expect((await listRuns(PROJECT)).map((run) => run.run)).toEqual([plain.run, journal.run])
   })
 
   it('writes wave-started and wave-finished with limits, reads old lines without them, and a wrong limits drops only that field (worfy-throughput ticket 40)', async () => {

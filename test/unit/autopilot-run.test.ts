@@ -679,6 +679,9 @@ describe('the graceful Stop: no new Ticket, the ones in work finish (worfy-week 
       { kind: 'wave-started' },
       { kind: 'background-tasks' },
       { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01', '02'] },
+      // The watch's read after 01 merged: both Status lines changed since the start (worfy-flight-recorder ticket 11).
+      { kind: 'ticket-status' },
+      { kind: 'ticket-status' },
       { kind: 'background-tasks' },
       { kind: 'run-stopped', reason: 'user-stop' },
     ])
@@ -801,7 +804,8 @@ describe('the click on Stop is noted at once: no Wave goes after it (worfy-week 
     const answer = await s.autopilot.stop(PROJECT)
     expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
     expect(s.resumes).toHaveLength(1)
-    expect(kindsOnly(s)).toEqual(['wave-started', 'wave-finished', 'run-stopped'])
+    // The watch's read journals the merges of 01 and 02 (worfy-flight-recorder ticket 11).
+    expect(kindsOnly(s)).toEqual(['wave-started', 'ticket-status', 'ticket-status', 'wave-finished', 'run-stopped'])
   })
 
   it('Stop before the workflow change while settling: stops at once, the change finds the run stopped', async () => {
@@ -1310,7 +1314,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     s.emit(answer('queue empty'))
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave' })
-    expect(lines(s)).toEqual([{ kind: 'gate-queue', text: GATE_TEXT }, { kind: 'run-stopped', reason: 'no-ready-wave' }])
+    expect(lines(s)).toEqual([{ kind: 'gate-queue', text: GATE_TEXT }, { kind: 'gate-queue-finished' }, { kind: 'run-stopped', reason: 'no-ready-wave' }])
     expect(s.power).toEqual(['start', 'stop'])
     expect(s.orchestrator).toEqual(['unattended true', 'unattended false'])
     // Once per run.
@@ -1335,6 +1339,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
       { kind: 'wave-started' },
       { kind: 'wave-finished' },
       { kind: 'gate-queue', text: GATE_TEXT },
+      { kind: 'gate-queue-finished' },
       { kind: 'run-stopped', reason: 'blocked-tickets', tickets: ['03'], lastText: 'done' },
     ])
     expect(calls).toHaveLength(1)
@@ -1355,7 +1360,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'blocked-tickets' })
     expect(s.resumes).toHaveLength(1)
-    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'gate-queue', 'run-stopped'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'gate-queue', 'gate-queue-finished', 'run-stopped'])
   })
 
   it('request, no field or no template (null): no gate-queue, the run stops at once', async () => {
@@ -1436,7 +1441,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop' })
     // No run-stopping: the turn has no Wave, and a run-stopping with wave 0 would not pass the journal's schema.
-    expect(s.journal.map((line) => line.kind)).toEqual(['gate-queue', 'run-stopped'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['gate-queue', 'gate-queue-finished', 'run-stopped'])
     for (const line of s.journal) expect(journalEventSchema.safeParse({ ...line, ...JOURNAL_COMMON }).error?.issues ?? []).toEqual([])
   })
 
@@ -1447,7 +1452,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     await settle()
     expect(await s.autopilot.forceStop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop', resumable: [] })
     expect(s.halts).toBe(1)
-    expect(lines(s)).toEqual([{ kind: 'gate-queue', text: GATE_TEXT }, { kind: 'run-stopped', reason: 'user-force-stop' }, { kind: 'orchestrator-returned' }])
+    expect(lines(s)).toEqual([{ kind: 'gate-queue', text: GATE_TEXT }, { kind: 'gate-queue-finished' }, { kind: 'run-stopped', reason: 'user-force-stop' }, { kind: 'orchestrator-returned' }])
   })
 
   it('limits-timeout: no gate-queue', async () => {
@@ -1552,6 +1557,16 @@ describe('a new SDK session for every Wave after the first (worfy-throughput tic
       ['wave-finished', 2],
       ['run-stopped', 'no-ready-wave'],
     ])
+  })
+
+  it('wave-started of Wave 2 names the new Session it went to (worfy-flight-recorder ticket 11)', async () => {
+    const { s } = withNewSession()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    s.emit(result())
+    await settle()
+    expect(s.journal.filter((line) => line.kind === 'wave-started').map((line) => ('session' in line ? line.session : null))).toEqual([SESSION, SESSION_2])
   })
 
   it('a Stop clicked while the new Session starts: Wave 2 does not go, the run stops with user-stop', async () => {
@@ -1750,7 +1765,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     ])
     await s.autopilot.start(PROJECT, EPIC)
     expect(s.orchestrator).toEqual(['unattended true'])
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, by: 'button' }])
     expect(s.autopilot.runKeys()).toEqual([{ epic: EPIC, origin: KEY }])
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', machine: HERE, unasked: [] })
   })
@@ -1760,7 +1775,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     await s.autopilot.start(PROJECT, EPIC, { override: true })
     expect(asked()).toBe(1)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, override: true }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, override: true, by: 'button' }])
   })
 
   it('Start anyway once the other run has ended: asked again, a plain start, no override in run-started', async () => {
@@ -1771,7 +1786,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     await s.autopilot.start(PROJECT, EPIC, { override: true })
     expect(asked()).toBe(1)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', unasked: ['Desk'] })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Desk'] }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Desk'], by: 'button' }])
   })
 
   it('Start anyway past another Project of this Machine: the run goes with override', async () => {
@@ -1779,7 +1794,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     s.deps.projectRoot = (projectId) => `/repo/${projectId}`
     await s.autopilot.start(PROJECT, EPIC)
     await s.autopilot.start('clone-00000001', EPIC, { override: true })
-    expect(opened.at(-1)).toEqual({ project: 'clone-00000001', epic: EPIC, origin: KEY, override: true })
+    expect(opened.at(-1)).toEqual({ project: 'clone-00000001', epic: EPIC, origin: KEY, override: true, by: 'button' })
   })
 
   it('another Project of this Machine over the same repository runs the Epic: refused, naming this Machine', async () => {
@@ -1840,7 +1855,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     ])
     await s.autopilot.start(PROJECT, EPIC)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', unasked: ['Studio'] })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Studio'] }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Studio'], by: 'button' }])
   })
 
   it('question 3: a Project without origin asks no one, and starts as before', async () => {
@@ -1848,7 +1863,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     await s.autopilot.start(PROJECT, EPIC)
     expect(asked()).toBe(0)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button' }])
     expect(s.autopilot.runKeys()).toEqual([])
   })
 
@@ -2203,5 +2218,140 @@ describe('Autopilot.startCheck (worfy-flight-recorder ticket 21)', () => {
     const own = standIn()
     await own.autopilot.start(PROJECT, EPIC)
     expect(await own.autopilot.startCheck(PROJECT, EPIC)).toBe('Autopilot is already running in this Project (Epic demo): stop it first')
+  })
+})
+
+// The history of a Run in the journal (worfy-flight-recorder ticket 11, ADR-0092).
+describe('the Status changes of the Epic\'s Tickets during a run (ticket-status)', () => {
+  const statusLines = (s: StandIn) => s.journal.filter((line) => line.kind === 'ticket-status')
+  const set = (s: StandIn, num: number, fields: Partial<Ticket>) => {
+    s.tickets = s.tickets.map((each) => (each.num === num ? { ...each, ...fields } : each))
+  }
+
+  it('a claim, a block with its reason and who it waits for, and done each give one line with the header facts', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    set(s, 1, { state: 'work', statusAt: '2026-11-01T01:35Z' })
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([{ kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-11-01T01:35Z' }])
+    set(s, 2, { state: 'blocked', statusAt: '2026-11-01T01:40Z', blockedReason: 'needs the owner', waits: 'owner' })
+    s.workflowChanged()
+    await settle()
+    set(s, 1, { state: 'done', statusAt: '2026-11-01T01:50Z' })
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([
+      { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-11-01T01:35Z' },
+      { kind: 'ticket-status', ticket: '02', state: 'blocked', statusAt: '2026-11-01T01:40Z', reason: 'needs the owner', waits: 'owner' },
+      { kind: 'ticket-status', ticket: '01', state: 'done', statusAt: '2026-11-01T01:50Z' },
+    ])
+    // Each line passes the journal's schema once the file adds its common fields.
+    const common = { at: '2026-11-01T01:50:00.000Z', run: '2026-11-01T01-00-00-000Z-abcdef', project: PROJECT, epic: EPIC }
+    for (const line of statusLines(s)) expect(journalEventSchema.safeParse({ ...line, ...common }).error?.issues ?? []).toEqual([])
+  })
+
+  it('a read with no change of Status writes nothing; a reopened Ticket writes open, a re-claim with a new time writes again', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([])
+    set(s, 1, { state: 'work', statusAt: '2026-11-01T01:35Z' })
+    s.workflowChanged()
+    s.workflowChanged()
+    await settle()
+    set(s, 1, { state: 'open', statusAt: null })
+    s.workflowChanged()
+    await settle()
+    set(s, 1, { state: 'work', statusAt: '2026-11-01T02:00Z' })
+    s.workflowChanged()
+    await settle()
+    // Claimed again straight away, by another session: the same state, a new time.
+    set(s, 1, { state: 'work', statusAt: '2026-11-01T02:30Z' })
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([
+      { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-11-01T01:35Z' },
+      { kind: 'ticket-status', ticket: '01', state: 'open' },
+      { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-11-01T02:00Z' },
+      { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-11-01T02:30Z' },
+    ])
+  })
+
+  it('a Ticket of another Epic, a Ticket without a readable Status and a change after the run writes no line', async () => {
+    const s = standIn()
+    s.tickets = [...s.tickets, { ...t(7, 'open'), epic: 'other' }]
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.tickets = s.tickets.map((each) => (each.epic === 'other' ? { ...each, state: 'work' as const, statusAt: '2026-11-01T01:35Z' } : each))
+    set(s, 3, { state: 'none', statusError: 'old header' })
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([])
+    const changed = s.workflowChanged
+    await s.autopilot.forceStop(PROJECT)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped' })
+    set(s, 1, { state: 'done', statusAt: '2026-11-01T03:00Z' })
+    changed()
+    await settle()
+    expect(statusLines(s)).toEqual([])
+  })
+})
+
+describe('the end of the gate queue\'s turn (gate-queue-finished)', () => {
+  it('gate-queue, then gate-queue-finished, then run-stopped', async () => {
+    const s = standIn()
+    s.deps.waves.autopilotGateQueue = () => Promise.resolve('/worfy:gate-queue')
+    done(s, 1, 2, 3)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.journal.map((line) => line.kind)).toEqual(['gate-queue'])
+    s.state = 'idle'
+    s.emit(result())
+    await settle()
+    expect(s.journal.map((line) => line.kind)).toEqual(['gate-queue', 'gate-queue-finished', 'run-stopped'])
+  })
+})
+
+describe('who started the run, its named Tickets and the Session each Wave went to', () => {
+  function opening(overrides: Partial<AutopilotDeps> = {}) {
+    const s = standIn(overrides)
+    const opened: unknown[] = []
+    const journal = s.deps.journal
+    s.deps.journal = (start) => {
+      opened.push(start)
+      return journal(start)
+    }
+    return { s, opened }
+  }
+
+  it('run-started says button for the button, the start\'s value otherwise, and names the Tickets only of a run over named Tickets', async () => {
+    const button = opening()
+    await button.s.autopilot.start(PROJECT, EPIC)
+    expect(button.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button' }])
+    const command = opening()
+    await command.s.autopilot.start(PROJECT, EPIC, { tickets: [2, 1, 2], by: 'command' })
+    expect(command.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'command', tickets: ['01', '02'] }])
+    const tool = opening()
+    await tool.s.autopilot.start(PROJECT, EPIC, { by: 'tool' })
+    expect(tool.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'tool' }])
+  })
+
+  it('wave-started names the Session the Wave went to: the transcript id of a resumed Session, the Session id otherwise', async () => {
+    const s = standIn()
+    const session = s.deps.registry.get(SESSION)
+    // A Session resumed from a transcript has a pending id of worfy's own until Claude Code's init.
+    const resumed = Object.defineProperties(Object.create(session) as RunSession, { id: { value: 'pending-1' }, sdkId: { value: 'resumed-sdk-id' } })
+    s.deps.registry = { ...s.deps.registry, get: () => resumed }
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.journal[0]).toMatchObject({ kind: 'wave-started', wave: 1, session: 'resumed-sdk-id' })
+    const plain = standIn()
+    await plain.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(plain.journal[0]).toMatchObject({ kind: 'wave-started', wave: 1, session: SESSION })
   })
 })

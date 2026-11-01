@@ -10,6 +10,7 @@ export const JOURNAL_KINDS = [
   'run-started',
   'harness-behind',
   'wave-started',
+  'ticket-status',
   'narrow-round',
   'wave-finished',
   'budget-stop',
@@ -22,6 +23,7 @@ export const JOURNAL_KINDS = [
   'background-tasks',
   'run-stopping',
   'gate-queue',
+  'gate-queue-finished',
   'run-stopped',
   'orchestrator-returned',
   'tasks-killed',
@@ -36,11 +38,12 @@ export function time(text) {
 
 const isTickets = (value) => Array.isArray(value) && value.every((t) => typeof t === 'string' && t !== '')
 
-/** The fields of a kind the walk relies on; the other kinds need only the common ones. */
+/** The fields of a kind the walk and its readers rely on; the other kinds need only the common ones. */
 const FIELDS = {
   'wave-started': (e) => Number.isInteger(e.wave) && isTickets(e.tickets),
   'wave-finished': (e) => Number.isInteger(e.wave) && isTickets(e.tickets),
   'narrow-round': (e) => typeof e.ticket === 'string' && ['started', 'verified', 'rejected'].includes(e.outcome),
+  'ticket-status': (e) => typeof e.ticket === 'string' && e.ticket !== '' && ['claimed', 'blocked', 'done', 'open'].includes(e.state),
   'waiting-until': (e) => typeof e.until === 'string',
   'run-stopped': (e) => typeof e.reason === 'string',
 }

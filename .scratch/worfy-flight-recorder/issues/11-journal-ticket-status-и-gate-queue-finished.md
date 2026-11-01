@@ -44,24 +44,24 @@ Machine — не в этом Epic-е (приёмка, Q3).
 
 ## Готово, когда
 
-- [ ] Unit test схемы: `ticket-status` со всеми полями и только с обязательными проходит; `state` вне четырёх
+- [x] Unit test схемы: `ticket-status` со всеми полями и только с обязательными проходит; `state` вне четырёх
       значений — отказ; `gate-queue-finished` проходит; старые строки `wave-started` и `run-started` без новых
       полей читаются как раньше.
-- [ ] Unit test `autopilot-run`: во время Run смена `Status:` Ticket-а Epic-а Run на `claimed`, `blocked` (с
+- [x] Unit test `autopilot-run`: во время Run смена `Status:` Ticket-а Epic-а Run на `claimed`, `blocked` (с
       `Blocked reason:` и `Waits:`), `done` даёт по строке `ticket-status` с этими полями; Ticket другого Epic-а и
       смена вне Run — ни одной строки.
-- [ ] Unit test `autopilot-run`: ход «Process gate queue» — `gate-queue`, затем `gate-queue-finished`, затем
+- [x] Unit test `autopilot-run`: ход «Process gate queue» — `gate-queue`, затем `gate-queue-finished`, затем
       `run-stopped`.
-- [ ] Unit test `autopilot-run`: `wave-started.session` — id Session, которой ушла Wave, и при новой SDK Session
+- [x] Unit test `autopilot-run`: `wave-started.session` — id Session, которой ушла Wave, и при новой SDK Session
       тоже; `run-started.by` — `button` для кнопки и значение параметра старта иначе; `run-started.tickets` —
       названные Ticket-ы, без списка поля нет.
-- [ ] Contract test: Run во временной `WORFY_DATA_DIR` пишет новые строки в `<data dir>/autopilot/<run>.jsonl`,
+- [x] Contract test: Run во временной `WORFY_DATA_DIR` пишет новые строки в `<data dir>/autopilot/<run>.jsonl`,
       `listRuns` и `readRun` их читают.
-- [ ] `journal-walk.mjs` понимает оба вида; `test/unit/critical-path.test.ts` зелёный, отчёт скрипта на fixture не
+- [x] `journal-walk.mjs` понимает оба вида; `test/unit/critical-path.test.ts` зелёный, отчёт скрипта на fixture не
       изменился.
-- [ ] Других новых видов в Journal нет: `JOURNAL_EVENT_KINDS` дополнен ровно двумя значениями; в `harness/` и
+- [x] Других новых видов в Journal нет: `JOURNAL_EVENT_KINDS` дополнен ровно двумя значениями; в `harness/` и
       gate изменений нет.
-- [ ] ADR о `ticket-status` и шкале, вычисляемой при открытии, в `docs/adr/` с номером, свободным на момент claim.
+- [x] ADR о `ticket-status` и шкале, вычисляемой при открытии, в `docs/adr/` с номером, свободным на момент claim.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
 
 ## Тесты
@@ -89,3 +89,35 @@ Machine — не в этом Epic-е (приёмка, Q3).
 Только читать: `src/main/workflow/watch.ts` (`WorkflowHub`), `src/main/ipc/autopilot.ts` (`workflowWatch`, `:109`),
 `src/main/autopilot/journal.ts` (`listRuns`, `readRun`), `docs/adr/0002-worfy-is-a-view-over-the-workflow.md`,
 `docs/adr/0005-worfy-own-state-inventory.md`.
+
+## Итог
+
+- Формат: `src/shared/autopilot/journal.ts` — шапка-комментарий описывает оба вида и три поля; схема: `run-started`
+  с `by?` (`button`, `command`, `tool`) и `tickets?` (`:303`), `wave-started.session?` (`:305`), `ticket-status`
+  (`:306`, `state` — ровно четыре значения `TICKET_STATUS_STATES`), `gate-queue-finished` (`:319`).
+  `JOURNAL_EVENT_KINDS` дополнен ровно двумя значениями.
+- `ticket-status` пишет подписчик `WorkflowHub`: callback watch-а читает модель через `readAndFeed(..., true)`
+  (`src/main/autopilot/run.ts:1056`), `statusChanges` (`:444`) сравнивает статус каждого Ticket-а Epic-а Run
+  (состояние вместе с `statusAt`, `Blocked reason:`, `Waits:`) с прошлым чтением. Первое чтение — при старте (`:755`),
+  поэтому статус до Run строки не даёт; после остановки `readAndFeed` ничего не читает. `work` пишется как `claimed`,
+  `none` — без строки. Чтения после хода и для бюджета строк не пишут — только watch, как в ticket-е.
+- `gate-queue-finished` — первая запись `endGateQueue` (`:1175`), перед `run-stopped`, при любом конце хода
+  (и Stop, и Force stop, и пропавшая Session).
+- `wave-started.session` — `run.session.sdkId ?? run.session.id` (`:1095`): у Session, возобновлённой из транскрипта,
+  id worfy до init Claude Code — `pending-…`, поэтому в `RunSession` добавлено необязательное `sdkId` (`:155`, его
+  отдаёт `Session.sdkId`). У новой SDK Session id и есть id транскрипта.
+- `run-started.by` и `run-started.tickets` (`:767`) берутся из `Run.by` и `cycle.named` Ticket-а 21. `openRun`
+  (`src/main/autopilot/journal.ts:126-127`) пишет их в строку `run-started`: без этой правки файла, которого нет в
+  «Где в коде», поля не попали бы в Journal.
+- `src/shared/flight-recorder/journal-walk.mjs`: оба вида в `JOURNAL_KINDS` (`:13`), проверка полей `ticket-status`
+  (`:46`). `walkRun` новые виды не трогает: отчёт `scripts/critical-path.mjs` на fixture не изменился
+  (`test/unit/critical-path.test.ts` зелёный). `.d.mts` правки не потребовал: новых экспортов нет.
+- ADR-0092 «История Run» — `docs/adr/0092-run-history.md`. Страница `docs/features/autopilot.md`: таблица видов Journal.
+- Test-ы: `test/unit/autopilot-run.test.ts` — блоки `ticket-status` (`:2225`), `gate-queue-finished` (`:2304`),
+  `by`/`tickets`/`session` (`:2319`), Session новой SDK Session (`:1562`); прежние ожидания gate queue и Linked
+  machines дополнены `gate-queue-finished` и `by: 'button'`, два test-а worfy-week ticket 18 — строками
+  `ticket-status` из чтения watch. `test/unit/autopilot-journal.test.ts:79-115`, `test/contract/autopilot-journal.test.ts:223`.
+  Mutation testing вручную: 17 мутантов `run.ts`, `journal.ts`, `journal-walk.mjs`, `openRun` — все убиты.
+- `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (532 файла test-ов).
+- Не проверено: живой Run в приложении (GUI-проверок в ticket-е нет); что watch успевает сообщить о последнем `done`
+  до `run-stopped` — при гонке строка теряется, время остаётся в `Status:` файла Ticket-а (ADR-0092, «Цена»).

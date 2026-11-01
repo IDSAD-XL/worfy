@@ -102,7 +102,12 @@
 //   takes only the ready Tickets of the list (launch.ts, autopilotWave), and the run ends with
 //   `tickets-done` once all of them are done (cycle.ts). A start names Tickets of the Epic only. Who
 //   started the run (`by`: the button, a command typed in a chat, the Orchestrator's tool) is kept
-//   on the run; the journal gets it with worfy-flight-recorder ticket 11.
+//   on the run, and run-started carries it with the named list (worfy-flight-recorder ticket 11).
+// - The history of a run (worfy-flight-recorder ticket 11, ADR-0092): on each change of the
+//   workflow the watch reports, the run journals `ticket-status` for every Ticket of its Epic whose
+//   `Status:` differs from the last read (statusChanges); the read at the start is the first, so a
+//   status from before the run writes nothing. `wave-started` names the SDK session the Wave went
+//   to, and the end of the gate queue's turn is `gate-queue-finished`, before `run-stopped`.
 //
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
 import { realpath } from 'node:fs/promises'
@@ -113,7 +118,7 @@ import { ticketNumber } from '../../shared/actions/render-template'
 import { messageText } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
-import { clipLastText, journalLimits, journalReason, type JournalEventFields, type JournalLimits } from '../../shared/autopilot/journal'
+import { clipLastText, journalLimits, journalReason, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
 import { budgetDecision, budgetStopText, type AutopilotBudget, type BudgetDecision } from '../../shared/autopilot/budget'
 import type { JournalEvent } from '../../shared/autopilot/journal'
 import { waveEstimate } from '../../shared/autopilot/limits-estimate'
@@ -142,6 +147,12 @@ import { LimitsWait, wallTimer, type LimitsWaitDeps } from './limits-wait'
 /** The run's Orchestrator Session, as far as the run needs it. */
 export interface RunSession {
   readonly id: string
+  /**
+   * The SDK session it runs or resumes, once known (Session.sdkId): a resumed Session has an id of
+   * worfy's own until Claude Code's init, and this names its transcript meanwhile. Absent or null:
+   * the id is the SDK session's.
+   */
+  readonly sdkId?: string | null
   readonly state: SessionState
   queued(): QueueSnapshot
   removeQueued(id: string): boolean
@@ -236,7 +247,8 @@ export interface AutopilotDeps {
   }
   /**
    * Opens the run's journal; writes its `run-started` line, with the run's origin key, `override`
-   * when the start went past a run of another Machine, and the Linked machines it could not ask.
+   * when the start went past a run of another Machine, the Linked machines it could not ask, who
+   * started the run and its named Tickets (worfy-flight-recorder ticket 11).
    */
   journal(start: RunStart): Promise<RunJournalLike>
   /**
@@ -338,7 +350,7 @@ function refusedDialogLine(event: Extract<AgentEvent, { type: 'refused_dialog' }
 const inTurn = (state: SessionState): boolean => state === 'busy' || state === 'needs_permission'
 
 /** Who started a run: the Autopilot button, a command typed in a chat, or the Orchestrator's tool `autopilot_start`. */
-export type AutopilotStartedBy = 'button' | 'command' | 'tool'
+export type AutopilotStartedBy = RunStartedBy
 
 /** What `Autopilot.start` takes besides the Project and the Epic. */
 export interface AutopilotStartOptions {
@@ -420,6 +432,33 @@ export async function selfProjectRefusal(input: {
   return null
 }
 
+/** The journal's state of a Ticket's `Status:`; null for one it cannot read. */
+const STATUS_STATES: Record<WorkflowModel['tickets'][number]['state'], TicketStatusState | null> = { work: 'claimed', blocked: 'blocked', done: 'done', open: 'open', none: null }
+
+/**
+ * The `ticket-status` lines for the Tickets of the run's Epic whose status differs from the last
+ * read (Run.statuses), in the model's order; the read becomes the last one. A status is the state
+ * with the header facts beside it (time, blocked reason, who it waits for), so a claim again with
+ * a new time is a change too. A Ticket whose Status cannot be read (`none`) writes no line.
+ */
+function statusChanges(run: Run, tickets: WorkflowModel['tickets']): JournalEventFields[] {
+  const lines: JournalEventFields[] = []
+  for (const ticket of tickets) {
+    if (ticket.epic !== run.epic) continue
+    const state = STATUS_STATES[ticket.state]
+    const fields = {
+      ...(ticket.statusAt ? { statusAt: ticket.statusAt } : {}),
+      ...(ticket.blockedReason ? { reason: ticket.blockedReason } : {}),
+      ...(ticket.waits ? { waits: ticket.waits } : {}),
+    }
+    const key = JSON.stringify([state, fields])
+    const before = run.statuses.get(ticket.num)
+    run.statuses.set(ticket.num, key)
+    if (before !== undefined && before !== key && state !== null) lines.push({ kind: 'ticket-status', ticket: ticketNumber(ticket.num), state, ...fields })
+  }
+  return lines
+}
+
 /**
  * What a stopped run leaves resumable (AutopilotState.resumable): after a Force stop the Tickets of
  * the Wave it interrupted, and in a run over named Tickets those of the last Force stop it did not
@@ -476,6 +515,8 @@ class Run {
   stopSent = false
   /** After a Force stop: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
   interrupted: number[] = []
+  /** The status of each Ticket of the Epic at the last read of the watch (statusChanges); the start's read is the first. */
+  statuses = new Map<number, string>()
   /**
    * A run over named Tickets: the Tickets of the last Force stop's Wave that are not on its list. It
    * does not take them, so they stay resumable after it, for a later run of the whole Epic (ADR-0091).
@@ -711,6 +752,7 @@ export class Autopilot {
       run.resume = last?.epic === epic ? [...last.resumable] : []
       const named = options.tickets
       if (named !== undefined) run.carried = run.resume.filter((num) => !named.includes(num))
+      statusChanges(run, model.tickets)
       if (this.deps.limits !== undefined) run.limits = new LimitsWait(this.deps.limits)
       const view = await this.deps.orchestrators.setUnattended(projectId, true)
       try {
@@ -722,12 +764,14 @@ export class Autopilot {
           ...(run.origin === null ? {} : { origin: run.origin }),
           ...(override ? { override: true as const } : {}),
           ...(unasked.length > 0 ? { unasked } : {}),
+          by: run.by,
+          ...(run.cycle.named === undefined ? {} : { tickets: run.cycle.named.map(ticketNumber) }),
         })
         await this.journalHarness(run)
         run.awake = this.deps.keepAwake()
         run.awake.start()
         this.subscribe(run)
-        const unwatch = await this.deps.watchWorkflow(root, () => void run.enqueue(() => this.readAndFeed(run, 'ignore', (tickets) => ({ type: 'workflow', tickets }))))
+        const unwatch = await this.deps.watchWorkflow(root, () => void run.enqueue(() => this.readAndFeed(run, 'ignore', (tickets) => ({ type: 'workflow', tickets }), true)))
         if (run.cycle.phase === 'stopped') {
           // The Session failed or closed while the watch opened: the run has ended (or is ending)
           // and released what it held without this watch, so it is closed here.
@@ -990,9 +1034,10 @@ export class Autopilot {
   /**
    * Reads the workflow model fresh and feeds the cycle an event made of its Tickets. A read that
    * fails after a turn stops the run (`onError: 'stop'`): without it the end of the Wave cannot be
-   * told. After a workflow change it is skipped: the next change reads again.
+   * told. After a workflow change it is skipped: the next change reads again. `statuses`: the read
+   * of the watch, which journals the Tickets' changes of status first (ticket-status).
    */
-  private async readAndFeed(run: Run, onError: 'stop' | 'ignore', make: (tickets: WorkflowModel['tickets']) => CycleEvent): Promise<void> {
+  private async readAndFeed(run: Run, onError: 'stop' | 'ignore', make: (tickets: WorkflowModel['tickets']) => CycleEvent, statuses = false): Promise<void> {
     if (run.cycle.phase === 'stopped') return
     let model: WorkflowModel
     try {
@@ -1008,6 +1053,7 @@ export class Autopilot {
       }
       return
     }
+    if (statuses) for (const fields of statusChanges(run, model.tickets)) await this.write(run, fields)
     await this.feed(run, make(model.tickets))
   }
 
@@ -1046,6 +1092,7 @@ export class Autopilot {
             tickets: effect.tickets.map(ticketNumber),
             ...(sent === null ? {} : { text: sent.text, skipped: sent.skipped.map((each) => ({ num: ticketNumber(each.num), state: each.state })) }),
             ...(run.sentLimits === undefined ? {} : { limits: run.sentLimits }),
+            ...(run.session === null ? {} : { session: run.session.sdkId ?? run.session.id }),
           })
           for (const num of effect.tickets) run.waveTickets.add(num)
           this.pollPrs(run)
@@ -1125,6 +1172,7 @@ export class Autopilot {
     const saved = run.gateQueue
     if (saved === null) return
     run.gateQueue = null
+    await this.write(run, { kind: 'gate-queue-finished' })
     const own = stopped !== null && stopped.reason !== 'no-ready-wave' && stopped.reason !== 'blocked-tickets' && stopped.reason !== 'no-progress'
     const reason = own ? stopped.reason : saved.reason
     const tickets = own ? stopped.tickets : saved.tickets

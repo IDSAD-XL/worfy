@@ -30,7 +30,14 @@
 //                                    the names of the Linked machines the start could not ask
 //                                    about their runs (not connected, or no answer within 3 s),
 //                                    absent when it asked them all (worfy-link ticket 15). Lines
-//                                    written before that ticket have none of the three
+//                                    written before that ticket have none of the three.
+//                  by?, tickets?     by: who started the run, `button` (the Autopilot button),
+//                                    `command` (a command typed in a chat) or `tool` (the
+//                                    Orchestrator's tool `autopilot_start`); tickets: the Tickets
+//                                    of a run over named Tickets, numbers as in wave-started, in
+//                                    number order, absent for a run over the whole Epic
+//                                    (worfy-flight-recorder tickets 11, 21; ADR-0091, ADR-0092).
+//                                    Lines written before ticket 11 have neither
 //   harness-behind harness, main,    the Harness in worfy's main has changes in harness/ that the
 //                  commits           running build's Harness has not (worfy-harness ticket 21,
 //                                    ADR-0047): the Stable copy is due `pnpm install:stable` once
@@ -44,11 +51,28 @@
 //                                    repository write it; journals written before ticket 21 have
 //                                    none
 //   wave-started   wave, tickets,    wave: number from 1; tickets: Ticket numbers, ["01", "02"];
-//                  text?, skipped?   text: the text the Orchestrator got; skipped: Tickets left
-//                                    out because they are not open though their blockers are all
+//                  text?, skipped?,  text: the text the Orchestrator got; skipped: Tickets left
+//                  session?          out because they are not open though their blockers are all
 //                                    done, [{"num": "15", "state": "blocked"}], state `blocked` or
 //                                    `none` (ticket 30, ADR-0033; lines written before it have
-//                                    neither field)
+//                                    neither field); session: the id of the Orchestrator's SDK
+//                                    session the Wave went to, the name of its transcript
+//                                    (`<session>.jsonl`), a new one for each Wave after the first
+//                                    when the Harness gives one (worfy-flight-recorder ticket 11,
+//                                    ADR-0092; lines written before it have none)
+//   ticket-status  ticket, state,    the `Status:` line of a Ticket of the run's Epic changed while
+//                  statusAt?,        the run went on (worfy-flight-recorder ticket 11, ADR-0092):
+//                  reason?, waits?   worfy reads the workflow on each change of the Tickets' files
+//                                    and writes a line for every Ticket whose status differs from
+//                                    its last read; none before the run or after it. ticket: its
+//                                    number, as in wave-started; state: `claimed` (`Status:
+//                                    claimed`, in work), `blocked`, `done` or `open`; a Ticket
+//                                    whose Status cannot be read writes none. statusAt: the time
+//                                    of the Status line as the Ticket gives it (`2026-10-17T09:41Z`
+//                                    or a date); reason: its `Blocked reason:` line; waits: its
+//                                    `Waits:` line; each absent without that line. Two changes
+//                                    between two reads write only the later one. Journals written
+//                                    before ticket 11 have none
 //   narrow-round   ticket, outcome,  a Ticket of a Wave of the run went through a step of the
 //                  text              narrow fix round (worfy-harness ticket 20, ADR-0046), as a
 //                                    comment on its PR says: ticket: its number, as in tickets of
@@ -128,6 +152,9 @@
 //                                    Stop during it writes no run-stopping: run-stopped
 //                                    (`user-stop`) follows the turn.
 //                                    Journals written before ticket 17 have none
+//   gate-queue-finished              the gate queue's turn is over, whatever ended it; run-stopped
+//                                    follows (worfy-flight-recorder ticket 11, ADR-0092). Journals
+//                                    written before ticket 11 have none
 //   run-stopped    reason, tasks?,   the run ended; reason: why, in a few words; tasks: the
 //                  tickets?,         background tasks alive then, when any were; tickets: with
 //                  lastText?         `blocked-tickets`, the Tickets it stopped on (as skipped of
@@ -187,6 +214,7 @@ export const JOURNAL_EVENT_KINDS = [
   'run-started',
   'harness-behind',
   'wave-started',
+  'ticket-status',
   'narrow-round',
   'wave-finished',
   'budget-stop',
@@ -199,6 +227,7 @@ export const JOURNAL_EVENT_KINDS = [
   'background-tasks',
   'run-stopping',
   'gate-queue',
+  'gate-queue-finished',
   'run-stopped',
   'orchestrator-returned',
   'tasks-killed',
@@ -211,6 +240,14 @@ export type HumanInputSource = (typeof HUMAN_INPUT_SOURCES)[number]
 
 /** What a `budget-stop` line says stopped the run (src/shared/autopilot/budget.ts, BudgetCause). */
 export const BUDGET_CAUSES = ['daily-share', 'five-hour'] as const
+
+/** Who started a run, as `run-started` says it (src/main/autopilot/run.ts, AutopilotStartedBy). */
+export const RUN_STARTED_BY = ['button', 'command', 'tool'] as const
+export type RunStartedBy = (typeof RUN_STARTED_BY)[number]
+
+/** The states a `ticket-status` line names: the Ticket's `Status:` as the Harness writes it. */
+export const TICKET_STATUS_STATES = ['claimed', 'blocked', 'done', 'open'] as const
+export type TicketStatusState = (typeof TICKET_STATUS_STATES)[number]
 
 /** The states of a narrow fix round a `narrow-round` line names. */
 export const NARROW_OUTCOMES = ['started', 'verified', 'rejected'] as const
@@ -263,9 +300,10 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
   z.object({ ...common, kind: z.literal(kind), ...fields })
 
 export const journalEventSchema = z.discriminatedUnion('kind', [
-  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional() }),
+  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional(), tickets: z.array(text).optional() }),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
-  event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional(), limits }),
+  event('wave-started', { ...wave, text: z.string().optional(), skipped: skipped.optional(), limits, session: text.optional() }),
+  event('ticket-status', { ticket: text, state: z.enum(TICKET_STATUS_STATES), statusAt: text.optional(), reason: text.optional(), waits: text.optional() }),
   event('narrow-round', { ticket: text, outcome: z.enum(NARROW_OUTCOMES), text: text.max(LAST_TEXT_MAX) }),
   event('wave-finished', { ...wave, limits }),
   event('budget-stop', { cause: z.enum(BUDGET_CAUSES), share: z.number().nonnegative(), used: z.number().nonnegative(), need: z.number().nonnegative(), until: isoTime, text }),
@@ -278,6 +316,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('background-tasks', { tasks }),
   event('run-stopping', { reason: text, ...wave, inWork: z.array(text) }),
   event('gate-queue', { text }),
+  event('gate-queue-finished', {}),
   event('run-stopped', { reason: text, tasks: tasks.optional(), tickets: z.array(text).optional(), lastText: z.string().max(LAST_TEXT_MAX).optional() }),
   event('orchestrator-returned', {}),
   event('tasks-killed', { reason: text, tasks }),
