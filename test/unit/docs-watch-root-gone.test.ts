@@ -106,6 +106,15 @@ async function start(model: Stand, extra: Partial<DocsWatchOptions> = {}): Promi
 const gone = (): string => `[docs] the folder ${root} is gone: its documents are not watched until it is back`
 const until = (done: () => void): Promise<void> => vi.waitFor(done, { timeout: ms(3000), interval: 5 })
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+/**
+ * Past the reads that follow the start of a watch: a read after this comes from an event. The timers of those reads
+ * have fired after the pause, but the last read may still run, and a file written under it reads as changed.
+ * relabel reads once more and resolves after that read, which comes after the one in progress.
+ */
+const pastStartReads = async (watcher: DocsWatcher): Promise<void> => {
+  await pause(Math.max(...SETTLE_READS_MS))
+  await watcher.relabel('past the start reads')
+}
 /** A wait on the real clock, also while the test has faked it: a look at the folder answers from the thread pool. */
 const realTimeout = globalThis.setTimeout
 const settled = (ms = 50): Promise<void> => new Promise((resolve) => realTimeout(resolve, ms))
@@ -411,15 +420,12 @@ describe('DocsWatcher and a root that is removed', () => {
 // root's last name — not a full path, so the watch is kept — and nothing more. The same name comes
 // when the root is back at its path, made again or renamed back.
 describe('DocsWatcher and an event named by the root\'s last name', () => {
-  /** Past the reads that follow the start of a watch: a read after this comes from an event. */
-  const pastStartReads = (): Promise<void> => pause(Math.max(...SETTLE_READS_MS) + 100)
-
   it('reads the documents: a root that is gone reads as empty; the watch is kept and nothing is said', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const model = stand()
     const { watcher, changes } = await start(model)
     expect(watcher.current.handoff).not.toBeNull()
-    await pastStartReads()
+    await pastStartReads(watcher)
     removeTestTree(root)
     model.made[0]!.event('repo')
     await until(() => expect(changes).toEqual([{ handoff: null, adrs: [] }]))
@@ -430,8 +436,8 @@ describe('DocsWatcher and an event named by the root\'s last name', () => {
 
   it('a root renamed away and back is read at each event, by the same watch', async () => {
     const model = stand()
-    const { changes } = await start(model)
-    await pastStartReads()
+    const { watcher, changes } = await start(model)
+    await pastStartReads(watcher)
     const moved = join(dir, 'moved')
     renameSync(root, moved)
     model.made[0]!.event('repo')
@@ -445,12 +451,10 @@ describe('DocsWatcher and an event named by the root\'s last name', () => {
 })
 
 describe('DocsWatcher and names at the top of the root', () => {
-  const pastStartReads = (): Promise<void> => pause(Math.max(...SETTLE_READS_MS) + 100)
-
   it('another name at the top of the root asks for no read; the root\'s own name and HANDOFF.md do', async () => {
     const model = stand()
-    const { changes } = await start(model)
-    await pastStartReads()
+    const { watcher, changes } = await start(model)
+    await pastStartReads(watcher)
     writeFileSync(join(root, 'HANDOFF.md'), '# handoff, changed\n')
     for (const name of ['package.json', '.git', 'README.md', 'repository']) model.made[0]!.event(name)
     await pause(100)
@@ -467,7 +471,7 @@ describe('DocsWatcher and names at the top of the root', () => {
     const model = stand()
     const { watcher, changes } = await start(model)
     expect(watcher.current).toEqual({ handoff: null, adrs: [] })
-    await pastStartReads()
+    await pastStartReads(watcher)
     mkdirSync(root)
     writeFileSync(join(root, 'HANDOFF.md'), '# handoff, back\n')
     model.made[0]!.event('repo')
