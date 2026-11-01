@@ -1,7 +1,7 @@
 // The words and colours a span goes by on the Run history screen (worfy-flight-recorder tickets 18, 19): its
 // name, the token of its colour, its duration, its outcome and its lost source, shared by the timeline
 // (Timeline.tsx) and the detail panel (DetailPanel.tsx).
-import { LOST_SOURCE_LABELS, type Span } from '../../shared/flight-recorder/spans'
+import { LOST_SOURCE_LABELS, type Span, type WaitCause } from '../../shared/flight-recorder/spans'
 
 /** The colour token of a span's kind: `--span-<token>` (tokens.css, F-SPEC "Run history"). */
 export function tokenOf(span: Span): string {
@@ -15,7 +15,15 @@ export function tokenOf(span: Span): string {
   }
 }
 
-const WAIT_WORDS: Record<string, string> = { limits: 'Limits', 'limits-budget': 'Limits budget', 'background-tasks': 'Background tasks', 'gate-queue': 'Gate queue', 'other-machine': 'Other Machine' }
+// Every cause has its words: a new cause in WAIT_CAUSES fails typecheck here until it gets them.
+const WAIT_WORDS: Readonly<Record<WaitCause, string>> = {
+  limits: 'Limits',
+  'limits-budget': 'Limits budget',
+  'start-window': 'Start window',
+  'background-tasks': 'Background tasks',
+  'gate-queue': 'Gate queue',
+  'other-machine': 'Other Machine',
+}
 
 /** The name a span goes by on screen. */
 export function displayName(span: Span): string {
@@ -25,7 +33,7 @@ export function displayName(span: Span): string {
     case 'ticket':
       return `Ticket ${span.name.split('/').at(-1) ?? span.name}`
     case 'wait':
-      return WAIT_WORDS[span.waitCause ?? ''] ?? span.name
+      return span.waitCause === null ? span.name : WAIT_WORDS[span.waitCause]
     case 'orchestrator-turn':
       return 'Orchestrator turn'
     default:

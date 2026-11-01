@@ -182,6 +182,29 @@ describe('summarize', () => {
     ])
   })
 
+  // worfy-resource-planner ticket 08: a Run that waited for its Start window shows that wait as
+  // its own row, whole, and not as Limits.
+  it('gives the Waits for the Start window a row of their own, counted whole', () => {
+    const waits = summarize(
+      buildTimeline(
+        facts({
+          waves: [
+            { number: 1, startedAt: T('10:00'), finishedAt: T('10:30'), tickets: ['e/01'] },
+            { number: 2, startedAt: T('13:00'), finishedAt: T('14:00'), tickets: ['e/02'] },
+          ],
+          waits: [
+            { id: 'start-window:1', cause: 'start-window', start: T('10:30'), end: T('13:00'), detail: `outside, until ${T('13:00')}`, tickets: ['e/02'], startSource: 'journal', endSource: 'journal' },
+            { id: 'limits:1', cause: 'limits', start: T('13:30'), end: T('13:40'), startSource: 'journal', endSource: 'journal' },
+          ],
+        }),
+      ),
+    ).waits
+    expect(waits).toEqual([
+      { cause: 'start-window', total: 150 * MIN, share: 150 / 240 },
+      { cause: 'limits', total: 10 * MIN, share: 10 / 240 },
+    ])
+  })
+
   it('sums the work inside Stages by subkind, marked summed and parallel', () => {
     expect(WORK_NOTE).toBe('summed; parallel')
     expect(summary.workNote).toBe(WORK_NOTE)

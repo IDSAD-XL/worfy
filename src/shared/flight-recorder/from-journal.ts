@@ -10,9 +10,11 @@
 //   the Orchestrator back, orchestrator-returned, tasks-killed) are not the Run's, only its last
 //   sighting (`lastSeenAt`). A line of another Run (an observer that wrote to the wrong file) is skipped.
 // - Waits (decision 03, Q5): `limits` from limits-hit (or a waiting-until alone) to resumed,
-//   `limits-budget` from budget-stop to resumed, `background-tasks` from a background-tasks line with
-//   live tasks to the next one with none, `gate-queue` from gate-queue to gate-queue-finished. A
-//   Limits or background-tasks Wait still open at run-stopped ends there; a gate-queue has its own
+//   `limits-budget` from budget-stop to resumed, `start-window` from start-window to resumed (the Run
+//   mode Start window, worfy-resource-planner ticket 08; its waiting-until is that Wait's, not a
+//   Wait `limits`), `background-tasks` from a background-tasks line with live tasks to the next one
+//   with none, `gate-queue` from gate-queue to gate-queue-finished. A Limits, Start window or
+//   background-tasks Wait still open at run-stopped ends there; a gate-queue has its own
 //   end, so one without it (a Journal of before ticket 11) is left open, last seen at run-stopped
 //   (which follows the gate queue's turn), and the model cuts it off there.
 // - The `background-tasks` Wait is the Journal's word, not the Run standing idle: the tasks are the
@@ -36,8 +38,13 @@
 // - Retry causes: narrow-round `started` (the narrow fix round of a Ticket) and session-error (no
 //   Ticket); the model puts each on the first agent work at or after it.
 // - refused-dialog and human-input are marks on the Orchestrator's lane, not Waits.
+// - The Run mode (`run-started.mode`), the Epic forecast (the first `forecast` line) and the actual
+//   share (`run-stopped.actual`) of worfy-resource-planner tickets 05 and 07, for the head of the Run.
+//   A value of another shape (the rules of src/shared/autopilot/journal.ts) reads as none, and its
+//   line stays: a Journal of before that Epic has none of them.
 import type { AutopilotStopReason } from '../autopilot/cycle'
 import { RUN_STARTED_BY } from '../autopilot/journal'
+import { RUN_MODES, type RunMode } from '../autopilot/run-mode'
 import type { OrchestratorMarkFact, RetryCauseFact, RunFact, SpanOutcome, StageEventFact, WaitCause, WaitFact, WaveFact } from './facts'
 import { parseJournal, walkRun, type JournalEvent } from './journal-walk.mjs'
 
@@ -55,6 +62,24 @@ export interface JournalWave extends WaveFact {
   text?: string
 }
 
+/** The Epic forecast of a `forecast` line: shares of the week 0..1, `low`/`high` null under 5 samples, `fit` null without a recommendation. */
+export interface JournalForecast {
+  low: number | null
+  high: number | null
+  waves: number
+  tickets: number
+  uncounted: number
+  samples: number
+  fit: number | null
+}
+
+/** `run-stopped.actual`: the share of the week the Run's Waves took, of how many finished Waves it counted. */
+export interface JournalActual {
+  share: number
+  waves: number
+  counted: number
+}
+
 /** The part of RunFacts the Journal fills, and what the service needs to ask the other readers. */
 export interface JournalFacts {
   /** The Run; `live` is the service's. */
@@ -66,6 +91,12 @@ export interface JournalFacts {
   by?: string
   /** run-started `tickets`: a Run over named Tickets. */
   named?: string[]
+  /** run-started `mode`: the Run mode. */
+  mode?: RunMode
+  /** The Epic forecast at the Run's start (`forecast`), the part Run history shows. */
+  forecast?: JournalForecast
+  /** run-stopped `actual`: the share of the week the Run's Waves took. */
+  actual?: JournalActual
   waves: JournalWave[]
   ticketEvents: StageEventFact[]
   retryCauses: RetryCauseFact[]
@@ -106,6 +137,27 @@ export const STOP_OUTCOMES: Readonly<Record<AutopilotStopReason, SpanOutcome>> =
 const iso = (ms: number): Iso => new Date(ms).toISOString()
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined)
 const numbers = (value: unknown): string[] | undefined => (Array.isArray(value) && value.every((item) => typeof item === 'string' && item !== '') ? (value as string[]) : undefined)
+
+// The shapes of `forecast` and `run-stopped.actual`, as journalEventSchema of src/shared/autopilot/journal.ts checks them.
+const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0
+const isShare = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
+const orNull = (check: (value: unknown) => boolean) => (value: unknown): value is number | null => value === null || check(value)
+
+/** The part of a `forecast` line Run history shows; null when a field has another shape. */
+function forecastOf(event: JournalEvent | undefined): JournalForecast | null {
+  if (event === undefined) return null
+  const { low, high, waves, tickets, uncounted, samples, fit } = event
+  if (!orNull(isShare)(low) || !orNull(isShare)(high) || !isCount(waves) || !isCount(tickets) || !isCount(uncounted) || !isCount(samples) || !orNull(isCount)(fit)) return null
+  return { low, high, waves, tickets, uncounted, samples, fit }
+}
+
+/** `run-stopped.actual`; null when it has another shape, or counts more Waves than finished. */
+function actualOf(value: unknown): JournalActual | null {
+  if (value === null || typeof value !== 'object') return null
+  const { share, waves, counted } = value as Record<string, unknown>
+  if (!isShare(share) || !isCount(waves) || waves === 0 || !isCount(counted) || counted > waves) return null
+  return { share, waves, counted }
+}
 
 /** A full timestamp with a zone: a moment. A date, or a time without a zone, is none. */
 const FULL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/iu
@@ -249,6 +301,10 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
       case 'budget-stop':
         limits ??= open('limits-budget', at, text(event.cause) === undefined ? [] : [event.cause as string])
         break
+      case 'start-window':
+        // The Run waits for its Start window as for the budget: the waiting-until and resumed that follow are this Wait's.
+        limits ??= open('start-window', at, text(event.reason) === undefined ? [] : [event.reason as string])
+        break
       case 'waiting-until':
         limits ??= open('limits', at)
         limits.detail = [...limits.detail.filter((part) => !part.startsWith('until ')), `until ${event.until as string}`]
@@ -310,11 +366,11 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
   }
   for (const wait of [limits, tasks, gate]) if (wait !== null) close(wait, null)
   waits.sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
-  // A budget-stop is checked before a Wave, never inside one (often in the millisecond of the last
-  // wave-finished, where the model still counts that Wave open): the Tickets that stood are the next
-  // Wave's, none when the Run sent no other.
+  // A budget-stop or a start-window is checked before a Wave, never inside one (often in the
+  // millisecond of the last wave-finished, where the model still counts that Wave open): the Tickets
+  // that stood are the next Wave's, none when the Run sent no other.
   for (const wait of waits) {
-    if (wait.cause !== 'limits-budget') continue
+    if (wait.cause !== 'limits-budget' && wait.cause !== 'start-window') continue
     wait.tickets = waves.find((wave) => Date.parse(wave.startedAt) >= Date.parse(wait.start))?.tickets ?? []
   }
 
@@ -324,5 +380,11 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
   if (by !== undefined) facts.by = by
   const named = numbers(runStarted?.tickets)
   if (named !== undefined) facts.named = named.map(key)
+  const mode = (RUN_MODES as readonly unknown[]).includes(runStarted?.mode) ? (runStarted?.mode as RunMode) : undefined
+  if (mode !== undefined) facts.mode = mode
+  const forecast = forecastOf(events.find((event) => event.kind === 'forecast'))
+  if (forecast !== null) facts.forecast = forecast
+  const actual = actualOf(stopIndex === -1 ? undefined : events[stopIndex]?.actual)
+  if (actual !== null) facts.actual = actual
   return facts
 }
