@@ -715,6 +715,11 @@ describe('appSettings channels', () => {
     expect(appSettingsGet.output.parse({ ...DEFAULT_APP_SETTINGS, evil: 1 })).toStrictEqual(DEFAULT_APP_SETTINGS)
     expect(appSettingsChanged.payload.safeParse({ interfaceScale: 1, revision: 0 }).success).toBe(false)
     expect(appSettingsSet.input.parse({ interfaceScale: 1.1, theme: 'x' })).toStrictEqual({ interfaceScale: 1.1 })
+    // A state never holds a Start window whose edges meet: one edge at the other's default counts too.
+    expect(appSettingsChanged.payload.safeParse({ ...DEFAULT_APP_SETTINGS, autopilotRun: { windowFrom: 22, windowTo: 6 } }).success).toBe(true)
+    for (const meeting of [{ windowFrom: 5, windowTo: 5 }, { windowFrom: 7 }, { windowTo: 23 }]) {
+      expect(appSettingsChanged.payload.safeParse({ ...DEFAULT_APP_SETTINGS, autopilotRun: meeting }).success, JSON.stringify(meeting)).toBe(false)
+    }
   })
 })
 

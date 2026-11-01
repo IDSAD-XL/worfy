@@ -294,12 +294,10 @@ export const appSettingsPatchSchema = z.object({
   /** Each field given is chosen, as in `sessionArchive`; a reserve outside AUTOPILOT_RESERVE_BOUNDS is refused. */
   autopilotBudget: autopilotBudgetChoiceSchema.optional(),
   /**
-   * Each field given is chosen, as in `sessionArchive`. Both edges of the window given as the same
-   * hour are refused here; one edge that meets the other one in force is refused by the store.
+   * Each field given is chosen, as in `sessionArchive`. A change that leaves the edges of the window
+   * at the same hour — both given so, or one against the other in force — is refused by the store.
    */
-  autopilotRun: autopilotRunChoiceSchema
-    .refine((choice) => choice.windowFrom === undefined || choice.windowTo === undefined || choice.windowFrom !== choice.windowTo, START_WINDOW_SAME_HOURS)
-    .optional(),
+  autopilotRun: autopilotRunChoiceSchema.optional(),
   /** The language of the Guide; once chosen it stays chosen. */
   guideLanguage: guideLanguageSchema.optional(),
 })
