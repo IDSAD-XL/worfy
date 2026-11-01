@@ -37,7 +37,7 @@ Without sign-in GitHub allows 60 requests an hour from one address, and a check 
 
 | Place | What |
 |---|---|
-| Version chip | The app version on the second line of the toolbar's Harness item turns into a button with an accent dot. Its tooltip says "worfy <version> is available", "Building worfy <version>…", "worfy <version> is ready — restart to update" or "The update to <version> failed — see Settings → Health"; when the line shows a number, a second line of the tooltip is the build version of this copy with its commit. Its menu: "Update worfy" (once built, "Restart now" or "Restart when idle"; during a build, an inactive "Building worfy <version>…"), "What's new", and "Later", which only closes the menu |
+| Version chip | The app version on the second line of the toolbar's Harness item turns into a button with an accent dot. Its tooltip says "worfy <version> is available", "Building worfy <version>…", "worfy <version> is ready — restart to update" or "The update to <version> failed — see Settings → Health"; when the line shows a number, a second line of the tooltip is the build version of this copy with its commit. Its menu: "Update worfy" (once built, "Restart now" or "Restart when idle"; during a build, an inactive "Building worfy <version>…"), "What's new", and "Later", which only closes the menu. While an Update is under way the chip says so without a hover (see "While it builds") |
 | Toasts | See the next table |
 | Settings → General | The block of three rows "Updates", "Update automatically" and "Roll back to previous version" |
 | Settings → Health | The row "worfy version" of the group "worfy": "<version>, up to date", "<version> available", "update failed" with "Show log", or "<tool> not found". Its failures do not open First run by themselves |
@@ -50,7 +50,8 @@ The dot and the Health row stay until the Update is installed. The toasts:
 | "New worfy <version> available" | Update, Later | An Available update while "Update automatically" is off |
 | "worfy <version> ready" | Restart now or Restart when idle, Later | A build is ready. The first button changes in place when work starts or ends |
 | "worfy restarts when no Session is working and Autopilot has stopped" | None | After the button "Restart when idle" of the toast "ready", when worfy starts to wait |
-| "Update failed" | Show log | A build failed |
+| "Update failed" | Show log | A build failed; when git, node or pnpm is missing: "Update failed: git, node and pnpm are needed, and <tool> was not found" |
+| "The update did not start: <reason>" | Show log, when a build left a log | "Update worfy" was refused: there is no new version to build, or this update is being built already |
 | "Harness out of date: <from> → <to>" | Update, Later | The installed Harness is behind this copy's |
 | "worfy updated to <version>. The new Harness applies from the next Session." | None | The first start after a restart into an Update |
 | "worfy is back to <version>. Automatic updates wait for the next commit on main." | None | The first start after a roll back |
@@ -63,7 +64,9 @@ The result of a restart is told once, not at every start.
 
 **Settings → General → Updates.** The row "Updates" says "worfy <version>. Last checked <time>.", "worfy <version> is
 available.", "Building worfy <version>…" or "worfy <version> is ready.". Its buttons are "Check now" and "Update worfy",
-or, for a built Update, "Restart now" or "Restart when idle". A check that "Check now" ran and that was skipped shows
+or, for a built Update, "Restart now" or "Restart when idle". While it builds, the line adds the step and the time since
+the build began, for example "Building worfy <version>… 2/3 Installing dependencies · 3:12", and "Show log" opens the log
+of the build so far. A check that "Check now" ran and that was skipped shows
 its reason under the line. While "Restart when idle" waits, the row shows "worfy restarts when no Session is working and
 Autopilot has stopped" under its line, and its button "Restart when idle" is inactive. The row "Update automatically"
 holds the switch, and "Roll back to previous version" the button "Roll back" (see below). Where Update is off, the block
@@ -86,6 +89,17 @@ The user's checkout and the folders of the Projects are never touched. The outpu
 One build runs at a time. With "Update automatically" on, a newer commit found during a build is built after it; with it
 off, a newer commit waits for "Update worfy". Quitting worfy during a build stops it, and the commit counts as never
 built, not as failed.
+
+**While it builds.** Main writes the step the build runs into its state before each process it starts, and every
+window hears each change; it never reads the log for that. The steps are "Fetching source" (`git clone` or `git
+fetch`, then the checkout), "Installing dependencies" (`pnpm install`), "Downloading Electron" (only when its download
+did not finish) and "Building app" (`pnpm package`). A build counts 3 steps, or 4 once "Downloading Electron" comes. The
+version chip shows a turning ring in place of the dot, and "Updating · 2/3 Installing dependencies"; the ring stands still
+when the system asks for reduced motion. Its tooltip is "Building worfy <version>… 3:12", the time since the build began,
+counting each second while the pointer or the focus is on the chip. A press of "Update worfy" in the chip, Settings, the
+Command palette or the toast answers at once with "Starting update…", until the build reaches its first step. When main
+refuses the press, a toast says why (see the toasts above). There is no toast while a build runs: the chip is the sign of
+it. Once a restart into an Update (or a roll back) began, the chip says "Restarting…" until the window closes.
 
 **A failed build** leaves the running Stable copy as it is. The chip's tooltip names the failure, the toast "Update
 failed" offers "Show log", which opens `build.log` in the system's program for it, and the Health row says "update
@@ -232,7 +246,7 @@ updates its own Stable copy.
 | Start and quit in the app | `src/main/index.ts` |
 | The setting `autoUpdate` in `app-settings.json` | `src/shared/settings/app-settings.ts` |
 | The Health row "worfy version" and the Harness row | `src/main/first-run/checks.ts` |
-| The snapshot in the renderer | `src/renderer/update/store.ts` |
+| The snapshot in the renderer; the step texts, the elapsed time, "Starting update…" and the refusal toast | `src/renderer/update/store.ts` |
 | The version chip and What's new | `src/renderer/update/UpdateChip.tsx`, `src/renderer/update/WhatsNew.tsx` |
 | The toasts | `src/renderer/update/toasts.ts` |
 | Settings → General → Updates | `src/renderer/settings/UpdatesBlock.tsx` |

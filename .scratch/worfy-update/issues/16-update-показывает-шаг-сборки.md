@@ -42,16 +42,16 @@ Source: отчёт владельца 2026-11-01 (после «Update worfy» н
 
 ## Готово, когда
 
-- [ ] Unit: chip в `building` показывает шаг и `N/M` без наведения; tooltip — время; reduced motion без анимации;
+- [x] Unit: chip в `building` показывает шаг и `N/M` без наведения; tooltip — время; reduced motion без анимации;
       «Starting update…» до первого `update.changed`; отказ → toast; `Restarting…`.
-- [ ] Unit Settings: строка шага, время, `Show log`.
-- [ ] Contract `test/contract/update-build.test.ts`: шаги идут `fetch → install → (electron) → package`, каждая смена шлёт
+- [x] Unit Settings: строка шага, время, `Show log`.
+- [x] Contract `test/contract/update-build.test.ts`: шаги идут `fetch → install → (electron) → package`, каждая смена шлёт
       `update.changed`; старое состояние без `step` читается.
-- [ ] e2e `test/e2e/update-toolbar.spec.ts` (gated `WORFY_UPDATE_BUILD`): после клика chip сразу меняется, видны шаги
+- [x] e2e `test/e2e/update-toolbar.spec.ts` (gated `WORFY_UPDATE_BUILD`): после клика chip сразу меняется, видны шаги
       по очереди, затем «Restart now».
-- [ ] Снимки chip-а и Settings во время сборки в обеих темах в `.scratch/worfy-update/evidence/16-*.png`, контраст ≥4.5:1.
-- [ ] `docs/features/updates.md` (+ `ru/updates.md`, если есть) и spec R11 — что видно во время сборки.
-- [ ] Test-ы краснеют на mutant-ах: шаг не шлётся на смене; chip без шага; отказ только в console.
+- [x] Снимки chip-а и Settings во время сборки в обеих темах в `.scratch/worfy-update/evidence/16-*.png`, контраст ≥4.5:1.
+- [x] `docs/features/updates.md` (+ `ru/updates.md`, если есть) и spec R11 — что видно во время сборки.
+- [x] Test-ы краснеют на mutant-ах: шаг не шлётся на смене; chip без шага; отказ только в console.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (Windows job-ы — пути сборки на win32).
 
 ## Где в коде
@@ -64,3 +64,51 @@ Source: отчёт владельца 2026-11-01 (после «Update worfy» н
 - `docs/features/updates.md`, `.scratch/worfy-update/spec.md`
 
 Не трогать: `src/main/update/restart.ts`, `check.ts`, `state.ts`, `scripts/install-stable.mjs`.
+
+## Итог
+
+Сделано на ветке `worfy-update/16`.
+
+**Решения «Что делаем»** — подтверждено владельцем 2026-11-01: шаг сборки и время с её начала, без процента
+download Electron, без toast-а «идёт сборка» (индикатор — chip).
+
+- **Main.** `build.step` (`fetch` | `install` | `electron` | `package`), `build.startedAt`, `build.stepStartedAt` и
+  `build.steps` пишет `UpdateBuilder.stepTo` перед spawn-ом шага, каждая смена шлёт `update.changed`
+  (`src/main/update/build.ts`). Log main для шагов не читает. Поля необязательные: состояние без них читается
+  (contract test). Часы сборки — опция `now`.
+- **Отказ `update.install`** — handler падает с причиной: «there is no new version to build» (нет Available update),
+  «this update is being built already» (тот же SHA уже собирается). Готовая сборка, как и раньше, отказом не считается.
+  Нет git/node/pnpm — по-прежнему упавшая сборка с `missing`; toast «Update failed» теперь называет, чего нет.
+- **Перезапуск.** `quit` у `Restarts` идёт через `UpdateService.restartBegan`: snapshot с `restarting: true` уходит в окна
+  до `app.quit()`, chip показывает «Restarting…».
+- **Окно.** Chip: «Starting update…» от нажатия до первого шага, затем «Updating · N/M <шаг>», кольцо вместо точки,
+  tooltip «Building worfy X… m:ss». Settings: та же строка со временем, кнопка «Show log», «Update worfy» до первого
+  шага — неактивная «Starting update…». Отказ из chip-а, Command palette и toast-а «Update» — toast «The update did not
+  start: <reason>», с «Show log», если сборка оставила log.
+- Процент download Electron не делался: main не читает вывод `install.js`, и дешёвого источника процента нет.
+
+Решено без владельца, подтвердить:
+
+- Счёт шагов: `N/3`, пока не пришёл шаг `electron`; с ним — `3/4`, затем `4/4 Building app`. До `electron` сборка не
+  знает, будет ли он, поэтому `fetch` и `install` идут как `1/3` и `2/3`. Для этого в состояние добавлено поле `steps`.
+- Сборка, начатая, но ещё без шага (main читает окружение login shell), на chip-е тоже «Starting update…».
+- Время в tooltip-е тикает раз в секунду, только пока указатель или фокус на chip-е; строка Settings тикает всё время сборки.
+- Кольцо заменяет точку на время сборки; меню chip-а во время сборки прежнее.
+- «Restarting…» показывается и после начала отката (тот же `quit` у `Restarts`).
+- В Settings отказ «Update worfy» по-прежнему строкой под статусом, без toast-а: toast — для chip-а, Command palette и
+  toast-а «Update», как в пункте 4.
+- Command palette при отказе закрывается и показывает toast, а не строку отказа в себе.
+- Стиль кольца — в `src/renderer/shell/shell.css` рядом со стилем точки (файл вне «Где в коде»).
+- `docs/features/ru/updates.md` не правился: по ADR-0088 в PR с поведением правится только английская страница.
+
+**Mutant-ы** (каждый ломает новый test, прогон `node scripts/vitest-electron.mjs run <файлы>`, exit 1):
+M1 шаг не пишется и не шлётся на смене (`stepTo` без `write`) — contract; M2 chip без шага («Updating» без `N/M` и
+текста) — unit chip; M3 отказ только в console — unit chip и palette; M4 нет «Starting update…» до ответа main — unit
+chip, Settings, toasts; M5 `restarting` не ставится — contract; M6 отказ «being built already» убран — contract; M7 время
+не тикает — unit chip и Settings; M8 шаг `electron` не делает счёт 4 — contract; M9 reduced motion не останавливает
+кольцо — unit chip; M10 нет «Show log» в Settings — unit Settings.
+
+**Снимки** (Playwright, e2e `update-toolbar.spec.ts` и `update-settings.spec.ts` с закоммиченного head; контраст текста
+chip-а ≥ 4.5:1 проверяет e2e в обеих темах): [chip, светлая](../evidence/16-chip-building-light.png),
+[chip, тёмная](../evidence/16-chip-building-dark.png), [Settings, светлая](../evidence/16-settings-building-light.png),
+[Settings, тёмная](../evidence/16-settings-building-dark.png).
