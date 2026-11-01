@@ -113,7 +113,7 @@ function Header({ view, runs, run: chosen }: { view: RunView | undefined; runs: 
   )
 }
 
-/** What takes an Esc before this screen: a dialog or a menu open anywhere, or a place to type. */
+/** What takes an Esc before this screen: a dialog or a menu open on screen, or a place to type. */
 const ESCAPE_TAKERS = '[role="dialog"], [role="menu"]'
 
 /**
@@ -161,7 +161,8 @@ export function RunHistoryView({ activeProjectId }: { activeProjectId?: string }
       if (event.key !== 'Escape' || event.defaultPrevented) return
       const target = event.target instanceof Element ? event.target : null
       if (target?.closest(`${ESCAPE_TAKERS}, input, textarea, [contenteditable="true"], [contenteditable=""]`)) return
-      if (document.querySelector(ESCAPE_TAKERS) !== null) return
+      // Only one on screen: the hidden views (AppShell keeps them mounted) may hold a dialog of their own.
+      if ([...document.querySelectorAll(ESCAPE_TAKERS)].some((popup) => popup.closest('[hidden]') === null)) return
       setView('canvas')
     }
     globalThis.addEventListener('keydown', onKey)

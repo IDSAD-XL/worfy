@@ -292,7 +292,7 @@ const threeRuns = () => {
  * window from the open sent to the close sent, one subscription per Run, as the service does: an open
  * registers before the timeline is computed, and the calls of one window come in the order they were sent.
  */
-function slowMain(items: RunListItem[], views: Record<string, RunView>) {
+function slowMain(items: RunListItem[] | (() => RunListItem[]), views: Record<string, RunView>) {
   const held = new Set<string>()
   const calls: string[] = []
   const waiting: (() => void)[] = []
@@ -306,7 +306,7 @@ function slowMain(items: RunListItem[], views: Record<string, RunView>) {
         return Promise.resolve({ ok: true, value: { closed: true } })
       }
       if (channel === 'runs.open') held.add(run ?? '')
-      const answer = channel === 'runs.list' ? { ok: true, value: { runs: items } } : { ok: true, value: views[run ?? ''] }
+      const answer = channel === 'runs.list' ? { ok: true, value: { runs: typeof items === 'function' ? items() : items } } : { ok: true, value: views[run ?? ''] }
       return new Promise((resolve) => waiting.push(() => resolve(answer as never)))
     },
     on: (_channel, handler) => {
@@ -331,7 +331,10 @@ function slowMain(items: RunListItem[], views: Record<string, RunView>) {
       if (once) return
     }
   }
-  return { held, calls, answer }
+  const send = (payload: unknown) => {
+    for (const handler of handlers) handler(payload)
+  }
+  return { held, calls, answer, send }
 }
 
 describe('the screen and main hold the same Run, whatever order main answers in', () => {
@@ -440,6 +443,23 @@ describe('Esc on the screen', () => {
     expect(useNavigation.getState().view).toBe('canvas')
   })
 
+  it('a dialog left open in a hidden view does not hold it: Esc goes back to the Canvas', async () => {
+    await open()
+    // The Canvas stays mounted while hidden (AppShell): a panel of one of its Nodes may still be open there.
+    const hiddenView = document.createElement('div')
+    hiddenView.hidden = true
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    hiddenView.append(dialog)
+    document.body.append(hiddenView)
+    try {
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(useNavigation.getState().view).toBe('canvas')
+    } finally {
+      hiddenView.remove()
+    }
+  })
+
   it('in a text field stays there; on the Run picker it goes back to the Canvas', async () => {
     await open()
     const field = document.createElement('input')
@@ -473,6 +493,40 @@ describe('a Run that stops on screen, another Project, the focus', () => {
     expect(screen.queryByTestId('run-history-now')).toBeNull()
     expect(main.calls.filter((call) => call === 'runs.list')).toHaveLength(2)
     expect(screen.getByRole('option').textContent).not.toContain('live')
+  })
+
+  it('a Run whose Journal just ends (cut off) says so when it stops on screen, and more stopped timelines read no more lists', async () => {
+    const main = await show('p-1', [smallItem({ live: true, stoppedAt: null, reason: null })], { [SMALL_RUN]: live('11:00') })
+    const cut = viewOf(smallFacts({ run: { id: SMALL_RUN, startedAt: T('10:00'), stoppedAt: null, live: false } }))
+    expect(cut.timeline.spans.find((span) => span.kind === 'run')?.outcome).toBe('cut-off')
+    await act(async () => {
+      main.send('runs.changed', cut)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.getByTestId('run-history-reason').textContent).toBe('no stop in the Journal')
+    // Main sends the stopped Run again (another source changed): the list was read once, on the stop.
+    await act(async () => {
+      main.send('runs.changed', cut)
+      main.send('runs.changed', cut)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(main.calls.filter((call) => call === 'runs.list')).toHaveLength(2)
+  })
+
+  it('the list read again on the stop, answered after the screen was opened anew, does not replace the new list', async () => {
+    const stopped = smallItem()
+    const lists = [[smallItem({ live: true, stoppedAt: null, reason: null })], [stopped], [stopped, smallItem({ run: RUN_Y, startedAt: '2026-10-19T10:00:00.000Z' })]]
+    const main = slowMain(() => lists.shift() ?? [], { [SMALL_RUN]: live('11:00'), [RUN_Y]: viewOf(smallFacts({ run: { ...smallFacts().run, id: RUN_Y } }), RUN_Y) })
+    render(<RunHistoryView />)
+    act(() => void openRunHistory('p-1'))
+    await main.answer()
+    // The Run stops: the list is read again; before main answers, the screen is opened anew.
+    act(() => main.send(viewOf(smallFacts())))
+    act(() => void openRunHistory('p-1'))
+    expect(main.calls.filter((call) => call === 'runs.list')).toHaveLength(3)
+    // The new screen's list comes first, the old one's after it.
+    await main.answer(true)
+    expect(useRunHistory.getState().runs?.map((item) => item.run)).toEqual([SMALL_RUN, RUN_Y])
   })
 
   it('another Project picked in the sidebar: the screen gives way to the Canvas and lets the Run go', async () => {
