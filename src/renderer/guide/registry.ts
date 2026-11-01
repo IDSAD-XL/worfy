@@ -24,6 +24,7 @@ export const GUIDE_TOPICS: readonly GuideTopicEntry[] = [
   { id: 'canvas', title: 'Canvas', keys: ['done shelf', 'focus mode'] },
   { id: 'sessions', title: 'Sessions', keys: ['subagent', 'transcript', 'limits', 'claude home'] },
   { id: 'browser', title: 'Browser', keys: ['chromium', 'sign-in', 'origins'] },
+  { id: 'terminal', title: 'Terminal', keys: ['terminal ai', 'shell', 'zsh'] },
   { id: 'skeleton', title: 'How the Guide works', keys: ['guide test', 'skeleton'], devOnly: true },
 ]
 
