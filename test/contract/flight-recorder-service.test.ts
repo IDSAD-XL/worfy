@@ -464,16 +464,32 @@ describe('the live timeline', () => {
     const recorder = await liveRecorder(world, timer)
     const [a, b] = [collector(1), collector('link:m/1')]
     await Promise.all([recorder.open(world.project, world.run, a), recorder.open(world.project, world.run, b)])
+    // Each open's recompute goes to the other window too.
+    expect([a.views.length, b.views.length]).toEqual([1, 1])
     await appendFile(world.journal, journalLine({ at: at(11), run: world.run, project: world.project, epic: 'e', kind: 'background-tasks', tasks: [] }))
     await timer.fire()
-    expect([a.views.length, b.views.length]).toEqual([1, 1])
+    expect([a.views.length, b.views.length]).toEqual([2, 2])
     expect(recorder.close(world.project, world.run, 1)).toBe(true)
     expect(timer.state.tick).not.toBeNull()
     expect(recorder.close(world.project, world.run, 'link:m/1')).toBe(true)
     expect(timer.state.tick).toBeNull()
   })
 
-  it('an open that fails leaves no subscriber behind', async () => {
+  it('a window that joins a live Run after its run-stopped line gives the stopped timeline to the window that held it', async () => {
+    const world = await liveWorld()
+    const timer = manualTimer()
+    const recorder = await liveRecorder(world, timer)
+    const a = collector(1)
+    expect((await recorder.open(world.project, world.run, a)).timeline.live).toBe(true)
+    await appendFile(world.journal, journalLine({ at: at(30), run: world.run, project: world.project, epic: 'e', kind: 'run-stopped', reason: 'tickets-done' }))
+    // Window B opens before the next step: its recompute reads the line the step would have.
+    const joined = await recorder.open(world.project, world.run, collector(2))
+    expect(joined.timeline.live).toBe(false)
+    expect(a.views).toEqual([joined])
+    expect(timer.state.tick).toBeNull()
+  })
+
+  it('an open that fails leaves no subscriber behind, and keeps the one the same client held', async () => {
     const world = await liveWorld()
     const timer = manualTimer()
     let gone = false
@@ -492,6 +508,15 @@ describe('the live timeline', () => {
     await timer.fire()
     expect([a.views.length, b.views.length]).toEqual([1, 0])
     expect(recorder.close(world.project, world.run, 2)).toBe(false)
+
+    // Client 1 opens the Run again (IPC makes a new subscriber per call) and that open fails: its first subscription stays.
+    gone = true
+    await expect(recorder.open(world.project, world.run, collector(1))).rejects.toThrow('the Project is gone')
+    gone = false
+    await appendFile(world.journal, journalLine({ at: at(12), run: world.run, project: world.project, epic: 'e', kind: 'background-tasks', tasks: [] }))
+    await timer.fire()
+    expect(a.views).toHaveLength(2)
+    expect(recorder.close(world.project, world.run, 1)).toBe(true)
   })
 
   it('a step that cannot recompute ends the live timeline: the windows get the last one, not live, with the reason, and the timer stops', async () => {
@@ -518,7 +543,7 @@ describe('the live timeline', () => {
     warn.mockRestore()
   })
 
-  it('a Run let go while a step or a «Retry» recomputes it sends nothing', async () => {
+  it('a Run let go while a step, a «Retry» or a join recomputes it sends nothing', async () => {
     const world = await liveWorld()
     const timer = manualTimer()
     const holds: ReturnType<typeof hold>[] = []
@@ -545,6 +570,17 @@ describe('the live timeline', () => {
     recorder.dispose()
     again.release()
     expect((await retried).run).toBe(world.run)
+    expect(subscriber.views).toEqual([])
+
+    // Nor does a window join whose Run is let go before its recompute ends.
+    await recorder.open(world.project, world.run, subscriber)
+    const third = hold()
+    holds.push(third)
+    const joining = recorder.open(world.project, world.run, collector(2))
+    await third.reached
+    recorder.dispose()
+    third.release()
+    await joining
     expect(subscriber.views).toEqual([])
   })
 

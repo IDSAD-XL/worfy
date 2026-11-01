@@ -272,14 +272,22 @@ export class FlightRecorder {
       entry = { projectId, run, subscribers: new Map(), profile: null, lines: new TailLines(this.options.tail), journalSize: -1, live: false, githubAt: null, last: null, busy: null }
       this.open_.set(key, entry)
     }
+    // The same client opening the Run again comes with a new subscriber; a failed open gives the old one back.
+    const before = entry.subscribers.get(subscriber.id)
     entry.subscribers.set(subscriber.id, subscriber)
     try {
       const view = await this.recompute(entry, false)
+      // The recompute has read what the next step would have: the others get it too, or a change
+      // (a run-stopped line, new transcript lines) would never reach them.
+      if (this.open_.get(key) === entry) for (const other of entry.subscribers.values()) if (other !== subscriber) other.send(view)
       this.sync()
       return view
     } catch (error) {
       // No timeline to follow: the subscriber goes, and the entry with it when no one else holds it.
-      if (entry.subscribers.get(subscriber.id) === subscriber) entry.subscribers.delete(subscriber.id)
+      if (entry.subscribers.get(subscriber.id) === subscriber) {
+        if (before === undefined) entry.subscribers.delete(subscriber.id)
+        else entry.subscribers.set(subscriber.id, before)
+      }
       if (entry.subscribers.size === 0 && this.open_.get(key) === entry) this.forget(key, entry)
       this.sync()
       throw error

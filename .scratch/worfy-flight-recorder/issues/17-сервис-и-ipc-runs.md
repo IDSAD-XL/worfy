@@ -80,28 +80,31 @@ Spec называет и `src/shared/ipc/index.ts` — такого файла �
 
 - `src/main/flight-recorder/service.ts` — класс `FlightRecorder`. `list` (service.ts:240) — Run-ы Project-а из Journal-ов
   `listRuns` новые сверху, фильтр по Epic; Project не из списка — ошибка, Run другого Project-а не находится и по id
-  (проверка `run-started.project`, service.ts:437). `compute` (service.ts:443) собирает `RunFacts` из четырёх readers:
+  (проверка `run-started.project`, service.ts:445). `compute` (service.ts:451) собирает `RunFacts` из четырёх readers:
   Journal (`journalFacts`), транскрипты (`readRunTranscripts`), GitHub (`GithubReader` + `githubFacts`), gate logs
   (`readGateLogs`) и verdicts Ticket-ов без PR (`readLocalVerdicts`), добавляет `run.live`, `now`, Pipeline Profile-а;
   затем `buildTimeline` и `summarize`. Своего индекса нет: шкала считается при каждом открытии.
-- `run.live` (service.ts:370): в Journal нет `run-stopped`, Run — новейший у Project-а, Autopilot сейчас работает над
+- `run.live` (service.ts:378): в Journal нет `run-stopped`, Run — новейший у Project-а, Autopilot сейчас работает над
   его Epic (`Autopilot.state`). `run.ts` не менялся.
-- GitHub: только если Ticket-ы кончаются PR (не Silent mode, не `local-green`, service.ts:475), иначе `github.state`
+- GitHub: только если Ticket-ы кончаются PR (не Silent mode, не `local-green`, service.ts:483), иначе `github.state`
   `unused` и gh не зовётся. Аккаунт — `github.account` Profile-а; без него `githubFacts` получает `account: null`,
   verdict-комментарии ничего не значат, а `github.accountReason` говорит почему — аккаунт не угадывается. gh упал —
   `githubNoAnswer()`: у каждого Ticket-а полоса CI с «GitHub did not answer», `github.state` `no-answer` с причиной.
 - Ticket-ы без PR (все в Silent mode и `local-green`; в full mode — те, у чьей ветки нет PR в ответе gh), у которых
-  был статус кроме `open`, читаются `readLocalVerdicts` (service.ts:503); без ответа gh таких не считаем и git не
+  был статус кроме `open`, читаются `readLocalVerdicts` (service.ts:511); без ответа gh таких не считаем и git не
   зовём. Ветка Ticket-а — из модели workflow, которую приложение уже смотрит (`workflowHub.model`, `branchOfTicket`),
   иначе `<epic>/<NN>`.
-- Живой пересчёт (`tick`, service.ts:323): таймер каждые `RECOMPUTE_INTERVAL_MS` = 5 с (service.ts:50), пока открыт
+- Живой пересчёт (`tick`, service.ts:331): таймер каждые `RECOMPUTE_INTERVAL_MS` = 5 с (service.ts:50), пока открыт
   live Run, смотрит размер Journal и прочитанных транскриптов; пересчёт — только если что-то выросло или ответ gh
   старше 60 с. Сколько бы строк ни пришло за 5 с — один `runs.changed`. gh — не чаще раза в минуту (интервал
-  `GithubReader`), «Retry» (`retry`, service.ts:309) читает gh сразу и шлёт шкалу подписчикам.
+  `GithubReader`), «Retry» (`retry`, service.ts:317) читает gh сразу и шлёт шкалу подписчикам.
 - Гонки (rework round 1). `open` (service.ts:266) кладёт запись Run-а и подписчика до первого `await`: `drop` или
   `close`, пришедшие во время первого расчёта, их находят, второе окно того же Run присоединяется к той же записи;
-  открытие, которое упало, убирает своего подписчика. Пересчёты одного Run идут по очереди (`recompute`,
-  service.ts:396); шаг таймера пропускает Run, чей пересчёт ещё идёт («Retry», открытие); два шага одновременно —
+  открытие, которое упало, убирает своего подписчика. Если тот же клиент открыл Run повторно и это открытие упало,
+  его первая подписка остаётся (round 2). Пересчёт присоединившегося окна уходит и остальным окнам Run-а
+  (round 2): он уже прочитал то, что прочитал бы следующий шаг, и без этого, например, `run-stopped`, пришедший
+  до шага, до первого окна не дошёл бы. Пересчёты одного Run идут по очереди (`recompute`,
+  service.ts:404); шаг таймера пропускает Run, чей пересчёт ещё идёт («Retry», открытие); два шага одновременно —
   один шаг. Run, который отпустили во время пересчёта (шаг или «Retry»), ничего не получает. Пересчёт, который упал,
   кончает живую шкалу: окна получают последнюю шкалу с `live: false` и `error` с причиной, таймер для Run-а
   останавливается. `FlightRecorder.dispose` вызывается на `will-quit` (src/main/ipc/runs.ts:98).
@@ -115,7 +118,9 @@ Spec называет и `src/shared/ipc/index.ts` — такого файла �
   папки) читаются целиком и не хранятся.
 - Граница, которая осталась: факты транскрипта (`transcriptFacts` в `from-transcript.ts`) принимают все строки
   файла, поэтому каждый пересчёт разбирает заново все сжатые строки. Разбирать только новые — значит менять
-  `from-transcript.ts`, а бриф его менять запрещает; это вопрос к orchestrator-у.
+  `from-transcript.ts`, а бриф его менять запрещает. Инкрементальные факты транскрипта (разбор только новых строк,
+  API в `from-transcript.ts`) — отдельный Ticket этого Epic-а. Его пишет orchestrator, и он должен влиться до того,
+  как экран (Ticket 18) уйдёт владельцу.
 - `src/main/flight-recorder/transcripts.ts`: своя копия правила пути worktree (`canonicalPath`, `comparablePath`)
   удалена, путь даёт `canonicalWorktree` из `worktree-path.ts` (transcripts.ts:283); test-ы ticket-а 14 переведены
   на этот helper. Contract test: агент в worktree через link (junction на Windows) и запуск gate с реальным путём
@@ -129,14 +134,15 @@ Spec называет и `src/shared/ipc/index.ts` — такого файла �
   live, шкала ночного Run, аккаунт (и причина без аккаунта), gh с ошибкой и «Retry» (без git для Ticket-ов без PR),
   живой пересчёт (дописанная строка, недописанная строка, заменённый файл — каждый раз шкала равна полному чтению;
   `run-stopped` при работающем Autopilot), остановка таймера, `drop` и `close` во время открытия, два окна разом,
-  упавшее открытие, упавший пересчёт, Run отпущен во время шага и «Retry», шаг во время «Retry» и два шага разом,
+  упавшее открытие и упавшее повторное открытие того же клиента, окно присоединилось после `run-stopped`,
+  упавший пересчёт, Run отпущен во время шага, «Retry» и присоединения, шаг во время «Retry» и два шага разом,
   поздний файл Subagent-а, Wave без `session`, worktree двух readers, `local-green` и Silent mode без gh.
   `test/contract/flight-recorder-transcripts.test.ts` — +2 tests: сжатые строки дают те же факты, что сырые, на
   ночном Run и на синтетическом транскрипте с большим выводом инструментов, thinking, картинками, очередью и
   verifier-ом (сжатый — меньше 1 % сырого). `test/contract/runs-ipc.test.ts` — 4 tests: метки каналов, Linked machine
   с доступом `read`, с выключенным доступом — ни вызова, ни `runs.changed`, подписка отпускается; неверный run id.
-  Имена файлов — по брифу, вместо `test/contract/runs.test.ts`. Mutation testing: 45 мутантов сервиса и сжатия —
-  все убиты.
+  Имена файлов — по брифу, вместо `test/contract/runs.test.ts`. Mutation testing: 45 мутантов сервиса и сжатия
+  (round 1) и 5 мутантов round 2 (рассылка при присоединении, повторное открытие) — все убиты.
 
 Замер (Mac, vitest под Node из Electron). Худший случай — `test/contract/flight-recorder-service.test.ts`, «a live
 Run with a 160 MB transcript», печатает числа при `WORFY_PERF=1`: live Run, транскрипт Orchestrator-а 160 MB из
@@ -147,6 +153,12 @@ Run with a 160 MB transcript», печатает числа при `WORFY_PERF=1
 Шаг почти целиком — повторный разбор всех сжатых строк в `transcriptFacts` (граница выше). Разовая проверка
 scratch-скриптом вне репозитория на реальной Session 163 MB и её 1038 транскриптах Subagent-ов (1.14 GB): сжатие
 даёт 39 MB и 57 MB, факты сжатых и сырых строк совпадают (1288 работ, 2137 turns).
+
+Реальные данные (замер ревьюера round 2, scratch test вне репозитория, Mac, main process; реальная Session 164 MB,
+окно Run 12 ч, 111 Subagent-ов): шаг живого пересчёта — 200–370 ms, медиана 319 ms; без Subagent-ов, только
+транскрипт Orchestrator-а, — 197–261 ms; сжатие при первом открытии — 458–1606 ms. Синтетический файл выше
+сжимается лучше реального, поэтому его цифры (шаг 115 ms, открытие 280 ms) ниже. Реальные цифры — то, что даст
+экран сейчас; их снимет Ticket инкрементальных фактов транскрипта.
 
 Не проверено:
 - Вердикт Windows: платформенный PR, нужен Windows CI. Путей сервис сам не сравнивает; worktree — через
