@@ -52,8 +52,11 @@ exist» (`%APPDATA%\worfy\update\repo\node_modules\electron\dist`).
 
 - `src/main/update/build.ts` — шаги сборки, копия проверки.
 - `scripts/install-stable.mjs` — `electronMissing`, `ELECTRON_INSTALL` (только комментарий о копии).
-- `test/contract/update-build.test.ts`, `test/fixtures/update/` (stand-in `pnpm.mjs`, README), stand-in pnpm в
-  `test/e2e/update-toolbar.spec.ts`, unit test копии.
+- `test/contract/update-build.test.ts`, `test/fixtures/update/` (stand-in `pnpm.mjs`, `electron.mjs`, README), unit test
+  копии.
+- `test/e2e/update-toasts.spec.ts`, `test/e2e/update-toolbar.spec.ts` — их bare-репозиторий коммитит целый
+  `node_modules/electron`, иначе сборка падает на проверке, а не на stand-in сборке (ревью #1176, раунд 1).
+- `scripts/ci-scope.mjs` — `E2E_FIXTURES`: e2e теперь импортирует `test/fixtures/update/`.
 - `docs/features/updates.md` — раздел «The build».
 
 ## Итог
