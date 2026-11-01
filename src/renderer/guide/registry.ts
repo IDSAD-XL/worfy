@@ -27,6 +27,7 @@ export const GUIDE_TOPICS: readonly GuideTopicEntry[] = [
   { id: 'terminal', title: 'Terminal', keys: ['terminal ai', 'shell', 'zsh'] },
   { id: 'harness', title: 'Harness', keys: ['plugin', 'skills', 'hooks', 'profile'] },
   { id: 'workflow', title: 'Workflow', keys: ['pipeline', 'binding', 'epics and tickets'] },
+  { id: 'cards', title: 'Cards', keys: ['card api', 'canvas mcp', 'create_card', 'window.worfy'] },
   { id: 'skeleton', title: 'How the Guide works', keys: ['guide test', 'skeleton'], devOnly: true },
 ]
 

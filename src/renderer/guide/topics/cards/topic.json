@@ -1,0 +1,12 @@
+{
+  "sources": [{ "page": "docs/features/cards.md", "sha": "02be335e" }],
+  "files": [
+    "src/main/cards/store.ts",
+    "src/main/cards/protocol.ts",
+    "src/card-runtime/worfy-card.ts",
+    "src/renderer/canvas/nodes/CardNode.tsx",
+    "src/renderer/canvas/card-bridge.ts",
+    "src/main/ipc/card-api.ts",
+    "src/main/mcp/canvas-server.ts"
+  ]
+}
