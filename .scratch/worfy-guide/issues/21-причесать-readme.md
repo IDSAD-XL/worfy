@@ -1,7 +1,7 @@
 # 21 — Причесать README и показать в нём Map of worfy
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T08:19Z
 Blocked by: 20
 Source: [spec.md](../spec.md), Q22, слово владельца 2026-10-31
 

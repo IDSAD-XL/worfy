@@ -30,7 +30,7 @@ export const SCHEMES = ['light', 'dark']
 export const svgPath = (scheme) => `docs/images/map-of-worfy-${scheme}.svg`
 
 /** The system fonts of macOS, Windows and Linux: an SVG shown as an image loads no web font. */
-const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, 'Liberation Sans', sans-serif"
 /** The arrowhead of LivingScene.tsx, its tip at the origin, pointing right. */
 const ARROW = 'M 0 0 L -9 -4.5 L -7 0 L -9 4.5 Z'
 /** How wide a character of an 11 px Edge label is taken to be, and the pill's padding, as in LivingScene.tsx. */
