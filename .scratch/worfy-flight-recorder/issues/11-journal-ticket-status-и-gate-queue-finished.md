@@ -1,7 +1,7 @@
 # 11 — Journal: `ticket-status` и `gate-queue-finished`
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T01:35Z
 Blocked by: 10
 Source: [spec.md](../spec.md), «Источники и что меняется в них» («Новое в Journal — только два события», «Хранение»), «Решено без владельца» (ADR Ticket-а 11), «Ticket-ы» (11), «Решения владельца при приёмке», п. 1 (три необязательных поля), «Готово, когда» (пункт про Journal); решение 04, Q1, Q4, Q7, Q8 ([04-дыры-источников.md](04-дыры-источников.md)); решение 01, Q4 ([01-destination-единица-истории-хранение-id.md](01-destination-единица-истории-хранение-id.md))
 
