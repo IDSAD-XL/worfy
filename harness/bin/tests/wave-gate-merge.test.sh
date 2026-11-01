@@ -142,9 +142,9 @@ if on_windows; then
     [ "$rc" -eq 0 ] && grep -q "pid $rp, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] && [ ! -e "$(SIDE)" ] \
         && ok "pid: a pid now held by a process that started later is taken over" || bad "pid reused: exit $rc: $(tail -3 "$W/out")"
     kill "$rjob"; wait "$rjob" 2>/dev/null
-    # A pid whose process ends while the check asks when it started: PowerShell answers nothing then, and the pid, no
-    # longer running, is dead. On a loaded runner a short-lived process that got the pid of the killed check ended so,
-    # and the resume case was refused (CI run 40656857467). The check stops between its two looks at the pid
+    # A pid whose process ends while the check asks when it started: PowerShell says no process has it, and the pid is
+    # dead. On a loaded runner a short-lived process that got the pid of the killed check ended so, and the resume case
+    # was refused (CI run 40656857467). The check stops between its two looks at the pid
     # (WAVE_GATE_PID_SYNC) while the process is ended; the file names a start no earlier than the process's own.
     sleep 60 & ep=$! ejob=$!
     until_ok 5 grep -q sleep "/proc/$ep/exename"; ep="$(cat "/proc/$ep/winpid")"
@@ -157,6 +157,36 @@ if on_windows; then
     wait "$ewg"; rc=$?
     [ "$rc" -eq 0 ] && grep -q "pid $ep, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] \
         && ok "pid: a pid whose process ends while its start time is asked is taken over" || bad "pid ended while asked: exit $rc: $(tail -3 "$W/out")"
+    # The system says no process has the pid, and a look at the pid then finds it running: on a busy machine another
+    # process has just got it, and the check was refused as if a check still ran (2 of 120 under load on the PC). Windows
+    # pids are multiples of 4 and OpenProcess ignores the lower bits, so a pid one above a running one shows both answers.
+    sleep 60 & op=$! ojob=$!
+    until_ok 5 grep -q sleep "/proc/$op/exename"; op=$(( $(cat "/proc/$op/winpid") + 1 ))
+    if node -e 'process.kill(Number(process.argv[1]), 0)' "$op" 2>/dev/null; then
+        echo "$op" >"$(PIDF)"; echo "$op $(( $(date +%s) * 1000 ))" >"$(SIDE)"
+        "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+        [ "$rc" -eq 0 ] && grep -q "pid $op, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] \
+            && ok "pid: the system says no process has the pid: taken over, whatever a later look finds" || bad "pid no process: exit $rc: $(tail -3 "$W/out")"
+    else
+        bad "pid no process: a pid one above a running one is no longer found running: this case needs another way to show both answers"
+    fi
+    kill "$ojob"; wait "$ojob" 2>/dev/null
+    # The dangerous direction: a live pid must never read as "no process", or the lock of a live check is taken. Without
+    # elevation the start time of pid 4 cannot be read. Elevated, as on the GitHub runner, it can, and so can csrss.exe's
+    # (CI showed it): no process there refuses the question, and the check is only seen to wait.
+    live=4
+    echo "$live" >"$(PIDF)"; echo "$live $(( $(date +%s) * 1000 ))" >"$(SIDE)"
+    "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+    if [ "$rc" -eq 1 ] && [ "$(cat "$(PIDF)")" = "$live" ] && grep -q "another wave-gate check runs in this repository (pid $live, its start time could not be read" "$W/out"; then
+        ok "pid: a live pid whose start time may not be read is waited for; its pid file stays"
+    elif [ "$rc" -eq 1 ] && [ "$(cat "$(PIDF)")" = "$live" ] && grep -q "another wave-gate check runs in this repository (pid $live, it started at .*, no later than the file says" "$W/out"; then
+        echo "skip the dangerous direction of a pid's start time: elevated here, the start time of pid $live can be read, so a lost exception type in the catch of wave-gate is caught only on a machine without elevation"
+    else
+        bad "pid $live: exit $rc: $(tail -3 "$W/out")"
+    fi
+    rm -f "$(PIDF)" "$(SIDE)"
+else
+    echo "skip the cases of a pid's start time: it is read on Windows only"
 fi
 # an empty pid file: young — its writer is between open and write; old — stale
 new_world pidempty 1:a.txt
