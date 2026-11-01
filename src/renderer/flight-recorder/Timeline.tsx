@@ -11,7 +11,7 @@ import type { BlockMark, OrchestratorMark, Span } from '../../shared/flight-reco
 import type { RunView } from '../../shared/ipc/runs'
 import { filterSpans, highlightsOf, NO_FILTER, rowsAbove, type Highlights, type SpanFilter } from './filter'
 import { layoutLabels, type LabelItem, type LabelPlace } from './label-layout'
-import { displayName, lostWord, outcomeWord, spanDuration, tokenOf } from './span-words'
+import { displayName, lostWord, outcomeWord, reasonText, spanDuration, tokenOf } from './span-words'
 import {
   buildRows,
   collapseAll,
@@ -43,7 +43,8 @@ const retryPrefix = (span: Span): string => (span.attempt > 1 ? `#${span.attempt
 function tooltipOf(span: Span): string {
   const lines = [`${displayName(span)}${span.attempt > 1 ? ` #${span.attempt}` : ''}`, `${formatLocal(span.start)} – ${formatClock(span.until)} · ${formatDuration(spanDuration(span))}`]
   if (span.outcome !== null) lines.push(`Outcome: ${span.outcome}`)
-  if (span.reason !== null) lines.push(`Reason: ${span.reason}`)
+  const reason = reasonText(span)
+  if (reason !== null) lines.push(`Reason: ${reason}`)
   const lost = lostWord(span)
   if (lost !== null) lines.push(lost)
   if (span.note !== null) lines.push(span.note)

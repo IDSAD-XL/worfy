@@ -4,9 +4,11 @@
 // of the Run with the choice of another Run of the Project, «GitHub did not answer» with «Retry» while gh
 // fails, the summary, the timeline with its filter, the details of the selected span (ticket 19). Times are local.
 // The header also names the Run mode and sets the Epic forecast at the Run's start beside the actual share
-// at its stop (worfy-resource-planner ticket 11; `fit` is not shown here), from the Run's list item.
+// at its stop (worfy-resource-planner ticket 11; `fit` is not shown here), from the Run's list item, in
+// whole percents by the rule of the forecast lines (share-percent.ts).
 import { useEffect, useRef } from 'react'
 import { RUN_MODE_LABELS } from '../../shared/autopilot/run-mode'
+import { shareRangeText, shareText } from '../../shared/autopilot/share-percent'
 import type { Span } from '../../shared/flight-recorder/spans'
 import type { RunListItem, RunView } from '../../shared/ipc/runs'
 import { setView, useNavigation } from '../session/navigation'
@@ -22,24 +24,6 @@ function runOption(item: RunListItem): string {
   return `${formatLocal(Date.parse(item.startedAt))} · ${item.epic}${item.live ? ' · live' : ''}`
 }
 
-/**
- * A share of the week in whole millionths, as the forecast lines compare it (forecast-lines.ts): 0.285 is
- * 285 000, so 29 %, where 0.285 × 100 in floating point rounds to 28.
- */
-const shareUnits = (share: number): number => Math.round(share * 1_000_000)
-/** One percent in millionths of the week. */
-const PERCENT = 10_000
-const percent = (share: number): number => Math.round(shareUnits(share) / PERCENT)
-
-/** The forecast range in the words of the forecast line: `18–31%`, `about 18%`, `less than 1%`. */
-function rangeText(low: number, high: number): string {
-  if (shareUnits(high) < PERCENT) return 'less than 1%'
-  return percent(low) === percent(high) ? `about ${percent(high)}%` : `${percent(low)}–${percent(high)}%`
-}
-
-/** The actual share in words: `24%`, `less than 1%` above nothing, `0%`. */
-const actualText = (share: number): string => (shareUnits(share) > 0 && shareUnits(share) < PERCENT ? 'less than 1%' : `${percent(share)}%`)
-
 /** Why a finished Wave is not in the actual: the rule of the samples (waveGrowth, limits-estimate.ts). */
 const UNCOUNTED_WHY = 'a Wave counts only with fresh Limits at both ends and no week reset inside it'
 
@@ -52,8 +36,8 @@ const UNCOUNTED_WHY = 'a Wave counts only with fresh Limits at both ends and no 
 function ForecastAndActual({ item }: { item: RunListItem }) {
   const { forecast, actual } = item
   if (forecast === null) return null
-  const range = forecast.low === null || forecast.high === null ? 'Forecast: not enough data' : `Forecast ${rangeText(forecast.low, forecast.high)}`
-  const fact = actual === null || actual.counted === 0 ? 'actual: unknown' : `actual ${actualText(actual.share)}`
+  const range = forecast.low === null || forecast.high === null ? 'Forecast: not enough data' : `Forecast ${shareRangeText({ low: forecast.low, high: forecast.high })}`
+  const fact = actual === null || actual.counted === 0 ? 'actual: unknown' : `actual ${shareText(actual.share)}`
   const title = actual !== null && actual.counted < actual.waves ? `Actual counts ${actual.counted} of ${actual.waves} Waves: ${UNCOUNTED_WHY}` : undefined
   return (
     <span data-testid="run-history-forecast" title={title}>

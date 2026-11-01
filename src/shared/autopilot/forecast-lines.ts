@@ -2,7 +2,8 @@
 // of the Autopilot button's tooltip, the recommendation, the Fastest warning, the Start window line,
 // the mode line and the lines of the autopilot_start dialog. The texts are the spec's ("What the
 // user sees"), in the form of the Wave line of worfy-throughput ticket 40 (waveEstimateLine,
-// limits-estimate.ts): sentences joined by ". ", whole percents, durations by duration().
+// limits-estimate.ts): sentences joined by ". ", whole percents by share-percent.ts (half up from whole
+// millionths, as the Run history header prints them), durations by duration().
 //
 // K — how many of the first Waves fit before the 7-day window resets — reads the p90 edge of the
 // forecast (`cumulativeHigh`), never its low edge. The share free before the reset is 1 − reserve −
@@ -18,6 +19,7 @@ import { FORECAST_MIN_SAMPLES, type EpicForecast } from './forecast'
 import { duration, usedNowText, type WeekNow } from './limits-estimate'
 import { toMs } from './resume-at'
 import { hourText, RUN_MODE_LABELS, type RunMode, type StartWindow } from './run-mode'
+import { shareRangeText, shareUnits } from './share-percent'
 import type { WaveDuration } from './wave-duration'
 
 /** The 7-day window when its number is fresh at `now`. */
@@ -32,13 +34,6 @@ function weekNow(limits: LimitsState, now: number): WeekNow | null {
   const week = freshWeek(limits, now)
   return week === null ? null : { utilization: week.utilization, resetsAt: week.resetsAt === null ? null : toMs(week.resetsAt) / 1000 }
 }
-
-/**
- * A share of the week in whole millionths, so that "at most" compares what the numbers mean and not
- * their binary error: 1 − 0.15 − 0.45 is 0.39999999999999997 in floating point, and a Wave whose p90
- * is 0.4 still fits.
- */
-const shareUnits = (share: number): number => Math.round(share * 1_000_000)
 
 export interface FitInput {
   forecast: EpicForecast
@@ -57,19 +52,13 @@ export function fitBeforeReset({ forecast, limits, now, reserve }: FitInput): nu
   const week = freshWeek(limits, now)
   if (week === null || week.resetsAt === null || toMs(week.resetsAt) <= now) return null
   if (forecast.cumulativeHigh === null || forecast.waves === 0) return null
+  // In whole millionths (shareUnits): 1 − 0.15 − 0.45 is 0.39999999999999997 in floating point, and a
+  // Wave whose p90 is 0.4 still fits.
   const free = shareUnits(1 - (reserve ?? 0) - week.utilization)
   return Math.max(0, forecast.cumulativeHigh.findLastIndex((high) => shareUnits(high) <= free))
 }
 
 const count = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`
-
-/** The range in words: `18–31%`, `about 18%` when both edges round to one number, `less than 1%` when both are under 1 %. */
-function shareText({ low, high }: { low: number; high: number }): string {
-  if (high < 0.01) return 'less than 1%'
-  const from = Math.round(low * 100)
-  const to = Math.round(high * 100)
-  return from === to ? `about ${to}%` : `${from}–${to}%`
-}
 
 export interface ForecastLineInput {
   forecast: EpicForecast
@@ -89,7 +78,7 @@ export function forecastLine({ forecast, limits, now }: ForecastLineInput): stri
   const sentences =
     forecast.range === null
       ? [left, ...uncounted, `Not enough data for a forecast: fewer than ${FORECAST_MIN_SAMPLES} past Waves with fresh Limits`]
-      : [`${left}, usually ${shareText(forecast.range)} of the week`, ...uncounted]
+      : [`${left}, usually ${shareRangeText(forecast.range)} of the week`, ...uncounted]
   return [...sentences, usedNowText(weekNow(limits, now), now)].join('. ')
 }
 

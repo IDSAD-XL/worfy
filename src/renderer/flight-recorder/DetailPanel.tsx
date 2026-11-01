@@ -20,7 +20,7 @@ import { sessionNodeId } from '../claude-home/session-nodes'
 import { invoke } from '../ipc'
 import { openSession } from '../session/navigation'
 import { firstWaveOf, formatDuration, formatLocal, revealSpan, selectSpan, useRunHistory } from './store'
-import { displayName, lostWord, spanDuration, tokenOf } from './span-words'
+import { displayName, lostWord, reasonText, spanDuration, tokenOf } from './span-words'
 
 const two = (value: number): string => String(value).padStart(2, '0')
 /** A moment to the second in local time: `01:29:32`. */
@@ -239,7 +239,7 @@ function Overview({ span, view }: { span: Span; view: RunView }) {
           ) : null}
         </Field>
         <Field name="Reason" id="reason">
-          {span.reason ?? '—'}
+          {reasonText(span) ?? '—'}
         </Field>
         <Field name="Path" id="path">
           {pathOf(span, spans).join(' › ')}

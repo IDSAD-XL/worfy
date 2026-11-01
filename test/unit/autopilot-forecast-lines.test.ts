@@ -121,6 +121,14 @@ describe('forecastLine', () => {
     expect(share(0.184, 0.324)).toBe('18–32%')
   })
 
+  // worfy-resource-planner ticket 11, round 1: one rule with the Run history header (share-percent.ts).
+  it('rounds a half percent up from whole millionths, not from the float of × 100', () => {
+    const share = (low: number, high: number): string => line({ ...FOUR, range: { low, high } }).split(', usually ')[1]!.split(' of the week')[0]!
+    // 0.145 × 100 = 14.499999999999998 and 0.285 × 100 = 28.499999999999996 in floating point.
+    expect(share(0.145, 0.285)).toBe('15–29%')
+    expect(share(0.005, 0.995)).toBe('1–100%')
+  })
+
   it('says less than 1% only below 1 %', () => {
     const share = (low: number, high: number): string => line({ ...FOUR, range: { low, high } }).split(', usually ')[1]!.split(' of the week')[0]!
     expect(share(0.004, 0.01)).toBe('0–1%')

@@ -82,7 +82,7 @@ Source: [spec.md](../spec.md), «Цель», п. 4, «Решения» (Q10), «
   `docs/features/run-planning.md`; в `docs/features/flight-recorder.md` и `ru/flight-recorder.md` — пункт шапки с
   режимом и прогнозом, `a Session (autopilot_start)` вместо старой подписи, `Start window` в подписях дорожки Waits с
   причиной в tooltip (`outside, until <time>` или `wave-too-long, until <time>`).
-- Решено без владельца, подтвердить:
+- Решено без владельца, подтверждено владельцем 2026-11-01:
   1. Текст tooltip-а — `Actual counts 3 of 4 Waves: a Wave counts only with fresh Limits at both ends and no week reset
      inside it`, а не «the week reset inside one» из Ticket-а: Wave без выборки бывает и из-за старого числа Limits
      (`waveGrowth`, `limits-estimate.ts`), не только из-за сброса недели.
@@ -100,4 +100,29 @@ Source: [spec.md](../spec.md), «Цель», п. 4, «Решения» (Q10), «
   (только `low === null`); проценты `Math.round(share * 100)` вместо миллионных.
 - Снимки: [светлая](../evidence/11/forecast-and-actual-light.png), [тёмная](../evidence/11/forecast-and-actual-dark.png).
   Текст шапки — `--text` на `--bg`: контраст 15.7:1 (светлая) и 15.5:1 (тёмная).
-- Оценка автора: около 250 тысяч токенов.
+- Ревью, раунд 1 (PR #1225):
+  - Проценты в шапке Run history и в строках прогноза (`forecast-lines.ts`: tooltip кнопки Autopilot и диалог
+    `autopilot_start`) округлялись по-разному: строки прогноза брали `Math.round(x * 100)` и печатали 0.145–0.285
+    как «14–28%». Теперь одно правило в `src/shared/autopilot/share-percent.ts`: `shareUnits` (целые миллионные),
+    `sharePercent` (половина вверх в целых числах: 0.145 → 15, 0.285 → 29, 0.005 → 1, 0.995 → 100), `shareRangeText`
+    и `shareText`. Им пользуются `forecast-lines.ts` (свои `shareUnits` и `shareText` удалены) и `RunHistoryView.tsx`.
+    Строка прогноза для 0.145–0.285 теперь «15–29%»; прежние test-ы строки прогноза не изменились.
+  - Документация о режиме: режим виден всегда, когда `run-started` его называет, в том числе без строки `forecast`
+    (Run между Ticket-ами 05 и 07 или неудачная запись прогноза); прогноз и факт — только при строке `forecast`.
+    Поправлены `run-planning.md`, `flight-recorder.md`, `ru/flight-recorder.md`; unit test закрепляет режим без прогноза.
+  - `until` в причине Wait (`start-window: outside, until …`, и у Wait Limits) показывается в местном времени тем же
+    `formatLocal`, что Start и End: `reasonText` в `src/renderer/flight-recorder/span-words.ts`, им пользуются tooltip
+    бара (`Timeline.tsx`) и поле Reason панели деталей (`DetailPanel.tsx`). Journal и span хранят ISO; фильтр ищет
+    по исходной причине. Момент, который не разбирается, остаётся как есть.
+  - Test-ы: `test/unit/autopilot-share-percent.test.ts` (края половины процента, слова диапазона и доли);
+    `test/unit/autopilot-forecast-lines.test.ts` — «15–29%» и «1–100%»; `test/unit/flight-recorder-reason-words.test.tsx`
+    — TZ `Europe/Kyiv` задан до импорта, день перевода часов 2026-10-25, Wait Limits, не-ISO и не-Wait;
+    `test/unit/flight-recorder-view.test.tsx` — режим без прогноза; местное `until` в tooltip бара и в панели.
+  - Mutant-ы (все 7 красные): `forecast-lines` с `Math.round(x * 100)`; `sharePercent` из плавающей точки;
+    `sharePercent` с половиной вниз; режим скрыт без прогноза; `reasonText` отдаёт сырой ISO; tooltip бара берёт
+    `span.reason`; панель берёт `span.reason`.
+  - Шапка и видимые подписи не изменились (18–31 %, 24 %), снимки не переснимались.
+  - Проверка раунда на ветке после rebase на `origin/main` 6e4819c6: все 7 mutant-ов снова красные;
+    `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (565 файлов test-ов); `test/e2e/flight-recorder.spec.ts` под
+    замком `/tmp/worfy-e2e.lock` — 2 passed; gate fast — green.
+- Оценка автора: около 250 тысяч токенов (первый раунд) и около 120 тысяч (раунд 1 ревью).

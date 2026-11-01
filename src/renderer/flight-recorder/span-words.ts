@@ -2,6 +2,7 @@
 // name, the token of its colour, its duration, its outcome and its lost source, shared by the timeline
 // (Timeline.tsx) and the detail panel (DetailPanel.tsx).
 import { LOST_SOURCE_LABELS, type Span, type WaitCause } from '../../shared/flight-recorder/spans'
+import { formatLocal } from './store'
 
 /** The colour token of a span's kind: `--span-<token>` (tokens.css, F-SPEC "Run history"). */
 export function tokenOf(span: Span): string {
@@ -39,6 +40,22 @@ export function displayName(span: Span): string {
     default:
       return span.name
   }
+}
+
+/** The `until <moment>` the Journal reader puts in a Wait's detail (from-journal.ts, waiting-until): an ISO moment. */
+const UNTIL_ISO = /until (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))/g
+
+/**
+ * The reason of a span as the screen writes it. A Wait's `until` is in local time, as Start and End are
+ * (formatLocal; worfy-resource-planner ticket 11): the Journal keeps it as an ISO moment in UTC, and the
+ * screen says «Times are local». A moment that does not parse stays as it is.
+ */
+export function reasonText(span: Span): string | null {
+  if (span.reason === null || span.kind !== 'wait') return span.reason
+  return span.reason.replace(UNTIL_ISO, (whole, iso: string) => {
+    const at = Date.parse(iso)
+    return Number.isNaN(at) ? whole : `until ${formatLocal(at)}`
+  })
 }
 
 export const spanDuration = (span: Span): number => (span.segments.length > 0 ? span.segments.reduce((sum, part) => sum + part.end - part.start, 0) : span.until - span.start)

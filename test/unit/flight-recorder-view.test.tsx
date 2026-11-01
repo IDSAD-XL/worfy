@@ -19,7 +19,7 @@ import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
 import { LABEL_GAP } from '../../src/renderer/flight-recorder/label-layout'
 import { openRunHistory } from '../../src/renderer/flight-recorder/open'
 import { RunHistoryView } from '../../src/renderer/flight-recorder/RunHistoryView'
-import { chooseRun, formatDuration, holdsRun, resetRunHistory, setTimeWindow, useRunHistory } from '../../src/renderer/flight-recorder/store'
+import { chooseRun, formatDuration, formatLocal, holdsRun, resetRunHistory, setTimeWindow, useRunHistory } from '../../src/renderer/flight-recorder/store'
 import { setView, useNavigation } from '../../src/renderer/session/navigation'
 
 const NIGHT: RunView = runViewSchema.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../fixtures/flight-recorder/night-run-view.json'), 'utf8')))
@@ -257,6 +257,12 @@ describe('a block, another Run and a live timeline', () => {
     expect(bar?.title.split('\n')[0]).toBe('Start window')
     const row = screen.getByTestId('run-history-waits').querySelector<HTMLElement>('[data-cause="start-window"]')
     expect(row?.querySelector('.w-fr-total__name')?.textContent).toBe('Start window')
+    // worfy-resource-planner ticket 11, round 1: its until in local time, as Start and End are, on the bar and in the panel.
+    const local = `Reason: start-window: outside, until ${formatLocal(Date.parse(T('10:50')))}`
+    expect(bar?.title.split('\n')).toContain(local)
+    expect(bar?.title).not.toContain(T('10:50'))
+    act(() => fireEvent.click(bar!))
+    expect(screen.getByTestId('run-history-detail-reason').querySelector('td')?.textContent).toBe(local.slice('Reason: '.length))
   })
 
   it('chooses another Run of the list: the first is let go, the second opened', async () => {
@@ -316,6 +322,12 @@ describe('the Run mode, the Epic forecast and the actual share in the header', (
     const shown = await header({ actual: { share: 0.24, waves: 4, counted: 4 } })
     expect(forecastOf(shown)).toBeNull()
     expect(within(shown).queryByTestId('run-history-mode')).toBeNull()
+  })
+
+  it('shows the mode whenever run-started names it, also for a Run whose journal has no forecast line', async () => {
+    const shown = await header({ mode: 'fastest', actual: { share: 0.24, waves: 4, counted: 4 } })
+    expect(within(shown).getByTestId('run-history-mode').textContent).toBe('Mode Fastest')
+    expect(forecastOf(shown)).toBeNull()
   })
 
   it('a forecast without a range says «not enough data»; one edge without the other is no range either', async () => {

@@ -196,8 +196,10 @@ forecast beside the actual share: `Forecast 18–31% · actual 24%`. A forecast 
 `Forecast: not enough data`. The actual reads `actual: unknown` while the run goes on, when it stopped before any Wave
 finished, and when no finished Wave counted. When fewer Waves counted than finished, a tooltip says how many:
 `Actual counts 3 of 4 Waves`, and that a Wave counts only with fresh Limits at both ends and no week reset inside it.
-A run journaled before the forecast existed shows neither the mode nor this line. The percents are whole, rounded the
-way the forecast lines round them. The advice of K is not shown here.
+The mode shows whenever `run-started` names it. The forecast and the actual show only when the journal has a
+`forecast` line, so a run journaled before the forecast existed has no such line, and may still show its mode. The
+percents are whole, rounded half up from whole millionths of the week, the same way as in the forecast lines of the
+tooltip and the dialog: 0.285 of the week is 29%. The advice of K is not shown here.
 
 ### How it works
 
@@ -276,6 +278,7 @@ statistics file of its own.
 | `src/shared/autopilot/run-mode.ts` | The Run modes and their names, the Start window, `windowDecision` at the boundary of a Wave, and the words of a wait and of `window-too-short`. Pure. |
 | `src/shared/autopilot/wave-duration.ts` | `waveDurationP90`: the duration of a Wave from the journals. Pure. |
 | `src/shared/autopilot/forecast.ts` | `remainingWaves` and `epicForecast`: the Waves left and the bootstrap range; `percentile`. Pure. |
+| `src/shared/autopilot/share-percent.ts` | A share of the week in whole percents, half up from whole millionths, and its words. Pure. |
 | `src/shared/autopilot/forecast-lines.ts` | `fitBeforeReset` (K), and the lines of the tooltip and the dialog. Pure. |
 | `src/shared/autopilot/limits-estimate.ts` | `waveSamples`, `waveGrowth`, the estimate of one Wave, `usedNowText`, `duration`, and the answer of `autopilot.estimate`. Pure. |
 | `src/shared/autopilot/budget.ts` | The budget and its decision before a Wave, and the words of a budget stop. Pure. |
@@ -312,6 +315,7 @@ zone for the days the clocks change.
 | `test/unit/autopilot-run-mode.test.ts` | The modes, the window across midnight and within a day, the days the clocks change, `windowDecision`. |
 | `test/unit/autopilot-wave-duration.test.ts` | The duration samples and their p90. |
 | `test/unit/autopilot-forecast.test.ts` | The samples, `percentile`, the Waves left, the bootstrap range. |
+| `test/unit/autopilot-share-percent.test.ts` | The percents at the half-percent edges, and the words of a range and of one share. |
 | `test/unit/autopilot-forecast-lines.test.ts` | K, the forecast line, the recommendation, the warning, the window and mode lines, the dialog lines. |
 | `test/unit/autopilot-budget.test.ts` | The budget and its decision. |
 | `test/unit/autopilot-limits-estimate.test.ts` | The estimate of one Wave. |
