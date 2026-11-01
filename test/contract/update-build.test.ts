@@ -104,6 +104,8 @@ interface BuilderOptions {
   envFrom?: 'login-shell' | 'registry' | 'fallback'
   gitTimeoutMs?: number
   onChange?: () => void
+  /** The clock of the build's times (ticket 16). */
+  now?: () => Date
 }
 
 function builder(options: BuilderOptions = {}): UpdateBuilder {
@@ -120,7 +122,25 @@ function builder(options: BuilderOptions = {}): UpdateBuilder {
     stateFile,
     ...(options.gitTimeoutMs === undefined ? {} : { gitTimeoutMs: options.gitTimeoutMs }),
     ...(options.onChange === undefined ? {} : { onChange: options.onChange }),
+    ...(options.now === undefined ? {} : { now: options.now }),
   })
+}
+
+/** A clock that moves one second at each reading, from 2026-11-01T10:00:00Z. */
+function tickingClock(): () => Date {
+  let at = Date.parse('2026-11-01T10:00:00.000Z')
+  return () => {
+    const now = new Date(at)
+    at += 1000
+    return now
+  }
+}
+
+/** A builder whose changes are kept: the build of the state file at each `update.changed` it sends. */
+function followedBuilder(options: BuilderOptions = {}): { builds: UpdateBuilder; seen: ReturnType<typeof readUpdateState>['build'][] } {
+  const seen: ReturnType<typeof readUpdateState>['build'][] = []
+  const builds = builder({ now: tickingClock(), ...options, onChange: () => seen.push(readUpdateState(stateFile()).build) })
+  return { builds, seen }
 }
 
 /** The pids hang.mjs wrote. */
@@ -363,6 +383,80 @@ describe('UpdateBuilder', () => {
     expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: third })
     expect(traceLines().slice(5)).toEqual(['install C', 'build C'])
     expect(buildLog()).not.toContain('electron/install.js')
+  })
+
+  it('writes its step before each spawn and sends `update.changed` at each change: fetch, install, package, of 3 (ticket 16)', async () => {
+    const sha = commit('A')
+    const { builds, seen } = followedBuilder()
+    builds.install(available(sha))
+    await builds.settled()
+    // The start of the build has no step yet ("Starting update…"); then one change per step, then the end.
+    expect(seen.map((build) => [build.phase, build.step, build.steps])).toEqual([
+      ['building', undefined, undefined],
+      ['building', 'fetch', 3],
+      ['building', 'install', 3],
+      ['building', 'package', 3],
+      ['ready', undefined, undefined],
+    ])
+    // startedAt is the build's start, kept by every step; stepStartedAt is each step's own.
+    const started = seen[0]?.startedAt
+    expect(started).toBe('2026-11-01T10:00:00.000Z')
+    expect(seen.slice(1, 4).map((build) => build.startedAt)).toEqual([started, started, started])
+    const stepTimes = seen.slice(1, 4).map((build) => build.stepStartedAt)
+    expect(new Set(stepTimes).size).toBe(3)
+    expect(stepTimes.every((at) => at !== undefined && at > (started as string))).toBe(true)
+    // Main does not read the log for the steps: a log that cannot tell them apart changes nothing.
+    expect(buildLog()).toContain('Ready.')
+  })
+
+  it('a clone whose Electron download did not finish has the step `electron` between install and package, and counts 4 steps from it (ticket 16)', async () => {
+    const first = commit('A')
+    const { builds, seen } = followedBuilder()
+    builds.install(available(first))
+    await builds.settled()
+    breakElectron()
+    seen.length = 0
+    builds.install(available(commit('B')))
+    await builds.settled()
+    expect(seen.map((build) => [build.step, build.steps])).toEqual([
+      [undefined, undefined],
+      ['fetch', 3],
+      ['install', 3],
+      ['electron', 4],
+      ['package', 4],
+      [undefined, undefined],
+    ])
+  })
+
+  it('a build that fails before its first spawn (no pnpm) never had a step; a failed step leaves no step in the failed state (ticket 16)', async () => {
+    const sha = commit('A')
+    const only = join(root, 'only-git-and-node')
+    mkdirSync(only)
+    putRecorder(only, 'git', join(root, 'calls.log'))
+    putRecorder(only, 'node', join(root, 'calls.log'))
+    const { builds, seen } = followedBuilder({ env: () => ({ ...(WINDOWS && process.env.SystemRoot !== undefined ? { SystemRoot: process.env.SystemRoot } : {}), PATH: only }) })
+    builds.install(available(sha))
+    await builds.settled()
+    expect(seen.map((build) => [build.phase, build.step])).toEqual([
+      ['building', undefined],
+      ['failed', undefined],
+    ])
+
+    const failing = followedBuilder({ build: join(FIXTURES, 'build-fail.mjs') })
+    failing.builds.install(available(sha))
+    await failing.builds.settled()
+    expect(failing.seen.at(-2)?.step).toBe('package')
+    expect(failing.seen.at(-1)).toEqual({ phase: 'failed', sha, version: `0.9.0+${sha.slice(0, 7)}`, log: join(dir, 'build.log') })
+  })
+
+  it('the state of a build written before ticket 16 (no step, no times) still reads; one with them reads them back (ticket 16)', () => {
+    mkdirSync(dir, { recursive: true })
+    const sha = 'a'.repeat(40)
+    writeFileSync(stateFile(), JSON.stringify({ build: { phase: 'building', sha, version: '0.9.0+aaaaaaa' } }))
+    expect(readUpdateState(stateFile()).build).toEqual({ phase: 'building', sha, version: '0.9.0+aaaaaaa' })
+    const now = '2026-11-01T10:00:00.000Z'
+    writeFileSync(stateFile(), JSON.stringify({ build: { phase: 'building', sha, step: 'electron', steps: 4, startedAt: now, stepStartedAt: now } }))
+    expect(readUpdateState(stateFile()).build).toEqual({ phase: 'building', sha, step: 'electron', steps: 4, startedAt: now, stepStartedAt: now })
   })
 
   it.each([
@@ -622,6 +716,35 @@ describe('UpdateService and "Update automatically"', () => {
     const snapshot = await updates.install()
     expect(asked).toEqual([])
     expect(snapshot).toMatchObject({ enabled: true, build: { phase: 'ready', sha: A } })
+  })
+
+  it('`update.install` without an Available update refuses with the reason: nothing to build (ticket 16)', async () => {
+    const updates = service()
+    await expect(Promise.resolve().then(() => updates.install())).rejects.toThrow('there is no new version to build')
+    expect(asked).toEqual([])
+  })
+
+  it('`update.install` while the same Update builds refuses with the reason; another Update waits for that build (ticket 16)', async () => {
+    auto = false
+    const updates = service()
+    await updates.check()
+    changeUpdateState((state) => ({ ...state, build: { phase: 'building', sha: A, version: '0.9.0+a100000' } }), stateFile())
+    await expect(Promise.resolve().then(() => updates.install())).rejects.toThrow('this update is being built already')
+    expect(asked).toEqual([])
+    head = B
+    await updates.check()
+    expect((await updates.install()).available?.sha).toBe(B)
+    expect(asked).toEqual([B])
+  })
+
+  it('a restart that began shows in the snapshot as `restarting`, sent to the windows before worfy quits (ticket 16)', () => {
+    const updates = service()
+    const order: string[] = []
+    expect(updates.snapshot().restarting).toBe(false)
+    updates.restartBegan(() => order.push(`quit, ${snapshots.length} sent`))
+    expect(order).toEqual(['quit, 1 sent'])
+    expect(snapshots.at(-1)?.restarting).toBe(true)
+    expect(updates.snapshot().restarting).toBe(true)
   })
 
   it('Update off (a dev build): `update.install` builds nothing and the check starts nothing', async () => {

@@ -18,7 +18,8 @@ import { MachineDialogs } from '../../src/renderer/machines/MachineDialogs'
 import { acceptLinkState } from '../../src/renderer/machines/useMachines'
 import type { LinkedMachineView, LinkState } from '../../src/shared/ipc/link'
 import { updateSnapshotSchema, type UpdateSnapshot } from '../../src/shared/ipc/update'
-import { useUpdateStore } from '../../src/renderer/update/store'
+import { INSTALL_REFUSED_KEY, useUpdateStore } from '../../src/renderer/update/store'
+import { resetToasts, toasts } from '../../src/renderer/toast/toasts'
 import { useGuide } from '../../src/renderer/guide/store'
 import { GUIDE_TOPICS, shownTopics } from '../../src/renderer/guide/registry'
 import { useShortcutsWindow } from '../../src/renderer/shortcuts/shortcuts-window'
@@ -771,12 +772,15 @@ describe('Update worfy', () => {
     expect(asked.map(({ channel }) => channel).filter((channel) => channel !== 'update.state')).toEqual(['update.check'])
   })
 
-  it('with an Available update it builds it (update.install); a refusal is what the palette shows', async () => {
+  it('with an Available update it builds it (update.install); a refusal is a toast with its reason, and the palette closes (worfy-update ticket 16)', async () => {
     const asked = preload(() => ({ ok: true, value: update({ available }) }))
     expect(await row(context({ update: update({ available }) }))!.run()).toBeUndefined()
     expect(asked.map(({ channel }) => channel)).toEqual(['update.install'])
-    preload(() => ({ ok: false, error: 'update.install: main is gone' }))
-    expect(await row(context({ update: update({ available }) }))!.run()).toBe('update.install: main is gone')
+    preload(() => ({ ok: false, error: 'update.install: this update is being built already' }))
+    resetToasts()
+    onTestFinished(resetToasts)
+    expect(await row(context({ update: update({ available }) }))!.run()).toBeUndefined()
+    expect(toasts.getState().toasts.map(({ id, text }) => ({ id, text }))).toEqual([{ id: INSTALL_REFUSED_KEY, text: 'The update did not start: this update is being built already' }])
   })
 
   it('built: update.restart, "now" when nothing works and "idle" while something does; a refusal is its reason', async () => {
