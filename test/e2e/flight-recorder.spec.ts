@@ -9,6 +9,7 @@ import { formatJournalLine, makeRunId, type JournalEvent } from '../../src/share
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
 import { launchApp, type LaunchedApp } from './helpers'
+import { relocatedJsonText } from './relocate-fixture'
 
 // The Run history screen (worfy-flight-recorder ticket 18) in the built app on the fake agent.
 //
@@ -45,14 +46,17 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-/** Copies a folder of the fixture, with the night Run's root replaced in every name and every file. */
+/**
+ * Copies a folder of the fixture, with the night Run's root replaced in every name and every file: in the
+ * files, as JSON spells it (relocatedJsonText), so a Windows root's backslashes keep every line readable.
+ */
 function copyRelocated(from: string, to: string, root: string): void {
   mkdirSync(to, { recursive: true })
   for (const entry of readdirSync(from)) {
     const source = join(from, entry)
     const target = join(to, entry.replaceAll(projectDirName(NIGHT_ROOT), projectDirName(root)))
     if (statSync(source).isDirectory()) copyRelocated(source, target, root)
-    else writeFileSync(target, readFileSync(source, 'utf8').replaceAll(NIGHT_ROOT, root))
+    else writeFileSync(target, relocatedJsonText(readFileSync(source, 'utf8'), NIGHT_ROOT, root))
   }
 }
 
