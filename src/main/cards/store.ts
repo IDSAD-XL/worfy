@@ -25,6 +25,7 @@ import { watch } from 'chokidar'
 import { CARD_ID_PATTERN, type CardInfo } from '../../shared/ipc/cards'
 import { closeForGood } from '../chokidar-close'
 import { LinkSafeWatch, type WatchFs } from '../link-safe-watch'
+import type { WatchEvent } from '../watch-gone'
 import { projectStore } from '../projects/store'
 import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
 import { cardUrl, projectLabel, type CardHost } from './protocol'
@@ -232,8 +233,11 @@ export class CardStore {
       // folder that is not there yet is waited for — so nothing is asked through a link on the way.
       const names = (path: string): string[] => this.paths.relative(dir, path).split(this.paths.sep)
       const ofCard = (path: string): boolean => CARD_ID_PATTERN.test(names(path)[0] ?? '')
-      // chokidar, the watch everywhere else, skips these names: no Card changes by them.
-      const changes = (path: string): boolean => ofCard(path) && !EDITOR_TEMP_FILE.test(path)
+      // chokidar, the watch everywhere else, skips these names: no Card changes by them. Nor does a
+      // Card change by a "change" that names its folder: the folder's own times moved, a moment
+      // after the Card was written or with nothing edited at all. A real edit also names a file, or
+      // is a "rename" of the folder (test/contract/cards-watch-edits.test.ts).
+      const changes = (path: string, event?: WatchEvent): boolean => ofCard(path) && !EDITOR_TEMP_FILE.test(path) && !(event === 'change' && names(path).length === 1)
       const watcher = new LinkSafeWatch({
         root: dir,
         // The Cards folder is the only place these paths may go: also when it lies on a share itself.

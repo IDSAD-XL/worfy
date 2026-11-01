@@ -18,6 +18,7 @@
 //   nothing at all.
 import { win32 } from 'node:path'
 import type { EntryKind, WatchFs, WatchHandle } from '../../src/main/link-safe-watch'
+import type { WatchEvent } from '../../src/main/watch-gone'
 import type { LinkFs, LinkFsSync } from '../../src/main/remote-links'
 
 export type DiskEntry = { kind: 'folder' } | { kind: 'file' } | { kind: 'link'; to: string }
@@ -29,7 +30,7 @@ export const linkTo = (to: string): DiskEntry => ({ kind: 'link', to })
 interface Watch {
   path: string
   recursive: boolean
-  onEvent: (name: string | null) => void
+  onEvent: (name: string | null, event?: WatchEvent) => void
   onError: (error: unknown) => void
   closed: boolean
 }
@@ -65,6 +66,8 @@ export interface WindowsDisk {
   fail: (path: string, error: Error) => void
   /** Sends the watches of a path an event that names nothing. */
   nameless: (path: string) => void
+  /** Tells the watches of this kind of event at a path, with nothing changed on the disk. */
+  report: (path: string, event: WatchEvent) => void
 }
 
 export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
@@ -130,7 +133,7 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
 
   const kindOf = (entry: DiskEntry): EntryKind => entry.kind
   /** Tells the watches above a real path that it changed. */
-  const tell = (path: string): void => {
+  const tell = (path: string, event?: WatchEvent): void => {
     for (const watch of [...watches]) {
       if (watch.closed) continue
       const rel = win32.relative(watch.path, path)
@@ -141,7 +144,7 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
         continue
       }
       if (!watch.recursive && rel.includes('\\')) continue
-      watch.onEvent(rel)
+      watch.onEvent(rel, event)
     }
   }
 
@@ -265,5 +268,6 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
     nameless: (path) => {
       for (const watch of [...watches]) if (!watch.closed && key(watch.path) === key(path)) watch.onEvent(null)
     },
+    report: (path, event) => tell(path, event),
   }
 }

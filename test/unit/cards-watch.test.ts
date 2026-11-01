@@ -150,6 +150,25 @@ describe('the watch of the Cards of a Project, by the rules of Windows', () => {
     expect(seen).toEqual([expect.objectContaining({ cardId: 'c1', revision: 1 })])
   })
 
+  it('a change that names a Card folder itself is no change of the Card; a change of a name inside it is, and so is the folder coming or going', async () => {
+    const disk = windowsDisk(TWO_CARDS)
+    const { store, seen } = makeStore(disk)
+    await store.info(PROJECT, 'c1')
+    await watching(disk, [`${CARDS} (recursive)`])
+    disk.report(`${CARDS}\\c1`, 'change')
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(seen).toEqual([])
+    expect(await store.info(PROJECT, 'c1')).toMatchObject({ revision: 0 })
+
+    disk.report(`${CARDS}\\c1\\index.html`, 'change')
+    await changed(seen, 'c1')
+    expect(seen.at(-1)).toMatchObject({ cardId: 'c1', revision: 1 })
+    disk.report(`${CARDS}\\c1\\js`, 'change')
+    await vi.waitFor(() => expect(seen.at(-1)).toMatchObject({ cardId: 'c1', revision: 2 }), { timeout: ms(2000), interval: 5 })
+    disk.report(`${CARDS}\\c1`, 'rename')
+    await vi.waitFor(() => expect(seen.at(-1)).toMatchObject({ cardId: 'c1', revision: 3 }), { timeout: ms(2000), interval: 5 })
+  })
+
   it('a watch of the Cards folder that fails each time it is made: the Cards are not read again at every pause, but a Card written meanwhile is', async () => {
     vi.useFakeTimers()
     try {

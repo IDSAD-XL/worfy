@@ -15,13 +15,17 @@ import { watch } from 'node:fs'
 
 /**
  * Watches a folder (with everything below it when `recursive`) or a file. `onEvent` gets the name
- * the system reports, relative to the path, or null when it reports none; `close` ends the watch.
+ * the system reports, relative to the path, or null when it reports none, and the kind of event;
+ * `close` ends the watch.
  */
-export type NodeWatch = (path: string, recursive: boolean, onEvent: (name: string | null) => void, onError: (error: unknown) => void) => { close: () => void }
+export type NodeWatch = (path: string, recursive: boolean, onEvent: (name: string | null, event?: WatchEvent) => void, onError: (error: unknown) => void) => { close: () => void }
+
+/** A name came or went, or something about it changed. */
+export type WatchEvent = 'rename' | 'change'
 
 /** The handle it returns is Node's FSWatcher itself. */
 export const watchWithNode: NodeWatch = (path, recursive, onEvent, onError) => {
-  const watcher = watch(path, { recursive }, (_event, name) => onEvent(name === null ? null : String(name)))
+  const watcher = watch(path, { recursive }, (event, name) => onEvent(name === null ? null : String(name), event))
   watcher.on('error', onError)
   return watcher
 }
