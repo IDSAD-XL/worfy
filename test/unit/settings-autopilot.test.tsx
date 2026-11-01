@@ -112,7 +112,7 @@ describe('Settings → Autopilot', () => {
     await mount(settings(1))
     await waitFor(() => expect(mode().textContent).toContain('Fastest'))
     for (const row of ['settings-autopilot-mode-row', 'settings-autopilot-window-from-row', 'settings-autopilot-window-to-row']) expect(screen.getByTestId(row)).toBeTruthy()
-    expect(screen.getByTestId('settings-autopilot-mode-row').textContent).toContain('Waves go one after another: no budget, no window')
+    expect(screen.getByTestId('settings-autopilot-mode-row').textContent).toContain('Waves go one after another: no budget, no window.')
     expect(windowFrom().textContent).toContain('23:00')
     expect(windowTo().textContent).toContain('07:00')
     expect(windowFrom().disabled).toBe(true)
@@ -126,7 +126,7 @@ describe('Settings → Autopilot', () => {
   it('with the budget on and no mode chosen the default is Budget-aware; the window stays disabled', async () => {
     await mount(settings(1, { enabled: true }))
     await waitFor(() => expect(mode().textContent).toContain('Budget-aware'))
-    expect(screen.getByTestId('settings-autopilot-mode-row').textContent).toContain('The daily budget of the Limits, with the reserve')
+    expect(screen.getByTestId('settings-autopilot-mode-row').textContent).toContain('The daily budget of the Limits, with the reserve.')
     expect(windowFrom().disabled).toBe(true)
   })
 
@@ -145,7 +145,7 @@ describe('Settings → Autopilot', () => {
     fireEvent.click(within(screen.getByRole('listbox', { name: MODE })).getByRole('option', { name: 'Start window' }))
     await act(async () => main.sets[0]!.answer({ ok: true, value: settings(2, undefined, { mode: 'start-window' }) }))
     expect(mode().textContent).toContain('Start window')
-    expect(screen.getByTestId('settings-autopilot-mode-row').textContent).toContain('New Waves start only between the times below; the daily budget too, when it is on')
+    expect(screen.getByTestId('settings-autopilot-mode-row').textContent).toContain('New Waves start only between the times below; the daily budget too, when it is on.')
     expect(windowFrom().disabled).toBe(false)
     expect(windowTo().disabled).toBe(false)
     expect(reserve().disabled).toBe(true)

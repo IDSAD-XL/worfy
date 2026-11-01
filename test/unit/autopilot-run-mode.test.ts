@@ -117,6 +117,46 @@ describe('the Start window on the days the clocks change (Europe/Kyiv)', () => {
     expect(nextWindowStart(end, NIGHT)).toBe(Date.UTC(2026, 9, 25, 21, 0))
   })
 
+  it('an edge at 03:00 the night the clocks go forward: the skipped hour moves to 04:00, and inWindow is the verdict after waking', () => {
+    // 03:00–07:00 starts at 04:00 EEST and still ends at 07:00 EEST: 3 hours.
+    const early: StartWindow = { from: 3, to: 7 }
+    const start = nextWindowStart(at(2026, 3, 28, 12, 0), early)
+    expect(start).toBe(Date.UTC(2026, 2, 29, 1, 0))
+    expect(new Date(start).getHours()).toBe(4)
+    expect(inWindow(start, early)).toBe(true)
+    expect(windowEnd(start, early)).toBe(Date.UTC(2026, 2, 29, 4, 0))
+    // 03:00–04:00 has no hour that night: its start lands on 04:00, outside the window.
+    const skipped: StartWindow = { from: 3, to: 4 }
+    const none = nextWindowStart(at(2026, 3, 28, 12, 0), skipped)
+    expect(none).toBe(Date.UTC(2026, 2, 29, 1, 0))
+    expect(inWindow(none, skipped)).toBe(false)
+    // 23:00–03:00 ends at 04:00 EEST; 04:00–03:00 ends there too, which is inside its next window.
+    expect(windowEnd(at(2026, 3, 28, 23, 30), { from: 23, to: 3 })).toBe(Date.UTC(2026, 2, 29, 1, 0))
+    const allDay: StartWindow = { from: 4, to: 3 }
+    const end = windowEnd(at(2026, 3, 28, 23, 0), allDay)
+    expect(end).toBe(Date.UTC(2026, 2, 29, 1, 0))
+    expect(inWindow(end, allDay)).toBe(true)
+  })
+
+  it('an edge at 03:00 the night the clocks go back: the hour that comes twice counts from its first time', () => {
+    // 03:00 EEST (UTC+3) comes first, 03:00 EET (UTC+2) an hour later.
+    const early: StartWindow = { from: 3, to: 7 }
+    const start = nextWindowStart(at(2026, 10, 24, 12, 0), early)
+    expect(start).toBe(Date.UTC(2026, 9, 25, 0, 0))
+    expect(inWindow(start, early)).toBe(true)
+    expect(inWindow(start - 1, early)).toBe(false)
+    // Inside from the first 03:00 to 07:00 EET: 5 hours.
+    expect(windowEnd(start, early)).toBe(Date.UTC(2026, 9, 25, 5, 0))
+    // 23:00–03:00 ends at the first 03:00; the second 03:00 is outside it too.
+    const late: StartWindow = { from: 23, to: 3 }
+    const end = windowEnd(at(2026, 10, 24, 23, 30), late)
+    expect(end).toBe(Date.UTC(2026, 9, 25, 0, 0))
+    expect(inWindow(end - 1, late)).toBe(true)
+    expect(inWindow(end, late)).toBe(false)
+    expect(inWindow(Date.UTC(2026, 9, 25, 1, 0), late)).toBe(false)
+    expect(nextWindowStart(end, late)).toBe(Date.UTC(2026, 9, 25, 21, 0))
+  })
+
   it('a day window keeps its wall-clock hours on the day of 25 hours too', () => {
     expect(windowEnd(at(2026, 10, 25, 10, 0), DAY)).toBe(Date.UTC(2026, 9, 25, 15, 0))
     expect(nextWindowStart(at(2026, 10, 25, 1, 0), DAY)).toBe(Date.UTC(2026, 9, 25, 7, 0))

@@ -471,6 +471,21 @@ describe('AppSettingsStore', () => {
     expect(met).toMatchObject({ interfaceScale: 1.3, autopilotRun: { mode: 'start-window' } })
     expect(autopilotRunOf(met)).toEqual({ mode: 'start-window', window: { from: 23, to: 7 } })
 
+    // Field by field: one bad field (a newer version's mode, an hour out of range) drops itself alone, and the
+    // person's other choices stay.
+    const fieldByField: [unknown, NonNullable<AppSettings['autopilotRun']>][] = [
+      [{ mode: 'overnight', windowFrom: 22, windowTo: 6 }, { windowFrom: 22, windowTo: 6 }],
+      [{ mode: 'start-window', windowFrom: 24, windowTo: 6 }, { mode: 'start-window', windowTo: 6 }],
+      [{ mode: 'start-window', windowFrom: 22, windowTo: '06:00' }, { mode: 'start-window', windowFrom: 22 }],
+    ]
+    for (const [stored, kept] of fieldByField) {
+      const one = freshFile()
+      mkdirSync(join(one, '..'), { recursive: true })
+      writeFileSync(one, JSON.stringify({ interfaceScale: 1.2, autopilotRun: stored }))
+      expect(new AppSettingsStore(one).get(), JSON.stringify(stored)).toMatchObject({ interfaceScale: 1.2, autopilotRun: kept })
+      expect(new AppSettingsStore(one).get().autopilotRun, JSON.stringify(stored)).toStrictEqual(kept)
+    }
+
     const wrongType = freshFile()
     mkdirSync(join(wrongType, '..'), { recursive: true })
     writeFileSync(wrongType, JSON.stringify({ interfaceScale: 1.4, autopilotRun: 'start-window' }))

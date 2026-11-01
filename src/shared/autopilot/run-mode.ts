@@ -42,7 +42,11 @@ export function inWindow(now: number, window: StartWindow): boolean {
   return hour >= window.from || hour < window.to
 }
 
-/** The first moment after `now` (not at it) when the local wall clock shows `hour`:00. */
+/**
+ * The first moment after `now` (not at it) when the local wall clock shows `hour`:00. An hour the
+ * clocks skip (03:00 the night they go forward in Kyiv) gives the moment after the jump, 04:00; an
+ * hour that comes twice (03:00 the night they go back) gives its first time.
+ */
 function nextHour(now: number, hour: number): number {
   const day = new Date(now)
   day.setHours(hour, 0, 0, 0)
@@ -56,6 +60,11 @@ function nextHour(now: number, hour: number): number {
 /**
  * The end of the window `now` is inside: 07:00 of the next morning at 23:30 for 23:00–07:00. For a
  * `now` outside the window it is the end of the next window.
+ *
+ * windowEnd and nextWindowStart are moments to wake at, not verdicts: on the night the clocks go
+ * forward an edge in the skipped hour moves to the hour after it, so the start of 03:00–04:00 lands
+ * outside its window and the end of 04:00–03:00 inside the next one. A caller that waits until one of
+ * them asks inWindow again after waking.
  */
 export function windowEnd(now: number, window: StartWindow): number {
   return nextHour(now, window.to)

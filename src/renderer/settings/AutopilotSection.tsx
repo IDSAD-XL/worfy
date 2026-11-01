@@ -30,9 +30,9 @@ export const RESERVE_LABEL = 'Reserve for your own work'
 
 /** What each mode does, under "Default run mode" (spec of worfy-resource-planner, Settings → Autopilot). */
 const MODE_DESCRIPTIONS: Readonly<Record<RunMode, string>> = {
-  fastest: 'Waves go one after another: no budget, no window',
-  'budget-aware': 'The daily budget of the Limits, with the reserve',
-  'start-window': 'New Waves start only between the times below; the daily budget too, when it is on',
+  fastest: 'Waves go one after another: no budget, no window.',
+  'budget-aware': 'The daily budget of the Limits, with the reserve.',
+  'start-window': 'New Waves start only between the times below; the daily budget too, when it is on.',
 }
 
 const MODE_OPTIONS: SelectOption<RunMode>[] = RUN_MODES.map((mode) => ({ value: mode, label: RUN_MODE_LABELS[mode] }))
