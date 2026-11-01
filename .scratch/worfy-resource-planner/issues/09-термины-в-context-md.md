@@ -1,7 +1,7 @@
 # 09 — Термины в CONTEXT.md: Run mode, Start window, Epic forecast
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T08:32Z
 Branch: worfy-resource-planner/09
 Blocked by: —
 Source: [spec.md](../spec.md), «Термины», «Решения» (Q6′), «Не решено» (выбрано без решения, п. 12)
@@ -32,10 +32,10 @@ Source: [spec.md](../spec.md), «Термины», «Решения» (Q6′), �
 
 ## Готово, когда
 
-- [ ] Три термина есть, формат как у соседей; русские слова владельца — в определении.
-- [ ] Avoid Autopilot по-прежнему содержит «ночной режим».
-- [ ] В Wait названа причина «окно запуска».
-- [ ] `node scripts/check-handoff.mjs` — exit 0; `pnpm lint` — exit 0 (в нём проверки документов).
+- [x] Три термина есть, формат как у соседей; русские слова владельца — в определении.
+- [x] Avoid Autopilot по-прежнему содержит «ночной режим».
+- [x] В Wait названа причина «окно запуска».
+- [x] `node scripts/check-handoff.mjs` — exit 0; `pnpm lint` — exit 0 (в нём проверки документов).
 
 ## Тесты
 
@@ -44,3 +44,27 @@ Source: [spec.md](../spec.md), «Термины», «Решения» (Q6′), �
 ## Где в коде
 
 - `CONTEXT.md` — `:5`, `:37`, `:83`, `:99-101`, `:103`, `:111`
+
+## Итог
+
+Сделано. В `CONTEXT.md`, раздел Workflow, сразу после Run — три термина тем же форматом, что у соседей
+(жирное имя, определение, строка `_Avoid_:`):
+
+- **Run mode** — «Режим запуска Run-а»: Fastest, Budget-aware, Start window; действует только на границе Wave;
+  выбирается на один Run, по умолчанию — из Settings; отказ Limits внутри Wave остаётся жёстким пределом.
+  Avoid: «ночной режим», Overnight (Q6′).
+- **Start window** — «Окно запуска»: местное время «с» и «до» (23:00–07:00 по умолчанию, через полночь можно);
+  новая Wave — только внутри окна и только если успеет по p90 длительности; идущая Wave доходит до конца.
+  Avoid: Overnight (Q6′).
+- **Epic forecast** — «Прогноз Epic-а»: p10–p90 доли недели Limits на оставшиеся Wave Epic-а этой Machine по
+  прошлым Wave Project-а; «мало данных» при меньше чем 5 выборках. Определение отделяет его от оценки одной Wave
+  (Ticket 40) и от budget (Ticket 41). Avoid: estimate — этим словом код и `docs/features/autopilot.md` зовут
+  оценку одной Wave (`src/shared/autopilot/limits-estimate.ts`); слово назвать в PR (п. 4 «Что делаем»).
+
+В Wait добавлена причина «Start window (окно запуска)». Avoid термина Autopilot не тронут: «ночной режим» на месте.
+Других слов, которыми код или документы называли бы эти три вещи, `git grep` не нашёл («overnight» в
+репозитории — только имя skill-а `overnight-fix-loop`, не режим).
+
+Mutant-ов нет: кода нет, проверка — `pnpm lint` и `node scripts/check-handoff.mjs` (оба exit 0).
+
+Оценка автора: около 60 тысяч токенов.
