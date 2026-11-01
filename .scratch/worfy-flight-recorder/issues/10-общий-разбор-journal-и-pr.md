@@ -1,7 +1,8 @@
 # 10 — Общий разбор Journal и PR
 
 Type: task
-Status: claimed 2026-11-01T00:01Z
+Status: done 2026-11-01T01:52Z
+PR: #1184
 Blocked by: —
 Source: [spec.md](../spec.md), «Решено без владельца» (общий разбор — ESM JavaScript с `.d.mts`), «Источники и что меняется в них» (строка GitHub), «Ticket-ы» (10), «Риски», п. 5, «Готово, когда» (пункт про `scripts/critical-path.mjs`); решение 01, Q9 ([01-destination-единица-истории-хранение-id.md](01-destination-единица-истории-хранение-id.md)); решение 04, Q3 ([04-дыры-источников.md](04-дыры-источников.md))
 

@@ -1,7 +1,8 @@
 # 21 — Run по названным Ticket-ам и `startFromChat`
 
 Type: task
-Status: claimed 2026-11-01T00:01Z
+Status: done 2026-11-01T01:52Z
+PR: #1185
 Branch: worfy-flight-recorder/21
 Blocked by: —
 Source: [spec.md](../spec.md), «Запуск Autopilot из чата» («Run по названным Ticket-ам», «Отказ, пока Run идёт», «Вне Run», общая точка входа `chat-start.ts`; про старт после конца хода — «Инструмент `autopilot_start`»), «Решено без владельца» (`tickets-done`; ADR Ticket-а 21), «Ticket-ы» (21), «Готово, когда» (пункт про запуск из чата); решение 09, Q1, Q4, Q5, Q7 ([09-что-значит-autopilot-из-чата.md](09-что-значит-autopilot-из-чата.md)); решение 02 ([02-autopilot-из-чата-тот-же-run.md](02-autopilot-из-чата-тот-же-run.md))

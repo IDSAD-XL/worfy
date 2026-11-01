@@ -1,7 +1,8 @@
 # 18 — Topic Harness
 
 Type: task
-Status: open
+Status: done 2026-11-01T01:52Z
+PR: #1178
 Blocked by: 10
 Source: [spec.md](../spec.md), Q5, Q6, Q17, Q18, Q19
 
