@@ -55,7 +55,7 @@ function smallFacts(over: Partial<RunFacts> = {}): RunFacts {
 
 function viewOf(facts: RunFacts, run = SMALL_RUN): RunView {
   const timeline = buildTimeline(facts)
-  return { projectId: 'p-1', run, epic: 'e', timeline, summary: summarize(timeline), github: { state: 'unused', reason: 'test' }, profileReason: null, skippedLines: 0, error: null }
+  return { projectId: 'p-1', run, epic: 'e', timeline, summary: summarize(timeline), github: { state: 'unused', reason: 'test' }, repoUrl: null, profileReason: null, skippedLines: 0, error: null }
 }
 
 const smallItem = (over: Partial<RunListItem> = {}): RunListItem => ({ run: SMALL_RUN, epic: 'e', startedAt: T('10:00'), stoppedAt: T('12:00'), reason: 'blocked-tickets', live: false, tickets: ['e/01', 'e/02'], by: null, ...over })

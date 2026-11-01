@@ -42,7 +42,7 @@ import type { ClientId } from '../clients'
 import { readNewLines, type TailCursor } from '../claude-home/tail'
 import { marksInFile, gitRunner, type GitRunner } from '../workflow/stages'
 import { readGateLogs } from './gate-logs'
-import { GITHUB_READ_INTERVAL_MS, GithubReader } from './github'
+import { GITHUB_READ_INTERVAL_MS, GithubReader, repoPageUrl } from './github'
 import { readLocalVerdicts, type LocalTicket } from './local-verdicts'
 import { readRunTranscripts, streamLines, TranscriptCompactor, TranscriptParses, type ReadLines } from './transcripts'
 
@@ -462,6 +462,12 @@ export class FlightRecorder {
     return { facts }
   }
 
+  /** The page of the Project's repository (remote `origin` of its root, which gh reads); null without one. */
+  private async repoUrl(root: string): Promise<string | null> {
+    const origin = await this.git(root, ['remote', 'get-url', 'origin']).catch(() => null)
+    return origin?.code === 0 ? repoPageUrl(origin.stdout) : null
+  }
+
   private async compute(projectId: string, run: string, state: ComputeState): Promise<{ view: RunView; profile: RunProfile }> {
     const journal = (await this.journal(run, projectId)).facts
     const root = this.options.projectRoot(projectId)
@@ -541,7 +547,8 @@ export class FlightRecorder {
       orchestratorMarks: journal.orchestratorMarks,
     }
     const timeline = buildTimeline(facts)
-    const view: RunView = { projectId, run, epic: journal.epic, timeline, summary: summarize(timeline), github: githubState, profileReason: profile.reason, skippedLines: journal.skipped, error: null }
+    const repoUrl = await this.repoUrl(root)
+    const view: RunView = { projectId, run, epic: journal.epic, timeline, summary: summarize(timeline), github: githubState, repoUrl, profileReason: profile.reason, skippedLines: journal.skipped, error: null }
     return { view, profile }
   }
 }

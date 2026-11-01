@@ -8,7 +8,7 @@ import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GithubReader, PR_FIELDS, RUN_FIELDS, type GithubRead } from '../../src/main/flight-recorder/github'
+import { GithubReader, PR_FIELDS, repoPageUrl, RUN_FIELDS, type GithubRead } from '../../src/main/flight-recorder/github'
 import { accountAuth, ghRunner, PrTracker } from '../../src/main/github/prs'
 import { githubFacts, githubNoAnswer, type GithubFacts } from '../../src/shared/flight-recorder/from-github'
 import { parseJournal, walkRun } from '../../src/shared/flight-recorder/journal-walk.mjs'
@@ -264,5 +264,22 @@ describe('the Project’s account', () => {
     await world.reader.read(world.root, BRANCHES)
     expect(existsSync(join(world.root, 'fail'))).toBe(false)
     expect((await readdir(world.root)).sort()).toEqual(['calls.jsonl'])
+  })
+})
+
+describe('the address of the repository page (repoPageUrl), for the PR and commit links of the Run history screen', () => {
+  it('is https://<host>/<owner>/<repo> for every form git takes, without .git or a trailing slash', () => {
+    expect(repoPageUrl('git@github.com:IDSAD-XL/worfy.git')).toBe('https://github.com/IDSAD-XL/worfy')
+    expect(repoPageUrl('ssh://git@github.com/someone/worfy.git')).toBe('https://github.com/someone/worfy')
+    expect(repoPageUrl('ssh://git@ghe.example.com:2222/team/app')).toBe('https://ghe.example.com/team/app')
+    expect(repoPageUrl('https://github.com/someone/worfy.git')).toBe('https://github.com/someone/worfy')
+    expect(repoPageUrl('https://github.com/someone/worfy/\n')).toBe('https://github.com/someone/worfy')
+    expect(repoPageUrl('git@ghe.example.com:team/app.git')).toBe('https://ghe.example.com/team/app')
+  })
+
+  it('is null for a remote that is no repository page: a folder, nothing, a nested group', () => {
+    expect(repoPageUrl('/srv/git/worfy.git')).toBeNull()
+    expect(repoPageUrl('')).toBeNull()
+    expect(repoPageUrl('https://gitlab.example.com/group/sub/app.git')).toBeNull()
   })
 })

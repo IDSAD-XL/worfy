@@ -229,7 +229,8 @@ describe('the timeline of the night Run', () => {
     const byId = new Map(view.timeline.spans.map((span) => [span.id, span]))
     const noAnswer = view.timeline.spans.filter((span) => span.lost === 'github-no-answer').map((span) => [span.kind, span.name, span.links.ticket ?? null, byId.get(span.parent ?? '')?.kind ?? null])
     expect(noAnswer).toEqual(['03', '07', '04', '05'].map((num) => ['ci', 'CI', `worfy-pipeline/${num}`, 'ticket']))
-    expect(git).not.toHaveBeenCalled()
+    // Only the address of the repository's page is asked of git (RunView.repoUrl), no verdict of a Ticket.
+    expect(git.mock.calls.filter((call: unknown[]) => (call[1] as string[]).join(' ') !== 'remote get-url origin')).toEqual([])
     const before = await world.prLists()
 
     await world.heal()
@@ -243,6 +244,24 @@ describe('the timeline of the night Run', () => {
     // The window that holds the Run open gets it too.
     expect(subscriber.views.map((each) => each.github.state)).toEqual(['answered'])
     recorder.dispose()
+  })
+
+  it('gives the address of the repository page from remote origin of the Project root: an SSH remote as https, without .git; null without one', async () => {
+    const world = await ghWorld()
+    const asked: string[] = []
+    const origin = (url: string): NonNullable<FlightRecorderOptions['git']> =>
+      async (cwd, args) => {
+        asked.push(`${cwd}: ${args.join(' ')}`)
+        return args.join(' ') === 'remote get-url origin' ? { code: 0, stdout: `${url}\n` } : { code: 128, stdout: '' }
+      }
+    const ssh = await (await nightRecorder(world.gh, profileOf(), { git: origin('git@github.com:someone/worfy.git') })).view(NIGHT_PROJECT, NIGHT_RUN)
+    expect(ssh.repoUrl).toBe('https://github.com/someone/worfy')
+    expect(asked).toContain(`${NIGHT_ROOT}: remote get-url origin`)
+    const https = await (await nightRecorder(world.gh, profileOf(), { git: origin('https://ghe.example.com/team/app.git') })).view(NIGHT_PROJECT, NIGHT_RUN)
+    expect(https.repoUrl).toBe('https://ghe.example.com/team/app')
+    // No remote origin (git fails), or one that is a folder: no address, the screen shows the PR and the commit as text.
+    expect((await (await nightRecorder(world.gh)).view(NIGHT_PROJECT, NIGHT_RUN)).repoUrl).toBeNull()
+    expect((await (await nightRecorder(world.gh, profileOf(), { git: origin('/srv/git/worfy.git') })).view(NIGHT_PROJECT, NIGHT_RUN)).repoUrl).toBeNull()
   })
 })
 

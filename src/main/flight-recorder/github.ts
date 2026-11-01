@@ -15,6 +15,7 @@
 //   of ticket 17) reads at once.
 import { GH_APP_FIELDS, GH_RUN_FIELDS } from '../../shared/flight-recorder/pr-facts.mjs'
 import type { GithubAnswer, GithubPr, GithubRun } from '../../shared/flight-recorder/from-github'
+import { parseRemote } from '../github/accounts'
 import { BASE_INTERVAL_MS } from '../github/prs'
 
 export const GITHUB_READ_INTERVAL_MS = BASE_INTERVAL_MS
@@ -27,6 +28,18 @@ export const PRS_PER_BRANCH = 10
 // shortcut: only the newest RUNS_PER_BRANCH runs of a branch are read, so the early CI of a Ticket pushed more often than that is missing; page with `--created` when a Ticket's branch runs CI that often.
 export const RUNS_PER_BRANCH = 50
 export const RUNS_PER_COMMIT = 20
+
+/**
+ * The address of a repository's page from its remote URL (`git remote get-url origin` of the Project root,
+ * the repository gh reads the PRs of): `https://<host>/<owner>/<repo>` for an https, ssh or scp-like remote
+ * (`git@host:owner/repo.git`), without `.git`; null for a folder or any other form. The host is the
+ * remote's own, so a GitHub Enterprise server gives its pages. The Run history screen opens
+ * `<it>/pull/<N>` and `<it>/commit/<sha>` from it (worfy-flight-recorder ticket 19).
+ */
+export function repoPageUrl(remote: string): string | null {
+  const repo = parseRemote(remote)
+  return repo === null ? null : `https://${repo.host}/${repo.owner}/${repo.repo}`
+}
 
 /** A read: gh's answer, or the reason GitHub did not answer; `at` — when gh ran. */
 export type GithubRead = { answer: GithubAnswer; error: null; at: number } | { answer: null; error: string; at: number }
