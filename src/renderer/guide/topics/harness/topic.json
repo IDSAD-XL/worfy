@@ -1,0 +1,15 @@
+{
+  "sources": [
+    { "page": "docs/features/harness.md", "sha": "8c6fc399" },
+    { "page": "docs/features/skills-agents-and-hooks.md", "sha": "3f662f1c" }
+  ],
+  "files": [
+    "src/main/harness/install.ts",
+    "src/main/ipc/harness.ts",
+    "src/main/harness/locate.ts",
+    "src/main/agent/options.ts",
+    "src/main/workflow/profile.ts",
+    "src/renderer/shell/toolbar/HarnessStatus.tsx",
+    "harness/hooks/hooks.json"
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "title": "Harness",
+  "summary": [
+    "The Harness is the Claude Code plugin worfy: the skills, agents and hooks by which Claude's agents do the work of a Project. Each build of worfy carries a copy and installs it on the Machine; Install, Update and Replace on the toolbar first name every command in a dialog. Every agent first runs the script profile and works by the Project's Profile, which is never in the repository."
+  ],
+  "scene": {
+    "description": "The Harness and the Sessions it reaches. worfy installs its copy of the Harness into the Harness home, where terminal sessions load it, and, unless an old Harness is still in ~/.claude, passes the same copy inline to the Orchestrator and every other Session it starts. The Orchestrator runs a skill and starts Subagents. The plugin holds skills, hooks, agents, scripts and qmd. Hooks give the Orchestrator the main rules and a Subagent the common rules. An agent's definition gives a Subagent its role. A Subagent runs profile first to read the Project's Profile, which lies in the Harness home, runs scripts such as ticket and preflight, and searches decisions with qmd.",
+    "labels": {
+      "harnessHome": "HARNESS HOME",
+      "sessions": "SESSIONS",
+      "plugin": "PLUGIN worfy",
+      "app": "worfy",
+      "appNote": "each build carries a copy",
+      "installed": "Installed plugin",
+      "installedNote": "what terminal sessions load",
+      "profile": "Profile",
+      "profileNote": "one per Project, not in the repo",
+      "orchestrator": "Orchestrator",
+      "orchestratorNote": "the Project's main Session",
+      "subagent": "Subagent",
+      "subagentNote": "implementer, reviewer or scout",
+      "skills": "Skills",
+      "skillsNote": "procedures: /worfy:<name>",
+      "hooks": "Hooks",
+      "hooksNote": "run on Claude Code's events",
+      "agents": "Agents",
+      "agentsNote": "the three roles",
+      "scripts": "Scripts",
+      "scriptsNote": "profile, ticket, preflight…",
+      "qmd": "qmd",
+      "qmdNote": "search over documents",
+      "installs": "installs",
+      "inline": "copy, inline",
+      "starts": "starts",
+      "runsSkill": "runs /worfy:epic-wave",
+      "mainRules": "main rules at start",
+      "commonRules": "common rules",
+      "role": "its role",
+      "runsScripts": "runs scripts",
+      "searches": "searches decisions",
+      "profileFirst": "reads it first",
+      "step1": "worfy installs its copy of the Harness as the Claude Code plugin worfy. Install, Update and Replace on the toolbar first name every command in a dialog. An older build never replaces a newer Harness.",
+      "step2": "A Session that worfy starts gets this build's copy inline, unless an old Harness is still in ~/.claude. The Orchestrator runs a Wave by the skill epic-wave.",
+      "step3": "The Orchestrator starts Subagents in three roles: implementer, reviewer and scout. Each first runs profile and works by what it prints.",
+      "step4": "Hooks run by themselves on Claude Code's events: rules at the start, the Bash guard before a command, and the Gate when a task is completed.",
+      "step5": "Scripts such as ticket and preflight write and check the workflow. qmd searches the decisions and lessons of every Project."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "The data flow of the Harness in worfy. In the renderer: the Harness item. In the main process: the installer, locateHarness, the script runner and the Session options. In the Harness home: the plugin folder. On the side of Claude Code: its claude plugin commands, Claude home and a Session. The Harness item calls harness.install. The installer copies this build's Harness into the plugin folder through a staging folder that is then renamed, and runs the claude plugin commands, which write Claude home. It answers every window with harness.changed. locateHarness finds the plugin folder and tells the script runner where the scripts are, and the Session options whether the plugin or the old Harness is on the Machine. The script runner runs bin/profile from the plugin folder. The Session options pass the bundled copy inline to a Session.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "home": "HARNESS HOME",
+        "claude": "CLAUDE CODE",
+        "item": "Harness item",
+        "itemNote": "toolbar, Settings → Pipeline",
+        "installer": "Installer",
+        "installerNote": "reads, asks, then copies",
+        "locate": "locateHarness",
+        "locateNote": "plugin, legacy or none",
+        "runner": "Script runner",
+        "runnerNote": "login shell env, HARNESS_HOME",
+        "options": "Session options",
+        "optionsNote": "plugins and MCP servers",
+        "pluginFolder": "Plugin folder",
+        "pluginFolderNote": "worfy-harness/plugin",
+        "cli": "claude plugin",
+        "cliNote": "the SDK's Claude Code binary",
+        "claudeHome": "Claude home",
+        "claudeHomeNote": "settings.json, plugins folder",
+        "session": "Session",
+        "sessionNote": "one Claude Code query",
+        "install": "harness.install",
+        "changed": "harness.changed",
+        "commands": "install, update",
+        "swap": "staging, then rename",
+        "writes": "writes",
+        "found": "plugin.json, bin/",
+        "binDir": "folder of the scripts",
+        "kind": "plugin or legacy",
+        "runs": "runs bin/profile",
+        "inline": "the bundled copy, inline"
+      }
+    },
+    "text": [
+      "In an install worfy itself writes only the plugin folder. Claude Code's own commands, with the SDK's binary, write settings.json and its plugins folder. A missing dependency is installed first, because the plugin does not load without it.",
+      "Which Harness is on the Machine is looked up on every call. While the old Harness is in ~/.claude it wins, and worfy's Sessions get no plugin, so the old hooks do not run twice.",
+      "Of the hooks, only the Gate and the Bash guard can hold back a turn or a command. A broken hook does not break a Session."
+    ],
+    "files": {
+      "src/main/harness/install.ts": "The installer: state, plan, version order, dialog text, the folder swap",
+      "src/main/ipc/harness.ts": "The app's one installer and the consent dialog; announces harness.changed",
+      "src/main/harness/locate.ts": "Which Harness is on the Machine, and where its scripts are",
+      "src/main/agent/options.ts": "Passes the copy inline to a Session and registers its servers",
+      "src/main/workflow/profile.ts": "Runs bin/profile and reads the Profile's fields",
+      "src/renderer/shell/toolbar/HarnessStatus.tsx": "The Harness item of the toolbar",
+      "harness/hooks/hooks.json": "Wires every hook of the plugin"
+    },
+    "limits": [
+      "Only the packaged app, or a run with WORFY_CLAUDE_HOME, may install: a development build would replace the Harness the terminal works on.",
+      "A command of an install gets 120 s, and one that installs a dependency 600 s.",
+      "Claude Code cuts a hook's text above 10,000 characters to a preview, so the common rules and the user's rules together stay within it."
+    ]
+  }
+}
