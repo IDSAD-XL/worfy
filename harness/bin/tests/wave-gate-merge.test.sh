@@ -142,9 +142,9 @@ if on_windows; then
     [ "$rc" -eq 0 ] && grep -q "pid $rp, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] && [ ! -e "$(SIDE)" ] \
         && ok "pid: a pid now held by a process that started later is taken over" || bad "pid reused: exit $rc: $(tail -3 "$W/out")"
     kill "$rjob"; wait "$rjob" 2>/dev/null
-    # A pid whose process ends while the check asks when it started: PowerShell answers nothing then, and the pid, no
-    # longer running, is dead. On a loaded runner a short-lived process that got the pid of the killed check ended so,
-    # and the resume case was refused (CI run 40656857467). The check stops between its two looks at the pid
+    # A pid whose process ends while the check asks when it started: PowerShell says no process has it, and the pid is
+    # dead. On a loaded runner a short-lived process that got the pid of the killed check ended so, and the resume case
+    # was refused (CI run 40656857467). The check stops between its two looks at the pid
     # (WAVE_GATE_PID_SYNC) while the process is ended; the file names a start no earlier than the process's own.
     sleep 60 & ep=$! ejob=$!
     until_ok 5 grep -q sleep "/proc/$ep/exename"; ep="$(cat "/proc/$ep/winpid")"

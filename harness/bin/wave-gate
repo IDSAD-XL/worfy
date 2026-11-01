@@ -446,15 +446,20 @@ const pidAlive = (pid) => {
 // `ps -o lstart=` when a reused pid is reported on Linux or macOS.
 const START_SLACK_MS = 1000
 const STARTED = Math.floor(Date.now() - process.uptime() * 1000)
-// When the process with this pid started, in ms since the epoch, or null when it cannot be told.
+const NO_PROCESS_EXIT = 3
+// When the process with this pid started, in ms since the epoch, NO_PROCESS when the system says none has this pid, or
+// null when it cannot be told. The exceptions are told by their type: the text of their messages is in the system's language.
+const NO_PROCESS = "no process"
 function startedAt(pid) {
     if (process.platform !== "win32") return null
     const shell = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-    const r = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", `[System.Diagnostics.Process]::GetProcessById(${pid}).StartTime.ToUniversalTime().ToString('o')`], {
+    const ask = `try { [System.Diagnostics.Process]::GetProcessById(${pid}).StartTime.ToUniversalTime().ToString('o') } catch [System.ArgumentException],[System.InvalidOperationException] { exit ${NO_PROCESS_EXIT} }`
+    const r = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", ask], {
         encoding: "utf8",
         timeout: 15000,
         windowsHide: true,
     })
+    if (r.status === NO_PROCESS_EXIT) return NO_PROCESS
     const at = r.status === 0 ? Date.parse(r.stdout.trim()) : NaN
     return Number.isFinite(at) ? at : null
 }
@@ -478,8 +483,11 @@ function holderAlive(pid, started) {
     if (process.platform !== "win32") return "its start time is not read here"
     stopPoint("alive")
     const now = startedAt(pid)
-    // No answer also comes for a process that ended while PowerShell was asked, as a short-lived process that got the
-    // pid of a killed check does on a loaded runner: a pid no longer running is dead, whatever PowerShell said.
+    // The process found running has ended, as a short-lived process that got the pid of a killed check does on a loaded
+    // runner. That is final: looking at the pid again may find another process that has just got it (2 of 120 runs of
+    // the case under load on the PC, each refused as a check that still runs).
+    if (now === NO_PROCESS) return false
+    // No answer, as when PowerShell ran out of its time limit: a pid no longer running is dead, whatever PowerShell said.
     if (now === null) return pidAlive(pid) && "its start time could not be read"
     return now <= started + START_SLACK_MS && `it started at ${new Date(now).toISOString()}, no later than the file says`
 }
