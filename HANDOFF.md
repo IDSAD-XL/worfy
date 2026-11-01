@@ -20,7 +20,7 @@
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
-- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 13/15; 15 влит (#1176), 12 ждёт приёмки владельцем. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): 11/21; 11–19 вливаются по одному, затем 20 и 21.
+- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 14/15; 14 и 15 влиты, 12 ждёт приёмки владельцем. `worfy-guide` ([spec](.scratch/worfy-guide/spec.md)): 13/21; 11–19 вливаются по одному, затем 20 и 21.
 - `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): 12/25; Wave 1 влита; в работе 11, 14, 15, 16, 22, 23.
 
 ## Ждёт владельца
@@ -51,7 +51,7 @@
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
 - Ложный таймаут первого окна в e2e: заблокированный экран, сеанс macOS владельца в фоне, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают; на Mac владельца ещё и `defaults` для `com.github.Electron`) — [agents.md](docs/lessons/agents.md).
 - Замок e2e: в `rules.md` Profile владельца heartbeat ещё старый (без выхода при снятом замке); новая строка — в PR `worfy-harness` 49, вносит владелец.
-- [low] `worfy-flight-recorder`, low ревью: `spans.ts:335` implied claim; `spans.ts:613-620` edge filters; `main/ipc/autopilot.ts:231` try; схема `resumable` и Ticket `00` (`shared/ipc/autopilot.ts:58`) — Ticket 20.
+- [low] `worfy-flight-recorder`, low ревью: `spans.ts:335` implied claim; `spans.ts:613-620` edge filters; `main/ipc/autopilot.ts:229` get без try; схема `resumable` и Ticket `00` (`shared/ipc/autopilot.ts:58`) — Ticket 20.
 - Долги low — в «Итог» Ticket-ов (абзацы «Долг» и подраздел «Долги из HANDOFF (2026-10-08)»), разбор — шаг документов при закрытии Epic-а.
 
 ## Дальше
