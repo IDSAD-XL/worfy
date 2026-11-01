@@ -6,7 +6,7 @@
 // interval give one `runs.changed`, gh is read at most once a minute, a transcript is read on from where the
 // last read stopped. Nothing reaches GitHub, no real Claude Code or Agent SDK runs, git is a stand-in.
 import { symlinkSync } from 'node:fs'
-import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -17,7 +17,9 @@ import { accountAuth, ghRunner, PrTracker } from '../../src/main/github/prs'
 import { formatJournalLine, makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
 import type { RunView } from '../../src/shared/ipc/runs'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
+import { writeBigTranscript } from '../big-transcript'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const FIXTURES = join(__dirname, '..', 'fixtures', 'flight-recorder')
 const NIGHT = join(FIXTURES, 'night-run')
@@ -158,7 +160,7 @@ describe('the Runs of a Project', () => {
 })
 
 describe('the timeline of the night Run', () => {
-  const nightRecorder = async (gh: FlightRecorderOptions['gh'], profile: RunProfile = profileOf()) =>
+  const nightRecorder = async (gh: FlightRecorderOptions['gh'], profile: RunProfile = profileOf(), over: Partial<FlightRecorderOptions> = {}) =>
     new FlightRecorder({
       env: { WORFY_DATA_DIR: join(NIGHT, 'data'), WORFY_CLAUDE_HOME: join(NIGHT, 'claude') },
       harnessHome: join(NIGHT, 'harness'),
@@ -171,6 +173,7 @@ describe('the timeline of the night Run', () => {
       running: () => false,
       git: noGit,
       now: () => Date.parse('2026-11-01T10:00:00Z'),
+      ...over,
     })
 
   it('is the tree Run → Wave → Ticket → Stage → work from the Journal, the transcripts, GitHub and the gate logs, with its summary', async () => {
@@ -211,12 +214,19 @@ describe('the timeline of the night Run', () => {
   it('is there when gh fails, with «GitHub did not answer» on the PR and CI spans; «Retry» runs gh at once and the label goes', async () => {
     const world = await ghWorld()
     await world.fail('error connecting to api.github.com')
-    const recorder = await nightRecorder(world.gh)
+    // The Tickets have branches and git answers: without gh's answer no Ticket counts as one without a PR.
+    const git = vi.fn(async () => ({ code: 0, stdout: '' }))
+    const branches = async () => new Map([3, 4, 5, 7].map((num) => [num, `worfy-pipeline/0${num}`]))
+    const recorder = await nightRecorder(world.gh, profileOf(), { git, branches })
     const subscriber = collector()
     const view = await recorder.open(NIGHT_PROJECT, NIGHT_RUN, subscriber)
     expect(view.github).toMatchObject({ state: 'no-answer', reason: expect.stringContaining('error connecting to api.github.com') })
     expect(view.timeline.spans.filter((span) => span.kind === 'ticket')).toHaveLength(4)
-    expect(view.timeline.spans.some((span) => span.lost === 'github-no-answer')).toBe(true)
+    // The label is a CI span of each Ticket, under the Ticket: the PR stages are not known.
+    const byId = new Map(view.timeline.spans.map((span) => [span.id, span]))
+    const noAnswer = view.timeline.spans.filter((span) => span.lost === 'github-no-answer').map((span) => [span.kind, span.name, span.links.ticket ?? null, byId.get(span.parent ?? '')?.kind ?? null])
+    expect(noAnswer).toEqual(['03', '07', '04', '05'].map((num) => ['ci', 'CI', `worfy-pipeline/${num}`, 'ticket']))
+    expect(git).not.toHaveBeenCalled()
     const before = await world.prLists()
 
     await world.heal()
@@ -249,7 +259,7 @@ function orchestratorLines(root: string): string {
   ].join('')
 }
 
-async function liveWorld() {
+async function liveWorld({ session = true }: { session?: boolean } = {}) {
   const data = await folder('data')
   const home = await folder('claude')
   const root = await folder('repo')
@@ -257,7 +267,7 @@ async function liveWorld() {
   const project = 'live-0a1b2c3d'
   const journal = await writeJournal(data, run, [
     { at: at(0), run, project, epic: 'e', kind: 'run-started' },
-    { at: at(1), run, project, epic: 'e', kind: 'wave-started', wave: 1, tickets: ['01'], session: SESSION },
+    { at: at(1), run, project, epic: 'e', kind: 'wave-started', wave: 1, tickets: ['01'], text: '/worfy:epic-wave tickets 01 of epic e', ...(session ? { session: SESSION } : {}) },
   ])
   const dir = join(home, 'projects', projectDirName(root))
   await mkdir(join(dir, SESSION, 'subagents'), { recursive: true })
@@ -268,13 +278,56 @@ async function liveWorld() {
   return { data, home, root, run, project, journal, transcript, worktree, subagents: join(dir, SESSION, 'subagents') }
 }
 
+/** A pause a test opens: `wait` stops a reader at `reached` until `release`. */
+function hold() {
+  let release!: () => void
+  let arrived!: () => void
+  const released = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const reached = new Promise<void>((resolve) => {
+    arrived = resolve
+  })
+  return {
+    reached,
+    release,
+    wait: () => {
+      arrived()
+      return released
+    },
+  }
+}
+
+/** The branches of the Tickets, read in every compute: one waits for each pause in `holds`, in turn. */
+const holdingBranches =
+  (holds: ReturnType<typeof hold>[]): NonNullable<FlightRecorderOptions['branches']> =>
+  async () => {
+    await holds.shift()?.wait()
+    return new Map()
+  }
+
+/** A recorder over a live world, on the test's timer and clock. */
+async function liveRecorder(world: Awaited<ReturnType<typeof liveWorld>>, timer: ReturnType<typeof manualTimer>, over: Partial<FlightRecorderOptions> = {}): Promise<FlightRecorder> {
+  return new FlightRecorder({
+    env: { WORFY_DATA_DIR: world.data, WORFY_CLAUDE_HOME: world.home },
+    harnessHome: await folder('harness'),
+    projectRoot: () => world.root,
+    profile: async () => profileOf(),
+    gh: async () => '[]',
+    running: () => true,
+    git: noGit,
+    now: () => T0 + 10_000,
+    schedule: timer.schedule,
+    ...over,
+  })
+}
+
 describe('the live timeline', () => {
   it(`recomputes on new Journal lines at most once per ${RECOMPUTE_INTERVAL_MS / 1000} s, reads gh at most once a minute, and reads a transcript on from where it stopped`, async () => {
     const world = await liveWorld()
     const gh = await ghWorld()
     const timer = manualTimer()
     let now = T0 + 10_000
-    let running = true
     const reads: { file: string; from: number }[] = []
     const tail: typeof readNewLines = async (file, cursor, options) => {
       reads.push({ file, from: cursor?.offset ?? 0 })
@@ -286,7 +339,7 @@ describe('the live timeline', () => {
       projectRoot: () => world.root,
       profile: async () => profileOf(),
       gh: gh.gh,
-      running: () => running,
+      running: () => true,
       git: noGit,
       now: () => now,
       schedule: timer.schedule,
@@ -295,7 +348,7 @@ describe('the live timeline', () => {
     const subscriber = collector()
     const opened = await recorder.open(world.project, world.run, subscriber)
     expect(opened.timeline.live).toBe(true)
-    expect(timer.state.ms).toBe(RECOMPUTE_INTERVAL_MS)
+    expect(timer.state.ms).toBe(5_000)
     const ghAtOpen = await gh.prLists()
     expect(ghAtOpen).toBe(1)
     const firstRead = reads.filter((read) => read.file === world.transcript)
@@ -319,17 +372,45 @@ describe('the live timeline', () => {
     await timer.fire()
     expect(subscriber.views).toHaveLength(2)
     expect(reads.filter((read) => read.file === world.transcript).at(-1)).toEqual({ file: world.transcript, from: size })
+    // What was read before and the new line make the timeline a full read of the files makes.
+    const sameAsFull = async () => {
+      const live = subscriber.views.at(-1)!.timeline.spans
+      expect(live.some((span) => span.kind === 'agent' && span.name === 'impl-01')).toBe(true)
+      expect(live.filter((span) => span.kind === 'orchestrator-turn').length).toBeGreaterThan(0)
+      expect(live).toEqual((await recorder.view(world.project, world.run)).timeline.spans)
+    }
+    await sameAsFull()
     // gh has not been read again within the minute, however often the timeline was recomputed.
     expect(await gh.prLists()).toBe(ghAtOpen)
+
+    // A line half written: one step looks at it, the next ones do not until it grows again.
+    await appendFile(world.transcript, '{"type":"assistant","timestamp":')
+    now += RECOMPUTE_INTERVAL_MS
+    await timer.fire()
+    const afterHalf = subscriber.views.length
+    for (let n = 0; n < 3; n++) {
+      now += RECOMPUTE_INTERVAL_MS
+      await timer.fire()
+    }
+    expect(subscriber.views).toHaveLength(afterHalf)
 
     // A minute after the read gh is read again, and the timeline goes out with its answer.
     now = T0 + 10_000 + MINUTE
     await timer.fire()
     expect(await gh.prLists()).toBe(ghAtOpen + 1)
-    expect(subscriber.views).toHaveLength(3)
+    expect(subscriber.views).toHaveLength(afterHalf + 1)
 
-    // The Run stops: the last timeline is not live, and the timer stops with it.
-    running = false
+    // The transcript replaced by another file (a rewrite, a restore): read again from its start, nothing kept of the old one.
+    const replacement = `${world.transcript}.new`
+    await writeFile(replacement, orchestratorLines(world.root) + record(world.root, 50, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'impl-01 is back' }] } }))
+    await rename(replacement, world.transcript)
+    now += RECOMPUTE_INTERVAL_MS
+    await timer.fire()
+    expect(subscriber.views).toHaveLength(afterHalf + 2)
+    await sameAsFull()
+
+    // The Run stops while Autopilot still works on the Epic: the run-stopped line ends it, the last
+    // timeline is not live, and the timer stops with it.
     await appendFile(world.journal, journalLine({ at: at(80), run: world.run, project: world.project, epic: 'e', kind: 'run-stopped', reason: 'tickets-done' }))
     now += RECOMPUTE_INTERVAL_MS
     await timer.fire()
@@ -349,6 +430,219 @@ describe('the live timeline', () => {
     recorder.drop('link:m/1')
     expect(timer.state.tick).toBeNull()
     expect(recorder.close(world.project, world.run, 1)).toBe(false)
+  })
+
+  it('a window closed or dropped while the first timeline is computed holds nothing: no timer, no subscriber', async () => {
+    const world = await liveWorld()
+    const timer = manualTimer()
+    const holds: ReturnType<typeof hold>[] = []
+    const recorder = await liveRecorder(world, timer, { branches: holdingBranches(holds) })
+    // Dropped (its window closed, a Linked machine's access switched off) during the first compute.
+    const first = hold()
+    holds.push(first)
+    const opening = recorder.open(world.project, world.run, collector(1))
+    await first.reached
+    recorder.drop(1)
+    first.release()
+    expect((await opening).timeline.live).toBe(true)
+    expect(timer.state.tick).toBeNull()
+    expect(recorder.close(world.project, world.run, 1)).toBe(false)
+    // Closed during the first compute: the close finds what it closes.
+    const second = hold()
+    holds.push(second)
+    const reopening = recorder.open(world.project, world.run, collector(2))
+    await second.reached
+    expect(recorder.close(world.project, world.run, 2)).toBe(true)
+    second.release()
+    await reopening
+    expect(timer.state.tick).toBeNull()
+  })
+
+  it('two windows that open the same Run at once both get its new timelines, and each close counts', async () => {
+    const world = await liveWorld()
+    const timer = manualTimer()
+    const recorder = await liveRecorder(world, timer)
+    const [a, b] = [collector(1), collector('link:m/1')]
+    await Promise.all([recorder.open(world.project, world.run, a), recorder.open(world.project, world.run, b)])
+    await appendFile(world.journal, journalLine({ at: at(11), run: world.run, project: world.project, epic: 'e', kind: 'background-tasks', tasks: [] }))
+    await timer.fire()
+    expect([a.views.length, b.views.length]).toEqual([1, 1])
+    expect(recorder.close(world.project, world.run, 1)).toBe(true)
+    expect(timer.state.tick).not.toBeNull()
+    expect(recorder.close(world.project, world.run, 'link:m/1')).toBe(true)
+    expect(timer.state.tick).toBeNull()
+  })
+
+  it('an open that fails leaves no subscriber behind', async () => {
+    const world = await liveWorld()
+    const timer = manualTimer()
+    let gone = false
+    const recorder = await liveRecorder(world, timer, {
+      projectRoot: () => {
+        if (gone) throw new Error('the Project is gone')
+        return world.root
+      },
+    })
+    const [a, b] = [collector(1), collector(2)]
+    await recorder.open(world.project, world.run, a)
+    gone = true
+    await expect(recorder.open(world.project, world.run, b)).rejects.toThrow('the Project is gone')
+    gone = false
+    await appendFile(world.journal, journalLine({ at: at(11), run: world.run, project: world.project, epic: 'e', kind: 'background-tasks', tasks: [] }))
+    await timer.fire()
+    expect([a.views.length, b.views.length]).toEqual([1, 0])
+    expect(recorder.close(world.project, world.run, 2)).toBe(false)
+  })
+
+  it('a step that cannot recompute ends the live timeline: the windows get the last one, not live, with the reason, and the timer stops', async () => {
+    const world = await liveWorld()
+    const timer = manualTimer()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    let gone = false
+    const recorder = await liveRecorder(world, timer, {
+      projectRoot: () => {
+        if (gone) throw new Error('the Project is gone')
+        return world.root
+      },
+    })
+    const subscriber = collector()
+    const opened = await recorder.open(world.project, world.run, subscriber)
+    expect(opened.error).toBeNull()
+    gone = true
+    await appendFile(world.journal, journalLine({ at: at(11), run: world.run, project: world.project, epic: 'e', kind: 'background-tasks', tasks: [] }))
+    await timer.fire()
+    expect(subscriber.views).toHaveLength(1)
+    expect(subscriber.views[0]).toMatchObject({ error: 'the timeline could not be recomputed: the Project is gone', timeline: { live: false, spans: opened.timeline.spans } })
+    expect(timer.state.tick).toBeNull()
+    expect(warn).toHaveBeenCalledOnce()
+    warn.mockRestore()
+  })
+
+  it('a Run let go while a step or a «Retry» recomputes it sends nothing', async () => {
+    const world = await liveWorld()
+    const timer = manualTimer()
+    const holds: ReturnType<typeof hold>[] = []
+    const recorder = await liveRecorder(world, timer, { branches: holdingBranches(holds) })
+    const subscriber = collector()
+    await recorder.open(world.project, world.run, subscriber)
+    const held = hold()
+    holds.push(held)
+    await appendFile(world.journal, journalLine({ at: at(11), run: world.run, project: world.project, epic: 'e', kind: 'background-tasks', tasks: [] }))
+    const step = timer.fire()
+    await held.reached
+    recorder.dispose()
+    held.release()
+    await step
+    expect(subscriber.views).toEqual([])
+    expect(timer.state.tick).toBeNull()
+
+    // Nor does a «Retry» whose Run is let go before it ends.
+    await recorder.open(world.project, world.run, subscriber)
+    const again = hold()
+    holds.push(again)
+    const retried = recorder.retry(world.project, world.run)
+    await again.reached
+    recorder.dispose()
+    again.release()
+    expect((await retried).run).toBe(world.run)
+    expect(subscriber.views).toEqual([])
+  })
+
+  it('a step while a «Retry» of the Run is in flight leaves it to the next step, and two steps at once are one', async () => {
+    const world = await liveWorld()
+    const timer = manualTimer()
+    const holds: ReturnType<typeof hold>[] = []
+    const recorder = await liveRecorder(world, timer, { branches: holdingBranches(holds) })
+    const subscriber = collector()
+    await recorder.open(world.project, world.run, subscriber)
+    const held = hold()
+    holds.push(held)
+    const retried = recorder.retry(world.project, world.run)
+    await held.reached
+    // The «Retry» has read the transcript; a line comes after it.
+    await appendFile(world.transcript, record(world.root, 30, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'waiting for impl-01' }] } }))
+    const step = timer.fire()
+    held.release()
+    await Promise.all([retried, step])
+    expect(subscriber.views).toHaveLength(1)
+    // The next step sees the line.
+    await timer.fire()
+    expect(subscriber.views).toHaveLength(2)
+    expect(subscriber.views[1]!.timeline.spans).toEqual((await recorder.view(world.project, world.run)).timeline.spans)
+
+    // Two steps at once: one recompute, one runs.changed.
+    await appendFile(world.journal, journalLine({ at: at(31), run: world.run, project: world.project, epic: 'e', kind: 'background-tasks', tasks: [] }))
+    await Promise.all([timer.fire(), timer.fire()])
+    expect(subscriber.views).toHaveLength(3)
+    recorder.dispose()
+  })
+
+  it('a Subagent whose file comes after the open is seen on the next step', async () => {
+    const world = await liveWorld()
+    const timer = manualTimer()
+    const recorder = await liveRecorder(world, timer)
+    const subscriber = collector()
+    const opened = await recorder.open(world.project, world.run, subscriber)
+    // impl-01 was launched (the Orchestrator's transcript says so); its own file is written now.
+    const agentLine = (seconds: number, value: Record<string, unknown>) => `${JSON.stringify({ timestamp: at(seconds), cwd: world.worktree, sessionId: SESSION, isSidechain: true, agentId: 'a1', ...value })}\n`
+    await writeFile(join(world.subagents, 'agent-a1.jsonl'), agentLine(3, { type: 'user', message: { role: 'user', content: 'task' } }) + agentLine(9, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'working' }] } }))
+    // Nothing else changed: the step comes from the new file alone.
+    await timer.fire()
+    expect(subscriber.views).toHaveLength(1)
+    expect(subscriber.views[0]!.timeline.spans).toEqual((await recorder.view(world.project, world.run)).timeline.spans)
+    expect(opened.timeline.spans.some((span) => span.kind === 'agent' && span.name === 'impl-01')).toBe(true)
+    recorder.dispose()
+  })
+
+  it('a Wave that names no Session is read whole on each step, not tailed', async () => {
+    const world = await liveWorld({ session: false })
+    const timer = manualTimer()
+    const tail = vi.fn(readNewLines)
+    const recorder = await liveRecorder(world, timer, { tail })
+    const view = await recorder.open(world.project, world.run, collector())
+    expect(view.timeline.live).toBe(true)
+    expect(view.timeline.spans.some((span) => span.kind === 'orchestrator-turn')).toBe(true)
+    expect(tail).not.toHaveBeenCalled()
+    recorder.dispose()
+  })
+})
+
+// The cost of a live Run whose Orchestrator transcript is 160 MB (test/big-transcript.ts): the first
+// open, a step after one appended line, and the heap the open Run holds. The numbers are printed
+// with WORFY_PERF=1 only: the file takes a few seconds to write. They are in the result section of ticket 17.
+describe.skipIf(process.env.WORFY_PERF !== '1')('a live Run with a 160 MB transcript', () => {
+  it('opens once, then recomputes from the new lines only', { timeout: ms(300_000) }, async () => {
+    const world = await liveWorld()
+    const { size } = writeBigTranscript(world.transcript, { sessionId: SESSION, cwd: world.root, bytes: 160 * 1024 * 1024 })
+    await appendFile(world.transcript, orchestratorLines(world.root))
+    const timer = manualTimer()
+    let now = T0 + 10_000
+    const recorder = await liveRecorder(world, timer, { now: () => now })
+    const heap = () => {
+      ;(globalThis as { gc?: () => void }).gc?.()
+      return process.memoryUsage().heapUsed
+    }
+    const before = heap()
+    let started = performance.now()
+    const subscriber = collector()
+    await recorder.open(world.project, world.run, subscriber)
+    const open = performance.now() - started
+    const held = heap() - before
+    const steps: number[] = []
+    for (let n = 0; n < 10; n++) {
+      await appendFile(world.transcript, record(world.root, 30 + n, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `step ${n}` }] } }))
+      now += RECOMPUTE_INTERVAL_MS
+      started = performance.now()
+      await timer.fire()
+      steps.push(performance.now() - started)
+    }
+    expect(subscriber.views).toHaveLength(10)
+    steps.sort((a, b) => a - b)
+    const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(0)
+    console.info(
+      `[flight-recorder] transcript ${mb(size)} MB: first open ${open.toFixed(0)} ms; a step after one line: median ${steps[5]!.toFixed(1)} ms, max ${steps[9]!.toFixed(1)} ms; heap held by the open Run ${mb(held)} MB${(globalThis as { gc?: unknown }).gc === undefined ? ' (no gc: an upper bound)' : ''}`,
+    )
+    recorder.dispose()
   })
 })
 
@@ -374,9 +668,14 @@ describe('worktree paths of two readers', () => {
     )
     await appendFile(world.journal, journalLine({ at: at(2), run: world.run, project: world.project, epic: 'e', kind: 'ticket-status', ticket: '01', state: 'claimed' }))
     await appendFile(world.journal, journalLine({ at: at(60), run: world.run, project: world.project, epic: 'e', kind: 'run-stopped', reason: 'tickets-done' }))
-    const recorder = new FlightRecorder({ env: { WORFY_DATA_DIR: world.data, WORFY_CLAUDE_HOME: world.home }, harnessHome: harness, projectRoot: () => world.root, profile: async () => profileOf({ finish: 'local-green' }), gh: async () => '[]', running: () => false, git: noGit, now: () => T0 + MINUTE * 5 })
+    const gh = vi.fn(async () => '[]')
+    const recorder = new FlightRecorder({ env: { WORFY_DATA_DIR: world.data, WORFY_CLAUDE_HOME: world.home }, harnessHome: harness, projectRoot: () => world.root, profile: async () => profileOf({ finish: 'local-green' }), gh, running: () => false, git: noGit, now: () => T0 + MINUTE * 5 })
 
-    const { spans } = (await recorder.view(world.project, world.run)).timeline
+    const view = await recorder.view(world.project, world.run)
+    // workflow.finish local-green: the Tickets end without a PR, and gh is not run.
+    expect(view.github).toEqual({ state: 'unused', reason: 'workflow.finish is local-green: the Tickets end without a PR' })
+    expect(gh).not.toHaveBeenCalled()
+    const { spans } = view.timeline
     const agent = spans.find((span) => span.kind === 'agent' && span.name === 'impl-01')
     const gate = spans.find((span) => span.kind === 'gate' && span.lost === null)
     expect(agent?.links.ticket).toBe('e/01')
@@ -414,6 +713,8 @@ describe('the Profile\'s GitHub account', () => {
       new FlightRecorder({ env: { WORFY_DATA_DIR: world.data, WORFY_CLAUDE_HOME: world.home }, harnessHome: await folder('harness'), projectRoot: () => world.root, profile: async () => profile, gh, running: () => false, git: noGit, now: () => T0 + MINUTE * 20 }).view(world.project, world.run)
     const withAccount = await viewWith(profileOf())
     const without = await viewWith(profileOf({ account: null, accountReason: 'github.account is null' }))
+    // A Profile that names no account and gives no reason: the view says so itself.
+    expect((await viewWith(profileOf({ account: null, accountReason: null }))).github).toMatchObject({ account: null, accountReason: 'the Profile names no github.account' })
     expect(withAccount.github).toEqual({ state: 'answered', at: expect.any(Number), account: ACCOUNT, accountReason: null })
     expect(without.github).toEqual({ state: 'answered', at: expect.any(Number), account: null, accountReason: 'github.account is null' })
     const stages = (view: RunView) => view.timeline.spans.filter((span) => span.kind === 'stage').map((span) => [span.name, span.attempt, span.outcome].join(' | '))

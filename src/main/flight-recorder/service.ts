@@ -42,8 +42,7 @@ import { marksInFile, gitRunner, type GitRunner } from '../workflow/stages'
 import { readGateLogs } from './gate-logs'
 import { GITHUB_READ_INTERVAL_MS, GithubReader } from './github'
 import { readLocalVerdicts, type LocalTicket } from './local-verdicts'
-import { readRunTranscripts, streamLines, type ReadLines } from './transcripts'
-import type { CanonicalOptions } from './worktree-path'
+import { readRunTranscripts, streamLines, TranscriptCompactor, type ReadLines } from './transcripts'
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -95,9 +94,6 @@ export interface FlightRecorderOptions {
   schedule?: (tick: () => Promise<void>, ms: number) => () => void
   /** The incremental read of a file (src/main/claude-home/tail.ts); replaced in tests to see where a read starts. */
   tail?: typeof readNewLines
-  /** The worktree path rules (worktree-path.ts): the system's by default. */
-  platform?: CanonicalOptions['platform']
-  realpath?: CanonicalOptions['realpath']
 }
 
 const iso = (ms: number): string => new Date(ms).toISOString()
@@ -110,13 +106,25 @@ function ticketNumber(ticket: string): number | null {
   return match === null ? null : Number(match[1])
 }
 
+/** What TailLines keeps of one file. */
+interface TailedFile {
+  /** Where the next read starts; undefined for a file that is not there (yet): read from its start. */
+  cursor: TailCursor | undefined
+  /** The lines read so far, each compacted once (TranscriptCompactor): only what the facts read. */
+  lines: readonly string[]
+  compactor: TranscriptCompactor
+  /** The size of the file the last time it was looked at: a read, or `changed`. */
+  size: number
+}
+
 /**
  * The lines of transcript files, read on from where the last read of each file stopped. A `.jsonl`
  * file is tailed (tail.ts: complete lines only, a replaced or truncated file read again from its
- * start); any other file (a Subagent's `.meta.json`, one JSON value) is small and read whole.
+ * start), and each new line is parsed once and kept compacted (TranscriptCompactor of
+ * transcripts.ts); any other file (a Subagent's `.meta.json`, one JSON value) is small and read whole.
  */
 export class TailLines {
-  private readonly files = new Map<string, { cursor: TailCursor; lines: readonly string[]; size: number }>()
+  private readonly files = new Map<string, TailedFile>()
   private used = new Set<string>()
 
   constructor(private readonly tail: typeof readNewLines = readNewLines) {}
@@ -126,19 +134,36 @@ export class TailLines {
     this.used.add(file)
     const known = this.files.get(file)
     let cursor = known?.cursor
-    let lines = known?.lines ?? []
+    let lines: readonly string[] = known?.lines ?? []
+    let compactor = known?.compactor ?? new TranscriptCompactor()
+    let reset = false
     for (;;) {
       const chunk = await this.tail(file, cursor)
       if (chunk.cursor.fileId === null) {
-        this.files.delete(file)
+        // Not there: a Subagent's file before its first line, a transcript deleted. Kept with size -1,
+        // so `changed` sees the file when it comes.
+        this.files.set(file, { cursor: undefined, lines: [], compactor: new TranscriptCompactor(), size: -1 })
         return null
       }
-      if (chunk.reset) lines = []
-      if (chunk.lines.length > 0) lines = lines.concat(chunk.lines)
+      if (chunk.reset) {
+        // Another file, or this one rewritten: what was read of it no longer stands.
+        lines = []
+        compactor = new TranscriptCompactor()
+        reset = true
+      }
+      const added = chunk.lines.flatMap((line) => {
+        const compact = compactor.line(line)
+        return compact === null ? [] : [compact]
+      })
+      if (added.length > 0) lines = lines.concat(added)
       cursor = chunk.cursor
       if (!chunk.more) break
     }
-    this.files.set(file, { cursor, lines, size: cursor.offset })
+    // A half-written last line lies past the cursor: the size `changed` saw last stays, so a line
+    // that is never finished does not count as new on every step.
+    const offset = cursor?.offset ?? 0
+    const size = known === undefined || reset ? offset : Math.max(known.size, offset)
+    this.files.set(file, { cursor, lines, compactor, size })
     return lines
   }
 
@@ -182,6 +207,8 @@ interface OpenRun {
   journalSize: number
   live: boolean
   githubAt: number | null
+  /** The last timeline the subscribers got. */
+  last: RunView | null
   /** A recompute in flight; the next one waits for it, so two never interleave their reads. */
   busy: Promise<unknown> | null
 }
@@ -200,6 +227,7 @@ export class FlightRecorder {
   private readonly github: GithubReader
   private readonly open_ = new Map<string, OpenRun>()
   private stopTimer: (() => void) | null = null
+  private ticking: Promise<void> | null = null
 
   constructor(private readonly options: FlightRecorderOptions) {
     this.env = options.env ?? process.env
@@ -236,13 +264,26 @@ export class FlightRecorder {
    * until `close` or `drop`.
    */
   async open(projectId: string, run: string, subscriber: RunSubscriber): Promise<RunView> {
+    // The entry and the subscriber are in place before the first await: a `drop` or `close` while the
+    // timeline is computed finds them, and a second open of the same Run joins this entry.
     const key = `${projectId}\n${run}`
-    const entry = this.open_.get(key) ?? { projectId, run, subscribers: new Map(), profile: null, lines: new TailLines(this.options.tail), journalSize: -1, live: false, githubAt: null, busy: null }
-    const view = await this.recompute(entry, false)
+    let entry = this.open_.get(key)
+    if (entry === undefined) {
+      entry = { projectId, run, subscribers: new Map(), profile: null, lines: new TailLines(this.options.tail), journalSize: -1, live: false, githubAt: null, last: null, busy: null }
+      this.open_.set(key, entry)
+    }
     entry.subscribers.set(subscriber.id, subscriber)
-    this.open_.set(key, entry)
-    this.sync()
-    return view
+    try {
+      const view = await this.recompute(entry, false)
+      this.sync()
+      return view
+    } catch (error) {
+      // No timeline to follow: the subscriber goes, and the entry with it when no one else holds it.
+      if (entry.subscribers.get(subscriber.id) === subscriber) entry.subscribers.delete(subscriber.id)
+      if (entry.subscribers.size === 0 && this.open_.get(key) === entry) this.forget(key, entry)
+      this.sync()
+      throw error
+    }
   }
 
   /** Stops the timeline of the Run for one subscriber; false if it did not hold it. */
@@ -266,10 +307,11 @@ export class FlightRecorder {
 
   /** «Retry»: gh is read for the Run at once, and the new timeline goes to its subscribers too. */
   async retry(projectId: string, run: string): Promise<RunView> {
-    const entry = this.open_.get(`${projectId}\n${run}`)
+    const key = `${projectId}\n${run}`
+    const entry = this.open_.get(key)
     if (entry === undefined) return (await this.compute(projectId, run, { profile: null, lines: null, retry: true })).view
     const view = await this.recompute(entry, true)
-    for (const subscriber of entry.subscribers.values()) subscriber.send(view)
+    if (this.open_.get(key) === entry) for (const subscriber of entry.subscribers.values()) subscriber.send(view)
     this.sync()
     return view
   }
@@ -278,8 +320,20 @@ export class FlightRecorder {
    * One step of the live timer: each open live Run whose Journal or read transcripts grew, or whose
    * gh answer is older than its interval, is recomputed and sent to its subscribers.
    */
-  async tick(): Promise<void> {
-    for (const entry of [...this.open_.values()]) {
+  tick(): Promise<void> {
+    // A step that outlasts the interval is not run twice at once: the next one joins it.
+    if (this.ticking === null) {
+      const step = this.step().finally(() => {
+        this.ticking = null
+      })
+      this.ticking = step
+    }
+    return this.ticking
+  }
+
+  private async step(): Promise<void> {
+    for (const [key, entry] of [...this.open_.entries()]) {
+      // A Run whose recompute is in flight (an open, a «Retry») is looked at on the next step.
       if (!entry.live || entry.busy !== null || entry.subscribers.size === 0) continue
       const journal = await this.journalSize(entry.run)
       const grew = journal !== entry.journalSize
@@ -290,9 +344,17 @@ export class FlightRecorder {
       try {
         view = await this.recompute(entry, false)
       } catch (error) {
-        console.warn(`[flight-recorder] the timeline of Run ${entry.run} could not be recomputed: ${messageOf(error)}`)
-        continue
+        // The live timeline ends here: the subscribers get the last one, not live, with the reason; the
+        // timer stops looking at this Run (the window may open it again).
+        const reason = messageOf(error)
+        console.warn(`[flight-recorder] the timeline of Run ${entry.run} could not be recomputed: ${reason}`)
+        entry.live = false
+        if (entry.last === null) continue
+        view = { ...entry.last, timeline: { ...entry.last.timeline, live: false }, error: `the timeline could not be recomputed: ${reason}` }
+        entry.last = view
       }
+      // Let go while it was recomputed (closed, dropped, disposed): no one is to get it.
+      if (this.open_.get(key) !== entry) continue
       for (const subscriber of entry.subscribers.values()) subscriber.send(view)
     }
     this.sync()
@@ -339,6 +401,7 @@ export class FlightRecorder {
       entry.profile = result.profile
       entry.live = result.view.timeline.live
       entry.githubAt = result.view.github.state === 'unused' ? null : result.view.github.at
+      entry.last = result.view
       return result.view
     }
     const next = (entry.busy ?? Promise.resolve()).then(run, run)
@@ -385,7 +448,6 @@ export class FlightRecorder {
     const live = this.isLive(projectId, run, journal, newest)
     const end = journal.run.stoppedAt ?? (live ? null : (journal.run.lastSeenAt ?? null))
     const profile = state.profile ?? (await this.options.profile(root))
-    const canonical: CanonicalOptions = { ...(this.options.platform === undefined ? {} : { platform: this.options.platform }), ...(this.options.realpath === undefined ? {} : { realpath: this.options.realpath }) }
 
     // The transcripts: tailed while the Run goes on and every Wave names its Session; a Wave found by
     // its text would make the reader scan every transcript of the folder, and none of them is kept.
@@ -394,7 +456,7 @@ export class FlightRecorder {
     state.lines?.begin()
     const transcripts = await readRunTranscripts(
       { epic: journal.epic, root, startedAt: journal.run.startedAt, stoppedAt: end, waves: journal.waves },
-      { ...canonical, env: this.env, readLines: tailed && state.lines !== null ? state.lines.read : streamLines },
+      { env: this.env, readLines: tailed && state.lines !== null ? state.lines.read : streamLines },
     )
     state.lines?.settle()
 
@@ -426,7 +488,7 @@ export class FlightRecorder {
     }
 
     // The gate logs of the Run's window.
-    const gate = await readGateLogs({ ...canonical, harnessHome: this.options.harnessHome, since: journal.run.startedAt, until: end, now })
+    const gate = await readGateLogs({ harnessHome: this.options.harnessHome, since: journal.run.startedAt, until: end, now })
 
     // The Tickets without a PR that were worked on (a status other than open): marks file and git.
     let local: { ticketEvents: StageEventFact[]; lost: LostFact[] } = { ticketEvents: [], lost: [] }
@@ -457,7 +519,7 @@ export class FlightRecorder {
       orchestratorMarks: journal.orchestratorMarks,
     }
     const timeline = buildTimeline(facts)
-    const view: RunView = { projectId, run, epic: journal.epic, timeline, summary: summarize(timeline), github: githubState, profileReason: profile.reason, skippedLines: journal.skipped }
+    const view: RunView = { projectId, run, epic: journal.epic, timeline, summary: summarize(timeline), github: githubState, profileReason: profile.reason, skippedLines: journal.skipped, error: null }
     return { view, profile }
   }
 }

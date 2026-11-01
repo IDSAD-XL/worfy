@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { projectDirName } from '../../src/main/claude-home/registry'
-import { readRunTranscripts, streamLines, WAVE_SLACK_MS, type TranscriptRun } from '../../src/main/flight-recorder/transcripts'
+import { readRunTranscripts, streamLines, TranscriptCompactor, WAVE_SLACK_MS, type ReadLines, type TranscriptRun } from '../../src/main/flight-recorder/transcripts'
 import { canonicalWorktree } from '../../src/main/flight-recorder/worktree-path'
 import { comparablePath } from '../../src/shared/flight-recorder/from-gate'
 import { removeTestTree } from '../remove'
@@ -312,5 +312,118 @@ describe('Windows paths and times', () => {
     symlinkSync(real, link, process.platform === 'win32' ? 'junction' : 'dir')
     expect(await canonicalWorktree(link)).toBe(await canonicalWorktree(real))
     expect(await canonicalWorktree(tmpdir())).toBe(await canonicalWorktree(realpathSync.native(tmpdir())))
+  })
+})
+
+describe('the compacted lines a live Run keeps (TranscriptCompactor, worfy-flight-recorder ticket 17)', () => {
+  /** A line source that reads each file whole, compacted or not, and counts the characters it hands on. */
+  function counted(compact: boolean): { read: ReadLines; chars: () => number } {
+    let chars = 0
+    const read: ReadLines = async (file) => {
+      const lines = await streamLines(file)
+      if (lines === null) return null
+      let out = lines
+      if (compact && file.endsWith('.jsonl')) {
+        const compactor = new TranscriptCompactor()
+        out = lines.flatMap((each) => {
+          const kept = compactor.line(each)
+          return kept === null ? [] : [kept]
+        })
+      }
+      for (const each of out) chars += each.length
+      return out
+    }
+    return { read, chars: () => chars }
+  }
+
+  it('give the facts the raw lines give on the night Run: the Orchestrator and every Subagent', async () => {
+    const run = withSession(NIGHT, SESSION)
+    const raw = counted(false)
+    const small = counted(true)
+    const full = await readRunTranscripts(run, { env: { WORFY_CLAUDE_HOME: FIXTURE }, readLines: raw.read })
+    expect(full.work).toHaveLength(15)
+    expect(await readRunTranscripts(run, { env: { WORFY_CLAUDE_HOME: FIXTURE }, readLines: small.read })).toEqual(full)
+    expect(small.chars()).toBeLessThan(raw.chars())
+  })
+
+  it('drop the output of tools, thinking and images, keep the facts, and come out a small part of the file', async () => {
+    const claude = await home('compact', false)
+    const session = 'bbbbbbbb-0000-4000-8000-000000000002'
+    const dir = join(claude, 'projects', DIR)
+    await mkdir(join(dir, session, 'subagents'), { recursive: true })
+    const worktree = `${ROOT}/.claude/worktrees/e-01`
+    const t0 = Date.parse('2026-11-01T10:00:00.000Z')
+    const at = (seconds: number): string => new Date(t0 + seconds * 1000).toISOString()
+    const big = 'x'.repeat(400_000)
+    const rec = (seconds: number, value: Record<string, unknown>, cwd = ROOT) => line({ timestamp: at(seconds), cwd, sessionId: session, uuid: `u${seconds}`, ...value })
+    const orchestrator = [
+      rec(1, { type: 'user', message: { role: 'user', content: '/worfy:epic-wave tickets 01 of epic e' } }),
+      rec(2, { type: 'assistant', message: { role: 'assistant', id: 'm1', model: 'claude', content: [{ type: 'thinking', thinking: big, signature: 'sig' }, { type: 'text', text: 'reading the ticket' }, { type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: '/x', note: big } }] } }),
+      rec(3, { type: 'user', toolUseResult: { file: { content: big } }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r1', content: big }] } }),
+      rec(4, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'Agent', input: { name: 'impl-01', subagent_type: 'worfy:implementer', description: 'ticket 01', prompt: 'implement e/01', run_in_background: true } }] } }),
+      rec(5, { type: 'user', toolUseResult: { status: 'async_launched', agentId: 'a1' }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'c1', content: 'Async agent launched' }] } }),
+      rec(6, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: big } }] } }),
+      rec(7, { type: 'user', toolUseResult: { stdout: big, stderr: '' }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'b1', content: `boom ${big}`, is_error: true }] } }),
+      rec(8, { type: 'user', message: { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: big } }, { type: 'text', text: 'look at this' }] } }),
+      rec(9, { type: 'attachment', attachment: { type: 'file', filename: '/x', content: big } }),
+      // A prompt Claude Code adds itself and a summary of the context: neither starts a turn.
+      rec(20, { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: 'Caveat: the messages below were generated by the user' }] } }),
+      rec(21, { type: 'user', isCompactSummary: true, message: { role: 'user', content: 'This session is being continued from a previous conversation.' } }),
+      // impl-01's report waited in the queue: enqueued, then taken out.
+      rec(41, { type: 'queue-operation', operation: 'enqueue', content: '<task-notification><task-id>a1</task-id><tool-use-id>c1</tool-use-id><status>completed</status><summary>done</summary><result>{"ticket": "e/01", "pr": 12}</result></task-notification>' }),
+      rec(41, { type: 'queue-operation', operation: 'dequeue', content: `<task-notification><task-id>a1</task-id>${big}</task-notification>` }),
+      rec(42, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 's1', name: 'SendMessage', input: { to: 'impl-01', message: 'fix the test' } }] } }),
+      rec(43, { type: 'user', toolUseResult: { resumedAgentId: 'a1' }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 's1', content: 'sent' }] } }),
+      rec(58, { type: 'attachment', attachment: { type: 'queued_command', prompt: '<task-notification><task-id>a1</task-id><status>completed</status><summary>fixed</summary></task-notification>' } }),
+      rec(60, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'impl-01 is done' }] } }),
+      // A verifier run in the foreground: its result is its report, the verdict.
+      rec(61, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'v1', name: 'Agent', input: { name: 'verify-01', subagent_type: 'worfy:reviewer', prompt: 'review e/01' } }] } }),
+      rec(70, { type: 'user', toolUseResult: { status: 'completed', agentId: 'a2', content: [{ type: 'text', text: big }], usage: { output_tokens: 1 } }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'v1', content: 'REJECTED: the test is missing' }] } }),
+      // One that failed by its status.
+      rec(71, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'v2', name: 'Task', input: { description: 'second look', prompt: 'review e/01 again' } }] } }),
+      rec(72, { type: 'user', toolUseResult: { status: 'failed', agentId: 'a3' }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'v2', content: 'it broke' }] } }),
+      // A new turn whose only Ticket is that of the agent it writes to (no agent resumed).
+      rec(80, { type: 'user', message: { role: 'user', content: 'how is it going?' } }),
+      rec(81, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 's2', name: 'SendMessage', input: { to: 'impl-01', message: 'status?' } }] } }),
+      rec(82, { type: 'user', toolUseResult: { success: true }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 's2', content: 'queued' }] } }),
+      // A record of a Subagent in the Session's own file (older Claude Code): not a turn of the Orchestrator.
+      rec(85, { type: 'user', isSidechain: true, message: { role: 'user', content: 'a Subagent prompt' } }),
+      'not a JSON line',
+    ]
+    const agent = [
+      rec(4, { type: 'user', isSidechain: true, agentId: 'a1', message: { role: 'user', content: 'implement e/01' } }, worktree),
+      rec(10, { type: 'assistant', isSidechain: true, agentId: 'a1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'g1', name: 'Grep', input: { pattern: big } }] } }, worktree),
+      rec(11, { type: 'user', isSidechain: true, agentId: 'a1', toolUseResult: { content: big }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'g1', content: big }] } }, worktree),
+      rec(40, { type: 'assistant', isSidechain: true, agentId: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } }, worktree),
+      rec(44, { type: 'user', isSidechain: true, agentId: 'a1', message: { role: 'user', content: 'fix the test' } }, worktree),
+      rec(55, { type: 'assistant', isSidechain: true, agentId: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'fixed' }] } }, worktree),
+    ]
+    await writeFile(join(dir, `${session}.jsonl`), orchestrator.join('\n') + '\n')
+    await writeFile(join(dir, session, 'subagents', 'agent-a1.jsonl'), agent.join('\n') + '\n')
+    await writeFile(join(dir, session, 'subagents', 'agent-a1.meta.json'), JSON.stringify({ agentType: 'worfy:implementer' }))
+    const run: TranscriptRun = { epic: 'e', root: ROOT, startedAt: at(0), stoppedAt: at(100), waves: [{ number: 1, startedAt: at(1), finishedAt: at(100), tickets: ['e/01'], session }] }
+
+    const raw = counted(false)
+    const small = counted(true)
+    const full = await readRunTranscripts(run, { env: { WORFY_CLAUDE_HOME: claude }, readLines: raw.read })
+    expect(full.work.map((fact) => [fact.name, fact.start, fact.end])).toEqual([
+      ['impl-01', at(4), at(41)],
+      ['impl-01', at(42), at(58)],
+      ['verify-01', at(61), at(70)],
+      ['second look', at(71), at(72)],
+    ])
+    expect(full.work[0]?.pr).toBe(12)
+    expect(full.work.slice(2).map((fact) => [fact.verdict, fact.outcome])).toEqual([
+      ['REJECTED', 'rejected'],
+      [undefined, 'failed'],
+    ])
+    expect(full.turns.map((turn) => [turn.start, turn.tickets])).toEqual([
+      [at(1), ['e/01']],
+      [at(8), ['e/01']],
+      [at(80), ['e/01']],
+    ])
+    expect(full.turns.length).toBeGreaterThan(0)
+    expect(await readRunTranscripts(run, { env: { WORFY_CLAUDE_HOME: claude }, readLines: small.read })).toEqual(full)
+    expect(small.chars()).toBeLessThan(raw.chars() / 100)
   })
 })

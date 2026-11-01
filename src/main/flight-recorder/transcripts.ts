@@ -31,6 +31,7 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { LostFact, TurnFact, WaveFact, WorkFact } from '../../shared/flight-recorder/facts'
 import { agentIdsIn, transcriptCwd, transcriptFacts, wavePromptTimes, type SubagentLines } from '../../shared/flight-recorder/from-transcript'
+import { AGENT_TOOLS } from '../../shared/transcript/subagents'
 import { isInsidePath, projectDirName } from '../claude-home/registry'
 import { claudeHome } from '../storage/paths'
 import { canonicalWorktree, type CanonicalOptions } from './worktree-path'
@@ -79,6 +80,88 @@ export interface RunTranscripts {
 }
 
 const missing = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as { code?: string }).code ?? '')
+
+/** The tool that resumes an agent (from-transcript.ts). */
+const SEND_TOOL = 'SendMessage'
+
+type Json = Record<string, unknown>
+const isJson = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** The fields of a record the facts of the transcripts read (from-transcript.ts and the parse it calls); the rest is dropped. */
+const KEPT_FIELDS = ['type', 'timestamp', 'cwd', 'isSidechain', 'isMeta', 'isCompactSummary', 'operation'] as const
+/** What the facts read of a call of an agent (`Agent`, `Task`) and of `SendMessage`, and of the result of either. */
+const AGENT_INPUT = ['name', 'subagent_type', 'description', 'prompt'] as const
+const SEND_INPUT = ['to', 'recipient'] as const
+const AGENT_RESULT = ['agentId', 'status', 'resumedAgentId', 'description', 'agentType'] as const
+
+/** Only these fields of an object, those it has. */
+function only(value: Json, fields: readonly string[]): Json {
+  const kept: Json = {}
+  for (const field of fields) if (value[field] !== undefined) kept[field] = value[field]
+  return kept
+}
+
+/**
+ * Turns the lines of one transcript file, in file order, into the lines the facts are read from,
+ * with only what from-transcript.ts reads: so a live Run keeps them in memory and parses them again
+ * on each recompute at a fraction of the cost of the raw lines (worfy-flight-recorder ticket 17).
+ * Dropped: the input of every tool call but `Agent`, `Task` and `SendMessage`, the content and the
+ * `toolUseResult` of their results (a file read, a command's output), thinking and image blocks,
+ * the attachments but a queued command, the content of a queue operation but an enqueue, and the
+ * fields no reader looks at. Kept whole: the text of every message, the result of an agent's call
+ * (its report); of the call itself and of its `toolUseResult`, the fields the facts read. A line that is
+ * not a JSON object reads as nothing, as it does in from-transcript.ts. One instance per file: it
+ * remembers the agent calls it has seen, whose results follow them in the file.
+ */
+export class TranscriptCompactor {
+  private readonly agentCalls = new Set<string>()
+
+  /** The line as the facts need it; null for a line no reader takes. */
+  line(line: string): string | null {
+    let record: unknown
+    try {
+      record = JSON.parse(line)
+    } catch {
+      return null
+    }
+    if (!isJson(record)) return null
+    const kept = only(record, KEPT_FIELDS)
+    // A queue operation's text is read only when it is enqueued (a prompt typed early, a task-notification).
+    if (typeof record.content === 'string' && (record.type !== 'queue-operation' || record.operation === 'enqueue')) kept.content = record.content
+    const attachment = record.attachment
+    if (isJson(attachment) && attachment.type === 'queued_command') kept.attachment = { type: attachment.type, prompt: attachment.prompt }
+    const message = record.message
+    let ofAgent = false
+    if (isJson(message)) {
+      const content = message.content
+      const blocks = Array.isArray(content)
+        ? content.flatMap((block: unknown) => {
+            if (!isJson(block)) return [block]
+            if (block.type === 'text') return [block]
+            if (block.type === 'tool_use') {
+              if (typeof block.id === 'string' && typeof block.name === 'string' && (AGENT_TOOLS.has(block.name) || block.name === SEND_TOOL)) {
+                this.agentCalls.add(block.id)
+                const input = isJson(block.input) ? only(block.input, block.name === SEND_TOOL ? SEND_INPUT : AGENT_INPUT) : block.input
+                return [{ type: 'tool_use', id: block.id, name: block.name, input }]
+              }
+              return [{ type: 'tool_use', id: block.id, name: block.name, input: {} }]
+            }
+            if (block.type === 'tool_result') {
+              if (typeof block.tool_use_id === 'string' && this.agentCalls.has(block.tool_use_id)) {
+                ofAgent = true
+                return [block]
+              }
+              return [{ type: 'tool_result', tool_use_id: block.tool_use_id, content: '' }]
+            }
+            return []
+          })
+        : content
+      kept.message = { role: message.role, content: blocks }
+    }
+    if (ofAgent && isJson(record.toolUseResult)) kept.toolUseResult = only(record.toolUseResult, AGENT_RESULT)
+    return JSON.stringify(kept)
+  }
+}
 
 /** The default line source: the file streamed line by line, so no single string holds it whole. */
 export const streamLines: ReadLines = async (file) => {

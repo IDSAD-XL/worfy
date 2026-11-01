@@ -27,6 +27,7 @@ const VIEW: RunView = {
   github: { state: 'no-answer', at: 1, reason: 'gh failed' },
   profileReason: null,
   skippedLines: 0,
+  error: null,
 }
 
 /** A service that answers VIEW and keeps who holds which Run. */

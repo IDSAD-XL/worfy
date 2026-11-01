@@ -122,6 +122,11 @@ export const runViewSchema = z.object({
   profileReason: z.string().nullable(),
   /** Journal lines left out: not JSON, an unknown kind, fields that do not match, another Run's. */
   skippedLines: z.number().int().nonnegative(),
+  /**
+   * Why the live timeline stopped: a recompute failed (the Project left the list, a file could not be
+   * read). The timeline is the last one, not live; open the Run again to retry. Null otherwise.
+   */
+  error: z.string().nullable(),
 })
 export type RunView = z.infer<typeof runViewSchema>
 

@@ -68,7 +68,8 @@ async function appProfile(root: string): Promise<RunProfile> {
  */
 export function sharedFlightRecorder(): Promise<FlightRecorder> {
   shared ??= (async () => {
-    const [{ FlightRecorder }, { sharedAutopilot }, { sharedPrTracker }, { workflowHub }, { projectStore }, { harnessHomes }, { claudeHome }, { branchOfTicket }] = await Promise.all([
+    const [{ app }, { FlightRecorder }, { sharedAutopilot }, { sharedPrTracker }, { workflowHub }, { projectStore }, { harnessHomes }, { claudeHome }, { branchOfTicket }] = await Promise.all([
+      import('electron'),
       import('../flight-recorder/service'),
       import('./autopilot'),
       import('./checks'),
@@ -78,7 +79,7 @@ export function sharedFlightRecorder(): Promise<FlightRecorder> {
       import('../storage/paths'),
       import('../workflow/stages'),
     ])
-    return new FlightRecorder({
+    const recorder = new FlightRecorder({
       harnessHome: harnessHomes(claudeHome()).harnessHome,
       projectRoot: (projectId) => projectStore().get(projectId).path,
       profile: appProfile,
@@ -93,6 +94,9 @@ export function sharedFlightRecorder(): Promise<FlightRecorder> {
         return new Map((model?.tickets ?? []).filter((ticket) => ticket.epic === epic).map((ticket) => [ticket.num, branchOfTicket(ticket)]))
       },
     })
+    // The live timer and the kept lines go with the app.
+    app.on('will-quit', () => recorder.dispose())
+    return recorder
   })()
   // A failed start is not kept: the next call tries again.
   shared.catch(() => {
