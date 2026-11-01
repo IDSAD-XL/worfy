@@ -169,9 +169,11 @@
       ],
       "specs": [
         "test/e2e/flight-recorder.spec.ts",
-        "test/e2e/flight-recorder-detail.spec.ts"
+        "test/e2e/flight-recorder-detail.spec.ts",
+        "test/e2e/autopilot.spec.ts",
+        "test/e2e/autopilot-chat.spec.ts"
       ],
-      "why": "The Run history screen (worfy-flight-recorder tickets 18, 19): every window mounts it in the hidden view `history`, where it draws one line until openRunHistory opens a Run, and only flight-recorder.spec.ts and flight-recorder-detail.spec.ts (its detail panel, filter and «Retry») open one; its mount is covered by test/unit/flight-recorder-view.test.tsx. Left out: main.tsx, AppShell.tsx and Toolbar.tsx, which every window runs through, and the runs IPC of main, whose handlers every app loads."
+      "why": "The Run history screen (worfy-flight-recorder tickets 18, 19): every window mounts it in the hidden view `history`, where it draws one line until openRunHistory opens a Run, and only flight-recorder.spec.ts and flight-recorder-detail.spec.ts (its detail panel, filter and «Retry») open one; its mount is covered by test/unit/flight-recorder-view.test.tsx. The entries into it (ticket 20): the toast when a Run stops (stop-toast.ts, installed by every window, shown only on a stop) and the screen opened from it, from the Epic frame and from the palette, which autopilot.spec.ts and autopilot-chat.spec.ts (a Run started from a chat) drive. Left out: main.tsx, AppShell.tsx and Toolbar.tsx, which every window runs through, and the runs IPC of main, whose handlers every app loads."
     }
   ]
 }

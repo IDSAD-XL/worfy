@@ -1,20 +1,13 @@
 // The toast when an Autopilot Run stops (worfy-flight-recorder ticket 20, decision 06 Q1): over the
-// real toast store (src/renderer/toast/toasts.ts), with the Run history screen's opener and the IPC
-// subscription replaced, so the test sees what "Open history" asks and which handler is subscribed.
+// real toast store (src/renderer/toast/toasts.ts), with the Run history screen's opener handed in by
+// the test and the IPC subscription replaced, so the test sees what "Open history" asks and which
+// handler is subscribed.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AUTOPILOT_STOP_REASONS } from '../../src/shared/autopilot/cycle'
 import { autopilotStateSchema, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { pressToastAction, resetToasts, setToastProject, shownToasts, toasts, TOAST_MS, type Toast } from '../../src/renderer/toast/toasts'
 
-const opened = vi.hoisted(() => [] as unknown[][])
 const subscribed = vi.hoisted(() => new Map<string, (payload: unknown) => void>())
-
-vi.mock('../../src/renderer/flight-recorder/open', () => ({
-  openRunHistory: (...args: unknown[]) => {
-    opened.push(args)
-    return Promise.resolve()
-  },
-}))
 
 vi.mock('../../src/renderer/ipc', () => ({
   subscribe: (channel: string, handler: (payload: unknown) => void) => {
@@ -55,14 +48,15 @@ function state(over: Partial<AutopilotState> = {}): AutopilotState {
 }
 
 const all = (): readonly Toast[] => toasts.getState().toasts
+let opened: unknown[][]
 
 beforeEach(() => {
   vi.useFakeTimers()
   resetToasts()
   resetStopToasts()
-  opened.length = 0
+  opened = []
   subscribed.clear()
-  installStopToasts(INSTALLED)
+  installStopToasts((...args) => void opened.push(args), INSTALLED)
   setToastProject(PROJECT)
 })
 

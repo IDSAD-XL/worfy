@@ -24,7 +24,7 @@ import { GUIDE_TOPICS, shownTopics } from '../../src/renderer/guide/registry'
 import { useShortcutsWindow } from '../../src/renderer/shortcuts/shortcuts-window'
 
 // The Run history screen is ticket 18's (flight-recorder/open.ts): the palette only asks it (worfy-flight-recorder/20).
-const openRunHistory = vi.hoisted(() => vi.fn((_projectId: string, _run?: string, _epic?: string) => Promise.resolve()))
+const openRunHistory = vi.hoisted(() => vi.fn<(projectId: string, run?: string, epic?: string) => Promise<void>>(() => Promise.resolve()))
 vi.mock('../../src/renderer/flight-recorder/open', () => ({ openRunHistory }))
 
 function ticket(num: number, state: Ticket['state'], blockedNums: number[] = []): Ticket {

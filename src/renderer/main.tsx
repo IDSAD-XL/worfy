@@ -7,7 +7,7 @@ import { installArchiveToasts } from './canvas/archive-toast'
 import { Canvas } from './canvas/Canvas'
 import { guardFileDrops } from './drop-guard'
 // Loaded at start: the e2e hook of the Run history screen is set while the app's scripts run (open.ts).
-import './flight-recorder/open'
+import { openRunHistory } from './flight-recorder/open'
 import { installGettingStartedNotice } from './getting-started/notice'
 import { windowMachine } from './ipc'
 import { useMachines } from './machines/useMachines'
@@ -109,7 +109,7 @@ if (container) {
   // A question of a Session that is not on screen comes as a toast (worfy-ui ticket 17).
   installQuestionToasts()
   // The toast of an Autopilot Run that stops, with "Open history" (worfy-flight-recorder ticket 20).
-  installStopToasts()
+  installStopToasts((projectId, run) => void openRunHistory(projectId, run))
   // A file dropped where nothing takes it does not open in the window (worfy-ui ticket 28).
   guardFileDrops()
   // An existing user hears of Getting started once, in a toast of the corner (worfy-onboarding ticket 08).

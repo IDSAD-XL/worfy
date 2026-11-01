@@ -11,7 +11,6 @@
 import type { AutopilotState } from '../../shared/ipc/autopilot'
 import { showSubscribeError, subscribe } from '../ipc'
 import { showToast } from '../toast/toasts'
-import { openRunHistory } from './open'
 
 /** `data-testid` of the toast. */
 export const STOP_TOAST_TEST_ID = 'run-stopped-toast'
@@ -29,8 +28,13 @@ export function runDuration(ms: number): string {
   return minutes === 0 ? `${hours} h` : `${hours} h ${minutes} min`
 }
 
+/** Opens the Run history screen at a Run: openRunHistory of open.ts, handed in by main.tsx. */
+export type OpenRun = (projectId: string, run: string) => void
+
 /** When this window began to listen (ms); before installStopToasts no stop is new. */
 let since = Number.POSITIVE_INFINITY
+/** What "Open history" calls; nothing before installStopToasts. */
+let open: OpenRun = () => undefined
 /** The Runs this window has shown the toast of. */
 const toasted = new Set<string>()
 
@@ -52,12 +56,17 @@ export function acceptStopState(state: AutopilotState): void {
     projectId,
     testId: STOP_TOAST_TEST_ID,
     text: `Run stopped: ${reason} · ${ended.done} done, ${ended.blocked} blocked · ${runDuration(ended.duration)}`,
-    actions: [{ label: 'Open history', run: () => void openRunHistory(projectId, run) }],
+    actions: [{ label: 'Open history', run: () => open(projectId, run) }],
   })
 }
 
-/** Subscribes the window to the stops of Autopilot runs; `now` is when it begins to listen. Returns the unsubscribe. */
-export function installStopToasts(now = Date.now()): () => void {
+/**
+ * Subscribes the window to the stops of Autopilot runs; "Open history" calls `openRun`, and `now` is
+ * when the window begins to listen. Returns the unsubscribe. The screen's opener comes as an argument:
+ * this module stays free of the screen's store, so a Node test reads it.
+ */
+export function installStopToasts(openRun: OpenRun, now = Date.now()): () => void {
+  open = openRun
   since = now
   try {
     return subscribe('autopilot.changed', acceptStopState)
@@ -70,5 +79,6 @@ export function installStopToasts(now = Date.now()): () => void {
 /** Forgets the Runs shown and stops listening for new stops; tests start from here. */
 export function resetStopToasts(): void {
   since = Number.POSITIVE_INFINITY
+  open = () => undefined
   toasted.clear()
 }
