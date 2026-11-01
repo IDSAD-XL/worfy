@@ -1,0 +1,104 @@
+{
+  "title": "Projects",
+  "summary": [
+    "Project — то, что показывает worfy: репозиторий или папка над несколькими репозиториями. Для папки, которой Harness ещё не знает, режим выбирают один раз: в Full mode файлы workflow лежат в репозитории, в Silent mode — в папке вне его. Список Projects переключает Project, который показывает окно. HANDOFF и ADR видны только для чтения."
+  ],
+  "scene": {
+    "description": "Project-ы в worfy. В окне диалог Add project добавляет Project в список Projects и по Connect поручает Harness записать его Profile. Profile называет Workflow folder; в Full mode это корень репозитория, а в Silent mode Harness не пускает в репозиторий никаких следов workflow. Щелчок в списке Projects переключает Canvas и открывает Orchestrator этого Project-а. Из Workflow folder worfy читает HANDOFF.md для Node-а HANDOFF на Canvas и docs/adr/ для раздела ADR в боковой панели.",
+    "labels": {
+      "projects": "Projects",
+      "projectsNote": "список в боковой панели",
+      "addProject": "Add project",
+      "addProjectNote": "Folder, Mode, Harness, Draft, Review",
+      "canvas": "Canvas",
+      "canvasNote": "активного Project-а",
+      "orchestrator": "Orchestrator",
+      "orchestratorNote": "открывается при переключении",
+      "handoff": "HANDOFF",
+      "handoffNote": "Node только для чтения",
+      "harness": "Harness",
+      "harnessNote": "правила, skills, агенты, hooks",
+      "profile": "Profile",
+      "profileNote": "на Machine, с режимом",
+      "repository": "Репозиторий",
+      "repositoryNote": "ваш код и его ветки",
+      "workflowFolder": "Workflow folder",
+      "workflowFolderNote": "файлы workflow",
+      "adrs": "Раздел ADR",
+      "adrsNote": "список в боковой панели, панель над Canvas",
+      "joinsList": "попадает в список",
+      "connect": "Connect",
+      "writes": "пишет",
+      "noTrace": "Silent: отказ на следы",
+      "namesFolder": "называет его",
+      "fullRoot": "Full: его корень",
+      "switches": "переключает",
+      "opens": "открывает",
+      "handoffFile": "HANDOFF.md",
+      "adrFiles": "docs/adr/",
+      "step1": "Add project: для папки, которой Harness не знает, вы выбираете режим, Session Claude Code готовит черновик Profile, вы его проверяете. По Connect Harness записывает Profile, и Project попадает в список.",
+      "step2": "Режим решает, где лежат файлы workflow. В Full mode Workflow folder — корень репозитория. В Silent mode она лежит вне его, и Harness отказывает commit-у, имени ветки и тексту PR со следом workflow.",
+      "step3": "Щелчок в списке Projects переключает Canvas, Session view и Pipeline board и открывает Orchestrator этого Project-а. Все окна Machine переключаются вместе.",
+      "step4": "HANDOFF.md и ADR читаются из Workflow folder: HANDOFF — как Node на Canvas, ADR — в боковой панели. Пока Harness не отвечает, они читаются из корня Project-а. Правка HANDOFF.md видна на Node-е в пределах секунды."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "Поток данных Project-ов. В renderer: диалог Add project, useProjects и виды HANDOFF и ADR. В main process: ProjectConnector, ProjectStore, app-orchestrators, LayoutCache и DocsHub. На стороне Harness: project-connect, скрипты Harness profile и ticket и Workflow folder. Диалог вызывает projects.connect.* у ProjectConnector, а тот запускает project-connect и затем добавляет папку в ProjectStore. useProjects вызывает projects.select у ProjectStore, тот отправляет обратно projects.changed, а app-orchestrators следует за его onChange. LayoutCache спрашивает скрипты profile и ticket, где лежат файлы, и его корень уходит в DocsHub, который следит за Workflow folder. DocsHub отправляет docs.changed видам, а вид читает текст через docs.read.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "harness": "HARNESS И ФАЙЛЫ",
+        "dialog": "ConnectProject",
+        "dialogNote": "диалог Add project",
+        "useProjects": "useProjects",
+        "useProjectsNote": "openProject, копия списка",
+        "views": "Виды документов",
+        "viewsNote": "Node HANDOFF, раздел ADR",
+        "connector": "ProjectConnector",
+        "connectorNote": "ведёт шаги в main",
+        "store": "ProjectStore",
+        "storeNote": "projects.json, ревизия",
+        "orchestrators": "app-orchestrators",
+        "orchestratorsNote": "открывает Orchestrator нового",
+        "layout": "LayoutCache",
+        "layoutNote": "один ответ на 30\u00a0s",
+        "docsHub": "DocsHub",
+        "docsHubNote": "одно наблюдение на Project",
+        "connect": "project-connect",
+        "connectNote": "проверяет черновик, пишет",
+        "profile": "Скрипты Harness",
+        "profileNote": "profile -C --json, ticket root",
+        "folder": "Workflow folder",
+        "folderNote": "HANDOFF.md, docs/adr/",
+        "connectCalls": "projects.connect.*",
+        "runs": "--facts, --check, запись",
+        "add": "add",
+        "select": "projects.select",
+        "changed": "projects.changed",
+        "onChange": "onChange",
+        "asks": "где лежат файлы",
+        "root": "корень по режиму",
+        "watch": "fs.watch",
+        "docsChanged": "docs.changed",
+        "docsRead": "docs.read"
+      }
+    },
+    "text": [
+      "worfy спрашивает Harness, где лежат файлы Project-а, а Add project пишет только через скрипт Harness project-connect. У Session черновика есть только Read, Glob и Grep, а режим и Workflow folder worfy ставит поверх её ответа сам.",
+      "У списка есть ревизия, поэтому опоздавший ответ не откатывает его назад. Состояние документов несёт хеш каждого файла, и вид перечитывает текст, только когда хеш изменился."
+    ],
+    "files": {
+      "src/main/workflow/folder.ts": "Спрашивает Harness, где лежат файлы; хранит каждый ответ 30\u00a0s",
+      "src/main/projects/connect.ts": "Шаги Add project и то, что worfy ставит поверх черновика",
+      "harness/bin/project-connect": "Проверяет черновик и пишет Profile, с откатом",
+      "src/main/projects/store.ts": "Список в projects.json, активный Project, ветка",
+      "src/main/ipc/docs.ts": "Выбирает корень документов по режиму; держит Node HANDOFF в согласии с файлом",
+      "src/main/docs/watch.ts": "Читает HANDOFF.md и ADR и следит за ними"
+    },
+    "limits": [
+      "Connect может идти до 30 минут: запись может индексировать Project для qmd. На факты и проверки — 120 секунд.",
+      "HANDOFF.md или ADR больше 1 MiB читается как отсутствующий."
+    ]
+  }
+}
