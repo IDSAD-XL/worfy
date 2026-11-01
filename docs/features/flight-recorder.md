@@ -43,7 +43,10 @@ Then the facts of the chosen run:
   the run has stopped: while it goes on, a Ticket that is not done, a blocked one included, counts as `not done yet`.
   After the stop, Tickets that are none of these three count as `stopped`;
 - `Retries`: the attempts from `#2` on of agents, CI runs, gate runs and scripts;
-- `Started by`: `the Autopilot button`, `a command in a chat`, or `the Orchestrator (autopilot_start)`. The last one
+- the Run mode, `Mode Budget-aware`, and the Epic forecast beside the share of the week the run took:
+  `Forecast 18–31% · actual 24%`. [Run planning](run-planning.md) says what each part reads when it is not known. A
+  journal written before the forecast existed has neither;
+- `Started by`: `the Autopilot button`, `a command in a chat`, or `a Session (autopilot_start)`. The last one
   stands for any run the tool `autopilot_start` started, whichever Session's agent called it. A journal written before
   this was recorded has no such line.
 
@@ -71,8 +74,9 @@ rows. The narrowest stretch is one minute. Times on the axis are local.
 
 The rows, top to bottom:
 
-1. The **Waits** lane: the waits of the run, one bar each, named by cause: `Limits`, `Limits budget`, `Background
-   tasks`, `Gate queue` or `Other Machine`.
+1. The **Waits** lane: the waits of the run, one bar each, named by cause: `Limits`, `Limits budget`, `Start window`,
+   `Background tasks`, `Gate queue` or `Other Machine`. The tooltip of a `Start window` bar gives its reason:
+   `outside, until <time>`, or `wave-too-long, until <time>` when the next Wave would not end inside the window.
 2. The **Orchestrator** lane: the Orchestrator's turns. A turn links to the Tickets it touched and is not nested in
    them. An `i` mark stands for each refused dialog and each time a person stepped in.
 3. The tree: Run → Wave → Ticket → Stage → work. Work is an agent (implementer, verifier or other), a CI run, a gate run
