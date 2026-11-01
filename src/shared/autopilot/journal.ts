@@ -75,7 +75,9 @@
 //                                    whose Status cannot be read writes none. statusAt: the time
 //                                    of the Status line as the Ticket gives it (`2026-10-17T09:41Z`
 //                                    or a date); reason: its `Blocked reason:` line; waits: its
-//                                    `Waits:` line; each absent without that line. Two changes
+//                                    `Waits:` line; each absent without that line. `at` is when
+//                                    worfy saw the change, which may be later than it was made: a
+//                                    reader takes the time of the change from statusAt. Two changes
 //                                    between two reads write only the later one. Journals written
 //                                    before ticket 11 have none
 //   narrow-round   ticket, outcome,  a Ticket of a Wave of the run went through a step of the

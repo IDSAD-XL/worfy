@@ -681,7 +681,7 @@ test('the narrow fix round of a Wave Ticket goes to the run journal from the com
 
     await expect
       .poll(() => journalKinds(dataDir))
-      .toEqual(['run-started', 'wave-started 1', 'narrow-round', 'narrow-round', 'wave-finished 1', 'run-stopped blocked-tickets'])
+      .toEqual(['run-started', 'wave-started 1', 'narrow-round', 'narrow-round', 'wave-finished 1', 'ticket-status', 'ticket-status', 'run-stopped blocked-tickets'])
     const [file] = readdirSync(join(dataDir, 'autopilot'))
     const lines = readFileSync(join(dataDir, 'autopilot', file!), 'utf8')
       .split('\n')
@@ -691,6 +691,16 @@ test('the narrow fix round of a Wave Ticket goes to the run journal from the com
       { ticket: '02', outcome: 'started', text: 'NARROW: [med] src/f2.ts:1 — x' },
       { ticket: '02', outcome: 'rejected', text: 'NARROW: REJECTED: src/f2.ts:1 still open' },
     ])
+    // The changes of status (worfy-flight-recorder ticket 11, ADR-0092): 01 open → done, 02 open → blocked. The test
+    // changes them in the stub's epic-status answer, not in the Ticket files, so the workflow watch reports nothing
+    // and only the last read before run-stopped sees them, after wave-finished. The stub's Tickets have no Status
+    // time, so the lines carry none; with real files they carry the Status line's time (statusAt).
+    const statuses = lines.filter((line) => line.kind === 'ticket-status')
+    expect(statuses.map(({ epic, ticket, state }) => ({ epic, ticket, state }))).toEqual([
+      { epic: EPIC, ticket: '01', state: 'done' },
+      { epic: EPIC, ticket: '02', state: 'blocked' },
+    ])
+    for (const line of statuses) expect(Object.keys(line).sort()).toEqual(['at', 'epic', 'kind', 'project', 'run', 'state', 'ticket'])
     expect(lines.at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'blocked-tickets', tickets: ['02'] })
     expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
     // worfy wrote nothing into the repository.
