@@ -85,7 +85,7 @@ Source: [spec.md](../spec.md), «Решения» (Q4, Q5, Q8, Q17), «Прог�
      тоже `null`. Ticket 03 берёт K как наибольшее k с `cumulativeHigh[k]` ≤ свободного, K = 0 выходит само.
   3. `uncounted` в ответе `epicForecast` — число, в ответе `remainingWaves` — список номеров.
   4. Seed — `0x5eed`: в spec числа нет, только «постоянный seed».
-- Test — `test/unit/autopilot-forecast.test.ts`, 20 test-ов. Сначала падал весь файл (модуля не было). Мутанты, на
+- Test — `test/unit/autopilot-forecast.test.ts`, 17 test-ов. Сначала падал весь файл (модуля не было). Мутанты, на
   каждом test красный: порог 5 → 4 (`:180`); p90 → p50 во всём ответе, только в `range` и только в
   `cumulativeHigh` (`:186`, `:198`, `:205`); выборка без возвращения (`:186`, `:198`); Ticket в работе получает
   Wave 1 (`:130`); Run по названным считает все Ticket-ы (`:153`); `waveSamples` без отбора 10 последних (`:80` и
