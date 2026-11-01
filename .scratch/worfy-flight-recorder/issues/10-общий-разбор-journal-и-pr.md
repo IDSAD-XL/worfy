@@ -63,3 +63,41 @@ Source: [spec.md](../spec.md), «Решено без владельца» (об�
 - `test/fixtures/flight-recorder/night-run/` (новый, общий fixture Epic-а)
 
 Только читать: `src/shared/autopilot/journal.ts` (`JOURNAL_EVENT_KINDS`, `:185`), `test/fixtures/critical-path/`.
+
+## Итог
+
+- Первый шаг — на пустом модуле: `journal-walk.mjs` с одной константой и `journal-walk.d.mts`, временный импорт
+  из `src/main/index.ts` и `src/renderer/main.tsx`. `pnpm typecheck` — exit 0; vitest — exit 0; `pnpm build`
+  (`electron-vite build`) — exit 0, константа есть в `out/main/index.js` и в bundle renderer-а. Подмена типа в
+  test-е (`'other'` вместо `'journal-walk'`) даёт `tsc` exit 2 — объявление `.d.mts` действительно читается.
+  Временный импорт снят до переноса кода. Способ общего модуля менять не пришлось.
+- `src/shared/flight-recorder/journal-walk.mjs`: `JOURNAL_KINDS`, `time`, `parseJournal` (`:53`, текст одного файла
+  Journal → события и счётчики пропущенных строк), `walkRun` (`:86`, один Run: начало, Wave-ы, Wait-ы Limits,
+  остановки внутри Wave, остановка Run), `walkJournals` (`:141`, по Ticket-ам и Epic-ам, как считал скрипт; теперь
+  поверх `walkRun`). Без модулей Node: `src/shared` идёт во все процессы, файлы читает вызывающий.
+- `src/shared/flight-recorder/pr-facts.mjs`: поля `gh` скрипта и `GH_FIELDS_WITH_LABELS` (`:11`, плюс `labels`),
+  `pick`, `ciMark`, `headCi`, `headMarks` (статусы `review`, `check/windows` на head), `verdictComments`,
+  `verdicts`, `firstCommit`, `labelNames` (`:141`), `prFacts` (`:146`, все факты одного PR). Типы —
+  `journal-walk.d.mts`, `pr-facts.d.mts`.
+- `scripts/critical-path.mjs` импортирует оба модуля (`:40-41`), `JOURNAL_KINDS` реэкспортирует (`:82`); своего
+  разбора нет (−251 строка): осталось чтение файлов (`readJournals`, `:160`), `gh`, аргументы, папки, шаги, бюджет,
+  вывод и запрет `--out`. `node scripts/critical-path.mjs --help` — exit 0.
+- Отчёт тот же байт в байт: снимок до переноса — `test/fixtures/flight-recorder/critical-path-before.json`
+  (Markdown и CSV для `demo-epic`, всех Epic-ов fixture скрипта и ночного Run; строки JSON, чтобы checkout с CRLF
+  их не менял). Test — `test/unit/critical-path.test.ts:309`; `:292` проверяет, что `JOURNAL_KINDS` скрипта — тот
+  же объект, что в `journal-walk.mjs`, а `gh` спрашивается с `GH_FIELDS` из `pr-facts.mjs`. Статические импорты
+  модулей в этом test-е нужны и CI: `scripts/affected-tests.mjs` без них не выбирал `critical-path.test.ts` при
+  правке `journal-walk.mjs` (проверено на пробном commit-е: до — нет, после — есть, для обоих модулей).
+- `test/unit/flight-recorder-sources.test.ts` (17 test-ов): из TypeScript — Run, Wave-ы, Wait-ы и остановка на
+  fixture скрипта и ночного Run (две Wave, `blocked-tickets`, 4 ч 48 мин), PR, CI runs, verdict-ы, merge, отметки
+  на head и `labels`. Мутанты (конец Wait по `resumed`, Ticket-ы Wait-а, первый `run-started`, `labels`, флаг
+  `narrow`, `headMarks`) — test красный на каждом.
+- Fixture ночного Run — `test/fixtures/flight-recorder/night-run/`, состав и обезличивание описаны в его
+  `README.md`: Journal целиком; выдержки транскрипта Orchestrator-а (468 записей окна Run, тексты обрезаны до 100
+  символов) и 12 Subagent-ов (`meta.json` целиком, начало, конец и записи вокруг пауз); ответы `gh pr view` для
+  #457, #460, #467, #468 (`labels` пустые) и `gh run list` веток (пустые — CI в ту ночь шёл на `main`) и `main`;
+  `prs.json` для `--prs`. Домашняя папка — `/Users/someone`, владелец репозитория — `owner`.
+- Не проверено: `timings.json` gate той ночи не сохранились (`gate-log.mjs` держит 10 запусков на worktree и
+  удаляет папку через 8 дней), два запуска в fixture — иллюстративные (формат, тег и head-ы настоящие, длительности
+  шагов выдуманы), это сказано в `README.md` fixture. Метки cross-machine gate на PR той ночи нет: `labels` проверены
+  на литерале PR в test-е.
