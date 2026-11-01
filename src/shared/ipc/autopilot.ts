@@ -107,11 +107,12 @@ export type AutopilotStartAnswer = z.infer<typeof autopilotStartAnswerSchema>
  * on worfy's own repository in a development build. A run of the same Epic and origin on a Linked
  * machine (or in another Project of this Machine) answers `runningElsewhere` instead (worfy-link
  * ticket 15); `override` ("Start anyway") starts anyway: it still asks, and the run journals the
- * override only when it went past such a run.
+ * override only when it went past such a run. `tickets` (worfy-flight-recorder ticket 21): a run over
+ * these Tickets of the Epic only, ending with `tickets-done`; absent, the whole Epic, as the button.
  */
 export const autopilotStart = invokeChannel(
   'autopilot.start',
-  z.object({ projectId, epic: epicNameSchema, override: z.boolean().optional() }),
+  z.object({ projectId, epic: epicNameSchema, override: z.boolean().optional(), tickets: z.array(z.number().int().positive()).min(1).optional() }),
   autopilotStartAnswerSchema,
   'project',
   'write',

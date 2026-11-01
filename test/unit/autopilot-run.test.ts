@@ -2051,3 +2051,70 @@ describe('the question about Autopilot runs over the link (worfy-link ticket 15,
     await expect(sb.autopilot.start(PROJECT, EPIC, { override: true })).resolves.toMatchObject({ status: 'running' })
   })
 })
+
+// A run over named Tickets (worfy-flight-recorder ticket 21, ADR-0091).
+describe('a run over named Tickets', () => {
+  /** A stand-in whose "Run wave" takes the named Tickets as launch.ts does, and records each list it got. */
+  function namedStandIn() {
+    const s = standIn()
+    s.tickets = [t(1, 'open'), t(2, 'open'), t(3, 'open')]
+    const named: (readonly number[] | undefined)[] = []
+    s.deps.waves.autopilotWave = (_projectId, _epic, _resume, _brief, list) => {
+      named.push(list)
+      const tickets = readyWave(s.tickets, EPIC, list).ready.map((entry) => entry.num)
+      const text = `/epic-wave ${tickets.join(' ')}`
+      s.emit({ type: 'prompt', text })
+      return Promise.resolve({ sessionId: SESSION, text, delivery: 'sent', tickets, skipped: [] })
+    }
+    return { s, named }
+  }
+
+  it('passes the list to every "Run wave" and stops with tickets-done once they are done, though 03 is ready', async () => {
+    const { s, named } = namedStandIn()
+    await s.autopilot.start(PROJECT, EPIC, { tickets: [2, 1], by: 'command' })
+    await settle()
+    expect(named).toEqual([[1, 2]])
+    expect(s.journal[0]).toMatchObject({ kind: 'wave-started', wave: 1, tickets: ['01', '02'] })
+    done(s, 1, 2)
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'tickets-done', wave: 1 })
+    expect(kinds(s)).toEqual([
+      ['wave-started', 1],
+      ['wave-finished', 1],
+      ['run-stopped', 'tickets-done'],
+    ])
+  })
+
+  it('without a list the run is over the whole Epic: "Run wave" gets no list and 03 goes in the Wave', async () => {
+    const { s, named } = namedStandIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(named).toEqual([undefined])
+    expect(s.journal[0]).toMatchObject({ kind: 'wave-started', tickets: ['01', '02', '03'] })
+  })
+
+  it('a named Ticket that is not one of the Epic\'s refuses the start before the journal opens', async () => {
+    const { s } = namedStandIn()
+    await expect(s.autopilot.start(PROJECT, EPIC, { tickets: [1, 9, 7] })).rejects.toThrow('Epic demo has no Tickets 07, 09')
+    await expect(s.autopilot.start(PROJECT, EPIC, { tickets: [9] })).rejects.toThrow('Epic demo has no Ticket 09')
+    await expect(s.autopilot.start(PROJECT, EPIC, { tickets: [] })).rejects.toThrow('Name at least one Ticket of Epic demo')
+    expect(s.journal).toEqual([])
+    expect(s.orchestrator).toEqual([])
+    expect(s.autopilot.runningEpic(PROJECT)).toBeNull()
+  })
+
+  it('runningEpic names the Epic of the run while it goes on, and none once it has stopped', async () => {
+    const { s } = namedStandIn()
+    const starting = s.autopilot.start(PROJECT, EPIC, { tickets: [1] })
+    expect(s.autopilot.runningEpic(PROJECT)).toBe(EPIC)
+    await starting
+    await settle()
+    expect(s.autopilot.runningEpic(PROJECT)).toBe(EPIC)
+    done(s, 1)
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'tickets-done' })
+    expect(s.autopilot.runningEpic(PROJECT)).toBeNull()
+  })
+})

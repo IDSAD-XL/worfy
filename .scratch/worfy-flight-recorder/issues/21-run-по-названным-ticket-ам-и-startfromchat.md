@@ -1,7 +1,8 @@
 # 21 — Run по названным Ticket-ам и `startFromChat`
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T00:01Z
+Branch: worfy-flight-recorder/21
 Blocked by: —
 Source: [spec.md](../spec.md), «Запуск Autopilot из чата» («Run по названным Ticket-ам», «Отказ, пока Run идёт», «Вне Run», общая точка входа `chat-start.ts`; про старт после конца хода — «Инструмент `autopilot_start`»), «Решено без владельца» (`tickets-done`; ADR Ticket-а 21), «Ticket-ы» (21), «Готово, когда» (пункт про запуск из чата); решение 09, Q1, Q4, Q5, Q7 ([09-что-значит-autopilot-из-чата.md](09-что-значит-autopilot-из-чата.md)); решение 02 ([02-autopilot-из-чата-тот-же-run.md](02-autopilot-из-чата-тот-же-run.md))
 
@@ -80,3 +81,44 @@ Source: [spec.md](../spec.md), «Запуск Autopilot из чата» («Run �
 
 Только читать: `src/main/actions/launch.ts` (`AUTOPILOT_RUNNING_HINT`), `src/main/agent/orchestrator.ts`,
 `src/renderer/canvas/actions/AutopilotAction.tsx`.
+
+## Итог
+
+Сделано (ветка `worfy-flight-recorder/21`, ADR-0091 `docs/adr/0091-autopilot-from-chat.md`):
+
+- **Run по названным Ticket-ам.** `Autopilot.start(projectId, epic, { tickets, by })` (`src/main/autopilot/run.ts`,
+  `AutopilotStartOptions`); канал `autopilot.start` принимает необязательный `tickets` — целые положительные, хотя бы
+  один (`src/shared/ipc/autopilot.ts:115`), handler передаёт его дальше (`src/main/ipc/autopilot.ts`). Cycle держит список
+  в `CycleState.named` (`initialCycle(epic, named)`), готовые и `skipped` считает только по нему
+  (`readyWave(tickets, epic, named)`, `src/shared/workflow/waves.ts:175`), подхват после Force stop — тоже только из
+  списка.
+- **`tickets-done`** — в `AUTOPILOT_STOP_REASONS` (`src/shared/autopilot/cycle.ts:45`); все названные `done` в checkout-е
+  (`namedDone`, `cycle.ts:216`) — остановка на старте и после Wave. Заблокированный названный Ticket — `blocked-tickets`,
+  как раньше; заблокированный Ticket вне списка Run не останавливает; `sameSet`/`no-progress` не тронут.
+- **Wave из списка.** Текст и Ticket-ы Wave собирает launcher, не cycle, поэтому список идёт и туда:
+  `deps.waves.autopilotWave(…, named)` → `ActionLauncher.autopilotWave(…, named)` (`src/main/actions/launch.ts`) →
+  `runWaveState({ …, named })` (`src/shared/actions/render-template.ts`). `{wave}` считается по плану всего Epic-а.
+- **Проверка старта** — `startRefusal(model, epic, tickets)` (`run.ts:358`): нет Epic-а, пустой список, Ticket-а нет в
+  Epic-е («Epic demo has no Tickets 07, 09»). Его зовут и `Autopilot.start`, и `startFromChat`. `Autopilot.runningEpic`
+  (`run.ts:659`) — Epic живого или стартующего Run-а.
+- **`src/main/autopilot/chat-start.ts`** — `ChatStarts.startFromChat` (`:60`): проверки, отказ «Autopilot is already
+  running Epic X. Stop it first.» без строк Journal, `Autopilot.start` с `override: false`, списком и `by`
+  (`command`/`tool`); из хода Orchestrator-а этого Project-а — ответ «Autopilot starts after this turn» и старт после
+  idle Session (`whenIdle`, `:130`); ожидающий старт считается живым Run-ом. App-экземпляр — `sharedChatStarts()`
+  (`src/main/ipc/autopilot.ts:215`); его зовут Ticket-ы 22 и 23.
+- `by` хранится в `Run.by`; в Journal его пишет Ticket 11. Формат Journal этот Ticket не меняет.
+- Feature page `docs/features/autopilot.md`: строка `tickets-done`, уточнение `blocked-tickets`, модуль `chat-start.ts`.
+
+Test-ы: `test/unit/autopilot-cycle.test.ts` (блок «over named Tickets», 10 test-ов), `test/unit/autopilot-run.test.ts`
+(«a run over named Tickets», 4), `test/unit/autopilot-chat-start.test.ts` (новый, 10), `test/unit/launch.test.ts` (1),
+`test/contract/autopilot.test.ts` (1), `test/contract/autopilot-wiring.test.ts` (поправлен под пятый аргумент).
+Первый падающий — test cycle со списком 05, 06 (в Wave попадал и 07). 12 ручных mutant-ов по новой логике — все
+убиты test-ами.
+
+Не проверено:
+- Сужение счёта Ticket-ов для оценки бюджета (`budgetCheck`, `readyWave(…, run.cycle.named)`) test-ом не покрыто: mutant
+  там выживет.
+- Отказ старта после конца хода (например, в очереди Orchestrator-а сообщение) никому не возвращается — только
+  `console.warn` в main process; спросивший уже получил «Autopilot starts after this turn».
+- Ход «Process gate queue» перед остановкой с `tickets-done` не делается (только `no-ready-wave`/`blocked-tickets`, как
+  было).

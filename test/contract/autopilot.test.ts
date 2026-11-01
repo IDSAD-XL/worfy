@@ -1073,8 +1073,8 @@ describe('the autopilot channels', () => {
   async function register() {
     const calls: unknown[][] = []
     const autopilot = {
-      start: (projectId: string, epic: string) => {
-        calls.push(['start', projectId, epic])
+      start: (projectId: string, epic: string, options?: { tickets?: readonly number[] }) => {
+        calls.push(options?.tickets === undefined ? ['start', projectId, epic] : ['start', projectId, epic, options.tickets])
         if (epic === 'busy') return Promise.reject(new Error('The Orchestrator is in a turn'))
         return Promise.resolve({ ...state(), extra: 'secret' } as AutopilotState)
       },
@@ -1099,6 +1099,15 @@ describe('the autopilot channels', () => {
     const { invoke, calls } = await register()
     expect(await invoke('autopilot.start', { projectId: 'p', epic: 'e', force: true })).toEqual({ ok: true, value: state() })
     expect(calls).toEqual([['start', 'p', 'e']])
+  })
+
+  it('autopilot.start passes named Tickets to a run over them, and refuses a list that is empty or not of Ticket numbers (worfy-flight-recorder ticket 21)', async () => {
+    const { invoke, calls } = await register()
+    expect(await invoke('autopilot.start', { projectId: 'p', epic: 'e', tickets: [5, 6] })).toEqual({ ok: true, value: state() })
+    for (const tickets of [[], [0], [1.5], ['05'], 5]) {
+      expect((await invoke('autopilot.start', { projectId: 'p', epic: 'e', tickets })).ok, JSON.stringify(tickets)).toBe(false)
+    }
+    expect(calls).toEqual([['start', 'p', 'e', [5, 6]]])
   })
 
   it('autopilot.start refuses a wrong type before Autopilot runs, and answers its refusal as {ok:false}', async () => {

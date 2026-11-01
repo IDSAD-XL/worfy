@@ -168,7 +168,8 @@ task-notification starts, then goes back.
 | Reason | Meaning |
 |---|---|
 | `no-ready-wave` | Nothing is ready, and no `blocked` or status-less Ticket has all its blockers done. A run that finished the Epic ends this way. |
-| `blocked-tickets` | Nothing open is ready, and some `blocked` or status-less Tickets have all their blockers done. |
+| `tickets-done` | A run over named Tickets ended: every one of them is done in the checkout. Such a run takes only the ready Tickets of its list into each Wave. The button always runs the whole Epic, so a run it starts never ends this way. |
+| `blocked-tickets` | Nothing open is ready, and some `blocked` or status-less Tickets have all their blockers done. In a run over named Tickets, only Tickets of the list count. |
 | `no-progress` | The next ready Wave is the same set of Tickets as the one just finished. |
 | `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn. |
 | `background-stalled` | Background tasks gave no event for an hour. |
@@ -287,6 +288,7 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | Path | What it holds |
 |---|---|
 | `src/main/autopilot/run.ts` | The `Autopilot` class and one `Run`: start checks, events of the Session, effects of the cycle, stops, give-back. |
+| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: the start from a chat, over the Epic or named Tickets; the refusal while a run goes on, and the start after the asking Orchestrator's turn. Nothing calls it yet. |
 | `src/shared/autopilot/cycle.ts` | The cycle: phases, events, effects, stop reasons and their time limits. Pure. |
 | `src/main/ipc/autopilot.ts` | The IPC handlers, and `sharedAutopilot`, which wires the app's Projects, Orchestrators, Sessions, watch and journal to a run. |
 | `src/shared/ipc/autopilot.ts` | The `autopilot` IPC channels, the state of a run and the text of the status line. |

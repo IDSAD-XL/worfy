@@ -167,8 +167,12 @@ export function filesOverlap(a: string, b: string): boolean {
  * Tickets done only in a worktree branch are held from the start; a Ticket whose file overlaps a
  * held file, or a file of a Ticket already taken into this Wave, waits for the next one. Blocked and status-less Tickets never go into the Wave; those
  * whose blockers are all done are listed as `skipped`.
+ *
+ * `named` (an Autopilot run over named Tickets, worfy-flight-recorder ticket 21): only those Tickets
+ * can be ready, waiting or skipped. The others still block, and hold their files while in work; an
+ * open one outside the list holds nothing, as it never goes into the Wave.
  */
-export function readyWave(tickets: readonly WaveTicket[], epic?: string): ReadyWave {
+export function readyWave(tickets: readonly WaveTicket[], epic?: string, named?: readonly number[]): ReadyWave {
   const all = epicTickets(tickets, epic)
   const cycleOf = cycles(all)
   const held: { file: string; num: number }[] = []
@@ -181,6 +185,7 @@ export function readyWave(tickets: readonly WaveTicket[], epic?: string): ReadyW
   const skipped: ReadyWave['skipped'] = []
   for (const ticket of [...all.values()].sort(byNum)) {
     if (ticket.state !== 'open' && ticket.state !== 'blocked' && ticket.state !== 'none') continue
+    if (named !== undefined && !named.includes(ticket.num)) continue
 
     const problem = ownProblem(ticket, all, cycleOf)
     const notDone = ticket.blockedNums.filter((blocker) => !closed(all.get(blocker)))

@@ -30,13 +30,19 @@
 // Force stop (`user-force-stop`, worfy-week ticket 17, ADR-0050) names the Tickets of the Wave it
 // interrupts in its `stopped` effect. A run started after it is given those Tickets (`start`,
 // `resume`): the ones still in work count as ready, so the first Wave goes even when nothing else is.
+//
+// A run over named Tickets (`named`, worfy-flight-recorder ticket 21, ADR-0091) counts only those as
+// ready, skipped and taken along after a Force stop; the rest of the Epic still blocks them. Once
+// every named Ticket is done in the checkout the run stops with `tickets-done`, its usual end, at
+// the start as after a Wave. Without a list the run is over the whole Epic.
 import { resumedTickets } from '../actions/render-template'
 import type { Ticket } from '../workflow/types'
-import { readyWave } from '../workflow/waves'
+import { doneOnlyInBranch, readyWave } from '../workflow/waves'
 
 /** Why a run ended; the `reason` of its `run-stopped` journal line. */
 export const AUTOPILOT_STOP_REASONS = [
   'no-ready-wave',
+  'tickets-done',
   'blocked-tickets',
   'no-progress',
   'wave-unfinished',
@@ -81,6 +87,8 @@ export interface CycleState {
   wave: number
   /** Ticket numbers of the current Wave, as it was sent. */
   tickets: number[]
+  /** A run over named Tickets: their numbers, in order. Absent for a run over the whole Epic. */
+  named?: number[]
   reason: AutopilotStopReason | null
   /** A graceful Stop came: no new Wave; the run ends with the first turn end that leaves nothing alive. */
   stopping: boolean
@@ -157,8 +165,10 @@ export interface CycleStep {
   effects: CycleEffect[]
 }
 
-export function initialCycle(epic: string): CycleState {
-  return { epic, phase: 'starting', wave: 0, tickets: [], reason: null, stopping: false, inWork: [] }
+/** A run's first state; `named`: the Tickets a run over named Tickets takes, none for the whole Epic. */
+export function initialCycle(epic: string, named?: readonly number[]): CycleState {
+  const state: CycleState = { epic, phase: 'starting', wave: 0, tickets: [], reason: null, stopping: false, inWork: [] }
+  return named === undefined ? state : { ...state, named: [...new Set(named)].sort((a, b) => a - b) }
 }
 
 /** Which of `nums` are Tickets of the run's Epic in work in `tickets`. */
@@ -199,13 +209,30 @@ function stop(state: CycleState, reason: AutopilotStopReason, before: CycleEffec
 }
 
 function readyNums(state: CycleState, tickets: readonly CycleTicket[]): number[] {
-  return readyWave(tickets, state.epic).ready.map((entry) => entry.num)
+  return readyWave(tickets, state.epic, state.named).ready.map((entry) => entry.num)
 }
 
-/** Nothing open is ready: `blocked-tickets` with the Tickets that would be, or `no-ready-wave`. */
+/** A run over named Tickets: every one of them is done in the checkout (not only in its unmerged branch). */
+function namedDone(state: CycleState, tickets: readonly CycleTicket[]): boolean {
+  const named = state.named
+  if (named === undefined) return false
+  return named.every((num) => tickets.some((ticket) => ticket.epic === state.epic && ticket.num === num && ticket.state === 'done' && !doneOnlyInBranch(ticket)))
+}
+
+/**
+ * Nothing open is ready: `tickets-done` when the named Tickets are all done, else `blocked-tickets`
+ * with the Tickets that would be ready, or `no-ready-wave`.
+ */
 function nothingReady(state: CycleState, tickets: readonly CycleTicket[], before: CycleEffect[] = []): CycleStep {
-  const skipped = readyWave(tickets, state.epic).skipped.map((entry) => entry.num)
+  if (namedDone(state, tickets)) return stop(state, 'tickets-done', before)
+  const skipped = readyWave(tickets, state.epic, state.named).skipped.map((entry) => entry.num)
   return skipped.length > 0 ? stop(state, 'blocked-tickets', before, skipped) : stop(state, 'no-ready-wave', before)
+}
+
+/** The interrupted Tickets a start takes along: only those of the list in a run over named Tickets. */
+const resumeOf = (state: CycleState, resume: readonly number[]): readonly number[] => {
+  const named = state.named
+  return named === undefined ? resume : resume.filter((num) => named.includes(num))
 }
 
 const sameSet = (a: readonly number[], b: readonly number[]): boolean => a.length === b.length && a.every((num) => b.includes(num))
@@ -237,7 +264,7 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
       return stop(state, 'session-closed')
     case 'start':
       if (state.phase !== 'starting') return stay(state)
-      if (resumedTickets(event.tickets, state.epic, event.resume ?? []).length === 0 && readyNums(state, event.tickets).length === 0) return nothingReady(state, event.tickets)
+      if (resumedTickets(event.tickets, state.epic, resumeOf(state, event.resume ?? [])).length === 0 && readyNums(state, event.tickets).length === 0) return nothingReady(state, event.tickets)
       return { state: { ...state, phase: 'sending' }, effects: [{ kind: 'send-wave' }] }
     case 'wave-sent': {
       if (state.phase !== 'sending') return stay(state)
