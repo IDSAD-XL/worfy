@@ -3,7 +3,9 @@
 // src/main/autopilot/run.ts, handled in src/main/ipc/autopilot.ts (ADR-0006).
 import { z } from 'zod'
 import { AUTOPILOT_STOP_REASONS } from '../autopilot/cycle'
+import { ESTIMATE_WAVES } from '../autopilot/limits-estimate'
 import { RUN_MODES, WINDOW_WAIT_REASONS } from '../autopilot/run-mode'
+import { DURATION_WAVES } from '../autopilot/wave-duration'
 import { epicNameSchema, ticketNumSchema } from '../binding/resolve'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -158,12 +160,17 @@ export const autopilotState = invokeChannel('autopilot.state', z.object({ projec
 /**
  * The estimate of what share of the week a Wave of the Project takes (worfy-throughput ticket 40,
  * src/shared/autopilot/limits-estimate.ts), from the journals of its past runs, with the 7-day
- * window as it is now: the hint of the Autopilot button says both (waveEstimateLine). `estimate` is
- * null with fewer than ESTIMATE_MIN_WAVES counted Waves; `sevenDay` null when nothing is known of it.
+ * window as it is now. `estimate` is null with fewer than ESTIMATE_MIN_WAVES counted Waves (the budget
+ * reads it); `sevenDay` null when nothing is known of it, with `receivedAt` (ms) for the freshness of
+ * its number. The Epic forecast of the Autopilot button's hint (worfy-resource-planner ticket 06)
+ * draws from `samples`, the per-Ticket samples of the last ESTIMATE_WAVES Waves, and its Start window
+ * line reads `durations`, the p90 of the last DURATION_WAVES Waves' durations in ms.
  */
 export const autopilotEstimateAnswerSchema = z.object({
   estimate: z.object({ perTicket: z.number().nonnegative(), waves: z.number().int().positive() }).nullable(),
-  sevenDay: z.object({ utilization: z.number().nonnegative().nullable(), resetsAt: z.number().nullable() }).nullable(),
+  sevenDay: z.object({ utilization: z.number().nonnegative().nullable(), resetsAt: z.number().nullable(), receivedAt: z.number() }).nullable(),
+  samples: z.array(z.number().nonnegative()).max(ESTIMATE_WAVES),
+  durations: z.object({ p90: z.number().nonnegative().nullable(), samples: z.number().int().nonnegative().max(DURATION_WAVES) }),
 })
 export type AutopilotEstimateAnswer = z.infer<typeof autopilotEstimateAnswerSchema>
 export const autopilotEstimate = invokeChannel('autopilot.estimate', z.object({ projectId }), autopilotEstimateAnswerSchema, 'project', 'read')

@@ -2,7 +2,7 @@
 // frame and "Open PR" on a Ticket with a PR (src/renderer/canvas/actions/*.tsx). Each one decides
 // from the workflow model, the Project's action templates and the checks snapshot whether it is
 // active, and says why not; a click goes to main (`actions.*`, `shell.openExternal`).
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { launchedHint } from '../../src/shared/actions/render-template'
 import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
@@ -10,6 +10,7 @@ import { autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/a
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ChecksSnapshot } from '../../src/shared/ipc/checks'
 import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, type ActionTemplates } from '../../src/shared/projects/action-templates'
+import { defaultAppSettings, type AppSettings } from '../../src/shared/settings/app-settings'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 const ROOT = '/Users/test/projects/demo'
@@ -45,6 +46,8 @@ let stopAnswer: Promise<IpcResult<unknown>> | null
 let forceStopAnswer: Promise<IpcResult<unknown>> | null
 /** What autopilot.estimate answers; null answers the bridge's default, which is no estimate answer. */
 let estimateAnswer: unknown
+/** What appSettings.get answers; null answers the bridge's default, which the renderer does not take. */
+let appSettings: AppSettings | null
 
 beforeEach(() => {
   vi.resetModules()
@@ -53,6 +56,7 @@ beforeEach(() => {
   stopAnswer = null
   forceStopAnswer = null
   estimateAnswer = null
+  appSettings = null
   listeners = new Map()
   // 07 done; 08 open, blocked by 07 (done) → ready; 09 open; 10 open, blocked by 09 (open); 11 claimed.
   tickets = [ticket(7, 'done'), ticket(8, 'open', [7]), ticket(9, 'open'), ticket(10, 'open', [9]), ticket(11, 'work')]
@@ -87,6 +91,9 @@ beforeEach(() => {
           return forceStopAnswer ?? Promise.resolve({ ok: true, value: { ...autopilot, status: 'stopped', reason: 'user-force-stop', stopping: false, revision: autopilot.revision + 1 } })
         case 'autopilot.estimate':
           if (estimateAnswer !== null) return Promise.resolve({ ok: true, value: estimateAnswer })
+          return Promise.resolve({ ok: true, value: { closed: true } })
+        case 'appSettings.get':
+          if (appSettings !== null) return Promise.resolve({ ok: true, value: appSettings })
           return Promise.resolve({ ok: true, value: { closed: true } })
         case 'shell.openExternal':
           return Promise.resolve({ ok: true, value: { url: (input as { url: string }).url } })
@@ -305,29 +312,118 @@ describe('Autopilot (ticket 30, ADR-0033)', () => {
     render(<AutopilotAction subject={epicSubject()} />)
     const autopilot = await screen.findByRole('button', { name: 'Autopilot' })
     await vi.waitFor(() => expect(autopilot.getAttribute('aria-disabled')).toBe('false'))
-    expect(autopilot.getAttribute('title')).toBe('Run the Waves of demo one after another, without a person. The display stays on until the run ends')
+    // No answer of autopilot.estimate here: the hint ends with the Run mode alone.
+    expect(autopilot.getAttribute('title')).toBe('Run the Waves of demo one after another, without a person. The display stays on until the run ends. Mode: Fastest (Settings → Autopilot)')
   })
+})
 
-  it('ends its hint with what a Wave like the ready one usually takes of the week, and the share used now (worfy-throughput ticket 40)', async () => {
-    // The ready Wave is 08 and 09: two Tickets at 2 % each.
-    estimateAnswer = { estimate: { perTicket: 0.02, waves: 5 }, sevenDay: { utilization: 0.41, resetsAt: Math.round(Date.now() / 1000) + 2 * 86_400 + 5 * 3600 + 1800 } }
+describe('the Epic forecast in the hint of Autopilot (worfy-resource-planner ticket 06)', () => {
+  const MINUTE = 60_000
+  /** The answer of autopilot.estimate: five past Waves at 2 % of the week per Ticket, the week at `used`, its number `age` ms old. */
+  const answer = (used: number, age = 0, durations = { p90: null as number | null, samples: 0 }) => ({
+    estimate: { perTicket: 0.02, waves: 5 },
+    sevenDay: { utilization: used, resetsAt: Math.round(Date.now() / 1000) + 2 * 86_400 + 5 * 3600 + 1800, receivedAt: Date.now() - age },
+    samples: [0.02, 0.02, 0.02, 0.02, 0.02],
+    durations,
+  })
+  /** The app settings with this choice in Settings → Autopilot. */
+  const settings = (patch: Partial<Pick<AppSettings, 'autopilotRun' | 'autopilotBudget'>>): AppSettings => ({ ...defaultAppSettings(), ...patch, revision: 1 })
+  const BASE = 'Run the Waves of demo one after another, without a person. The display stays on until the run ends'
+  // Left: Wave 1 of 08 and 09, Wave 2 of 10; 11 is in work and has no Wave. Each Ticket 2 %.
+  const FORECAST = 'This Epic: 2 Waves, 3 Tickets left, usually about 6% of the week. 1 Ticket without a Wave is not counted'
+
+  async function hint(): Promise<HTMLElement> {
     const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
     render(<AutopilotAction subject={epicSubject()} />)
-    const autopilot = await screen.findByRole('button', { name: 'Autopilot' })
+    return screen.findByRole('button', { name: 'Autopilot' })
+  }
+
+  it('Budget-aware by default: the mode, the forecast of the Waves this frame holds and the recommendation', async () => {
+    appSettings = settings({ autopilotRun: { mode: 'budget-aware' } })
+    // 80 % used, 15 % kept: 5 % free; Wave 1 takes 4 %, both 6 %.
+    estimateAnswer = answer(0.8)
+    const autopilot = await hint()
     await vi.waitFor(() =>
       expect(autopilot.getAttribute('title')).toBe(
-        'Run the Waves of demo one after another, without a person. The display stays on until the run ends. A Wave like this usually takes about 4% of the week. Used now: 41%, resets in 2 d 5 h',
+        `${BASE}. Mode: Budget-aware (Settings → Autopilot). ${FORECAST}. Used now: 80%, resets in 2 d 5 h. Recommended: 1 Wave now, the other 1 after the reset`,
       ),
     )
     expect(calls.filter((call) => call.channel === 'autopilot.estimate')).toEqual([{ channel: 'autopilot.estimate', input: { projectId: PROJECT } }])
   })
 
-  it('says there is no estimate yet when main has none', async () => {
+  it('a 7-day number older than 30 minutes gives no recommendation and no warning; the same number younger does', async () => {
+    appSettings = settings({ autopilotRun: { mode: 'budget-aware' } })
+    estimateAnswer = answer(0.8, 31 * MINUTE)
+    const stale = await hint()
+    await vi.waitFor(() => expect(stale.getAttribute('title')).toBe(`${BASE}. Mode: Budget-aware (Settings → Autopilot). ${FORECAST}. Used now: unknown`))
+    cleanup()
+    estimateAnswer = answer(0.8, 29 * MINUTE)
+    const fresh = await hint()
+    await vi.waitFor(() => expect(fresh.getAttribute('title')).toMatch(/Used now: 80%, resets in 2 d 5 h\. Recommended: 1 Wave now, the other 1 after the reset$/))
+  })
+
+  it('a stale number in Fastest gives no warning either', async () => {
+    appSettings = settings({ autopilotRun: { mode: 'fastest' } })
+    estimateAnswer = answer(0.95, 31 * MINUTE)
+    const autopilot = await hint()
+    await vi.waitFor(() => expect(autopilot.getAttribute('title')).toBe(`${BASE}. Mode: Fastest (Settings → Autopilot). ${FORECAST}. Used now: unknown`))
+  })
+
+  it('Fastest by default: the warning instead of the recommendation, counted to the full week', async () => {
+    appSettings = settings({ autopilotRun: { mode: 'fastest' } })
+    // 95 % used: 5 % free, no reserve in Fastest.
+    estimateAnswer = answer(0.95)
+    const autopilot = await hint()
+    await vi.waitFor(() =>
+      expect(autopilot.getAttribute('title')).toBe(
+        `${BASE}. Mode: Fastest (Settings → Autopilot). ${FORECAST}. Used now: 95%, resets in 2 d 5 h. Only 1 of 2 Waves fits before the reset: then the run waits for the Limits`,
+      ),
+    )
+  })
+
+  it('Start window by default: the window line of Settings; the budget off, the warning', async () => {
+    appSettings = settings({ autopilotRun: { mode: 'start-window', windowFrom: 22, windowTo: 6 } })
+    estimateAnswer = answer(0.95, 0, { p90: 100 * MINUTE, samples: 5 })
+    const autopilot = await hint()
+    await vi.waitFor(() =>
+      expect(autopilot.getAttribute('title')).toBe(
+        `${BASE}. Mode: Start window (Settings → Autopilot). ${FORECAST}. Used now: 95%, resets in 2 d 5 h. Only 1 of 2 Waves fits before the reset: then the run waits for the Limits. Start window 22:00–06:00: a Wave usually takes up to 1 h 40 min`,
+      ),
+    )
+  })
+
+  it('Start window with the budget on: the recommendation, with the reserve', async () => {
+    appSettings = settings({ autopilotRun: { mode: 'start-window' }, autopilotBudget: { enabled: true } })
+    estimateAnswer = answer(0.8)
+    const autopilot = await hint()
+    await vi.waitFor(() => expect(autopilot.getAttribute('title')).toMatch(/Recommended: 1 Wave now, the other 1 after the reset\. Start window 23:00–07:00\. Not enough data on Wave duration: every Wave may start inside the window$/))
+  })
+
+  it('the mode is the one of Settings, not the one the budget switch alone gives', async () => {
+    // The budget switch on would make Budget-aware the default; the mode chosen in Settings wins.
+    appSettings = settings({ autopilotRun: { mode: 'fastest' }, autopilotBudget: { enabled: true } })
+    estimateAnswer = answer(0.95)
+    const autopilot = await hint()
+    await vi.waitFor(() => expect(autopilot.getAttribute('title')).toContain('Mode: Fastest (Settings → Autopilot)'))
+    expect(autopilot.getAttribute('title')).toContain('Only 1 of 2 Waves fits')
+  })
+
+  it('too few past Waves: the mode and "Not enough data for a forecast…", no recommendation', async () => {
+    appSettings = settings({ autopilotRun: { mode: 'budget-aware' } })
+    estimateAnswer = { ...answer(0.8), samples: [0.02, 0.02, 0.02, 0.02] }
+    const autopilot = await hint()
+    await vi.waitFor(() =>
+      expect(autopilot.getAttribute('title')).toBe(
+        `${BASE}. Mode: Budget-aware (Settings → Autopilot). This Epic: 2 Waves, 3 Tickets left. 1 Ticket without a Wave is not counted. Not enough data for a forecast: fewer than 5 past Waves with fresh Limits. Used now: 80%, resets in 2 d 5 h`,
+      ),
+    )
+  })
+
+  it('an answer of the old form, without samples, does not parse: the hint ends with the mode', async () => {
     estimateAnswer = { estimate: null, sevenDay: null }
-    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
-    render(<AutopilotAction subject={epicSubject()} />)
-    const autopilot = await screen.findByRole('button', { name: 'Autopilot' })
-    await vi.waitFor(() => expect(autopilot.getAttribute('title')).toMatch(/until the run ends\. No estimate for a Wave yet: fewer than 3 past Waves with fresh Limits\. Used now: unknown$/))
+    const autopilot = await hint()
+    await vi.waitFor(() => expect(calls.some((call) => call.channel === 'autopilot.estimate')).toBe(true))
+    await vi.waitFor(() => expect(autopilot.getAttribute('title')).toBe(`${BASE}. Mode: Fastest (Settings → Autopilot)`))
   })
 })
 

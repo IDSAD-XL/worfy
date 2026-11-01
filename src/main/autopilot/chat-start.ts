@@ -16,9 +16,12 @@
 //   nothing. A refusal that comes only then is told on the Orchestrator's Session as a notice
 //   (lateRefusalNotice), since the tool's answer has gone.
 // - Who started the run (`command` or `tool`) goes to Autopilot.start, which keeps it on the run;
-//   the journal gets it with ticket 11.
+//   the journal gets it with ticket 11. So does the Run mode the person chose in the tool's dialog
+//   (worfy-resource-planner ticket 06); a command typed in a chat names none and starts in the default
+//   mode of Settings, as the Autopilot button does.
 import type { AgentEvent, SessionState } from '../../shared/agent/events'
 import type { BackgroundTask } from '../../shared/agent/background-tasks'
+import type { RunMode } from '../../shared/autopilot/run-mode'
 import type { AutopilotState } from '../../shared/ipc/autopilot'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { ORCHESTRATOR_HAS_QUEUE, ORCHESTRATOR_HAS_TASKS } from '../agent/orchestrator'
@@ -52,6 +55,11 @@ export interface ChatStartRequest {
   by: 'command' | 'tool'
   /** The Session whose turn asked, when known: the Project's Orchestrator in a turn makes the run wait for its end. */
   session?: string | null
+  /**
+   * The Run mode the person chose in the dialog of the tool (worfy-resource-planner ticket 06); absent:
+   * the default mode of Settings at the start. A command typed in a chat names none.
+   */
+  mode?: RunMode
 }
 
 export type ChatStartAnswer =
@@ -89,7 +97,7 @@ export class ChatStarts {
 
   /** Checks the Epic and the Tickets, refuses while a run goes on, and starts the run, now or after the asking turn. */
   async startFromChat(request: ChatStartRequest): Promise<ChatStartAnswer> {
-    const { projectId, epic, tickets, by } = request
+    const { projectId, epic, tickets, by, mode } = request
     const busy = this.busy(projectId)
     if (busy !== null) return { kind: 'refused', message: busy }
     let model: WorkflowModel
@@ -101,8 +109,8 @@ export class ChatStarts {
     if (model.error !== null) return { kind: 'refused', message: `Cannot read the workflow: ${model.error.message}` }
     const refusal = startRefusal(model, epic, tickets)
     if (refusal !== null) return { kind: 'refused', message: refusal }
-    // The same arguments as the button's start (src/main/ipc/autopilot.ts), with the list and who asked.
-    const options: AutopilotStartOptions = { override: false, by, ...(tickets === undefined ? {} : { tickets }) }
+    // The same arguments as the button's start (src/main/ipc/autopilot.ts), with the list, who asked and the mode.
+    const options: AutopilotStartOptions = { override: false, by, ...(tickets === undefined ? {} : { tickets }), ...(mode === undefined ? {} : { mode }) }
 
     const session = request.session ?? null
     let ownTurn: boolean

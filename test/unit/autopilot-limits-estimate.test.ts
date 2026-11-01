@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JournalEvent, JournalLimits } from '../../src/shared/autopilot/journal'
 import { ESTIMATE_FRESH_MS, ESTIMATE_MIN_WAVES, ESTIMATE_WAVES, estimateAnswer, waveEstimate, waveEstimateLine } from '../../src/shared/autopilot/limits-estimate'
+import { DURATION_WAVES } from '../../src/shared/autopilot/wave-duration'
 import { autopilotEstimateAnswerSchema } from '../../src/shared/ipc/autopilot'
 
 const RUN = '2026-10-06T01-02-03-004Z-a1b2c3'
@@ -161,9 +162,46 @@ describe('estimateAnswer', () => {
     const runs = [run(wave(1, { at: T0, from: 0.1, to: 0.12 }), wave(2, { at: T0 + 2 * HOUR, from: 0.12, to: 0.14 }), wave(3, { at: T0 + 4 * HOUR, from: 0.14, to: 0.16 }))]
     const week = { utilization: 0.41, resetsAt: 1791795600, status: null, receivedAt: T0, source: 'usage' as const }
     const answer = estimateAnswer(runs, { windows: { seven_day: week, five_hour: { ...week, utilization: 0.9 } } })
-    expect(answer).toEqual({ estimate: { perTicket: expect.closeTo(0.02, 10) as unknown as number, waves: 3 }, sevenDay: { utilization: 0.41, resetsAt: 1791795600 } })
+    expect(answer).toMatchObject({ estimate: { perTicket: expect.closeTo(0.02, 10) as unknown as number, waves: 3 }, sevenDay: { utilization: 0.41, resetsAt: 1791795600, receivedAt: T0 } })
     expect(autopilotEstimateAnswerSchema.safeParse(answer).success).toBe(true)
-    expect(estimateAnswer([], { windows: {} })).toEqual({ estimate: null, sevenDay: null })
+    expect(estimateAnswer([], { windows: {} })).toEqual({ estimate: null, sevenDay: null, samples: [], durations: { p90: null, samples: 0 } })
     expect(autopilotEstimateAnswerSchema.safeParse(estimateAnswer([], { windows: {} })).success).toBe(true)
+  })
+
+  it('answers the per-Ticket samples and the Wave duration of the journals for the Epic forecast (worfy-resource-planner ticket 06)', () => {
+    // Six Waves of an hour each: the first of two Tickets (10 % in all), then 1 % … 5 % of one Ticket each.
+    const runs = [
+      run(wave(1, { at: T0, tickets: ['01', '02'], from: 0.1, to: 0.2 }), wave(2, { at: T0 + 2 * HOUR, from: 0.2, to: 0.21 })),
+      run(wave(1, { at: T0 + 4 * HOUR, from: 0.21, to: 0.23 }), wave(2, { at: T0 + 6 * HOUR, from: 0.23, to: 0.26 }), wave(3, { at: T0 + 8 * HOUR, from: 0.26, to: 0.3 })),
+      run(wave(1, { at: T0 + 10 * HOUR, from: 0.3, to: 0.35 })),
+    ]
+    const answer = estimateAnswer(runs, { windows: {} })
+    expect(answer.samples.map((each) => Math.round(each * 1000) / 1000)).toEqual([0.05, 0.01, 0.02, 0.03, 0.04, 0.05])
+    expect(answer.durations).toEqual({ p90: HOUR, samples: 6 })
+    expect(answer.sevenDay).toBeNull()
+    expect(autopilotEstimateAnswerSchema.safeParse(answer).success).toBe(true)
+  })
+
+  it('journals without a Wave give no samples and no duration', () => {
+    const answer = estimateAnswer([run(), [{ ...common(T0), kind: 'run-stopped', reason: 'user-stop' } as JournalEvent]], { windows: {} })
+    expect(answer.samples).toEqual([])
+    expect(answer.durations).toEqual({ p90: null, samples: 0 })
+    expect(answer.estimate).toBeNull()
+  })
+
+  it('sevenDay.receivedAt is when the number of the 7-day window came, not of the 5-hour one; the old fields stay', () => {
+    const week = { utilization: 0.4, resetsAt: 1791795600, status: null, receivedAt: T0 - 25 * 60_000, source: 'statusline' as const }
+    const answer = estimateAnswer([], { windows: { seven_day: week, five_hour: { ...week, receivedAt: T0 } } })
+    expect(answer.sevenDay).toEqual({ utilization: 0.4, resetsAt: 1791795600, receivedAt: T0 - 25 * 60_000 })
+    // Without a 5-hour window (the owner's subscription has none) the answer is the same.
+    expect(estimateAnswer([], { windows: { seven_day: week } }).sevenDay).toEqual(answer.sevenDay)
+  })
+
+  it('the schema bounds the lists: more samples than ESTIMATE_WAVES, or a duration of more samples than DURATION_WAVES, do not parse', () => {
+    const base = estimateAnswer([], { windows: {} })
+    expect(autopilotEstimateAnswerSchema.safeParse({ ...base, samples: Array.from({ length: ESTIMATE_WAVES }, () => 0.01) }).success).toBe(true)
+    expect(autopilotEstimateAnswerSchema.safeParse({ ...base, samples: Array.from({ length: ESTIMATE_WAVES + 1 }, () => 0.01) }).success).toBe(false)
+    expect(autopilotEstimateAnswerSchema.safeParse({ ...base, durations: { p90: HOUR, samples: DURATION_WAVES + 1 } }).success).toBe(false)
+    expect(autopilotEstimateAnswerSchema.safeParse({ ...base, samples: [-0.01] }).success).toBe(false)
   })
 })

@@ -140,6 +140,23 @@ describe('startFromChat', () => {
     ])
   })
 
+  it('passes the Run mode of the request on to the start, and none without one (worfy-resource-planner ticket 06)', async () => {
+    const s = standIn()
+    const starts = new ChatStarts(s.deps)
+    await starts.startFromChat({ projectId: PROJECT, epic: EPIC, by: 'tool', mode: 'start-window' })
+    s.running = null
+    await starts.startFromChat({ projectId: PROJECT, epic: EPIC, tickets: [5], by: 'tool', mode: 'fastest' })
+    s.running = null
+    await starts.startFromChat({ projectId: PROJECT, epic: EPIC, by: 'command' })
+    expect(s.starts).toEqual([
+      [PROJECT, EPIC, { override: false, by: 'tool', mode: 'start-window' }],
+      [PROJECT, EPIC, { override: false, by: 'tool', tickets: [5], mode: 'fastest' }],
+      [PROJECT, EPIC, { override: false, by: 'command' }],
+    ])
+    // Without a mode the options have no `mode` key at all: the run takes the default of Settings.
+    expect(Object.keys(s.starts[2]![2]!)).not.toContain('mode')
+  })
+
   it('answers a refusal of Autopilot.start in its own words, and a start that lost to another one with the running hint', async () => {
     const s = standIn()
     s.deps.autopilot.start = () => Promise.reject(new Error('The Orchestrator is in a turn'))

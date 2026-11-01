@@ -1,7 +1,7 @@
 # 06 — Диалог старта и tooltip кнопки Autopilot
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T13:08Z
 Branch: worfy-resource-planner/06
 Blocked by: 03, 04, 05
 Source: [spec.md](../spec.md), «Цель», п. 1, «Решения» (Q7, Q14, Q16), «Режим запуска» («Выбор»), «Что видит пользователь» (строка прогноза, режим, диалог `autopilot_start`), «Не решено» (выбрано без решения, п. 1, 2, 6, 7)
@@ -40,23 +40,23 @@ Source: [spec.md](../spec.md), «Цель», п. 1, «Решения» (Q7, Q14,
 
 ## Готово, когда
 
-- [ ] Contract test (`test/contract/autopilot-start-tool.test.ts`, box — stub): четыре кнопки в порядке spec, ` (default)`
+- [x] Contract test (`test/contract/autopilot-start-tool.test.ts`, box — stub): четыре кнопки в порядке spec, ` (default)`
       у режима из Settings, `Cancel` по умолчанию; ответ «Start: Start window» запускает Run, чей `run-started.mode` —
       `start-window`; «Cancel» — ничего; `detail` содержит строки `Forecast:` и `Fastest:` для Journal-ов fixture.
-- [ ] Test `confirmationOptions` (там же): «мало данных» — без строк Budget-aware и Fastest; Run по названным — прогноз по ним.
-- [ ] Unit test `chat-start`: `mode` доходит до `AutopilotStartOptions`; без него — без поля.
-- [ ] Unit test `estimateAnswer` (`test/unit/autopilot-limits-estimate.test.ts`): `samples` и `durations` по Journal-ам
+- [x] Test `confirmationOptions` (там же): «мало данных» — без строк Budget-aware и Fastest; Run по названным — прогноз по ним.
+- [x] Unit test `chat-start`: `mode` доходит до `AutopilotStartOptions`; без него — без поля.
+- [x] Unit test `estimateAnswer` (`test/unit/autopilot-limits-estimate.test.ts`): `samples` и `durations` по Journal-ам
       test-а; Journal-ы без Wave — пустые; `sevenDay.receivedAt` — время числа Limits; прежние поля — как раньше.
-- [ ] Unit test tooltip (`test/unit/canvas-actions.test.tsx`): число `seven_day` старше 30 минут — без рекомендации и
+- [x] Unit test tooltip (`test/unit/canvas-actions.test.tsx`): число `seven_day` старше 30 минут — без рекомендации и
       предупреждения; то же число моложе 30 минут — с рекомендацией.
-- [ ] e2e (`test/e2e/autopilot.spec.ts`): строка tooltip кнопки без прошлых Wave — режим и «Not enough data for a
+- [x] e2e (`test/e2e/autopilot.spec.ts`): строка tooltip кнопки без прошлых Wave — режим и «Not enough data for a
       forecast…» (меняет ожидание `:272-275`); с пятью прошлыми Wave в `WORFY_DATA_DIR`, свежим `limits.json` и
       режимом по умолчанию Budget-aware в app settings (`autopilotRun.mode: 'budget-aware'`) — `This Epic: …` и
       `Recommended: …`; тот же fixture в режиме Fastest — `Only K of W Waves…` вместо рекомендации; Start window в Settings — строка окна. Снимки обеих тем в
       `.scratch/worfy-resource-planner/evidence/06/`.
-- [ ] Test-ы краснеют на mutant-ах: кнопка `Cancel` перестаёт быть по умолчанию; ответ кнопки сопоставлен не тому режиму;
+- [x] Test-ы краснеют на mutant-ах: кнопка `Cancel` перестаёт быть по умолчанию; ответ кнопки сопоставлен не тому режиму;
       tooltip берёт режим не из Settings.
-- [ ] `node scripts/check-cyrillic.mjs` — exit 0.
+- [x] `node scripts/check-cyrillic.mjs` — exit 0.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (e2e по таблице).
 
 ## Тесты
@@ -81,3 +81,47 @@ Source: [spec.md](../spec.md), «Цель», п. 1, «Решения» (Q7, Q14,
   `test/unit/autopilot-chat-start.test.ts`, `test/unit/canvas-actions.test.tsx`, `test/e2e/autopilot.spec.ts`
 
 Только читать: `src/shared/autopilot/forecast.ts`, `forecast-lines.ts`, `wave-duration.ts`, `run-mode.ts` (Ticket-ы 01–05).
+
+## Итог
+
+- `src/shared/autopilot/limits-estimate.ts` — `estimateAnswer` отвечает ещё `samples` (`waveSamples`), `durations`
+  (`waveDurationP90`) и `sevenDay.receivedAt` (время числа окна `seven_day`, не `five_hour`); прежние поля как были.
+  `answerLimits(sevenDay)` — `LimitsState` из ответа для строк прогноза (`forecast-lines.ts` берёт `LimitsState`).
+- `src/shared/ipc/autopilot.ts` — схема ответа `autopilot.estimate`: `samples` не длиннее `ESTIMATE_WAVES`, `durations.samples`
+  не больше `DURATION_WAVES`, доли неотрицательные; `sevenDay.receivedAt` обязателен. Ответ старой формы не проходит
+  схему — tooltip тогда кончается строкой режима.
+- `src/renderer/canvas/actions/AutopilotAction.tsx` — строка Ticket-а 40 заменена: `modeLine` режима по умолчанию из
+  Settings (каждое поле — отдельным selector-ом `useAppSettings`), `forecastLine`, затем для режима: рекомендация, когда
+  budget действует (Budget-aware, Start window с включённым budget), предупреждение, когда нет, строка окна в Start window
+  (`forecastHint`). `remainingWaves` — по Ticket-ам кадра Epic-а; bootstrap — `useMemo` по `samples`, Ticket-ам и Epic-у,
+  строки — `useMemo` по входам (и по минуте `useNow`).
+- `src/main/autopilot/chat-confirm.ts` — кнопки `Start: Fastest`, `Start: Budget-aware`, `Start: Start window`, `Cancel`
+  (порядок `RUN_MODES`), ` (default)` у режима из Settings, `defaultId` и `cancelId` — `Cancel`; ответ — режим
+  (`RUN_MODES[response]`, иначе `cancel`). `detail`: первый абзац, строки `dialogLines`, абзац про 10 минут. Прогноз считает
+  main: Journal-ы `readRecentRuns`, Ticket-ы — тот же свежий `readWorkflow`, что проверяет старт (у Run по названным —
+  только они), Limits — `appLimits().snapshot()`, reserve и окно — Settings. Journal-ы не прочитались — диалог без
+  строк прогноза, предупреждение в log. `START_BUTTON` заменён на `startButton(mode, defaultMode)`.
+- `src/main/autopilot/chat-start.ts` — `ChatStartRequest.mode` идёт в `AutopilotStartOptions.mode`; без него поля нет
+  (команда в чате стартует в режиме по умолчанию).
+- `docs/features/autopilot.md` — tooltip кнопки, диалог `autopilot_start`, режим из диалога в «The Run mode».
+- Снимки обеих тем: [`../evidence/06/`](../evidence/06/) — шапка кадра Epic-а с активной кнопкой Autopilot при fixture
+  e2e (Budget-aware, пять прошлых Wave). Сам tooltip и нативный диалог на снимок Playwright не попадают: текст tooltip
+  проверяется по атрибуту `title` в e2e, текст диалога — в contract test. Новых цветов и элементов нет, контраст шапки
+  не менялся.
+
+Решено без владельца, подтвердить:
+- Строка режима есть в tooltip всегда, когда кнопка активна, и без ответа `autopilot.estimate` (тогда строк прогноза нет).
+- Ответ инструмента после старта из диалога прежний (`Autopilot started Epic demo.`), режим в нём не называется.
+- Строки tooltip идут через «. » одной строкой, как строка Ticket-а 40, без переносов.
+
+Mutant-ы (каждый — красный test; скрипт в scratchpad, 13 из 13 убиты):
+- `Cancel` не по умолчанию (`defaultId: 0`) — 2 красных contract («"Cancel" — and Enter or Escape…», первый test диалога).
+- Ответ кнопки сопоставлен не тому режиму (обратный порядок) — 7 красных contract (в том числе «button %i starts in the mode…»).
+- Tooltip берёт режим от переключателя budget, а не из Settings — 6 красных unit tooltip.
+- Диалог считает весь Epic в Run по названным — красный «a run over named Tickets forecasts only those».
+- Прогноз не попадает в `detail` — 4 красных contract; ` (default)` ни у одной кнопки — 3 красных contract.
+- `chat-start` теряет `mode` — красный unit; `receivedAt` берётся у `five_hour` — красный unit; пустые `samples` — красный unit.
+- Tooltip: Start window без учёта переключателя budget — красный; рекомендация во всех режимах — 3 красных; нет строки
+  окна — 2 красных; reserve в процентах вместо доли — 3 красных.
+
+Оценка токенов автора: ~190 тыс.
