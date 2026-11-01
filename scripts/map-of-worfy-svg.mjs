@@ -10,12 +10,13 @@
 // What differs from the live diagram (src/renderer/guide/scene/LivingScene.tsx): the SVG stands on a
 // ground of its own (--surface), so its text has a known background on any page; every Edge label is
 // shown at once, since nothing can be lit; there are no moving dots and no step player.
-// test/unit/map-of-worfy-svg.test.ts fails when the committed files differ from what this script
+// test/unit/map-of-worfy-svg.test.tsx fails when the committed files differ from what this script
 // writes, and when a text of either file is below 4.5:1 against its ground.
 //
 // Run: node scripts/map-of-worfy-svg.mjs (Node 24 strips the types of the .ts files it imports).
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { MAP_SPEC } from '../src/renderer/guide/topics/map-of-worfy/spec.ts'
 import { CHIP_HEIGHT, HEADER_HEIGHT, NODE_HEIGHT, NODE_WIDTH, TAB_HEIGHT, boxOf, edgeId, edgeShape, noteLines } from '../src/renderer/guide/scene/model.ts'
@@ -260,6 +261,6 @@ export function renderMapSvg(scheme) {
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) {
   for (const scheme of SCHEMES) {
     writeFileSync(join(root, svgPath(scheme)), renderMapSvg(scheme).svg)
-    console.log(`wrote ${svgPath(scheme)}`)
+    process.stdout.write(`wrote ${svgPath(scheme)}\n`)
   }
 }
