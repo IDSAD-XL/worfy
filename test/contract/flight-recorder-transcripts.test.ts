@@ -9,14 +9,18 @@
 // The night-Run fixture (test/fixtures/flight-recorder/night-run/) is read in place; tests that add
 // files copy it into a temporary home of their own.
 import { realpathSync, symlinkSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readdir, readFile, realpath, stat, utimes, writeFile } from 'node:fs/promises'
+import { appendFile, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { projectDirName } from '../../src/main/claude-home/registry'
-import { readRunTranscripts, streamLines, TranscriptCompactor, WAVE_SLACK_MS, type ReadLines, type TranscriptRun } from '../../src/main/flight-recorder/transcripts'
+import { readNewLines } from '../../src/main/claude-home/tail'
+import { TailLines } from '../../src/main/flight-recorder/service'
+import { PROMPT_LEAD_MS, readRunTranscripts, streamLines, TranscriptCompactor, TranscriptParses, WAVE_SLACK_MS, type ReadLines, type TranscriptRun } from '../../src/main/flight-recorder/transcripts'
 import { canonicalWorktree } from '../../src/main/flight-recorder/worktree-path'
 import { comparablePath } from '../../src/shared/flight-recorder/from-gate'
+import { agentIdsIn, SubagentParse, TranscriptParse, transcriptFacts, type SubagentLines } from '../../src/shared/flight-recorder/from-transcript'
+import { shapedSession, writeShapedSession } from './flight-recorder-shaped-transcript'
 import { removeTestTree } from '../remove'
 
 const FIXTURE = join(__dirname, '..', 'fixtures', 'flight-recorder', 'night-run', 'claude')
@@ -425,5 +429,325 @@ describe('the compacted lines a live Run keeps (TranscriptCompactor, worfy-fligh
     expect(full.turns.length).toBeGreaterThan(0)
     expect(await readRunTranscripts(run, { env: { WORFY_CLAUDE_HOME: claude }, readLines: small.read })).toEqual(full)
     expect(small.chars()).toBeLessThan(raw.chars() / 100)
+  })
+})
+
+// The incremental facts of a live Run (worfy-flight-recorder ticket 27): a parse that keeps its state
+// takes only the lines that came since the last step, and gives the facts a parse of all the lines
+// gives, field for field, wherever the lines are cut.
+describe('the facts of a transcript parsed in parts (TranscriptParse, worfy-flight-recorder ticket 27)', () => {
+  const NIGHT_DIR = join(FIXTURE, 'projects', DIR)
+
+  /** A file's lines compacted, as a live Run keeps them (TranscriptCompactor). */
+  const compacted = async (file: string): Promise<string[]> => {
+    const compactor = new TranscriptCompactor()
+    return ((await streamLines(file)) ?? []).flatMap((each) => compactor.line(each) ?? [])
+  }
+
+  /** The night Run's Orchestrator lines and its Subagents' files, compacted as a live Run reads them. */
+  async function nightFiles(): Promise<{ lines: string[]; subagents: Map<string, SubagentLines> }> {
+    const lines = await compacted(join(NIGHT_DIR, `${SESSION}.jsonl`))
+    const subagents = new Map<string, SubagentLines>()
+    for (const name of await readdir(join(NIGHT_DIR, SESSION, 'subagents'))) {
+      const id = /^agent-([a-z0-9]+)\.jsonl$/u.exec(name)?.[1]
+      if (id === undefined) continue
+      const meta = await readFile(join(NIGHT_DIR, SESSION, 'subagents', `agent-${id}.meta.json`), 'utf8').then(JSON.parse, () => null)
+      subagents.set(id, { meta, lines: await compacted(join(NIGHT_DIR, SESSION, 'subagents', name)) })
+    }
+    return { lines, subagents }
+  }
+
+  /** A parse fed in the given parts, its Subagents' files cut at the same share of their lines. */
+  function inParts(lines: readonly string[], subagents: ReadonlyMap<string, SubagentLines>, cuts: readonly number[]) {
+    const parse = new TranscriptParse()
+    const own = new Map([...subagents].map(([id]) => [id, new SubagentParse()]))
+    const taken = new Map([...subagents].map(([id]) => [id, 0]))
+    let from = 0
+    for (const cut of [...cuts, lines.length]) {
+      parse.append(lines.slice(from, cut))
+      for (const [id, file] of subagents) {
+        const upTo = lines.length === 0 ? file.lines.length : Math.round((file.lines.length * cut) / lines.length)
+        own.get(id)!.append(file.lines.slice(taken.get(id), upTo))
+        taken.set(id, upTo)
+      }
+      from = cut
+    }
+    return { parse, subagents: new Map([...subagents].map(([id, file]) => [id, { meta: file.meta, parse: own.get(id)! }])) }
+  }
+
+  it('on the night Run, cut at every line boundary, gives the facts of the whole transcript', async () => {
+    const { lines, subagents } = await nightFiles()
+    const tickets = NIGHT.waves.flatMap((wave) => wave.tickets)
+    const whole = transcriptFacts({ session: SESSION, epic: NIGHT.epic, tickets, lines, subagents })
+    expect(whole.work).toHaveLength(15)
+    for (let cut = 0; cut <= lines.length; cut++) {
+      const parsed = inParts(lines, subagents, [cut])
+      expect(parsed.parse.facts({ session: SESSION, epic: NIGHT.epic, tickets, subagents: parsed.subagents }), `cut at line ${cut}`).toEqual(whole)
+    }
+  })
+
+  it('on a small Session shaped like a real one, cut at every line boundary, gives the facts of the whole', () => {
+    // Some of its records name no folder (queue operations, a verifier's call): a part may start with one.
+    const session = shapedSession({ sessionId: SESSION, cwd: ROOT, epic: 'e', turns: 60, start: Date.parse('2026-11-01T00:00:00.000Z'), toolResultBytes: 20, promptBytes: 40, reportBytes: 20, subagentRecords: 6, subagentRecordBytes: 20, seed: 9 })
+    expect(session.lines.filter((each) => !each.includes('"cwd"')).length).toBeGreaterThan(5)
+    const whole = transcriptFacts({ session: SESSION, epic: 'e', tickets: session.tickets, lines: session.lines, subagents: session.subagents })
+    for (let cut = 0; cut <= session.lines.length; cut++) {
+      const parsed = inParts(session.lines, session.subagents, [cut])
+      expect(parsed.parse.facts({ session: SESSION, epic: 'e', tickets: session.tickets, subagents: parsed.subagents }), `cut at line ${cut}`).toEqual(whole)
+    }
+  })
+
+  it('on a Session shaped like a real one, step by step: after each part, the facts of all the lines so far', () => {
+    const session = shapedSession({ sessionId: SESSION, cwd: ROOT, epic: 'e', turns: 160, start: Date.parse('2026-11-01T00:00:00.000Z'), toolResultBytes: 50, promptBytes: 80, reportBytes: 40, subagentRecordBytes: 20, seed: 7 })
+    expect(session.agents).toBeGreaterThan(40)
+    const ms = (line: string): number => Date.parse((JSON.parse(line) as { timestamp: string }).timestamp)
+    const parse = new TranscriptParse()
+    const own = new Map<string, { parse: SubagentParse; taken: number }>()
+    // Parts of 1 to 40 lines, the same every run.
+    let seed = 11
+    const next = () => (seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648) % 40
+    let from = 0
+    let steps = 0
+    while (from < session.lines.length) {
+      const cut = Math.min(session.lines.length, from + 1 + next())
+      parse.append(session.lines.slice(from, cut))
+      from = cut
+      steps += 1
+      // What lies on disk at this point: the Orchestrator's lines so far, each Subagent's records up to
+      // the last time they name, and the meta of a Subagent once its first record is there, one part late.
+      const upTo = ms(session.lines[cut - 1]!)
+      const prefix = new Map<string, SubagentLines>()
+      const parts = new Map<string, { meta: unknown; parse: SubagentParse }>()
+      for (const [id, file] of session.subagents) {
+        const count = file.lines.filter((line) => ms(line) <= upTo).length
+        if (count === 0) continue
+        const entry = own.get(id) ?? { parse: new SubagentParse(), taken: 0 }
+        entry.parse.append(file.lines.slice(entry.taken, count))
+        const late = entry.taken === 0
+        entry.taken = count
+        own.set(id, entry)
+        const meta = late ? null : file.meta
+        prefix.set(id, { meta, lines: file.lines.slice(0, count) })
+        parts.set(id, { meta, parse: entry.parse })
+      }
+      // The Tickets the Waves so far named: a new Wave adds its Tickets to the Run.
+      const lines = session.lines.slice(0, cut)
+      const tickets = session.tickets.slice(0, 2 * lines.filter((line) => line.includes('<command-name>/worfy:epic-wave')).length)
+      const whole = transcriptFacts({ session: SESSION, epic: 'e', tickets, lines, subagents: prefix })
+      expect(parse.facts({ session: SESSION, epic: 'e', tickets, subagents: parts }), `after line ${cut}`).toEqual(whole)
+      const inside = (at: string) => Date.parse(at) >= upTo - 3_600_000
+      expect([...parse.agentIdsIn(inside)], `ids after line ${cut}`).toEqual([...agentIdsIn(lines, inside)])
+    }
+    expect(steps).toBeGreaterThan(50)
+    const last = transcriptFacts({ session: SESSION, epic: 'e', tickets: session.tickets, lines: session.lines, subagents: session.subagents })
+    // The Session holds what it is shaped for: reworks, verdicts, failures, restarts and turns with Tickets.
+    expect(last.work.some((fact) => fact.id.endsWith('#2'))).toBe(true)
+    expect(last.work.some((fact) => fact.outcome === 'rejected')).toBe(true)
+    expect(last.work.some((fact) => fact.outcome === 'failed')).toBe(true)
+    expect(last.work.some((fact) => fact.outcome === 'cut-off')).toBe(true)
+    expect(last.work.some((fact) => fact.end === null)).toBe(true)
+    expect(last.turns.filter((turn) => turn.tickets.length > 0).length).toBeGreaterThan(30)
+  })
+
+  it('at random cuts of a large shaped Session, in many parts at once, gives the facts of the whole', () => {
+    const session = shapedSession({ sessionId: SESSION, cwd: ROOT, epic: 'e', turns: 800, start: Date.parse('2026-11-01T00:00:00.000Z'), toolResultBytes: 50, promptBytes: 80, reportBytes: 40, subagentRecordBytes: 20, seed: 3 })
+    const whole = transcriptFacts({ session: SESSION, epic: 'e', tickets: session.tickets, lines: session.lines, subagents: session.subagents })
+    let seed = 5
+    const next = () => (seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648) % session.lines.length
+    for (let round = 0; round < 12; round++) {
+      const cuts = [...new Set(Array.from({ length: 1 + (round % 7) }, next))].sort((a, b) => a - b)
+      const parsed = inParts(session.lines, session.subagents, cuts)
+      expect(parsed.parse.facts({ session: SESSION, epic: 'e', tickets: session.tickets, subagents: parsed.subagents }), `cuts ${cuts.join(', ')}`).toEqual(whole)
+    }
+    // Asked for a window only, it builds the facts that start in it, the same as the whole has. The
+    // window starts at a rework: the agent's first span lies before it and stays out.
+    const from = Date.parse(whole.work.filter((fact) => fact.id.endsWith('#2'))[0]!.start)
+    const inside = (at: string) => Date.parse(at) >= from && Date.parse(at) <= from + 6 * 3_600_000
+    const parsed = inParts(session.lines, session.subagents, [Math.floor(session.lines.length / 3)])
+    const windowed = parsed.parse.facts({ session: SESSION, epic: 'e', tickets: session.tickets, subagents: parsed.subagents, inside })
+    expect(windowed).toEqual({ work: whole.work.filter((fact) => inside(fact.start)), turns: whole.turns.filter((turn) => inside(turn.start)) })
+    expect(windowed.work.length).toBeGreaterThan(10)
+    expect(windowed.work.length).toBeLessThan(whole.work.length)
+    expect(windowed.work.some((fact) => fact.id.endsWith('#2') && !windowed.work.some((other) => other.id === fact.id.replace(/#2$/u, '#1')))).toBe(true)
+  })
+
+  it('the facts of a parse are the same each time they are asked for', () => {
+    const session = shapedSession({ sessionId: SESSION, cwd: ROOT, epic: 'e', turns: 100, start: Date.parse('2026-11-01T00:00:00.000Z'), toolResultBytes: 50, promptBytes: 80, reportBytes: 40, subagentRecordBytes: 20 })
+    const parsed = inParts(session.lines, session.subagents, [])
+    const input = { session: SESSION, epic: 'e', tickets: session.tickets, subagents: parsed.subagents }
+    const first = parsed.parse.facts(input)
+    // The reader in main sets the Ticket of a fact it places: the parse's own state stays as it was.
+    for (const fact of first.work) fact.ticket = 'e/99'
+    expect(parsed.parse.facts(input)).toEqual(transcriptFacts({ session: SESSION, epic: 'e', tickets: session.tickets, lines: session.lines, subagents: session.subagents }))
+  })
+})
+
+describe('the reader on a live Run keeps one parse per file (TranscriptParses, worfy-flight-recorder ticket 27)', () => {
+  async function liveHome(name: string) {
+    const claude = await home(name, false)
+    const dir = join(claude, 'projects', DIR)
+    await mkdir(dir, { recursive: true })
+    const session = 'cccccccc-0000-4000-8000-000000000027'
+    const shaped = shapedSession({ sessionId: session, cwd: ROOT, epic: 'e', turns: 120, start: Date.parse('2026-11-01T00:00:00.000Z'), toolResultBytes: 200, promptBytes: 200, reportBytes: 100, subagentRecordBytes: 50 })
+    writeShapedSession(dir, shaped, session)
+    const run: TranscriptRun = { epic: 'e', root: ROOT, startedAt: new Date(Date.parse('2026-11-01T00:00:00.000Z') - 1_000).toISOString(), stoppedAt: null, waves: [{ number: 1, startedAt: '2026-11-01T00:00:00.000Z', finishedAt: null, tickets: shaped.tickets, session }] }
+    return { claude, dir, session, shaped, run, file: join(dir, `${session}.jsonl`) }
+  }
+  const answer = (at: string, text: string) => `${line({ type: 'assistant', timestamp: at, cwd: ROOT, isSidechain: false, message: { role: 'assistant', content: [{ type: 'text', text }] } })}\n`
+
+  it('parses only the lines appended since the last read, with the facts of a whole read', async () => {
+    const world = await liveHome('live-parse')
+    const tail = new TailLines()
+    const options = { env: { WORFY_CLAUDE_HOME: world.claude }, readLines: tail.read, parses: tail.parses }
+    const whole = () => readRunTranscripts(world.run, { env: { WORFY_CLAUDE_HOME: world.claude } })
+    expect(await readRunTranscripts(world.run, options)).toEqual(await whole())
+    expect(tail.parses.last.get(world.file)).toEqual({ from: 'start', lines: world.shaped.lines.length })
+    // Two answers and a new prompt: three lines parsed, not the file.
+    const end = new Date(world.shaped.end + 1_000).toISOString()
+    await appendFile(world.file, answer(end, 'one') + answer(end, 'two') + `${line({ type: 'user', timestamp: end, cwd: ROOT, isSidechain: false, message: { role: 'user', content: '/worfy:epic-wave tickets 90 of epic e' } })}\n`)
+    expect(await readRunTranscripts(world.run, options)).toEqual(await whole())
+    expect(tail.parses.last.get(world.file)).toEqual({ from: 'cursor', lines: 3 })
+    // Nothing new: nothing parsed.
+    expect(await readRunTranscripts(world.run, options)).toEqual(await whole())
+    expect(tail.parses.last.get(world.file)).toEqual({ from: 'cursor', lines: 0 })
+    // A Subagent's file grew: only its new line.
+    const [id] = [...world.shaped.subagents.keys()].slice(-1)
+    const agentFile = join(world.dir, world.session, 'subagents', `agent-${id}.jsonl`)
+    await appendFile(agentFile, `${JSON.stringify({ type: 'assistant', timestamp: end, cwd: ROOT, isSidechain: true, message: { role: 'assistant', content: [{ type: 'text', text: 'more' }] } })}\n`)
+    expect(await readRunTranscripts(world.run, options)).toEqual(await whole())
+    expect(tail.parses.last.get(agentFile)).toEqual({ from: 'cursor', lines: 1 })
+  })
+
+  it('a truncated or replaced file is parsed again from its start', async () => {
+    const world = await liveHome('live-reset')
+    const tail = new TailLines()
+    const options = { env: { WORFY_CLAUDE_HOME: world.claude }, readLines: tail.read, parses: tail.parses }
+    const whole = () => readRunTranscripts(world.run, { env: { WORFY_CLAUDE_HOME: world.claude } })
+    await readRunTranscripts(world.run, options)
+    // Truncated to its first half, then a line appended: what was parsed of the rest is gone.
+    const half = world.shaped.lines.slice(0, Math.floor(world.shaped.lines.length / 2))
+    await writeFile(world.file, half.join('\n') + '\n')
+    const shorter = await readRunTranscripts(world.run, options)
+    expect(shorter).toEqual(await whole())
+    expect(tail.parses.last.get(world.file)).toEqual({ from: 'start', lines: half.length })
+    expect(shorter.work.length).toBeLessThan((await readRunTranscripts(world.run, { env: { WORFY_CLAUDE_HOME: world.claude }, readLines: async (file) => (file === world.file ? world.shaped.lines : streamLines(file)) })).work.length)
+    // Replaced by another file of the same length or longer: read again from its start, not on from the cursor.
+    const other = join(world.dir, 'other.tmp')
+    await writeFile(other, world.shaped.lines.join('\n') + '\n')
+    await rename(other, world.file)
+    expect(await readRunTranscripts(world.run, options)).toEqual(await whole())
+    expect(tail.parses.last.get(world.file)).toEqual({ from: 'start', lines: world.shaped.lines.length })
+  })
+
+  it('a read that fails on a later chunk keeps nothing of it: the next read takes those lines once', async () => {
+    const claude = await home('tail-fail', false)
+    const file = join(claude, 'one.jsonl')
+    const rec = (n: number) => `${line({ type: 'assistant', timestamp: new Date(Date.parse('2026-11-01T00:00:00.000Z') + n * 1_000).toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: `answer ${n} ${'x'.repeat(40)}` }] } })}\n`
+    await writeFile(file, rec(1) + rec(2))
+    // Chunks of at most 100 bytes: one line each; the second chunk of the second read fails.
+    let calls = 0
+    let failAt = -1
+    const tail: typeof readNewLines = async (path, cursor) => {
+      calls += 1
+      if (calls === failAt) throw Object.assign(new Error('EIO: i/o error, read'), { code: 'EIO' })
+      return readNewLines(path, cursor, { maxBytes: 100 })
+    }
+    const lines = new TailLines(tail)
+    const first = await lines.read(file)
+    expect(first).toHaveLength(2)
+    await appendFile(file, rec(3) + rec(4) + rec(5))
+    failAt = calls + 2
+    await expect(lines.read(file)).rejects.toThrow('EIO')
+    // The array handed out before is as it was, and the next read grows it by the three new lines.
+    expect(first).toHaveLength(2)
+    const after = await lines.read(file)
+    expect(after).toBe(first)
+    const compactor = new TranscriptCompactor()
+    expect(after).toEqual(((await streamLines(file)) ?? []).map((each) => compactor.line(each)))
+  })
+
+  /** A line source over the files that fails on one Subagent's file and counts what it is asked for. */
+  function failingSource(failing: string, options: { slowMeta?: boolean; delay?: number } = {}) {
+    const state = { failed: false, afterFailure: 0, running: 0, metaDone: false, settledAfter: -1 }
+    const readLines: ReadLines = async (file) => {
+      if (state.failed) state.afterFailure += 1
+      state.running += 1
+      try {
+        if (file === failing) {
+          state.failed = true
+          throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+        }
+        if (file === failing.replace(/\.jsonl$/u, '.meta.json')) {
+          if (options.slowMeta === true) await new Promise((resolve) => setTimeout(resolve, 50))
+          state.metaDone = true
+        } else if (options.delay !== undefined) await new Promise((resolve) => setTimeout(resolve, options.delay))
+        return await streamLines(file)
+      } finally {
+        state.running -= 1
+      }
+    }
+    return { state, readLines }
+  }
+
+  it('a Subagent read that fails stops the reads of the step: no file is started after it, none runs on', async () => {
+    const world = await liveHome('read-fail')
+    const ids = [...world.shaped.subagents.keys()]
+    expect(ids.length).toBeGreaterThan(40)
+    const source = failingSource(join(world.dir, world.session, 'subagents', `agent-${ids[5]}.jsonl`), { delay: 5 })
+    await expect(
+      readRunTranscripts(world.run, { env: { WORFY_CLAUDE_HOME: world.claude }, readLines: source.readLines }).finally(() => {
+        source.state.settledAfter = source.state.afterFailure
+      }),
+    ).rejects.toThrow('EACCES')
+    // Nothing is under way when the read rejects.
+    expect(source.state.running).toBe(0)
+    // Only what the other 15 workers had started may have finished; nothing new started, then or later.
+    expect(source.state.settledAfter).toBeLessThanOrEqual(2 * 15)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(source.state.afterFailure).toBe(source.state.settledAfter)
+  })
+
+  it('a Subagent file that fails waits for its meta before the read rejects', async () => {
+    const world = await liveHome('read-fail-meta')
+    const [id] = [...world.shaped.subagents.keys()]
+    const source = failingSource(join(world.dir, world.session, 'subagents', `agent-${id}.jsonl`), { slowMeta: true })
+    await expect(readRunTranscripts(world.run, { env: { WORFY_CLAUDE_HOME: world.claude }, readLines: source.readLines })).rejects.toThrow('EACCES')
+    expect(source.state.metaDone).toBe(true)
+    expect(source.state.running).toBe(0)
+  })
+
+  it('keeps the facts that start at the edges of the Run\'s window, and none a millisecond outside', async () => {
+    const claude = await home('window-edges', false)
+    const dir = join(claude, 'projects', DIR)
+    await mkdir(dir, { recursive: true })
+    const session = 'dddddddd-0000-4000-8000-000000000027'
+    const started = Date.parse('2026-11-01T10:00:00.000Z')
+    const finished = Date.parse('2026-11-01T11:00:00.000Z')
+    const iso = (ms: number) => new Date(ms).toISOString()
+    // The window: from PROMPT_LEAD_MS before wave-started to wave-finished, both ends in.
+    const edges = [started - PROMPT_LEAD_MS - 1, started - PROMPT_LEAD_MS, finished, finished + 1]
+    const lines = edges.flatMap((at, n) => [
+      line({ type: 'user', timestamp: iso(at), cwd: ROOT, isSidechain: false, message: { role: 'user', content: `prompt ${n}` } }),
+      line({ type: 'assistant', timestamp: iso(at), cwd: ROOT, isSidechain: false, message: { role: 'assistant', content: [{ type: 'tool_use', id: `call-${n}`, name: 'Agent', input: { name: `impl-0${n + 1}`, prompt: 'go', run_in_background: true } }] } }),
+    ])
+    await writeFile(join(dir, `${session}.jsonl`), lines.join('\n') + '\n')
+    const run: TranscriptRun = { epic: 'e', root: ROOT, startedAt: iso(started - 60_000), stoppedAt: iso(finished), waves: [{ number: 1, startedAt: iso(started), finishedAt: iso(finished), tickets: [], session }] }
+    const facts = await readRunTranscripts(run, { env: { WORFY_CLAUDE_HOME: claude } })
+    expect(facts.work.map((fact) => fact.start)).toEqual([iso(edges[1]!), iso(edges[2]!)])
+    expect(facts.turns.map((turn) => turn.start)).toEqual([iso(edges[1]!), iso(edges[2]!)])
+  })
+
+  it('a parse is let go with its file: a Session the Run no longer reads, or a cleared line source', async () => {
+    const world = await liveHome('live-drop')
+    const parses = new TranscriptParses()
+    const tail = new TailLines()
+    await readRunTranscripts(world.run, { env: { WORFY_CLAUDE_HOME: world.claude }, readLines: tail.read, parses })
+    expect(parses.size).toBe(1)
+    await readRunTranscripts({ ...world.run, waves: [] }, { env: { WORFY_CLAUDE_HOME: world.claude }, readLines: tail.read, parses })
+    expect(parses.size).toBe(0)
+    await readRunTranscripts(world.run, { env: { WORFY_CLAUDE_HOME: world.claude }, readLines: tail.read, parses: tail.parses })
+    expect(tail.parses.size).toBe(1)
+    tail.clear()
+    expect(tail.parses.size).toBe(0)
   })
 })
