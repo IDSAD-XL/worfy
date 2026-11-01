@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { buildVersionTooltip, numberedVersion } from '../../shared/version-number'
 import { invoke } from '../ipc'
-import { updateVersionLabel } from './store'
+import { buildStepText, elapsedText, installUpdateTelling, updateVersionLabel, useTicking, useUpdateStore } from './store'
 import WhatsNew, { type WhatsNewAction } from './WhatsNew'
 
 // The version chip of the toolbar (worfy-update ticket 06; spec items 5 and 6, R11, R12): the app
@@ -23,6 +23,12 @@ import WhatsNew, { type WhatsNewAction } from './WhatsNew'
 // The versions show numbered, `v<major>.<minor>.<N>` (worfy-update ticket 14,
 // src/shared/version-number.ts), where the build number is known; the plain line then has the full
 // build version with its commit as its tooltip. Without a number, everything reads as before.
+//
+// While an Update is under way (ticket 16) the line says so without a hover, a spinner in place of
+// the dot: "Starting update…" from the press until the build reaches its first step, then
+// "Updating · 2/3 Installing dependencies"; the tooltip adds the time since the build began,
+// counting each second while the pointer or the focus is on the chip. A refused press is a toast
+// (store.ts, tellInstallRefusal). Once a restart began, "Restarting…" until the window closes.
 //
 // It lives here, not in src/renderer/shell/toolbar/: every .tsx file there is a toolbar item of its
 // own (src/renderer/shell/Toolbar.tsx), and the chip is a part of the Harness item.
@@ -73,10 +79,8 @@ const menuStyle: CSSProperties = {
   boxShadow: 'var(--shadow-node)',
 }
 
-function install(): void {
-  void invoke('update.install').then((result) => {
-    if (!result.ok) console.error('update.install failed:', result.error)
-  })
+function install(update: UpdateSnapshot | null): void {
+  void installUpdateTelling(update)
 }
 
 function restart(when: 'now' | 'idle'): void {
@@ -87,10 +91,11 @@ function restart(when: 'now' | 'idle'): void {
 }
 
 /** The first item of the menu and the button of "What's new": without `run`, inactive. */
-function primaryOf(signal: Signal, idle: boolean, label: (version: string) => string): WhatsNewAction {
+function primaryOf(signal: Signal, update: UpdateSnapshot | null, label: (version: string) => string): WhatsNewAction {
+  const idle = update?.idle ?? false
   if (signal.phase === 'building') return { label: TOOLTIP.building(label(signal.version)) }
   if (signal.phase === 'ready') return idle ? { label: 'Restart now', run: () => restart('now') } : { label: 'Restart when idle', run: () => restart('idle') }
-  return { label: 'Update worfy', run: install }
+  return { label: 'Update worfy', run: () => install(update) }
 }
 
 interface MenuProps {
@@ -201,16 +206,37 @@ export interface UpdateChipProps {
   number?: number | undefined
   /** Main's Update snapshot; null until it has answered. */
   update: UpdateSnapshot | null
+  /** The clock of the build's elapsed time; tests give their own. */
+  now?: () => number
 }
 
+/** The spinner of an Update under way; it stands still with reduced motion (shell.css). */
+const spinner = <span className="w-update-spinner" aria-hidden="true" />
+
 /** The app version line of the toolbar, a button with a dot and a menu while an Update waits. */
-export default function UpdateChip({ version, number, update }: UpdateChipProps) {
+export default function UpdateChip({ version, number, update, now = Date.now }: UpdateChipProps) {
   // The chip while its menu or "What's new" is open, else null.
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [view, setView] = useState<'menu' | 'whatsNew'>('menu')
+  // The pointer or the focus on the chip: its tooltip may be open, so the elapsed time counts on.
+  const [pointed, setPointed] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const starting = useUpdateStore((store) => store.starting)
   const signal = updateSignal(update)
   const shown = numberedVersion(version, number)
   const label = (each: string): string => updateVersionLabel(update, each)
+  const build = update?.build
+  const startedAt = signal?.phase === 'building' ? build?.startedAt : undefined
+  const time = useTicking(startedAt !== undefined && (pointed || focused), now)
+  if (update?.enabled === true && update.restarting) {
+    if (anchor !== null) setAnchor(null)
+    return (
+      <small className="w-mono w-toolbar__version w-toolbar__version-chip" data-testid="app-version" data-update="restarting" role="status">
+        {spinner}
+        Restarting…
+      </small>
+    )
+  }
   if (signal === null) {
     // The signal went (installed from Settings or another window): the menu goes with it, so a later
     // signal shows a closed chip rather than a menu that opens by itself. Adjusted during render, as
@@ -222,13 +248,17 @@ export default function UpdateChip({ version, number, update }: UpdateChipProps)
       </small>
     )
   }
-  const primary = primaryOf(signal, update?.idle ?? false, label)
+  const primary = primaryOf(signal, update, label)
+  const step = build === undefined ? undefined : buildStepText(build)
+  // Under way: pressed here and not answered yet, or begun and before its first step, or at a step.
+  const progress = step !== undefined ? `Updating · ${step}` : starting || signal.phase === 'building' ? 'Starting update…' : undefined
+  const tooltip = TOOLTIP[signal.phase](label(signal.version)) + (startedAt === undefined ? '' : ` ${elapsedText(startedAt, time)}`)
   return (
     <>
       <button
         type="button"
         className="w-mono w-toolbar__version w-toolbar__version-chip"
-        title={withBuild(TOOLTIP[signal.phase](label(signal.version)), buildVersionTooltip(version, number))}
+        title={withBuild(tooltip, buildVersionTooltip(version, number))}
         aria-haspopup="menu"
         aria-expanded={anchor !== null}
         data-testid="app-version"
@@ -238,9 +268,22 @@ export default function UpdateChip({ version, number, update }: UpdateChipProps)
           setView('menu')
           setAnchor((was) => (was === null ? target : null))
         }}
+        onMouseEnter={() => setPointed(true)}
+        onMouseLeave={() => setPointed(false)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
       >
-        v{shown}
-        {signal.dot ? <span className="w-update-dot" aria-hidden="true" /> : null}
+        {progress === undefined ? (
+          <>
+            v{shown}
+            {signal.dot ? <span className="w-update-dot" aria-hidden="true" /> : null}
+          </>
+        ) : (
+          <>
+            {spinner}
+            {progress}
+          </>
+        )}
       </button>
       {anchor === null ? null : view === 'menu' ? (
         <ChipMenu

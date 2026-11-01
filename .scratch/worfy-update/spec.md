@@ -200,7 +200,12 @@ Epic готов, когда:
 - **Р11. Сигналы при «Update automatically»** (Ticket-ы 06, 07) — решено без владельца. Пока идёт фоновая
   сборка, toast «available» не показывается: видна только точка на chip-е, подсказка «Building worfy
   <version>…». Toast при старте — уже «ready», если сборка готова. Без автоматического Update — toast
-  «available».
+  «available». Дополнено Ticket-ом 16 (подтверждено владельцем 2026-11-01): во время любой сборки — и
+  автоматической, и по нажатию — chip без наведения показывает шаг и его место («Updating · 2/3 Installing
+  dependencies») с вращающимся кольцом вместо точки (при `prefers-reduced-motion` — без вращения), подсказка —
+  время с начала сборки; нажатие сразу даёт «Starting update…», отказ `update.install` — toast с причиной;
+  начатый перезапуск — «Restarting…». Toast-а «идёт сборка» нет: индикатор — chip. Процента download
+  Electron нет.
 - **Р12. «Later»** (Ticket-ы 06, 07) — решено без владельца. «Later» в toast-е закрывает его до следующего
   старта worfy; «Later» в меню chip-а закрывает меню. Точка и строка Health остаются, пока Update не
   поставлен.
@@ -225,6 +230,9 @@ Epic готов, когда:
   restart to update» · «The update to <version> failed — see Settings → Health»
 - Меню: «Update worfy» (при готовой сборке — «Restart now» или «Restart when idle»; во время сборки —
   неактивный «Building worfy <version>…») · «What's new» · «Later»
+- Во время сборки (Ticket 16): строка chip-а — «Starting update…» до первого шага, затем «Updating · <N>/<M>
+  <шаг>», шаги — «Fetching source», «Installing dependencies», «Downloading Electron», «Building app»; подсказка —
+  «Building worfy <version>… <m:ss>»; после начала перезапуска — «Restarting…»
 
 **Кнопка Harness** (Ticket 06) — подпись и подсказка — как сейчас («Update Harness: <from> → <to>»),
 акцент и точка добавляются.
@@ -235,7 +243,10 @@ Epic готов, когда:
 - «Harness out of date: <from> → <to>» · «Update» · «Later»
 - «worfy <version> ready» · «Restart now» · «Later»; пока не стихло — «Restart when idle» · «Later»
 - после «Restart when idle»: «worfy restarts when no Session is working and Autopilot has stopped»
-- «Update failed» · «Show log»
+- «Update failed» · «Show log»; без git, node или pnpm (Ticket 16): «Update failed: git, node and pnpm are needed, and
+  <tool> was not found» · «Show log»
+- отказ «Update worfy» (Ticket 16): «The update did not start: <reason>», с «Show log», если сборка оставила log;
+  причины — «there is no new version to build», «this update is being built already»
 - после перезапуска: «worfy updated to <version>. The new Harness applies from the next Session.»
 - Harness после Update не встал: «The Harness was not updated» · «Open Health»
 - после отката: «worfy is back to <version>. Automatic updates wait for the next commit on main.»
@@ -245,7 +256,9 @@ Epic готов, когда:
 **Settings → General → Updates** (Ticket 09)
 
 - Строка «Updates»: «worfy <version>. Last checked <time>.» · «worfy <version> is available.» ·
-  «Building worfy <version>…» · «worfy <version> is ready.»; кнопки «Check now», «Update worfy»
+  «Building worfy <version>…» · «worfy <version> is ready.»; кнопки «Check now», «Update worfy»; во время сборки
+  (Ticket 16) — «Building worfy <version>… <N>/<M> <шаг> · <m:ss>», кнопка «Show log», а «Update worfy» до первого
+  шага — неактивная «Starting update…»
 - Переключатель «Update automatically», описание: «Build new versions of worfy in the background. worfy
   restarts only when you say so.»
 - «Roll back to previous version», описание: «Return to worfy <version>. Automatic updates wait for the

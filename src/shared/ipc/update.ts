@@ -33,6 +33,14 @@ export type UpdateLastCheck = z.infer<typeof updateLastCheckSchema>
 export const availableUpdateSchema = z.object({ sha, version: z.string().min(1), quiet: z.boolean(), number: buildNumberSchema.optional() })
 export type AvailableUpdate = z.infer<typeof availableUpdateSchema>
 
+/**
+ * The step a build runs (ticket 16), written by main before each spawn: `fetch` (git clone or fetch,
+ * then the checkout), `install` (`pnpm install`), `electron` (the download of Electron again, only
+ * when it did not finish, ticket 15) and `package` (`pnpm package`).
+ */
+export const UPDATE_BUILD_STEPS = ['fetch', 'install', 'electron', 'package'] as const
+export type UpdateBuildStep = (typeof UPDATE_BUILD_STEPS)[number]
+
 /** The build of an Update in worfy's own clone (ticket 03). */
 export const updateBuildSchema = z.object({
   phase: z.enum(['idle', 'building', 'ready', 'failed']),
@@ -42,6 +50,15 @@ export const updateBuildSchema = z.object({
   log: z.string().optional(),
   /** The tools the build needs and did not find (git, node, pnpm). */
   missing: z.array(z.string()).optional(),
+  /**
+   * While it builds (ticket 16): when the build began, the step it runs and when that step began,
+   * and how many steps it has as far as is known: 3, or 4 once the step `electron` came. A state
+   * written before ticket 16 has none of them and still reads.
+   */
+  startedAt: z.iso.datetime().optional(),
+  step: z.enum(UPDATE_BUILD_STEPS).optional(),
+  stepStartedAt: z.iso.datetime().optional(),
+  steps: z.union([z.literal(3), z.literal(4)]).optional(),
 })
 
 /**
@@ -93,6 +110,11 @@ export const updateSnapshotSchema = updateStateSchema.extend({
   enabled: z.boolean(),
   checking: z.boolean(),
   restartWhenIdle: z.boolean().default(false),
+  /**
+   * A restart into an Update or a roll back began: worfy quits now (ticket 16; in memory only, like
+   * `restartWhenIdle`). Absent reads as no.
+   */
+  restarting: z.boolean().optional(),
   current: z.object({ version: z.string().min(1), number: buildNumberSchema }).optional(),
 })
 export type UpdateSnapshot = z.output<typeof updateSnapshotSchema>
@@ -105,8 +127,9 @@ export const updateCheck = invokeChannel('update.check', z.void(), updateSnapsho
 
 /**
  * Builds the Available update in worfy's own clone ("Update worfy", ticket 03): again after a
- * failure, not when it is built already or building. Answers the snapshot at once, with the build
- * begun; its end comes as `update.changed`.
+ * failure, not when it is built already. Answers the snapshot at once, with the build begun; its
+ * steps and its end come as `update.changed`. Fails with the reason when there is nothing to build
+ * or the same Update builds already (ticket 16).
  */
 export const updateInstall = invokeChannel('update.install', z.void(), updateSnapshotSchema, 'local')
 

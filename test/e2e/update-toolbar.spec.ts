@@ -21,6 +21,11 @@ import { E2E_SHELL } from './launch-env'
 // repository commits a node_modules/electron as a finished download leaves it, which the build checks
 // before `pnpm package` (ticket 15). Nothing is restarted: the press would quit worfy.
 //
+// Ticket 16: the press changes the chip at once ("Starting update…"), then the chip names each step
+// in turn, without a hover; the stand-in pnpm holds `install` until a file of the test, so "2/3
+// Installing dependencies" is seen as well as "3/3 Building app". The text of the chip is read for
+// its contrast in both themes.
+//
 // The PATH of the build is the login shell's (src/main/agent/env.ts): the spec's own SHELL is the e2e
 // shell of launch-env.ts with the stand-in pnpm first on its PATH. Windows has no login shell, so the
 // spec runs off Windows only.
@@ -67,6 +72,41 @@ process.stdout.write('gated build done\\n')
 `,
   )
   return file
+}
+
+/**
+ * The contrast of the chip's text against what is painted behind it (WCAG 2 relative luminance).
+ * The e2e typecheck has no DOM library: the page's objects are typed by hand.
+ */
+function textContrast(chip: Locator): Promise<number> {
+  return chip.evaluate((element) => {
+    interface El {
+      parentElement: El | null
+    }
+    const view = (element as unknown as { ownerDocument: { defaultView: { getComputedStyle(element: unknown): { color: string; backgroundColor: string } } } }).ownerDocument.defaultView
+    const parse = (color: string): number[] => {
+      const parts = /^rgba?\(([^)]+)\)$/u.exec(color)?.[1]?.split(/[\s,/]+/u).filter((part) => part !== '').map(Number) ?? []
+      return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, parts[3] ?? 1]
+    }
+    const luminance = (rgb: number[]): number => {
+      const channel = (value: number): number => (value / 255 <= 0.04045 ? value / 255 / 12.92 : ((value / 255 + 0.055) / 1.055) ** 2.4)
+      return 0.2126 * channel(rgb[0] ?? 0) + 0.7152 * channel(rgb[1] ?? 0) + 0.0722 * channel(rgb[2] ?? 0)
+    }
+    let background = [255, 255, 255, 1]
+    for (let at: El | null = element as unknown as El; at !== null; at = at.parentElement) {
+      const color = parse(view.getComputedStyle(at).backgroundColor)
+      if (color[3] === 1) {
+        background = color
+        break
+      }
+    }
+    const text = parse(view.getComputedStyle(element).color)
+    // A text colour with alpha is drawn over the background.
+    const alpha = text[3] ?? 1
+    const drawn = [0, 1, 2].map((at) => (text[at] ?? 0) * alpha + (background[at] ?? 0) * (1 - alpha))
+    const [light, dark] = [luminance(drawn), luminance(background)].sort((a, b) => b - a)
+    return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05)
+  })
 }
 
 const bridgeCall = (window: Page, channel: string, input?: unknown) =>
@@ -139,7 +179,12 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   // The login shell of the app: the e2e shell, with the stand-in pnpm first on its PATH.
   const bin = join(root, 'bin')
   mkdirSync(bin)
-  writeFileSync(join(bin, 'pnpm'), '#!/bin/sh\n[ "$*" = "install --frozen-lockfile" ] && exit 0\necho "pnpm stand-in: unsupported: $*" >&2\nexit 2\n')
+  // `install` waits for the test's file (two minutes at most), so the step is seen.
+  const installRelease = join(root, 'install-release')
+  writeFileSync(
+    join(bin, 'pnpm'),
+    `#!/bin/sh\nif [ "$*" = "install --frozen-lockfile" ]; then\n  n=0\n  while [ ! -e '${installRelease}' ] && [ $n -lt 2400 ]; do sleep 0.05; n=$((n + 1)); done\n  exit 0\nfi\necho "pnpm stand-in: unsupported: $*" >&2\nexit 2\n`,
+  )
   chmodSync(join(bin, 'pnpm'), 0o755)
   const shell = join(root, 'shell', 'sh')
   mkdirSync(join(root, 'shell'))
@@ -226,12 +271,49 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   // One comparison for the check and one for "What's new"; no request per PR.
   expect(stub.requests.filter((request) => /\/pulls?\//u.test(request.path))).toEqual([])
 
-  // "Update worfy": the build runs and waits for the test's file.
+  // "Update worfy": every text the chip shows from the press on is kept, in order.
+  await chip.evaluate((element) => {
+    const node = element as unknown as { textContent: string | null }
+    const seen: string[] = [node.textContent ?? '']
+    ;(globalThis as { chipTexts?: string[] }).chipTexts = seen
+    const Observer = (globalThis as unknown as { MutationObserver: new (callback: () => void) => { observe(target: unknown, options: unknown): void } }).MutationObserver
+    new Observer(() => {
+      const text = node.textContent ?? ''
+      if (seen.at(-1) !== text) seen.push(text)
+    }).observe(element, { childList: true, subtree: true, characterData: true })
+  })
+  const chipTexts = (): Promise<string[]> => window.evaluate(() => (globalThis as { chipTexts?: string[] }).chipTexts ?? [])
   await chip.click()
   await menu.getByRole('menuitem', { name: 'Update worfy' }).click()
   await expect(menu).toBeHidden()
+  // At once: the version gives way to the spinner and the words, before main has answered.
+  await expect(chip).not.toHaveText(/^v/u)
+  await expect(chip.locator('.w-update-spinner')).toBeVisible()
+  // The build holds at `pnpm install`: the step is on the chip itself, the time in its tooltip.
+  await expect(chip).toHaveText('Updating · 2/3 Installing dependencies')
   await expect(chip).toHaveAttribute('data-update', 'building')
-  await expect(chip).toHaveAttribute('title', withBuild(`Building worfy ${update}…`))
+  await expect(chip).toHaveAttribute('title', new RegExp(`^Building worfy ${update.replace(/[.+]/gu, '\\$&')}… \\d+:\\d\\d`, 'u'))
+  for (const scheme of ['light', 'dark'] as const) {
+    await window.emulateMedia({ colorScheme: scheme })
+    expect(await textContrast(chip), `the chip's text in the ${scheme} theme`).toBeGreaterThanOrEqual(4.5)
+  }
+  await window.emulateMedia({ colorScheme: null })
+  await snapshots(window, toolbar, 'update-building-install')
+  // Reduced motion: the spinner stands still.
+  await window.emulateMedia({ reducedMotion: 'reduce' })
+  expect(await chip.locator('.w-update-spinner').evaluate((element) => (element as unknown as { ownerDocument: { defaultView: { getComputedStyle(element: unknown): { animationName: string } } } }).ownerDocument.defaultView.getComputedStyle(element).animationName)).toBe('none')
+  await window.emulateMedia({ reducedMotion: null })
+  writeFileSync(installRelease, '')
+  await expect(chip).toHaveText('Updating · 3/3 Building app')
+  // The version line before the press, then each state in turn: none skipped, none out of order.
+  const texts = await chipTexts()
+  expect(texts[0]).toMatch(/^v/u)
+  expect(texts.slice(1)).toEqual([
+    'Starting update…',
+    'Updating · 1/3 Fetching source',
+    'Updating · 2/3 Installing dependencies',
+    'Updating · 3/3 Building app',
+  ])
   await chip.click()
   const building = menu.getByRole('menuitem', { name: `Building worfy ${update}…` })
   await expect(building).toHaveAttribute('aria-disabled', 'true')
@@ -240,9 +322,10 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   await expect(menu).toBeHidden()
   await snapshots(window, toolbar, 'update-building')
 
-  // Built: nothing works in this app, so "Restart now".
+  // Built: nothing works in this app, so "Restart now"; the chip is the version line again.
   writeFileSync(release, '')
   await expect(chip).toHaveAttribute('data-update', 'ready')
+  await expect(chip).toHaveText(/^v/u)
   await expect(chip).toHaveAttribute('title', withBuild(`worfy ${update} is ready — restart to update`))
   await snapshots(window, toolbar, 'update-ready')
   await chip.click()

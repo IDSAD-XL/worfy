@@ -16,10 +16,14 @@
 // the packages of `main`, and those need no token of the user. Their output goes to
 // `<update>/build.log`, a new one for each build. One build at a time; an Update that comes during
 // a build waits for its end (only the last one that waits is built).
+//
+// While it builds, the state names the step it runs (ticket 16): main writes it before each spawn
+// and sends the change (`onChange`), so a window shows "Installing dependencies" without reading
+// the log.
 import { spawn, type ChildProcess } from 'node:child_process'
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import type { AvailableUpdate, UpdateState } from '../../shared/ipc/update'
+import type { AvailableUpdate, UpdateBuildStep, UpdateState } from '../../shared/ipc/update'
 import { getVar, type CapturedEnv } from '../agent/env'
 import { killTool, toolStart } from '../first-run/checks'
 import { removeTree } from '../storage/remove'
@@ -126,9 +130,11 @@ export interface UpdateBuilderOptions {
   /** How long a git step may run (GIT_STEP_TIMEOUT_MS). */
   gitTimeoutMs?: number
   stateFile: () => string
-  /** Hears each change of the build in the state file. */
+  /** Hears each change of the build in the state file: its start, each step (ticket 16) and its end. */
   onChange?: () => void
   platform?: NodeJS.Platform
+  /** The clock of the build's times (`startedAt`, `stepStartedAt`); tests give their own. */
+  now?: () => Date
 }
 
 /** What the service of src/main/ipc/update.ts needs of a builder; tests pass a fake. */
@@ -147,6 +153,8 @@ export class UpdateBuilder implements UpdateBuilds {
   private waiting: AvailableUpdate | null = null
   private child: ChildProcess | null = null
   private stopped = false
+  /** The state of the build that runs, which each step writes again with its own fields. */
+  private progress: UpdateBuild | null = null
 
   constructor(private readonly options: UpdateBuilderOptions) {}
 
@@ -213,9 +221,11 @@ export class UpdateBuilder implements UpdateBuilds {
     const { dir } = this.options
     const log = this.logFile
     const start = (): void => {
+      const startedAt = this.now().toISOString()
       mkdirSync(dir, { recursive: true })
-      writeFileSync(log, `worfy Update ${update.version} (${update.sha}), ${new Date().toISOString()}\n`)
-      this.write({ phase: 'building', sha: update.sha, version: update.version })
+      writeFileSync(log, `worfy Update ${update.version} (${update.sha}), ${startedAt}\n`)
+      this.progress = { phase: 'building', sha: update.sha, version: update.version, startedAt }
+      this.write(this.progress)
     }
     let done: Promise<void>
     try {
@@ -241,11 +251,28 @@ export class UpdateBuilder implements UpdateBuilds {
         .catch((error: unknown) => console.error(`[update] the build of ${update.sha} failed`, error))
         .finally(() => {
           this.current = null
+          this.progress = null
           const next = this.waiting
           this.waiting = null
           if (next !== null && !this.stopped) this.begin(next)
         }),
     }
+  }
+
+  private now(): Date {
+    return this.options.now?.() ?? new Date()
+  }
+
+  /**
+   * Writes the step the build begins and sends the change (ticket 16). Main knows the step by the
+   * spawn it is about to make, never by the log. `electron` makes the count 4.
+   */
+  private stepTo(step: UpdateBuildStep): void {
+    const was = this.progress
+    if (this.stopped || was === null) return
+    const steps = step === 'electron' || was.steps === 4 ? 4 : 3
+    this.progress = { ...was, step, stepStartedAt: this.now().toISOString(), steps }
+    this.write(this.progress)
   }
 
   private write(build: UpdateBuild): void {
@@ -275,6 +302,7 @@ export class UpdateBuilder implements UpdateBuilds {
 
     const clone = join(dir, 'repo')
     const step = (tool: string, args: readonly string[], cwd = clone): Promise<boolean> => this.step(tool, args, cwd, env, log)
+    this.stepTo('fetch')
     if (existsSync(join(clone, '.git'))) {
       // The remote and the checkout settings are the configured ones, whatever the clone had.
       if (!(await step('git', ['remote', 'set-url', 'origin', repo]))) return failed()
@@ -292,15 +320,17 @@ export class UpdateBuilder implements UpdateBuilds {
       note(`Refused: ${update.sha} is not a commit of main of ${repo}. Nothing was built.`)
       return failed()
     }
-    const steps: [string, string[]][] = [
+    const checkout: [string, string[]][] = [
       ['git', ['checkout', '--force', '--detach', update.sha]],
       ['git', ['clean', '-fdx', '-e', 'node_modules']],
-      ['pnpm', ['install', '--frozen-lockfile']],
     ]
-    for (const [tool, args] of steps) {
+    for (const [tool, args] of checkout) {
       if (this.stopped || !(await step(tool, args))) return failed()
     }
+    this.stepTo('install')
+    if (this.stopped || !(await step('pnpm', ['install', '--frozen-lockfile']))) return failed()
     if (this.stopped || !(await this.electronReady(clone, step, note))) return failed()
+    this.stepTo('package')
     if (this.stopped || !(await (build === undefined ? step('pnpm', ['package']) : step('node', [build])))) return failed()
     const appPath = builtApp(join(clone, 'dist'), this.platform)
     if (appPath === null) {
@@ -326,6 +356,7 @@ export class UpdateBuilder implements UpdateBuilds {
       return false
     }
     note(`The Electron that pnpm package packs is not in ${join(electron, 'dist')}: its download after pnpm install did not finish. It is downloaded again.`)
+    this.stepTo('electron')
     if (!(await step('node', [ELECTRON_INSTALL_SCRIPT]))) return false
     if (electronBinary(this.platform, clone) === 'ok') return true
     note(`${ELECTRON_INSTALL_SCRIPT} ended, and the Electron is still not in ${join(electron, 'dist')}. Nothing was built.`)

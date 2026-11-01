@@ -11,7 +11,8 @@
 //
 // "Restart now", "Restart when idle" and the roll back (ticket 04) are src/main/update/restart.ts;
 // whether nothing works is src/main/update/idle.ts, followed while Update is on and kept in the
-// state's `idle`. At the start the result of the restart that ended the last run is read.
+// state's `idle`. At the start the result of the restart that ended the last run is read. A restart
+// that began is sent to the windows as `restarting` before worfy quits (ticket 16).
 //
 // "What's new" (ticket 10) is src/main/update/whats-new.ts: one comparison of the running commit
 // with the new version, kept for the run.
@@ -77,6 +78,8 @@ const OFF: RestartAnswer = { outcome: 'refused', reason: OFF_REASON }
 export class UpdateService {
   readonly checks: UpdateChecks
   private readonly whatsNewReader: WhatsNewReader
+  /** A restart began (ticket 16): kept for the rest of this run, which ends with it. */
+  private restarting = false
 
   constructor(private readonly options: UpdateServiceOptions) {
     this.whatsNewReader = new WhatsNewReader(options.client)
@@ -87,13 +90,14 @@ export class UpdateService {
   }
 
   snapshot(): UpdateSnapshot {
-    if (!this.options.enabled) return { ...emptyUpdateState(), enabled: false, checking: false, restartWhenIdle: false }
+    if (!this.options.enabled) return { ...emptyUpdateState(), enabled: false, checking: false, restartWhenIdle: false, restarting: false }
     const { version, number } = this.options.running()
     return {
       ...readUpdateState(this.options.stateFile()),
       enabled: true,
       checking: this.checks.checking,
       restartWhenIdle: this.options.restarts?.pending ?? false,
+      restarting: this.restarting,
       ...(number === undefined || version === '' ? {} : { current: { version, number } }),
     }
   }
@@ -112,6 +116,17 @@ export class UpdateService {
     return restarts.rollback(confirm)
   }
 
+  /**
+   * The restart helper started and worfy quits for it (the `quit` of Restarts, for "Restart now",
+   * "Restart when idle" once quiet, and the roll back): the windows hear `restarting` first, so the
+   * chip says "Restarting…" until the window closes (ticket 16).
+   */
+  restartBegan(quit: () => void): void {
+    this.restarting = true
+    this.options.broadcast(this.snapshot())
+    quit()
+  }
+
   /** worfy quits (before-quit): "Restart when idle" no longer waits, and no restart starts. */
   quitting(): void {
     this.options.restarts?.quitting()
@@ -123,12 +138,19 @@ export class UpdateService {
     return this.snapshot()
   }
 
-  /** Builds the Available update ("Update worfy"); answers the snapshot with the build begun. Off, only the snapshot. */
+  /**
+   * Builds the Available update ("Update worfy"); answers the snapshot with the build begun, or with
+   * the Update built already. Off, only the snapshot. Refuses with the reason, which the window shows
+   * (ticket 16), when there is no Available update or the same one builds already.
+   */
   install(): UpdateSnapshot {
     const { builder } = this.options
     if (!this.options.enabled || builder === undefined) return this.snapshot()
-    const target = installTarget(readUpdateState(this.options.stateFile()))
+    const state = readUpdateState(this.options.stateFile())
+    const target = installTarget(state)
     if (target !== null) builder.install(target)
+    else if (state.available === null) throw new Error('there is no new version to build')
+    else if (state.build.phase === 'building') throw new Error('this update is being built already')
     return this.snapshot()
   }
 
@@ -330,7 +352,7 @@ export function appUpdate(): UpdateService {
         env: async () => (await agentEnv()).env,
         running: () => (running ??= appRunning()),
         idle,
-        quit: () => app.quit(),
+        quit: () => appUpdate().restartBegan(() => app.quit()),
         onChange: () => broadcast(appUpdate().snapshot()),
       }),
     })

@@ -53,7 +53,11 @@ beforeEach(() => {
   handlers['app.version'] = () => ({ ok: true, value: { version: '1.4.0+aaaaaaa' } })
 })
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+  useUpdateStore.setState({ starting: false })
+})
 
 const row = () => screen.getByTestId('settings-updates-row')
 const disabled = (element: HTMLElement): boolean => (element as HTMLButtonElement).disabled
@@ -118,9 +122,9 @@ describe('Settings → General → Updates (worfy-update ticket 09)', () => {
     handlers['update.install'] = () => ({ ok: true, value: snapshot({ available, build: { phase: 'building', sha: available.sha, version: available.version } }) })
     render(<UpdatesBlock />)
     expect(screen.getByTestId('settings-updates-status').textContent).toContain('worfy 1.5.0+bbbbbbb is available.')
-    fireEvent.click(within(row()).getByRole('button', { name: 'Update worfy' }))
+    await act(async () => fireEvent.click(within(row()).getByRole('button', { name: 'Update worfy' })))
     expect(callsOf('update.install')).toHaveLength(1)
-    give(snapshot({ available, build: { phase: 'building', sha: available.sha, version: available.version } }))
+    give(snapshot({ available, build: { phase: 'building', sha: available.sha, version: available.version, step: 'fetch', steps: 3 } }))
     expect(screen.getByTestId('settings-updates-status').textContent).toContain('Building worfy 1.5.0+bbbbbbb…')
     expect(disabled(within(row()).getByRole('button', { name: 'Update worfy' }))).toBe(true)
   })
@@ -219,5 +223,58 @@ describe('Settings → General → Updates (worfy-update ticket 09)', () => {
     expect(version.compareDocumentPosition(updates) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     await waitFor(() => expect(screen.getByTestId('settings-version').textContent).toContain('1.4.0+aaaaaaa'))
     expect(screen.getByTestId('settings-updates-status').textContent).toBe('worfy 1.4.0+aaaaaaa.')
+  })
+})
+
+// worfy-update ticket 16: while it builds, the row says the step, its place and the time since the
+// build began, counting on each second, with "Show log" beside the button; a press answers at once.
+describe('Settings → General → Updates while it builds (worfy-update ticket 16)', () => {
+  const STARTED = '2026-11-01T10:00:00.000Z'
+  const building = (build: Partial<UpdateSnapshot['build']> = {}): UpdateSnapshot =>
+    snapshot({ available, build: { phase: 'building', sha: available.sha, version: available.version, startedAt: STARTED, ...build } })
+
+  it('the line has the step, its place and the time since the build began, counting on each second', () => {
+    vi.useFakeTimers()
+    let now = Date.parse(STARTED) + 192_000
+    give(building({ step: 'install', steps: 3 }))
+    render(<UpdatesBlock now={() => now} />)
+    const status = (): string => screen.getByTestId('settings-updates-status').textContent ?? ''
+    expect(status()).toBe('Building worfy 1.5.0+bbbbbbb… 2/3 Installing dependencies · 3:12')
+    act(() => {
+      now += 1000
+      vi.advanceTimersByTime(1000)
+    })
+    expect(status()).toBe('Building worfy 1.5.0+bbbbbbb… 2/3 Installing dependencies · 3:13')
+    give(building({ step: 'electron', steps: 4 }))
+    expect(status()).toBe('Building worfy 1.5.0+bbbbbbb… 3/4 Downloading Electron · 3:13')
+    // Built: the clock stops.
+    give(snapshot({ available, build: { phase: 'ready', sha: available.sha, version: available.version } }))
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('"Show log" is there while it builds and opens the log (update.showLog); a refusal shows its reason', async () => {
+    handlers['update.showLog'] = () => ({ ok: false, error: 'update.showLog failed: there is no build log yet: no Update was built' })
+    give(building({ step: 'package', steps: 3 }))
+    render(<UpdatesBlock />)
+    fireEvent.click(within(row()).getByRole('button', { name: 'Show log' }))
+    expect(callsOf('update.showLog')).toHaveLength(1)
+    expect((await screen.findByTestId('settings-updates-reason')).textContent).toContain('there is no build log yet')
+    give(snapshot({ available }))
+    expect(within(row()).queryByRole('button', { name: 'Show log' })).toBeNull()
+  })
+
+  it('"Update worfy" answers at once: "Starting update…" until main answers, and while the build has no step yet', async () => {
+    let answer: (value: Answer) => void = () => undefined
+    handlers['update.install'] = () => new Promise<Answer>((done) => (answer = done))
+    give(snapshot({ available }))
+    render(<UpdatesBlock />)
+    fireEvent.click(within(row()).getByRole('button', { name: 'Update worfy' }))
+    const starting = within(row()).getByRole('button', { name: 'Starting update…' })
+    expect(disabled(starting)).toBe(true)
+    await act(async () => answer({ ok: true, value: building() }))
+    // Main has begun, and no step has come yet.
+    expect(disabled(within(row()).getByRole('button', { name: 'Starting update…' }))).toBe(true)
+    give(building({ step: 'fetch', steps: 3 }))
+    expect(within(row()).queryByRole('button', { name: 'Starting update…' })).toBeNull()
   })
 })

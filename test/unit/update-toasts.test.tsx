@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HarnessStatus } from '../../src/shared/ipc/harness'
 import { updateSnapshotSchema, type UpdateSnapshot } from '../../src/shared/ipc/update'
 import { dismissToast, pressToastAction, resetToasts, toasts, type Toast } from '../../src/renderer/toast/toasts'
+import { INSTALL_REFUSED_KEY, useUpdateStore } from '../../src/renderer/update/store'
 import {
   AVAILABLE_KEY,
   createUpdateToasts,
@@ -320,5 +321,37 @@ describe('the end of the last restart', () => {
     expect(openHealth).toHaveBeenCalledTimes(1)
     update.update(snapshot({ harnessAfterUpdate: 'failed' }))
     expect(all()).toEqual([])
+  })
+})
+
+// worfy-update ticket 16: a refusal of "Update" is told with its reason, and a build that found no
+// git, node or pnpm says which.
+describe('refusals (ticket 16)', () => {
+  afterEach(() => useUpdateStore.setState({ snapshot: null, starting: false }))
+
+  it('"Update" refused by main: a toast with the reason and "Show log" when there is a log', async () => {
+    answers['update.install'] = { ok: false, error: 'update.install failed: this update is being built already' }
+    answers['update.showLog'] = { ok: true, value: undefined }
+    const update = make(false)
+    const failedBefore = snapshot({ available, build: { phase: 'failed', sha: 'c'.repeat(40), version: '0.5.0+ccccccc', log: '/data/update/build.log' } })
+    useUpdateStore.setState({ snapshot: failedBefore })
+    update.update(snapshot({ available }))
+    press(AVAILABLE_KEY, 'Update')
+    // "Starting update…" until main answers.
+    expect(useUpdateStore.getState().starting).toBe(true)
+    await settle()
+    expect(useUpdateStore.getState().starting).toBe(false)
+    expect(toast(INSTALL_REFUSED_KEY)).toMatchObject({ kind: 'action', text: 'The update did not start: this update is being built already' })
+    press(INSTALL_REFUSED_KEY, 'Show log')
+    await settle()
+    expect(channels()).toEqual(['update.install', 'update.showLog'])
+  })
+
+  it('a build that found no pnpm says so in "Update failed", with "Show log"', () => {
+    const update = make(true)
+    update.update(snapshot({ available, build: { phase: 'building', sha: SHA, version: VERSION } }))
+    update.update(snapshot({ available, build: { phase: 'failed', sha: SHA, version: VERSION, log: '/data/update/build.log', missing: ['pnpm'] } }))
+    expect(toast(FAILED_KEY)).toMatchObject({ kind: 'action', text: 'Update failed: git, node and pnpm are needed, and pnpm was not found' })
+    expect(labels(FAILED_KEY)).toEqual(['Show log'])
   })
 })
