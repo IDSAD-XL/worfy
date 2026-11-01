@@ -16,6 +16,9 @@ export interface GhCheck {
 export interface GhComment {
   createdAt?: string
   body?: string
+  author?: { login?: string } | null
+  /** OWNER, MEMBER, COLLABORATOR — someone who may write in the repository; CONTRIBUTOR, NONE… — someone outside it. */
+  authorAssociation?: string
 }
 
 export interface GhCommit {
@@ -108,8 +111,12 @@ export declare function ciMark(pr: GhPr, gate: number | null): Mark
 export declare function isCheckRun(check: unknown): boolean
 export declare function headCi(pr: GhPr): Mark
 export declare function headMarks(pr: GhPr): HeadMark[]
-export declare function verdictComments(pr: GhPr): VerdictComment[]
-export declare function verdicts(pr: GhPr): { gate: number | null; rejected: number; narrow: number }
+/**
+ * `account`: the Project's GitHub account — only its comments; null — no account, no comment; absent — any comment
+ * but a stranger's (`authorAssociation` other than OWNER, MEMBER, COLLABORATOR).
+ */
+export declare function verdictComments(pr: GhPr, account?: string | null): VerdictComment[]
+export declare function verdicts(pr: GhPr, account?: string | null): { gate: number | null; rejected: number; narrow: number }
 export declare function firstCommit(pr: GhPr): number | null
 export declare function labelNames(pr: Partial<GhPr>): string[]
-export declare function prFacts(pr: GhPr): PrFacts
+export declare function prFacts(pr: GhPr, account?: string | null): PrFacts
