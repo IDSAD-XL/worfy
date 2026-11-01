@@ -65,3 +65,31 @@ Source: [spec.md](../spec.md), «Решения» (Q4, Q5, Q8, Q17), «Прог�
 
 Только читать: `src/shared/workflow/waves.ts` (`waveNumbers` `:228`, `closed` `:55`, `doneOnlyInBranch` `:58`),
 `src/main/autopilot/journal.ts` (`readRecentRuns` `:205`).
+
+## Итог
+
+- `src/shared/autopilot/limits-estimate.ts`: `waveGrowth` (`:43`) — рост доли `seven_day` за одну Wave или `null`
+  по прежним правилам (старое число, сброс, Wave без Ticket-ов); `sample` теперь делит его на Ticket-ы.
+  `waveSamples` (`:73`) — выборки на Ticket, по времени, 10 последних (`ESTIMATE_WAVES`); `waveEstimate` (`:94`) —
+  медиана `waveSamples`. `test/unit/autopilot-limits-estimate.test.ts` не правился и зелёный.
+- `src/shared/autopilot/forecast.ts` (новый, без Node и DOM): `percentile` (`:23`, nearest-rank, p в процентах
+  0..100, пустой список — `RangeError`); `remainingWaves` (`:50`) — `{ waves, uncounted }`, `waves[i]` — число
+  Ticket-ов Wave i + 1, `uncounted` — номера Ticket-ов не `done` в checkout и без номера Wave; `epicForecast`
+  (`:107`) — bootstrap `FORECAST_DRAWS` = 1000, mulberry32 с seed `FORECAST_SEED` = `0x5eed`, порог
+  `FORECAST_MIN_SAMPLES` = 5.
+- Решено без владельца, подтвердить:
+  1. Run по названным Ticket-ам: открытый Ticket Epic-а, которого нет в списке, для `waveNumbers` считается
+     `blocked` — Run его не возьмёт, и названный Ticket, который ждёт его, номера Wave не получает и попадает в
+     `uncounted`. Так `waveNumbers` (в Ticket-е только читать) остаётся без правок.
+  2. `cumulativeHigh` длиной W + 1: `cumulativeHigh[0] = 0`, `cumulativeHigh[W] = range.high`; при `range: null` —
+     тоже `null`. Ticket 03 берёт K как наибольшее k с `cumulativeHigh[k]` ≤ свободного, K = 0 выходит само.
+  3. `uncounted` в ответе `epicForecast` — число, в ответе `remainingWaves` — список номеров.
+  4. Seed — `0x5eed`: в spec числа нет, только «постоянный seed».
+- Test — `test/unit/autopilot-forecast.test.ts`, 20 test-ов. Сначала падал весь файл (модуля не было). Мутанты, на
+  каждом test красный: порог 5 → 4 (`:180`); p90 → p50 во всём ответе, только в `range` и только в
+  `cumulativeHigh` (`:186`, `:198`, `:205`); выборка без возвращения (`:186`, `:198`); Ticket в работе получает
+  Wave 1 (`:130`); Run по названным считает все Ticket-ы (`:153`); `waveSamples` без отбора 10 последних (`:80` и
+  `autopilot-limits-estimate.test.ts`), без сортировки по времени (`:66`); `waveGrowth` делит на Ticket-ы (`:102`,
+  `:66` и `autopilot-limits-estimate.test.ts`).
+- `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (549 файлов, 11814 test-ов).
+- Оценка автора: около 120 тыс. токенов.

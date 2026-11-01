@@ -5,7 +5,7 @@
 // draws, each giving every Ticket left a sample picked at random with replacement, the sums kept at
 // each Wave boundary; p10 and p90 of the total by the nearest rank. The random numbers come from a
 // fixed seed, so the same input gives the same range. Fewer than FORECAST_MIN_SAMPLES samples give
-// no range («мало данных»). Everything here is pure: no Node, no DOM.
+// no range ("not enough data"). Everything here is pure: no Node, no DOM.
 import type { Ticket } from '../workflow/types'
 import { doneOnlyInBranch, waveNumbers } from '../workflow/waves'
 
