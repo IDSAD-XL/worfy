@@ -20,6 +20,10 @@ describe('parseChatCommand', () => {
     ['/worfy:epic-wave ticket-ы 11 эпика worfy-guide', { kind: 'tickets', epic: 'worfy-guide', tickets: [11] }],
     ['/worfy:epic-wave волна 3 эпика demo', { kind: 'wave', epic: 'demo', wave: 3 }],
     ['/worfy:epic-wave Волна 3 эпика demo', { kind: 'wave', epic: 'demo', wave: 3 }],
+    // A sentence's closing mark is not part of the Epic's name.
+    ['/worfy:epic-wave tickets 05 of epic demo.', { kind: 'tickets', epic: 'demo', tickets: [5] }],
+    ['/worfy:epic-wave wave 2 of epic worfy-guide!?', { kind: 'wave', epic: 'worfy-guide', wave: 2 }],
+    ['/worfy:epic-wave demo.', { kind: 'epic', epic: 'demo', bare: true }],
   ])('%j is a command', (text, command) => {
     expect(parseChatCommand(text)).toEqual(command)
   })
@@ -34,6 +38,7 @@ describe('parseChatCommand', () => {
     '/worfy:epic-wave',
     '/worfy:epic-wave   ',
     '/worfy:epic-waves demo',
+    '/worfy:epic-wavedemo',
     '/epic-wave tickets 05 of epic demo',
     'please run /worfy:epic-wave tickets 05 of epic demo',
     'tickets 05, 06 of epic demo',

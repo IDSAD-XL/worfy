@@ -156,13 +156,12 @@
     },
     {
       "paths": [
-        "src/shared/autopilot/chat-command.ts",
         "src/shared/workflow/wave-plan.ts"
       ],
       "specs": [
         "test/e2e/autopilot-chat.spec.ts"
       ],
-      "why": "The Autopilot command typed in a chat (worfy-flight-recorder ticket 22): agent.send (src/main/ipc/agent.ts) reads a message with chat-command.ts and, for `wave N of epic X`, the plan with wave-plan.ts; the Session view and the Session Node show its answer with chatCommandToast. Their code does anything only when a message is such a command, and autopilot-chat.spec.ts is the only spec that types one. Left out: agent.ts, SessionView.tsx and SessionNode.tsx, which every chat runs through."
+      "why": "The plan of an Epic's Waves for the Autopilot command typed in a chat (worfy-flight-recorder ticket 22): agent.send (src/main/ipc/agent.ts) reads it only for `/worfy:epic-wave wave N of epic X`, and autopilot-chat.spec.ts is the only spec that types such a command. Left out: src/shared/autopilot/chat-command.ts, which reads every message sent in a chat (so a change to it runs every spec), and agent.ts, SessionView.tsx and SessionNode.tsx, which every chat runs through."
     }
   ]
 }

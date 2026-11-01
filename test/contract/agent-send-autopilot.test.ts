@@ -68,7 +68,21 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
-async function harness(options: { running?: string | null } = {}) {
+interface HarnessOptions {
+  /** The Epic of a run already going on. */
+  running?: string | null
+  /**
+   * When the journal hears a person's input: `always` — as if a run were on from the start; `from-start` — once
+   * the stand-in Autopilot has started, as a real run subscribes to the input (run.ts).
+   */
+  input?: 'always' | 'from-start'
+  /** Holds Autopilot.start until it settles. */
+  startGate?: Promise<void>
+  /** What the read of the workflow answers; the model below by default. */
+  workflow?: () => Promise<WorkflowModel>
+}
+
+async function harness(options: HarnessOptions = {}) {
   const calls: FakeCall[] = []
   const registry = new SessionRegistry(fakeQueryFactory({ scriptsDir: join(import.meta.dirname, '..', 'fixtures', 'agent-scripts'), script: 'message-input', record: (call) => calls.push(call) }))
   registries.push(registry)
@@ -78,17 +92,23 @@ async function harness(options: { running?: string | null } = {}) {
   const journal: string[] = []
   const starts: [string, string, AutopilotStartOptions | undefined][] = []
   let running = options.running ?? null
-  registry.observeInput((_session, what) => journal.push(`human-input ${what}`))
+  // What happened in order: every person's input the registry tells of, and every start asked of startFromChat.
+  const order: string[] = []
+  registry.observeInput((_session, what) => order.push(`input ${what}`))
+  const journalInput = () => registry.observeInput((_session, what) => journal.push(`human-input ${what}`))
+  if (options.input !== 'from-start') journalInput()
   const model: WorkflowModel = { root: project, epics: [{ epic: EPIC, hasSpec: true, hasMap: false, title: 'Demo' }], tickets: [ticket(1, 'done'), ticket(2, 'open'), ticket(3, 'open')], error: null, branchErrors: [] }
   const starter = new ChatStarts({
     autopilot: {
       runningEpic: () => running,
       startCheck: () => Promise.resolve(null),
-      start: (projectId, epic, start) => {
+      start: async (projectId, epic, start) => {
         starts.push([projectId, epic, start])
+        await options.startGate
         journal.push('run-started')
+        if (options.input === 'from-start') journalInput()
         running = epic
-        return Promise.resolve({ projectId, epic, status: 'running' } as unknown as AutopilotState)
+        return { projectId, epic, status: 'running' } as unknown as AutopilotState
       },
     },
     workflow: () => Promise.resolve(model),
@@ -103,9 +123,10 @@ async function harness(options: { running?: string | null } = {}) {
     projectOf: (cwd) => (cwd === project ? PROJECT : null),
     start: (request) => {
       requests.push(request)
+      order.push('start asked')
       return starter.startFromChat(request)
     },
-    workflow: () => Promise.resolve(model),
+    workflow: options.workflow ?? (() => Promise.resolve(model)),
     spec: (_projectId, epic) => Promise.resolve(epic === EPIC ? SPEC : null),
   }
   const attachDeps: AttachDeps = {
@@ -141,7 +162,7 @@ async function harness(options: { running?: string | null } = {}) {
     return calls.flatMap((each) => (each.kind === 'message' ? [each.text] : []))
   }
   const send = (sessionId: string, text: string, attachments: unknown[] = []) => ok<{ autopilot: unknown } | undefined>('agent.send', { sessionId, text, attachments })
-  return { registry, journal, starts, requests, ok, start, send, reached, setRunning: (epic: string | null) => (running = epic) }
+  return { registry, journal, order, starts, requests, ok, start, send, reached, setRunning: (epic: string | null) => (running = epic) }
 }
 
 describe('agent.send: an Autopilot command typed in a chat', () => {
@@ -221,6 +242,58 @@ describe('agent.send: an Autopilot command typed in a chat', () => {
     await mkdir(elsewhere)
     const id = await h.start(elsewhere)
     expect(await h.send(id, '/worfy:epic-wave tickets 01 of epic demo')).toEqual({ autopilot: { kind: 'refused', epic: EPIC, message: OUTSIDE_PROJECTS } })
+    expect(h.requests).toEqual([])
+  })
+})
+
+describe('agent.send: a command among the other messages of its Session', () => {
+  const START = '/worfy:epic-wave tickets 01 of epic demo'
+  const image = { kind: 'image', name: 'shot.png', mediaType: 'image/png', size: PNG.length, data: PNG.toString('base64') }
+
+  it('a message sent behind a command waits for its answer, and reaches the run it started as a person stepping in', async () => {
+    let release!: () => void
+    const h = await harness({ input: 'from-start', startGate: new Promise<void>((done) => (release = done)) })
+    const id = await h.start()
+    const command = h.send(id, START)
+    const hi = h.send(id, 'hi, also look at X')
+    await new Promise((done) => setTimeout(done, 50))
+    // The run has not started yet: the message waits behind the command and has not reached the Session.
+    expect(h.order).toEqual(['start asked'])
+    release()
+    expect(await command).toMatchObject({ autopilot: { kind: 'started' } })
+    expect(await hi).toBeUndefined()
+    expect(await h.reached()).toEqual(['hi, also look at X'])
+    expect(h.journal).toEqual(['run-started', 'human-input sent a message'])
+  })
+
+  it('a command waits behind the messages sent before it, attachments and all', async () => {
+    const h = await harness()
+    const id = await h.start()
+    // The image is stored before its message goes (storeImages): the file written takes longer than the command's checks.
+    const first = h.send(id, 'look at this', [image])
+    const command = h.send(id, START)
+    expect(await first).toBeUndefined()
+    expect(await command).toMatchObject({ autopilot: { kind: 'started' } })
+    expect(h.order).toEqual(['input sent a message', 'start asked'])
+  })
+
+  it('a start that throws is a refusal with the error, and the next message still goes', async () => {
+    const h = await harness({ workflow: () => Promise.reject(new Error('epic-status failed with exit code 2')) })
+    const id = await h.start()
+    expect(await h.send(id, '/worfy:epic-wave wave 1 of epic demo')).toEqual({ autopilot: { kind: 'refused', epic: EPIC, message: 'epic-status failed with exit code 2' } })
+    expect(h.requests).toEqual([])
+    // An Epic named alone cannot be checked without the workflow: the word goes to the agent.
+    expect(await h.send(id, '/worfy:epic-wave demo')).toBeUndefined()
+    expect(await h.reached()).toEqual(['/worfy:epic-wave demo'])
+  })
+
+  it('a workflow read with an error is a refusal that says so', async () => {
+    const broken = { root: '/repo', epics: [], tickets: [], error: { code: 'failed', message: 'epic-status found no node' }, branchErrors: [] } as WorkflowModel
+    const h = await harness({ workflow: () => Promise.resolve(broken) })
+    const id = await h.start()
+    expect(await h.send(id, '/worfy:epic-wave wave 1 of epic demo')).toEqual({
+      autopilot: { kind: 'refused', epic: EPIC, message: 'Cannot read the workflow: epic-status found no node' },
+    })
     expect(h.requests).toEqual([])
   })
 })

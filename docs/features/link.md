@@ -360,6 +360,12 @@ The Tailscale CLI is looked for on the Path, then in the Tailscale folder under 
   Each `hello` lists what that build accepts, and a message added later, such as `ticket-note`, goes only to a Machine
   that named it, so an older build keeps working
   ([ADR-0079](../adr/0079-link-machines-announce-accepted-messages.md)).
+- **An answer of a newer shape fails on an older build.** The calling side checks a call's answer against the
+  channel's output schema (`src/main/link/remote-calls.ts`). When a newer build widens an answer, a window of an older
+  build gets "answered outside the contract" for that call; the call itself has run. The protocol version stays: the
+  rest of the link works. Example: `agent.send` answers what became of an Autopilot command typed in a chat
+  (worfy-flight-recorder ticket 22). From a window of an older build such a command still starts the run on the
+  Project's Machine, but that window shows the error instead of the toast. Any other message answers nothing, as before.
 - **Why Tailscale and no other way out of the local network:**
   [ADR-0070](../adr/0070-worfy-link-outside-the-lan-through-an-overlay-network.md). The pause after failed attempts is
   there too, with its known limit: anyone on the network can keep linking paused by guessing wrong.

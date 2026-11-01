@@ -67,7 +67,8 @@ export function parseChatCommand(text: string): ChatCommand | null {
   const rest = trimmed.slice(EPIC_WAVE_COMMAND.length)
   // `/worfy:epic-wave` alone, or another command that starts with these letters.
   if (!/^\s/u.test(rest)) return null
-  const args = rest.trim()
+  // A sentence's closing mark is not part of the Epic's name: `… of epic demo.` names `demo`.
+  const args = rest.trim().replace(/[.,;:!?]+$/u, '')
   for (const each of FORMS) {
     const match = each.pattern.exec(args)
     if (match) return each.read(match)

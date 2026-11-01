@@ -56,7 +56,8 @@ Any other text after `/worfy:epic-wave` goes to the agent as before, for example
 that is no Epic of the Project, an argument such as `depth medium`, or a message with attachments. A toast says what
 became of the command: "Autopilot started on Epic X", or the refusal. While a run of the Project goes on, the refusal is
 "Autopilot is already running Epic X. Stop it first." A refused command writes no journal, and a running run does not
-count it as a person stepping in. Typed in the Orchestrator's own Session during its turn, the run starts once that turn
+count it as a person stepping in. A message sent right after a command waits for its answer, so it reaches the run that
+command started, and the run journals it as a person stepping in. Typed in the Orchestrator's own Session during its turn, the run starts once that turn
 is over, and the toast says "Autopilot starts after this turn". The Waves Autopilot sends to the Orchestrator are never
 read as a command.
 

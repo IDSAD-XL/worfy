@@ -88,6 +88,15 @@ describe('parseWavePlan', () => {
     expect(parseWavePlan('## Волны\n\n| Волна | Что |\n| --- | --- |\n| 1 | 01 |\n')).toBeNull()
   })
 
+  it('the section ends at the next heading of its level; a deeper heading stays in it', () => {
+    expect(parseWavePlan('## Волны\n\nПлан ниже.\n\n## Риски\n\n| Волна | Ticket-ы |\n| --- | --- |\n| 1 | 01 |\n')).toBeNull()
+    expect(parseWavePlan('## Волны\n\n### План\n\n| Волна | Ticket-ы |\n| --- | --- |\n| 1 | 01 |\n')?.get(1)).toEqual([1])
+  })
+
+  it('a table without rows is no plan', () => {
+    expect(parseWavePlan('## Волны\n\n| Волна | Ticket-ы |\n| --- | --- |\n\nПозже.\n')).toBeNull()
+  })
+
   it('does not guess: a Wave cell that is not a number spoils the table, a Tickets cell its Wave', () => {
     expect(parseWavePlan('## Волны\n\n| Тикет | Волна |\n| --- | --- |\n| 01 | 1 |\n| 02 | позже |\n')).toBeNull()
     const plan = parseWavePlan('## Волны\n\n| Тикет | Волна |\n| --- | --- |\n| 01 | 1 |\n| 02 (после 01) | 2 |\n| 03 | 2 |\n| 04 | 3 |\n')
@@ -107,7 +116,8 @@ describe('ticketsOfCell', () => {
     ['', null],
     ['—', null],
     ['19–11', null],
-    ['1–100000', null],
+    ['1–500', Array.from({ length: 500 }, (_, at) => at + 1)],
+    ['1–600', null],
     ['01 и 02', null],
   ])('%j', (cell, tickets) => {
     expect(ticketsOfCell(cell)).toEqual(tickets)

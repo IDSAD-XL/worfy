@@ -180,7 +180,8 @@ function configured(change: SettingsChange): string {
 
 /**
  * The handlers over a registry; tests pass their own registry with the fake agent. Every action a
- * person takes on a live Session is told to the registry's input observers first (noteInput).
+ * person takes on a live Session is told to the registry's input observers first (noteInput); a
+ * message, when its turn among the Session's messages comes, right before the Session gets it.
  */
 export function agentHandlers(
   registry: () => SessionRegistry,
@@ -238,16 +239,22 @@ export function agentHandlers(
         lastSend.set(session, answered)
         return answered
       }
-      registry().noteInput(sessionId, 'sent a message')
       const target = attachments.target(session.cwd)
       const checked = Promise.all(attached.map((each: Attachment) => recheck(each, target)))
       // Its refusal is answered below, once the messages before it are sent; not an unhandled rejection meanwhile.
       void checked.catch(() => undefined)
       const sent = (lastSend.get(session) ?? Promise.resolve())
         .catch(() => undefined)
-        .then(() => checked)
-        .then(async (list) => {
-          await storeImages(list, attachments.imagesDir())
+        .then(async () => {
+          let list: Attachment[]
+          try {
+            list = await checked
+            await storeImages(list, attachments.imagesDir())
+          } finally {
+            // Told when the message reaches the Session, refused or not, not when it is typed: behind a
+            // command the message reaches the run that command starts, and that run journals it.
+            registry().noteInput(sessionId, 'sent a message')
+          }
           session.send(text, list)
         })
       lastSend.set(session, sent)
