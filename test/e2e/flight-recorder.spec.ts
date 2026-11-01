@@ -16,7 +16,9 @@ import { relocatedJsonText } from './relocate-fixture'
 // The first test shows the night Run of test/fixtures/flight-recorder/night-run/ — its Journal, its
 // transcripts as WORFY_CLAUDE_HOME, its gate logs as the Harness home, gh through the fixture's stand-in
 // (WORFY_GH) — and two small Runs of the same Project written here: one that stopped on a block, one whose
-// Journal ends without run-stopped (cut-off) and whose block reason is too long for its row. The fixture is
+// Journal ends without run-stopped (cut-off) and whose block reason is too long for its row; and a Run in the
+// Run mode Start window with the Epic forecast at its start, a wait for the window and the actual share at its
+// stop (worfy-resource-planner ticket 11). The fixture is
 // copied with its root `/Users/someone/Stuff/CanvasForAI` replaced by a folder of the test, so the transcripts'
 // `cwd` lies in the Project and gh runs in a folder that exists. openRunHistory (src/renderer/flight-recorder/
 // open.ts) opens the screen through the page's `__worfyRunHistory`, which an init script defines before the
@@ -34,6 +36,7 @@ const NIGHT_RUN = '2026-10-17T22-29-32-707Z-58e783'
 const PROJECT = 'CanvasForAI-38cb72ec'
 const BLOCKED_RUN = makeRunId(new Date('2026-10-19T09:00:00.000Z'), 'b10c4e')
 const CUT_RUN = makeRunId(new Date('2026-10-20T09:00:00.000Z'), 'c07c07')
+const PLAN_RUN = makeRunId(new Date('2026-10-21T09:00:00.000Z'), 'f0ca57')
 const LONG_REASON = 'The owner has to choose between the two designs of the Settings window before the implementer goes on with the rest of it'
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -100,6 +103,34 @@ function prepareNight() {
     { at: at('20', '09:30'), kind: 'ticket-status', ticket: '02', state: 'blocked', reason: LONG_REASON, waits: 'the owner' },
     // The Journal ends here: the app quit in the middle of the Run.
     { at: at('20', '09:50'), kind: 'background-tasks', tasks: [{ id: 'a1', type: 'local_agent', description: 'Implement ticket 01' }] },
+  ])
+
+  writeRun(dataDir, PLAN_RUN, 'demo-plan', [
+    { at: at('21', '09:00'), kind: 'run-started', by: 'tool', mode: 'start-window' },
+    {
+      at: at('21', '09:00'),
+      kind: 'forecast',
+      mode: 'start-window',
+      waves: 1,
+      tickets: 1,
+      uncounted: 0,
+      samples: 6,
+      low: 0.18,
+      high: 0.31,
+      fit: null,
+      week: { utilization: 0.4, resetsAt: at('25', '09:00') },
+      durationP90Ms: 3_600_000,
+      durationSamples: 6,
+      window: { from: 9, to: 17 },
+    },
+    { at: at('21', '09:00'), kind: 'start-window', reason: 'outside', until: at('21', '09:30'), text: 'Waits for the Start window' },
+    { at: at('21', '09:00'), kind: 'waiting-until', until: at('21', '09:30') },
+    { at: at('21', '09:30'), kind: 'resumed' },
+    { at: at('21', '09:30'), kind: 'wave-started', wave: 1, tickets: ['01'] },
+    { at: at('21', '09:31'), kind: 'ticket-status', ticket: '01', state: 'claimed' },
+    { at: at('21', '10:20'), kind: 'ticket-status', ticket: '01', state: 'done' },
+    { at: at('21', '10:21'), kind: 'wave-finished', wave: 1, tickets: ['01'] },
+    { at: at('21', '10:22'), kind: 'run-stopped', reason: 'tickets-done', actual: { share: 0.24, waves: 1, counted: 1 } },
   ])
 
   const log = join(scratch, 'gh.jsonl')
@@ -307,6 +338,21 @@ test('openRunHistory shows a Run over the whole main area: header, zoom, rows, l
     await expect(long.getByTestId('run-history-block')).toHaveAttribute('title', `${LONG_REASON} · Waits: the owner`)
     expect(await expectLabelsClear(window)).toBeGreaterThan(0)
     await snapshots(window, 'cut-off-long-labels')
+
+    // The Run in the Run mode Start window: the header names the mode and sets the forecast beside the actual;
+    // its wait for the window is on the Wait lane, named by its cause (worfy-resource-planner ticket 11).
+    await window.getByTestId('run-history-choose').selectOption(PLAN_RUN)
+    await expect(window.getByTestId('run-history-epic')).toHaveText('demo-plan')
+    await expect(window.getByTestId('run-history-mode')).toHaveText('Mode Start window')
+    await expect(window.getByTestId('run-history-forecast')).toHaveText('Forecast 18–31% · actual 24%')
+    await expect(window.getByTestId('run-history-by')).toHaveText('Started by a Session (autopilot_start)')
+    const waitBars = window.locator('[data-testid="run-history-row"][data-kind="lane-wait"] [data-testid="run-history-bar"]')
+    await expect(waitBars).toHaveCount(1)
+    const waitTitle = (await waitBars.first().getAttribute('title')) ?? ''
+    expect(waitTitle.split('\n')[0]).toBe('Start window')
+    expect(waitTitle).toContain('start-window: outside')
+    expect(await expectLabelsClear(window)).toBeGreaterThan(0)
+    await snapshots(window, 'forecast-and-actual')
 
     // Esc: the Canvas again.
     await window.getByTestId('run-history-timeline').click({ position: { x: 5, y: 5 } })

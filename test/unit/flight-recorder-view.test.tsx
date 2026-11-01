@@ -7,7 +7,7 @@
 // The night Run is test/fixtures/flight-recorder/night-run-view.json: what the service answers for the
 // night-Run fixture (test/contract/flight-recorder-night-view.test.ts keeps it so). The other Runs are built
 // here from facts with the span model. Main is a fake bridge.
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -23,7 +23,7 @@ import { chooseRun, formatDuration, holdsRun, resetRunHistory, setTimeWindow, us
 import { setView, useNavigation } from '../../src/renderer/session/navigation'
 
 const NIGHT: RunView = runViewSchema.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../fixtures/flight-recorder/night-run-view.json'), 'utf8')))
-const NIGHT_ITEM: RunListItem = { run: NIGHT.run, epic: 'worfy-pipeline', startedAt: '2026-10-17T22:29:32.707Z', stoppedAt: '2026-10-18T03:17:34.592Z', reason: 'blocked-tickets', live: false, tickets: [], by: 'button' }
+const NIGHT_ITEM: RunListItem = { run: NIGHT.run, epic: 'worfy-pipeline', startedAt: '2026-10-17T22:29:32.707Z', stoppedAt: '2026-10-18T03:17:34.592Z', reason: 'blocked-tickets', live: false, tickets: [], by: 'button', mode: null, forecast: null, actual: null }
 
 const T = (hhmm: string): string => `2026-10-20T${hhmm}:00.000Z`
 const SMALL_RUN = '2026-10-20T10-00-00-000Z-aaaaaa'
@@ -58,7 +58,7 @@ function viewOf(facts: RunFacts, run = SMALL_RUN): RunView {
   return { projectId: 'p-1', run, epic: 'e', timeline, summary: summarize(timeline), github: { state: 'unused', reason: 'test' }, repoUrl: null, profileReason: null, skippedLines: 0, error: null }
 }
 
-const smallItem = (over: Partial<RunListItem> = {}): RunListItem => ({ run: SMALL_RUN, epic: 'e', startedAt: T('10:00'), stoppedAt: T('12:00'), reason: 'blocked-tickets', live: false, tickets: ['e/01', 'e/02'], by: null, ...over })
+const smallItem = (over: Partial<RunListItem> = {}): RunListItem => ({ run: SMALL_RUN, epic: 'e', startedAt: T('10:00'), stoppedAt: T('12:00'), reason: 'blocked-tickets', live: false, tickets: ['e/01', 'e/02'], by: null, mode: null, forecast: null, actual: null, ...over })
 
 /** Main as a fake bridge: answers runs.list and runs.open from `views`, keeps the calls, and sends events. */
 function fakeMain(projectId: string, items: RunListItem[], views: Record<string, RunView>) {
@@ -283,6 +283,71 @@ describe('a block, another Run and a live timeline', () => {
     // A timeline of another Run is not this screen's.
     act(() => main.send('runs.changed', { ...live('11:45'), run: '2026-10-22T10-00-00-000Z-cccccc' }))
     expect(Number(screen.getByTestId('run-history-now').dataset.at)).toBe(Date.parse(T('11:30')))
+  })
+})
+
+// ── worfy-resource-planner ticket 11: the Run mode, the Epic forecast and the actual share in the header ──
+
+describe('the Run mode, the Epic forecast and the actual share in the header', () => {
+  const FORECAST = { low: 0.18, high: 0.31 }
+  // One screen at a time: a test that looks at several headers renders each afresh.
+  const header = async (over: Partial<RunListItem>) => {
+    cleanup()
+    resetRunHistory()
+    await show('p-1', [smallItem(over)], { [SMALL_RUN]: viewOf(smallFacts()) })
+    return screen.getByTestId('run-history-header')
+  }
+  const forecastOf = (header: HTMLElement) => within(header).queryByTestId('run-history-forecast')
+
+  it('shows the mode and «Forecast 18–31% · actual 24%» next to it', async () => {
+    const shown = await header({ mode: 'budget-aware', forecast: FORECAST, actual: { share: 0.24, waves: 4, counted: 4 } })
+    expect(within(shown).getByTestId('run-history-mode').textContent).toBe('Mode Budget-aware')
+    expect(forecastOf(shown)?.textContent).toBe('Forecast 18–31% · actual 24%')
+    // Every Wave counted: no tooltip to explain the actual.
+    expect(forecastOf(shown)?.title).toBe('')
+  })
+
+  it('names each Run mode as Settings does', async () => {
+    expect(within(await header({ mode: 'fastest' })).getByTestId('run-history-mode').textContent).toBe('Mode Fastest')
+    expect(within(await header({ mode: 'start-window' })).getByTestId('run-history-mode').textContent).toBe('Mode Start window')
+  })
+
+  it('a Run from before the Epic forecast (no forecast line, no mode) shows neither the forecast nor the actual', async () => {
+    const shown = await header({ actual: { share: 0.24, waves: 4, counted: 4 } })
+    expect(forecastOf(shown)).toBeNull()
+    expect(within(shown).queryByTestId('run-history-mode')).toBeNull()
+  })
+
+  it('a forecast without a range says «not enough data»; one edge without the other is no range either', async () => {
+    const actual = { share: 0.24, waves: 4, counted: 4 }
+    expect(forecastOf(await header({ forecast: { low: null, high: null }, actual }))?.textContent).toBe('Forecast: not enough data · actual 24%')
+    expect(forecastOf(await header({ forecast: { low: 0.18, high: null }, actual }))?.textContent).toBe('Forecast: not enough data · actual 24%')
+    expect(forecastOf(await header({ forecast: { low: null, high: 0.31 }, actual }))?.textContent).toBe('Forecast: not enough data · actual 24%')
+  })
+
+  it('«actual: unknown» without run-stopped.actual, and when no Wave gave a sample (counted = 0)', async () => {
+    expect(forecastOf(await header({ forecast: FORECAST, actual: null }))?.textContent).toBe('Forecast 18–31% · actual: unknown')
+    const none = forecastOf(await header({ forecast: FORECAST, actual: { share: 0, waves: 2, counted: 0 } }))
+    expect(none?.textContent).toBe('Forecast 18–31% · actual: unknown')
+    expect(none?.title).toBe('Actual counts 0 of 2 Waves: a Wave counts only with fresh Limits at both ends and no week reset inside it')
+  })
+
+  it('a tooltip says how many Waves the actual counts when it is fewer than the Run finished', async () => {
+    const shown = forecastOf(await header({ forecast: FORECAST, actual: { share: 0.24, waves: 4, counted: 3 } }))
+    expect(shown?.textContent).toBe('Forecast 18–31% · actual 24%')
+    expect(shown?.title).toBe('Actual counts 3 of 4 Waves: a Wave counts only with fresh Limits at both ends and no week reset inside it')
+  })
+
+  it('rounds the shares from whole millionths, as the forecast lines do', async () => {
+    // 0.285 × 100 is 28.499999999999996 in floating point; in millionths it is 285 000, which rounds to 29.
+    expect(forecastOf(await header({ forecast: { low: 0.145, high: 0.285 }, actual: { share: 0.285, waves: 1, counted: 1 } }))?.textContent).toBe('Forecast 15–29% · actual 29%')
+    // Both edges on one whole percent, and a range under 1 %: the words of the forecast line.
+    expect(forecastOf(await header({ forecast: { low: 0.181, high: 0.184 }, actual: { share: 0.004, waves: 1, counted: 1 } }))?.textContent).toBe('Forecast about 18% · actual less than 1%')
+    expect(forecastOf(await header({ forecast: { low: 0.001, high: 0.004 }, actual: { share: 0, waves: 1, counted: 1 } }))?.textContent).toBe('Forecast less than 1% · actual 0%')
+  })
+
+  it('a Run started by the autopilot_start tool says a Session started it: any Session with the Canvas tools may call it', async () => {
+    expect(within(await header({ by: 'tool' })).getByTestId('run-history-by').textContent).toBe('Started by a Session (autopilot_start)')
   })
 })
 
