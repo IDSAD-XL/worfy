@@ -75,7 +75,7 @@ PR: #1204, ветка `worfy-guide/21`. План README владелец при�
 | 43 | First run: список нужного и состояние, ничего не меняет без подтверждения | `docs/features/onboarding.md:11-12,39,64` |
 | 43 | Getting started ведёт один Ticket Demo project от Orchestrator через review до merge; Demo — локальный репозиторий без GitHub; агенты тратят usage | `docs/features/onboarding.md:148,152-153,290-292` |
 | 47 | «Update worfy» в Version chip, Settings → General, Command palette | `docs/features/updates.md:40,42,44,65` |
-| 47 | только в Stable copy | `docs/features/updates.md:11-14` |
+| 47 | только в Stable copy на её месте по умолчанию | `docs/features/updates.md:11-14` |
 | 47 | собирает голову `main` при зелёном `ci-ok`, в своём clone; заменяет копию после выхода; перезапуск — нажатие | `docs/features/updates.md:16-20,78-81,190,194` |
 | 47 | хранит одну прошлую копию; ручной `pnpm install:stable` — ни одной | `docs/features/updates.md:197-198` |
 | 51 | Help ▸ worfy Guide; «worfy Guide» в Command palette | `src/main/menu.ts:105`, `src/renderer/palette/commands.ts:36,364`, `docs/features/app-shell.md:389` |
@@ -93,6 +93,9 @@ PR: #1204, ветка `worfy-guide/21`. План README владелец при�
 | 86 | закрытие: сначала процессы под shell (`Stop-Process -Force`), потом pseudo-console | `src/main/terminal/windows-pty.ts:155-165,212`, `docs/features/terminal.md:75`, `src/main/terminal/pty.ts` (ветка Windows close) |
 | 86 | worfy не спрашивает перед закрытием | `src/renderer/canvas/overlays/SelectionToolbar.tsx:229` (Delete сразу в trash, без диалога), `docs/features/terminal.md:26` |
 | 86 | обход дерева по живым родителям; ребёнок старше родителя — не ребёнок | `src/main/terminal/windows-pty.ts:155-161,193-196` |
+| 86 | программы со своим окном завершаются сразу, без просьбы закрыться: несохранённое теряется | `src/main/terminal/windows-pty.ts:153-216` (`Stop-Process -Force` на `:212`), `src/main/terminal/pty.ts:959-960` |
+| 86 | программа на console shell-а всё равно завершается: закрытие pseudo-console её заканчивает | `src/main/terminal/pty.ts:961-963,989-991` |
+| 88 | pseudo-console закрывается в каждом из этих случаев | `src/main/terminal/pty.ts:971-981` (ошибка помощника только в log, затем `release`), `:1007` (`pty.kill()`) |
 | 88 | те же случаи: Node уходит из Layout, Project удалён, ушло последнее окно или Linked machine, выход | `docs/features/terminal.md:24-29` |
 | 88 | elevated остаётся, pid в log | `src/main/terminal/windows-pty.ts:163,226,246` |
 | 88 | предел 3 s, для Git Bash 4.5 s (hangup и 1.5 s) | `src/main/terminal/windows-pty.ts:12,32,52,237` |
@@ -101,14 +104,30 @@ PR: #1204, ветка `worfy-guide/21`. План README владелец при�
 | 94 | Autopilot отказывает репозиторию worfy только в development build, любой checkout и worktree тоже; packaged — можно | `src/main/autopilot/run.ts:406,417-418,428`, `docs/features/autopilot.md:29-30` |
 | 99–105 | пути по умолчанию и свои | `scripts/install-stable.mjs:18-21,93-94,111-113` |
 | 108 | собирает (`pnpm package`), меняет, пишет commit и время рядом, внутрь копии не пишет | `scripts/install-stable.mjs:7-13`, `metadataPath` `:131-133` |
+| 108 | прошлая копия отодвигается, пока новая не на месте, и возвращается при неудаче замены | `scripts/install-stable.mjs:7-9` |
 | 108 | отказ с ненулевым кодом, пока копия запущена; остановить Autopilot или ждать паузы между Waves | `scripts/install-stable.mjs:13,929` |
 | 108 | `.installing-<pid>` и `.replaced-<pid>`, следующий запуск их убирает | `scripts/install-stable.mjs:9-10,194-198,973-975` |
+| 110 | Stable copy на Windows — копия `dist\\win-unpacked`, запуск `worfy.exe`, ярлыка в меню Пуск нет | `scripts/install-stable.mjs:20-21,46` (копирует `win-unpacked`; ярлыков скрипт не создаёт: слова shortcut в нём нет) |
+| 110 | SmartScreen: More info → Run anyway | `electron-builder.yml:79-80` (SmartScreen спрашивает); названия кнопок — интерфейс Windows, перенесены из прежнего README:60 |
 | 110 | на Windows unsigned installer `dist\worfy Setup <version>.exe` в `%LOCALAPPDATA%\Programs\worfy`; SmartScreen | `electron-builder.yml:5,79-83` |
 | 110 | installer останавливает программы с путём из его папки; отказы: внутри, вокруг, с тем же началом пути; `Uninstall worfy.exe`; непустая папка не копия; папка с `worfy.exe` заменяется целиком | `electron-builder.yml:87-89`, `scripts/install-stable.mjs:109-128,172-182` |
-| 112 | копия и `pnpm dev` — разные data-папки | `docs/features/storage-and-diagnostics.md:17,136` |
-| 112 | экран не гаснет весь прогон, в т.ч. ожидание Limits и фоновых задач после Stop | `src/main/autopilot/power.ts:3`, `docs/features/autopilot.md:112` |
-| 112 | крышку не закрывать, экран вручную не блокировать: Mac спит; на заблокированном экране Electron не показывает окно, e2e не идут | ADR-0034:7,24,30-31 |
-| 114 | `WORFY_PACKAGED_APP=… playwright test --grep 'stable copy of the packaged app'` | `test/e2e/packaged.spec.ts:18,322,328` |
+| 112 | на Mac после установки новой копии ответить на её диалоги до старта Autopilot: ad-hoc подпись меняется с каждой сборкой, macOS может спросить снова | `electron-builder.yml:60` (`identity: '-'`), `docs/features/link.md:56` (подпись меняется с каждой сборкой); перенесено из прежнего README:78 |
+| 114 | копия и `pnpm dev` — разные data-папки | `docs/features/storage-and-diagnostics.md:17,136` |
+| 114 | экран не гаснет весь прогон, в т.ч. ожидание Limits и фоновых задач после Stop | `src/main/autopilot/power.ts:3`, `docs/features/autopilot.md:112` |
+| 114 | крышку не закрывать, экран вручную не блокировать: Mac спит; на заблокированном экране Electron не показывает окно, e2e не идут | ADR-0034:7,24,30-31 |
+| 116 | `WORFY_PACKAGED_APP=… playwright test --grep 'stable copy of the packaged app'` | `test/e2e/packaged.spec.ts:18,322,328` |
+
+### Раунд 1 доработки (PR #1204, REJECTED, 5 medium и low)
+
+1. README:112 — вернул совет ответить на диалоги macOS новой копии до старта Autopilot.
+2. README:108 — вернул гарантию ручного `pnpm install:stable`: прошлая копия отодвигается и возвращается при неудаче.
+3. README:110 — вернул: копия `dist\\win-unpacked` без ярлыка в меню Пуск, путь SmartScreen More info → Run anyway.
+4. `scripts/ci-scope.mjs:56-59` — оба SVG в `READ_BY_TESTS`: PR только с SVG запускает тесты (`linux-tests`), случаи в `test/contract/ci-workflow.test.ts` рядом с README.md. `scripts/affected-tests.table.json` — строка `links`: оба SVG → `test/unit/map-of-worfy-svg.test.tsx`; случай в `test/unit/affected-tests.test.ts`, отдельный describe (describe реальной таблицы в карантине на macOS). Прогон `scripts/affected-tests.mjs` на пробном commit-е только с `docs/images/map-of-worfy-dark.svg`: `all:false`, тест выбран.
+5. В ту же строку `links` — `src/renderer/theme/tokens.css` и `src/renderer/guide/guide.css`. Пробный commit только с `tokens.css`: `all:false`, тест выбран.
+
+Low: число наконечников (`rotate(`) равно числу Edge-ей; проверка путей ловит `~/` и имя пользователя (целым словом, от трёх букв); `alt` равен экранированному `scene.description`; README:47 «at its default place»; `scripts/hang-sample.mjs:7` ссылается на `docs/features/storage-and-diagnostics.md`, а там после описания файлов — признак окна «восстановить окна?» (`NSPersistentUIRestorer`, `NSAlert runModal`, ссылка на `docs/lessons/agents.md`); строки README:86,88 выше.
+
+Mutant-ы (каждый красный, потом файлы возвращены из копии и сверены `cmp`): строка `links` удалена — красный тест таблицы; лишний наконечник без `data-edge` (SVG перегенерированы) — красный «draws an arrow…» в обеих темах; комментарий `~/…` и комментарий с именем пользователя — красный «carries no link…»; изменённый `alt` — красный тест README; SVG убраны из `READ_BY_TESTS` — красные оба новых случая `ci-workflow.test.ts`.
 
 ### Подписи и стрелки SVG и их источники
 
