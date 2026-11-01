@@ -49,7 +49,9 @@ import { hasRunWave, useRunWaveState } from './gates'
 // The entries into the Run history screen (worfy-flight-recorder ticket 20, decision 06; the screen
 // opens through flight-recorder/open.ts):
 // - "Run history", an item of "⋯" whenever the action is drawn: the screen with the list of Runs
-//   kept to this Epic. So "⋯" is there with no run too, with this one item.
+//   kept to this Epic. So "⋯" is there with no run too, with this one item. An Epic with nothing to
+//   start, stop or say (all its Tickets done) draws no button, but keeps "⋯" with this item when the
+//   Run history has Runs of it (`runs.list`).
 // - "History", right of the status line of this Epic's stopped run whose Journal main names
 //   (`run`): the screen at that Run. It goes with the start of the next run. The toast of the stop
 //   (flight-recorder/stop-toast.ts) opens the same.
@@ -330,6 +332,27 @@ function useWaveEstimate(projectId: string, key: string): AutopilotEstimateAnswe
   return answer
 }
 
+/**
+ * Whether the Epic has Runs in the Project's Run history (`runs.list`), asked while `ask` holds:
+ * the frame of an Epic without the button keeps "⋯" with "Run history" only then. Asked again when
+ * `ask` comes back; false until main answers, and when it fails.
+ */
+function usePastRuns(projectId: string, epic: string, ask: boolean): boolean {
+  const [has, setHas] = useState(false)
+  useEffect(() => {
+    if (!ask) return
+    let active = true
+    void invoke('runs.list', { projectId, epic }).then((result) => {
+      const runs: unknown = result.ok ? result.value.runs : undefined
+      if (active) setHas(Array.isArray(runs) && runs.length > 0)
+    })
+    return () => {
+      active = false
+    }
+  }, [projectId, epic, ask])
+  return ask && has
+}
+
 function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], { kind: 'epic' }>) {
   const state = useAutopilot(projectId)
   const mine = state?.epic === epic.epic
@@ -363,7 +386,10 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
     () => (wave.enabled ? forecastHint(estimate, forecast, limits, { mode, window: { from: windowFrom, to: windowTo }, budgetOn, reserve: reservePercent / 100 }, now) : null),
     [wave.enabled, estimate, forecast, limits, mode, windowFrom, windowTo, budgetOn, reservePercent, now],
   )
-  if (!hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined) return null
+  // Nothing to start, stop or say: the button is not drawn, and "⋯" only for an Epic with past Runs.
+  const hidden = !hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined
+  const pastRuns = usePastRuns(projectId, epic.epic, hidden)
+  if (hidden && !pastRuns) return null
 
   const button =
     pending !== undefined || (mine && stopping) ? (
@@ -423,6 +449,7 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
       items={mine && running ? [forceStop, runHistory] : [runHistory]}
     />
   )
+  if (hidden) return <div className="nodrag" style={{ flex: 'none' }}>{more}</div>
   // "History" by the status line of this Epic's stopped run, until the next run starts.
   const shownRun = mine && state?.status === 'stopped' ? (state.run ?? null) : null
   // One structure in every state: a button that moved to another parent would be made anew and lose

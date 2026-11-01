@@ -816,6 +816,33 @@ describe('the entries into Run history on the Epic frame (worfy-flight-recorder 
     expect(screen.queryByTestId('autopilot-history')).toBeNull()
   })
 
+  it('an Epic with every Ticket done draws no button, but keeps "⋯" with Run history when it has past Runs', async () => {
+    tickets = tickets.map((each) => ({ ...each, state: 'done' as const }))
+    const inner = (globalThis as unknown as { worfy: WorfyBridge }).worfy
+    let runs: unknown[] = [{ run: RUN, epic: 'demo' }]
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      ...inner,
+      invoke: (channel, input) => (channel === 'runs.list' ? (calls.push({ channel, input }), Promise.resolve({ ok: true, value: { runs } })) : inner.invoke(channel, input)),
+    }
+    await shown({ epic: 'other', status: 'stopped', wave: 1, reason: 'user-stop', run: RUN, ended: ENDED })
+    const more = await screen.findByTestId('action-autopilot-more')
+    expect(screen.queryByRole('button', { name: 'Autopilot' })).toBeNull()
+    expect(calls.filter((call) => call.channel === 'runs.list').map((call) => call.input)).toEqual([{ projectId: PROJECT, epic: 'demo' }])
+    fireEvent.click(more)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Run history' }))
+    expect(opened).toEqual([[PROJECT, undefined, 'demo']])
+    // Without past Runs of the Epic, nothing is drawn.
+    cleanup()
+    vi.resetModules()
+    runs = []
+    await shown({ epic: 'other', status: 'stopped', wave: 1, reason: 'user-stop', run: RUN, ended: ENDED })
+    await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'runs.list')).toHaveLength(2))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.queryByTestId('action-autopilot-more')).toBeNull()
+  })
+
   it('"Run history" in "⋯" opens the Run history kept to this Epic, before any run and while one goes on', async () => {
     await shown({})
     await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Autopilot' }).getAttribute('aria-disabled')).toBe('false'))

@@ -2716,6 +2716,20 @@ describe('the state names the run and, once stopped, counts its Tickets (worfy-f
     expect(stopped).toMatchObject({ status: 'stopped', reason: 'blocked-tickets', run: RUN, ended: { at: clock, duration: (4 * 60 + 48) * 60_000, done: 1, blocked: 1 } })
   })
 
+  it('a Wave Ticket left open at the stop counts in neither: blocked counts only blocked', async () => {
+    Date.now = () => clock
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.tickets = s.tickets.map((each) => (each.num === 1 ? { ...each, state: 'blocked' as const } : each))
+    s.workflowChanged()
+    await settle()
+    await s.autopilot.forceStop(PROJECT)
+    await settle()
+    // 01 blocked, 02 still open: one blocked, none done.
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', ended: { done: 0, blocked: 1 } })
+  })
+
   it('a Force stop counts by the run\'s last read of the statuses: a Ticket blocked then counts as blocked, one in work in neither', async () => {
     Date.now = () => clock
     const s = standIn()

@@ -532,6 +532,13 @@ test('the stop of a Run: a toast with its count that stays; "Open history", "His
     await expect(status).toHaveText('stopped: user force stop')
     await expect(toast).toHaveCount(1)
     await expect(toast.locator('.w-toast__text')).toHaveText(/^Run stopped: user-force-stop · 0 done, 0 blocked · \d+ (s|min)$/)
+    // A newer Run of another Epic in the history: the newest Run is not this one, so "Open history" and
+    // "History" open the Run they name, not the newest.
+    const later = await openRun({ project: PROJECT, epic: 'other' }, { env: { WORFY_DATA_DIR: dataDir }, now: () => new Date(Date.now() + 3_600_000) })
+    await later.append({ kind: 'run-stopped', reason: 'user-stop' })
+    await toast.getByRole('button', { name: 'Open history' }).click()
+    await expect(window.getByTestId('run-history-choose').locator('option')).toHaveCount(3)
+    await expectHistoryAt(window, next)
     await history.click()
     await expectHistoryAt(window, next)
   } finally {

@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AUTOPILOT_STOP_REASONS } from '../../src/shared/autopilot/cycle'
 import { autopilotStateSchema, type AutopilotState } from '../../src/shared/ipc/autopilot'
-import { pressToastAction, resetToasts, setToastProject, shownToasts, toasts, TOAST_MS, type Toast } from '../../src/renderer/toast/toasts'
+import { dismissToast, pressToastAction, resetToasts, setToastProject, showToast, shownToasts, toasts, TOAST_MS, type Toast } from '../../src/renderer/toast/toasts'
 
 const subscribed = vi.hoisted(() => new Map<string, (payload: unknown) => void>())
 
@@ -97,14 +97,50 @@ describe('the toast when a Run stops', () => {
     expect(all()).toHaveLength(0)
   })
 
-  it('another Run of the Project has a toast of its own', () => {
+  it('the next Run of the Project has its own toast and closes the one before: one stop toast per Project', () => {
     const next = '2026-10-18T06-00-00-000Z-a1b2c3'
     acceptStopState(state())
     acceptStopState(state({ run: next, reason: 'user-stop', ended: { at: STOPPED + 60_000, duration: 45_000, done: 0, blocked: 0 }, revision: 9 }))
-    expect(all().map((each) => [each.id, each.text])).toEqual([
-      [stopToastKey(RUN), 'Run stopped: blocked-tickets · 5 done, 1 blocked · 4 h 48 min'],
-      [stopToastKey(next), 'Run stopped: user-stop · 0 done, 0 blocked · 45 s'],
-    ])
+    expect(all().map((each) => [each.id, each.text])).toEqual([[stopToastKey(next), 'Run stopped: user-stop · 0 done, 0 blocked · 45 s']])
+    // "Open history" of the toast left opens its own Run.
+    pressToastAction(stopToastKey(next), 0)
+    expect(opened).toEqual([[PROJECT, next]])
+  })
+
+  it('a stop that ended before the Project\'s latest toasted one, arriving after it, shows nothing and closes nothing', () => {
+    const next = '2026-10-18T06-00-00-000Z-a1b2c3'
+    acceptStopState(state({ run: next, ended: { at: STOPPED + 60_000, duration: 45_000, done: 0, blocked: 0 }, revision: 9 }))
+    acceptStopState(state())
+    expect(all().map((each) => each.id)).toEqual([stopToastKey(next)])
+  })
+
+  it('a Run stopping after the toast before it was closed by hand: its own toast', () => {
+    const next = '2026-10-18T06-00-00-000Z-a1b2c3'
+    acceptStopState(state())
+    dismissToast(stopToastKey(RUN))
+    acceptStopState(state({ run: next, ended: { at: STOPPED + 1, duration: 45_000, done: 0, blocked: 0 }, revision: 9 }))
+    expect(all().map((each) => each.id)).toEqual([stopToastKey(next)])
+  })
+
+  it('Runs of two Projects stopping together: a toast each; a Project switch closes neither, the stack shows the active one\'s', () => {
+    const other = 'other-00000001'
+    const otherRun = '2026-10-18T06-00-00-000Z-a1b2c3'
+    acceptStopState(state())
+    setToastProject(other)
+    acceptStopState(state({ projectId: other, run: otherRun, ended: { at: STOPPED + 1, duration: 45_000, done: 0, blocked: 0 }, revision: 9 }))
+    expect(all().map((each) => each.id)).toEqual([stopToastKey(RUN), stopToastKey(otherRun)])
+    expect(shownToasts(toasts.getState()).map((each) => each.id)).toEqual([stopToastKey(otherRun)])
+    setToastProject(PROJECT)
+    expect(shownToasts(toasts.getState()).map((each) => each.id)).toEqual([stopToastKey(RUN)])
+  })
+
+  it('stops never fill the stack of toasts that stay: after many Runs a Session\'s question still shows', () => {
+    for (let i = 0; i < 5; i += 1) {
+      const run = `2026-10-18T0${i}-00-00-000Z-a1b2c${i}`
+      acceptStopState(state({ run, ended: { at: STOPPED + i, duration: 45_000, done: 0, blocked: 0 }, revision: 10 + i }))
+    }
+    showToast({ kind: 'action', key: 'question', projectId: PROJECT, text: 'Asks: go on?', actions: [{ label: 'Open', run: () => undefined }] })
+    expect(shownToasts(toasts.getState()).map((each) => each.id)).toEqual([stopToastKey('2026-10-18T04-00-00-000Z-a1b2c4'), 'question'])
   })
 
   it.each(AUTOPILOT_STOP_REASONS)('a stop for %s has the toast too', (reason) => {
