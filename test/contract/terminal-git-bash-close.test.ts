@@ -30,13 +30,15 @@ function needsGitBash(context: { skip: (condition: boolean, note?: string) => vo
 const unique = (word: string): { command: string; output: RegExp } => ({ command: `echo ${word}-$((40+2))`, output: new RegExp(`${word}-42\\r?\\n`) })
 
 /**
- * A stand-in of kill.exe as a batch file: one process, as kill.exe is. After `first` it notes that it
- * started and rewrites a file in a loop, until the scratch folder of the test is removed. The loop is
- * bounded, about a minute on the PC, in case vitest dies before it removes the folder.
+ * A stand-in of kill.exe as a batch file: one process, as kill.exe is. It notes that it started,
+ * writes a file once, runs `first` and rewrites the file in a loop, until the scratch folder of the
+ * test is removed. `first` can end bash, and the helper then ends the stand-in at once, so what comes
+ * after `first` may never run. The loop is bounded, about a minute on the PC, in case vitest dies
+ * before it removes the folder.
  */
 async function spinningKill(name: string, first = ''): Promise<{ file: string; started: string; beat: string }> {
   const file = join(home, `${name}.cmd`)
-  await writeFile(file, ['@echo off', first, 'echo.>"%~f0.started"', 'set n=0', ':again', 'echo.>"%~f0.beat"', 'set /a n+=1', 'if %n% lss 10000 if exist "%~f0" goto again', ''].join('\r\n'))
+  await writeFile(file, ['@echo off', 'echo.>"%~f0.started"', 'echo.>"%~f0.beat"', first, 'set n=0', ':again', 'echo.>"%~f0.beat"', 'set /a n+=1', 'if %n% lss 10000 if exist "%~f0" goto again', ''].join('\r\n'))
   return { file, started: `${file}.started`, beat: `${file}.beat` }
 }
 
