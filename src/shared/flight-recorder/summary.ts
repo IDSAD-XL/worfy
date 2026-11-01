@@ -4,7 +4,8 @@
 // Self time is a span's duration minus the union of the intervals of the spans nested in it:
 // children run in parallel, so two agents working the same half hour take that half hour once, not
 // twice. A child counts only inside its parent's parts. The summary over the top of the timeline:
-// the three longest Stages by self time; the Waits by cause, with the sum and the share of the Run;
+// the three longest Stages by self time; the Waits by cause, with the sum and the share of the Run
+// (a `background-tasks` Wait only where no work runs: COUNTED_WITHOUT_WORK);
 // the work inside Stages by subkind, summed — parallel work makes that sum longer than the clock,
 // hence the note «summed; parallel».
 import { childrenOf, duration, WORK_KINDS, type AgentSubkind, type Span, type Timeline, type WaitCause, type WorkKind } from './spans'
@@ -36,18 +37,36 @@ export function intervalUnionLength(intervals: readonly Interval[]): number {
   return total
 }
 
-/** The parts of `child` inside the parts of `parent`. */
-function inside(parent: Span, child: Span): Interval[] {
+/** The parts of `intervals` inside the parts of `span`. */
+function clipTo(span: Span, intervals: readonly Interval[]): Interval[] {
   const parts: Interval[] = []
-  for (const outer of parent.segments) {
-    for (const inner of child.segments) {
-      const start = Math.max(outer.start, inner.start)
-      const end = Math.min(outer.end, inner.end)
+  for (const outer of span.segments) {
+    for (const [innerStart, innerEnd] of intervals) {
+      const start = Math.max(outer.start, innerStart)
+      const end = Math.min(outer.end, innerEnd)
       if (end > start) parts.push([start, end])
     }
   }
   return parts
 }
+
+const intervalsOf = (span: Span): Interval[] => span.segments.map((segment) => [segment.start, segment.end])
+
+/** The parts of `child` inside the parts of `parent`. */
+const inside = (parent: Span, child: Span): Interval[] => clipTo(parent, intervalsOf(child))
+
+/**
+ * The Wait causes that count only where no work span of the Run runs (ticket 26). The
+ * Orchestrator's background tasks are its own agents, gate runs and scripts: while one of them
+ * works, the Run is not standing for an outside reason (decision 03, Q5). The span stays whole on
+ * the timeline — the Journal saw the tasks live all along; only the summary takes the work off.
+ * The other causes stand the work for an outside reason and count whole. A reader of the summary
+ * labels the row of such a cause with WITHOUT_WORK_NOTE: its total is shorter than the Wait lane.
+ */
+export const COUNTED_WITHOUT_WORK: ReadonlySet<WaitCause> = new Set<WaitCause>(['background-tasks'])
+
+/** The note on a Wait row whose cause is in COUNTED_WITHOUT_WORK: only its time with no work. */
+export const WITHOUT_WORK_NOTE = 'without work'
 
 /**
  * A span's duration minus the union of its children's intervals inside it. A Wave counts the parts
@@ -78,6 +97,7 @@ export interface StageRow {
 
 export interface WaitRow {
   cause: WaitCause
+  /** The sum of the Waits' durations; for a cause in COUNTED_WITHOUT_WORK, only their time with no work. */
   total: number
   /** Of the Run's duration, 0…1. */
   share: number
@@ -115,10 +135,13 @@ export function summarize(timeline: Timeline): Summary {
     .slice(0, TOP_STAGES)
     .map(({ span, self }) => ({ spanId: span.id, ticket: span.links.ticket ?? '', name: span.name, attempt: span.attempt, selfTime: self, duration: duration(span) }))
 
+  // Every work span of the Run, wherever it hangs; work whose details are gone has no real times.
+  const workParts = timeline.spans.filter((span) => WORK.has(span.kind) && span.lost === null).flatMap(intervalsOf)
   const waitTotals = new Map<WaitCause, number>()
   for (const span of timeline.spans) {
     if (span.kind !== 'wait' || span.waitCause === null) continue
-    waitTotals.set(span.waitCause, (waitTotals.get(span.waitCause) ?? 0) + duration(span))
+    const counted = COUNTED_WITHOUT_WORK.has(span.waitCause) ? duration(span) - intervalUnionLength(clipTo(span, workParts)) : duration(span)
+    waitTotals.set(span.waitCause, (waitTotals.get(span.waitCause) ?? 0) + counted)
   }
   const waits = [...waitTotals]
     .map(([cause, total]) => ({ cause, total, share: runDuration > 0 ? total / runDuration : 0 }))

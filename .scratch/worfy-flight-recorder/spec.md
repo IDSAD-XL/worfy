@@ -7,7 +7,7 @@ Machine, Orchestrator; [ADR-0002](../../docs/adr/0002-worfy-is-a-view-over-the-w
 не копирует), [ADR-0005](../../docs/adr/0005-worfy-own-state-inventory.md) (своё состояние — в папке данных),
 [ADR-0067](../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md) (Stage вычисляется); прототип —
 Card `card-57714d55` «Flight Recorder — прототип шкалы Run» (решение 05).
-Ticket-ы: Epic `worfy-flight-recorder`, 16 Ticket-ов, нумерация с `10` (01–09 — Ticket-ы-решения карты в этой же
+Ticket-ы: Epic `worfy-flight-recorder`, 17 Ticket-ов, нумерация с `10` (01–09 — Ticket-ы-решения карты в этой же
 папке). Шапка — `Type:` / `Status:` / `Blocked by:` / `Source:`, как у worfy-onboarding.
 
 ## Цель и что видит пользователь
@@ -76,8 +76,9 @@ Ticket-ы: Epic `worfy-flight-recorder`, 16 Ticket-ов, нумерация с `
 
 **Собственное время и итог (решение 03, Q8).** Собственное время = длительность минус объединение интервалов
 вложенных spans (дети идут параллельно, поэтому объединение, а не сумма). Итог: три самых долгих Stage по
-собственному времени; Wait-ы по причинам (сумма и доля Run); работа внутри Stage по подвидам (сумма, с пометкой
-«summed; parallel»).
+собственному времени; Wait-ы по причинам (сумма и доля Run; Wait `background-tasks` — только время, когда не идёт
+ни один span работы Run, строка с пометкой «without work», Ticket 26); работа внутри Stage по подвидам (сумма, с
+пометкой «summed; parallel»).
 
 **Неполная история (решение 08, Q5–Q7).** Каркас Run (Run, Wave, Wait, статусы Ticket-ов) задаёт Journal. Span,
 о котором Journal знает, а подробностей нет, рисуется серым со штриховкой и подписью потерянного источника:
@@ -330,7 +331,11 @@ UI — нужны снимки в обеих темах в `.scratch/worfy-fligh
   `docs/features/ru/autopilot.md`, `docs/features/README.md`. Не UI.
 - **25 — Приёмка с владельцем.** Ночной Run на Mac Stable: toast, история, живая шкала, «Problems only», команда
   и просьба словами; Run на Windows-ПК: пути Journal, транскриптов и логов gate. Отметить «Готово, когда».
-  Blocked by: 10–24. Files: `.scratch/worfy-flight-recorder/spec.md`. UI (снимки владельцу).
+  Blocked by: 10–24, 26. Files: `.scratch/worfy-flight-recorder/spec.md`. UI (снимки владельцу).
+- **26 — Wait `background-tasks` без работы.** В итоге Wait `background-tasks` считается только за время, когда не
+  идёт ни один span работы Run (background tasks — сами агенты, gate и scripts Orchestrator-а); другие причины —
+  целиком. Решил Orchestrator без владельца, подтверждение — утром. Blocked by: 13. Files:
+  `src/shared/flight-recorder/summary.ts`, `test/unit/flight-recorder-summary-waits.test.ts`. Не UI.
 
 ## Волны
 
@@ -354,6 +359,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 19 | `src/renderer/flight-recorder/DetailPanel.tsx`, `src/renderer/flight-recorder/filter.ts`, `src/renderer/flight-recorder/RunHistoryView.tsx`, `src/renderer/flight-recorder/Timeline.tsx`, `test/e2e/flight-recorder-detail.spec.ts`, `scripts/e2e-specs.table.json` | 6 |
 | 20 | `src/renderer/flight-recorder/stop-toast.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/renderer/canvas/actions/action-menu.ts`, `src/renderer/palette/commands.ts`, `src/shared/ipc/autopilot.ts`, `src/main/autopilot/run.ts`, `test/unit/palette-commands.test.tsx`, `test/e2e/autopilot.spec.ts` | 6 |
 | 24 | `docs/features/flight-recorder.md`, `docs/features/ru/flight-recorder.md`, `docs/features/autopilot.md`, `docs/features/ru/autopilot.md`, `docs/features/README.md` | 7 |
+| 26 | `src/shared/flight-recorder/summary.ts`, `test/unit/flight-recorder-summary-waits.test.ts` | 4 |
 | 25 | `.scratch/worfy-flight-recorder/spec.md` | 8 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры. Если у двух Ticket-ов одной Wave общий файл,
