@@ -335,7 +335,7 @@ test('Stop of A\'s run pressed at once on two screens: both show stopped, the jo
       await expect(screen.status).toHaveText('stopped: user stop')
       await expect(screen.autopilot).toHaveText('Autopilot')
     }
-    expect(journalKinds(a.dataDir)).toEqual([['run-started', 'wave-started 1', 'run-stopping 1', 'run-stopped user-stop']])
+    expect(journalKinds(a.dataDir)).toEqual([['run-started', 'forecast', 'wave-started 1', 'run-stopping 1', 'run-stopped user-stop']])
     expect(messages(a.log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`, STOP_TEXT])
     // With A's run over, "Start anyway" left on B asks again and starts a plain run: no override.
     await expect(onB.anyway).toBeVisible()

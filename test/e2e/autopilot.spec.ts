@@ -327,7 +327,7 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     await expect(stop).toHaveAttribute('title', `Autopilot over ${EPIC} is stopping: no new Tickets; it waits for the Tickets in work. Force stop is under ⋯`)
     await expect(status).toHaveText('stopping')
     await expect(more).toBeVisible()
-    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'run-stopping 1'])
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'run-stopping 1'])
     expect(await power()).toEqual(['start prevent-display-sleep'])
     await expectStatusClear(window, header, status)
     await snapshots(window, header, 'autopilot-stopping')
@@ -338,7 +338,7 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     await expect(autopilot).toHaveText('Autopilot')
     await expect(more).toHaveCount(0)
     expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`, STOP_TEXT])
-    expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'run-stopping 1', 'run-stopped user-stop'])
+    expect(journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'run-stopping 1', 'run-stopped user-stop'])
     expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
     await expectStatusClear(window, header, status)
     await snapshots(window, header, 'autopilot-stopped')
@@ -394,7 +394,7 @@ test('Autopilot waits for the Limits after a refusal: the status line says until
     await expect(stop).toHaveText('Stop autopilot')
     expect(await power()).toEqual(['start prevent-display-sleep'])
     expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
-    expect(journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'limits-hit', 'waiting-until'])
+    expect(journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'limits-hit', 'waiting-until'])
     await snapshots(window, header, 'autopilot-waiting')
 
     // Stop during the wait is graceful (worfy-week ticket 18): the run keeps waiting, now stopping;
@@ -403,7 +403,7 @@ test('Autopilot waits for the Limits after a refusal: the status line says until
     await expect(stop).toHaveText('Stopping…')
     await expect(status).toHaveText(line!)
     await expect(status).toHaveAttribute('data-status', 'waiting')
-    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'limits-hit', 'waiting-until', 'run-stopping 1'])
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'limits-hit', 'waiting-until', 'run-stopping 1'])
     expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
     expect(await power()).toEqual(['start prevent-display-sleep'])
     await snapshots(window, header, 'autopilot-waiting-stopping')
@@ -413,7 +413,7 @@ test('Autopilot waits for the Limits after a refusal: the status line says until
     expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
     await expect
       .poll(() => journalKinds(dataDir))
-      .toEqual(['run-started', 'wave-started 1', 'limits-hit', 'waiting-until', 'run-stopping 1', 'run-stopped user-force-stop', 'orchestrator-returned'])
+      .toEqual(['run-started', 'forecast', 'wave-started 1', 'limits-hit', 'waiting-until', 'run-stopping 1', 'run-stopped user-force-stop', 'orchestrator-returned'])
     expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
     // worfy wrote nothing into the repository, and nothing into the Claude home the run read.
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
@@ -478,7 +478,7 @@ test("Autopilot keeps the daily budget of the Limits: today's share used before 
     expect(await status.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
     await expectStatusClear(window, header, status)
     // No Wave went: the Orchestrator got no message, and the journal says why the run waits.
-    await expect.poll(kinds).toEqual(['run-started', 'budget-stop', 'waiting-until'])
+    await expect.poll(kinds).toEqual(['run-started', 'forecast', 'budget-stop', 'waiting-until'])
     expect(messages(log)).toEqual([])
     expect(await power()).toEqual(['start prevent-display-sleep'])
     await snapshots(window, header, 'autopilot-budget-waiting')
@@ -487,7 +487,7 @@ test("Autopilot keeps the daily budget of the Limits: today's share used before 
     await frame.getByTestId('action-stop-autopilot').click()
     await expect(status).toHaveText('stopped: user stop')
     await expect.poll(kinds).toContain('run-stopped user-stop')
-    expect(kinds().slice(0, 4)).toEqual(['run-started', 'budget-stop', 'waiting-until', 'run-stopped user-stop'])
+    expect(kinds().slice(0, 5)).toEqual(['run-started', 'forecast', 'budget-stop', 'waiting-until', 'run-stopped user-stop'])
     expect(kinds().filter((kind) => kind.startsWith('run-stopped'))).toEqual(['run-stopped user-stop'])
     expect(journals()).toHaveLength(1)
     expect(messages(log)).toEqual([])
@@ -553,7 +553,7 @@ test('Autopilot in the Run mode Start window: outside the window the status line
     expect(await status.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
     await expectStatusClear(window, header, status)
     // No Wave went: the Orchestrator got no message, and the journal says why the run waits.
-    await expect.poll(kinds).toEqual(['run-started start-window', 'start-window outside', 'waiting-until'])
+    await expect.poll(kinds).toEqual(['run-started start-window', 'forecast start-window', 'start-window outside', 'waiting-until'])
     // Both lines name the window's next start, by the test's clock.
     const [file] = readdirSync(join(dataDir, 'autopilot'))
     const lines = readFileSync(join(dataDir, 'autopilot', file!), 'utf8')
@@ -572,7 +572,7 @@ test('Autopilot in the Run mode Start window: outside the window the status line
     await frame.getByTestId('action-stop-autopilot').click()
     await expect(status).toHaveText('stopped: user stop')
     await expect.poll(kinds).toContain('run-stopped user-stop')
-    expect(kinds()).toEqual(['run-started start-window', 'start-window outside', 'waiting-until', 'run-stopped user-stop'])
+    expect(kinds()).toEqual(['run-started start-window', 'forecast start-window', 'start-window outside', 'waiting-until', 'run-stopped user-stop'])
     expect(messages(log)).toEqual([])
     expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
@@ -606,7 +606,7 @@ test('Autopilot waits for the background tasks of the Wave; Force stop kills the
     await expect(status).toHaveAttribute('data-status', 'running')
     expect(await status.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
     await expectStatusClear(window, header, status)
-    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'background-tasks', 'background-tasks'])
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'background-tasks', 'background-tasks'])
     await snapshots(window, header, 'autopilot-background-tasks')
 
     // Force stop with live tasks (worfy-week tickets 17, 18): no release of the tasks is needed.
@@ -616,6 +616,7 @@ test('Autopilot waits for the background tasks of the Wave; Force stop kills the
     await expect(status).toHaveText('stopped: user force stop')
     await expect.poll(() => journalKinds(dataDir)).toEqual([
       'run-started',
+      'forecast',
       'wave-started 1',
       'background-tasks',
       'background-tasks',
@@ -662,7 +663,7 @@ test('Force stop during the Wave\'s turn: the button says Stopping… until the 
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
     await frame.getByTestId('action-autopilot').click()
-    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'background-tasks', 'background-tasks'])
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'background-tasks', 'background-tasks'])
     await expect(status).toHaveText('Wave 1 · 2 background tasks')
     await snapshots(window, header, 'stop-before')
 
@@ -684,6 +685,7 @@ test('Force stop during the Wave\'s turn: the button says Stopping… until the 
     await expect(frame.getByTestId('action-autopilot')).toHaveText('Autopilot')
     await expect.poll(() => journalKinds(dataDir)).toEqual([
       'run-started',
+      'forecast',
       'wave-started 1',
       'background-tasks',
       'background-tasks',
@@ -740,7 +742,7 @@ test('the narrow fix round of a Wave Ticket goes to the run journal from the com
     await frame.getByTestId('action-autopilot').click()
     await expect.poll(() => messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
     // Read at wave-started: both states of the round, in comment order; nothing of demo/03.
-    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'wave-started 1', 'narrow-round', 'narrow-round'])
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'narrow-round', 'narrow-round'])
 
     // The Orchestrator merges 01 and blocks 02, then ends its turn: nothing is ready, 02 waits.
     const answer = join(claudeHome, 'epic-status.json')
@@ -755,7 +757,7 @@ test('the narrow fix round of a Wave Ticket goes to the run journal from the com
 
     await expect
       .poll(() => journalKinds(dataDir))
-      .toEqual(['run-started', 'wave-started 1', 'narrow-round', 'narrow-round', 'wave-finished 1', 'ticket-status', 'ticket-status', 'run-stopped blocked-tickets'])
+      .toEqual(['run-started', 'forecast', 'wave-started 1', 'narrow-round', 'narrow-round', 'wave-finished 1', 'ticket-status', 'ticket-status', 'run-stopped blocked-tickets'])
     const [file] = readdirSync(join(dataDir, 'autopilot'))
     const lines = readFileSync(join(dataDir, 'autopilot', file!), 'utf8')
       .split('\n')

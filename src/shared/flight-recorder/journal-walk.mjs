@@ -9,6 +9,7 @@
 export const JOURNAL_KINDS = [
   'run-started',
   'harness-behind',
+  'forecast',
   'wave-started',
   'ticket-status',
   'narrow-round',

@@ -64,6 +64,7 @@ const rawLines = (file: string): string[] => readFileSync(file, 'utf8').split('\
 /** One event of every kind after run-started, as Autopilot will append them. */
 const appended: JournalEventFields[] = [
   { kind: 'harness-behind', harness: '0.1.0+abcdef1', main: 'origin/main', commits: 2 },
+  { kind: 'forecast', mode: 'start-window', waves: 2, tickets: 3, uncounted: 0, samples: 5, low: 0.04, high: 0.09, fit: 2, week: { utilization: 0.4, resetsAt: '2026-10-09T09:00:00.000Z' }, durationP90Ms: 3_000_000, durationSamples: 5, window: { from: 23, to: 7 } },
   { kind: 'wave-started', wave: 1, tickets: ['01', '02'] },
   { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-10-06T01:02Z' },
   { kind: 'narrow-round', ticket: '02', outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open' },
@@ -80,7 +81,7 @@ const appended: JournalEventFields[] = [
   { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },
   { kind: 'gate-queue', text: '/worfy:gate-queue' },
   { kind: 'gate-queue-finished' },
-  { kind: 'run-stopped', reason: 'user-stop', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }] },
+  { kind: 'run-stopped', reason: 'user-stop', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }], actual: { share: 0.1, waves: 1, counted: 1 } },
   { kind: 'orchestrator-returned' },
   { kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task-2', type: 'local_bash', description: null }] },
 ]
@@ -281,6 +282,27 @@ describe('readRun', () => {
     expect(waves[1]).toMatchObject({ wave: 1, limits: { five_hour: null, seven_day: { utilization: 0.44 } } })
     for (const event of waves.slice(2)) expect((event as { limits?: unknown }).limits).toBeUndefined()
     expect(waves.slice(2).map((event) => (event as { wave: number }).wave)).toEqual([2, 2, 3, 3])
+  })
+
+  it('writes forecast and run-stopped.actual and reads them back; a line before ticket 07 reads as before, an actual of another shape as none (worfy-resource-planner ticket 07)', async () => {
+    const journal = await openRun({ project: PROJECT, epic: EPIC, mode: 'fastest' }, { now: ticking(T0) })
+    const forecast = { kind: 'forecast', mode: 'fastest', waves: 2, tickets: 3, uncounted: 1, samples: 4, low: null, high: null, fit: null, week: null, durationP90Ms: null, durationSamples: 4 } as const
+    await journal.append(forecast)
+    await journal.append({ kind: 'run-stopped', reason: 'user-force-stop', actual: { share: 0.04, waves: 2, counted: 1 } })
+    const head = (second: number) => `"at":"2026-10-06T01:00:0${second}Z","run":"${journal.run}","project":"${PROJECT}","epic":"${EPIC}"`
+    // A run-stopped written before ticket 07, and one whose actual is outside the format.
+    appendFileSync(journal.file, `{"kind":"run-stopped",${head(3)},"reason":"epic-done"}\n`)
+    appendFileSync(journal.file, `{"kind":"run-stopped",${head(4)},"reason":"epic-done","actual":{"share":"4%","waves":2,"counted":1}}\n`)
+
+    const written = rawLines(journal.file).map((line) => JSON.parse(line) as Record<string, unknown>)
+    expect(written[1]).toEqual({ ...forecast, at: new Date(T0 + 1000).toISOString(), run: journal.run, project: PROJECT, epic: EPIC })
+    const parsed = await readRun(journal.run)
+    expect(parsed?.skipped).toBe(0)
+    expect(parsed!.events.map((event) => event.kind)).toEqual(['run-started', 'forecast', 'run-stopped', 'run-stopped', 'run-stopped'])
+    expect(parsed!.events[1]).toMatchObject(forecast)
+    expect(parsed!.events[2]).toMatchObject({ reason: 'user-force-stop', actual: { share: 0.04, waves: 2, counted: 1 } })
+    for (const event of parsed!.events.slice(3)) expect((event as { actual?: unknown }).actual).toBeUndefined()
+    expect(parsed!.events.slice(3).map((event) => (event as { reason: string }).reason)).toEqual(['epic-done', 'epic-done'])
   })
 
   it('writes budget-stop and reads it back; a line with an unknown cause or a share below 0 is skipped (worfy-throughput ticket 41)', async () => {
