@@ -1,7 +1,8 @@
 # 20 — Входы и toast при остановке
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T14:19Z
+Branch: worfy-flight-recorder/20
 Blocked by: 18, 21
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 1, 2, 7, «Экран» («Входы»; `run` и счёт Ticket-ов в `AutopilotState`), «Ticket-ы» (20), «Готово, когда» (toast, «History», «Run history», «Open Run history»); решение 06, Q1–Q3 ([06-предложение-после-остановки-и-прошлые-run.md](06-предложение-после-остановки-и-прошлые-run.md)); решение 09, Q1 ([09-что-значит-autopilot-из-чата.md](09-что-значит-autopilot-из-чата.md))
 

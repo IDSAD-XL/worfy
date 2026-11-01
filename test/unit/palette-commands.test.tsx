@@ -23,6 +23,10 @@ import { useGuide } from '../../src/renderer/guide/store'
 import { GUIDE_TOPICS, shownTopics } from '../../src/renderer/guide/registry'
 import { useShortcutsWindow } from '../../src/renderer/shortcuts/shortcuts-window'
 
+// The Run history screen is ticket 18's (flight-recorder/open.ts): the palette only asks it (worfy-flight-recorder/20).
+const openRunHistory = vi.hoisted(() => vi.fn((_projectId: string, _run?: string, _epic?: string) => Promise.resolve()))
+vi.mock('../../src/renderer/flight-recorder/open', () => ({ openRunHistory }))
+
 function ticket(num: number, state: Ticket['state'], blockedNums: number[] = []): Ticket {
   return {
     epic: 'e',
@@ -343,6 +347,21 @@ describe('palette commands', () => {
       expect(await command!.run()).toBeUndefined()
       expect(useSettingsWindow.getState()).toEqual({ open: true, section: null })
     }
+  })
+
+  it('has Open Run history in the View group with a Project, also read-only; running it opens the active Project\'s newest Run (worfy-flight-recorder/20)', async () => {
+    openRunHistory.mockClear()
+    const second = { id: 'p2', name: 'two', path: '/repo/two', branch: null }
+    for (const active of [project, second]) {
+      const command = buildCommands(context({ project: active, readOnly: 'Mini gives this Machine read-only access' })).find((each) => each.id === 'open-run-history')
+      expect(command).toMatchObject({ group: 'View', title: 'Open Run history', detail: 'Autopilot Runs' })
+      expect(command?.readOnly).toBeUndefined()
+      expect(await command!.run()).toBeUndefined()
+    }
+    // The Project the window shows each time, and no Run: the screen picks the newest.
+    expect(openRunHistory.mock.calls).toEqual([['p1'], ['p2']])
+    for (const query of ['run history', 'autopilot runs', 'flight recorder']) expect(rankItems(buildCommands(context()), query)[0]?.id).toBe('open-run-history')
+    expect(ids(context({ project: undefined }))).not.toContain('open-run-history')
   })
 
   it('has First-run checks in the View group, with or without a Project, and running it opens the screen (worfy-harness/19)', async () => {

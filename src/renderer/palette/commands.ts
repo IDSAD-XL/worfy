@@ -37,6 +37,8 @@
 // Topic of its registry (guide/registry.ts) is a row of its own, found by typing only, that opens the
 // Guide at that Topic; the test Topic only in a build that is not packaged. The registry is all the
 // palette reads: the Guide's window and texts stay out of the app's first chunk.
+// "Open Run history" (worfy-flight-recorder ticket 20) opens the Run history screen at the active
+// Project's newest Run (flight-recorder/open.ts).
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
@@ -52,6 +54,7 @@ import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
 import { archiveFinishedNow } from '../canvas/archive-now'
 import { requestRepack } from '../canvas/sources/epics'
 import { showNode } from '../canvas/show-node'
+import { openRunHistory } from '../flight-recorder/open'
 import { createCanvasNode, focusCanvasNode, openAdr, requestArrangeByEpic, requestTidyUp, setTagFilter, type TagFilter } from '../find/canvas-requests'
 import { kindLabel, nodeTitle, normalizeQuery, type Rankable } from '../find/search-index'
 import { openGettingStarted } from '../getting-started/store'
@@ -387,6 +390,19 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
   }
   if (project) {
     const projectId = project.id
+    // The Run history screen at the active Project's newest Run (worfy-flight-recorder ticket 20); it
+    // only reads, so a read-only screen has it too.
+    commands.push({
+      id: 'open-run-history',
+      group: 'View',
+      title: 'Open Run history',
+      detail: 'Autopilot Runs',
+      keys: ['run history', 'autopilot runs', 'flight recorder', 'timeline'],
+      run: () => {
+        void openRunHistory(projectId)
+        return undefined
+      },
+    })
     const tags = [...new Set(layoutNodes.flatMap((node) => node.tags))].sort((a, b) => a.localeCompare(b))
     for (const tag of tags) {
       commands.push({
