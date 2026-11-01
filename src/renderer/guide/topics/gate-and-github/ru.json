@@ -1,0 +1,87 @@
+{
+  "title": "Gate и GitHub",
+  "summary": [
+    "Gate — проверка из Harness, готовы ли изменения в worktree: она запускает проверки Project-а на том, что изменилось, и даёт один вердикт. worfy её никогда не запускает. Вердикт он показывает chip-ом на Ticket-ах и Session-ах, а PR, его CI и review с GitHub — chip-ами на Ticket-ах."
+  ],
+  "scene": {
+    "description": "Gate и GitHub в worfy. На этой Machine, вне Canvas, стоят Gate и worktree, который он проверяет. На Canvas лежат Ticket и Session — Node-ы, которые показывают chip-ы. На GitHub — PR с его проверками CI и review mark. Session запускает Gate, а он проверяет, что изменилось в worktree; вердикт Gate worfy показывает chip-ом на Ticket-е и на Session. Session открывает PR на GitHub; PR, его CI и вердикт review worfy показывает chip-ами на Ticket-е.",
+    "labels": {
+      "thisMachine": "Эта Machine",
+      "githubRegion": "GitHub",
+      "canvas": "Canvas",
+      "canvasNote": "chip-ы — на его Node-ах",
+      "ticket": "Ticket",
+      "ticketNote": "chip-ы gate, PR, CI, вердикта",
+      "session": "Session",
+      "sessionNote": "chip gate её worktree",
+      "gate": "Gate",
+      "gateNote": "одна программа из Harness",
+      "worktree": "Worktree",
+      "worktreeNote": "ветка, выложенная в папку",
+      "github": "GitHub",
+      "githubNote": "PR, CI, review mark",
+      "runsIt": "запускает",
+      "gateChip": "chip gate",
+      "checksChanges": "проверяет изменения",
+      "opensPr": "push, открывает PR",
+      "prChips": "chip-ы PR, CI, вердикта",
+      "step1": "Агент или hook из Harness запускает Gate в worktree. Gate запускает проверки Project-а на том, что там изменилось.",
+      "step2": "Вердикт — green, red, not verified или nothing ran. worfy читает его и показывает chip-ом на Ticket-е и на Session. Nothing ran никогда не значит green.",
+      "step3": "Пока последний run в worktree red, hook из Harness удерживает конец хода агента и говорит ему запустить Gate и исправить то, на что тот указал, не больше двух раз.",
+      "step4": "Агент делает push своей ветки и открывает PR. worfy читает PR, его проверки CI и review mark через gh и показывает их chip-ами на Ticket-е. На GitHub он ничего не меняет.",
+      "step5": "Что нужно для merge, говорит Profile: Gate full, полная проверка, перед merge; или, как в собственном репозитории worfy, итоговая проверка CI и review mark на PR."
+    }
+  },
+  "underTheHood": {
+    "flow": {
+      "description": "Поток данных badges. Gate пишет исход run-а в свою папку состояния: marker-ы и файл вердикта. На GitHub лежат PR-ы, их проверки и review mark. В main process GateReader читает состояние Gate для каждого worktree, а PrTracker получает список PR-ов через gh pr list. Обработчик checks.get сводит оба в один снимок для useChecks в renderer, а ChecksBadges рисует из него chip-ы.",
+      "labels": {
+        "renderer": "RENDERER",
+        "main": "MAIN PROCESS",
+        "outside": "Harness и GitHub",
+        "badges": "ChecksBadges",
+        "badgesNote": "выбирает worktree и PR",
+        "useChecks": "useChecks",
+        "useChecksNote": "одна копия, раз в 10 s в фокусе",
+        "gateReader": "GateReader",
+        "gateReaderNote": "marker-ы, вердикт, транскрипты",
+        "handler": "checks.get",
+        "handlerNote": "readChecks, git worktree list",
+        "prTracker": "PrTracker",
+        "prTrackerNote": "список PR-ов не чаще раза в 60 s",
+        "gate": "Gate",
+        "gateNote": "gate.mjs: scope, cache, скрипты",
+        "state": "Состояние Gate",
+        "stateNote": "marker-ы, verdict-<tag>.json",
+        "github": "GitHub",
+        "githubNote": "PR-ы, проверки, review mark",
+        "writes": "пишет исход",
+        "markers": "marker-ы, файл вердикта",
+        "perWorktree": "Gate каждого worktree",
+        "prList": "gh pr list",
+        "prs": "PR, CI, вердикт",
+        "get": "checks.get",
+        "snapshot": "снимок",
+        "draws": "снимок"
+      }
+    },
+    "text": [
+      "Marker у worktree важнее файла вердикта, потому что run, который ничего не проверил, никогда не снимает red. Вердикт о commit-е, который уже не HEAD, не берётся.",
+      "Renderer может спрашивать часто: когда запускать gh, решает один tracker в main, общий для badges, Autopilot и Stage. gh работает от github.account из Profile, если Profile его называет, иначе — от аккаунта login shell; token нигде не хранится."
+    ],
+    "files": {
+      "harness/hooks/gate.mjs": "Gate: scope, cache, скрипты, вердикт",
+      "harness/hooks/stop.mjs": "Hook, который удерживает ход, пока red",
+      "src/main/gate/state.ts": "GateReader: marker-ы, файл вердикта, транскрипты",
+      "src/main/github/prs.ts": "PrTracker: gh, аккаунт, CI и вердикт",
+      "src/main/ipc/checks.ts": "checks.get: что он принимает, readChecks",
+      "src/renderer/canvas/badges/use-checks.ts": "Копия в renderer и её опрос",
+      "src/renderer/canvas/badges/ChecksBadges.tsx": "Chip-ы"
+    },
+    "limits": [
+      "Обычно Gate проверяет только то, что отличается от origin/main. GATE_SCOPE=all или ветка, которая ушла вперёд больше чем на 50 commit-ов или отстала больше чем на 300, заставляет проверить всё.",
+      "Hook даёт Gate 900 секунд. Ход с red удерживается не больше двух раз на Session и worktree.",
+      "Список PR-ов читается не чаще раза в 60 s на папку, после сбоев — до раза в 32 минуты, и в нём 100 последних PR-ов. Ветку Ticket-а, которой в нём нет, ищут отдельно, каждую не чаще раза в 5 минут."
+    ]
+  }
+}

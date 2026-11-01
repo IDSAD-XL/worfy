@@ -29,6 +29,7 @@ export const GUIDE_TOPICS: readonly GuideTopicEntry[] = [
   { id: 'workflow', title: 'Workflow', keys: ['pipeline', 'binding', 'epics and tickets'] },
   { id: 'cards', title: 'Cards', keys: ['card api', 'canvas mcp', 'create_card', 'window.worfy'] },
   { id: 'link', title: 'Link', keys: ['linked machine', 'tailscale', 'pairing code'] },
+  { id: 'gate-and-github', title: 'Gate and GitHub', keys: ['gate full', 'ci badges', 'verdict'] },
   { id: 'skeleton', title: 'How the Guide works', keys: ['guide test', 'skeleton'], devOnly: true },
 ]
 
