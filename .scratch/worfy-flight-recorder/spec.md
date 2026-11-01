@@ -331,11 +331,17 @@ UI — нужны снимки в обеих темах в `.scratch/worfy-fligh
   `docs/features/ru/autopilot.md`, `docs/features/README.md`. Не UI.
 - **25 — Приёмка с владельцем.** Ночной Run на Mac Stable: toast, история, живая шкала, «Problems only», команда
   и просьба словами; Run на Windows-ПК: пути Journal, транскриптов и логов gate. Отметить «Готово, когда».
-  Blocked by: 10–24, 26. Files: `.scratch/worfy-flight-recorder/spec.md`. UI (снимки владельцу).
+  Blocked by: 10–24, 26, 27. Files: `.scratch/worfy-flight-recorder/spec.md`. UI (снимки владельцу).
 - **26 — Wait `background-tasks` без работы.** В итоге Wait `background-tasks` считается только за время, когда не
   идёт ни один span работы Run (background tasks — сами агенты, gate и scripts Orchestrator-а); другие причины —
   целиком. Решил Orchestrator без владельца, подтверждение — утром. Blocked by: 13. Files:
   `src/shared/flight-recorder/summary.ts`, `test/unit/flight-recorder-summary-waits.test.ts`. Не UI.
+- **27 — Инкрементальные факты транскрипта.** Пересчёт live Run разбирает только строки транскриптов, дописанные с
+  прошлого шага: разбор с состоянием в `from-transcript.ts` даёт те же факты, что разбор всех строк; полный разбор —
+  при первом открытии и после truncate или замены файла. Цель — шаг ≪ 100 ms (на реальной Session было 200–370 ms).
+  Выделил Orchestrator без владельца, подтверждение — утром. Blocked by: 17. Files:
+  `src/shared/flight-recorder/from-transcript.ts`, `src/main/flight-recorder/transcripts.ts`,
+  `src/main/flight-recorder/service.ts`. Не UI.
 
 ## Волны
 
@@ -360,6 +366,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 20 | `src/renderer/flight-recorder/stop-toast.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/renderer/canvas/actions/action-menu.ts`, `src/renderer/palette/commands.ts`, `src/shared/ipc/autopilot.ts`, `src/main/autopilot/run.ts`, `test/unit/palette-commands.test.tsx`, `test/e2e/autopilot.spec.ts` | 6 |
 | 24 | `docs/features/flight-recorder.md`, `docs/features/ru/flight-recorder.md`, `docs/features/autopilot.md`, `docs/features/ru/autopilot.md`, `docs/features/README.md` | 7 |
 | 26 | `src/shared/flight-recorder/summary.ts`, `test/unit/flight-recorder-summary-waits.test.ts` | 4 |
+| 27 | `src/shared/flight-recorder/from-transcript.ts`, `src/main/flight-recorder/transcripts.ts`, `src/main/flight-recorder/service.ts`, `test/unit/flight-recorder-transcript.test.ts`, `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-service.test.ts`, `test/contract/flight-recorder-shaped-transcript.ts` | 5 |
 | 25 | `.scratch/worfy-flight-recorder/spec.md` | 8 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры. Если у двух Ticket-ов одной Wave общий файл,
@@ -371,7 +378,8 @@ Ticket с большим номером уходит в следующую Wave.
   22 и 23 зовут `chat-start.ts` и его не правят.
 - **Wave 3 — 13.** Ждёт 11 и 12.
 - **Wave 4 — 17.** Ждёт 13–16.
-- **Wave 5 — 18.** Ждёт 17.
+- **Wave 5 — 18, 27.** Оба ждут 17. 18 — экран, 27 — разбор транскриптов в main. Общий файл один —
+  `service.ts`: 18 добавляет строку `by` в список Run-ов, 27 правит пересчёт; конфликт решает Orchestrator при merge.
 - **Wave 6 — 19, 20.** Оба ждут 18 (20 — ещё 21). Общих файлов нет: 19 — панель и фильтры внутри вида; 20 —
   toast, строка статуса, меню, palette и `AutopilotState`; вид он открывает через `open.ts` из 18, не правя его.
 - **Wave 7 — 24.** Ждёт 19, 20, 22, 23.

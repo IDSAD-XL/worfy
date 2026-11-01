@@ -24,7 +24,9 @@
 //   GITHUB_READ_INTERVAL_MS (the GithubReader keeps its answer that long), and when that interval has
 //   passed the timeline is recomputed for it too. The transcripts of a live Run are read on from where
 //   the last read stopped (src/main/claude-home/tail.ts), not whole: the lines read so far are kept
-//   while the Run is open. A Run that is over is read whole, once per computation, and kept nowhere.
+//   while the Run is open, and so is the parse of each file (TranscriptParses of transcripts.ts,
+//   ticket 27), which takes only the lines that came since the last step. A Run that is over is read
+//   and parsed whole, once per computation, and kept nowhere.
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isRunId, journalFileName } from '../../shared/autopilot/journal'
@@ -42,7 +44,7 @@ import { marksInFile, gitRunner, type GitRunner } from '../workflow/stages'
 import { readGateLogs } from './gate-logs'
 import { GITHUB_READ_INTERVAL_MS, GithubReader } from './github'
 import { readLocalVerdicts, type LocalTicket } from './local-verdicts'
-import { readRunTranscripts, streamLines, TranscriptCompactor, type ReadLines } from './transcripts'
+import { readRunTranscripts, streamLines, TranscriptCompactor, TranscriptParses, type ReadLines } from './transcripts'
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -110,8 +112,12 @@ function ticketNumber(ticket: string): number | null {
 interface TailedFile {
   /** Where the next read starts; undefined for a file that is not there (yet): read from its start. */
   cursor: TailCursor | undefined
-  /** The lines read so far, each compacted once (TranscriptCompactor): only what the facts read. */
-  lines: readonly string[]
+  /**
+   * The lines read so far, each compacted once (TranscriptCompactor): only what the facts read. Grown
+   * in place while the file only grows, a new array after a reset: the parse of the file
+   * (TranscriptParses) takes the lines past those it has from the array it parsed (ReadLines).
+   */
+  lines: string[]
   compactor: TranscriptCompactor
   /** The size of the file the last time it was looked at: a read, or `changed`. */
   size: number
@@ -122,10 +128,12 @@ interface TailedFile {
  * file is tailed (tail.ts: complete lines only, a replaced or truncated file read again from its
  * start), and each new line is parsed once and kept compacted (TranscriptCompactor of
  * transcripts.ts); any other file (a Subagent's `.meta.json`, one JSON value) is small and read whole.
+ * `parses` keeps the parse of each file for readRunTranscripts, and is let go with the lines.
  */
 export class TailLines {
   private readonly files = new Map<string, TailedFile>()
   private used = new Set<string>()
+  readonly parses = new TranscriptParses()
 
   constructor(private readonly tail: typeof readNewLines = readNewLines) {}
 
@@ -134,9 +142,12 @@ export class TailLines {
     this.used.add(file)
     const known = this.files.get(file)
     let cursor = known?.cursor
-    let lines: readonly string[] = known?.lines ?? []
     let compactor = known?.compactor ?? new TranscriptCompactor()
     let reset = false
+    // The new lines go into the kept array only once the whole read is through: a read that fails
+    // on a later chunk leaves the array and the cursor as they were, and the next read takes the
+    // same lines once. (The compactor may have seen them already; seeing an agent call twice is the same.)
+    const added: string[] = []
     for (;;) {
       const chunk = await this.tail(file, cursor)
       if (chunk.cursor.fileId === null) {
@@ -147,15 +158,14 @@ export class TailLines {
       }
       if (chunk.reset) {
         // Another file, or this one rewritten: what was read of it no longer stands.
-        lines = []
+        added.length = 0
         compactor = new TranscriptCompactor()
         reset = true
       }
-      const added = chunk.lines.flatMap((line) => {
+      for (const line of chunk.lines) {
         const compact = compactor.line(line)
-        return compact === null ? [] : [compact]
-      })
-      if (added.length > 0) lines = lines.concat(added)
+        if (compact !== null) added.push(compact)
+      }
       cursor = chunk.cursor
       if (!chunk.more) break
     }
@@ -163,6 +173,9 @@ export class TailLines {
     // that is never finished does not count as new on every step.
     const offset = cursor?.offset ?? 0
     const size = known === undefined || reset ? offset : Math.max(known.size, offset)
+    // The same array, grown, while the file only grows; a new one after a reset (ReadLines).
+    const lines = known === undefined || reset ? added : known.lines
+    if (lines !== added) for (const line of added) lines.push(line)
     this.files.set(file, { cursor, lines, compactor, size })
     return lines
   }
@@ -194,6 +207,7 @@ export class TailLines {
 
   clear(): void {
     this.files.clear()
+    this.parses.clear()
   }
 }
 
@@ -464,7 +478,7 @@ export class FlightRecorder {
     state.lines?.begin()
     const transcripts = await readRunTranscripts(
       { epic: journal.epic, root, startedAt: journal.run.startedAt, stoppedAt: end, waves: journal.waves },
-      { env: this.env, readLines: tailed && state.lines !== null ? state.lines.read : streamLines },
+      tailed && state.lines !== null ? { env: this.env, readLines: state.lines.read, parses: state.lines.parses } : { env: this.env, readLines: streamLines },
     )
     state.lines?.settle()
 

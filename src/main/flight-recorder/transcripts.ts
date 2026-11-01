@@ -22,7 +22,9 @@
 //
 // The lines come from `readLines` of the options, a streamed read of the whole file by default.
 // The service (src/main/flight-recorder/service.ts, ticket 17) passes a `readLines` that reads a live
-// Run's files on from where the last read stopped (src/main/claude-home/tail.ts) and keeps the lines.
+// Run's files on from where the last read stopped (src/main/claude-home/tail.ts) and keeps the lines,
+// and the `parses` of the Run (TranscriptParses, ticket 27): each file's parse is kept from one read
+// to the next and takes only the lines that came since, so a step costs what was appended, not the file.
 // The worktree of an agent is handed over by `canonicalWorktree` (worktree-path.ts), the helper reader
 // 16 calls too, so an agent and a gate run of one worktree meet.
 import { createReadStream } from 'node:fs'
@@ -30,7 +32,7 @@ import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { LostFact, TurnFact, WaveFact, WorkFact } from '../../shared/flight-recorder/facts'
-import { agentIdsIn, transcriptCwd, transcriptFacts, wavePromptTimes, type SubagentLines } from '../../shared/flight-recorder/from-transcript'
+import { SubagentParse, TranscriptParse, transcriptCwd, wavePromptTimes } from '../../shared/flight-recorder/from-transcript'
 import { AGENT_TOOLS } from '../../shared/transcript/subagents'
 import { isInsidePath, projectDirName } from '../claude-home/registry'
 import { claudeHome } from '../storage/paths'
@@ -46,6 +48,11 @@ export const WAVE_SLACK_MS = 60_000
  * after it sends the prompt (29 ms in the night Run). Longer would take in the end of the Wave before.
  */
 export const PROMPT_LEAD_MS = 5_000
+/**
+ * How many files are read at once. A step of a live Run waits mostly on the reads of the Subagents'
+ * files (a hundred in a long Run), not on its own work: read one after the other, they took most of it.
+ */
+const READ_AT_ONCE = 16
 /** A Session or agent id as Claude Code names its files; anything else (`../x`) names no file. */
 const FILE_ID = /^[A-Za-z0-9_-]{1,128}$/u
 
@@ -64,13 +71,20 @@ export interface TranscriptRun {
   waves: readonly TranscriptWave[]
 }
 
-/** The lines of a file, empty ones left out; null when there is no such file. */
+/**
+ * The lines of a file, empty ones left out; null when there is no such file. A source that reads a
+ * file on from where it stopped may hand back the same array, grown at its end, while the file only
+ * grows (TailLines of service.ts does), and must hand a new array when the file was read again from
+ * its start: TranscriptParses takes the lines past those it parsed only from the array it parsed.
+ */
 export type ReadLines = (file: string) => Promise<readonly string[] | null>
 
 export interface TranscriptReadOptions extends CanonicalOptions {
   env?: Env
   /** Where the lines come from: a streamed read of the whole file by default; ticket 17 tails. */
   readLines?: ReadLines
+  /** The parses kept from the last read (ticket 27); none by default: every file is parsed whole. */
+  parses?: TranscriptParses
 }
 
 export interface RunTranscripts {
@@ -163,6 +177,71 @@ export class TranscriptCompactor {
   }
 }
 
+/** A parse and the lines it was fed: the array, and how many of its lines. */
+interface Fed<P> {
+  lines: readonly string[]
+  taken: number
+  parse: P
+}
+
+/**
+ * The parses of a live Run's transcript files, kept from one read to the next (worfy-flight-recorder
+ * ticket 27): a file whose lines come as the same array, grown, is parsed on from the lines it had
+ * (ReadLines); another array — the first read, a file truncated or replaced — is parsed from its
+ * start. A file the read does not look at again is let go at its end.
+ */
+export class TranscriptParses {
+  private readonly orchestrators = new Map<string, Fed<TranscriptParse>>()
+  private readonly subagents = new Map<string, Fed<SubagentParse>>()
+  private used = new Set<string>()
+  /** How each file was parsed in the last read: from its start, or on from the last read, and how many lines. */
+  readonly last = new Map<string, { from: 'start' | 'cursor'; lines: number }>()
+
+  /** How many Orchestrator transcripts have a parse. */
+  get size(): number {
+    return this.orchestrators.size
+  }
+
+  /** Starts a read: the files it does not look at are let go at `settle`. */
+  begin(): void {
+    this.used = new Set()
+    this.last.clear()
+  }
+
+  settle(): void {
+    for (const files of [this.orchestrators, this.subagents]) for (const file of files.keys()) if (!this.used.has(file)) files.delete(file)
+  }
+
+  clear(): void {
+    this.orchestrators.clear()
+    this.subagents.clear()
+    this.last.clear()
+  }
+
+  orchestrator(file: string, lines: readonly string[]): TranscriptParse {
+    return this.feed(this.orchestrators, file, lines, () => new TranscriptParse())
+  }
+
+  subagent(file: string, lines: readonly string[]): SubagentParse {
+    return this.feed(this.subagents, file, lines, () => new SubagentParse())
+  }
+
+  private feed<P extends { append(lines: readonly string[]): P }>(parses: Map<string, Fed<P>>, file: string, lines: readonly string[], make: () => P): P {
+    this.used.add(file)
+    const known = parses.get(file)
+    if (known !== undefined && known.lines === lines && lines.length >= known.taken) {
+      known.parse.append(lines.slice(known.taken))
+      this.last.set(file, { from: 'cursor', lines: lines.length - known.taken })
+      known.taken = lines.length
+      return known.parse
+    }
+    const parse = make().append(lines)
+    parses.set(file, { lines, taken: lines.length, parse })
+    this.last.set(file, { from: 'start', lines: lines.length })
+    return parse
+  }
+}
+
 /** The default line source: the file streamed line by line, so no single string holds it whole. */
 export const streamLines: ReadLines = async (file) => {
   const lines: string[] = []
@@ -185,22 +264,57 @@ async function listDir(dir: string): Promise<string[]> {
   }
 }
 
-/** The files of the Subagents `ids` of a Session; an id that names no file is left out. */
-async function subagentFiles(dir: string, session: string, ids: ReadonlySet<string>, readLines: ReadLines): Promise<Map<string, SubagentLines>> {
+/**
+ * Waits for every promise, then throws the first error, if any: no read of the step is still going
+ * when the step is over. A read left going would share its file's cursor with the next recompute's
+ * read (TailLines of service.ts), and both would take the same lines.
+ */
+async function settled<T extends readonly unknown[]>(promises: { [K in keyof T]: Promise<T[K]> }): Promise<T> {
+  const results = await Promise.allSettled(promises)
+  const failed = results.find((result) => result.status === 'rejected')
+  if (failed !== undefined) throw failed.reason
+  return results.map((result) => (result as PromiseFulfilledResult<unknown>).value) as unknown as T
+}
+
+/**
+ * `each` of every item, at most `limit` at once; the answers in the order of the items. After an
+ * error no item is started, the ones under way are waited for, and the first error is thrown.
+ */
+async function inParallel<T, R>(items: readonly T[], limit: number, each: (item: T) => Promise<R>): Promise<R[]> {
+  const answers = new Array<R>(items.length)
+  let next = 0
+  let failed = false
+  const worker = async (): Promise<void> => {
+    while (!failed && next < items.length) {
+      const index = next++
+      try {
+        answers[index] = await each(items[index]!)
+      } catch (error) {
+        failed = true
+        throw error
+      }
+    }
+  }
+  await settled(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return answers
+}
+
+/** The files of the Subagents `ids` of a Session, parsed; an id that names no file is left out. */
+async function subagentFiles(dir: string, session: string, ids: ReadonlySet<string>, readLines: ReadLines, parses: TranscriptParses): Promise<Map<string, { meta: unknown; parse: SubagentParse }>> {
   const folder = join(dir, session, 'subagents')
-  const files = new Map<string, SubagentLines>()
-  for (const id of ids) {
-    if (!FILE_ID.test(id)) continue
-    const lines = await readLines(join(folder, `agent-${id}.jsonl`))
-    const metaLines = await readLines(join(folder, `agent-${id}.meta.json`))
+  const read = await inParallel([...ids].filter((id) => FILE_ID.test(id)), READ_AT_ONCE, async (id) => {
+    const file = join(folder, `agent-${id}.jsonl`)
+    const [lines, metaLines] = await settled<[readonly string[] | null, readonly string[] | null]>([readLines(file), readLines(join(folder, `agent-${id}.meta.json`))])
     let meta: unknown
     try {
       meta = metaLines === null ? null : JSON.parse(metaLines.join('\n'))
     } catch {
       meta = null
     }
-    if (lines !== null || metaLines !== null) files.set(id, { meta, lines: lines ?? [] })
-  }
+    return lines !== null || metaLines !== null ? { id, file, meta, lines: lines ?? [] } : null
+  })
+  const files = new Map<string, { meta: unknown; parse: SubagentParse }>()
+  for (const each of read) if (each !== null) files.set(each.id, { meta: each.meta, parse: parses.subagent(each.file, each.lines) })
   return files
 }
 
@@ -210,6 +324,8 @@ const ms = (iso: Iso): number => Date.parse(iso)
 export async function readRunTranscripts(run: TranscriptRun, options: TranscriptReadOptions = {}): Promise<RunTranscripts> {
   const platform = options.platform ?? process.platform
   const readLines = options.readLines ?? streamLines
+  const parses = options.parses ?? new TranscriptParses()
+  parses.begin()
   const dir = join(claudeHome(options.env), 'projects', projectDirName(run.root))
   const tickets = [...new Set(run.waves.flatMap((wave) => wave.tickets))]
   const ofProject = (lines: readonly string[]): boolean => {
@@ -276,17 +392,23 @@ export async function readRunTranscripts(run: TranscriptRun, options: Transcript
   const work: WorkFact[] = []
   const turns: TurnFact[] = []
   for (const [session, window] of windows) {
-    const lines = read.get(session)!
+    const parse = parses.orchestrator(join(dir, `${session}.jsonl`), read.get(session)!)
     const inside = (at: Iso) => ms(at) >= window.start && ms(at) <= window.end
-    const subagents = await subagentFiles(dir, session, agentIdsIn(lines, inside), readLines)
-    const facts = transcriptFacts({ session, epic: run.epic, tickets, lines, subagents })
-    for (const fact of facts.work.filter((item) => inside(item.start))) work.push(fact.worktree === undefined ? fact : { ...fact, worktree: await canonicalWorktree(fact.worktree, options) })
-    turns.push(...facts.turns.filter((item) => inside(item.start)))
+    const subagents = await subagentFiles(dir, session, parse.agentIdsIn(inside), readLines, parses)
+    const facts = parse.facts({ session, epic: run.epic, tickets, subagents, inside })
+    const placed = await inParallel(
+      facts.work,
+      READ_AT_ONCE,
+      async (fact) => (fact.worktree === undefined ? fact : { ...fact, worktree: await canonicalWorktree(fact.worktree, options) }),
+    )
+    work.push(...placed)
+    turns.push(...facts.turns)
   }
 
   // An agent with no Ticket of its own: the Ticket of an agent in the same worktree, else the Run's.
   const ticketOfWorktree = new Map<string, string>()
   for (const fact of work) if (typeof fact.ticket === 'string' && fact.worktree !== undefined) ticketOfWorktree.set(fact.worktree, fact.ticket)
   for (const fact of work) if (fact.ticket === undefined) fact.ticket = ticketOfWorktree.get(fact.worktree ?? '') ?? null
+  parses.settle()
   return { work, turns, lost }
 }

@@ -6,7 +6,7 @@
 // subkind comes from the agent's name and type; the Orchestrator's turns name the Tickets they
 // touched. The transcript lines are built here; no file is read.
 import { describe, expect, it } from 'vitest'
-import { agentIdsIn, transcriptFacts, wavePromptTimes, type SubagentLines } from '../../src/shared/flight-recorder/from-transcript'
+import { agentIdsIn, SubagentParse, TranscriptParse, transcriptFacts, wavePromptTimes, type SubagentLines } from '../../src/shared/flight-recorder/from-transcript'
 import { agentSubkind, buildTimeline, type RunFacts, type WorkFact } from '../../src/shared/flight-recorder/spans'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
 
@@ -363,6 +363,74 @@ describe('the turns of the Orchestrator', () => {
     const { turns } = facts([prompt(T('10:00'), 'go')])
     expect(turns).toEqual([expect.objectContaining({ start: T('10:00'), end: null, lastSeenAt: T('10:00') })])
   })
+
+  // What a line names is read as the line found it (worfy-flight-recorder ticket 27 keeps it so when
+  // the facts are asked for later): the agents before it, and an agent's meta only once its id is known.
+  const tickets = (lines: readonly string[], subagents: ReadonlyMap<string, SubagentLines> = new Map()) => facts(lines, subagents).turns.map((turn) => turn.tickets)
+  const helper = { name: undefined, description: 'helper', prompt: 'work on ticket 07' }
+  const metaImpl05 = new Map([['a5', { meta: { name: 'impl-05' }, lines: [] }]])
+
+  it('an agent named only by its meta names its Ticket by the meta from the line that gave its id on', () => {
+    const lines = [prompt(T('10:00'), 'go'), toolUse(T('10:01'), 'call-1', 'Agent', { ...helper, run_in_background: true }), prompt(T('10:02'), 'next'), toolResult(T('10:02'), 'call-1', 'Async agent launched', { status: 'async_launched', agentId: 'a5' }), notification(T('10:40'), 'a5', 'call-1')]
+    // At its call the agent is `helper` with the prompt's Ticket 07; at its report, impl-05 of its meta.
+    expect(tickets(lines, metaImpl05)).toEqual([['e/07'], [], ['e/05']])
+  })
+
+  it('a message by name means the agent of that name before it, by the name it had then', () => {
+    const before = [prompt(T('10:00'), '<agent-message from="helper">\nq\n</agent-message>')]
+    const call = [toolUse(T('10:01'), 'call-1', 'Agent', { ...helper, run_in_background: true })]
+    const result = [toolResult(T('10:03'), 'call-1', 'Async agent launched', { status: 'async_launched', agentId: 'a5' })]
+    const message = (at: string) => prompt(at, '<agent-message from="helper">\nq\n</agent-message>')
+    // No agent named helper yet: the name itself names no Ticket. Then helper, before its id: Ticket 07.
+    // After its id the meta names it impl-05: a message from helper means no agent, and helper is no Ticket.
+    expect(tickets([...before, prompt(T('10:00', '30'), 'go'), ...call, message(T('10:02')), ...result, message(T('10:04'))], metaImpl05)).toEqual([[], ['e/07'], ['e/07'], []])
+  })
+
+  it('a message that resumes no agent names the Ticket of the agent with that name or id, as known at its line', () => {
+    const lines = [
+      prompt(T('10:00'), 'go'),
+      ...launch(T('10:01'), 'call-1', 'a7', { name: 'impl-07', description: 'x' }),
+      prompt(T('10:10'), 'tell it'),
+      ...send(T('10:10', '10'), 'send-1', 'a7'),
+      // A foreground call whose id comes with its result, after a message to that id.
+      prompt(T('10:20'), 'look'),
+      toolUse(T('10:20', '10'), 'call-2', 'Agent', { name: 'impl-05', description: 'x', prompt: 'x' }),
+      prompt(T('10:21'), 'tell the next'),
+      ...send(T('10:21', '10'), 'send-2', 'a5'),
+      prompt(T('10:21', '30'), 'and now?'),
+      toolResult(T('10:22'), 'call-2', 'done', { status: 'completed', agentId: 'a5' }),
+      prompt(T('10:23'), 'tell it again'),
+      ...send(T('10:23', '10'), 'send-3', 'a5'),
+    ]
+    // The message to a5 before its result names no agent; the one after names impl-05.
+    expect(tickets(lines)).toEqual([['e/07'], ['e/07'], ['e/05'], [], ['e/05'], ['e/05']])
+  })
+
+  it('a message by name that resumes no agent means the agent of that name before it, not a later one', () => {
+    const lines = [
+      prompt(T('10:00'), 'go'),
+      ...launch(T('10:01'), 'call-1', 'h1', { name: 'helper', description: 'x', prompt: 'work on ticket 05' }),
+      prompt(T('10:10'), 'tell it'),
+      ...send(T('10:10', '10'), 'send-1', 'helper'),
+      prompt(T('10:20'), 'one more'),
+      ...launch(T('10:21'), 'call-2', 'h2', { name: 'helper', description: 'x', prompt: 'work on ticket 07' }),
+    ]
+    expect(tickets(lines)).toEqual([['e/05'], ['e/05'], ['e/07']])
+  })
+
+  it('a Wave of another Epic names no Ticket', () => {
+    expect(tickets([prompt(T('10:00'), '/worfy:epic-wave tickets 05 of epic other'), prompt(T('10:01'), '/worfy:epic-wave tickets 07 of epic e')])).toEqual([[], ['e/07']])
+  })
+})
+
+describe('two calls of one name at the same moment', () => {
+  it('the first is replaced by the second, not the second by the first', () => {
+    const lines = [...launch(T('10:00'), 'call-1', 'a1', IMPL), ...launch(T('10:00'), 'call-2', 'a2', IMPL)]
+    expect(agents(facts(lines).work).map((fact) => [fact.agent, fact.outcome])).toEqual([
+      ['a1', 'cut-off'],
+      ['a2', undefined],
+    ])
+  })
 })
 
 describe('the Subagents of a window', () => {
@@ -388,5 +456,29 @@ describe('the prompt of a Wave', () => {
       prompt(T('13:00'), '/worfy:epic-wave tickets 07 of epic e'),
     ]
     expect(wavePromptTimes(lines, '/worfy:epic-wave tickets 05 of epic e')).toEqual([T('10:00'), T('10:00', '01'), T('12:00')])
+  })
+})
+
+describe('a transcript parsed in parts (worfy-flight-recorder ticket 27)', () => {
+  it('a part whose first record names no folder takes the folder of the part before', () => {
+    // A record without a cwd (Claude Code writes queue operations so) starts the second part.
+    const noCwd = JSON.stringify({ type: 'assistant', timestamp: T('10:01'), sessionId: SESSION, isSidechain: false, message: { role: 'assistant', content: [{ type: 'tool_use', id: 'call-1', name: 'Agent', input: { ...IMPL, prompt: 'go', run_in_background: true } }] } })
+    const first = [prompt(T('10:00'), 'go')]
+    const second = [noCwd, toolResult(T('10:01'), 'call-1', 'Async agent launched', { status: 'async_launched', agentId: 'a5' }), notification(T('10:30'), 'a5', 'call-1')]
+    // The agent works in the Orchestrator's folder: it moved nowhere.
+    const own = [agentTask(T('10:02')), agentLine(T('10:29'), 'done')]
+    const whole = facts([...first, ...second], new Map([['a5', { meta: null, lines: own }]]))
+    expect(agents(whole.work)[0]?.worktree).toBeUndefined()
+    const parse = new TranscriptParse().append(first).append(second)
+    expect(parse.facts({ session: SESSION, epic: 'e', tickets: ['e/05', 'e/07'], subagents: new Map([['a5', { meta: null, parse: new SubagentParse().append(own.slice(0, 1)).append(own.slice(1)) }]]) })).toEqual(whole)
+  })
+
+  it('the Subagents of a window count the calls of every part', () => {
+    const lines = [...launch(T('10:01'), 'call-1', 'a5', IMPL), ...send(T('10:30'), 'send-1', 'impl-05', 'a5'), ...launch(T('10:40'), 'call-2', 'a7', IMPL)]
+    const inside = (at: string) => at >= T('10:00') && at <= T('11:00')
+    // The call in one part, its result in the next.
+    const parse = new TranscriptParse().append(lines.slice(0, 1)).append(lines.slice(1, 3)).append(lines.slice(3))
+    expect([...parse.agentIdsIn(inside)]).toEqual([...agentIdsIn(lines, inside)])
+    expect([...parse.agentIdsIn(inside)]).toEqual(['a5', 'a7'])
   })
 })

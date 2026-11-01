@@ -6,18 +6,21 @@
 // interval give one `runs.changed`, gh is read at most once a minute, a transcript is read on from where the
 // last read stopped. Nothing reaches GitHub, no real Claude Code or Agent SDK runs, git is a stand-in.
 import { symlinkSync } from 'node:fs'
-import { appendFile, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { projectDirName } from '../../src/main/claude-home/registry'
 import { readNewLines } from '../../src/main/claude-home/tail'
 import { FlightRecorder, RECOMPUTE_INTERVAL_MS, type FlightRecorderOptions, type RunProfile, type RunSubscriber } from '../../src/main/flight-recorder/service'
 import { accountAuth, ghRunner, PrTracker } from '../../src/main/github/prs'
+import { SubagentParse, TranscriptParse } from '../../src/shared/flight-recorder/from-transcript'
 import { formatJournalLine, makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
 import type { RunView } from '../../src/shared/ipc/runs'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
 import { writeBigTranscript } from '../big-transcript'
+import { shapedSession, writeShapedSession } from './flight-recorder-shaped-transcript'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
 
@@ -365,13 +368,17 @@ describe('the live timeline', () => {
     await timer.fire()
     expect(subscriber.views).toHaveLength(1)
 
-    // A transcript line: read from where the last read stopped, not from the start.
+    // A transcript line: read from where the last read stopped, not from the start, and only it is
+    // parsed (worfy-flight-recorder ticket 27): the parse of the lines before is kept.
+    const appended = vi.spyOn(TranscriptParse.prototype, 'append')
+    const parsed = () => appended.mock.calls.reduce((sum, [lines]) => sum + lines.length, 0)
     const size = (await readFile(world.transcript)).length
     await appendFile(world.transcript, record(world.root, 30, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'waiting for impl-01' }] } }))
     now += RECOMPUTE_INTERVAL_MS
     await timer.fire()
     expect(subscriber.views).toHaveLength(2)
     expect(reads.filter((read) => read.file === world.transcript).at(-1)).toEqual({ file: world.transcript, from: size })
+    expect(parsed()).toBe(1)
     // What was read before and the new line make the timeline a full read of the files makes.
     const sameAsFull = async () => {
       const live = subscriber.views.at(-1)!.timeline.spans
@@ -404,9 +411,13 @@ describe('the live timeline', () => {
     const replacement = `${world.transcript}.new`
     await writeFile(replacement, orchestratorLines(world.root) + record(world.root, 50, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'impl-01 is back' }] } }))
     await rename(replacement, world.transcript)
+    appended.mockClear()
     now += RECOMPUTE_INTERVAL_MS
     await timer.fire()
     expect(subscriber.views).toHaveLength(afterHalf + 2)
+    // Parsed again from its start: every line of the new file.
+    expect(parsed()).toBe((await readFile(world.transcript, 'utf8')).split('\n').filter(Boolean).length)
+    appended.mockRestore()
     await sameAsFull()
 
     // The Run stops while Autopilot still works on the Epic: the run-stopped line ends it, the last
@@ -627,6 +638,14 @@ describe('the live timeline', () => {
     expect(subscriber.views).toHaveLength(1)
     expect(subscriber.views[0]!.timeline.spans).toEqual((await recorder.view(world.project, world.run)).timeline.spans)
     expect(opened.timeline.spans.some((span) => span.kind === 'agent' && span.name === 'impl-01')).toBe(true)
+    // Its next line is the only line of it parsed on the next step (worfy-flight-recorder ticket 27).
+    const parsedOwn = vi.spyOn(SubagentParse.prototype, 'append')
+    await appendFile(join(world.subagents, 'agent-a1.jsonl'), agentLine(12, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'still working' }] } }))
+    await timer.fire()
+    expect(subscriber.views).toHaveLength(2)
+    expect(parsedOwn.mock.calls.reduce((sum, [lines]) => sum + lines.length, 0)).toBe(1)
+    parsedOwn.mockRestore()
+    expect(subscriber.views[1]!.timeline.spans).toEqual((await recorder.view(world.project, world.run)).timeline.spans)
     recorder.dispose()
   })
 
@@ -665,6 +684,8 @@ describe.skipIf(process.env.WORFY_PERF !== '1')('a live Run with a 160 MB transc
     const open = performance.now() - started
     const held = heap() - before
     const steps: number[] = []
+    const blocked = monitorEventLoopDelay({ resolution: 1 })
+    blocked.enable()
     for (let n = 0; n < 10; n++) {
       await appendFile(world.transcript, record(world.root, 30 + n, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `step ${n}` }] } }))
       now += RECOMPUTE_INTERVAL_MS
@@ -672,11 +693,90 @@ describe.skipIf(process.env.WORFY_PERF !== '1')('a live Run with a 160 MB transc
       await timer.fire()
       steps.push(performance.now() - started)
     }
+    blocked.disable()
     expect(subscriber.views).toHaveLength(10)
     steps.sort((a, b) => a - b)
     const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(0)
     console.info(
-      `[flight-recorder] transcript ${mb(size)} MB: first open ${open.toFixed(0)} ms; a step after one line: median ${steps[5]!.toFixed(1)} ms, max ${steps[9]!.toFixed(1)} ms; heap held by the open Run ${mb(held)} MB${(globalThis as { gc?: unknown }).gc === undefined ? ' (no gc: an upper bound)' : ''}`,
+      `[flight-recorder] transcript ${mb(size)} MB: first open ${open.toFixed(0)} ms; a step after one line: median ${steps[5]!.toFixed(1)} ms, max ${steps[9]!.toFixed(1)} ms, the main thread held at most ${(blocked.max / 1e6).toFixed(1)} ms at a time; heap held by the open Run ${mb(held)} MB${(globalThis as { gc?: unknown }).gc === undefined ? ' (no gc: an upper bound)' : ''}`,
+    )
+    recorder.dispose()
+  })
+})
+
+// The same on an Orchestrator Session shaped like the real one the review of ticket 17 measured
+// (worfy-flight-recorder ticket 27): a transcript of about 160 MB over five days with about 1300
+// agents, a Run window of 12 h holding about 110 of them, each with its own file of about 1 MB.
+// Synthetic (test/contract/flight-recorder-shaped-transcript.ts); the numbers are printed with WORFY_PERF=1
+// only and are in the result section of ticket 27.
+describe.skipIf(process.env.WORFY_PERF !== '1')('a live Run on a Session shaped like a real one', () => {
+  it('a step after new lines parses only them', { timeout: ms(300_000) }, async () => {
+    const data = await folder('data')
+    const home = await folder('claude')
+    const root = await folder('repo')
+    const dir = join(home, 'projects', projectDirName(root))
+    const turns = 3_000
+    const turnSeconds = 170
+    const window = 12 * 3600 * 1000
+    const start = T0 - turns * turnSeconds * 1000
+    // Written and let go: the heap below is the open Run's, not the test's copy of the files.
+    const { end, tickets, bytes, agents, inWindow } = (() => {
+      const shaped = shapedSession({ sessionId: SESSION, cwd: root, epic: 'e', turns, start, turnSeconds, toolResultBytes: 17_000, toolsPerTurn: 2, promptBytes: 15_000, reportBytes: 6_000, subagentRecords: 40, subagentRecordBytes: 27_000, subagentsFrom: T0 - window })
+      return { bytes: writeShapedSession(dir, shaped, SESSION).bytes, end: shaped.end, agents: shaped.agents, inWindow: shaped.subagents.size, tickets: shaped.tickets }
+    })()
+    const transcriptBytes = (await stat(join(dir, `${SESSION}.jsonl`))).size
+    const runStart = end - window
+    const runAt = (offset: number) => new Date(runStart + offset).toISOString()
+    const run = makeRunId(new Date(runStart), 'ffffff')
+    const project = 'live-0a1b2c3d'
+    // The Run's Tickets: those of the last Waves, as Autopilot names them.
+    const numbers = tickets.slice(-12).map((ticket) => /(\d+)$/u.exec(ticket)![1]!.padStart(2, '0'))
+    const journal = await writeJournal(data, run, [
+      { at: runAt(0), run, project, epic: 'e', kind: 'run-started' },
+      { at: runAt(1_000), run, project, epic: 'e', kind: 'wave-started', wave: 1, tickets: numbers, text: 'go', session: SESSION },
+    ])
+    expect(journal).toBeTruthy()
+    const timer = manualTimer()
+    let now = end + 10_000
+    const recorder = new FlightRecorder({ env: { WORFY_DATA_DIR: data, WORFY_CLAUDE_HOME: home }, harnessHome: await folder('harness'), projectRoot: () => root, profile: async () => profileOf({ finish: 'local-green' }), gh: async () => '[]', running: () => true, git: noGit, now: () => now, schedule: timer.schedule })
+    const heap = () => {
+      ;(globalThis as { gc?: () => void }).gc?.()
+      return process.memoryUsage().heapUsed
+    }
+    const before = heap()
+    let started = performance.now()
+    const subscriber = collector()
+    const opened = await recorder.open(project, run, subscriber)
+    const open = performance.now() - started
+    const held = heap() - before
+    const agentSpans = opened.timeline.spans.filter((span) => span.kind === 'agent').length
+    // Each step: a line of the Orchestrator and a line of each of three Subagents that still work.
+    const working = (await readdir(join(dir, SESSION, 'subagents'))).filter((name) => name.endsWith('.jsonl')).slice(-3)
+    const steps: number[] = []
+    const appended = vi.spyOn(TranscriptParse.prototype, 'append')
+    // How long the main thread is held at a time: the reads in between leave it free.
+    const blocked = monitorEventLoopDelay({ resolution: 1 })
+    blocked.enable()
+    for (let n = 0; n < 10; n++) {
+      const at = new Date(end + (n + 1) * 1_000).toISOString()
+      await appendFile(join(dir, `${SESSION}.jsonl`), `${JSON.stringify({ type: 'assistant', timestamp: at, cwd: root, sessionId: SESSION, isSidechain: false, message: { role: 'assistant', content: [{ type: 'text', text: `step ${n}` }] } })}\n`)
+      for (const name of working) await appendFile(join(dir, SESSION, 'subagents', name), `${JSON.stringify({ type: 'assistant', timestamp: at, cwd: root, sessionId: SESSION, isSidechain: true, message: { role: 'assistant', content: [{ type: 'text', text: `working ${n}` }] } })}\n`)
+      now += RECOMPUTE_INTERVAL_MS
+      started = performance.now()
+      await timer.fire()
+      steps.push(performance.now() - started)
+    }
+    blocked.disable()
+    const parsed = appended.mock.calls.reduce((sum, [lines]) => sum + lines.length, 0)
+    appended.mockRestore()
+    expect(subscriber.views).toHaveLength(10)
+    expect(parsed).toBe(10)
+    // The live timeline is the one a whole read gives.
+    expect(subscriber.views.at(-1)!.timeline.spans).toEqual((await recorder.view(project, run)).timeline.spans)
+    steps.sort((a, b) => a - b)
+    const mb = (value: number) => (value / 1024 / 1024).toFixed(0)
+    console.info(
+      `[flight-recorder] shaped Session: transcript ${mb(transcriptBytes)} MB, all files ${mb(bytes)} MB, ${agents} agents, ${inWindow} Subagent files in the 12 h window, ${agentSpans} agent spans in the Run; first open ${open.toFixed(0)} ms; a step after new lines: median ${steps[5]!.toFixed(1)} ms, max ${steps[9]!.toFixed(1)} ms, the main thread held at most ${(blocked.max / 1e6).toFixed(1)} ms at a time; heap held by the open Run ${mb(held)} MB${(globalThis as { gc?: unknown }).gc === undefined ? ' (no gc: an upper bound)' : ''}`,
     )
     recorder.dispose()
   })
