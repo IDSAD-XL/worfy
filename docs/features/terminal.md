@@ -74,8 +74,9 @@ are accepted, the list has this one command, and attaching to a shell that alrea
   because worfy's shortcuts use ⌘.
 - Closing a Node ends every process under the shell, including one started with `Start-Process` and one two levels down,
   and then the shell. Git Bash gets SIGHUP first, so bash writes its history. In worfy Git Bash also appends its history
-  after every command (`history -a` in `PROMPT_COMMAND`), so a close whose signal comes too late loses nothing. A
-  `PROMPT_COMMAND` in the environment is kept; one set by your `.bashrc` replaces worfy's.
+  after every command (`history -a` in `PROMPT_COMMAND`), so a close whose signal comes too late loses only a command
+  still running. A `PROMPT_COMMAND` in the environment is kept; one set by your `.bashrc` replaces worfy's, and a command
+  your `.bashrc` adds after worfy's reads its `$?`, not the `$?` of your last command.
 - Quitting worfy waits for at most 6 seconds.
 - Output that arrives after a shell exited is dropped. On macOS it is kept and shown.
 
@@ -87,8 +88,8 @@ are accepted, the list has this one command, and attaching to a shell that alrea
 - **Output has a running length.** Each chunk carries `end`, the length of all output so far. The answer to an open
   carries the `end` of its replay, so a view drops what it already has.
 - **The environment** is the same as for Sessions, on macOS that of the login shell
-  ([ADR-0007](../adr/0007-claude-code-launch-environment.md)), plus `TERM`, `COLORTERM`, `TERM_PROGRAM=worfy` and `PWD`, and
-  on macOS `LANG` when it is not set.
+  ([ADR-0007](../adr/0007-claude-code-launch-environment.md)), plus `TERM`, `COLORTERM`, `TERM_PROGRAM=worfy` and `PWD`, on
+  macOS `LANG` when it is not set, and for Git Bash on Windows `PROMPT_COMMAND`.
 - **A program's questions to its terminal are answered once.** Programs ask the terminal for the cursor position, the
   device attributes, a mode or a setting, and wait. A view is not always mounted, and two views would answer twice. So
   main follows the output on its own headless screen and answers these itself. The same answers from a view are dropped.

@@ -121,12 +121,19 @@ export function terminalEnv(base: Readonly<Env>, cwd: string, platform: NodeJS.P
 }
 
 /**
+ * With no HISTFILE, `history -a` writes to ~/.history, and in a folder it cannot write to it prints an
+ * error after every command. Bash at exit does neither, so a history that is turned off stays off.
+ */
+const APPEND_HISTORY = '[ -z "${HISTFILE-}" ] || history -a 2>/dev/null'
+
+/**
  * The environment of Git Bash in a Terminal: bash appends each command to its history file right
- * after it, so a close that gets no SIGHUP to bash in time loses nothing (2 of 120 closes under a
- * full vitest, worfy-windows ticket 116). The command goes after a PROMPT_COMMAND the environment
- * already has, on a new line: `;` would break one that ends in `;` or in a comment. A .bashrc that
- * sets PROMPT_COMMAND itself wins, and worfy leaves that alone. On the PC, bash 5.2.26: `$?` of the
- * last command stays as it was, and exit writes no line twice.
+ * after it, so a close that gets no SIGHUP to bash in time loses only a command still running (2 of
+ * 120 closes under a full vitest, worfy-windows ticket 116). The command goes after a PROMPT_COMMAND
+ * the environment already has, on a new line: `;` would break one that ends in `;` or in a comment
+ * (one that ends in `\` swallows it, and is left alone). A .bashrc that sets PROMPT_COMMAND itself
+ * wins, and worfy leaves that alone; a command it adds after ours reads the `$?` of ours. On the PC,
+ * bash 5.2.26: `$?` of the last command stays as it was for the next one, and exit writes no line twice.
  */
 export function gitBashEnv(env: Readonly<Env>): Env {
   const out: Env = { ...env }
@@ -134,7 +141,7 @@ export function gitBashEnv(env: Readonly<Env>): Env {
   const names = Object.keys(out).filter((name) => name.toUpperCase() === 'PROMPT_COMMAND')
   const current = names.map((name) => out[name]).find((value) => value !== undefined && value.trim() !== '')
   for (const name of names) delete out[name]
-  out.PROMPT_COMMAND = current === undefined ? 'history -a' : `${current}\nhistory -a`
+  out.PROMPT_COMMAND = current === undefined ? APPEND_HISTORY : `${current}\n${APPEND_HISTORY}`
   return out
 }
 

@@ -178,20 +178,23 @@ describe('terminalEnv: LANG by the system', () => {
 })
 
 describe('gitBashEnv: bash appends its history after every command', () => {
+  // Without a HISTFILE `history -a` would write to ~/.history; in a folder it cannot write to, it would print an error after every command.
+  const APPEND = '[ -z "${HISTFILE-}" ] || history -a 2>/dev/null'
+
   it('without PROMPT_COMMAND, or with an empty one, sets `history -a`', () => {
-    expect(gitBashEnv({ HOME: 'C:\\h' })).toEqual({ HOME: 'C:\\h', PROMPT_COMMAND: 'history -a' })
-    expect(gitBashEnv({ PROMPT_COMMAND: '  ' }).PROMPT_COMMAND).toBe('history -a')
+    expect(gitBashEnv({ HOME: 'C:\\h' })).toEqual({ HOME: 'C:\\h', PROMPT_COMMAND: APPEND })
+    expect(gitBashEnv({ PROMPT_COMMAND: '  ' }).PROMPT_COMMAND).toBe(APPEND)
   })
 
   it('keeps a PROMPT_COMMAND that is set, and adds to it on a new line', () => {
-    expect(gitBashEnv({ PROMPT_COMMAND: 'update_title' }).PROMPT_COMMAND).toBe('update_title\nhistory -a')
+    expect(gitBashEnv({ PROMPT_COMMAND: 'update_title' }).PROMPT_COMMAND).toBe(`update_title\n${APPEND}`)
     // One that ends in `;` or in a comment stays valid: `;` as the separator would break both.
-    expect(gitBashEnv({ PROMPT_COMMAND: 'a; # note' }).PROMPT_COMMAND).toBe('a; # note\nhistory -a')
+    expect(gitBashEnv({ PROMPT_COMMAND: 'a; # note' }).PROMPT_COMMAND).toBe(`a; # note\n${APPEND}`)
   })
 
   it('takes the variable whatever the case of its name: Windows has one name, bash would see two', () => {
     const env = gitBashEnv({ Prompt_Command: 'update_title' })
-    expect(env.PROMPT_COMMAND).toBe('update_title\nhistory -a')
+    expect(env.PROMPT_COMMAND).toBe(`update_title\n${APPEND}`)
     expect('Prompt_Command' in env).toBe(false)
   })
 

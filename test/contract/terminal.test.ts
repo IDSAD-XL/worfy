@@ -835,7 +835,12 @@ describe('terminal.open and the shell setting of the Project, on a stand-in pty'
     await (await harness({ platform: 'win32', spawn: recording, exists, shellSetting: () => 'git-bash' })).open()
     await (await harness({ platform: 'win32', spawn: recording, exists, shellSetting: () => undefined })).open()
     await (await harness({ platform: 'darwin', spawn: recording, shellSetting: () => 'git-bash' })).open()
-    expect(envs.map((env) => env?.PROMPT_COMMAND)).toEqual(['history -a', undefined, undefined])
+    // Git Bash asked for and not found: the PowerShell that starts instead gets nothing either.
+    await (await harness({ platform: 'win32', spawn: recording, exists: () => false, shellSetting: () => 'git-bash' })).open()
+    // A value the environment already has reaches the shell too.
+    await (await harness({ platform: 'win32', spawn: recording, exists, shellSetting: () => 'git-bash', env: { PROMPT_COMMAND: 'update_title' } })).open()
+    const append = '[ -z "${HISTFILE-}" ] || history -a 2>/dev/null'
+    expect(envs.map((env) => env?.PROMPT_COMMAND)).toEqual([append, undefined, undefined, undefined, `update_title\n${append}`])
     endAll()
   })
 
