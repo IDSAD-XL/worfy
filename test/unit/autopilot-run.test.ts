@@ -246,6 +246,10 @@ describe('the Wave a result ends', () => {
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave', wave: 2 })
     expect(kinds(s).slice(3)).toEqual([
       ['wave-finished', 2],
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      ['ticket-status', null],
+      ['ticket-status', null],
+      ['ticket-status', null],
       ['run-stopped', 'no-ready-wave'],
     ])
   })
@@ -323,7 +327,7 @@ describe('the Wave a result ends', () => {
     s.emit(result())
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'interrupted', wave: 2 })
-    expect(kinds(s).slice(3)).toEqual([['run-stopped', 'interrupted']])
+    expect(kinds(s).slice(3)).toEqual([['ticket-status', null], ['ticket-status', null], ['run-stopped', 'interrupted']])
     expect(s.removed).toEqual(['queued-2'])
   })
 
@@ -611,6 +615,8 @@ describe('the graceful Stop: no new Ticket, the ones in work finish (worfy-week 
     expect(lines(s)).toEqual([
       { kind: 'wave-started' },
       { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      { kind: 'ticket-status' },
       { kind: 'run-stopped', reason: 'user-stop' },
     ])
     // After a graceful Stop the next run takes nothing along, though 01 is still in work.
@@ -638,7 +644,7 @@ describe('the graceful Stop: no new Ticket, the ones in work finish (worfy-week 
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop', wave: 1 })
     // Wave 2 (03) was ready, and still did not go.
     expect(s.resumes).toHaveLength(1)
-    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'run-stopping', 'run-stopped'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'run-stopping', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 
   it('while background tasks live: STOP_TEXT starts a turn at once, and the run ends with the turn after the last task', async () => {
@@ -679,6 +685,9 @@ describe('the graceful Stop: no new Ticket, the ones in work finish (worfy-week 
       { kind: 'wave-started' },
       { kind: 'background-tasks' },
       { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01', '02'] },
+      // The watch's read after 01 merged: both Status lines changed since the start (worfy-flight-recorder ticket 11).
+      { kind: 'ticket-status' },
+      { kind: 'ticket-status' },
       { kind: 'background-tasks' },
       { kind: 'run-stopped', reason: 'user-stop' },
     ])
@@ -734,7 +743,7 @@ describe('the graceful Stop: no new Ticket, the ones in work finish (worfy-week 
     expect(s.removed).toEqual(['queued-2'])
     expect(s.sent).toEqual([])
     expect(s.halts).toBe(0)
-    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'wave-started', 'run-stopped'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'wave-started', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 })
 
@@ -767,7 +776,7 @@ describe('the click on Stop is noted at once: no Wave goes after it (worfy-week 
     expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop', stopping: false })
     expect(s.resumes).toHaveLength(1)
     expect(s.sent).toEqual([])
-    expect(kindsOnly(s)).toEqual(['wave-started', 'wave-finished', 'run-stopped'])
+    expect(kindsOnly(s)).toEqual(['wave-started', 'wave-finished', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 
   it('the state says stopping from the click on, while the step for it still waits', async () => {
@@ -801,7 +810,8 @@ describe('the click on Stop is noted at once: no Wave goes after it (worfy-week 
     const answer = await s.autopilot.stop(PROJECT)
     expect(answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
     expect(s.resumes).toHaveLength(1)
-    expect(kindsOnly(s)).toEqual(['wave-started', 'wave-finished', 'run-stopped'])
+    // The watch's read journals the merges of 01 and 02 (worfy-flight-recorder ticket 11).
+    expect(kindsOnly(s)).toEqual(['wave-started', 'ticket-status', 'ticket-status', 'wave-finished', 'run-stopped'])
   })
 
   it('Stop before the workflow change while settling: stops at once, the change finds the run stopped', async () => {
@@ -818,7 +828,7 @@ describe('the click on Stop is noted at once: no Wave goes after it (worfy-week 
     expect(await answer).toMatchObject({ status: 'stopped', reason: 'user-stop' })
     await settle()
     expect(s.resumes).toHaveLength(1)
-    expect(kindsOnly(s)).toEqual(['wave-started', 'run-stopped'])
+    expect(kindsOnly(s)).toEqual(['wave-started', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 
   it('Stop while "Run wave" is on its way: the Wave goes out stopping, and STOP_TEXT follows it once', async () => {
@@ -1143,6 +1153,9 @@ describe('the narrow fix round from the PR comments (worfy-harness ticket 20)', 
       ['narrow-round', null],
       ['wave-finished', 1],
       ['narrow-round', null],
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      ['ticket-status', null],
+      ['ticket-status', null],
       ['run-stopped', 'blocked-tickets'],
     ])
     expect(s.journal.at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'blocked-tickets', tickets: ['02'] })
@@ -1310,7 +1323,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     s.emit(answer('queue empty'))
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave' })
-    expect(lines(s)).toEqual([{ kind: 'gate-queue', text: GATE_TEXT }, { kind: 'run-stopped', reason: 'no-ready-wave' }])
+    expect(lines(s)).toEqual([{ kind: 'gate-queue', text: GATE_TEXT }, { kind: 'gate-queue-finished' }, { kind: 'run-stopped', reason: 'no-ready-wave' }])
     expect(s.power).toEqual(['start', 'stop'])
     expect(s.orchestrator).toEqual(['unattended true', 'unattended false'])
     // Once per run.
@@ -1335,6 +1348,10 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
       { kind: 'wave-started' },
       { kind: 'wave-finished' },
       { kind: 'gate-queue', text: GATE_TEXT },
+      { kind: 'gate-queue-finished' },
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      { kind: 'ticket-status' },
+      { kind: 'ticket-status' },
       { kind: 'run-stopped', reason: 'blocked-tickets', tickets: ['03'], lastText: 'done' },
     ])
     expect(calls).toHaveLength(1)
@@ -1355,7 +1372,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'blocked-tickets' })
     expect(s.resumes).toHaveLength(1)
-    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'gate-queue', 'run-stopped'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'gate-queue', 'gate-queue-finished', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 
   it('request, no field or no template (null): no gate-queue, the run stops at once', async () => {
@@ -1436,7 +1453,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop' })
     // No run-stopping: the turn has no Wave, and a run-stopping with wave 0 would not pass the journal's schema.
-    expect(s.journal.map((line) => line.kind)).toEqual(['gate-queue', 'run-stopped'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['gate-queue', 'gate-queue-finished', 'run-stopped'])
     for (const line of s.journal) expect(journalEventSchema.safeParse({ ...line, ...JOURNAL_COMMON }).error?.issues ?? []).toEqual([])
   })
 
@@ -1447,7 +1464,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     await settle()
     expect(await s.autopilot.forceStop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop', resumable: [] })
     expect(s.halts).toBe(1)
-    expect(lines(s)).toEqual([{ kind: 'gate-queue', text: GATE_TEXT }, { kind: 'run-stopped', reason: 'user-force-stop' }, { kind: 'orchestrator-returned' }])
+    expect(lines(s)).toEqual([{ kind: 'gate-queue', text: GATE_TEXT }, { kind: 'gate-queue-finished' }, { kind: 'run-stopped', reason: 'user-force-stop' }, { kind: 'orchestrator-returned' }])
   })
 
   it('limits-timeout: no gate-queue', async () => {
@@ -1466,7 +1483,7 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'limits-timeout' })
     expect(calls).toEqual([])
-    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'limits-hit', 'run-stopped'])
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'limits-hit', 'ticket-status', 'ticket-status', 'ticket-status', 'run-stopped'])
   })
 })
 
@@ -1550,8 +1567,22 @@ describe('a new SDK session for every Wave after the first (worfy-throughput tic
       ['wave-finished', 1],
       ['wave-started', 2],
       ['wave-finished', 2],
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      ['ticket-status', null],
+      ['ticket-status', null],
+      ['ticket-status', null],
       ['run-stopped', 'no-ready-wave'],
     ])
+  })
+
+  it('wave-started of Wave 2 names the new Session it went to (worfy-flight-recorder ticket 11)', async () => {
+    const { s } = withNewSession()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    s.emit(result())
+    await settle()
+    expect(s.journal.filter((line) => line.kind === 'wave-started').map((line) => ('session' in line ? line.session : null))).toEqual([SESSION, SESSION_2])
   })
 
   it('a Stop clicked while the new Session starts: Wave 2 does not go, the run stops with user-stop', async () => {
@@ -1750,7 +1781,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     ])
     await s.autopilot.start(PROJECT, EPIC)
     expect(s.orchestrator).toEqual(['unattended true'])
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, by: 'button' }])
     expect(s.autopilot.runKeys()).toEqual([{ epic: EPIC, origin: KEY }])
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', machine: HERE, unasked: [] })
   })
@@ -1760,7 +1791,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     await s.autopilot.start(PROJECT, EPIC, { override: true })
     expect(asked()).toBe(1)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, override: true }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, override: true, by: 'button' }])
   })
 
   it('Start anyway once the other run has ended: asked again, a plain start, no override in run-started', async () => {
@@ -1771,7 +1802,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     await s.autopilot.start(PROJECT, EPIC, { override: true })
     expect(asked()).toBe(1)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', unasked: ['Desk'] })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Desk'] }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Desk'], by: 'button' }])
   })
 
   it('Start anyway past another Project of this Machine: the run goes with override', async () => {
@@ -1779,7 +1810,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     s.deps.projectRoot = (projectId) => `/repo/${projectId}`
     await s.autopilot.start(PROJECT, EPIC)
     await s.autopilot.start('clone-00000001', EPIC, { override: true })
-    expect(opened.at(-1)).toEqual({ project: 'clone-00000001', epic: EPIC, origin: KEY, override: true })
+    expect(opened.at(-1)).toEqual({ project: 'clone-00000001', epic: EPIC, origin: KEY, override: true, by: 'button' })
   })
 
   it('another Project of this Machine over the same repository runs the Epic: refused, naming this Machine', async () => {
@@ -1840,7 +1871,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     ])
     await s.autopilot.start(PROJECT, EPIC)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', unasked: ['Studio'] })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Studio'] }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Studio'], by: 'button' }])
   })
 
   it('question 3: a Project without origin asks no one, and starts as before', async () => {
@@ -1848,7 +1879,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     await s.autopilot.start(PROJECT, EPIC)
     expect(asked()).toBe(0)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button' }])
     expect(s.autopilot.runKeys()).toEqual([])
   })
 
@@ -2082,6 +2113,9 @@ describe('a run over named Tickets', () => {
     expect(kinds(s)).toEqual([
       ['wave-started', 1],
       ['wave-finished', 1],
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      ['ticket-status', null],
+      ['ticket-status', null],
       ['run-stopped', 'tickets-done'],
     ])
     // A usual end, as no-ready-wave: the Orchestrator's last answer in the Wave goes along.
@@ -2203,5 +2237,221 @@ describe('Autopilot.startCheck (worfy-flight-recorder ticket 21)', () => {
     const own = standIn()
     await own.autopilot.start(PROJECT, EPIC)
     expect(await own.autopilot.startCheck(PROJECT, EPIC)).toBe('Autopilot is already running in this Project (Epic demo): stop it first')
+  })
+})
+
+// The history of a Run in the journal (worfy-flight-recorder ticket 11, ADR-0092).
+describe('the Status changes of the Epic\'s Tickets during a run (ticket-status)', () => {
+  const statusLines = (s: StandIn) => s.journal.filter((line) => line.kind === 'ticket-status')
+  const set = (s: StandIn, num: number, fields: Partial<Ticket>) => {
+    s.tickets = s.tickets.map((each) => (each.num === num ? { ...each, ...fields } : each))
+  }
+
+  it('a claim, a block with its reason and who it waits for, and done each give one line with the header facts', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    set(s, 1, { state: 'work', statusAt: '2026-11-01T01:35Z' })
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([{ kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-11-01T01:35Z' }])
+    set(s, 2, { state: 'blocked', statusAt: '2026-11-01T01:40Z', blockedReason: 'needs the owner', waits: 'owner' })
+    s.workflowChanged()
+    await settle()
+    set(s, 1, { state: 'done', statusAt: '2026-11-01T01:50Z' })
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([
+      { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-11-01T01:35Z' },
+      { kind: 'ticket-status', ticket: '02', state: 'blocked', statusAt: '2026-11-01T01:40Z', reason: 'needs the owner', waits: 'owner' },
+      { kind: 'ticket-status', ticket: '01', state: 'done', statusAt: '2026-11-01T01:50Z' },
+    ])
+    // Each line passes the journal's schema once the file adds its common fields.
+    const common = { at: '2026-11-01T01:50:00.000Z', run: '2026-11-01T01-00-00-000Z-abcdef', project: PROJECT, epic: EPIC }
+    for (const line of statusLines(s)) expect(journalEventSchema.safeParse({ ...line, ...common }).error?.issues ?? []).toEqual([])
+  })
+
+  it('a read with no change of Status writes nothing; a reopened Ticket writes open, a re-claim with a new time writes again', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([])
+    set(s, 1, { state: 'work', statusAt: '2026-11-01T01:35Z' })
+    s.workflowChanged()
+    s.workflowChanged()
+    await settle()
+    set(s, 1, { state: 'open', statusAt: null })
+    s.workflowChanged()
+    await settle()
+    set(s, 1, { state: 'work', statusAt: '2026-11-01T02:00Z' })
+    s.workflowChanged()
+    await settle()
+    // Claimed again straight away, by another session: the same state, a new time.
+    set(s, 1, { state: 'work', statusAt: '2026-11-01T02:30Z' })
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([
+      { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-11-01T01:35Z' },
+      { kind: 'ticket-status', ticket: '01', state: 'open' },
+      { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-11-01T02:00Z' },
+      { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-11-01T02:30Z' },
+    ])
+  })
+
+  it('a Ticket of another Epic, a Ticket without a readable Status and a change after the run writes no line', async () => {
+    const s = standIn()
+    s.tickets = [...s.tickets, { ...t(7, 'open'), epic: 'other' }]
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.tickets = s.tickets.map((each) => (each.epic === 'other' ? { ...each, state: 'work' as const, statusAt: '2026-11-01T01:35Z' } : each))
+    set(s, 3, { state: 'none', statusError: 'old header' })
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([])
+    const changed = s.workflowChanged
+    // A Force stop does not wait for a last read: a change the watch has not reported writes nothing.
+    set(s, 2, { state: 'done', statusAt: '2026-11-01T02:59Z' })
+    await s.autopilot.forceStop(PROJECT)
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped' })
+    set(s, 1, { state: 'done', statusAt: '2026-11-01T03:00Z' })
+    changed()
+    await settle()
+    expect(statusLines(s)).toEqual([])
+  })
+
+  // Review round 1 of #1187: `ticket block … --waits W` on a blocked Ticket changes only Waits:, and a second
+  // block in the same minute changes only Blocked reason: (the Status time has minutes only).
+  it('a blocked Ticket whose Waits changes alone, then whose reason changes alone, gives one line each', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    set(s, 2, { state: 'blocked', statusAt: '2026-11-01T01:40Z', blockedReason: 'needs the owner', waits: 'owner' })
+    s.workflowChanged()
+    await settle()
+    set(s, 2, { waits: 'team' })
+    s.workflowChanged()
+    await settle()
+    set(s, 2, { blockedReason: 'needs the owner and the PC' })
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([
+      { kind: 'ticket-status', ticket: '02', state: 'blocked', statusAt: '2026-11-01T01:40Z', reason: 'needs the owner', waits: 'owner' },
+      { kind: 'ticket-status', ticket: '02', state: 'blocked', statusAt: '2026-11-01T01:40Z', reason: 'needs the owner', waits: 'team' },
+      { kind: 'ticket-status', ticket: '02', state: 'blocked', statusAt: '2026-11-01T01:40Z', reason: 'needs the owner and the PC', waits: 'team' },
+    ])
+  })
+
+  it('a Ticket whose file appears during the run writes the status it is first seen with', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    // Created and claimed between two reports of the watch.
+    s.tickets = [...s.tickets, { ...t(4, 'work'), statusAt: '2026-11-01T01:45Z' }]
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toEqual([{ kind: 'ticket-status', ticket: '04', state: 'claimed', statusAt: '2026-11-01T01:45Z' }])
+  })
+
+  // Review round 1 of #1187: the read after the turn may see the last `done` first and stop the run; the watch's
+  // read queued behind it then finds the run stopped.
+  it('the last done that only the read after the turn saw is journaled before run-stopped', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    set(s, 1, { state: 'done', statusAt: '2026-11-01T02:00Z' })
+    set(s, 2, { state: 'done', statusAt: '2026-11-01T02:01Z' })
+    set(s, 3, { state: 'done', statusAt: '2026-11-01T02:02Z' })
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave' })
+    expect(s.journal.map((line) => line.kind).slice(-4)).toEqual(['ticket-status', 'ticket-status', 'ticket-status', 'run-stopped'])
+    expect(statusLines(s)).toEqual([
+      { kind: 'ticket-status', ticket: '01', state: 'done', statusAt: '2026-11-01T02:00Z' },
+      { kind: 'ticket-status', ticket: '02', state: 'done', statusAt: '2026-11-01T02:01Z' },
+      { kind: 'ticket-status', ticket: '03', state: 'done', statusAt: '2026-11-01T02:02Z' },
+    ])
+    // The watch's report that comes after the stop writes nothing again.
+    s.workflowChanged()
+    await settle()
+    expect(statusLines(s)).toHaveLength(3)
+  })
+
+  it('a last read that does not answer within endReadMs does not hold run-stopped back', async () => {
+    let reads = 0
+    let hangAfter = Infinity
+    const s = standIn({ endReadMs: 5 })
+    const read = s.deps.workflow
+    s.deps.workflow = (root) => {
+      reads += 1
+      return reads > hangAfter ? new Promise<WorkflowModel>(() => undefined) : read(root)
+    }
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    // The read after the turn answers; the last read before run-stopped never does.
+    hangAfter = reads + 1
+    done(s, 1, 2, 3)
+    s.emit(result())
+    await settle()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave' })
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'run-stopped'])
+  })
+})
+
+describe('the end of the gate queue\'s turn (gate-queue-finished)', () => {
+  it('gate-queue, then gate-queue-finished, then run-stopped', async () => {
+    const s = standIn()
+    s.deps.waves.autopilotGateQueue = () => Promise.resolve('/worfy:gate-queue')
+    done(s, 1, 2, 3)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.journal.map((line) => line.kind)).toEqual(['gate-queue'])
+    s.state = 'idle'
+    s.emit(result())
+    await settle()
+    expect(s.journal.map((line) => line.kind)).toEqual(['gate-queue', 'gate-queue-finished', 'run-stopped'])
+  })
+})
+
+describe('who started the run, its named Tickets and the Session each Wave went to', () => {
+  function opening(overrides: Partial<AutopilotDeps> = {}) {
+    const s = standIn(overrides)
+    const opened: unknown[] = []
+    const journal = s.deps.journal
+    s.deps.journal = (start) => {
+      opened.push(start)
+      return journal(start)
+    }
+    return { s, opened }
+  }
+
+  it('run-started says button for the button, the start\'s value otherwise, and names the Tickets only of a run over named Tickets', async () => {
+    const button = opening()
+    await button.s.autopilot.start(PROJECT, EPIC)
+    expect(button.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button' }])
+    const command = opening()
+    await command.s.autopilot.start(PROJECT, EPIC, { tickets: [2, 1, 2], by: 'command' })
+    expect(command.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'command', tickets: ['01', '02'] }])
+    const tool = opening()
+    await tool.s.autopilot.start(PROJECT, EPIC, { by: 'tool' })
+    expect(tool.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'tool' }])
+  })
+
+  it('wave-started names the Session the Wave went to: the transcript id of a resumed Session, the Session id otherwise', async () => {
+    const s = standIn()
+    const session = s.deps.registry.get(SESSION)
+    // A Session resumed from a transcript has a pending id of worfy's own until Claude Code's init.
+    const resumed = Object.defineProperties(Object.create(session) as RunSession, { id: { value: 'pending-1' }, sdkId: { value: 'resumed-sdk-id' } })
+    s.deps.registry = { ...s.deps.registry, get: () => resumed }
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.journal[0]).toMatchObject({ kind: 'wave-started', wave: 1, session: 'resumed-sdk-id' })
+    const plain = standIn()
+    await plain.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(plain.journal[0]).toMatchObject({ kind: 'wave-started', wave: 1, session: SESSION })
   })
 })

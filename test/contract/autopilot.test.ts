@@ -281,6 +281,10 @@ describe('an Autopilot run on the fake agent', () => {
       ['wave-finished', 1],
       ['wave-started', 2],
       ['wave-finished', 2],
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      ['ticket-status', null],
+      ['ticket-status', null],
+      ['ticket-status', null],
       ['run-stopped', 'no-ready-wave'],
     ])
     const events = await h.journal()
@@ -581,6 +585,9 @@ describe('an Autopilot run on the fake agent', () => {
       ['run-started', null],
       ['wave-started', 1],
       ['session-error', null],
+      // The last read before run-stopped journals the Tickets' changes the watch had not reported (worfy-flight-recorder ticket 11).
+      ['ticket-status', null],
+      ['ticket-status', null],
       ['run-stopped', 'session-error'],
     ])
     const error = (await h.journal()).find((event) => event.kind === 'session-error')
@@ -895,7 +902,7 @@ describe('an Autopilot run on the fake agent', () => {
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
 
     const events = await h.journal()
-    expect(events.map((event) => event.kind)).toEqual(['run-started', 'wave-started', 'wave-finished', 'run-stopped'])
+    expect(events.map((event) => event.kind)).toEqual(['run-started', 'wave-started', 'wave-finished', 'ticket-status', 'run-stopped'])
     expect(events.at(-1)).toMatchObject({ reason: 'blocked-tickets', tickets: ['02'], lastText: ANSWER })
   })
 

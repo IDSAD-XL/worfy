@@ -12,6 +12,7 @@ import {
   parseJournal,
   type JournalEvent,
 } from '../../src/shared/autopilot/journal'
+import { parseJournal as walkParse, walkRun } from '../../src/shared/flight-recorder/journal-walk.mjs'
 
 const base = { run: '2026-10-06T01-02-03-004Z-a1b2c3', project: 'Auction-1a2b3c4d', epic: 'worfy-daily' }
 const at = (minute: number): string => new Date(Date.UTC(2026, 9, 6, 1, minute)).toISOString()
@@ -29,6 +30,7 @@ const everyKind: JournalEvent[] = [
   started,
   harnessBehind,
   waveStarted,
+  { ...base, at: at(1), kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-10-06T01:01Z' },
   { ...base, at: at(2), kind: 'narrow-round', ticket: '02', outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x' },
   { ...base, at: at(2), kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
   { ...base, at: at(2), kind: 'budget-stop', cause: 'daily-share', share: 0.09, used: 0.1, need: 0, until: at(29), text: "Today's share of the Limits is used: Autopilot continues at 00:00" },
@@ -41,6 +43,7 @@ const everyKind: JournalEvent[] = [
   { ...base, at: at(35), kind: 'background-tasks', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }] },
   { ...base, at: at(36), kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },
   { ...base, at: at(37), kind: 'gate-queue', text: '/worfy:gate-queue' },
+  { ...base, at: at(38), kind: 'gate-queue-finished' },
   stopped,
   { ...base, at: at(40), kind: 'orchestrator-returned' },
   { ...base, at: at(41), kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task-2', type: null, description: null }] },
@@ -67,6 +70,51 @@ describe('parseJournal', () => {
     const gateQueue: JournalEvent = { ...base, at: at(8), kind: 'gate-queue', text: '/worfy:gate-queue' }
     expect(parseJournal(line(started) + line(gateQueue) + line(stopped))).toEqual({ events: [started, gateQueue, stopped], skipped: 0 })
     expect(parseJournal(line(started) + line({ ...gateQueue, text: undefined }) + line({ ...gateQueue, text: '' }) + line(stopped))).toEqual({ events: [started, stopped], skipped: 2 })
+  })
+
+  // The history of a Run (worfy-flight-recorder ticket 11, ADR-0092).
+  const claimed: JournalEvent = { ...base, at: at(2), kind: 'ticket-status', ticket: '01', state: 'claimed' }
+  const blocked: JournalEvent = { ...base, at: at(3), kind: 'ticket-status', ticket: '02', state: 'blocked', statusAt: '2026-10-06T01:03Z', reason: 'needs the owner', waits: 'owner' }
+
+  it('reads ticket-status with every field and with the required ones only, for each of the four states', () => {
+    const states = (['claimed', 'blocked', 'done', 'open'] as const).map((state, i): JournalEvent => ({ ...base, at: at(4 + i), kind: 'ticket-status', ticket: '03', state }))
+    const text = [started, claimed, blocked, ...states].map(line).join('')
+    expect(parseJournal(text)).toEqual({ events: [started, claimed, blocked, ...states], skipped: 0 })
+  })
+
+  it('skips ticket-status with a state outside the four, without a ticket, or with an empty reason, and counts it', () => {
+    const bad = [{ ...claimed, state: 'work' }, { ...claimed, state: 'none' }, { ...claimed, ticket: undefined }, { ...claimed, ticket: '' }, { ...blocked, reason: '' }, { ...blocked, waits: '' }]
+    expect(parseJournal(line(started) + bad.map(line).join('') + line(stopped))).toEqual({ events: [started, stopped], skipped: bad.length })
+  })
+
+  it('reads gate-queue-finished between gate-queue and run-stopped', () => {
+    const gateQueue: JournalEvent = { ...base, at: at(7), kind: 'gate-queue', text: '/worfy:gate-queue' }
+    const finished: JournalEvent = { ...base, at: at(8), kind: 'gate-queue-finished' }
+    expect(parseJournal(line(started) + line(gateQueue) + line(finished) + line(stopped))).toEqual({ events: [started, gateQueue, finished, stopped], skipped: 0 })
+  })
+
+  it('reads run-started with who started it and its named Tickets, wave-started with its Session, and old lines without them as before', () => {
+    const named: JournalEvent = { ...started, by: 'command', tickets: ['01', '02'] }
+    const button: JournalEvent = { ...started, by: 'button' }
+    const withSession: JournalEvent = { ...waveStarted, session: '6f1c2a3b-0000-4000-8000-000000000001' }
+    expect(parseJournal(line(named) + line(button) + line(withSession) + line(stopped))).toEqual({ events: [named, button, withSession, stopped], skipped: 0 })
+    expect(parseJournal(line(started) + line(waveStarted) + line(stopped))).toEqual({ events: [started, waveStarted, stopped], skipped: 0 })
+    const bad = [{ ...started, tickets: [''] }, { ...waveStarted, session: '' }, { ...waveStarted, session: null }]
+    expect(parseJournal(bad.map(line).join(''))).toEqual({ events: [], skipped: bad.length })
+    // A `by` a later worfy may add reads as none: the line, with its origin and Tickets, stays.
+    const later = { ...started, origin: 'github.com/o/r', by: 'schedule', tickets: ['01'] }
+    expect(parseJournal(line(later))).toEqual({ events: [{ ...started, origin: 'github.com/o/r', tickets: ['01'] }], skipped: 0 })
+  })
+
+  it('the shared Journal walk (journal-walk.mjs) reads both new kinds, skips a ticket-status outside the format, and its Run is the same with them', () => {
+    const gateQueue: JournalEvent = { ...base, at: at(7), kind: 'gate-queue', text: '/worfy:gate-queue' }
+    const finished: JournalEvent = { ...base, at: at(8), kind: 'gate-queue-finished' }
+    const plain = [started, waveStarted, gateQueue, stopped].map(line).join('')
+    const withNew = [started, waveStarted, claimed, blocked, gateQueue, finished, stopped].map(line).join('') + line({ ...claimed, state: 'work' }) + line({ ...claimed, ticket: 1 })
+    const parsed = walkParse(withNew)
+    expect(parsed).toMatchObject({ lines: 9, notJson: 0, unknownKind: 0, badFields: 2 })
+    expect(parsed.events.map((event) => event.kind)).toEqual(['run-started', 'wave-started', 'ticket-status', 'ticket-status', 'gate-queue', 'gate-queue-finished', 'run-stopped'])
+    expect(walkRun(parsed.events)).toEqual(walkRun(walkParse(plain).events))
   })
 
   const narrowStarted: JournalEvent = { ...base, at: at(2), kind: 'narrow-round', ticket: '02', outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x' }
