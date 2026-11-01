@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { create } from 'zustand'
 import type { LimitsState } from '../../../shared/agent/limits'
 import { epicForecast, remainingWaves, type EpicForecast } from '../../../shared/autopilot/forecast'
@@ -16,12 +16,13 @@ import {
 import { failureReason } from '../../../shared/ipc/channels'
 import { invoke, subscribe } from '../../ipc'
 import { autopilotBudgetOf, autopilotRunOf } from '../../../shared/settings/app-settings'
+import { openRunHistory } from '../../flight-recorder/open'
 import { useLimits, useNow } from '../../limits/useLimits'
 import { useReadOnly } from '../../projects/useProjects'
 import { useAppSettings } from '../../settings/useAppSettings'
 import type { SlotProps } from '../badges'
 import { ActionButton } from './action-button'
-import { ActionMenu } from './action-menu'
+import { ActionMenu, type ActionMenuItem } from './action-menu'
 import { hasRunWave, useRunWaveState } from './gates'
 
 // "Autopilot" and "Stop autopilot" on an Epic frame (worfy-daily ticket 04, ADR-0024), with the
@@ -35,13 +36,25 @@ import { hasRunWave, useRunWaveState } from './gates'
 //   Tickets in work finish (merge or blocked). Main answers at once; while the run is stopping the
 //   button says "Stopping…" and takes no click, and the status line counts the Wave's Tickets in
 //   work.
-// - "Force stop", the one item of the "⋯" menu right of Stop, interrupts the Orchestrator and its
+// - "Force stop", an item of the "⋯" menu right of the button, interrupts the Orchestrator and its
 //   background tasks (worfy-week ticket 17, ADR-0050): main halts the turn, up to 15 s, and gives
 //   the Orchestrator back with its old process closed; worktrees and branches stay. It works while
 //   a graceful Stop goes on too. Until main answers, the button says "Stopping…" and the item is
-//   inactive. A later Autopilot over the Epic takes the interrupted Wave's Tickets that are still in
-//   work into its first Wave (`resumable`, only after Force stop), so the button is available for
-//   them too. "⋯" is there while this Epic's run is running or waiting, stopping included.
+//   inactive. A later Autopilot over the Epic takes the Tickets main left `resumable` that are still
+//   in work into its first Wave — after a Force stop those of the Wave it interrupted; after a run
+//   over named Tickets those it did not take; after a run that sent no Wave those it was given — so
+//   the button is available for them too. Force stop is in "⋯" while this Epic's run is running or
+//   waiting, stopping included.
+//
+// The entries into the Run history screen (worfy-flight-recorder ticket 20, decision 06; the screen
+// opens through flight-recorder/open.ts):
+// - "Run history", an item of "⋯" whenever the action is drawn: the screen with the list of Runs
+//   kept to this Epic. So "⋯" is there with no run too, with this one item. An Epic with nothing to
+//   start, stop or say (all its Tickets done) draws no button, but keeps "⋯" with this item when the
+//   Run history has Runs of it (`runs.list`).
+// - "History", right of the status line of this Epic's stopped run whose Journal main names
+//   (`run`): the screen at that Run. It goes with the start of the next run. The toast of the stop
+//   (flight-recorder/stop-toast.ts) opens the same.
 // Autopilot can start when "Run wave" could (the same verdict, gates.ts) with a template that names
 // the Wave's Tickets ({tickets}, ADR-0033), and the Project has no run; main checks again and may still refuse (the Orchestrator is in a turn, worfy's own
 // repository in a development build): the button then shows main's reason. The Project's run state
@@ -99,6 +112,15 @@ const stoppingTitle = (epic: string): string => `Autopilot over ${epic} is stopp
 /** The title of Force stop: what it does (worfy-week tickets 17, 18). */
 const forceStopTitle = (epic: string): string =>
   `Stop Autopilot over ${epic} now: interrupts the Orchestrator and its background tasks; worktrees stay. The next Autopilot takes the interrupted Tickets first`
+
+/** The title of "Run history" in "⋯" (worfy-flight-recorder ticket 20). */
+const runHistoryTitle = (epic: string): string => `Show the Autopilot Runs of ${epic}: where the time of each went`
+
+/** The title of "History" by the status line of a stopped run. */
+export const HISTORY_TITLE = 'Show the Run history of this run'
+
+/** "History" by the status line: a text button in the link colour (F-SPEC: link / accent text), the line's 11px. */
+const historyStyle: CSSProperties = { border: 0, padding: 0, background: 'transparent', color: 'var(--accent)', font: 'inherit', textDecoration: 'underline', cursor: 'pointer', flex: 'none' }
 
 /** The title of the button while Force stop waits for main. */
 export const STOPPING_TITLE = 'Stopping Autopilot: the Orchestrator\'s turn is being interrupted'
@@ -310,6 +332,27 @@ function useWaveEstimate(projectId: string, key: string): AutopilotEstimateAnswe
   return answer
 }
 
+/**
+ * Whether the Epic has Runs in the Project's Run history (`runs.list`), asked while `ask` holds:
+ * the frame of an Epic without the button keeps "⋯" with "Run history" only then. Asked again when
+ * `ask` comes back; false until main answers, and when it fails.
+ */
+function usePastRuns(projectId: string, epic: string, ask: boolean): boolean {
+  const [has, setHas] = useState(false)
+  useEffect(() => {
+    if (!ask) return
+    let active = true
+    void invoke('runs.list', { projectId, epic }).then((result) => {
+      const runs: unknown = result.ok ? result.value.runs : undefined
+      if (active) setHas(Array.isArray(runs) && runs.length > 0)
+    })
+    return () => {
+      active = false
+    }
+  }, [projectId, epic, ask])
+  return ask && has
+}
+
 function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], { kind: 'epic' }>) {
   const state = useAutopilot(projectId)
   const mine = state?.epic === epic.epic
@@ -318,7 +361,7 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   const pending = mine ? pendingKind : undefined
   const running = state?.status === 'running' || state?.status === 'waiting'
   const stopping = running && state?.stopping === true
-  // After a Force stop of this Epic, the Tickets it interrupted count as ready while still in work.
+  // After a stopped run of this Epic, the Tickets it left resumable count as ready while still in work.
   const wave = useRunWaveState(projectId, epic.epic, tickets, true, mine && !running ? (state?.resumable ?? []) : [])
   const line = mine && state !== undefined ? autopilotStatusLine(state) : null
   const refusal = useAutopilotStore((store) => store.elsewhere[projectId])
@@ -343,7 +386,10 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
     () => (wave.enabled ? forecastHint(estimate, forecast, limits, { mode, window: { from: windowFrom, to: windowTo }, budgetOn, reserve: reservePercent / 100 }, now) : null),
     [wave.enabled, estimate, forecast, limits, mode, windowFrom, windowTo, budgetOn, reservePercent, now],
   )
-  if (!hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined) return null
+  // Nothing to start, stop or say: the button is not drawn, and "⋯" only for an Epic with past Runs.
+  const hidden = !hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined
+  const pastRuns = usePastRuns(projectId, epic.epic, hidden)
+  if (hidden && !pastRuns) return null
 
   const button =
     pending !== undefined || (mine && stopping) ? (
@@ -375,25 +421,37 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
         run={() => start(projectId, epic.epic)}
       />
     )
-  // Force stop, behind "⋯" right of Stop, while this Epic's run goes on (stopping included).
-  const more =
-    mine && running ? (
-      <ActionMenu
-        label={`More Autopilot actions for ${epic.epic}`}
-        title="More Autopilot actions"
-        testId="action-autopilot-more"
-        menuLabel={`Autopilot over ${epic.epic}`}
-        items={[
-          {
-            label: 'Force stop',
-            title: readOnly ?? forceStopTitle(epic.epic),
-            testId: 'action-force-stop-autopilot',
-            disabled: readOnly !== null || pending === 'force',
-            run: () => stop(projectId, 'force'),
-          },
-        ]}
-      />
-    ) : null
+  // "⋯" right of the button: Force stop while this Epic's run goes on (stopping included), and
+  // "Run history" always — reading the Runs changes nothing, so a read-only screen has it too.
+  const runHistory: ActionMenuItem = {
+    label: 'Run history',
+    title: runHistoryTitle(epic.epic),
+    testId: 'action-run-history',
+    disabled: false,
+    run: () => {
+      void openRunHistory(projectId, undefined, epic.epic)
+      return Promise.resolve(undefined)
+    },
+  }
+  const forceStop: ActionMenuItem = {
+    label: 'Force stop',
+    title: readOnly ?? forceStopTitle(epic.epic),
+    testId: 'action-force-stop-autopilot',
+    disabled: readOnly !== null || pending === 'force',
+    run: () => stop(projectId, 'force'),
+  }
+  const more = (
+    <ActionMenu
+      label={`More Autopilot actions for ${epic.epic}`}
+      title="More Autopilot actions"
+      testId="action-autopilot-more"
+      menuLabel={`Autopilot over ${epic.epic}`}
+      items={mine && running ? [forceStop, runHistory] : [runHistory]}
+    />
+  )
+  if (hidden) return <div className="nodrag" style={{ flex: 'none' }}>{more}</div>
+  // "History" by the status line of this Epic's stopped run, until the next run starts.
+  const shownRun = mine && state?.status === 'stopped' ? (state.run ?? null) : null
   // One structure in every state: a button that moved to another parent would be made anew and lose
   // the reason it shows (ActionButton keeps it), as when a refusal adds the chip row under it.
   const controls = (
@@ -416,25 +474,29 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
     <div className="nodrag" style={{ flex: 'none', position: 'relative' }}>
       {controls}
       {line === null ? null : (
-        <span
-          data-testid="autopilot-status"
-          data-status={state?.status}
-          title={state?.message ?? (running ? `${line}. ${DISPLAY_STAYS_ON}` : line)}
-          style={{
-            position: 'absolute',
-            right: 0,
-            bottom: 'calc(100% + 2px)',
-            maxWidth: 220,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            fontSize: 'var(--text-11)',
-            lineHeight: '14px',
-            color: 'var(--text-secondary)',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {line}
-        </span>
+        <div style={{ position: 'absolute', right: 0, bottom: 'calc(100% + 2px)', display: 'flex', gap: 'var(--space-1)', fontSize: 'var(--text-11)', lineHeight: '14px', whiteSpace: 'nowrap' }}>
+          <span
+            data-testid="autopilot-status"
+            data-status={state?.status}
+            title={state?.message ?? (running ? `${line}. ${DISPLAY_STAYS_ON}` : line)}
+            style={{ minWidth: 0, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-secondary)' }}
+          >
+            {line}
+          </span>
+          {shownRun === null ? null : (
+            <button
+              type="button"
+              className="nodrag"
+              data-testid="autopilot-history"
+              title={HISTORY_TITLE}
+              style={historyStyle}
+              onClick={() => void openRunHistory(projectId, shownRun)}
+              onDoubleClick={(event) => event.stopPropagation()}
+            >
+              History
+            </button>
+          )}
+        </div>
       )}
       {behind === null && ledBy === null && refused === undefined ? null : (
         <div style={{ position: 'absolute', right: 0, top: '100%', display: 'flex', gap: 'var(--space-1)' }}>

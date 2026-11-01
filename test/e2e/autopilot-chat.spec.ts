@@ -242,6 +242,10 @@ test('the command typed in the Session view starts Autopilot over the named Tick
     await expect(frame.getByTestId('action-stop-autopilot')).toHaveText('Stop autopilot')
     await expectHeaderClear(window, frame, toast)
     await forceStop(window, frame)
+    // The stop of a run started from the chat has the toast of any run, with "Open history" (worfy-flight-recorder ticket 20).
+    const stopped = window.getByTestId('run-stopped-toast')
+    await expect(stopped.locator('.w-toast__text')).toHaveText(/^Run stopped: user-force-stop · 0 done, 0 blocked · \d+ (s|min)$/)
+    await expect(stopped.getByRole('button', { name: 'Open history' })).toBeVisible()
   } finally {
     await launched.close()
   }

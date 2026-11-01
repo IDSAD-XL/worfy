@@ -14,7 +14,7 @@ import type { BackgroundTask } from '../../src/shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../src/shared/agent/events'
 import type { LimitsState } from '../../src/shared/agent/limits'
 import { journalEventSchema, type JournalEvent, type JournalEventFields } from '../../src/shared/autopilot/journal'
-import type { AutopilotState, HarnessBehind } from '../../src/shared/ipc/autopilot'
+import { autopilotStateSchema, type AutopilotState, type HarnessBehind } from '../../src/shared/ipc/autopilot'
 import type { PullRequest } from '../../src/shared/ipc/checks'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
@@ -2684,5 +2684,64 @@ describe('the Epic forecast at the start of the run and the actual share at its 
     await s.autopilot.stopAll()
     expect(stoppedOf(s)).toMatchObject({ reason: 'app-quit' })
     expect(actualOf(s)).toEqual({ share: 0.04, waves: 1, counted: 1 })
+  })
+})
+
+describe('the state names the run and, once stopped, counts its Tickets (worfy-flight-recorder ticket 20)', () => {
+  const RUN = '2026-10-17T22-29-32-707Z-58e783'
+  const START = Date.parse('2026-10-17T22:29:32.707Z')
+  let clock = START
+  const realNow = Date.now
+  afterEach(() => {
+    Date.now = realNow
+  })
+
+  it('carries the Journal\'s run id from the start, and at the stop when, how long, and the Wave Tickets done and blocked', async () => {
+    Date.now = () => clock
+    const s = standIn({ journal: () => Promise.resolve({ run: RUN, append: () => Promise.resolve() }) })
+    // 04 is of no Wave of the run: its status does not count, whatever it is.
+    s.tickets = [...s.tickets, t(4, 'blocked')]
+    const first = await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(first.ended).toBeUndefined()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', run: RUN })
+    expect(s.autopilot.state(PROJECT).ended).toBeUndefined()
+    // Wave 1 (01, 02) ends with 01 done and 02 blocked: 03 waits for 02, the run stops with blocked-tickets.
+    clock = START + (4 * 60 + 48) * 60_000
+    done(s, 1)
+    s.tickets = s.tickets.map((each) => (each.num === 2 ? { ...each, state: 'blocked' as const } : each))
+    s.emit(result())
+    await settle()
+    const stopped = autopilotStateSchema.parse(s.autopilot.state(PROJECT))
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'blocked-tickets', run: RUN, ended: { at: clock, duration: (4 * 60 + 48) * 60_000, done: 1, blocked: 1 } })
+  })
+
+  it('a Wave Ticket left open at the stop counts in neither: blocked counts only blocked', async () => {
+    Date.now = () => clock
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.tickets = s.tickets.map((each) => (each.num === 1 ? { ...each, state: 'blocked' as const } : each))
+    s.workflowChanged()
+    await settle()
+    await s.autopilot.forceStop(PROJECT)
+    await settle()
+    // 01 blocked, 02 still open: one blocked, none done.
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', ended: { done: 0, blocked: 1 } })
+  })
+
+  it('a Force stop counts by the run\'s last read of the statuses: a Ticket blocked then counts as blocked, one in work in neither', async () => {
+    Date.now = () => clock
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.tickets = s.tickets.map((each) => (each.num === 1 ? { ...each, state: 'blocked' as const } : each.num === 2 ? { ...each, state: 'work' as const } : each))
+    s.workflowChanged()
+    await settle()
+    // Done since, but no read has seen it: Force stop does not read the statuses again.
+    done(s, 1)
+    await s.autopilot.forceStop(PROJECT)
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop', run: 'run-1', ended: { done: 0, blocked: 1 } })
   })
 })

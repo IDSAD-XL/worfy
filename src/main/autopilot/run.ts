@@ -511,6 +511,23 @@ function statusChanges(run: Run, tickets: WorkflowModel['tickets']): JournalEven
 }
 
 /**
+ * Of the Tickets the run's Waves took, how many are `done` and how many `blocked` by the last read of
+ * their statuses (Run.statuses): the count of the toast when the run stops (AutopilotState.ended,
+ * worfy-flight-recorder ticket 20).
+ */
+function waveTicketCounts(run: Run): { done: number; blocked: number } {
+  const counts = { done: 0, blocked: 0 }
+  for (const num of run.waveTickets) {
+    const key = run.statuses.get(num)
+    if (key === undefined) continue
+    const [state] = JSON.parse(key) as [TicketStatusState | null]
+    if (state === 'done') counts.done += 1
+    else if (state === 'blocked') counts.blocked += 1
+  }
+  return counts
+}
+
+/**
  * What a stopped run leaves resumable (AutopilotState.resumable): after a Force stop the Tickets of
  * the Wave it interrupted, in a run over named Tickets those of the last Force stop it did not take,
  * and in a run that sent no Wave the Tickets it was given; in number order.
@@ -598,6 +615,8 @@ class Run {
   prsTimer: unknown = null
   /** When the run started (ms): narrow-round comments made before it are not this run's. */
   readonly startedAt = Date.now()
+  /** When the run stopped (ms), for AutopilotState.ended; null while it goes on. */
+  stoppedAt: number | null = null
   /**
    * The wait before the next Wave, of the budget (worfy-throughput ticket 41) or of the Start window
    * (worfy-resource-planner ticket 05), one at a time: its id, when the step that sends the Wave runs
@@ -1783,6 +1802,7 @@ export class Autopilot {
     }
     // A stopped run's state does not say a Wave goes unchecked.
     this.noteDuration(run, null)
+    run.stoppedAt = Date.now()
     run.done = true
     if (this.runs.get(run.projectId) === run) this.runs.delete(run.projectId)
     this.last.set(run.projectId, this.snapshot(run))
@@ -2000,6 +2020,8 @@ export class Autopilot {
       ticketsInWork: stopping ? run.cycle.inWork.length : 0,
       harnessBehind: this.harness.get(run.projectId) ?? null,
       ...(run.running ? { machine: this.deps.machine?.() ?? null, unasked: [...run.unasked] } : {}),
+      ...(run.journal === null ? {} : { run: run.journal.run }),
+      ...(run.done && run.stoppedAt !== null ? { ended: { at: run.stoppedAt, duration: Math.max(0, run.stoppedAt - run.startedAt), ...waveTicketCounts(run) } } : {}),
       revision: this.revision,
     }
   }

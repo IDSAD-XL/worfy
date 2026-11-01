@@ -337,7 +337,10 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     await expect(status).toHaveText('stopped: user stop')
     await expect(status).toHaveAttribute('title', 'stopped: user stop')
     await expect(autopilot).toHaveText('Autopilot')
-    await expect(more).toHaveCount(0)
+    // Nothing to force any more: "⋯" keeps Run history only (worfy-flight-recorder ticket 20).
+    await more.click()
+    await expect(window.getByRole('menuitem')).toHaveText(['Run history'])
+    await window.keyboard.press('Escape')
     expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`, STOP_TEXT])
     expect(journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'run-stopping 1', 'run-stopped user-stop'])
     expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
@@ -347,6 +350,197 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     // worfy wrote nothing into the repository, and nothing into the Claude home the run read.
     expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
     expect(files(claudeHome)).toEqual(claudeHomeBefore)
+  } finally {
+    await launched.close()
+  }
+})
+
+/** The run id of the run journal that is not among `known`, the one a new run wrote. */
+function newJournal(dataDir: string, known: readonly string[]): string {
+  const runs = readdirSync(join(dataDir, 'autopilot')).map((name) => name.replace(/\.jsonl$/, '')).filter((run) => !known.includes(run))
+  if (runs.length !== 1) throw new Error(`expected one new journal, found ${runs.length}`)
+  return runs[0]!
+}
+
+/** A part of the window in both themes as evidence of worfy-flight-recorder ticket 20, kept with the test's output. */
+async function evidence(window: Page, target: Locator, name: string): Promise<void> {
+  for (const scheme of ['light', 'dark'] as const) {
+    await window.emulateMedia({ colorScheme: scheme })
+    await target.screenshot({ path: test.info().outputPath(`20-${name}-${scheme}.png`) })
+  }
+  await window.emulateMedia({ colorScheme: null })
+}
+
+/**
+ * The contrast of the text of `target` with the first opaque background under it (WCAG 2), in the
+ * theme on screen; a translucent background is left out, which only makes the number lower.
+ */
+async function contrast(target: Locator): Promise<number> {
+  // The page's own types: this project compiles the e2e tests without the DOM library.
+  type Styled = { parentElement: Styled | null }
+  return target.evaluate((element: Styled) => {
+    const style = (each: Styled) => (globalThis as unknown as { getComputedStyle(of: Styled): { color: string; backgroundColor: string } }).getComputedStyle(each)
+    const rgb = (value: string): [number, number, number, number] => {
+      const parts = value.match(/[\d.]+/g)?.map(Number) ?? [0, 0, 0, 0]
+      return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, parts[3] ?? 1]
+    }
+    const luminance = ([r, g, b]: [number, number, number, number]): number => {
+      const channel = (c: number) => (c / 255 <= 0.03928 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4)
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    }
+    let back: Styled | null = element
+    let fill = rgb('rgba(0, 0, 0, 0)')
+    while (back !== null) {
+      fill = rgb(style(back).backgroundColor)
+      if (fill[3] === 1) break
+      back = back.parentElement
+    }
+    const [a, b] = [luminance(rgb(style(element).color)), luminance(fill)]
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+  })
+}
+
+/** The Run history screen is on, at `run`; Esc takes the window back to the Canvas. */
+async function expectHistoryAt(window: Page, run: string): Promise<void> {
+  await expect(window.getByTestId('run-history')).toBeVisible()
+  await expect(window.getByTestId('run-history-choose')).toHaveValue(run)
+  await expect(window.getByTestId('run-history-epic')).toHaveText(EPIC)
+  await window.keyboard.press('Escape')
+  await expect(window.getByTestId('run-history')).toBeHidden()
+}
+
+test('the stop of a Run: a toast with its count that stays; "Open history", "History" by the status line, "Run history" under "⋯" and "Open Run history" in the palette open Run history of the active Project (worfy-flight-recorder ticket 20)', async () => {
+  const { dataDir, claudeHome, log } = prepare()
+  // `orchestrator` with the Wave's turn held until the test releases it, as in the graceful Stop above.
+  // The next run's Session reads the script again: by then it is `orchestrator` as it is, whose first
+  // turn holds until Force stop interrupts it; its third turn holds the same way, should the run keep
+  // the Session.
+  const scripts = join(scratch, 'scripts')
+  mkdirSync(scripts, { recursive: true })
+  const script = join(scripts, 'autopilot-graceful.jsonl')
+  const fixture = readFileSync(join(repoRoot, 'test', 'fixtures', 'agent-scripts', 'orchestrator.jsonl'), 'utf8').split('\n').filter(Boolean)
+  const interruptible = fixture.toSpliced(fixture.findIndex((line) => line.includes('msg_orch_3')) + 1, 0, '{"fake":"wait_interrupt"}')
+  const held = fixture.map((line) => (line.includes('"wait_interrupt"') ? '{"fake":"wait_release","name":"turn"}' : line))
+  writeFileSync(script, `${held.join('\n')}\n`)
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'autopilot-graceful', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    await recordPower(app)
+    // The window's timers from here on run on a clock the test can move; time still flows by itself.
+    await window.clock.install()
+
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    const header = frame.locator('header')
+    const status = frame.getByTestId('autopilot-status')
+    const history = frame.getByTestId('autopilot-history')
+    const more = frame.getByTestId('action-autopilot-more')
+    const toast = window.getByTestId('run-stopped-toast')
+    await expect(frame.getByTestId('action-autopilot')).toHaveAttribute('aria-disabled', 'false')
+
+    // The Run: Wave 1 (01, 02) goes; while its turn holds, 01 is done and 02 blocked; Stop, and the turn ends.
+    await frame.getByTestId('action-autopilot').click()
+    await expect(status).toHaveText('Wave 1 · running')
+    const run = newJournal(dataDir, [])
+    await expect(history).toHaveCount(0)
+    const answer = join(claudeHome, 'epic-status.json')
+    const statuses = JSON.parse(readFileSync(answer, 'utf8')) as { tickets: { num: number; state: string; statusRaw: string }[] }
+    const setState = (num: number, state: string) => {
+      for (const ticket of statuses.tickets) if (ticket.num === num) Object.assign(ticket, { state, statusRaw: state })
+      writeFileSync(answer, JSON.stringify(statuses))
+    }
+    setState(1, 'done')
+    setState(2, 'blocked')
+    await frame.getByTestId('action-stop-autopilot').click()
+    await expect(status).toHaveText('stopping')
+    await app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('turn'))
+    await expect(status).toHaveText('stopped: user stop')
+
+    // The toast: the reason, the Wave's Tickets done and blocked at the stop, the duration; "Open history".
+    await expect(toast).toBeVisible()
+    await expect(toast).toHaveAttribute('data-kind', 'action')
+    await expect(toast.locator('.w-toast__text')).toHaveText(/^Run stopped: user-stop · 1 done, 1 blocked · \d+ (s|min)$/)
+    await expect(toast.getByRole('button', { name: 'Open history' })).toBeVisible()
+    // A minute later it is still there: it has no time of its own.
+    await window.clock.fastForward('01:00')
+    await expect(toast).toBeVisible()
+    await evidence(window, toast, 'toast')
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      expect(await contrast(toast.locator('.w-toast__text')), `toast text, ${scheme}`).toBeGreaterThanOrEqual(4.5)
+      expect(await contrast(toast.getByRole('button', { name: 'Open history' })), `Open history, ${scheme}`).toBeGreaterThanOrEqual(4.5)
+      expect(await contrast(history), `History, ${scheme}`).toBeGreaterThanOrEqual(4.5)
+    }
+    await window.emulateMedia({ colorScheme: null })
+
+    // Another Project in the window: the toast is the demo Project's and does not show there, and the
+    // palette's Run history is that Project's own (none).
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('Switch to project worfy')
+    await window.keyboard.press('Enter')
+    const subtitle = window.locator('.w-toolbar__subtitle')
+    await expect(subtitle).toHaveAttribute('title', /^worfy · /)
+    await expect(toast).toHaveCount(0)
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('Open Run history')
+    await expect(window.getByTestId('palette-option').first()).toContainText('Open Run history')
+    await evidence(window, window.getByTestId('command-palette'), 'palette')
+    await window.keyboard.press('Enter')
+    await expect(window.getByTestId('run-history')).toContainText('This Project has no Autopilot Runs yet.')
+    await window.keyboard.press('Escape')
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('Switch to project demo')
+    await window.keyboard.press('Enter')
+    await expect(subtitle).toHaveAttribute('title', /^demo · /)
+    await expect(toast).toBeVisible()
+
+    // "Open history": the screen at this Run; the toast closes.
+    await toast.getByRole('button', { name: 'Open history' }).click()
+    await expectHistoryAt(window, run)
+    await expect(toast).toHaveCount(0)
+
+    // "History" right of the status line goes to the same Run.
+    await expect(history).toHaveText('History')
+    await expectStatusClear(window, header, status)
+    await evidence(window, header, 'status-history')
+    await history.click()
+    await expectHistoryAt(window, run)
+
+    // "Run history" under "⋯", with no run going: the screen with the Runs of this Epic.
+    await more.click()
+    await expect(window.getByRole('menuitem')).toHaveText(['Run history'])
+    await menuSnapshots(window, header, '20-menu')
+    await window.getByTestId('action-run-history').click()
+    await expect(window.getByTestId('run-history')).toContainText(`Epic filter: ${EPIC}`)
+    await expectHistoryAt(window, run)
+
+    // "Open Run history" in the palette: the newest Run of the active Project.
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('Open Run history')
+    await window.keyboard.press('Enter')
+    await expectHistoryAt(window, run)
+
+    // The next run, over 02 open again: "History" goes with its start; its own stop has a toast of its own.
+    setState(2, 'open')
+    writeFileSync(script, `${interruptible.join('\n')}\n`)
+    await frame.getByTestId('action-autopilot').click()
+    await expect(status).toHaveText('Wave 1 · running')
+    await expect(history).toHaveCount(0)
+    const next = newJournal(dataDir, [run])
+    await forceStop(window, frame)
+    await expect(status).toHaveText('stopped: user force stop')
+    await expect(toast).toHaveCount(1)
+    await expect(toast.locator('.w-toast__text')).toHaveText(/^Run stopped: user-force-stop · 0 done, 0 blocked · \d+ (s|min)$/)
+    // A newer Run of another Epic in the history: the newest Run is not this one, so "Open history" and
+    // "History" open the Run they name, not the newest.
+    const later = await openRun({ project: PROJECT, epic: 'other' }, { env: { WORFY_DATA_DIR: dataDir }, now: () => new Date(Date.now() + 3_600_000) })
+    await later.append({ kind: 'run-stopped', reason: 'user-stop' })
+    await toast.getByRole('button', { name: 'Open history' }).click()
+    await expect(window.getByTestId('run-history-choose').locator('option')).toHaveCount(3)
+    await expectHistoryAt(window, next)
+    await history.click()
+    await expectHistoryAt(window, next)
   } finally {
     await launched.close()
   }

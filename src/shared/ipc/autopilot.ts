@@ -8,6 +8,7 @@ import { RUN_MODES, WINDOW_WAIT_REASONS } from '../autopilot/run-mode'
 import { DURATION_WAVES } from '../autopilot/wave-duration'
 import { epicNameSchema, ticketNumSchema } from '../binding/resolve'
 import { eventChannel, invokeChannel } from './channels'
+import { runIdSchema } from './runs'
 
 const projectId = z.string().min(1)
 
@@ -63,7 +64,7 @@ export const autopilotStateSchema = z.object({
    * during the wait for the Start window, worfy-resource-planner ticket 05) leaves the Tickets it was
    * given. Empty while running and after any other stop, the graceful Stop (`user-stop`) included.
    */
-  resumable: z.array(z.number().int().positive()),
+  resumable: z.array(ticketNumSchema),
   /**
    * A graceful Stop came (worfy-week ticket 18): the run takes no new Ticket and ends once the
    * Orchestrator's turn and background tasks are over. A flag over `running` and `waiting`; false
@@ -88,6 +89,26 @@ export const autopilotStateSchema = z.object({
    * Epic of the same repository (not connected, or no answer within 3 s). Absent when no run goes on.
    */
   unasked: z.array(z.string().min(1)).optional(),
+  /**
+   * The id of the run's Journal, which names its Run history (worfy-flight-recorder ticket 20): from
+   * the moment the Journal opens, kept in the stopped state until the next run. Absent before any
+   * run, for a start that failed before its Journal opened, and in states of builds before ticket 20.
+   */
+  run: runIdSchema.optional(),
+  /**
+   * Once a run has stopped (worfy-flight-recorder ticket 20): when, in milliseconds since the epoch
+   * by the clock of the Machine that ran it; how long it took from its start, in ms; and of the
+   * Tickets its Waves took, how many were `done` and how many `blocked` at the stop. The toast of
+   * the stop reads it. Absent while a run goes on, before any, and in states of builds before 20.
+   */
+  ended: z
+    .object({
+      at: z.number().int().nonnegative(),
+      duration: z.number().int().nonnegative(),
+      done: z.number().int().nonnegative(),
+      blocked: z.number().int().nonnegative(),
+    })
+    .optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AutopilotState = z.infer<typeof autopilotStateSchema>
