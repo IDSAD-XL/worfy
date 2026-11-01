@@ -67,45 +67,46 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
 ## Итог
 
 - `src/shared/flight-recorder/from-gate.ts` — чистый разбор, без Node и DOM (test на импорты). `parseTimings`
-  (from-gate.ts:85) читает `timings.json` версии 1 через zod; битый JSON, другая версия, `at` не дата — не читается.
-  `gateRunFacts` (from-gate.ts:106): span `gate` (имя `gate <profile>`, `id` — `<tag>/<run>`) с `sha` = `head`,
-  `worktree`, без `ticket` — Ticket находит модель; шаги — `script` с `parentWork` на запуск. Конец — `at` файла (gate
-  пишет его в конце запуска), начало — `at − total_ms`; шаги шли подряд, а записаны только их длительности, поэтому
-  они стоят встык до `at`. `outcome`: `green` и `none` — `ok`, `red` — `failed` с упавшими шагами в причине,
-  `unverified` — `failed` «not verified: environment unavailable». `note` каждого запуска — `GREEN_CACHE_NOTE`
-  (from-gate.ts:31): запуск целиком из green cache `timings.json` не пишет и на шкале не виден; шаги из cache
-  перечислены там же.
-- Каноническая форма worktree — `comparablePath` (from-gate.ts:42): на win32 один разделитель `/`, нижний регистр,
-  без `\\?\` и без хвостового `/`; на других ОС путь как есть. `canonicalWorktree` (gate-logs.ts:43) перед ней
-  делает `realpath.native` (8.3-имя `RUNNER~1`, ссылки, регистр буквы диска); путь, которого уже нет, остаётся как
-  записан. Ту же форму должен отдавать reader 14 — это договорённость двух reader-ов, в facts.ts она описана только
-  как «realpath; case-folded on Windows», без разделителя.
-- `src/main/flight-recorder/gate-logs.ts` — `readGateLogs` (gate-logs.ts:84) читает все `<tag>/<run>/timings.json`,
-  `tag` не вычисляет; запуски вне окна Run (`since`…`until`) отбрасывает. Время — только `at`, mtime не читается
-  (contract test меняет mtime файла и папки — результат тот же). Потерянное — «gate logs deleted (10 runs or 8
-  days)»: папка worktree с 10 запусками, начатыми после начала Run (gate-logs.ts:123, worktree — у модели по
-  `worktree`); папка запуска времени Run без читаемого `timings.json` (gate-logs.ts:121, со временем из имени папки);
-  Run, кончившийся больше 8 дней назад (gate-logs.ts:125, `ticket: null` — модель метит каждый Ticket без span
-  `gate`).
-- `src/main/flight-recorder/local-verdicts.ts` — `readLocalVerdicts` (local-verdicts.ts:72) для Ticket-ов без PR:
-  файл отметок Silent mode через `SilentMarks` из `marks.ts` (только если вызывающий говорит, что отметки там —
-  `marksInFile`); reflog ветки Ticket-а — каждый новый head — `push` (источник `git`), commit `gate: VERIFIED` /
-  `gate: REJECTED: …` (и после `NARROW:`), сделанный на ветке, — отметка `review` на commit-е под ним;
-  `gate: MAX-REVIEW: …` пропускается. Локальный merge (local-verdicts.ts:53): head ветки в main — время, когда reflog
-  main дошёл до этого head, иначе merge commit над ним, иначе время commit-а head. Ветки нет — «branch deleted»
-  (`kind: 'script'`, имя `branch <branch>`).
-- Gate не изменён: в `harness/hooks/` правок нет. Ничего не пишется — contract test сравнивает Harness home и
-  репозиторий до и после чтения.
-- Tests: `test/unit/flight-recorder-gate.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` (12 tests, в т.ч.
-  оба `timings.json` fixture ночного Run). Mutation testing: 15 мутантов кода, все убиты.
+  читает `timings.json` версии 1 через zod; битый JSON, другая версия, `at` не дата — не читается. `gateRunFacts`:
+  span `gate` (имя `gate <profile>`, `id` — `<tag>/<run>`) с `sha` = `head` и `worktree`, без `ticket` — Ticket
+  находит модель; шаги — `script` с `parentWork` на запуск. Конец — `at` файла (gate пишет его в конце запуска),
+  начало — `at − total_ms`; шаги стоят встык до `at` (записаны только длительности). `outcome`: `green` и `none` —
+  `ok`, `red` — `failed` с упавшими шагами, `unverified` — `failed` «not verified: environment unavailable». `note`
+  каждого запуска — `GREEN_CACHE_NOTE`: запуск целиком из green cache `timings.json` не пишет и на шкале не виден.
+- Путь worktree — один helper `canonicalWorktree` (`src/main/flight-recorder/worktree-path.ts:24`):
+  `realpath.native`, затем `comparablePath` (from-gate.ts:43): на Windows `/` вместо `\`, нижний регистр, без
+  `\\?\`; везде без хвостового разделителя, кроме корня. Правило и требование звать этот helper записаны в
+  контракте `facts.ts:69`; reader 14 импортирует его.
+- `src/main/flight-recorder/gate-logs.ts` — `readGateLogs` (gate-logs.ts:67) читает все `<tag>/<run>/timings.json`,
+  `tag` не вычисляет; оставляет запуски, которые пересекают окно Run (и на краях). Время — только `at`, mtime не
+  читается. «gate logs deleted (10 runs or 8 days)»: полная папка worktree (`LOG_RUNS_KEPT` = 10, столько оставляет
+  `pruneLogs` gate — contract test вызывает настоящий `pruneLogs`), самый старый запуск которой начат после старта
+  Run, — от старта Run до этого запуска (gate-logs.ts:112); папка запуска внутри Run без читаемого `timings.json` —
+  до следующего запуска этого worktree, иначе до конца Run (gate-logs.ts:109); Run старше 8 дней — `ticket: null`
+  (gate-logs.ts:115).
+- `src/main/flight-recorder/local-verdicts.ts` — `readLocalVerdicts` (local-verdicts.ts:92) для Ticket-ов без PR,
+  у которых была ветка: файл отметок Silent mode через `SilentMarks` (если вызывающий говорит, что отметки там);
+  reflog ветки — каждый новый head — `push`, commit `gate: VERIFIED` / `gate: REJECTED: …` (и после `NARROW:`) —
+  отметка `review` на commit-е под ним, `gate: MAX-REVIEW: …` пропускается. Merge — только у ветки со своим
+  commit-ом: первая запись reflog main, чей commit содержит head (двоичный поиск; самая старая оставшаяся запись не
+  считается — reflog мог истечь), иначе merge commit с head среди родителей (local-verdicts.ts:84), иначе время
+  commit-а head. Ветки нет — «branch deleted». Не git-папка — ни событий ветки, ни «branch deleted».
+- Gate не изменён: в `harness/hooks/` правок нет. Ничего не пишется: contract test сравнивает файлы и папки Harness
+  home и репозитория до и после чтения, с влитыми ветками (merge commit, fast-forward, истёкший reflog main).
+- Tests: `test/unit/flight-recorder-gate.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` (17 tests, в т.ч.
+  оба `timings.json` fixture ночного Run; git test-а без глобального config пользователя — `GIT_CONFIG_GLOBAL`).
+  Mutation testing: 15 мутантов первого раунда и 16 мутантов доработки — все убиты.
 
 Не проверено и решения:
-- «Journal или Ticket говорит, что gate шёл»: reader gate видит только свои папки (контракт facts.ts — один
-  источник на reader), поэтому «известный запуск» — это папка запуска без `timings.json`, переполненная папка
-  worktree или Run старше 8 дней; ограничение до Ticket-ов, о которых знает Journal, делает модель.
-- «branch deleted» ставится любому переданному Ticket-у без ветки, в том числе тому, кто ветку так и не завёл:
-  сервис (17) должен передавать только Ticket-ы без PR, которые были в работе.
-- Reflog ветки нужен для `push` и verdict-ов; без reflog (истёк, `core.logAllRefUpdates=false`) событий ветки нет.
-- После rebase на ветке с verdict-commit-ом head меняется, и модель видит новый commit после verdict-а.
-- Путь Windows проверен на macOS через `platform: 'win32'` и подставной realpath; настоящий `realpath.native` на
-  Windows (`RUNNER~1` во временной папке runner-а) — только в Windows job CI.
+- «Journal или Ticket говорит, что gate шёл»: reader gate видит только свои папки (один источник на reader), поэтому
+  «известный запуск» — папка запуска без `timings.json`, полная папка worktree или Run старше 8 дней; ограничение до
+  Ticket-ов, о которых знает Journal, делает модель.
+- Полная папка (10 запусков) не отличается от папки, где запусков было ровно 10: метка говорит «могли пропасть».
+- Папка worktree, где ни у одного запуска нет читаемого `timings.json`, не называет worktree — её запуски без метки
+  (это может быть папка другого Project-а).
+- «branch deleted» получает любой переданный Ticket без ветки: сервис 17 передаёт только Ticket-ы без PR, у которых
+  ветка была.
+- Без reflog ветки (истёк, `core.logAllRefUpdates=false`) нет ни push-ей, ни verdict-ов, ни merge.
+- После rebase ветки с verdict-commit-ом head меняется, и модель видит новый commit после verdict-а.
+- Путь Windows проверен на macOS через `platform: 'win32'` и подставной realpath; настоящий `realpath.native` и
+  junction — в Windows job CI.

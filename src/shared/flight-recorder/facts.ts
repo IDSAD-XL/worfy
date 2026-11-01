@@ -66,8 +66,12 @@ export type LostSource = keyof typeof LOST_SOURCE_LABELS
 // `session-error` names no agent, and the model attaches it to the next attempt; a lost source with
 // no Ticket covers every Ticket of the Run the Journal knows of.
 //
-// The model compares `worktree` as a string: readers 14 and 16 hand over a canonical path (realpath;
-// case-folded on Windows), since a pure model cannot resolve one. The path `.claude/worktrees/<NN>`
+// The model compares `worktree` as a string, since a pure model cannot resolve a path: every reader
+// (14, 16) hands over the canonical path of `canonicalWorktree` in src/main/flight-recorder/worktree-path.ts
+// and calls that helper rather than its own copy of the rule. The rule: realpath(3) (`realpath.native`:
+// 8.3 short names expanded on Windows), then on Windows `/` for `\`, lower case and no `\\?\` prefix
+// (`\\?\UNC\host\…` becomes `//host/…`); everywhere no trailing separator, except a root (`/`, `c:/`).
+// So `C:\Users\Ann\Repo` and `c:/users/ann/repo` are one worktree on Windows. The path `.claude/worktrees/<NN>`
 // is shared by ticket NN of every Epic over the days the gate keeps its logs, so work that ended
 // before its Ticket's row began is left out.
 //

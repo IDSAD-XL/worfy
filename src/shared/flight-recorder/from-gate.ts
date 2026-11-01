@@ -13,7 +13,8 @@
 //   note of every gate span says so.
 // - A gate run names its `head` and `worktree` and no Ticket: the model (spans.ts) finds the Ticket
 //   by the sha, then by the worktree. The worktree is handed over in the canonical form of
-//   `comparablePath` after realpath (gate-logs.ts), the form reader 14 hands over too.
+//   `canonicalWorktree` (src/main/flight-recorder/worktree-path.ts: realpath, then `comparablePath`),
+//   the helper reader 14 calls too.
 // - The verdict of a Ticket without a PR: in Silent mode the agents' marks in the marks file
 //   (src/main/workflow/marks.ts); with `workflow.finish` `local-green` the empty commits
 //   `gate: VERIFIED` / `gate: REJECTED: <list>` (`gate: NARROW: …` after the narrow round) on the
@@ -37,7 +38,7 @@ export const GREEN_CACHE_NOTE = 'gate log: a run answered wholly by the green ca
  * separator and letter case does not tell two names apart (NTFS keeps the case and ignores it), so
  * the path gets `/` and lower case, and the `\\?\` prefix of a long path goes; elsewhere it is the
  * path itself. A trailing separator goes too, except on a root (`/`, `c:/`). realpath (8.3 short
- * names like `RUNNER~1`, links, the drive letter's case) is the reader's step before this one.
+ * names like `RUNNER~1`, links, the drive letter's case) is the step of `canonicalWorktree` before this one (src/main/flight-recorder/worktree-path.ts).
  */
 export function comparablePath(path: string, platform: string): string {
   let result = path

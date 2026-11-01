@@ -68,6 +68,9 @@ describe('a timings.json as a gate span', () => {
     ])
     expect(gateRunFacts(parsed({ outcome: 'unverified' }), 'u', '/w')[0]).toMatchObject({ outcome: 'failed', reason: 'not verified: environment unavailable' })
     expect(gateRunFacts(parsed({ outcome: 'green' }), 'g', '/w')[0]?.reason).toBeUndefined()
+    // `none` (nothing ran) is not a failure.
+    expect(gateRunFacts(parsed({ outcome: 'none' }), 'n', '/w')[0]).toMatchObject({ outcome: 'ok' })
+    expect(gateRunFacts(parsed({ outcome: 'none' }), 'n', '/w')[0]?.reason).toBeUndefined()
   })
 
   it('names the scripts the green cache answered for, and has no sha without a head', () => {
