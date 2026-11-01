@@ -11,8 +11,13 @@ itself is described on the [Autopilot](autopilot.md) page. New to the terms: sta
 
 #### Opening the screen
 
-Run history takes the whole main area of the window, in place of the Canvas. The toolbar has no tab for it. It opens
-from four places:
+Run history takes the whole main area of the window, in place of the Canvas. It opens
+from five places:
+
+- **Runs** in the View switch of the toolbar, after Canvas, Session and Pipeline: the screen at the newest run of the
+  active Project, with the runs of all its Epics in the list. The tab is the selected one while the screen is open, and
+  any other tab leaves it. A Project without runs has the tab too, and the screen shows its empty state. Without a
+  Project the tab is inactive, with the tooltip "Open a Project to see its Runs".
 
 - **The stop toast.** When a run stops, for any reason, a toast says `Run stopped: <reason> · N done, M blocked ·
   <duration>` with the button **Open history**, which opens the screen at that run. The toast does not go away by
@@ -257,6 +262,7 @@ is over is read whole, once per computation, and kept nowhere.
 | `src/renderer/flight-recorder/open.ts` | `openRunHistory`, which every entry calls. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | "History" by the status line and "Run history" in "⋯". |
 | `src/renderer/palette/commands.ts` | "Open Run history". |
+| `src/renderer/shell/Toolbar.tsx` | The **Runs** tab of the View switch. |
 | `src/renderer/theme/tokens.css` | The `--span-*` colours of both themes. |
 
 #### Data flow
@@ -295,6 +301,7 @@ These tests call no model and no GitHub: the journal and transcripts are fixture
 | `test/unit/flight-recorder-filter.test.ts`, `test/unit/flight-recorder-label-layout.test.ts` | The filter and Problems only; the place of labels. |
 | `test/unit/flight-recorder-stop-toast.test.ts` | The stop toast: one per run, the latest per Project. |
 | `test/unit/canvas-actions.test.tsx`, `test/unit/palette-commands.test.tsx` | "History", "Run history" in "⋯", "Open Run history". |
+| `test/unit/toolbar-runs.test.tsx` | The **Runs** tab: four tabs, the Project it passes, selected on the screen, inactive without a Project. |
 | `test/contract/flight-recorder-service.test.ts` | The service over all readers, the live recompute, Retry. |
 | `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` | The readers in main. |
 | `test/contract/runs-ipc.test.ts` | The `runs` channels. |

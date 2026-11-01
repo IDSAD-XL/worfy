@@ -2,6 +2,7 @@ import { collectExtensions, type ShellExtension } from './registry'
 import { SegmentedControl, type SegmentOption } from '../theme/primitives'
 import { CommandPalette } from '../palette/CommandPalette'
 import { SidebarToggle } from './sidebar-visibility'
+import { openRunHistory } from '../flight-recorder/open'
 
 // Each toolbar item is its own file, src/renderer/shell/toolbar/<Name>.tsx, with a
 // default-exported component and `export const order = <number>`. Items sit between the view
@@ -10,51 +11,69 @@ const items = collectExtensions(import.meta.glob('./toolbar/*.tsx', { eager: tru
 
 /**
  * The views of the main area. `history` — the Run history of Flight Recorder
- * (flight-recorder/RunHistoryView.tsx) — has no tab here: its entries open it, Esc leaves it.
+ * (flight-recorder/RunHistoryView.tsx) — has the `Runs` tab here, which opens it at the active
+ * Project's newest Run (openRunHistory); its other entries open it too, Esc leaves it.
  */
 export type ShellView = 'canvas' | 'session' | 'pipeline' | 'history'
 
 /** The Project the window shows. Until Projects exist (ticket 04) the toolbar shows none. */
 export interface ToolbarProject {
+  /** The id of the Project: the `Runs` tab opens the Run history of it. */
+  id: string
   name: string
   branch: string
 }
 
-const viewOptions: readonly SegmentOption<ShellView>[] = [
-  {
-    value: 'canvas',
-    label: 'Canvas',
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <rect x="2" y="2" width="5" height="5" rx="1" />
-        <rect x="9" y="2" width="5" height="5" rx="1" />
-        <rect x="2" y="9" width="5" height="5" rx="1" />
-        <rect x="9" y="9" width="5" height="5" rx="1" />
-      </svg>
-    ),
-  },
-  {
-    value: 'session',
-    label: 'Session',
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5.5A1.5 1.5 0 0 1 12 11H7l-3 2.5V11a1.5 1.5 0 0 1-1.5-1.5z" />
-      </svg>
-    ),
-  },
-  {
-    // The board of the active Project: a column per Stage of its Pipeline (pipeline/PipelineBoard.tsx).
-    value: 'pipeline',
-    label: 'Pipeline',
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <rect x="2" y="2.5" width="3.2" height="11" rx="1" />
-        <rect x="6.4" y="2.5" width="3.2" height="7.5" rx="1" />
-        <rect x="10.8" y="2.5" width="3.2" height="4.5" rx="1" />
-      </svg>
-    ),
-  },
-]
+function viewOptions(project: ToolbarProject | undefined): readonly SegmentOption<ShellView>[] {
+  return [
+    {
+      value: 'canvas',
+      label: 'Canvas',
+      icon: (
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="2" y="2" width="5" height="5" rx="1" />
+          <rect x="9" y="2" width="5" height="5" rx="1" />
+          <rect x="2" y="9" width="5" height="5" rx="1" />
+          <rect x="9" y="9" width="5" height="5" rx="1" />
+        </svg>
+      ),
+    },
+    {
+      value: 'session',
+      label: 'Session',
+      icon: (
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5.5A1.5 1.5 0 0 1 12 11H7l-3 2.5V11a1.5 1.5 0 0 1-1.5-1.5z" />
+        </svg>
+      ),
+    },
+    {
+      // The board of the active Project: a column per Stage of its Pipeline (pipeline/PipelineBoard.tsx).
+      value: 'pipeline',
+      label: 'Pipeline',
+      icon: (
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="2" y="2.5" width="3.2" height="11" rx="1" />
+          <rect x="6.4" y="2.5" width="3.2" height="7.5" rx="1" />
+          <rect x="10.8" y="2.5" width="3.2" height="4.5" rx="1" />
+        </svg>
+      ),
+    },
+    {
+      // The Run history of the active Project (flight-recorder/RunHistoryView.tsx): a clock face.
+      value: 'history',
+      label: 'Runs',
+      icon: (
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="8" cy="8" r="5.75" />
+          <path d="M8 4.75V8l2.25 1.5" />
+        </svg>
+      ),
+      disabled: project === undefined,
+      title: project === undefined ? 'Open a Project to see its Runs' : 'Runs',
+    },
+  ]
+}
 
 export interface ToolbarViewProps {
   items: readonly ShellExtension[]
@@ -95,7 +114,16 @@ export function ToolbarView({ items, project, view, onViewChange, sidebarVisible
         </span>
       </div>
 
-      <SegmentedControl label="View" options={viewOptions} value={view} onChange={onViewChange} />
+      <SegmentedControl
+        label="View"
+        options={viewOptions(project)}
+        value={view}
+        // `Runs` opens the screen through the Run history entry, which also shows the newest Run.
+        onChange={(next) => {
+          if (next !== 'history') onViewChange(next)
+          else if (project !== undefined) void openRunHistory(project.id)
+        }}
+      />
 
       <div className="w-toolbar__spacer" />
 

@@ -105,6 +105,10 @@ export interface SegmentOption<T extends string> {
   value: T
   label: string
   icon?: ReactNode
+  /** The segment cannot be pressed (it stays in the control, dimmed). */
+  disabled?: boolean
+  /** The tooltip, when it says more than the label (a disabled segment says why). */
+  title?: string
 }
 
 export interface SegmentedControlProps<T extends string> {
@@ -127,7 +131,8 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
           aria-pressed={option.value === value}
           // The name stays the label when a narrow place shows the icon alone (shell.css, the View switch).
           aria-label={option.label}
-          title={option.label}
+          title={option.title ?? option.label}
+          disabled={option.disabled}
           onClick={() => onChange(option.value)}
         >
           {option.icon}
