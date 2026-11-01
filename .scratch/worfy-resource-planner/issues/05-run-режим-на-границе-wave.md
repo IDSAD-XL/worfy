@@ -1,7 +1,8 @@
 # 05 — Run: режим запуска на границе Wave
 
 Type: task
-Status: claimed 2026-11-01T11:06Z
+Status: done 2026-11-01T13:21Z
+PR: #1215
 Branch: worfy-resource-planner/05
 Blocked by: 02, 04
 Source: [spec.md](../spec.md), «Решения» (Q2, Q3, Q11–Q13, Q15), «Режим запуска» («Выбор», «Граница Wave»), «five_hour», «Что видит пользователь» (строка статуса), «Journal» (`run-started.mode`, `start-window`), «Не решено» (выбрано без решения, п. 1, 3, 9, 10), «Риски», п. 3; [ADR-0093](../../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md), п. 1–3, 5
@@ -169,3 +170,6 @@ Mutant-ы (каждый — красный test, скрипт в scratchpad):
   после конца (1); IPC не передаёт `mode` (1); файлы заканчивают Wave в фазе `turn` (1).
 
 Оценка токенов автора: около 450 тысяч, раунд 1 — ещё около 250 тысяч.
+
+Долг [low] после merge (#1215): `src/main/autopilot/run.ts:1512` — `limitsHit` всё ещё принимает отказ по Limits в фазе
+`settling`, хотя по пункту 7 туда не дойти: убрать `settling` или показать путь без `busy`.

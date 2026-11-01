@@ -1,9 +1,7 @@
 # 11 — Прогноз и факт в Run history
 
 Type: task
-Status: blocked 2026-11-01T08:25Z
-Blocked reason: ждёт merge worfy-flight-recorder 18
-Waits: agent
+Status: open 2026-11-01T13:21Z
 Branch: worfy-resource-planner/11
 Blocked by: 08, 10
 Source: [spec.md](../spec.md), «Цель», п. 4, «Решения» (Q10), «Что видит пользователь» (Run history), «Волны» (Wave 6); spec Epic-а `worfy-flight-recorder` ([spec.md](../../worfy-flight-recorder/spec.md), «Экран», п. 1 — шапка Run)
