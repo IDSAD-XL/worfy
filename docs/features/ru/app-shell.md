@@ -270,7 +270,7 @@ Settings — это настройки самого worfy на этой Machine.
 | Sessions | Окно autocompact для Session-ов |
 | Canvas | Автоматический архив завершённых Session-ов |
 | Browser | Когда Live Browser засыпает |
-| Autopilot | Дневной бюджет Limits: см. [Autopilot](autopilot.md) |
+| Autopilot | Run mode по умолчанию, Start window и дневной бюджет Limits: см. [Run planning](run-planning.md#settings--autopilot) |
 | Plan | План, под которым вошёл Claude Code, и для Pro готовый набор с кнопкой Apply |
 | Pipeline | Pipeline активного Project-а: см. [Workflow](workflow.md) |
 

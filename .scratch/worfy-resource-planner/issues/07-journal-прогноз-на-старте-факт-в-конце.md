@@ -1,7 +1,8 @@
 # 07 — Journal: прогноз на старте Run, факт в конце
 
 Type: task
-Status: claimed 2026-11-01T13:08Z
+Status: done 2026-11-01T15:55Z
+PR: #1219
 Branch: worfy-resource-planner/07
 Blocked by: 01, 03, 05
 Source: [spec.md](../spec.md), «Решения» (Q10), «Journal» (`forecast`, `run-stopped.actual`), «Риски», п. 4, «Не решено» (выбрано без решения, п. 9); [ADR-0093](../../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md), п. 6
@@ -123,3 +124,5 @@ Source: [spec.md](../spec.md), «Решения» (Q10), «Journal» (`forecast`
   `autopilot-chat.spec.ts`, `linked-autopilot.spec.ts` под замком — 11 passed.
 - Оценка автора: около 300 тыс. token-ов, раунд 1 — ещё около 120 тыс.
 
+
+Влит 5d333f70 (#1219).

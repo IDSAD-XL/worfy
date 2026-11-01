@@ -1,7 +1,8 @@
 # 06 — Диалог старта и tooltip кнопки Autopilot
 
 Type: task
-Status: claimed 2026-11-01T13:08Z
+Status: done 2026-11-01T15:55Z
+PR: #1218
 Branch: worfy-resource-planner/06
 Blocked by: 03, 04, 05
 Source: [spec.md](../spec.md), «Цель», п. 1, «Решения» (Q7, Q14, Q16), «Режим запуска» («Выбор»), «Что видит пользователь» (строка прогноза, режим, диалог `autopilot_start`), «Не решено» (выбрано без решения, п. 1, 2, 6, 7)
@@ -142,3 +143,8 @@ Mutant-ы (каждый — красный test; скрипт в scratchpad, 13 
   проводки. Mutant-ы M1–M13 первого раунда снова прогнаны на новых test-ах — все красные.
 
 Оценка токенов автора: ~190 тыс. (раунд 1 ревью — ещё ~60 тыс.)
+
+Влит 4f018783 (#1218).
+- Долг: bootstrap-`useMemo` против `limits.changed` не покрыт test-ом (`src/renderer/canvas/actions/AutopilotAction.tsx`).
+- Долг: `sevenDay` в ответе `autopilot.estimate` больше никто не читает.
+- Долг: `useLimits` вешает свой listener на каждую кнопку Autopilot.
