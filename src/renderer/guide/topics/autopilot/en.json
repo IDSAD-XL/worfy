@@ -101,6 +101,7 @@
       "A development build refuses a run on worfy's own repository, its worktrees included.",
       "A Ticket of the Wave still in work after the turn: the run waits up to 10 minutes, then stops with wave-unfinished. Background tasks with no event for an hour: background-stalled.",
       "A refusal by the Limits: the run waits until the reset plus 2 minutes, or tries every 30 minutes when no reset time is known; past 24 hours it stops with limits-timeout.",
+      "In the Run mode Start window, a Wave that usually takes longer than the whole window stops the run at once with window-too-short.",
       "The dialog of autopilot_start waits 10 minutes; an unattended Session gets a refusal with no dialog."
     ]
   }
