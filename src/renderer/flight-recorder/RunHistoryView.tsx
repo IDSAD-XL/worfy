@@ -3,7 +3,12 @@
 // ticket 20 call openRunHistory (open.ts) — and Esc goes back to the Canvas. Top to bottom: the header
 // of the Run with the choice of another Run of the Project, «GitHub did not answer» with «Retry» while gh
 // fails, the summary, the timeline with its filter, the details of the selected span (ticket 19). Times are local.
+// The header also names the Run mode and sets the Epic forecast at the Run's start beside the actual share
+// at its stop (worfy-resource-planner ticket 11; `fit` is not shown here), from the Run's list item, in
+// whole percents by the rule of the forecast lines (share-percent.ts).
 import { useEffect, useRef } from 'react'
+import { RUN_MODE_LABELS } from '../../shared/autopilot/run-mode'
+import { shareRangeText, shareText } from '../../shared/autopilot/share-percent'
 import type { Span } from '../../shared/flight-recorder/spans'
 import type { RunListItem, RunView } from '../../shared/ipc/runs'
 import { setView, useNavigation } from '../session/navigation'
@@ -13,10 +18,32 @@ import { SummaryStrip } from './SummaryStrip'
 import { Timeline } from './Timeline'
 import './flight-recorder.css'
 
-const STARTED_BY: Record<string, string> = { button: 'the Autopilot button', command: 'a command in a chat', tool: 'the Orchestrator (autopilot_start)' }
+const STARTED_BY: Record<string, string> = { button: 'the Autopilot button', command: 'a command in a chat', tool: 'a Session (autopilot_start)' }
 
 function runOption(item: RunListItem): string {
   return `${formatLocal(Date.parse(item.startedAt))} · ${item.epic}${item.live ? ' · live' : ''}`
+}
+
+/** Why a finished Wave is not in the actual: the rule of the samples (waveGrowth, limits-estimate.ts). */
+const UNCOUNTED_WHY = 'a Wave counts only with fresh Limits at both ends and no week reset inside it'
+
+/**
+ * «Forecast 18–31% · actual 24%»: the Epic forecast at the Run's start beside the share of the week its
+ * Waves took. Nothing for a Run without a forecast line (before worfy-resource-planner ticket 07). The
+ * actual is unknown without run-stopped.actual and when no Wave gave a sample; a tooltip says how many
+ * Waves it counts when some finished Wave is not in it.
+ */
+function ForecastAndActual({ item }: { item: RunListItem }) {
+  const { forecast, actual } = item
+  if (forecast === null) return null
+  const range = forecast.low === null || forecast.high === null ? 'Forecast: not enough data' : `Forecast ${shareRangeText({ low: forecast.low, high: forecast.high })}`
+  const fact = actual === null || actual.counted === 0 ? 'actual: unknown' : `actual ${shareText(actual.share)}`
+  const title = actual !== null && actual.counted < actual.waves ? `Actual counts ${actual.counted} of ${actual.waves} Waves: ${UNCOUNTED_WHY}` : undefined
+  return (
+    <span data-testid="run-history-forecast" title={title}>
+      {range} · {fact}
+    </span>
+  )
 }
 
 /** The Tickets of the Run by how they ended, as the header counts them. */
@@ -109,6 +136,12 @@ function Header({ view, runs, run: chosen }: { view: RunView | undefined; runs: 
       <span data-testid="run-history-retries">
         Retries <b>{retries(view.timeline.spans)}</b>
       </span>
+      {item?.mode != null ? (
+        <span data-testid="run-history-mode">
+          Mode <b>{RUN_MODE_LABELS[item.mode]}</b>
+        </span>
+      ) : null}
+      {item !== undefined ? <ForecastAndActual item={item} /> : null}
       {item?.by != null ? <span data-testid="run-history-by">Started by {STARTED_BY[item.by] ?? item.by}</span> : null}
       <span className="w-fr-muted">Times are local</span>
     </header>

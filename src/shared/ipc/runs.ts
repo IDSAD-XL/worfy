@@ -6,6 +6,7 @@
 import { z } from 'zod'
 import { epicNameSchema } from '../binding/resolve'
 import { isRunId, RUN_STARTED_BY } from '../autopilot/journal'
+import { RUN_MODES } from '../autopilot/run-mode'
 import { AGENT_SUBKINDS, FACT_SOURCES, LOST_SOURCE_LABELS, SPAN_KINDS, SPAN_OUTCOMES, WAIT_CAUSES, WORK_KINDS } from '../flight-recorder/facts'
 import { WORK_NOTE } from '../flight-recorder/summary'
 import { eventChannel, invokeChannel } from './channels'
@@ -18,6 +19,9 @@ const outcome = z.enum(SPAN_OUTCOMES)
 const source = z.enum(FACT_SOURCES)
 const lostSource = z.enum(Object.keys(LOST_SOURCE_LABELS) as [keyof typeof LOST_SOURCE_LABELS, ...(keyof typeof LOST_SOURCE_LABELS)[]])
 const time = z.number()
+/** A share of the week, 0..1 (worfy-resource-planner ticket 07 rounds it to millionths in the Journal). */
+const share = z.number().nonnegative()
+const count = z.number().int().nonnegative()
 
 /** A Run of the Project in the list: what its Journal says, without the timeline. */
 export const runListItemSchema = z.object({
@@ -34,6 +38,14 @@ export const runListItemSchema = z.object({
   tickets: z.array(z.string()),
   /** Who started the Run (`run-started.by`); null for a Journal written before the field. */
   by: z.enum(RUN_STARTED_BY).nullable(),
+  // The Run mode, the Epic forecast and the actual share (worfy-resource-planner ticket 11), for the header
+  // of Run history beside `by`; each null for a Journal written before worfy-resource-planner ticket 07.
+  /** `run-started.mode`. */
+  mode: z.enum(RUN_MODES).nullable(),
+  /** The range of the `forecast` line: each edge null under 5 samples ("not enough data"); null without the line. */
+  forecast: z.object({ low: share.nullable(), high: share.nullable() }).nullable(),
+  /** `run-stopped.actual`: the share of the week the Run's Waves took, `counted` of its `waves` finished Waves; null without it. */
+  actual: z.object({ share, waves: count, counted: count }).nullable(),
 })
 export type RunListItem = z.infer<typeof runListItemSchema>
 

@@ -45,7 +45,11 @@ run-а, который ещё идёт. При открытии из меню Ep
   пока он идёт, Ticket, который не `done`, в том числе заблокированный, считается `not done yet`. После остановки
   Ticket-ы, не попавшие ни в одну из этих трёх групп, считаются `stopped`;
 - `Retries`: попытки агентов, CI run-ов, gate run-ов и скриптов начиная с `#2`;
-- `Started by`: `the Autopilot button`, `a command in a chat` или `the Orchestrator (autopilot_start)`. Последнее
+- режим Run, `Mode Budget-aware`, и прогноз Epic-а рядом с долей недели, которую run занял на деле:
+  `Forecast 18–31% · actual 24%`. Что пишет каждая часть, когда она неизвестна, — на странице
+  [Run planning](run-planning.md). Режим виден всегда, когда journal его называет; прогноз и факт — только при строке
+  `forecast` в journal;
+- `Started by`: `the Autopilot button`, `a command in a chat` или `a Session (autopilot_start)`. Последнее
   стоит у любого run-а, который запустил инструмент `autopilot_start`, чей бы агент Session его ни вызвал. В journal,
   записанном до того, как это стали записывать, такой строки нет.
 
@@ -73,8 +77,10 @@ run-а, который ещё идёт. При открытии из меню Ep
 
 Строки, сверху вниз:
 
-1. Дорожка **Waits**: ожидания run-а, по полосе на каждое, названные по причине: `Limits`, `Limits budget`, `Background
-   tasks`, `Gate queue` или `Other Machine`.
+1. Дорожка **Waits**: ожидания run-а, по полосе на каждое, названные по причине: `Limits`, `Limits budget`, `Start window`,
+   `Background tasks`, `Gate queue` или `Other Machine`. Tooltip полосы `Start window` называет её причину:
+   `outside, until <time>` или `wave-too-long, until <time>`, когда следующая Wave не закончилась бы внутри окна.
+   Время `until` у ожидания — местное, как и остальное время на экране, в tooltip и в панели деталей.
 2. Дорожка **Orchestrator**: turn-ы Orchestrator-а. Turn связан с Ticket-ами, которых он касался, и не вложен в них.
    Отметка `i` стоит за каждый отклонённый диалог и за каждый раз, когда вмешался человек.
 3. Дерево: Run → Wave → Ticket → Stage → работа. Работа — это агент (implementer, verifier или другой), CI run, gate run

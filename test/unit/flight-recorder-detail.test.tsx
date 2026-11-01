@@ -23,7 +23,7 @@ import { chooseRun, formatDuration, formatLocal, ORCHESTRATOR_LANE, resetRunHist
 import { setView, useNavigation } from '../../src/renderer/session/navigation'
 
 const NIGHT: RunView = runViewSchema.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../fixtures/flight-recorder/night-run-view.json'), 'utf8')))
-const ITEM: RunListItem = { run: NIGHT.run, epic: 'worfy-pipeline', startedAt: '2026-10-17T22:29:32.707Z', stoppedAt: '2026-10-18T03:17:34.592Z', reason: 'blocked-tickets', live: false, tickets: [], by: 'button' }
+const ITEM: RunListItem = { run: NIGHT.run, epic: 'worfy-pipeline', startedAt: '2026-10-17T22:29:32.707Z', stoppedAt: '2026-10-18T03:17:34.592Z', reason: 'blocked-tickets', live: false, tickets: [], by: 'button', mode: null, forecast: null, actual: null }
 const SESSION = 'f6ab7045-416c-471a-a78d-433567aefa5a'
 const IMPL_07_RETRY = 'agent:a60e687cd0ab6803e#2'
 const VERIFY_07 = 'agent:adb147aa44e4451c4#1'
@@ -56,7 +56,7 @@ function twoWaves(): RunView {
   const timeline = buildTimeline(facts)
   return { projectId: NIGHT.projectId, run: TWO_WAVES, epic: 'e', timeline, summary: summarize(timeline), github: { state: 'unused', reason: 'test' }, repoUrl: null, profileReason: null, skippedLines: 0, error: null }
 }
-const TWO_WAVES_ITEM: RunListItem = { run: TWO_WAVES, epic: 'e', startedAt: T('10:00'), stoppedAt: T('14:00'), reason: 'tickets-done', live: false, tickets: ['e/01'], by: null }
+const TWO_WAVES_ITEM: RunListItem = { run: TWO_WAVES, epic: 'e', startedAt: T('10:00'), stoppedAt: T('14:00'), reason: 'tickets-done', live: false, tickets: ['e/01'], by: null, mode: null, forecast: null, actual: null }
 
 /** The night Run as gh failing gives it: «GitHub did not answer» on a CI span of each Ticket. */
 function withoutGithub(): RunView {
