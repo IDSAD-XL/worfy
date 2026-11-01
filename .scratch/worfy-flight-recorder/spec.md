@@ -7,7 +7,7 @@ Machine, Orchestrator; [ADR-0002](../../docs/adr/0002-worfy-is-a-view-over-the-w
 не копирует), [ADR-0005](../../docs/adr/0005-worfy-own-state-inventory.md) (своё состояние — в папке данных),
 [ADR-0067](../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md) (Stage вычисляется); прототип —
 Card `card-57714d55` «Flight Recorder — прототип шкалы Run» (решение 05).
-Ticket-ы: Epic `worfy-flight-recorder`, 16 Ticket-ов, нумерация с `10` (01–09 — Ticket-ы-решения карты в этой же
+Ticket-ы: Epic `worfy-flight-recorder`, 17 Ticket-ов, нумерация с `10` (01–09 — Ticket-ы-решения карты в этой же
 папке). Шапка — `Type:` / `Status:` / `Blocked by:` / `Source:`, как у worfy-onboarding.
 
 ## Цель и что видит пользователь
@@ -330,7 +330,11 @@ UI — нужны снимки в обеих темах в `.scratch/worfy-fligh
   `docs/features/ru/autopilot.md`, `docs/features/README.md`. Не UI.
 - **25 — Приёмка с владельцем.** Ночной Run на Mac Stable: toast, история, живая шкала, «Problems only», команда
   и просьба словами; Run на Windows-ПК: пути Journal, транскриптов и логов gate. Отметить «Готово, когда».
-  Blocked by: 10–24. Files: `.scratch/worfy-flight-recorder/spec.md`. UI (снимки владельцу).
+  Blocked by: 10–24, 26. Files: `.scratch/worfy-flight-recorder/spec.md`. UI (снимки владельцу).
+- **26 — Wait `background-tasks` без работы.** В итоге Wait `background-tasks` считается только за время, когда не
+  идёт ни один span работы Run (background tasks — сами агенты, gate и scripts Orchestrator-а); другие причины —
+  целиком. Решил Orchestrator без владельца, подтверждение — утром. Blocked by: 13. Files:
+  `src/shared/flight-recorder/summary.ts`, `test/unit/flight-recorder-summary-waits.test.ts`. Не UI.
 
 ## Волны
 
