@@ -91,6 +91,18 @@ Mutants: 17 unit mutants (toast без таймера, один на Run, гра
 
 Не проверено:
 - CI PR — после открытия PR.
-- Окно на Linked machine с часами, отстающими больше, чем на возраст окна, не покажет toast (`shortcut:` в `stop-toast.ts`).
+- Окно на Linked machine со сбитыми часами (`shortcut:` в `stop-toast.ts`). Если часы отстают больше, чем на возраст окна, toast свежей остановки не появится. Если часы спешат, появится лишний toast Run-а, остановленного незадолго до открытия окна.
 - После перезапуска приложения «History» не показывается: последнее состояние Run хранится в памяти main.
 - `docs/features/` не правился: его в этой Wave правит Resource Planner 10. Описание входов — задача Ticket-а 24.
+
+### Раунд 1 (review PR #1222)
+
+- Один stop toast на Project: новая остановка закрывает toast прошлого Run этого Project-а (`src/renderer/flight-recorder/stop-toast.ts:64`). Так toast-ы остановок не занимают стек из MAX_SHOWN toast-ов, которые не исчезают сами, и вопрос Session не уходит в очередь. **Решено без владельца, подтвердить** (решение Orchestrator-а). Остановка, закончившаяся раньше последней показанной в этом Project-е, toast не даёт и ничего не закрывает. Unit test-ы в `test/unit/flight-recorder-stop-toast.test.ts`: два Run одного Project-а; поздно пришедшая старая остановка; toast, закрытый рукой; два Project-а и переключение между ними; пять остановок и вопрос Session.
+- «Open history» открывает свой Run. `main.tsx` передаёт `openRunHistory` как есть (`src/renderer/main.tsx:112`), без обёртки. e2e пишет более новый Journal другого Epic и проверяет, что «Open history» и «History» открывают Run из toast-а, а не самый новый (`test/e2e/autopilot.spec.ts:537`).
+- Epic, у которого нет кнопки Autopilot (все Ticket-ы done), сохраняет «⋯» с одним пунктом «Run history», если у Epic есть Run-ы в истории (`usePastRuns` и `runs.list` с Epic-ом, `AutopilotAction.tsx:340`, `:452`). Без Run-ов ничего не рисуется. F-SPEC обновлён.
+- Комментарий `shortcut:` теперь называет и спешащие часы.
+- Unit test: Ticket Wave, оставшийся `open` при остановке, не считается ни done, ни blocked (`test/unit/autopilot-run.test.ts`).
+
+Mutants раунда 1, все убиты: R1 — старый toast остаётся; R2 — старая остановка показывается; R3 — `main.tsx` теряет run id (e2e ждал свой Run, получил самый новый); R4 и R5 — Run-ы Epic никогда не найдены или всегда найдены; R6 — `runs.list` без Epic-а; R7 — `open` считается blocked.
+
+Долги без изменений: `test/e2e/autopilot.spec.ts` больше 1000 строк; `docs/features/autopilot.md` («Force stop is the one item of "⋯"») исправит Ticket 24.
