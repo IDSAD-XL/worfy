@@ -76,8 +76,9 @@ Ticket-ы: Epic `worfy-flight-recorder`, 17 Ticket-ов, нумерация с `
 
 **Собственное время и итог (решение 03, Q8).** Собственное время = длительность минус объединение интервалов
 вложенных spans (дети идут параллельно, поэтому объединение, а не сумма). Итог: три самых долгих Stage по
-собственному времени; Wait-ы по причинам (сумма и доля Run); работа внутри Stage по подвидам (сумма, с пометкой
-«summed; parallel»).
+собственному времени; Wait-ы по причинам (сумма и доля Run; Wait `background-tasks` — только время, когда не идёт
+ни один span работы Run, строка с пометкой «without work», Ticket 26); работа внутри Stage по подвидам (сумма, с
+пометкой «summed; parallel»).
 
 **Неполная история (решение 08, Q5–Q7).** Каркас Run (Run, Wave, Wait, статусы Ticket-ов) задаёт Journal. Span,
 о котором Journal знает, а подробностей нет, рисуется серым со штриховкой и подписью потерянного источника:
@@ -358,6 +359,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 19 | `src/renderer/flight-recorder/DetailPanel.tsx`, `src/renderer/flight-recorder/filter.ts`, `src/renderer/flight-recorder/RunHistoryView.tsx`, `src/renderer/flight-recorder/Timeline.tsx`, `test/e2e/flight-recorder-detail.spec.ts`, `scripts/e2e-specs.table.json` | 6 |
 | 20 | `src/renderer/flight-recorder/stop-toast.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/renderer/canvas/actions/action-menu.ts`, `src/renderer/palette/commands.ts`, `src/shared/ipc/autopilot.ts`, `src/main/autopilot/run.ts`, `test/unit/palette-commands.test.tsx`, `test/e2e/autopilot.spec.ts` | 6 |
 | 24 | `docs/features/flight-recorder.md`, `docs/features/ru/flight-recorder.md`, `docs/features/autopilot.md`, `docs/features/ru/autopilot.md`, `docs/features/README.md` | 7 |
+| 26 | `src/shared/flight-recorder/summary.ts`, `test/unit/flight-recorder-summary-waits.test.ts` | 4 |
 | 25 | `.scratch/worfy-flight-recorder/spec.md` | 8 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры. Если у двух Ticket-ов одной Wave общий файл,

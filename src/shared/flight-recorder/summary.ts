@@ -60,9 +60,13 @@ const inside = (parent: Span, child: Span): Interval[] => clipTo(parent, interva
  * Orchestrator's background tasks are its own agents, gate runs and scripts: while one of them
  * works, the Run is not standing for an outside reason (decision 03, Q5). The span stays whole on
  * the timeline — the Journal saw the tasks live all along; only the summary takes the work off.
- * The other causes stand the work for an outside reason and count whole.
+ * The other causes stand the work for an outside reason and count whole. A reader of the summary
+ * labels the row of such a cause with WITHOUT_WORK_NOTE: its total is shorter than the Wait lane.
  */
-const COUNTED_WITHOUT_WORK: ReadonlySet<WaitCause> = new Set<WaitCause>(['background-tasks'])
+export const COUNTED_WITHOUT_WORK: ReadonlySet<WaitCause> = new Set<WaitCause>(['background-tasks'])
+
+/** The note on a Wait row whose cause is in COUNTED_WITHOUT_WORK: only its time with no work. */
+export const WITHOUT_WORK_NOTE = 'without work'
 
 /**
  * A span's duration minus the union of its children's intervals inside it. A Wave counts the parts
@@ -93,6 +97,7 @@ export interface StageRow {
 
 export interface WaitRow {
   cause: WaitCause
+  /** The sum of the Waits' durations; for a cause in COUNTED_WITHOUT_WORK, only their time with no work. */
   total: number
   /** Of the Run's duration, 0…1. */
   share: number

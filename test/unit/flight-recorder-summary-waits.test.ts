@@ -12,8 +12,8 @@ import { readGateLogs } from '../../src/main/flight-recorder/gate-logs'
 import { readRunTranscripts } from '../../src/main/flight-recorder/transcripts'
 import { githubFacts, type GithubPr, type GithubRun } from '../../src/shared/flight-recorder/from-github'
 import { journalFacts } from '../../src/shared/flight-recorder/from-journal'
-import { buildTimeline, type RunFacts, type WaitFact, type WorkFact } from '../../src/shared/flight-recorder/spans'
-import { summarize } from '../../src/shared/flight-recorder/summary'
+import { buildTimeline, WAIT_CAUSES, type RunFacts, type WaitFact, type WorkFact } from '../../src/shared/flight-recorder/spans'
+import { COUNTED_WITHOUT_WORK, summarize, WITHOUT_WORK_NOTE } from '../../src/shared/flight-recorder/summary'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
 
 const T = (hhmm: string): string => `2026-10-17T${hhmm}:00.000Z`
@@ -114,6 +114,21 @@ describe('summary: a background-tasks Wait counts only where no work runs', () =
     expect(span?.segments).toEqual([{ start: Date.parse(T('10:30')), end: Date.parse(T('11:30')) }])
   })
 
+  it('does not take off an Orchestrator turn: a turn is its own lane, not work', () => {
+    const turn = { id: 't', start: T('10:30'), end: T('11:30'), tickets: ['e/01'], startSource: 'transcript' as const, endSource: 'transcript' as const }
+    expect(row(facts({ waits: [background('10:30', '11:30')], turns: [turn] }))).toEqual({ total: 60, share: 60 / RUN_MIN })
+  })
+
+  it('names its rule for the readers: the causes counted without work, and the note for their row', () => {
+    expect([...COUNTED_WITHOUT_WORK]).toEqual(['background-tasks'])
+    expect(WITHOUT_WORK_NOTE).toBe('without work')
+    // The exported set is the one the summary uses: under work that covers every Wait, exactly
+    // the causes in it drop to 0, every other cause stays whole.
+    const waits = WAIT_CAUSES.map((cause, index) => wait(`w${index}`, cause, `1${index}:00`, `1${index}:30`))
+    const rows = summarize(buildTimeline(facts({ waits, work: [agent('a', '10:00', '14:00')] }))).waits
+    for (const cause of WAIT_CAUSES) expect(rows.find((item) => item.cause === cause)?.total).toBe(COUNTED_WITHOUT_WORK.has(cause) ? 0 : 30 * MIN)
+  })
+
   it('takes off work still running in a live Run up to now', () => {
     const live = facts({
       run: { id: 'run-1', startedAt: T('10:00'), stoppedAt: null, live: true },
@@ -177,7 +192,6 @@ describe('summary: the background-tasks Waits of the night Run', () => {
 
   it('drop from 0.915 of the Run (the Journal alone, no work known) to the time with no work in any source', async () => {
     const { journal, all } = await night()
-    const runMs = Date.parse(journal.run.stoppedAt ?? '') - Date.parse(journal.run.startedAt)
     const background = (input: RunFacts) => summarize(buildTimeline(input)).waits.find((row) => row.cause === 'background-tasks')
     // The Journal alone knows no work: the Waits count whole, as the reader's baseline pins them.
     expect(background(journal)).toMatchObject({ total: 15_808_308 })
@@ -185,7 +199,21 @@ describe('summary: the background-tasks Waits of the night Run', () => {
     // With the agents of the transcripts, the gate runs of the gate log and the CI runs on main, the
     // 13 Waits keep 921.9 s with no work in them (15 min 22 s): 0.053 of the Run of 4 h 48 min.
     expect(background(all)).toMatchObject({ total: 921_911 })
-    expect(background(all)?.share).toBeCloseTo(921_911 / runMs, 9)
+    // The stretches with no work, worked out by hand from the Wait segments and the work spans:
+    // mostly the background task «Retry merge of PR #467 with full gate», whose gate log the
+    // fixture does not hold (its two gate logs are illustrative).
+    const gaps: [string, string][] = [
+      ['2026-10-17T23:29:26.508Z', '2026-10-17T23:30:00.601Z'],
+      ['2026-10-18T00:39:41.553Z', '2026-10-18T00:40:05.000Z'],
+      ['2026-10-18T00:52:50.000Z', '2026-10-18T00:53:09.249Z'],
+      ['2026-10-18T01:11:29.000Z', '2026-10-18T01:11:37.826Z'],
+      ['2026-10-18T01:12:15.583Z', '2026-10-18T01:12:22.144Z'],
+      ['2026-10-18T02:48:14.202Z', '2026-10-18T03:01:53.689Z'],
+      ['2026-10-18T03:15:26.000Z', '2026-10-18T03:15:36.248Z'],
+    ]
+    expect(background(all)?.total).toBe(gaps.reduce((sum, [from, to]) => sum + Date.parse(to) - Date.parse(from), 0))
+    // Without the gate runs and scripts (the illustrative part of the fixture): 0.098.
+    expect(background({ ...all, work: all.work.filter((fact) => fact.kind !== 'gate' && fact.kind !== 'script') })?.share).toBeCloseTo(0.098, 3)
     expect(background(all)?.share).toBeCloseTo(0.053, 3)
     // The spans themselves stay as the Journal gave them.
     const spans = (input: RunFacts) => buildTimeline(input).spans.filter((span) => span.waitCause === 'background-tasks').map(({ id, segments }) => ({ id, segments }))
