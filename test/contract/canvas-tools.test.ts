@@ -211,11 +211,11 @@ async function refused(rpc: Rpc, name: string, args: Record<string, unknown>, me
 }
 
 describe('canvas tools: the tool list', () => {
-  it('lists exactly the eight canvas tools, none of which removes a Node, with short descriptions', async () => {
+  it('lists exactly the eight canvas tools and autopilot_start, none of which removes a Node, with short descriptions', async () => {
     const rpc = await connect()
     const { result } = await rpc.request('tools/list', {})
     const tools = (result as { tools: { name: string; description: string }[] }).tools
-    expect(tools.map((tool) => tool.name).sort()).toEqual(['create_card', 'create_note', 'hide_node', 'link_card', 'list_nodes', 'move_node', 'resize_node', 'update_node'])
+    expect(tools.map((tool) => tool.name).sort()).toEqual(['autopilot_start', 'create_card', 'create_note', 'hide_node', 'link_card', 'list_nodes', 'move_node', 'resize_node', 'update_node'])
     // Every Session carries the list in its context (ticket 06): it stays small.
     expect(JSON.stringify(tools).length).toBeLessThan(6000)
   })
@@ -852,6 +852,27 @@ describe('canvas in a Session', () => {
     const rpc = await connectTo(canvas.attachment.server as ServerConfig)
     const card = json<ListedNode>(await rpc.call('create_card', { title: 'next to the Orchestrator' }))
     expect(nodeOf(card.id)).toMatchObject({ x: 340, y: 0 })
+  })
+
+  it("autopilot_start goes to the app's starter with the Session's Project and its id from the messages (worfy-flight-recorder ticket 23)", async () => {
+    // The app gives every Session the starter that asks a person first (src/main/autopilot/chat-confirm.ts).
+    expect(server.appDeps().autopilotStart).toBeTypeOf('function')
+    const autopilotStart = vi.fn(() => Promise.resolve('Autopilot starts after this turn'))
+    const canvas = await server.canvasForSession({ cwd: repo, resume: 'session-a' }, { ...deps(), autopilotStart })
+    if (canvas === null) throw new Error('no canvas for the Project root')
+    const rpc = await connectTo(canvas.attachment.server as ServerConfig)
+    const answer = await rpc.call('autopilot_start', { epic: 'worfy-mvp', tickets: ['07', 24] })
+    expect(textOf(answer)).toBe('Autopilot starts after this turn')
+    expect(autopilotStart).toHaveBeenCalledWith({ projectId: PROJECT, epic: 'worfy-mvp', tickets: [7, 24], session: 'session-a' })
+    // Nothing on the canvas changes.
+    expect(nodes()).toEqual([])
+
+    // Without a starter the tool refuses.
+    const bare = await server.canvasForSession({ cwd: repo, resume: 'session-a' }, deps())
+    if (bare === null) throw new Error('no canvas for the Project root')
+    const refused = await (await connectTo(bare.attachment.server as ServerConfig)).call('autopilot_start', { epic: 'worfy-mvp' })
+    expect(refused.isError).toBe(true)
+    expect(textOf(refused)).toBe(server.NO_AUTOPILOT_MESSAGE)
   })
 
   /** The Project id a Session in `cwd` gets its canvas for, or null for none. */

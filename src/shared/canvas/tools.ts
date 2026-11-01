@@ -1,6 +1,8 @@
 // The tools of the canvas MCP server `worfy-canvas` (ADR-0003): the only way an agent changes a
-// Project's Layout. This is a public contract between the agent and the app; change it together
-// with the agent instructions (src/main/mcp/agent-instructions.md).
+// Project's Layout, and the Orchestrator's way to start Autopilot from a chat after a person
+// confirms it (autopilot_start, worfy-flight-recorder ticket 23, ADR-0091). This is a public
+// contract between the agent and the app; change it together with the agent instructions
+// (src/main/mcp/agent-instructions.md).
 //
 // Schemas are zod raw shapes, as the SDK's tool() takes them. The server (src/main/mcp/canvas-server.ts)
 // parses the arguments again with the same shapes, so keys a shape does not declare never reach
@@ -48,6 +50,26 @@ export function parseLinkTarget(value: string): LinkTarget | null {
 
 export const linkTargetSchema = z.object({ epic: z.string().min(1), num: z.number().int().nonnegative().nullable() })
 
+/** An Epic's name in the form the workflow model uses (TARGET without the Ticket). */
+const EPIC_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u
+/** The most Tickets autopilot_start may name. */
+export const AUTOPILOT_TICKETS_MAX = 100
+
+/** A Ticket's number as the user says it ("05") or as a number (5); never 0. */
+const ticketNumber = z.union([
+  z
+    .string()
+    .trim()
+    .regex(/^\d{1,6}$/u, 'a Ticket number such as "05"')
+    .refine((value) => Number(value) > 0, 'Ticket numbers start at 1'),
+  z.number().int().min(1).max(999_999),
+])
+
+/** The numbers of autopilot_start's `tickets`, without repeats, in the order given; undefined for the whole Epic. */
+export function autopilotTicketNums(tickets: readonly (string | number)[] | undefined): number[] | undefined {
+  return tickets === undefined ? undefined : [...new Set(tickets.map(Number))]
+}
+
 export const canvasToolShapes = {
   list_nodes: {},
   create_card: { title, x: coordinate.optional(), y: coordinate.optional(), w: size.optional(), h: size.optional() },
@@ -60,6 +82,10 @@ export const canvasToolShapes = {
     id: nodeIdSchema,
     target: z.string().refine((value) => parseLinkTarget(value) !== null, 'expected <epic> or <epic>/<NN>'),
     remove: z.boolean().default(false),
+  },
+  autopilot_start: {
+    epic: z.string().trim().min(1).max(200).regex(EPIC_NAME, 'an Epic name such as "worfy-mvp"'),
+    tickets: z.array(ticketNumber).min(1).max(AUTOPILOT_TICKETS_MAX).optional(),
   },
 } satisfies Record<string, z.ZodRawShape>
 
@@ -87,6 +113,10 @@ export const canvasToolDescriptions: Record<CanvasToolName, string> = {
   resize_node: 'Resize a Node; an edge that runs into another Node stops 16 px short of it.' + CORRECTED,
   hide_node: 'Hide a Node (hidden=false shows it again). Locked Nodes cannot be hidden. Nodes cannot be deleted.',
   link_card: 'Link a Card to an Epic ("<epic>") or a Ticket ("<epic>/<NN>"); remove=true unlinks.',
+  autopilot_start:
+    'Start worfy Autopilot on an Epic of this Project, only when the user asks in words to run it on autopilot, autonomously or automatically. ' +
+    'For named Tickets ("run 05 and 06 on autopilot") give tickets: ["05", "06"]; without tickets the whole Epic runs. ' +
+    'The user confirms in a dialog first; a refusal says why.',
 }
 
 /** A Node as list_nodes reports it. */

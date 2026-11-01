@@ -7,6 +7,10 @@
 // hide, a Ticket that does not exist) is a tool error with a message, never an exception. There
 // is no tool that removes a Node.
 //
+// `autopilot_start` (worfy-flight-recorder ticket 23, ADR-0091) changes no Layout: it asks a person to
+// confirm a start of Autopilot and then starts it as the command typed in a chat does
+// (src/main/autopilot/chat-confirm.ts). A Session that runs unattended is refused without a dialog.
+//
 // canvasForSession() binds a server to the Project a Session works in and watches the Session's
 // messages for file writes into a Card's folder: the last Session that wrote there is kept in the
 // Card Node's data (`lastEditor`), so it survives a restart (ticket 26 reads it).
@@ -24,6 +28,7 @@ import {
   CARD_SIZE,
   NOTE_KIND,
   NOTE_SIZE,
+  autopilotTicketNums,
   canvasToolDescriptions,
   canvasToolShapes,
   linkTargetSchema,
@@ -40,6 +45,7 @@ import { EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, SOURCE_NODE_KINDS, SUBAGENT
 import { isArchived, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { CanvasAttachment } from '../agent/options'
+import { appAutopilotStarter, type AutopilotStarter } from '../autopilot/chat-confirm'
 import { harnessScriptEnv } from '../harness/script-env'
 import { layoutStore } from '../layout/store'
 import { realpathOrSelf } from '../projects/real-path'
@@ -106,7 +112,12 @@ export interface CanvasContext {
   workflow: () => Promise<CanvasWorkflow>
   /** The calling Session's SDK id once known: its Node is where new Nodes go. */
   sessionId: () => string | null
+  /** Starts Autopilot once a person confirms it (autopilot_start); without it the tool refuses. */
+  autopilotStart?: AutopilotStarter
 }
+
+/** What autopilot_start answers where nothing can start Autopilot. */
+export const NO_AUTOPILOT_MESSAGE = 'Autopilot cannot be started from this Session.'
 
 export interface ToolResult {
   [key: string]: unknown
@@ -272,6 +283,12 @@ function handlers(context: CanvasContext): Handlers {
       layout.apply(projectId, { op: 'patchData', id: node.id, data: { links } })
       return { id: node.id, links: links.map(formatLink) }
     },
+
+    autopilot_start: async (args) => {
+      if (context.autopilotStart === undefined) throw new ToolError(NO_AUTOPILOT_MESSAGE)
+      const tickets = autopilotTicketNums(args.tickets)
+      return context.autopilotStart({ projectId, epic: args.epic, ...(tickets === undefined ? {} : { tickets }), session: context.sessionId() })
+    },
   }
 }
 
@@ -431,7 +448,13 @@ export interface CanvasDeps {
   workflow: (root: string) => Promise<CanvasWorkflow>
   /** The repository root of a folder outside every Project root (a linked worktree elsewhere). */
   repositoryRoot?: (folder: string) => Promise<string | null>
+  /** The tool autopilot_start of every Session; without it the tool refuses. */
+  autopilotStart?: AutopilotStarter
 }
+
+/** The app's autopilot_start: one for every Session, so a Project has one dialog at a time. */
+let sharedStarter: AutopilotStarter | null = null
+const appStarter: AutopilotStarter = (request) => (sharedStarter ??= appAutopilotStarter())(request)
 
 /** The app's dependencies; exported for the wiring test (test/contract/harness-script-wiring.test.ts). */
 export const appDeps = (): CanvasDeps => ({
@@ -439,6 +462,7 @@ export const appDeps = (): CanvasDeps => ({
   dataDir: (projectId) => projectStore().dataDir(projectId),
   layout: layoutStore(),
   workflow: (root) => readCheckout(root, epicStatusRunner(claudeHome(), harnessScriptEnv)),
+  autopilotStart: appStarter,
 })
 
 export type CanvasResolver = (request: { cwd: string; resume: string | undefined }) => Promise<CanvasSession | null>
@@ -469,6 +493,7 @@ export const canvasForSession = async (request: { cwd: string; resume: string | 
     layout: deps.layout,
     workflow: () => deps.workflow(project.path),
     sessionId: () => sessionId,
+    ...(deps.autopilotStart === undefined ? {} : { autopilotStart: deps.autopilotStart }),
   })
   const record = editRecorder({ projectId: project.id, cardsDir, cwd: request.cwd, layout: deps.layout, sessionId: () => sessionId })
   return {

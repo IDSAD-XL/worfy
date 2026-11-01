@@ -1,7 +1,7 @@
 # 23 — Инструмент `autopilot_start`
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T01:52Z
 Blocked by: 21
 Source: [spec.md](../spec.md), «Запуск Autopilot из чата» (вступление — просьба словами, «Инструмент `autopilot_start(epic, tickets?)`», «Отказ, пока Run идёт»), «Ticket-ы» (23), «Решения владельца при приёмке», п. 2 (где подтверждать, 10 минут, «No one confirmed», не из окна Linked machine-а) и п. 4 (необязательный `tickets`), «Готово, когда» (пункт про запуск из чата); решение 09, Q1, Q2, Q5, Q6 ([09-что-значит-autopilot-из-чата.md](09-что-значит-autopilot-из-чата.md)); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
 
@@ -69,3 +69,47 @@ Source: [spec.md](../spec.md), «Запуск Autopilot из чата» (вст�
 
 Только читать: `src/main/autopilot/chat-start.ts` (зовётся, не правится), `src/main/ipc/card-api.ts`
 (`confirmCardMessage`), `src/main/mcp/browser-server.ts` (`unattended`), `docs/adr/0053-several-screens-on-one-project.md`.
+
+## Итог
+
+Сделано (ветка `worfy-flight-recorder/23`, ADR-0091 п. 1 и 4; ADR не менялся):
+
+- **Форма и описание** — `src/shared/canvas/tools.ts:85` (`autopilot_start`: `epic` обязателен, `tickets` — 1…100 номеров
+  строкой `"05"` или числом, без 0) и `:115` (описание: звать, только когда пользователь словами просит autopilot /
+  autonomously / automatically; для названных — `tickets: ["05", "06"]`; пользователь подтверждает в диалоге).
+  `autopilotTicketNums` (`:68`) превращает список в номера без повторов.
+- **Вызов в сервере `worfy-canvas`** — `src/main/mcp/canvas-server.ts:287`: Layout не трогает, передаёт Project, Epic,
+  номера и id Session (тот же SDK id, по которому её знает registry Session-ов) в `CanvasContext.autopilotStart`.
+  У app его даёт `appDeps()` (`:465`), `canvasForSession` передаёт дальше (`:496`); без него — отказ
+  `NO_AUTOPILOT_MESSAGE`.
+- **`src/main/autopilot/chat-confirm.ts`** (новый): `autopilotStarter` (`:147`) по порядку — Session неизвестна или id ещё
+  нет → отказ; unattended Session → отказ `UNATTENDED_MESSAGE` (`:153`) без диалога; живой Run → `chatRunningHint`
+  (`:155`) без диалога, в Journal ничего; Epic-а или Ticket-а нет → `startRefusal` без диалога; второй вызов, пока
+  диалог этого Project-а ждёт → отказ; иначе диалог. «Start Autopilot» → `sharedChatStarts().startFromChat` с
+  `by: 'tool'` и `session` (`chat-start.ts` не менялся): Orchestrator этого Project-а в ходе получает «Autopilot starts
+  after this turn», Run стартует после idle. «Cancel» — отказ. Unattended проверяется в момент вызова по registry
+  (`appAutopilotStarter`, `:181`), а не флагом, записанным при создании canvas-сервера.
+- **Диалог** — `confirmAutopilotStart` (`:85`): нативный `showMessageBox` main process-а Machine Project-а, на окне из
+  `dialogOwner` (`:111`: окно в фокусе, иначе первое видимое, иначе без окна). Текст называет Project, Epic и
+  Ticket-ы; кнопки «Start Autopilot» / «Cancel», по умолчанию — Cancel (Enter ничего не запускает). Через 10 минут
+  (`CONFIRM_WAIT_MS`) диалог закрывается через `signal` (AbortController), ответ — «No one confirmed the start of
+  Autopilot within 10 minutes. Nothing started.». Экран Linked machine-а — клиент без окна (`src/main/clients.ts`):
+  диалога не получает, канала ответить нет.
+- `src/main/mcp/agent-instructions.md:48` — раздел «Autopilot»: когда звать, что передавать `tickets`, что делать с
+  «Autopilot starts after this turn».
+- Feature pages: `docs/features/autopilot.md` (абзац «From a chat, by the agent», модуль `chat-confirm.ts`, test),
+  `docs/features/cards.md` (строка таблицы инструментов).
+
+Test-ы: `test/unit/canvas-tools.test.ts` (новый, 8: форма, отказы формы, описание),
+`test/contract/autopilot-start-tool.test.ts` (новый, 14: через MCP-сервер, как Claude Code; настоящий
+`ChatStarts`, Autopilot — stand-in с journal; диалог — подменённый `showMessageBox`; 10 минут — fake timers),
+`test/contract/canvas-tools.test.ts` (список из девяти инструментов; проводка `canvasForSession` → starter). Первым
+падал contract test — сервер не знал `autopilot_start`. 10 ручных mutant-ов `chat-confirm.ts` (без проверки
+unattended, неизвестной Session, живого Run, timeout, abort, Cancel, второго диалога, окна в фокусе, `by: 'tool'`,
+`startRefusal`) — все убиты.
+
+Не проверено:
+- Снимки диалога в светлой и тёмной теме (`.scratch/worfy-flight-recorder/evidence/23/`) не сделаны: brief волны —
+  «GUI checks: none (22 has them)». Нативный message box следует теме macOS, не теме worfy.
+- Живой Claude Code не запускался: держит ли он вызов MCP-инструмента 10 минут без своего timeout-а, не проверено.
+- Окно, где открыт именно этот Project, main не знает: диалог идёт на окно в фокусе или первое видимое.

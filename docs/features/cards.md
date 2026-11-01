@@ -263,6 +263,7 @@ change the Canvas, and it is wider than Cards: it also makes notes, and moves, r
 | `resize_node` | Resizes a Node |
 | `hide_node` | Hides a Node or, with `hidden=false`, shows it again |
 | `link_card` | Links a Card to an Epic (`<epic>`) or a Ticket (`<epic>/<NN>`), or removes the link with `remove=true` |
+| `autopilot_start` | Starts Autopilot on an Epic, or on named Tickets with `tickets`, once the user confirms it in a dialog; it changes nothing on the Canvas ([Autopilot](autopilot.md)) |
 
 **Limits.**
 
