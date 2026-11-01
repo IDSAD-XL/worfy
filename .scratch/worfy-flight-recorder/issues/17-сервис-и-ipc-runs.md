@@ -1,7 +1,7 @@
 # 17 — Сервис и IPC `runs`
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T05:51Z
 Blocked by: 13, 14, 15, 16
 Source: [spec.md](../spec.md), «Экран» («Живая шкала», «Link»), «Модель» (шкала вычисляется при открытии), «Ticket-ы» (17), «Риски», п. 3 и 6, «Соглашения для Ticket-ов этого Epic-а» (глубина ревью `high`), «Готово, когда» (живая шкала; «Retry»); решение 01, Q4, Q7 ([01-destination-единица-истории-хранение-id.md](01-destination-единица-истории-хранение-id.md)); решение 07 ([07-живая-шкала-или-после-остановки.md](07-живая-шкала-или-после-остановки.md)); решение 08, Q7 ([08-неполная-история.md](08-неполная-история.md)); [ADR-0006](../../../docs/adr/0006-ipc-contract-by-declaration-merging.md); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
 
@@ -75,3 +75,58 @@ Spec называет и `src/shared/ipc/index.ts` — такого файла �
 Только читать: `src/main/autopilot/journal.ts` (`listRuns`, `readRun`), `src/main/claude-home/tail.ts`,
 `src/main/github/prs.ts` (`PrTracker`), `src/shared/ipc/channels.ts`, `src/main/flight-recorder/*.ts`,
 `src/shared/flight-recorder/*`.
+
+## Итог
+
+- `src/main/flight-recorder/service.ts` — класс `FlightRecorder`. `list` (service.ts:212) — Run-ы Project-а из Journal-ов
+  `listRuns` новые сверху, фильтр по Epic; Project не из списка — ошибка, Run другого Project-а не находится и по id
+  (проверка `run-started.project`, service.ts:374). `compute` (service.ts:380) собирает `RunFacts` из четырёх readers:
+  Journal (`journalFacts`), транскрипты (`readRunTranscripts`), GitHub (`GithubReader` + `githubFacts`), gate logs
+  (`readGateLogs`) и verdicts Ticket-ов без PR (`readLocalVerdicts`), добавляет `run.live`, `now`, Pipeline Profile-а;
+  затем `buildTimeline` и `summarize`. Своего индекса нет: шкала считается при каждом открытии.
+- `run.live` (service.ts:308): в Journal нет `run-stopped`, Run — новейший у Project-а, Autopilot сейчас работает над
+  его Epic (`Autopilot.state`). `run.ts` не менялся.
+- GitHub: только если Ticket-ы кончаются PR (не Silent mode, не `local-green`, service.ts:413), иначе `github.state`
+  `unused` и gh не зовётся. Аккаунт — `github.account` Profile-а; без него `githubFacts` получает `account: null`,
+  verdict-комментарии ничего не значат, а `github.accountReason` говорит почему — аккаунт не угадывается. gh упал —
+  `githubNoAnswer()`: полосы PR и CI с «GitHub did not answer», `github.state` `no-answer` с причиной.
+- Ticket-ы без PR (все в Silent mode и `local-green`; в full mode — те, у чьей ветки нет PR в ответе gh), у которых
+  был статус кроме `open`, читаются `readLocalVerdicts` (service.ts:434); без ответа gh таких не считаем. Ветка
+  Ticket-а — из модели workflow, которую приложение уже смотрит (`workflowHub.model`, `branchOfTicket`), иначе
+  `<epic>/<NN>`.
+- Живой пересчёт (`tick`, service.ts:281): таймер каждые `RECOMPUTE_INTERVAL_MS` = 5 с (service.ts:51), пока открыт
+  live Run, смотрит размер Journal и прочитанных транскриптов; пересчёт — только если что-то выросло или ответ gh
+  старше 60 с. Сколько бы строк ни пришло за 5 с — один `runs.changed`. gh — не чаще раза в минуту (интервал
+  `GithubReader`), «Retry» (`retry`, service.ts:268) читает gh сразу и шлёт шкалу подписчикам. Пересчёты одного Run
+  идут по очереди.
+- Транскрипты live Run дочитываются с места остановки: `TailLines` (service.ts:118) поверх `readNewLines` из
+  `tail.ts`, прочитанные строки хранятся, пока Run открыт; `.meta.json` читается целиком. Законченный Run и Wave без
+  `session` (поиск по тексту обошёл бы все транскрипты папки) читаются целиком и не хранятся.
+- `src/main/flight-recorder/transcripts.ts`: своя копия правила пути worktree (`canonicalPath`, `comparablePath`)
+  удалена, путь даёт `canonicalWorktree` из `worktree-path.ts` (transcripts.ts:200); test-ы ticket-а 14 переведены
+  на этот helper. Contract test: агент в worktree через link (junction на Windows) и запуск gate с реальным путём
+  того же worktree попадают в один Ticket.
+- IPC: `src/shared/ipc/runs.ts` — `runs.list`, `runs.open` (шкала + подписка), `runs.close`, `runs.retry`, событие
+  `runs.changed` (runs.ts:131–147), все `project` / `read`; схема шкалы повторяет `Timeline` и `Summary`.
+  `src/main/ipc/runs.ts` — handlers поверх общего сервиса, клиент держится через `ClientHolders`: окно закрылось или
+  у Linked machine выключили доступ — сервис отпускает его Run-ы. `src/main/ipc/index.ts` не менялся: домен
+  находится сам. `test/unit/link-access.test.ts` — каналы `runs.*` добавлены в список `read`.
+- Tests: `test/contract/flight-recorder-service.test.ts` (9 tests: список, шкала ночного Run, аккаунт, gh с ошибкой и
+  «Retry», живой пересчёт на подменённых часах и таймере, остановка таймера, worktree двух readers, Silent mode) и
+  `test/contract/runs-ipc.test.ts` (4 tests: метки каналов, Linked machine с доступом `read`, с выключенным доступом
+  — ни вызова, ни `runs.changed`, подписка отпускается; неверный run id). Имена файлов — по брифу, вместо
+  `test/contract/runs.test.ts`. Mutation testing: 12 мутантов сервиса и `transcripts.ts` — все убиты.
+
+Замер на fixture ночного Run (Mac, vitest под Node из Electron, медиана 20 прогонов; транскрипт Orchestrator-а в
+fixture — выдержка 282 KB):
+- полное построение шкалы законченного Run — 7.2 ms (6.3–8.5);
+- первое открытие того же Run как live (чтение с нуля) — 5.1 ms;
+- пересчёт после дописанной строки транскрипта — 3.9 ms (3.6–4.4); после дописанной строки Journal — 3.8 ms (3.6–5.6);
+- RSS процесса test-а после 40 пересчётов — 199 MB, heap — 29 MB.
+
+Не проверено:
+- Худший случай (окно Run на ~600 агентов, транскрипт 160 MB) на этом fixture не воспроизводится: цифры выше — для
+  выдержки. Хранимые строки live Run растут вместе с его транскриптами, пока окно держит Run открытым.
+- Вердикт Windows: платформенный PR, нужен Windows CI. Путей сервис сам не сравнивает; worktree — через
+  `canonicalWorktree`, test с junction.
+- `runs.changed` приходит с задержкой до 5 с после строки: изменения видны по опросу размера файлов, не по `fs.watch`.

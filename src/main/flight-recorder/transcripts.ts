@@ -21,21 +21,22 @@
 // - Times: only the `timestamp` of the records; the time a file changed is never read.
 //
 // The lines come from `readLines` of the options, a streamed read of the whole file by default.
-// shortcut: each call reads the Orchestrator's file whole (160 MB in a long Session) and parses it again; ticket 17 passes a `readLines` that tails the files (src/main/claude-home/tail.ts) and keeps what it parsed.
-import { createReadStream, realpath } from 'node:fs'
+// The service (src/main/flight-recorder/service.ts, ticket 17) passes a `readLines` that reads a live
+// Run's files on from where the last read stopped (src/main/claude-home/tail.ts) and keeps the lines.
+// The worktree of an agent is handed over by `canonicalWorktree` (worktree-path.ts), the helper reader
+// 16 calls too, so an agent and a gate run of one worktree meet.
+import { createReadStream } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { promisify } from 'node:util'
 import type { LostFact, TurnFact, WaveFact, WorkFact } from '../../shared/flight-recorder/facts'
 import { agentIdsIn, transcriptCwd, transcriptFacts, wavePromptTimes, type SubagentLines } from '../../shared/flight-recorder/from-transcript'
 import { isInsidePath, projectDirName } from '../claude-home/registry'
 import { claudeHome } from '../storage/paths'
+import { canonicalWorktree, type CanonicalOptions } from './worktree-path'
 
 type Env = Readonly<Record<string, string | undefined>>
 type Iso = string
-
-const realpathNative = promisify(realpath.native)
 
 /** How far the prompt of a Wave may lie from its `wave-started` for the search by text. */
 export const WAVE_SLACK_MS = 60_000
@@ -62,13 +63,6 @@ export interface TranscriptRun {
   waves: readonly TranscriptWave[]
 }
 
-export interface CanonicalOptions {
-  /** `process.platform` by default; `win32` checks the Windows rules on any system. */
-  platform?: string
-  /** realpath(3) by default. */
-  realpath?: (path: string) => Promise<string>
-}
-
 /** The lines of a file, empty ones left out; null when there is no such file. */
 export type ReadLines = (file: string) => Promise<readonly string[] | null>
 
@@ -82,42 +76,6 @@ export interface RunTranscripts {
   work: WorkFact[]
   turns: TurnFact[]
   lost: LostFact[]
-}
-
-/**
- * A worktree path in the form the model compares as a string (facts.ts): realpath(3), which
- * resolves a link, expands an 8.3 short name like `RUNNER~1` and gives the drive letter's case,
- * else the path as written (a worktree that is gone); then `comparablePath`. The same rule as
- * reader 16's `canonicalWorktree` (src/main/flight-recorder/gate-logs.ts), so a gate run and an
- * agent of one worktree meet.
- */
-export async function canonicalPath(path: string, options: CanonicalOptions = {}): Promise<string> {
-  const resolve = options.realpath ?? ((target: string) => realpathNative(target))
-  let real = path
-  try {
-    real = await resolve(path)
-  } catch {
-    // A worktree that is gone keeps the spelling the report gave.
-  }
-  return comparablePath(real, options.platform ?? process.platform)
-}
-
-/**
- * On Windows `\` and `/` are one separator and letter case does not tell two names apart, so the
- * path gets `/` and lower case, and the `\\?\` prefix of a long path goes; elsewhere it is the path
- * itself. A trailing separator goes too, except on a root (`/`, `c:/`). Reader 16's
- * `comparablePath` (src/shared/flight-recorder/from-gate.ts), character for character.
- */
-export function comparablePath(path: string, platform: string): string {
-  let result = path
-  if (platform === 'win32') {
-    result = result.replaceAll('\\', '/')
-    if (result.startsWith('//?/UNC/')) result = `//${result.slice('//?/UNC/'.length)}`
-    else if (result.startsWith('//?/')) result = result.slice('//?/'.length)
-    result = result.toLowerCase()
-  }
-  while (result.length > 1 && result.endsWith('/') && !/^[a-z]:\/$/u.test(result)) result = result.slice(0, -1)
-  return result
 }
 
 const missing = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as { code?: string }).code ?? '')
@@ -239,7 +197,7 @@ export async function readRunTranscripts(run: TranscriptRun, options: Transcript
     const inside = (at: Iso) => ms(at) >= window.start && ms(at) <= window.end
     const subagents = await subagentFiles(dir, session, agentIdsIn(lines, inside), readLines)
     const facts = transcriptFacts({ session, epic: run.epic, tickets, lines, subagents })
-    for (const fact of facts.work.filter((item) => inside(item.start))) work.push(fact.worktree === undefined ? fact : { ...fact, worktree: await canonicalPath(fact.worktree, options) })
+    for (const fact of facts.work.filter((item) => inside(item.start))) work.push(fact.worktree === undefined ? fact : { ...fact, worktree: await canonicalWorktree(fact.worktree, options) })
     turns.push(...facts.turns.filter((item) => inside(item.start)))
   }
 

@@ -14,7 +14,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { projectDirName } from '../../src/main/claude-home/registry'
-import { canonicalPath, comparablePath, readRunTranscripts, streamLines, WAVE_SLACK_MS, type TranscriptRun } from '../../src/main/flight-recorder/transcripts'
+import { readRunTranscripts, streamLines, WAVE_SLACK_MS, type TranscriptRun } from '../../src/main/flight-recorder/transcripts'
+import { canonicalWorktree } from '../../src/main/flight-recorder/worktree-path'
+import { comparablePath } from '../../src/shared/flight-recorder/from-gate'
 import { removeTestTree } from '../remove'
 
 const FIXTURE = join(__dirname, '..', 'fixtures', 'flight-recorder', 'night-run', 'claude')
@@ -286,21 +288,21 @@ describe('Windows paths and times', () => {
     expect(first.work).toHaveLength(1)
   })
 
-  it('a canonical path in the form of reader 16: one Windows worktree in two spellings is one path; links and 8.3 names go through realpath', async () => {
+  it('the canonical path of worktree-path.ts, the helper reader 16 calls too: one Windows worktree in two spellings is one path; links and 8.3 names go through realpath', async () => {
     const missing = (path: string): Promise<string> => Promise.reject(Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' }))
-    const one = await canonicalPath('C:\\Users\\Ann\\Repo\\.claude\\worktrees\\05', { platform: 'win32', realpath: missing })
+    const one = await canonicalWorktree('C:\\Users\\Ann\\Repo\\.claude\\worktrees\\05', { platform: 'win32', realpath: missing })
     expect(one).toBe('c:/users/ann/repo/.claude/worktrees/05')
-    expect(await canonicalPath('c:/users/ann/repo/.claude/worktrees/05/', { platform: 'win32', realpath: missing })).toBe(one)
-    expect(await canonicalPath('\\\\?\\C:\\Users\\Ann\\Repo\\.claude\\worktrees\\05', { platform: 'win32', realpath: missing })).toBe(one)
-    expect(await canonicalPath('C:\\', { platform: 'win32', realpath: missing })).toBe('c:/')
+    expect(await canonicalWorktree('c:/users/ann/repo/.claude/worktrees/05/', { platform: 'win32', realpath: missing })).toBe(one)
+    expect(await canonicalWorktree('\\\\?\\C:\\Users\\Ann\\Repo\\.claude\\worktrees\\05', { platform: 'win32', realpath: missing })).toBe(one)
+    expect(await canonicalWorktree('C:\\', { platform: 'win32', realpath: missing })).toBe('c:/')
     expect(comparablePath('\\\\?\\UNC\\Server\\Share\\Repo\\', 'win32')).toBe('//server/share/repo')
     // Elsewhere a backslash is a character of a name and letter case counts.
-    expect(await canonicalPath('/Users/Ann/Repo', { platform: 'darwin', realpath: missing })).not.toBe(await canonicalPath('/users/ann/repo', { platform: 'darwin', realpath: missing }))
+    expect(await canonicalWorktree('/Users/Ann/Repo', { platform: 'darwin', realpath: missing })).not.toBe(await canonicalWorktree('/users/ann/repo', { platform: 'darwin', realpath: missing }))
 
     // realpath(3) of the Windows runner expands the 8.3 short name of its home folder.
     const shortName = (path: string): Promise<string> => Promise.resolve(path.replace('RUNNER~1', 'runneradmin'))
-    expect(await canonicalPath('C:/Users/RUNNER~1/work/.claude/worktrees/05', { platform: 'win32', realpath: shortName })).toBe(
-      await canonicalPath('C:\\Users\\runneradmin\\work\\.claude\\worktrees\\05', { platform: 'win32', realpath: shortName }),
+    expect(await canonicalWorktree('C:/Users/RUNNER~1/work/.claude/worktrees/05', { platform: 'win32', realpath: shortName })).toBe(
+      await canonicalWorktree('C:\\Users\\runneradmin\\work\\.claude\\worktrees\\05', { platform: 'win32', realpath: shortName }),
     )
 
     // On this machine: a link to a worktree and the worktree are one path; so are the temporary folder as the OS names it and its realpath.
@@ -308,7 +310,7 @@ describe('Windows paths and times', () => {
     await mkdir(real, { recursive: true })
     const link = join(base, 'link-07')
     symlinkSync(real, link, process.platform === 'win32' ? 'junction' : 'dir')
-    expect(await canonicalPath(link)).toBe(await canonicalPath(real))
-    expect(await canonicalPath(tmpdir())).toBe(await canonicalPath(realpathSync.native(tmpdir())))
+    expect(await canonicalWorktree(link)).toBe(await canonicalWorktree(real))
+    expect(await canonicalWorktree(tmpdir())).toBe(await canonicalWorktree(realpathSync.native(tmpdir())))
   })
 })

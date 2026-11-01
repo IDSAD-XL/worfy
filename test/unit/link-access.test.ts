@@ -228,6 +228,12 @@ describe('the read-or-write mark of `project` channels', () => {
     'projects.list',
     'projects.settings.defaults',
     'projects.settings.get',
+    // The Runs of a Project and a Run's timeline, read on the Machine where it ran (worfy-flight-recorder
+    // ticket 17): the Journals, transcripts and gate logs are read; «Retry» only reads gh again, as checks.get.
+    'runs.close',
+    'runs.list',
+    'runs.open',
+    'runs.retry',
     'sessions.resumable',
     'sessions.views',
     'terminal.shells',
