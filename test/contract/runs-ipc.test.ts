@@ -26,6 +26,7 @@ const VIEW: RunView = {
   timeline: { runId: RUN, live: true, now: 2, spans: [], blocks: [], orchestratorMarks: [] },
   summary: { topStages: [], waits: [], work: [], workNote: 'summed; parallel', runDuration: 0 },
   github: { state: 'no-answer', at: 1, reason: 'gh failed' },
+  repoUrl: 'https://github.com/someone/demo',
   profileReason: null,
   skippedLines: 0,
   error: null,

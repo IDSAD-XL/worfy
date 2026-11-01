@@ -120,6 +120,12 @@ export const runViewSchema = z.object({
   timeline: timelineSchema,
   summary: summarySchema,
   github: runGithubSchema,
+  /**
+   * The page of the Project's repository, `https://<host>/<owner>/<repo>`, from remote `origin` of its root:
+   * the screen opens `<repoUrl>/pull/<N>` and `<repoUrl>/commit/<sha>` in the browser. Null when the root has
+   * no such remote (not a git repository, no `origin`, a folder as `origin`): PR and commit show as text.
+   */
+  repoUrl: z.string().nullable(),
   /** Why the Profile's values are defaults (the default Pipeline, no account): it could not be read. Null when it was. */
   profileReason: z.string().nullable(),
   /** Journal lines left out: not JSON, an unknown kind, fields that do not match, another Run's. */

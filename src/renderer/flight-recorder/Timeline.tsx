@@ -7,9 +7,11 @@
 // follows a live Run's end. A collapsed row shows its children as thin bars under its own; a label never
 // crosses a bar of its row (label-layout.ts) and with no room stays in the bar's tooltip.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { LOST_SOURCE_LABELS, type BlockMark, type OrchestratorMark, type Span } from '../../shared/flight-recorder/spans'
+import type { BlockMark, OrchestratorMark, Span } from '../../shared/flight-recorder/spans'
 import type { RunView } from '../../shared/ipc/runs'
+import { filterSpans, highlightsOf, NO_FILTER, rowsAbove, type Highlights, type SpanFilter } from './filter'
 import { layoutLabels, type LabelItem, type LabelPlace } from './label-layout'
+import { displayName, lostWord, outcomeWord, spanDuration, tokenOf } from './span-words'
 import {
   buildRows,
   collapseAll,
@@ -33,58 +35,10 @@ const DEFAULT_WIDTH = 900
 const MARK_HALF = 7
 const LABEL_FONT = '11px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif'
 
-/** The colour token of a span's kind: `--span-<token>` (tokens.css, F-SPEC "Run history"). */
-function tokenOf(span: Span): string {
-  switch (span.kind) {
-    case 'agent':
-      return span.subkind === 'implementer' || span.subkind === 'verifier' ? span.subkind : 'agent'
-    case 'orchestrator-turn':
-      return 'orchestrator'
-    default:
-      return span.kind
-  }
-}
-
 /** Kinds drawn as a tint with a band outline, their labels in the text colour; the rest fill with the band. */
 const TINTED = new Set(['run', 'wave', 'stage', 'wait'])
 
-const WAIT_WORDS: Record<string, string> = { limits: 'Limits', 'limits-budget': 'Limits budget', 'background-tasks': 'Background tasks', 'gate-queue': 'Gate queue', 'other-machine': 'Other Machine' }
-
-/** The name a span goes by on screen. */
-function displayName(span: Span): string {
-  switch (span.kind) {
-    case 'run':
-      return `Run ${span.name.slice(-6)}`
-    case 'ticket':
-      return `Ticket ${span.name.split('/').at(-1) ?? span.name}`
-    case 'wait':
-      return WAIT_WORDS[span.waitCause ?? ''] ?? span.name
-    case 'orchestrator-turn':
-      return 'Orchestrator turn'
-    default:
-      return span.name
-  }
-}
-
 const retryPrefix = (span: Span): string => (span.attempt > 1 ? `#${span.attempt} ` : '')
-const spanDuration = (span: Span): number => (span.segments.length > 0 ? span.segments.reduce((sum, part) => sum + part.end - part.start, 0) : span.until - span.start)
-
-/** The outcome as the row writes it; null for `ok`. A span that goes on says so while the Run is live. */
-function outcomeWord(span: Span, live: boolean): string | null {
-  if (span.outcome === null) return live && span.end === null ? 'running' : null
-  return span.outcome === 'ok' ? null : span.outcome
-}
-
-/**
- * The words for a span whose source is gone (LOST_SOURCE_LABELS, facts.ts). A span still running has no
- * transcript «deleted»: main marks it `transcript-deleted` when it finds none, and while the work goes on
- * its transcript may simply not be there yet.
- */
-function lostWord(span: Span): string | null {
-  if (span.lost === null) return null
-  if (span.lost === 'transcript-deleted' && span.end === null) return 'transcript not found yet'
-  return LOST_SOURCE_LABELS[span.lost]
-}
 
 function tooltipOf(span: Span): string {
   const lines = [`${displayName(span)}${span.attempt > 1 ? ` #${span.attempt}` : ''}`, `${formatLocal(span.start)} – ${formatClock(span.until)} · ${formatDuration(spanDuration(span))}`]
@@ -252,7 +206,7 @@ interface DrawnMark {
 }
 
 /** The bars and marks of a row, and where their labels go. */
-function drawRow(row: Row, view: RunView, x: (at: number) => number, width: number, selected: string | null): { bars: DrawnBar[]; marks: DrawnMark[]; hatches: { key: string; left: number; right: number }[]; places: Map<string, LabelPlace> } {
+function drawRow(row: Row, view: RunView, x: (at: number) => number, width: number, selected: string | null, cause: string | null): { bars: DrawnBar[]; marks: DrawnMark[]; hatches: { key: string; left: number; right: number }[]; places: Map<string, LabelPlace> } {
   const bars: DrawnBar[] = []
   const visible = (left: number, right: number) => right >= 0 && left <= width
   const barsOf = (span: Span, thin: boolean) => {
@@ -314,8 +268,9 @@ function drawRow(row: Row, view: RunView, x: (at: number) => number, width: numb
       right: bar.right,
       label: (short.has(bar.key) ? bar.short : bar.label) === '' ? 0 : textWidth(short.has(bar.key) ? bar.short : bar.label),
       inside: bar.inside,
-      // The selected bar's outline (flight-recorder.css, .w-fr-bar.is-selected) is part of it here.
-      outline: bar.span.id === selected ? SELECTED_OUTLINE : 0,
+      // The outline of the selected bar and of the cause of a selected retry (flight-recorder.css,
+      // .w-fr-bar.is-selected, .is-cause) is part of it here.
+      outline: bar.span.id === selected || bar.span.id === cause ? SELECTED_OUTLINE : 0,
     })),
     ...marks.map((mark) => ({ id: mark.key, left: x(mark.at) - MARK_HALF, right: x(mark.at) + MARK_HALF, label: mark.kind === 'block' ? textWidth(mark.label, true) + CHIP_EXTRA : textWidth(mark.label), inside: false, over: mark.over })),
   ]
@@ -327,22 +282,26 @@ function drawRow(row: Row, view: RunView, x: (at: number) => number, width: numb
   return { bars, marks, hatches, places }
 }
 
-function RowView({ row, view, x, width }: { row: Row; view: RunView; x: (at: number) => number; width: number }) {
+function RowView({ row, view, x, width, highlights, onToggle }: { row: Row; view: RunView; x: (at: number) => number; width: number; highlights: Highlights; onToggle: (id: string) => void }) {
   const selected = useRunHistory((state) => state.selected)
-  const { bars, marks, hatches, places } = drawRow(row, view, x, width, selected)
+  const { bars, marks, hatches, places } = drawRow(row, view, x, width, selected, highlights.cause)
   const span = row.span
   const isSelected = span !== null && span.id === selected
+  const isCause = span !== null && span.id === highlights.cause
+  const isRelated = span !== null && highlights.tickets.has(span.id)
   const name = span === null ? (row.lane === 'wait' ? 'Waits' : 'Orchestrator') : displayName(span)
   const word = span === null ? null : outcomeWord(span, view.timeline.live)
   const kindClass = span === null ? (row.lane === 'wait' ? 'wait' : 'orchestrator') : tokenOf(span)
   const toggle = (event: ReactMouseEvent) => {
     event.stopPropagation()
-    toggleRow(row.id)
+    onToggle(row.id)
   }
   return (
     <div
-      className={`w-fr-row${isSelected ? ' is-selected' : ''}${span === null ? ' w-fr-row--lane' : ''}`}
+      className={`w-fr-row${isSelected ? ' is-selected' : ''}${isCause ? ' is-cause' : ''}${isRelated ? ' is-related' : ''}${span === null ? ' w-fr-row--lane' : ''}`}
       data-testid="run-history-row"
+      data-cause={isCause ? 'true' : undefined}
+      data-related={isRelated ? 'true' : undefined}
       data-row-id={row.id}
       data-kind={span?.kind ?? `lane-${row.lane ?? ''}`}
       data-open={row.children.length > 0 ? String(row.open) : undefined}
@@ -385,6 +344,7 @@ function RowView({ row, view, x, width }: { row: Row; view: RunView; x: (at: num
           if (of.lost !== null) classes.push('w-fr-bar--lost')
           if (of.outcome !== null) classes.push(`is-${of.outcome}`)
           if (of.id === selected) classes.push('is-selected')
+          if (of.id === highlights.cause) classes.push('is-cause')
           return (
             <div
               key={bar.key}
@@ -423,15 +383,65 @@ function RowView({ row, view, x, width }: { row: Row; view: RunView; x: (at: num
   )
 }
 
-/** The controls over the tree, the axis and the rows of a Run. */
+/** The rows that stay open under «Collapse»: the Run and its Waves. */
+const OPEN_ON_COLLAPSE = new Set(['run', 'wave'])
+
+/**
+ * The controls over the tree, the axis and the rows of a Run. Under a filter (filter.ts) the tree shows the
+ * spans it keeps with every row open, except those the user closes meanwhile; a new filter opens them again.
+ */
 export function Timeline({ view }: { view: RunView }) {
   const expanded = useRunHistory((state) => state.expanded)
   const chosen = useRunHistory((state) => state.window)
+  const selected = useRunHistory((state) => state.selected)
+  const [filter, setFilter] = useState<SpanFilter>(NO_FILTER)
+  // The rows closed under the current filter.
+  const [shut, setShut] = useState<ReadonlySet<string>>(new Set())
   const [measure, width] = useWidth()
   const domain = runDomain(view)
   const window = chosen ?? domain
   const x = (at: number) => ((at - window.from) / (window.to - window.from)) * width
-  const rows = useMemo(() => buildRows(view.timeline.spans, expanded), [view, expanded])
+  const kept = useMemo(() => filterSpans(view.timeline, filter), [view, filter])
+  const rows = useMemo(() => (kept === null ? buildRows(view.timeline.spans, expanded) : buildRows(kept, new Set(expandableIds(kept).filter((id) => !shut.has(id))))), [view, expanded, kept, shut])
+  const highlights = useMemo(
+    () =>
+      highlightsOf(
+        view.timeline.spans.find((span) => span.id === selected),
+        view.timeline.spans,
+      ),
+    [view, selected],
+  )
+  const changeFilter = (next: SpanFilter) => {
+    setFilter(next)
+    setShut(new Set())
+  }
+  // A span selected from outside the tree (a card of the summary, a link of the panel) shows under the
+  // filter: the rows above it closed under the filter open again, and a filter that hides it is cleared.
+  // Only a new selection does so: a filter set while a span is selected may hide it. The state is
+  // adjusted while rendering, as React advises for state that follows a prop, not in an effect.
+  const [seen, setSeen] = useState(selected)
+  if (seen !== selected) {
+    setSeen(selected)
+    if (selected !== null && kept !== null) {
+      if (!kept.some((span) => span.id === selected)) changeFilter(NO_FILTER)
+      else {
+        const above = rowsAbove(selected, view.timeline.spans)
+        if (above.some((id) => shut.has(id))) setShut(new Set([...shut].filter((id) => !above.includes(id))))
+      }
+    }
+  }
+  const onToggle = (id: string) => {
+    if (kept === null) {
+      toggleRow(id)
+      return
+    }
+    setShut((before) => {
+      const next = new Set(before)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
   const root = useRef<HTMLDivElement>(null)
 
   // Ctrl/Cmd + wheel zooms around the pointer, Shift + wheel moves; a plain wheel scrolls the rows.
@@ -480,11 +490,44 @@ export function Timeline({ view }: { view: RunView }) {
           <button type="button" className="w-fr-button" onClick={zoomOut}>
             Zoom out
           </button>
-          <button type="button" className="w-fr-button" onClick={() => expandAll(expandableIds(view.timeline.spans))}>
+          <button
+            type="button"
+            className="w-fr-button"
+            onClick={() => {
+              setShut(new Set())
+              expandAll(expandableIds(view.timeline.spans))
+            }}
+          >
             Expand all
           </button>
-          <button type="button" className="w-fr-button" onClick={() => collapseAll()}>
+          <button
+            type="button"
+            className="w-fr-button"
+            onClick={() => {
+              if (kept !== null) setShut(new Set(expandableIds(kept).filter((id) => !OPEN_ON_COLLAPSE.has(kept.find((span) => span.id === id)?.kind ?? ''))))
+              collapseAll()
+            }}
+          >
             Collapse
+          </button>
+          <input
+            type="search"
+            className="w-fr-filter"
+            aria-label="Filter: Ticket, agent, PR, cause"
+            placeholder="Filter: Ticket, agent, PR, cause…"
+            data-testid="run-history-filter"
+            value={filter.text}
+            onChange={(event) => changeFilter({ ...filter, text: event.target.value })}
+          />
+          <button
+            type="button"
+            className={`w-fr-button${filter.problemsOnly ? ' is-on' : ''}`}
+            aria-pressed={filter.problemsOnly}
+            title="Show only the failures, retries, blocks, cut-off spans and Waits"
+            data-testid="run-history-problems"
+            onClick={() => changeFilter({ ...filter, problemsOnly: !filter.problemsOnly })}
+          >
+            Problems only
           </button>
         </div>
         <div ref={measure} className="w-fr-timeline__axis">
@@ -493,8 +536,13 @@ export function Timeline({ view }: { view: RunView }) {
       </div>
       <div className="w-fr-rows" data-testid="run-history-rows">
         {rows.map((row) => (
-          <RowView key={row.id} row={row} view={view} x={x} width={width} />
+          <RowView key={row.id} row={row} view={view} x={x} width={width} highlights={highlights} onToggle={onToggle} />
         ))}
+        {kept !== null && kept.length === 0 ? (
+          <p className="w-fr-empty" data-testid="run-history-filter-empty">
+            No span of this Run matches the filter.
+          </p>
+        ) : null}
         {now !== null && now >= 0 && now <= width ? <div className="w-fr-now" data-testid="run-history-now" data-at={view.timeline.now} style={{ left: `calc(var(--w-fr-tree) + ${now}px)` }} title={`now ${formatClock(view.timeline.now)}`} /> : null}
       </div>
     </div>

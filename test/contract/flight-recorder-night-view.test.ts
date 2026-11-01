@@ -55,7 +55,8 @@ describe('the night Run as the Run history screen gets it', () => {
       profile: async () => ({ name: 'worfy', mode: 'full', finish: 'pr-green-ci', pipeline: DEFAULT_PIPELINE, account: 'owner', accountReason: null, crossMachineGate: null, reason: null }),
       gh: nightGh,
       running: () => false,
-      git: async () => ({ code: 128, stdout: '' }),
+      // The fixture's repository: its page gives the PR and commit links of the screen (RunView.repoUrl).
+      git: async (_cwd, args) => (args.join(' ') === 'remote get-url origin' ? { code: 0, stdout: 'git@github.com:someone/worfy.git\n' } : { code: 128, stdout: '' }),
       now: () => Date.parse('2026-11-01T10:00:00Z'),
     })
     const view = runViewSchema.parse(await recorder.view(NIGHT_PROJECT, NIGHT_RUN))

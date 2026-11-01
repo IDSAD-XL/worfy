@@ -168,9 +168,10 @@
         "src/renderer/flight-recorder/**"
       ],
       "specs": [
-        "test/e2e/flight-recorder.spec.ts"
+        "test/e2e/flight-recorder.spec.ts",
+        "test/e2e/flight-recorder-detail.spec.ts"
       ],
-      "why": "The Run history screen (worfy-flight-recorder ticket 18): every window mounts it in the hidden view `history`, where it draws one line until openRunHistory opens a Run, and only flight-recorder.spec.ts opens one; its mount is covered by test/unit/flight-recorder-view.test.tsx. Left out: main.tsx, AppShell.tsx and Toolbar.tsx, which every window runs through, and the runs IPC of main, whose handlers every app loads."
+      "why": "The Run history screen (worfy-flight-recorder tickets 18, 19): every window mounts it in the hidden view `history`, where it draws one line until openRunHistory opens a Run, and only flight-recorder.spec.ts and flight-recorder-detail.spec.ts (its detail panel, filter and «Retry») open one; its mount is covered by test/unit/flight-recorder-view.test.tsx. Left out: main.tsx, AppShell.tsx and Toolbar.tsx, which every window runs through, and the runs IPC of main, whose handlers every app loads."
     }
   ]
 }

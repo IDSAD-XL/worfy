@@ -229,7 +229,8 @@ describe('the timeline of the night Run', () => {
     const byId = new Map(view.timeline.spans.map((span) => [span.id, span]))
     const noAnswer = view.timeline.spans.filter((span) => span.lost === 'github-no-answer').map((span) => [span.kind, span.name, span.links.ticket ?? null, byId.get(span.parent ?? '')?.kind ?? null])
     expect(noAnswer).toEqual(['03', '07', '04', '05'].map((num) => ['ci', 'CI', `worfy-pipeline/${num}`, 'ticket']))
-    expect(git).not.toHaveBeenCalled()
+    // Only the address of the repository's page is asked of git (RunView.repoUrl), no verdict of a Ticket.
+    expect(git.mock.calls.filter((call: unknown[]) => (call[1] as string[]).join(' ') !== 'remote get-url origin')).toEqual([])
     const before = await world.prLists()
 
     await world.heal()
@@ -243,6 +244,24 @@ describe('the timeline of the night Run', () => {
     // The window that holds the Run open gets it too.
     expect(subscriber.views.map((each) => each.github.state)).toEqual(['answered'])
     recorder.dispose()
+  })
+
+  it('gives the address of the repository page from remote origin of the Project root: an SSH remote as https, without .git; null without one', async () => {
+    const world = await ghWorld()
+    const asked: string[] = []
+    const origin = (url: string): NonNullable<FlightRecorderOptions['git']> =>
+      async (cwd, args) => {
+        asked.push(`${cwd}: ${args.join(' ')}`)
+        return args.join(' ') === 'remote get-url origin' ? { code: 0, stdout: `${url}\n` } : { code: 128, stdout: '' }
+      }
+    const ssh = await (await nightRecorder(world.gh, profileOf(), { git: origin('git@github.com:someone/worfy.git') })).view(NIGHT_PROJECT, NIGHT_RUN)
+    expect(ssh.repoUrl).toBe('https://github.com/someone/worfy')
+    expect(asked).toContain(`${NIGHT_ROOT}: remote get-url origin`)
+    const https = await (await nightRecorder(world.gh, profileOf(), { git: origin('https://ghe.example.com/team/app.git') })).view(NIGHT_PROJECT, NIGHT_RUN)
+    expect(https.repoUrl).toBe('https://ghe.example.com/team/app')
+    // No remote origin (git fails), or one that is a folder: no address, the screen shows the PR and the commit as text.
+    expect((await (await nightRecorder(world.gh)).view(NIGHT_PROJECT, NIGHT_RUN)).repoUrl).toBeNull()
+    expect((await (await nightRecorder(world.gh, profileOf(), { git: origin('/srv/git/worfy.git') })).view(NIGHT_PROJECT, NIGHT_RUN)).repoUrl).toBeNull()
   })
 })
 
@@ -427,6 +446,34 @@ describe('the live timeline', () => {
     await timer.fire()
     expect(subscriber.views.at(-1)?.timeline.live).toBe(false)
     expect(timer.state.tick).toBeNull()
+    recorder.dispose()
+  })
+
+  it('reads remote origin once per open Run — for the repository page and the marks file — and again only on «Retry»', async () => {
+    const world = await liveWorld()
+    // Ticket 01 was worked on and the Project ends without a PR: the marks file asks whether there is an origin too.
+    await appendFile(world.journal, journalLine({ at: at(2), run: world.run, project: world.project, epic: 'e', kind: 'ticket-status', ticket: '01', state: 'claimed' }))
+    const timer = manualTimer()
+    let now = T0 + 10_000
+    let origins = 0
+    const git: NonNullable<FlightRecorderOptions['git']> = async (_cwd, args) => {
+      if (args.join(' ') !== 'remote get-url origin') return { code: 128, stdout: '' }
+      origins += 1
+      return { code: 0, stdout: 'git@github.com:someone/live.git\n' }
+    }
+    const recorder = await liveRecorder(world, timer, { git, profile: async () => profileOf({ finish: 'local-green' }), now: () => now })
+    const subscriber = collector()
+    expect((await recorder.open(world.project, world.run, subscriber)).repoUrl).toBe('https://github.com/someone/live')
+    expect(origins).toBe(1)
+    for (let step = 0; step < 3; step++) {
+      await appendFile(world.journal, journalLine({ at: at(20 + step), run: world.run, project: world.project, epic: 'e', kind: 'background-tasks', tasks: [] }))
+      now += RECOMPUTE_INTERVAL_MS
+      await timer.fire()
+    }
+    expect(subscriber.views.map((view) => view.repoUrl)).toEqual(Array(3).fill('https://github.com/someone/live'))
+    expect(origins).toBe(1)
+    await recorder.retry(world.project, world.run)
+    expect(origins).toBe(2)
     recorder.dispose()
   })
 

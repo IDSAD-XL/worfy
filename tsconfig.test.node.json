@@ -38,6 +38,7 @@
     "src/renderer/getting-started/highlight.ts",
     "src/renderer/toast/placement.ts",
     "src/renderer/flight-recorder/label-layout.ts",
+    "src/renderer/flight-recorder/filter.ts",
     "test/app-url.ts",
     "test/big-transcript.ts",
     "test/claude-home-legacy.ts",
