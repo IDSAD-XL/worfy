@@ -7,7 +7,7 @@
 // the three longest Stages by self time; the Waits by cause, with the sum and the share of the Run;
 // the work inside Stages by subkind, summed — parallel work makes that sum longer than the clock,
 // hence the note «summed; parallel».
-import { childrenOf, duration, type AgentSubkind, type Span, type Timeline, type WaitCause, type WorkKind } from './spans'
+import { childrenOf, duration, WORK_KINDS, type AgentSubkind, type Span, type Timeline, type WaitCause, type WorkKind } from './spans'
 
 /** The note on the work totals: a sum over parallel spans, not wall-clock time. */
 export const WORK_NOTE = 'summed; parallel'
@@ -49,9 +49,20 @@ function inside(parent: Span, child: Span): Interval[] {
   return parts
 }
 
-/** A span's duration minus the union of its children's intervals inside it. */
+/**
+ * A span's duration minus the union of its children's intervals inside it. A Wave counts the parts
+ * of its Tickets as children: a Ticket row hangs off the Run (it may span several Waves), but its
+ * part in a Wave is that Wave's work.
+ */
 export function selfTime(span: Span, timeline: Timeline): number {
-  const covered = intervalUnionLength(childrenOf(timeline, span).flatMap((child) => inside(span, child)))
+  const intervals = childrenOf(timeline, span).flatMap((child) => inside(span, child))
+  if (span.kind === 'wave') {
+    for (const ticket of timeline.spans) {
+      if (ticket.kind !== 'ticket') continue
+      for (const part of ticket.segments) if (part.wave === span.links.wave) intervals.push(...inside(span, { ...ticket, segments: [part] }))
+    }
+  }
+  const covered = intervalUnionLength(intervals)
   return Math.max(0, duration(span) - covered)
 }
 
@@ -89,7 +100,7 @@ export interface Summary {
   runDuration: number
 }
 
-const WORK_KINDS: ReadonlySet<string> = new Set<WorkKind>(['agent', 'ci', 'gate', 'script'])
+const WORK: ReadonlySet<string> = new Set<string>(WORK_KINDS)
 
 /** The summary over the top of the timeline. */
 export function summarize(timeline: Timeline): Summary {
@@ -117,7 +128,7 @@ export function summarize(timeline: Timeline): Summary {
   const stageIds = new Set(timeline.spans.filter((span) => span.kind === 'stage').map((span) => span.id))
   const workTotals = new Map<WorkSubkind, { total: number; count: number }>()
   for (const span of timeline.spans) {
-    if (!WORK_KINDS.has(span.kind) || span.lost !== null || span.parent === null || !stageIds.has(span.parent)) continue
+    if (!WORK.has(span.kind) || span.lost !== null || span.parent === null || !stageIds.has(span.parent)) continue
     const subkind: WorkSubkind = span.kind === 'agent' ? (span.subkind ?? 'other') : (span.kind as Exclude<WorkKind, 'agent'>)
     const row = workTotals.get(subkind) ?? { total: 0, count: 0 }
     row.total += duration(span)
