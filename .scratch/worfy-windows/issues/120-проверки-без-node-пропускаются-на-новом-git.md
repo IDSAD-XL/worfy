@@ -1,7 +1,8 @@
 # 120 — проверки «нет node» в shell-тестах пропускаются на новом Git
 
 Type: task
-Status: claimed 2026-11-01T04:26Z
+Status: done 2026-11-01T07:06Z
+PR: #1195
 Branch: worfy-windows/120
 Blocked by: —
 Source: решение Orchestrator-а, 2026-11-01, находка проверяющего подтверждена, medium. Платформенный: делает Session на ПК, проверяет и
@@ -70,3 +71,12 @@ node. Для этого они собирают PATH без node, в коде о
 macOS CI: `macos-tests` запускает эти test-ы, вывода shell-test-а в логе нет. Образ ставит node через `brew link`, поэтому
 `/opt/homebrew/bin/node`, вероятно, есть, и §6 и §10 там пропускались. Это вывод из скрипта образа, ни один лог путь не называет. Теперь пропуска
 нет при любом ответе, но на настоящем macOS эта ветка ещё не выполнялась: на машине с node в этих папках §6 и §10 раньше не шли.
+
+**Время в CI после merge (2026-11-01).** CI run 41275572755, Windows: `gate-shim.test.sh` 88.6 s (было 12 s),
+`gate-verdict.test.sh` 70.2 s, `gate-notverified.test.sh` 16.6 s — блоки «без node» теперь выполняются на ucrt64.
+88.6 s для `gate-shim.test.sh` записаны в Windows-таблицу `test/harness-shell-tests.ts`; `gate-verdict` и
+`gate-notverified` там пока со старым замером (32 и 12 s) до следующего замера всей таблицы.
+
+**Долг (low, 2026-11-01).** Из ревью #1195, не исправлено:
+- Под `WIN=1` test молча пропускает блок, если node лежит в `/usr/bin` или в папке git (`gate-shim.test.sh:149`,
+  `gate-verdict.test.sh:336`, `gate-notverified.test.sh:127`).

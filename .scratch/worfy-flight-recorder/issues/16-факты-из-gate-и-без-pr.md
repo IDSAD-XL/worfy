@@ -1,7 +1,8 @@
 # 16 — Факты из gate и без PR
 
 Type: task
-Status: claimed 2026-11-01T01:58Z
+Status: done 2026-11-01T07:06Z
+PR: #1188
 Branch: worfy-flight-recorder/16
 Blocked by: 12
 Source: [spec.md](../spec.md), «Источники и что меняется в них» (строки «Логи gate» и «Отметки и verdict без PR», ключ связи по `head` и `worktree`, «Хранение»), «Модель» («Неполная история» — «gate logs deleted», «branch deleted»), «Windows» (логи gate, время), «Ticket-ы» (16), «Риски», п. 2 и 6; решение 04, Q5 ([04-дыры-источников.md](04-дыры-источников.md)); решение 08, Q6 ([08-неполная-история.md](08-неполная-история.md)); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
@@ -21,10 +22,12 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
 
 1. `src/shared/flight-recorder/from-gate.ts` — чистый разбор `timings.json` в span `gate` с шагами (`script`) и
    исходом; разбор отметок и commit-ов `gate: VERIFIED` в факты verdict модели Ticket-а 12.
-2. `src/main/flight-recorder/gate-logs.ts` — читает все `timings.json`, `tag` не вычисляет. Запуск относится к
-   Ticket-у по `head` (sha commit-а PR); без PR — по `worktree`, сравнивая пути без учёта регистра и с одним
-   разделителем (буква диска, 8.3-имена вроде `RUNNER~1` — через `realpath`). Время — `at` внутри файла, не mtime.
-3. `src/main/flight-recorder/local-verdicts.ts` — файл отметок Silent mode и commit-ы `gate: VERIFIED` в ветке.
+2. `src/main/flight-recorder/gate-logs.ts` — читает все `timings.json`, `tag` не вычисляет. Запуск отдаётся с `sha`
+   и `worktree` (канонический путь `canonicalWorktree` из `src/main/flight-recorder/worktree-path.ts`: буква диска,
+   8.3-имена вроде `RUNNER~1` — через `realpath`); к Ticket-у его относит модель (sha событий и работы Ticket-а,
+   worktree его агентов), не reader. Время — `at` внутри файла, не mtime.
+3. `src/main/flight-recorder/local-verdicts.ts` — файл отметок Silent mode и commit-ы `gate: VERIFIED` в ветке;
+   для ветки без PR — события `push` и `merge` из git (reflog ветки).
 4. Пометки потерянного: Journal или Ticket говорит, что gate шёл, а `timings.json` нет — «gate logs deleted
    (10 runs or 8 days)»; ветки Ticket-а нет — «branch deleted». Source span-а называет ограничение green cache.
 
@@ -110,3 +113,6 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
 - После rebase ветки с verdict-commit-ом head меняется, и модель видит новый commit после verdict-а.
 - Путь Windows проверен на macOS через `platform: 'win32'` и подставной realpath; настоящий `realpath.native` и
   junction — в Windows job CI.
+
+**Долг (low, 2026-11-01).** Из ревью #1188 (круг 2), не исправлено:
+- `local-verdicts.ts:61` — reflog только с записью создания ветки не даёт пометки потерянного.

@@ -1,7 +1,8 @@
 # 15 — Факты из GitHub
 
 Type: task
-Status: claimed 2026-11-01T01:48Z
+Status: done 2026-11-01T07:06Z
+PR: #1189
 Blocked by: 10, 12
 Source: [spec.md](../spec.md), «Модель» (Wait `other-machine`, повтор CI run, «Неполная история» — «GitHub did not answer»), «Источники и что меняется в них» (строка GitHub, ключ связи по ветке и sha), «Живая шкала» (GitHub — не чаще раза в минуту), «Windows» (gh), «Ticket-ы» (15); решение 03, Q5 ([03-модель-spans.md](03-модель-spans.md)); решение 04, Q3 ([04-дыры-источников.md](04-дыры-источников.md)); решение 07 ([07-живая-шкала-или-после-остановки.md](07-живая-шкала-или-после-остановки.md)); решение 08, Q7 ([08-неполная-история.md](08-неполная-история.md))
 
@@ -18,8 +19,9 @@ Source: [spec.md](../spec.md), «Модель» (Wait `other-machine`, повт�
 ## Что делаем
 
 1. `src/shared/flight-recorder/from-github.ts` — чистый разбор ответов `pr-facts.mjs` в факты модели Ticket-а 12:
-   PR открыт; CI runs и их повторы (`#N` со ссылкой на прошлый run); verdict-комментарии; отметки агентов на head;
-   merge; **Wait `other-machine`** — от метки cross-machine gate на PR до времени отчёта.
+   PR открыт (`pr-opened`); новый head PR (`push`); CI runs и их повторы (`ci-started`, `ci-finished`, work `ci`,
+   `#N` со ссылкой на прошлый run); verdict-комментарии и отметки агентов на head (`mark`, в full mode); одобрение PR
+   (`approved`); `merge`; **Wait `other-machine`** — от метки cross-machine gate на PR до времени отчёта.
    Время — только время GitHub.
 2. `src/main/flight-recorder/github.ts` — чтение через `gh()` аккаунтом Profile-а, не чаще раза в минуту, как
    `PrTracker`; ответ держится в памяти, на диск ничего не пишется.
@@ -121,3 +123,7 @@ Source: [spec.md](../spec.md), «Модель» (Wait `other-machine`, повт�
 - Время push по GitHub не отдаёт; `push` и начало Wait после отчёта стоят на `committedDate` commit-а — после rebase
   все commit-ы получают время rebase, так что второй Wait после позднего rebase начинается с него.
 - `retry` во время уже идущего чтения не запускает второе: возвращает идущее (его ответ свежий).
+
+**Долг (low, 2026-11-01).** Из ревью #1189, не исправлено:
+- `test/unit/flight-recorder-github.test.ts:159` не закрепляет границу `>=` в `src/shared/flight-recorder/from-github.ts:168`: мутант `>` выживает.
+- Для Ticket-а 17: `githubFacts` нужен account (`GithubFactsInput.account` теперь обязателен).

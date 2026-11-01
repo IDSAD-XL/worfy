@@ -1,7 +1,8 @@
 # 119 — Git Bash не находится из `git.exe` в `ucrt64\bin`
 
 Type: task
-Status: claimed 2026-11-01T02:26Z
+Status: done 2026-11-01T07:06Z
+PR: #1193
 Branch: worfy-windows/119
 Blocked by: —
 Source: решение Orchestrator-а, 2026-11-01, по находке из третьего круга #1173 (windows 15). Платформенный: делает Session на ПК,
@@ -49,3 +50,7 @@ Source: решение Orchestrator-а, 2026-11-01, по находке из т�
 Остаётся: `harness/hooks/tests/gate-verdict.test.sh:323`, `gate-shim.test.sh:140`, `gate-notverified.test.sh:114` и
 `harness/bin/tests/eval-env.test.sh:282` задают PATH `/usr/bin:/mingw64/bin`. В `/usr/bin` нет `git`, поэтому на Git с `ucrt64` первые три
 файла пропускают свои проверки «нет node» со строкой skip; `eval-env.test.sh` не читался. В CI это не проверялось.
+
+**Долг (low, 2026-11-01).** Из ревью #1193, не исправлено:
+- `statusline-bridge.test.ts:441-442` не закрепляет порядок `ProgramFiles`, `ProgramFiles(x86)`, `LOCALAPPDATA`.
+- Нет test-а с `UCRT64` в верхнем регистре: мутанты `toLowerCase` выживают в `env.ts:509` и `statusline-bridge.mjs:133`.
