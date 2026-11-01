@@ -150,6 +150,9 @@
     ],
     "headRefName": "worfy-pipeline/03",
     "labels": [],
+    "mergeCommit": {
+      "oid": "8f0f945fbe948747df606a4aa02cfa65f77c0777"
+    },
     "mergedAt": "2026-10-17T23:51:19Z",
     "number": 457,
     "state": "MERGED",
@@ -277,6 +280,9 @@
     ],
     "headRefName": "worfy-pipeline/07",
     "labels": [],
+    "mergeCommit": {
+      "oid": "62a4c4ab2456d342a243a33de8ee67ea72a161a6"
+    },
     "mergedAt": "2026-10-18T00:53:06Z",
     "number": 460,
     "state": "MERGED",
@@ -533,6 +539,9 @@
     ],
     "headRefName": "worfy-pipeline/04",
     "labels": [],
+    "mergeCommit": {
+      "oid": "e074b41f7f1ed5fd641b2595fee051fbfab3ae93"
+    },
     "mergedAt": "2026-10-18T03:01:51Z",
     "number": 467,
     "state": "MERGED",
@@ -786,6 +795,9 @@
     ],
     "headRefName": "worfy-pipeline/05",
     "labels": [],
+    "mergeCommit": {
+      "oid": "786aee9709da7075f465cea45e33569ea17770f4"
+    },
     "mergedAt": "2026-10-18T15:58:40Z",
     "number": 468,
     "state": "MERGED",

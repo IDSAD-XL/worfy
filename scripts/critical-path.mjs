@@ -38,7 +38,7 @@ import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } 
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { JOURNAL_KINDS, parseJournal, time, walkJournals } from '../src/shared/flight-recorder/journal-walk.mjs'
-import { GH_FIELDS, GH_RUN_FIELDS, ciMark, firstCommit, headCi, isCheckRun, pick, verdicts } from '../src/shared/flight-recorder/pr-facts.mjs'
+import { GH_FIELDS, GH_RUN_FIELDS, ciMark, firstCommit, headCi, headMarks, pick, verdicts } from '../src/shared/flight-recorder/pr-facts.mjs'
 
 const HELP = `usage: node scripts/critical-path.mjs [options]
 
@@ -311,11 +311,7 @@ function budgetOf(pr, marks, step) {
   const green = marks.green.at
   const merge = marks.merge.at
   let lastMark = green
-  for (const check of Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : []) {
-    if (!check || isCheckRun(check)) continue
-    const at = time(check.startedAt) ?? time(check.createdAt)
-    if (at !== null && at > lastMark && at <= merge) lastMark = at
-  }
+  for (const mark of headMarks(pr)) if (mark.at !== null && mark.at > lastMark && mark.at <= merge) lastMark = mark.at
   const gate = lastMark - green
   const queue = merge - lastMark
   const over = step.ms > budget.ms

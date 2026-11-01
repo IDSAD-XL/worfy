@@ -75,7 +75,7 @@ Source: [spec.md](../spec.md), «Решено без владельца» (об�
   Journal → события и счётчики пропущенных строк), `walkRun` (`:86`, один Run: начало, Wave-ы, Wait-ы Limits,
   остановки внутри Wave, остановка Run), `walkJournals` (`:141`, по Ticket-ам и Epic-ам, как считал скрипт; теперь
   поверх `walkRun`). Без модулей Node: `src/shared` идёт во все процессы, файлы читает вызывающий.
-- `src/shared/flight-recorder/pr-facts.mjs`: поля `gh` скрипта и `GH_FIELDS_WITH_LABELS` (`:11`, плюс `labels`),
+- `src/shared/flight-recorder/pr-facts.mjs`: поля `gh` скрипта и `GH_APP_FIELDS` (`:14`, плюс `labels` и `mergeCommit`),
   `pick`, `ciMark`, `headCi`, `headMarks` (статусы `review`, `check/windows` на head), `verdictComments`,
   `verdicts`, `firstCommit`, `labelNames` (`:141`), `prFacts` (`:146`, все факты одного PR). Типы —
   `journal-walk.d.mts`, `pr-facts.d.mts`.

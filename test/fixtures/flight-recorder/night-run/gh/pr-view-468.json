@@ -245,6 +245,9 @@
   ],
   "headRefName": "worfy-pipeline/05",
   "labels": [],
+  "mergeCommit": {
+    "oid": "786aee9709da7075f465cea45e33569ea17770f4"
+  },
   "mergedAt": "2026-10-18T15:58:40Z",
   "number": 468,
   "state": "MERGED",

@@ -28,6 +28,11 @@ describe('process boundary lint rule', () => {
     ['src/shared/probe.ts', "import { join } from 'path'\nexport { join }"],
     ['src/shared/ipc/probe.ts', "import { App } from '../../renderer/main'\nexport { App }"],
     ['src/shared/probe.ts', "import { dataRoot } from '../main/storage/paths'\nexport { dataRoot }"],
+    ['src/shared/flight-recorder/probe.mjs', "import { readFileSync } from 'node:fs'\nexport { readFileSync }"],
+    ['src/shared/flight-recorder/probe.mjs', "import { app } from 'electron'\nexport { app }"],
+    ['src/shared/flight-recorder/probe.d.mts', "import type { Stats } from 'node:fs'\nexport declare const stats: Stats"],
+    ['src/renderer/probe.mjs', "import { readFile } from 'fs/promises'\nexport { readFile }"],
+    ['src/card-runtime/probe.mts', "import { app } from 'electron'\nexport { app }"],
   ])('rejects %s: %s', async (file, code) => {
     expect(await boundaryErrors(file, code)).toHaveLength(1)
   })
@@ -37,6 +42,7 @@ describe('process boundary lint rule', () => {
     ['src/renderer/canvas/probe.ts', "import { value } from '../../shared/probe'\nexport { value }"],
     ['src/renderer/probe.ts', "import { App } from './main'\nexport { App }"],
     ['src/shared/probe.ts', "import { z } from 'zod'\nexport const value = z.string()"],
+    ['src/shared/flight-recorder/probe.mjs', "import { time } from './journal-walk.mjs'\nexport { time }"],
     ['src/main/probe.ts', "import { app } from 'electron'\nimport { join } from 'node:path'\nexport { app, join }"],
     ['src/preload/probe.ts', "import { contextBridge } from 'electron'\nexport { contextBridge }"],
   ])('allows %s: %s', async (file, code) => {

@@ -7,8 +7,11 @@ import { time } from './journal-walk.mjs'
 
 /** The fields scripts/critical-path.mjs asks `gh pr view` / `gh pr list --json` for. */
 export const GH_FIELDS = 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files'
-/** The same plus `labels`: the app reads the cross-machine gate's label of a PR from it. */
-export const GH_FIELDS_WITH_LABELS = `${GH_FIELDS},labels`
+/**
+ * The fields the app asks for: those plus `labels` (the cross-machine gate's label of a PR) and `mergeCommit`
+ * (the commit on the main branch whose CI runs stand for the PR's when CI runs in batch on main).
+ */
+export const GH_APP_FIELDS = `${GH_FIELDS},labels,mergeCommit`
 /** The fields of `gh run list --json` for the CI runs of a PR's branch (the PR's `ciRuns`). */
 export const GH_RUN_FIELDS = 'status,conclusion,event,createdAt,updatedAt'
 
@@ -55,7 +58,7 @@ export function ciMark(pr, gate) {
 }
 
 /** A check run of the head (CI), not a commit status (a merge mark: `review`, `check/windows`). */
-export const isCheckRun = (check) => check && typeof check === 'object' && check.__typename !== 'StatusContext' && !('state' in check && !('conclusion' in check))
+export const isCheckRun = (check) => Boolean(check) && typeof check === 'object' && check.__typename !== 'StatusContext' && !('state' in check && !('conclusion' in check))
 const checkTime = (check) => time(check.completedAt) ?? time(check.startedAt)
 
 /**
@@ -151,6 +154,7 @@ export function prFacts(pr) {
     state: typeof pr.state === 'string' ? pr.state : null,
     opened: time(pr.createdAt),
     merged: time(pr.mergedAt),
+    mergeCommit: typeof pr.mergeCommit?.oid === 'string' ? pr.mergeCommit.oid : null,
     firstCommit: firstCommit(pr),
     ciRuns: (Array.isArray(pr.ciRuns) ? pr.ciRuns : [])
       .filter((run) => run && typeof run === 'object')

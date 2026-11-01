@@ -3,12 +3,15 @@
 // them from TypeScript). Facts come from the fixture of scripts/critical-path.mjs (test/fixtures/critical-path/)
 // and from the night-Run fixture of the Flight Recorder (test/fixtures/flight-recorder/night-run/); gh's answers
 // are the recorded JSON files, nothing reaches the network.
+import { spawnSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { projectId } from '../../src/main/projects/store'
 import { JOURNAL_EVENT_KINDS } from '../../src/shared/autopilot/journal'
 import { JOURNAL_KINDS, parseJournal, time, walkJournals, walkRun, type JournalEvent } from '../../src/shared/flight-recorder/journal-walk.mjs'
-import { GH_FIELDS, GH_FIELDS_WITH_LABELS, GH_RUN_FIELDS, labelNames, pick, prFacts, verdicts, type GhPr } from '../../src/shared/flight-recorder/pr-facts.mjs'
+import { GH_APP_FIELDS, GH_FIELDS, GH_RUN_FIELDS, isCheckRun, labelNames, pick, prFacts, verdicts, type GhPr } from '../../src/shared/flight-recorder/pr-facts.mjs'
+import { subagentSignalsOfLines } from '../../src/shared/transcript/subagents'
 
 const FIXTURES = join(import.meta.dirname, '..', 'fixtures')
 const CRITICAL_PATH = join(FIXTURES, 'critical-path')
@@ -151,9 +154,9 @@ describe('journal-walk: every Run of the Journals, by Ticket and Epic', () => {
 })
 
 describe('pr-facts: one PR from gh', () => {
-  it('asks gh for the fields of scripts/critical-path.mjs, and the app also for labels', () => {
+  it('asks gh for the fields of scripts/critical-path.mjs, and the app also for labels and the merge commit', () => {
     expect(GH_FIELDS).toBe('number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files')
-    expect(GH_FIELDS_WITH_LABELS).toBe(`${GH_FIELDS},labels`)
+    expect(GH_APP_FIELDS).toBe(`${GH_FIELDS},labels,mergeCommit`)
     expect(GH_RUN_FIELDS).toBe('status,conclusion,event,createdAt,updatedAt')
   })
 
@@ -206,6 +209,14 @@ describe('pr-facts: one PR from gh', () => {
     expect(labelNames({ number: 2 })).toEqual([])
   })
 
+  it('tells a check run (CI) from a commit status (a merge mark), always as a boolean', () => {
+    expect(isCheckRun({ __typename: 'CheckRun', name: 'ci-ok', status: 'COMPLETED', conclusion: 'SUCCESS' })).toBe(true)
+    expect(isCheckRun({ __typename: 'StatusContext', context: 'review', state: 'SUCCESS' })).toBe(false)
+    expect(isCheckRun({ context: 'review', state: 'SUCCESS' })).toBe(false)
+    expect(isCheckRun(null)).toBe(false)
+    expect(isCheckRun(undefined)).toBe(false)
+  })
+
   it('of several PRs of one Ticket picks the merged one, else the newest', () => {
     const prs = prsOf(join(CRITICAL_PATH, 'prs.json'))
     expect(pick(prs.filter((pr) => pr.headRefName?.startsWith('demo-epic/04')))?.number).toBe(14)
@@ -213,3 +224,52 @@ describe('pr-facts: one PR from gh', () => {
     expect(pick([])).toBeNull()
   })
 })
+
+describe('the night-Run fixture: what the Tickets of the Epic read from it', () => {
+  it('ties the batch CI runs on main to the PRs by their merge commit', () => {
+    const runs = JSON.parse(readFileSync(join(NIGHT, 'gh', 'run-list-main.json'), 'utf8')) as { headSha: string; event: string }[]
+    const heads = new Set(runs.map((run) => run.headSha))
+    const merges = Object.fromEntries([457, 460, 467, 468].map((n) => [n, prFacts(prOf(join(NIGHT, 'prs.json'), n)).mergeCommit]))
+    expect(merges).toEqual({
+      457: '8f0f945fbe948747df606a4aa02cfa65f77c0777',
+      460: '62a4c4ab2456d342a243a33de8ee67ea72a161a6',
+      467: 'e074b41f7f1ed5fd641b2595fee051fbfab3ae93',
+      468: '786aee9709da7075f465cea45e33569ea17770f4',
+    })
+    expect(heads.has(merges[460] ?? '')).toBe(true)
+    expect(heads.has(merges[467] ?? '')).toBe(true)
+    expect(runs.every((run) => run.event === 'workflow_dispatch')).toBe(true)
+    expect(prFacts({ number: 1 }).mergeCommit).toBeNull()
+  })
+
+  it('keeps the Journal’s project the id of the anonymised path', () => {
+    const projects = new Set(nightEvents().map((event) => event.project))
+    expect([...projects]).toEqual([projectId('/Users/someone/Stuff/CanvasForAI')])
+  })
+
+  it('keeps every task-notification readable: each Subagent the Orchestrator started ends with its call id and status', () => {
+    const dir = join(NIGHT, 'claude', 'projects', '-Users-someone-Stuff-CanvasForAI')
+    const lines = readFileSync(join(dir, 'f6ab7045-416c-471a-a78d-433567aefa5a.jsonl'), 'utf8').split('\n').filter(Boolean)
+    const signals = subagentSignalsOfLines(lines)
+    const finished = signals.filter((signal) => signal.kind === 'finished')
+    expect(finished.length).toBeGreaterThan(0)
+    for (const signal of finished) {
+      expect(signal.toolUseId).toMatch(/^toolu_/)
+      expect(signal.status).not.toBeNull()
+    }
+    // Every Subagent of the fixture (meta.json) is started by a call in the excerpt and reported back.
+    const metas = readdirSync(join(dir, 'f6ab7045-416c-471a-a78d-433567aefa5a', 'subagents')).filter((name) => name.endsWith('.meta.json'))
+    const calls = new Set(metas.map((name) => (JSON.parse(readFileSync(join(dir, 'f6ab7045-416c-471a-a78d-433567aefa5a', 'subagents', name), 'utf8')) as { toolUseId: string }).toolUseId))
+    expect(calls.size).toBe(12)
+    // The Bash tasks run in the background report the same way, so the finished set is larger than the calls.
+    const reported = new Set(finished.map((signal) => signal.toolUseId))
+    expect([...calls].filter((call) => !reported.has(call))).toEqual([])
+  })
+
+  it('is checked out byte for byte on every system: git keeps CRLF conversion off for it', () => {
+    const result = spawnSync('git', ['check-attr', 'text', '--', 'test/fixtures/flight-recorder/night-run/prs.json'], { cwd: join(FIXTURES, '..', '..'), encoding: 'utf8' })
+    expect(result.status).toBe(0)
+    expect(result.stdout.trim()).toBe('test/fixtures/flight-recorder/night-run/prs.json: text: unset')
+  })
+})
+

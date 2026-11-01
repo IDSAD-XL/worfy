@@ -39,7 +39,7 @@ export interface GhRun {
   updatedAt?: string
 }
 
-/** A PR of `gh pr view` / `gh pr list --json` with GH_FIELDS (and labels); `ciRuns` — the runs of its branch. */
+/** A PR of `gh pr view` / `gh pr list --json` with GH_FIELDS (or GH_APP_FIELDS); `ciRuns` — the runs of its branch. */
 export interface GhPr {
   number: number
   headRefName?: string
@@ -51,6 +51,7 @@ export interface GhPr {
   commits?: GhCommit[]
   files?: (string | { path?: string })[]
   labels?: GhLabel[]
+  mergeCommit?: { oid?: string } | null
   ciRuns?: GhRun[]
 }
 
@@ -84,6 +85,8 @@ export interface PrFacts {
   state: string | null
   opened: number | null
   merged: number | null
+  /** The merge commit's oid (GH_APP_FIELDS); null before the merge or without the field. */
+  mergeCommit: string | null
   firstCommit: number | null
   ciRuns: CiRun[]
   /** CI green before the Gate (ciMark). */
@@ -96,7 +99,8 @@ export interface PrFacts {
 }
 
 export declare const GH_FIELDS: string
-export declare const GH_FIELDS_WITH_LABELS: string
+/** GH_FIELDS plus labels and mergeCommit. */
+export declare const GH_APP_FIELDS: string
 export declare const GH_RUN_FIELDS: string
 
 export declare function pick<T extends Partial<GhPr>>(prs: readonly T[]): T | null
