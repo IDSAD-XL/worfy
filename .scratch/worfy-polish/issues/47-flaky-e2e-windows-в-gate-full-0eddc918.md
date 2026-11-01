@@ -85,18 +85,30 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
 
 ## Итог
 
-Заполняется при закрытии. Ticket open: `subagent-tree`, `terminal-windows` и Git Bash ждут замеров ПК.
-Часть 5: зелёный shell test Harness печатает в журнал свои строки `skip` (раздел «Часть 5» ниже).
+Заполняется при закрытии. Ticket open: ждёт 20 зелёных `windows-e2e` для `card-api`. Замеры ПК больше не нужны (ответ ПК
+2026-11-01):
+
+- `subagent-tree`: на ПК в одиночку (main `2186dd28`, `--repeat-each=5 --workers=1 --retries=0`) exit 0, 5 passed;
+  дерево показано за 84–121 ms (предел 1000), выбросов нет. Выбросы бывают только в gate full (439/767/915/1150 ms,
+  обычно 84–151); их причина не найдена, запас мал.
+- `terminal-windows`: для 47 не нужен — Windows exception до 2026-12-15
+  (`test/quarantine/terminal-windows-close-no-console-host.json`); время helper-а уже измерено (`load.jsonl` gate full
+  `c01cd364`: медиана 1074 ms, максимум 2906 из 3000, 0 timeout-ов).
+- Git Bash: не нужен — worfy-windows 116 (#1148), гонка исправлена в #1197 (12 из 104 → 0 из 80).
+
+Часть 5: зелёный shell test Harness печатает в журнал свои строки `skip` (раздел «Часть 5» ниже). Приёмка подтверждена
+2026-11-01: job Windows `harness-scripts 1/2` 124826726685 (run 41299286357) печатает `skip the dangerous direction of
+a pid's start time`.
 
 - Merged: часть 2 `wave-gate` — #1201 (`b0164889`); часть 3 `docs-watch-root-gone` — #1202 (`d6b0f908`); часть 4
-  `card-api` — #1207 (`5c5b7693`); часть 5 — #1209. Ticket закрывается после приёмки: строка `skip the dangerous
-  direction` в журнале job-а `harness-scripts` Windows CI и 20 зелёных `windows-e2e` для `card-api`.
+  `card-api` — #1207 (`5c5b7693`); часть 5 — #1209. Ticket закрывается после 20 зелёных `windows-e2e` для `card-api`.
 - `docs-watch-root-gone.test.ts:450`: гипотеза из «Что происходит» (чтение опустошённого `HANDOFF.md`) поправлена.
   Запись через rename не помогла бы. Причина — гонка в test-е: он ждал таймер последнего чтения плюс 100 ms, а чтение
   под нагрузкой шло дольше и попадало на запись `HANDOFF.md` (раздел «2026-11-01, ПК: три test-а» ниже).
 - Gate full на ПК, main `b0164889`: зелёный, 3121 s (lint 43.2, typecheck 52.8, test 1194.6, e2e 1700.3, package
   128.9). Первый зелёный gate full на main после #1173/#1182/#1193/#1198–#1205; на ПК 4 зелёных из 7. Журнал на ПК:
-  `throughput-56/gate-b0164889-w8/`.
+  `throughput-56/gate-b0164889-w8/`. Следом ещё два зелёных подряд: main `2186dd28` — 3108 s, main `43d98801` — 3159 s
+  (e2e: 369 expected, 18 skipped, 0 flaky).
 - Замечены flaky test-ы, причина не установлена; второй случай — Ticket `worfy-polish`:
   - `harness/bin/tests/agents-text.test.sh:515-519` («a held e2e lock»): красный один раз в полном `pnpm test` на Mac
     под нагрузкой, в одиночку зелёный.
@@ -104,6 +116,8 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
     нагрузкой, в одиночку зелёный. Второй случай кандидата из «Что происходит».
   - `test/unit/chat-attachments.test.tsx:293` и `:298`: вызов `agent.attach` попадает в следующий test; load average
     40–57, в одиночку зелёный.
+  - Windows CI `harness-scripts 1/2` (full-suite), PR #1215, run 41305170019, 2026-11-01 12:10–12:58Z: шаг test-ов не
+    закончился до timeout job-а (45 min), журнал GitHub не сохранил (BlobNotFound); PR не трогает `harness/`.
 
 ### 2026-10-31, ветка `worfy-polish/47-e2e-logic`: логика двух e2e test-ов, третий — вопрос владельцу; пределы не тронуты
 

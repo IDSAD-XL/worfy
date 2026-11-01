@@ -11,15 +11,15 @@
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–26; 12 — приёмка; открыты 27 (pointer, hover), 28 (drop, превью в чате).
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 46/47; 47 (flaky test-ы Windows в gate full на ПК): влиты части 1–5, gate full ПК `b0164889` зелёный; приёмка в Windows CI — «Итог» 47.
+- `worfy-polish`: 46/47; 47 (flaky Windows): части 1–5 влиты, ждёт 20 зелёных `windows-e2e`.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 57/60; открыты 05, 31, 43; 60 — Eco mode в чате (#1057). 43: eco проверяет друг. 31: замер 2026-11-06.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 14/15; 14 и 15 влиты, 12 ждёт приёмки владельцем. `worfy-guide`: закрыт, 21/21.
-- `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): 22/27; влиты 01–17, 21–23, 26, 27; 18 — PR #1210; 20 — после `worfy-resource-planner` 05; 19, 24, 25 открыты.
-- `worfy-resource-planner`: 4/12, влиты 01, 02, 04, 09; 03, 05 в работе; 11 — после `worfy-flight-recorder` 18.
+- `worfy-flight-recorder` (ADR-0091): 24/27; открыты 20 (после `worfy-resource-planner` 06, 07: общие `run.ts`, `ipc/autopilot.ts`, `AutopilotAction.tsx`, `autopilot.spec.ts`), 24, 25.
+- `worfy-resource-planner`: 6/12; 06, 07 в работе, затем 08.
 
 ## Ждёт владельца
 
@@ -50,6 +50,7 @@
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
 - Ложный таймаут первого окна в e2e: заблокированный экран, сеанс macOS владельца в фоне, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают; на Mac владельца ещё и `defaults` для `com.github.Electron`) — [agents.md](docs/lessons/agents.md).
 - Замок e2e: в `rules.md` Profile владельца heartbeat ещё старый (без выхода при снятом замке); новая строка — в PR `worfy-harness` 49, вносит владелец.
+- Windows exception-ы `terminal-windows-close-no-console-host` и `workflow-branches-gone` (`test/quarantine/`) до 2026-12-15 — решает Orchestrator.
 - [low] `worfy-flight-recorder` — «Долг» в «Итог» 11–16, 21–23: `spans.ts:335`, `:613-620`, `:742`; `resumable` и Ticket `00` — в brief 20; helper `transcripts.ts`, account `githubFacts` — в 17.
 - [low] `worfy-windows` — «Долг» в «Итог» 119, 120: test-ы порядка папок, `UCRT64` и skip под `WIN=1`.
 - Долги low — в «Итог» Ticket-ов (абзацы «Долг» и подраздел «Долги из HANDOFF (2026-10-08)»), разбор — шаг документов при закрытии Epic-а.
