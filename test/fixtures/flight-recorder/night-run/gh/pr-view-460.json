@@ -1,0 +1,126 @@
+{
+  "comments": [
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdCaCnA",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "REJECTED: [med] .scratch/worfy-pipeline/issues/07-epic-wave-и-ship-ticket-идут-по-workflow-pipeline.md:105-107 — the result section says that without the worfy Profile edit \"the wave's behaviour does not change\", which is false: the diff removes from harness/skills/epic-wave/SKILL.md (old lines 630-636) the rule that keeps platform PRs out of the set until the other platform's verdict, and `PLATFO…[cut]",
+      "createdAt": "2026-10-18T00:19:24Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/460#issuecomment-6243648156",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdCkixg",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "VERIFIED; debt: [low] harness/skills/epic-wave/SKILL.md:797 — the comment `# its \"ready, PLATFORM\" lines` (and the list at :724) does not mention the fallback, so an orchestrator reading only the code block could leave `PLATFORM=()` empty with no `check` Stage; the paragraph at :743-746 and the block's output line say otherwise. [low] harness/skills/ship-ticket/SKILL.md:72 — removing this line kee…[cut]",
+      "createdAt": "2026-10-18T00:39:35Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/460#issuecomment-6243820230",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdCrXVA",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "Pre-merge basis: rebased on origin/main 0e60b0f, head c209008; GATE_SCOPE=all gate full exit 0; mergeable MERGEABLE; workflow.ci=batch — CI runs once on main after the wave.",
+      "createdAt": "2026-10-18T00:53:04Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/460#issuecomment-6243931988",
+      "viewerDidAuthor": true
+    }
+  ],
+  "commits": [
+    {
+      "authoredDate": "2026-10-18T00:00:34Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-18T00:39:42Z",
+      "messageBody": "Both skills read _resolved.pipeline and act on its Stages: Agent review\nruns where the Pipeline puts it (none in the Pipeline - no review by\nagents), a Check keeps a PR out of the wave-gate set until …[cut]",
+      "messageHeadline": "epic-wave and ship-ticket follow workflow.pipeline",
+      "oid": "da338bf3ab032173accd590626fef77e1a6f6e61"
+    },
+    {
+      "authoredDate": "2026-10-18T00:24:00Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-18T00:39:42Z",
+      "messageBody": "Without a check Stage the marks cannot tell platform PRs apart, so the\nrule in words stays as the fallback: PRs the project's rules send to\nanother platform's verdict go into PLATFORM=() and merge the…[cut]",
+      "messageHeadline": "Keep platform PRs waiting when the Pipeline has no Check",
+      "oid": "c209008d175a1f3207c839566e98ccd2a98febf1"
+    }
+  ],
+  "createdAt": "2026-10-18T00:11:54Z",
+  "files": [
+    {
+      "path": ".scratch/worfy-pipeline/issues/07-epic-wave-и-ship-ticket-идут-по-workflow-pipeline.md",
+      "additions": 92,
+      "deletions": 6,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "harness/bin/tests/epic-wave-ship-ticket.test.sh",
+      "additions": 217,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "harness/skills/epic-wave/SKILL.md",
+      "additions": 162,
+      "deletions": 12,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "harness/skills/ship-ticket/SKILL.md",
+      "additions": 39,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    }
+  ],
+  "headRefName": "worfy-pipeline/07",
+  "labels": [],
+  "mergedAt": "2026-10-18T00:53:06Z",
+  "number": 460,
+  "state": "MERGED",
+  "statusCheckRollup": []
+}

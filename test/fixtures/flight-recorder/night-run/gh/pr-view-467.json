@@ -1,0 +1,255 @@
+{
+  "comments": [
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdDUXjA",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "VERIFIED\n\nGate fast green (EXIT=0, `[gate] зелено (fast)`, from cache). Unit `pipeline-board.test.tsx` 13 passed. E2E pipeline, sidebar-sections, binding, canvas-layout, harness-migrate, terminal: 23 passed under the e2e lock. PR MERGEABLE at head ce30fa42. Screenshots in both themes (board, sidebar section, toolbar at 1280 and 1600 px, MigrationForm against main) match the ticket and F-SPEC's gen…[cut]",
+      "createdAt": "2026-10-18T02:12:44Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/467#issuecomment-6244603788",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdDlPVQ",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "VERIFIED (pre-merge fix)\n\nGate full before merge (GATE_SCOPE=all) was red at head d17a3966: `test/e2e/silent-project.spec.ts:302` saw gh run in the root of a Project over two repositories; 24 `spawnSync bash EAGAIN` failures in `test/contract/harness-scripts.test.ts` came from machine load (the file alone: 37 passed). Fix checked: `git diff d17a3966..7e1553c5`.\n\n**Act on:** nothing.\n\n**Consider**\n…[cut]",
+      "createdAt": "2026-10-18T02:48:07Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/467#issuecomment-6244880213",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdDrjqA",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "Pre-merge basis: rebased on origin/main 1ef87f8, head 42dc199; GATE_SCOPE=all gate full exit 0; mergeable MERGEABLE; workflow.ci=batch — CI runs once on main after the wave.",
+      "createdAt": "2026-10-18T03:01:48Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/467#issuecomment-6244983720",
+      "viewerDidAuthor": true
+    }
+  ],
+  "commits": [
+    {
+      "authoredDate": "2026-10-18T01:30:37Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-18T02:48:15Z",
+      "messageBody": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+      "messageHeadline": "Pipeline tab and Pipeline sidebar section",
+      "oid": "9949c533f92c4f074bd1080abd1cf10f1d3f79fc"
+    },
+    {
+      "authoredDate": "2026-10-18T01:46:57Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-18T02:48:15Z",
+      "messageBody": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+      "messageHeadline": "Record the result of the Pipeline tab change in its ticket",
+      "oid": "2fa6cc64aa5a3cc17da36f1233dec6d37eb2d298"
+    },
+    {
+      "authoredDate": "2026-10-18T02:26:30Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-18T02:48:15Z",
+      "messageBody": "A Profile that cannot be read names no repositories, and the Stages then\nread the PRs of the Project's root. In a Project over several\nrepositories the root is a plain folder, so gh ran outside any\nre…[cut]",
+      "messageHeadline": "Run gh for Pipeline Stages only in a folder inside a git work tree",
+      "oid": "241b84fb2b6cdc9aa81e053debef5b6dcc8fda87"
+    },
+    {
+      "authoredDate": "2026-10-18T02:37:07Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-18T02:48:15Z",
+      "messageBody": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+      "messageHeadline": "Record the gh location fix in the ticket",
+      "oid": "d7fca252b977994515440d77c30f8de641f3ef2d"
+    },
+    {
+      "authoredDate": "2026-10-18T02:37:58Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-18T02:48:15Z",
+      "messageBody": "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+      "messageHeadline": "Pipeline stages: keep the branchHeads comment on its method",
+      "oid": "42dc199b3a7ee01ceb788e6910a1b6308a781218"
+    }
+  ],
+  "createdAt": "2026-10-18T01:52:33Z",
+  "files": [
+    {
+      "path": ".scratch/worfy-pipeline/issues/04-вкладка-pipeline-и-секция-pipeline-боковой-панели.md",
+      "additions": 67,
+      "deletions": 6,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/main/workflow/stages.ts",
+      "additions": 11,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/renderer/main.tsx",
+      "additions": 2,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/renderer/pipeline/PipelineBoard.tsx",
+      "additions": 178,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/renderer/pipeline/board.ts",
+      "additions": 24,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/renderer/pipeline/pipeline.css",
+      "additions": 274,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/renderer/shell/AppShell.tsx",
+      "additions": 10,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/renderer/shell/Toolbar.tsx",
+      "additions": 13,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/renderer/shell/shell.css",
+      "additions": 11,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/renderer/shell/sidebar/PipelineSection.tsx",
+      "additions": 133,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/renderer/theme/primitives.tsx",
+      "additions": 4,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "test/contract/workflow-stages.test.ts",
+      "additions": 50,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "test/e2e/pipeline.spec.ts",
+      "additions": 212,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "test/e2e/sidebar-sections.spec.ts",
+      "additions": 1,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "test/unit/pipeline-board.test.tsx",
+      "additions": 447,
+      "deletions": 0,
+      "changeType": "ADDED"
+    }
+  ],
+  "headRefName": "worfy-pipeline/04",
+  "labels": [],
+  "mergedAt": "2026-10-18T03:01:51Z",
+  "number": 467,
+  "state": "MERGED",
+  "statusCheckRollup": []
+}

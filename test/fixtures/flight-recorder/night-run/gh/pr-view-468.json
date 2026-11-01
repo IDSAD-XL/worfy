@@ -1,0 +1,267 @@
+{
+  "comments": [
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdDUYKA",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "REJECTED\n\nHead before rework: 8b3cb187.\n\n**Act on**\n- [med] `src/renderer/canvas/nodes/TicketNode.tsx:118`, `src/renderer/pipeline/stepper.css:65`: on a 9-Stage Pipeline (worfy's own) the Stage name itself is truncated on a normal 204 px Card, and the \"waits for\" part disappears: Implementing + rework shows \"Impl…\", Implementing + blocked \"Implement…\", Check «windows» \"Check «wind…\". With both the…[cut]",
+      "createdAt": "2026-10-18T02:12:45Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/468#issuecomment-6244603944",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdDikmw",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "REJECTED (round 2)\n\nRework diff checked: 4239f8d0..94773dec.\n\n**Act on**\n- [med] Round-1 item 1 is not fully fixed. On a 9-Stage Pipeline, a Card with both the repository chip and the Ready chip still truncates the Stage name: \"a… Queu… 1/9 Ready\" (repository names `app`, `web-client`, `application-server`, both themes). \"Queued\" needs 42.66 px and gets 42 px, but `scrollWidth` and `clientWidth` r…[cut]",
+      "createdAt": "2026-10-18T02:42:19Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/468#issuecomment-6244836507",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdJsQfA",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "## Mac review, round 3 (medium, lens: correctness and tests) on `a065de16`\n\nThe round 2 finding is fixed: the sub-pixel cut of the Stage name beside `app`, `web-client` and `application-server` is gone (`test/e2e/checks-badges.spec.ts:523` green). The fractional-pixel measuring (`Stepper.tsx:55`, `:67`, `:80`) is right and caught by tests.\n\n**[med] blocking:** `src/renderer/pipeline/stepper.css:23…[cut]",
+      "createdAt": "2026-10-18T14:48:57Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/468#issuecomment-6251286652",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdJ-d-w",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "## Mac review, round 4 (low, the owner's extra narrow round) on `c08f2d20`\n\nNo findings — can merge after the Mac gate full.\n- Round 3's [med] is fixed: the narrow stepper's `flex-shrink: 0` is gone from `src/renderer/pipeline/stepper.css`; the repository chip has `flexShrink: 100000` (`src/renderer/canvas/nodes/TicketNode.tsx:62`). Putting the rule back turns the new e2e `test/e2e/checks-badges.s…[cut]",
+      "createdAt": "2026-10-18T15:18:38Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/468#issuecomment-6251585019",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOU7xS_s8AAAABdKXNdw",
+      "author": {
+        "login": "owner"
+      },
+      "authorAssociation": "OWNER",
+      "body": "Mac checks report: green\n\nHead checked: `c3ff2d02`. The serve pass rebased the PR onto main `01ae750e` and pushed it with a lease on `c08f2d20`.\n\n- `check` (`GATE_SCOPE=all node \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs\" full </dev/null`): `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package`, exit 0.\n- Mac checks section: `ticket-stepper` (unit) gre…[cut]",
+      "createdAt": "2026-10-18T15:58:37Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/owner/worfy/pull/468#issuecomment-6251990391",
+      "viewerDidAuthor": true
+    }
+  ],
+  "commits": [
+    {
+      "authoredDate": "2026-10-18T01:45:14Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-18T15:42:16Z",
+      "messageBody": "The Ticket Card shows a row of dots for the Stages of the Project's\nPipeline in place of the status word: passed, current (with the Stage\nname and who it waits for), future, a Check passed by a skippe…[cut]",
+      "messageHeadline": "Stepper of Stages on the Ticket Card; verdict badge from the review mark",
+      "oid": "ce79c756ad267e20e83d491fb2ee9915fe4139ed"
+    },
+    {
+      "authoredDate": "2026-10-18T02:30:17Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-18T15:42:16Z",
+      "messageBody": "The full stepper (nine dots, the Stage name and its flags) did not fit a\n204 px Card for long Stage names with rework or blocked, and the name was\ncut. The stepper now measures its full form before pa…[cut]",
+      "messageHeadline": "Stepper: narrow form when the full one does not fit; check on Done",
+      "oid": "21f8de151898d9c23aec9f45695d12195c47220d"
+    },
+    {
+      "authoredDate": "2026-10-18T14:33:17Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-18T15:42:16Z",
+      "messageBody": "On a 204 px Card with a repository chip and the Ready chip, the narrow\nstepper still shrank by its share of the row's deficit and cut the Stage\nname by under a pixel (\"Queued\" 42.49 px in 42.09). scro…[cut]",
+      "messageHeadline": "Stepper: the narrow form keeps its width; measure in fractional pixels",
+      "oid": "92010bd6dd15cafc6a483dd4720d8e2d973a24a0"
+    },
+    {
+      "authoredDate": "2026-10-18T15:05:22Z",
+      "authors": [
+        {
+          "email": "someone@example.com",
+          "id": "U_owner",
+          "login": "owner",
+          "name": "Someone"
+        },
+        {
+          "email": "noreply@anthropic.com",
+          "id": "MDQ6VXNlcjgxODQ3",
+          "login": "claude",
+          "name": "Claude Opus 5.5"
+        }
+      ],
+      "committedDate": "2026-10-18T15:42:16Z",
+      "messageBody": "… first\n\nWith flex-shrink: 0 on the narrow stepper, a row that did not fit even in\nthe narrow form ran past the Card edge and was clipped without an\nellipsis: N/M, the blocked mark and Ready vanished …[cut]",
+      "messageHeadline": "Stepper: the narrow form shrinks again; the repository chip gives way…",
+      "oid": "c3ff2d024d7049ddb8c20a8fa839658dfd6b5bc0"
+    }
+  ],
+  "createdAt": "2026-10-18T02:00:50Z",
+  "files": [
+    {
+      "path": ".scratch/worfy-pipeline/issues/05-stepper-на-card-ticket-а-вместо-слова-статуса.md",
+      "additions": 131,
+      "deletions": 4,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "harness/bin/tests/max-review.test.sh",
+      "additions": 7,
+      "deletions": 6,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/main/github/prs.ts",
+      "additions": 20,
+      "deletions": 19,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/renderer/canvas/badges/ChecksBadges.tsx",
+      "additions": 4,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/renderer/canvas/nodes/TicketNode.tsx",
+      "additions": 23,
+      "deletions": 7,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/renderer/pipeline/Stepper.tsx",
+      "additions": 187,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/renderer/pipeline/stepper.css",
+      "additions": 121,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/shared/ipc/checks.ts",
+      "additions": 3,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "test/contract/github-prs.test.ts",
+      "additions": 29,
+      "deletions": 28,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "test/e2e/checks-badges.spec.ts",
+      "additions": 264,
+      "deletions": 5,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "test/e2e/epic-frame.spec.ts",
+      "additions": 42,
+      "deletions": 26,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "test/unit/checks-badges.test.tsx",
+      "additions": 20,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "test/unit/ticket-stepper.test.tsx",
+      "additions": 470,
+      "deletions": 0,
+      "changeType": "ADDED"
+    }
+  ],
+  "headRefName": "worfy-pipeline/05",
+  "labels": [],
+  "mergedAt": "2026-10-18T15:58:40Z",
+  "number": 468,
+  "state": "MERGED",
+  "statusCheckRollup": [
+    {
+      "__typename": "StatusContext",
+      "context": "check/windows",
+      "startedAt": "2026-10-18T15:58:23Z",
+      "state": "SUCCESS",
+      "targetUrl": ""
+    },
+    {
+      "__typename": "StatusContext",
+      "context": "review",
+      "startedAt": "2026-10-18T15:58:22Z",
+      "state": "SUCCESS",
+      "targetUrl": ""
+    }
+  ]
+}

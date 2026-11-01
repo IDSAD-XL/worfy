@@ -274,6 +274,31 @@ describe('critical-path: what it reads from the journal', () => {
   })
 })
 
+describe('critical-path: the report after the reading moved to src/shared/flight-recorder', () => {
+  // The reports the script gave before its reading of journals and PRs moved into journal-walk.mjs and
+  // pr-facts.mjs (worfy-flight-recorder ticket 10), kept as JSON strings so that a checkout with CRLF line
+  // ends does not change them. The night Run's PR data carries file lists, so the budget lines are in it too.
+  const before = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'fixtures', 'flight-recorder', 'critical-path-before.json'), 'utf8')) as Record<string, string>
+  const NIGHT = join(import.meta.dirname, '..', 'fixtures', 'flight-recorder', 'night-run')
+  const reports: [string, string[]][] = [
+    ['demo', DEMO],
+    ['all', ['--journals', JOURNALS, '--root', ROOT, '--prs', PRS]],
+    ['night', ['--journals', join(NIGHT, 'data', 'autopilot'), '--prs', join(NIGHT, 'prs.json')]],
+  ]
+
+  it.each(reports)('gives the %s report byte for byte as before, in Markdown and CSV', (name, args) => {
+    for (const [ext, extra] of [
+      ['md', []],
+      ['csv', ['--csv']],
+    ] as const) {
+      const { status, stdout, stderr } = run([...args, ...extra])
+      expect(stderr).toBe('')
+      expect(status).toBe(0)
+      expect(stdout).toBe(before[`${name}.${ext}`])
+    }
+  })
+})
+
 describe('critical-path: the command line', () => {
   it('prints its input and output with --help', () => {
     const { status, stdout } = run(['--help'])

@@ -27,14 +27,18 @@
 //
 // It writes nothing but the --out file, and refuses an --out inside the journals, the worfy data
 // folder, the Project or ~/.claude (ADR-0005). The script runs without the app and cannot import
-// its TypeScript; test/unit/critical-path.test.ts keeps JOURNAL_KINDS in step with
-// JOURNAL_EVENT_KINDS of the journal format.
+// its TypeScript: the reading of journal lines and of PR data is the app's own, the plain modules
+// src/shared/flight-recorder/journal-walk.mjs and pr-facts.mjs; this script reads the files, asks gh,
+// counts the steps and the budget and writes the report. test/unit/critical-path.test.ts keeps
+// JOURNAL_KINDS in step with JOURNAL_EVENT_KINDS of the journal format.
 import { execFile } from 'node:child_process'
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { JOURNAL_KINDS, parseJournal, time, walkJournals } from '../src/shared/flight-recorder/journal-walk.mjs'
+import { GH_FIELDS, GH_RUN_FIELDS, ciMark, firstCommit, headCi, isCheckRun, pick, verdicts } from '../src/shared/flight-recorder/pr-facts.mjs'
 
 const HELP = `usage: node scripts/critical-path.mjs [options]
 
@@ -75,33 +79,12 @@ Exit code: 0 the report was made; 2 wrong arguments or a refused --out; 1 the re
 not be written.`
 
 /** Every kind of journal event, as JOURNAL_EVENT_KINDS of src/shared/autopilot/journal.ts. */
-export const JOURNAL_KINDS = [
-  'run-started',
-  'harness-behind',
-  'wave-started',
-  'narrow-round',
-  'wave-finished',
-  'budget-stop',
-  'limits-hit',
-  'waiting-until',
-  'resumed',
-  'session-error',
-  'refused-dialog',
-  'human-input',
-  'background-tasks',
-  'run-stopping',
-  'gate-queue',
-  'run-stopped',
-  'orchestrator-returned',
-  'tasks-killed',
-]
+export { JOURNAL_KINDS }
 
 const REFUSED = 2
 const FAILED = 1
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const TICKET = /^[0-9]+$/
-const GH_FIELDS = 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files'
-const GH_RUN_FIELDS = 'status,conclusion,event,createdAt,updatedAt'
 const GH_PARALLEL = 4
 const NOT_RUN = 'not run by Autopilot (no wave-started)'
 
@@ -173,25 +156,7 @@ function parseArgs(args) {
   return options
 }
 
-/** The time of an ISO text in ms, or null. */
-function time(text) {
-  if (typeof text !== 'string') return null
-  const ms = Date.parse(text)
-  return Number.isNaN(ms) ? null : ms
-}
-
-const isTickets = (value) => Array.isArray(value) && value.every((t) => typeof t === 'string' && t !== '')
-
-/** The fields of a kind this report relies on; the other kinds need only the common ones. */
-const FIELDS = {
-  'wave-started': (e) => Number.isInteger(e.wave) && isTickets(e.tickets),
-  'wave-finished': (e) => Number.isInteger(e.wave) && isTickets(e.tickets),
-  'narrow-round': (e) => typeof e.ticket === 'string' && ['started', 'verified', 'rejected'].includes(e.outcome),
-  'waiting-until': (e) => typeof e.until === 'string',
-  'run-stopped': (e) => typeof e.reason === 'string',
-}
-
-/** Every line of every journal, read in file order; a line that does not fit is skipped and counted. */
+/** Every journal of the folder, read in name order; a line that does not fit is skipped and counted. */
 function readJournals(dir) {
   const journal = { found: existsSync(dir), files: [], lines: 0, notJson: 0, unknownKind: 0, badFields: 0 }
   if (!journal.found) return journal
@@ -199,112 +164,11 @@ function readJournals(dir) {
     .filter((name) => name.endsWith('.jsonl'))
     .sort()
   for (const name of names) {
-    const events = []
-    for (const line of readFileSync(join(dir, name), 'utf8').split('\n')) {
-      if (line.trim() === '') continue
-      journal.lines++
-      let event
-      try {
-        event = JSON.parse(line)
-      } catch {
-        journal.notJson++
-        continue
-      }
-      if (event === null || typeof event !== 'object' || !JOURNAL_KINDS.includes(event.kind)) {
-        journal.unknownKind++
-        continue
-      }
-      const at = time(event.at)
-      if (at === null || typeof event.epic !== 'string' || event.epic === '' || !(FIELDS[event.kind]?.(event) ?? true)) {
-        journal.badFields++
-        continue
-      }
-      events.push({ ...event, at })
-    }
+    const { events, ...counts } = parseJournal(readFileSync(join(dir, name), 'utf8'))
+    for (const key of ['lines', 'notJson', 'unknownKind', 'badFields']) journal[key] += counts[key]
     journal.files.push(events)
   }
   return journal
-}
-
-/** What the journals say about each Ticket (`<epic>/<NN>`) and each Epic. */
-function walkJournals(journal) {
-  const tickets = new Map()
-  // Journals written before run-started had origin name only the Project; a later run of the
-  // same Project gives its repository.
-  const projectOrigins = new Map()
-  const epics = new Map()
-  const ticketOf = (epic, num) => {
-    const key = `${epic}/${num}`
-    if (!tickets.has(key)) tickets.set(key, { start: null, wait: 0, openWait: false, stops: [], narrow: { started: 0, rejected: 0 } })
-    return tickets.get(key)
-  }
-  const epicOf = (epic) => {
-    if (!epics.has(epic)) epics.set(epic, { origin: null, project: null, wait: 0, openWait: false })
-    return epics.get(epic)
-  }
-  for (const events of journal.files) {
-    let wave = null
-    let wait = null
-    const endWait = (at) => {
-      for (const num of wait.tickets) ticketOf(wait.epic, num).wait += at - wait.start
-      epicOf(wait.epic).wait += at - wait.start
-      wait = null
-    }
-    for (const event of events) {
-      const { epic, at } = event
-      if (typeof event.project === 'string' && event.project !== '') epicOf(epic).project = event.project
-      switch (event.kind) {
-        case 'run-started':
-          epicOf(epic)
-          if (typeof event.origin === 'string' && event.origin !== '') {
-            epicOf(epic).origin = event.origin
-            if (typeof event.project === 'string') projectOrigins.set(event.project, event.origin)
-          }
-          break
-        case 'wave-started':
-          epicOf(epic)
-          wave = { epic, tickets: event.tickets }
-          for (const num of event.tickets) {
-            const ticket = ticketOf(epic, num)
-            if (ticket.start === null || at < ticket.start) ticket.start = at
-          }
-          break
-        case 'wave-finished':
-          wave = null
-          break
-        case 'limits-hit':
-        case 'waiting-until':
-          wait ??= { epic, start: at, tickets: wave?.epic === epic ? wave.tickets : [] }
-          break
-        case 'resumed':
-          if (wait !== null) endWait(at)
-          break
-        case 'narrow-round': {
-          const narrow = ticketOf(epic, event.ticket).narrow
-          if (event.outcome === 'started') narrow.started++
-          if (event.outcome === 'rejected') narrow.rejected++
-          break
-        }
-        case 'session-error':
-          if (wave !== null) for (const num of wave.tickets) ticketOf(wave.epic, num).stops.push('session-error')
-          break
-        case 'run-stopped':
-          if (wait !== null) endWait(at)
-          if (wave !== null) for (const num of wave.tickets) ticketOf(wave.epic, num).stops.push(`run-stopped: ${event.reason}`)
-          wave = null
-          break
-        default:
-          break
-      }
-    }
-    if (wait !== null) {
-      for (const num of wait.tickets) ticketOf(wait.epic, num).openWait = true
-      epicOf(wait.epic).openWait = true
-      wait = null
-    }
-  }
-  for (const info of epics.values()) info.origin ??= projectOrigins.get(info.project) ?? null
-  return { tickets, epics }
 }
 
 /**
@@ -418,77 +282,6 @@ async function loadPrs(groups, options, deps, walked, root) {
   return found
 }
 
-/** Of several PRs for one Ticket: the merged one, else the newest. */
-function pick(prs) {
-  const valid = prs.filter((pr) => pr && typeof pr === 'object' && Number.isInteger(pr.number))
-  return valid.find((pr) => pr.state === 'MERGED' || pr.mergedAt) ?? valid.sort((a, b) => b.number - a.number)[0] ?? null
-}
-
-/** The moment CI went green: { at } or { why }. */
-function ciMark(pr, gate) {
-  const opened = time(pr.createdAt)
-  if (Array.isArray(pr.ciRuns) && pr.ciRuns.length > 0) {
-    // A manual run (workflow_dispatch) is not the PR's CI.
-    const runs = pr.ciRuns.filter((run) => run && run.event !== 'workflow_dispatch')
-    const greens = runs
-      .filter((run) => run.status === 'completed' && ['success', 'skipped', 'neutral'].includes(run.conclusion))
-      .map((run) => time(run.updatedAt))
-      .filter((at) => at !== null && (opened === null || at >= opened))
-      .sort((a, b) => a - b)
-    if (greens.length > 0) {
-      if (gate === null) return { at: greens[greens.length - 1] }
-      const before = greens.filter((at) => at <= gate)
-      return { at: before.length > 0 ? before[before.length - 1] : greens[0] }
-    }
-    if (runs.length > 0) return { why: 'CI not green (no successful run)' }
-  }
-  const checks = Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : []
-  if (checks.length === 0) return { why: 'no CI checks on the PR' }
-  let last = null
-  for (const check of checks) {
-    const name = check.name ?? check.context ?? 'check'
-    if (check.__typename === 'StatusContext' || ('state' in check && !('conclusion' in check))) {
-      if (check.state === 'PENDING' || check.state === 'EXPECTED') return { why: `CI not finished (${name})` }
-      if (check.state !== 'SUCCESS') return { why: `CI not green (${name}: ${check.state})` }
-    } else {
-      if (check.status !== 'COMPLETED') return { why: `CI not finished (${name})` }
-      if (!['SUCCESS', 'SKIPPED', 'NEUTRAL'].includes(check.conclusion)) return { why: `CI not green (${name}: ${check.conclusion})` }
-    }
-    const at = time(check.completedAt) ?? time(check.startedAt)
-    if (at !== null && (last === null || at > last)) last = at
-  }
-  return last === null ? { why: 'no time on the CI checks' } : { at: last }
-}
-
-const isCheckRun = (check) => check && typeof check === 'object' && check.__typename !== 'StatusContext' && !('state' in check && !('conclusion' in check))
-const checkTime = (check) => time(check.completedAt) ?? time(check.startedAt)
-
-/**
- * CI on the PR's head commit: the `ci-ok` check when the head has one (ADR-0083), else every check
- * run of the head. { at } — green, at null when the head has no CI; or { why }. Commit statuses
- * (`review`, `check/windows`) are the Orchestrator's merge marks, not CI.
- */
-function headCi(pr) {
-  const runs = (Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : []).filter(isCheckRun)
-  const oks = runs.filter((check) => check.name === 'ci-ok')
-  if (oks.length > 0) {
-    const ok = oks.reduce((a, b) => ((checkTime(b) ?? 0) >= (checkTime(a) ?? 0) ? b : a))
-    if (ok.status !== 'COMPLETED') return { why: 'ci-ok not finished on the PR head' }
-    if (ok.conclusion !== 'SUCCESS') return { why: `ci-ok not green on the PR head (${ok.conclusion})` }
-    return time(ok.completedAt) === null ? { why: 'no time on ci-ok' } : { at: time(ok.completedAt) }
-  }
-  let last = null
-  for (const check of runs) {
-    const name = check.name ?? 'check'
-    if (check.status !== 'COMPLETED') return { why: `CI not finished on the PR head (${name})` }
-    if (!['SUCCESS', 'SKIPPED', 'NEUTRAL'].includes(check.conclusion)) return { why: `CI not green on the PR head (${name}: ${check.conclusion})` }
-    const at = time(check.completedAt)
-    if (at !== null && (last === null || at > last)) last = at
-  }
-  if (runs.length > 0 && last === null) return { why: 'no time on the CI checks' }
-  return { at: last }
-}
-
 /**
  * "Checks green" of the owner's Q1: the later of the last VERIFIED and a green CI on the PR head.
  * A push after the VERIFIED (a CI fix) moves it to that head's green CI. { at, by } or { why }.
@@ -527,39 +320,6 @@ function budgetOf(pr, marks, step) {
   const queue = merge - lastMark
   const over = step.ms > budget.ms
   return { ...budget, over, gate, queue, step: over ? (gate > queue ? 'gate' : 'merge queue') : null }
-}
-
-const VERDICT = /^\s*(NARROW:\s*)?(VERIFIED|REJECTED)\b/
-const NARROW = /^\s*NARROW:/
-
-/**
- * The Gate verdicts in the PR's comments. A `NARROW: …` comment is the narrow fix round (one per
- * Ticket, harness/skills/epic-wave/SKILL.md); its `NARROW: REJECTED` is that round's verdict, not
- * a rework round, and its `NARROW: VERIFIED` is the Gate.
- */
-function verdicts(pr) {
-  const comments = (Array.isArray(pr.comments) ? pr.comments : []).filter((c) => typeof c?.body === 'string')
-  let gate = null
-  let rejected = 0
-  let narrow = 0
-  let narrowVerdict = false
-  for (const comment of comments) {
-    const verdict = VERDICT.exec(comment.body)
-    if (verdict?.[2] === 'VERIFIED') {
-      const at = time(comment.createdAt)
-      if (at !== null && (gate === null || at > gate)) gate = at
-    } else if (verdict?.[2] === 'REJECTED' && verdict[1] === undefined) rejected++
-    if (verdict?.[1] !== undefined) narrowVerdict = true
-    else if (verdict === null && NARROW.test(comment.body)) narrow++
-  }
-  // A verdict of a narrow round whose opening comment is missing still means the round was held.
-  return { gate, rejected, narrow: narrow === 0 && narrowVerdict ? 1 : narrow }
-}
-
-/** The first commit of the PR: the earliest authored time. */
-function firstCommit(pr) {
-  const times = (Array.isArray(pr.commits) ? pr.commits : []).map((c) => time(c?.authoredDate) ?? time(c?.committedDate)).filter((t) => t !== null)
-  return times.length > 0 ? Math.min(...times) : null
 }
 
 /** One Ticket's marks, steps and counts. */
@@ -873,7 +633,7 @@ export async function criticalPath(args, deps = systemDeps()) {
   }
 
   const journal = readJournals(journals)
-  const walked = walkJournals(journal)
+  const walked = walkJournals(journal.files)
   const groups = chooseTickets(options, walked, root)
   const prs = await loadPrs(groups, options, deps, walked, root)
   const measured = groups.map(({ epic, tickets }) => ({ epic, rows: tickets.map((ticket) => measure(ticket, prs.get(`${ticket.epic}/${ticket.num}`))) }))
