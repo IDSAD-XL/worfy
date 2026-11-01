@@ -79,4 +79,23 @@ Source: [spec.md](../spec.md), «Решения» (Q10, Q13), «Journal» (по�
   строка `start-window` не открывает Wait (его открывает `waiting-until` как `limits`); detail без `reason`; любой
   `mode`; последняя `forecast` вместо первой; отрицательная доля; дробный счёт; `fit` без проверки; `counted > waves`;
   `actual` без Wave; `forecast` не читается; `actual` не читается.
-- Оценка автора: около 150 тыс. токенов.
+- Ревью, раунд 1 (PR #1221):
+  - Экран всё же правился. В `src/renderer/flight-recorder/span-words.ts` и
+    `src/renderer/flight-recorder/SummaryStrip.tsx` у `WAIT_WORDS` появилась запись `'start-window': 'Start window'`.
+    Оба словаря теперь `Record<WaitCause, string>`: новая причина без подписи даёт красный typecheck. Запасной
+    вывод сырой причины убран. Test: `test/unit/flight-recorder-view.test.tsx` — подпись бара на дорожке Wait и
+    строки «Waits by cause».
+  - Строки Limits, budget и Start window ведут один общий Wait. Строка, пришедшая при уже открытом Wait, его не
+    закрывает и нового не открывает. Так `start-window` при открытом Wait `limits` и `limits-hit` внутри Wait окна
+    не дают второго Wait-а. Ни один писатель так не пишет, поведение закреплено test-ами. Wait `background-tasks`
+    строка `start-window` не трогает.
+  - Test-ы: `actual` берётся из последнего из двух `run-stopped`; `mode` — только из `run-started`, `mode`
+    строки `forecast` его не подменяет. `toEqual` вместо `toMatchObject` для `actual`, `mode`, `forecast` и Wait
+    `wave-too-long`.
+  - Mutant-ы раунда (все красные): нет записи Start window в span-words; нет её в SummaryStrip; `actual` из
+    первого `run-stopped`; `mode` из строки `forecast`; `start-window` заменяет открытый Wait; `start-window`
+    закрывает открытый Wait и открывает свой; `limits-hit` заменяет открытый Wait; `start-window` закрывает Wait
+    `background-tasks`.
+  - Долг без правки: проверки формы `forecast` и `actual` повторяют zod-схему `src/shared/autopilot/journal.ts`
+    вручную.
+- Оценка автора: около 220 тыс. токенов вместе с раундом 1.
