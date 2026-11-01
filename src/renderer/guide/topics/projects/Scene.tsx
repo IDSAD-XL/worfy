@@ -20,7 +20,7 @@ const PROJECTS_SPEC: SceneSpec = {
     // On the Canvas.
     { id: 'canvas', x: 304, y: 24, group: 'project', topic: 'canvas', page: 'docs/features/canvas.md', shape: 'tab', width: 92 },
     { id: 'orchestrator', x: 336, y: 104, group: 'harness' },
-    { id: 'handoff', x: 640, y: 104, group: 'workflow' },
+    { id: 'handoff', x: 640, y: 104, group: 'machine' },
     // The Harness, the Profile and the files.
     { id: 'harness', x: 16, y: 290, group: 'harness', topic: 'harness', page: 'docs/features/harness.md' },
     { id: 'profile', x: 296, y: 290, group: 'harness', topic: 'harness', page: 'docs/features/harness.md' },

@@ -42,8 +42,9 @@ Topic `projects` (`src/renderer/guide/topics/projects/`): `Scene.tsx` (прос�
 страницу `harness.md`. Остальные блоки только подсвечиваются.
 
 Решено без владельца. Цвета групп — как на Map of worfy: Profile, Harness и Orchestrator — `harness`; список Projects,
-диалог Add project и раздел ADR — код окна worfy, нейтральный `machine`; репозиторий и вкладка Canvas — `project`;
-Workflow folder и HANDOFF — `workflow` (документы workflow, как Ticket на Map). Раздел ADR стоит вне рамки Canvas
+диалог Add project, Node HANDOFF и раздел ADR — код окна worfy, нейтральный `machine`, на обеих схемах (на потоке
+данных они вместе — блок «Document views»); репозиторий и вкладка Canvas — `project`; Workflow folder — `workflow`
+(файлы workflow). Раздел ADR стоит вне рамки Canvas
 без подписи области: это часть боковой панели, а не Node. Ни одна схема не рисует Tickets: их чтение — Topic Workflow.
 Ключи `handoff`, `adr` и `add project` не взяты: `handoff` — заголовок строки Node-а HANDOFF, `adr` ищет строки ADR.
 
@@ -52,11 +53,11 @@ Workflow folder и HANDOFF — `workflow` (документы workflow, как T
 | Что на схеме или в тексте | Источник |
 |---|---|
 | Project — репозиторий или папка над несколькими репозиториями | `CONTEXT.md:9-10`, `p.md:18`, `:49` |
-| Project добавляют один раз и выбирают режим; Full mode держит файлы workflow в репозитории, Silent mode — в папке вне его | `p.md:11-13`, `:17`, `:33-34` |
+| Режим выбирают один раз, для папки, которой Harness ещё не знает; Full mode держит файлы workflow в репозитории, Silent mode — в папке вне его | `p.md:11-13`, `:17`, `:33-34`, `:46` |
 | Список Projects переключает Project окна; подпись «the sidebar list» | `p.md:190-192`, `:198` |
 | HANDOFF и ADR — виды только для чтения; «a read-only Node» | `p.md:302`, `src/main/docs/watch.ts` (`readDoc`, нет записи), `src/main/ipc/docs.ts:40` |
 | Add project: «Folder, Mode, Harness, Draft, Review» | `p.md:40` |
-| Шаг 1: папка и режим, Session Claude Code готовит Profile, проверка формой, Connect — Harness пишет Profile, Project попадает в список («joins the list», «Connect», «writes») | `p.md:42-73`, `:132`, `src/main/projects/connect.ts:673`, `src/main/ipc/projects.ts:147` |
+| Шаг 1: для папки, которой Harness не знает, — режим, Session Claude Code готовит Profile, проверка формой, Connect — Harness пишет Profile, Project попадает в список («joins the list», «Connect», «writes») | `p.md:42-73`, `:132`, `src/main/projects/connect.ts:673`, `src/main/ipc/projects.ts:147` |
 | Harness: «rules, skills, agents, hooks» (подпись Map of worfy) | `src/renderer/guide/topics/map-of-worfy/en.json` (`harnessNote`) |
 | Profile: «on the Machine, with the mode»; «names it» (Profile называет Workflow folder) | `p.md:67-68`, `:125-127`, `src/main/workflow/folder.ts` (`readProjectLayout`, `workflowFolder`) |
 | Шаг 2 и связь «Full: is its root»: в Full mode Workflow folder — корень репозитория | `p.md:11-12`, `:17`, `src/main/ipc/docs.ts:31` |
@@ -64,7 +65,7 @@ Workflow folder и HANDOFF — `workflow` (документы workflow, как T
 | Workflow folder: «the workflow's files» | `p.md:3`, `:11` |
 | Repository: «your code and its branches» | `p.md:11-12` |
 | Шаг 3: щелчок переключает Canvas, Session view и Pipeline board, открывает Orchestrator этого Project-а; все окна Machine следуют («switches», «opens», «opens on a switch», Canvas «of the active Project») | `p.md:198-205`, `src/main/agent/app-orchestrators.ts:127` |
-| Шаг 4: HANDOFF.md и ADR читаются из Workflow folder; HANDOFF — Node на Canvas, ADR — раздел боковой панели («HANDOFF.md», «docs/adr/», «sidebar list and panel»); правка HANDOFF.md на Node-е в пределах секунды | `p.md:302-309`, `:324`, `:331`, `src/shared/ipc/docs.ts:9`, `:11`, `test/e2e/handoff.spec.ts:65` |
+| Шаг 4: HANDOFF.md и ADR читаются из Workflow folder, а пока Harness не отвечает — из корня Project-а; HANDOFF — Node на Canvas, ADR — в боковой панели («HANDOFF.md», «docs/adr/»); раздел ADR — «sidebar list, panel over the Canvas»; правка HANDOFF.md на Node-е в пределах секунды | `p.md:102`, `:302-309`, `:324`, `:331`, `src/main/workflow/folder.ts:68`, `:133`, `src/main/ipc/docs.ts:31`, `src/shared/ipc/docs.ts:9`, `:11`, `test/e2e/handoff.spec.ts:65` |
 | UTH: worfy спрашивает Harness, где файлы; Add project пишет только через `project-connect` | `p.md:122-123`, `:132`, `src/main/workflow/folder.ts:126`, `:142` |
 | UTH: у Session черновика только Read, Glob, Grep; режим и Workflow folder worfy ставит поверх ответа | `p.md:128-131`, `src/main/projects/connect.ts:54`, `:20`, `:426` |
 | UTH: у списка ревизия, опоздавший ответ не откатывает | `p.md:257-258`, `src/main/projects/store.ts:120`, `:154` |
@@ -74,7 +75,7 @@ Workflow folder и HANDOFF — `workflow` (документы workflow, как T
 | Поток: ProjectConnector → ProjectStore «add» | `p.md:166`, `:171-172`, `src/main/projects/connect.ts:673` |
 | Поток: useProjects «openProject, the list's copy» ⇄ ProjectStore `projects.select` / `projects.changed`; ProjectStore «projects.json, a revision» | `p.md:270`, `:278`, `:285-287`, `src/shared/ipc/projects.ts:98`, `:139`, `src/renderer/projects/useProjects.ts:59`, `:77` |
 | Поток: ProjectStore → app-orchestrators «onChange»; «opens the new Project's» | `p.md:277`, `:205`, `src/main/agent/app-orchestrators.ts:127` |
-| Поток: LayoutCache «one answer per 30 s» → bin/profile «profile -C --json», «and ticket root» | `p.md:148-149`, `src/main/workflow/folder.ts:113`, `:170`, `:180` |
+| Поток: LayoutCache «one answer per 30 s» → «Harness scripts» «profile -C --json, ticket root», связь «where the files are»: `profile` через `readResolvedProfile`, `ticket root` — скрипт Harness `ticket` | `p.md:148-149`, `src/main/workflow/folder.ts:113`, `:130`, `:142`, `:170`, `:180` |
 | Поток: LayoutCache → DocsHub «the root, by mode» | `p.md:393`, `:404`, `src/main/ipc/docs.ts:29-31` |
 | Поток: Workflow folder → DocsHub «fs.watch»; DocsHub «one watch per Project» | `p.md:377`, `:391` |
 | Поток: DocsHub → виды `docs.changed`, вид → DocsHub `docs.read`; «HANDOFF Node, ADR section» | `p.md:404-406`, `:398-399`, `src/shared/ipc/docs.ts:51`, `:64`, `:72` |
@@ -103,5 +104,13 @@ Workflow folder и HANDOFF — `workflow` (документы workflow, как T
 блоком Projects и вкладкой Canvas; рамка Canvas сдвинута на 40 вправо. Снимки сняты со сборки закоммиченного head
 ветки, без `.dirty`.
 
-**Tokens.** Автор: около 230 тыс. токенов контекста (точного счётчика у агента нет; оценка по объёму прочитанного и
+**Доработка после REJECTED (PR #1170, ревью medium).** Подпись раздела ADR — «sidebar list, panel over the Canvas» /
+«список в боковой панели, панель над Canvas» (`p.md:331`). Шаг 4 называет запасной путь: пока Harness не отвечает,
+HANDOFF и ADR читаются из корня Project-а (`p.md:102`). Summary и шаг 1: режим выбирают только для папки, которой Harness
+ещё не знает (`p.md:33-34`, `:46`). Блок потока данных «bin/profile» стал «Harness scripts» (`profile -C --json` и
+`ticket root` — два разных скрипта, `folder.ts:130`, `:142`). Node HANDOFF на простой схеме теперь `machine`, как раздел
+ADR и блок «Document views» потока. «30 s» — с неразрывным пробелом в EN и RU. Повторная проверка перекрытий и снимки —
+со сборки закоммиченного head доработки.
+
+**Tokens.** Автор: около 230 тыс. токенов контекста за первый раунд и около 60 тыс. за доработку (точного счётчика у агента нет; оценка по объёму прочитанного и
 написанного). Проверка: считает ревьюер.

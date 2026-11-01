@@ -1,7 +1,7 @@
 {
   "title": "Projects",
   "summary": [
-    "A Project is a repository, or a folder over several, that worfy shows. You add it once and choose its mode: Full mode keeps the workflow files in the repository, Silent mode in a folder outside it. The Projects list switches the Project a window shows. HANDOFF and the ADRs are read-only views."
+    "A Project is a repository, or a folder over several, that worfy shows. For a folder the Harness does not know yet, you choose the mode once: Full mode keeps the workflow files in the repository, Silent mode in a folder outside it. The Projects list switches the Project a window shows. HANDOFF and the ADRs are read-only views."
   ],
   "scene": {
     "description": "Projects in worfy. In the window, the Add project dialog adds a Project to the Projects list and, on Connect, has the Harness write its Profile. The Profile names the Workflow folder, which in Full mode is the root of the repository; in Silent mode the Harness keeps the repository free of any trace of the workflow. A click in the Projects list switches the Canvas and opens the Orchestrator of that Project. From the Workflow folder, worfy reads HANDOFF.md for the HANDOFF Node on the Canvas and docs/adr/ for the ADR section of the sidebar.",
@@ -25,7 +25,7 @@
       "workflowFolder": "Workflow folder",
       "workflowFolderNote": "the workflow's files",
       "adrs": "ADR section",
-      "adrsNote": "sidebar list and panel",
+      "adrsNote": "sidebar list, panel over the Canvas",
       "joinsList": "joins the list",
       "connect": "Connect",
       "writes": "writes",
@@ -36,15 +36,15 @@
       "opens": "opens",
       "handoffFile": "HANDOFF.md",
       "adrFiles": "docs/adr/",
-      "step1": "Add project: you pick a folder and a mode, a Claude Code Session drafts the Profile, and you review it. Connect has the Harness write the Profile, and the Project joins the list.",
+      "step1": "Add project: for a folder the Harness does not know, you pick a mode, a Claude Code Session drafts the Profile, and you review it. Connect has the Harness write the Profile, and the Project joins the list.",
       "step2": "The mode decides where the workflow files live. In Full mode the Workflow folder is the repository root. In Silent mode it lies outside, and the Harness refuses commits, branch names and PR texts with a trace of the workflow.",
       "step3": "A click in the Projects list switches the Canvas, the Session view and the Pipeline board, and opens that Project's Orchestrator. Every window of the Machine follows.",
-      "step4": "HANDOFF.md and the ADRs are read from the Workflow folder: HANDOFF as a Node on the Canvas, the ADRs as a sidebar section. An edit to HANDOFF.md is on the Node within a second."
+      "step4": "HANDOFF.md and the ADRs are read from the Workflow folder: HANDOFF as a Node on the Canvas, the ADRs in the sidebar. While the Harness gives no answer, they are read from the Project root. An edit to HANDOFF.md is on the Node within a second."
     }
   },
   "underTheHood": {
     "flow": {
-      "description": "The data flow of Projects. In the renderer: the Add project dialog, useProjects and the views of HANDOFF and the ADRs. In the main process: ProjectConnector, ProjectStore, app-orchestrators, LayoutCache and DocsHub. On the side of the Harness: project-connect, bin/profile and the Workflow folder. The dialog calls projects.connect.* on ProjectConnector, which runs project-connect and then adds the folder to ProjectStore. useProjects calls projects.select on ProjectStore, which sends projects.changed back and lets app-orchestrators follow its onChange. LayoutCache asks bin/profile where the files are, and its root goes to DocsHub, which watches the Workflow folder. DocsHub sends docs.changed to the views, and a view reads the text with docs.read.",
+      "description": "The data flow of Projects. In the renderer: the Add project dialog, useProjects and the views of HANDOFF and the ADRs. In the main process: ProjectConnector, ProjectStore, app-orchestrators, LayoutCache and DocsHub. On the side of the Harness: project-connect, the Harness scripts profile and ticket, and the Workflow folder. The dialog calls projects.connect.* on ProjectConnector, which runs project-connect and then adds the folder to ProjectStore. useProjects calls projects.select on ProjectStore, which sends projects.changed back and lets app-orchestrators follow its onChange. LayoutCache asks the scripts profile and ticket where the files are, and its root goes to DocsHub, which watches the Workflow folder. DocsHub sends docs.changed to the views, and a view reads the text with docs.read.",
       "labels": {
         "renderer": "RENDERER",
         "main": "MAIN PROCESS",
@@ -62,13 +62,13 @@
         "orchestrators": "app-orchestrators",
         "orchestratorsNote": "opens the new Project's",
         "layout": "LayoutCache",
-        "layoutNote": "one answer per 30 s",
+        "layoutNote": "one answer per 30\u00a0s",
         "docsHub": "DocsHub",
         "docsHubNote": "one watch per Project",
         "connect": "project-connect",
         "connectNote": "checks the draft, writes",
-        "profile": "bin/profile",
-        "profileNote": "and ticket root",
+        "profile": "Harness scripts",
+        "profileNote": "profile -C --json, ticket root",
         "folder": "Workflow folder",
         "folderNote": "HANDOFF.md, docs/adr/",
         "connectCalls": "projects.connect.*",
@@ -77,7 +77,7 @@
         "select": "projects.select",
         "changed": "projects.changed",
         "onChange": "onChange",
-        "asks": "profile -C --json",
+        "asks": "where the files are",
         "root": "the root, by mode",
         "watch": "fs.watch",
         "docsChanged": "docs.changed",
@@ -89,7 +89,7 @@
       "A list carries a revision, so a late answer does not roll it back. A document's state carries a hash of each file, and a view reads the text again only when the hash changes."
     ],
     "files": {
-      "src/main/workflow/folder.ts": "Asks the Harness where the files are; keeps each answer 30 s",
+      "src/main/workflow/folder.ts": "Asks the Harness where the files are; keeps each answer 30\u00a0s",
       "src/main/projects/connect.ts": "The steps of Add project, and what worfy sets over the draft",
       "harness/bin/project-connect": "Checks the draft and writes the Profile, with a rollback",
       "src/main/projects/store.ts": "The list in projects.json, the active Project, the branch",

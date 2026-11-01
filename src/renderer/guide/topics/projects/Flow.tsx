@@ -3,8 +3,9 @@
 // and the Harness with the Workflow folder. "Add project": the dialog drives ProjectConnector over
 // projects.connect.*, which runs project-connect and then adds the folder to ProjectStore. A switch:
 // projects.select into ProjectStore, projects.changed back, and the Orchestrators follow its onChange.
-// The documents: the layout cache asks bin/profile where the files are, DocsHub watches that root, and
-// the views get docs.changed and read the text with docs.read. Labelled from `underTheHood.flow.labels`.
+// The documents: the layout cache asks the Harness scripts profile and ticket where the files are,
+// DocsHub watches that root, and the views get docs.changed and read the text with docs.read. Labelled
+// from `underTheHood.flow.labels`.
 import type { SceneProps } from '../../content'
 import { LivingScene } from '../../scene/LivingScene'
 import type { SceneSpec } from '../../scene/model'
