@@ -181,7 +181,7 @@ Claude Code запускает эти команды на свои событи�
 | `TaskCompleted`, `TeammateIdle` | `gate.sh fast` | 900 | [Gate](gate-and-github.md) |
 | `Stop` | `stop.mjs` | 10 | Держит ход, пока Gate красный, см. [Gate](gate-and-github.md) |
 | `Stop` | `worktree-lock beat` | 5 | Отмечает Session живой |
-| `Stop` | `qmd-refresh.mjs` | 15 | Запускает `qmd-refresh --quiet`: обновляет индекс в фоне, если главная ветка сдвинулась или файл memory либо lessons новее последнего обновления. На Windows или без `zsh` в PATH завершается с exit code 0 и ничего не делает |
+| `Stop` | `qmd-refresh --quiet` | 15 | Обновляет индекс в фоне, если главная ветка сдвинулась или файл memory либо lessons новее последнего обновления. Когда qmd не может работать (нет qmd, слишком старый node), завершается с exit code 0, не обновляет индекс и пишет причину в журнал не чаще раза в сутки |
 | `SessionEnd` | `session-end.mjs` | 10 | Отмечает Session без ретроспективы |
 | `SessionEnd` | `worktree-lock release` | 5 | Снимает регистрацию |
 

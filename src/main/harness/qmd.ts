@@ -4,15 +4,17 @@
 // only reads, and writes or runs something only when the call carries the user's answer.
 //
 // - The state: `qmd` on the PATH of the login shell (ADR-0007, src/main/agent/env.ts) and its
-//   version, node (qmd needs 22 or newer), which models are in qmd's cache, and the answer the user
-//   gave about the models.
+//   version, node (qmd needs 22.14 or newer), which models are in qmd's cache, and the answer the user
+//   gave about the models. On Windows `npm` and `qmd` are the `.cmd` files npm leaves, which only
+//   cmd.exe starts (toolStart of src/main/first-run/tools.ts).
 // - installQmd: `npm install -g @tobilu/qmd@<QMD_VERSION>` in the login shell environment, only with
 //   `consent: true`. The version is pinned: the Harness scripts rely on the behaviour of this one
 //   (qmd-refresh reads index.yml itself; qmd-mcp sets the query expansion model through the
 //   environment, because 2.8.3 does not read `generate:` from index.yml). A newer qmd comes as a PR
 //   to harness/ together with a check of the scripts; another version on the PATH is a warning, and
-//   nothing reinstalls it by itself. No node or one older than 22 — npm is not run, the answer
-//   names `brew install node`: worfy installs nothing of the system (Q22).
+//   nothing reinstalls it by itself. No node or one older than 22.14 — npm is not run, the answer
+//   names `brew install node`, on Windows `winget install OpenJS.NodeJS.LTS`: worfy installs nothing
+//   of the system (Q22).
 // - The models: the list and its size before the consent, from the table below (QMD_MODELS, the
 //   sizes of the files in the owner's ~/.cache/qmd/models on 2026-10-08). The Russian query
 //   expansion model replaces the default one when any Project writes its documents in Russian
@@ -26,7 +28,8 @@
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
-import { agentEnv } from '../agent/env'
+import { agentEnv, getVar } from '../agent/env'
+import { installCommand, killTool, toolStart, windowsProgram } from '../first-run/tools'
 import { runHarnessScript, type SpawnProcess } from '../workflow/profile'
 
 type Env = Readonly<Record<string, string | undefined>>
@@ -35,10 +38,19 @@ type Env = Readonly<Record<string, string | undefined>>
 export const QMD_PACKAGE = '@tobilu/qmd'
 /** The qmd version the Harness scripts are checked with (ticket 17 pins it; ADR-0043 left the choice to it). */
 export const QMD_VERSION = '2.8.3'
-/** qmd 2.8.3 declares `engines.node >= 22`. */
+/** The node the Harness scripts need; qmd 2.8.3 declares the same `engines.node >= 22`, but see qmdRunsOnNode. */
 export const MIN_NODE_MAJOR = 22
-/** What the user runs when node is missing or too old: worfy does not install it. */
-export const NODE_INSTALL_HINT = 'brew install node'
+/**
+ * The node qmd 2.8.3 really runs on: its better-sqlite3 13 is built for N-API 10, which came in 22.14 on
+ * the 22 line and in 23.6 on the 23 line, and a node without it dies loading the module, without a word.
+ * The Harness scripts draw the same line (nodeTooOld of harness/lib/qmd-common.cjs), and a contract test
+ * checks that they agree.
+ */
+export const qmdRunsOnNode = (version: string): boolean => {
+  const [major = 0, minor = 0] = version.split('.').map(Number)
+  return major >= 24 || (major === 23 && minor >= 6) || (major === 22 && minor >= 14)
+}
+export const QMD_NODE_NEED = '22.14 or newer (23.6 or newer on the 23 line)'
 /** The answer about the models, in the Harness home; qmd-mcp, qmd-refresh and qmd-collections read it. */
 export const MODELS_ANSWER_FILE = 'qmd-models'
 
@@ -54,8 +66,8 @@ export interface QmdModel {
 }
 
 /**
- * The models qmd-mcp runs with. The URIs are also in harness/bin/qmd-mcp (and the embedding one in
- * qmd-refresh and qmd-collections); test/contract/harness-qmd.test.ts checks they agree.
+ * The models qmd-mcp runs with. The URIs are also in harness/lib/qmd-common.cjs, which the qmd scripts of
+ * the Harness share; test/contract/harness-qmd.test.ts checks they agree.
  */
 export const QMD_MODELS = Object.freeze({
   embed: {
@@ -139,9 +151,11 @@ export function profileDocsLanguages(homes: QmdHomes): string[] {
   return languages
 }
 
-/** qmd's model cache: $XDG_CACHE_HOME/qmd/models, or ~/.cache/qmd/models. */
+/** qmd's model cache: $XDG_CACHE_HOME/qmd/models, or .cache/qmd/models in qmd's home folder: HOME, then USERPROFILE, on Windows too. */
 export function modelCacheDir(env: Env): string {
-  return env.XDG_CACHE_HOME ? join(env.XDG_CACHE_HOME, 'qmd', 'models') : join(env.HOME ?? '', '.cache', 'qmd', 'models')
+  const xdg = getVar(env, 'XDG_CACHE_HOME')
+  if (xdg) return join(xdg, 'qmd', 'models')
+  return join(getVar(env, 'HOME') || getVar(env, 'USERPROFILE') || '', '.cache', 'qmd', 'models')
 }
 
 export type ModelsAnswer = 'downloaded' | 'skipped'
@@ -177,13 +191,15 @@ interface RunResult {
 
 const MAX_OUTPUT = 1024 * 1024
 
-/** Runs a command with `env`, the PATH of `env` finding it. Never rejects. */
+/** Runs a command with `env`, the PATH of `env` finding it, a `.cmd` on Windows through cmd.exe (toolStart). Never rejects. */
 function runCommand(command: string, args: readonly string[], env: Env, timeoutMs: number): Promise<RunResult> {
+  const start = toolStart(command, args, env, process.platform)
+  if (start === null) return Promise.resolve({ code: null, stdout: '', stderr: `${command}: not found on the PATH`, missing: true })
   return new Promise((resolve) => {
     let stdout = ''
     let stderr = ''
-    const child = spawn(command, args, { env: env as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'] })
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs)
+    const child = spawn(start.file, start.args, { env: env as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, shell: start.shell })
+    const timer = setTimeout(() => killTool(child, process.platform, env), timeoutMs)
     child.stdout.on('data', (chunk: Buffer) => {
       if (stdout.length < MAX_OUTPUT) stdout += chunk.toString('utf8')
     })
@@ -208,8 +224,9 @@ const lastLine = (text: string): string =>
     .filter((line) => line !== '')
     .at(-1) ?? ''
 
-/** The first executable `name` on the PATH of `env`. */
+/** The first `name` on the PATH of `env`; on Windows the `.exe` or `.cmd` of that name. */
 function onPath(name: string, env: Env): string | null {
+  if (process.platform === 'win32') return windowsProgram(name, env)?.file ?? null
   for (const dir of (env.PATH ?? '').split(delimiter)) {
     if (!dir) continue
     const candidate = join(dir, name)
@@ -237,6 +254,7 @@ const loginEnv = async (options: QmdOptions): Promise<Env> => options.env ?? (aw
 export interface NodeState {
   /** `node --version` without the `v`; null when there is no node. */
   version: string | null
+  /** Whether qmd runs on it (qmdRunsOnNode). */
   ok: boolean
 }
 
@@ -244,7 +262,8 @@ async function nodeState(env: Env): Promise<NodeState> {
   const run = await runCommand('node', ['--version'], env, SHORT_TIMEOUT_MS)
   const match = /v?(\d+)\.(\d+)\.(\d+)/.exec(run.stdout)
   if (run.code !== 0 || !match) return { version: null, ok: false }
-  return { version: `${match[1]}.${match[2]}.${match[3]}`, ok: Number(match[1]) >= MIN_NODE_MAJOR }
+  const version = `${match[1]}.${match[2]}.${match[3]}`
+  return { version, ok: qmdRunsOnNode(version) }
 }
 
 export interface QmdBinaryState {
@@ -269,9 +288,33 @@ export interface QmdState {
   version: 'ok' | 'warn' | 'missing'
   warning: string | null
   node: NodeState
+  /** The version of the newest node of nvm at or above the limit that has qmd beside it, or null: the Harness scripts run on it. */
+  qmdOnNvm: string | null
   /** What would be downloaded, and which of those files are already in qmd's cache. */
   models: ModelPlan & { present: string[] }
   answer: ModelsAnswer | null
+}
+
+/**
+ * What the Harness scripts find in nvm when the first node on the PATH is too old or qmd is not on the PATH
+ * (findQmd and rerunOnNvmNode of harness/lib/qmd-common.cjs). The files are only looked at: a node of nvm that
+ * cannot start is not known here.
+ */
+function qmdOnNvm(env: Env): string | null {
+  const root = join(getVar(env, 'HOME') || getVar(env, 'USERPROFILE') || '', '.nvm', 'versions', 'node')
+  let versions: string[]
+  try {
+    versions = readdirSync(root).sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))
+  } catch {
+    return null
+  }
+  const windows = process.platform === 'win32'
+  for (const version of versions) {
+    const bin = join(root, version, 'bin')
+    const hasQmd = existsSync(join(bin, 'qmd')) || (windows && existsSync(join(bin, 'qmd.cmd')))
+    if (hasQmd && existsSync(join(bin, windows ? 'node.exe' : 'node')) && qmdRunsOnNode(version.replace(/^v/, ''))) return version.replace(/^v/, '')
+  }
+  return null
 }
 
 /** What is on the machine. Runs `node --version` and `qmd --version`, writes nothing. */
@@ -287,6 +330,7 @@ export async function qmdState(options: QmdOptions): Promise<QmdState> {
     version,
     warning: version === 'warn' && qmd !== null ? otherVersionWarning(qmd) : null,
     node,
+    qmdOnNvm: qmdOnNvm(env),
     models: { ...plan, present },
     answer: readModelsAnswer(options.harnessHome)?.answer ?? null,
   }
@@ -312,7 +356,7 @@ export async function installQmd(options: QmdOptions & { consent: boolean }): Pr
   const node = await nodeState(env)
   if (!node.ok) {
     const found = node.version === null ? 'there is no node' : `node is ${node.version}`
-    return { status: 'no-node', error: `qmd needs node ${MIN_NODE_MAJOR} or newer, and ${found}: install it with \`${NODE_INSTALL_HINT}\`` }
+    return { status: 'no-node', error: `qmd needs node ${QMD_NODE_NEED}, and ${found}: install it with \`${installCommand(process.platform === 'win32', 'node')}\`` }
   }
   const present = await qmdBinary(env)
   if (present !== null) {

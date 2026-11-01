@@ -18,7 +18,7 @@ import { emptyUpdateState } from '../../src/main/update/state'
 import type { Check, CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
 import type { HarnessStatus } from '../../src/shared/ipc/harness'
 import type { UpdateSnapshot } from '../../src/shared/ipc/update'
-import { NODE, nodeScript, OUT_OF_MEMORY, scriptsEnv } from '../harness-node'
+import { NODE, NODE_DIR, nodeScript, OUT_OF_MEMORY, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 import { shellStub } from '../shell-stub'
 
@@ -44,14 +44,6 @@ const WINDOWS = process.platform === 'win32'
  * starts a `.mjs` under worfy's own Node (src/main/program.ts), and Windows cannot start the `#!/bin/sh` one.
  */
 const CLAUDE = join(TOOLS, WINDOWS ? 'claude.mjs' : 'claude')
-/**
- * The cases that need qmd's rows and actions to find node, npm and qmd: not on Windows yet. qmd.ts
- * starts `npm` and `node` by their bare names without a shell and looks for a file named `qmd` on the
- * PATH, so it finds neither npm's npm.cmd and qmd.cmd nor these `.cmd` stand-ins; the
- * qmd-collections stand-in below is a `#!/bin/sh` script, which worfy does not run on Windows either.
- * worfy-windows ticket 15 (qmd on Windows) lifts this.
- */
-const itWithQmd = it.skipIf(WINDOWS)
 /** The Claude Code version "this build" carries, as the checks are told. */
 const BUNDLED = '2.1.289'
 const BUNDLED_HARNESS = '1.2.0+abc1234'
@@ -616,7 +608,7 @@ describe('first-run checks', () => {
     expect(checkOf(report, 'legacy-harness')).toMatchObject({ status: 'warn', actions: [{ id: 'migration-form' }] })
   })
 
-  itWithQmd('qmd: missing warns with Install; the models wait for an answer with Download and Skip, and name the size', async () => {
+  it('qmd: missing warns with Install; the models wait for an answer with Download and Skip, and name the size', async () => {
     tools(...ALL_TOOLS)
     let report = await runChecks(deps(loginEnv()))
     expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', actions: [{ id: 'qmd-install' }] })
@@ -634,7 +626,56 @@ describe('first-run checks', () => {
     expect(checkOf(report, 'qmd-models')).toMatchObject({ status: 'ok', detail: 'skipped' })
   })
 
-  itWithQmd('qmd collections: a Project whose Profile names none warns with Set up; none connected is ok', async () => {
+  it('qmd on a node older than 22.14: without qmd the row names the command that installs node, and an installed qmd warns too', async () => {
+    tools(...ALL_TOOLS)
+    const old = loginEnv({ FAKE_NODE_VERSION: '22.13.1' })
+    let report = await runChecks(deps(old))
+    expect(checkOf(report, 'node').status).toBe('ok')
+    expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', detail: 'not installed', command: 'brew install node', actions: [] })
+    expect(checkOf(report, 'qmd').hint).toContain('qmd needs node 22.14 or newer')
+    // The machine the checks describe names the command.
+    report = await runChecks(deps(old, { system: { platform: 'win32', release: '10.0.26300', arch: 'x64' } }))
+    expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', detail: 'not installed', command: 'winget install OpenJS.NodeJS.LTS' })
+
+    tools('qmd')
+    report = await runChecks(deps(old))
+    expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', command: 'brew install node' })
+    expect(checkOf(report, 'qmd').hint).toContain('node is 22.13.1')
+    expect(checkOf(report, 'qmd').hint).toContain('searches with grep')
+  })
+
+  it('a node of nvm at or above the limit with qmd beside it: the row does not say grep, and one below the limit changes nothing', async () => {
+    const nvmNode = (version: string): void => {
+      const bin = join(home, '.nvm', 'versions', 'node', version, 'bin')
+      mkdirSync(bin, { recursive: true })
+      writeFileSync(join(bin, process.platform === 'win32' ? 'node.exe' : 'node'), '')
+      writeFileSync(join(bin, 'qmd'), '')
+    }
+    tools(...ALL_TOOLS)
+    const old = loginEnv({ FAKE_NODE_VERSION: '22.13.1' })
+    nvmNode('v22.13.0')
+    let report = await runChecks(deps(old))
+    expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', detail: 'not installed' })
+    expect(checkOf(report, 'qmd').hint).toContain('searches with grep')
+
+    nvmNode('v24.1.0')
+    report = await runChecks(deps(old))
+    expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', detail: 'not on the PATH', command: expect.stringContaining('install') as string })
+    expect(checkOf(report, 'qmd').hint).toContain('the qmd of nvm on node 24.1.0')
+    expect(checkOf(report, 'qmd').hint).not.toContain('grep')
+
+    report = await runChecks(deps(loginEnv()))
+    expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', detail: 'not on the PATH', actions: [{ id: 'qmd-install' }] })
+    expect(checkOf(report, 'qmd').hint).not.toContain('grep')
+
+    tools('qmd')
+    report = await runChecks(deps(old))
+    expect(checkOf(report, 'qmd').hint).toContain('node is 22.13.1')
+    expect(checkOf(report, 'qmd').hint).toContain('the qmd of nvm on node 24.1.0')
+    expect(checkOf(report, 'qmd').hint).not.toContain('grep')
+  })
+
+  it('qmd collections: a Project whose Profile names none warns with Set up; none connected is ok', async () => {
     tools(...ALL_TOOLS, 'qmd')
     mkdirSync(join(harnessHome, 'plugin', 'bin'), { recursive: true })
     writeFileSync(join(harnessHome, 'plugin', 'bin', 'qmd-collections'), '#!/bin/sh\n')
@@ -672,9 +713,7 @@ describe('first-run checks', () => {
     await runChecks(deps(env))
     expect(snapshot()).toEqual(before)
     // The checks did run the tools, and `claude plugin list` among them.
-    // Not `qmd --version` on Windows: qmd.ts does not find a qmd.cmd yet (itWithQmd above, ticket 15).
-    const qmd = WINDOWS ? [] : ['qmd --version']
-    expect(calls()).toEqual(expect.arrayContaining(['claude --version', 'claude plugin list --json', 'gh auth status', 'node --version', 'jq --version', 'git --version', ...qmd]))
+    expect(calls()).toEqual(expect.arrayContaining(['claude --version', 'claude plugin list --json', 'gh auth status', 'node --version', 'jq --version', 'git --version', 'qmd --version']))
   })
 })
 
@@ -819,11 +858,30 @@ describe('first-run actions', () => {
     })
   }
 
+  /**
+   * The environment that runs the stand-in below. On Windows worfy starts a Harness script only as a Node
+   * script with a node.exe, so the real node comes on the PATH after the stand-ins; the rows still find node.cmd first.
+   */
+  const collectionsEnv = (extra: Record<string, string> = {}): Record<string, string> => loginEnv({ ...(WINDOWS ? { PATH: `${bin};${NODE_DIR}` } : {}), ...extra })
   /** A stand-in for the Harness script bin/qmd-collections: logs its call and HARNESS_HOME; FAKE_COLLECTIONS_FAIL makes it fail. */
   function collectionsScript(): string {
     const dir = join(harnessHome, 'plugin', 'bin')
     mkdirSync(dir, { recursive: true })
     const script = join(dir, 'qmd-collections')
+    if (WINDOWS) {
+      writeFileSync(
+        script,
+        nodeScript(
+          [
+            'const e = process.env',
+            'require("fs").appendFileSync(e.FIRST_RUN_TOOLS_LOG, `qmd-collections ${process.argv.slice(2).join(" ")} home=${e.HARNESS_HOME}\\n`)',
+            'if (e.FAKE_COLLECTIONS_FAIL) { console.error(e.FAKE_COLLECTIONS_FAIL); process.exit(1) }',
+            'console.log("qmd-collections: alpha-docs, alpha-tickets, alpha-memory")',
+          ].join('\n'),
+        ),
+      )
+      return script
+    }
     shellStub(script, [
       'printf \'qmd-collections %s home=%s\\n\' "$*" "$HARNESS_HOME" >>"$FIRST_RUN_TOOLS_LOG"',
       'if [ -n "$FAKE_COLLECTIONS_FAIL" ]; then printf \'%s\\n\' "$FAKE_COLLECTIONS_FAIL" >&2; exit 1; fi',
@@ -846,10 +904,10 @@ describe('first-run actions', () => {
     expect(calls().filter((line) => line.startsWith('qmd-collections'))).toEqual([])
   })
 
-  itWithQmd('qmd collections: Confirm runs the script for each Project without collections, then the checks run again', async () => {
+  it('qmd collections: Confirm runs the script for each Project without collections, then the checks run again', async () => {
     tools(...ALL_TOOLS, 'qmd')
     collectionsScript()
-    const result = await actions(loginEnv(), [true], [], [ALPHA, { name: 'beta', profile: 'beta', collections: ['beta-docs'] }]).run('qmd-collections')
+    const result = await actions(collectionsEnv(), [true], [], [ALPHA, { name: 'beta', profile: 'beta', collections: ['beta-docs'] }]).run('qmd-collections')
     expect(result.outcome).toBe('done')
     const log = calls()
     const ran = log.filter((line) => line.startsWith('qmd-collections'))
@@ -858,10 +916,10 @@ describe('first-run actions', () => {
     expect(log.slice(log.indexOf(ran[0] ?? '') + 1)).toEqual(expect.arrayContaining(['node --version', 'qmd --version']))
   })
 
-  itWithQmd('qmd collections: a failing script makes the row fail with its output', async () => {
+  it('qmd collections: a failing script makes the row fail with its output', async () => {
     tools(...ALL_TOOLS, 'qmd')
     collectionsScript()
-    const result = await actions(loginEnv({ FAKE_COLLECTIONS_FAIL: 'qmd-collections: index.yml is not writable' }), [true], [], [ALPHA]).run('qmd-collections')
+    const result = await actions(collectionsEnv({ FAKE_COLLECTIONS_FAIL: 'qmd-collections: index.yml is not writable' }), [true], [], [ALPHA]).run('qmd-collections')
     expect(result.outcome).toBe('failed')
     expect(checkOf(result.report, 'qmd-collections').status).toBe('fail')
     expect(checkOf(result.report, 'qmd-collections').hint).toContain('index.yml is not writable')
@@ -877,7 +935,7 @@ describe('first-run actions', () => {
     expect(checkOf(result.report, 'qmd').status).toBe('warn')
   })
 
-  itWithQmd('names the command, the folder and the download before it runs, and runs the checks again after it', async () => {
+  it('names the command, the folder and the download before it runs, and runs the checks again after it', async () => {
     tools(...ALL_TOOLS)
     const shown: Confirmation[] = []
     const result = await actions(loginEnv(), [true], shown).run('qmd-install')
@@ -893,7 +951,7 @@ describe('first-run actions', () => {
     expect(checkOf(result.report, 'qmd').status).toBe('ok')
   })
 
-  itWithQmd('a failed action makes its row fail with the error, until the next attempt', async () => {
+  it('a failed action makes its row fail with the error, until the next attempt', async () => {
     tools(...ALL_TOOLS)
     const env = loginEnv({ FAKE_NPM_FAIL: 'code EACCES: permission denied' })
     const runner = actions(env, [true, true])
@@ -929,7 +987,7 @@ describe('first-run actions', () => {
     expect(checkOf(skipped.report, 'qmd-models')).toMatchObject({ status: 'ok', detail: 'skipped' })
   })
 
-  itWithQmd('a failed `qmd pull` makes the models row fail with its stderr', async () => {
+  it('a failed `qmd pull` makes the models row fail with its stderr', async () => {
     tools(...ALL_TOOLS, 'qmd')
     const result = await actions(loginEnv({ FAKE_QMD_PULL_FAIL: 'pull: network down' }), [true]).run('qmd-models-download')
     expect(result.outcome).toBe('failed')
@@ -1084,11 +1142,11 @@ describe('first-run actions', () => {
     expect((await first).outcome).toBe('declined')
   })
 
-  itWithQmd('a failed action stays on its row only while the check of the row does not pass; once it passes, the failure is dropped', async () => {
+  it('a failed action stays on its row only while the check of the row does not pass; once it passes, the failure is dropped', async () => {
     tools(...ALL_TOOLS, 'qmd')
     collectionsScript()
     let projects: ProjectProfile[] = [ALPHA]
-    const env = loginEnv({ FAKE_COLLECTIONS_FAIL: 'qmd-collections: qmd-sync-main: No such file' })
+    const env = collectionsEnv({ FAKE_COLLECTIONS_FAIL: 'qmd-collections: qmd-sync-main: No such file' })
     const runner = new FirstRunActions({
       checks: () => runChecks(deps(env, { projects: () => Promise.resolve(projects) })),
       confirm: () => Promise.resolve(true),

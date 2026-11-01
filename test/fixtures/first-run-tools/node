@@ -3,7 +3,7 @@
 # goes to the real node named by FAKE_NODE_REAL, so the Harness scripts run (worfy starts them as `node <script>`).
 [ -n "$FIRST_RUN_TOOLS_LOG" ] && printf 'node %s\n' "$*" >>"$FIRST_RUN_TOOLS_LOG"
 if [ "$1" = --version ]; then
-  printf 'v%s\n' "${FAKE_NODE_VERSION:-22.11.0}"
+  printf 'v%s\n' "${FAKE_NODE_VERSION:-22.14.0}"
   exit 0
 fi
 [ -n "$FAKE_NODE_REAL" ] && exec "$FAKE_NODE_REAL" "$@"

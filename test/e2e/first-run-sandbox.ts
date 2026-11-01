@@ -30,18 +30,6 @@ export const CHECK_IDS = [
   'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections',
 ]
 
-/**
- * Whether worfy misses the stand-in qmd: on Windows src/main/harness/qmd.ts does not find a qmd.cmd on
- * the Path (worfy-windows ticket 15), so the qmd rows never reach OK and qmd is never called.
- */
-export const NO_QMD = WINDOWS
-
-/**
- * The stand-in's call-log line that every run of the checks writes once: `qmd --version`, and on
- * Windows, where worfy never calls the stand-in qmd (NO_QMD), `jq --version`.
- */
-export const CHECK_RUN_CALL = NO_QMD ? 'jq --version' : 'qmd --version'
-
 /** The sandbox's tool `name` in `bin`: `<name>` on macOS and Linux, `<name>.cmd` on Windows. */
 export const toolFile = (bin: string, name: string): string => join(bin, WINDOWS ? `${name}.cmd` : name)
 

@@ -218,8 +218,8 @@ Gate. `.gitattributes` — файл git с правилами концов ст�
   worfy, переписывается на Node; bash остаётся только в test-ах. Причины: в Git Bash утилиты GNU
   coreutils, и `stat -f` там значит другое, чем на macOS; вызов скрипта по shebang (первая строка
   `#!` с именем интерпретатора) в hooks на Windows считается ненадёжным, но на живой Windows не
-  проверен — это делает Ticket 01 Epic-а `worfy-windows`; скрипты qmd написаны на zsh, а zsh в Git
-  Bash нет.
+  проверен — это делает Ticket 01 Epic-а `worfy-windows`; скрипты qmd были написаны на zsh, а zsh в Git
+  Bash нет (переписаны на Node в Ticket-е 15 Epic-а `worfy-windows`).
 - [ADR-0056](adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions» — Windows-runner
   на PR в CI не добавляется. Перед мержем PR, который трогает платформенный код, `gate full` идёт на
   Windows-ПК владельца. Job «Windows» в CI запускается только вручную. Session на Mac

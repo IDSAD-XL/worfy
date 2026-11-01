@@ -11,7 +11,6 @@
 // `gh auth login` into a Terminal Node, where the user signs in. `limits-bridge` (Windows,
 // worfy-windows ticket 13) points statusLine of Claude Code's settings.json at the Limits bridge of
 // this build, with the command the move form builds (src/main/harness/status-line.ts).
-import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { confirmationText, type InstallOutcome, type InstallPlan } from '../harness/install'
@@ -33,6 +32,7 @@ import { limitsBridgeState } from '../harness/status-line'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
 import { formatBytes, type Env, type ProjectProfile } from './checks'
+import { runTool } from './tools'
 
 /** What the dialog shows; its buttons are "Confirm" and "Cancel". */
 export interface Confirmation {
@@ -89,12 +89,9 @@ const failed = (message: string, check?: CheckId): Outcome => ({ outcome: 'faile
 const ROWS_OF: Partial<Record<RunnableAction, readonly CheckId[]>> = { 'harness-install': ['harness', 'harness-dependencies'] }
 
 /** `npm prefix -g`: where `npm install -g` puts qmd. Read only; null when npm does not answer. */
-function npmPrefix(env: Env): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile('npm', ['prefix', '-g'], { env: env as NodeJS.ProcessEnv, timeout: 15_000, encoding: 'utf8' }, (error, stdout) => {
-      resolve(error ? null : stdout.trim() || null)
-    })
-  })
+async function npmPrefix(env: Env): Promise<string | null> {
+  const run = await runTool('npm', ['prefix', '-g'], env, 15_000)
+  return run.code === 0 ? run.stdout.trim() || null : null
 }
 
 const tail = (text: string, lines = 5): string =>

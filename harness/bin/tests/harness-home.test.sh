@@ -181,12 +181,8 @@ out="$(cd "$R" && printf '{"session_id":"s3"}' | clean "$H3" env HARNESS_HOME="$
 check "legacy registry: stop.mjs resolves the project through the legacy registry (exit 2)" [ "$rc" -eq 2 ]
 (cd "$R" && printf '{"session_id":"s3","cwd":"%s"}' "$R" | clean "$H3" env HARNESS_HOME="$HH3" node "$HARNESS/bin/worktree-lock" claim >/dev/null 2>&1)
 (cd "$R" && clean "$H3" env HARNESS_HOME="$HH3" node "$HARNESS/bin/epic-board" --no-open >/dev/null 2>&1)
-if [ "$WIN" -eq 1 ] && ! command -v zsh >/dev/null 2>&1; then
-    echo "skip legacy registry: qmd-sync-main is a zsh script, and Git Bash on Windows has no zsh"
-else
-    out="$(clean "$H3" env HARNESS_HOME="$HH3" zsh "$HARNESS/bin/qmd-sync-main" --describe tp 2>&1)"; rc=$?
-    check "legacy registry: qmd-sync-main --describe finds the profile (exit 0)" [ "$rc" -eq 0 ]
-fi
+out="$(clean "$H3" env HARNESS_HOME="$HH3" node "$HARNESS/bin/qmd-sync-main" --describe tp 2>&1)"; rc=$?
+check "legacy registry: qmd-sync-main --describe finds the profile (exit 0)" [ "$rc" -eq 0 ]
 after="$(snapshot "$H3")"
 check "legacy registry: nothing under \$HOME/.claude outside worfy-harness changed" [ "$before" = "$after" ]
 check "legacy registry: no \$HOME/.claude/worktree-sessions or state" absent "$H3/.claude/worktree-sessions" "$H3/.claude/state"
@@ -220,12 +216,12 @@ c() { clean "$H4" "$@"; }
 (cd "$R" && c node "$COPY/bin/epic-board" --no-open --out "$T/eb.html" >/dev/null 2>&1)
 (cd "$R" && printf '{"cwd":"%s"}' "$R" | c node "$COPY/hooks/session-start.mjs" >/dev/null 2>&1)
 (cd "$R" && printf '{"cwd":"%s"}' "$R" | c node "$COPY/hooks/session-end.mjs" >/dev/null 2>&1)
-(c zsh "$COPY/bin/qmd-sync-main" --describe tp >/dev/null 2>&1)
+(c node "$COPY/bin/qmd-sync-main" --describe tp >/dev/null 2>&1)
 (cd "$R" && c node "$COPY/bin/preflight" --epic e1 </dev/null >/dev/null 2>&1)
 # qmd-refresh asks qmd-sync-main --describe for each collection with an `update:` line; qmd is a stub.
-mkdir -p "$T/fakebin" && printf '#!/bin/sh\nexit 0\n' >"$T/fakebin/qmd" && chmod +x "$T/fakebin/qmd"
+mkdir -p "$T/fakebin" && printf '#!/usr/bin/env node\n' >"$T/fakebin/qmd" && chmod +x "$T/fakebin/qmd"
 printf 'collections:\n  tp-main:\n    path: %s\n    update: /nowhere/qmd-sync-main tp\n' "$T/mirror" >"$T/index.yml"
-(c env PATH="$T/fakebin:$PATH" QMD_INDEX_YML="$T/index.yml" zsh "$COPY/bin/qmd-refresh" --wait --force >/dev/null 2>&1)
+(c env PATH="$TP/fakebin:$PATH" QMD_INDEX_YML="$T/index.yml" node "$COPY/bin/qmd-refresh" --wait --force >/dev/null 2>&1)
 (cd "$R" && c node "$COPY/bin/profile" --name >/dev/null 2>&1)
 (cd "$R" && printf '{"session_id":"s4"}' | c node "$COPY/hooks/gate.mjs" p_red >/dev/null 2>&1)
 (cd "$R" && printf '{"session_id":"s4"}' | c node "$COPY/hooks/stop.mjs" >/dev/null 2>&1)

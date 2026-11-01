@@ -1,7 +1,8 @@
 # 15 — qmd на Windows или grep как явный запасной путь
 
 Type: task
-Status: open
+Status: claimed 2026-10-31T19:39Z
+Branch: worfy-windows/15
 Blocked by: 06, 13, 14
 Blocker note: 07 снят Orchestrator-ом 2026-10-31 — код 07 влит (#461), 07 ждёт только первую Wave на ПК (Q31); 15 от неё не зависит.
 Source: решения владельца 2026-10-07: Q21 (qmd на Windows — последним Ticket-ом порта, до того агенты ищут grep-ом), Q19 (скрипты, которые зовут hooks и worfy, — на Node; bash только в test-ах); «Готово, когда» Epic-а, пункты 3 и 4 (подтверждено 2026-10-08); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port» (qmd последним Ticket-ом); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node»; [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) (qmd — часть Harness, ставится с согласия); [ADR-0048](../../../docs/adr/0048-harness-plugin-spike-results.md) (имя MCP-сервера plugin-а); Ticket-ы E3: [17](../../worfy-harness/issues/17-qmd-модели-и-коллекции-в-harness.md) (qmd, модели и коллекции в Harness), [19](../../worfy-harness/issues/19-экран-первого-запуска.md) (экран первого запуска); [spec.md](../spec.md)
@@ -135,29 +136,31 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 
 ## Готово, когда
 
-- [ ] Исследование: в «Итог» — какой нативный модуль qmd падает на ПК владельца с 0xC0000005 и на какой команде.
-- [ ] `grep -lE '^#!.*zsh' harness/bin/*` — пусто (код 1).
+- [x] Исследование: в «Итог» — какой нативный модуль qmd падает на ПК владельца с 0xC0000005 и на какой команде.
+- [x] `grep -lE --directories=skip '^#!.*zsh' harness/bin/*` — пусто (код 1).
 - [ ] `bash harness/bin/tests/qmd.test.sh` — код 0 на Mac и в Git Bash на ПК владельца; скрипты в нём вызваны через `node`.
 - [ ] `bash harness/bin/tests/harness-home.test.sh` и `bash harness/bin/tests/qmd-collections.test.sh` — код 0 на Mac и в Git Bash.
 - [ ] Contract `test/contract/harness-qmd.test.ts`: поведение E3 Ticket 17 держится на Node-версии — без ответа «скачано» `qmd-mcp` выходит с кодом не 0 и не запускает `qmd mcp`; при `language.docs` = `ru` задана русская модель расширения запроса; `harness/.mcp.json` и Stop-hook в `harness/hooks/hooks.json` зовут скрипты через `node`. Зелёный на Mac и на ПК владельца.
 - [ ] Путь А: на ПК владельца экран первого запуска ставит qmd с согласия, `qmd --version` — код 0; в Session worfy на Windows агент на вопрос об ADR зовёт `mcp__plugin_worfy_qmd__query` и находит файл в `docs/adr`. Снимок — `../evidence/15-qmd-windows.png`.
 - [ ] Путь Б: contract `test/contract/workflow-profile.test.ts` — на `win32` в `allowedMcpServers` Session-а нет сервера qmd, на `darwin` — есть; `node harness/bin/qmd-mcp` на ПК владельца — код не 0 и одна строка в stderr; строка qmd на экране первого запуска — `warn` с текстом про grep; в Session worfy на Windows агент находит ADR grep-ом по `docs/adr`. Снимок — `../evidence/15-qmd-windows.png`.
 - [ ] `bash harness/bin/tests/skill-blocks.test.sh` — код 0 на Mac и в Git Bash.
-- [ ] На `win32` в `test/contract/harness-qmd.test.ts` — 0 пропусков: helper `needsShStubs` (`:53`, вызовы
+- [x] На `win32` в `test/contract/harness-qmd.test.ts` — 0 пропусков: helper `needsShStubs` (`:53`, вызовы
       `:117`, `:128`) больше не нужен и удалён (ревью PR #519, low; добавлено 2026-10-20).
-- [ ] Подмены `test/fixtures/first-run-tools/npm.mjs` и `qmd.mjs` запускаются хотя бы одним test-ом до того,
+- [x] Подмены `test/fixtures/first-run-tools/npm.mjs` и `qmd.mjs` запускаются хотя бы одним test-ом до того,
       как сняты пропуски qmd на Windows: сейчас их не запускает ни один test ни на одной системе
       (`test/fixtures/first-run-tools/README.md:15`; ревью PR #523, low 2; добавлено 2026-10-20).
-- [ ] В e2e первого запуска нет веток Windows из-за qmd (тикет 81, ревью Mac PR #673; добавлено 2026-10-21):
+- [x] В e2e первого запуска нет веток Windows из-за qmd (тикет 81, ревью Mac PR #673; добавлено 2026-10-21):
       `NO_QMD` и `CHECK_RUN_CALL` в `test/e2e/first-run-sandbox.ts` убраны; `first-run.spec.ts` проходит
-      шаги моделей qmd и «Everything is ready» и на Windows; `settings-health.spec.ts` считает прогоны по
-      `qmd --version` и на Windows, а его сводка на Windows — без warning строки qmd.
-- [ ] Сняты пропуски на Windows групп A–C в `harness/bin/tests/qmd-collections.test.sh` (`if [ "$WIN" = 1 ]` с
+      шаги моделей qmd на Windows и кончается сводкой ровно с двумя известными warning-ами: нет bridge для Limits в
+      сборке для разработки и нет `pwsh` в PATH песочницы; на других системах — «Everything is ready». Третий warning —
+      красный. `settings-health.spec.ts` считает прогоны по `qmd --version` и на Windows, а его сводка на Windows — без
+      warning строки qmd (текст пункта уточнён Orchestrator-ом 2026-10-31).
+- [x] Сняты пропуски на Windows групп A–C в `harness/bin/tests/qmd-collections.test.sh` (`if [ "$WIN" = 1 ]` с
       причинами `NO_ZSH`, `NO_SH_QMD`, `NO_UPDATE_LINE`, а также ранний `return` в `accepted()`), и на Windows
       эти случаи зелёные: A — `qmd-sync-main` без zsh, B — запуск `qmd` (не по `#!`), C — строка `update:` на
       Windows, плюс пути в `index.yml` не вперемешку `/` и `\` (Ticket [77](77-qmd-collections-красный-на-windows.md);
       решение владельца 2026-10-20; добавлено 2026-10-20).
-- [ ] `scriptCommand` в `harness/bin/qmd-collections` запускает файл без строки `#!` через node
+- [x] `scriptCommand` в `harness/bin/qmd-collections` запускает файл без строки `#!` через node
       (`process.execPath`); это неверно, если такой файл когда-нибудь окажется бинарным. Решить, как запускать
       файл без `#!` (напрямую или с понятной ошибкой), и закрепить test-ом (ревью PR #602 на Mac, low;
       добавлено 2026-10-20).
@@ -183,23 +186,30 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 - `harness/bin/qmd-refresh`
 - `harness/bin/qmd-sync-main`
 - `harness/bin/qmd-collections`
+- `harness/lib/qmd-common.cjs` (новый: общее у обёрток), `harness/lib/README.md`
+- `harness/hooks/qmd-refresh.mjs` (удалён: Stop-hook зовёт `bin/qmd-refresh` через node)
 - `harness/.mcp.json`
 - `harness/hooks/hooks.json`
 - `harness/skills/qmd/SKILL.md`
+- `harness/README.md`
 - `harness/bin/tests/qmd.test.sh`
 - `harness/bin/tests/harness-home.test.sh`
 - `harness/bin/tests/qmd-collections.test.sh`
+- `harness/hooks/tests/rules-hooks.test.sh`
 - `src/main/harness/qmd.ts`
 - `src/main/first-run/checks.ts`
-- `src/main/workflow/profile.ts`
-- `docs/design/F-SPEC.md`
+- `src/main/first-run/tools.ts` (новый), `src/main/first-run/actions.ts`
+- `docs/design/F-SPEC.md`, `docs/roadmap.md`, `docs/adr/0043-qmd-is-part-of-harness.md` и страницы `docs/features`
 - `test/contract/harness-qmd.test.ts`
-- `test/contract/workflow-profile.test.ts`
 - `test/contract/first-run-checks.test.ts`
-- `test/contract/harness-scripts.test.ts`
+- `test/contract/harness-hooks-qmd-refresh.test.ts` (удалён вместе с `harness/hooks/qmd-refresh.mjs`)
+- `test/unit/agent-options.test.ts`
+- `test/harness-scripts-suite.ts`, `test/harness-shell-tests.ts`
+- `test/fixtures/qmd-stub`, `test/fixtures/first-run-tools`
+- `test/e2e/first-run.spec.ts`, `test/e2e/first-run-sandbox.ts`, `test/e2e/settings-health.spec.ts`
 - `.github/workflows/ci.yml`
 
-`src/main/workflow/profile.ts` и `test/contract/workflow-profile.test.ts` меняются только на пути Б.
+`src/main/workflow/profile.ts` и `test/contract/workflow-profile.test.ts` менялись бы только на пути Б: не тронуты.
 `.github/workflows/ci.yml` — только комментарий шага «Install zsh». Пути файлов E3 сверены с main
 `76f7ff8` и `8cabc65`: `harness/.mcp.json`, `harness/bin/qmd-collections`, `src/main/harness/qmd.ts` есть
 (evidence Ticket-а 01, разделы 18 и 24).
@@ -258,9 +268,9 @@ win32-x64, стек из gdb на Linux в `napi_module_register_by_symbol`, и 
 на стеке из #1514. Стек на Windows не снимали: журнал Windows события сбоя не дал. Какую версию `better-sqlite3`
 получил ticket 01, в его записях нет; диапазон `^13.0.3` тот же.
 
-**Не проверено.** `embed`, `vsearch`, `query` и модели; `qmd mcp`; три обёртки на zsh; индекс на настоящих папках worfy
-(проверена одна папка с одним файлом); node и система на Mac и в CI. На node 24 npm не выполнил install-скрипты
-`node-llama-cpp` и `tree-sitter-*`: `getLlama` на CPU это не помешало, про GPU и `embed` неизвестно.
+**Не проверено.** Node и система на Mac и в CI. На node 24 npm не выполнил install-скрипты `node-llama-cpp` и
+`tree-sitter-*`: `getLlama` на CPU и `embed` это не помешало (замер Wave ниже), про GPU неизвестно. Остальное, что здесь
+стояло 2026-10-30 (`embed`, `vsearch`, `query` и модели, `qmd mcp`, индекс на настоящих папках), замерила Wave; обёртки теперь на Node.
 
 **Что это меняет (Orchestrator, 2026-10-30).** Пункт исследования закрыт этим замером. Q21 (на Windows — grep до
 ticket-а qmd) опирался на падение под node 22.13.0; node ПК по умолчанию теперь 24.21.0, и BM25 там работает, поэтому
@@ -268,4 +278,116 @@ ticket-а qmd) опирался на падение под node 22.13.0; node П
 Wave — эти команды на node 24; обёрткам — проверка node ≥ 22.14 (ниже процесс умирает без вывода). Перед Wave —
 проверить свободное место на C: (2026-10-30 — 19.1 GB; gate full и модели qmd должны поместиться).
 
-Остальное заполняется при закрытии.
+### Работа Wave (ПК, 2026-10-31)
+
+**Путь — А** (решение владельца Q4, его передал мост 2026-10-31): qmd остаётся на Windows, обёртки на Node. grep — запасной путь, когда qmd не может
+работать; ветки «qmd is not available on Windows» нет, `allowedMcpServers` не менялся.
+
+**Как падал первый test.** `qmd.test.sh` с вызовом через `node` на zsh-скриптах: код 1, passed 8, failed 28,
+`SyntaxError: Invalid or unexpected token` на второй строке `qmd-sync-main` и `qmd-mcp`. Сам `node harness/bin/qmd-mcp`
+— код 1.
+
+**Обёртки.** `qmd-mcp`, `qmd-refresh`, `qmd-sync-main` на Node, общее — в `harness/lib/qmd-common.cjs`. Когда qmd не
+может работать, одна строка в stderr называет причину и grep по `qmd.fallback_grep`. Node ниже 22.14 или 23.0–23.5 (N-API 10
+появился в 22.14 и 23.6) — код 3 у `qmd-mcp` и `qmd-refresh`; нет ответа `downloaded` — код 3 только у `qmd-mcp`,
+`qmd-refresh` без согласия запускает `update` и пропускает `embed`; нет qmd — 127. `qmd-refresh --quiet` (Stop-hook) молчит
+и всегда выходит с 0, ошибка уходит в журнал; строка о запасном пути на grep — в журнал, не чаще раза в сутки. `qmd-collections` записывает коллекции, пишет строку и выходит с 0 (раньше
+строка «qmd not found» шла в stdout). `qmd.cmd` не запускается: обёртка читает из него путь к JS-файлу qmd и запускает его
+своим node.
+
+**`node` из `.mcp.json` на Mac.** Команда — `node`, как требует Ticket. Если первый `node` на PATH слишком старый, а в nvm
+есть `node` не ниже порога и при нём qmd, `qmd-mcp` и `qmd-refresh` запускаются заново на нём, а не выходят с кодом 3; `node`, который не стартует, пропускается. Строка qmd на экране первого запуска в этом случае не говорит про grep. Кнопка «Download…» по-прежнему смотрит только на qmd в PATH.
+**Известное ограничение:** если `node` на PATH нет совсем, обёртка не запустится, и этого здесь не решить: Claude Code покажет
+`CONNECTION_CLOSED` без строки о причине. Это проверка на Mac (раздел «Осталось»).
+
+**Замер qmd на настоящих папках** (ПК, node 24.21.0, модели Harness, отдельный HOME; прямые команды `qmd`, не через обёртки).
+- `worfy-docs` на 85 документов: `embed` — 340 кусков за 1 мин 4 с; `vsearch` отвечает; гибридный `query` с расширением и
+  rerank на английском и русском отвечает: первый rerank 90.2 с (23 куска), следующий 8.9 с (21 кусок).
+- `qmd mcp` на этом индексе: `initialize` 1721 мс, инструменты `query`, `get`, `multi_get`, `status`, `query` по `lex` 7272 мс,
+  по `vec` 4950 мс.
+- Все коллекции: `embed` последней партии — 472 куска из 71 документа за 46 с; `status` — 771 документ, 6448 векторов, 0 в
+  очереди; `query` — rerank 40 кусков за 11.7 с; `qmd mcp`: `initialize` 1347 мс, `lex` 10064 мс, `vec` 10783 мс.
+
+**Не замерено:** использование GPU; гибридный `query` с моделями через обёртки (через `qmd-mcp` проверен `query` по `lex`).
+
+**Папки на Windows** (замер, отдельный HOME). Домашняя папка qmd — `HOME`, затем `USERPROFILE`. Индекс и модели —
+`<дом>\.cache\qmd` (`index.sqlite`, `models`), `XDG_CACHE_HOME` важнее. Конфигурация — `<дом>\.config\qmd\index.yml`,
+`QMD_CONFIG_DIR` и `XDG_CONFIG_HOME` важнее. `modelCacheDir` в `src/main/harness/qmd.ts` исправлен: читал только `HOME`.
+
+**Как qmd исполняет `update:`** (код `src/cli/qmd.ts`, замер). `spawn("bash", ["-c", <строка>], { cwd: <папка
+коллекции> })`, без оболочки ОС, на всех системах. Код не 0 от строки завершает весь `qmd update` с этим кодом. Значит, на
+Windows нужна именно Git Bash. Форма строки на обеих системах: `node "<папка plugin с />/bin/qmd-sync-main" <project>`;
+старые строки этого Project переписываются, рядом дата-копия `index.yml`, имена и `pattern` не меняются. Переписывается только
+строка, в которой нет ничего, кроме необязательного `node`, пути к скрипту и профиля: составная строка владельца остаётся как есть,
+но для `qmd-refresh` она по-прежнему git-копия профиля, чьё имя идёт сразу за первым `qmd-sync-main`. Обёртки ставят в
+начало PATH для qmd папку своего node и папку Git Bash. Замер настоящим `qmd update`, PATH начинается с System32 (там
+`bash.exe` из WSL): через `qmd-collections` и `qmd-refresh --force --wait` строка отработала, новый коммит нашёлся поиском.
+Тот же `qmd update` руками с этим PATH дошёл до bash из WSL и упал (`Cannot find module '/mnt/c/…'`), код 1; без bash на
+PATH — код 1. Поэтому в skill написано запускать `qmd-refresh --force --wait`.
+
+**`plugin:worfy:qmd` `CONNECTION_CLOSED`.** Причина на этом ПК — `.mcp.json` установленного plugin-а запускает файл с
+первой строкой `#!/bin/zsh`. Журналы MCP самого Claude Code с 2026-10-16: stderr сервера — сообщение cmd.exe, что `zsh`
+не команда, затем `Connection failed (CONNECTION_CLOSED)`. Повтор той же команды через cmd.exe — код 1 и то же
+сообщение. Установленный plugin не менялся: ошибка уйдёт, когда он обновится на эту версию. Новая форма `node
+<plugin>/bin/qmd-mcp`, замер:
+- нет ответа о моделях — код 3 и одна строка; нет qmd — код 127 и одна строка. **Предположение, не проверено:** Claude Code
+  покажет те же слова `CONNECTION_CLOSED`, а строку с причиной — в `/mcp`. Замерено только, что stderr сервера попадает в его
+  журнал MCP. Проверка — в разделе «Осталось»;
+- qmd есть и согласие есть — `initialize` отвечает (`qmd` 2.8.3), инструменты `query`, `get`, `multi_get`, `status`,
+  `query` по `lex` находит файлы настоящих папок worfy;
+- закрыт stdin — код 0 за секунды; обёртка убита и закрыт stdin — ни одного процесса qmd не осталось.
+
+**`scriptCommand`.** Файл без `#!` — программа, а не скрипт: запускается как есть. Бинарный файл работает; текстовый
+получает отказ системы, и сообщение называет файл. Строка `#!` с node — текущим node; с другим интерпретатором — как
+есть, на Windows через `bash`. Закреплено в `qmd-collections.test.sh`.
+
+**Установка на Windows.** `npm`, `node` и `qmd` в `src/main/harness/qmd.ts` и `npmPrefix` запускаются как все инструменты
+первого запуска (`toolStart`, файл `src/main/first-run/tools.ts`): `.cmd` через cmd.exe. Подсказка для node —
+`winget install OpenJS.NodeJS.LTS`. Порог qmd — node 22.14, на линии 23 — 23.6 (contract-тест держит одинаковыми порог приложения и обёрток); установленный qmd на node ниже — `warn` с этой командой.
+
+**Проверено на Linux (WSL на ПК, node 24.18.0, без jq):** `qmd.test.sh` — код 0. Случаи, которые идут только вне Windows (SIGTERM во время `--describe` и во время `qmd update`), прошли.
+`qmd-collections.test.sh` там не запускался: нужен `jq`. Это не замена прогону на Mac.
+
+**Мутационная проверка** `qmd.test.sh` и `qmd-collections.test.sh`: 40 мутантов обёрток (порог частоты, новая заметка, сдвиг main,
+маркер `sync-failed`, ротация журнала, повторный запуск на node из nvm, порог node, блокировка при сигнале, папка фонового
+обновления) — убиты все. Первый проход оставил два: случай без `last-index` дополнен коллекцией без заметок, а второй
+оказался ошибкой прогона (этот test проверяет скрипты рядом с собой, а не из `BIN_DIR`). На новый код контрольного ревью — ещё
+13 (строка `update:`, `node` из nvm, который не стартует, строка в журнале под `--quiet`, Harness home до смены папки, обработчик
+сигнала). Убито 11 на Windows. Без проверки `--version` тест падает только на Linux: на Windows такой файл не запускается вовсе, и
+его ловит `run.error`; без обеих проверок падает и на Windows. Отдельно `run.error` не убит: после проверки `--version` он сработает
+только при гонке.
+
+**Ответ на ревью PR #1173, раунд 1:** фоновое обновление получает найденный qmd аргументом и не ищет его второй раз (на Mac оно запускало
+qmd рядом с node); `qmd-refresh` снова считает составную строку git-копией, а `qmd-collections` её не переписывает; тесты не достают
+настоящий qmd. Mac смоделирован под WSL с qmd рядом с node: до правки 98 прошло и 5 упало, те же случаи, после правки 106 прошло, qmd рядом с node не запускался.
+
+**Проверено на ПК:** `qmd.test.sh`, `qmd-collections.test.sh`, `harness-home.test.sh`, `skill-blocks.test.sh`,
+`rules-hooks.test.sh`, `plugin-neutral.test.sh` — код 0; contract `harness-qmd`, `first-run-checks` — зелёные, в `harness-qmd`
+0 пропусков. `grep -lE '^#!.*zsh' harness/bin/*` буквально даёт код 2 из-за папки `harness/bin/tests`; с
+`--directories=skip` — пусто, код 1.
+
+**Пропуски на Windows, которые остались, и почему.** Случаи сигналов в `qmd.test.sh` (SIGTERM во время `--describe`) и в
+`qmd-collections.test.sh`: сигнал из Git Bash не доходит до node, а worfy завершает процесс через `taskkill /F`; брошенную
+блокировку покрывают случаи с мёртвым pid. Проверка `zsh` в PATH: блоки skills под zsh идут только там, где он есть.
+
+**e2e.** `NO_QMD` и `CHECK_RUN_CALL` убраны. `first-run.spec.ts` проходит шаги моделей на Windows, но «Everything is ready»
+там недостижимо не из-за qmd: в сборке для разработки нет bridge для Limits, а в PATH песочницы нет `pwsh`. Поэтому сводка на
+Windows — `2 warnings`, в `settings-health.spec.ts` — `1 failed · 5 warnings`. Замер на ПК, 2026-10-31, каждый файл целиком,
+`--workers=1`: `first-run.spec.ts` — код 0, 8 passed; `settings-health.spec.ts` — код 0, 3 passed.
+
+**Два известных warning-а на Windows.** В сводке первого запуска на Windows ожидаются ровно два warning-а: нет bridge для
+Limits в сборке для разработки и нет `pwsh` в PATH песочницы; любой третий красный. Основание Orchestrator-а: решение
+владельца 2026-10-31 о приёмке Windows (исправить или Windows exception). `first-run.spec.ts` проверяет их по именам:
+строки с `data-status="warn"` — ровно `limits` и `powershell`, и текст причины каждой; другой warning вместо одного из них тоже
+красный.
+
+**Третий круг: красный job `windows (harness-scripts 2/2)`.** Ошибка в коде, а не в ожидании test-а: `gitBashDir` знал `git.exe` только
+в `mingw64\bin`, а на runner Git новее, там `ucrt64\bin`. Запасной путь через `ProgramFiles` этот job не спасал: запускалка shell-тестов
+передаёт короткий список переменных, `ProgramFiles` в нём нет. На ПК Git 2.45 с `mingw64`, поэтому здесь не воспроизводилось. Папка node
+в PATH обновления стоит дважды, потому что `qmdEnv` применяется и в `qmd-mcp`, и в задаче обновления: это безвредно и причиной не было.
+Запуск на ПК как на runner (тот же список переменных, node первая в PATH, `git.exe` в `ucrt64\bin` через junction): до правки exit 1,
+106/1, та же строка, что в CI; после правки exit 0, 109/0. На настоящем runner это покажет CI.
+
+**Осталось.** Все проверки на Mac; снимок владельца `../evidence/15-qmd-windows.png` и
+проверка Session worfy (путь А); что показывает `/mcp` при коде 3 и 127 (предположение выше); на Mac — `node` из `.mcp.json`, когда
+на PATH приложения нет `node` или он старый; gate full на Mac и ПК. Пункт «Путь Б» не применяется: выбран путь А.

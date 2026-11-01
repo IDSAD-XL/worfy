@@ -1,217 +1,295 @@
-#!/bin/zsh
-# qmd-refresh — brings the qmd index up to the projects' current main branches.
-#
-# The qmd-mcp wrapper updates the index ONCE, when the MCP server starts. In a long
-# session that is not enough: main moves a dozen merges ahead, while search keeps
-# answering with the snapshot from the start of the session — and answers confidently, which is worse than silence.
-#
-# Here is the same update, but on demand and cheap: first we ask the remote
-# repositories whether the main branch has moved, and exit if not. One network call
-# per git copy.
-#
-# What to check is taken from ~/.config/qmd/index.yml, not from this file:
-#   git copies — collections with `update: …/qmd-sync-main <profile>`; the copy's path, branch and
-#               gh account come from `qmd-sync-main --describe <profile>` (that is, the project's profile);
-#   local ones — paths of collections without `update:` (project memory, lessons).
-# The exception is memory and lessons: they are outside git, and if there is a file newer than the last
-# update (`last-index`), we update without the network check (since 2026-09-29: before that
-# a note waited for main to move or for the MCP server to restart).
-#
-#   qmd-refresh            — update if main has moved
-#   qmd-refresh --force    — update unconditionally
-#   qmd-refresh --quiet    — no output (for the hook)
-#   qmd-refresh --wait     — do not go to the background, wait for the end (for checking by hand)
-#
-# The check runs in place and costs one network call; the update itself (`update` +
-# `embed`) goes to the BACKGROUND, because embed takes minutes and a hook cannot wait.
-#
-# The lock is shared with qmd-mcp: `qmd update` does a checkout in the shared copy, and two
-# checkouts at once produce garbage. If it is taken, exit silently: whoever holds the lock
-# is doing exactly the same work.
-set -u
+#!/usr/bin/env node
+// qmd-refresh — brings the qmd index up to the projects' current main branches.
+//
+// The qmd-mcp wrapper updates the index ONCE, when the MCP server starts. In a long
+// session that is not enough: main moves a dozen merges ahead, while search keeps
+// answering with the snapshot from the start of the session — and answers confidently, which is worse than silence.
+//
+// Here is the same update, but on demand and cheap: first we ask the remote
+// repositories whether the main branch has moved, and exit if not. One network call
+// per git copy.
+//
+// What to check is taken from ~/.config/qmd/index.yml, not from this file:
+//   git copies — collections whose `update:` runs qmd-sync-main <profile>; the copy's path, branch and
+//               gh account come from `qmd-sync-main --describe <profile>` (that is, the project's profile);
+//   local ones — paths of collections without `update:` (project memory, lessons).
+// The exception is memory and lessons: they are outside git, and if there is a file newer than the last
+// update (`last-index`), we update without the network check (since 2026-09-29: before that
+// a note waited for main to move or for the MCP server to restart).
+//
+//   qmd-refresh            — update if main has moved
+//   qmd-refresh --force    — update unconditionally
+//   qmd-refresh --quiet    — no output and always exit 0 (for the hook); the reason goes to the log, a
+//                            line about the grep fallback at most once a day
+//   qmd-refresh --wait     — do not go to the background, wait for the end (for checking by hand)
+//
+// The check runs in place and costs one network call; the update itself (`update` +
+// `embed`) goes to the BACKGROUND, because embed takes minutes and a hook cannot wait.
+//
+// The lock is shared with qmd-mcp: `qmd update` does a checkout in the shared copy, and two
+// checkouts at once produce garbage. If it is taken, exit silently: whoever holds the lock
+// is doing exactly the same work.
+"use strict"
 
-CACHE="$HOME/.cache/qmd"
-INDEX_YML="${QMD_INDEX_YML:-$HOME/.config/qmd/index.yml}"
-# qmd-sync-main is the script next to this one: ${0:A:h} is the folder of this file's real path.
-SYNC="${QMD_REFRESH_SYNC:-${0:A:h}/qmd-sync-main}"   # override for tests
-LOG="$CACHE/refresh.log"
-LOCK="$CACHE/refresh.lock"
-STAMP="$CACHE/last-check"
-THROTTLE=300   # seconds between network checks
-INDEXED="$CACHE/last-index"   # start time of the last index update
-# `qmd embed` downloads its model when it is missing, so it runs only after the user agreed to the
-# models (the answer file of qmd-mcp) and with the embedding model qmd-mcp
-# sets: vectors of another model would not match the server's queries. `qmd update` needs no model.
-ANSWER_FILE="${HARNESS_HOME:-$HOME/.claude/worfy-harness}/qmd-models"
-export QMD_EMBED_MODEL="hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
-models_agreed() { [[ -r "$ANSWER_FILE" && "$(head -n 1 "$ANSWER_FILE" 2>/dev/null)" == downloaded ]] }
-
-FORCE=0; QUIET=0; WAIT=0
-for a in "$@"; do
-  case "$a" in
-    --force) FORCE=1 ;;
-    --quiet) QUIET=1 ;;
-    --wait)  WAIT=1 ;;
-  esac
-done
-say() { [[ "$QUIET" == 1 ]] || print -r -- "$*" }
-
-# A partial failure (one profile not resolved, one copy missing) does not stop the run:
-# memory and lessons must be updated even then. Exit code: without --quiet — 1 on a partial
-# failure; with --quiet (this is how the Stop hook in settings.json calls it) — 0, because a non-zero hook
-# exit would show up as an error on every turn. The signal in that case is a line in $LOG; it is written
-# only by a pass that got past the rate limit, otherwise the log would grow by a line
-# on every turn.
-PARTIAL=0
-WARNINGS=()
-warn() {
-  PARTIAL=1
-  WARNINGS+=("$*")
-  say "qmd-refresh: $*"
-}
-log_warnings() {
-  (( ${#WARNINGS} )) || return 0
-  mkdir -p "$CACHE" 2>/dev/null || return 0
-  for w in "${WARNINGS[@]}"; do print -r -- "$(date '+%F %T') qmd-refresh: $w"; done >>"$LOG" 2>/dev/null
-  WARNINGS=()
-}
-finish() {
-  [[ "$PARTIAL" == 1 && "$QUIET" != 1 ]] && exit 1
-  exit 0
-}
-# A total failure (no qmd, no index.yml): with --quiet also 0 — for the same reason.
-die() { # $1 = exit code without --quiet, the rest is the message
-  local code="$1"; shift
-  say "qmd-refresh: $*"
-  [[ "$QUIET" == 1 ]] && exit 0
-  exit "$code"
+// With --quiet (the Stop hook, every turn) a non-zero exit would show as an error on each turn: whatever
+// goes wrong ends with exit 0, and the reason goes to the log when the log can be written (see logOncePerDay).
+let logFailure = () => {}
+if (process.argv.includes("--quiet")) {
+    process.on("uncaughtException", (error) => {
+        try {
+            logFailure(error)
+        } catch {
+            // The log cannot be written either: nothing more to do in a hook.
+        }
+        process.exit(0)
+    })
 }
 
-if ! command -v qmd >/dev/null 2>&1 && [[ -s "$HOME/.nvm/nvm.sh" ]]; then
-  source "$HOME/.nvm/nvm.sh" >/dev/null 2>&1
-  nvm use default --silent >/dev/null 2>&1 || true
-fi
-QMD_BIN="$(command -v qmd)" || die 127 "qmd not found"
+const fs = require("node:fs")
+const path = require("node:path")
+const { spawnSync } = require("node:child_process")
+const { git: GIT } = require("../hooks/eval-env.cjs")
+const q = require("../lib/qmd-common.cjs")
 
-# Parsing index.yml: collections are keys indented by 2 under `collections:`, their fields are indented by 4.
-# Prints "m<TAB>profile" for each git copy and "l<TAB>path" for each local collection.
-[[ -r "$INDEX_YML" ]] || die 1 "no $INDEX_YML"
-SOURCES="$(awk '
-  function flush() { if (name == "") return
-    if (upd ~ /qmd-sync-main[ \t]+[^ \t]/) { n = upd; sub(/.*qmd-sync-main[ \t]+/, "", n); sub(/[ \t].*/, "", n); if (!(n in seen)) { seen[n] = 1; print "m\t" n } }
-    else if (upd == "" && path != "") print "l\t" path
-    name = ""; path = ""; upd = "" }
-  /^[^ #]/ { flush(); inside = ($0 ~ /^collections:/); next }
-  !inside { next }
-  /^  [^ #][^:]*:[ \t]*$/ { flush(); name = $1; next }
-  /^    path:/   { path = $0; sub(/^    path:[ \t]*/, "", path); gsub(/^"|"$/, "", path) }
-  /^    update:/ { upd = $0;  sub(/^    update:[ \t]*/, "", upd) }
-  END { flush() }' "$INDEX_YML")"
-MIRRORS=(${(f)"$(print -r -- "$SOURCES" | awk -F'\t' '$1 == "m" { print $2 }')"})
-LOCAL_DIRS=(${(f)"$(print -r -- "$SOURCES" | awk -F'\t' '$1 == "l" { print $2 }')"})
+logFailure = (error) => fs.appendFileSync(q.logFile(), `${q.timestamp()} qmd-refresh: ${error && error.message}\n`)
 
-# Copy, branch, account of each git copy — from the profile via qmd-sync-main --describe.
-# The answer is stdout only: a profile warning on stderr (bin/profile warns and still answers) passes
-# through to our stderr; on a failure the reason is the last stderr line (qmd-sync-main prints it
-# there), or stdout when stderr is empty.
-COPIES=(); BRANCHES=(); ACCOUNTS=()
-# A signal while --describe runs removes the temporary file too (the lock's trap below comes later).
-# Under --quiet (the Stop hook, every turn) a passed-through warning is not printed.
-DESCRIBE_ERR="$(mktemp "${TMPDIR:-/tmp}/qmd-refresh-describe.XXXXXX")"
-trap 'rm -f -- "$DESCRIBE_ERR"' EXIT
-trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
-for p in "${MIRRORS[@]}"; do
-  d="$("$SYNC" --describe "$p" 2>"$DESCRIBE_ERR")"; rc=$?; e="$(<"$DESCRIBE_ERR")"
-  if (( rc )); then warn "profile $p not resolved, its copy skipped — ${${e:+${e##*$'\n'}}:-$d}"; continue; fi
-  [[ -n "$e" && "$QUIET" != 1 ]] && print -u2 -r -- "$e"
-  c="${d%%$'\t'*}"; r="${d#*$'\t'}"
-  [[ -d "$c/.git" ]] || { warn "copy $c (profile $p) is missing, skipped — start a session with qmd-mcp first"; continue }
-  COPIES+=("$c"); BRANCHES+=("${r%%$'\t'*}"); ACCOUNTS+=("${r#*$'\t'}")
-done
-rm -f -- "$DESCRIBE_ERR"; trap - EXIT HUP INT TERM
+const INDEX_YML = q.indexYml()
+// qmd-sync-main is the script next to this one, in the folder of this file's real path.
+const SYNC = process.env.QMD_REFRESH_SYNC || path.join(path.dirname(fs.realpathSync(__filename)), "qmd-sync-main") // override for tests
+const LOG = q.logFile()
+const STAMP = path.join(q.cacheDir(), "last-check")
+const THROTTLE = 300 // seconds between network checks
+const INDEXED = q.indexedFile() // start time of the last index update
 
-# A failed pull (qmd-sync-main writes the markers, one per profile): the index answers with an old snapshot.
-for f in "$CACHE"/sync-failed*(N); do
-  say "qmd-refresh: WARNING — the last pull of main failed, the index may be stale: $(head -c 300 "$f")"
-done
-
-# Memory and lessons live outside git: main may not have moved while a note appeared. The check
-# is local and cheap, so it runs before the rate limit and without the network.
-LOCAL_NEWER=0
-if [[ ! -f "$INDEXED" ]]; then
-  LOCAL_NEWER=1
-else
-  for d in "${LOCAL_DIRS[@]}"; do
-    [[ -d "$d" ]] || continue
-    [[ -n "$(find "$d" -name '*.md' -newer "$INDEXED" -print -quit 2>/dev/null)" ]] && { LOCAL_NEWER=1; break }
-  done
-fi
-
-# Rate: a network call at most once per THROTTLE seconds.
-if [[ "$FORCE" != 1 && "$LOCAL_NEWER" != 1 && -f "$STAMP" ]]; then
-  age=$(( $(date +%s) - $(stat -f%m "$STAMP" 2>/dev/null || echo 0) ))
-  (( age < THROTTLE )) && { say "qmd-refresh: checked $age s ago, skipping"; finish }
-fi
-
-log_warnings   # the rate limit is passed (or an out-of-turn update) — write the warnings
-
-# Whether the main branch of at least one copy has moved. An empty answer (no network) is no reason
-# to think it has.
-if [[ "$FORCE" != 1 && "$LOCAL_NEWER" != 1 ]]; then
-  (( ${#COPIES} )) || { say "qmd-refresh: no live git copies in $INDEX_YML, local content unchanged — skipping"; finish }
-  moved=0
-  for i in {1..${#COPIES}}; do
-    COPY="${COPIES[$i]}" BRANCH="${BRANCHES[$i]}" ACCOUNT="${ACCOUNTS[$i]}"
-    # The token is taken explicitly from the profile's account: the active gh account may be the work one, and then
-    # the private repository "does not exist", and the empty answer below silently skips the update.
-    if [[ -n "$ACCOUNT" ]]; then
-      remote="$(git -c credential.helper= \
-        -c "credential.helper=!f() { echo username=x-access-token; echo password=\$(gh auth token --user $ACCOUNT); }; f" \
-        -C "$COPY" ls-remote --heads origin "$BRANCH" 2>/dev/null | cut -f1)"
-    else
-      remote="$(git -C "$COPY" ls-remote --heads origin "$BRANCH" 2>/dev/null | cut -f1)"
-    fi
-    [[ -z "$remote" ]] && { say "qmd-refresh: remote unavailable, skipping"; continue }
-    # Compare with the CHECKED-OUT commit, not with `origin/main`: the ref is moved by
-    # any `git fetch`, including someone else's or a diagnostic one, while what gets indexed is
-    # what lies in the copy's working tree. When those two diverge, they give a false "fresh".
-    local_ref="$(git -C "$COPY" rev-parse HEAD 2>/dev/null || echo none)"
-    if [[ "$remote" == "$local_ref" ]]; then say "qmd-refresh: the index is already at $remote"; else moved=1; fi
-  done
-  : > "$STAMP"
-  [[ "$moved" == 1 ]] || finish
-fi
-
-# The lock is shared with qmd-mcp: if it is taken, the same work is going on there.
-mkdir "$LOCK" 2>/dev/null || { say "qmd-refresh: an update is already running"; finish }
-
-run_update() {
-  trap 'rm -rf "$LOCK" 2>/dev/null' EXIT TERM INT HUP
-  # The pid of the holder. In the background subshell $$ is still the pid of this script, which exits at
-  # once, and a dead pid reads as an abandoned lock (qmd-collections, qmd-mcp): there only the parent
-  # writes the pid, the subshell's own ($!).
-  [[ "$WAIT" == 1 ]] && { print -r -- "$$" > "$LOCK/pid" 2>/dev/null || true }
-  # The stamp goes BEFORE update: a note written during indexing will be newer and
-  # get into the next pass instead of being lost.
-  : > "$INDEXED"
-  {
-    echo "== $(date '+%F %T') refresh (qmd-refresh)"
-    "$QMD_BIN" update; echo "update rc=$?"
-    if models_agreed; then nice -n 10 "$QMD_BIN" embed; echo "embed rc=$?"; else echo "embed skipped: no consent to the models in $ANSWER_FILE"; fi
-  } >>"$LOG" 2>&1
+const flags = new Set(process.argv.slice(2))
+const FORCE = flags.has("--force")
+const QUIET = flags.has("--quiet")
+const WAIT = flags.has("--wait")
+const say = (text) => {
+    if (!QUIET) process.stdout.write(`${text}\n`)
 }
 
-if [[ "$WAIT" == 1 ]]; then
-  run_update
-  for c in "${COPIES[@]}"; do
-    say "qmd-refresh: the index is at $(git -C "$c" rev-parse --short HEAD 2>/dev/null || echo '?')"
-  done
-  (( ${#COPIES} )) || say "qmd-refresh: index updated"
-else
-  # To the background without inheriting stdio: a hook waiting for `embed` to finish would hang the session.
-  ( run_update ) </dev/null >/dev/null 2>&1 &
-  print -r -- "$!" > "$LOCK/pid" 2>/dev/null || true
-  disown 2>/dev/null
-  say "qmd-refresh: update started in the background, log $LOG"
-fi
-finish
+// A partial failure (one profile not resolved, one copy missing) does not stop the run:
+// memory and lessons must be updated even then. Exit code: without --quiet — 1 on a partial
+// failure; with --quiet (this is how the Stop hook calls it) — 0, because a non-zero hook
+// exit would show up as an error on every turn. The signal in that case is a line in $LOG; it is written
+// only by a pass that got past the rate limit, otherwise the log would grow by a line
+// on every turn.
+let partial = false
+let warnings = []
+const warn = (text) => {
+    partial = true
+    warnings.push(text)
+    say(`qmd-refresh: ${text}`)
+}
+function logWarnings() {
+    if (warnings.length === 0) return
+    try {
+        fs.mkdirSync(q.cacheDir(), { recursive: true })
+        fs.appendFileSync(LOG, warnings.map((w) => `${q.timestamp()} qmd-refresh: ${w}\n`).join(""))
+    } catch {}
+    warnings = []
+}
+const finish = () => process.exit(partial && !QUIET ? 1 : 0)
+// With --quiet grep being the fallback still leaves an explicit line, in the log and not on a stream, at most
+// once a day: the hook runs on every turn. A marker in qmd's cache folder holds the time of the last line.
+const DAY_MS = 24 * 60 * 60 * 1000
+function logOncePerDay(text) {
+    const marker = path.join(q.cacheDir(), "fallback-logged")
+    try {
+        if (Date.now() - fs.statSync(marker).mtimeMs < DAY_MS) return
+    } catch {
+        // No marker yet.
+    }
+    try {
+        fs.mkdirSync(q.cacheDir(), { recursive: true })
+        fs.appendFileSync(LOG, `${q.timestamp()} qmd-refresh: ${text}\n`)
+        fs.writeFileSync(marker, "")
+    } catch {
+        // The log cannot be written: a hook still ends with 0.
+    }
+}
+// A total failure (no qmd, no index.yml): with --quiet also 0 — for the same reason.
+function die(code, text, stream = "stdout") {
+    if (QUIET) {
+        logOncePerDay(text)
+        process.exit(0)
+    }
+    process[stream].write(`qmd-refresh: ${text}\n`)
+    process.exit(code)
+}
+
+let indexText
+try {
+    indexText = fs.readFileSync(INDEX_YML, "utf8")
+} catch {
+    // Nothing to do. The Stop hook on a machine without qmd ends here on every turn: before findQmd, which
+    // runs `npm prefix -g`. By hand, the reason qmd cannot run comes first.
+    if (QUIET) die(1, `no ${INDEX_YML}, the index is not updated; ${q.GREP_FALLBACK}`)
+}
+const tooOld = q.nodeTooOld()
+if (tooOld) {
+    q.rerunOnNvmNode()
+    die(3, `${tooOld}, the index is not updated; ${q.GREP_FALLBACK}`, "stderr")
+}
+const QMD = q.findQmd()
+if (!QMD) die(127, `qmd not found, the index is not updated; ${q.GREP_FALLBACK}`, "stderr")
+if (indexText === undefined) die(1, `no ${INDEX_YML}`)
+
+// Parsing index.yml: collections are keys indented by 2 under `collections:`, their fields are indented by 4.
+const MIRRORS = [] // profile of each git copy
+const LOCAL_DIRS = [] // path of each local collection
+{
+    let inside = false
+    let current = null
+    const flush = () => {
+        if (current) {
+            const profile = q.syncProfile(current.update)
+            if (profile) {
+                if (!MIRRORS.includes(profile)) MIRRORS.push(profile)
+            } else if (!current.update && current.path) LOCAL_DIRS.push(current.path)
+        }
+        current = null
+    }
+    for (const line of indexText.split(/\r?\n/)) {
+        if (/^[^ #]/.test(line)) {
+            flush()
+            inside = /^collections:/.test(line)
+            continue
+        }
+        if (!inside) continue
+        if (/^ {2}[^ #][^:]*:\s*$/.test(line)) {
+            flush()
+            current = { path: "", update: "" }
+            continue
+        }
+        const field = /^ {4}(path|update):(.*)$/.exec(line)
+        if (current && field) current[field[1]] = q.unquote(field[2])
+    }
+    flush()
+}
+
+// Copy, branch, account of each git copy — from the profile via qmd-sync-main --describe.
+// The answer is stdout only: a profile warning on stderr (bin/profile warns and still answers) passes
+// through to our stderr, not under --quiet (the Stop hook, every turn); on a failure the reason is the
+// last stderr line (qmd-sync-main prints it there), or stdout when stderr is empty.
+const COPIES = []
+for (const profile of MIRRORS) {
+    const run = q.runScript(SYNC, ["--describe", profile])
+    const out = (run.stdout || "").replace(/\r?\n$/, "")
+    const err = (run.stderr || "").trimEnd()
+    if (run.status !== 0) {
+        warn(`profile ${profile} not resolved, its copy skipped — ${err.split(/\r?\n/).pop() || out || (run.error ? run.error.message : "")}`)
+        continue
+    }
+    if (err && !QUIET) process.stderr.write(`${err}\n`)
+    const [copy, branch, account] = out.split("\t")
+    if (!fs.existsSync(path.join(copy, ".git"))) {
+        warn(`copy ${copy} (profile ${profile}) is missing, skipped — start a session with qmd-mcp first`)
+        continue
+    }
+    COPIES.push({ copy, branch, account })
+}
+
+// A failed pull (qmd-sync-main writes the markers, one per profile): the index answers with an old snapshot.
+let cached = []
+try {
+    cached = fs.readdirSync(q.cacheDir())
+} catch {}
+for (const name of cached.filter((n) => n.startsWith("sync-failed"))) {
+    say(`qmd-refresh: WARNING — the last pull of main failed, the index may be stale: ${fs.readFileSync(path.join(q.cacheDir(), name), "utf8").slice(0, 300)}`)
+}
+
+// Memory and lessons live outside git: main may not have moved while a note appeared. The check
+// is local and cheap, so it runs before the rate limit and without the network.
+const mtime = (file) => {
+    try {
+        return fs.statSync(file).mtimeMs
+    } catch {
+        return null
+    }
+}
+function hasNewerNote(dir, since) {
+    let entries
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+        return false
+    }
+    for (const entry of entries) {
+        const file = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+            if (hasNewerNote(file, since)) return true
+        } else if (entry.name.endsWith(".md") && (mtime(file) ?? 0) > since) return true
+    }
+    return false
+}
+const indexedAt = mtime(INDEXED)
+const LOCAL_NEWER = indexedAt === null || LOCAL_DIRS.some((dir) => hasNewerNote(dir, indexedAt))
+
+// Rate: a network call at most once per THROTTLE seconds.
+const checkedAt = mtime(STAMP)
+if (!FORCE && !LOCAL_NEWER && checkedAt !== null) {
+    const age = Math.floor((Date.now() - checkedAt) / 1000)
+    if (age < THROTTLE) {
+        say(`qmd-refresh: checked ${age} s ago, skipping`)
+        finish()
+    }
+}
+
+logWarnings() // the rate limit is passed (or an out-of-turn update) — write the warnings
+
+const gitIn = (copy, argv, auth = []) => spawnSync(GIT, [...auth, "-C", copy, ...argv], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] })
+
+// Whether the main branch of at least one copy has moved. An empty answer (no network) is no reason
+// to think it has.
+if (!FORCE && !LOCAL_NEWER) {
+    if (COPIES.length === 0) {
+        say(`qmd-refresh: no live git copies in ${INDEX_YML}, local content unchanged — skipping`)
+        finish()
+    }
+    let moved = false
+    for (const { copy, branch, account } of COPIES) {
+        // The token is taken explicitly from the profile's account: the active gh account may be the work one, and then
+        // the private repository "does not exist", and the empty answer below silently skips the update.
+        const auth = account ? ["-c", "credential.helper=", "-c", `credential.helper=!f() { echo username=x-access-token; echo password=$(gh auth token --user ${account}); }; f`] : []
+        const remote = (gitIn(copy, ["ls-remote", "--heads", "origin", branch], auth).stdout || "").split("\t")[0].trim()
+        if (!remote) {
+            say("qmd-refresh: remote unavailable, skipping")
+            continue
+        }
+        // Compare with the CHECKED-OUT commit, not with `origin/main`: the ref is moved by
+        // any `git fetch`, including someone else's or a diagnostic one, while what gets indexed is
+        // what lies in the copy's working tree. When those two diverge, they give a false "fresh".
+        const head = gitIn(copy, ["rev-parse", "HEAD"])
+        if (remote === (head.status === 0 ? head.stdout.trim() : "none")) say(`qmd-refresh: the index is already at ${remote}`)
+        else moved = true
+    }
+    fs.mkdirSync(q.cacheDir(), { recursive: true })
+    fs.writeFileSync(STAMP, "")
+    if (!moved) finish()
+}
+
+// The lock is shared with qmd-mcp: if it is taken, the same work is going on there.
+if (!q.takeLock()) {
+    say("qmd-refresh: an update is already running")
+    finish()
+}
+
+// `qmd embed` downloads its model when it is missing, so it runs only after the user agreed to the
+// models (the answer file of qmd-mcp) and with the embedding model qmd-mcp
+// sets: vectors of another model would not match the server's queries. `qmd update` needs no model.
+if (WAIT) {
+    q.writeLockPid(process.pid)
+    q.runUpdate(QMD, " (qmd-refresh)", true)
+    for (const { copy } of COPIES) {
+        const head = gitIn(copy, ["rev-parse", "--short", "HEAD"])
+        say(`qmd-refresh: the index is at ${head.status === 0 ? head.stdout.trim() : "?"}`)
+    }
+    if (COPIES.length === 0) say("qmd-refresh: index updated")
+} else {
+    // To the background without inheriting stdio: a hook waiting for `embed` to finish would hang the session.
+    q.startUpdate(QMD, " (qmd-refresh)", true)
+    say(`qmd-refresh: update started in the background, log ${LOG}`)
+}
+finish()

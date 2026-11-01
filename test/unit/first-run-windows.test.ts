@@ -24,7 +24,7 @@ vi.mock('../../src/main/harness/qmd', async (original) => {
   return {
     ...real,
     qmdState: () =>
-      Promise.resolve({ qmd: null, version: 'missing', warning: null, node: { version: '22.13.0', ok: true }, models: { models: [], bytes: 0, russian: false, present: [] }, answer: null }),
+      Promise.resolve({ qmd: null, version: 'missing', warning: null, node: { version: '22.13.0', ok: true }, qmdOnNvm: null, models: { models: [], bytes: 0, russian: false, present: [] }, answer: null }),
   }
 })
 

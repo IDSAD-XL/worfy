@@ -58,7 +58,7 @@ export const UNMEASURED_SECONDS = 20
 
 /**
  * Seconds each shell test took, five at a time in one file: `windows` on the GitHub Windows runner (CI run
- * 40927995527 of 2026-10-29, jobs `harness-scripts 1/2` and `2/2`; qmd.test.sh is skipped there), `other`
+ * 40927995527 of 2026-10-29, jobs `harness-scripts 1/2` and `2/2`; qmd.test.sh was still skipped there, so it counts UNMEASURED_SECONDS), `other`
  * on the owner's Mac in a whole `pnpm test --maxWorkers=9` (2026-10-29; code-map.test.sh in the four
  * harness-scripts files alone, 2026-10-30, and not yet on Windows), used on macOS and Linux. They
  * split the shell tests across HARNESS_SCRIPTS_FILES (inFile) and set the order they start in (startOrder).

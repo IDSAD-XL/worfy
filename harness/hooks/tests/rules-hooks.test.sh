@@ -560,8 +560,7 @@ if [ "$(hj valid)" = ok ]; then ok "hooks.json is valid JSON with .hooks"; else 
 # a project with a worktree.root outside the repository is connected (decided 2026-10-09). Every Node script runs as an explicit
 # `node "${CLAUDE_PLUGIN_ROOT}/…"`: Windows starts no
 # script by its #! line. One exception: the gate hooks call the launcher gate.sh, because without
-# node only the launcher can say so. The qmd refresh runs through the node hook qmd-refresh.mjs:
-# Windows has no zsh, and bin/qmd-refresh run directly ended every turn there with exit 127.
+# node only the launcher can say so.
 # One line per hook: event|matcher|command|timeout.
 R='"${CLAUDE_PLUGIN_ROOT}'
 N='node "${CLAUDE_PLUGIN_ROOT}'
@@ -578,7 +577,7 @@ TaskCompleted||$R/hooks/gate.sh" fast|900
 TeammateIdle||$R/hooks/gate.sh" fast|900
 Stop||$N/hooks/stop.mjs"|10
 Stop||$N/bin/worktree-lock" beat|5
-Stop||$N/hooks/qmd-refresh.mjs"|15
+Stop||$N/bin/qmd-refresh" --quiet|15
 SessionEnd||$N/hooks/session-end.mjs"|10
 SessionEnd||$N/bin/worktree-lock" release|5
 PreToolUse|Bash|$N/hooks/guard.mjs"|30
@@ -592,18 +591,18 @@ else
 fi
 types="$(hj types)"
 [ "$types" = command ] && ok "hooks.json: every hook is a command" || bad "hooks.json: hook types '$types'"
-# A command that names a Node script (a .mjs file, or bin/worktree-lock, which has no extension)
-# starts with `node `: Windows does not start a script by its #! line.
+# A command that names a Node script (a .mjs file, or bin/worktree-lock and bin/qmd-refresh, which have
+# no extension) starts with `node `: Windows does not start a script by its #! line.
 while IFS= read -r cmd; do
     case "$cmd" in
-        *.mjs\"* | */bin/worktree-lock\"*)
+        *.mjs\"* | */bin/worktree-lock\"* | */bin/qmd-refresh\"*)
             case "$cmd" in
                 'node "${CLAUDE_PLUGIN_ROOT}/'*) ok "runs through node: $cmd" ;;
                 *) bad "a Node script without node: $cmd" ;;
             esac ;;
     esac
 done < <(hj commands)
-if grep -q 'hooks/qmd-refresh.mjs' "$HJ" 2>/dev/null; then ok "hooks.json: Stop runs the qmd-refresh hook"; else bad "hooks.json: no qmd-refresh hook"; fi
+if grep -q 'bin/qmd-refresh' "$HJ" 2>/dev/null; then ok "hooks.json: Stop runs bin/qmd-refresh"; else bad "hooks.json: no bin/qmd-refresh hook"; fi
 # No hook runs a zsh script directly: Windows has no zsh, and Claude Code shows such a hook's exit 127
 # as "Stop hook error occurred" on every turn. A command either starts with
 # `node ` or names a script whose #! line is sh or bash.
