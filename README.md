@@ -105,7 +105,7 @@ pnpm install:stable                        # Windows: %LOCALAPPDATA%\worfy-stabl
 pnpm install:stable D:\apps\worfy-stable   # any other folder
 ```
 
-It builds the app (`pnpm package`), swaps it in and writes the commit and the build time next to the copy, in `worfy-stable.json`. It refuses with a non-zero exit code while the copy is running: stop Autopilot first, or wait for the gap between Waves. While it works it keeps `<target>.installing-<pid>` and `<target>.replaced-<pid>` next to the target, and the next run clears what an interrupted one left; keep nothing of your own under such names.
+It builds the app (`pnpm package`), swaps it in and writes the commit and the build time into a file next to the copy (`worfy-stable.json` for the default target); nothing is written inside the copy. It refuses with a non-zero exit code while the copy is running: stop Autopilot first, or wait for the gap between Waves. While it works it keeps `<target>.installing-<pid>` and `<target>.replaced-<pid>` next to the target, and the next run clears what an interrupted one left; keep nothing of your own under such names.
 
 On Windows `pnpm package` also writes an unsigned installer, `dist\worfy Setup <version>.exe`, which installs worfy into `%LOCALAPPDATA%\Programs\worfy`; SmartScreen asks before its first run. The installer stops every running program whose path starts with that folder, so the command refuses a target inside it, around it or starting with its path (`…\Programs\worfy-stable`), a folder that holds `Uninstall worfy.exe`, and a folder that is neither empty nor an earlier copy. A folder with `worfy.exe` counts as an earlier copy and is replaced whole: keep nothing of your own in it.
 
