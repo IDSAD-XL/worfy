@@ -48,7 +48,7 @@
 // remote-links.ts); and a link deeper than the folders `enter` names.
 import { lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { UNCHECKED, walkLinks, type LinkFs, type PathRules } from './remote-links'
-import { namesTheFolder, notThere, watchWithNode, type NodeWatch } from './watch-gone'
+import { namesTheFolder, notThere, watchWithNode, type NodeWatch, type WatchEvent } from './watch-gone'
 
 /** What a path is, by lstat: a link is a link whatever it leads to. */
 export type EntryKind = 'folder' | 'file' | 'link'
@@ -111,8 +111,8 @@ export interface LinkSafeWatchOptions {
   fs?: WatchFs
   /** Whether links are looked for in this folder, named by its path under the root. The root always is. */
   enter: (path: string) => boolean
-  /** Whether a change of this path, named under the root, is reported. */
-  wanted: (path: string) => boolean
+  /** Whether a change of this path, named under the root, is reported. `event` is what the watch of the root said of it. */
+  wanted: (path: string, event?: WatchEvent) => boolean
   /**
    * A change of a path under the root. The root itself: when it went, when it is watched again
    * after the start (it came, or its watch was made anew), and when the system reports a change
@@ -357,12 +357,12 @@ export class LinkSafeWatch {
     mine.handle = this.fs.watch(
       real,
       true,
-      (name) => {
+      (name, event) => {
         if (this.rootWatch !== mine.handle) return
         // The root itself went: no sign that the watch works.
         if (namesTheFolder(name, this.paths.isAbsolute)) return this.lost()
         reported = true
-        this.report(name === null ? root : this.paths.join(root, name))
+        this.report(name === null ? root : this.paths.join(root, name), event)
       },
       (error) => {
         if (this.rootWatch !== mine.handle) return
@@ -482,9 +482,9 @@ export class LinkSafeWatch {
   }
 
   /** Called only by a watch that is still the current one: after close there is none. */
-  private report(path: string): void {
+  private report(path: string, event?: WatchEvent): void {
     const { root } = this.options
-    const interesting = path === root || this.options.wanted(path)
+    const interesting = path === root || this.options.wanted(path, event)
     if (interesting) this.options.onChange(path)
     // A link may have come or gone where links are looked for.
     if (interesting || this.entered(this.paths.dirname(path))) this.scheduleScan()
