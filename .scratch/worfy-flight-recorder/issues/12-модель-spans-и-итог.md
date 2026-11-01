@@ -1,7 +1,8 @@
 # 12 — Модель spans и итог
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T00:14Z
+Branch: worfy-flight-recorder/12
 Blocked by: —
 Source: [spec.md](../spec.md), «Модель» (все пункты), «Ticket-ы» (12), «Соглашения для Ticket-ов этого Epic-а» (глубина ревью `high`); решение 03, Q1–Q9 ([03-модель-spans.md](03-модель-spans.md)); решение 01, Q4, Q8 ([01-destination-единица-истории-хранение-id.md](01-destination-единица-истории-хранение-id.md)); решение 07 ([07-живая-шкала-или-после-остановки.md](07-живая-шкала-или-после-остановки.md)); решение 08, Q5–Q7 ([08-неполная-история.md](08-неполная-история.md)); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md) (Stage вычисляется)
 
@@ -80,3 +81,50 @@ Source: [spec.md](../spec.md), «Модель» (все пункты), «Ticket-
 
 Только читать: Card `card-57714d55` (прототип), `src/shared/autopilot/journal.ts` (имена событий Wait-ов),
 `docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md`.
+
+## Итог
+
+- Модуль `src/shared/flight-recorder/` — `spans.ts` и `summary.ts`, без Node и DOM; импортирует только
+  `../workflow/pipeline` (`stageOf`, `stageId`, `stageLabel`), `../workflow/types` и `../agent/subagent-type`
+  (`harnessName`).
+- Вход — `RunFacts`. Над типами в `spans.ts` — таблица «кто что заполняет»: Journal (13), транскрипты (14),
+  GitHub (15), gate и отметки без PR (16), сервис (17: `run.live`, `now`, `pipeline`). Каждый reader заполняет свою
+  часть из ОДНОГО источника: gate run несёт `sha`/`worktree`, Ticket находит модель (sha событий и работы Ticket-а,
+  worktree его агентов; шаг gate — через `parentWork`); `narrow-round` и `session-error` — `RetryCauseFact`
+  (Ticket или null, вид, время), модель вешает его на ближайшую следующую попытку; потерянный источник без
+  Ticket-а покрывает каждый Ticket Run-а без span этого вида. От `journal-walk.mjs` (Ticket 10) не зависит.
+- Stage: события Ticket-а (`status`, `pr-opened`, `push`, `ci-started`/`ci-finished`, `mark`, `approved`, `merge`)
+  проигрываются по времени через `stageOf` доски (ADR-0067) — те же правила: `skipped` проходит Check, merge
+  проходит все Stage до себя, повторный failure на том же head ничего не добавляет. Переход вперёд через
+  несколько Stage — один span «A + B» с `no boundary in sources`; назад — `rejected` (failure на head) или `stopped`
+  («back to CI», новый commit), Stage снова — `#N` со ссылкой на span, который вернул. Пока у нового head есть
+  CI-события впереди, PR считает одну pending check (иначе `stageOf` проходит CI на PR без checks).
+- Ticket в нескольких Wave — одна строка с `segments`; в живом Run Ticket не done — `end: null`, до «сейчас», без
+  исхода, и между Wave тоже. Self time Wave вычитает отрезки её Ticket-ов. У Stage и Ticket — `pr` и `sha`.
+- Конец Run — граница: события, работа, Wait-ы, ходы и отметки позже конца Run не читаются; блокировка, снятая
+  после Run, держится до его конца; done после Run — не done. Блокировка — из `status` `blocked` до следующего
+  статуса; одна и та же блокировка дважды — одна отметка.
+- Повтор работы: предыдущая попытка — `retryOf` источника (и под другим именем), иначе того же Ticket-а, вида и
+  имени, иначе (для причины из Journal) того же вида и подвида. Причина — `retryOf`, иначе последняя failed/rejected
+  работа этого же Ticket-а между попытками (работа Run-а без Ticket-а не считается), иначе прошлая попытка.
+- Wait несёт Ticket-ы: свои, иначе Wave, открытой при начале, иначе Wave, которая его ждала. Потерянный span в
+  остановленном Run кончается вместе с тем, что покрывает.
+- `summary.ts`: `selfTime` — длительность минус объединение детей внутри отрезков родителя (у Wave — плюс отрезки
+  её Ticket-ов); `summarize` — три Stage по self time (ничья — раньше начавшийся), Wait-ы по причинам с долей Run
+  (Run нулевой длины — доля 0), работа внутри Stage по подвидам с `summed; parallel`; потерянные spans, работа вне
+  Stage и шаги gate в суммы не входят.
+- Test-ы: `test/unit/flight-recorder-spans.test.ts` и `test/unit/flight-recorder-summary.test.ts`. Первым падал
+  test self time Stage с двумя параллельными агентами. Импорты держат test «imports neither Node nor the DOM»
+  (и `fetch`, `import()`, `require`) и lint `worfy/process-boundary`.
+- Ревью 1-го круга (high, REJECTED): исправлено всё; M01 (слияние касающихся интервалов) и M11 (`limit` вместо
+  `now` в живом Run) — эквивалентные мутанты: длина объединения и граница в живом Run от них не меняются.
+- Ревью 2-го круга (REJECTED, два medium): Ticket без события `status` (Run подхватил его в работе) считается
+  claimed с первого другого своего события — «Queued + Implementing» с `no boundary in sources`, а не Queued на весь
+  Run; работа, кончившаяся до начала строки своего Ticket-а (или Run-а), не попадает в шкалу — старый gate run из
+  того же пути worktree. Readers 14 и 16 передают канонический путь `worktree`. Контракт `RunFacts` вынесен в
+  `src/shared/flight-recorder/facts.ts` (spans.ts его реэкспортирует), там же — что reader 14 ставит агенту без
+  известного Ticket-а.
+- Не проверено: блокировка Ticket-а, поставленная до начала Run-а, в шкале не видна: в Journal нет её события.
+- Не проверено: модель на fixture ночного Run (Ticket 10, параллельно) — первым это сделает Ticket 13; отрисовка —
+  Ticket-ы 18–19. Deploy-событий во входе нет: Stage Deploy (если он есть в Pipeline) проходится только
+  статусом `done`.
