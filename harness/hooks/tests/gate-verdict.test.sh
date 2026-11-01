@@ -317,10 +317,15 @@ verdict "not registered -> outcome unverified, exit 3, key null" "$U" '.outcome 
 # gate.mjs cannot say that: the launcher gate.sh does, and it writes the same file. PATH here has
 # git and the tools gate.sh needs, and no node: the folders of Git Bash on Windows, elsewhere a
 # folder of links to the tools. gate.sh looks for node in /opt/homebrew/bin and /usr/local/bin
-# itself: with node there, "no node" cannot be simulated (gate-shim.test.sh has a way round it).
-NONODE="" why=""
-if [ -x /opt/homebrew/bin/node ] || [ -x /usr/local/bin/node ]; then why="node is in /opt/homebrew/bin or /usr/local/bin, where gate.sh looks for it itself"
-elif [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:/mingw64/bin"
+# itself: with node there a copy of gate.sh that does not look there runs, as in gate-shim.test.sh.
+NONODE="" why="" LAUNCHER="$HOOKS/gate.sh"
+if [ -x /opt/homebrew/bin/node ] || [ -x /usr/local/bin/node ]; then
+    LAUNCHER="$T/gate-no-usual-node.sh"
+    # Each folder on its own, whatever the order of the list (eval-env.test.sh says why).
+    sed 's#/opt/homebrew/bin#/worfy-test-no-such-folder-a#g; s#/usr/local/bin#/worfy-test-no-such-folder-b#g' "$HOOKS/gate.sh" >"$LAUNCHER"
+    grep -qE '/opt/homebrew/bin|/usr/local/bin' "$LAUNCHER" && bad "the copy of gate.sh still looks in /opt/homebrew/bin or /usr/local/bin"
+fi
+if [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:$(dirname "$(command -v git)")"
 else
     mkdir -p "$T/bin"
     for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat sort; do
@@ -329,13 +334,17 @@ else
     NONODE="$T/bin"
 fi
 if [ -n "$NONODE" ] && (PATH="$NONODE"; command -v node >/dev/null 2>&1); then why="node is in $NONODE, next to git and the shell tools"; NONODE=""; fi
-if [ -n "$NONODE" ] && ! (PATH="$NONODE"; command -v git >/dev/null 2>&1); then why="git is not in $NONODE"; NONODE=""; fi
+if [ -n "$NONODE" ] && ! (PATH="$NONODE"; command -v git >/dev/null 2>&1); then
+    # Git Bash always has git, so a skip here would hide a wrong NONODE.
+    [ "$WIN" -eq 1 ] && bad "git is not in $NONODE"
+    why="git is not in $NONODE"; NONODE=""
+fi
 if [ -z "$NONODE" ]; then echo "skip the node-missing check: $why"; else
     mode ok; touched
     out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
     verdict "before the run without node: a green file" "$R" '.outcome == "green"'
     mkdir -p "$T/home"   # no ~/.nvm in it: gate.sh looks for node there too
-    out="$(cd "$R" && HOME="$T/home" USERPROFILE="$T/home" PATH="$NONODE" "$BASH" "$HOOKS/gate.sh" fast </dev/null 2>&1)"; rc=$?
+    out="$(cd "$R" && HOME="$T/home" USERPROFILE="$T/home" PATH="$NONODE" "$BASH" "$LAUNCHER" fast </dev/null 2>&1)"; rc=$?
     verdict "node not found -> outcome unverified, exit 3, key null, in place of the green file" "$R" \
         '.outcome == "unverified" and .exit == 3 and .key == null and .profile == "fast" and .reason == "node not found" and .head == $head' --arg head "$HEAD_R"
     if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: node not found"* ]] && grep -q "node not found" "$STATE/nokey-broken-$(tag "$R")-anon" 2>/dev/null; then ok "node not found: exit 3, the «node not found» line and the marker of the worktree"

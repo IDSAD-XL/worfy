@@ -135,9 +135,10 @@ else bad "gate.sh in git: $index_line (mode 100755 expected)"; fi
 # --- the launcher where node is not on PATH --------------------------------------------
 # NONODE is a PATH with git and the tools the launcher and the script of the test need, and no
 # node: what a hook gets where node is not installed. Git Bash keeps the tools in /usr/bin and
-# git in /mingw64/bin; elsewhere a folder of links to the tools is made.
+# git in a folder of its own, /mingw64/bin or in a newer Git /ucrt64/bin; elsewhere a folder of
+# links to the tools is made.
 NONODE="" why=""
-if [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:/mingw64/bin"
+if [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:$(dirname "$(command -v git)")"
 else
     mkdir -p "$T/bin"
     for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat dirname realpath sort awk tr wc; do
@@ -146,7 +147,11 @@ else
     NONODE="$T/bin"
 fi
 if (PATH="$NONODE"; command -v node >/dev/null 2>&1); then why="node is in $NONODE, next to git and the shell tools"; NONODE=""; fi
-if [ -n "$NONODE" ] && ! (PATH="$NONODE"; command -v git >/dev/null 2>&1); then why="git is not in $NONODE"; NONODE=""; fi
+if [ -n "$NONODE" ] && ! (PATH="$NONODE"; command -v git >/dev/null 2>&1); then
+    # Git Bash always has git, so a skip here would hide a wrong NONODE: every check below stopped running that way on a newer Git.
+    [ "$WIN" -eq 1 ] && bad "git is not in $NONODE"
+    why="git is not in $NONODE"; NONODE=""
+fi
 # PLUGIN is a copy of the gate laid out as the plugin is, hooks/ under a root: the hook command
 # of hooks.json is run on it. Its gate.sh is the file under test as it is — unless node is
 # installed in /opt/homebrew/bin or /usr/local/bin. The launcher looks there itself, so "no node"
@@ -158,10 +163,9 @@ mkdir -p "$PLUGIN/hooks"
 cp "$GATE" "$HOOKS/gate-log.mjs" "$HOOKS/gate-paths.mjs" "$HOOKS/gate-resolve.mjs" "$HOOKS/eval-env.cjs" "$PLUGIN/hooks/"
 if [ -x /opt/homebrew/bin/node ] || [ -x /usr/local/bin/node ]; then
     echo "note: node is in /opt/homebrew/bin or /usr/local/bin: the checks below run a copy of gate.sh that does not look there"
-    sed 's#/opt/homebrew/bin /usr/local/bin#/worfy-test-no-such-folder-a /worfy-test-no-such-folder-b#' "$SHIM" >"$LAUNCHER"
-    if [ -n "$NONODE" ] && ! grep -q '/worfy-test-no-such-folder-a /worfy-test-no-such-folder-b' "$LAUNCHER"; then
-        why="gate.sh no longer names /opt/homebrew/bin and /usr/local/bin in one line: the test cannot take them out"; NONODE=""
-    fi
+    # Each folder on its own, whatever the order of the list (eval-env.test.sh says why).
+    sed 's#/opt/homebrew/bin#/worfy-test-no-such-folder-a#g; s#/usr/local/bin#/worfy-test-no-such-folder-b#g' "$SHIM" >"$LAUNCHER"
+    grep -qE '/opt/homebrew/bin|/usr/local/bin' "$LAUNCHER" && bad "the copy of gate.sh still looks in /opt/homebrew/bin or /usr/local/bin"
 else
     cp "$SHIM" "$LAUNCHER"
 fi
