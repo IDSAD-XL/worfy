@@ -64,8 +64,9 @@ read as a command.
 **From a chat, by the agent.** When the user asks a Session in words to run an Epic, or some of its Tickets, on autopilot,
 the agent calls the canvas tool `autopilot_start` with the Epic and, for named Tickets, their numbers. worfy then asks the
 user in a dialog that names the Project, the Epic and the Tickets, with **Start Autopilot** and **Cancel** (Cancel is the
-default button). The dialog is on a window of the Project's Machine, the Machine that runs the Session; a Linked
-machine's window gets no dialog and cannot confirm. Without an answer in 10 minutes the dialog closes and the agent gets
+default button). The dialog is on a window of the Project's Machine, the Machine that runs the Session: the focused
+window, else one on screen, else a minimised or hidden one brought back first. A Linked machine's window gets no dialog
+and cannot confirm. Without an answer in 10 minutes the dialog closes and the agent gets
 "No one confirmed …"; Cancel is a refusal too. **Start Autopilot** starts the same run as the button, over the named
 Tickets when there are any. When the asking Session is the Project's Orchestrator in its turn, the run starts once that turn
 is over, and the agent gets "Autopilot starts after this turn". Without a dialog the tool refuses:
@@ -73,8 +74,10 @@ is over, and the agent gets "Autopilot starts after this turn". Without a dialog
 - a Session that runs unattended, such as the Orchestrator during a run: no one is there to confirm;
 - a Session worfy cannot find;
 - a Project with a run under way: "Autopilot is already running Epic X. Stop it first.", and the journal gets nothing;
-- an Epic or a Ticket the Project does not have;
-- a second call while a dialog of the same Project waits.
+- a Project whose start from a chat waits for the Orchestrator's turn to end;
+- an Epic or a Ticket the Project does not have, or a workflow that cannot be read;
+- a second call while a dialog of the same Project waits;
+- a Machine with no worfy window open: a box without a window would block worfy on macOS.
 
 #### During a run
 

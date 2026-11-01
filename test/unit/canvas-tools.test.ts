@@ -67,5 +67,7 @@ describe('autopilot_start: the description', () => {
     expect(description).toMatch(/tickets: \["05", "06"\]/u)
     expect(description).toMatch(/whole Epic/u)
     expect(description).toMatch(/confirms in a dialog/u)
+    expect(description).toMatch(/up to 10 minutes/u)
+    expect(description).toMatch(/Refused in an unattended/u)
   })
 })

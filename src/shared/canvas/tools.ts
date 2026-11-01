@@ -116,7 +116,7 @@ export const canvasToolDescriptions: Record<CanvasToolName, string> = {
   autopilot_start:
     'Start worfy Autopilot on an Epic of this Project, only when the user asks in words to run it on autopilot, autonomously or automatically. ' +
     'For named Tickets ("run 05 and 06 on autopilot") give tickets: ["05", "06"]; without tickets the whole Epic runs. ' +
-    'The user confirms in a dialog first; a refusal says why.',
+    'The user confirms in a dialog first, so the call may wait up to 10 minutes; a refusal says why. Refused in an unattended (Autopilot) Session.',
 }
 
 /** A Node as list_nodes reports it. */
