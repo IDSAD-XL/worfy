@@ -15,14 +15,18 @@
 // - Times: only the `timestamp` of the records; the time a file changed is never read.
 //
 // shortcut: reads every file whole on each call, a night Run is tens of MB; ticket 17 reads on from where it stopped (src/main/claude-home/tail.ts).
-import { readdir, readFile, realpath } from 'node:fs/promises'
-import { join, posix, win32 } from 'node:path'
+import { realpath } from 'node:fs'
+import { readdir, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
 import type { LostFact, TurnFact, WaveFact, WorkFact } from '../../shared/flight-recorder/facts'
 import { transcriptCwd, transcriptFacts, wavePromptTimes, type SubagentLines } from '../../shared/flight-recorder/from-transcript'
 import { isInsidePath, projectDirName } from '../claude-home/registry'
 import { claudeHome } from '../storage/paths'
 
 type Env = Readonly<Record<string, string | undefined>>
+
+const realpathNative = promisify(realpath.native)
 type Iso = string
 
 /** How far the prompt of a Wave may lie from its `wave-started` for the search by text. */
@@ -51,10 +55,8 @@ export interface TranscriptRun {
   waves: readonly TranscriptWave[]
 }
 
-export interface TranscriptReadOptions {
+export interface TranscriptReadOptions extends CanonicalOptions {
   env?: Env
-  /** Whose path rules apply: the Machine's own by default. */
-  platform?: NodeJS.Platform
 }
 
 export interface RunTranscripts {
@@ -63,23 +65,47 @@ export interface RunTranscripts {
   lost: LostFact[]
 }
 
+export interface CanonicalOptions {
+  /** `process.platform` by default; `win32` checks the Windows rules on any system. */
+  platform?: string
+  /** realpath(3) by default. */
+  realpath?: (path: string) => Promise<string>
+}
+
 /**
- * A path as the model compares it (facts.ts): the real path when the folder exists on this
- * Machine, else the path normalised; one separator, no trailing one; on Windows case-folded, as its
- * file system compares names. The real path resolves a link and an 8.3 name (`RUNNER~1`).
+ * A worktree path in the form the model compares as a string (facts.ts): realpath(3), which
+ * resolves a link, expands an 8.3 short name like `RUNNER~1` and gives the drive letter's case,
+ * else the path as written (a worktree that is gone); then `comparablePath`. The same rule as
+ * reader 16's `canonicalWorktree` (src/main/flight-recorder/gate-logs.ts), so a gate run and an
+ * agent of one worktree meet.
  */
-export async function canonicalPath(path: string, platform: NodeJS.Platform = process.platform): Promise<string> {
-  const paths = platform === 'win32' ? win32 : posix
-  let resolved = paths.normalize(path.normalize('NFC'))
-  if (platform === process.platform) {
-    try {
-      resolved = (await realpath(resolved)).normalize('NFC')
-    } catch {
-      // A removed worktree: the path as written.
-    }
+export async function canonicalPath(path: string, options: CanonicalOptions = {}): Promise<string> {
+  const resolve = options.realpath ?? ((target: string) => realpathNative(target))
+  let real = path
+  try {
+    real = await resolve(path)
+  } catch {
+    // A worktree that is gone keeps the spelling the report gave.
   }
-  if (resolved.length > paths.parse(resolved).root.length && resolved.endsWith(paths.sep)) resolved = resolved.slice(0, -1)
-  return platform === 'win32' ? resolved.toLowerCase() : resolved
+  return comparablePath(real, options.platform ?? process.platform)
+}
+
+/**
+ * On Windows `\` and `/` are one separator and letter case does not tell two names apart, so the
+ * path gets `/` and lower case, and the `\\?\` prefix of a long path goes; elsewhere it is the path
+ * itself. A trailing separator goes too, except on a root (`/`, `c:/`). Reader 16's
+ * `comparablePath` (src/shared/flight-recorder/from-gate.ts), character for character.
+ */
+export function comparablePath(path: string, platform: string): string {
+  let result = path
+  if (platform === 'win32') {
+    result = result.replaceAll('\\', '/')
+    if (result.startsWith('//?/UNC/')) result = `//${result.slice('//?/UNC/'.length)}`
+    else if (result.startsWith('//?/')) result = result.slice('//?/'.length)
+    result = result.toLowerCase()
+  }
+  while (result.length > 1 && result.endsWith('/') && !/^[a-z]:\/$/u.test(result)) result = result.slice(0, -1)
+  return result
 }
 
 const missing = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as { code?: string }).code ?? '')
@@ -133,7 +159,7 @@ export async function readRunTranscripts(run: TranscriptRun, options: Transcript
   const tickets = [...new Set(run.waves.flatMap((wave) => wave.tickets))]
   const ofProject = (lines: readonly string[]): boolean => {
     const cwd = transcriptCwd(lines)
-    return cwd !== undefined && isInsidePath(cwd.normalize('NFC'), run.root.normalize('NFC'), platform)
+    return cwd !== undefined && isInsidePath(cwd.normalize('NFC'), run.root.normalize('NFC'), platform as NodeJS.Platform)
   }
 
   // The transcripts of the folder, read once, for the Waves that have no session.
@@ -191,7 +217,7 @@ export async function readRunTranscripts(run: TranscriptRun, options: Transcript
     const lines = read.get(session)!
     const facts = transcriptFacts({ session, epic: run.epic, tickets, lines, subagents: await subagentFiles(dir, session) })
     const inside = (fact: { start: Iso }) => ms(fact.start) >= window.start && ms(fact.start) <= window.end
-    for (const fact of facts.work.filter(inside)) work.push(fact.worktree === undefined ? fact : { ...fact, worktree: await canonicalPath(fact.worktree, platform) })
+    for (const fact of facts.work.filter(inside)) work.push(fact.worktree === undefined ? fact : { ...fact, worktree: await canonicalPath(fact.worktree, options) })
     turns.push(...facts.turns.filter(inside))
   }
   return { work, turns, lost }
