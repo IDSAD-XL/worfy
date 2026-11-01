@@ -13,9 +13,10 @@ Source: решение Orchestrator-а, 2026-11-01, по находке из т�
 `findGitBash` (`src/main/agent/env.ts:509`) поднимается к корню Git только из `mingw64`. При `git.exe` в `<Git>\ucrt64\bin` он ищет
 несуществующий `<Git>\ucrt64\bin\bash.exe`.
 
-Если Git стоит не в `%ProgramFiles%\Git`, `%ProgramFiles(x86)%\Git` или `%LOCALAPPDATA%\Programs\Git` и в Path нет `<Git>\cmd` или
-`<Git>\bin`, приложение остаётся без Git Bash, хотя он есть. Обычная установка кладёт в Path `<Git>\cmd`, поэтому её это не задевает.
-Как часто встречается случай с одной только `ucrt64\bin` в Path, не измерялось.
+Если Git стоит не в `%ProgramFiles%\Git`, `%ProgramFiles(x86)%\Git` или `%LOCALAPPDATA%\Programs\Git` и `ucrt64\bin` стоит в Path раньше
+`<Git>\cmd` и `<Git>\bin`, приложение остаётся без Git Bash, хотя он есть: смотрится только первый `git.exe`. Такой порядок даёт своим
+процессам shell Git Bash. Обычная установка кладёт в Path только `<Git>\cmd`, поэтому её это не задевает. Как часто встречается этот
+случай, не измерялось.
 
 ## Что делаем
 
@@ -42,3 +43,9 @@ Source: решение Orchestrator-а, 2026-11-01, по находке из т�
 Новые test-ы были красными до правки. Проверено подстановкой файлов: на ПК Git 2.45 с `mingw64`, настоящего `ucrt64` здесь нет. Запуск на
 настоящем `ucrt64` был только у `gitBashDir` на GitHub runner, в CI #1173. Остальные упоминания `mingw64` — в комментариях
 `scripts/eval-run-env.mjs` и shell-тестах, поиск Git Bash они не задают.
+
+Попутно: `gitBash` не смотрел в `%ProgramFiles(x86)%\Git`, хотя его комментарий обещает порядок `findGitBash`. Добавлено с test-ом.
+
+Остаётся: `harness/hooks/tests/gate-verdict.test.sh:323`, `gate-shim.test.sh:140`, `gate-notverified.test.sh:114` и
+`harness/bin/tests/eval-env.test.sh:282` задают PATH `/usr/bin:/mingw64/bin`. В `/usr/bin` нет `git`, поэтому на Git с `ucrt64` первые три
+файла пропускают свои проверки «нет node» со строкой skip; `eval-env.test.sh` не читался. В CI это не проверялось.

@@ -118,8 +118,8 @@ export function writeLimits(folders, limits) {
 
 /**
  * Git Bash of Git for Windows: CLAUDE_CODE_GIT_BASH_PATH, else next to git.exe on PATH, else under
- * %ProgramFiles%\Git or %LOCALAPPDATA%\Programs\Git — the order of findGitBash in
- * src/main/agent/env.ts. Nothing under %SystemRoot%: C:\Windows\System32\bash.exe starts WSL.
+ * %ProgramFiles%\Git, %ProgramFiles(x86)%\Git or %LOCALAPPDATA%\Programs\Git — the order of findGitBash
+ * in src/main/agent/env.ts. Nothing under %SystemRoot%: C:\Windows\System32\bash.exe starts WSL.
  */
 export function gitBash(env = process.env, exists = existsSync) {
   const systemRoot = (env.SystemRoot || 'C:\\Windows').toLowerCase()
@@ -135,6 +135,7 @@ export function gitBash(env = process.env, exists = existsSync) {
     break
   }
   if (env.ProgramFiles) candidates.push(win32.join(env.ProgramFiles, 'Git', 'bin', 'bash.exe'))
+  if (env['ProgramFiles(x86)']) candidates.push(win32.join(env['ProgramFiles(x86)'], 'Git', 'bin', 'bash.exe'))
   if (env.LOCALAPPDATA) candidates.push(win32.join(env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'))
   return candidates.find((path) => !path.toLowerCase().startsWith(`${systemRoot}\\`) && exists(path)) ?? null
 }
