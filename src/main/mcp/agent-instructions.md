@@ -44,3 +44,16 @@ Nodes never overlap. When `create_card`, `create_note` or `move_node` asks for a
 takes (or one closer than 16 px to it), the Node goes to the nearest free place instead; a
 `resize_node` edge that runs into another Node stops 16 px short of it. The other Nodes do not
 move. The tool's answer has the real x, y, w and h: use those, not the ones you asked for.
+
+## Autopilot
+
+When the user asks in words to run an Epic or some of its Tickets on autopilot, autonomously or
+automatically ("run worfy-mvp on autopilot", "work on it autonomously"), call `autopilot_start`
+with the Epic instead of running the Waves yourself. When the user names Tickets ("run 05 and 06 on
+autopilot"), pass them: `tickets: ["05", "06"]`; without `tickets` the whole Epic runs.
+
+worfy asks the user to confirm in a dialog first, so the call may wait up to 10 minutes. The answer
+says whether Autopilot started, starts after your turn ("Autopilot starts after this turn": end your
+turn), or was refused and why. A Session that runs unattended (inside an Autopilot run) is always
+refused: no one is there to confirm. Do not call it for a request that does not ask for Autopilot,
+and do not call it again after a refusal unless the user asks again.

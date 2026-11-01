@@ -139,6 +139,11 @@ export class ChatStarts {
     return { kind: 'after-turn', message: AFTER_TURN_MESSAGE }
   }
 
+  /** busy() for the Orchestrator's tool, which asks it before its dialog (chat-confirm.ts, ticket 23). */
+  busyRefusal(projectId: string): string | null {
+    return this.busy(projectId)
+  }
+
   /** Why a start from a chat is refused now for a run under way or a start waiting for a turn's end; null when none. */
   private busy(projectId: string): string | null {
     const running = this.deps.autopilot.runningEpic(projectId)

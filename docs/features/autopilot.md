@@ -61,6 +61,24 @@ command started, and the run journals it as a person stepping in. Typed in the O
 is over, and the toast says "Autopilot starts after this turn". The Waves Autopilot sends to the Orchestrator are never
 read as a command.
 
+**From a chat, by the agent.** When the user asks a Session in words to run an Epic, or some of its Tickets, on autopilot,
+the agent calls the canvas tool `autopilot_start` with the Epic and, for named Tickets, their numbers. worfy then asks the
+user in a dialog that names the Project, the Epic and the Tickets, with **Start Autopilot** and **Cancel** (Cancel is the
+default button). The dialog is on a window of the Project's Machine, the Machine that runs the Session: the focused
+window, else one on screen, else a minimised or hidden one brought back first. A Linked machine's window gets no dialog
+and cannot confirm. Without an answer in 10 minutes the dialog closes and the agent gets
+"No one confirmed …"; Cancel is a refusal too. **Start Autopilot** starts the same run as the button, over the named
+Tickets when there are any. When the asking Session is the Project's Orchestrator in its turn, the run starts once that turn
+is over, and the agent gets "Autopilot starts after this turn". Without a dialog the tool refuses:
+
+- a Session that runs unattended, such as the Orchestrator during a run: no one is there to confirm;
+- a Session worfy cannot find;
+- a Project with a run under way: "Autopilot is already running Epic X. Stop it first.", and the journal gets nothing;
+- a Project whose start from a chat waits for the Orchestrator's turn to end;
+- an Epic or a Ticket the Project does not have, or a workflow that cannot be read;
+- a second call while a dialog of the same Project waits;
+- a Machine with no worfy window open: a box without a window would block worfy on macOS.
+
 #### During a run
 
 The line above the button shows the state of the run:
@@ -312,10 +330,11 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | Path | What it holds |
 |---|---|
 | `src/main/autopilot/run.ts` | The `Autopilot` class and one `Run`: start checks, events of the Session, effects of the cycle, stops, give-back. |
-| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: the start from a chat, over the Epic or named Tickets; the refusal while a run goes on, and the start after the asking Orchestrator's turn. The command typed in a chat calls it. |
+| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: the start from a chat, over the Epic or named Tickets; the refusal while a run goes on, and the start after the asking Orchestrator's turn. The command typed in a chat and the tool `autopilot_start` call it. |
 | `src/shared/autopilot/chat-command.ts` | `parseChatCommand`: which typed messages are a command, with what Epic and Tickets; the toast of its answer. |
 | `src/shared/workflow/wave-plan.ts` | `parseWavePlan`, `waveTickets`: the Waves table of an Epic's `spec.md`, and the Tickets of Wave N not done yet. |
 | `src/main/ipc/agent.ts` | `agent.send`: a command does not reach the agent; it starts the run through `startFromChat` and answers what became of it. |
+| `src/main/autopilot/chat-confirm.ts` | The tool `autopilot_start` behind the canvas server: the refusals without a dialog, the confirmation dialog on this Machine and its 10 minutes. |
 | `src/shared/autopilot/cycle.ts` | The cycle: phases, events, effects, stop reasons and their time limits. Pure. |
 | `src/main/ipc/autopilot.ts` | The IPC handlers, and `sharedAutopilot`, which wires the app's Projects, Orchestrators, Sessions, watch and journal to a run. |
 | `src/shared/ipc/autopilot.ts` | The `autopilot` IPC channels, the state of a run and the text of the status line. |
@@ -431,6 +450,7 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/contract/agent-send-autopilot.test.ts` | `agent.send` with a command: the start, the refusal while a run goes on, and what still reaches the agent. |
 | `test/e2e/autopilot-chat.spec.ts` | The command typed in the Session view and in a Session Node: the toasts and the status line. |
 | `test/contract/autopilot-background.test.ts` | Background tasks, and stops while they live. |
+| `test/contract/autopilot-start-tool.test.ts` | The tool `autopilot_start`: the dialog, its 10 minutes, the window it is on, the refusals without it, the start after the Orchestrator's turn. |
 | `test/contract/autopilot-limits.test.ts` | The wait for the Limits and the budget, with a clock the test moves. |
 | `test/contract/autopilot-journal.test.ts` | The journal files, a line appended from outside, no write outside the data folder. |
 | `test/contract/autopilot-wiring.test.ts` | The wiring of a new session per Wave in `sharedAutopilot`. |
