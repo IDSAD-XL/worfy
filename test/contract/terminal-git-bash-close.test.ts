@@ -49,6 +49,16 @@ interface RecordingHelper {
   outOfTime: boolean
 }
 
+/**
+ * Skips a test whose helper ran out of time, and names the skip: vitest's default reporter counts
+ * skipped tests without naming them. The GitHub runner never gets here (needsGitBash).
+ */
+function skipWhenOutOfTime(context: { skip: (condition: boolean, note?: string) => void; task: { name: string } }, helper: RecordingHelper): void {
+  if (!helper.outOfTime) return
+  process.stderr.write(`skip (out of time): ${context.task.name}: ${OUT_OF_TIME}\n`)
+  context.skip(true, OUT_OF_TIME)
+}
+
 /** The helper of the close with a stand-in of kill.exe; a helper ended by its time limit is told apart from a wrong answer. */
 function recordingHelper(hangup: string): RecordingHelper {
   const helper: RecordingHelper = {
@@ -79,25 +89,107 @@ async function openAndCloseWith(helper: RecordingHelper): Promise<void> {
 }
 
 describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty', () => {
-  it('terminal.close of a running Git Bash leaves its history: both commands typed before the close are in HISTFILE of the home', async (context) => {
+  // A command after which bash shows no prompt, one still running at the close, is written only on the
+  // SIGHUP. So this test takes PROMPT_COMMAND away: with it the file has the commands before any signal.
+  it('the SIGHUP of terminal.close alone writes the history: both commands typed before the close are in HISTFILE of the home', async (context) => {
     needsGitBash(context)
     const h = await harness({ shell: 'git-bash' })
     expect((await h.open()).shell).toBe('bash.exe')
+    await h.run('unset PROMPT_COMMAND; echo unset-$((40+2))', /unset-42\r?\n/)
     const word = `worfy-history-${process.pid}-${Date.now()}`
     const first = unique(`${word}-one`)
     const second = unique(`${word}-two`)
     await h.run(first.command, first.output)
     await h.run(second.command, second.output)
+    const file = join(home, '.bash_history')
+    const written = async (): Promise<string> => (existsSync(file) ? readFile(file, 'utf8') : '')
+    expect(await written(), 'the file before the close').not.toContain(word)
     await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
     expect(h.registry.size).toBe(0)
-    // bash writes the file only when it exits by itself, on the SIGHUP: after Stop-Process there is
-    // none. The close resolves after the exit.
-    const file = join(home, '.bash_history')
+    // bash wrote the file when it exited by itself, on the SIGHUP: after Stop-Process there is none.
+    // The close resolves after the exit.
     expect(existsSync(file), `${file} after the close`).toBe(true)
-    const lines = (await readFile(file, 'utf8')).split(/\r?\n/)
+    const lines = (await written()).split(/\r?\n/)
     expect(lines).toContain(first.command)
     expect(lines).toContain(second.command)
   }, ms(30_000))
+
+  // PROMPT_COMMAND of the Terminal runs `history -a` (gitBashEnv), so the file has a command while bash
+  // still runs, before any signal (worfy-windows ticket 118). The close then adds no line twice.
+  it('a command is in .bash_history before the close, and the close writes it no second time', async (context) => {
+    needsGitBash(context)
+    const h = await harness({ shell: 'git-bash' })
+    await h.open()
+    const word = `worfy-prompt-${process.pid}-${Date.now()}`
+    const first = unique(`${word}-one`)
+    await h.run(first.command, first.output)
+    const file = join(home, '.bash_history')
+    const lines = async (): Promise<string[]> => (existsSync(file) ? (await readFile(file, 'utf8')).split(/\r?\n/) : [])
+    await vi.waitFor(async () => expect(await lines()).toContain(first.command), { timeout: ms(10_000), interval: 50 })
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+    expect((await lines()).filter((line) => line === first.command)).toHaveLength(1)
+  }, ms(30_000))
+
+  it('`$?` of a command reaches the next command with `history -a` in PROMPT_COMMAND', async (context) => {
+    needsGitBash(context)
+    const h = await harness({ shell: 'git-bash' })
+    await h.open()
+    await h.run('(exit 7)', /exit 7\)/)
+    await h.run('echo status-$? "[$PROMPT_COMMAND]"', /status-7 \[.*history -a/)
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+  }, ms(30_000))
+
+  // Empty is the usual way to turn the history off in a .bashrc. Bash says nothing about it at exit, so
+  // `history -a` must not say it after every command.
+  for (const [name, assignment] of [
+    ['empty', 'HISTFILE='],
+    ['in a folder that does not exist', 'HISTFILE=$HOME/none/.h'],
+  ]) {
+    it(`HISTFILE ${name}: no error after a command`, async (context) => {
+      needsGitBash(context)
+      const h = await harness({ shell: 'git-bash' })
+      await h.open()
+      await h.run(`${assignment}; echo off-$((40+2))`, /off-42\r?\n/)
+      await h.run('echo one-$((40+2))', /one-42\r?\n/)
+      await h.run('echo two-$((40+2))', /two-42\r?\n/)
+      expect(h.text()).not.toMatch(/history:|cannot create/)
+      await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+    }, ms(30_000))
+  }
+
+  it('after `unset HISTFILE` a command reaches no file, not even a ~/.history that exists', async (context) => {
+    needsGitBash(context)
+    const other = join(home, '.history')
+    await writeFile(other, '')
+    const h = await harness({ shell: 'git-bash' })
+    await h.open()
+    await h.run('unset HISTFILE; echo off-$((40+2))', /off-42\r?\n/)
+    const word = `worfy-secret-${process.pid}-${Date.now()}`
+    const secret = unique(word)
+    await h.run(secret.command, secret.output)
+    await h.run('echo next-$((40+2))', /next-42\r?\n/)
+    await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+    expect(await readFile(other, 'utf8')).toBe('')
+  }, ms(30_000))
+
+  // The two values of the ticket that `;` as the separator would break, through a real pseudo-console.
+  for (const [name, value] of [
+    ['ends in `;`', 'SEEN=$((40+2));'],
+    ['ends in a comment', 'SEEN=$((40+2)) # note'],
+  ] as const) {
+    it(`a PROMPT_COMMAND of the environment that ${name} still runs, and so does \`history -a\``, async (context) => {
+      needsGitBash(context)
+      const h = await harness({ shell: 'git-bash', env: { PROMPT_COMMAND: value } })
+      await h.open()
+      const word = `worfy-preset-${process.pid}-${Date.now()}`
+      const first = unique(word)
+      await h.run(first.command, first.output)
+      await h.run('echo seen-$SEEN', /seen-42\r?\n/)
+      const file = join(home, '.bash_history')
+      await vi.waitFor(async () => expect((await readFile(file, 'utf8')).split(/\r?\n/)).toContain(first.command), { timeout: ms(10_000), interval: 50 })
+      await h.ok('terminal.close', { projectId: PROJECT, nodeId: NODE })
+    }, ms(30_000))
+  }
 
   // On a busy machine kill.exe took longer than the 500 ms the helper used to give it: ended by then,
   // it had not delivered the SIGHUP, and bash wrote nothing (26 of 120 closes under a full vitest,
@@ -108,7 +200,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
     const standIn = await spinningKill('slow-kill')
     const helper = recordingHelper(standIn.file)
     await openAndCloseWith(helper)
-    context.skip(helper.outOfTime, OUT_OF_TIME)
+    skipWhenOutOfTime(context, helper)
     expect(helper.answers).toEqual(['ended'])
     expect(statSync(standIn.beat).mtimeMs - statSync(standIn.started).mtimeMs).toBeGreaterThan(700)
   }, ms(30_000))
@@ -125,7 +217,7 @@ describe.runIf(WINDOWS)('closing a Git Bash Terminal on Windows, on a real pty',
     const standIn = await spinningKill('stuck-kill', `start "" /b "${kill}" %*`)
     const helper = recordingHelper(standIn.file)
     await openAndCloseWith(helper)
-    context.skip(helper.outOfTime, OUT_OF_TIME)
+    skipWhenOutOfTime(context, helper)
     expect(helper.answers).toEqual(['ended'])
     expect(existsSync(standIn.beat), 'the stand-in ran').toBe(true)
     await rm(standIn.beat, { force: true, maxRetries: 5, retryDelay: 100 })

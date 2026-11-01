@@ -825,6 +825,25 @@ describe('terminal.open and the shell setting of the Project, on a stand-in pty'
     expect(h.shellSetting).toHaveBeenCalledTimes(1)
   })
 
+  it('only Git Bash on Windows gets `history -a` in PROMPT_COMMAND: PowerShell and the shells of other systems start with the environment as it is', async () => {
+    const envs: (Record<string, string | undefined> | undefined)[] = []
+    const { spawn, endAll } = standIn()
+    const recording: typeof spawn = (file, args, options) => {
+      envs.push(options.env as Record<string, string | undefined> | undefined)
+      return spawn(file, args, options)
+    }
+    await (await harness({ platform: 'win32', spawn: recording, exists, shellSetting: () => 'git-bash' })).open()
+    await (await harness({ platform: 'win32', spawn: recording, exists, shellSetting: () => undefined })).open()
+    await (await harness({ platform: 'darwin', spawn: recording, shellSetting: () => 'git-bash' })).open()
+    // Git Bash asked for and not found: the PowerShell that starts instead gets nothing either.
+    await (await harness({ platform: 'win32', spawn: recording, exists: () => false, shellSetting: () => 'git-bash' })).open()
+    // A value the environment already has reaches the shell too.
+    await (await harness({ platform: 'win32', spawn: recording, exists, shellSetting: () => 'git-bash', env: { PROMPT_COMMAND: 'update_title' } })).open()
+    const append = '[ -z "${HISTFILE-}" ] || history -a 2>/dev/null'
+    expect(envs.map((env) => env?.PROMPT_COMMAND)).toEqual([append, undefined, undefined, undefined, `update_title\n${append}`])
+    endAll()
+  })
+
   it('on Windows a Project whose settings name no shell gets PowerShell, whatever the renderer sends as `shell`', async () => {
     const { started, spawn } = standIn()
     const h = await harness({ platform: 'win32', spawn, exists, shellSetting: () => undefined })

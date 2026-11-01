@@ -22,7 +22,8 @@ export const SHELL_START_SLACK_MS = 100
  * How long the helper waits, from the start of kill.exe, for the bash of Git Bash to exit before it
  * ends what is left. kill.exe and bash share it, and the wait ends as soon as bash exits; the whole
  * of it is spent only by a kill.exe that delivers no SIGHUP, or by a bash that ignores the signal
- * (`trap '' HUP`) or is stuck. On the owner's PC bash exited 14–670 ms after the signal (30 closes,
+ * (`trap '' HUP`) or is stuck. When no kill.exe started there is nothing to wait for, and the helper
+ * goes straight on. On the owner's PC bash exited 14–670 ms after the signal (30 closes,
  * most under 60 ms). kill.exe took 48–103 ms on the idle PC; under a full vitest it often took
  * longer than 500 ms, and when a bound of 500 ms ended it, bash never got the signal and wrote no
  * history (26 of 120 closes, worfy-windows ticket 116). The helper of Git Bash gets this wait on top
@@ -125,10 +126,12 @@ function hangupLines(shell: StartedShell, kill: string): string[] {
     '      [void]$signals.Add([System.Diagnostics.Process]::Start($info))',
     '    } catch { }',
     '  }',
-    `  $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_WAIT_MS})`,
-    '  foreach ($bash in $bashes) {',
-    '    $wait = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds',
-    '    try { if ($wait -gt 0) { [void]$bash.WaitForExit($wait) } } catch { }',
+    '  if ($signals.Count -gt 0) {',
+    `    $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_WAIT_MS})`,
+    '    foreach ($bash in $bashes) {',
+    '      $wait = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds',
+    '      try { if ($wait -gt 0) { [void]$bash.WaitForExit($wait) } } catch { }',
+    '    }',
     '  }',
     '  foreach ($signal in $signals) {',
     '    try { if (-not $signal.HasExited) { $signal.Kill() } } catch { }',

@@ -100,8 +100,10 @@ describe('descendantsScript with hangup: the order of a Git Bash close', () => {
   })
 
   it('waits at most HANGUP_WAIT_MS from the start of kill.exe, and ends a kill.exe still running before it answers', () => {
-    expect(lines[at('$deadline =')]).toBe(`  $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_WAIT_MS})`)
+    expect(lines[at('$deadline =')]).toBe(`    $deadline = [DateTime]::UtcNow.AddMilliseconds(${HANGUP_WAIT_MS})`)
     expect(at('$signals.Add(')).toBeLessThan(at('$deadline ='))
+    // Without a kill.exe that started, nothing can deliver the signal: the helper does not wait.
+    expect(lines[at('$deadline =') - 1]).toBe('  if ($signals.Count -gt 0) {')
     expect(at('$signal.Kill()')).toBeLessThan(at("'ended ' + $ended"))
   })
 
@@ -201,10 +203,12 @@ describe('descendantsScript with hangup, as a whole', () => {
       '      [void]$signals.Add([System.Diagnostics.Process]::Start($info))',
       '    } catch { }',
       '  }',
-      '  $deadline = [DateTime]::UtcNow.AddMilliseconds(1500)',
-      '  foreach ($bash in $bashes) {',
-      '    $wait = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds',
-      '    try { if ($wait -gt 0) { [void]$bash.WaitForExit($wait) } } catch { }',
+      '  if ($signals.Count -gt 0) {',
+      '    $deadline = [DateTime]::UtcNow.AddMilliseconds(1500)',
+      '    foreach ($bash in $bashes) {',
+      '      $wait = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds',
+      '      try { if ($wait -gt 0) { [void]$bash.WaitForExit($wait) } } catch { }',
+      '    }',
       '  }',
       '  foreach ($signal in $signals) {',
       '    try { if (-not $signal.HasExited) { $signal.Kill() } } catch { }',

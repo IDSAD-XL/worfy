@@ -174,6 +174,8 @@ export interface HarnessOptions {
   nodes?: string[]
   spawn?: SpawnPty
   path?: readonly string[]
+  /** Variables on top of the environment the harness gives its shells. */
+  env?: Record<string, string>
   shell?: 'powershell' | 'git-bash'
   /** The system of the registry, with a stand-in `spawn`: the Windows way on any machine. */
   platform?: NodeJS.Platform
@@ -190,7 +192,7 @@ export async function harness(options: HarnessOptions = {}) {
   // Windows: Windows PowerShell without a profile (windowsEnv, spawnWithoutProfile).
   const onWindows = options.platform === undefined ? WINDOWS : options.platform === 'win32'
   const env = (): Promise<Record<string, string>> =>
-    Promise.resolve(onWindows ? windowsEnv(home, options.path) : { SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ', PWD: '/somewhere/else', SHLVL: '3' })
+    Promise.resolve({ ...(onWindows ? windowsEnv(home, options.path) : { SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ', PWD: '/somewhere/else', SHLVL: '3' }), ...options.env })
   const registry = new TerminalRegistry({
     env,
     killGraceMs: options.killGraceMs ?? 1000,
