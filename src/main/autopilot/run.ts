@@ -97,6 +97,20 @@
 //   the check again. A Stop during that wait ends the run at once with `user-stop` (no Wave is in
 //   work); Force stop and the quit end it with their own reasons and no Tickets; every end cancels
 //   the wait's timer.
+// - The Run mode (worfy-resource-planner ticket 05, ADR-0093, src/shared/autopilot/run-mode.ts): a
+//   start names it (`mode`), else the default of Settings → Autopilot at the start; run-started
+//   carries it. It acts only before "Run wave", where the budget did, never inside a Wave:
+//   `fastest` weighs neither the budget nor the window; `budget-aware` weighs the budget with its
+//   reserve, whether the budget's switch in Settings is on or not; `start-window` asks the Start
+//   window first (windowDecision, by the p90 of the Waves' duration in the same journals,
+//   wave-duration.ts), then the budget when its switch is on. The window and the budget are read
+//   anew before each Wave; the mode stays the run's. Outside the window, or with a Wave whose p90
+//   would end after it, the Wave does not go: `start-window` and `waiting-until` go to the journal,
+//   the run is `waiting` with the reason in words, and at the window's next start the step that
+//   sends the Wave runs again (`resumed` first), the window and then the budget checked again. The
+//   window's wait and the budget's are one wait before the Wave: one at a time, ended alike by a
+//   Stop, a Force stop and the quit. A Wave that goes without enough samples of duration says so in
+//   `message` while it runs. A Wave that started inside the window runs to its end after it.
 //
 // - A run may be over named Tickets (`tickets`, worfy-flight-recorder ticket 21, ADR-0091): each Wave
 //   takes only the ready Tickets of the list (launch.ts, autopilotWave), and the run ends with
@@ -120,10 +134,12 @@ import { messageText } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import { clipLastText, journalLimits, journalReason, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
-import { budgetDecision, budgetStopText, type AutopilotBudget, type BudgetDecision } from '../../shared/autopilot/budget'
+import { budgetDecision, budgetStopText, type AutopilotBudget, type BudgetCause, type BudgetDecision } from '../../shared/autopilot/budget'
 import type { JournalEvent } from '../../shared/autopilot/journal'
 import { waveEstimate } from '../../shared/autopilot/limits-estimate'
 import { toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
+import { DEFAULT_START_WINDOW, unknownDurationText, windowDecision, windowWaitText, type RunMode, type WindowWait, type WindowWaitReason } from '../../shared/autopilot/run-mode'
+import { waveDurationP90 } from '../../shared/autopilot/wave-duration'
 import {
   BACKGROUND_STALL_MS,
   initialCycle,
@@ -138,6 +154,7 @@ import type { AutopilotState, HarnessBehind } from '../../shared/ipc/autopilot'
 import type { HarnessKind } from '../../shared/projects/action-templates'
 import type { PullRequest } from '../../shared/ipc/checks'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
+import type { AutopilotRunSettings } from '../../shared/settings/app-settings'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { readyWave } from '../../shared/workflow/waves'
 import type { WorkflowModel } from '../../shared/workflow/types'
@@ -284,6 +301,13 @@ export interface AutopilotDeps {
     settings(): AutopilotBudget
     runs(projectId: string): Promise<readonly (readonly JournalEvent[])[]>
   }
+  /**
+   * The Run settings in force (worfy-resource-planner ticket 05, Settings → Autopilot): the default
+   * Run mode, read at a start that names none, and the Start window, read before each Wave of a run
+   * in `start-window`. Without it a start that names no mode goes Budget-aware while the budget is
+   * on and Fastest while it is off (as autopilotRunOf), and the window is DEFAULT_START_WINDOW.
+   */
+  runSettings?(): AutopilotRunSettings
   /** How long a run waits for its background tasks without an event of theirs (default BACKGROUND_STALL_MS). */
   backgroundStallMs?: number
   /** How long a run waits for the task-notification turn after the last task ended (default TASKS_GRACE_MS). */
@@ -361,7 +385,18 @@ export interface AutopilotStartOptions {
   tickets?: readonly number[]
   /** Who started the run; the button when absent. */
   by?: AutopilotStartedBy
+  /** The Run mode of this run (worfy-resource-planner ticket 05); absent: the default mode at the start. */
+  mode?: RunMode
 }
+
+/** What a wait before a Wave is for: the budget's causes, or the Start window. */
+type BoundaryCause = BudgetCause | 'start-window'
+
+/** What the boundary of a Wave says (Autopilot.boundaryCheck): the Wave goes, or the budget or the window holds it back. */
+type Boundary =
+  | { kind: 'go'; unknownDuration: boolean }
+  | { kind: 'budget'; decision: Extract<BudgetDecision, { kind: 'stop' }> }
+  | { kind: 'window'; reason: WindowWaitReason; until: number; window: AutopilotRunSettings['window']; p90: number | null }
 
 /**
  * Why a start of `epic` (over `tickets`, when named) is refused by the workflow model: the Project
@@ -546,13 +581,18 @@ class Run {
   /** When the run started (ms): narrow-round comments made before it are not this run's. */
   readonly startedAt = Date.now()
   /**
-   * The wait of the budget before the next Wave (worfy-throughput ticket 41): its id, when the step
-   * that sends the Wave runs again, why, the reason in words and the cancel of its timer; null
+   * The wait before the next Wave, of the budget (worfy-throughput ticket 41) or of the Start window
+   * (worfy-resource-planner ticket 05), one at a time: its id, when the step that sends the Wave runs
+   * again, why (`reason`: the window's), the reason in words and the cancel of its timer; null
    * otherwise.
    */
-  budget: { id: number; until: number; cause: Extract<BudgetDecision, { kind: 'stop' }>['cause']; text: string; cancel: () => void } | null = null
-  /** The id of the last budget wait: a timer of an earlier one sends no Wave. */
-  budgetIds = 0
+  boundary: { id: number; until: number; cause: BoundaryCause; reason?: WindowWaitReason; text: string; cancel: () => void } | null = null
+  /** The id of the last wait before a Wave: a timer of an earlier one sends no Wave. */
+  boundaryIds = 0
+  /** The Run mode (worfy-resource-planner ticket 05): set at the start, the same for every Wave. */
+  mode: RunMode = 'fastest'
+  /** The words of `message` while a Wave goes without the check of its duration; null otherwise. */
+  durationNote: string | null = null
   /** Set once a Force stop or the app's quit has come: the end does not wait for gh any more. */
   rushed = false
   /** Settles when `rushed` is set. */
@@ -747,6 +787,7 @@ export class Autopilot {
       if (this.quitting) throw new Error(QUITTING_MESSAGE)
 
       const run = new Run(projectId, epic, root, options.tickets, options.by)
+      run.mode = options.mode ?? this.defaultMode()
       run.origin = starting.origin
       run.unasked = unasked
       // The Wave the last Force stop of this Epic interrupted goes along with the first Wave (worfy-week tickets 17, 18).
@@ -770,6 +811,7 @@ export class Autopilot {
           ...(unasked.length > 0 ? { unasked } : {}),
           by: run.by,
           ...(run.cycle.named === undefined ? {} : { tickets: run.cycle.named.map(ticketNumber) }),
+          mode: run.mode,
         })
         await this.journalHarness(run)
         run.awake = this.deps.keepAwake()
@@ -900,8 +942,9 @@ export class Autopilot {
     run.requestStop()
     await run.enqueue(async () => {
       if (run.cycle.phase === 'stopped' || run.cycle.stopping) return
-      // Waiting for the budget before a Wave: no Wave is in work, the run ends now (ticket 41).
-      if (run.budget !== null) {
+      // Waiting for the budget or the Start window before a Wave: no Wave is in work, the run ends
+      // now (worfy-throughput ticket 41, worfy-resource-planner ticket 05).
+      if (run.boundary !== null) {
         await this.feed(run, { type: 'stop', reason: 'user-stop' })
         return
       }
@@ -1109,6 +1152,7 @@ export class Autopilot {
         case 'wave-finished': {
           // The end of the gate queue's turn is not a Wave's.
           if (run.gateQueue !== null) break
+          this.noteDuration(run, null)
           const limits = await this.freshLimits(run)
           await this.write(run, { kind: effect.kind, wave: effect.wave, tickets: effect.tickets.map(ticketNumber), ...(limits === undefined ? {} : { limits }) })
           break
@@ -1194,8 +1238,9 @@ export class Autopilot {
     // First: a Stop clicked while the usage is asked ends that wait at once and is seen below, and
     // the Wave does not go. A Stop clicked before asks nothing: no Wave line needs the answer.
     if (!run.stopRequested) run.sentLimits = await this.freshLimits(run, run.stopAsked)
-    // The budget, on the number just asked (ticket 41); not weighed once a stop has come.
-    const budget = run.stopRequested || run.rushed ? null : await this.budgetCheck(run)
+    // The Run mode at the boundary: the window, the budget on the number just asked (ticket 41); not
+    // weighed once a stop has come.
+    const boundary = run.stopRequested || run.rushed ? null : await this.boundaryCheck(run)
     // Stop was clicked while the step that decided on this Wave ran (worfy-week ticket 18): the
     // Wave has not gone, so no Ticket was taken, and the run ends here. Checked before a Force stop
     // or the app's quit: a Stop clicked first ends the run with its own reason, and the stop step
@@ -1207,8 +1252,12 @@ export class Autopilot {
     // A Force stop or the app's quit came meanwhile, without a Stop: its stop step waits behind this
     // one and stops the run with its own reason; the Wave does not go.
     if (run.rushed) return
-    if (budget !== null && budget.kind === 'stop') {
-      await this.budgetWait(run, budget)
+    if (boundary?.kind === 'window') {
+      await this.windowWait(run, boundary)
+      return
+    }
+    if (boundary?.kind === 'budget') {
+      await this.budgetWait(run, boundary.decision)
       return
     }
     // Every Wave after the run's first goes to a new SDK session (worfy-throughput ticket 52).
@@ -1220,6 +1269,8 @@ export class Autopilot {
       return
     }
     if (run.rushed) return
+    // A Wave the window let go without a duration to check says so while it runs (ticket 05).
+    this.noteDuration(run, boundary?.kind === 'go' && boundary.unknownDuration ? unknownDurationText(run.cycle.wave + 1) : null)
     run.sending = true
     run.promptsWhileSending.clear()
     // Only the run's first Wave takes the interrupted Tickets along.
@@ -1306,67 +1357,134 @@ export class Autopilot {
     return journalLimits(this.deps.limits.state())
   }
 
-  /**
-   * Whether the budget lets the next Wave go (budget.ts); `go` without deps.budget or deps.limits,
-   * with the budget off, and when the journals cannot be read. The Tickets of the Wave are counted
-   * from a fresh read only when there is an estimate to multiply.
-   */
-  private async budgetCheck(run: Run): Promise<BudgetDecision> {
-    const deps = this.deps.budget
-    const limits = this.deps.limits
-    if (deps === undefined || limits === undefined) return { kind: 'go' }
-    const budget = deps.settings()
-    if (!budget.enabled) return { kind: 'go' }
-    let runs: readonly (readonly JournalEvent[])[]
-    try {
-      runs = await deps.runs(run.projectId)
-    } catch (error) {
-      console.warn(`[autopilot] ${run.projectId}: could not read the journals for the budget; the Wave goes`, error)
-      return { kind: 'go' }
-    }
-    const estimate = waveEstimate(runs)
-    const tickets = estimate === null ? 0 : readyWave(await this.freshTickets(run), run.epic, run.cycle.named).ready.length
-    return budgetDecision({ budget, now: (limits.now ?? Date.now)(), limits: limits.state(), runs, estimate, tickets })
+  /** The Run mode a start that names none goes in: the default of Settings → Autopilot (AutopilotDeps.runSettings). */
+  private defaultMode(): RunMode {
+    if (this.deps.runSettings !== undefined) return this.deps.runSettings().mode
+    return this.deps.budget?.settings().enabled === true ? 'budget-aware' : 'fastest'
+  }
+
+  /** The clock of the waits before a Wave: the Limits' when given (the test's), else the real one. */
+  private now(): number {
+    return (this.deps.limits?.now ?? Date.now)()
   }
 
   /**
-   * The budget stops the next Wave (ticket 41): `budget-stop` and `waiting-until` go to the journal,
-   * the run waits until `until`, and the step that sends the Wave runs again then. The cycle stays
-   * `sending`; the finished Wave's Tickets leave it, so a Force stop during the wait names none.
+   * The boundary of the next Wave by the Run mode (worfy-resource-planner ticket 05): Fastest lets
+   * it go; Budget-aware weighs the budget even with its switch off; Start window asks the window,
+   * then the budget only with its switch on. The journals are read once, for the window's p90 and
+   * the budget both; a failed read leaves the window no duration and lets the budget go.
    */
+  private async boundaryCheck(run: Run): Promise<Boundary> {
+    if (run.mode === 'fastest') return { kind: 'go', unknownDuration: false }
+    const runs = await this.recentRuns(run)
+    let unknownDuration = false
+    if (run.mode === 'start-window') {
+      const window = this.deps.runSettings?.().window ?? DEFAULT_START_WINDOW
+      const { p90 } = waveDurationP90(runs ?? [])
+      const decision = windowDecision({ window, now: this.now(), p90 })
+      if (decision.kind === 'wait') return { kind: 'window', reason: decision.reason, until: decision.until, window, p90 }
+      unknownDuration = decision.unknownDuration
+    }
+    const budget = await this.budgetCheck(run, runs, run.mode === 'budget-aware')
+    return budget.kind === 'stop' ? { kind: 'budget', decision: budget } : { kind: 'go', unknownDuration }
+  }
+
+  /** The events of the Project's recent runs (deps.budget.runs); null without the dep, or when they cannot be read. */
+  private async recentRuns(run: Run): Promise<readonly (readonly JournalEvent[])[] | null> {
+    const deps = this.deps.budget
+    if (deps === undefined) return null
+    try {
+      return await deps.runs(run.projectId)
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not read the journals for the boundary of the Wave; it is not held back by them`, error)
+      return null
+    }
+  }
+
+  /**
+   * Whether the budget lets the next Wave go (budget.ts); `go` without deps.budget or deps.limits,
+   * with the budget off unless `always` (Budget-aware), and when the journals could not be read
+   * (`runs` null). The Tickets of the Wave are counted from a fresh read only when there is an
+   * estimate to multiply.
+   */
+  private async budgetCheck(run: Run, runs: readonly (readonly JournalEvent[])[] | null, always: boolean): Promise<BudgetDecision> {
+    const deps = this.deps.budget
+    const limits = this.deps.limits
+    if (deps === undefined || limits === undefined || runs === null) return { kind: 'go' }
+    const settings = deps.settings()
+    const budget = always ? { ...settings, enabled: true } : settings
+    if (!budget.enabled) return { kind: 'go' }
+    const estimate = waveEstimate(runs)
+    const tickets = estimate === null ? 0 : readyWave(await this.freshTickets(run), run.epic, run.cycle.named).ready.length
+    return budgetDecision({ budget, now: this.now(), limits: limits.state(), runs, estimate, tickets })
+  }
+
+  /** The budget stops the next Wave (ticket 41): `budget-stop` and `waiting-until` go to the journal, and the run waits (waitAtBoundary). */
   private async budgetWait(run: Run, decision: Extract<BudgetDecision, { kind: 'stop' }>): Promise<void> {
     const until = new Date(decision.until).toISOString()
     const text = budgetStopText(decision.cause, decision.until)
     await this.write(run, { kind: 'budget-stop', cause: decision.cause, share: decision.share, used: decision.used, need: decision.need, until, text })
     await this.write(run, { kind: 'waiting-until', until })
+    this.waitAtBoundary(run, { until: decision.until, cause: decision.cause, text })
+  }
+
+  /**
+   * The Start window holds the next Wave back (ticket 05): `start-window` and `waiting-until` go to
+   * the journal, and the run waits until the window's next start (waitAtBoundary).
+   */
+  private async windowWait(run: Run, wait: Extract<Boundary, { kind: 'window' }>): Promise<void> {
+    const until = new Date(wait.until).toISOString()
+    const words: WindowWait =
+      wait.reason === 'wave-too-long' && wait.p90 !== null
+        ? { reason: 'wave-too-long', window: wait.window, until: wait.until, wave: run.cycle.wave + 1, p90: wait.p90 }
+        : { reason: 'outside', window: wait.window, until: wait.until }
+    const text = windowWaitText(words)
+    await this.write(run, { kind: 'start-window', reason: wait.reason, until, text, ...(wait.p90 === null ? {} : { durationP90Ms: Math.round(wait.p90) }) })
+    await this.write(run, { kind: 'waiting-until', until })
+    this.waitAtBoundary(run, { until: wait.until, cause: 'start-window', reason: wait.reason, text })
+  }
+
+  /**
+   * The run waits before the next Wave until `until`, and the step that sends the Wave runs again
+   * then. The cycle stays `sending`; the finished Wave's Tickets leave it, so a Force stop during the
+   * wait names none. A wait still set is replaced: one wait at a time.
+   */
+  private waitAtBoundary(run: Run, wait: { until: number; cause: BoundaryCause; reason?: WindowWaitReason; text: string }): void {
     run.cycle = { ...run.cycle, tickets: [] }
-    this.cancelBudget(run)
-    run.budgetIds += 1
-    const id = run.budgetIds
+    this.cancelBoundary(run)
+    run.boundaryIds += 1
+    const id = run.boundaryIds
     const limits = this.deps.limits
     const schedule = limits?.schedule ?? wallTimer(limits?.now ?? Date.now)
-    const cancel = schedule(decision.until, () => void run.enqueue(() => this.budgetResume(run, id)))
-    run.budget = { id, until: decision.until, cause: decision.cause, text, cancel }
-    run.message = text
+    const cancel = schedule(wait.until, () => void run.enqueue(() => this.boundaryResume(run, id)))
+    run.boundary = { id, ...wait, cancel }
+    run.message = wait.text
     this.publish(run.projectId)
   }
 
-  /** The budget wait `id` is over: `resumed`, and the step that sends the Wave again. A wait cancelled or replaced since resumes nothing. */
-  private async budgetResume(run: Run, id: number): Promise<void> {
-    if (run.budget === null || run.budget.id !== id || run.cycle.phase !== 'sending') return
-    this.cancelBudget(run)
+  /** The wait `id` before a Wave is over: `resumed`, and the step that sends the Wave again. A wait cancelled or replaced since resumes nothing. */
+  private async boundaryResume(run: Run, id: number): Promise<void> {
+    if (run.boundary === null || run.boundary.id !== id || run.cycle.phase !== 'sending') return
+    this.cancelBoundary(run)
     await this.write(run, { kind: 'resumed' })
     this.publish(run.projectId)
     await this.sendWave(run)
   }
 
-  /** Cancels the budget wait's timer, and its words in `message`. */
-  private cancelBudget(run: Run): void {
-    const budget = run.budget
-    if (budget === null) return
-    run.budget = null
-    budget.cancel()
-    if (run.message === budget.text) run.message = null
+  /** Cancels the timer of the wait before a Wave, and its words in `message`. */
+  private cancelBoundary(run: Run): void {
+    const boundary = run.boundary
+    if (boundary === null) return
+    run.boundary = null
+    boundary.cancel()
+    if (run.message === boundary.text) run.message = null
+  }
+
+  /** Sets the words of a Wave that goes without the check of its duration (`text`), or clears them (null). */
+  private noteDuration(run: Run, text: string | null): void {
+    if (run.durationNote !== null && run.message === run.durationNote) run.message = null
+    run.durationNote = text
+    if (text !== null) run.message = text
   }
 
   /**
@@ -1558,6 +1676,8 @@ export class Autopilot {
       // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
       await this.release(run, reason !== 'app-quit', !linger)
     }
+    // A stopped run's state does not say a Wave goes unchecked.
+    this.noteDuration(run, null)
     run.done = true
     if (this.runs.get(run.projectId) === run) this.runs.delete(run.projectId)
     this.last.set(run.projectId, this.snapshot(run))
@@ -1739,7 +1859,7 @@ export class Autopilot {
     if (run.tasksTimer !== null) (this.deps.tasksClock ?? realClock).clearTimeout(run.tasksTimer)
     run.tasksTimer = null
     run.limits?.cancel()
-    this.cancelBudget(run)
+    this.cancelBoundary(run)
   }
 
   private async write(run: Run, fields: JournalEventFields): Promise<void> {
@@ -1753,9 +1873,10 @@ export class Autopilot {
 
   private snapshot(run: Run): AutopilotState {
     const limitsUntil = run.running ? (run.limits?.until ?? null) : null
-    const budget = run.running ? run.budget : null
-    const resumesAt = limitsUntil ?? budget?.until ?? null
-    const waitingFor = limitsUntil !== null ? 'limits' : budget?.cause
+    const boundary = run.running ? run.boundary : null
+    const resumesAt = limitsUntil ?? boundary?.until ?? null
+    const waitingFor = limitsUntil !== null ? 'limits' : boundary?.cause
+    const windowReason = waitingFor === 'start-window' ? boundary?.reason : undefined
     // From the click on: the run's step for it may still wait behind another one.
     const stopping = run.running && (run.cycle.stopping || run.stopRequested)
     return {
@@ -1766,6 +1887,7 @@ export class Autopilot {
       backgroundTasks: run.running ? this.liveTasks(run).length : 0,
       resumesAt,
       ...(waitingFor === undefined ? {} : { waitingFor }),
+      ...(windowReason === undefined ? {} : { windowReason }),
       reason: run.done ? run.cycle.reason : null,
       message: run.message,
       resumable: run.done ? resumableOf(run) : [],

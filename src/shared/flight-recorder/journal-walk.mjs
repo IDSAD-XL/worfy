@@ -13,6 +13,7 @@ export const JOURNAL_KINDS = [
   'ticket-status',
   'narrow-round',
   'wave-finished',
+  'start-window',
   'budget-stop',
   'limits-hit',
   'waiting-until',

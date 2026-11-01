@@ -1,7 +1,7 @@
 # 05 — Run: режим запуска на границе Wave
 
 Type: task
-Status: open
+Status: claimed 2026-11-01T11:06Z
 Branch: worfy-resource-planner/05
 Blocked by: 02, 04
 Source: [spec.md](../spec.md), «Решения» (Q2, Q3, Q11–Q13, Q15), «Режим запуска» («Выбор», «Граница Wave»), «five_hour», «Что видит пользователь» (строка статуса), «Journal» (`run-started.mode`, `start-window`), «Не решено» (выбрано без решения, п. 1, 3, 9, 10), «Риски», п. 3; [ADR-0093](../../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md), п. 1–3, 5
@@ -48,27 +48,27 @@ Source: [spec.md](../spec.md), «Решения» (Q2, Q3, Q11–Q13, Q15), «Р
 
 ## Готово, когда
 
-- [ ] Unit test `windowDecision`: вне окна — `wait outside` до начала; внутри, `now + p90` после конца — `wait
+- [x] Unit test `windowDecision`: вне окна — `wait outside` до начала; внутри, `now + p90` после конца — `wait
       wave-too-long`; ровно в конец — `go`; `p90: null` — `go` с пометкой.
-- [ ] Contract test (часы test-а, `test/contract/autopilot-limits.test.ts`): Start window, старт в 20:00 при окне
+- [x] Contract test (часы test-а, `test/contract/autopilot-limits.test.ts`): Start window, старт в 20:00 при окне
       23:00–07:00 — `run-started`, `start-window outside`, `waiting-until 23:00`; в 23:00 — `resumed`, `wave-started`.
-- [ ] Contract test: 5 прошлых Wave по 2 часа, сейчас 06:00 — `start-window wave-too-long` до 23:00; 4 прошлые Wave —
+- [x] Contract test: 5 прошлых Wave по 2 часа, сейчас 06:00 — `start-window wave-too-long` до 23:00; 4 прошлые Wave —
       Wave идёт, `message` — «Not enough data on Wave duration…».
-- [ ] Contract test: Wave, начатая в 06:50, доходит до `wave-finished` в 08:00; следующая ждёт окна.
-- [ ] Contract test: Fastest при включённом budget и использованной дневной доле — Wave идёт, `budget-stop` нет.
+- [x] Contract test: Wave, начатая в 06:50, доходит до `wave-finished` в 08:00; следующая ждёт окна.
+- [x] Contract test: Fastest при включённом budget и использованной дневной доле — Wave идёт, `budget-stop` нет.
       Budget-aware при выключенном переключателе — `budget-stop`. Start window при выключенном budget — только окно.
-- [ ] Contract test `five_hour` (stub Limits): Start window, budget включён, окно `five_hour` полно до 07:30 — сначала
+- [x] Contract test `five_hour` (stub Limits): Start window, budget включён, окно `five_hour` полно до 07:30 — сначала
       `budget-stop five-hour`; после `resumed` в 07:32 — `start-window outside` до 23:00. Без окна `five_hour` в
       Limits — ни ожидания, ни строки о нём.
-- [ ] Contract test: Stop во время ожидания окна — сразу `run-stopped user-stop`; Force stop — своей причиной, таймер
+- [x] Contract test: Stop во время ожидания окна — сразу `run-stopped user-stop`; Force stop — своей причиной, таймер
       отменён.
-- [ ] Unit test `autopilotStatusLine`: обе строки ожидания окна; unit test Journal — `start-window` и
+- [x] Unit test `autopilotStatusLine`: обе строки ожидания окна; unit test Journal — `start-window` и
       `run-started.mode` проходят схему, чужой `mode` читается как отсутствующий.
-- [ ] e2e (`test/e2e/autopilot.spec.ts`, `WORFY_AGENT=fake`, Settings и Journal в `WORFY_DATA_DIR`): Start window с окном,
+- [x] e2e (`test/e2e/autopilot.spec.ts`, `WORFY_AGENT=fake`, Settings и Journal в `WORFY_DATA_DIR`): Start window с окном,
       которое начнётся через 2 часа, — строка статуса `outside start window · resumes HH:00`, её tooltip, строки
       Journal `run-started`, `start-window`, `waiting-until`; Stop кончает Run сразу. Снимки обеих тем в
       `.scratch/worfy-resource-planner/evidence/05/`.
-- [ ] Test-ы краснеют на mutant-ах: Fastest проверяет budget; окно не проверяется после `resumed`; Budget-aware
+- [x] Test-ы краснеют на mutant-ах: Fastest проверяет budget; окно не проверяется после `resumed`; Budget-aware
       смотрит на переключатель; Wave, начатая внутри окна, останавливается в его конце.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (e2e по таблице).
 
@@ -99,3 +99,48 @@ Source: [spec.md](../spec.md), «Решения» (Q2, Q3, Q11–Q13, Q15), «Р
 
 Только читать: `src/main/autopilot/limits-wait.ts` (ожидание Limits внутри Wave не меняется), `src/shared/autopilot/budget.ts`
 (`budgetDecision` `:170`, полное окно `five_hour` `:181`), `src/shared/autopilot/wave-duration.ts` (Ticket 02).
+
+## Итог
+
+- `src/shared/autopilot/run-mode.ts` — чистая `windowDecision({ window, now, p90 })`: вне окна — `wait outside` до
+  `nextWindowStart`; внутри, `now + p90` позже `windowEnd` — `wait wave-too-long` до `nextWindowStart`; ровно в конец —
+  `go`; `p90: null` — `go` с `unknownDuration`. Тексты: `windowWaitText` (tooltip и `text` строки Journal, слова spec),
+  `unknownDurationText`. Проверка окна заново после пробуждения — это сам вызов `windowDecision` на следующей границе:
+  пробуждение в пропущенный час (03:00–04:00 Europe/Kyiv в ночь перевода вперёд) снова даёт `wait outside` до
+  следующего дня, а не Wave; unit test на обоих днях перевода, край 03:00.
+- `src/main/autopilot/run.ts` — режим Run (`AutopilotStartOptions.mode`, иначе режим по умолчанию из Settings в момент
+  старта, `deps.runSettings`; без него — как `autopilotRunOf`), в `run-started.mode`. Граница Wave — `boundaryCheck`:
+  Fastest — `go`; Start window — окно (p90 по тем же Journal-ам, что budget, читаются один раз), потом budget, если
+  переключатель включён; Budget-aware — budget с `enabled: true`. Ожидание budget и ожидание окна — одно поле
+  `run.boundary` (бывшее `run.budget`): один таймер, одна отмена (Stop, Force stop, выход, новое ожидание), `resumed`
+  только для текущего ожидания и только в фазе `sending`, поэтому после `run-stopped` его нет. Wave без проверки
+  длительности — `message` на время Wave, снимается на `wave-finished` и в конце Run.
+- `src/shared/ipc/autopilot.ts` — `waitingFor: 'start-window'`, новое поле `windowReason` (`outside` /
+  `wave-too-long`: по одному `waitingFor` строка статуса причину не различит), `mode?` в `autopilot.start`, строки
+  статуса `outside start window · resumes 23:00`, `wave too long for window · resumes 23:00`.
+- Journal: вид `start-window` (`reason`, `until`, `text`, `durationP90Ms?`) в шапке формата, в `JOURNAL_EVENT_KINDS` и
+  в `JOURNAL_KINDS` (`journal-walk.mjs`, только список; чтение Wait окна во Flight Recorder — Ticket 08);
+  `run-started.mode` чужого значения читается как отсутствующий.
+- `docs/features/autopilot.md` — строки статуса, раздел «The Run mode», `start-window` и `run-started.mode` в таблице
+  Journal (переезд в `run-planning.md` — Ticket 10).
+- Долг #1212 в `test/contract/autopilot-limits.test.ts`: test ждёт строку `resumed`, а не `status === 'running'`.
+- Снимки обеих тем: [`../evidence/05/`](../evidence/05/) — строка статуса `outside start window · resumes HH:00`.
+  Контраст текста строки к фону: 8.0:1 светлая, 7.9:1 тёмная.
+
+Решено без владельца, подтвердить:
+- Поле состояния `windowReason` рядом с `waitingFor: 'start-window'`.
+- Если p90 длительности длиннее всего окна, Start window ждёт каждую ночь и Wave не начнётся никогда (Run жив,
+  keep-awake держится); spec этого случая не называет, предела нет.
+
+Mutant-ы (каждый — красный test, скрипт в scratchpad):
+- Fastest проверяет budget — красный «Fastest with the budget on…».
+- Окно не проверяется после `resumed` — 2 красных: «after the wait the window is asked again…», «five_hour…».
+- Budget-aware смотрит на переключатель — красный «Budget-aware with the budget's switch off…».
+- Wave, начатая внутри окна, останавливается в его конце (стоп на конце хода вне окна) — красный «a Wave started at
+  06:50…».
+- Поздний таймер пишет `resumed` после конца Run — 5 красных (в том числе «Stop during the wait for the window…»).
+- Stop во время ожидания окна идёт как graceful — красный «Stop during the wait for the window…».
+- `>=` вместо `>` на конце окна — 3 красных unit.
+- Wave без проверки длительности молчит — красный «4 past Waves…».
+
+Оценка токенов автора: около 450 тысяч.

@@ -28,6 +28,7 @@ import type { AgentEvent } from '../../src/shared/agent/events'
 import { budgetDecision, budgetFromSettings, budgetResumeAt, budgetStopText, daysToReset, nextLocalDayStart, type AutopilotBudget } from '../../src/shared/autopilot/budget'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { MAX_WAIT_MS, RECHECK_MS, RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
+import { unknownDurationText, windowWaitText, type RunMode, type StartWindow } from '../../src/shared/autopilot/run-mode'
 import { autopilotChanged, autopilotStateSchema, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { ms } from '../time-scale'
@@ -194,6 +195,8 @@ interface HarnessOptions {
    * through before each Wave; the run reads the journals of this test's data folder.
    */
   budget?: AutopilotBudget | (() => AutopilotBudget)
+  /** The Start window the run reads before each Wave (worfy-resource-planner ticket 05); the start names the mode. */
+  window?: StartWindow
 }
 
 function budgetSettings(budget: AutopilotBudget | (() => AutopilotBudget)): () => AutopilotBudget {
@@ -287,6 +290,7 @@ function harness(options: HarnessOptions = {}) {
     waves: launcher,
     ...(refresher === null ? {} : { usage: { refresh: (olderThanMs: number) => refresher.refreshIfOlder(olderThanMs) } }),
     ...(options.budget === undefined ? {} : { budget: { settings: budgetSettings(options.budget), runs: (projectId: string) => readRecentRuns(projectId, { env }) } }),
+    ...(options.window === undefined ? {} : { runSettings: () => ({ mode: 'fastest' as const, window: options.window! }) }),
     journal: (start) => openRun(start, { env }),
     harness: () => 'plugin',
     keepAwake: () => ({ start: () => power.push('start'), stop: () => power.push('stop') }),
@@ -311,7 +315,9 @@ function harness(options: HarnessOptions = {}) {
   autopilots.push(autopilot)
   launcher.attachAutopilot(autopilot)
   const journal = async (): Promise<JournalEvent[]> => {
-    const runs = readdirSync(join(dataRoot, 'autopilot')).map((name) => name.replace(/\.jsonl$/, ''))
+    const runs = readdirSync(join(dataRoot, 'autopilot'))
+      .map((name) => name.replace(/\.jsonl$/, ''))
+      .filter((run) => run !== PAST_RUN)
     expect(runs).toHaveLength(1)
     return (await readRun(runs[0]!, { env }))!.events
   }
@@ -333,6 +339,8 @@ function harness(options: HarnessOptions = {}) {
 }
 
 const iso = (ms: number): string => new Date(ms).toISOString()
+/** The run id of a past run a test writes before its own (worfy-resource-planner ticket 05): the journal of the test's run is the other one. */
+const PAST_RUN = '2026-10-01T00-00-00-000Z-aaaaa1'
 const S = (ms: number): number => ms / 1000
 /** Any Cyrillic letter: what worfy sends an agent is English (ADR-0074, point 6). */
 const CYRILLIC = /[\u0400-\u04FF]/u
@@ -613,7 +621,9 @@ describe('Autopilot and the Limits on the fake agent', () => {
     // The Wave is not finished yet (its Tickets are still in work): the run settles, nothing else starts a wait.
     for (const num of [1, 2]) writeTicket(num, 'claimed — 2026-10-06')
     h.registry.get(orchestratorSession(h.registry)).send('how is it going?')
-    await until(() => h.state().status === 'running', 'the wait to end')
+    // The state goes `running` before the append of resumed is done: wait for the line itself.
+    await until(async () => (await h.kinds()).includes('resumed'), 'the wait to end with resumed')
+    expect(h.state().status).toBe('running')
     expect(timer.cancelled).toBe(true)
     expect(h.state().resumesAt).toBeNull()
     // The wait ends with the person's turn, not at the timer and not at wave-finished: its
@@ -789,19 +799,20 @@ describe('the Limits in the lines of a Wave (worfy-throughput ticket 40)', () =>
   })
 })
 
+/** The 7-day reset of the fixture's passing turn: 2026-10-12T09:00:00Z. */
+const WEEK_S = 1791795600
+const week = (utilization: number, receivedAt: number) => ({ utilization, resetsAt: WEEK_S, status: null, receivedAt, source: 'usage' as const })
+const five = (utilization: number, receivedAt: number, resetsAt = RESET_S) => ({ utilization, resetsAt, status: null, receivedAt, source: 'usage' as const })
+const ON: AutopilotBudget = { enabled: true, reserve: 0.15 }
+/** Both Waves pass in one turn each; each turn reports the 7-day window at 40 %. */
+const twoPassingWaves = (): Record<string, unknown>[] => {
+  const { passing } = fixtureTurns()
+  return [...passing, ...passing]
+}
+/** Wave 1 starts at 30 % of the week; its turn takes it to 40 %: more than today's share. */
+const spent = () => ({ windows: { five_hour: five(0.05, START_MS), seven_day: week(0.3, START_MS) } })
+
 describe('the budget of the Limits before a Wave (worfy-throughput ticket 41)', () => {
-  /** The 7-day reset of the fixture's passing turn: 2026-10-12T09:00:00Z. */
-  const WEEK_S = 1791795600
-  const week = (utilization: number, receivedAt: number) => ({ utilization, resetsAt: WEEK_S, status: null, receivedAt, source: 'usage' as const })
-  const five = (utilization: number, receivedAt: number, resetsAt = RESET_S) => ({ utilization, resetsAt, status: null, receivedAt, source: 'usage' as const })
-  const ON: AutopilotBudget = { enabled: true, reserve: 0.15 }
-  /** Both Waves pass in one turn each; each turn reports the 7-day window at 40 %. */
-  const twoPassingWaves = (): Record<string, unknown>[] => {
-    const { passing } = fixtureTurns()
-    return [...passing, ...passing]
-  }
-  /** Wave 1 starts at 30 % of the week; its turn takes it to 40 %: more than today's share. */
-  const spent = () => ({ windows: { five_hour: five(0.05, START_MS), seven_day: week(0.3, START_MS) } })
 
   /** A run whose Wave 1 went and whose Wave 2 waits for the budget. */
   async function stoppedByBudget(budget: AutopilotBudget | (() => AutopilotBudget) = ON) {
@@ -981,6 +992,315 @@ describe('the budget of the Limits before a Wave (worfy-throughput ticket 41)', 
     const kinds = await h.kinds()
     expect(kinds.slice(0, 6)).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'resumed', 'wave-finished'])
     expect(kinds).not.toContain('budget-stop')
+  })
+})
+
+describe('the Run mode at the boundary of a Wave (worfy-resource-planner ticket 05)', () => {
+  // Local time is the process's: the window 23:00–07:00 is read in UTC here, and every moment is UTC.
+  let zone: string | undefined
+  beforeEach(() => {
+    zone = process.env.TZ
+    process.env.TZ = 'UTC'
+  })
+  afterEach(() => {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  })
+  const NIGHT: StartWindow = { from: 23, to: 7 }
+  const HOUR = 3_600_000
+  /** 5 October 2026 at hh:mm UTC. */
+  const oct5 = (hour: number, minute = 0): number => Date.UTC(2026, 9, 5, hour, minute)
+  const utc = { timeZone: 'UTC' }
+
+  /** A past run of the Project: `waves` Waves of `hours` hours each, before this test's run. */
+  function pastWaves(waves: number, hours: number): void {
+    const dir = join(scratch, 'data-root', 'autopilot')
+    mkdirSync(dir, { recursive: true })
+    const run = PAST_RUN
+    const start = Date.UTC(2026, 9, 1, 0, 0)
+    const line = (at: number, fields: Record<string, unknown>) => JSON.stringify({ at: iso(at), run, project: PROJECT, epic: EPIC, ...fields })
+    const lines = [line(start, { kind: 'run-started' })]
+    for (let wave = 1; wave <= waves; wave++) {
+      const from = start + (wave - 1) * (hours + 1) * HOUR
+      lines.push(line(from, { kind: 'wave-started', wave, tickets: ['01'] }), line(from + hours * HOUR, { kind: 'wave-finished', wave, tickets: ['01'] }))
+    }
+    lines.push(line(start + waves * (hours + 1) * HOUR, { kind: 'run-stopped', reason: 'no-ready-wave' }))
+    writeFileSync(join(dir, `${run}.jsonl`), lines.join('\n') + '\n')
+  }
+
+  /** A run in `mode` started at `at` over two Waves that pass, with the window 23:00–07:00 and the budget off unless `options` say. */
+  async function started(mode: RunMode, at: number, options: HarnessOptions = {}) {
+    clock = at
+    const h = harness({ lines: twoPassingWaves(), window: NIGHT, budget: { enabled: false, reserve: 0.15 }, ...options })
+    await h.autopilot.start(PROJECT, EPIC, { mode })
+    return h
+  }
+
+  /** A run in Start window started at 20:00, waiting for 23:00 before its first Wave. */
+  async function outsideAtEight() {
+    const h = await started('start-window', oct5(20))
+    await until(() => h.state().status === 'waiting', 'the wait for the Start window')
+    return h
+  }
+
+  it('Start window, started at 20:00 with the window 23:00–07:00: run-started, start-window outside, waiting-until 23:00; at 23:00 resumed and the Wave', async () => {
+    const h = await outsideAtEight()
+    const opens = oct5(23)
+    const text = windowWaitText({ reason: 'outside', window: NIGHT, until: opens })
+    expect(text).toBe('Outside the start window 23:00–07:00: Autopilot continues at 23:00')
+    expect(h.messages()).toEqual([])
+    expect(await h.kinds()).toEqual(['run-started', 'start-window', 'waiting-until'])
+    const events = await h.journal()
+    expect(events[0]).toMatchObject({ kind: 'run-started', mode: 'start-window', by: 'button' })
+    expect(events[1]).toEqual({ ...events[1], kind: 'start-window', reason: 'outside', until: iso(opens), text })
+    expect(events[1]).not.toHaveProperty('durationP90Ms')
+    expect(events[2]).toMatchObject({ kind: 'waiting-until', until: iso(opens) })
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'start-window', windowReason: 'outside', wave: 0, resumesAt: opens, reason: null, message: text })
+    expect(autopilotStateSchema.parse(h.state())).toEqual(h.state())
+    expect(autopilotStatusLine(h.state(), utc)).toBe('outside start window · resumes 23:00')
+    // The run lives and keeps the Mac awake while it waits.
+    expect(h.power).toEqual(['start'])
+    expect(h.live().map((timer) => timer.at)).toEqual([opens])
+
+    clock = opens
+    h.live()[0]!.fire()
+    await until(() => h.state().status === 'stopped', 'the run to stop after Wave 2')
+    expect(h.messages()).toEqual([WAVE_1, WAVE_2])
+    const kinds = await h.kinds()
+    expect(kinds.slice(0, 5)).toEqual(['run-started', 'start-window', 'waiting-until', 'resumed', 'wave-started'])
+    expect(kinds.filter((kind) => kind === 'start-window')).toHaveLength(1)
+    expect(h.state()).toMatchObject({ status: 'stopped', reason: 'no-ready-wave', message: null })
+    expect(h.state().waitingFor).toBeUndefined()
+    expect(h.state().windowReason).toBeUndefined()
+  })
+
+  it('after the wait the window is asked again: a timer that fires while the window is still shut waits once more, and the Wave goes only inside it', async () => {
+    const h = await outsideAtEight()
+    const first = h.live()[0]!
+    // The wake-up lands before the window opens (an edge the clocks skipped wakes the run outside, too).
+    clock = oct5(22, 59)
+    first.fire()
+    await until(() => h.live().length === 1 && h.live()[0] !== first, 'the second wait for the window')
+    expect(h.messages()).toEqual([])
+    expect(await h.kinds()).toEqual(['run-started', 'start-window', 'waiting-until', 'resumed', 'start-window', 'waiting-until'])
+    expect(h.live()[0]!.at).toBe(oct5(23))
+    // The first timer firing again resumes nothing.
+    first.fire()
+    await tick()
+    expect(h.messages()).toEqual([])
+    clock = oct5(23)
+    h.live()[0]!.fire()
+    await until(() => h.messages().length === 2, 'both Waves')
+  })
+
+  it("a person's turn during the wait for the window does not end it: no resumed, the timer stays", async () => {
+    const h = await outsideAtEight()
+    const timer = h.live()[0]!
+    h.registry.get(orchestratorSession(h.registry)).send('how is it going?')
+    await until(() => h.messages().length === 1, "the person's message")
+    await tick(100)
+    expect(timer.cancelled).toBe(false)
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'start-window', resumesAt: oct5(23) })
+    expect(await h.kinds()).toEqual(['run-started', 'start-window', 'waiting-until'])
+  })
+
+  it('5 past Waves of 2 hours, now 06:00: start-window wave-too-long until 23:00, with the p90', async () => {
+    pastWaves(5, 2)
+    const h = await started('start-window', oct5(6))
+    await until(() => h.state().status === 'waiting', 'the wait for the next window')
+    const opens = oct5(23)
+    const text = windowWaitText({ reason: 'wave-too-long', window: NIGHT, until: opens, wave: 1, p90: 2 * HOUR })
+    expect(text).toBe('Wave 1 usually takes up to 2 h 0 min and would end after 07:00: Autopilot continues at 23:00')
+    expect(h.messages()).toEqual([])
+    const events = await h.journal()
+    expect(events.map((event) => event.kind)).toEqual(['run-started', 'start-window', 'waiting-until'])
+    expect(events[1]).toMatchObject({ kind: 'start-window', reason: 'wave-too-long', until: iso(opens), text, durationP90Ms: 2 * HOUR })
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'start-window', windowReason: 'wave-too-long', resumesAt: opens, message: text })
+    expect(autopilotStatusLine(h.state(), utc)).toBe('wave too long for window · resumes 23:00')
+  })
+
+  it('4 past Waves of 2 hours, now 06:00: too few samples, the Wave goes, and its state says so while it runs; with the fifth sample the next Wave is checked', async () => {
+    pastWaves(4, 2)
+    const h = await started('start-window', oct5(6))
+    await until(() => h.state().status === 'waiting', 'the wait before Wave 2')
+    expect(h.messages()).toEqual([WAVE_1])
+    const during = h.states.filter((state) => state.status === 'running' && state.wave === 1)
+    expect(during.length).toBeGreaterThan(0)
+    expect(during.every((state) => state.message === unknownDurationText(1))).toBe(true)
+    expect(unknownDurationText(1)).toBe('Not enough data on Wave duration: Wave 1 started without the window check')
+    // Wave 1 gives the fifth sample: the p90 is 2 hours, and Wave 2 would end after 07:00.
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'wave-finished', 'start-window', 'waiting-until'])
+    expect((await h.journal())[3]).toMatchObject({ kind: 'start-window', reason: 'wave-too-long', durationP90Ms: 2 * HOUR })
+    expect(h.state()).toMatchObject({ status: 'waiting', wave: 1, windowReason: 'wave-too-long', message: windowWaitText({ reason: 'wave-too-long', window: NIGHT, until: oct5(23), wave: 2, p90: 2 * HOUR }) })
+  })
+
+  it('a Wave started at 06:50 runs to wave-finished at 08:00, past the window; the next one waits for the window', async () => {
+    clock = oct5(6, 50)
+    const h = harness({ lines: twoPassingWaves(), window: NIGHT })
+    // Wave 1 takes 70 minutes on the test's clock.
+    h.registry.observe((_sessionId, event) => {
+      if (event.type === 'prompt' && event.text === WAVE_1) clock = oct5(8)
+    })
+    await h.autopilot.start(PROJECT, EPIC, { mode: 'start-window' })
+    await until(() => h.state().status === 'waiting', 'the wait before Wave 2')
+    expect(h.messages()).toEqual([WAVE_1])
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'wave-finished', 'start-window', 'waiting-until'])
+    expect((await h.journal()).find((event) => event.kind === 'start-window')).toMatchObject({ reason: 'outside', until: iso(oct5(23)) })
+    expect(h.state()).toMatchObject({ status: 'waiting', wave: 1, waitingFor: 'start-window', windowReason: 'outside', resumesAt: oct5(23) })
+  })
+
+  it("Fastest with the budget on and today's share used: Wave 2 goes at once, no budget-stop, no window", async () => {
+    const h = await started('fastest', START_MS, { limitsFile: spent(), budget: ON })
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.messages()).toEqual([WAVE_1, WAVE_2])
+    const kinds = await h.kinds()
+    expect(kinds).not.toContain('budget-stop')
+    expect(kinds).not.toContain('start-window')
+    expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', mode: 'fastest' })
+    expect(h.timers).toEqual([])
+  })
+
+  it('Fastest outside the window: the Wave goes at 20:00', async () => {
+    const h = await started('fastest', oct5(20))
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.messages()).toEqual([WAVE_1, WAVE_2])
+    expect(await h.kinds()).not.toContain('start-window')
+  })
+
+  it("Budget-aware with the budget's switch off: budget-stop before Wave 2 all the same, with the reserve of Settings", async () => {
+    const h = await started('budget-aware', START_MS, { limitsFile: spent(), budget: { enabled: false, reserve: 0.15 } })
+    await until(() => h.state().status === 'waiting', 'the budget wait before Wave 2')
+    expect(h.messages()).toEqual([WAVE_1])
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'wave-finished', 'budget-stop', 'waiting-until'])
+    expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', mode: 'budget-aware' })
+    const expected = budgetDecision({ budget: ON, now: START_MS, limits: h.tracker.snapshot(), runs: [await h.journal()], estimate: null, tickets: 1 })
+    expect((await h.journal()).find((event) => event.kind === 'budget-stop')).toMatchObject({ cause: 'daily-share', share: expect.closeTo((expected as { share: number }).share, 10) })
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'daily-share' })
+    expect(h.state().windowReason).toBeUndefined()
+  })
+
+  it('Start window with the budget off: only the window; inside it both Waves go on a used share', async () => {
+    // 06:10: inside 23:00–07:00.
+    const h = await started('start-window', START_MS, { limitsFile: spent() })
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.messages()).toEqual([WAVE_1, WAVE_2])
+    expect(await h.kinds()).not.toContain('budget-stop')
+  })
+
+  it('Start window with the budget on: the window lets Wave 2 go, then the budget stops it', async () => {
+    const h = await started('start-window', START_MS, { limitsFile: spent(), budget: ON })
+    await until(() => h.state().status === 'waiting', 'the budget wait before Wave 2')
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'wave-finished', 'budget-stop', 'waiting-until'])
+    expect(h.state()).toMatchObject({ waitingFor: 'daily-share' })
+  })
+
+  it('five_hour (stub Limits): Start window, budget on, the 5-hour window full until 07:30 — budget-stop five-hour first; after resumed at 07:32, start-window outside until 23:00', async () => {
+    const fiveReset = oct5(7, 30) / 1000
+    const at = oct5(6, 30)
+    const limitsFile = { windows: { five_hour: five(1, at, fiveReset), seven_day: week(0.1, at) } }
+    const h = await started('start-window', at, { limitsFile, budget: ON })
+    await until(() => h.state().status === 'waiting', 'the wait for the 5-hour window')
+    const resumes = budgetResumeAt({ now: at, dayLeft: true, fiveHourResetsAt: fiveReset * 1000, sevenDayResetsAt: WEEK_S * 1000 })
+    expect(resumes).toBe(oct5(7, 32))
+    expect(await h.kinds()).toEqual(['run-started', 'budget-stop', 'waiting-until'])
+    expect((await h.journal())[1]).toMatchObject({ kind: 'budget-stop', cause: 'five-hour', until: iso(resumes) })
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'five-hour', resumesAt: resumes })
+    // The 5-hour window resets; the Start window has closed by then.
+    clock = resumes
+    h.tracker.record([{ window: 'five_hour', state: five(0, clock, fiveReset + 5 * 3600) }])
+    h.live()[0]!.fire()
+    await until(async () => (await h.kinds()).length === 6, 'the wait for the Start window')
+    expect(await h.kinds()).toEqual(['run-started', 'budget-stop', 'waiting-until', 'resumed', 'start-window', 'waiting-until'])
+    expect((await h.journal())[4]).toMatchObject({ kind: 'start-window', reason: 'outside', until: iso(oct5(23)) })
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'start-window', windowReason: 'outside', resumesAt: oct5(23) })
+    expect(h.messages()).toEqual([])
+  })
+
+  it('without a five_hour window in the Limits: Start window with the budget on waits for nothing and writes nothing of it', async () => {
+    const at = oct5(6, 30)
+    // The turns report the 7-day window only, as the owner's subscription does.
+    const lines = twoPassingWaves().map((line) => {
+      if (line.type !== 'rate_limit_event') return line
+      const info = line.rate_limit_info as Record<string, unknown>
+      const windows = { ...(info.unifiedWindows as Record<string, unknown>) }
+      delete windows.five_hour
+      // The week stays at 10 %: today's share is not used, so only the 5-hour window could stop a Wave.
+      windows.seven_day = { ...(windows.seven_day as Record<string, unknown>), utilization: 0.1 }
+      return { ...line, rate_limit_info: { ...info, rateLimitType: 'seven_day', resetsAt: WEEK_S, unifiedWindows: windows } }
+    })
+    const h = await started('start-window', at, { lines, limitsFile: { windows: { seven_day: week(0.1, at) } }, budget: ON })
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.tracker.snapshot().windows.five_hour).toBeUndefined()
+    expect(h.messages()).toEqual([WAVE_1, WAVE_2])
+    const events = await h.journal()
+    expect(events.map((event) => event.kind)).not.toContain('budget-stop')
+    expect(events.map((event) => event.kind)).not.toContain('waiting-until')
+    expect(JSON.stringify(events)).not.toMatch(/5-hour|five-hour/)
+    expect(h.states.some((state) => state.waitingFor !== undefined)).toBe(false)
+  })
+
+  it('Stop during the wait for the window ends the run at once with user-stop: the timer cancelled, no Wave, no resumed after', async () => {
+    const h = await outsideAtEight()
+    const timer = h.live()[0]!
+    const stopped = await h.autopilot.stop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop', resumesAt: null, message: null, stopping: false })
+    expect(stopped.waitingFor).toBeUndefined()
+    expect(timer.cancelled).toBe(true)
+    timer.fire()
+    await tick()
+    expect(h.messages()).toEqual([])
+    expect(await h.kinds()).toEqual(['run-started', 'start-window', 'waiting-until', 'run-stopped'])
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'user-stop' })
+    expect(h.power).toEqual(['start', 'stop'])
+  })
+
+  it('Force stop during the wait for the window: user-force-stop and no Tickets, the timer cancelled, the Orchestrator given back', async () => {
+    const h = await outsideAtEight()
+    const timer = h.live()[0]!
+    const stopped = await h.autopilot.forceStop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop', resumable: [], resumesAt: null })
+    expect(timer.cancelled).toBe(true)
+    timer.fire()
+    await tick()
+    expect(h.messages()).toEqual([])
+    const events = await h.journal()
+    expect(events.map((event) => event.kind)).not.toContain('resumed')
+    const stops = events.filter((event) => event.kind === 'run-stopped')
+    expect(stops).toHaveLength(1)
+    expect(stops[0]).toMatchObject({ reason: 'user-force-stop' })
+    expect(stops[0]).not.toHaveProperty('tickets')
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+  })
+
+  it("the app's quit during the wait for the window: one run-stopped with app-quit, the timer cancelled", async () => {
+    const h = await outsideAtEight()
+    const timer = h.live()[0]!
+    await h.autopilot.stopAll()
+    expect(h.state()).toMatchObject({ status: 'stopped', reason: 'app-quit' })
+    expect(timer.cancelled).toBe(true)
+    expect(await h.kinds()).toEqual(['run-started', 'start-window', 'waiting-until', 'run-stopped'])
+  })
+
+  it('a Stop clicked as the wait for the window ends, its step behind the resume: resumed, then run-stopped, and no Wave', async () => {
+    const h = await outsideAtEight()
+    const timer = h.live()[0]!
+    clock = timer.at
+    timer.fire()
+    const answer = h.autopilot.stop(PROJECT)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    await answer
+    expect(h.messages()).toEqual([])
+    expect(await h.kinds()).toEqual(['run-started', 'start-window', 'waiting-until', 'resumed', 'run-stopped'])
+    expect((await h.journal()).at(-1)).toMatchObject({ reason: 'user-stop' })
+  })
+
+  it('a start that names no mode goes in the default of Settings, read at the start', async () => {
+    clock = oct5(20)
+    const h = harness({ lines: twoPassingWaves(), window: NIGHT })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', mode: 'fastest' })
+    expect(h.messages()).toEqual([WAVE_1, WAVE_2])
   })
 })
 

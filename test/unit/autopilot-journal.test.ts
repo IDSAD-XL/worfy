@@ -33,6 +33,7 @@ const everyKind: JournalEvent[] = [
   { ...base, at: at(1), kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-10-06T01:01Z' },
   { ...base, at: at(2), kind: 'narrow-round', ticket: '02', outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x' },
   { ...base, at: at(2), kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
+  { ...base, at: at(2), kind: 'start-window', reason: 'wave-too-long', until: at(23), text: 'Wave 2 usually takes up to 2 h 10 min and would end after 07:00: Autopilot continues at 23:00', durationP90Ms: 7_800_000 },
   { ...base, at: at(2), kind: 'budget-stop', cause: 'daily-share', share: 0.09, used: 0.1, need: 0, until: at(29), text: "Today's share of the Limits is used: Autopilot continues at 00:00" },
   { ...base, at: at(3), kind: 'limits-hit', window: 'five_hour', resetsAt: at(30) },
   { ...base, at: at(3), kind: 'waiting-until', until: at(31) },
@@ -104,6 +105,23 @@ describe('parseJournal', () => {
     // A `by` a later worfy may add reads as none: the line, with its origin and Tickets, stays.
     const later = { ...started, origin: 'github.com/o/r', by: 'schedule', tickets: ['01'] }
     expect(parseJournal(line(later))).toEqual({ events: [{ ...started, origin: 'github.com/o/r', tickets: ['01'] }], skipped: 0 })
+  })
+
+  // The Run mode and the Start window (worfy-resource-planner ticket 05, ADR-0093).
+  it('reads run-started with each Run mode; a mode of another value reads as none, and the line stays', () => {
+    const modes = (['fastest', 'budget-aware', 'start-window'] as const).map((mode): JournalEvent => ({ ...started, mode }))
+    expect(parseJournal(modes.map(line).join(''))).toEqual({ events: modes, skipped: 0 })
+    const later = { ...started, by: 'button', mode: 'overnight' }
+    expect(parseJournal(line(later))).toEqual({ events: [{ ...started, by: 'button' }], skipped: 0 })
+    expect(parseJournal(line({ ...started, mode: 3 }))).toEqual({ events: [started], skipped: 0 })
+  })
+
+  it('reads start-window with both reasons, with and without the p90; skips one with another reason, no until or no text', () => {
+    const outside: JournalEvent = { ...base, at: at(2), kind: 'start-window', reason: 'outside', until: at(23), text: 'Outside the start window 23:00–07:00: Autopilot continues at 23:00' }
+    const tooLong: JournalEvent = { ...outside, reason: 'wave-too-long', durationP90Ms: 7_200_000 }
+    expect(parseJournal([started, outside, tooLong, stopped].map(line).join(''))).toEqual({ events: [started, outside, tooLong, stopped], skipped: 0 })
+    const bad = [{ ...outside, reason: 'night' }, { ...outside, until: undefined }, { ...outside, text: '' }, { ...tooLong, durationP90Ms: -1 }, { ...tooLong, durationP90Ms: 1.5 }]
+    expect(parseJournal(line(started) + bad.map(line).join('') + line(stopped))).toEqual({ events: [started, stopped], skipped: bad.length })
   })
 
   it('the shared Journal walk (journal-walk.mjs) reads both new kinds, skips a ticket-status outside the format, and its Run is the same with them', () => {

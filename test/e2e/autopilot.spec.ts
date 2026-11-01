@@ -9,6 +9,7 @@ import { openRun } from '../../src/main/autopilot/journal'
 import { SELF_PROJECT_MESSAGE, STOP_TEXT } from '../../src/main/autopilot/run'
 import { budgetStopText, localDayStart, nextLocalDayStart } from '../../src/shared/autopilot/budget'
 import { RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
+import { hourText, nextWindowStart, windowWaitText } from '../../src/shared/autopilot/run-mode'
 import { autopilotStatusLine } from '../../src/shared/ipc/autopilot'
 import { launchApp, repoRoot } from './helpers'
 import { catScript } from '../harness-node'
@@ -507,6 +508,69 @@ function closes(log: string): unknown[] {
     .map((line) => JSON.parse(line) as { kind: string })
     .filter((call) => call.kind === 'close')
 }
+
+test('Autopilot in the Run mode Start window: outside the window the status line and its tooltip say until when, the journal says why; Stop ends the wait at once (worfy-resource-planner ticket 05)', async () => {
+  const { dataDir, claudeHome, log, repo, statusBefore, claudeHomeBefore } = prepare()
+  const scripts = join(scratch, 'scripts')
+  mkdirSync(scripts, { recursive: true })
+  writeFileSync(join(scripts, 'autopilot-limits.jsonl'), readFileSync(join(repoRoot, 'test', 'fixtures', 'agent-scripts', 'autopilot-limits.jsonl')))
+  // The default mode is Start window, with a window of four hours that opens in two: the button starts in it.
+  const now = Date.now()
+  const from = (new Date(now).getHours() + 2) % 24
+  const window_ = { from, to: (from + 4) % 24 }
+  writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ autopilotRun: { mode: 'start-window', windowFrom: window_.from, windowTo: window_.to } }))
+  /** The kinds of the lines of the run, with the reason of start-window and run-stopped. */
+  const kinds = (): string[] => {
+    const [file] = readdirSync(join(dataDir, 'autopilot'))
+    if (file === undefined) return []
+    return readFileSync(join(dataDir, 'autopilot', file), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { kind: string; reason?: string; mode?: string })
+      .map((event) => [event.kind, event.reason ?? event.mode].filter((part) => part !== undefined).join(' '))
+  }
+
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'autopilot-limits', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    const power = await recordPower(app)
+
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    const header = frame.locator('header')
+    const status = frame.getByTestId('autopilot-status')
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+
+    await frame.getByTestId('action-autopilot').click()
+    const until = nextWindowStart(now, window_)
+    const line = autopilotStatusLine({ status: 'waiting', wave: 0, reason: null, resumesAt: until, waitingFor: 'start-window', windowReason: 'outside' })
+    expect(line).toBe(`outside start window · resumes ${hourText(from)}`)
+    await expect(status).toHaveText(line!)
+    await expect(status).toHaveAttribute('data-status', 'waiting')
+    // The tooltip says why in a sentence: the window and the time the run goes on.
+    await expect(status).toHaveAttribute('title', windowWaitText({ reason: 'outside', window: window_, until }))
+    expect(await status.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await expectStatusClear(window, header, status)
+    // No Wave went: the Orchestrator got no message, and the journal says why the run waits.
+    await expect.poll(kinds).toEqual(['run-started start-window', 'start-window outside', 'waiting-until'])
+    expect(messages(log)).toEqual([])
+    expect(await power()).toEqual(['start prevent-display-sleep'])
+    await snapshots(window, header, 'autopilot-start-window-waiting')
+
+    // Stop during the wait for the window ends the run at once: one run-stopped, user-stop.
+    await frame.getByTestId('action-stop-autopilot').click()
+    await expect(status).toHaveText('stopped: user stop')
+    await expect.poll(kinds).toContain('run-stopped user-stop')
+    expect(kinds()).toEqual(['run-started start-window', 'start-window outside', 'waiting-until', 'run-stopped user-stop'])
+    expect(messages(log)).toEqual([])
+    expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
+    expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
+    expect(files(claudeHome)).toEqual(claudeHomeBefore)
+  } finally {
+    await launched.close()
+  }
+})
 
 test('Autopilot waits for the background tasks of the Wave; Force stop kills them with the Orchestrator\'s process and gives the Orchestrator back at once', async () => {
   // The fake agent plays autopilot-background: the Wave's turn starts two background tasks and ends

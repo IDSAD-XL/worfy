@@ -1781,7 +1781,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     ])
     await s.autopilot.start(PROJECT, EPIC)
     expect(s.orchestrator).toEqual(['unattended true'])
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, by: 'button' }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, by: 'button', mode: 'fastest' }])
     expect(s.autopilot.runKeys()).toEqual([{ epic: EPIC, origin: KEY }])
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', machine: HERE, unasked: [] })
   })
@@ -1791,7 +1791,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     await s.autopilot.start(PROJECT, EPIC, { override: true })
     expect(asked()).toBe(1)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, override: true, by: 'button' }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, override: true, by: 'button', mode: 'fastest' }])
   })
 
   it('Start anyway once the other run has ended: asked again, a plain start, no override in run-started', async () => {
@@ -1802,7 +1802,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     await s.autopilot.start(PROJECT, EPIC, { override: true })
     expect(asked()).toBe(1)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', unasked: ['Desk'] })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Desk'], by: 'button' }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Desk'], by: 'button', mode: 'fastest' }])
   })
 
   it('Start anyway past another Project of this Machine: the run goes with override', async () => {
@@ -1810,7 +1810,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     s.deps.projectRoot = (projectId) => `/repo/${projectId}`
     await s.autopilot.start(PROJECT, EPIC)
     await s.autopilot.start('clone-00000001', EPIC, { override: true })
-    expect(opened.at(-1)).toEqual({ project: 'clone-00000001', epic: EPIC, origin: KEY, override: true, by: 'button' })
+    expect(opened.at(-1)).toEqual({ project: 'clone-00000001', epic: EPIC, origin: KEY, override: true, by: 'button', mode: 'fastest' })
   })
 
   it('another Project of this Machine over the same repository runs the Epic: refused, naming this Machine', async () => {
@@ -1871,7 +1871,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     ])
     await s.autopilot.start(PROJECT, EPIC)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running', unasked: ['Studio'] })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Studio'], by: 'button' }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, origin: KEY, unasked: ['Studio'], by: 'button', mode: 'fastest' }])
   })
 
   it('question 3: a Project without origin asks no one, and starts as before', async () => {
@@ -1879,7 +1879,7 @@ describe('one Autopilot per Epic and origin across the Linked machines (worfy-li
     await s.autopilot.start(PROJECT, EPIC)
     expect(asked()).toBe(0)
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
-    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button' }])
+    expect(opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button', mode: 'fastest' }])
     expect(s.autopilot.runKeys()).toEqual([])
   })
 
@@ -2431,13 +2431,25 @@ describe('who started the run, its named Tickets and the Session each Wave went 
   it('run-started says button for the button, the start\'s value otherwise, and names the Tickets only of a run over named Tickets', async () => {
     const button = opening()
     await button.s.autopilot.start(PROJECT, EPIC)
-    expect(button.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button' }])
+    expect(button.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button', mode: 'fastest' }])
     const command = opening()
     await command.s.autopilot.start(PROJECT, EPIC, { tickets: [2, 1, 2], by: 'command' })
-    expect(command.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'command', tickets: ['01', '02'] }])
+    expect(command.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'command', tickets: ['01', '02'], mode: 'fastest' }])
     const tool = opening()
     await tool.s.autopilot.start(PROJECT, EPIC, { by: 'tool' })
-    expect(tool.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'tool' }])
+    expect(tool.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'tool', mode: 'fastest' }])
+  })
+
+  it("run-started carries the Run mode: the start's, else the default of Settings at the start, else Budget-aware only with the budget on (worfy-resource-planner ticket 05)", async () => {
+    const named = opening({ runSettings: () => ({ mode: 'budget-aware', window: { from: 23, to: 7 } }) })
+    await named.s.autopilot.start(PROJECT, EPIC, { mode: 'start-window' })
+    expect(named.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button', mode: 'start-window' }])
+    const settings = opening({ runSettings: () => ({ mode: 'budget-aware', window: { from: 23, to: 7 } }) })
+    await settings.s.autopilot.start(PROJECT, EPIC)
+    expect(settings.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button', mode: 'budget-aware' }])
+    const budgetOn = opening({ budget: { settings: () => ({ enabled: true, reserve: 0.15 }), runs: () => Promise.resolve([]) } })
+    await budgetOn.s.autopilot.start(PROJECT, EPIC)
+    expect(budgetOn.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button', mode: 'budget-aware' }])
   })
 
   it('wave-started names the Session the Wave went to: the transcript id of a resumed Session, the Session id otherwise', async () => {

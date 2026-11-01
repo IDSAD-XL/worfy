@@ -68,6 +68,7 @@ const appended: JournalEventFields[] = [
   { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-10-06T01:02Z' },
   { kind: 'narrow-round', ticket: '02', outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open' },
   { kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
+  { kind: 'start-window', reason: 'outside', until: '2026-10-06T20:00:00.000Z', text: 'Outside the start window 23:00–07:00: Autopilot continues at 23:00' },
   { kind: 'budget-stop', cause: 'five-hour', share: 0.0925, used: 0.04, need: 0.06, until: '2026-10-06T05:02:00.000Z', text: "The 5-hour Limits are used, today's share is not: Autopilot continues at 05:02" },
   { kind: 'limits-hit', window: 'five_hour', resetsAt: '2026-10-06T06:00:00.000Z' },
   { kind: 'waiting-until', until: '2026-10-06T06:01:00.000Z' },
@@ -245,7 +246,12 @@ describe('readRun', () => {
     const plain = await openRun({ project: PROJECT, epic: EPIC }, { now: () => new Date(T0 + 60_000), suffix: () => 'bbbbbb' })
     expect(JSON.parse(rawLines(plain.file)[0]!)).not.toHaveProperty('by')
     expect(JSON.parse(rawLines(plain.file)[0]!)).not.toHaveProperty('tickets')
-    expect((await listRuns(PROJECT)).map((run) => run.run)).toEqual([plain.run, journal.run])
+    expect(JSON.parse(rawLines(plain.file)[0]!)).not.toHaveProperty('mode')
+    // The Run mode goes into run-started (worfy-resource-planner ticket 05).
+    const window = await openRun({ project: PROJECT, epic: EPIC, by: 'button', mode: 'start-window' }, { now: () => new Date(T0 + 120_000), suffix: () => 'cccccc' })
+    expect(JSON.parse(rawLines(window.file)[0]!)).toMatchObject({ kind: 'run-started', by: 'button', mode: 'start-window' })
+    expect((await readRun(window.run))?.events[0]).toMatchObject({ kind: 'run-started', mode: 'start-window' })
+    expect((await listRuns(PROJECT)).map((run) => run.run)).toEqual([window.run, plain.run, journal.run])
   })
 
   it('writes wave-started and wave-finished with limits, reads old lines without them, and a wrong limits drops only that field (worfy-throughput ticket 40)', async () => {
