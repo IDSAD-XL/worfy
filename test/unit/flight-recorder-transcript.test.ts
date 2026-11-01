@@ -6,7 +6,7 @@
 // subkind comes from the agent's name and type; the Orchestrator's turns name the Tickets they
 // touched. The transcript lines are built here; no file is read.
 import { describe, expect, it } from 'vitest'
-import { transcriptFacts, wavePromptTimes, type SubagentLines } from '../../src/shared/flight-recorder/from-transcript'
+import { agentIdsIn, transcriptFacts, wavePromptTimes, type SubagentLines } from '../../src/shared/flight-recorder/from-transcript'
 import { agentSubkind, buildTimeline, type RunFacts, type WorkFact } from '../../src/shared/flight-recorder/spans'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
 
@@ -138,6 +138,17 @@ describe('an agent span', () => {
     expect(covered(T('12:05'))).toBe(true)
   })
 
+  it('a queued message opens no span even when an earlier agent of that name has reported', () => {
+    const { work } = facts([
+      ...launch(T('10:01'), 'call-1', 'a5', IMPL),
+      notification(T('10:20'), 'a5', 'call-1'),
+      ...launch(T('10:30'), 'call-2', 'a5b', IMPL),
+      ...send(T('10:40'), 'send-1', 'impl-05'),
+      ...send(T('10:50'), 'send-2', 'a5'),
+    ])
+    expect(agents(work).map((fact) => fact.id)).toEqual(['a5#1', 'a5b#1'])
+  })
+
   it('a message to an agent that still works adds no span', () => {
     const { work } = facts([...launch(T('10:01'), 'call-1', 'a5', IMPL), ...send(T('10:20'), 'send-1', 'impl-05'), notification(T('10:40'), 'a5', 'call-1')])
     expect(agents(work).map((fact) => [fact.start, fact.end])).toEqual([[T('10:01'), T('10:40')]])
@@ -188,13 +199,33 @@ describe('an agent span', () => {
 
   it('a restart after a session-error is a new call of impl-05: the model numbers it #2 with the Journal reason', () => {
     const { work } = facts([...launch(T('10:01'), 'call-1', 'a5', IMPL), ...launch(T('11:00'), 'call-2', 'a5b', IMPL), notification(T('11:30'), 'a5b', 'call-2')])
-    expect(agents(work).map((fact) => [fact.agent, fact.start, fact.end])).toEqual([
-      ['a5', T('10:01'), null],
-      ['a5b', T('11:00'), T('11:30')],
+    expect(agents(work).map((fact) => [fact.agent, fact.start, fact.end, fact.outcome])).toEqual([
+      ['a5', T('10:01'), T('11:00'), 'cut-off'],
+      ['a5b', T('11:00'), T('11:30'), undefined],
     ])
     const spans = timeline(work, { retryCauses: [{ ticket: null, kind: 'agent', at: T('10:50'), reason: 'session-error: overloaded', source: 'journal' }] }).spans
     const second = spans.find((span) => span.kind === 'agent' && span.attempt === 2)
     expect(second?.reason).toBe('session-error: overloaded')
+  })
+})
+
+describe('an attempt that a new call of its name replaced', () => {
+  it('is over at its last own record in a live Run, not running next to its replacement', () => {
+    const own = new Map([['a5', { meta: null, lines: [agentTask(T('10:01')), agentLine(T('10:40'), 'halfway')] }]])
+    const { work } = facts([...launch(T('10:01'), 'call-1', 'a5', IMPL), ...launch(T('10:58'), 'call-2', 'a5b', IMPL), notification(T('11:30'), 'a5b', 'call-2')], own)
+    expect(agents(work)[0]).toEqual(expect.objectContaining({ agent: 'a5', end: T('10:40'), outcome: 'cut-off', reason: 'replaced by a new call of impl-05' }))
+    const live = timeline(work, { run: { id: 'run-1', startedAt: T('10:00'), stoppedAt: null, live: true }, now: T('13:00') })
+    const first = live.spans.find((span) => span.kind === 'agent' && span.attempt === 1)
+    expect(first?.outcome).toBe('cut-off')
+    expect(first?.end).toBe(Date.parse(T('10:40')))
+  })
+
+  it('an agent of another name is not replaced', () => {
+    const { work } = facts([...launch(T('10:01'), 'call-1', 'a5', IMPL), ...launch(T('10:58'), 'call-2', 'v5', VERIFY)])
+    expect(agents(work).map((fact) => [fact.name, fact.end])).toEqual([
+      ['impl-05', null],
+      ['verify-05', null],
+    ])
   })
 })
 
@@ -229,6 +260,34 @@ describe('the subkind and the Ticket of an agent', () => {
     expect(agents(work).map((fact) => [fact.name, fact.ticket, fact.outcome, fact.verdict])).toEqual([
       ['verify-05', 'e/05', 'rejected', 'REJECTED'],
       ['verify-07r2', 'e/07', undefined, 'VERIFIED'],
+    ])
+  })
+
+  it('the verdict is the first word of the report only; a failed verifier stays failed', () => {
+    const { work } = facts([
+      ...launch(T('10:01'), 'call-1', 'v5', VERIFY),
+      notification(T('10:10'), 'v5', 'call-1', 'completed', 'done', 'The earlier REJECTED is resolved; VERIFIED'),
+      ...launch(T('10:11'), 'call-2', 'v7', { name: 'verify-07', subagent_type: 'worfy:reviewer' }),
+      notification(T('10:20'), 'v7', 'call-2', 'failed', 'API Error', 'REJECTED\nhalf a review'),
+    ])
+    expect(agents(work).map((fact) => [fact.name, fact.outcome, fact.verdict])).toEqual([
+      ['verify-05', undefined, undefined],
+      ['verify-07', 'failed', 'REJECTED'],
+    ])
+  })
+
+  it('a verifier whose name has no Ticket number takes the Ticket its prompt names: a branch, an issue path, ticket NN', () => {
+    const { work } = facts([
+      ...launch(T('10:01'), 'call-1', 'v1', { name: 'verify-fr05-correct', subagent_type: 'worfy:reviewer', prompt: 'Review PR #470, branch e/05, head abc' }),
+      ...launch(T('10:02'), 'call-2', 'v2', { name: 'verify-fr07-tests', subagent_type: 'worfy:reviewer', prompt: 'Read .scratch/e/issues/07-the-ticket.md first' }),
+      ...launch(T('10:03'), 'call-3', 'v3', { name: 'verify-docs', subagent_type: 'worfy:reviewer', prompt: 'Lens: docs of ticket 05' }),
+      ...launch(T('10:04'), 'call-4', 'v4', { name: 'verify-other', subagent_type: 'worfy:reviewer', prompt: 'Review branch other-epic/05 and ticket 09' }),
+    ])
+    expect(agents(work).map((fact) => [fact.name, fact.ticket])).toEqual([
+      ['verify-fr05-correct', 'e/05'],
+      ['verify-fr07-tests', 'e/07'],
+      ['verify-docs', 'e/05'],
+      ['verify-other', null],
     ])
   })
 
@@ -303,6 +362,20 @@ describe('the turns of the Orchestrator', () => {
   it('a turn with no answer yet is open', () => {
     const { turns } = facts([prompt(T('10:00'), 'go')])
     expect(turns).toEqual([expect.objectContaining({ start: T('10:00'), end: null, lastSeenAt: T('10:00') })])
+  })
+})
+
+describe('the Subagents of a window', () => {
+  it('are those whose Agent call or resuming SendMessage lies in it', () => {
+    const lines = [
+      ...launch(T('09:00'), 'call-0', 'early', IMPL),
+      ...launch(T('10:01'), 'call-1', 'a5', IMPL),
+      ...send(T('10:30'), 'send-1', 'early', 'early'),
+      ...send(T('10:31'), 'send-2', 'impl-05'),
+      ...launch(T('12:01'), 'call-2', 'late', IMPL),
+    ]
+    const inside = (at: string) => at >= T('10:00') && at <= T('11:00')
+    expect([...agentIdsIn(lines, inside)].sort()).toEqual(['a5', 'early'])
   })
 })
 

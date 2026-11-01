@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { projectDirName } from '../../src/main/claude-home/registry'
-import { canonicalPath, readRunTranscripts, type TranscriptRun } from '../../src/main/flight-recorder/transcripts'
+import { canonicalPath, comparablePath, readRunTranscripts, streamLines, WAVE_SLACK_MS, type TranscriptRun } from '../../src/main/flight-recorder/transcripts'
 import { removeTestTree } from '../remove'
 
 const FIXTURE = join(__dirname, '..', 'fixtures', 'flight-recorder', 'night-run', 'claude')
@@ -63,7 +63,8 @@ const line = (record: Record<string, unknown>): string => JSON.stringify(record)
 describe('the Orchestrator transcript of a Run', () => {
   it('is found by wave-started.session: the agents, the rework #2 and the turns of the night Run, writing nothing', async () => {
     const before = await snapshot(FIXTURE)
-    const facts = await readRunTranscripts(withSession(NIGHT, SESSION), { env: { WORFY_CLAUDE_HOME: FIXTURE } })
+    // The session alone: no text to search by.
+    const facts = await readRunTranscripts(withoutText(withSession(NIGHT, SESSION)), { env: { WORFY_CLAUDE_HOME: FIXTURE } })
     expect(await snapshot(FIXTURE)).toEqual(before)
     expect(facts.lost).toEqual([])
 
@@ -153,9 +154,18 @@ describe('the Orchestrator transcript of a Run', () => {
     expect(facts.lost.filter((fact) => fact.kind === 'orchestrator-turn')).toHaveLength(2)
   })
 
-  it('keeps only what started in the Waves of the Run', async () => {
+  it('keeps only what started in the Waves of the Run, and reads only the files of its Subagents, through the line source of the options', async () => {
     const run: TranscriptRun = { ...withSession(NIGHT, SESSION), waves: [withSession(NIGHT, SESSION).waves[0]!], stoppedAt: '2026-10-18T01:13:01.175Z' }
-    const facts = await readRunTranscripts(run, { env: { WORFY_CLAUDE_HOME: FIXTURE } })
+    const files: string[] = []
+    const readLines = (file: string) => {
+      files.push(file)
+      return streamLines(file)
+    }
+    const facts = await readRunTranscripts(run, { env: { WORFY_CLAUDE_HOME: FIXTURE }, readLines })
+    const agentFiles = new Set(files.flatMap((file) => /agent-([a-z0-9]+)\.jsonl$/u.exec(file)?.[1] ?? []))
+    // The scout, impl-03, verify-03, impl-07, verify-07 and verify-07r2 of the first Wave; none of the second.
+    expect([...agentFiles].sort()).toEqual(['a1a04fe1bfe94e08b', 'a4f4ef600ce73b83a', 'a60e687cd0ab6803e', 'aa037f56c7bb8ed93', 'adb147aa44e4451c4', 'afc1f7e33caf5dcc3'])
+    expect(files.every((file) => file.startsWith(join(FIXTURE, 'projects', DIR)))).toBe(true)
     expect(facts.work.map((fact) => fact.name)).not.toContain('impl-05')
     expect(facts.work.map((fact) => fact.name)).toContain('impl-07')
 
@@ -163,6 +173,64 @@ describe('the Orchestrator transcript of a Run', () => {
     const second = await readRunTranscripts({ ...withSession(NIGHT, SESSION), waves: [withSession(NIGHT, SESSION).waves[1]!] }, { env: { WORFY_CLAUDE_HOME: FIXTURE } })
     expect(second.turns[0]?.start).toBe('2026-10-18T01:13:02.513Z')
     expect(second.work.map((fact) => fact.name)).not.toContain('impl-07')
+  })
+})
+
+describe('the search and its bounds', () => {
+  const text = '/worfy:epic-wave tickets 01 of epic e'
+  const root = '/p/repo'
+  const run: TranscriptRun = { epic: 'e', root, startedAt: '2026-10-17T10:00:00.000Z', stoppedAt: '2026-10-17T11:00:00.000Z', waves: [{ number: 1, startedAt: '2026-10-17T10:00:00.000Z', finishedAt: '2026-10-17T11:00:00.000Z', tickets: ['e/01'], text }] }
+  const promptAt = (at: string, session: string) => line({ type: 'user', timestamp: at, cwd: root, sessionId: session, message: { role: 'user', content: text } })
+
+  it(`takes a prompt within ${WAVE_SLACK_MS / 1000} s of wave-started and none farther`, async () => {
+    for (const [name, at, found] of [
+      ['slack-in', '2026-10-17T10:00:59.000Z', true],
+      ['slack-out', '2026-10-17T10:01:01.000Z', false],
+    ] as const) {
+      const path = await home(name, false)
+      const dir = join(path, 'projects', projectDirName(root))
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'dddddddd-0000-4000-8000-000000000001.jsonl'), promptAt(at, 'd1'))
+      const facts = await readRunTranscripts(run, { env: { WORFY_CLAUDE_HOME: path } })
+      expect(facts.turns.length, name).toBe(found ? 1 : 0)
+      expect(facts.lost.length, name).toBe(found ? 0 : 2)
+    }
+  })
+
+  it('a session that is not a file name reads no file outside the folder', async () => {
+    const path = await home('session-id', false)
+    const other = join(path, 'projects', 'other')
+    await mkdir(join(path, 'projects', projectDirName(root)), { recursive: true })
+    await mkdir(other, { recursive: true })
+    await writeFile(join(other, 'eeee.jsonl'), promptAt('2026-10-17T10:00:01.000Z', 'eeee'))
+    const facts = await readRunTranscripts({ ...run, waves: run.waves.map((wave) => ({ ...wave, session: '../other/eeee', text: undefined })) }, { env: { WORFY_CLAUDE_HOME: path } })
+    expect(facts.turns).toEqual([])
+    expect(facts.lost.map((fact) => fact.kind)).toEqual(['orchestrator-turn', 'agent'])
+  })
+
+  it('an agent with no Ticket of its own takes the Ticket of an agent in its worktree, else it is the Run\'s', async () => {
+    const path = await home('worktree-ticket', false)
+    const dir = join(path, 'projects', projectDirName(root))
+    const session = 'ffffffff-0000-4000-8000-000000000002'
+    await mkdir(join(dir, session, 'subagents'), { recursive: true })
+    const at = (mm: string) => `2026-10-17T10:${mm}:00.000Z`
+    const record = (time: string, value: Record<string, unknown>) => line({ timestamp: time, cwd: root, sessionId: session, ...value })
+    const call = (time: string, id: string, agentId: string, name: string) => [
+      record(time, { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Agent', input: { name, subagent_type: name.startsWith('verify') ? 'worfy:reviewer' : 'worfy:implementer', run_in_background: true } }] } }),
+      record(time, { type: 'user', toolUseResult: { status: 'async_launched', agentId }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'Async agent launched' }] } }),
+    ]
+    await writeFile(join(dir, `${session}.jsonl`), [record(at('00'), { type: 'user', message: { role: 'user', content: text } }), ...call(at('01'), 'c1', 'a1', 'impl-01'), ...call(at('02'), 'c2', 'h1', 'helper'), ...call(at('03'), 'c3', 'v1', 'verify-fr01-correct')].join('\n'))
+    const own = (agentId: string, cwd: string, text_: string) =>
+      writeFile(join(dir, session, 'subagents', `agent-${agentId}.jsonl`), [line({ type: 'user', timestamp: at('05'), cwd, isSidechain: true, message: { role: 'user', content: 'task' } }), line({ type: 'assistant', timestamp: at('06'), cwd, isSidechain: true, message: { role: 'assistant', content: [{ type: 'text', text: text_ }] } })].join('\n'))
+    await own('a1', `${root}/.claude/worktrees/01`, '{"worktree": "/p/repo/.claude/worktrees/01"}')
+    await own('h1', `${root}/.claude/worktrees/01/`, 'done')
+    await own('v1', `${root}/.claude/worktrees/review-470`, 'VERIFIED')
+    const facts = await readRunTranscripts({ ...run, waves: run.waves.map((wave) => ({ ...wave, session })) }, { env: { WORFY_CLAUDE_HOME: path } })
+    expect(facts.work.map((fact) => [fact.name, fact.ticket])).toEqual([
+      ['impl-01', 'e/01'],
+      ['helper', 'e/01'],
+      ['verify-fr01-correct', null],
+    ])
   })
 })
 
@@ -225,6 +293,7 @@ describe('Windows paths and times', () => {
     expect(await canonicalPath('c:/users/ann/repo/.claude/worktrees/05/', { platform: 'win32', realpath: missing })).toBe(one)
     expect(await canonicalPath('\\\\?\\C:\\Users\\Ann\\Repo\\.claude\\worktrees\\05', { platform: 'win32', realpath: missing })).toBe(one)
     expect(await canonicalPath('C:\\', { platform: 'win32', realpath: missing })).toBe('c:/')
+    expect(comparablePath('\\\\?\\UNC\\Server\\Share\\Repo\\', 'win32')).toBe('//server/share/repo')
     // Elsewhere a backslash is a character of a name and letter case counts.
     expect(await canonicalPath('/Users/Ann/Repo', { platform: 'darwin', realpath: missing })).not.toBe(await canonicalPath('/users/ann/repo', { platform: 'darwin', realpath: missing }))
 

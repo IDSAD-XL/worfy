@@ -12,8 +12,12 @@
 // - How it ended: `failed` for a failed task-notification or a call that errs, `stopped` for one
 //   that was killed, `rejected` for a verifier whose report starts with REJECTED.
 // - The Ticket: the agent's name (`impl-NN`, `verify-NN`), else `ticket NN` in its description,
-//   when the Run has that Ticket; otherwise the worktree of its report or the folder it moved to
-//   stands in for the model to place it, and with neither the agent is the Run's (`null`).
+//   else the branch `<epic>/<NN>`, the path `.scratch/<epic>/issues/<NN>-…` or `ticket NN` in its
+//   prompt — when the Run has that Ticket. Otherwise the worktree of its report or the folder it
+//   moved to is handed over with no Ticket (the reader in main gives it the Ticket of an agent in
+//   that worktree, else `null`), and with neither the agent is the Run's (`null`).
+// - An attempt still open when a new `Agent` call of the same name starts (a restart after a
+//   `session-error`) is over: `cut-off` at its last own record.
 // - A turn of the Orchestrator runs from a prompt (a typed one, a delivered report, a message of
 //   another agent) to its last answer before the next one, and names the Tickets it touched.
 //
@@ -59,6 +63,10 @@ const AGENT_NAME_TICKET = /^(?:impl|implementer|verify|verifier|review|reviewer)
 const DESCRIPTION_TICKET = /\bticket\s+0*(\d{1,5})\b/iu
 const WAVE_TICKETS = /\btickets?\s+(\d{1,5}(?:\s*,\s*\d{1,5})*)\s+of\s+epic\s+([A-Za-z0-9._-]+)/iu
 const AGENT_MESSAGE = /<agent-message from="([^"]{1,200})">/u
+const VERDICT = /^(VERIFIED|REJECTED)\b/u
+/** How much of a prompt is kept to look for its Ticket. */
+const PROMPT_MAX = 20_000
+const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
 const REPORT_WORKTREE = /"worktree"\s*:\s*("(?:[^"\\]|\\.){1,1000}")/u
 const REPORT_PR = /"pr"\s*:\s*(\d{1,9})\b/u
 
@@ -134,6 +142,31 @@ export function transcriptCwd(lines: readonly string[]): string | undefined {
   return undefined
 }
 
+/**
+ * The ids of the Subagents whose `Agent` call or resuming `SendMessage` lies `inside` (the Run's
+ * Waves): the only Subagent files a Run needs. Reads only the lines of tool calls and their results.
+ */
+export function agentIdsIn(lines: readonly string[], inside: (at: Iso) => boolean): Set<string> {
+  const callAt = new Map<string, Iso>()
+  const ids = new Set<string>()
+  for (const line of lines) {
+    if (!line.includes('"tool_use"') && !line.includes('toolUseResult')) continue
+    const record = parseLine(line)
+    const at = str(record?.timestamp)
+    if (record === null || at === undefined || record.isSidechain === true || !isObject(record.message) || !Array.isArray(record.message.content)) continue
+    for (const block of record.message.content) {
+      if (!isObject(block)) continue
+      if (block.type === 'tool_use' && typeof block.id === 'string' && (AGENT_TOOLS.has(String(block.name)) || block.name === SEND_TOOL)) callAt.set(block.id, at)
+      if (block.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue
+      const called = callAt.get(block.tool_use_id)
+      const result = isObject(record.toolUseResult) ? record.toolUseResult : {}
+      const id = str(result.agentId) ?? str(result.resumedAgentId)
+      if (called !== undefined && id !== undefined && inside(called)) ids.add(id)
+    }
+  }
+  return ids
+}
+
 // ── the agents ───────────────────────────────────────────────────────────────
 
 interface Stretch {
@@ -154,6 +187,7 @@ interface Agent {
   name: string | null
   type: string | null
   description: string | null
+  prompt: string | null
   stretches: Stretch[]
 }
 
@@ -217,11 +251,15 @@ export function transcriptFacts(input: TranscriptInput): TranscriptFacts {
   const metaOf = (agentId: string | null) => (agentId === null ? null : readSubagentMeta(subagents.get(agentId)?.meta))
   const nameOf = (agent: Agent): string => agent.name ?? metaOf(agent.agentId)?.name ?? agent.description ?? metaOf(agent.agentId)?.description ?? agent.agentId ?? agent.callId
   const ticketOfName = (name: string | null): string | null => ticketByNumber(name === null ? undefined : AGENT_NAME_TICKET.exec(name)?.[1], input.epic, tickets)
+  const branchOrIssue = new RegExp(`(?:\\.scratch/${escape(input.epic)}/issues/|\\b${escape(input.epic)}/)0*(\\d{1,5})(?!\\d)`, 'u')
   const ticketOf = (agent: Agent): string | null => {
     const meta = metaOf(agent.agentId)
+    const prompt = agent.prompt ?? ''
     return (
       ticketOfName(agent.name ?? meta?.name ?? null) ??
-      ticketByNumber(DESCRIPTION_TICKET.exec(agent.description ?? meta?.description ?? '')?.[1], input.epic, tickets)
+      ticketByNumber(DESCRIPTION_TICKET.exec(agent.description ?? meta?.description ?? '')?.[1], input.epic, tickets) ??
+      ticketByNumber(branchOrIssue.exec(prompt)?.[1], input.epic, tickets) ??
+      ticketByNumber(DESCRIPTION_TICKET.exec(prompt)?.[1], input.epic, tickets)
     )
   }
 
@@ -264,7 +302,15 @@ export function transcriptFacts(input: TranscriptInput): TranscriptFacts {
     for (const { event } of parseTranscriptRecord(record)) {
       if (event.type === 'tool_use' && AGENT_TOOLS.has(event.name)) {
         const input_ = isObject(event.input) ? event.input : {}
-        const agent: Agent = { callId: event.id, agentId: null, name: str(input_.name) ?? null, type: str(input_.subagent_type) ?? null, description: str(input_.description) ?? null, stretches: [] }
+        const agent: Agent = {
+          callId: event.id,
+          agentId: null,
+          name: str(input_.name) ?? null,
+          type: str(input_.subagent_type) ?? null,
+          description: str(input_.description) ?? null,
+          prompt: str(input_.prompt)?.slice(0, PROMPT_MAX) ?? null,
+          stretches: [],
+        }
         const stretch: Stretch = { round: 1, start: at, end: null, report: null, cwd }
         agent.stretches.push(stretch)
         agents.push(agent)
@@ -293,12 +339,13 @@ export function transcriptFacts(input: TranscriptInput): TranscriptFacts {
         const sent = sends.get(event.toolUseId)!
         const result = isObject(raw.toolUseResult) ? raw.toolUseResult : {}
         const resumed = str(result.resumedAgentId)
-        const agent = resumed !== undefined ? byAgentId.get(resumed) : sent.to === undefined ? undefined : (byName(sent.to) ?? byAgentId.get(sent.to))
+        const named = sent.to === undefined ? undefined : (byName(sent.to) ?? byAgentId.get(sent.to))
+        const agent = resumed === undefined ? named : byAgentId.get(resumed)
         if (agent === undefined) continue
         touch(ticketOf(agent))
         const last = agent.stretches.at(-1)!
-        // A message to an agent that still works is not a new stretch of work.
-        if (last.end === null) continue
+        // Only a resumed agent works again: without `resumedAgentId` the message waits for an agent that still works.
+        if (resumed === undefined || last.end === null) continue
         const stretch: Stretch = { round: last.round + 1, start: sent.at, end: null, report: null, cwd: sent.cwd }
         agent.stretches.push(stretch)
         stretchOfToolUse.set(event.toolUseId, { agent, stretch })
@@ -315,6 +362,14 @@ export function transcriptFacts(input: TranscriptInput): TranscriptFacts {
     }
   }
 
+  // An attempt open when a new call of its name starts was replaced: the restart after a session-error.
+  const replacedAt = new Map<Agent, Iso>()
+  agents.forEach((agent, index) => {
+    const last = agent.stretches.at(-1)!
+    const later = agents.slice(index + 1).find((other) => nameOf(other) === nameOf(agent) && ms(other.stretches[0]!.start) >= ms(last.start))
+    if (later !== undefined && last.end === null) replacedAt.set(agent, later.stretches[0]!.start)
+  })
+
   const work: WorkFact[] = []
   for (const agent of agents) {
     const meta = metaOf(agent.agentId)
@@ -325,12 +380,18 @@ export function transcriptFacts(input: TranscriptInput): TranscriptFacts {
     const ticket = ticketOf(agent)
     agent.stretches.forEach((stretch, index) => {
       const next = agent.stretches[index + 1]
-      const inside = own.filter((record) => ms(record.at) >= ms(stretch.start) && (next === undefined || ms(record.at) < ms(next.start)))
+      const replaced = next === undefined ? replacedAt.get(agent) : undefined
+      const bound = next?.start ?? replaced
+      const inside = own.filter((record) => ms(record.at) >= ms(stretch.start) && (bound === undefined || ms(record.at) < ms(bound)))
       const until = stretch.end === null ? inside : inside.filter((record) => ms(record.at) <= ms(stretch.end!))
       const report = stretch.report ?? (stretch.end === null ? null : (until.findLast((record) => record.text !== null)?.text ?? null))
       let { end, outcome, reason } = stretch
       let lastSeenAt: Iso | undefined
-      if (end === null && meta?.stoppedByUser === true && next === undefined && inside.length > 0) {
+      if (end === null && replaced !== undefined) {
+        end = inside.at(-1)?.at ?? replaced
+        outcome = 'cut-off'
+        reason = `replaced by a new call of ${name}`
+      } else if (end === null && meta?.stoppedByUser === true && next === undefined && inside.length > 0) {
         end = inside.at(-1)!.at
         outcome = 'stopped'
       } else if (end === null) {
@@ -339,7 +400,7 @@ export function transcriptFacts(input: TranscriptInput): TranscriptFacts {
       let verdict: string | undefined
       if (verifier && report !== null && end !== null) {
         const first = summaryLine(report) ?? ''
-        verdict = /\b(VERIFIED|REJECTED)\b/u.exec(first)?.[1]
+        verdict = VERDICT.exec(first)?.[1]
         if (verdict === 'REJECTED' && outcome === undefined) {
           outcome = 'rejected'
           reason = first
@@ -357,7 +418,8 @@ export function transcriptFacts(input: TranscriptInput): TranscriptFacts {
         startSource: 'transcript',
         session: input.session,
       }
-      // Reader 14 reports only this Run's agents: with no Ticket and nothing to place it by, the Run's.
+      // Reader 14 reports only this Run's agents: with no Ticket and nothing to place it by, the Run's;
+      // with a worktree, the reader in main places it (transcripts.ts) and never leaves it absent.
       if (ticket !== null) fact.ticket = ticket
       else if (worktree === undefined) fact.ticket = null
       if (agentType !== undefined && agentType !== null) fact.agentType = agentType

@@ -1,7 +1,8 @@
 // The reader of the transcripts for Flight Recorder (worfy-flight-recorder ticket 14): finds the
-// Orchestrator's transcript of each Wave of a Run under the Claude home, reads it and its Subagents'
-// files whole, and hands the facts of src/shared/flight-recorder/from-transcript.ts to the service
-// (ticket 17) with the worktree paths canonical (facts.ts) and with what lies in the Run's Waves.
+// Orchestrator's transcript of each Wave of a Run under the Claude home, reads it and the files of
+// the Subagents the Run started, and hands the facts of src/shared/flight-recorder/from-transcript.ts
+// to the service (ticket 17) with the worktree paths canonical (facts.ts) and with what lies in the
+// Run's Waves.
 //
 // - Where: `<Claude home>/projects/<projectDirName(root)>/<session>.jsonl`, the Subagents in
 //   `<session>/subagents/agent-<id>.jsonl` and `.meta.json`. The folder name is no proof (it loses
@@ -12,22 +13,29 @@
 //   whose prompt with that text lies nearest the Wave's start, within WAVE_SLACK_MS. With neither,
 //   or with a file that is gone, the Wave's Orchestrator lane and its Tickets' agents are lost
 //   («transcript deleted»): the Journal knows of them, the transcript holds nothing more.
+// - Which Subagents: only those whose `Agent` call or resuming `SendMessage` lies in the Run's
+//   Waves. A long Session keeps thousands of Subagent files (1.1 GB in one of worfy's own); a Run
+//   uses a dozen.
+// - An agent the transcript names no Ticket for, whose folder is the canonical worktree of an agent
+//   of a Ticket, gets that Ticket; any other is the Run's (`ticket: null`), so it never vanishes.
 // - Times: only the `timestamp` of the records; the time a file changed is never read.
 //
-// shortcut: reads every file whole on each call, a night Run is tens of MB; ticket 17 reads on from where it stopped (src/main/claude-home/tail.ts).
-import { realpath } from 'node:fs'
-import { readdir, readFile } from 'node:fs/promises'
+// The lines come from `readLines` of the options, a streamed read of the whole file by default.
+// shortcut: each call reads the Orchestrator's file whole (160 MB in a long Session) and parses it again; ticket 17 passes a `readLines` that tails the files (src/main/claude-home/tail.ts) and keeps what it parsed.
+import { createReadStream, realpath } from 'node:fs'
+import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createInterface } from 'node:readline'
 import { promisify } from 'node:util'
 import type { LostFact, TurnFact, WaveFact, WorkFact } from '../../shared/flight-recorder/facts'
-import { transcriptCwd, transcriptFacts, wavePromptTimes, type SubagentLines } from '../../shared/flight-recorder/from-transcript'
+import { agentIdsIn, transcriptCwd, transcriptFacts, wavePromptTimes, type SubagentLines } from '../../shared/flight-recorder/from-transcript'
 import { isInsidePath, projectDirName } from '../claude-home/registry'
 import { claudeHome } from '../storage/paths'
 
 type Env = Readonly<Record<string, string | undefined>>
+type Iso = string
 
 const realpathNative = promisify(realpath.native)
-type Iso = string
 
 /** How far the prompt of a Wave may lie from its `wave-started` for the search by text. */
 export const WAVE_SLACK_MS = 60_000
@@ -36,13 +44,12 @@ export const WAVE_SLACK_MS = 60_000
  * after it sends the prompt (29 ms in the night Run). Longer would take in the end of the Wave before.
  */
 export const PROMPT_LEAD_MS = 5_000
-/** A Session id as Claude Code names its files; anything else names no file. */
-const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/u
-const AGENT_FILE = /^agent-([A-Za-z0-9_-]{1,128})\.(jsonl|meta\.json)$/u
+/** A Session or agent id as Claude Code names its files; anything else (`../x`) names no file. */
+const FILE_ID = /^[A-Za-z0-9_-]{1,128}$/u
 
 /** A Wave as the Journal gives it: `wave-started.session` and `wave-started.text` when it has them. */
 export interface TranscriptWave extends Pick<WaveFact, 'number' | 'startedAt' | 'finishedAt' | 'tickets' | 'session'> {
-  text?: string
+  text?: string | undefined
 }
 
 /** What the reader needs of a Run. */
@@ -55,21 +62,26 @@ export interface TranscriptRun {
   waves: readonly TranscriptWave[]
 }
 
+export interface CanonicalOptions {
+  /** `process.platform` by default; `win32` checks the Windows rules on any system. */
+  platform?: string
+  /** realpath(3) by default. */
+  realpath?: (path: string) => Promise<string>
+}
+
+/** The lines of a file, empty ones left out; null when there is no such file. */
+export type ReadLines = (file: string) => Promise<readonly string[] | null>
+
 export interface TranscriptReadOptions extends CanonicalOptions {
   env?: Env
+  /** Where the lines come from: a streamed read of the whole file by default; ticket 17 tails. */
+  readLines?: ReadLines
 }
 
 export interface RunTranscripts {
   work: WorkFact[]
   turns: TurnFact[]
   lost: LostFact[]
-}
-
-export interface CanonicalOptions {
-  /** `process.platform` by default; `win32` checks the Windows rules on any system. */
-  platform?: string
-  /** realpath(3) by default. */
-  realpath?: (path: string) => Promise<string>
 }
 
 /**
@@ -110,13 +122,17 @@ export function comparablePath(path: string, platform: string): string {
 
 const missing = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as { code?: string }).code ?? '')
 
-async function readLines(file: string): Promise<string[] | null> {
+/** The default line source: the file streamed line by line, so no single string holds it whole. */
+export const streamLines: ReadLines = async (file) => {
+  const lines: string[] = []
   try {
-    return (await readFile(file, 'utf8')).split(/\r?\n/u).filter((line) => line !== '')
+    const stream = createReadStream(file, { encoding: 'utf8' })
+    for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) if (line !== '') lines.push(line)
   } catch (error) {
     if (missing(error)) return null
     throw error
   }
+  return lines
 }
 
 async function listDir(dir: string): Promise<string[]> {
@@ -128,24 +144,21 @@ async function listDir(dir: string): Promise<string[]> {
   }
 }
 
-async function subagentFiles(dir: string, session: string): Promise<Map<string, SubagentLines>> {
+/** The files of the Subagents `ids` of a Session; an id that names no file is left out. */
+async function subagentFiles(dir: string, session: string, ids: ReadonlySet<string>, readLines: ReadLines): Promise<Map<string, SubagentLines>> {
   const folder = join(dir, session, 'subagents')
   const files = new Map<string, SubagentLines>()
-  for (const name of await listDir(folder)) {
-    const match = AGENT_FILE.exec(name)
-    if (match === null) continue
-    const [, agentId, kind] = match as unknown as [string, string, string]
-    const entry = files.get(agentId) ?? { meta: null, lines: [] }
-    const lines = (await readLines(join(folder, name))) ?? []
-    if (kind === 'jsonl') entry.lines = lines
-    else {
-      try {
-        entry.meta = JSON.parse(lines.join('\n'))
-      } catch {
-        entry.meta = null
-      }
+  for (const id of ids) {
+    if (!FILE_ID.test(id)) continue
+    const lines = await readLines(join(folder, `agent-${id}.jsonl`))
+    const metaLines = await readLines(join(folder, `agent-${id}.meta.json`))
+    let meta: unknown
+    try {
+      meta = metaLines === null ? null : JSON.parse(metaLines.join('\n'))
+    } catch {
+      meta = null
     }
-    files.set(agentId, entry)
+    if (lines !== null || metaLines !== null) files.set(id, { meta, lines: lines ?? [] })
   }
   return files
 }
@@ -155,32 +168,40 @@ const ms = (iso: Iso): number => Date.parse(iso)
 /** The facts of the transcripts of a Run. */
 export async function readRunTranscripts(run: TranscriptRun, options: TranscriptReadOptions = {}): Promise<RunTranscripts> {
   const platform = options.platform ?? process.platform
+  const readLines = options.readLines ?? streamLines
   const dir = join(claudeHome(options.env), 'projects', projectDirName(run.root))
   const tickets = [...new Set(run.waves.flatMap((wave) => wave.tickets))]
   const ofProject = (lines: readonly string[]): boolean => {
     const cwd = transcriptCwd(lines)
     return cwd !== undefined && isInsidePath(cwd.normalize('NFC'), run.root.normalize('NFC'), platform as NodeJS.Platform)
   }
-
-  // The transcripts of the folder, read once, for the Waves that have no session.
-  let listed: Map<string, string[]> | undefined
-  const transcripts = async (): Promise<Map<string, string[]>> => {
-    if (listed !== undefined) return listed
-    listed = new Map()
-    for (const name of (await listDir(dir)).sort()) {
-      if (!name.endsWith('.jsonl')) continue
-      const lines = await readLines(join(dir, name))
-      if (lines !== null && ofProject(lines)) listed.set(name.slice(0, -'.jsonl'.length), lines)
-    }
-    return listed
-  }
-  const read = new Map<string, string[] | null>()
-  const sessionLines = async (session: string): Promise<string[] | null> => {
+  const read = new Map<string, readonly string[] | null>()
+  const sessionLines = async (session: string): Promise<readonly string[] | null> => {
     if (!read.has(session)) {
-      const lines = SESSION_ID.test(session) ? await readLines(join(dir, `${session}.jsonl`)) : null
+      const lines = FILE_ID.test(session) ? await readLines(join(dir, `${session}.jsonl`)) : null
       read.set(session, lines !== null && ofProject(lines) ? lines : null)
     }
     return read.get(session) ?? null
+  }
+
+  // The prompts of the folder's transcripts, read once, for the Waves that have no session: only
+  // the times are kept, so the files are not held while the others are read.
+  let prompts: Map<string, Map<string, Iso[]>> | undefined
+  const promptTimes = async (text: string): Promise<Map<string, Iso[]>> => {
+    prompts ??= new Map()
+    const known = prompts.get(text)
+    if (known !== undefined) return known
+    const found = new Map<string, Iso[]>()
+    for (const name of (await listDir(dir)).sort()) {
+      const session = name.endsWith('.jsonl') ? name.slice(0, -'.jsonl'.length) : ''
+      if (!FILE_ID.test(session)) continue
+      const lines = await readLines(join(dir, name))
+      if (lines === null || !ofProject(lines)) continue
+      const times = wavePromptTimes(lines, text)
+      if (times.length > 0) found.set(session, times)
+    }
+    prompts.set(text, found)
+    return found
   }
 
   const lost: LostFact[] = []
@@ -191,13 +212,13 @@ export async function readRunTranscripts(run: TranscriptRun, options: Transcript
       if ((await sessionLines(wave.session)) !== null) session = wave.session
     } else if (wave.text !== undefined && wave.text.trim() !== '') {
       let nearest = WAVE_SLACK_MS + 1
-      for (const [id, lines] of await transcripts()) {
-        for (const at of wavePromptTimes(lines, wave.text)) {
+      for (const [id, times] of await promptTimes(wave.text)) {
+        for (const at of times) {
           const distance = Math.abs(ms(at) - ms(wave.startedAt))
           if (distance < nearest) [nearest, session] = [distance, id]
         }
       }
-      if (session !== undefined) read.set(session, listed!.get(session)!)
+      if (session !== undefined && (await sessionLines(session)) === null) session = undefined
     }
     const end = wave.finishedAt ?? run.stoppedAt
     if (session === undefined) {
@@ -215,10 +236,16 @@ export async function readRunTranscripts(run: TranscriptRun, options: Transcript
   const turns: TurnFact[] = []
   for (const [session, window] of windows) {
     const lines = read.get(session)!
-    const facts = transcriptFacts({ session, epic: run.epic, tickets, lines, subagents: await subagentFiles(dir, session) })
-    const inside = (fact: { start: Iso }) => ms(fact.start) >= window.start && ms(fact.start) <= window.end
-    for (const fact of facts.work.filter(inside)) work.push(fact.worktree === undefined ? fact : { ...fact, worktree: await canonicalPath(fact.worktree, options) })
-    turns.push(...facts.turns.filter(inside))
+    const inside = (at: Iso) => ms(at) >= window.start && ms(at) <= window.end
+    const subagents = await subagentFiles(dir, session, agentIdsIn(lines, inside), readLines)
+    const facts = transcriptFacts({ session, epic: run.epic, tickets, lines, subagents })
+    for (const fact of facts.work.filter((item) => inside(item.start))) work.push(fact.worktree === undefined ? fact : { ...fact, worktree: await canonicalPath(fact.worktree, options) })
+    turns.push(...facts.turns.filter((item) => inside(item.start)))
   }
+
+  // An agent with no Ticket of its own: the Ticket of an agent in the same worktree, else the Run's.
+  const ticketOfWorktree = new Map<string, string>()
+  for (const fact of work) if (typeof fact.ticket === 'string' && fact.worktree !== undefined) ticketOfWorktree.set(fact.worktree, fact.ticket)
+  for (const fact of work) if (fact.ticket === undefined) fact.ticket = ticketOfWorktree.get(fact.worktree ?? '') ?? null
   return { work, turns, lost }
 }
