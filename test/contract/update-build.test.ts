@@ -351,7 +351,8 @@ describe('UpdateBuilder', () => {
     expect(builds.building).toBe(false)
     expect(traceLines()).toEqual(['install A', 'build A', 'install C', 'build C'])
     expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: c })
-    expect(changes).toEqual(['building', 'ready', 'building', 'ready'])
+    // Each step of a build sends a change of its own too (ticket 16): the phases, one per run of them.
+    expect(changes.filter((phase, at) => phase !== changes[at - 1])).toEqual(['building', 'ready', 'building', 'ready'])
     expect(b).not.toBe(c)
   })
 

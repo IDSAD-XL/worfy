@@ -165,6 +165,29 @@ html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
   border-radius: 50%;
   background: var(--accent);
 }
+/* An Update under way (worfy-update ticket 16): a ring that turns in place of the dot, on the
+   version chip; it stands still with reduced motion, and the words beside it still say the step. */
+@keyframes w-update-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.w-update-spinner {
+  display: inline-block;
+  flex: none;
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--accent);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: w-update-spin 0.9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .w-update-spinner {
+    animation: none;
+  }
+}
 /* The title shrinks (and only the title): a long Project name is cut with an ellipsis, the full
    name is in the title attribute, and the controls to the right always stay whole. */
 .w-toolbar__title {

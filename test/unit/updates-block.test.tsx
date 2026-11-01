@@ -122,7 +122,7 @@ describe('Settings → General → Updates (worfy-update ticket 09)', () => {
     handlers['update.install'] = () => ({ ok: true, value: snapshot({ available, build: { phase: 'building', sha: available.sha, version: available.version } }) })
     render(<UpdatesBlock />)
     expect(screen.getByTestId('settings-updates-status').textContent).toContain('worfy 1.5.0+bbbbbbb is available.')
-    fireEvent.click(within(row()).getByRole('button', { name: 'Update worfy' }))
+    await act(async () => fireEvent.click(within(row()).getByRole('button', { name: 'Update worfy' })))
     expect(callsOf('update.install')).toHaveLength(1)
     give(snapshot({ available, build: { phase: 'building', sha: available.sha, version: available.version, step: 'fetch', steps: 3 } }))
     expect(screen.getByTestId('settings-updates-status').textContent).toContain('Building worfy 1.5.0+bbbbbbb…')
@@ -253,7 +253,7 @@ describe('Settings → General → Updates while it builds (worfy-update ticket 
   })
 
   it('"Show log" is there while it builds and opens the log (update.showLog); a refusal shows its reason', async () => {
-    handlers['update.showLog'] = () => ({ ok: false, error: 'update.showLog: there is no build log yet: no Update was built' })
+    handlers['update.showLog'] = () => ({ ok: false, error: 'update.showLog failed: there is no build log yet: no Update was built' })
     give(building({ step: 'package', steps: 3 }))
     render(<UpdatesBlock />)
     fireEvent.click(within(row()).getByRole('button', { name: 'Show log' }))

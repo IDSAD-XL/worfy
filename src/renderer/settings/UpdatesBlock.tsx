@@ -6,10 +6,28 @@
 // Main owns the state (src/main/ipc/update.ts) and asks the native dialog of the roll back itself
 // (spec R8); this block only shows the snapshot of src/renderer/update/store.ts and calls the
 // `update` channels. Without Update in this copy (`enabled: false`) there is no block.
+//
+// While it builds (ticket 16) the line has the step, its place and the time since the build began,
+// counting each second, and "Show log" opens the log of the build so far. "Update worfy" reads
+// "Starting update…" from the press until the build reaches its first step.
 import { useState } from 'react'
+import { failureReason } from '../../shared/ipc/channels'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { autoUpdateOf } from '../../shared/settings/app-settings'
-import { checkForUpdateNow, installUpdate, restartIntoUpdate, rollBackUpdate, updateStep, updateVersionLabel, useUpdate } from '../update/store'
+import { invoke } from '../ipc'
+import {
+  buildStepText,
+  checkForUpdateNow,
+  elapsedText,
+  installUpdate,
+  restartIntoUpdate,
+  rollBackUpdate,
+  updateStep,
+  updateVersionLabel,
+  useTicking,
+  useUpdate,
+  useUpdateStore,
+} from '../update/store'
 import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
 
@@ -26,18 +44,29 @@ function checkedAt(at: string, now: Date = new Date()): string {
  * only the last check, or no line. The versions are numbered where the snapshot knows their build
  * number (ticket 14).
  */
-function statusLine(snapshot: UpdateSnapshot, version: string | undefined): string {
+function statusLine(snapshot: UpdateSnapshot, version: string | undefined, now: number): string {
   const step = updateStep(snapshot)
   const label = (each: string): string => updateVersionLabel(snapshot, each)
   if (step.kind === 'restart') return `worfy ${label(step.version)} is ready.`
-  if (step.kind === 'install') return step.building ? `Building worfy ${label(step.version)}…` : `worfy ${label(step.version)} is available.`
+  if (step.kind === 'install' && step.building) {
+    const { build } = snapshot
+    const parts = [buildStepText(build), build.startedAt === undefined ? undefined : elapsedText(build.startedAt, now)].filter((part) => part !== undefined)
+    return [`Building worfy ${label(step.version)}…`, parts.join(' · ')].filter((part) => part !== '').join(' ')
+  }
+  if (step.kind === 'install') return `worfy ${label(step.version)} is available.`
   const running = snapshot.running?.version ?? version
   const checked = snapshot.lastCheck === null ? undefined : `Last checked ${checkedAt(snapshot.lastCheck.at)}.`
   return [running === undefined ? undefined : `worfy ${label(running)}.`, checked].filter((part) => part !== undefined).join(' ')
 }
 
+/** Opens the log of the build (`update.showLog`); the reason when main refused. */
+async function showLog(): Promise<string | undefined> {
+  const result = await invoke('update.showLog')
+  return result.ok ? undefined : failureReason('update.showLog', result.error)
+}
+
 /** The row "Updates": the state, its notes and the buttons. */
-function UpdatesRow({ snapshot, version }: { snapshot: UpdateSnapshot; version: string | undefined }) {
+function UpdatesRow({ snapshot, version, now }: { snapshot: UpdateSnapshot; version: string | undefined; now: () => number }) {
   // The reason of the last press here: a refusal, or the skipped check that "Check now" ran.
   const [problem, setProblem] = useState<string>()
   const [checkedHere, setCheckedHere] = useState(false)
@@ -47,6 +76,10 @@ function UpdatesRow({ snapshot, version }: { snapshot: UpdateSnapshot; version: 
   const skipped = checkedHere && snapshot.lastCheck?.result === 'skipped' ? (snapshot.lastCheck.reason ?? 'the check was skipped') : undefined
   const reason = problem ?? skipped
   const missing = snapshot.build.missing ?? []
+  const building = step.kind === 'install' && step.building
+  const time = useTicking(building && snapshot.build.startedAt !== undefined, now)
+  // Pressed here and not answered yet, or begun and before its first step.
+  const starting = useUpdateStore((store) => store.starting) || (building && snapshot.build.step === undefined)
 
   const press = (action: () => Promise<string | undefined>): void => {
     setProblem(undefined)
@@ -79,7 +112,7 @@ function UpdatesRow({ snapshot, version }: { snapshot: UpdateSnapshot; version: 
       label="Updates"
       description={
         <>
-          <span data-testid="settings-updates-status">{statusLine(snapshot, version)}</span>
+          <span data-testid="settings-updates-status">{statusLine(snapshot, version, time)}</span>
           {notes.map((note) => (
             <span key={note.testId} style={{ display: 'block' }} data-testid={note.testId} role={note.alert === true ? 'alert' : undefined}>
               {note.text}
@@ -93,16 +126,21 @@ function UpdatesRow({ snapshot, version }: { snapshot: UpdateSnapshot; version: 
         <button type="button" className="w-action" disabled={checking} aria-disabled={checking ? 'true' : undefined} onClick={checkNow} data-testid="settings-updates-check">
           Check now
         </button>
+        {building ? (
+          <button type="button" className="w-action" onClick={() => press(showLog)} data-testid="settings-updates-show-log">
+            Show log
+          </button>
+        ) : null}
         {step.kind === 'install' ? (
           <button
             type="button"
             className="w-action w-action--primary"
-            disabled={step.building}
-            aria-disabled={step.building ? 'true' : undefined}
-            onClick={() => press(installUpdate)}
+            disabled={step.building || starting}
+            aria-disabled={step.building || starting ? 'true' : undefined}
+            onClick={() => press(() => installUpdate())}
             data-testid="settings-updates-install"
           >
-            Update worfy
+            {starting ? 'Starting update…' : 'Update worfy'}
           </button>
         ) : null}
         {step.kind === 'restart' ? (
@@ -198,13 +236,14 @@ function RollbackRow({ snapshot }: { snapshot: UpdateSnapshot }) {
 /**
  * The block "Updates" of Settings → General; nothing without Update in this copy. `version`: the
  * build version of this copy (`app.version`), for the line before main knows the copy that runs.
+ * `now`: the clock of the build's elapsed time; tests give their own.
  */
-export function UpdatesBlock({ version }: { version?: string | undefined } = {}) {
+export function UpdatesBlock({ version, now = Date.now }: { version?: string | undefined; now?: () => number } = {}) {
   const snapshot = useUpdate()
   if (snapshot === null || !snapshot.enabled) return null
   return (
     <>
-      <UpdatesRow snapshot={snapshot} version={version} />
+      <UpdatesRow snapshot={snapshot} version={version} now={now} />
       <AutoUpdateRow />
       <RollbackRow snapshot={snapshot} />
     </>

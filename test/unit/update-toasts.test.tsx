@@ -330,7 +330,7 @@ describe('refusals (ticket 16)', () => {
   afterEach(() => useUpdateStore.setState({ snapshot: null, starting: false }))
 
   it('"Update" refused by main: a toast with the reason and "Show log" when there is a log', async () => {
-    answers['update.install'] = { ok: false, error: 'update.install: this update is being built already' }
+    answers['update.install'] = { ok: false, error: 'update.install failed: this update is being built already' }
     answers['update.showLog'] = { ok: true, value: undefined }
     const update = make(false)
     const failedBefore = snapshot({ available, build: { phase: 'failed', sha: 'c'.repeat(40), version: '0.5.0+ccccccc', log: '/data/update/build.log' } })

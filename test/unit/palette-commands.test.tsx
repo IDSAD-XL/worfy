@@ -776,7 +776,7 @@ describe('Update worfy', () => {
     const asked = preload(() => ({ ok: true, value: update({ available }) }))
     expect(await row(context({ update: update({ available }) }))!.run()).toBeUndefined()
     expect(asked.map(({ channel }) => channel)).toEqual(['update.install'])
-    preload(() => ({ ok: false, error: 'update.install: this update is being built already' }))
+    preload(() => ({ ok: false, error: 'update.install failed: this update is being built already' }))
     resetToasts()
     onTestFinished(resetToasts)
     expect(await row(context({ update: update({ available }) }))!.run()).toBeUndefined()

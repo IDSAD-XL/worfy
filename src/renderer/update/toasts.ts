@@ -7,7 +7,8 @@
 // - otherwise, without "Update automatically", an Available update that is not quiet: "New worfy
 //   <version> available" · "Update" · "Later" (R11: with it on, the build runs in the background
 //   and only "ready" comes);
-// - a failed build: "Update failed" · "Show log";
+// - a failed build: "Update failed" · "Show log", which names the missing git, node or pnpm (ticket 16);
+// - a refused "Update": its reason, with "Show log" when a build left a log (ticket 16, store.ts);
 // - a Harness behind this copy's: "Harness out of date: <from> → <to>" · "Update" · "Later";
 // - the end of the restart that ended the last run (`lastRestart`), and a Harness of the new copy
 //   that did not install (`harnessAfterUpdate`).
@@ -28,7 +29,7 @@ import { autoUpdateOf, type AppSettings } from '../../shared/settings/app-settin
 import { invoke, subscribe } from '../ipc'
 import { openSettings } from '../settings/settings-window'
 import { dismissToast, isToastShown, showToast } from '../toast/toasts'
-import { followUpdate, updateVersionLabel, useUpdateStore } from './store'
+import { followUpdate, installUpdate, tellInstallRefusal, updateVersionLabel, useUpdateStore } from './store'
 
 export const AVAILABLE_KEY = 'update-available'
 export const READY_KEY = 'update-ready'
@@ -111,13 +112,20 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
     })
   }
 
-  const call = (channel: 'update.install' | 'update.showLog' | 'harness.install'): void => {
+  const call = (channel: 'update.showLog' | 'harness.install'): void => {
     void actions.invoke(channel).then((result) => {
       if (!result.ok) fail(failureReason(channel, result.error))
     })
   }
 
   const later = { label: 'Later', run: () => undefined }
+
+  /** "Update": "Starting update…" until main answers, and a refusal told with its reason (ticket 16). */
+  const install = (): void => {
+    void installUpdate(actions.invoke).then((reason) => {
+      if (reason !== undefined) tellInstallRefusal(reason, useUpdateStore.getState().snapshot ?? snapshot ?? null, actions.invoke)
+    })
+  }
 
   function showReady(version: string, idle: boolean): void {
     readyButton = idle ? 'now' : 'idle'
@@ -156,7 +164,7 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
       key: AVAILABLE_KEY,
       testId: AVAILABLE_KEY,
       text: `New worfy ${updateVersionLabel(state, available.version)} available`,
-      actions: [{ label: 'Update', run: () => call('update.install') }, later],
+      actions: [{ label: 'Update', run: install }, later],
     })
   }
 
@@ -169,7 +177,9 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
       return
     }
     if (before === 'failed') return
-    showToast({ kind: 'action', key: FAILED_KEY, testId: FAILED_KEY, text: 'Update failed', actions: [{ label: 'Show log', run: () => call('update.showLog') }] })
+    const missing = state.build.missing ?? []
+    const text = missing.length === 0 ? 'Update failed' : `Update failed: git, node and pnpm are needed, and ${missing.join(', ')} ${missing.length === 1 ? 'was' : 'were'} not found`
+    showToast({ kind: 'action', key: FAILED_KEY, testId: FAILED_KEY, text, actions: [{ label: 'Show log', run: () => call('update.showLog') }] })
   }
 
   function drawHarness(state: UpdateSnapshot): void {

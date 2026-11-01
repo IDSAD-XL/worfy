@@ -136,10 +136,10 @@ describe('UpdateChip', () => {
     expect(items()).toEqual(['Update worfy', "What's new", 'Later'])
   })
 
-  it('while it builds: the dot, "Building worfy <version>…" as the tooltip and as an inactive item that calls nothing', () => {
+  it('while it builds: the spinner (ticket 16), "Building worfy <version>…" as the tooltip and as an inactive item that calls nothing', () => {
     const calls = fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(), build: { phase: 'building', sha: SHA, version: NEW } })} />)
-    expect(dot()).not.toBeNull()
+    expect(chip().querySelector('.w-update-spinner')).not.toBeNull()
     expect(chip().getAttribute('title')).toBe(`Building worfy ${NEW}…`)
     fireEvent.click(chip())
     expect(items()).toEqual([`Building worfy ${NEW}…`, "What's new", 'Later'])
@@ -282,7 +282,7 @@ describe('UpdateChip while an update is under way (ticket 16)', () => {
     globals.worfy = {
       invoke: (channel: string) => {
         calls.push(channel)
-        return Promise.resolve(channel === 'update.install' ? { ok: false, error: 'update.install: this update is being built already' } : { ok: true, value: undefined })
+        return Promise.resolve(channel === 'update.install' ? { ok: false, error: 'update.install failed: this update is being built already' } : { ok: true, value: undefined })
       },
       on: () => 0,
       off: () => undefined,
@@ -306,7 +306,7 @@ describe('UpdateChip while an update is under way (ticket 16)', () => {
 
   it('a refusal without a build log is an error toast with no button', async () => {
     globals.worfy = {
-      invoke: () => Promise.resolve({ ok: false, error: 'update.install: there is no new version to build' }),
+      invoke: () => Promise.resolve({ ok: false, error: 'update.install failed: there is no new version to build' }),
       on: () => 0,
       off: () => undefined,
     } as unknown as WorfyBridge

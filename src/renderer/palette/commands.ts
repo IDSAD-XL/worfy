@@ -70,7 +70,7 @@ import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
 import { label } from '../shortcuts/match'
 import { openShortcuts } from '../shortcuts/shortcuts-window'
-import { checkForUpdateNow, installUpdate, restartIntoUpdate, updateStep, updateVersionLabel, useUpdateStore } from '../update/store'
+import { checkForUpdateNow, installUpdateTelling, restartIntoUpdate, updateStep, updateVersionLabel, useUpdateStore } from '../update/store'
 
 export type CommandGroup = 'Action' | 'Go to' | 'View' | 'Project' | 'Manual check'
 
@@ -588,7 +588,10 @@ function machineCommands({ linked }: CommandContext): PaletteCommand[] {
   return commands
 }
 
-/** "Update worfy" while Update is on: restart, build or check, as the state allows. */
+/**
+ * "Update worfy" while Update is on: restart, build or check, as the state allows. A refused build is
+ * a toast, as from the chip, and the palette closes (worfy-update ticket 16).
+ */
 function updateCommands({ update }: CommandContext): PaletteCommand[] {
   const snapshot = update === undefined ? useUpdateStore.getState().snapshot : update
   if (snapshot === null || !snapshot.enabled) return []
@@ -600,7 +603,7 @@ function updateCommands({ update }: CommandContext): PaletteCommand[] {
       title: 'Update worfy',
       detail: step.kind === 'restart' ? 'ready — restart' : step.kind === 'install' ? `worfy ${updateVersionLabel(snapshot, step.version)} available` : 'check for a new version',
       keys: ['update', 'upgrade', 'new version', 'check now'],
-      run: () => (step.kind === 'restart' ? restartIntoUpdate(step.when) : step.kind === 'install' ? installUpdate() : checkForUpdateNow()),
+      run: () => (step.kind === 'restart' ? restartIntoUpdate(step.when) : step.kind === 'install' ? installUpdateTelling(snapshot) : checkForUpdateNow()),
     },
   ]
 }

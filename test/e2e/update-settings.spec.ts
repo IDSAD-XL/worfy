@@ -149,8 +149,14 @@ test('"Check now" shows the Available update; with "Update automatically" off no
       lastRestart: null,
       harnessAfterUpdate: null,
     }
-    const states: [string, Record<string, unknown>, string][] = [
+    const states: [string, Record<string, unknown>, string | RegExp][] = [
       ['building', { ...base, build: { phase: 'building', sha: NEWER, version: `9.9.9+${NEWER.slice(0, 7)}` } }, `Building worfy 9.9.9+${NEWER.slice(0, 7)}…`],
+      // Ticket 16: the step, its place and the time since the build began, with "Show log".
+      [
+        'building-step',
+        { ...base, build: { phase: 'building', sha: NEWER, version: `9.9.9+${NEWER.slice(0, 7)}`, step: 'install', steps: 3, startedAt: new Date(Date.now() - 192_000).toISOString(), stepStartedAt: new Date().toISOString() } },
+        new RegExp(`Building worfy 9\\.9\\.9\\+${NEWER.slice(0, 7)}… 2/3 Installing dependencies · \\d+:\\d\\d$`, 'u'),
+      ],
       ['ready-busy', { ...base, idle: false, build: { phase: 'ready', sha: NEWER, version: `9.9.9+${NEWER.slice(0, 7)}` } }, `worfy 9.9.9+${NEWER.slice(0, 7)} is ready.`],
       ['missing-tools', { ...base, build: { phase: 'failed', missing: ['pnpm'] } }, `worfy 9.9.9+${NEWER.slice(0, 7)} is available.`],
       ['rolled-back', { ...base, available: { ...base.available, quiet: true }, rolledBackFrom: NEWER, previous: null }, `worfy 1.0.0+${RUNNING.slice(0, 7)}.`],
@@ -159,7 +165,11 @@ test('"Check now" shows the Available update; with "Update automatically" off no
     for (const [name, snapshot, line] of states) {
       await sendSnapshot(app, snapshot)
       await expect(settings.getByTestId('settings-updates-status')).toContainText(line)
-      await snapshotThemes(window, `09-updates-${name}`)
+      if (name === 'building-step') {
+        await expect(settings.getByTestId('settings-updates-show-log')).toBeVisible()
+        await expect(settings.getByTestId('settings-updates-install')).toBeDisabled()
+      }
+      await snapshotThemes(window, `${name === 'building-step' ? '16' : '09'}-updates-${name}`)
     }
     await sendSnapshot(app, { ...base, idle: false, build: { phase: 'ready', sha: NEWER, version: `9.9.9+${NEWER.slice(0, 7)}` } })
     await settings.getByRole('button', { name: 'Close' }).click()
