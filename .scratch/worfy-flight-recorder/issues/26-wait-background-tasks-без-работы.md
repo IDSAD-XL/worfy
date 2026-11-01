@@ -115,8 +115,8 @@ Source: [spec.md](../spec.md), «Модель» («Wait, блокировка, �
   (`readRunTranscripts`), логи gate (`readGateLogs`), ответ `gh`, собранный из файлов fixture-а так же, как его
   собирает `src/main/flight-recorder/github.ts` (PR, runs ветки, runs merge commit). На живом сервисе число может
   отличаться.
-- Правило принял Orchestrator без владельца; подтверждение — утром.
+- Правило принял Orchestrator без владельца; подтверждено владельцем 2026-11-01.
 
-**Решено без владельца, подтвердить утром (2026-11-01).** Доля Wait `background-tasks` в ночном Run: 0.915 (один
+**Решено без владельца, подтверждено владельцем 2026-11-01.** Доля Wait `background-tasks` в ночном Run: 0.915 (один
 Journal) → 0.053 (921.9 s без работы ни в одном источнике; `test/unit/flight-recorder-summary-waits.test.ts:198`, `:217`).
 Альтернатива — не считать `background-tasks` Wait-ом вовсе. Второй вопрос — считать ли ход Orchestrator-а работой (выше).

@@ -334,14 +334,18 @@ UI — нужны снимки в обеих темах в `.scratch/worfy-fligh
   Blocked by: 10–24, 26, 27. Files: `.scratch/worfy-flight-recorder/spec.md`. UI (снимки владельцу).
 - **26 — Wait `background-tasks` без работы.** В итоге Wait `background-tasks` считается только за время, когда не
   идёт ни один span работы Run (background tasks — сами агенты, gate и scripts Orchestrator-а); другие причины —
-  целиком. Решил Orchestrator без владельца, подтверждение — утром. Blocked by: 13. Files:
+  целиком. Решил Orchestrator без владельца, подтверждено владельцем 2026-11-01. Blocked by: 13. Files:
   `src/shared/flight-recorder/summary.ts`, `test/unit/flight-recorder-summary-waits.test.ts`. Не UI.
 - **27 — Инкрементальные факты транскрипта.** Пересчёт live Run разбирает только строки транскриптов, дописанные с
   прошлого шага: разбор с состоянием в `from-transcript.ts` даёт те же факты, что разбор всех строк; полный разбор —
   при первом открытии и после truncate или замены файла. Цель — шаг ≪ 100 ms (на реальной Session было 200–370 ms).
-  Выделил Orchestrator без владельца, подтверждение — утром. Blocked by: 17. Files:
+  Выделил Orchestrator без владельца, подтверждено владельцем 2026-11-01. Blocked by: 17. Files:
   `src/shared/flight-recorder/from-transcript.ts`, `src/main/flight-recorder/transcripts.ts`,
   `src/main/flight-recorder/service.ts`. Не UI.
+- **28 — Run history из шапки.** Четвёртая вкладка `Runs` в переключателе видов шапки (рядом с Canvas, Session и
+  Pipeline) открывает Run history Project-а. Выделен при приёмке 25 (владелец 2026-11-01). Blocked by: —. Files:
+  `src/renderer/shell/Toolbar.tsx`, `src/renderer/shell/AppShell.tsx`, `docs/features/flight-recorder.md`. UI.
+  [Ticket](issues/28-run-history-из-шапки.md).
 
 ## Волны
 
@@ -426,18 +430,18 @@ Ticket с большим номером уходит в следующую Wave.
 
 ## Готово, когда
 
-- [ ] После остановки Run любой причиной — toast с итогом и «Open history»; «History» в строке статуса до
-      следующего Run; «Run history» в меню Epic-а и «Open Run history» в Command palette.
-- [ ] Экран во весь основной viewport: итог, дорожки Wait и Orchestrator, дерево и полосы, `#N` с обводкой
-      причины, блокировки, обрывы, «Problems only», панель Overview / Links / Source, zoom; подписи не пересекают полосы.
-- [ ] Шкала живая во время Run: пересчёт не чаще раза в 5 с, GitHub — раз в минуту.
-- [ ] Потерянный источник виден подписью; без GitHub шкала строится, «Retry» работает.
-- [ ] В Journal нового — только `ticket-status` и `gate-queue-finished` (и три необязательных поля приёмки, Q1);
-      Harness в Journal не пишет; gate не изменён.
-- [ ] `scripts/critical-path.mjs` — обёртка над общим разбором, его отчёт не изменился.
-- [ ] `/worfy:epic-wave …` в чате и `autopilot_start` с подтверждением запускают тот же Run, что кнопка; Run по
-      названным Ticket-ам кончается `tickets-done`; при живом Run — отказ с подсказкой.
-- [ ] Приёмка владельца на Mac и пути на Windows-ПК (25).
+- [x] После остановки Run любой причиной — toast с итогом и «Open history»; «History» в строке статуса до
+      следующего Run; «Run history» в меню Epic-а и «Open Run history» в Command palette. Итог: [Ticket 25](issues/25-приёмка-с-владельцем.md).
+- [x] Экран во весь основной viewport: итог, дорожки Wait и Orchestrator, дерево и полосы, `#N` с обводкой
+      причины, блокировки, обрывы, «Problems only», панель Overview / Links / Source, zoom; подписи не пересекают полосы. Итог: [Ticket 25](issues/25-приёмка-с-владельцем.md).
+- [x] Шкала живая во время Run: пересчёт не чаще раза в 5 с, GitHub — раз в минуту. Итог: [Ticket 25](issues/25-приёмка-с-владельцем.md).
+- [x] Потерянный источник виден подписью; без GitHub шкала строится, «Retry» работает. Итог: [Ticket 25](issues/25-приёмка-с-владельцем.md).
+- [x] В Journal нового — только `ticket-status` и `gate-queue-finished` (и три необязательных поля приёмки, Q1);
+      Harness в Journal не пишет; gate не изменён. Итог: [Ticket 25](issues/25-приёмка-с-владельцем.md).
+- [x] `scripts/critical-path.mjs` — обёртка над общим разбором, его отчёт не изменился. Итог: [Ticket 25](issues/25-приёмка-с-владельцем.md).
+- [x] `/worfy:epic-wave …` в чате и `autopilot_start` с подтверждением запускают тот же Run, что кнопка; Run по
+      названным Ticket-ам кончается `tickets-done`; при живом Run — отказ с подсказкой. Итог: [Ticket 25](issues/25-приёмка-с-владельцем.md).
+- [ ] Приёмка владельца на Mac и пути на Windows-ПК (25). Mac принят владельцем 2026-11-01 ([Итог 25](issues/25-приёмка-с-владельцем.md)); Windows: не проверено: владелец принял без Windows-части.
 
 ## Решения владельца при приёмке
 

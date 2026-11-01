@@ -78,7 +78,7 @@ Source: [spec.md](../spec.md), «Решения» (Q4, Q5, Q8, Q17), «Прог�
   Ticket-ов Wave i + 1, `uncounted` — номера Ticket-ов не `done` в checkout и без номера Wave; `epicForecast`
   (`:107`) — bootstrap `FORECAST_DRAWS` = 1000, mulberry32 с seed `FORECAST_SEED` = `0x5eed`, порог
   `FORECAST_MIN_SAMPLES` = 5.
-- Решено без владельца, подтвердить:
+- Решено без владельца, подтверждено владельцем 2026-11-01:
   1. Run по названным Ticket-ам: открытый Ticket Epic-а, которого нет в списке, для `waveNumbers` считается
      `blocked` — Run его не возьмёт, и названный Ticket, который ждёт его, номера Wave не получает и попадает в
      `uncounted`. Так `waveNumbers` (в Ticket-е только читать) остаётся без правок.
