@@ -9,18 +9,31 @@
 // files from outside the Project go into the Project's data folder, attachments.ts, ADR-0005), and
 // agent.send checks again what the renderer hands back before the Session gets it (recheck), and
 // keeps a copy of each image it sends (storeImages, worfy-ui ticket 28).
-import { stat } from 'node:fs/promises'
+//
+// An Autopilot command typed in a chat (`/worfy:epic-wave …`, worfy-flight-recorder ticket 22,
+// src/shared/autopilot/chat-command.ts) does not reach the agent: agent.send starts Autopilot through
+// the app's one start from a chat (startFromChat, src/main/autopilot/chat-start.ts) and answers what
+// became of it. No confirmation: the person typed it. It is not told to the input observers either,
+// since nothing reached the Session (a running run would journal it as a person stepping in). Only
+// agent.send is read so: the Waves Autopilot sends go to the Session directly (session.send).
+import { readFile, stat } from 'node:fs/promises'
+import * as nativePath from 'node:path'
 import { basename, join } from 'node:path'
 import type { WebContents } from 'electron'
 import { sharedRegistry } from '../agent/app-registry'
 import { attach, attachmentImagesDir, recheck, storeImages, type AttachTarget } from '../agent/attachments'
 import { closeRefusal } from '../agent/resume'
 import type { EventSink, Session, SessionRegistry } from '../agent/session'
+import type { ChatStartAnswer, ChatStartRequest } from '../autopilot/chat-start'
 import { toEveryWindow } from '../broadcast'
+import { harnessScriptEnv } from '../harness/script-env'
 import { insideProjects, isRemoteCall, localProjectOf, setSessionFolders } from '../link/caller'
 import { projectForCwd } from '../mcp/canvas-server'
 import { projectStore } from '../projects/store'
-import { dataRoot } from '../storage/paths'
+import { leadsToRemote } from '../remote-links'
+import { claudeHome, dataRoot } from '../storage/paths'
+import { projectLayouts } from '../workflow/folder'
+import { readWorkflow } from '../workflow/reader'
 import {
   agentAnswerQuestion,
   agentAttach,
@@ -38,9 +51,13 @@ import {
   agentQueueSend,
   agentSend,
   agentStart,
+  type ChatCommandAnswer,
 } from '../../shared/ipc/agent'
 import { MAX_ATTACHMENTS, tooManyAttachments, type Attachment } from '../../shared/agent/attachments'
 import type { SettingsChange } from '../../shared/agent/settings'
+import { chatStartedText, parseChatCommand, type ChatCommand } from '../../shared/autopilot/chat-command'
+import type { WorkflowModel } from '../../shared/workflow/types'
+import { waveTickets } from '../../shared/workflow/wave-plan'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
 
 /** Sends one event to every client of the app; tests pass their own clients. */
@@ -84,6 +101,74 @@ export const appAttachDeps: AttachDeps = {
   imagesDir: () => attachmentImagesDir(dataRoot()),
 }
 
+/** What an Autopilot command typed in a chat needs besides the registry; tests pass their own. */
+export interface ChatCommandDeps {
+  /** The Project of a Session's folder; null outside every Project. */
+  projectOf(cwd: string): string | null
+  /** The app's one start from a chat (sharedChatStarts().startFromChat, src/main/ipc/autopilot.ts). */
+  start(request: ChatStartRequest): Promise<ChatStartAnswer>
+  /** A fresh read of the Project's workflow model. */
+  workflow(projectId: string): Promise<WorkflowModel>
+  /** The text of the Epic's spec.md; null when there is none or it cannot be read. */
+  spec(projectId: string, epic: string): Promise<string | null>
+}
+
+/** The refusal of a command typed in a Session that is in no Project: Autopilot runs over a Project's Epic. */
+export const OUTSIDE_PROJECTS = 'Autopilot starts only in a Session of a Project'
+
+/**
+ * The text of the Epic's spec.md, from the Tickets root of the Project's layout (src/main/workflow/folder.ts);
+ * null when the layout is unknown, the file is missing, or a link on its way leads off this machine
+ * (a link to a share in a checked-out repository; src/main/remote-links.ts).
+ */
+export async function readEpicSpec(root: string, epic: string): Promise<string | null> {
+  const layout = await projectLayouts().get(root)
+  if (layout.failed) return null
+  const path = join(layout.ticketsRoot, epic, 'spec.md')
+  if (await leadsToRemote(path, [root, layout.ticketsRoot], { paths: nativePath })) return null
+  return readFile(path, 'utf8').catch(() => null)
+}
+
+/** The app's: its Projects, its one start from a chat, and the workflow as the Autopilot reads it. */
+export const appChatCommands: ChatCommandDeps = {
+  projectOf: (cwd) => projectForCwd(projectStore().list(), cwd)?.id ?? null,
+  // Read at call time: src/main/ipc/autopilot.ts brings the whole Autopilot with it.
+  start: async (request) => (await import('./autopilot')).sharedChatStarts().startFromChat(request),
+  workflow: async (projectId) => (await readWorkflow({ root: projectStore().get(projectId).path, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
+  spec: (projectId, epic) => readEpicSpec(projectStore().get(projectId).path, epic),
+}
+
+const hasEpic = (model: WorkflowModel, epic: string): boolean => model.epics.some((each) => each.epic === epic) || model.tickets.some((each) => each.epic === epic)
+
+/**
+ * Starts Autopilot for a command typed in `session`, and says what became of it; null when the
+ * command is an Epic named alone that the Project does not have (or whose workflow cannot be read):
+ * that word was meant for the agent.
+ */
+async function startCommand(chat: ChatCommandDeps, command: ChatCommand, session: Session): Promise<ChatCommandAnswer | null> {
+  const { epic } = command
+  const bare = command.kind === 'epic' && command.bare
+  const refused = (message: string): ChatCommandAnswer => ({ kind: 'refused', epic, message })
+  const projectId = chat.projectOf(session.cwd)
+  if (projectId === null) return bare ? null : refused(OUTSIDE_PROJECTS)
+  let tickets: number[] | undefined
+  if (bare) {
+    const model = await chat.workflow(projectId).catch(() => null)
+    if (model === null || model.error !== null || !hasEpic(model, epic)) return null
+  } else if (command.kind === 'tickets') {
+    tickets = command.tickets
+  } else if (command.kind === 'wave') {
+    const [spec, model] = await Promise.all([chat.spec(projectId, epic), chat.workflow(projectId)])
+    if (model.error !== null) return refused(`Cannot read the workflow: ${model.error.message}`)
+    const wave = waveTickets(spec, epic, command.wave, model.tickets)
+    if (!wave.ok) return refused(wave.message)
+    tickets = wave.tickets
+  }
+  const answer = await chat.start({ projectId, epic, ...(tickets === undefined ? {} : { tickets }), by: 'command', session: session.id })
+  if (answer.kind === 'started') return { kind: 'started', epic, message: chatStartedText(epic) }
+  return { kind: answer.kind, epic, message: answer.message }
+}
+
 /** What a settings change touches, for the journal: `model`, `effort and permission mode`, … */
 function configured(change: SettingsChange): string {
   const names = [change.model !== undefined && 'model', change.effort !== undefined && 'effort', change.permissionMode !== undefined && 'permission mode'].filter(
@@ -102,6 +187,7 @@ export function agentHandlers(
   attachments: AttachDeps = appAttachDeps,
   clients: Broadcast = toEveryWindow,
   projects: () => readonly { readonly path: string }[] = () => projectStore().list(),
+  chat: ChatCommandDeps = appChatCommands,
 ): HandlerModule {
   const sink = everyClientSink(clients)
   // The link adapter refuses a call, and a link client an event, of a Session in a Project local to
@@ -132,6 +218,26 @@ export function agentHandlers(
     }),
     defineHandler(agentSend, ({ sessionId, text, attachments: attached }) => {
       const session = registry().get(sessionId)
+      // A message with attachments is no command: the files would have nowhere to go.
+      const command = attached.length === 0 ? parseChatCommand(text) : null
+      if (command !== null) {
+        // In turn with the messages around it: the ones before are sent first, the ones after wait for the answer.
+        const answered = (lastSend.get(session) ?? Promise.resolve())
+          .catch(() => undefined)
+          .then(async () => {
+            const answer = await startCommand(chat, command, session).catch((error: unknown): ChatCommandAnswer => ({
+              kind: 'refused',
+              epic: command.epic,
+              message: error instanceof Error ? error.message : String(error),
+            }))
+            if (answer !== null) return { autopilot: answer }
+            registry().noteInput(sessionId, 'sent a message')
+            session.send(text, [])
+            return undefined
+          })
+        lastSend.set(session, answered)
+        return answered
+      }
       registry().noteInput(sessionId, 'sent a message')
       const target = attachments.target(session.cwd)
       const checked = Promise.all(attached.map((each: Attachment) => recheck(each, target)))
@@ -145,7 +251,7 @@ export function agentHandlers(
           session.send(text, list)
         })
       lastSend.set(session, sent)
-      return sent
+      return sent.then(() => undefined)
     }),
     defineHandler(agentAttach, ({ sessionId, sources }, { event }) => {
       // A file named by its path is read on this Machine: from a Linked machine, only inside its Projects.
