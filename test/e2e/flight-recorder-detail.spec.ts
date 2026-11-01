@@ -211,6 +211,7 @@ test('the detail panel, «Retry» of GitHub, the outline of a retry cause, the r
     await expect(rowOf(window, IMPL_03)).toHaveCount(0)
     await expect(rowOf(window, IMPL_07_RETRY)).toHaveCount(1)
     await expect(rowOf(window, VERIFY_07)).toHaveCount(1)
+    await rowOf(window, IMPL_07_RETRY).scrollIntoViewIfNeeded()
     await snapshots(window, 'problems-only')
     await window.getByTestId('run-history-problems').click()
     await expect(rows).toHaveCount(all)
