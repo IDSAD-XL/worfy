@@ -1,7 +1,8 @@
 # 11 — LimitWindow: нейтральная модель Limits и события `limits` / `limit_reached`
 
 Type: task
-Status: claimed 2026-11-02T08:09Z
+Status: done 2026-11-02T09:38Z
+PR: #1236
 Blocked by: —
 Source: [spec.md](../spec.md), «Модель» (LimitWindow), «Соглашения»; решение 06 ([06-граница-vendor.md](06-граница-vendor.md), часть limits); решение 09 ([09-limits-и-autopilot-по-vendor.md](09-limits-и-autopilot-по-vendor.md)); Ticket 10 ([10-третий-vendor-на-бумаге.md](10-третий-vendor-на-бумаге.md), «Какие правки нужны границе», п. 2 и 4); [ADR-0094](../../../docs/adr/0094-vendor-seam.md)
 
