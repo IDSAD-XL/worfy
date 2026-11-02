@@ -1,7 +1,8 @@
 # 18 — Фейк app-server Codex (`WORFY_CODEX=fake`)
 
 Type: task
-Status: claimed 2026-11-02T17:55Z
+Status: done 2026-11-02T18:46Z
+PR: #1253
 Blocked by: 17
 Source: [spec.md](../spec.md), «Фейк и test-ы», «Соглашения»; решение 06 ([06-граница-vendor.md](06-граница-vendor.md)); Ticket 02 ([02-codex-управление-сессией.md](02-codex-управление-сессией.md), таблица механизмов)
 
