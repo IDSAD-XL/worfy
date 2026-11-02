@@ -25,6 +25,11 @@
 
 - [01 — Destination, Vendor, масштаб](issues/01-destination-vendor-масштаб.md): spec + ADR как финиш; Codex CLI по подписке; Vendor у Session; первый выпуск — чат; две реализации границы, третья на бумаге; API-ключей нет и не будет.
 
+- [02 — Codex: как worfy ведёт Session](issues/02-codex-управление-сессией.md): через `codex app-server` (JSON-RPC по stdio) — единственный путь с approval-запросами, сообщением во время хода, interrupt, resume и входом по подписке; протокол experimental, без обещания совместимости — версия Codex закрепляется; разрешения — approval policy + sandbox, не по tool-ам.
+- [03 — Codex: Limits подписки](issues/03-codex-limits.md): до двух окон (`primary` / `secondary`) с `used_percent`, `window_minutes`, `resets_at`, набор окон зависит от плана; событие `account/rateLimits/updated` и запрос `account/rateLimits/read` без вызова модели; конец лимита — ошибка хода `usageLimitExceeded` без ожидания; бюджету Wave хватает, прогнозу Resource Planner — частично.
+- [04 — Codex: расширения, на которых стоит Harness](issues/04-codex-расширения-для-harness.md): Codex читает plugin-ы формата Claude (`.claude-plugin`, skills, `hooks/hooks.json`, `.mcp.json`); hooks есть, но без `TaskCompleted` / `TeammateIdle` (gate — на `Stop`) и с одобрением пользователя после каждого изменения; MCP только stdio / HTTP, in-process нет; Subagent-ы не из plugin-а и без read-only.
+- [05 — Codex: транскрипты и Session-ы вне worfy](issues/05-codex-транскрипты.md): JSONL на Session в `~/.codex/sessions/ГГГГ/ММ/ДД/`, Subagent-ы — отдельные файлы со ссылкой на родителя, Project — только по `cwd`; формат не документирован и меняется — читать через `thread/list` / `thread/read` app-server, а не файлы.
+
 ## Not yet specified
 
 - MCP-серверы `worfy-canvas` и `worfy-browser` вне процесса (stdio или HTTP) — нужно ли и для Claude тоже, когда станет ясно, что Codex умеет (Ticket 04).
