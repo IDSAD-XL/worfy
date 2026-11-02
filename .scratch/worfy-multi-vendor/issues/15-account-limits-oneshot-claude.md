@@ -16,7 +16,7 @@ Source: [spec.md](../spec.md), «Модель» (таблица частей), �
 ## Что делаем
 
 Типы частей и файлы-обёртки Claude создал Ticket 13; этот Ticket правит только `claude/account.ts`,
-`claude/limits.ts`, `claude/one-shot.ts` и их вызывающих, `claude/index.ts` — нет.
+`claude/limits.ts`, `claude/one-shot.ts`, тип `src/main/vendors/limits.ts` и их вызывающих, `claude/index.ts` — нет.
 
 1. `account.check()` Claude (`src/main/vendors/claude/account.ts`) — одно подключение `{provider: 'anthropic',
    signedIn, email, plan}` через `accountInfo()`, как сейчас; `startLogin` Claude — нынешний путь входа first-run
@@ -28,6 +28,13 @@ Source: [spec.md](../spec.md), «Модель» (таблица частей), �
    передаются через `opts` ровно так, как их передаёт `src/main/ipc/projects.ts:89-105` сейчас: `allowedTools`,
    `disallowedTools`, `outputFormat` и plugin Harness (`connect.ts:598-600`).
 4. first-run, Plan, черновик и Limits probe зовут driver; импорты SDK из этих файлов уходят.
+5. `src/main/vendors/limits.ts`: копия `LimitWindow` (комментарий `shortcut:`) заменяется импортом из
+   `src/shared/agent/limits.ts` (Ticket 11 влит).
+6. Правило «Claude вошёл» (`subscriptionType` есть или `tokenSource` не `none`) сейчас в трёх местах:
+   `src/main/first-run/checks.ts:308`, `src/main/agent/session.ts:636`, `src/main/vendors/claude/account.ts:12`.
+   Ticket оставляет одно — в `claude/account.ts`; `checks.ts` зовёт его. `session.ts` — файл Ticket-а 14 той же Wave,
+   его копию убирает Ticket 16 (ждёт 14 и 15). Решено Orchestrator-ом 2026-11-02 по поручению владельца, подтвердить
+   при приёмке.
 
 Глубина review — `high` (граница).
 
@@ -42,6 +49,8 @@ Source: [spec.md](../spec.md), «Модель» (таблица частей), �
 ## Где в коде
 
 - `src/main/vendors/claude/account.ts`, `limits.ts`, `one-shot.ts` (файлы Ticket-а 13)
+- `src/main/vendors/limits.ts` — копия `LimitWindow` → импорт из `src/shared/agent/limits.ts`
+- `src/main/first-run/checks.ts` — `:306-308` (правило входа Claude)
 - `src/main/ipc/first-run.ts` — `:43`, `:59-71`, `:105`, `:117`
 - `src/main/ipc/plan-preset.ts` — `:4`, `:48-55`
 - `src/main/ipc/projects.ts` — `:89-115`

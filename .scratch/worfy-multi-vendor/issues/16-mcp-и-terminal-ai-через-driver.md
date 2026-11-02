@@ -32,6 +32,15 @@ Source: [spec.md](../spec.md), «Модель» (части mcp и oneShot), «�
    динамический импорт `sdkQueryFactory` из `app-registry` — `test/contract/browser-tools.test.ts:1084` и
    `test/contract/workflow-profile.test.ts:507`).
    Реэкспортов на старых путях нет.
+   Туда же, в `src/main/vendors/claude/query.ts`, переезжает `queryFactoryFromEnv`
+   (`src/main/agent/app-registry.ts:171-189`): так кончается циклический импорт `app-registry.ts` →
+   `vendors/registry.ts` → `claude/index.ts` → `claude/session.ts` → `app-registry.ts` (долг Ticket-а 13). Импорты
+   обновляются: `src/main/vendors/claude/session.ts:6`, `src/main/ipc/first-run.ts`,
+   `test/unit/vendor-driver-types.test.ts`, `test/unit/agent-query-factory.test.ts`,
+   `test/contract/plan-preset.test.ts`. Решено Orchestrator-ом 2026-11-02 по поручению владельца, подтвердить при
+   приёмке.
+   Третья копия правила «Claude вошёл» — в `src/main/agent/session.ts:636` или там, куда её перенёс Ticket 14
+   (`claude/session.ts`), — заменяется вызовом правила из `src/main/vendors/claude/account.ts` (Ticket 15, п. 6).
 4. Список исключений `test/contract/vendor-sdk-imports.test.ts` пуст; исключение, которое уже не импортирует SDK,
    теперь — красный test.
 
@@ -48,8 +57,12 @@ Source: [spec.md](../spec.md), «Модель» (части mcp и oneShot), «�
 ## Где в коде
 
 - `src/main/vendors/mcp.ts`, `src/main/vendors/claude/mcp.ts`, `src/main/vendors/claude/terminal-ai.ts` (файлы Ticket-а 13)
-- `src/main/agent/options.ts` → `src/main/vendors/claude/options.ts`; `src/main/agent/app-registry.ts` — `:92-166` →
-  `src/main/vendors/claude/query.ts`; импорты — список в п. 3
+- `src/main/agent/options.ts` → `src/main/vendors/claude/options.ts`; `src/main/agent/app-registry.ts` — `:92-166`
+  (`sdkQueryFactory`) и `:171-189` (`queryFactoryFromEnv`) → `src/main/vendors/claude/query.ts`; импорты — список в п. 3
+- `src/main/vendors/claude/session.ts` — `:6` (импорт `queryFactoryFromEnv`) и правило входа, если Ticket 14 перенёс
+  его сюда; `src/main/agent/session.ts` — `:636` (правило входа, если осталось здесь)
+- `src/main/ipc/first-run.ts` (импорт `queryFactoryFromEnv`)
+- Test-ы импорта `queryFactoryFromEnv`: `test/unit/vendor-driver-types.test.ts`, `test/contract/plan-preset.test.ts`
 - `src/main/mcp/canvas-server.ts` — `:317-324`; `src/main/mcp/browser-server.ts` — `:425-432`
 - `src/main/terminal-ai/assist.ts` — `:34`, `:70-105`, `:464-473`
 - `src/main/terminal-ai/options.ts` — `:15`, `:66-113`; `src/main/terminal-ai/fake-backend.ts` — `:21`

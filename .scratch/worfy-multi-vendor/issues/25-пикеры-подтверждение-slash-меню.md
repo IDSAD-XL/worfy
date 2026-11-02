@@ -16,6 +16,15 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 
 1. Пикеры читают capabilities Vendor-а Session: Model — список Vendor-а, effort — `effortLevels`, permission —
    `permissionPresets` с подписью и описанием Vendor-а.
+   - Модель Vendor-а по умолчанию пикер передаёт как `setModel(null)`; свою строку `'default'` driver Claude
+     переводит в `null` (Ticket 14).
+   - Список `models` Vendor-а пуст (живого запроса нет) — пикер Model оставляет нынешнюю строку с моделью из
+     `system/init` (`src/main/agent/session.ts:445-446`).
+   - Подписи presets Claude в `src/shared/vendors/capabilities.ts:95-98` повторяют `MODE_LABELS`
+     (`src/renderer/session/composer/Pickers.tsx:21-25`). Ticket оставляет один источник: пикер берёт подписи из
+     `permissionPresets`, `MODE_LABELS` удаляется.
+
+   Три решения выше — решено Orchestrator-ом 2026-11-02 по поручению владельца, подтвердить при приёмке.
 2. Недоступное — недоступным с tooltip причины из capabilities («Codex does not support …»); скрыто только то, что
    для Vendor-а смысла не имеет.
 3. Диалог подтверждения у Codex: `subject` — команда (с `cwd`) или список файлов; кнопки — варианты Codex.

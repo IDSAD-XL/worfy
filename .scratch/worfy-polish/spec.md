@@ -210,6 +210,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 44 | `src/renderer/session/navigation.ts`, `src/renderer/session/SessionView.tsx`, `src/renderer/session/ExternalSessionPanel.tsx`, `src/renderer/session/SessionPicker.tsx`, `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/session/HistoryPopover.tsx`, `src/renderer/palette/commands.ts`, `test/unit/session-back.test.tsx`, `test/unit/session-view.test.tsx`, `test/unit/palette-commands.test.tsx`, `test/unit/palette-transcripts.test.tsx`, `test/unit/pipeline-board.test.tsx`, `test/unit/question-card.test.tsx`, `test/unit/subagent-nodes.test.tsx`, `test/unit/session-nodes.test.tsx`, `test/unit/linked-read-only.test.tsx`, `test/unit/history-popover.test.tsx`, `test/unit/show-archived-node.test.tsx`, `test/unit/focus-mode.test.tsx`, `test/e2e/session-view.spec.ts`, `test/e2e/session-back.spec.ts`, `test/e2e/sidebar-sections.spec.ts`, `test/e2e/session-resume.spec.ts`, `test/e2e/session-picker.spec.ts` | 8 |
 | 45 | `src/shared/transcript/subagents.ts`, `src/main/claude-home/subagents.ts`, `src/shared/ipc/claude-home.ts`, `src/main/ipc/claude-home.ts`, `src/renderer/canvas/nodes/SubagentNode.tsx`, `src/renderer/session/rail/SubagentsRail.tsx`, `src/renderer/canvas/sources/subagents.ts`, `src/renderer/claude-home/subagents.ts`, `src/renderer/canvas/edges/subagents.ts`, `docs/adr/0085-interrupted-subagents.md`, `docs/adr/0031-closed-session-ends-its-subagents.md` (только раздел ## Amendments), `test/unit/subagents.test.ts`, `test/contract/claude-home-subagents.test.ts`, `test/contract/claude-home-subagents-link.test.ts`, `test/unit/subagent-nodes.test.tsx`, `test/unit/subagent-trees.test.tsx`, `test/unit/link-access.test.ts`, `test/e2e/subagent-tree.spec.ts` | 9 |
 | 46 | `src/renderer/canvas/overlays/SelectionToolbar.tsx`, `src/renderer/find/CanvasFind.tsx`, `docs/features/focus-mode.md`, `test/e2e/focus.spec.ts` |
+| 49 | `src/renderer/session/SlashMenu.tsx`, `src/renderer/session/MessageInput.tsx`, `test/unit/message-input-slash.test.tsx`, `test/unit/slash-commands.test.ts`, `test/e2e/message-input-slash.spec.ts`, `docs/features/sessions.md`, `docs/features/ru/sessions.md` | 11 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
@@ -248,6 +249,8 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
   (Wave 8, done) общий `test/unit/subagent-nodes.test.tsx`. Платформенный (ADR-0056): merge ждёт
   Windows-проверку.
 - **Wave 10 — 46.** Добавлен 2026-10-31 по слову владельца (клавиши Canvas под слоем Focus mode). Блокеров нет.
+- **Wave 11 — 49.** Добавлен 2026-11-02 по слову владельца (слэш-меню открывается на `/` в любом месте поля ввода).
+  Блокеров нет; Ticket-ы 47 и 48 в таблицу не внесены, общих файлов с ними нет. Влит PR #1232.
 
 Пересечения проверены правилом `filesOverlap` (`src/shared/workflow/waves.ts:145`): папка с `/` на
 конце пересекается с каждым файлом в ней. Если исполнителю нужен файл вне своего списка (например,

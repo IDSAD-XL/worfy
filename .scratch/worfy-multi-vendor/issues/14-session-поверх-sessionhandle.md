@@ -19,7 +19,9 @@ Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтраль
 
 1. `src/main/vendors/session.ts` (типы созданы Ticket-ом 13) — `SessionHandle`: `send({text, attachments})`, `interrupt()`, `close()`,
    `setModel()`, `setEffort()`, `setPermissionPreset()`, `events: AsyncIterable<AgentEvent>`; `start(opts)` и
-   `resume(id)` у части session driver-а.
+   `resume(id)` у части session driver-а. Модель Vendor-а по умолчанию — `setModel(null)` (нейтральное имя,
+   `src/main/vendors/session.ts`); driver Claude переводит свою строку `'default'` в `null` и обратно. Решено
+   Orchestrator-ом 2026-11-02 по поручению владельца, подтвердить при приёмке.
 2. `src/main/vendors/claude/session.ts` (обёртка Ticket-а 13; `claude/index.ts` не правится) — SessionHandle Claude: держит поток `SDKUserMessage`, зовёт `query()`,
    переводит сообщения в `AgentEvent`, отдаёт `account`, `context`, `commands` событиями, переводит `canUseTool` в
    `permission_request`. Разбор сообщений SDK (`sdkMessageToEvents` и схемы, `events.ts:290-685`) переезжает в

@@ -94,10 +94,14 @@ stub-и частей Codex; дальше каждый Ticket правит тол
 | session | `start(opts)`, `resume(id)` → SessionHandle | Agent SDK `query()` | `thread/start`, `thread/resume`, `turn/*` |
 | account | `check()` → подключения; `startLogin()` | `accountInfo()` | `account/read`, `account/login/start` |
 | limits | `read()` → `LimitWindow[]` + события | `rate_limit_event`, statusline, Limits probe `usage` | `account/rateLimits/read`, `account/rateLimits/updated` |
-| history | `list(cwd)`, `read(id)` → записи транскрипта | JSONL `~/.claude/projects` | `thread/list`, `thread/read` |
+| history | `list(cwd)`, `read(id, cwd)` → записи транскрипта | JSONL `~/.claude/projects` | `thread/list`, `thread/read` |
 | commands | строки slash-меню | `supportedCommands()`, `system/init` | `skills/list` + встроенные |
 | mcp | как tool-ы worfy доходят до агента | SDK-сервер в процессе | HTTP endpoint на `127.0.0.1` |
 | oneShot | разовый запрос | `query()` черновика (read-only tool-ы, structured output), Terminal AI, Limits probe | первому выпуску не нужен |
+
+`history.read` получает и `cwd` («Решено без владельца», п. 13): Claude хранит транскрипты в папке своего Project-а,
+и нынешний `transcriptPath` (`src/main/claude-home/registry.ts:861`) ищет файл по корню Project-а; Codex может `cwd`
+не читать (`thread/read` находит thread по id).
 
 **Capabilities** (`src/shared/vendors/capabilities.ts` — в shared, потому что их читает renderer). Флаги:
 `subagents`, `hooks`, `inProcessMcp`, `canvasTools`, `steer`, `resume`, `historyList`, `modelSwitchStable`,
@@ -253,6 +257,10 @@ Test-ы никогда не запускают настоящий Codex, не в
     файлы частей и не трогают `index.ts`.
 12. **TOML агентов — только в `~/.codex/agents/`, с префиксом `worfy-`** (review PR #1234): worfy не пишет своё
     состояние в репозиторий Project-а (ADR-0005).
+13. **`history.read(id, cwd)`, а не `read(id)`** (review PR #1237, Ticket 13). Claude хранит транскрипты в папке
+    своего Project-а, и `transcriptPath` находит файл по корню Project-а; Codex может `cwd` не читать. ADR-0094
+    (п. 2, history) пишет `read(id)` и не правится: ADR неизменяем, отличие записано здесь. Решено Orchestrator-ом
+    2026-11-02 по поручению владельца, подтвердить при приёмке.
 
 ## Ticket-ы
 
@@ -323,12 +331,12 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 12 | `test/contract/vendor-sdk-imports.test.ts` | 1 |
 | 13 | `src/shared/vendors/vendor.ts`, `src/shared/vendors/capabilities.ts`, `src/main/vendors/driver.ts`, `src/main/vendors/registry.ts`, `src/main/vendors/session.ts`, `src/main/vendors/account.ts`, `src/main/vendors/limits.ts`, `src/main/vendors/history.ts`, `src/main/vendors/commands.ts`, `src/main/vendors/one-shot.ts`, `src/main/vendors/mcp.ts`, `src/main/vendors/claude/`, `src/main/agent/session/registry.ts`, `src/main/agent/app-registry.ts`, `test/unit/capabilities.test.ts`, `test/unit/vendor-driver-types.test.ts` | 1 |
 | 14 | `src/main/vendors/session.ts`, `src/main/vendors/claude/session.ts`, `src/shared/vendors/claude/events.ts`, `src/shared/transcript/parse.ts`, `src/main/agent/session.ts`, `src/main/agent/session/run.ts`, `src/main/agent/session/types.ts`, `src/main/agent/session/input-queue.ts`, `src/main/agent/permissions.ts`, `src/main/agent/attachments.ts`, `src/shared/agent/events.ts`, `src/shared/ipc/agent.ts`, `src/main/ipc/agent.ts`, `src/renderer/session/PermissionCard.tsx`, `test/contract/agent-session.test.ts`, `test/contract/permissions.test.ts` | 2 |
-| 15 | `src/main/vendors/claude/account.ts`, `src/main/vendors/claude/limits.ts`, `src/main/vendors/claude/one-shot.ts`, `src/main/ipc/first-run.ts`, `src/main/ipc/plan-preset.ts`, `src/main/ipc/projects.ts`, `src/main/projects/connect.ts`, `src/main/agent/limits-usage.ts`, `test/contract/claude-one-shot.test.ts` | 2 |
+| 15 | `src/main/vendors/claude/account.ts`, `src/main/vendors/claude/limits.ts`, `src/main/vendors/claude/one-shot.ts`, `src/main/vendors/limits.ts`, `src/main/first-run/checks.ts`, `src/main/ipc/first-run.ts`, `src/main/ipc/plan-preset.ts`, `src/main/ipc/projects.ts`, `src/main/projects/connect.ts`, `src/main/agent/limits-usage.ts`, `test/contract/claude-one-shot.test.ts` | 2 |
 | 17 | `package.json`, `pnpm-lock.yaml`, `electron-builder.yml`, `scripts/codex-protocol.mjs`, `src/main/vendors/codex/`, `src/main/vendors/registry.ts`, `test/unit/codex-binary.test.ts` | 2 |
-| 16 | `src/main/vendors/claude/mcp.ts`, `src/main/vendors/claude/terminal-ai.ts`, `src/main/vendors/claude/options.ts`, `src/main/vendors/claude/query.ts`, `src/main/agent/options.ts`, `src/main/agent/app-registry.ts`, `src/main/mcp/canvas-server.ts`, `src/main/mcp/browser-server.ts`, `src/main/terminal-ai/assist.ts`, `src/main/terminal-ai/options.ts`, `src/main/terminal-ai/fake-backend.ts`, `src/main/ipc/harness.ts`, `src/main/ipc/projects.ts`, `test/contract/vendor-sdk-imports.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/agent-query-factory.test.ts`, `test/contract/browser-tools.test.ts`, `test/contract/workflow-profile.test.ts` | 3 |
+| 16 | `src/main/vendors/claude/mcp.ts`, `src/main/vendors/claude/terminal-ai.ts`, `src/main/vendors/claude/options.ts`, `src/main/vendors/claude/query.ts`, `src/main/vendors/claude/session.ts`, `src/main/agent/session.ts`, `src/main/ipc/first-run.ts`, `src/main/agent/options.ts`, `src/main/agent/app-registry.ts`, `src/main/mcp/canvas-server.ts`, `src/main/mcp/browser-server.ts`, `src/main/terminal-ai/assist.ts`, `src/main/terminal-ai/options.ts`, `src/main/terminal-ai/fake-backend.ts`, `src/main/ipc/harness.ts`, `src/main/ipc/projects.ts`, `test/contract/vendor-sdk-imports.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/agent-query-factory.test.ts`, `test/unit/vendor-driver-types.test.ts`, `test/contract/plan-preset.test.ts`, `test/contract/browser-tools.test.ts`, `test/contract/workflow-profile.test.ts` | 3 |
 | 18 | `test/fixtures/codex-app-server/fake-app-server.mjs`, `test/fixtures/codex-scripts/`, `src/main/vendors/codex/launch.ts`, `test/setup-contract.ts`, `test/e2e/launch-env.ts`, `test/contract/codex-fake.test.ts` | 3 |
 | 19 | `src/main/vendors/codex/app-server.ts`, `src/main/vendors/codex/rpc.ts`, `test/unit/codex-rpc.test.ts`, `test/contract/codex-app-server.test.ts` | 4 |
-| 20 | `src/main/vendors/codex/session.ts`, `src/main/vendors/codex/items.ts`, `src/main/vendors/codex/approvals.ts`, `test/unit/codex-items.test.ts`, `test/contract/codex-session.test.ts` | 5 |
+| 20 | `src/main/vendors/codex/session.ts`, `src/main/vendors/codex/items.ts`, `src/main/vendors/codex/approvals.ts`, `src/main/vendors/codex/capabilities.ts`, `test/unit/codex-items.test.ts`, `test/contract/codex-session.test.ts` | 5 |
 | 21 | `src/main/vendors/codex/account.ts`, `src/main/vendors/codex/limits.ts`, `src/main/agent/limits-usage.ts`, `src/main/agent/limits.ts`, `test/unit/codex-limits.test.ts`, `test/contract/codex-account.test.ts` | 5 |
 | 22 | `src/main/vendors/codex/history.ts`, `src/main/vendors/codex/commands.ts`, `test/unit/codex-history.test.ts`, `test/contract/codex-history.test.ts` | 6 |
 | 23 | `src/shared/ipc/sessions.ts`, `src/main/ipc/sessions.ts`, `src/main/agent/node-sessions.ts`, `src/main/agent/app-node-sessions.ts`, `src/main/agent/app-registry.ts`, `src/shared/projects/action-templates.ts`, `test/contract/sessions-vendor.test.ts` | 6 |
