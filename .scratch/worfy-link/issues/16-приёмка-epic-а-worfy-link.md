@@ -1,9 +1,7 @@
 # 16 — Приёмка Epic-а worfy-link по «Готово, когда»
 
 Type: task
-Status: blocked
-Blocked reason: приёмка вместе с владельцем (HANDOFF, «Дальше»: приёмки `worfy-harness` 26 и `worfy-link` 16 — не в Autopilot); Autopilot не берёт
-Waits: owner
+Status: done 2026-11-02T04:15Z
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15
 Source: «Готово, когда» Epic-а worfy-link ([spec.md](../spec.md)); решения владельца 2026-10-07, Q12 (после E3 параллельно с Windows-портом; первая проверка — dev-сборка и Stable copy на одном Mac; мерж в main по очереди; [spec.md](../spec.md)); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
 
@@ -36,49 +34,56 @@ Source: «Готово, когда» Epic-а worfy-link ([spec.md](../spec.md));
 
 Пункт 1 Epic-а — связь и отзыв.
 
-- [ ] (вручную) dev-сборка и Stable copy связаны по 6-значному коду. Секция Machines боковой панели свёрнута, пока её не развернули: кнопка «Link a machine…» и список Linked machine-ов — в развёрнутой секции (клик по заголовку «Machines»). Связь видна в этом списке у обеих копий и по зелёной точке рядом с заголовком «Machines» — она видна и у свёрнутой секции, её подсказка — «1 linked machine online».
-- [ ] (вручную) отзыв с каждой стороны по очереди (правый клик по строке в развёрнутой секции Machines → «Revoke»). Вторая копия сразу теряет соединение: её нет в списке Linked machine-ов развёрнутой секции Machines, зелёной точки у заголовка «Machines» нет, её Project-ы пропадают из боковой панели.
+- [x] (вручную) dev-сборка и Stable copy связаны по 6-значному коду. Секция Machines боковой панели свёрнута, пока её не развернули: кнопка «Link a machine…» и список Linked machine-ов — в развёрнутой секции (клик по заголовку «Machines»). Связь видна в этом списке у обеих копий и по зелёной точке рядом с заголовком «Machines» — она видна и у свёрнутой секции, её подсказка — «1 linked machine online».
+- [x] (вручную) отзыв с каждой стороны по очереди (правый клик по строке в развёрнутой секции Machines → «Revoke»). Вторая копия сразу теряет соединение: её нет в списке Linked machine-ов развёрнутой секции Machines, зелёной точки у заголовка «Machines» нет, её Project-ы пропадают из боковой панели.
 
 Пункт 2 — работа с Project-ом другой машины.
 
-- [ ] (вручную) Из dev-сборки открыт Canvas Project-а Stable copy. Сделано: перемещение Node-а, новая Note, сообщение в Session, `echo linked` в Terminal, старт и Stop Autopilot. Каждое видно в окнах обеих копий без перезагрузки.
-- [ ] Команда: всё выполняется на машине Project-а. `pgrep -lP <pid Stable copy>` показывает процесс `claude` этой Session и shell Terminal среди дочерних процессов Stable copy. `pgrep -lP <pid dev-сборки>` их не показывает.
-- [ ] (вручную) Камера своя: сдвиг и масштаб Canvas в одном окне не двигают другое.
-- [ ] (вручную) ⌘Z в dev-сборке отменяет только её правку. Если тот же Node потом правила Stable copy, шаг пропущен с подсказкой.
+- [x] (вручную) Из dev-сборки открыт Canvas Project-а Stable copy. Сделано: перемещение Node-а, новая Note, сообщение в Session, `echo linked` в Terminal, старт и Stop Autopilot. Каждое видно в окнах обеих копий без перезагрузки.
+- [x] Команда: всё выполняется на машине Project-а. `pgrep -lP <pid Stable copy>` показывает процесс `claude` этой Session и shell Terminal среди дочерних процессов Stable copy. `pgrep -lP <pid dev-сборки>` их не показывает.
+- [x] (вручную) Камера своя: сдвиг и масштаб Canvas в одном окне не двигают другое.
+- [x] (вручную) ⌘Z в dev-сборке отменяет только её правку. Если тот же Node потом правила Stable copy, шаг пропущен с подсказкой.
 
 Пункт 3 — Session без окна и «Add Project».
 
-- [ ] (вручную) Session запущена из dev-сборки в Project-е Stable copy. Окно dev-сборки закрыто, потом dev-сборка остановлена. Session жива: видна и отвечает в окне Stable copy, её процесс `claude` не завершился (`ps -p <pid>`).
-- [ ] (вручную) «Add Project» в dev-сборке: выбор Machine Stable copy, папка — просмотром её файлов внутри worfy. Project появился в окне Stable copy и в dev-сборке, в группе Machine Stable copy.
+- [x] (вручную) Session запущена из dev-сборки в Project-е Stable copy. Окно dev-сборки закрыто, потом dev-сборка остановлена. Session жива: видна и отвечает в окне Stable copy, её процесс `claude` не завершился (`ps -p <pid>`).
+- [x] (вручную) «Add Project» в dev-сборке: выбор Machine Stable copy, папка — просмотром её файлов внутри worfy. Project появился в окне Stable copy и в dev-сборке, в группе Machine Stable copy.
 
 Пункт 4 — уведомления, сон, второй Autopilot.
 
-- [ ] (вручную) Окна обеих копий без фокуса (активно другое приложение). Ход Session Project-а Stable copy кончается — приходят два уведомления, по одному от каждой копии. Клик по уведомлению dev-сборки открывает эту Session в окне dev-сборки.
-- [ ] Команда: копии связаны, доступ включён только у Stable copy (переключатель «Linked machines can work with my Projects» — в Settings → Machines, ⌘, или меню worfy → «Settings…»; в боковой панели его больше нет). `pmset -g assertions` показывает `PreventUserIdleSystemSleep` у pid Stable copy. После отзыва связи — не показывает.
-- [ ] (вручную) Второй Autopilot. Project-ы — два клона одного репозитория: один у Stable copy, другой у dev-сборки. Autopilot Epic-а запущен на Stable copy. Старт того же Epic-а на dev-сборке отклонён, отказ называет Machine Stable copy. «Start anyway» здесь не нажимать: обход проверен e2e Ticket-а 15. Прогон на Stable copy остановлен.
+- [x] (вручную) Окна обеих копий без фокуса (активно другое приложение). Ход Session Project-а Stable copy кончается — приходят два уведомления, по одному от каждой копии. Клик по уведомлению dev-сборки открывает эту Session в окне dev-сборки.
+- [x] Команда: копии связаны, доступ включён только у Stable copy (переключатель «Linked machines can work with my Projects» — в Settings → Machines, ⌘, или меню worfy → «Settings…»; в боковой панели его больше нет). `pmset -g assertions` показывает `PreventUserIdleSystemSleep` у pid Stable copy. После отзыва связи — не показывает.
+- [x] (вручную) Второй Autopilot. Project-ы — два клона одного репозитория: один у Stable copy, другой у dev-сборки. Autopilot Epic-а запущен на Stable copy. Старт того же Epic-а на dev-сборке отклонён, отказ называет Machine Stable copy. «Start anyway» здесь не нажимать: обход проверен e2e Ticket-а 15. Прогон на Stable copy остановлен.
 
 Пункт 5 — безопасность.
 
-- [ ] Команда: worfy с пустой папкой данных (`WORFY_DATA_DIR=$(mktemp -d) pnpm dev`). Переключатель «Linked machines can work with my Projects» в Settings → Machines выключен. Порт связи не слушается, пока нет Linked machine и не открыт «Link a machine»: `lsof -nP -iTCP -sTCP:LISTEN -a -p <pid>` пуст. Правило — из «Итог» Ticket-ов 01–02.
-- [ ] test-ы проверки Origin/Host Ticket-а 01 есть и зелёные: их имена — из «Итог» Ticket-а 01, `pnpm test` — exit 0.
-- [ ] Команда: обе копии запущены из терминала с выводом в файлы — `~/Applications/worfy-stable.app/Contents/MacOS/worfy > stable.log 2>&1` и `pnpm dev > dev.log 2>&1`. Сделаны связывание, работа с Project-ом и отзыв. `grep -c <код с экрана> stable.log dev.log` — 0 и 0. Отсутствие токена в выводе проверяет test Ticket-а 01, он зелёный.
+- [x] Команда: worfy с пустой папкой данных (`WORFY_DATA_DIR=$(mktemp -d) pnpm dev`). Переключатель «Linked machines can work with my Projects» в Settings → Machines выключен. Порт связи не слушается, пока нет Linked machine и не открыт «Link a machine»: `lsof -nP -iTCP -sTCP:LISTEN -a -p <pid>` пуст. Правило — из «Итог» Ticket-ов 01–02.
+- [x] test-ы проверки Origin/Host Ticket-а 01 есть и зелёные: их имена — из «Итог» Ticket-а 01, `pnpm test` — exit 0.
+- [x] Команда: обе копии запущены из терминала с выводом в файлы — `~/Applications/worfy-stable.app/Contents/MacOS/worfy > stable.log 2>&1` и `pnpm dev > dev.log 2>&1`. Сделаны связывание, работа с Project-ом и отзыв. `grep -c <код с экрана> stable.log dev.log` — 0 и 0. Отсутствие токена в выводе проверяет test Ticket-а 01, он зелёный.
 
 Сквозной test.
 
-- [ ] e2e `test/e2e/linked-machines.spec.ts` со сквозным сценарием зелёный в `GATE_SCOPE=all gate.sh full`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] e2e `test/e2e/linked-machines.spec.ts` со сквозным сценарием зелёный в `GATE_SCOPE=all gate.sh full`.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 **Mac + Windows: после приёмки Epic-а worfy-windows.**
 
 - [ ] (вручную) Mac и Windows связаны по коду: «Link a machine…» — в развёрнутой секции Machines боковой панели. Отзыв с каждой стороны сразу рвёт соединение.
       частично принято владельцем 2026-10-19 («Итог»): связь Mac и Windows-ПК стабильна; отзыв не проверен.
+      не проверено: владелец принял без Windows-части
 - [ ] (вручную) С Windows на Canvas Project-а Mac: правка, Session, Terminal (zsh на Mac), старт и Stop Autopilot. С Mac на Canvas Project-а Windows — то же (Terminal — PowerShell на Windows). Оба экрана обновляются вживую.
       частично принято владельцем 2026-10-19 («Итог»): Project Mac-а открыт с Windows, правки синхронизируются; по отдельности Session, Terminal, Autopilot и обратное направление (Mac на Project Windows) владелец не называл.
+      не проверено: владелец принял без Windows-части
 - [ ] (вручную) Session, запущенная с Windows, переживает закрытие окна worfy на Windows. «Add Project» с Windows на Mac — через просмотр папок Mac.
+      не проверено: владелец принял без Windows-части
 - [ ] (вручную) Уведомления в обе стороны.
+      не проверено: владелец принял без Windows-части
 - [ ] Команда: пока машины связаны, `powercfg /requests` на Windows показывает процесс worfy в разделе SYSTEM, а `pmset -g assertions` на Mac — assertion у worfy.
+      не проверено: владелец принял без Windows-части
 - [ ] (вручную) Mac уходит в сон из меню . На Windows в развёрнутой секции Machines Mac показан как «спит», а не «недоступна»; зелёной точки у заголовка «Machines» при этом нет. Так проверяется, что сообщение перед сном уходит по сети (Ticket 14).
+      не проверено: владелец принял без Windows-части
 - [ ] (вручную) На Windows старт Autopilot того же Epic-а с тем же origin, что идёт на Mac, отклонён с именем Mac.
+      не проверено: владелец принял без Windows-части
 
 ## Тесты
 
@@ -93,7 +98,9 @@ Source: «Готово, когда» Epic-а worfy-link ([spec.md](../spec.md));
 
 ## Итог
 
-Заполняется при закрытии. Ниже — промежуточные записи.
+Принят владельцем 2026-11-02. Слова владельца: «Линк уже тоже проверен и не раз, закрываем.» Разделы Mac отмечены как принятые владельцем; снимков `../evidence/16-*.png` в репозитории нет. Раздел Mac + Windows не отмечен: не проверено, владелец принял без Windows-части (связь Mac и Windows-ПК, принятая 2026-10-19, — ниже). Отметок в `spec.md` нет: там нумерованный список без чекбоксов.
+
+Промежуточные записи:
 
 **Ручная проверка связи владельцем — принята частично (2026-10-19).** Машины — Mac (Stable copy из
 main `e61cb1fe`) и Windows-ПК владельца. Слова владельца: «я все протестил, все отлично. Коннект
