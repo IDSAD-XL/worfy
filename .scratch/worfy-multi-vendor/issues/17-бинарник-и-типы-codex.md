@@ -1,7 +1,7 @@
 # 17 — Бинарник Codex, типы протокола и capabilities Codex
 
 Type: task
-Status: open
+Status: claimed 2026-11-02T13:39Z
 Blocked by: 13
 Source: [spec.md](../spec.md), «Codex: бинарник и совместимость», «Windows», «Риски», п. 7; решение 06 ([06-граница-vendor.md](06-граница-vendor.md), «Codex ведётся через `codex app-server`»); Ticket 02 ([02-codex-управление-сессией.md](02-codex-управление-сессией.md), поставка и лицензия); [ADR-0008](../../../docs/adr/0008-claude-code-native-binary-path.md); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
 

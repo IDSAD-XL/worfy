@@ -33,6 +33,12 @@ extraResources:
     to: statusline-bridge.sh
   - from: scripts/statusline-bridge.mjs
     to: statusline-bridge.mjs
+  # Codex is Apache-2.0 and its npm packages carry neither file: LICENSE and NOTICE of the pinned
+  # version (openai/codex at rust-v<version>) go next to the binary of the build, in
+  # Contents/Resources/codex/ (worfy-multi-vendor ticket 17). Replace both with a new pin of
+  # @openai/codex.
+  - from: build/codex
+    to: codex
 
 # Package the Electron that is already installed instead of downloading another copy.
 electronDist: node_modules/electron/dist
@@ -47,9 +53,13 @@ npmRebuild: false
 # @xterm/headless is loaded by path in a worker thread that answers the shells' cursor-position
 # requests (src/main/terminal/cursor-answers.ts, worfy-windows ticket 39); the worker does not
 # count on reading inside app.asar.
+# Codex (worfy-multi-vendor ticket 17) is the same: @openai/codex-<platform>-<arch> holds its
+# native binary (vendor/<target>/bin/codex, codex.exe on Windows) with the helpers and resources it
+# runs; src/main/vendors/codex/binary.ts finds it there.
 asarUnpack:
   - node_modules/node-pty/**
   - node_modules/@anthropic-ai/claude-agent-sdk-*/**
+  - node_modules/@openai/codex-*/**
   - node_modules/@xterm/headless/**
 
 mac:
