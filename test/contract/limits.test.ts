@@ -13,7 +13,7 @@ import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
 import { limitsHandlers } from '../../src/main/ipc/limits'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { sdkMessageToEvents } from '../../src/shared/vendors/claude/events'
-import type { LimitsState } from '../../src/shared/agent/limits'
+import type { LimitWindow, LimitsState } from '../../src/shared/agent/limits'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
@@ -149,6 +149,66 @@ describe('LimitsTracker', () => {
     unsubscribe()
     limits.record([{ window: 'five_hour', state: { utilization: 0.9, resetsAt: null, status: null, receivedAt: NOW + 1, source: 'sdk' } }])
     expect(states).toHaveLength(1)
+  })
+})
+
+describe('LimitsTracker: the windows of the other Vendors (Codex, worfy-multi-vendor ticket 21)', () => {
+  const window = (usedPercent: number): LimitWindow => ({
+    vendor: 'codex', id: 'primary', label: '5h', usedPercent, windowMinutes: 300, resetsAt: 1793003600, state: 'ok', receivedAt: NOW, source: 'read',
+  })
+
+  it('keeps them next to Claude\'s state, by Vendor, replaced by each read and forgotten on sign-out', () => {
+    const limits = tracker()
+    for (const message of recorded('init.jsonl')) limits.recordSdkMessage(message)
+    const claude = limits.snapshot()
+    expect(limits.windowsOf('codex')).toEqual([])
+
+    limits.setWindows('codex', [window(12), { ...window(40), id: 'secondary', label: 'weekly' }])
+    limits.setWindows('codex', [window(15)])
+    expect(limits.windowsOf('codex')).toEqual([window(15)])
+    expect(limits.windowsOf('other')).toEqual([])
+    expect(limits.snapshot()).toBe(claude)
+
+    limits.setWindows('codex', null)
+    expect(limits.windowsOf('codex')).toEqual([])
+    expect(limits.snapshot()).toBe(claude)
+  })
+
+  it('keeps them in memory only: limits.json keeps Claude\'s form', () => {
+    const limits = tracker()
+    for (const message of recorded('init.jsonl')) limits.recordSdkMessage(message)
+    const saved = readFileSync(join(dataDir, 'limits.json'), 'utf8')
+    limits.setWindows('codex', [window(12)])
+    expect(readFileSync(join(dataDir, 'limits.json'), 'utf8')).toBe(saved)
+    expect(readdirSync(dataDir)).toEqual(['limits.json'])
+    expect(tracker(NOW + 1).windowsOf('codex')).toEqual([])
+  })
+
+  it('tells its subscribers each recording, [] on sign-out, nothing for a Vendor forgotten twice; a subscriber that throws is logged', () => {
+    const limits = tracker()
+    const told: [string, readonly LimitWindow[]][] = []
+    const claudeStates: LimitsState[] = []
+    limits.subscribe((state) => claudeStates.push(state))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      limits.subscribeWindows(() => {
+        throw new Error('a window is gone')
+      })
+      const unsubscribe = limits.subscribeWindows((vendor, windows) => told.push([vendor, windows]))
+      limits.setWindows('codex', null)
+      expect(told).toEqual([])
+      limits.setWindows('codex', [window(12)])
+      limits.setWindows('codex', null)
+      limits.setWindows('codex', null)
+      expect(told).toEqual([['codex', [window(12)]], ['codex', []]])
+      expect(warn).toHaveBeenCalledWith('[limits] a subscriber of the Vendor windows threw', expect.any(Error))
+      expect(claudeStates).toEqual([])
+      unsubscribe()
+      limits.setWindows('codex', [window(20)])
+      expect(told).toHaveLength(2)
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 

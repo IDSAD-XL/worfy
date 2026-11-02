@@ -70,13 +70,10 @@ describe('the Codex driver', () => {
   })
 
   it('answers every part it does not run yet with PartNotWired, naming the ticket that wires it', async () => {
-    const { session, account, limits, history, oneShot } = codexDriver()
+    const { session, history, oneShot } = codexDriver()
     const cases: [Promise<unknown>, RegExp][] = [
       [session.start(start), /session of the codex driver .*ticket 20/],
       [session.resume('t-1', start), /session of the codex driver .*ticket 20/],
-      [account.check(), /account of the codex driver .*ticket 21/],
-      [account.startLogin(), /account of the codex driver .*ticket 21/],
-      [limits.read(), /limits of the codex driver .*ticket 21/],
       [history.list('/p'), /history of the codex driver .*ticket 22/],
       [history.read('t-1', '/p'), /history of the codex driver .*ticket 22/],
       [oneShot('hi', { cwd: '/p' }), /oneShot of the codex driver .*first release/],

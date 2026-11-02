@@ -1,14 +1,15 @@
 // The active source of the Limits (src/main/agent/limits-usage.ts): the refresher that asks the
 // SDK's usage every 30 minutes, with a fake clock and a stub reader, and the SDK reader of the Limits
 // probe (src/main/vendors/claude/limits.ts) over a fake SDK. No Claude Code starts and nothing goes
-// to the network.
+// to the network. The same refresher polls the windows of Codex (worfy-multi-vendor ticket 21) through
+// a stand-in poll of the Codex driver: no Codex starts either.
 import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installLimitsRefresh, LimitsRefresher, USAGE_REFRESH_MS } from '../../src/main/agent/limits-usage'
+import { installLimitsRefresh, LimitsRefresher, USAGE_REFRESH_MS, type VendorLimitsPoll } from '../../src/main/agent/limits-usage'
 import { askUsage, claudeUsageReader, sdkUsageReader, USAGE_METHOD, usageOptions, type UsageQuery, type UsageSdk } from '../../src/main/vendors/claude/limits'
-import { emptyLimits, mergeLimits, type LimitUpdate, type LimitsState, type LimitWindowState } from '../../src/shared/agent/limits'
+import { emptyLimits, mergeLimits, type LimitUpdate, type LimitWindow, type LimitsState, type LimitWindowState } from '../../src/shared/agent/limits'
 import { removeTestTree } from '../remove'
 
 // The app's probe (claudeUsageReader) and the app's refresher (installLimitsRefresh) over a stand-in
@@ -19,6 +20,9 @@ const app = vi.hoisted(() => ({
   closed: 0,
   recorded: [] as unknown[][],
   answer: null as unknown,
+  /** What the app's store was given for Codex, and the signals of the Codex polls. */
+  codexWindows: [] as [string, unknown][],
+  codexPolls: [] as AbortSignal[],
 }))
 vi.mock('@anthropic-ai/claude-agent-sdk', async () => {
   const { existsSync: exists } = await import('node:fs')
@@ -36,7 +40,20 @@ vi.mock('../../src/main/agent/env', async (original) => ({
   agentEnv: () => Promise.resolve({ env: { PATH: '/usr/bin:/bin', HOME: '/home/u' }, from: 'login-shell', error: null }),
 }))
 vi.mock('../../src/main/agent/limits', () => ({
-  appLimits: () => ({ snapshot: () => ({ windows: {} }), record: (updates: unknown[]) => void app.recorded.push([...updates]) }),
+  appLimits: () => ({
+    snapshot: () => ({ windows: {} }),
+    record: (updates: unknown[]) => void app.recorded.push([...updates]),
+    setWindows: (vendor: string, windows: unknown) => void app.codexWindows.push([vendor, windows]),
+  }),
+}))
+vi.mock('../../src/main/vendors/codex/limits', () => ({
+  CODEX_VENDOR: 'codex',
+  codexLimits: {
+    poll: (signal: AbortSignal) => {
+      app.codexPolls.push(signal)
+      return Promise.resolve([{ id: 'primary' }])
+    },
+  },
 }))
 
 const START = Date.UTC(2026, 9, 19, 18, 0)
@@ -57,6 +74,11 @@ const answer = (fiveHour: number, sevenDay: number) => ({
 class Store {
   state: LimitsState = emptyLimits()
   recorded: LimitUpdate[][] = []
+  /** Every setWindows call: the Vendor and its windows (null: forgotten). */
+  vendorWindows: [string, readonly LimitWindow[] | null][] = []
+  setWindows(vendor: string, windows: readonly LimitWindow[] | null): void {
+    this.vendorWindows.push([vendor, windows])
+  }
   snapshot(): LimitsState {
     return this.state
   }
@@ -100,6 +122,8 @@ describe('the app\'s Limits probe and refresher', () => {
     app.queries.length = 0
     app.closed = 0
     app.recorded.length = 0
+    app.codexWindows.length = 0
+    app.codexPolls.length = 0
     app.answer = answer(10, 20)
   })
 
@@ -129,6 +153,18 @@ describe('the app\'s Limits probe and refresher', () => {
     } finally {
       stop()
     }
+  })
+
+  it('installLimitsRefresh polls Codex through its driver too, records its windows under its name, and its stop aborts that poll', async () => {
+    const stop = await installLimitsRefresh({})
+    try {
+      await vi.waitFor(() => expect(app.codexWindows).toEqual([['codex', [{ id: 'primary' }]]]))
+      expect(app.codexPolls).toHaveLength(1)
+      expect(app.codexPolls[0]!.aborted).toBe(false)
+    } finally {
+      stop()
+    }
+    expect(app.codexPolls[0]!.aborted).toBe(true)
   })
 })
 
@@ -286,6 +322,142 @@ describe('LimitsRefresher', () => {
     // A stopped refresher does not start again.
     running.start()
     expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
+describe('LimitsRefresher: the other Vendors (Codex, worfy-multi-vendor ticket 21)', () => {
+  let store: Store
+  let read: ReturnType<typeof vi.fn<(signal: AbortSignal) => Promise<unknown>>>
+  let poll: ReturnType<typeof vi.fn<VendorLimitsPoll['poll']>>
+  let log: ReturnType<typeof vi.fn<(message: string, error?: unknown) => void>>
+  let refresher: LimitsRefresher | null
+
+  const WINDOWS: readonly LimitWindow[] = [
+    { vendor: 'codex', id: 'primary', label: '5h', usedPercent: 12, windowMinutes: 300, resetsAt: 1793003600, state: 'ok', receivedAt: START, source: 'read' },
+  ]
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(START)
+    store = new Store()
+    read = vi.fn<(signal: AbortSignal) => Promise<unknown>>(() => Promise.resolve(answer(10, 8)))
+    poll = vi.fn<VendorLimitsPoll['poll']>(() => Promise.resolve(WINDOWS))
+    log = vi.fn<(message: string, error?: unknown) => void>()
+    refresher = null
+  })
+
+  afterEach(() => {
+    refresher?.stop()
+    vi.useRealTimers()
+  })
+
+  const start = (): LimitsRefresher => {
+    refresher = new LimitsRefresher({ limits: store, read, log, now: Date.now, vendors: [{ vendor: 'codex', poll }] })
+    refresher.start()
+    return refresher
+  }
+
+  it('polls at start and every 30 minutes, whatever Claude\'s data, and records the windows under the Vendor\'s name', async () => {
+    store.state = both(START - MINUTE, 'sdk')
+    start()
+    await settle()
+    expect(read).not.toHaveBeenCalled()
+    expect(poll).toHaveBeenCalledTimes(1)
+    expect(store.vendorWindows).toEqual([['codex', WINDOWS]])
+    await vi.advanceTimersByTimeAsync(USAGE_REFRESH_MS - 1)
+    expect(poll).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(poll).toHaveBeenCalledTimes(2)
+    expect(store.vendorWindows).toHaveLength(2)
+  })
+
+  it('signed out (null): the Vendor\'s windows are forgotten', async () => {
+    poll.mockResolvedValue(null)
+    start()
+    await settle()
+    expect(store.vendorWindows).toEqual([['codex', null]])
+  })
+
+  it('a failure is logged once, the windows stay as they were, the next tick tries again, and a success logs again on the next failure', async () => {
+    const failure = new Error('Codex app-server did not answer')
+    poll.mockRejectedValue(failure)
+    start()
+    await settle()
+    expect(store.vendorWindows).toEqual([])
+    expect(log).toHaveBeenCalledWith('[limits] the Limits of codex could not be read: they keep what was read last', failure)
+    await vi.advanceTimersByTimeAsync(USAGE_REFRESH_MS)
+    expect(poll).toHaveBeenCalledTimes(2)
+    expect(log).toHaveBeenCalledTimes(1)
+    poll.mockResolvedValueOnce(WINDOWS)
+    await vi.advanceTimersByTimeAsync(USAGE_REFRESH_MS)
+    expect(store.vendorWindows).toEqual([['codex', WINDOWS]])
+    await vi.advanceTimersByTimeAsync(USAGE_REFRESH_MS)
+    expect(log).toHaveBeenCalledTimes(2)
+  })
+
+  it('one poll of a Vendor at a time: a tick while it runs starts no second one', async () => {
+    let finish: (windows: readonly LimitWindow[] | null) => void = () => undefined
+    poll.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+    start()
+    await settle()
+    await vi.advanceTimersByTimeAsync(USAGE_REFRESH_MS)
+    expect(poll).toHaveBeenCalledTimes(1)
+    finish(WINDOWS)
+    await settle()
+    expect(store.vendorWindows).toEqual([['codex', WINDOWS]])
+    await vi.advanceTimersByTimeAsync(USAGE_REFRESH_MS)
+    expect(poll).toHaveBeenCalledTimes(2)
+  })
+
+  it('a poll that hangs does not hold Claude\'s ask, and Claude\'s ask failing does not hold the poll', async () => {
+    poll.mockImplementation(() => new Promise(() => undefined))
+    start()
+    await settle()
+    expect(store.recorded).toHaveLength(1)
+
+    const second = new Store()
+    const other = new LimitsRefresher({ limits: second, read: () => Promise.reject(new Error('no Claude Code')), log: () => undefined, vendors: [{ vendor: 'codex', poll: () => Promise.resolve(WINDOWS) }] })
+    other.start()
+    await settle()
+    other.stop()
+    expect(second.vendorWindows).toEqual([['codex', WINDOWS]])
+  })
+
+  it('stop() aborts the poll in flight through the same signal as Claude\'s ask, drops its answer and logs no failure', async () => {
+    let finish: (windows: readonly LimitWindow[] | null) => void = () => undefined
+    let fail: (error: Error) => void = () => undefined
+    poll.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    const running = start()
+    await settle()
+    const signal = poll.mock.calls[0]![0]
+    expect(signal).toBe(read.mock.calls[0]![0])
+    expect(signal.aborted).toBe(false)
+    running.stop()
+    expect(signal.aborted).toBe(true)
+    finish(WINDOWS)
+    await settle()
+    expect(store.vendorWindows).toEqual([])
+
+    // A poll that rejects because of the abort is not a failure to log.
+    const next = new Store()
+    poll.mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)))
+    const other = new LimitsRefresher({ limits: next, read, log, vendors: [{ vendor: 'codex', poll }] })
+    other.start()
+    await settle()
+    other.stop()
+    fail(new Error('the app quits'))
+    await settle()
+    expect(log).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(5 * USAGE_REFRESH_MS)
+    expect(poll).toHaveBeenCalledTimes(2)
+  })
+
+  it('pollVendors() on a stopped refresher polls nothing; without Vendors it resolves', async () => {
+    const stopped = new LimitsRefresher({ limits: store, read, log, vendors: [{ vendor: 'codex', poll }] })
+    stopped.stop()
+    await stopped.pollVendors()
+    expect(poll).not.toHaveBeenCalled()
+    await expect(new LimitsRefresher({ limits: store, read, log }).pollVendors()).resolves.toBeUndefined()
   })
 })
 

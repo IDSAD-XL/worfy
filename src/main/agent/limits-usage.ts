@@ -8,7 +8,13 @@
 // method, an answer without rate limits (an API key, Bedrock, Vertex) or a failure is logged once at
 // debug level and the Limits stay with the passive sources; the next try is the next tick, never a
 // loop.
-import { LIMIT_WINDOWS, limitUpdatesFromUsage, type LimitUpdate, type LimitsState } from '../../shared/agent/limits'
+//
+// The same refresher polls the other Vendors (worfy-multi-vendor ticket 21): Codex, through the poll of
+// its driver (src/main/vendors/codex/limits.ts), at the start and every interval. The poll asks the
+// windows only while signed in to Codex and answers null otherwise, and the refresher then forgets the
+// Vendor's windows. Every poll is stopped by stop() through the same signal as Claude's ask, so the
+// app quits without a Codex process or a request left waiting. Claude's ask is not changed by it.
+import { LIMIT_WINDOWS, limitUpdatesFromUsage, type LimitUpdate, type LimitWindow, type LimitsState } from '../../shared/agent/limits'
 
 /** How often the usage is asked, and how fresh the data must be for an ask to be skipped. */
 export const USAGE_REFRESH_MS = 1_800_000
@@ -23,11 +29,24 @@ export type UsageReader = (signal: AbortSignal) => Promise<unknown>
 export interface LimitsStore {
   snapshot(): LimitsState
   record(updates: readonly LimitUpdate[]): void
+  /** Replaces the windows of a Vendor other than Claude; null forgets them. */
+  setWindows(vendor: string, windows: readonly LimitWindow[] | null): void
+}
+
+/**
+ * A Vendor other than Claude whose Limits the refresher polls: `poll` answers its windows, null when
+ * not signed in to it, and throws on a failure. `signal` aborts when the app quits.
+ */
+export interface VendorLimitsPoll {
+  vendor: string
+  poll(signal: AbortSignal): Promise<readonly LimitWindow[] | null>
 }
 
 export interface LimitsRefresherOptions {
   limits: LimitsStore
   read: UsageReader
+  /** The other Vendors to poll at the start and every interval; none by default. */
+  vendors?: readonly VendorLimitsPoll[]
   /** Clock in milliseconds; tests pass a fake one. */
   now?: () => number
   intervalMs?: number
@@ -51,6 +70,10 @@ export class LimitsRefresher {
   private readonly quit = new AbortController()
   /** Whether the line for "no rate limits" or for a failure was logged since the last answer. */
   private logged = { unavailable: false, failed: false }
+  /** The Vendors whose poll runs now: a tick does not start a second one. */
+  private readonly polling = new Set<string>()
+  /** The Vendors whose last poll failed and was logged: the next failure is not logged again. */
+  private readonly vendorFailed = new Set<string>()
 
   constructor(private readonly options: LimitsRefresherOptions) {
     this.now = options.now ?? Date.now
@@ -62,7 +85,11 @@ export class LimitsRefresher {
     if (this.timer !== null || this.stopped) return
     // At start any fresh data counts, the usage recorded by the last run of the app included.
     void this.check(false)
-    this.timer = setInterval(() => void this.check(true), this.intervalMs)
+    void this.pollVendors()
+    this.timer = setInterval(() => {
+      void this.check(true)
+      void this.pollVendors()
+    }, this.intervalMs)
     this.timer.unref?.()
   }
 
@@ -94,6 +121,31 @@ export class LimitsRefresher {
     // A number exactly `maxAgeMs` old is not older than that: fresh within one millisecond more.
     if (this.stopped || this.fresh(false, maxAgeMs + 1)) return
     await this.ask()
+  }
+
+  /**
+   * One poll of every other Vendor whose poll is not running already; resolves once each is recorded
+   * or failed (that is logged, once per run of failures, never thrown).
+   */
+  async pollVendors(): Promise<void> {
+    await Promise.all((this.options.vendors ?? []).map((source) => this.pollVendor(source)))
+  }
+
+  private async pollVendor({ vendor, poll }: VendorLimitsPoll): Promise<void> {
+    if (this.stopped || this.polling.has(vendor)) return
+    this.polling.add(vendor)
+    try {
+      const windows = await poll(this.quit.signal)
+      if (this.stopped) return
+      this.vendorFailed.delete(vendor)
+      this.options.limits.setWindows(vendor, windows)
+    } catch (error) {
+      if (this.stopped || this.vendorFailed.has(vendor)) return
+      this.vendorFailed.add(vendor)
+      this.log(`[limits] the Limits of ${vendor} could not be read: they keep what was read last`, error)
+    } finally {
+      this.polling.delete(vendor)
+    }
   }
 
   /** One ask; `running` holds it until it is over. */
@@ -150,13 +202,15 @@ export function refreshAppUsage(maxAgeMs: number): Promise<void> {
 }
 
 /**
- * Starts the app's refresher over appLimits(); answers the function that stops it (for
- * `will-quit`). With WORFY_AGENT=fake (e2e runs) or under vitest nothing starts: no Claude Code.
+ * Starts the app's refresher over appLimits(), for Claude and Codex; answers the function that stops it
+ * (for `will-quit`). With WORFY_AGENT=fake (e2e runs) or under vitest nothing starts: no Claude Code, no
+ * Codex.
  */
 export async function installLimitsRefresh(env: NodeJS.ProcessEnv = process.env): Promise<() => void> {
   if (env.WORFY_AGENT === 'fake' || env.VITEST) return () => undefined
-  const [{ appLimits }, { claudeUsageReader }] = await Promise.all([import('./limits'), import('../vendors/claude/limits')])
-  const refresher = new LimitsRefresher({ limits: appLimits(), read: await claudeUsageReader() })
+  const [{ appLimits }, { claudeUsageReader }, { CODEX_VENDOR, codexLimits }] = await Promise.all([import('./limits'), import('../vendors/claude/limits'), import('../vendors/codex/limits')])
+  const codex: VendorLimitsPoll = { vendor: CODEX_VENDOR, poll: (signal) => codexLimits.poll(signal) }
+  const refresher = new LimitsRefresher({ limits: appLimits(), read: await claudeUsageReader(), vendors: [codex] })
   refresher.start()
   appRefresher = refresher
   return () => {
