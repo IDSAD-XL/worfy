@@ -1,0 +1,7 @@
+{"expect":"initialize","result":{"codexHome":"/fake/codex-home","platformFamily":"unix","platformOs":"macos","userAgent":"worfy-fake-app-server/0.166.0"}}
+{"expect":"initialized"}
+{"expect":"account/read","result":{"account":null,"requiresOpenaiAuth":true}}
+{"expect":"account/login/start","result":{"type":"chatgpt","loginId":"login_fake_1","authUrl":"https://auth.openai.com/oauth/authorize?client_id=fake&state=login_fake_1"}}
+{"notify":"account/login/completed","params":{"loginId":"login_fake_1","success":true,"error":null}}
+{"notify":"account/updated","params":{"authMode":"chatgpt","planType":"plus"}}
+{"expect":"account/read","result":{"account":{"type":"chatgpt","email":"user@example.com","planType":"plus"},"requiresOpenaiAuth":true}}

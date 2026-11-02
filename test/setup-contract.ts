@@ -15,6 +15,9 @@
 // autocompact window does). Called with an environment of the test's own
 // (`dataRoot({}, 'packaged')`) it answers as in the app.
 //
+// And Codex: WORFY_CODEX=fake and a new empty CODEX_HOME for every test file (isolateCodex), so no
+// contract test starts the real Codex or reads the developer's ~/.codex.
+//
 // The folders lie in the folder of the run that test/global-setup-contract.ts makes and removes at
 // the end: a file whose tests are all skipped runs no afterAll, and its folders go with that one.
 //
@@ -31,6 +34,8 @@ type Env = Record<string, string | undefined>
 export const CLAUDE_HOME_PREFIX = 'claude-home-'
 /** Prefix of the worfy data folder of a test file, inside the folder of the run. */
 export const DATA_DIR_PREFIX = 'data-dir-'
+/** Prefix of the CODEX_HOME of a test file, inside the folder of the run. */
+export const CODEX_HOME_PREFIX = 'codex-home-'
 
 /** What a contract test gets from dataRoot() with the process environment and no WORFY_DATA_DIR. */
 export const REAL_DATA_FOLDER_REFUSED = 'a contract test asked dataRoot() for worfy\'s real data folder: WORFY_DATA_DIR is unset'
@@ -113,7 +118,23 @@ export function isolateDataDir(env: Env, root: string): { dir: string; release: 
   return isolated === null ? null : { dir: isolated.folder, release: isolated.release }
 }
 
+/**
+ * Codex the same way (worfy-multi-vendor ticket 18): WORFY_CODEX=fake, so a Codex app-server a test
+ * starts is the fake (src/main/vendors/codex/launch.ts), and CODEX_HOME on a new empty folder inside
+ * `root`. Unlike the two above, both are set whatever the run had: CODEX_HOME is Codex's own variable,
+ * which a developer may keep in the shell pointing at the real home, and no contract test may read it.
+ * A test that needs other values sets them itself. Returns the folder made and its cleanup.
+ */
+export function isolateCodex(env: Env, root: string): { home: string; release: () => void } {
+  env.WORFY_CODEX = 'fake'
+  delete env.CODEX_HOME
+  const isolated = isolateFolder(env, root, 'CODEX_HOME', CODEX_HOME_PREFIX)
+  if (isolated === null) throw new Error('CODEX_HOME is still set after it was deleted')
+  return { home: isolated.folder, release: isolated.release }
+}
+
 const isolated = isolateClaudeHome(process.env, inject('contractClaudeHomes'))
 if (isolated !== null) afterAll(isolated.release)
 const isolatedData = isolateDataDir(process.env, inject('contractClaudeHomes'))
 if (isolatedData !== null) afterAll(isolatedData.release)
+afterAll(isolateCodex(process.env, inject('contractClaudeHomes')).release)
