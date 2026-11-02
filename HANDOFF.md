@@ -5,35 +5,33 @@
 - `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): 70/71; влиты 62, 64, 65 (#719), 66 (#949), 67 (#1011), 68 (#945), 69 (#1015), 70 (#778), 71 (#829), 52, 63 (#713); задачи 52 — у владельца; 31, 36, 47, 48, 50, 51 — шаг владельца.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
-- `worfy-link` ([spec](.scratch/worfy-link/spec.md)): 41/42; 31 (Tailscale) принят 2026-10-31; 41 (дубль сообщения, #1114) и 42 (поток строк смены сети, #1119) — проверка после Stable. Осталась приёмка 16.
+- `worfy-link` ([spec](.scratch/worfy-link/spec.md)): закрыт, 42/42, принят владельцем 2026-11-02; 31 (Tailscale) принят 2026-10-31; 41 (дубль сообщения, #1114) и 42 (поток строк смены сети, #1119) — проверка после Stable.
 - `worfy-windows` (ADR 0054–0057, 0062, 0063, 0069, 0071; прошлое — «Итог» 39, 60, 66, 67): 119/120; влиты 118–120; 15 и 118 вместе прошли зелёный gate full на ПК (`5557f744`). Осталась приёмка 16; красный только на Windows — fix или Windows exception (Q1/Q9).
-- `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) — **добиваем, владелец 2026-10-23**: влиты 01–08, 10–17 (17 — #1056, ветка git из файлов); осталась приёмка 09 (ждёт владельца).
+- `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) — **добиваем, владелец 2026-10-23**: закрыт, 17/17, принят владельцем 2026-11-02 (17 — #1056, ветка git из файлов).
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
-- `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–26; 12 — приёмка; открыты 27 (pointer, hover), 28 (drop, превью в чате).
+- `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): закрыт, 28/28, принят владельцем 2026-11-02.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 46/47; 47 (flaky Windows): части 1–5 влиты, ждёт 20 зелёных `windows-e2e`.
+- `worfy-polish`: 46/48; 47 (flaky Windows): части 1–5 влиты, ждёт 20 зелёных `windows-e2e`; 48 — шапка на узком окне, открыт.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 57/60; открыты 05, 31, 43; 60 — Eco mode в чате (#1057). 43: eco проверяет друг. 31: замер 2026-11-06.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
-- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): 14/15; 14 и 15 влиты, 12 ждёт приёмки владельцем. `worfy-guide`: закрыт, 21/21.
-- `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): принят владельцем 2026-11-01; открыт только 28 (вкладка Runs в шапке, в работе); Windows-часть 25 не проводилась.
+- `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): закрыт, 16/16, принят владельцем 2026-11-02 (Mac). `worfy-guide`: закрыт, 21/21.
+- `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): закрыт, 28/28, принят владельцем 2026-11-01; Windows-часть 25 не проводилась.
 - `worfy-resource-planner`: закрыт, 12/12, принят владельцем 2026-11-01.
-- Пауза: новое не раздаётся до сброса недельных Limits пн 2026-11-02 18:00.
+- ПК остановлен по слову владельца до его команды.
 
 ## Ждёт владельца
 
-- `worfy-onboarding`: 12 — Mac принят 2026-10-31, ПК пройден; 13, 14 приняты вживую 2026-10-31.
 - С `check/windows` skipped, пока ПК на паузе, влит #878 — его покрывает полный run Windows e2e ПК на свежем `main` (решение 2026-10-28).
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
 - Песочница приёмки в `$TMPDIR`: macOS чистит файлы через три дня без обращений. Исправление — `worfy-harness` 36; после merge владелец запускает `move` (команды — в PR).
-- Приёмка `worfy-link` 16 (Bonjour, запрос Local Network) — код готов; Tailscale стоит на обеих машинах.
 - Одной сессией после `worfy-terminal-ai` 09 — проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
 - `worfy-windows`, ПК: 12 — SmartScreen установщика; 07 закрыт (#1127, отступления Q31 подтвердить).
 - Приёмки (Q14).
-- `worfy-ui`: вручную — раздел Health (06) и ⌘B (10); AltGr на Windows-ПК (03) — пока владелец не скажет в чате ПК; gate full на Windows для 03 и 10 — после e2e Windows (`worfy-windows` 14); долги — «Итог» 03–06, 09, 10, 13–15; 11 — gate full на Windows-ПК и решения в PR #328.
+- `worfy-ui` (закрыт): Windows-часть не проводилась — AltGr на ПК (03), gate full на Windows для 03 и 10, 11 (решения в PR #328); долги — «Итог» 03–06, 09, 10, 13–15.
 - Решено без владельца, подтвердить: видно ли новое описание аудита в приложении Claude (`worfy-guide` 20 п. 1 сделан).
 
 ## Риски и долги
@@ -61,8 +59,8 @@
 - Очередь мержа (владелец, Q7, Q10) пройдена: #517, #496, #508 влиты; `worfy-pipeline` 08 влит (#552).
 - `worfy-harness` 50, 51 — платный повтор кейса eval (`~/.docker/bin` вынести на время run-а); 52 — Session без plugin-а для задач и платные шаги 2б, 4, 5.
 - `worfy-windows`, очередь ПК: приёмка 16.
-- `worfy-onboarding` ([spec](.scratch/worfy-onboarding/spec.md)): 13/14; 12 — Mac принят, ПК пройден, «Итог» ПК записан; 13, 14 влиты.
-- Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot.
+- `worfy-onboarding` ([spec](.scratch/worfy-onboarding/spec.md)): закрыт, 14/14, принят владельцем 2026-11-02; «Итог» ПК записан в 12.
+- Приёмка `worfy-harness` 26 — вместе с владельцем, не в Autopilot.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - После `pnpm install:stable` — первый `retro` на настоящем сбое (`worfy-reliability` 09, пункт «(вручную)»).
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).

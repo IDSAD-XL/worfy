@@ -1,7 +1,8 @@
 # 16 — Update показывает, что идёт сборка: шаг, время, отказ
 
 Type: task
-Status: claimed 2026-11-01T16:36Z
+Status: done 2026-11-02T04:09Z
+PR: #1229
 Blocked by: —
 Source: отчёт владельца 2026-11-01 (после «Update worfy» нет никакой индикации загрузки или прогресса); карта scout-а того же дня.
 
@@ -52,7 +53,7 @@ Source: отчёт владельца 2026-11-01 (после «Update worfy» н
 - [x] Снимки chip-а и Settings во время сборки в обеих темах в `.scratch/worfy-update/evidence/16-*.png`, контраст ≥4.5:1.
 - [x] `docs/features/updates.md` (+ `ru/updates.md`, если есть) и spec R11 — что видно во время сборки.
 - [x] Test-ы краснеют на mutant-ах: шаг не шлётся на смене; chip без шага; отказ только в console.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (Windows job-ы — пути сборки на win32).
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (Windows job-ы — пути сборки на win32).
 
 ## Где в коде
 
@@ -66,6 +67,8 @@ Source: отчёт владельца 2026-11-01 (после «Update worfy» н
 Не трогать: `src/main/update/restart.ts`, `check.ts`, `state.ts`, `scripts/install-stable.mjs`.
 
 ## Итог
+
+Влит c22e29d0 (#1229).
 
 Сделано на ветке `worfy-update/16`.
 
@@ -127,3 +130,10 @@ contract; M20 `step` обязателен (старое состояние не 
 прогон этих spec-ов в log-ах и транскрипте прошлой сессии не нашёлся: оба её прогона e2e тоже зелёные. Сбой не
 повторился ни разу из 4 прогонов: признаков ошибки кода нет, вероятная причина — окружение (прошлую сессию прервал
 перезапуск worfy); точная причина не установлена.
+
+Долги:
+
+- `update.ts`: `quit` через `restartBegan` без test-а.
+- Текст шага на chip-е расширяет шапку примерно на 135 px во время сборки.
+- Флаг `pointed` не сбрасывается.
+- Двойной toast «Update failed» остался.

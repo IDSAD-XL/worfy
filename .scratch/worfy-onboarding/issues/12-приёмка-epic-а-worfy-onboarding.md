@@ -1,7 +1,7 @@
 # 12 — Приёмка Epic-а worfy-onboarding с владельцем: новый пользователь macOS и Windows-ПК
 
 Type: task
-Status: open
+Status: done 2026-11-02T04:15Z
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11
 Source: «Готово, когда» Epic-а worfy-onboarding ([spec.md](../spec.md)); решения владельца 2026-10-26, пункты 1–8; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2 (платформенная часть — на Windows-ПК владельца)
 
@@ -39,42 +39,43 @@ Source: «Готово, когда» Epic-а worfy-onboarding ([spec.md](../spec
 
 **macOS, новый пользователь ОС.**
 
-- [ ] (вручную) First run открылся сам: «Welcome to worfy», три понятия, «Next» — проверки, «Start
+- [x] (вручную) First run открылся сам: «Welcome to worfy», три понятия, «Next» — проверки, «Start
       Getting started» — раздел первым в боковой панели, шаг 1 отмечен (проверки без `fail`).
-- [ ] (вручную) «Create demo project» — `~/worfy-demo`, Project в боковой панели, Canvas с Epic `todo`
+- [x] (вручную) «Create demo project» — `~/worfy-demo`, Project в боковой панели, Canvas с Epic `todo`
       и Ticket-ом 01; шаг 2 отмечен. Переключатель стоит на «Sonnet — a bit cheaper».
-- [ ] (вручную) «Open the Orchestrator» — готовый вопрос, отправлен, ответ пришёл; шаг 3 отмечен.
-- [ ] (вручную) «Ship the ticket» — исполнитель работает в worktree, Pipeline показывает Stage-ы,
+- [x] (вручную) «Open the Orchestrator» — готовый вопрос, отправлен, ответ пришёл; шаг 3 отмечен.
+- [x] (вручную) «Ship the ticket» — исполнитель работает в worktree, Pipeline показывает Stage-ы,
       подсказки каждого Stage-а пришли один раз; ревью — REJECTED и круг доработки, или «This time
       the review found nothing» и пример; шаги 4–6 отмечены; Status Ticket-а `done`, merge в `main`
       demo (`git -C ~/worfy-demo log --oneline -3`).
-- [ ] (вручную) Экран Done: «Connect your own project» открывает «Add project»; «Remove the demo
+- [x] (вручную) Экран Done: «Connect your own project» открывает «Add project»; «Remove the demo
       project» — подтверждение, после него нет папки, Project-а в списке и Profile-а
       (`ls ~/.claude/worfy-harness/projects` без `worfy-demo`).
-- [ ] (вручную) «Skip» скрывает раздел, Command palette «Getting started» возвращает его.
-- [ ] (вручную) Нигде нет модального окна, кроме существующего First run и подтверждения удаления.
+- [x] (вручную) «Skip» скрывает раздел, Command palette «Getting started» возвращает его.
+- [x] (вручную) Нигде нет модального окна, кроме существующего First run и подтверждения удаления.
 
 **macOS, существующий пользователь.**
 
-- [ ] (вручную) Обновление на папке данных с Project-ами: раздел не открылся сам; уведомление в углу
+- [x] (вручную) Обновление на папке данных с Project-ами: раздел не открылся сам; уведомление в углу
       «New: Getting started…»; «Not now» — после перезапуска его нет.
 
 **Linked machine.**
 
-- [ ] (вручную) dev-сборка и Stable copy связаны (worfy-link), доступ включён: Project-а demo нет в
+- [x] (вручную) dev-сборка и Stable copy связаны (worfy-link), доступ включён: Project-а demo нет в
       боковой панели второй копии.
 
 **Windows-ПК владельца.**
 
-- [ ] (вручную) Свежая папка данных: First run → Getting started → demo в `C:\Users\<имя>\worfy-demo`
+- [x] (вручную) Свежая папка данных: First run → Getting started → demo в `C:\Users\<имя>\worfy-demo`
       (не в `%TEMP%`) → проход до Done → удаление, папки нет.
 - [ ] gate full на ПК на коммите приёмки — код 0 и строка `[gate] green (full)`.
+      Не зелёный: последний прогон красный только на нестабильном `epic-frame.spec.ts:1104` (worfy-polish 47); владелец принял Epic 2026-11-02 с этим («Итог»).
 
 **Записи.**
 
-- [ ] «Итог»: на каждой машине — нашло ли ревью проблему, сколько длился проход, что владелец попросил
+- [ ] «Итог» (Windows записан; для Mac ревью, длительность и правки текстов не записаны, владелец принял без них): на каждой машине — нашло ли ревью проблему, сколько длился проход, что владелец попросил
       поменять в текстах.
-- [ ] Пункты «Готово, когда» Epic-а отмечены в `spec.md`.
+- [x] Пункты «Готово, когда» Epic-а отмечены в `spec.md`: в `spec.md` списка с отметками нет, отмечать нечего.
 
 ## Тесты
 
@@ -107,6 +108,6 @@ Source: «Готово, когда» Epic-а worfy-onboarding ([spec.md](../spec
 
 Evidence на ПК, не в репозитории: `12-01-start.png`, `12-auto-042153…042655.png`, `onb12-stdout.log`, `onb12-stderr.log`, `onb12-watch.log`.
 
-### macOS
+### Приёмка владельцем, 2026-11-02
 
-Дописывается при закрытии Ticket-а.
+Принят владельцем 2026-11-02. Слова владельца: «Онбординг закрываем.» macOS-часть владелец прошёл и принял 2026-10-31 (Q18), Windows-часть пройдена на ПК 2026-10-31 (выше). Для Mac ревью, длительность прохода и правки текстов не записаны.

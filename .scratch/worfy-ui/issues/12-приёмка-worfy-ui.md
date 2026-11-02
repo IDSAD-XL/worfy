@@ -1,9 +1,7 @@
 # 12 — Приёмка Epic-а worfy-ui по «Готово, когда»
 
 Type: task
-Status: blocked
-Blocked reason: ручные проверки владельца на Mac приняты 2026-10-19 («Итог»); осталась часть агента — e2e `worfy-ui-acceptance.spec.ts`, снимки, разделы F-SPEC, — потом просмотр снимков владельцем; Windows — после приёмки Epic-а worfy-windows
-Waits: agent
+Status: done 2026-11-02T04:15Z
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 13, 14, 15
 Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «Цель»; подтверждено владельцем 2026-10-09); решения владельца 2026-10-09, 1–9 ([spec.md](../spec.md), «Решения владельца»); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) (проверка на Windows-ПК); [roadmap.md](../../../docs/roadmap.md), раздел «worfy-ui — интерфейс и настройки»
 
@@ -52,9 +50,12 @@ Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «
 
 - [ ] e2e `test/e2e/worfy-ui-acceptance.spec.ts` зелёный в `GATE_SCOPE=all gate.sh full`; снимки —
   в `../evidence/12-*.png`.
+  Не сделано: файла `test/e2e/worfy-ui-acceptance.spec.ts` и снимков `../evidence/12-*.png` нет; владелец принял Epic 2026-11-02 без них.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full — строка
   `[gate]` и код выхода в «Итог».
+  Не записано: строка `[gate]` и код выхода в «Итог» не вносились; владелец принял Epic 2026-11-02 без них.
 - [ ] Разделы F-SPEC написаны.
+  Не сделано: разделов «Settings», «Sidebar sections», «Select», «Keyboard shortcuts» в `docs/design/F-SPEC.md` нет (есть только «Settings → Machines»); владелец принял Epic без них.
 - [x] (вручную, владелец) Stable copy: ⌘, открывает Settings на Canvas, в Session, в режиме фокуса,
   в поле ввода Session и при фокусе в Terminal Node. Как проверить: окно worfy.
 - [x] (вручную, владелец) ⌥⌘= / ⌥⌘− / ⌥⌘0 меняют масштаб везде (если в системных настройках macOS
@@ -68,15 +69,19 @@ Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «
   окно worfy.
 - [ ] Владелец посмотрел снимки `../evidence/12-*.png` и его замечания записаны в
   `../evidence/12-приёмка.md` и в «Итог».
+  Не сделано: снимков нет; владелец принял Epic 2026-11-02 без них.
 
 **Windows: после приёмки Epic-а worfy-windows.**
 
 - [ ] (вручную) Windows-ПК: Ctrl+, Ctrl+Alt+= / Ctrl+Alt+- / Ctrl+Alt+0, Ctrl+B, Ctrl+/ работают;
   подписи в окне Keyboard shortcuts и в меню — с Ctrl.
+  не проверено: владелец принял без Windows-части
 - [ ] (вручную) Windows-ПК: внутри Terminal Node Ctrl+B и Ctrl+/ уходят в оболочку, вне Terminal —
   прячут панель и открывают окно сочетаний (решение владельца, spec, риск 5); в поле ввода Session
   AltGr-символы раскладки печатаются (spec, риск 4).
+  не проверено: владелец принял без Windows-части
 - [ ] Windows-ПК: gate full — строка вердикта и код выхода в «Итог».
+  не проверено: владелец принял без Windows-части
 
 ## Тесты
 
@@ -92,7 +97,9 @@ Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «
 
 ## Итог
 
-Заполняется при закрытии. Ниже — промежуточные записи.
+Принят владельцем 2026-11-02. Слова владельца: «UI проверил, закрываем.» Mac-проверки владельца приняты ещё 2026-10-19 (ниже). Часть агента — сквозной e2e, снимки, разделы F-SPEC — не сделана; Windows-часть не проводилась. Владелец принял Epic без них.
+
+Промежуточные записи:
 
 **Ручные проверки владельца на Mac — приняты (2026-10-19).** Stable copy собрана из main `e61cb1fe`
 (с влитыми 01–11 и 13–15). Слова владельца: «я все протестил, все отлично. Коннект машин работает
