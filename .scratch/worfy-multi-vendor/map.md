@@ -29,20 +29,19 @@
 - [03 — Codex: Limits подписки](issues/03-codex-limits.md): до двух окон (`primary` / `secondary`) с `used_percent`, `window_minutes`, `resets_at`, набор окон зависит от плана; событие `account/rateLimits/updated` и запрос `account/rateLimits/read` без вызова модели; конец лимита — ошибка хода `usageLimitExceeded` без ожидания; бюджету Wave хватает, прогнозу Resource Planner — частично.
 - [04 — Codex: расширения, на которых стоит Harness](issues/04-codex-расширения-для-harness.md): Codex читает plugin-ы формата Claude (`.claude-plugin`, skills, `hooks/hooks.json`, `.mcp.json`); hooks есть, но без `TaskCompleted` / `TeammateIdle` (gate — на `Stop`), а доверие к hook-ам plugin-а привязано к hash всей папки — любое обновление Harness выключает его hook-и до подтверждения пользователем; MCP только stdio / HTTP, in-process нет; Subagent-ы не из plugin-а и без read-only.
 - [05 — Codex: транскрипты и Session-ы вне worfy](issues/05-codex-транскрипты.md): JSONL на Session в `~/.codex/sessions/ГГГГ/ММ/ДД/`, Subagent-ы — отдельные файлы со ссылкой на родителя, Project — только по `cwd`; формат не документирован и меняется — читать через `thread/list` / `thread/read` app-server, а не файлы.
+- [06 — Граница Vendor-а](issues/06-граница-vendor.md): своя нейтральная модель worfy (`AgentEvent` уже есть), driver на Vendor-а в `src/main/vendors/<id>/` из частей capabilities, session, account, limits, history, commands, mcp, oneShot; Codex — через `codex app-server` с закреплённым бинарником и сгенерированными типами; SDK Claude импортирует только `src/main/vendors/claude/` (contract test); ADR-0094 отменяет `.scratch/worfy-mvp/spec.md:120`. Решил Orchestrator по поручению владельца, подтвердить при приёмке.
+- [07 — Что получает Session на Codex](issues/07-что-получает-codex.md): первый выпуск — чат (выбор Vendor-а, очередь и steer, interrupt, resume, пикеры, presets, approval-ы, slash-меню, Node Session, Limits, onboarding, поиск); второй — MCP worfy по HTTP, Subagent-ы, Harness, Autopilot, Flight Recorder, Binding; недоступное показано недоступным с причиной, эмуляции нет. Решил Orchestrator по поручению владельца, подтвердить при приёмке.
+- [08 — Harness для Codex](issues/08-harness-для-codex.md): один источник `harness/`, установка через локальный marketplace Codex, TOML агентов при установке, gate на `Stop`, шаг подтверждения hook-ов после каждой установки и отказ preflight Autopilot без него; read-only reviewer — только после test-а. Решил Orchestrator по поручению владельца, подтвердить при приёмке.
+- [09 — Limits, Autopilot и Resource Planner при двух Vendor-ах](issues/09-limits-и-autopilot-по-vendor.md): Limits — список окон по Vendor-у, раздел на Vendor-а в панели; budget и прогноз — по Vendor-у Orchestrator-а Run; `usageLimitExceeded` с исчерпанным окном — ожидание сброса, без него — остановка без ожидания; термин Limits в `CONTEXT.md` переопределён. Решил Orchestrator по поручению владельца, подтвердить при приёмке.
 
 ## Not yet specified
 
-- MCP-серверы `worfy-canvas` и `worfy-browser` вне процесса (stdio или HTTP) — нужно ли и для Claude тоже, когда станет ясно, что Codex умеет (Ticket 04).
-- Тесты: фейк на каждого Vendor-а, compatibility suite по версиям Codex (как `worfy-reliability` 05 для Claude Code), contract test-ы адаптера.
-- Onboarding: выбор Vendor-а и проверка входа в Codex при первом запуске; что видит пользователь без Codex.
-- Вид в интерфейсе: значок Vendor-а на Node Session, в rail-е и в шапке; пикеры Model / effort / permission по Vendor-у.
-- Terminal AI на Codex.
-- Где хранится Vendor по умолчанию Project-а и что с существующими Project-ами (все Claude Code).
-- Windows: как Codex живёт на Windows (native или WSL) и что это меняет для ПК.
-- Смешанные Vendor-ы по ролям агентов (Orchestrator на одном, implementer или reviewer на другом) — после первого выпуска; связь с вариантом G `worfy-reliability` (ревью моделью другого Vendor-а).
-- Страницы `docs/features` и Guide о Vendor-ах.
+- Третий Vendor на бумаге (Gemini CLI, OpenCode) против границы ADR-0094 — Ticket 10.
+- Остальное, что стояло здесь, разобрано решениями 06–09 и [spec.md](spec.md): MCP вне процесса (только для Codex, второй выпуск), фейк и compatibility suite Codex, onboarding, вид Vendor-а в интерфейсе, Vendor по умолчанию Project-а, Windows (Codex native), страницы `docs/features`.
 
 ## Out of scope
 
 - API-ключи любого Vendor-а (OpenAI API, Anthropic API, OpenRouter): вход только по подписке. Слово владельца 2026-11-02: «под апи-ключи поддержки не планируется».
 - Реализация третьего Vendor-а (Gemini CLI, OpenCode и другие): эта карта проверяет его только на бумаге; реализация — отдельное решение после выпуска Codex.
+- Terminal AI на Codex, смешанные Vendor-ы по ролям агентов (связь с вариантом G `worfy-reliability`) и Link ко второй Machine с Codex: решение 07 — после этого Epic-а, отдельными решениями.
+- Продолжить Run на другом Vendor-е, когда окно кончилось: нужны сначала смешанные Vendor-ы по ролям агентов (Orchestrator и Wave на разных Vendor-ах), а их нет и в этом Epic-е; отдельная идея на потом (решение 09).

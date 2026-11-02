@@ -1,0 +1,53 @@
+# 17 — Бинарник Codex, типы протокола и capabilities Codex
+
+Type: task
+Status: open
+Blocked by: 13
+Source: [spec.md](../spec.md), «Codex: бинарник и совместимость», «Windows», «Риски», п. 7; решение 06 ([06-граница-vendor.md](06-граница-vendor.md), «Codex ведётся через `codex app-server`»); Ticket 02 ([02-codex-управление-сессией.md](02-codex-управление-сессией.md), поставка и лицензия); [ADR-0008](../../../docs/adr/0008-claude-code-native-binary-path.md); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
+
+## Что происходит
+
+- Claude Code приходит native binary-ем платформенного пакета SDK, распакованным из `app.asar`
+  (`electron-builder.yml:43-52`, `package.json:29`); путь — `claudeExecutablePath` (после Ticket-а 13 —
+  `src/main/vendors/claude/options.ts`).
+- Codex: npm `@openai/codex` (Apache-2.0) с бинарниками по платформам через `optionalDependencies` (darwin-arm64/x64,
+  win32-x64/arm64); типы протокола — `codex app-server generate-ts`, «each output is specific to the Codex version».
+
+## Что делаем
+
+1. `@openai/codex` в `dependencies` с точной версией — последняя stable на момент claim. Платформенные пакеты — в
+   `asarUnpack`. LICENSE и NOTICE Codex — в ресурсах сборки.
+2. `src/main/vendors/codex/binary.ts` — `codexExecutablePath(runtime)` (packaged — из `app.asar.unpacked`, иначе —
+   из `node_modules`; `codex.exe` на Windows), по образцу `claudeExecutablePath`.
+3. `scripts/codex-protocol.mjs` — запускает `codex app-server generate-ts` закреплённой версии, кладёт вывод в
+   `src/main/vendors/codex/protocol/` и пишет туда `VERSION`. `pnpm lint` сверяет `VERSION` с версией в
+   `package.json` (скрипт без запуска Codex).
+4. `src/main/vendors/codex/capabilities.ts` — статические capabilities Codex: `steer`, `resume`, `limitWindows`,
+   `slashCommands` — да; `inProcessMcp`, `canvasTools`, `subagents` (до второго выпуска) — нет, с причинами для
+   tooltip; presets «Read only», «Auto», «Full access» (approval policy + sandbox).
+5. `src/main/vendors/codex/index.ts` — driver Codex: capabilities и части-заглушки, которые отвечают «not available
+   yet»; `vendorDriver('codex')` в реестре. В интерфейсе Codex не появляется до Ticket-а 24.
+6. В PR — размер сборки до и после.
+
+Глубина review — `high` (driver Codex). Платформенный: упаковка и путь с веткой по платформе.
+
+## Готово, когда
+
+- [ ] Unit test пути бинарника: packaged и dev, macOS и Windows (разделители и `codex.exe`), как test-ы
+      `claudeExecutablePath`.
+- [ ] Unit test проверки `VERSION`: несовпадение с `package.json` — красный.
+- [ ] Unit test capabilities Codex: три presets, недоступное — с причиной.
+- [ ] `pnpm build` на Mac кладёт бинарник Codex в `app.asar.unpacked`; рост размера сборки записан в PR.
+- [ ] Платформенный PR (ADR-0056, п. 2; ADR-0071): вердикт Windows до merge.
+- [ ] `pnpm typecheck`, `pnpm lint`, `pnpm test` — exit 0.
+
+## Где в коде
+
+- `package.json` — `:29` (рядом); `pnpm-lock.yaml`
+- `electron-builder.yml` — `:43-52`
+- `scripts/codex-protocol.mjs` (новый); проверка `VERSION` — в скриптах `pnpm lint`
+- `src/main/vendors/codex/binary.ts`, `capabilities.ts`, `index.ts`, `protocol/` (новые)
+- `src/main/vendors/registry.ts`
+- Test-ы: `test/unit/codex-binary.test.ts`, `test/unit/codex-capabilities.test.ts` (новые)
+
+Только читать: `src/main/vendors/claude/options.ts` (после Ticket-а 13; сейчас `src/main/agent/options.ts:96-130`).
