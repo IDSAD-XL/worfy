@@ -1,0 +1,12 @@
+{
+  "runner": "playwright",
+  "file": "test/e2e/card-drag.spec.ts",
+  "test": "a Note jerked across a Card iframe ends its drag on the release and lands where it was dropped",
+  "reason": "On the GitHub Windows runner the app window sometimes does not reach its 1600 px width within canvasReady's 10 s, so start() gives up with «the window is 1600 px wide» (Timeout 9989ms exceeded while waiting on the predicate, test/e2e/helpers.ts:544) before the drag under test begins, on the first try and on the retry. Red in main's push run https://github.com/IDSAD-XL/worfy/actions/runs/41463951333 (job windows-e2e (1/4), e0d761eae43cb1ecc2b114ece7900e1b4a4afbcd); the same tree was green on the head of #1247. In the same run test/e2e/card-drag.spec.ts:213 failed the same way on the first try (received 1264) and passed on the retry. Not a fault of the change under review.",
+  "platforms": [
+    "win32"
+  ],
+  "owner": "worfy-polish 47",
+  "since": "2026-11-02",
+  "until": "2026-11-16"
+}
