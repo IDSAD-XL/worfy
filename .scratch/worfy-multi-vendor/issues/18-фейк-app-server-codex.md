@@ -70,3 +70,10 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Соглашения»
 - Вне списка файлов, по необходимости: `scripts/ci-scope.mjs` (папки фейка — в `E2E_FIXTURES`: их читает
   `src/main`, этого требует `test/contract/ci-workflow.test.ts`) и `test/contract/script-node.test.ts` (новый test
   читает `process.execPath` — строка в списке исключений).
+- Ревью — комментарий PR #1253: круг 1 (ступень low, один verifier) — VERIFIED, находок high и med нет.
+- Consider (low): защита от настоящего Codex в `src/main/vendors/codex/launch.ts:54` читает `VITEST` из `options.env`,
+  а не из `process.env`: test, который передаст явный `env` без `VITEST` и `WORFY_CODEX`, получит путь к настоящему
+  бинарнику. Вызовов вне test-ов пока нет; исправить — проверять и `process.env.VITEST` (кстати в Ticket-е 19).
+- Не проверено: фейк под Electron как Node (`ELECTRON_RUN_AS_NODE`) — запустит клиент Ticket-а 19; Windows — scope
+  `pc`, gate full на ПК после Wave, ПК выключен; `@packaged` e2e — `test/fixtures` нет в `app.asar` (как у фейка
+  Claude), станет важно с Ticket-а 20.
