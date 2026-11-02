@@ -1,7 +1,8 @@
 # 16 — MCP-серверы и Terminal AI через driver Claude; contract test строгий
 
 Type: task
-Status: claimed 2026-11-02T13:52Z
+Status: done 2026-11-02T16:38Z
+PR: #1248
 Blocked by: 12, 14, 15
 Source: [spec.md](../spec.md), «Модель» (части mcp и oneShot), «Решено без владельца», п. 2, «Готово, когда»; решение 06 ([06-граница-vendor.md](06-граница-vendor.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
 
