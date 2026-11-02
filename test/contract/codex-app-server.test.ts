@@ -20,7 +20,7 @@ import { hasExited } from '../../src/main/agent/session/process'
 import { CodexAppServer, CodexAppServerExit, type CodexAppServerOptions } from '../../src/main/vendors/codex/app-server'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexLaunch } from '../../src/main/vendors/codex/launch'
-import type { CodexRpcEvent } from '../../src/main/vendors/codex/rpc'
+import { CodexRpcError, type CodexRpcEvent } from '../../src/main/vendors/codex/rpc'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
@@ -33,10 +33,30 @@ const ANSWER_MS = ms(10_000)
 
 const roots: string[] = []
 const servers: CodexAppServer[] = []
+/**
+ * Every process the spawn stand-in started. A start that rejects leaves no server to close, so a
+ * process app-server.ts failed to stop would outlive the test: it is killed here, by its own pid.
+ */
+const children: ChildProcess[] = []
 afterEach(async () => {
   for (const server of servers.splice(0)) await server.close(0)
+  for (const child of children.splice(0)) {
+    if (child.pid === undefined || hasExited(child)) continue
+    const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
+    child.kill('SIGKILL')
+    await exited
+  }
   for (const root of roots.splice(0)) removeTestTree(root)
 })
+
+/** Waits until `check` holds, looking every 20 ms, for ANSWER_MS at most. */
+async function eventually(check: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + ANSWER_MS
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error(`not in time: ${what}`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
 
 function tempRoot(): string {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'worfy-codex-app-server-'))
@@ -51,13 +71,27 @@ interface Spawned {
   options: SpawnOptions
 }
 
-/** A preload that stops the fake when worfy sends WORFY_TEST_CRASH_ON, and keeps it alive past its stdin when WORFY_TEST_LINGER is set. */
-const PRELOAD = `import process from 'node:process'
+/**
+ * A preload that stops the fake when worfy sends WORFY_TEST_CRASH_ON, closes the fake's stdin (the
+ * read end of the pipe, so worfy's next write fails with EPIPE) once worfy sends
+ * WORFY_TEST_CLOSE_STDIN_ON, and keeps it alive past its stdin when WORFY_TEST_LINGER is set.
+ */
+const PRELOAD = `import { closeSync } from 'node:fs'
+import process from 'node:process'
 const method = process.env.WORFY_TEST_CRASH_ON
 if (method) process.stdin.on('data', (chunk) => {
   if (String(chunk).includes('"method":"' + method + '"')) {
     process.stderr.write('panic: the fake app-server crashed on ' + method + '\\n')
     process.exit(101)
+  }
+})
+const closeOn = process.env.WORFY_TEST_CLOSE_STDIN_ON
+if (closeOn) process.stdin.on('data', (chunk) => {
+  if (String(chunk).includes('"method":"' + closeOn + '"')) {
+    // destroy() leaves fd 0 open (Node keeps its stdio descriptors); closing it ends the read end.
+    process.stdin.destroy()
+    closeSync(0)
+    process.stderr.write('the fake app-server closed its stdin\\n')
   }
 })
 if (process.env.WORFY_TEST_LINGER) setInterval(() => undefined, 1000)
@@ -88,7 +122,9 @@ async function start(script: string, env: Record<string, string> = {}, options: 
   const warnings: string[] = []
   const spawnProcess = (file: string, args: readonly string[], spawnOptions: SpawnOptions): ChildProcess => {
     spawned.push({ file, args, options: spawnOptions })
-    return spawn(scriptNode(), ['--import', pathToFileURL(preload).href, ...args], spawnOptions)
+    const child = spawn(scriptNode(), ['--import', pathToFileURL(preload).href, ...args], spawnOptions)
+    children.push(child)
+    return child
   }
   const server = await CodexAppServer.start({
     runtime: RUNTIME,
@@ -172,6 +208,46 @@ describe('CodexAppServer: the start', () => {
     expect((error as Error).message).toMatch(/^Codex app-server exited with code 2; its stderr: fake app-server: cannot read the script/)
   })
 
+  it('rejects the start at once, not by the time limit of initialize, when the process cannot start at all', async () => {
+    // A missing file gives only `error` and `close`, no `exit`: the start learns of it from `error` alone.
+    const root = tempRoot()
+    const missing = join(root, 'no-such-codex')
+    const timeoutMs = ms(5_000)
+    const began = Date.now()
+    const error = await CodexAppServer.start({
+      runtime: RUNTIME,
+      appPath: REPO,
+      cwd: root,
+      clientVersion: '9.9.9',
+      env: { ...process.env },
+      onEvent: () => undefined,
+      log: () => undefined,
+      timeoutMs,
+      spawnProcess: (_file, args, options) => {
+        const child = spawn(missing, args, options)
+        children.push(child)
+        return child
+      },
+    }).catch((caught: unknown) => caught)
+    const took = Date.now() - began
+    expect((error as Error).message).toMatch(/^Codex app-server did not start: spawn .*no-such-codex ENOENT/)
+    expect(took).toBeLessThan(timeoutMs / 5)
+  })
+
+  it('stops the process when initialize is answered with an error, and rejects the start with that error', async () => {
+    // The fake answers initialize with an error and lives on, waiting for its stdin to close.
+    const scripts = tempRoot()
+    writeFileSync(join(scripts, 'initialize-refused.jsonl'), `${JSON.stringify({ expect: 'initialize', error: { code: -32603, message: 'the fake refuses to start' } })}\n`)
+    const error = await start('initialize-refused', { WORFY_CODEX_SCRIPTS: scripts }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(CodexRpcError)
+    expect(error).toMatchObject({ method: 'initialize', code: -32603, rpcMessage: 'the fake refuses to start' })
+    expect(children).toHaveLength(1)
+    const [child] = children as [ChildProcess]
+    // Gone once start() rejects, and on its own: stdin was closed, no SIGKILL was needed.
+    expect(hasExited(child)).toBe(true)
+    expect(child.exitCode).toBe(0)
+  })
+
   it('never starts the real Codex under vitest, even with an environment of its own that sets neither WORFY_CODEX nor VITEST', async () => {
     const spawned: string[] = []
     const resolvePackage = () => '/node_modules/@openai/codex-darwin-arm64'
@@ -232,5 +308,17 @@ describe('CodexAppServer: a crash and the close', () => {
     expect(hasExited(server.process)).toBe(true)
     expect(Date.now() - began).toBeGreaterThanOrEqual(190)
     expect(warnings).toEqual([expect.stringMatching(/did not exit 200 ms after its stdin was closed; sending SIGKILL$/)])
+  })
+
+  it('takes a failed write to a fake that closed its stdin and lives on as a warning, not an uncaught error', async () => {
+    const { server, warnings } = await start('turn', { WORFY_TEST_LINGER: '1', WORFY_TEST_CLOSE_STDIN_ON: 'initialized' })
+    await eventually(() => server.stderr.includes('the fake app-server closed its stdin'), 'the fake closes its stdin')
+    // worfy's end of the pipe still looks writable: only a write learns that nobody reads it.
+    expect(server.process.stdin?.writable).toBe(true)
+    const requests = [server.request('thread/start', {}), server.request('account/read', { refreshToken: false })].map((request) => request.catch((error: unknown) => error))
+    await eventually(() => warnings.some((line) => /^stdin of the app-server \d+: .*EPIPE/.test(line)), 'the EPIPE warning')
+    expect(hasExited(server.process)).toBe(false)
+    await server.close(0)
+    for (const error of await Promise.all(requests)) expect((error as Error).message).toBe('the Codex app-server was closed')
   })
 })
