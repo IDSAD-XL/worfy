@@ -3,7 +3,8 @@
 // in its code — an import, an `import type`, an `import()`, a require, a resolve, a type `import('…')`,
 // a platform package `claude-agent-sdk-<platform>-<arch>` — is named with its line; comments do not
 // count. The SDK's types do not leave the folder either: a file of src/main/vendors/claude/ does not
-// re-export from the package, and exports no SDK name, alias or interface built on one.
+// re-export from the package, does not export a name it imported from it, and exports no type alias or
+// interface built on one. Exported variables, functions and classes are not read.
 //
 // Today 15 files import the SDK. Each is listed below with the ticket of this epic that takes the
 // import away (14, 15 or 16). An exception that no longer imports is only reported, so tickets 13 to 15
@@ -64,6 +65,8 @@ function sourceFiles(root: string): string[] {
 
 /** A module name of the SDK: the package, a path inside it, or one of its platform packages. */
 const isSdkName = (text: string): boolean => text.startsWith(SDK) || text.startsWith('claude-agent-sdk')
+/** The middle or the end of a template that builds an SDK name after an expression: `${scope}/claude-agent-sdk`. */
+const isSdkNameTail = (text: string): boolean => text.startsWith('/claude-agent-sdk') || text.startsWith('claude-agent-sdk')
 
 const parse = (root: string, file: string): ts.SourceFile => {
   const text = readFileSync(join(root, file), 'utf8')
@@ -84,15 +87,18 @@ function statementOf(node: ts.Node): ts.Node {
 
 /**
  * `<line>: <statement>` for each place the code of `file` names the SDK, as the TypeScript parser sees
- * it: any string, template head or type `import('…')` argument that starts with the package name.
- * Comments do not count. A file whose text never names the SDK is not parsed.
+ * it: any string, template head or type `import('…')` argument that starts with the package name, and
+ * any template middle or end that starts with `claude-agent-sdk` after an expression. Comments do not count. A file whose text never names the SDK is not parsed.
  */
 function sdkMentions(root: string, file: string): string[] {
   if (!readFileSync(join(root, file), 'utf8').includes('claude-agent-sdk')) return []
   const source = parse(root, file)
   const found: string[] = []
   const visit = (node: ts.Node): void => {
-    if ((ts.isStringLiteralLike(node) || ts.isTemplateHead(node)) && isSdkName(node.text)) {
+    const named =
+      ((ts.isStringLiteralLike(node) || ts.isTemplateHead(node)) && isSdkName(node.text)) ||
+      ((ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) && isSdkNameTail(node.text))
+    if (named) {
       found.push(`${lineOf(source, node)}: ${firstLine(source, statementOf(node))}`)
     }
     ts.forEachChild(node, visit)
@@ -118,9 +124,21 @@ const isSdkModule = (node: ts.Node | undefined): boolean => node !== undefined &
 const isExported = (node: ts.Node): boolean =>
   ts.canHaveModifiers(node) && (ts.getModifiers(node) ?? []).some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
 
-/** Whether a node names one of `names`, or the SDK through a type `import('…')`. */
+/**
+ * Whether an identifier stands where a name is declared or picked from something, not where it refers
+ * to a binding: a property, a member, a parameter or a declaration name, the part after a dot. A
+ * shorthand property `{ tool }` refers to `tool`, so it is not one.
+ */
+function isNamePosition(id: ts.Identifier): boolean {
+  const parent = id.parent as ts.Node & { name?: ts.Node; propertyName?: ts.Node }
+  if (ts.isShorthandPropertyAssignment(parent)) return false
+  if (ts.isQualifiedName(parent)) return parent.right === id
+  return parent.name === id || parent.propertyName === id
+}
+
+/** Whether a node refers to one of `names`, or to the SDK through a type `import('…')`. */
 function refersTo(node: ts.Node, names: Set<string>): boolean {
-  if (ts.isIdentifier(node) && names.has(node.text)) return true
+  if (ts.isIdentifier(node) && names.has(node.text) && !isNamePosition(node)) return true
   if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && isSdkModule(node.argument.literal)) return true
   return ts.forEachChild(node, (child) => refersTo(child, names) || undefined) ?? false
 }
@@ -199,7 +217,6 @@ describe('only the Claude driver imports the Agent SDK', () => {
     if (stale.length > 0) {
       console.info(`[vendor-sdk-imports] exceptions that no longer import ${SDK}, for ticket 16 to remove: ${stale.join(', ')}`)
     }
-    expect(Object.keys(EXCEPTIONS)).toEqual(expect.arrayContaining(stale))
   })
 
   it('no SDK type leaves src/main/vendors/claude/ through an export', () => {
@@ -209,11 +226,17 @@ describe('only the Claude driver imports the Agent SDK', () => {
 
 describe('the checks fail on a planted file', () => {
   // One copy of src/ for the whole block: each case plants its files and removes them after itself.
+  // A case looks only at what its planted files add, so a real violation in src/ reds the tests above,
+  // not every control case.
   let copy = ''
   let planted: string[] = []
+  let outsideBefore = new Set<string>()
+  let leavingBefore = new Set<string>()
   beforeAll(() => {
     copy = mkdtempSync(join(tmpdir(), 'worfy-sdk-imports-'))
     cpSync(join(repo, 'src'), join(copy, 'src'), { recursive: true })
+    outsideBefore = new Set(outsideDriver(copy))
+    leavingBefore = new Set(sdkTypesLeaving(copy))
   })
   afterEach(() => {
     for (const file of planted) removeTestTree(join(copy, file))
@@ -224,6 +247,10 @@ describe('the checks fail on a planted file', () => {
   })
 
   const srcCopy = (): string => copy
+  /** What outsideDriver names in the copy beyond what it named before the case planted its files. */
+  const plantedOutside = (allowed: Record<string, number> = EXCEPTIONS): string[] => outsideDriver(copy, allowed).filter((problem) => !outsideBefore.has(problem))
+  /** What sdkTypesLeaving names in the copy beyond what it named before the case planted its files. */
+  const plantedLeaving = (): string[] => sdkTypesLeaving(copy).filter((problem) => !leavingBefore.has(problem))
 
   const plant = (root: string, file: string, text: string): void => {
     mkdirSync(dirname(join(root, file)), { recursive: true })
@@ -233,9 +260,8 @@ describe('the checks fail on a planted file', () => {
 
   it('an `import type` from the SDK in a file outside the list is named with its line, and the test of it is red', () => {
     const root = srcCopy()
-    expect(outsideDriver(root)).toEqual([])
     plant(root, 'src/main/agent/planted.ts', `// planted\nimport type { Options } from '${SDK}'\nexport const options: Options = {}\n`)
-    expect(outsideDriver(root)).toEqual([`src/main/agent/planted.ts:2: import type { Options } from '${SDK}'`])
+    expect(plantedOutside()).toEqual([`src/main/agent/planted.ts:2: import type { Options } from '${SDK}'`])
   })
 
   it.each([
@@ -248,10 +274,11 @@ describe('the checks fail on a planted file', () => {
     ['a platform package in a template literal', `export const binary = (platform: string) => require.resolve(\`${SDK}-\${platform}/package.json\`)`],
     ['a type import()', `export type Options = import('${SDK}').Options`],
     ['an export from the package', `export type { Options } from '${SDK}'`],
+    ['a name built after an expression in a template', `export const sdkPath = (scope: string) => require.resolve(\`\${scope}/claude-agent-sdk\`)`],
   ])('%s outside the driver is named', (_kind, line) => {
     const root = srcCopy()
     plant(root, 'src/shared/planted.ts', `${line}\n`)
-    expect(outsideDriver(root)).toEqual([`src/shared/planted.ts:1: ${line}`])
+    expect(plantedOutside()).toEqual([`src/shared/planted.ts:1: ${line}`])
   })
 
   it('a comment that names the SDK is not an import; a file inside the driver or on the list may import it', () => {
@@ -259,8 +286,8 @@ describe('the checks fail on a planted file', () => {
     plant(root, 'src/main/commented.ts', `// the part of ${SDK} the driver uses\n/** \`${SDK}\` */\nexport const x = 1\n`)
     plant(root, `${CLAUDE_DRIVER}planted.ts`, `import { query } from '${SDK}'\nexport const run = query\n`)
     plant(root, 'src/main/listed.ts', `import { query } from '${SDK}'\n`)
-    expect(outsideDriver(root, { ...EXCEPTIONS, 'src/main/listed.ts': 16 })).toEqual([])
-    expect(outsideDriver(root, EXCEPTIONS)).toEqual([`src/main/listed.ts:1: import { query } from '${SDK}'`])
+    expect(plantedOutside({ ...EXCEPTIONS, 'src/main/listed.ts': 16 })).toEqual([])
+    expect(plantedOutside(EXCEPTIONS)).toEqual([`src/main/listed.ts:1: import { query } from '${SDK}'`])
   })
 
   it('an exception that no longer imports the SDK, or is gone, is reported as stale', () => {
@@ -279,12 +306,31 @@ describe('the checks fail on a planted file', () => {
     ['an exported alias through a namespace import', `import type * as sdk from '${SDK}'\nexport type DriverOptions = sdk.Options`, 2],
     ['an exported alias through a type import()', `export type DriverOptions = import('${SDK}').Options`, 1],
     ['an export of a local alias of an SDK type', `import type { Options } from '${SDK}'\ntype Local = Partial<Options>\nexport { Local }`, 3],
+    ['an exported interface with a property of an SDK type', `import type { Options } from '${SDK}'\nexport interface DriverOptions { a: Options }`, 2],
+    ['an exported alias with the type of an SDK function', `import { tool } from '${SDK}'\nexport type Call = { run: typeof tool }`, 2],
   ])('%s in src/main/vendors/claude/ is named, and the test of it is red', (_kind, text, line) => {
     const root = srcCopy()
-    expect(sdkTypesLeaving(root)).toEqual([])
     plant(root, `${CLAUDE_DRIVER}planted.ts`, `${text}\n`)
     const statement = text.split('\n')[line - 1]
-    expect(sdkTypesLeaving(root)).toEqual([`${CLAUDE_DRIVER}planted.ts:${line}: ${statement}`])
+    expect(plantedLeaving()).toEqual([`${CLAUDE_DRIVER}planted.ts:${line}: ${statement}`])
+  })
+
+  it('a property, member, parameter or qualified name spelled like an SDK name is not a use of it', () => {
+    const root = srcCopy()
+    plant(
+      root,
+      `${CLAUDE_DRIVER}planted.ts`,
+      [
+        `import { query, tool, type Options } from '${SDK}'`,
+        'export interface ToolCall { tool: string; query(): void; readonly Options?: number }',
+        'export type Keyed = { [Options: string]: (tool: string) => void }',
+        'export type Picked = typeof config.tool',
+        'declare const config: { tool: number }',
+        'export const make = () => ({ tool: 1, query: tool })',
+        '',
+      ].join('\n'),
+    )
+    expect(plantedLeaving()).toEqual([])
   })
 
   it('an SDK type used inside the driver, and a worfy type exported from it, are not named', () => {
@@ -294,6 +340,6 @@ describe('the checks fail on a planted file', () => {
       `${CLAUDE_DRIVER}planted.ts`,
       `import { query, type Options } from '${SDK}'\ntype Local = Options\nexport type DriverOptions = { cwd: string }\nexport const start = (o: DriverOptions) => query({ prompt: '', options: { cwd: o.cwd } satisfies Local })\n`,
     )
-    expect(sdkTypesLeaving(root)).toEqual([])
+    expect(plantedLeaving()).toEqual([])
   })
 })
