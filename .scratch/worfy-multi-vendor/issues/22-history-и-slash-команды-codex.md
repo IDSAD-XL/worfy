@@ -9,7 +9,8 @@ Source: [spec.md](../spec.md), «Модель» (History, таблица час�
 
 1. `src/main/vendors/codex/history.ts`: `list(cwd)` — `thread/list` с фильтром `cwd` и `sourceKinds`, без
    архивных; у каждой Session — id, название, время, откуда начата (`source`, `originator`: `worfy` — своя).
-   `read(id)` — `thread/read {includeTurns: true}` → `TranscriptEntry` (`src/shared/transcript/parse.ts:38`) через
+   `read(id, cwd)` — `thread/read {includeTurns: true}` (`cwd` Codex-у не нужен: thread находится по id; spec,
+   «Решено без владельца», п. 13) → `TranscriptEntry` (`src/shared/transcript/parse.ts:38`) через
    перевод item-ов Ticket-а 20. Rollout-файлы worfy не читает.
 2. `src/main/vendors/codex/commands.ts`: строки slash-меню — `skills/list` (обновление по `skills/changed`) и
    встроенные, у которых есть метод app-server: `/compact` — `thread/compact/start`, `/review` — `review/start`.

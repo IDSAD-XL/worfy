@@ -60,3 +60,16 @@ Source: [spec.md](../spec.md), «Модель» (LimitWindow), «Соглаше�
 Только читать (не меняются, причина — п. 4): `src/shared/autopilot/journal.ts:473-482`,
 `src/main/agent/limits-usage.ts:163-169`, `src/main/terminal-ai/limits-gate.ts:43`,
 `src/main/autopilot/limits-wait.ts:121`, `src/shared/autopilot/budget.ts:172-181`.
+
+## Итог
+
+PR #1236, merge `34b0aba3`. `LimitWindow`, `limitWindows` и события `limits` / `limit_reached` — в
+`src/shared/agent/limits.ts` и `src/shared/agent/events.ts`; хранимое состояние Limits Claude и его читатели не
+изменились.
+
+Долг:
+
+- Комментарий `src/main/autopilot/limits-wait.ts:12` всё ещё говорит «`rate_limit` events»; событий `rate_limit`
+  больше нет, статус строят `limits` и `limit_reached`. Файл правит Ticket 38.
+- Через worfy-link (связь двух машин) старая и новая сборки не понимают события Limits друг друга: событие
+  отбрасывается с предупреждением в log, остальное работает. Проходит, когда обе машины обновлены.

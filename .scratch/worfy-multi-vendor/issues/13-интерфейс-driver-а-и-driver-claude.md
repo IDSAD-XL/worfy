@@ -61,3 +61,38 @@ Ticket 16). Задача Ticket-а — создать все файлы, кот�
 - `src/main/agent/session/registry.ts` — `:11-18`
 - `src/main/agent/app-registry.ts` — место создания `SessionRegistry`
 - Test-ы: `test/unit/capabilities.test.ts`, `test/unit/vendor-driver-types.test.ts` (новые)
+
+## Итог
+
+PR #1237, merge `897c4969`. Поведение Claude не изменилось; файлы частей driver-а созданы, как в «Что делаем».
+
+Каким интерфейс стал после раунда 1 ревью:
+
+- `commands.list(session)` → `SlashCommand[]` (`src/main/vendors/commands.ts`): строки slash-меню — у живой Session,
+  а не у Vendor-а вообще.
+- `OneShotOptions.onActivity` (`src/main/vendors/one-shot.ts`) — текст о ходе разового запроса, как его сейчас
+  показывает черновик профиля Project.
+- `HistorySession.origin` — `worfy`, `external` или `null` (`src/main/vendors/history.ts`).
+- `account.startLogin()` → `LoginAttempt {start, completed, cancel}` (`src/main/vendors/account.ts`): `start` — как
+  начинается вход (три вида из «Что делаем», п. 3), `completed` — подключения после входа, `cancel()` — отмена.
+- `capabilities(session?)` (`src/main/vendors/driver.ts`): у capabilities есть список `models[]`; Vendor, который
+  знает модели только от живой Session, отдаёт их при `session`. У Claude — `supportedModels()` живого query.
+- history Claude подключена к registry `claude-home` (`src/main/vendors/claude/history.ts`, `ClaudeHomeRegistry`
+  грузится при вызове).
+- `limits.read` и `oneShot` Claude не подключены до Ticket-а 15: отказ `PartNotWired`
+  (`src/main/vendors/claude/limits.ts`, `one-shot.ts`).
+
+Отличие от spec-а: `history.read(id, cwd)` вместо `read(id)` — Claude хранит транскрипты в папке Project-а, и
+`transcriptPath` ищет файл по корню Project-а; Codex может `cwd` не читать (spec, «Решено без владельца», п. 13).
+ADR-0094 не правится. Решено Orchestrator-ом 2026-11-02 по поручению владельца, подтвердить при приёмке.
+
+Долг:
+
+- Циклический импорт `src/main/agent/app-registry.ts` → `src/main/vendors/registry.ts` → `claude/index.ts` →
+  `claude/session.ts` → `app-registry.ts` (`queryFactoryFromEnv`). Сегодня безопасен: driver собирается при первом
+  вызове, части читаются при вызове, а не при загрузке модулей (`src/main/vendors/claude/index.ts`,
+  `src/main/vendors/registry.ts:9`). Цикл снимает Ticket 16: `queryFactoryFromEnv` переезжает в
+  `src/main/vendors/claude/`.
+- Нет test-а на `claudeHistory.read` с `cwd` вне Project-а (папки, которой нет среди Project-ов registry).
+- Функция capabilities Claude лежит в `claude/index.ts`, а не в своём файле части; позже её может перенести в
+  `claude/capabilities.ts` отдельный Ticket.
