@@ -17,7 +17,7 @@
 // to the windows). This module writes nowhere else: not to ~/.claude, not to a Project's repository.
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
-import { emptyLimits, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitsState } from '../../shared/agent/limits'
+import { emptyLimits, limitStatusOf, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitsState } from '../../shared/agent/limits'
 import { observeMessages } from '../mcp/canvas-server'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { dataRoot } from '../storage/paths'
@@ -220,7 +220,7 @@ export class LimitsTracker {
   }
 }
 
-/** The Limits status one Session was last told (its `rate_limit` events). */
+/** The Limits status one Session was last told (its `limits` and `limit_reached` events), in Claude's SDK words. */
 export interface SessionLimitsStatus {
   /** `allowed`, `allowed_warning` or `rejected`. */
   status: string
@@ -231,10 +231,13 @@ export interface SessionLimitsStatus {
 }
 
 /**
- * Calls `listener` whenever the Limits status of one Session changes: its `rate_limit` events, as
- * the registry sends them (`observe`, SessionRegistry.observe), for the Session that `isSession`
- * accepts (a Session's id changes once Claude Code names it, so the test is the caller's). An event
- * that repeats the last status, window and reset time is not reported again. Answers the unsubscribe.
+ * Calls `listener` whenever the Limits status of one Session changes, as the registry sends its
+ * events (`observe`, SessionRegistry.observe), for the Session that `isSession` accepts (a
+ * Session's id changes once Claude Code names it, so the test is the caller's). A `limit_reached`
+ * event is `rejected` for its window; a `limits` event is the status of the first window it gives
+ * a state other than `reached` (a refusal always comes with `limit_reached` too), and says nothing
+ * when it gives none. An event that repeats the last status, window and reset time is not reported
+ * again. Answers the unsubscribe.
  */
 export function observeSessionLimits(
   observe: (sink: EventSink) => () => void,
@@ -243,12 +246,20 @@ export function observeSessionLimits(
 ): () => void {
   let last: SessionLimitsStatus | null = null
   return observe((sessionId: string, event: AgentEvent) => {
-    if (event.type !== 'rate_limit' || !isSession(sessionId)) return
-    const next: SessionLimitsStatus = { status: event.status, window: event.rateLimitType, resetsAt: event.resetsAt }
+    if ((event.type !== 'limits' && event.type !== 'limit_reached') || !isSession(sessionId)) return
+    const next = sessionLimitsStatusOf(event)
+    if (next === null) return
     if (last !== null && last.status === next.status && last.window === next.window && last.resetsAt === next.resetsAt) return
     last = next
     listener(next)
   })
+}
+
+function sessionLimitsStatusOf(event: Extract<AgentEvent, { type: 'limits' | 'limit_reached' }>): SessionLimitsStatus | null {
+  if (event.type === 'limit_reached') return { status: limitStatusOf('reached'), window: event.windowId, resetsAt: event.resetsAt }
+  const told = event.windows.find((window) => window.state !== null && window.state !== 'reached')
+  if (told === undefined || told.state === null) return null
+  return { status: limitStatusOf(told.state), window: told.id, resetsAt: told.resetsAt }
 }
 
 let appTracker: LimitsTracker | null = null

@@ -1,7 +1,18 @@
 // Limits from rate_limit_event messages and the status line bridge file:
 // src/shared/agent/limits.ts merges them per window and turns the result into the two bars.
 import { describe, expect, it } from 'vitest'
-import { emptyLimits, limitBars, limitsStateSchema, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitUpdatesFromUsage, mergeLimits } from '../../src/shared/agent/limits'
+import { sdkMessageToEvents } from '../../src/shared/agent/events'
+import {
+  emptyLimits,
+  limitBars,
+  limitsStateSchema,
+  limitUpdatesFromSdk,
+  limitUpdatesFromStatusline,
+  limitUpdatesFromUsage,
+  limitWindows,
+  mergeLimits,
+  type LimitWindowState,
+} from '../../src/shared/agent/limits'
 
 const AT = Date.UTC(2026, 9, 5, 5, 0) // Mon 2026-10-05 05:00 UTC
 const TZ = 'UTC'
@@ -264,5 +275,79 @@ describe('limits.json with a source this build does not know', () => {
     expect(parsed.success).toBe(true)
     expect(parsed.data?.windows.seven_day).toEqual({ utilization: null, resetsAt: 1791795600, status: 'rejected', receivedAt: AT, source: 'sdk' })
     expect(parsed.data?.windows.five_hour?.source).toBe('statusline')
+  })
+})
+
+describe('limitWindows (the neutral view of the stored state, worfy-multi-vendor ticket 11)', () => {
+  const stored = (utilization: number | null, status: string | null, source: LimitWindowState['source'] = 'sdk'): LimitWindowState => ({
+    utilization,
+    resetsAt: 1791184200,
+    status,
+    receivedAt: AT,
+    source,
+  })
+
+  it('gives each of the three Claude statuses its own state, and none for no status', () => {
+    const windows = (status: string | null) => limitWindows('claude', { windows: { five_hour: stored(0.5, status) } }).map((window) => window.state)
+    expect(windows('allowed')).toEqual(['ok'])
+    expect(windows('allowed_warning')).toEqual(['warning'])
+    expect(windows('rejected')).toEqual(['reached'])
+    expect(windows(null)).toEqual([null])
+    expect(windows('something_new')).toEqual([null])
+  })
+
+  it('turns the share into a percentage to hundredths: 0.62 is 62, 0.1234 is 12.34, an unknown share is null', () => {
+    const [fiveHour, sevenDay] = limitWindows('claude', { windows: { five_hour: stored(0.62, null), seven_day: stored(null, 'allowed') } })
+    expect(fiveHour?.usedPercent).toBe(62)
+    expect(sevenDay?.usedPercent).toBeNull()
+    expect(limitWindows('claude', { windows: { five_hour: stored(0.1234, null) } })[0]?.usedPercent).toBe(12.34)
+  })
+
+  it('names the Vendor, the length and the label of each window, five_hour and seven_day first', () => {
+    const state = { windows: { overage: stored(0.1, null), seven_day_opus: stored(0.7, 'allowed_warning'), seven_day: stored(0.38, null, 'usage'), five_hour: stored(0.07, 'allowed', 'statusline') } }
+    expect(limitWindows('claude', state)).toEqual([
+      { vendor: 'claude', id: 'five_hour', label: '5-hour', usedPercent: 7, windowMinutes: 300, resetsAt: 1791184200, state: 'ok', receivedAt: AT, source: 'statusline' },
+      { vendor: 'claude', id: 'seven_day', label: '7-day', usedPercent: 38, windowMinutes: 10080, resetsAt: 1791184200, state: null, receivedAt: AT, source: 'usage' },
+      { vendor: 'claude', id: 'overage', label: 'overage', usedPercent: 10, windowMinutes: null, resetsAt: 1791184200, state: null, receivedAt: AT, source: 'sdk' },
+      { vendor: 'claude', id: 'seven_day_opus', label: '7-day opus', usedPercent: 70, windowMinutes: 10080, resetsAt: 1791184200, state: 'warning', receivedAt: AT, source: 'sdk' },
+    ])
+  })
+
+  it('is empty when nothing is known', () => {
+    expect(limitWindows('claude', emptyLimits())).toEqual([])
+  })
+})
+
+describe('the events of a rate_limit_event (worfy-multi-vendor ticket 11)', () => {
+  it('a recorded one gives `limits` with its two windows, and no limit_reached while allowed', () => {
+    const window = { vendor: 'claude', receivedAt: AT, source: 'sdk' }
+    expect(sdkMessageToEvents(recorded, AT)).toEqual([
+      {
+        type: 'limits',
+        vendor: 'claude',
+        windows: [
+          { ...window, id: 'five_hour', label: '5-hour', usedPercent: 62, windowMinutes: 300, resetsAt: 1791184200, state: 'ok' },
+          { ...window, id: 'seven_day', label: '7-day', usedPercent: 38, windowMinutes: 10080, resetsAt: 1791795600, state: null },
+        ],
+      },
+    ])
+  })
+
+  it('a refusal gives limit_reached too, for its window and reset time', () => {
+    const refused = { ...recorded, rate_limit_info: { ...recorded.rate_limit_info, status: 'rejected' } }
+    const events = sdkMessageToEvents(refused, AT)
+    expect(events.map((event) => event.type)).toEqual(['limits', 'limit_reached'])
+    expect(events[0]).toMatchObject({ windows: [{ id: 'five_hour', state: 'reached' }, { id: 'seven_day', state: null }] })
+    expect(events[1]).toEqual({ type: 'limit_reached', vendor: 'claude', windowId: 'five_hour', resetsAt: 1791184200, reason: 'window' })
+  })
+
+  it('a refusal without its own reset time says none, whatever its window says; one without a window still says it was refused', () => {
+    const withoutReset = { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', rateLimitType: 'seven_day', unifiedWindows: { seven_day: { utilization: 1, resetsAt: 1791795600 } } } }
+    expect(sdkMessageToEvents(withoutReset, AT)[1]).toEqual({ type: 'limit_reached', vendor: 'claude', windowId: 'seven_day', resetsAt: null, reason: 'window' })
+    const withoutWindow = { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: 1791184200 } }
+    expect(sdkMessageToEvents(withoutWindow, AT)).toEqual([
+      { type: 'limits', vendor: 'claude', windows: [] },
+      { type: 'limit_reached', vendor: 'claude', windowId: null, resetsAt: 1791184200, reason: 'window' },
+    ])
   })
 })

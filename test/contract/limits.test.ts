@@ -7,10 +7,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LimitsTracker } from '../../src/main/agent/limits'
+import { LimitsTracker, observeSessionLimits, type SessionLimitsStatus } from '../../src/main/agent/limits'
 import type { QueryHandle, QueryRequest } from '../../src/main/agent/session'
 import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
 import { limitsHandlers } from '../../src/main/ipc/limits'
+import { sdkMessageToEvents, type AgentEvent } from '../../src/shared/agent/events'
 import type { LimitsState } from '../../src/shared/agent/limits'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
@@ -327,5 +328,84 @@ describe('limits channels', () => {
     for (const listener of window.onDestroyed) listener()
     limits.record([{ ...update, state: { ...update.state, receivedAt: NOW + 2 } }])
     expect(window.sent).toHaveLength(1)
+  })
+})
+
+describe('observeSessionLimits over the limits and limit_reached events (worfy-multi-vendor ticket 11)', () => {
+  /** The statuses observeSessionLimits reports for `messages`, sent as one Session's events. */
+  function observed(messages: readonly unknown[]): SessionLimitsStatus[] {
+    let sink: ((sessionId: string, event: AgentEvent) => void) | null = null
+    const seen: SessionLimitsStatus[] = []
+    const off = observeSessionLimits(
+      (each) => {
+        sink = each
+        return () => (sink = null)
+      },
+      () => true,
+      (status) => seen.push(status),
+    )
+    for (const message of messages) for (const event of sdkMessageToEvents(message, NOW)) sink!('s', event)
+    off()
+    return seen
+  }
+
+  /** What the `rate_limit` event of each message told before ticket 11: its status, rateLimitType and resetsAt, once per change. */
+  function asBefore(messages: readonly unknown[]): SessionLimitsStatus[] {
+    const seen: SessionLimitsStatus[] = []
+    for (const message of messages) {
+      const info = (message as { rate_limit_info: { status: string; rateLimitType?: string | null; resetsAt?: number | null } }).rate_limit_info
+      const next = { status: info.status, window: info.rateLimitType ?? null, resetsAt: info.resetsAt ?? null }
+      const last = seen.at(-1)
+      if (last === undefined || last.status !== next.status || last.window !== next.window || last.resetsAt !== next.resetsAt) seen.push(next)
+    }
+    return seen
+  }
+
+  const event = (status: string, rateLimitType: string | undefined, resetsAt: number | undefined, unifiedWindows?: unknown) => ({
+    type: 'rate_limit_event',
+    rate_limit_info: { status, rateLimitType, resetsAt, unifiedWindows },
+  })
+
+  it('reports the same statuses for every recorded rate_limit_event as the rate_limit event did', () => {
+    const scripts = join(__dirname, '..', 'fixtures', 'agent-scripts')
+    const lines = (file: string): unknown[] =>
+      readFileSync(file, 'utf8')
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+        .map((line) => JSON.parse(line) as unknown)
+    const files = [
+      ...readdirSync(FIXTURES).filter((name) => name.endsWith('.jsonl')).map((name) => join(FIXTURES, name)),
+      join(scripts, 'limits.jsonl'),
+      join(scripts, 'autopilot-limits.jsonl'),
+    ]
+    const messages = files.flatMap(lines).filter((message) => (message as { type?: unknown }).type === 'rate_limit_event')
+    expect(messages.length).toBeGreaterThanOrEqual(5)
+    expect(new Set(messages.map((message) => (message as { rate_limit_info: { status: string } }).rate_limit_info.status))).toEqual(new Set(['allowed', 'rejected']))
+    expect(observed(messages)).toEqual(asBefore(messages))
+  })
+
+  it('reports the same for a warning, another window, a refusal without a reset time and one without a window', () => {
+    const messages = [
+      event('allowed', 'five_hour', 1791184200, { five_hour: { utilization: 0.5, resetsAt: 1791184200 }, seven_day: { utilization: 0.3, resetsAt: 1791795600 } }),
+      event('allowed_warning', 'five_hour', 1791184200, { five_hour: { utilization: 0.81, resetsAt: 1791184200 } }),
+      event('allowed_warning', 'five_hour', 1791184200),
+      event('rejected', 'seven_day_opus', 1791795600),
+      event('rejected', 'seven_day', undefined, { seven_day: { utilization: 1, resetsAt: 1791795600 } }),
+      event('allowed', 'seven_day', 1791795600),
+      event('rejected', undefined, 1791184200),
+    ]
+    expect(observed(messages)).toEqual(asBefore(messages))
+    expect(observed(messages)).toEqual([
+      { status: 'allowed', window: 'five_hour', resetsAt: 1791184200 },
+      { status: 'allowed_warning', window: 'five_hour', resetsAt: 1791184200 },
+      { status: 'rejected', window: 'seven_day_opus', resetsAt: 1791795600 },
+      { status: 'rejected', window: 'seven_day', resetsAt: null },
+      { status: 'allowed', window: 'seven_day', resetsAt: 1791795600 },
+      { status: 'rejected', window: null, resetsAt: 1791184200 },
+    ])
+  })
+
+  it('a limits event that gives no window a state tells nothing', () => {
+    expect(observed([{ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.2 } } } }])).toEqual([])
   })
 })
