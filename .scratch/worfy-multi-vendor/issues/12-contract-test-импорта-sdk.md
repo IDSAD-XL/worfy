@@ -1,7 +1,7 @@
 # 12 — Contract test: SDK Claude только в `src/main/vendors/claude/`
 
 Type: task
-Status: open
+Status: claimed 2026-11-02T08:09Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Решено без владельца», п. 2, «Готово, когда»; решение 06 ([06-граница-vendor.md](06-граница-vendor.md), «Кто идёт через driver»); [ADR-0094](../../../docs/adr/0094-vendor-seam.md), п. 4
 
