@@ -2,7 +2,9 @@
 // events and a person's actions on to observers.
 import { isMainOnlyEvent } from '../../../shared/agent/events'
 import type { SessionSettings } from '../../../shared/agent/settings'
-import { readUserEffort, readUserModel, type UserEffortReader, type UserModelReader } from '../../claude-home/user-model'
+import type { UserEffortReader, UserModelReader } from '../../claude-home/user-model'
+import { claudeSessions, type UserDefaults } from '../../vendors/claude/session'
+import type { SessionPart } from '../../vendors/session'
 import { Session } from '../session'
 import type { SessionLaunch } from '../session-settings'
 import type { EventSink, InputListener, QueryFactory, SessionInfo } from './types'
@@ -12,17 +14,25 @@ export class SessionRegistry {
   private readonly sessions = new Map<string, Session>()
   private readonly observers = new Set<EventSink>()
   private readonly inputObservers = new Set<InputListener>()
+  /** What starts the agent of each Session. */
+  private readonly starter: SessionPart
 
   /**
-   * `factory` starts the agent of each Session: the app's is the Claude driver's (app-registry.ts,
-   * src/main/vendors/). `userModel` and `userEffort` read the user's own model and effort
-   * (user-model.ts); tests give them fixed answers.
+   * `sessions` starts the agent of each Session: the app's is the Claude driver's session part
+   * (app-registry.ts, src/main/vendors/). A QueryFactory is Claude Code's, started through the Claude
+   * driver; `userModel` and `userEffort` then read the user's own model and effort (user-model.ts),
+   * and tests give them fixed answers.
+   * shortcut: a QueryFactory is taken as Claude Code's, as the tests of the Session start the fake
+   * agent that way; redo when worfy-multi-vendor ticket 23 gives each Session its Vendor's driver.
    */
-  constructor(
-    private readonly factory: QueryFactory,
-    private readonly userModel: UserModelReader = () => readUserModel(),
-    private readonly userEffort: UserEffortReader = () => readUserEffort(),
-  ) {}
+  constructor(sessions: SessionPart | QueryFactory, userModel?: UserModelReader, userEffort?: UserEffortReader) {
+    if (typeof sessions !== 'function') {
+      this.starter = sessions
+      return
+    }
+    const user: Partial<UserDefaults> = { ...(userModel === undefined ? {} : { model: userModel }), ...(userEffort === undefined ? {} : { effort: userEffort }) }
+    this.starter = claudeSessions(sessions, user)
+  }
 
   /**
    * Gets every action a person takes on a live Session through the UI (src/main/ipc/agent.ts):
@@ -58,11 +68,11 @@ export class SessionRegistry {
 
   /**
    * Starts a Session whose events go to `sink` (the window that asked for it), main-only ones
-   * (isMainOnlyEvent) left out: those go to the observers alone. Resuming an SDK
-   * session that a live Session already runs is refused: two Claude Code processes would write
+   * (isMainOnlyEvent) left out: those go to the observers alone. Resuming a Vendor
+   * session that a live Session already runs is refused: two processes of the agent would write
    * one transcript, and both Sessions would send events under one id. `launch` is attended unless
    * Autopilot starts the Session unattended (session-settings.ts). With `after`, the Session is live
-   * at once but starts its Claude Code process only once `after` settles (Session.start).
+   * at once but starts its agent's process only once `after` settles (Session.start).
    */
   start(cwd: string, resume: string | undefined, sink: EventSink, settings?: SessionSettings, launch?: SessionLaunch, after?: Promise<void>): Session {
     if (resume !== undefined && this.live().some((live) => live.id === resume || live.sdkId === resume)) {
@@ -70,7 +80,7 @@ export class SessionRegistry {
     }
     const session = new Session(
       cwd,
-      this.factory,
+      this.starter,
       (sessionId, event) => {
         for (const observer of this.observers) {
           try {
@@ -91,8 +101,6 @@ export class SessionRegistry {
       resume,
       settings,
       launch,
-      this.userModel,
-      this.userEffort,
     )
     this.sessions.set(session.id, session)
     session.start(after)

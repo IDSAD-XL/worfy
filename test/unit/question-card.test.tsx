@@ -388,7 +388,7 @@ describe('the question card', () => {
 
   it('a permission request of another tool still gets the permission card', async () => {
     await renderLive()
-    emit('s1', { type: 'permission_request', requestId: 'r-1', toolName: 'Bash', toolUseId: null, input: { command: 'ls' }, title: null, description: null, blockedPath: null, alwaysAllow: true, suggestions: [] })
+    emit('s1', { type: 'permission_request', requestId: 'r-1', toolName: 'Bash', toolUseId: null, input: { command: 'ls' }, title: null, description: null, blockedPath: null, suggestions: [], subject: 'Bash', options: [{ id: 'allow', label: 'Allow', kind: 'allow' }, { id: 'always_allow', label: 'Always allow', kind: 'allow_always' }, { id: 'deny', label: 'Deny', kind: 'deny' }] })
     expect(screen.getByTestId('permission-card')).toBeTruthy()
     expect(screen.queryByTestId('question-card')).toBeNull()
   })
@@ -430,7 +430,7 @@ describe('the "Waits for answer" badge', () => {
     answers['sessions.views'] = () => ({ views: [nodeView()] })
     await mountBadges()
     emit('sdk-7', request())
-    emit('sdk-7', { type: 'permission_request', requestId: 'r-1', toolName: 'Bash', toolUseId: null, input: { command: 'ls' }, title: null, description: null, blockedPath: null, alwaysAllow: true, suggestions: [] })
+    emit('sdk-7', { type: 'permission_request', requestId: 'r-1', toolName: 'Bash', toolUseId: null, input: { command: 'ls' }, title: null, description: null, blockedPath: null, suggestions: [], subject: 'Bash', options: [{ id: 'allow', label: 'Allow', kind: 'allow' }, { id: 'always_allow', label: 'Always allow', kind: 'allow_always' }, { id: 'deny', label: 'Deny', kind: 'deny' }] })
     await screen.findByTestId('badge-waits-for-answer')
     expect(screen.getByTestId('badge-needs-permission')).toBeTruthy()
   })
@@ -438,7 +438,7 @@ describe('the "Waits for answer" badge', () => {
   it('shows nothing while the Session is busy, and "Needs permission" alone for a permission request', async () => {
     answers['sessions.views'] = () => ({ views: [nodeView()] })
     await mountBadges()
-    emit('sdk-7', { type: 'permission_request', requestId: 'r-1', toolName: 'Bash', toolUseId: null, input: { command: 'ls' }, title: null, description: null, blockedPath: null, alwaysAllow: true, suggestions: [] })
+    emit('sdk-7', { type: 'permission_request', requestId: 'r-1', toolName: 'Bash', toolUseId: null, input: { command: 'ls' }, title: null, description: null, blockedPath: null, suggestions: [], subject: 'Bash', options: [{ id: 'allow', label: 'Allow', kind: 'allow' }, { id: 'always_allow', label: 'Always allow', kind: 'allow_always' }, { id: 'deny', label: 'Deny', kind: 'deny' }] })
     await screen.findByTestId('badge-needs-permission')
     expect(screen.queryByTestId('badge-waits-for-answer')).toBeNull()
   })

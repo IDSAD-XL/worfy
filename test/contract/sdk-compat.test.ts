@@ -23,6 +23,7 @@ import type {
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import type { QueryHandle } from '../../src/main/agent/session'
+import type { ClaudeUserMessage } from '../../src/main/agent/session/types'
 
 const ROOT = join(import.meta.dirname, '..', '..')
 const CAPTURED = join(ROOT, 'test', 'fixtures', 'sdk-messages')
@@ -297,5 +298,13 @@ describe('the SDK Query against worfy’s QueryHandle', () => {
     expectTypeOf<ResultMismatch<QueryWith<'supportedModels', () => Promise<string[]>>>>().toEqualTypeOf<'supportedModels'>()
     // @ts-expect-error a Query without getContextUsage is no QueryLike
     expectTypeOf<ArgumentMismatch<Omit<Query, 'getContextUsage'>>>().toBeNever()
+  })
+})
+
+describe('the SDK user message against the one worfy writes', () => {
+  it('a ClaudeUserMessage is an SDKUserMessage, image blocks of an attachment included (tsc)', () => {
+    // QueryRequest.prompt is typed loosely while src/main/projects/connect.ts still hands it the
+    // SDK's own type (worfy-multi-vendor ticket 16): this check holds what the Claude driver writes.
+    expectTypeOf<ClaudeUserMessage>().toExtend<SDKUserMessage>()
   })
 })

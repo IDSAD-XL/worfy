@@ -14,7 +14,7 @@ import type { VendorDriver } from '../../src/main/vendors/driver'
 import type { HistoryPart, HistorySession } from '../../src/main/vendors/history'
 import type { LimitWindow } from '../../src/main/vendors/limits'
 import type { OneShot } from '../../src/main/vendors/one-shot'
-import type { SessionHandle } from '../../src/main/vendors/session'
+import type { SessionHandle, SessionPart, SessionStart } from '../../src/main/vendors/session'
 import type { SlashCommand } from '../../src/shared/agent/commands'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { parseTranscriptLines, type TranscriptEntry } from '../../src/shared/transcript/parse'
@@ -75,6 +75,8 @@ async function claudeHandle(query: Partial<QueryHandle> | null): Promise<Session
     setModel: refused,
     setEffort: refused,
     setPermissionPreset: refused,
+    models: refused,
+    commands: refused,
     events: { [Symbol.asyncIterator]: () => ({ next: refused }) },
     query: query as QueryHandle | null,
     catalog: new CommandCatalog(),
@@ -168,13 +170,33 @@ describe('the registry of drivers', () => {
 })
 
 describe('the Claude driver over today\'s code', () => {
-  it('session: the query factory is the one queryFactoryFromEnv makes for the given environment', async () => {
-    const factory: QueryFactory = () => Promise.reject(new Error('not started'))
+  it('session: starts Claude Code with the query factory queryFactoryFromEnv makes, observed by the Limits, made once', async () => {
+    const factory = vi.fn<QueryFactory>(() => Promise.reject(new Error('not started')))
     const queryFactoryFromEnv = vi.fn(() => factory)
+    const observe = vi.fn((given: QueryFactory) => given)
     vi.doMock(APP_REGISTRY, () => ({ queryFactoryFromEnv }))
-    const env = { WORFY_AGENT: 'fake' }
-    expect((await claude()).session.queryFactory(env)).toBe(factory)
-    expect(queryFactoryFromEnv).toHaveBeenCalledWith(env)
+    vi.doMock(LIMITS, () => ({ appLimits: () => ({ observe }) }))
+    const { DEFAULT_SETTINGS } = await import('../../src/shared/agent/settings')
+    const opts: SessionStart = {
+      cwd: '/p',
+      settings: DEFAULT_SETTINGS,
+      unattended: false,
+      orchestrator: false,
+      permissions: { ask: () => Promise.resolve(null), askQuestions: () => Promise.resolve({ outcome: 'cancelled' }) },
+      refused: () => undefined,
+      stderr: () => undefined,
+      spawned: () => undefined,
+    }
+    const { session } = await claude()
+    await expect(session.start({ ...opts, sessionId: 's-1' })).rejects.toThrow('not started')
+    await expect(session.resume('s-0', opts)).rejects.toThrow('not started')
+    expect(queryFactoryFromEnv).toHaveBeenCalledTimes(1)
+    expect(queryFactoryFromEnv).toHaveBeenCalledWith()
+    expect(observe).toHaveBeenCalledWith(factory)
+    expect(factory.mock.calls.map(([request]) => [request.cwd, request.sessionId, request.resume])).toEqual([
+      ['/p', 's-1', undefined],
+      ['/p', undefined, 's-0'],
+    ])
   })
 
   it('account: check asks accountInfo() the way the first-run check does, and answers one Anthropic connection', async () => {
@@ -376,18 +398,14 @@ describe('the history of the Claude driver over the transcripts in <claude home>
 })
 
 describe('the app registry of Sessions', () => {
-  it('takes its query factory from the Claude driver', async () => {
-    const factory: QueryFactory = () => Promise.reject(new Error('not started'))
-    const queryFactory = vi.fn(() => factory)
-    const vendorDriver = vi.fn(() => ({ session: { queryFactory } }))
-    const observe = vi.fn((given: QueryFactory) => given)
+  it('starts its Sessions with the session part of the Claude driver', async () => {
+    const part: SessionPart = { start: vi.fn(() => Promise.reject(new Error('not started'))), resume: vi.fn(() => Promise.reject(new Error('not started'))) }
+    const vendorDriver = vi.fn(() => ({ session: part }))
     vi.doMock(VENDOR_REGISTRY, () => ({ vendorDriver }))
-    vi.doMock(LIMITS, () => ({ appLimits: () => ({ observe }) }))
     const { sharedRegistry } = await import('../../src/main/agent/app-registry')
-    sharedRegistry()
+    const session = sharedRegistry().start('/p', undefined, () => undefined)
     expect(vendorDriver).toHaveBeenCalledWith('claude')
-    expect(queryFactory).toHaveBeenCalledTimes(1)
-    expect(queryFactory).toHaveBeenCalledWith()
-    expect(observe).toHaveBeenCalledWith(factory)
+    expect(part.start).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/p', sessionId: session.id }))
+    session.close()
   })
 })

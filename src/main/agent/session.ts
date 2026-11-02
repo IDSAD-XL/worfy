@@ -1,11 +1,13 @@
-// Sessions in main: each one is a single long-running SDK query() whose input is an async queue.
-// User messages are pushed into it one by one; the query is not recreated between turns.
+// Sessions in main. A Session drives its Vendor's agent only through the driver's SessionHandle
+// (src/main/vendors/session.ts, ADR-0094; worfy-multi-vendor ticket 14): it sends worfy's messages
+// into it and reads worfy's events out of it (src/shared/agent/events.ts). One handle is one process
+// of the agent; it is not recreated between turns. The Claude driver (src/main/vendors/claude/session.ts)
+// runs Claude Code through the SDK's query() and translates its messages.
 //
-// A Session turns every SDK message into worfy's events (src/shared/agent/events.ts) and keeps
-// its state: `busy` from a send until the turn's `result`, which comes once per turn even when
-// the user's Stop hook continues the turn (ticket 06, question 2). A `system/init` while idle is
-// the start of a queued turn and makes the Session busy again. When Claude Code dies, the Session
-// goes to `error`; the next send starts a new query that resumes the same SDK session.
+// The Session keeps its state: `busy` from a send until the turn's `result`, which comes once per
+// turn even when the user's Stop hook continues the turn (ticket 06, question 2). An `init` while
+// idle is the start of a queued turn and makes the Session busy again. When the agent dies, the
+// Session goes to `error`; the next send starts a new process that resumes the same Vendor session.
 //
 // A new Session names its SDK session itself (worfy-daily ticket 24): its id is a new uuid, passed
 // to Claude Code as `sessionId`, so the id is known before system/init. Claude Code writes that id
@@ -17,58 +19,44 @@
 // A message sent while a turn runs waits in the Session's queue (queue.ts) and goes after the
 // turn's `result`, one per turn (ticket 19); Interrupt and a crash hold the queue until "Send
 // queued". The model, effort and permission mode (src/shared/agent/settings.ts) are applied to
-// the live query through its control calls and passed to every query started later.
+// the live process through the handle (setModel, setEffort, setPermissionPreset) and passed to
+// every process started later.
 //
-// A message may carry attachments (ticket 20, attachments.ts): images go as image blocks, other
-// files as paths at the end of the text. The slash menu's commands come from the live query and
-// the last system/init (commands.ts).
+// A message may carry attachments (ticket 20, attachments.ts): the driver gives them to its agent.
+// The slash menu's commands and the model picker's rows come from the handle.
 //
-// Outside bypassPermissions Claude Code asks before tools (ticket 21): the Session's own
-// PermissionGate (permissions.ts) answers canUseTool from the user's choice, and the Session is
-// `needs_permission` while a request is open. Interrupt, close and a crash refuse open requests.
+// Outside bypassPermissions the agent asks before tools (ticket 21): the Session's own
+// PermissionGate (permissions.ts) waits for the user's pick of the options the Vendor offers, and
+// the Session is `needs_permission` while a request is open. Interrupt, close and a crash cancel
+// open requests.
 //
 // A Session launched unattended (Autopilot, worfy-daily ticket 02, session-settings.ts) never waits
-// for a person: it runs in bypassPermissions, refuses a change of mode, refuses canUseTool at once,
-// and each refusal reaches its subscribers as a `refused_dialog` event.
+// for a person: it runs in bypassPermissions, refuses a change of mode, its driver refuses every
+// permission request at once, and each refusal reaches its subscribers as a `refused_dialog` event.
 //
 // Stop in Autopilot halts the Orchestrator's Session before the Orchestrator is given back
 // (halt(), worfy-week ticket 17, ADR-0050): the queue is held, open requests are refused, and a
 // running turn is interrupted and waited for, HALT_TURN_MS at most. From then on the Session sends
 // nothing more into its process: what a person queues stays held, for the Session that replaces it.
 //
-// A Session knows when its Claude Code process has exited (worfy-week ticket 20, ADR-0064): the
-// query factory tells it of each process it starts (QueryRequest.spawned), and exited() settles once
+// A Session knows when its agent's process has exited (worfy-week ticket 20, ADR-0064): the
+// driver tells it of each process it starts (SessionStart.spawned), and exited() settles once
 // none is left, killing with SIGKILL one that outlives EXIT_WAIT_MS. A Session may also be started
 // with its process held back until a promise settles (start(after)): the Orchestrator's relaunch
 // starts the new process only once the old one is gone, so two processes never write one transcript.
 // Until then the Session is `starting`, and what is sent to it waits in its queue.
 //
 // A Session runs on sonnet or a larger model, never on haiku (worfy-daily ticket 07,
-// isSelectableModel): the model list leaves haiku out, a saved haiku goes back to the default model,
-// and when the default model would be a haiku from the user's settings.json (user-model.ts) the
-// query is started on sonnet instead. The Session's own settings keep `model: null` then.
-//
-// `null` — "Default" in the pickers — is the user's own model and effort from settings.json
-// (worfy-daily ticket 23): going back to it on a live query calls setModel with that model and
-// applyFlagSettings with that effort, and a new query that names no effort is asked for the user's.
-// Only the calls change: the Session's settings keep `null`, so its header shows "no pick".
+// isSelectableModel): the model list leaves haiku out and a saved haiku goes back to the default
+// model. `null` — "Default" in the pickers — is the Vendor's default model and effort: the Session's
+// settings keep `null`, so its header shows "no pick", and the driver says what it means (Claude:
+// the user's own from settings.json, sonnet for a haiku).
 import { randomUUID } from 'node:crypto'
-import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { Attachment } from '../../shared/agent/attachments'
 import { emptyTaskFold, foldTaskEvent, isTaskEvent, liveTasks, sameTasks, type BackgroundTask, type TaskFold } from '../../shared/agent/background-tasks'
 import type { SlashCommand } from '../../shared/agent/commands'
+import { sameContextUsage, type AgentEvent, type ContextUsage, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
 import type { QuestionPick } from '../../shared/agent/questions'
-import {
-  contextUsageOf,
-  isCompactBoundary,
-  sameContextUsage,
-  sdkMessageToEvents,
-  type AgentEvent,
-  type ContextUsage,
-  type PermissionDecision,
-  type QueueSnapshot,
-  type SessionState,
-} from '../../shared/agent/events'
 import {
   DEFAULT_SETTINGS,
   isSelectableModel,
@@ -78,16 +66,14 @@ import {
   type SessionSettings,
   type SettingsChange,
 } from '../../shared/agent/settings'
-import { readUserEffort, readUserModel, type UserEffortReader, type UserModelReader } from '../claude-home/user-model'
-import { shownAttachments, userContent } from './attachments'
-import { CommandCatalog } from './commands'
-import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler, type RefusalDetails } from './permissions'
+import type { AgentProcess, RefusalDetails, SessionHandle, SessionPart, SessionStart } from '../vendors/session'
+import { shownAttachments } from './attachments'
+import { PermissionGate } from './permissions'
 import { MessageQueue, type QueueEntry } from './queue'
-import { InputQueue } from './session/input-queue'
-import { mergeSettings, modelOptions, USER_MODEL_FALLBACK } from './session/models'
+import { mergeSettings } from './session/models'
 import { EXIT_WAIT_MS, exitOf, HALT_TURN_MS, hasExited, KILL_EXIT_MS, stopWaiting, waitForExit, within } from './session/process'
 import { pushSettings, STDERR_KEEP, type Run } from './session/run'
-import type { ClaudeCodeProcess, EventSink, QueryFactory, QueryHandle, QueryRequest, SessionControls, SessionInfo } from './session/types'
+import type { EventSink, SessionControls, SessionInfo } from './session/types'
 import { ATTENDED, launchSettings, settingsChangeRefusal, type SessionLaunch } from './session-settings'
 
 // What the importers of this module read from it lives in src/main/agent/session/; it stays importable from here.
@@ -126,15 +112,15 @@ export class Session {
   private settingsValue: SessionSettings
   /** Settings changes run one after another, in the order they were asked for. */
   private configuring: Promise<unknown> = Promise.resolve()
-  /** The model of the last system/init: the model list's fallback. */
+  /** The model of the last `init`: the model list's fallback. */
   private initModel: string | null = null
-  /** The background tasks of the current Claude Code process (ADR-0029); a new process starts empty. */
+  /** The background tasks of the agent's current process (ADR-0029); a new process starts empty. */
   private taskFold: TaskFold = emptyTaskFold()
-  /** Claude Code processes started for this Session without an SDK session to resume. */
+  /** Processes started for this Session without a Vendor session to resume. */
   private processes = 0
-  /** Claude Code processes of this Session that have not exited yet (ADR-0064). */
-  private readonly alive = new Set<ClaudeCodeProcess>()
-  /** Starts of Claude Code whose factory has not answered yet: a process may still come of them. */
+  /** Processes of this Session's agent that have not exited yet (ADR-0064). */
+  private readonly alive = new Set<AgentProcess>()
+  /** Starts of the agent whose driver has not answered yet: a process may still come of them. */
   private readonly pendingStarts = new Set<Promise<unknown>>()
   /** Set while start(after) holds the process back: what is sent waits in the queue. */
   private heldBack = false
@@ -143,39 +129,31 @@ export class Session {
   private liveTaskList: BackgroundTask[] = []
   /** The context usage last sent; null: none, or the last ask failed. */
   private contextValue: ContextUsage | null = null
-  /** Asks for the context usage so far; an answer to any but the latest is dropped. */
-  private contextAsks = 0
   private readonly queue = new MessageQueue((snapshot) => this.emit({ type: 'queue', ...snapshot }))
-  private readonly catalog = new CommandCatalog()
+  /** The Session's permission requests and the subjects "Always allow" covers, across its processes. */
   private readonly permissions = new PermissionGate(
     (event) => this.emit(event),
     (pending) => this.permissionsChanged(pending),
   )
-  /** The gate's canUseTool, or for an unattended Session a refusal that waits for no one. */
-  private readonly canUseTool: CanUseToolHandler
+  /** The handle of the agent's latest process, kept after it died: the slash menu still lists what it said. */
+  private lastHandle: SessionHandle | null = null
 
   constructor(
     readonly cwd: string,
-    private readonly factory: QueryFactory,
+    /** The session part of the Vendor's driver: what starts the agent's processes. */
+    private readonly sessions: SessionPart,
     private readonly sink: EventSink,
     private readonly onRenamed: (from: string, to: string) => void,
     resume: string | undefined,
     settings: SessionSettings = DEFAULT_SETTINGS,
     private readonly launch: SessionLaunch = ATTENDED,
-    /** The user's own model, read again for every Claude Code process the Session starts and every "Default". */
-    private readonly userModel: UserModelReader = () => readUserModel(),
-    /** The user's own effort, read like the model. */
-    private readonly userEffort: UserEffortReader = () => readUserEffort(),
   ) {
-    // A new Session's id is the SDK session id it asks Claude Code for (begin()).
+    // A new Session's id is the Vendor session id it asks the driver for (begin()).
     this.current = resume === undefined ? randomUUID() : `pending-${randomUUID()}`
     this.sdkSessionId = resume ?? null
     // A haiku saved before ticket 07 goes back to the default model; the start's `settings` event
     // lets the Orchestrator save the corrected picks.
     this.settingsValue = withSelectableModel(launchSettings(settings, launch))
-    this.canUseTool = launch.unattended
-      ? unattendedCanUseTool((toolName, message, details) => this.refuseDialog('permission_request', toolName, message, details))
-      : this.permissions.canUseTool
   }
 
   /** No person is at this Session (Autopilot): nothing it does may wait for the UI. */
@@ -210,7 +188,7 @@ export class Session {
     return this.stateValue
   }
 
-  /** The SDK session this one runs or will resume, once known. */
+  /** The Vendor session (Claude: the SDK session) this one runs or will resume, once known. */
   get sdkId(): string | null {
     return this.sdkSessionId
   }
@@ -224,7 +202,7 @@ export class Session {
   }
 
   /**
-   * The live background tasks of the Session's Claude Code process, ambient ones left out
+   * The live background tasks of the Session's agent process, ambient ones left out
    * (src/shared/agent/background-tasks.ts). Empty while no process runs.
    */
   backgroundTasks(): BackgroundTask[] {
@@ -236,7 +214,7 @@ export class Session {
   }
 
   /**
-   * Starts Claude Code; the Session is `starting` until accountInfo() answers. With `after`, the
+   * Starts the agent; the Session is `starting` until its `account` event. With `after`, the
    * process starts only once `after` settles (Orchestrators.relaunch: the old process has exited);
    * meanwhile messages wait in the queue, and a Session closed before then starts no process.
    */
@@ -257,14 +235,14 @@ export class Session {
       })
   }
 
-  /** Settles once the Session has started its Claude Code process, or was closed before it did. */
+  /** Settles once the Session has started its agent's process, or was closed before it did. */
   started(): Promise<void> {
     return this.launched
   }
 
   /**
-   * Settles once every Claude Code process of this Session has exited — for a closed Session, the
-   * moment its SDK session may be resumed by another process (ADR-0064). A process still held back
+   * Settles once every process of this Session's agent has exited — for a closed Session, the
+   * moment its Vendor session may be resumed by another process (ADR-0064). A process still held back
    * (start(after)) is waited for first, then a start still in progress. A process alive `killAfterMs`
    * after that gets SIGKILL and is waited for KILL_EXIT_MS more; one that outlives even that is left
    * with a warning, so the caller is never held for good. Never rejects. Meant for a closed Session.
@@ -354,12 +332,12 @@ export class Session {
    * interrupted. A permission request still open is refused first.
    */
   async interrupt(): Promise<boolean> {
-    const query = this.run?.query
-    if ((this.stateValue !== 'busy' && this.stateValue !== 'needs_permission') || !query) return false
+    const handle = this.run?.handle
+    if ((this.stateValue !== 'busy' && this.stateValue !== 'needs_permission') || !handle) return false
     this.interrupted = true
     this.queue.pause()
     this.permissions.cancelAll()
-    await query.interrupt()
+    await handle.interrupt()
     return true
   }
 
@@ -375,12 +353,12 @@ export class Session {
     this.halted = true
     this.queue.pause()
     this.permissions.cancelAll()
-    const query = this.run?.query
-    if (!inTurn(this.stateValue) || !query) return false
+    const handle = this.run?.handle
+    if (!inTurn(this.stateValue) || !handle) return false
     this.interrupted = true
     const ended = new Promise<void>((done) => this.turnEndWaiters.push(done))
     // Not awaited: an interrupt that never answers must not hold the stop past its limit.
-    query.interrupt().catch((error: unknown) => console.warn(`[agent] interrupting ${this.current} failed`, error))
+    handle.interrupt().catch((error: unknown) => console.warn(`[agent] interrupting ${this.current} failed`, error))
     let timer: ReturnType<typeof setTimeout> | undefined
     const limit = new Promise<void>((done) => {
       timer = setTimeout(done, timeoutMs)
@@ -393,10 +371,13 @@ export class Session {
     return true
   }
 
-  /** The user's answer to an open permission request; false when it is no longer open. */
-  answerPermission(requestId: string, decision: PermissionDecision): boolean {
+  /**
+   * The user's answer to an open permission request: the id of one of its options. False when it is
+   * no longer open; throws for an option the request does not offer.
+   */
+  answerPermission(requestId: string, optionId: string): boolean {
     this.assertOpen()
-    return this.permissions.answer(requestId, decision)
+    return this.permissions.answer(requestId, optionId)
   }
 
   /** The user's picks for an open question request (null: "Decline"); false when it is no longer open. */
@@ -406,9 +387,9 @@ export class Session {
   }
 
   /**
-   * Changes the model, effort or permission mode: on the live query through its control calls, and
-   * for every query started later. Resolves to the settings now in force; a control call that
-   * fails rejects and leaves the settings as they were.
+   * Changes the model, effort or permission mode: on the live process through the handle, and for
+   * every process started later. Resolves to the settings now in force; a change the handle refuses
+   * rejects and leaves the settings as they were.
    */
   configure(change: SettingsChange): Promise<SessionSettings> {
     this.assertOpen()
@@ -421,8 +402,8 @@ export class Session {
       const before = this.settingsValue
       const wanted = mergeSettings(before, change)
       const run = this.run
-      // Without a live query the settings go to the next one (begin() or the query being started).
-      if (run?.query) await pushSettings(run, run.query, wanted, (settings) => this.controlSettings(settings))
+      // Without a live process the settings go to the next one (begin() or the process being started).
+      if (run?.handle) await pushSettings(run, run.handle, wanted)
       this.settingsValue = wanted
       if (!sameSettings(before, wanted)) this.emit({ type: 'settings', settings: this.settings })
       return this.settings
@@ -431,24 +412,21 @@ export class Session {
     return task
   }
 
-  /** The model picker's rows: supportedModels() of the live query, or else the model of the last system/init. */
+  /** The model picker's rows: those of the live process, or else the model of the last `init`. */
   async models(): Promise<ModelOption[]> {
-    const query = this.run?.query
-    if (query) {
-      try {
-        const listed = modelOptions(await query.supportedModels())
-        if (listed.length > 0) return listed
-      } catch (error) {
-        console.warn(`[agent] supportedModels of ${this.current} failed`, error)
-      }
+    const handle = this.run?.handle
+    if (handle) {
+      const listed = await handle.models()
+      if (listed.length > 0) return listed
     }
     const model = this.initModel ?? this.settingsValue.model
     return model === null || !isSelectableModel(model) ? [] : [{ value: model, displayName: model, efforts: [] }]
   }
 
-  /** The slash menu's rows: supportedCommands() of the live query, with the names of the last system/init. */
+  /** The slash menu's rows: those of the live process, or what the latest one said of them. */
   commands(): Promise<SlashCommand[]> {
-    return this.catalog.list(this.run?.query ?? null)
+    const handle = this.run?.handle ?? this.lastHandle
+    return handle === null ? Promise.resolve([]) : handle.commands()
   }
 
   close(): void {
@@ -457,9 +435,9 @@ export class Session {
     this.permissions.cancelAll()
     const run = this.run
     this.run = null
-    run?.input.end()
     try {
-      run?.query?.close()
+      // A process still being started is closed once its driver answers (consume()).
+      run?.handle?.close()
     } catch (error) {
       console.warn(`[agent] closing ${this.current} failed`, error)
     }
@@ -472,18 +450,15 @@ export class Session {
     if (this.closing) throw new Error(`Session ${this.current} is closed`)
   }
 
-  /** Gives Claude Code one user message and starts its turn. */
+  /** Gives the agent one user message and starts its turn. */
   private deliver(text: string, attachments: readonly Attachment[]): void {
     if (this.stateValue === 'error' || this.run === null) this.begin()
-    const message: SDKUserMessage = {
-      type: 'user',
-      message: { role: 'user', content: userContent(text, attachments) },
-      parent_tool_use_id: null,
-      origin: { kind: 'human' },
-    }
     // The row shows the text as typed and the attachments by name (worfy-ui ticket 28).
     this.emit({ type: 'prompt', text: text.trim() === '' ? '' : text, attachments: shownAttachments(attachments) })
-    this.run?.input.push(message)
+    const run = this.run
+    const message = { text, attachments }
+    if (run?.handle) void run.handle.send(message)
+    else run?.waiting.push(message)
     this.setState('busy')
   }
 
@@ -495,43 +470,43 @@ export class Session {
   }
 
   private begin(): void {
-    // A new Claude Code process starts with an empty set of background tasks: a new Session has
-    // none yet, and fail() emptied it when the process before this one died. The new process
-    // reports its own only when they change.
+    // A new process starts with an empty set of background tasks: a new Session has none yet, and
+    // fail() emptied it when the process before this one died. The new process reports its own
+    // only when they change.
     const settings = this.settings
-    const run: Run = { query: null, input: new InputQueue<SDKUserMessage>(), stderr: [], applied: settings }
+    const run: Run = { handle: null, waiting: [], stderr: [], applied: settings }
     this.run = run
     this.interrupted = false
     const resume = this.sdkSessionId ?? undefined
-    const request: QueryRequest = {
-      prompt: run.input,
+    const opts: SessionStart = {
       cwd: this.cwd,
-      resume,
-      sessionId: resume === undefined ? this.newSessionId() : undefined,
+      settings,
+      unattended: this.launch.unattended,
+      orchestrator: this.launch.orchestrator === true,
+      permissions: this.permissions,
+      refused: (subject, message, details) => this.refuseDialog('permission_request', subject, message, details),
       stderr: (data) => {
         run.stderr.push(data)
         if (run.stderr.length > STDERR_KEEP) run.stderr.shift()
       },
-      settings: this.querySettings(settings),
-      canUseTool: this.canUseTool,
-      unattended: this.launch.unattended,
       spawned: (child) => this.watch(child),
-      orchestrator: this.launch.orchestrator === true,
+      previous: this.lastHandle ?? undefined,
     }
-    void this.consume(run, request)
+    const starting = resume === undefined ? this.sessions.start({ ...opts, sessionId: this.newSessionId() }) : this.sessions.resume(resume, opts)
+    void this.consume(run, starting)
   }
 
-  /** Keeps a started Claude Code process until it exits, for exited(). */
-  private watch(child: ClaudeCodeProcess): void {
+  /** Keeps a started process until it exits, for exited(). */
+  private watch(child: AgentProcess): void {
     if (child.pid === undefined || hasExited(child)) return
     this.alive.add(child)
     void exitOf(child).then(() => this.alive.delete(child))
   }
 
   /**
-   * The id a Claude Code process with no SDK session to resume is asked for: the Session's own id
-   * for its first process. A process started after one that died before its first turn gets a new
-   * id, and the Session is renamed to it: Claude Code may have kept the first one.
+   * The id a process with no Vendor session to resume is asked for: the Session's own id for its
+   * first process. A process started after one that died before its first turn gets a new id, and
+   * the Session is renamed to it: the Vendor may have kept the first one.
    */
   private newSessionId(): string {
     if (this.processes > 0) {
@@ -544,115 +519,49 @@ export class Session {
     return this.current
   }
 
-  /**
-   * The settings a new Claude Code process is asked for. With no model named the SDK runs the
-   * user's model from settings.json; when that is a haiku the process is asked for sonnet instead.
-   * With no effort named the process is asked for the user's effortLevel, which Claude Code would
-   * not apply to a newer model (user-model.ts). Only the request changes: the Session's settings
-   * (and the Node's saved picks) keep `null`, and the user's settings.json is left as it is
-   * (ADR 0005).
-   */
-  private querySettings(settings: SessionSettings): SessionSettings {
-    const asked = this.userEffortFor(settings)
-    if (asked.model !== null) return asked
-    const userModel = this.readUser('model', this.userModel)
-    return userModel !== null && !isSelectableModel(userModel) ? { ...asked, model: USER_MODEL_FALLBACK } : asked
-  }
-
-  /**
-   * What the control calls of a live query ask for. setModel with no model would put Claude Code
-   * on its own default model, not on the user's: "Default" names the user's model (sonnet for a
-   * haiku), and only with none in settings.json goes to Claude Code's default.
-   */
-  private controlSettings(settings: SessionSettings): SessionSettings {
-    const asked = this.userEffortFor(settings)
-    if (asked.model !== null) return asked
-    const userModel = this.readUser('model', this.userModel)
-    return userModel === null ? asked : { ...asked, model: isSelectableModel(userModel) ? userModel : USER_MODEL_FALLBACK }
-  }
-
-  /** `settings` with no effort named asking for the user's effortLevel; still null when there is none. */
-  private userEffortFor(settings: SessionSettings): SessionSettings {
-    return settings.effort !== null ? settings : { ...settings, effort: this.readUser('effort', this.userEffort) }
-  }
-
-  /** One of the user's own settings; null when it cannot be read, so the start or the change goes on. */
-  private readUser<T>(what: string, read: () => T | null): T | null {
-    try {
-      return read()
-    } catch (error) {
-      console.warn(`[agent] could not read the user's ${what} for ${this.current}`, error)
-      return null
-    }
-  }
-
-  /** Settings changed while the query was being started: the query gets them now. */
-  private catchUp(run: Run, query: QueryHandle): void {
+  /** Settings changed while the process was being started: the process gets them now. */
+  private catchUp(run: Run, handle: SessionHandle): void {
     this.configuring = this.configuring.then(async () => {
       if (this.run !== run || sameSettings(run.applied, this.settingsValue)) return
       try {
-        await pushSettings(run, query, this.settingsValue, (settings) => this.controlSettings(settings))
+        await pushSettings(run, handle, this.settingsValue)
       } catch (error) {
         console.warn(`[agent] could not apply the settings of ${this.current}`, error)
       }
     })
   }
 
-  private async consume(run: Run, request: QueryRequest): Promise<void> {
+  private async consume(run: Run, starting: Promise<SessionHandle>): Promise<void> {
     const isCurrent = () => this.run === run && !this.closing
     try {
-      const starting = this.factory(request)
       this.pendingStarts.add(starting)
       const forget = (): boolean => this.pendingStarts.delete(starting)
-      // Beside the await, not chained into it: the query is taken as soon as before (an Interrupt
+      // Beside the await, not chained into it: the handle is taken as soon as before (an Interrupt
       // right after the send finds it).
       starting.then(forget, forget)
-      const query = await starting
+      const handle = await starting
       if (!isCurrent()) {
-        query.close()
+        handle.close()
         return
       }
-      run.query = query
-      this.catchUp(run, query)
-      void this.checkAccount(run, query)
-      for await (const message of query) {
+      run.handle = handle
+      this.lastHandle = handle
+      for (const message of run.waiting.splice(0)) void handle.send(message)
+      this.catchUp(run, handle)
+      for await (const event of handle.events) {
         if (!isCurrent()) return
-        this.handle(message)
+        this.onEvent(event)
       }
-      if (isCurrent()) this.fail(run, 'Claude Code exited')
+      if (isCurrent()) this.fail(run, 'The agent exited')
     } catch (error) {
       if (isCurrent()) this.fail(run, messageOf(error))
-    }
-  }
-
-  private async checkAccount(run: Run, query: QueryHandle): Promise<void> {
-    try {
-      const account = await query.accountInfo()
-      if (this.run !== run || this.closing) return
-      this.emit({
-        type: 'account',
-        // With a login accountInfo() has subscriptionType; without one only apiProvider and
-        // tokenSource "none" (ADR-0009, ticket 06 question 3).
-        loggedIn: account.subscriptionType !== undefined || (account.tokenSource !== undefined && account.tokenSource !== 'none'),
-        subscriptionType: account.subscriptionType ?? null,
-        apiProvider: account.apiProvider ?? null,
-        tokenSource: account.tokenSource ?? null,
-      })
-      if (this.stateValue === 'starting') {
-        this.setState('idle')
-        this.next()
-      }
-    } catch (error) {
-      // A dead process also ends the message loop, which reports it; this covers a start that
-      // never answers the account request.
-      if (this.run === run && !this.closing && this.stateValue === 'starting') this.fail(run, messageOf(error))
     }
   }
 
   private fail(run: Run, reason: string): void {
     const details = run.stderr.join('').trim()
     const error = details ? `${reason}\n${details}` : reason
-    run.input.end()
+    run.waiting.length = 0
     this.run = null
     this.interrupted = false
     // The process is gone, and its background tasks with it.
@@ -660,7 +569,7 @@ export class Session {
     // What waits in the queue goes when the user asks ("Send queued"), not into a new process by itself.
     this.queue.pause()
     this.setState('error', error)
-    // Claude Code is gone: nobody waits for these answers any more.
+    // The agent is gone: nobody waits for these answers any more.
     this.permissions.cancelAll()
   }
 
@@ -671,12 +580,24 @@ export class Session {
     else if (pending === 0 && this.stateValue === 'needs_permission') this.setState('busy')
   }
 
-  private handle(message: unknown): void {
-    this.catalog.observe(message)
-    // A compaction empties most of the window while the turn may go on for long.
-    if (isCompactBoundary(message)) this.askContext()
-    for (const event of sdkMessageToEvents(message)) {
-      if (event.type === 'init') {
+  /** One event of the agent: the Session's state follows it, and its subscribers get it. */
+  private onEvent(event: AgentEvent): void {
+    switch (event.type) {
+      case 'account':
+        this.emit(event)
+        // The agent answered its start check: the Session takes messages.
+        if (this.stateValue === 'starting') {
+          this.setState('idle')
+          this.next()
+        }
+        return
+      case 'context':
+        // Sent only when it differs from the last one.
+        if (sameContextUsage(event.usage, this.contextValue)) return
+        this.contextValue = event.usage
+        this.emit(event)
+        return
+      case 'init':
         this.sdkSessionId = event.sdkSessionId
         this.initModel = event.model
         if (event.sdkSessionId !== this.current) {
@@ -688,50 +609,21 @@ export class Session {
         this.emit(event)
         // A turn the user queued while the previous one ran starts with its own init.
         if (this.stateValue === 'idle' || this.stateValue === 'starting') this.setState('busy')
-        continue
-      }
-      if (event.type === 'result') {
-        // A failed turn after agent.interrupt counts as interrupted even when Claude Code gives
-        // no abort reason; a turn that finished normally despite the request does not.
+        return
+      case 'result':
+        // A failed turn after agent.interrupt counts as interrupted even when the Vendor gives no
+        // abort reason; a turn that finished normally despite the request does not.
         this.emit({ ...event, interrupted: event.interrupted || (this.interrupted && event.isError) })
         this.interrupted = false
         // A turn that ended leaves no request to answer.
         this.permissions.cancelAll()
-        this.askContext()
         this.setState('idle')
         this.next()
-        continue
-      }
-      this.emit(event)
-      if (isTaskEvent(event)) this.trackTasks(foldTaskEvent(this.taskFold, event))
+        return
+      default:
+        this.emit(event)
+        if (isTaskEvent(event)) this.trackTasks(foldTaskEvent(this.taskFold, event))
     }
-  }
-
-  /**
-   * Asks the running query how full the context window is and sends a `context` event when the
-   * answer differs from the last one. `summary` answers from the last response's usage, without
-   * token-count requests. A failed ask is "no data", never a failed turn. An answer is dropped when
-   * a newer ask was made, the query was replaced or the Session is closing.
-   */
-  private askContext(): void {
-    const run = this.run
-    const query = run?.query
-    if (run === null || query?.getContextUsage === undefined) return
-    const ask = ++this.contextAsks
-    const answer = (async () => {
-      try {
-        return contextUsageOf(await query.getContextUsage?.({ detail: 'summary' }))
-      } catch (error) {
-        console.warn(`[agent] could not read the context usage of ${this.current}`, error)
-        return null
-      }
-    })()
-    void answer.then((usage) => {
-      if (ask !== this.contextAsks || this.run !== run || this.closing) return
-      if (sameContextUsage(usage, this.contextValue)) return
-      this.contextValue = usage
-      this.emit({ type: 'context', usage })
-    })
   }
 
   /** Takes a new fold of the tasks; tells the subscribers when the live set changed. */

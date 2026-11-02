@@ -39,7 +39,7 @@
 import { randomUUID } from 'node:crypto'
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
-import { sdkMessageToEvents } from '../../shared/agent/events'
+import { sdkMessageToEvents } from '../../shared/vendors/claude/events'
 import type { BrowserProfile } from '../../shared/browser/profiles'
 import {
   AUTOPILOT_ONLY,

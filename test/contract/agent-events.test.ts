@@ -5,7 +5,8 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { agentEvent, sdkMessageToEvents, type AgentEvent } from '../../src/shared/agent/events'
+import { agentEvent, type AgentEvent } from '../../src/shared/agent/events'
+import { sdkMessageToEvents } from '../../src/shared/vendors/claude/events'
 
 const fixturesDir = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'sdk-messages')
 

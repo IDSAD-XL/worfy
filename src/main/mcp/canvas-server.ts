@@ -20,7 +20,8 @@ import * as nativePath from 'node:path'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
-import { sdkMessageToEvents, type AgentEvent } from '../../shared/agent/events'
+import type { AgentEvent } from '../../shared/agent/events'
+import { sdkMessageToEvents } from '../../shared/vendors/claude/events'
 import {
   CANVAS_SERVER_NAME,
   CANVAS_TOOL_NAMES,

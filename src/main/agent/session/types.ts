@@ -1,10 +1,12 @@
-// The types at a Session's boundary (session.ts): what it reads of the SDK's query and of a Claude
-// Code process, how it is started, and what it tells its subscribers.
-import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+// The types at the boundary of Claude Code under the Claude driver's SessionHandle
+// (src/main/vendors/claude/session.ts): what it reads of the SDK's query and how a query is started.
+// Structural, without the SDK's import (ADR-0094 item 4). The Session's own types (EventSink,
+// SessionInfo, SessionControls) live here too, as importers read them from src/main/agent/session.ts.
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../../shared/agent/events'
 import type { EffortChoice, PermissionModeChoice, SessionSettings } from '../../../shared/agent/settings'
+import type { AgentProcess } from '../../vendors/session'
+import type { UserContent } from '../attachments'
 import type { CommandInfoLike } from '../commands'
-import type { CanUseToolHandler } from '../permissions'
 import type { Session } from '../session'
 
 /** What accountInfo() returns, as far as worfy reads it (ADR-0009). */
@@ -23,17 +25,43 @@ export interface ModelInfoLike {
   supportedEffortLevels?: readonly string[] | undefined
 }
 
+/** A Claude Code process as far as a Session watches it (AgentProcess). */
+export type ClaudeCodeProcess = AgentProcess
+
 /**
- * A Claude Code process as far as a Session watches it: Node's ChildProcess has all of it. A process
- * without a pid never started (spawn failed) and is not waited for.
+ * A user message as worfy gives it to Claude Code: the part of the SDK's SDKUserMessage it fills.
+ * `content` is the text alone, or image blocks and then the text (attachments.ts, userContent).
  */
-export interface ClaudeCodeProcess {
-  readonly pid?: number | undefined
-  readonly exitCode: number | null
-  readonly signalCode: NodeJS.Signals | null
-  kill(signal: NodeJS.Signals): boolean
-  once(event: 'exit', listener: () => void): unknown
+export interface ClaudeUserMessage {
+  type: 'user'
+  message: { role: 'user'; content: UserContent }
+  parent_tool_use_id: null
+  origin: { kind: 'human' }
 }
+
+/** The options of canUseTool that worfy reads (SDK 0.3.289, test/fixtures/sdk-messages/can-use-tool.json). */
+export interface PermissionRequestOptions {
+  signal: AbortSignal
+  suggestions?: readonly unknown[] | undefined
+  toolUseID?: string | undefined
+  title?: string | undefined
+  description?: string | undefined
+  blockedPath?: string | undefined
+  /** Claude Code says the request must not offer a lasting "don't ask again". */
+  suppressAlwaysAllowRule?: boolean | undefined
+  /** Why Claude Code asks: which of its checks fired. */
+  decisionReason?: string | undefined
+  /** The Subagent that asks; absent for the Session's own turn. */
+  agentID?: string | undefined
+  /** The tool's card is where the user answers (AskUserQuestion); worfy reads the tool's name instead. */
+  requiresUserInteraction?: boolean | undefined
+}
+
+/** The answer canUseTool gives Claude Code; a subset of the SDK's PermissionResult. */
+export type PermissionAnswer = { behavior: 'allow'; updatedInput: Record<string, unknown> } | { behavior: 'deny'; message: string; interrupt?: boolean }
+
+/** canUseTool as the Claude driver hands it to the query (options.ts passes it to the SDK). */
+export type CanUseToolHandler = (toolName: string, input: Record<string, unknown>, options: PermissionRequestOptions) => Promise<PermissionAnswer>
 
 /** The part of the SDK's Query a Session uses; fake-query.ts implements it too. */
 export interface QueryHandle extends AsyncIterable<unknown> {
@@ -56,7 +84,15 @@ export interface QueryHandle extends AsyncIterable<unknown> {
 }
 
 export interface QueryRequest {
-  prompt: AsyncIterable<SDKUserMessage>
+  /**
+   * The user's messages: ClaudeUserMessage, as the Claude driver writes them.
+   * shortcut: typed `any` — the Project profile draft (src/main/projects/connect.ts) still passes the
+   * SDK's own SDKUserMessage here, and this file may not name the SDK (ADR-0094 item 4);
+   * test/contract/sdk-compat.test.ts holds ClaudeUserMessage to SDKUserMessage. Redo when
+   * worfy-multi-vendor ticket 16 moves the queries into the Claude driver.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the shortcut above
+  prompt: AsyncIterable<any>
   cwd: string
   /** SDK session id to continue. */
   resume: string | undefined
@@ -69,7 +105,7 @@ export interface QueryRequest {
   stderr: (data: string) => void
   /** The model, effort and permission mode the query starts with. */
   settings: SessionSettings
-  /** Answers Claude Code's permission requests (permissions.ts); one gate per Session, across its queries. */
+  /** Answers Claude Code's permission requests: the Claude driver's canUseTool over the Session's gate (permissions.ts). */
   canUseTool: CanUseToolHandler
   /** No person is at the Session (session-settings.ts): Claude Code must run in bypassPermissions. A Session always sets it. */
   unattended?: boolean | undefined

@@ -496,7 +496,8 @@ describe('a Session', () => {
     title: null,
     description: 'Push the branch',
     blockedPath: null,
-    alwaysAllow: true,
+    subject: 'Bash',
+    options: [{ id: 'allow', label: 'Allow', kind: 'allow' }, { id: 'always_allow', label: 'Always allow', kind: 'allow_always' }, { id: 'deny', label: 'Deny', kind: 'deny' }],
     suggestions: [],
   }
 

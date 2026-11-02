@@ -67,7 +67,8 @@ const permission = (command = 'git push'): AgentEvent => ({
   title: null,
   description: null,
   blockedPath: null,
-  alwaysAllow: true,
+  subject: 'Bash',
+  options: [{ id: 'allow', label: 'Allow', kind: 'allow' }, { id: 'always_allow', label: 'Always allow', kind: 'allow_always' }, { id: 'deny', label: 'Deny', kind: 'deny' }],
   suggestions: [],
 })
 const init = (cwd: string): AgentEvent => ({

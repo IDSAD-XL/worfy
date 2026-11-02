@@ -176,8 +176,9 @@ describe('agent.configure', () => {
     const h = await harness('turn')
     const id = await h.start()
     const session = h.registry.get(id)
-    const run = (session as unknown as { run: { query: { setPermissionMode: () => Promise<void> } } }).run
-    vi.spyOn(run.query, 'setPermissionMode').mockRejectedValue(new Error('mode refused'))
+    // The live query under the Claude driver's handle (src/main/vendors/claude/session.ts).
+    const run = (session as unknown as { run: { handle: { query: { setPermissionMode: () => Promise<void> } } } }).run
+    vi.spyOn(run.handle.query, 'setPermissionMode').mockRejectedValue(new Error('mode refused'))
     const result = await h.call('agent.configure', { sessionId: id, change: { permissionMode: 'plan' } })
     expect(!result.ok && result.error).toMatch(/mode refused/)
     expect(session.settings).toEqual(DEFAULT_SETTINGS)

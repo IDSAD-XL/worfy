@@ -20,7 +20,8 @@
 // The function is pure and runs in any process; the main process reads the files (tail.ts).
 import { z } from 'zod'
 import { attachmentLines, baseName, IMAGE_EXTENSIONS, imageMediaTypeSchema, shownFile, type ImageMediaType, type MessageAttachment } from '../agent/attachments'
-import { agentEvent, hookSaidSomething, LOCAL_COMMAND, toolResultText, type AgentEvent } from '../agent/events'
+import { agentEvent, type AgentEvent } from '../agent/events'
+import { hookSaidSomething, LOCAL_COMMAND, toolResultText } from '../vendors/claude/events'
 
 /** What a reader of transcripts adds to the parse. */
 export interface ParseOptions {

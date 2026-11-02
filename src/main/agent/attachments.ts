@@ -11,7 +11,7 @@
 //   folder, never into the Project's repository), up to FILE_COPY_LIMIT_BYTES.
 // recheck() checks again, before a message is sent, an attachment the renderer hands back: main
 // does not take the renderer's word for what attach() made (ADR-0006).
-// userContent() builds the content of the SDK user message from the text and the attachments.
+// userContent() builds the content of the user message Claude Code gets from the text and the attachments.
 //
 // worfy-ui ticket 28: a sent message shows its attachments (shownAttachments) without paths or
 // bytes, and main keeps a copy of each sent image, `<data root>/attachments/images/<sha256>.<ext>`
@@ -22,7 +22,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { copyFile, mkdir, open, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, join, sep } from 'node:path'
-import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import {
   FILE_COPY_LIMIT_BYTES,
   IMAGE_LIMIT_BYTES,
@@ -177,8 +176,14 @@ export async function recheck(attachment: Attachment, target: AttachTarget): Pro
   return { kind: 'file', name, path: attachment.path, size: info.size, copied: attachment.copied }
 }
 
-/** The content of the SDK user message: the text alone, or the images first and then the text. */
-export function userContent(text: string, attachments: readonly Attachment[]): SDKUserMessage['message']['content'] {
+/**
+ * The content of a user message as Claude Code takes it (the SDK's SDKUserMessage, written out here so
+ * this file does not import the SDK): the text alone, or image blocks and then a text block.
+ */
+export type UserContent = string | ({ type: 'image'; source: { type: 'base64'; media_type: ImageMediaType; data: string } } | { type: 'text'; text: string })[]
+
+/** The content of the user message: the text alone, or the images first and then the text. */
+export function userContent(text: string, attachments: readonly Attachment[]): UserContent {
   const body = messageText(text, attachments)
   const images = attachments.flatMap((each) => (each.kind === 'image' ? [each] : []))
   if (images.length === 0) return body

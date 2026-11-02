@@ -10,11 +10,12 @@ import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { CANCELLED_MESSAGE, DENIED_MESSAGE, PermissionGate, QUESTION_DECLINED_MESSAGE, UNATTENDED_DENIED_MESSAGE } from '../../src/main/agent/permissions'
+import { PermissionGate } from '../../src/main/agent/permissions'
 import { UNATTENDED_MODE_MESSAGE } from '../../src/main/agent/session-settings'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { agentHandlers } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
+import { CANCELLED_MESSAGE, claudeCanUseTool, DENIED_MESSAGE, QUESTION_DECLINED_MESSAGE, UNATTENDED_DENIED_MESSAGE } from '../../src/main/vendors/claude/session'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../src/shared/agent/settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -145,7 +146,8 @@ describe('a permission request', () => {
     await h.ok('agent.send', { sessionId: id, text: 'build it' })
     await vi.waitFor(() => expect(h.ofType('permission_request')).toHaveLength(1))
     const first = h.ofType('permission_request')[0]
-    expect(first).toMatchObject({ toolName: 'Bash', input: { command: 'mkdir -p build/one', description: 'Create the build folder' }, alwaysAllow: true })
+    expect(first).toMatchObject({ subject: 'Bash', toolName: 'Bash', input: { command: 'mkdir -p build/one', description: 'Create the build folder' } })
+    expect(first?.options.map((option) => option.id)).toEqual(['allow', 'always_allow', 'deny'])
     expect(h.registry.get(id).state).toBe('needs_permission')
 
     expect(await h.ok('agent.permission', { sessionId: id, requestId: first?.requestId, decision: 'allow' })).toEqual({ answered: true })
@@ -463,7 +465,7 @@ describe('agent.permission at the IPC boundary', () => {
     await h.ok('agent.send', { sessionId: id, text: 'build it' })
     await vi.waitFor(() => expect(h.ofType('permission_request')).toHaveLength(1))
     const request = h.ofType('permission_request')[0]
-    expect(Object.keys(request ?? {}).sort()).toEqual(['alwaysAllow', 'blockedPath', 'description', 'input', 'requestId', 'suggestions', 'title', 'toolName', 'toolUseId', 'type'])
+    expect(Object.keys(request ?? {}).sort()).toEqual(['blockedPath', 'description', 'input', 'options', 'requestId', 'subject', 'suggestions', 'title', 'toolName', 'toolUseId', 'type'])
     // Only what a suggestion is and where it would write: worfy applies none of them.
     expect(request?.suggestions).toEqual([
       { type: 'addRules', destination: 'localSettings' },
@@ -480,11 +482,11 @@ describe('PermissionGate', () => {
     const gate = new PermissionGate((event) => events.push(event), () => undefined)
     const aborted = new AbortController()
     aborted.abort()
-    expect(await gate.canUseTool('Bash', { command: 'ls' }, options(aborted.signal))).toEqual({ behavior: 'deny', message: CANCELLED_MESSAGE, interrupt: true })
+    expect(await claudeCanUseTool(gate)('Bash', { command: 'ls' }, options(aborted.signal))).toEqual({ behavior: 'deny', message: CANCELLED_MESSAGE, interrupt: true })
     expect(events).toEqual([])
 
     const later = new AbortController()
-    const answer = gate.canUseTool('Bash', { command: 'ls' }, options(later.signal))
+    const answer = claudeCanUseTool(gate)('Bash', { command: 'ls' }, options(later.signal))
     expect(gate.pending).toBe(1)
     later.abort()
     expect(await answer).toEqual({ behavior: 'deny', message: CANCELLED_MESSAGE, interrupt: true })
@@ -496,9 +498,9 @@ describe('PermissionGate', () => {
     const events: AgentEvent[] = []
     const counts: number[] = []
     const gate = new PermissionGate((event) => events.push(event), (pending) => counts.push(pending))
-    const first = gate.canUseTool('Bash', { command: 'ls' }, options())
-    const second = gate.canUseTool('Bash', { command: 'pwd' }, options())
-    const write = gate.canUseTool('Write', { file_path: '/tmp/x' }, options())
+    const first = claudeCanUseTool(gate)('Bash', { command: 'ls' }, options())
+    const second = claudeCanUseTool(gate)('Bash', { command: 'pwd' }, options())
+    const write = claudeCanUseTool(gate)('Write', { file_path: '/tmp/x' }, options())
     const ids = events.flatMap((event) => (event.type === 'permission_request' ? [event.requestId] : []))
     expect(gate.pending).toBe(3)
 
@@ -520,15 +522,15 @@ describe('PermissionGate', () => {
   it('does not offer "Always allow" when Claude Code says it must not, and refuses that answer', async () => {
     const events: AgentEvent[] = []
     const gate = new PermissionGate((event) => events.push(event), () => undefined)
-    const answer = gate.canUseTool('Bash', { command: 'ls' }, options(undefined, { suppressAlwaysAllowRule: true }))
+    const answer = claudeCanUseTool(gate)('Bash', { command: 'ls' }, options(undefined, { suppressAlwaysAllowRule: true }))
     const request = events[0]
-    expect(request).toMatchObject({ type: 'permission_request', alwaysAllow: false })
+    expect(request?.type === 'permission_request' ? request.options.map((option) => option.id) : []).toEqual(['allow', 'deny'])
     const requestId = request?.type === 'permission_request' ? request.requestId : ''
-    expect(() => gate.answer(requestId, 'always_allow')).toThrow(/Always allow/)
+    expect(() => gate.answer(requestId, 'always_allow')).toThrow(/does not offer/)
     expect(gate.answer(requestId, 'allow')).toBe(true)
     expect(await answer).toEqual({ behavior: 'allow', updatedInput: { command: 'ls' } })
     // The tool is not remembered: the next call asks again.
-    void gate.canUseTool('Bash', { command: 'pwd' }, options())
+    void claudeCanUseTool(gate)('Bash', { command: 'pwd' }, options())
     expect(gate.pending).toBe(1)
     gate.cancelAll()
   })
@@ -813,8 +815,8 @@ describe('PermissionGate and questions', () => {
   it('an AskUserQuestion input it cannot read as questions goes the ordinary way, as a permission request', async () => {
     const events: AgentEvent[] = []
     const gate = new PermissionGate((event) => events.push(event), () => undefined)
-    void gate.canUseTool('AskUserQuestion', { questions: 'not a list' }, options())
-    void gate.canUseTool('AskUserQuestion', { questions: [QUESTIONS[0], QUESTIONS[0]] }, options())
+    void claudeCanUseTool(gate)('AskUserQuestion', { questions: 'not a list' }, options())
+    void claudeCanUseTool(gate)('AskUserQuestion', { questions: [QUESTIONS[0], QUESTIONS[0]] }, options())
     expect(events.map((event) => event.type)).toEqual(['permission_request', 'permission_request'])
     gate.cancelAll()
   })
@@ -822,12 +824,12 @@ describe('PermissionGate and questions', () => {
   it('a question never offers "Always allow", and "Always allow" given to AskUserQuestion before never answers a question', async () => {
     const events: AgentEvent[] = []
     const gate = new PermissionGate((event) => events.push(event), () => undefined)
-    const odd = gate.canUseTool('AskUserQuestion', { questions: 'odd' }, options())
+    const odd = claudeCanUseTool(gate)('AskUserQuestion', { questions: 'odd' }, options())
     const oddId = events[0]?.type === 'permission_request' ? events[0].requestId : ''
     expect(gate.answer(oddId, 'always_allow')).toBe(true)
     await odd
 
-    const asked = gate.canUseTool('AskUserQuestion', { questions: QUESTIONS }, options())
+    const asked = claudeCanUseTool(gate)('AskUserQuestion', { questions: QUESTIONS }, options())
     const request = events.find((event) => event.type === 'question_request')
     expect(request).toBeDefined()
     expect(gate.pending).toBe(1)
@@ -840,9 +842,9 @@ describe('PermissionGate and questions', () => {
   it('"Always allow" on an unreadable AskUserQuestion call leaves an open question of a parallel Subagent waiting', async () => {
     const events: AgentEvent[] = []
     const gate = new PermissionGate((event) => events.push(event), () => undefined)
-    const question = gate.canUseTool('AskUserQuestion', { questions: QUESTIONS }, options())
+    const question = claudeCanUseTool(gate)('AskUserQuestion', { questions: QUESTIONS }, options())
     // The same tool, with input worfy cannot show as questions: an ordinary permission request.
-    const odd = gate.canUseTool('AskUserQuestion', { questions: 'odd' }, options())
+    const odd = claudeCanUseTool(gate)('AskUserQuestion', { questions: 'odd' }, options())
     const oddRequest = events.find((event) => event.type === 'permission_request')
     const questionRequest = events.find((event) => event.type === 'question_request')
     expect(oddRequest).toMatchObject({ toolName: 'AskUserQuestion' })
