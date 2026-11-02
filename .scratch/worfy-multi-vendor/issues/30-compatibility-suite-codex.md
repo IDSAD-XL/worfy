@@ -18,14 +18,14 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
    approval, resume, `account/read`, `account/rateLimits/read`, `thread/list`, `thread/read`, `skills/list`) во
    временной папке-Project-е и пишет сообщения в `test/fixtures/codex-messages/` с manifest (версия Codex, дата,
    план). Он же ставит во временный plugin hook, который пишет свой вход: записи входа `PreToolUse`, `Stop`,
-   `SubagentStop` с `agent_type` — для фейка hook-ов (Ticket 44). Email и id аккаунта заменяются. Скрипт отказывается
+   `SubagentStop` с `agent_type` в `test/fixtures/codex-messages/hooks/` — для фейка hook-ов (Ticket 44). Email и id аккаунта заменяются. Скрипт отказывается
    работать без `--use-my-login`; в CI и test-ах он не идёт.
 2. `test/contract/codex-compat.test.ts`:
    - записи есть, и manifest — той же версии, что `@openai/codex` в `package.json`; иначе test красный. Без записей
      test не зелёный;
    - каждая запись проходит `ajv` по сгенерированной JSON Schema (`protocol/json/`);
    - каждый сценарий фейка играет только виды сообщений и пути ключей, которые есть в записях.
-3. Записи снимает владелец: implementer пишет скрипт и test, Orchestrator просит владельца выполнить одну команду
+3. **Вручную:** записи снимает владелец — implementer пишет скрипт и test, Orchestrator просит владельца выполнить одну команду
    на Mac с его входом (подписка ChatGPT Plus) и кладёт записи в тот же PR. До этого PR открыт, test красный —
    так задумано.
 4. В шапке test-а — порядок смены версии Codex: поднять `@openai/codex`, `node scripts/codex-protocol.mjs`,
@@ -34,7 +34,7 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
 
 ## Готово, когда
 
-- [ ] Записи владельца (Plus) в `test/fixtures/codex-messages/`, manifest — закреплённая версия; test зелёный.
+- [ ] Вручную, владелец: записи (Plus) в `test/fixtures/codex-messages/`, manifest — закреплённая версия; test зелёный.
 - [ ] Контрольный случай: manifest другой версии — test красный; пустая папка записей — test красный.
 - [ ] Контрольный случай: сценарий фейка с видом сообщения, которого нет в записях, — красный.
 - [ ] В записях нет email, id аккаунта и путей домашней папки.

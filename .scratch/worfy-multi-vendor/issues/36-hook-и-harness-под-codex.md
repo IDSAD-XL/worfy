@@ -20,12 +20,13 @@ Source: [spec.md](../spec.md), «Гарантии workflow на Codex», «Ре�
 1. **Gate до конца Ticket-а.** `stop.mjs` под Codex (признак во входе hook-а) запускает gate fast на `Stop` и на
    `SubagentStop` и блокирует конец хода с причиной, пока gate красный: ни агент, ни Subagent не заканчивают работу
    с красным gate. `TeammateIdle` на Codex охранять нечего: agent teams у Codex нет.
-2. **Read-only reviewer и scout.** `guard.mjs` под Codex отказывает `PreToolUse` на `apply_patch` (`Edit`, `Write`)
-   и на shell-команды, которые пишут в файлы (то же правило, что guard применяет к записи сейчас), когда
-   `agent_type` — `worfy-reviewer` или `worfy-scout`. Первый шаг — проверить по записям Ticket-а 30 и по
+2. **Read-only reviewer и scout** — ровно как у Claude сейчас: нет tool-а правки файлов, shell остаётся.
+   `guard.mjs` под Codex отказывает `PreToolUse` на `apply_patch` (`Edit`, `Write`), когда `agent_type` —
+   `worfy-reviewer` или `worfy-scout`; shell-команды им разрешены, как reviewer-у Claude (`Bash` в его `tools`). Первый шаг — проверить по записям Ticket-а 30 и по
    `codex-rs/hooks` закреплённой версии, что `agent_type` приходит в `PreToolUse`. Если нет — запасной путь в этом же
    Ticket-е: reviewer и scout идут отдельным thread-ом Codex с sandbox `read-only` (решение Q5), который
    запускает `bin/` Harness через app-server.
+   Оба пути проверяемы на фейке Ticket-а 44 до выбора: он исполняет hook-и и эмулирует sandbox `read-only` thread-а.
 3. **Guard-ы Bash и записи** — те же правила `guard.mjs` с matcher-ами Codex (`Bash`, `apply_patch`). Случай
    `write_stdin` в уже открытую unified exec Session (hook его не видит, Ticket 04) закрывается так: guard
    отказывает в интерактивной exec Session с записью ввода для `worfy-*` агентов.
@@ -42,7 +43,7 @@ Source: [spec.md](../spec.md), «Гарантии workflow на Codex», «Ре�
 - [ ] Test-ы hook-ов Claude (`harness/hooks/tests/`, `test/contract/harness-*.test.ts`) проходят без правок ожиданий.
 - [ ] Test скриптов Harness на входах Codex: `Stop` и `SubagentStop` с красным gate — block с причиной, с зелёным —
       без блока; `PreToolUse` `apply_patch` от `worfy-reviewer` и `worfy-scout` — deny, от `worfy-implementer` —
-      разрешено; запись через shell от reviewer — deny; `session-end.mjs` под Codex укладывается в 3 s.
+      разрешено; shell-команда от reviewer — разрешена, как у Claude; `session-end.mjs` под Codex укладывается в 3 s.
 - [ ] Выбранный путь read-only (п. 2) и его доказательство записаны в Ticket-е.
 - [ ] Платформенный PR (ADR-0056, п. 2; ADR-0071): вердикт Windows до merge.
 - [ ] `pnpm lint` и test-ы Harness — exit 0.

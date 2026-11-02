@@ -70,14 +70,15 @@ hook-ам (Ticket-ы 02–05).
    | Гарантия | Claude | Codex |
    |---|---|---|
    | gate до конца работы | `TaskCompleted`, `TeammateIdle`, `Stop` | `Stop` и `SubagentStop` блокируют конец хода, пока gate красный; `TeammateIdle` охранять нечего — agent teams у Codex нет |
-   | read-only reviewer и scout | список `tools` агента | `PreToolUse` отказывает в правках по `agent_type`; если закреплённая версия не даёт `agent_type` — отдельный thread Codex с sandbox `read-only` |
+   | read-only reviewer и scout | список `tools` агента без `Edit` / `Write`; `Bash` есть | `PreToolUse` отказывает в `apply_patch` по `agent_type`, shell разрешён; если закреплённая версия не даёт `agent_type` — отдельный thread Codex с sandbox `read-only` |
    | guard Bash и записи | `PreToolUse` `guard.mjs` | тот же `guard.mjs` с matcher-ами Codex; ввод в открытую exec Session (его hook не видит) для агентов Harness запрещён |
    | verdict-ы review | скрипты `bin/` и `gh` | те же; `GH_TOKEN` — env процесса app-server, если `SessionStart` не может его выставить |
    | правила в начале Session и Subagent-а | `SessionStart`, `SubagentStart` | те же события |
    | учёт Session | `SessionEnd` | `SessionEnd` не дольше 3 s: долгие шаги — в следующий `SessionStart` |
 
-   Каждую гарантию доказывает parity suite: один сценарий на фейке Claude и на фейке app-server, который исполняет
-   hook-и по правилам Codex; итог одинаков. Run Autopilot на Codex без этого suite не начинается.
+   Паритет — ровно те гарантии, что у Claude сейчас, не строже. Каждую доказывает parity suite: сценарий на фейке
+   app-server, который исполняет hook-и по правилам Codex, сверяется с таблицей гарантий; каждая строка называет
+   test, который доказывает ту же гарантию у Claude. Фейк Claude hook-и не исполняет. Run Autopilot на Codex без этого suite не начинается.
    «Недоступно с причиной» остаётся только для функций интерфейса, которых у Codex действительно нет (владелец, Q2).
 7. **ACP** (Agent Client Protocol) — не замена границы: он годится как общая реализация частей session,
    `permission_request`, commands и mcp для третьего Vendor-а и дальше (Ticket 10), но не даёт Limits подписки,

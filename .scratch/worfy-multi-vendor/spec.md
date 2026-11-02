@@ -185,8 +185,9 @@ Test-ы никогда не запускают настоящий Codex, не в
 - **Состояния аккаунта в фейке:** вход по ChatGPT с планом Plus (окно `5h` и недельное) и Pro (одно недельное), без
   входа, вход после `account/login/start`; `usageLimitExceeded` с исчерпанным окном и без него.
 - **Hook-и в фейке** (Ticket 44): фейк исполняет hook-и установленного plugin-а по правилам Codex закреплённой
-  версии — на нём идёт parity suite (Ticket 45).
-- Claude в тех же test-ах — как сейчас, `WORFY_AGENT=fake`.
+  версии и эмулирует sandbox `read-only` thread-а (правка файла и запись на диск — отказ); поля входа hook-ов
+  сверяются с записями Ticket-а 30. На нём идёт parity suite (Ticket 45).
+- Claude в тех же test-ах — как сейчас, `WORFY_AGENT=fake`; hook-ов фейк Claude не исполняет.
 
 ## Гарантии workflow на Codex
 
@@ -195,7 +196,7 @@ Test-ы никогда не запускают настоящий Codex, не в
 | Гарантия | Claude | Codex | Ticket |
 |---|---|---|---|
 | gate до конца работы | `TaskCompleted`, `TeammateIdle`, `Stop` | `Stop` и `SubagentStop` блокируют конец хода, пока gate красный | 36 |
-| read-only reviewer и scout | список `tools` агента | `PreToolUse` отказывает в правках по `agent_type`; запасной путь — отдельный thread Codex с sandbox `read-only` | 36 |
+| read-only reviewer и scout | список `tools` агента без `Edit` / `Write`; `Bash` есть | `PreToolUse` отказывает в `apply_patch` по `agent_type`, shell разрешён; запасной путь — отдельный thread Codex с sandbox `read-only` | 36 |
 | guard Bash и записи | `guard.mjs` | тот же `guard.mjs` с matcher-ами Codex; ввод в открытую exec Session запрещён агентам Harness | 36 |
 | verdict-ы review | `bin/` и `gh` | те же; `GH_TOKEN` — env процесса app-server | 36 |
 | правила в начале Session и Subagent-а | `SessionStart`, `SubagentStart` | те же события | 36 |
@@ -203,8 +204,10 @@ Test-ы никогда не запускают настоящий Codex, не в
 | skills | plugin и зависимость `mattpocock-skills` | тот же plugin и зависимость отдельным plugin-ом | 35 |
 | hook-и включены | всегда | только после подтверждения в `/hooks`; без него Run на Codex не стартует | 39 |
 
-Доказательство — parity suite (Ticket 45): каждая гарантия — один сценарий на фейке Claude и на фейке app-server
-с hook-ами; итог одинаков. Autopilot на Codex (Ticket 37) ждёт этот suite. Живой Codex проверяет приёмка (Ticket 43).
+Паритет — ровно те гарантии, что у Claude сейчас, не строже. Доказательство — parity suite (Ticket 45): сценарии
+идут на фейке app-server с hook-ами (Ticket 44) и сверяются с таблицей гарантий; каждая строка таблицы называет test,
+который доказывает ту же гарантию у Claude (test-ы hook-ов Harness), или новый test стороны Claude, если такого нет.
+Фейк Claude hook-и не исполняет и не меняется. Autopilot на Codex (Ticket 37) ждёт этот suite. Живой Codex проверяет приёмка (Ticket 43).
 
 ## Windows
 
@@ -322,7 +325,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 14 | `src/main/vendors/session.ts`, `src/main/vendors/claude/session.ts`, `src/shared/vendors/claude/events.ts`, `src/shared/transcript/parse.ts`, `src/main/agent/session.ts`, `src/main/agent/session/run.ts`, `src/main/agent/session/types.ts`, `src/main/agent/session/input-queue.ts`, `src/main/agent/permissions.ts`, `src/main/agent/attachments.ts`, `src/shared/agent/events.ts`, `src/shared/ipc/agent.ts`, `src/main/ipc/agent.ts`, `src/renderer/session/PermissionCard.tsx`, `test/contract/agent-session.test.ts`, `test/contract/permissions.test.ts` | 2 |
 | 15 | `src/main/vendors/claude/account.ts`, `src/main/vendors/claude/limits.ts`, `src/main/vendors/claude/one-shot.ts`, `src/main/ipc/first-run.ts`, `src/main/ipc/plan-preset.ts`, `src/main/ipc/projects.ts`, `src/main/projects/connect.ts`, `src/main/agent/limits-usage.ts`, `test/contract/claude-one-shot.test.ts` | 2 |
 | 17 | `package.json`, `pnpm-lock.yaml`, `electron-builder.yml`, `scripts/codex-protocol.mjs`, `src/main/vendors/codex/`, `src/main/vendors/registry.ts`, `test/unit/codex-binary.test.ts` | 2 |
-| 16 | `src/main/vendors/claude/mcp.ts`, `src/main/vendors/claude/terminal-ai.ts`, `src/main/vendors/claude/options.ts`, `src/main/vendors/claude/query.ts`, `src/main/agent/options.ts`, `src/main/agent/app-registry.ts`, `src/main/mcp/canvas-server.ts`, `src/main/mcp/browser-server.ts`, `src/main/terminal-ai/assist.ts`, `src/main/terminal-ai/options.ts`, `src/main/terminal-ai/fake-backend.ts`, `src/main/ipc/harness.ts`, `src/main/ipc/projects.ts`, `test/contract/vendor-sdk-imports.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/agent-query-factory.test.ts` | 3 |
+| 16 | `src/main/vendors/claude/mcp.ts`, `src/main/vendors/claude/terminal-ai.ts`, `src/main/vendors/claude/options.ts`, `src/main/vendors/claude/query.ts`, `src/main/agent/options.ts`, `src/main/agent/app-registry.ts`, `src/main/mcp/canvas-server.ts`, `src/main/mcp/browser-server.ts`, `src/main/terminal-ai/assist.ts`, `src/main/terminal-ai/options.ts`, `src/main/terminal-ai/fake-backend.ts`, `src/main/ipc/harness.ts`, `src/main/ipc/projects.ts`, `test/contract/vendor-sdk-imports.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/agent-query-factory.test.ts`, `test/contract/browser-tools.test.ts`, `test/contract/workflow-profile.test.ts` | 3 |
 | 18 | `test/fixtures/codex-app-server/fake-app-server.mjs`, `test/fixtures/codex-scripts/`, `src/main/vendors/codex/launch.ts`, `test/setup-contract.ts`, `test/e2e/launch-env.ts`, `test/contract/codex-fake.test.ts` | 3 |
 | 19 | `src/main/vendors/codex/app-server.ts`, `src/main/vendors/codex/rpc.ts`, `test/unit/codex-rpc.test.ts`, `test/contract/codex-app-server.test.ts` | 4 |
 | 20 | `src/main/vendors/codex/session.ts`, `src/main/vendors/codex/items.ts`, `src/main/vendors/codex/approvals.ts`, `test/unit/codex-items.test.ts`, `test/contract/codex-session.test.ts` | 5 |
@@ -344,7 +347,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 41 | `src/main/vendors/codex/binding.ts`, `src/main/claude-home/binding-signals.ts`, `test/contract/codex-binding.test.ts` | 12 |
 | 44 | `test/fixtures/codex-app-server/hook-runner.mjs`, `test/fixtures/codex-app-server/fake-app-server.mjs`, `test/contract/codex-fake-hooks.test.ts` | 12 |
 | 36 | `harness/hooks/stop.mjs`, `harness/hooks/guard.mjs`, `harness/hooks/session-end.mjs`, `harness/hooks/hooks.json`, `harness/hooks/tests/`, `harness/README.md` | 13 |
-| 45 | `test/contract/codex-parity.test.ts` | 14 |
+| 45 | `test/contract/codex-parity.test.ts`, `harness/hooks/tests/`, `harness/bin/tests/` | 14 |
 | 37 | `src/main/agent/orchestrator.ts`, `src/main/agent/app-orchestrators.ts`, `src/main/vendors/codex/session.ts`, `src/main/autopilot/run.ts`, `src/shared/autopilot/journal.ts`, `test/unit/autopilot-run.test.ts`, `test/contract/codex-orchestrator.test.ts` | 15 |
 | 38 | `src/shared/autopilot/budget.ts`, `src/shared/autopilot/resume-at.ts`, `src/shared/autopilot/limits-estimate.ts`, `src/shared/autopilot/forecast.ts`, `src/shared/autopilot/journal.ts`, `src/main/autopilot/run.ts`, `src/main/autopilot/limits-wait.ts`, `test/unit/autopilot-budget.test.ts`, `test/unit/autopilot-resume-at.test.ts`, `test/contract/autopilot-limits.test.ts` | 16 |
 | 40 | `src/main/flight-recorder/transcripts.ts`, `src/shared/flight-recorder/from-transcript.ts`, `test/contract/flight-recorder-transcripts.test.ts` | 16 |

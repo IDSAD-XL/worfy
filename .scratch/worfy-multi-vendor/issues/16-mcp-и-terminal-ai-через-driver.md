@@ -28,7 +28,9 @@ Source: [spec.md](../spec.md), «Модель» (части mcp и oneShot), «�
    `src/main/mcp/*`, `src/main/terminal-ai/options.ts`, `test/contract/agent-autocompact.test.ts`,
    `test/contract/claude-process-stub.ts`, `test/contract/harness-install.test.ts`,
    `test/contract/orchestrator-relaunch.test.ts`, `test/contract/projects-connect.test.ts`,
-   `test/unit/agent-executable.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/agent-query-factory.test.ts`).
+   `test/unit/agent-executable.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/agent-query-factory.test.ts`;
+   динамический импорт `sdkQueryFactory` из `app-registry` — `test/contract/browser-tools.test.ts:1084` и
+   `test/contract/workflow-profile.test.ts:507`).
    Реэкспортов на старых путях нет.
 4. Список исключений `test/contract/vendor-sdk-imports.test.ts` пуст; исключение, которое уже не импортирует SDK,
    теперь — красный test.
