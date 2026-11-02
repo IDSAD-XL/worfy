@@ -1,7 +1,7 @@
 # 21 — Account и Limits Codex
 
 Type: task
-Status: open
+Status: claimed 2026-11-02T21:51Z
 Blocked by: 11, 15, 19
 Source: [spec.md](../spec.md), «Модель» (LimitWindow), «Риски», п. 5 и 6; решение 06 ([06-граница-vendor.md](06-граница-vendor.md), части account и limits); решение 09 ([09-limits-и-autopilot-по-vendor.md](09-limits-и-autopilot-по-vendor.md)); Ticket 03 ([03-codex-limits.md](03-codex-limits.md)); [ADR-0009](../../../docs/adr/0009-claude-code-login-check-account-info.md)
 

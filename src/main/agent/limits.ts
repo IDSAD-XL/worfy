@@ -15,9 +15,13 @@
 //
 // A change is written to limits.json and sent to the subscribers (src/main/ipc/limits.ts sends it
 // to the windows). This module writes nowhere else: not to ~/.claude, not to a Project's repository.
+//
+// Next to Claude's state the tracker keeps the windows of the other Vendors (Codex, worfy-multi-vendor
+// ticket 21), as the neutral Limit windows their drivers read, in memory only: limits.json keeps
+// Claude's form (spec, decision 3 of the order), and the poll at the start brings them back.
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
-import { emptyLimits, limitStatusOf, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitsState } from '../../shared/agent/limits'
+import { emptyLimits, limitStatusOf, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitWindow, type LimitsState } from '../../shared/agent/limits'
 import { observeMessages } from '../mcp/canvas-server'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { dataRoot } from '../storage/paths'
@@ -54,10 +58,15 @@ export interface LimitsTrackerOptions {
 }
 
 export type LimitsListener = (state: LimitsState) => void
+/** Told the windows of a Vendor other than Claude whenever they are recorded; [] once it is signed out. */
+export type VendorWindowsListener = (vendor: string, windows: readonly LimitWindow[]) => void
 
 export class LimitsTracker {
   private state: LimitsState
   private readonly listeners = new Set<LimitsListener>()
+  /** The windows of the Vendors other than Claude, by Vendor, as last read. */
+  private readonly vendorWindows = new Map<string, readonly LimitWindow[]>()
+  private readonly vendorListeners = new Set<VendorWindowsListener>()
   private readonly file: string
   private readonly statuslineFile: string
   private readonly now: () => number
@@ -101,6 +110,35 @@ export class LimitsTracker {
         listener(next)
       } catch (error) {
         console.warn('[limits] a subscriber threw', error)
+      }
+    }
+  }
+
+  /** The windows of a Vendor other than Claude as last read; [] when none were, or it is signed out. */
+  windowsOf(vendor: string): readonly LimitWindow[] {
+    return this.vendorWindows.get(vendor) ?? []
+  }
+
+  /** Calls `listener` with every recording of a Vendor's windows; returns the function that unsubscribes. */
+  subscribeWindows(listener: VendorWindowsListener): () => void {
+    this.vendorListeners.add(listener)
+    return () => this.vendorListeners.delete(listener)
+  }
+
+  /**
+   * Replaces the windows of a Vendor other than Claude (Claude's go through record()) with the full
+   * list a read of its driver gave; null forgets them: the Vendor is signed out. Forgetting a Vendor
+   * with nothing known tells no one.
+   */
+  setWindows(vendor: string, windows: readonly LimitWindow[] | null): void {
+    if (windows === null && !this.vendorWindows.has(vendor)) return
+    if (windows === null) this.vendorWindows.delete(vendor)
+    else this.vendorWindows.set(vendor, windows)
+    for (const listener of this.vendorListeners) {
+      try {
+        listener(vendor, windows ?? [])
+      } catch (error) {
+        console.warn('[limits] a subscriber of the Vendor windows threw', error)
       }
     }
   }
