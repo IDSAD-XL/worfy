@@ -2,10 +2,11 @@
 // plan Claude Code is signed in with, and the preset of that plan written to a Project's Profile.
 //
 // The plan is the `subscriptionType` of the latest `account` event of any Session of the app
-// (src/main/agent/session.ts); with none yet, a Claude Code process is asked, as the first-run sign-in
-// check asks it (src/main/ipc/first-run.ts), and a plan it names is kept for the app's life. Only the
-// Plan section of Settings reads it, and only while it is the section shown. An ask still in flight
-// when the app quits is stopped: its Claude Code process is closed then, not at the ask's timeout.
+// (src/main/agent/session.ts); with none yet, the account part of the Claude driver is asked
+// (src/main/vendors/claude/account.ts: a Claude Code process, as the first-run sign-in check asks it),
+// and a plan it names is kept for the app's life. Only the Plan section of Settings reads it, and
+// only while it is the section shown. An ask still in flight when the app quits is stopped: its
+// Claude Code process is closed then, not at the ask's timeout.
 //
 // The Profile is read and written only through the Harness's `bin/profile-set --field workflow.agents
 // --field agents` (ADR-0073): worfy never writes it itself (ADR-0002, ADR-0005). `planPreset.read`
@@ -25,8 +26,8 @@ import { projectStore } from '../projects/store'
 import { appSettingsStore } from '../settings/store'
 import { claudeHome } from '../storage/paths'
 import { harnessScriptEnv } from '../harness/script-env'
+import { vendorDriver } from '../vendors/registry'
 import { HarnessScriptStartError, scriptFailureDetail, type ProfileRun } from '../workflow/profile'
-import { askSignedInAccount } from './first-run'
 import { defineHandler, type HandlerModule } from './index'
 import { PROFILE_SET_BUSY, PROFILE_SET_CONFLICT, profileSetRunner, type ProfileSetRunner } from './pipeline'
 
@@ -41,7 +42,7 @@ export class PlanSource {
   private readonly stopping = new AbortController()
 
   /** `ask` must close its Claude Code process when `signal` aborts (askAccount does). */
-  constructor(private readonly ask: (signal: AbortSignal) => Promise<AccountInfoLike>) {}
+  constructor(private readonly ask: (signal: AbortSignal) => Promise<Pick<AccountInfoLike, 'subscriptionType'>>) {}
 
   /** Every Session event of the app comes here; an `account` event sets the plan, or forgets it when it names none. */
   readonly note: EventSink = (_sessionId, event: AgentEvent) => {
@@ -166,9 +167,15 @@ export function planPresetHandlers(options: PlanPresetHandlersOptions): HandlerM
   ]
 }
 
+/** The plan Settings → Plan shows when no Session has told it: the plan of the Claude driver's account.check(). */
+export async function askDriverPlan(signal: AbortSignal): Promise<Pick<AccountInfoLike, 'subscriptionType'>> {
+  const [connection] = await vendorDriver('claude').account.check(signal)
+  return { subscriptionType: connection?.plan ?? undefined }
+}
+
 /** The app's plan: every Session's events feed it from the time the IPC handlers are registered; an ask in flight stops when the app quits. */
 function appPlan(): PlanSource {
-  const plan = new PlanSource(askSignedInAccount)
+  const plan = new PlanSource(askDriverPlan)
   sharedRegistry().observe(plan.note)
   app.on('will-quit', () => plan.stop())
   return plan

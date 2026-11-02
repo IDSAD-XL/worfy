@@ -58,3 +58,15 @@ Source: [spec.md](../spec.md), «Модель» (таблица частей), �
 - `src/main/agent/limits-usage.ts` — `:177-215`, `:233`, `:267-281`
 - Test-ы: `test/contract/first-run-checks.test.ts`, `test/contract/projects-connect.test.ts`,
   `test/unit/limits-usage.test.ts`, `test/contract/claude-one-shot.test.ts` (новый)
+
+## Итог
+
+PR #1242. Поведение first-run, Settings → Plan, черновика профиля и Limits probe не изменилось; они зовут
+части `account`, `limits` и `oneShot` driver-а Claude.
+
+Долг:
+
+- Черновик профиля Project ещё не стоит на нейтральном `vendorDriver('claude').oneShot`: он запускает Claude Code
+  через `claudeOneShotQuery` (свои `allowedTools`, `disallowedTools`, `outputFormat`, `canUseTool` и Stop по
+  `draftId`), а ответ SDK читает общим `readOneShot` driver-а (`src/main/vendors/claude/one-shot.ts`) — тем же,
+  что и `claudeOneShot`, со своими текстами ошибок. Перевод черновика на нейтральный `oneShot` делает Ticket 23.

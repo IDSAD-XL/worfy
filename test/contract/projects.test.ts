@@ -1083,3 +1083,13 @@ describe('a Project local to this Machine (localOnly)', () => {
     expect(pushed.filter((item) => item.channel === 'agent.event').map((item) => (item.payload as { sessionId: string }).sessionId)).toEqual(['s-shop'])
   })
 })
+
+describe('the draft Session of Connect (worfy-multi-vendor ticket 15)', () => {
+  it('outside e2e runs it is Claude Code through the oneShot part of the Claude driver; WORFY_AGENT=fake plays the fake agent', async () => {
+    await start()
+    const { draftQueryFromEnv } = await import('../../src/main/ipc/projects')
+    const { claudeOneShotQuery } = await import('../../src/main/vendors/claude/one-shot')
+    expect(draftQueryFromEnv({})).toBe(claudeOneShotQuery)
+    expect(draftQueryFromEnv({ WORFY_AGENT: 'fake', WORFY_AGENT_SCRIPTS: join(scratch, 'scripts') })).not.toBe(claudeOneShotQuery)
+  })
+})

@@ -40,6 +40,8 @@ import {
   type DraftRequest,
 } from '../../src/main/projects/connect'
 import { ghRunner } from '../../src/main/github/prs'
+import type { QueryHandle } from '../../src/main/agent/session'
+import { readOneShot } from '../../src/main/vendors/claude/one-shot'
 import { ProjectStore, runGit } from '../../src/main/projects/store'
 import { profileRegistryFiles, type HarnessLocation } from '../../src/main/harness/locate'
 import { HarnessScriptStartError, killRunningHarnessScripts, type ProfileRunner, type runHarnessScript, type SpawnProcess } from '../../src/main/workflow/profile'
@@ -47,6 +49,13 @@ import { NODE, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { ghWorld } from './gh-world'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
+
+// The draft reads Claude Code's result through the Claude driver (worfy-multi-vendor ticket 15):
+// readOneShot is the driver's own, watched so a test can see the draft go through it.
+vi.mock('../../src/main/vendors/claude/one-shot', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../src/main/vendors/claude/one-shot')>()
+  return { ...original, readOneShot: vi.fn(original.readOneShot) }
+})
 
 const REPO = join(__dirname, '..', '..')
 const BIN = join(REPO, 'harness', 'bin')
@@ -1119,6 +1128,52 @@ describe('the draft Session (step 4)', () => {
     expect(outcome.reason).toMatch(/^The draft does not match the schema: /)
     expect(outcome.issues.map((issue) => issue.path)).toEqual(expect.arrayContaining(['profile.commands', 'extra']))
     expect(harnessFiles()).toEqual(before)
+  })
+
+  /** A connector whose Claude Code writes `stderr` and then plays `messages`; counts its closes. */
+  const playing = (messages: unknown[], stderr = ''): { connector: ProjectConnector; closed: () => number } => {
+    let closed = 0
+    const { connector } = connectorWith({
+      query: (request) => {
+        if (stderr !== '') request.stderr?.(stderr)
+        const handle = {
+          async *[Symbol.asyncIterator]() {
+            for (const message of messages) yield message
+          },
+          close: () => void (closed += 1),
+        }
+        return Promise.resolve(handle as unknown as QueryHandle)
+      },
+    })
+    return { connector, closed: () => closed }
+  }
+
+  it.each([
+    { what: 'no result', messages: [{ type: 'system', subtype: 'init' }], stderr: 'starting\nAPI Error: 529 overloaded\n', reason: 'Claude Code ended before the draft was ready: API Error: 529 overloaded.' },
+    { what: 'no result, no stderr', messages: [], stderr: '', reason: 'Claude Code ended before the draft was ready.' },
+    { what: 'an error result', messages: [{ type: 'result', subtype: 'error_max_turns', errors: ['too long', 'gave up'] }], stderr: '', reason: 'The draft Session gave no draft (error_max_turns: too long; gave up).' },
+    { what: 'success without the structured answer', messages: [{ type: 'result', subtype: 'success', result: 'text only' }], stderr: '', reason: 'The draft Session gave no draft (success).' },
+  ])('$what: the draft fails with its own text, read through the Claude driver, Claude Code closed', async ({ messages, stderr, reason }) => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    vi.mocked(readOneShot).mockClear()
+    const { connector, closed } = playing(messages, stderr)
+    const outcome = await connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)
+    expect(outcome).toEqual({ status: 'failed', reason, issues: [] })
+    expect(readOneShot).toHaveBeenCalledTimes(1)
+    expect(closed()).toBeGreaterThanOrEqual(1)
+  })
+
+  it('the draft takes the structured answer the Claude driver read and stops at the result', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const lines = readFileSync(join(SCRIPTS, 'profile-draft.jsonl'), 'utf8').trim().split('\n')
+    const result = JSON.parse(lines.at(-1) ?? '{}') as Record<string, unknown>
+    vi.mocked(readOneShot).mockClear()
+    const activity: string[] = []
+    const { connector } = playing([{ type: 'system', subtype: 'init' }, result, { type: 'result', subtype: 'error_during_execution' }])
+    const outcome = await connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, (text) => activity.push(text))
+    if (outcome.status !== 'draft') throw new Error(`no draft: ${JSON.stringify(outcome)}`)
+    expect(readOneShot).toHaveBeenCalledTimes(1)
+    expect(activity).toEqual(['Reading the repositories', 'Claude Code started', 'The draft is ready'])
   })
 
   it('Stop ends the draft Session', async () => {

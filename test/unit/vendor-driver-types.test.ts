@@ -21,28 +21,34 @@ import { parseTranscriptLines, type TranscriptEntry } from '../../src/shared/tra
 import type { Capabilities } from '../../src/shared/vendors/capabilities'
 import { removeTestTree } from '../remove'
 
-const mocks = vi.hoisted(() => ({ app: { isPackaged: false, getAppPath: () => '/nowhere', on: vi.fn() } }))
+const mocks = vi.hoisted(() => ({
+  app: { isPackaged: false, getAppPath: () => '/nowhere', on: vi.fn() },
+  sdk: () => ({
+    query: () => {
+      throw new Error('the SDK is not called in this test')
+    },
+  }),
+}))
 
 vi.mock('electron', () => ({ app: mocks.app }))
-// No test may load the real SDK: a mistake below would start Claude Code.
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: () => {
-    throw new Error('the SDK is not called in this test')
-  },
-}))
+// No test may load the real SDK: a mistake below would start Claude Code. A test that stands in its
+// own SDK (vi.doMock) gets this one back after it.
+vi.mock('@anthropic-ai/claude-agent-sdk', mocks.sdk)
 
 const APP_REGISTRY = '../../src/main/agent/app-registry'
 const FIRST_RUN = '../../src/main/ipc/first-run'
 const ASSIST = '../../src/main/terminal-ai/assist'
 const LIMITS = '../../src/main/agent/limits'
 const VENDOR_REGISTRY = '../../src/main/vendors/registry'
+const AGENT_ENV = '../../src/main/agent/env'
 
 // Each test loads the modules afresh (vi.resetModules), so a value it compares by identity is
 // imported in the test, after the mocks it needs.
 const trees: string[] = []
 
 afterEach(() => {
-  for (const path of [APP_REGISTRY, FIRST_RUN, ASSIST, LIMITS, VENDOR_REGISTRY]) vi.doUnmock(path)
+  for (const path of [APP_REGISTRY, FIRST_RUN, ASSIST, LIMITS, VENDOR_REGISTRY, AGENT_ENV]) vi.doUnmock(path)
+  vi.doMock('@anthropic-ai/claude-agent-sdk', mocks.sdk)
   vi.resetModules()
   vi.unstubAllEnvs()
   for (const tree of trees.splice(0)) removeTestTree(tree)
@@ -257,10 +263,32 @@ describe('the Claude driver over today\'s code', () => {
     expect((await claude()).mcp.delivery).toBe('inProcess')
   })
 
-  it('limits and oneShot are not wired yet and say which ticket wires them', async () => {
-    const driver = await claude()
-    await expect(driver.limits.read()).rejects.toThrow(/limits\.read.*ticket 15/)
-    await expect(driver.oneShot('hello', { cwd: '/tmp' })).rejects.toThrow(/oneShot.*ticket 15/)
+  it('limits: read is one Limits probe (worfy-multi-vendor ticket 15), its answer as the windows of the neutral view', async () => {
+    vi.stubEnv('WORFY_DATA_DIR', tree('data'))
+    const { USAGE_METHOD } = await import('../../src/main/vendors/claude/limits')
+    const close = vi.fn()
+    const usage = vi.fn(async () => ({ rate_limits: { five_hour: { utilization: 62, resets_at: '2026-11-02T15:00:00Z' }, seven_day: null } }))
+    const query = vi.fn((params: { options: object }) => ({ params, close, [USAGE_METHOD]: usage }))
+    vi.doMock('@anthropic-ai/claude-agent-sdk', () => ({ query }))
+    vi.doMock(AGENT_ENV, () => ({ agentEnv: async () => ({ env: { PATH: '/bin', ANTHROPIC_API_KEY: 'k' }, from: 'login-shell', error: null }) }))
+    const windows = await (await claude()).limits.read()
+    expect(windows).toEqual([
+      { vendor: 'claude', id: 'five_hour', label: '5-hour', usedPercent: 62, windowMinutes: 300, resetsAt: Date.parse('2026-11-02T15:00:00Z') / 1000, state: null, receivedAt: expect.any(Number), source: 'usage' },
+    ])
+    expect(usage).toHaveBeenCalledWith({ skipBehaviors: true })
+    expect(close).toHaveBeenCalledTimes(1)
+    // The probe's own options: no tools, no transcript, no API key.
+    expect(query.mock.calls[0]?.[0]).toMatchObject({ options: { tools: [], persistSession: false, env: { PATH: '/bin', DISABLE_TELEMETRY: '1' } } })
+  })
+
+  it('limits: an answer without rate limits is no windows, a failed probe rejects', async () => {
+    vi.stubEnv('WORFY_DATA_DIR', tree('data'))
+    vi.doMock(AGENT_ENV, () => ({ agentEnv: async () => ({ env: {}, from: 'login-shell', error: null }) }))
+    vi.doMock('@anthropic-ai/claude-agent-sdk', () => ({ query: () => ({ close: () => undefined }) }))
+    expect(await (await claude()).limits.read()).toEqual([])
+    vi.resetModules()
+    vi.doMock('@anthropic-ai/claude-agent-sdk', () => ({ query: () => ({ close: () => undefined, usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: () => Promise.reject(new Error('boom')) }) }))
+    await expect((await claude()).limits.read()).rejects.toThrow('boom')
   })
 })
 

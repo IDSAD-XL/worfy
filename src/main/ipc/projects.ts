@@ -33,8 +33,6 @@ import {
 import { defaultProjectSettings } from '../../shared/projects/action-templates'
 import { agentEnv } from '../agent/env'
 import { fakeQueryFactory } from '../agent/fake-query'
-import { draftSessionOptions, sessionHarnessPlugin } from '../agent/options'
-import type { QueryHandle } from '../agent/session'
 import { toEveryWindow } from '../broadcast'
 import { clientOf, type Client } from '../clients'
 import { signInRegistry, type GhProgram } from '../github/accounts'
@@ -50,6 +48,7 @@ import { readProjectSettings, writeProjectSettings } from '../projects/settings'
 import { projectStore, runGit } from '../projects/store'
 import { claudeHome, harnessHome } from '../storage/paths'
 import type { TerminalRegistry } from '../terminal/pty'
+import { claudeOneShotQuery } from '../vendors/claude/one-shot'
 import { profileRunner } from '../workflow/profile'
 import { appInstaller } from './harness'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
@@ -85,32 +84,13 @@ function appConnectScript(): ConnectScript {
 /** The gate registry files the machine's bin/profile reads, with the environment it runs with. */
 const gateRegistries = async (): Promise<string[]> => profileRegistryFiles(scriptEnv(locateHarness(harnessHomes(claudeHome())), (await agentEnv()).env))
 
-/** The draft Session's Claude Code: the SDK with the draft's options, as a Session outside every Project (no canvas). */
-const sdkDraftQuery: DraftQueryFactory = async (request) => {
-  const [{ query }, environment] = await Promise.all([import('@anthropic-ai/claude-agent-sdk'), agentEnv()])
-  const options = draftSessionOptions({
-    cwd: request.cwd,
-    env: environment.env,
-    runtime: { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch },
-    stderr: request.stderr,
-    settings: request.settings,
-    canUseTool: request.canUseTool,
-    unattended: request.unattended,
-    // The skill /worfy:connect-project comes with the Harness of this build, as in every Session.
-    harnessPlugin: sessionHarnessPlugin(currentHarness().kind),
-    outputFormat: request.outputFormat,
-    allowedTools: request.allowedTools,
-    disallowedTools: request.disallowedTools,
-  })
-  return query({ prompt: request.prompt, options }) as QueryHandle
-}
-
 /**
  * WORFY_AGENT=fake: the draft Session plays test/fixtures/agent-scripts/<WORFY_DRAFT_SCRIPT or
  * "profile-draft">.jsonl, and appends what it was asked to WORFY_AGENT_LOG, as app-registry.ts does.
  */
-function draftQueryFromEnv(env: NodeJS.ProcessEnv = process.env): DraftQueryFactory {
-  if (env.WORFY_AGENT !== 'fake') return sdkDraftQuery
+export function draftQueryFromEnv(env: NodeJS.ProcessEnv = process.env): DraftQueryFactory {
+  // Claude Code of the draft through the oneShot part of the Claude driver, with the draft's options.
+  if (env.WORFY_AGENT !== 'fake') return claudeOneShotQuery
   const log = env.WORFY_AGENT_LOG
   const fake = fakeQueryFactory({
     scriptsDir: env.WORFY_AGENT_SCRIPTS ?? join(app.getAppPath(), 'test', 'fixtures', 'agent-scripts'),

@@ -11,9 +11,8 @@
 // worfy-update spec R9) does not count. WORFY_FIRST_RUN_AUTO=0 keeps it from opening by itself (e2e runs other than its own);
 // the command palette opens it always.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
 import { firstRunChecks, firstRunClose, firstRunRun, firstRunStartup, type CheckId, type FirstRunReport } from '../../shared/ipc/first-run'
 import { DEFAULT_SETTINGS } from '../../shared/agent/settings'
@@ -31,22 +30,12 @@ import { projectStore } from '../projects/store'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { profileRunner } from '../workflow/profile'
 import { appBuildNumber } from '../build-number'
+import { bundledClaudeCodeVersion } from '../vendors/claude/account'
 import { appInstaller } from './harness'
 import { appUpdate } from './update'
 import { workflowHub } from './workflow'
 import { planOptions } from './harness-migration'
 import { defineHandler, type HandlerModule } from './index'
-
-/** `claudeCodeVersion` of the Agent SDK this build carries (Q20); null when its package.json cannot be read. */
-export function bundledClaudeCodeVersion(): string | null {
-  try {
-    const sdk = createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk')
-    const manifest = JSON.parse(readFileSync(join(dirname(sdk), 'package.json'), 'utf8')) as { claudeCodeVersion?: unknown }
-    return typeof manifest.claudeCodeVersion === 'string' ? manifest.claudeCodeVersion : null
-  } catch {
-    return null
-  }
-}
 
 /** A prompt that never sends anything: the process only answers accountInfo() and is closed. */
 const silence = (): AsyncIterable<never> => ({ [Symbol.asyncIterator]: () => ({ next: () => new Promise<never>(() => undefined) }) })
