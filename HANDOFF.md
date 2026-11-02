@@ -20,7 +20,7 @@
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): закрыт, 16/16, принят владельцем 2026-11-02 (Mac). `worfy-guide`: закрыт, 21/21.
 - `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): закрыт, 28/28, принят владельцем 2026-11-01; Windows-часть 25 не проводилась.
 - `worfy-resource-planner`: закрыт, 12/12, принят владельцем 2026-11-01.
-- ПК остановлен по слову владельца до его команды.
+- ПК: только приёмка worfy-windows 16 (владелец снял стоп для неё 2026-11-02); остальное на ПК стоит.
 
 ## Ждёт владельца
 
@@ -50,6 +50,7 @@
 - Ложный таймаут первого окна в e2e: заблокированный экран, сеанс macOS владельца в фоне, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают; на Mac владельца ещё и `defaults` для `com.github.Electron`) — [agents.md](docs/lessons/agents.md).
 - Замок e2e: в `rules.md` Profile владельца heartbeat ещё старый (без выхода при снятом замке); новая строка — в PR `worfy-harness` 49, вносит владелец.
 - Windows exception-ы `terminal-windows-close-no-console-host` и `workflow-branches-gone-worktree-then-repository` (`test/quarantine/`) до 2026-12-15 — решает Orchestrator.
+- Решение владельца не принято (`worfy-terminal-ai` 09, «Итог»): ответ Terminal AI появляется через ~0,6 s после готовности, потому что `attempt()` в `src/main/terminal-ai/assist.ts` ждёт выхода процесса `claude`, а не сообщения `result`.
 - [low] `worfy-flight-recorder` — «Долг» в «Итог» 11–16, 21–23: `spans.ts:335`, `:613-620`, `:742`; helper `transcripts.ts`, account `githubFacts` — в 17.
 - [low] `worfy-windows` — «Долг» в «Итог» 119, 120: test-ы порядка папок, `UCRT64` и skip под `WIN=1`.
 - Долги low — в «Итог» Ticket-ов (абзацы «Долг» и подраздел «Долги из HANDOFF (2026-10-08)»), разбор — шаг документов при закрытии Epic-а.
