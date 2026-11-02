@@ -20,6 +20,7 @@
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): закрыт, 16/16, принят владельцем 2026-11-02 (Mac). `worfy-guide`: закрыт, 21/21.
 - `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): закрыт, 28/28, принят владельцем 2026-11-01; Windows-часть 25 не проводилась.
 - `worfy-resource-planner`: закрыт, 12/12, принят владельцем 2026-11-01.
+- `worfy-multi-vendor`: 15/45; Wave 2 (14, 15) влита (#1242, #1243); дальше 16, 17. Должен: gate full `GATE_SCOPE=all` на ПК, main `11a32d86` (ADR-0086); ПК стоит, спросить.
 - ПК: только приёмка worfy-windows 16 (владелец снял стоп для неё 2026-11-02); остальное на ПК стоит.
 
 ## Ждёт владельца

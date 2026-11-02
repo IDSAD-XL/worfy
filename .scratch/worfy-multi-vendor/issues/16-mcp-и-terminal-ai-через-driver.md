@@ -39,10 +39,11 @@ Source: [spec.md](../spec.md), «Модель» (части mcp и oneShot), «�
    `test/unit/vendor-driver-types.test.ts`, `test/unit/agent-query-factory.test.ts`,
    `test/contract/plan-preset.test.ts`. Решено Orchestrator-ом 2026-11-02 по поручению владельца, подтвердить при
    приёмке.
-   Третья копия правила «Claude вошёл» — в `src/main/agent/session.ts:636` или там, куда её перенёс Ticket 14
-   (`claude/session.ts`), — заменяется вызовом правила из `src/main/vendors/claude/account.ts` (Ticket 15, п. 6).
+   Третья копия правила «Claude вошёл» — с Ticket-а 14 в `src/main/vendors/claude/session.ts:327` — заменяется
+   вызовом `claudeSignedIn` (`src/main/vendors/claude/account.ts:16`, Ticket 15, п. 6).
 4. Список исключений `test/contract/vendor-sdk-imports.test.ts` пуст; исключение, которое уже не импортирует SDK,
-   теперь — красный test.
+   теперь — красный test. С Ticket-а 15 SDK не импортируют `src/main/ipc/first-run.ts`, `src/main/ipc/projects.ts`,
+   `src/main/projects/connect.ts`, `src/main/agent/limits-usage.ts` — их исключения уходят первыми.
 
 Глубина review — `high` (граница). Платформенный: `src/main/terminal-ai/**` и перенос кода с ветками по платформе
 (`options.ts`).
