@@ -1,7 +1,8 @@
 # 15 — account, limits и oneShot Claude через driver
 
 Type: task
-Status: open
+Status: done 2026-11-02T12:25Z
+PR: #1242
 Blocked by: 11, 13
 Source: [spec.md](../spec.md), «Модель» (таблица частей), «Решено без владельца», п. 6; решение 06 ([06-граница-vendor.md](06-граница-vendor.md), части account, limits, oneShot); [ADR-0009](../../../docs/adr/0009-claude-code-login-check-account-info.md)
 
