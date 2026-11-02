@@ -4,7 +4,8 @@
 // the fake agent (src/main/agent/fake-query.ts), which plays
 // test/fixtures/agent-scripts/<WORFY_AGENT_SCRIPT or "turn">.jsonl. With WORFY_AGENT_LOG set, the
 // fake agent also appends what it was asked to do (FakeCall, one JSON line each) to that file, so
-// e2e runs can see the control calls.
+// e2e runs can see the control calls. The fake agent's Browser tools are exposed by the Session
+// registry (src/main/agent/app-registry.ts), which this driver never imports.
 //
 // The autocompact window (worfy-polish ticket 24) is read from the app settings of this Machine
 // each time a Session starts Claude Code — the Orchestrator's for a Project's Orchestrator, the
@@ -15,13 +16,12 @@ import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { autoCompactWindowFor } from '../../../shared/settings/app-settings'
-import { sharedRegistry } from '../../agent/app-registry'
 import { agentEnv, type Env } from '../../agent/env'
 import { fakeQueryFactory } from '../../agent/fake-query'
 import type { QueryFactory, QueryHandle, QueryRequest } from '../../agent/session'
 import { readUserAutoCompactWindow } from '../../claude-home/user-model'
 import { currentHarness } from '../../harness/locate'
-import { browserForSession, exposeBrowserToolsToFakeAgent, type BrowserResolver, type BrowserSession } from '../../mcp/browser-server'
+import { browserForSession, type BrowserResolver, type BrowserSession } from '../../mcp/browser-server'
 import { canvasForSession, type CanvasResolver, type CanvasSession } from '../../mcp/canvas-server'
 import { appSettingsStore } from '../../settings/store'
 import { claudeHome } from '../../storage/paths'
@@ -174,14 +174,6 @@ export function sdkQueryFactory(
 /** Claude Code through the Agent SDK (sdkQueryFactory), or the fake agent under WORFY_AGENT=fake. */
 export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): QueryFactory {
   if (env.WORFY_AGENT !== 'fake') return sdkQueryFactory()
-  // The fake agent calls no MCP tool: an e2e run calls the Browser tools itself (test/e2e/browser-mcp.spec.ts).
-  exposeBrowserToolsToFakeAgent((sessionId) => {
-    try {
-      return sharedRegistry().get(sessionId).unattended
-    } catch {
-      return false
-    }
-  })
   const log = env.WORFY_AGENT_LOG
   return fakeQueryFactory({
     scriptsDir: env.WORFY_AGENT_SCRIPTS ?? join(app.getAppPath(), 'test', 'fixtures', 'agent-scripts'),

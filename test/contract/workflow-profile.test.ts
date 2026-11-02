@@ -2,7 +2,7 @@
 // MCP servers from `bin/profile --field mcp.allowed`, and the default list `plugin_worfy_qmd` (the qmd of the Harness plugin, worfy-harness ticket 17), `worfy-canvas`
 // for every way of not getting one. With a stand-in runner for each exit code, then with a stub
 // `bin/profile` in a temporary Claude home, which must stay as it was, like the Project's folder.
-// Last, how the Session factory (src/main/agent/app-registry.ts) hands the list to Claude Code.
+// Last, how the Session factory (src/main/vendors/claude/query.ts) hands the list to Claude Code.
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'

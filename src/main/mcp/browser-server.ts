@@ -509,8 +509,9 @@ export async function browserForSession(request: Parameters<BrowserResolver>[0],
 /**
  * Lets an e2e run call the tools as Session `sessionId` of Project `projectId` would
  * (`globalThis.worfyBrowserTool`), for the fake agent, which calls no MCP tool itself. `unattended`
- * answers whether that Session runs unattended now, as its launch says (the Session registry): a
- * real Session's server is made in Autopilot mode from the same launch (src/main/vendors/claude/query.ts).
+ * answers whether that Session runs unattended now, as its launch says (the Session registry, which
+ * calls this: src/main/agent/app-registry.ts): a real Session's server is made in Autopilot mode from
+ * the same launch (src/main/vendors/claude/query.ts).
  */
 export function exposeBrowserToolsToFakeAgent(unattended: (sessionId: string) => boolean = () => false): void {
   ;(globalThis as { worfyBrowserTool?: (projectId: string, sessionId: string, name: BrowserToolName, args: unknown) => Promise<BrowserToolResult> }).worfyBrowserTool = (projectId, sessionId, name, args) =>

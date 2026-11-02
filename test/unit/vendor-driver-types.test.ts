@@ -41,13 +41,14 @@ const ASSIST = '../../src/main/terminal-ai/assist'
 const LIMITS = '../../src/main/agent/limits'
 const VENDOR_REGISTRY = '../../src/main/vendors/registry'
 const AGENT_ENV = '../../src/main/agent/env'
+const BROWSER_SERVER = '../../src/main/mcp/browser-server'
 
 // Each test loads the modules afresh (vi.resetModules), so a value it compares by identity is
 // imported in the test, after the mocks it needs.
 const trees: string[] = []
 
 afterEach(() => {
-  for (const path of [CLAUDE_QUERY, FIRST_RUN, ASSIST, LIMITS, VENDOR_REGISTRY, AGENT_ENV]) vi.doUnmock(path)
+  for (const path of [CLAUDE_QUERY, FIRST_RUN, ASSIST, LIMITS, VENDOR_REGISTRY, AGENT_ENV, BROWSER_SERVER]) vi.doUnmock(path)
   vi.doMock('@anthropic-ai/claude-agent-sdk', mocks.sdk)
   vi.resetModules()
   vi.unstubAllEnvs()
@@ -411,5 +412,54 @@ describe('the app registry of Sessions', () => {
     expect(vendorDriver).toHaveBeenCalledWith('claude')
     expect(part.start).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/p', sessionId: session.id }))
     session.close()
+  })
+
+  // The fake agent's Browser tools (test/e2e/browser-mcp.spec.ts) answer from the registry whether a
+  // Session runs unattended; the registry wires that itself, the driver never imports it.
+  const notStarting = (): SessionPart => ({ start: () => new Promise(() => undefined), resume: () => new Promise(() => undefined) })
+
+  it('under WORFY_AGENT=fake, made once, exposes the fake agent\'s Browser tools with whether its Sessions run unattended', async () => {
+    vi.stubEnv('WORFY_AGENT', 'fake')
+    const expose = vi.fn<(unattended: (sessionId: string) => boolean) => void>()
+    vi.doMock(BROWSER_SERVER, () => ({ exposeBrowserToolsToFakeAgent: expose }))
+    vi.doMock(VENDOR_REGISTRY, () => ({ vendorDriver: () => ({ session: notStarting() }) }))
+    const { sharedRegistry } = await import('../../src/main/agent/app-registry')
+    const registry = sharedRegistry()
+    expect(sharedRegistry()).toBe(registry)
+    expect(expose).toHaveBeenCalledTimes(1)
+    const unattended = expose.mock.calls[0]?.[0] as (sessionId: string) => boolean
+    const autopilot = registry.start('/p', undefined, () => undefined, undefined, { unattended: true })
+    const person = registry.start('/p', undefined, () => undefined, undefined, { unattended: false })
+    expect(unattended(autopilot.id)).toBe(true)
+    expect(unattended(person.id)).toBe(false)
+    expect(unattended('no-such-session')).toBe(false)
+    autopilot.close()
+    person.close()
+  })
+
+  it.each([
+    ['WORFY_AGENT unset', undefined],
+    ['WORFY_AGENT set to something else', 'real'],
+  ])('with %s, exposes no Browser tools', async (_case, value) => {
+    vi.stubEnv('WORFY_AGENT', value)
+    const expose = vi.fn()
+    vi.doMock(BROWSER_SERVER, () => ({ exposeBrowserToolsToFakeAgent: expose }))
+    vi.doMock(VENDOR_REGISTRY, () => ({ vendorDriver: () => ({ session: notStarting() }) }))
+    const { sharedRegistry } = await import('../../src/main/agent/app-registry')
+    sharedRegistry()
+    expect(expose).not.toHaveBeenCalled()
+  })
+
+  it('unattendedIn answers the registry\'s Session, and false for one it does not hold', async () => {
+    const { unattendedIn } = await import('../../src/main/agent/app-registry')
+    const sessions: Record<string, { unattended: boolean }> = { a: { unattended: true }, b: { unattended: false } }
+    const registry = {
+      get: (id: string) => {
+        const found = sessions[id]
+        if (found === undefined) throw new Error(`no Session ${id}`)
+        return found as never
+      },
+    }
+    expect([unattendedIn(registry, 'a'), unattendedIn(registry, 'b'), unattendedIn(registry, 'c')]).toEqual([true, false, false])
   })
 })

@@ -37,10 +37,7 @@ async function claudeCapabilities(session?: SessionHandle): Promise<Capabilities
 
 let driver: ClaudeDriver | null = null
 
-/**
- * The Claude driver, made on first use: src/main/agent/app-registry.ts and session.ts here import
- * each other, so the parts are read at the call, never while the modules load.
- */
+/** The Claude driver, made on first use and kept. */
 export function claudeDriver(): ClaudeDriver {
   driver ??= {
     id: 'claude',

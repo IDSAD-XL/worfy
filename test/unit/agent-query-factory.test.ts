@@ -1,4 +1,4 @@
-// How a Session's Claude Code is started (src/main/agent/app-registry.ts): the real SDK unless
+// How a Session's Claude Code is started (src/main/vendors/claude/query.ts): the real SDK unless
 // WORFY_AGENT=fake, with the login shell environment from env.ts rather than worfy's own, and the
 // unpacked native binary in the packaged app. The SDK's query() and agentEnv() are mocked.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'

@@ -1,8 +1,8 @@
 // The autocompact window of a Session (worfy-polish ticket 24): two app settings of this Machine
 // (src/shared/settings/app-settings.ts), one for the Orchestrator — attended and under Autopilot —
 // and one for every other Session. Main reads them each time a Session starts Claude Code
-// (src/main/agent/app-registry.ts) and passes the window as the flag settings of query()
-// (`settings: { autoCompactWindow }`, src/main/agent/options.ts); "Claude Code default" (null)
+// (src/main/vendors/claude/query.ts) and passes the window as the flag settings of query()
+// (`settings: { autoCompactWindow }`, src/main/vendors/claude/options.ts); "Claude Code default" (null)
 // passes nothing, so the user's settings.json and Claude Code decide.
 //
 // A window the person never chose in worfy (worfy-polish ticket 29) gives way to `autoCompactWindow`

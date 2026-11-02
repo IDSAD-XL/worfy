@@ -21,8 +21,9 @@
 // runs on sonnet or a larger model (worfy-daily ticket 07): with no model named and a haiku as the
 // user's, the query is started on sonnet.
 //
-// The app's part reads query.ts at its first start, not while this module loads: query.ts reads the
-// Session registry (src/main/agent/app-registry.ts), which is made over this driver.
+// The app's part makes its query factory (query.ts) at its first start. Nothing in this driver imports
+// the Session registry (src/main/agent/app-registry.ts), which is made over it: the registry wires
+// what the fake agent needs from it itself (test/contract/vendor-imports.test.ts).
 import { CommandCatalog } from '../../agent/commands'
 import { userContent } from '../../agent/attachments'
 import { readUserEffort, readUserModel, type UserEffortReader, type UserModelReader } from '../../claude-home/user-model'
@@ -44,6 +45,7 @@ import { isSelectableModel, PERMISSION_MODES, type EffortChoice, type ModelOptio
 import { contextUsageOf, isCompactBoundary, sdkMessageToEvents } from '../../../shared/vendors/claude/events'
 import type { PermissionAsker, RefusalDetails, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import { claudeSignedIn } from './account'
+import { queryFactoryFromEnv } from './query'
 
 /** What the model reads when the user pressed "Deny". */
 export const DENIED_MESSAGE = 'The user denied this tool call in worfy.'
@@ -406,7 +408,7 @@ let appPart: SessionPart | null = null
  */
 async function app(): Promise<SessionPart> {
   if (appPart === null) {
-    const [{ queryFactoryFromEnv }, { appLimits }] = await Promise.all([import('./query'), import('../../agent/limits')])
+    const { appLimits } = await import('../../agent/limits')
     appPart ??= claudeSessions(appLimits().observe(queryFactoryFromEnv()))
   }
   return appPart
