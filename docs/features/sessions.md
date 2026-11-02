@@ -34,8 +34,10 @@ The chip's text is the state's name: `needs_permission` reads "needs permission"
 
 **Sending.** Return sends, Shift+Return starts a new line. ↑ and ↓ in an empty field walk the history of sent messages.
 The field grows to 200 pixels. An empty message without attachments is refused. A send that fails puts the text and the
-attachment chips back into the field. "/" opens the menu of the slash commands and skills that Claude Code reports for
-this Session.
+attachment chips back into the field. "/" at the start of the field or after a space opens the menu of the slash commands
+and skills that Claude Code reports for this Session. The menu follows the caret: what lies between the "/" and the caret
+filters it, and a picked command replaces only that word, the text around it stays. Escape closes the menu until the
+caret leaves the word.
 
 **Queue.** A message sent during a turn waits in a queue in main. The hint beside the send button says "Return to queue"
 then. Messages go one per turn, each after the `result` of the previous turn. The chip "N queued" opens the list, where ×

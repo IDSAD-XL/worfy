@@ -1,21 +1,45 @@
-import { useCallback, useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { SlashCommand } from '../../shared/agent/commands'
 import { invoke } from '../ipc'
 import { slashHint } from './hints'
 
-// The slash menu of the input field (ticket 20): a `/` at the start of the field opens a popover
-// with the Session's slash commands and skills, as Claude Code reports them (`agent.commands`:
-// supportedCommands() and the last system/init — the user's skills under ~/.claude among them).
-// What follows the slash filters the list: names that start with it first, then names that hold
-// it. ↑/↓ move the selection, Tab or Return puts `/<name> ` into the field, Escape closes the menu
-// until the field no longer starts with a command name. While the field shows a prompt brought back
-// from the history (↑), the menu stays closed: ↑/↓ keep stepping through the history and Return
-// sends it.
+// The slash menu of the input field (ticket 20): a `/` at the start of the field or after a space
+// opens a popover with the Session's slash commands and skills, as Claude Code reports them
+// (`agent.commands`: supportedCommands() and the last system/init — the user's skills under
+// ~/.claude among them). The menu follows the caret (polish ticket 49): it is open while the caret
+// stands in such a word, and what lies between the slash and the caret filters the list: names
+// that start with it first, then names that hold it. ↑/↓ move the selection, Tab or Return puts
+// `/<name> ` in place of that word and leaves the rest of the text as it is; Escape closes the menu
+// until the caret leaves the word. While the field shows a prompt brought back from the history
+// (↑), the menu stays closed: ↑/↓ keep stepping through the history and Return sends it.
 
-/** The command name being typed: the text after a leading `/`, while it holds no space. */
-export function slashQuery(text: string): string | null {
-  const match = /^\/(\S*)$/.exec(text)
-  return match ? (match[1] ?? '') : null
+/** The command word at the caret: where it starts (its `/`) and ends, and the name typed up to the caret. */
+export interface SlashToken {
+  start: number
+  end: number
+  query: string
+}
+
+/**
+ * The command word the caret stands in: a `/` at the start of the text or after whitespace, with no
+ * whitespace between it and the caret. The word runs on to the next whitespace; `a/b` is no command word.
+ */
+export function slashToken(text: string, caret: number): SlashToken | null {
+  const at = Math.max(0, Math.min(caret, text.length))
+  const match = /(?:^|\s)\/(\S*)$/.exec(text.slice(0, at))
+  if (match === null) return null
+  const query = match[1] ?? ''
+  const rest = /^\S*/.exec(text.slice(at))?.[0] ?? ''
+  return { start: at - query.length - 1, end: at + rest.length, query }
+}
+
+/** The text with the command word replaced by `/<name> `, and the caret right after that space. */
+export function putCommand(text: string, token: SlashToken, name: string): { text: string; caret: number } {
+  const before = text.slice(0, token.start)
+  const after = text.slice(token.end)
+  // A space already after the word serves: no second one. A line break does not: the caret would land on the next line.
+  const put = after.startsWith(' ') ? `/${name}` : `/${name} `
+  return { text: before + put + after, caret: before.length + `/${name} `.length }
 }
 
 /** The commands matching a query: names that start with it first, then names that hold it; case is ignored. */
@@ -52,18 +76,27 @@ export interface SlashMenuState {
 }
 
 /**
- * The slash menu over the field whose text is `text`; picking a command calls `setText`. `browsing`
- * is true while the field shows a prompt from the history: the menu stays closed then.
+ * The slash menu over the field whose text is `text` with the caret at `caret`; picking a command
+ * calls `setText` with the new text and where the caret goes. `browsing` is true while the field
+ * shows a prompt from the history: the menu stays closed then.
  */
-export function useSlashMenu(sessionId: string | null, text: string, setText: (text: string) => void, browsing = false): SlashMenuState {
-  const query = browsing ? null : slashQuery(text)
-  // The selection belongs to one filter: a new filter starts at the top. Escape holds until the
-  // field leaves the command name. Adjusted while rendering, as React advises for state derived
-  // from a prop.
-  const [menu, setMenu] = useState({ query, selected: 0, dismissed: false })
+export function useSlashMenu(
+  sessionId: string | null,
+  text: string,
+  caret: number,
+  setText: (text: string, caret: number) => void,
+  browsing = false,
+): SlashMenuState {
+  const token = browsing ? null : slashToken(text, caret)
+  const query = token?.query ?? null
+  const start = token?.start ?? null
+  // The selection belongs to one filter: a new filter starts at the top. Escape holds while the
+  // caret stays in the same command word (the same `/`). Adjusted while rendering, as React advises
+  // for state derived from a prop.
+  const [menu, setMenu] = useState({ start, query, selected: 0, dismissed: false })
   let current = menu
-  if (menu.query !== query) {
-    current = { query, selected: 0, dismissed: query !== null && menu.dismissed }
+  if (menu.query !== query || menu.start !== start) {
+    current = { start, query, selected: 0, dismissed: start !== null && menu.start === start && menu.dismissed }
     setMenu(current)
   }
   const { selected, dismissed } = current
@@ -73,7 +106,11 @@ export function useSlashMenu(sessionId: string | null, text: string, setText: (t
   const open = query !== null && !dismissed && matches.length > 0
 
   const at = Math.min(selected, matches.length - 1)
-  const pick = useCallback((command: SlashCommand) => setText(`/${command.name} `), [setText])
+  const pick = (command: SlashCommand) => {
+    if (token === null) return
+    const next = putCommand(text, token, command.name)
+    setText(next.text, next.caret)
+  }
 
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
     if (!open || event.altKey || event.metaKey || event.ctrlKey) return false
