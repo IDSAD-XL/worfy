@@ -163,9 +163,13 @@ describe('the registry of drivers', () => {
     expect(vendorDriver('claude')).toBe(driver)
   })
 
-  it('has no driver for codex yet, and says so', async () => {
+  it('gives the Codex driver for codex, the same one each time', async () => {
     const { vendorDriver } = await import('../../src/main/vendors/registry')
-    expect(() => vendorDriver('codex')).toThrow(/codex/)
+    const { codexDriver } = await import('../../src/main/vendors/codex')
+    const driver = vendorDriver('codex')
+    expect(driver.id).toBe('codex')
+    expect(driver).toBe(codexDriver())
+    expect(vendorDriver('codex')).toBe(driver)
   })
 })
 
