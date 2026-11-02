@@ -25,6 +25,7 @@ import { appSettingsStore } from '../settings/store'
 import { claudeHome } from '../storage/paths'
 import { autoCompactWindowFor } from '../../shared/settings/app-settings'
 import { readMcpAllowlist, readSkillsAllowlist } from '../workflow/profile'
+import { vendorDriver } from '../vendors/registry'
 import { SessionRegistry, type QueryFactory, type QueryHandle, type QueryRequest } from './session'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
@@ -196,8 +197,9 @@ let appRegistry: SessionRegistry | null = null
  */
 export function sharedRegistry(): SessionRegistry {
   if (appRegistry === null) {
-    // Every Session's rate_limit_event feeds the Limits (ticket 22), the fake agent's too.
-    const registry = new SessionRegistry(appLimits().observe(queryFactoryFromEnv()))
+    // Every Session's rate_limit_event feeds the Limits (ticket 22), the fake agent's too. The
+    // factory is the Claude driver's (src/main/vendors/claude/session.ts): queryFactoryFromEnv.
+    const registry = new SessionRegistry(appLimits().observe(vendorDriver('claude').session.queryFactory()))
     app.on('will-quit', () => registry.closeAll())
     appRegistry = registry
   }
