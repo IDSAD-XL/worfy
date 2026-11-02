@@ -28,6 +28,8 @@ const STAYS: Record<string, string> = {
   // as the SDK hands it (test/contract/claude-process-stub.ts).
   'contract/claude-process-stub.ts': 'the Claude Code stand-in, started through the app\'s watchedSpawn as the SDK starts it',
   'contract/orchestrator-relaunch.test.ts': 'the Claude Code stand-in of the relaunch, started through the app\'s watchedSpawn',
+  // The fake Codex app-server: the app starts it with its own executable (src/main/vendors/codex/launch.ts).
+  'contract/codex-fake.test.ts': 'checks that launch.ts starts the fake Codex app-server with the app\'s own executable, never the Codex binary',
   // Electron itself is what this test needs: captureLoginShellEnv (src/main/agent/env.ts) runs in the
   // app's main process, and Electron's V8 keeps large strings outside heapUsed.
   'contract/login-shell-capture.test.ts': 'runs captureLoginShellEnv on Electron, the runtime of the app\'s main process where it runs',

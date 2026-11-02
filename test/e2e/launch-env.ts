@@ -83,6 +83,12 @@ function isolation(dataDir: string, claudeHome: string, profileDir: string, plat
     WORFY_DATA_DIR: dataDir,
     WORFY_CLAUDE_HOME: claudeHome,
     WORFY_AGENT: 'fake',
+    // Codex as Claude (worfy-multi-vendor ticket 18): the fake app-server
+    // (test/fixtures/codex-app-server/fake-app-server.mjs) in place of the real one, and a CODEX_HOME
+    // of the launch, never the developer's ~/.codex: `.codex` in the launch's profile folder, where
+    // Codex on Windows keeps it under the moved USERPROFILE too. Nothing creates it: the fake does not use it.
+    WORFY_CODEX: 'fake',
+    CODEX_HOME: join(profileDir, '.codex'),
     // A gh that never reaches GitHub (test/fixtures/gh/gh-stub.mjs): no PRs unless GH_STUB_DIR says
     // otherwise. Every gh worfy runs goes through it, the first-run checks included (worfy-windows
     // ticket 80): without it they would run the machine's own gh.

@@ -1,0 +1,4 @@
+{"expect":"initialize","result":{"codexHome":"/fake/codex-home","platformFamily":"unix","platformOs":"macos","userAgent":"worfy-fake-app-server/0.166.0"}}
+{"expect":"initialized"}
+{"expect":"account/read","result":{"account":{"type":"chatgpt","email":"user@example.com","planType":"plus"},"requiresOpenaiAuth":true}}
+{"expect":"account/rateLimits/read","result":{"rateLimits":{"limitId":"codex","limitName":null,"planType":"plus","primary":{"usedPercent":12,"windowDurationMins":300,"resetsAt":1793003600},"secondary":{"usedPercent":40,"windowDurationMins":10080,"resetsAt":1793400000}}}}

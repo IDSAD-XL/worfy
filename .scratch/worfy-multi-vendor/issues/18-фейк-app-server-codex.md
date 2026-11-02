@@ -1,7 +1,7 @@
 # 18 — Фейк app-server Codex (`WORFY_CODEX=fake`)
 
 Type: task
-Status: open
+Status: claimed 2026-11-02T17:55Z
 Blocked by: 17
 Source: [spec.md](../spec.md), «Фейк и test-ы», «Соглашения»; решение 06 ([06-граница-vendor.md](06-граница-vendor.md)); Ticket 02 ([02-codex-управление-сессией.md](02-codex-управление-сессией.md), таблица механизмов)
 
@@ -50,3 +50,22 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Соглашения»
 - `test/setup-contract.ts` — `:98-103` (рядом); `test/e2e/launch-env.ts` — `:44`, `:84-85`
 
 Только читать: `src/main/agent/app-registry.ts:170-190`, `src/main/vendors/claude/fake-query.ts` (после Ticket-а 13).
+
+## Итог
+
+- Формат сценария — строка на шаг: `expect` (request worfy с `result` или `error`; без них — notification worfy),
+  `notify`, `request` (server→client, фейк ждёт ответ). После последнего шага каждый request получает ошибку;
+  request не по сценарию — ошибку с именем ожидаемого шага. Повтора сценария, как у фейка Claude, нет.
+- Сгенерированные схемы открыты: лишнее поле их проходит. Test закрывает каждый объект копии bundle
+  (`additionalProperties: false`; у объекта с ветками `oneOf` закрываются ветки, с полями объекта вокруг) и
+  сверяет params по методу, ответ — по схеме `<Метод>Response`, выведенной из `<Метод>Params`. Контрольный сценарий
+  с лишним полем — строкой в test-е, не в `test/fixtures/codex-scripts/`.
+- `WORFY_CODEX_HOME`: фейк кладёт thread из ответа `thread/start` / `thread/resume` в `<home>/threads/<id>.json` и
+  отказывает в `thread/resume` thread-а, которого там нет; без переменной `resume` отвечает по сценарию. Тексты
+  ошибок (`no rollout found…`, `signed-out` для `account/rateLimits/read`) не сняты с живого Codex — сверит Ticket 30.
+- `launch.ts` под vitest без `WORFY_CODEX=fake` бросает исключение — настоящий Codex не стартует ни в unit, ни в
+  contract test-ах. Setup contract-проекта ставит `WORFY_CODEX` и `CODEX_HOME` всегда, даже если они есть в
+  окружении разработчика; e2e — `CODEX_HOME` = `<профиль запуска>/.codex`.
+- Вне списка файлов, по необходимости: `scripts/ci-scope.mjs` (папки фейка — в `E2E_FIXTURES`: их читает
+  `src/main`, этого требует `test/contract/ci-workflow.test.ts`) и `test/contract/script-node.test.ts` (новый test
+  читает `process.execPath` — строка в списке исключений).
