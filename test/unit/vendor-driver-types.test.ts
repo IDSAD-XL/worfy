@@ -35,7 +35,7 @@ vi.mock('electron', () => ({ app: mocks.app }))
 // own SDK (vi.doMock) gets this one back after it.
 vi.mock('@anthropic-ai/claude-agent-sdk', mocks.sdk)
 
-const APP_REGISTRY = '../../src/main/agent/app-registry'
+const CLAUDE_QUERY = '../../src/main/vendors/claude/query'
 const FIRST_RUN = '../../src/main/ipc/first-run'
 const ASSIST = '../../src/main/terminal-ai/assist'
 const LIMITS = '../../src/main/agent/limits'
@@ -47,7 +47,7 @@ const AGENT_ENV = '../../src/main/agent/env'
 const trees: string[] = []
 
 afterEach(() => {
-  for (const path of [APP_REGISTRY, FIRST_RUN, ASSIST, LIMITS, VENDOR_REGISTRY, AGENT_ENV]) vi.doUnmock(path)
+  for (const path of [CLAUDE_QUERY, FIRST_RUN, ASSIST, LIMITS, VENDOR_REGISTRY, AGENT_ENV]) vi.doUnmock(path)
   vi.doMock('@anthropic-ai/claude-agent-sdk', mocks.sdk)
   vi.resetModules()
   vi.unstubAllEnvs()
@@ -178,7 +178,7 @@ describe('the Claude driver over today\'s code', () => {
     const factory = vi.fn<QueryFactory>(() => Promise.reject(new Error('not started')))
     const queryFactoryFromEnv = vi.fn(() => factory)
     const observe = vi.fn((given: QueryFactory) => given)
-    vi.doMock(APP_REGISTRY, () => ({ queryFactoryFromEnv }))
+    vi.doMock(CLAUDE_QUERY, () => ({ queryFactoryFromEnv }))
     vi.doMock(LIMITS, () => ({ appLimits: () => ({ observe }) }))
     const { DEFAULT_SETTINGS } = await import('../../src/shared/agent/settings')
     const opts: SessionStart = {

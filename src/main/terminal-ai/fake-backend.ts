@@ -18,9 +18,8 @@
 // through query().
 import { appendFileSync, readFileSync } from 'node:fs'
 import { z } from 'zod'
-import type { ClaimOptions, Options } from '@anthropic-ai/claude-agent-sdk'
 import { TERMINAL_AI_FEATURES } from '../../shared/terminal-ai/settings'
-import type { AssistBackend, AssistMeta, AssistQuery, AssistSpare } from './assist'
+import type { AssistBackend, AssistClaimOptions, AssistMeta, AssistProcessOptions, AssistQuery, AssistSpare } from './assist'
 
 export const fakeAnswerSchema = z.object({
   feature: z.enum(TERMINAL_AI_FEATURES).optional(),
@@ -145,7 +144,7 @@ export function fakeAssistBackend(options: FakeBackendOptions): AssistBackend {
       return {
         claimed: Promise.resolve({ cwd: '', sessionId: '' }),
         exited,
-        claim(params: { prompt: string; options: ClaimOptions }, meta: AssistMeta): AssistQuery {
+        claim(params: { prompt: string; options: AssistClaimOptions }, meta: AssistMeta): AssistQuery {
           run = fakeRun(params.options.model ?? null, meta, false, options)
           return run
         },
@@ -155,8 +154,9 @@ export function fakeAssistBackend(options: FakeBackendOptions): AssistBackend {
         },
       }
     },
-    query(params: { prompt: string; options: Options }, meta: AssistMeta): AssistQuery {
-      return fakeRun(params.options.model ?? null, meta, true, options)
+    query(params: { prompt: string; options: AssistProcessOptions }, meta: AssistMeta): AssistQuery {
+      const model = params.options.model
+      return fakeRun(typeof model === 'string' ? model : null, meta, true, options)
     },
   }
 }

@@ -8,7 +8,7 @@
 // place by then. Every process also ends by itself after STUB_LIFETIME_MS, and stopAll() kills what
 // is left, so a failing test leaves nothing running.
 import type { ChildProcess } from 'node:child_process'
-import { watchedSpawn } from '../../src/main/agent/options'
+import { watchedSpawn } from '../../src/main/vendors/claude/options'
 import { exitOf } from '../../src/main/agent/session/process'
 import type { QueryFactory, QueryRequest } from '../../src/main/agent/session'
 import { ms } from '../time-scale'

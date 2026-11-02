@@ -201,7 +201,7 @@ for a process also asks the system.
 | ---- | ----- |
 | One Session: states, send, Interrupt, crash | `src/main/agent/session.ts`, `src/main/agent/session/` |
 | The registry of live Sessions, the test agent | `src/main/agent/session/registry.ts`, `src/main/agent/app-registry.ts`, `src/main/agent/fake-query.ts` |
-| Query options, MCP and skills lists, autocompact | `src/main/agent/options.ts` |
+| Query options, MCP and skills lists, autocompact | `src/main/vendors/claude/options.ts`, `src/main/vendors/claude/query.ts` |
 | Process environment | `src/main/agent/env.ts` |
 | Queue, permissions, saved settings | `src/main/agent/queue.ts`, `src/main/agent/permissions.ts`, `src/main/agent/session-settings.ts` |
 | Rules of Resume and closing | `src/main/agent/resume.ts` |

@@ -39,7 +39,7 @@ vi.mock('../../src/main/harness/locate', async (original) => ({ ...(await origin
 
 const { claudeOneShot, claudeOneShotQuery } = await import('../../src/main/vendors/claude/one-shot')
 const { DRAFT_DISALLOWED_TOOLS, DRAFT_TOOLS, draftCanUseTool, sessionSchema } = await import('../../src/main/projects/connect')
-const { draftSessionOptions, sessionHarnessPlugin } = await import('../../src/main/agent/options')
+const { draftSessionOptions, sessionHarnessPlugin } = await import('../../src/main/vendors/claude/options')
 const { currentHarness } = await import('../../src/main/harness/locate')
 const { bundledHarnessDir } = await import('../../src/main/harness/bundled')
 const { agentEnv } = await import('../../src/main/agent/env')

@@ -25,7 +25,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { sessionOptions } from '../../src/main/agent/options'
+import { sessionOptions } from '../../src/main/vendors/claude/options'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryFactory, type QueryRequest } from '../../src/main/agent/session'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
@@ -49,7 +49,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }))
 vi.mock('../../src/main/agent/env', () => ({ agentEnv: mocks.agentEnv }))
 
-const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
 
 const PROJECT = 'demo-0000000d'
 const LOGIN_ENV = { HOME: '/Users/tester', PATH: '/usr/bin:/bin', SHELL: '/bin/zsh' }

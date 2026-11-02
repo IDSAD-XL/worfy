@@ -90,7 +90,7 @@
     ],
     "files": {
       "src/main/agent/session.ts": "Одна Session: состояния, отправка, очередь, Interrupt и падение",
-      "src/main/agent/options.ts": "Параметры query: MCP-серверы и skills по Profile, autocompact",
+      "src/main/vendors/claude/options.ts": "Параметры query: MCP-серверы и skills по Profile, autocompact",
       "src/main/agent/resume.ts": "Правила Resume и закрытия",
       "src/shared/transcript/parse.ts": "Строки транскрипта в AgentEvent-ы; на входе никогда не падает",
       "src/main/claude-home/registry.ts": "Живые и прошлые Session-ы Project-а, прочитанные из Claude home",

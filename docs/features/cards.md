@@ -323,8 +323,9 @@ the folder is not created. A working directory in the 8.3 short spelling of a Pr
 | `src/shared/canvas/tools.ts` | The tool names, schemas, descriptions, limits and the default placement |
 | `src/main/mcp/canvas-server.ts` | The handlers, the server, the Project of a Session and the recording of the last editor |
 | `src/main/mcp/agent-instructions.md` | The text appended to the system prompt; it names the Cards folder |
-| `src/main/agent/options.ts` | Passes the server, the Cards folder and the instructions to Claude Code |
-| `src/main/agent/app-registry.ts` | Resolves the canvas when a Session starts |
+| `src/main/vendors/claude/mcp.ts` | Serves the server to Claude Code in the app's process |
+| `src/main/vendors/claude/options.ts` | Passes the server, the Cards folder and the instructions to Claude Code |
+| `src/main/vendors/claude/query.ts` | Resolves the canvas when a Session starts |
 | `src/main/workflow/profile.ts` | The Profile's list of MCP servers and the default list |
 | `src/main/layout/store.ts` | `LayoutStore`, which every Layout change goes through |
 | `src/shared/layout/free-place.ts` | The nearest free place and the 16 px gap |

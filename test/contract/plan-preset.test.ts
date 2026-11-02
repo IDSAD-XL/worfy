@@ -29,7 +29,8 @@ vi.mock('electron', () => ({
   shell: {},
 }))
 // The app's plan and Session registry are not this test's: the handlers get their own PlanSource.
-vi.mock('../../src/main/agent/app-registry', () => ({ sharedRegistry: () => ({ observe: () => () => undefined }), queryFactoryFromEnv: () => undefined }))
+vi.mock('../../src/main/agent/app-registry', () => ({ sharedRegistry: () => ({ observe: () => () => undefined }) }))
+vi.mock('../../src/main/vendors/claude/query', () => ({ queryFactoryFromEnv: () => undefined }))
 // The app plan's ask never answers by itself, as a Claude Code that hangs: only its signal ends it,
 // closing the process. With `appAsks.answer` set it answers that accountInfo() at once.
 vi.mock('../../src/main/ipc/first-run', () => ({

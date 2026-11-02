@@ -301,8 +301,8 @@ Machine.
 - In the Harness home: `projects/<name>/` holds a Profile (`profile.json`, `rules.md`), `gate/config.json` the registry,
   `user.json` the language and `user/rules.md` the user's rules.
 - `harness/README.md` describes the folder, its tests and its evals.
-- In the app: `src/main/agent/options.ts` passes the copy inline and registers its servers, with the folder from
-  `src/main/agent/app-registry.ts`. `src/main/workflow/profile.ts` starts the scripts, with the environment of
+- In the app: `src/main/vendors/claude/options.ts` passes the copy inline and registers its servers, with the folder from
+  `src/main/vendors/claude/query.ts`. `src/main/workflow/profile.ts` starts the scripts, with the environment of
   `src/main/harness/script-env.ts`. `src/main/harness/attribution.ts` holds worfy's copy of the default of `attribution`, for a value
   named before any Profile exists, and `src/main/harness/qmd.ts` installs qmd and its models.
 

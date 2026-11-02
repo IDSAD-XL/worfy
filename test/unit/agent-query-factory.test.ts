@@ -19,7 +19,7 @@ vi.mock('electron', () => ({ app: mocks.app }))
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: mocks.query }))
 vi.mock('../../src/main/agent/env', () => ({ agentEnv: mocks.agentEnv }))
 
-const { queryFactoryFromEnv, sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+const { queryFactoryFromEnv, sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
 
 /** The environment env.ts hands over: the login shell's, already without API keys. */
 const LOGIN_ENV = { HOME: '/Users/tester', PATH: '/opt/homebrew/bin:/usr/bin:/bin', SHELL: '/bin/zsh' }

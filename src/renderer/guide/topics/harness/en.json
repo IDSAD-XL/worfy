@@ -93,7 +93,7 @@
       "src/main/harness/install.ts": "The installer: state, plan, version order, dialog text, the folder swap",
       "src/main/ipc/harness.ts": "The app's one installer and the consent dialog; announces harness.changed",
       "src/main/harness/locate.ts": "Which Harness is on the Machine, and where its scripts are",
-      "src/main/agent/options.ts": "Passes the copy inline to a Session and registers its servers",
+      "src/main/vendors/claude/options.ts": "Passes the copy inline to a Session and registers its servers",
       "src/main/workflow/profile.ts": "Runs bin/profile and reads the Profile's fields",
       "src/renderer/shell/toolbar/HarnessStatus.tsx": "The Harness item of the toolbar",
       "harness/hooks/hooks.json": "Wires every hook of the plugin"

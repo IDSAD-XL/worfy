@@ -1,7 +1,7 @@
 // The oneShot part of the Claude driver: a single request to Claude Code that is not a Session. Its
 // one caller today is the draft of a Project's profile (src/main/projects/connect.ts): Claude Code in
 // the folder with read-only tools and a structured answer, with the options of the draft Session
-// (draftSessionOptions, src/main/agent/options.ts) and the Harness plugin of this build, as a
+// (draftSessionOptions, options.ts) and the Harness plugin of this build, as a
 // Session outside every Project.
 //
 // claudeOneShotQuery is that query as the draft starts it (src/main/ipc/projects.ts): the draft
@@ -39,7 +39,7 @@ export async function claudeOneShotQuery(request: ClaudeOneShotRequest): Promise
     import('@anthropic-ai/claude-agent-sdk'),
     import('electron'),
     import('../../agent/env'),
-    import('../../agent/options'),
+    import('./options'),
     import('../../harness/locate'),
   ])
   const options = draftSessionOptions({

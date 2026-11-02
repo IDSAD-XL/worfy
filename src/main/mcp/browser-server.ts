@@ -37,7 +37,6 @@
 // the Project — and in Autopilot of the Epic the run works on — and the Browser joins its Family.
 // A refused call is a tool error with a message, never an exception.
 import { randomUUID } from 'node:crypto'
-import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { sdkMessageToEvents } from '../../shared/vendors/claude/events'
 import type { BrowserProfile } from '../../shared/browser/profiles'
@@ -60,7 +59,6 @@ import { ORCHESTRATOR_KIND } from '../../shared/ipc/orchestrator'
 import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import { shownOnCanvas } from '../../shared/layout/derived'
 import { isArchived, type LayoutNode } from '../../shared/layout/types'
-import type { BrowserAttachment } from '../agent/options'
 import { PageError, type CdpPage, type PageOutcome, type PageTarget } from '../browser/cdp'
 import { ControlError, liveBrowsers, type LiveBrowsers } from '../browser/live'
 import { originOf, originRefusal, sessionMayGo } from '../browser/origins'
@@ -69,6 +67,9 @@ import { layoutStore } from '../layout/store'
 import { projectStore, type StoredProject } from '../projects/store'
 import instructions from './browser-instructions.md?raw'
 import { appDeps as canvasAppDeps, observeMessages, projectForCwd, repositoryRoot, type CanvasLayout, type CanvasWorkflow } from './canvas-server'
+import { claudeMcpServer, type ClaudeMcpServer } from '../vendors/claude/mcp'
+import type { BrowserAttachment } from '../vendors/claude/options'
+import type { McpServer } from '../vendors/mcp'
 
 /** How long a call waits for a window to draw a Browser's page. */
 export const LIVE_WAIT_MS = 15_000
@@ -421,16 +422,18 @@ export function browserToolCaller(context: BrowserContext): BrowserToolCaller {
   }
 }
 
-/** The server for one Session. The SDK is loaded on first use, as the Session itself does. */
-export async function createBrowserServer(context: BrowserContext): Promise<McpSdkServerConfigWithInstance> {
-  const { createSdkMcpServer, tool } = await import('@anthropic-ai/claude-agent-sdk')
+/** The server of one context in worfy's terms (src/main/vendors/mcp.ts): every Browser tool, answered by browserToolCaller. */
+export function browserServer(context: BrowserContext): McpServer {
   const call = browserToolCaller(context)
-  return createSdkMcpServer({
+  return {
     name: BROWSER_SERVER_NAME,
     version: '1.0.0',
-    tools: BROWSER_TOOL_NAMES.map((name) => tool(name, browserToolDescriptions[name], browserToolShapes[name] as z.ZodRawShape, (args) => call(name, args))),
-  })
+    tools: BROWSER_TOOL_NAMES.map((name) => ({ name, description: browserToolDescriptions[name], shape: browserToolShapes[name] as z.ZodRawShape, call: (args: unknown) => call(name, args) })),
+  }
 }
+
+/** The server for one Claude Session, in process (src/main/vendors/claude/mcp.ts). The Claude driver loads the SDK on first use, as the Session itself does. */
+export const createBrowserServer = (context: BrowserContext): Promise<ClaudeMcpServer> => claudeMcpServer(browserServer(context))
 
 /** The agent instructions appended to the system prompt. */
 export const browserInstructions = (): string => instructions
@@ -507,7 +510,7 @@ export async function browserForSession(request: Parameters<BrowserResolver>[0],
  * Lets an e2e run call the tools as Session `sessionId` of Project `projectId` would
  * (`globalThis.worfyBrowserTool`), for the fake agent, which calls no MCP tool itself. `unattended`
  * answers whether that Session runs unattended now, as its launch says (the Session registry): a
- * real Session's server is made in Autopilot mode from the same launch (src/main/agent/app-registry.ts).
+ * real Session's server is made in Autopilot mode from the same launch (src/main/vendors/claude/query.ts).
  */
 export function exposeBrowserToolsToFakeAgent(unattended: (sessionId: string) => boolean = () => false): void {
   ;(globalThis as { worfyBrowserTool?: (projectId: string, sessionId: string, name: BrowserToolName, args: unknown) => Promise<BrowserToolResult> }).worfyBrowserTool = (projectId, sessionId, name, args) =>

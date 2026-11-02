@@ -504,7 +504,7 @@ describe('sdkQueryFactory and the Profile list', () => {
   })
 
   it("a Session in a Project gets the Profile's list as the MCP policy, read for its cwd", async () => {
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     const asked: [string, Record<string, string>][] = []
     const allowlist = (cwd: string, env: Record<string, string>): Promise<readonly string[]> => (asked.push([cwd, env]), Promise.resolve(['qmd']))
     await sdkQueryFactory(() => Promise.resolve(attached), allowlist)(request('/repo/.claude/worktrees/06'))
@@ -518,7 +518,7 @@ describe('sdkQueryFactory and the Profile list', () => {
   })
 
   it('a Session outside every Project, or whose canvas failed, does not ask the Profile and keeps the user servers', async () => {
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     const allowlist = vi.fn(() => Promise.resolve(['qmd']))
     await sdkQueryFactory(() => Promise.resolve(null), allowlist)(request('/elsewhere'))
     expect(sdkOptions()).not.toHaveProperty('managedSettings')
@@ -535,7 +535,7 @@ describe('sdkQueryFactory and the Profile list', () => {
     const root = projectRoot()
     vi.stubEnv('WORFY_CLAUDE_HOME', home)
     const before = snapshot(home)
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     await sdkQueryFactory(() => Promise.resolve(attached))(request(root))
     const options = sdkOptions()
     expect(options.managedSettings).toEqual({
@@ -557,7 +557,7 @@ describe('sdkQueryFactory and the Profile list', () => {
     vi.stubEnv('WORFY_CLAUDE_HOME', home)
     const before = snapshot(home)
     try {
-      const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+      const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
       const asked: string[] = []
       const skills = (cwd: string): Promise<readonly string[] | null> => (asked.push(cwd), Promise.resolve(['figma']))
       await sdkQueryFactory(() => Promise.resolve(attached), () => Promise.resolve(['qmd']), { skills, autoCompactWindow: () => null })(request('/repo/.claude/worktrees/38'))

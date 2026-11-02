@@ -21,8 +21,8 @@
 // runs on sonnet or a larger model (worfy-daily ticket 07): with no model named and a haiku as the
 // user's, the query is started on sonnet.
 //
-// Nothing here may touch another module while this one loads: src/main/agent/app-registry.ts and the
-// driver import each other, so the app's part reads app-registry.ts at its first start.
+// The app's part reads query.ts at its first start, not while this module loads: query.ts reads the
+// Session registry (src/main/agent/app-registry.ts), which is made over this driver.
 import { CommandCatalog } from '../../agent/commands'
 import { userContent } from '../../agent/attachments'
 import { readUserEffort, readUserModel, type UserEffortReader, type UserModelReader } from '../../claude-home/user-model'
@@ -43,6 +43,7 @@ import { ASK_USER_QUESTION, parseQuestions } from '../../../shared/agent/questio
 import { isSelectableModel, PERMISSION_MODES, type EffortChoice, type ModelOption, type PermissionModeChoice, type SessionSettings } from '../../../shared/agent/settings'
 import { contextUsageOf, isCompactBoundary, sdkMessageToEvents } from '../../../shared/vendors/claude/events'
 import type { PermissionAsker, RefusalDetails, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
+import { claudeSignedIn } from './account'
 
 /** What the model reads when the user pressed "Deny". */
 export const DENIED_MESSAGE = 'The user denied this tool call in worfy.'
@@ -322,9 +323,7 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession {
       if (this.done) return
       this.out.push({
         type: 'account',
-        // With a login accountInfo() has subscriptionType; without one only apiProvider and
-        // tokenSource "none" (ADR-0009, ticket 06 question 3).
-        loggedIn: account.subscriptionType !== undefined || (account.tokenSource !== undefined && account.tokenSource !== 'none'),
+        loggedIn: claudeSignedIn(account),
         subscriptionType: account.subscriptionType ?? null,
         apiProvider: account.apiProvider ?? null,
         tokenSource: account.tokenSource ?? null,
@@ -407,7 +406,7 @@ let appPart: SessionPart | null = null
  */
 async function app(): Promise<SessionPart> {
   if (appPart === null) {
-    const [{ queryFactoryFromEnv }, { appLimits }] = await Promise.all([import('../../agent/app-registry'), import('../../agent/limits')])
+    const [{ queryFactoryFromEnv }, { appLimits }] = await Promise.all([import('./query'), import('../../agent/limits')])
     appPart ??= claudeSessions(appLimits().observe(queryFactoryFromEnv()))
   }
   return appPart

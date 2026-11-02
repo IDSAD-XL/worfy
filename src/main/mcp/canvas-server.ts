@@ -1,5 +1,6 @@
-// The canvas MCP server `worfy-canvas` (ADR-0003): every Session of worfy gets one, in process
-// (the SDK's createSdkMcpServer). The agent writes a Card's files itself; everything that changes
+// The canvas MCP server `worfy-canvas` (ADR-0003): every Session of worfy gets one. canvasServer()
+// describes it in worfy's terms (src/main/vendors/mcp.ts); for Claude Code the Claude driver serves
+// it in process (createCanvasServer, src/main/vendors/claude/mcp.ts). The agent writes a Card's files itself; everything that changes
 // the Layout goes through these tools, which call the same LayoutStore.apply() the renderer's
 // IPC calls, so the agent's and the user's changes take one path and are checked the same way.
 //
@@ -18,7 +19,6 @@ import { randomUUID } from 'node:crypto'
 import { lstatSync, mkdirSync } from 'node:fs'
 import * as nativePath from 'node:path'
 import { basename, dirname, join, resolve, sep } from 'node:path'
-import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import type { AgentEvent } from '../../shared/agent/events'
 import { sdkMessageToEvents } from '../../shared/vendors/claude/events'
@@ -45,7 +45,6 @@ import { cardEditedBy } from '../../shared/cards/last-editor'
 import { EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, SOURCE_NODE_KINDS, SUBAGENT_KIND, SUBAGENT_TREE_KIND, isSourceNodeId, isSubagentNodeId, shownOnCanvas } from '../../shared/layout/derived'
 import { isArchived, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import type { WorkflowModel } from '../../shared/workflow/types'
-import type { CanvasAttachment } from '../agent/options'
 import { appAutopilotStarter, type AutopilotStarter } from '../autopilot/chat-confirm'
 import { harnessScriptEnv } from '../harness/script-env'
 import { layoutStore } from '../layout/store'
@@ -56,6 +55,9 @@ import { epicStatusRunner, readCheckout } from '../workflow/reader'
 import instructionsTemplate from './agent-instructions.md?raw'
 import { leadsToRemoteSync, type LinkFsSync, type PathRules } from '../remote-links'
 import { removeTree } from '../storage/remove'
+import { claudeMcpServer, type ClaudeMcpServer } from '../vendors/claude/mcp'
+import type { CanvasAttachment } from '../vendors/claude/options'
+import type { McpServer } from '../vendors/mcp'
 
 export interface CardsFolderOptions {
   /** The path rules of the platform; path.win32 in tests on any system. */
@@ -314,16 +316,18 @@ export function canvasToolCaller(context: CanvasContext): CanvasToolCaller {
   }
 }
 
-/** The server for one Session. The SDK is loaded on first use, as the Session itself does. */
-export async function createCanvasServer(context: CanvasContext): Promise<McpSdkServerConfigWithInstance> {
-  const { createSdkMcpServer, tool } = await import('@anthropic-ai/claude-agent-sdk')
+/** The server of one context in worfy's terms: every canvas tool, answered by canvasToolCaller. */
+export function canvasServer(context: CanvasContext): McpServer {
   const call = canvasToolCaller(context)
-  return createSdkMcpServer({
+  return {
     name: CANVAS_SERVER_NAME,
     version: '1.0.0',
-    tools: CANVAS_TOOL_NAMES.map((name) => tool(name, canvasToolDescriptions[name], canvasToolShapes[name] as z.ZodRawShape, (args) => call(name, args))),
-  })
+    tools: CANVAS_TOOL_NAMES.map((name) => ({ name, description: canvasToolDescriptions[name], shape: canvasToolShapes[name] as z.ZodRawShape, call: (args: unknown) => call(name, args) })),
+  }
 }
+
+/** The server for one Claude Session. The Claude driver loads the SDK on first use, as the Session itself does. */
+export const createCanvasServer = (context: CanvasContext): Promise<ClaudeMcpServer> => claudeMcpServer(canvasServer(context))
 
 /** The agent instructions appended to the system prompt, for a Project's Cards folder. */
 export function agentInstructions(cardsDir: string): string {

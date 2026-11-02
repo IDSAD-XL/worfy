@@ -273,7 +273,7 @@ and its modifiers go to the page as they are.
 | The attach check; permissions and window requests of a page | `src/main/browser/attach-policy.ts`, `src/main/window.ts` |
 | The MCP server and its instructions | `src/main/mcp/browser-server.ts`, `src/main/mcp/browser-instructions.md` |
 | Tool schemas, limits, answer texts | `src/shared/browser/tools.ts` |
-| Which Session gets the server | `src/main/agent/app-registry.ts`, `src/main/agent/options.ts` |
+| Which Session gets the server | `src/main/vendors/claude/query.ts`, `src/main/vendors/claude/options.ts` |
 | Browsers leaving with a Session; ⌘Z | `src/main/layout/store.ts`, `src/renderer/canvas/history.ts` |
 | The frame; its geometry, address, Open bar and profile choice | `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/nodes/browser-frame.ts` |
 | The sidebar and the viewport | `src/renderer/canvas/nodes/BrowserSidebar.tsx`, `src/renderer/canvas/nodes/browser-viewport.ts` |

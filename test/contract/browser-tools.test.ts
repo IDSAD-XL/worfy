@@ -15,6 +15,7 @@ import type { LiveBrowsers } from '../../src/main/browser/live'
 import type { LayoutStore } from '../../src/main/layout/store'
 import type { BrowserContext, BrowserResolver, BrowserToolResult } from '../../src/main/mcp/browser-server'
 import type { CanvasWorkflow } from '../../src/main/mcp/canvas-server'
+import type { ClaudeMcpServer } from '../../src/main/vendors/claude/mcp'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import type { BrowserProfile } from '../../src/shared/browser/profiles'
 import { AUTOPILOT_ONLY, BROWSER_LOG_LIMIT, BROWSER_SERVER_NAME, BROWSER_TOOL_NAMES, PASSWORD_REFUSED, SIGN_IN_EXPIRED, TAKEN_OVER } from '../../src/shared/browser/tools'
@@ -348,7 +349,7 @@ async function connect(ctx: BrowserContext = context()): Promise<Rpc> {
 }
 
 /** Connects to the server `config` as Claude Code would. */
-async function connectTo(config: McpSdkServerConfigWithInstance): Promise<Rpc> {
+async function connectTo(config: ClaudeMcpServer): Promise<Rpc> {
   expect(config).toMatchObject({ type: 'sdk', name: BROWSER_SERVER_NAME })
   type Message = { id?: number; result?: unknown; error?: unknown }
   const pending = new Map<number, (message: Message) => void>()
@@ -1081,7 +1082,7 @@ describe('the Browser server of a Session', () => {
   const canvas = { attachment: { server: { type: 'sdk', name: CANVAS_SERVER_NAME } as never, cardsDir: '/data/cards', instructions: 'canvas' }, observe: <T>(query: T) => query }
 
   it("is passed to a Session in a Project with the Profile's list naming worfy-canvas, with its instructions after the canvas ones", async () => {
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     await sdkQueryFactory(() => Promise.resolve(canvas), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]))(request(join(scratch, 'repo')))
     expect(options().mcpServers).toMatchObject({ [CANVAS_SERVER_NAME]: { name: CANVAS_SERVER_NAME }, [BROWSER_SERVER_NAME]: { type: 'sdk', name: BROWSER_SERVER_NAME } })
     expect((options().systemPrompt as { append: string }).append).toMatch(/^canvas\n[\s\S]*worfy-browser/)
@@ -1090,14 +1091,14 @@ describe('the Browser server of a Session', () => {
   const allowedServers = (): string[] => ((options().managedSettings as { allowedMcpServers: { serverName: string }[] }).allowedMcpServers ?? []).map((each) => each.serverName)
 
   it('lets worfy-browser into the managed list of allowed servers next to the server itself', async () => {
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     await sdkQueryFactory(() => Promise.resolve(canvas), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]))(request(join(scratch, 'repo')))
     expect(allowedServers()).toEqual(['qmd', CANVAS_SERVER_NAME, BROWSER_SERVER_NAME])
   })
 
   it('is passed to an unattended Session in Autopilot mode: only the profiles available to Autopilot exist for it (worfy-browser ticket 08)', async () => {
     profiles = [...profiles, { id: 'user-cccccc', name: 'user', origins: [SITE], autopilot: true }]
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     const { projectStore } = await import('../../src/main/projects/store')
     const asked: { autopilot?: boolean | undefined }[] = []
     const browser: BrowserResolver = (req) => {
@@ -1117,7 +1118,7 @@ describe('the Browser server of a Session', () => {
   })
 
   it('leaves worfy-browser out of the allowed servers when its server could not be made', async () => {
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     const failing = () => Promise.reject(new Error('no Browser today'))
     await sdkQueryFactory(() => Promise.resolve(canvas), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]), { browser: failing })(request(join(scratch, 'repo')))
     expect(options().mcpServers).toEqual({ [CANVAS_SERVER_NAME]: canvas.attachment.server })
@@ -1130,7 +1131,7 @@ describe('the Browser server of a Session', () => {
       const messages = [init]
       return { [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve(messages.length > 0 ? { done: false, value: messages.shift() } : { done: true, value: undefined }) }) }
     })
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     const ctx = context()
     // The app's own resolver, with this test's Live Browsers and a Layout a window draws.
     const { projectStore } = await import('../../src/main/projects/store')
@@ -1146,7 +1147,7 @@ describe('the Browser server of a Session', () => {
   })
 
   it('is not passed when the list leaves worfy-browser out', async () => {
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     await sdkQueryFactory(() => Promise.resolve(canvas), () => Promise.resolve(['qmd']))(request(join(scratch, 'repo')))
     expect(options()).not.toHaveProperty('mcpServers')
   })

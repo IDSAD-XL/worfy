@@ -90,7 +90,7 @@
     ],
     "files": {
       "src/main/agent/session.ts": "One Session: its states, send, the queue, Interrupt and a crash",
-      "src/main/agent/options.ts": "The query's options: MCP servers and skills by the Profile, autocompact",
+      "src/main/vendors/claude/options.ts": "The query's options: MCP servers and skills by the Profile, autocompact",
       "src/main/agent/resume.ts": "The rules of Resume and closing",
       "src/shared/transcript/parse.ts": "Transcript lines into AgentEvents; never throws on input",
       "src/main/claude-home/registry.ts": "The live and past Sessions of a Project, read from Claude home",

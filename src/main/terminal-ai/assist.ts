@@ -27,22 +27,37 @@
 // The log has one line per process start (Claude Code version, apiKeySource, plugins, hooks that
 // ran) and one per request (the feature and the model). Never the request, the answer or the context.
 //
-// The SDK is passed in (AssistBackend): tests pass a fake SDK through sdkBackend() or the file fake
+// Terminal AI runs on Claude Code only, through the Claude driver (src/main/vendors/claude/terminal-ai.ts):
+// it makes the options of the processes and loads the Agent SDK; the service holds the options as
+// AssistProcessOptions and AssistClaimOptions and reads only the folder of a claim. The backend is
+// passed in (AssistBackend): tests pass a fake SDK through the driver's sdkBackend() or the file fake
 // (fake-backend.ts); with WORFY_AGENT=fake the app takes the file fake and never imports the SDK, and
 // under vitest the real backend throws rather than start Claude Code.
 import { mkdirSync } from 'node:fs'
-import type { ClaimOptions, Options } from '@anthropic-ai/claude-agent-sdk'
 import type { LimitsState } from '../../shared/agent/limits'
 import type { AssistProcessState, TerminalAiFeatureState, TerminalAiState } from '../../shared/ipc/terminal-ai'
 import { contextText, isPrivateLine, prepareContext, type TerminalAiContext, type TerminalAiInput } from '../../shared/terminal-ai/context'
 import { featureEnabled, isAutomatic, TERMINAL_AI_FEATURES, type TerminalAiFeature, type TerminalAiSettings, type TerminalAiSettingsPatch } from '../../shared/terminal-ai/settings'
 import { wallTimer } from '../autopilot/limits-wait'
+import { claudeTerminalAi, realBackend, type SdkLoader } from '../vendors/claude/terminal-ai'
 import { fakeAssistBackend } from './fake-backend'
 import { gitBranch } from './git-branch'
 import { limitsGate } from './limits-gate'
-import { claimOptions, coldQueryOptions, featureModel, FEATURE_TIMEOUT_MS } from './options'
+import { featureModel, FEATURE_TIMEOUT_MS } from './options'
 
 // ---- the backend: the SDK as the service uses it --------------------------------------------------
+
+/**
+ * The options a spare process starts with, or a cold query runs with. The Claude driver makes them
+ * (claudeTerminalAi.prewarmOptions) and its backend reads them; the service only hands them on.
+ */
+export type AssistProcessOptions = Readonly<Record<string, unknown>>
+
+/**
+ * What one request sets when it claims a spare (claudeTerminalAi.claimOptions): the service makes
+ * the folder `cwd`, the file fake reads `model`.
+ */
+export type AssistClaimOptions = AssistProcessOptions & { readonly cwd: string; readonly model?: string }
 
 /** What a backend may use besides the SDK's own parameters: the file fake answers and logs by it. */
 export interface AssistMeta {
@@ -58,7 +73,7 @@ export interface AssistQuery extends AsyncIterable<unknown> {
 
 /** A spare process (the SDK's SpareProcess). */
 export interface AssistSpare {
-  claim(params: { prompt: string; options: ClaimOptions }, meta: AssistMeta): AssistQuery
+  claim(params: { prompt: string; options: AssistClaimOptions }, meta: AssistMeta): AssistQuery
   /** Rejects when the claim is refused; `option_not_applied: …` means the prompt went out anyway. */
   readonly claimed: Promise<unknown>
   readonly exited: Promise<void>
@@ -66,55 +81,15 @@ export interface AssistSpare {
 }
 
 export interface AssistBackend {
-  prewarm(options: Options): Promise<AssistSpare>
-  query(params: { prompt: string; options: Options }, meta: AssistMeta): AssistQuery
+  prewarm(options: AssistProcessOptions): Promise<AssistSpare>
+  query(params: { prompt: string; options: AssistProcessOptions }, meta: AssistMeta): AssistQuery
 }
-
-/** The part of `@anthropic-ai/claude-agent-sdk` the service uses. */
-export interface AssistSdk {
-  prewarm(params?: { options?: Options }): Promise<{
-    claim(params: { prompt: string; options: ClaimOptions }): AssistQuery
-    readonly claimed: Promise<unknown>
-    readonly exited: Promise<void>
-    close(): void
-  }>
-  query(params: { prompt: string; options?: Options }): AssistQuery
-}
-
-/** The backend over an SDK module (the real one, or a test's fake SDK). */
-export function sdkBackend(sdk: AssistSdk): AssistBackend {
-  return {
-    async prewarm(options) {
-      const spare = await sdk.prewarm({ options })
-      // `claimed` rejects also when a spare is closed unclaimed (spare_closed): never unhandled.
-      spare.claimed.catch(() => undefined)
-      return {
-        claim: (params) => spare.claim(params),
-        claimed: spare.claimed,
-        exited: spare.exited,
-        close: () => spare.close(),
-      }
-    },
-    query: (params) => sdk.query(params),
-  }
-}
-
-/** Loads the Agent SDK; the one place the service imports it. */
-export type SdkLoader = () => Promise<AssistSdk>
-
-const loadSdk: SdkLoader = async () => (await import('@anthropic-ai/claude-agent-sdk')) as AssistSdk
 
 /**
- * The real Claude Code. Throws under vitest before the SDK is loaded: a test never starts Claude
- * Code and never spends the subscription.
+ * The fake of fake-backend.ts with WORFY_AGENT=fake (the SDK is not loaded), the real Claude Code
+ * otherwise (the Claude driver's realBackend; `load` stands in for its SDK loader).
  */
-export async function realBackend(env: NodeJS.ProcessEnv = process.env, load: SdkLoader = loadSdk): Promise<AssistBackend> {
-  if (env.VITEST) throw new Error('the real Terminal AI backend is not started under vitest: use WORFY_AGENT=fake or pass a backend')
-  return sdkBackend(await load())
-}
-
-/** The fake of fake-backend.ts with WORFY_AGENT=fake (the SDK is not loaded), the real Claude Code otherwise. */
-export async function backendFromEnv(env: NodeJS.ProcessEnv = process.env, load: SdkLoader = loadSdk): Promise<AssistBackend> {
+export async function backendFromEnv(env: NodeJS.ProcessEnv = process.env, load?: SdkLoader): Promise<AssistBackend> {
   if (env.WORFY_AGENT === 'fake') return fakeAssistBackend({ answersFile: env.WORFY_TERMINAL_AI_ANSWERS, logFile: env.WORFY_TERMINAL_AI_LOG })
   return realBackend(env, load)
 }
@@ -181,8 +156,8 @@ export interface AssistSettings {
 export interface AssistServiceOptions {
   /** Made on the first request that needs a process; a rejection fails that request. */
   backend: () => Promise<AssistBackend>
-  /** The options of prewarm() (options.ts, prewarmOptions), made for every spare. */
-  prewarmOptions: () => Promise<Options>
+  /** The options of prewarm() (claudeTerminalAi.prewarmOptions), made for every spare. */
+  prewarmOptions: () => Promise<AssistProcessOptions>
   settings: AssistSettings
   limits: AssistLimits
   /** WORFY_DATA_DIR: requests run in its empty `terminal-ai` folder. */
@@ -251,7 +226,7 @@ function isThinking(message: unknown): boolean {
  * The claim's Query, or the code of its refusal: a spare that exited or was closed after it was
  * taken refuses by throwing, and nothing went out.
  */
-function claimOf(spare: AssistSpare, prompt: string, options: ClaimOptions, meta: AssistMeta): AssistQuery | string {
+function claimOf(spare: AssistSpare, prompt: string, options: AssistClaimOptions, meta: AssistMeta): AssistQuery | string {
   try {
     return spare.claim({ prompt, options }, meta)
   } catch (error) {
@@ -458,7 +433,7 @@ export class AssistService {
       if (controller.signal.aborted) return { ok: false, reason: reasonOf(controller.signal) }
       const meta: AssistMeta = { feature, context }
       const prompt = contextText(feature, context)
-      const claim = claimOptions(feature, settings, this.options.dataDir)
+      const claim = claudeTerminalAi.claimOptions(feature, settings, this.options.dataDir)
       mkdirSync(claim.cwd, { recursive: true })
       this.log(`[terminal-ai] ${feature}: model ${model}`)
       const query = claimOf(spare, prompt, claim, meta)
@@ -469,7 +444,7 @@ export class AssistService {
         this.log(`[terminal-ai] ${feature}: claim refused (${attempt.detail})${isAutomatic(feature) ? '' : '; retrying with a cold query'}`)
         if (!isAutomatic(feature) && !controller.signal.aborted) {
           const backend = await this.backend()
-          const options = coldQueryOptions(await this.options.prewarmOptions(), claim)
+          const options = claudeTerminalAi.coldQueryOptions(await this.options.prewarmOptions(), claim)
           attempt = await this.attempt(feature, controller, backend.query({ prompt, options }, meta), null)
         }
       }
@@ -702,13 +677,12 @@ let appService: AssistService | null = null
 /** The app's assist service over WORFY_DATA_DIR, made on first use; it closes its processes when the app quits. */
 export async function appAssist(): Promise<AssistService> {
   if (appService !== null) return appService
-  const [{ app }, { appLimits }, { agentEnv }, { dataRoot }, { TerminalAiSettingsStore }, { prewarmOptions }] = await Promise.all([
+  const [{ app }, { appLimits }, { agentEnv }, { dataRoot }, { TerminalAiSettingsStore }] = await Promise.all([
     import('electron'),
     import('../agent/limits'),
     import('../agent/env'),
     import('../storage/paths'),
     import('./settings'),
-    import('./options'),
   ])
   if (appService !== null) return appService
   const dataDir = dataRoot()
@@ -717,7 +691,7 @@ export async function appAssist(): Promise<AssistService> {
   const service = new AssistService({
     backend: () => backendFromEnv(),
     // The fake starts no Claude Code and needs no login shell environment.
-    prewarmOptions: async () => prewarmOptions({ env: fake ? {} : (await agentEnv()).env, runtime }),
+    prewarmOptions: async () => claudeTerminalAi.prewarmOptions({ env: fake ? {} : (await agentEnv()).env, runtime }),
     settings: new TerminalAiSettingsStore(dataDir),
     limits: appLimits(),
     dataDir,

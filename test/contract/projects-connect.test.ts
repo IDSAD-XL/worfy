@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HarnessStatus } from '../../src/shared/ipc/harness'
 import { githubChoice, withGithubAccount, type ProfileDraft } from '../../src/shared/ipc/projects'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { draftSessionOptions, sessionOptions } from '../../src/main/agent/options'
+import { draftSessionOptions, sessionOptions } from '../../src/main/vendors/claude/options'
 import { defaultAttribution } from '../../src/main/harness/attribution'
 import { proposeAttribution } from '../../src/main/harness/migrate/profiles'
 import {

@@ -5,9 +5,8 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { draftSessionOptions, sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer, type BrowserAttachment, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/agent/options'
+import { draftSessionOptions, sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer, type BrowserAttachment, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/vendors/claude/options'
 import * as bundled from '../../src/main/harness/bundled'
 import type { CanUseToolHandler } from '../../src/main/agent/permissions'
 import { DEFAULT_MCP_SERVERS, readSkillsAllowlist } from '../../src/main/workflow/profile'
@@ -82,7 +81,7 @@ describe('the SDK session id of a Session', () => {
   })
 })
 
-const canvasServer = { type: 'sdk', name: CANVAS_SERVER_NAME } as unknown as McpServerConfig
+const canvasServer = { type: 'sdk', name: CANVAS_SERVER_NAME } as unknown as CanvasAttachment['server']
 const canvas: CanvasAttachment = { server: canvasServer, cardsDir: '/data/project/cards', instructions: 'Use the worfy-canvas tools.' }
 
 describe('MCP servers of a Session in a Project', () => {
@@ -128,7 +127,7 @@ describe('MCP servers of a Session in a Project', () => {
 // worfy-browser ticket 04 (ADR-0021, ADR-0078 item 4): the Browser server goes through the same
 // allowlist as worfy-canvas, and its instructions follow the canvas ones in the system prompt.
 describe('the worfy-browser server of a Session in a Project', () => {
-  const browserServer = { type: 'sdk', name: BROWSER_SERVER_NAME } as unknown as McpServerConfig
+  const browserServer = { type: 'sdk', name: BROWSER_SERVER_NAME } as unknown as BrowserAttachment['server']
   const browser: BrowserAttachment = { server: browserServer, instructions: 'Use the worfy-browser tools.' }
 
   it('without a list (null) is there: nothing is filtered', () => {
