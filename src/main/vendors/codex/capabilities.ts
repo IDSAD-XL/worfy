@@ -1,10 +1,15 @@
 // What Codex can do as worfy runs it (ADR-0094 item 2; worfy-multi-vendor ticket 17). Static: what
 // the pinned version can do in the first release. The models and their effort levels come from
-// `model/list` of the running version (ticket 20 adds them here).
-import type { Capabilities, PermissionPreset } from '../../../shared/vendors/capabilities'
+// `model/list` of the running version, through a live Session (ticket 20): capabilities(session) and the
+// model picker's rows (codexModelOptions) take them from there.
+import { EFFORT_LEVELS, type EffortChoice, type ModelOption } from '../../../shared/agent/settings'
+import type { Capabilities, PermissionPreset, VendorModel } from '../../../shared/vendors/capabilities'
 import type { VendorDriver } from '../driver'
+import type { SessionHandle } from '../session'
 import type { AskForApproval } from './protocol/ts/v2/AskForApproval'
+import type { Model } from './protocol/ts/v2/Model'
 import type { SandboxMode } from './protocol/ts/v2/SandboxMode'
+import type { SandboxPolicy } from './protocol/ts/v2/SandboxPolicy'
 
 /** A permission preset of Codex: the approval policy and the sandbox its turns run with. */
 export interface CodexPermissionPreset extends PermissionPreset {
@@ -45,6 +50,40 @@ export function codexPermissionPreset(id: string): CodexPermissionPreset | undef
   return CODEX_PERMISSION_PRESETS.find((preset) => preset.id === id)
 }
 
+// shortcut: a Session's settings carry Claude Code's permission modes (src/shared/agent/settings.ts),
+// so a Codex Session is given one of them; redo when a Session's settings take the Vendor's preset ids
+// (worfy-multi-vendor ticket 23 or 25).
+/** The Codex preset that stands for each of Claude Code's permission modes. */
+const PRESET_OF_CLAUDE_MODE: Readonly<Record<string, string>> = {
+  bypassPermissions: 'full-access',
+  acceptEdits: 'auto',
+  default: 'read-only',
+  plan: 'read-only',
+}
+
+/**
+ * The preset a Session's permission setting means for Codex: a preset of Codex by its id, or the one
+ * that stands for a permission mode of Claude Code; undefined for anything else.
+ */
+export function codexPresetFor(setting: string): CodexPermissionPreset | undefined {
+  return codexPermissionPreset(setting) ?? codexPermissionPreset(PRESET_OF_CLAUDE_MODE[setting] ?? '')
+}
+
+/**
+ * The sandbox of a turn (`turn/start` takes a policy, `thread/start` a mode): no network, and no folder
+ * to write to beyond the workspace.
+ */
+export function codexSandboxPolicy(mode: SandboxMode): SandboxPolicy {
+  switch (mode) {
+    case 'read-only':
+      return { type: 'readOnly', networkAccess: false }
+    case 'workspace-write':
+      return { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false }
+    case 'danger-full-access':
+      return { type: 'dangerFullAccess' }
+  }
+}
+
 /**
  * Codex's capabilities in the first release. A message sent during a turn steers it (`turn/steer`);
  * a model change holds for the turns after it (`turn/start`); Limits come as windows
@@ -79,5 +118,71 @@ export const CODEX_CAPABILITIES: Capabilities = {
   },
 }
 
-/** The capabilities of Codex; the live Session is not asked until the running version tells the models (ticket 20). */
-export const codexCapabilities: VendorDriver['capabilities'] = () => Promise.resolve(CODEX_CAPABILITIES)
+/** Codex's effort levels lowest first, as far as worfy knows them; a level it does not know goes after them. */
+const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
+
+/** The models the picker lists: those `model/list` does not hide, each once. */
+function shownModels(models: readonly Model[]): Model[] {
+  const seen = new Set<string>()
+  return models.filter((model) => {
+    if (model.hidden || seen.has(model.model)) return false
+    seen.add(model.model)
+    return true
+  })
+}
+
+const effortsOf = (model: Model): string[] => (model.supportedReasoningEfforts ?? []).map((option) => option.reasoningEffort)
+
+/**
+ * The capabilities with the models of `model/list`: each model the picker lists, with the effort levels
+ * it takes, and every level any of them takes, lowest first.
+ */
+export function capabilitiesWithModels(models: readonly Model[]): Capabilities {
+  const shown = shownModels(models)
+  const vendorModels: VendorModel[] = shown.map((model) => ({ id: model.model, label: model.displayName, effortLevels: effortsOf(model) }))
+  const levels = [...new Set(shown.flatMap(effortsOf))]
+  const rank = (level: string): number => (EFFORT_ORDER.includes(level) ? EFFORT_ORDER.indexOf(level) : EFFORT_ORDER.length + levels.indexOf(level))
+  return { ...CODEX_CAPABILITIES, models: vendorModels, effortLevels: [...levels].sort((a, b) => rank(a) - rank(b)) }
+}
+
+// shortcut: the model picker takes only Claude Code's effort levels (ModelOption.efforts), so a Codex
+// level it does not have (minimal, none) is left out of its rows; redo when the pickers read the
+// capabilities (worfy-multi-vendor ticket 25).
+const pickerEfforts = (model: Model): EffortChoice[] => effortsOf(model).filter((level): level is EffortChoice => (EFFORT_LEVELS as readonly string[]).includes(level))
+
+/**
+ * The model picker's rows of `model/list`: "Default" (value null) for the model Codex marks as its
+ * default, then each model it does not hide.
+ */
+export function codexModelOptions(models: readonly Model[]): ModelOption[] {
+  const fallback = models.find((model) => model.isDefault)
+  const rows = shownModels(models).map((model) => ({ value: model.model, displayName: model.displayName, efforts: pickerEfforts(model) }))
+  return fallback === undefined ? rows : [{ value: null, displayName: `Default (${fallback.displayName})`, efforts: pickerEfforts(fallback) }, ...rows]
+}
+
+/** What a live Codex Session tells of the running version: the models of its `model/list`. */
+export interface CodexModelSource {
+  codexModels(): Promise<Model[]>
+}
+
+/** The model source of a Session's handle; null for a handle that is not a Codex one. */
+export function codexModelSource(session: SessionHandle | undefined): CodexModelSource | null {
+  const source = session as (SessionHandle & Partial<CodexModelSource>) | undefined
+  return typeof source?.codexModels === 'function' ? (source as CodexModelSource) : null
+}
+
+/**
+ * The capabilities of Codex: the static ones, with the models of the live Session `session` when it
+ * lists any. Without a Codex Session, or when `model/list` fails or lists none, the static ones.
+ */
+export const codexCapabilities: VendorDriver['capabilities'] = async (session) => {
+  const source = codexModelSource(session)
+  if (source === null) return CODEX_CAPABILITIES
+  try {
+    const models = await source.codexModels()
+    return shownModels(models).length === 0 ? CODEX_CAPABILITIES : capabilitiesWithModels(models)
+  } catch (error) {
+    console.warn('[vendors] model/list of a Codex Session failed', error)
+    return CODEX_CAPABILITIES
+  }
+}

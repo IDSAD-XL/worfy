@@ -1,7 +1,7 @@
 # 20 — SessionHandle Codex
 
 Type: task
-Status: open
+Status: claimed 2026-11-02T21:51Z
 Blocked by: 14, 19
 Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтральные события — соответствие Codex), «Цель», п. 3–5; решение 06 ([06-граница-vendor.md](06-граница-vendor.md), часть session); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); Ticket 02 ([02-codex-управление-сессией.md](02-codex-управление-сессией.md), таблица механизмов)
 
@@ -48,3 +48,51 @@ Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтраль
 
 Только читать: `src/main/vendors/session.ts` и `src/main/vendors/claude/session.ts` (Ticket 14),
 `src/shared/agent/events.ts:67-274`, `src/main/agent/queue.ts`.
+
+## Итог
+
+- `session.ts` — SessionHandle Codex поверх одного `codex app-server` на handle (`app-server.ts` Ticket-а 19):
+  `start` — `thread/start {cwd, approvalPolicy, sandbox, model}`, `resume` — `thread/resume {threadId, …}`. Проверка
+  старта — ответ thread-а: после него handle даёт `account` (`loggedIn: true`; вход в Codex — вопрос части account,
+  Ticket 21), и Session принимает сообщения. `send` — `turn/start`, во время хода — `turn/steer {expectedTurnId}`;
+  отправки идут друг за другом, поэтому второе сообщение, посланное до ответа на `turn/start`, тоже идёт steer-ом.
+  Отказ steer-а при идущем ходе — `notice`, отказ `turn/start` — `result` с ошибкой (Session не зависает в `busy`).
+  `setModel`, `setEffort`, `setPermissionPreset` — только значения следующего `turn/start`, и только то, что
+  изменилось с прошлого раза; `null` («Default») — модель с `isDefault` из `model/list` и её
+  `defaultReasoningEffort`. Turn, который Codex не начал, возвращает изменения следующему ходу.
+- Presets: «Read only», «Auto», «Full access» → approval policy + sandbox (`capabilities.ts`, `codexPresetFor`,
+  `codexSandboxPolicy`: `turn/start` берёт policy-объект, `thread/start` — режим). Настройки Session пока несут
+  режимы Claude (`settings.ts` не правился): `bypassPermissions` → Full access, `acceptEdits` → Auto, `default` и
+  `plan` → Read only; помечено `shortcut:` до Ticket-а 23/25.
+- `items.ts` — notification-ы → `AgentEvent` по списку п. 3; `error` с `willRetry` — `notice`, без него — `result`
+  с ошибкой, после которого `turn/completed` того же хода второго `result` не даёт; незнакомое — `unknown`.
+  Notification-ы чужого thread-а (Subagent) Session не получает.
+- `approvals.ts` — `item/commandExecution/requestApproval` и `item/fileChange/requestApproval` →
+  `permission_request` (subject — команда или файлы item-а) с вариантами `accept`, `acceptForSession`, `decline`,
+  `cancel`. Interrupt и close сначала отвечают `cancel` на открытые approval-ы, потом шлют `turn/interrupt` или
+  закрывают процесс; `serverRequest/resolved` отзывает запрос без ответа. Прочие server→client request-ы получают
+  JSON-RPC ошибку −32601 и событие `unknown`.
+- `capabilities.ts` — модели и effort из `model/list` (все страницы, один раз на процесс; отказ — спросить заново):
+  `capabilities(session)` и строки пикера (`codexModelOptions`, первая — «Default (…)»).
+
+Долги прошлых ревью:
+
+- Ticket 14, unattended Session: approval-ы отклоняются сразу (`decline`), каждый — через `refused` с `reason`
+  Codex; contract test.
+- Ticket 19, `start()` во время `initialize`: процесс сообщается Session-у (`spawned`) в момент spawn, до
+  handshake; любой отказ старта закрывает процесс (`CodexAppServer.start` и `open()`), а handle, пришедший после
+  закрытия Session, она закрывает сама. Отдельного прерывания старта не нужно; contract test-ы на падение в
+  `initialize` и на отказ `thread/resume` проверяют, что процесс вышел.
+- Ticket 19, bundle схемы 750 KB: `session.ts` грузит `app-server.ts` через `import()` при первом старте; статически —
+  только типы.
+- Ticket 19, stderr в `Error.message`: stderr процесса идёт в `SessionStart.stderr` (Session держит ограниченный
+  хвост, как у Claude); ошибка конца событий и отказа старта называет только exit code; текст ошибки app-server в
+  `result`/`notice` обрезан до 2000 символов (`boundedText`).
+- Ticket 14, `allow_always` по subject: id вариантов одинаковы у всех request-ов (решения Codex), поэтому
+  запомненный id всегда есть среди вариантов; `permissions.ts` не правился.
+- Ticket 14, `permissionMode` — enum Claude: перевод — только на стороне Codex (`codexPresetFor`).
+
+Фейк: новые сценарии в отдельных файлах — `items.jsonl`, `turn-failed.jsonl`, `settings.jsonl` (`model/list` в две
+страницы), `approval-interrupt.jsonl`; сам `fake-app-server.mjs` не менялся. Test, который пришлось поправить:
+`test/unit/codex-capabilities.test.ts` — из проверки stub-ов убраны `session.start`/`resume` (stub заменён), добавлены
+test-ы presets, sandbox policy и `model/list`.
