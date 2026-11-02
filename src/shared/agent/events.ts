@@ -8,6 +8,7 @@
 // (SDK 0.3.289, test/fixtures/sdk-messages/).
 import { z } from 'zod'
 import { messageAttachmentSchema } from './attachments'
+import { limitStateOf, limitStateSchema, limitUpdatesFromSdk, limitWindows, limitWindowSchema } from './limits'
 import { questionSchema } from './questions'
 import { sessionSettingsSchema } from './settings'
 
@@ -230,13 +231,29 @@ export const agentEvent = z.discriminatedUnion('type', [
   timed({ type: z.literal('command'), name: z.string(), args: z.string() }),
   /** The Session got a title (`custom-title`, `ai-title`, `agent-name` records of a transcript file). */
   timed({ type: z.literal('title'), source: z.enum(['custom', 'ai', 'agent']), title: z.string() }),
+  /**
+   * What a Vendor told about its Limits (ADR-0094): the windows it named, in the neutral view, and
+   * the status it reported with them, if any — in its own word (`text`), the state that word means,
+   * the window it named and the reset time it gave, each as the Vendor sent it (null when absent).
+   * The status may name no window, and its reset time may differ from that of its window.
+   */
   timed({
-    type: z.literal('rate_limit'),
-    status: z.string(),
-    rateLimitType: nullableString,
+    type: z.literal('limits'),
+    vendor: z.string(),
+    windows: z.array(limitWindowSchema),
+    status: z.object({ text: z.string(), state: limitStateSchema.nullable(), windowId: nullableString, resetsAt: z.number().nullable() }).nullable(),
+  }),
+  /**
+   * A Vendor refused a request by its Limits. `window`: a window ran out and resets (`windowId` and
+   * `resetsAt` when the Vendor said which and when), so waiting helps; `quota`: a quota without a
+   * reset, so waiting does not.
+   */
+  timed({
+    type: z.literal('limit_reached'),
+    vendor: z.string(),
+    windowId: nullableString,
     resetsAt: z.number().nullable(),
-    fiveHourUtilization: z.number().nullable(),
-    sevenDayUtilization: z.number().nullable(),
+    reason: z.enum(['window', 'quota']),
   }),
   /** system/status: `requesting`, `compacting` or null, and the permission mode after a change. */
   timed({ type: z.literal('status'), status: nullableString, permissionMode: nullableString }),
@@ -355,6 +372,8 @@ const sdkBackgroundTasks = z.object({
 const sdkTaskProgress = z.object({ task_id: str })
 const sdkTaskUpdated = z.object({ task_id: str, patch: z.object({ is_backgrounded: z.boolean().nullish() }).loose().nullish() })
 
+// The shape a rate_limit_event must have, or it becomes `unknown`; its windows are then read
+// leniently by limitUpdatesFromSdk, the reader the Limits store uses.
 const window = z.object({ utilization: optNum }).nullish()
 const sdkRateLimit = z.object({
   rate_limit_info: z.object({
@@ -399,6 +418,9 @@ function read<T>(schema: z.ZodType<T>, message: unknown): T {
 }
 
 const orNull = <T>(value: T | null | undefined): T | null => value ?? null
+
+/** The Vendor every SDK message here comes from. */
+const CLAUDE = 'claude'
 
 
 /**
@@ -615,18 +637,22 @@ function mapStream(message: unknown): AgentEvent[] {
     : [{ type: 'delta', kind: 'thinking', text: delta.thinking, parentToolUseId }]
 }
 
-function mapRateLimit(message: unknown): AgentEvent[] {
+/**
+ * A rate_limit_event: `limits` with the windows it reports, read as the Limits store reads them
+ * (limitUpdatesFromSdk), and with its status, rateLimitType and resetsAt exactly as sent, the three
+ * fields the `rate_limit` event before it carried (a status may come without rateLimitType). For a
+ * refusal, then `limit_reached` for the same window and reset time. Claude's windows all reset, so
+ * its refusal is always `window`; without a reset time, Autopilot waits by the one the Limits store
+ * keeps (resumeAt).
+ */
+function mapRateLimit(message: unknown, receivedAt: number): AgentEvent[] {
   const info = read(sdkRateLimit, message).rate_limit_info
-  return [
-    {
-      type: 'rate_limit',
-      status: info.status,
-      rateLimitType: orNull(info.rateLimitType),
-      resetsAt: orNull(info.resetsAt),
-      fiveHourUtilization: orNull(info.unifiedWindows?.five_hour?.utilization),
-      sevenDayUtilization: orNull(info.unifiedWindows?.seven_day?.utilization),
-    },
-  ]
+  const reported = limitUpdatesFromSdk(message, receivedAt).map(({ window, state }) => [window, state] as const)
+  const windows = limitWindows(CLAUDE, { windows: Object.fromEntries(reported) })
+  const status = { text: info.status, state: limitStateOf(info.status), windowId: orNull(info.rateLimitType), resetsAt: orNull(info.resetsAt) }
+  const events: AgentEvent[] = [{ type: 'limits', vendor: CLAUDE, windows, status }]
+  if (status.state !== 'reached') return events
+  return [...events, { type: 'limit_reached', vendor: CLAUDE, windowId: status.windowId, resetsAt: status.resetsAt, reason: 'window' }]
 }
 
 /** `type` or `type/subtype` of an SDK message, for `unknown` events. */
@@ -640,9 +666,10 @@ function describe(message: unknown): string {
 
 /**
  * Turns one SDK message into worfy's events. Never throws: an unknown message, or a known one
- * whose shape changed, becomes a single `unknown` event.
+ * whose shape changed, becomes a single `unknown` event. `receivedAt` (ms since the epoch, now when
+ * omitted) stamps the Limits windows of a rate_limit_event.
  */
-export function sdkMessageToEvents(message: unknown): AgentEvent[] {
+export function sdkMessageToEvents(message: unknown, receivedAt?: number): AgentEvent[] {
   try {
     if (message === null || typeof message !== 'object') return [{ type: 'unknown', sdkType: describe(message) }]
     const { type, subtype } = message as { type?: unknown; subtype?: unknown }
@@ -658,7 +685,7 @@ export function sdkMessageToEvents(message: unknown): AgentEvent[] {
       case 'stream_event':
         return mapStream(message)
       case 'rate_limit_event':
-        return mapRateLimit(message)
+        return mapRateLimit(message, receivedAt ?? Date.now())
       default:
         return [{ type: 'unknown', sdkType: describe(message) }]
     }

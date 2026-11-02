@@ -24,7 +24,7 @@ import { emit } from '../../src/main/ipc/index'
 import { LayoutStore } from '../../src/main/layout/store'
 import { AppSettingsStore } from '../../src/main/settings/store'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
-import type { AgentEvent } from '../../src/shared/agent/events'
+import { sdkMessageToEvents, type AgentEvent } from '../../src/shared/agent/events'
 import { budgetDecision, budgetFromSettings, budgetResumeAt, budgetStopText, daysToReset, nextLocalDayStart, type AutopilotBudget } from '../../src/shared/autopilot/budget'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { MAX_WAIT_MS, RECHECK_MS, RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
@@ -1448,9 +1448,10 @@ describe('observeSessionLimits', () => {
       (sessionId) => sessionId === 'mine',
       (status) => seen.push(status),
     )
+    // The events of a rate_limit_event (`limits`, and `limit_reached` for a refusal), as a Session sends them.
     const emit = (sessionId: string, status: string, resetsAt: number | null) => {
-      const event = { type: 'rate_limit', status, rateLimitType: 'five_hour', resetsAt, fiveHourUtilization: null, sevenDayUtilization: null } as AgentEvent
-      for (const sink of sinks) sink(sessionId, event)
+      const message = { type: 'rate_limit_event', rate_limit_info: { status, rateLimitType: 'five_hour', resetsAt } }
+      for (const event of sdkMessageToEvents(message)) for (const sink of sinks) sink(sessionId, event)
     }
     emit('mine', 'allowed', 1)
     emit('mine', 'allowed', 1)

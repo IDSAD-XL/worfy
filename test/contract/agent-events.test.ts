@@ -108,10 +108,20 @@ describe('SDK messages → agent events', () => {
     expect(sdkMessageToEvents(local)).toEqual([{ type: 'notice', kind: 'local_command', text: expect.stringContaining('Set model to') as string }])
   })
 
-  it('turns rate_limit_event into a rate_limit event with both windows', () => {
+  it('turns rate_limit_event into a limits event with both windows', () => {
     const message = first('controls.jsonl', (m) => m.type === 'rate_limit_event')
-    expect(sdkMessageToEvents(message)).toEqual([
-      { type: 'rate_limit', status: 'allowed', rateLimitType: 'five_hour', resetsAt: 1791184200, fiveHourUtilization: 0.07, sevenDayUtilization: 0.62 },
+    const at = Date.UTC(2026, 9, 5, 5, 0)
+    const window = { vendor: 'claude', receivedAt: at, source: 'sdk' }
+    expect(sdkMessageToEvents(message, at)).toEqual([
+      {
+        type: 'limits',
+        vendor: 'claude',
+        windows: [
+          { ...window, id: 'five_hour', label: '5-hour', usedPercent: 7, windowMinutes: 300, resetsAt: 1791184200, state: 'ok' },
+          { ...window, id: 'seven_day', label: '7-day', usedPercent: 62, windowMinutes: 10080, resetsAt: 1791172800, state: null },
+        ],
+        status: { text: 'allowed', state: 'ok', windowId: 'five_hour', resetsAt: 1791184200 },
+      },
     ])
   })
 

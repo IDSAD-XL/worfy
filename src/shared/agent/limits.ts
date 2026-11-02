@@ -54,6 +54,90 @@ export interface LimitUpdate {
 export const emptyLimits = (): LimitsState => ({ windows: {} })
 
 // ---------------------------------------------------------------------------------------------
+// The neutral view (ADR-0094, worfy-multi-vendor ticket 11): one Vendor's windows as a list, in a
+// form a Vendor without Claude's two named windows fits too. The stored state above stays Claude's
+// own; limitWindows() reads it into this view, and the `limits` event of a Session carries it.
+
+/** How full a window is in a Vendor's own words: under the limit, near it, refused; null when not said. */
+export const limitStateSchema = z.enum(['ok', 'warning', 'reached'])
+export type LimitState = z.infer<typeof limitStateSchema>
+
+export const limitWindowSchema = z.object({
+  /** The Vendor whose subscription the window belongs to (`claude`, `codex`). */
+  vendor: z.string().min(1),
+  /** The provider behind the Vendor, for a Vendor that runs models of several (ticket 10); absent otherwise. */
+  provider: z.string().optional(),
+  /** The Vendor's name of the window (`five_hour`, `seven_day_opus`, `primary`). */
+  id: z.string(),
+  /** The window's name as shown (`5-hour`, `weekly`). */
+  label: z.string(),
+  /** Used share of the window, 0..100 and more; null when unknown. */
+  usedPercent: z.number().nullable(),
+  /** The length of the window in minutes; null when unknown. */
+  windowMinutes: z.number().nullable(),
+  /** When the window resets, in Unix seconds; null when unknown. */
+  resetsAt: z.number().nullable(),
+  state: limitStateSchema.nullable(),
+  /** When worfy received the value, in milliseconds since the epoch. */
+  receivedAt: z.number(),
+  /** Where the value came from, in the Vendor's terms (Claude: `sdk`, `statusline`, `usage`). */
+  source: z.string(),
+})
+export type LimitWindow = z.infer<typeof limitWindowSchema>
+
+/** Claude's SDK status of a window and the state it means; any other status says nothing. */
+const STATE_OF_STATUS: Readonly<Record<string, LimitState>> = { allowed: 'ok', allowed_warning: 'warning', rejected: 'reached' }
+const STATUS_OF_STATE: Readonly<Record<LimitState, string>> = { ok: 'allowed', warning: 'allowed_warning', reached: 'rejected' }
+
+/** The state of a Claude SDK status (`allowed` → `ok`, `allowed_warning` → `warning`, `rejected` → `reached`); null for none or another. */
+export function limitStateOf(status: string | null): LimitState | null {
+  return status !== null && Object.hasOwn(STATE_OF_STATUS, status) ? STATE_OF_STATUS[status]! : null
+}
+
+/** The Claude SDK status a state stands for: the inverse of limitStateOf. */
+export function limitStatusOf(state: LimitState): string {
+  return STATUS_OF_STATE[state]
+}
+
+/** The length and the label of Claude's windows by the start of their name: `seven_day_opus` is a 7-day window. */
+const CLAUDE_WINDOW_KINDS: readonly { prefix: string; minutes: number; label: string }[] = [
+  { prefix: 'five_hour', minutes: 5 * 60, label: '5-hour' },
+  { prefix: 'seven_day', minutes: 7 * 24 * 60, label: '7-day' },
+]
+
+/**
+ * One stored Claude window in the neutral view. The length comes from the name (`five_hour`,
+ * `seven_day` and the SDK's other `seven_day_*` windows) and is null for one it does not tell
+ * (`overage`); the share becomes a percentage, rounded to hundredths so that 0.62 reads 62.
+ */
+function limitWindowOf(vendor: string, id: string, known: LimitWindowState): LimitWindow {
+  const kind = CLAUDE_WINDOW_KINDS.find(({ prefix }) => id === prefix || id.startsWith(`${prefix}_`))
+  const rest = kind === undefined ? id : id.slice(kind.prefix.length + 1)
+  const label = kind === undefined ? id.replaceAll('_', ' ') : [kind.label, ...rest.split('_')].filter(Boolean).join(' ')
+  return {
+    vendor,
+    id,
+    label,
+    usedPercent: known.utilization === null ? null : Math.round(known.utilization * 10_000) / 100,
+    windowMinutes: kind?.minutes ?? null,
+    resetsAt: known.resetsAt,
+    state: limitStateOf(known.status),
+    receivedAt: known.receivedAt,
+    source: known.source,
+  }
+}
+
+/**
+ * The windows of `vendor` in the stored state, as the neutral view: `five_hour` and `seven_day`
+ * first, in display order, then the other windows the SDK reported, in the order they came.
+ */
+export function limitWindows(vendor: string, state: LimitsState): LimitWindow[] {
+  const ids = Object.keys(state.windows)
+  const ordered = [...LIMIT_WINDOWS.filter((id) => ids.includes(id)), ...ids.filter((id) => !(LIMIT_WINDOWS as readonly string[]).includes(id))]
+  return ordered.map((id) => limitWindowOf(vendor, id, state.windows[id]!))
+}
+
+// ---------------------------------------------------------------------------------------------
 // Sources, read leniently: a field of the wrong type counts as missing, unknown fields are dropped.
 
 const optNum = z.number().nullish().catch(null)
