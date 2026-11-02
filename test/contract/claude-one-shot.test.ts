@@ -166,6 +166,13 @@ describe('claudeOneShot', () => {
     expect(mocks.calls).toHaveLength(1)
   })
 
+  it('a success without the structured answer is no answer; the first result ends the reading', async () => {
+    mocks.messages = [{ type: 'result', subtype: 'success', result: 'text only' }, result]
+    await expect(claudeOneShot('x', { cwd: FOLDER, outputSchema: SCHEMA })).rejects.toThrow('Claude Code gave no answer (success)')
+    mocks.messages = [result, { type: 'result', subtype: 'error_during_execution' }]
+    await expect(claudeOneShot('x', { cwd: FOLDER, outputSchema: SCHEMA })).resolves.toEqual({ text: 'done', structured: { profile: { name: 'shop' } } })
+  })
+
   it('a request without outputSchema is refused before Claude Code starts', async () => {
     await expect(claudeOneShot('x', { cwd: FOLDER })).rejects.toThrow(/outputSchema/)
     expect(mocks.calls).toHaveLength(0)

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstRunActions, type Confirmation } from '../../src/main/first-run/actions'
 import { askAccount, HARNESS_SCRIPT_HINTS, oldHarnessPresent, runChecks, runTool, type AccountQuery, type CheckDeps, type ProjectProfile } from '../../src/main/first-run/checks'
 import { HarnessInstaller } from '../../src/main/harness/install'
+import { claudeSignedIn } from '../../src/main/vendors/claude/account'
 import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
 import { UpdateService } from '../../src/main/ipc/update'
 import { updateGitHub } from '../../src/main/update/github'
@@ -328,6 +329,19 @@ describe('first-run checks', () => {
     expect(login.status).toBe('fail')
     expect(login.hint).toContain('/login')
     expect(login.command).toBe('claude')
+  })
+
+  it.each([
+    { account: { subscriptionType: 'max' }, signedIn: true },
+    { account: { email: 'alice@example.com', subscriptionType: 'pro', tokenSource: 'none' }, signedIn: true },
+    { account: { tokenSource: 'claude.ai' }, signedIn: true },
+    { account: { apiProvider: 'firstParty', tokenSource: 'none' }, signedIn: false },
+    { account: {}, signedIn: false },
+  ])('the Claude driver\'s sign-in rule: $account is signed in: $signedIn, and the sign-in row says so', async ({ account, signedIn }) => {
+    expect(claudeSignedIn(account)).toBe(signedIn)
+    tools(...ALL_TOOLS)
+    const report = await runChecks(deps(loginEnv(), { accountInfo: () => Promise.resolve(account) }))
+    expect(checkOf(report, 'claude-login').status).toBe(signedIn ? 'ok' : 'fail')
   })
 
   it('when Claude Code does not answer: sign-in fails with the error', async () => {

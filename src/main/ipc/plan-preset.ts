@@ -167,12 +167,15 @@ export function planPresetHandlers(options: PlanPresetHandlersOptions): HandlerM
   ]
 }
 
+/** The plan Settings → Plan shows when no Session has told it: the plan of the Claude driver's account.check(). */
+export async function askDriverPlan(signal: AbortSignal): Promise<Pick<AccountInfoLike, 'subscriptionType'>> {
+  const [connection] = await vendorDriver('claude').account.check(signal)
+  return { subscriptionType: connection?.plan ?? undefined }
+}
+
 /** The app's plan: every Session's events feed it from the time the IPC handlers are registered; an ask in flight stops when the app quits. */
 function appPlan(): PlanSource {
-  const plan = new PlanSource(async (signal) => {
-    const [connection] = await vendorDriver('claude').account.check(signal)
-    return { subscriptionType: connection?.plan ?? undefined }
-  })
+  const plan = new PlanSource(askDriverPlan)
   sharedRegistry().observe(plan.note)
   app.on('will-quit', () => plan.stop())
   return plan

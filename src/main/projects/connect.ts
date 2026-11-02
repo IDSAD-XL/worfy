@@ -44,7 +44,7 @@ import { defaultAttribution } from '../harness/attribution'
 import type { GhRunner } from '../github/prs'
 import { scriptEnv, type HarnessLocation } from '../harness/locate'
 import type { HarnessScriptEnv } from '../harness/script-env'
-import { activityOf, ONE_SHOT_DISALLOWED_TOOLS, oneMessage, readOnlyCanUseTool } from '../vendors/claude/one-shot'
+import { activityOf, ONE_SHOT_DISALLOWED_TOOLS, oneMessage, readOneShot, readOnlyCanUseTool } from '../vendors/claude/one-shot'
 import { environmentExit, runHarnessScript, scriptFailureDetail, type ProfileRun, type ProfileRunner, type SpawnProcess } from '../workflow/profile'
 import { realpathOrSelf } from './real-path'
 import { insideUserTemp } from './temp-folder'
@@ -564,23 +564,13 @@ export class ProjectConnector {
       })
       run.query = query
       if (run.stopped) query.close()
-      let result: Record<string, unknown> | null = null
-      for await (const message of query) {
-        const activity = activityOf(message)
-        if (activity !== null) onActivity(activity)
-        if (isRecord(message) && message.type === 'result') {
-          result = message
-          break
-        }
-      }
+      // The SDK's result is read by the Claude driver (readOneShot); the draft keeps its own texts.
+      const end = await readOneShot(query, onActivity)
       query.close()
       if (run.stopped) return { status: 'stopped' }
-      if (result === null) return { status: 'failed', reason: `Claude Code ended before the draft was ready${stderr.length > 0 ? `: ${lastLine(stderr.join(''))}` : ''}.`, issues: [] }
-      if (result.subtype !== 'success' || result.structured_output === undefined) {
-        const errors = Array.isArray(result.errors) ? result.errors.map(String).join('; ') : ''
-        return { status: 'failed', reason: `The draft Session gave no draft (${String(result.subtype)}${errors ? `: ${errors}` : ''}).`, issues: [] }
-      }
-      raw = result.structured_output
+      if (end.kind === 'ended') return { status: 'failed', reason: `Claude Code ended before the draft was ready${stderr.length > 0 ? `: ${lastLine(stderr.join(''))}` : ''}.`, issues: [] }
+      if (end.kind === 'no-answer') return { status: 'failed', reason: `The draft Session gave no draft (${end.detail}).`, issues: [] }
+      raw = end.structured
     } catch (error) {
       if (run.stopped) return { status: 'stopped' }
       return { status: 'failed', reason: `The draft Session failed: ${error instanceof Error ? error.message : String(error)}`, issues: [] }

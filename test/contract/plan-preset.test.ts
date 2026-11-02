@@ -16,7 +16,7 @@ import { removeTestTree } from '../remove'
 /** The app's listeners, by event: the module subscribes the app's plan to will-quit. */
 const appListeners = vi.hoisted(() => new Map<string, (() => void)[]>())
 /** The signals of the app plan's asks, and how many of their Claude Code processes were closed. */
-const appAsks = vi.hoisted(() => ({ signals: [] as AbortSignal[], closed: 0 }))
+const appAsks = vi.hoisted(() => ({ signals: [] as AbortSignal[], closed: 0, answer: null as Record<string, unknown> | null }))
 vi.mock('electron', () => ({
   app: {
     on: (event: string, listener: () => void) => void appListeners.set(event, [...(appListeners.get(event) ?? []), listener]),
@@ -30,10 +30,11 @@ vi.mock('electron', () => ({
 }))
 // The app's plan and Session registry are not this test's: the handlers get their own PlanSource.
 vi.mock('../../src/main/agent/app-registry', () => ({ sharedRegistry: () => ({ observe: () => () => undefined }), queryFactoryFromEnv: () => undefined }))
-// The app plan's ask never answers by itself, as a Claude Code that hangs: only its signal ends it, closing the process.
+// The app plan's ask never answers by itself, as a Claude Code that hangs: only its signal ends it,
+// closing the process. With `appAsks.answer` set it answers that accountInfo() at once.
 vi.mock('../../src/main/ipc/first-run', () => ({
   askSignedInAccount: (signal: AbortSignal) =>
-    new Promise((_, reject) => {
+    appAsks.answer !== null ? Promise.resolve(appAsks.answer) : new Promise((_, reject) => {
       appAsks.signals.push(signal)
       signal.addEventListener('abort', () => {
         appAsks.closed += 1
@@ -43,7 +44,7 @@ vi.mock('../../src/main/ipc/first-run', () => ({
 }))
 vi.mock('../../src/main/harness/script-env', () => ({ harnessScriptEnv: () => Promise.resolve(process.env) }))
 
-const { default: appHandlers, planPresetHandlers, PlanSource } = await import('../../src/main/ipc/plan-preset')
+const { default: appHandlers, askDriverPlan, planPresetHandlers, PlanSource } = await import('../../src/main/ipc/plan-preset')
 const { askAccount, ACCOUNT_ASK_STOPPED } = await import('../../src/main/first-run/checks')
 type Handlers = ReturnType<typeof planPresetHandlers>
 
@@ -300,6 +301,17 @@ describe('PlanSource', () => {
     for (const listener of appListeners.get('will-quit') ?? []) listener()
     expect(await reading).toEqual({ subscriptionType: null, planError: 'the account question was stopped', profile: null })
     expect(appAsks.closed).toBe(1)
+  })
+
+  it('the app asks the plan of the Claude driver: the subscription of its accountInfo(), none without one', async () => {
+    try {
+      appAsks.answer = { email: 'a@b.c', subscriptionType: 'Claude Max', tokenSource: 'claude.ai' }
+      expect(await askDriverPlan(new AbortController().signal)).toEqual({ subscriptionType: 'Claude Max' })
+      appAsks.answer = { apiProvider: 'firstParty', tokenSource: 'none' }
+      expect(await askDriverPlan(new AbortController().signal)).toEqual({ subscriptionType: undefined })
+    } finally {
+      appAsks.answer = null
+    }
   })
 
   it('a failed ask is reported and not kept: the next read asks again', async () => {

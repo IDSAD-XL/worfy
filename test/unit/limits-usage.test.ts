@@ -2,10 +2,42 @@
 // SDK's usage every 30 minutes, with a fake clock and a stub reader, and the SDK reader of the Limits
 // probe (src/main/vendors/claude/limits.ts) over a fake SDK. No Claude Code starts and nothing goes
 // to the network.
+import { existsSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installLimitsRefresh, LimitsRefresher, USAGE_REFRESH_MS } from '../../src/main/agent/limits-usage'
-import { askUsage, sdkUsageReader, USAGE_METHOD, usageOptions, type UsageQuery, type UsageSdk } from '../../src/main/vendors/claude/limits'
+import { askUsage, claudeUsageReader, sdkUsageReader, USAGE_METHOD, usageOptions, type UsageQuery, type UsageSdk } from '../../src/main/vendors/claude/limits'
 import { emptyLimits, mergeLimits, type LimitUpdate, type LimitsState, type LimitWindowState } from '../../src/shared/agent/limits'
+import { removeTestTree } from '../remove'
+
+// The app's probe (claudeUsageReader) and the app's refresher (installLimitsRefresh) over a stand-in
+// SDK: each query() is recorded with its folder, and whether that folder existed when Claude Code
+// would have started in it. The app's Limits store is a stand-in too, so nothing watches files.
+const app = vi.hoisted(() => ({
+  queries: [] as { cwd: unknown; cwdExisted: boolean }[],
+  closed: 0,
+  recorded: [] as unknown[][],
+  answer: null as unknown,
+}))
+vi.mock('@anthropic-ai/claude-agent-sdk', async () => {
+  const { existsSync: exists } = await import('node:fs')
+  const { USAGE_METHOD: method } = await import('../../src/main/vendors/claude/limits')
+  return {
+    query: ({ options }: { options: { cwd?: string } }) => {
+      app.queries.push({ cwd: options.cwd, cwdExisted: typeof options.cwd === 'string' && exists(options.cwd) })
+      return { [method]: () => Promise.resolve(app.answer), close: () => void (app.closed += 1) }
+    },
+  }
+})
+vi.mock('electron', () => ({ app: { isPackaged: false } }))
+vi.mock('../../src/main/agent/env', async (original) => ({
+  ...(await original<object>()),
+  agentEnv: () => Promise.resolve({ env: { PATH: '/usr/bin:/bin', HOME: '/home/u' }, from: 'login-shell', error: null }),
+}))
+vi.mock('../../src/main/agent/limits', () => ({
+  appLimits: () => ({ snapshot: () => ({ windows: {} }), record: (updates: unknown[]) => void app.recorded.push([...updates]) }),
+}))
 
 const START = Date.UTC(2026, 9, 19, 18, 0)
 const MINUTE = 60 * 1000
@@ -56,6 +88,47 @@ describe('installLimitsRefresh', () => {
     const stop = await installLimitsRefresh(env)
     expect(vi.getTimerCount()).toBe(0)
     expect(() => stop()).not.toThrow()
+  })
+})
+
+describe('the app\'s Limits probe and refresher', () => {
+  let dataDir: string
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'worfy-usage-'))
+    vi.stubEnv('WORFY_DATA_DIR', dataDir)
+    app.queries.length = 0
+    app.closed = 0
+    app.recorded.length = 0
+    app.answer = answer(10, 20)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    removeTestTree(dataDir)
+  })
+
+  it('claudeUsageReader asks in worfy\'s own empty folder <WORFY_DATA_DIR>/terminal-ai (ADR-0058), made before Claude Code starts', async () => {
+    const folder = join(dataDir, 'terminal-ai')
+    expect(existsSync(folder)).toBe(false)
+    const read = await claudeUsageReader()
+    expect(await read(new AbortController().signal)).toEqual(answer(10, 20))
+    expect(app.queries).toEqual([{ cwd: folder, cwdExisted: true }])
+    expect(app.closed).toBe(1)
+  })
+
+  it('installLimitsRefresh outside e2e runs and vitest starts the refresher over the Claude driver\'s probe: the usage is asked and recorded', async () => {
+    const stop = await installLimitsRefresh({})
+    try {
+      await vi.waitFor(() => expect(app.recorded).toHaveLength(1))
+      expect(app.queries).toEqual([{ cwd: join(dataDir, 'terminal-ai'), cwdExisted: true }])
+      expect((app.recorded[0] as LimitUpdate[]).map(({ window, state }) => [window, state.utilization, state.source])).toEqual([
+        ['five_hour', 0.1, 'usage'],
+        ['seven_day', 0.2, 'usage'],
+      ])
+    } finally {
+      stop()
+    }
   })
 })
 

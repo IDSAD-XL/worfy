@@ -88,7 +88,7 @@ const gateRegistries = async (): Promise<string[]> => profileRegistryFiles(scrip
  * WORFY_AGENT=fake: the draft Session plays test/fixtures/agent-scripts/<WORFY_DRAFT_SCRIPT or
  * "profile-draft">.jsonl, and appends what it was asked to WORFY_AGENT_LOG, as app-registry.ts does.
  */
-function draftQueryFromEnv(env: NodeJS.ProcessEnv = process.env): DraftQueryFactory {
+export function draftQueryFromEnv(env: NodeJS.ProcessEnv = process.env): DraftQueryFactory {
   // Claude Code of the draft through the oneShot part of the Claude driver, with the draft's options.
   if (env.WORFY_AGENT !== 'fake') return claudeOneShotQuery
   const log = env.WORFY_AGENT_LOG

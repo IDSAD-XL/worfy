@@ -6,8 +6,10 @@
 //
 // claudeOneShotQuery is that query as the draft starts it (src/main/ipc/projects.ts): the draft
 // passes its own allowedTools, disallowedTools, outputFormat and canUseTool and reads Claude Code's
-// messages itself. claudeOneShot is the same query behind the neutral OneShot of the driver: it
-// sets those options from `readOnlyTools` and `outputSchema` the way the draft sets them.
+// messages through readOneShot. claudeOneShot is the same query behind the neutral OneShot of the
+// driver: it sets those options from `readOnlyTools` and `outputSchema` the way the draft sets them,
+// and reads the messages through the same readOneShot. The draft moves onto the neutral
+// vendorDriver('claude').oneShot with worfy-multi-vendor ticket 23.
 //
 // The index of the driver imports this file while the Session registry loads (app-registry.ts): the
 // SDK, the app and the options are loaded at the call.
@@ -112,6 +114,33 @@ export function activityOf(message: unknown): string | null {
 
 const lastLine = (text: string): string => text.trim().split('\n').at(-1) ?? ''
 
+/** How a single request ended: Claude Code's structured answer, a result without one, or no result at all. */
+export type OneShotEnd =
+  | { kind: 'answer'; text: string; structured: unknown }
+  /** `detail`: the result's subtype and its errors, as "<subtype>: <error>; <error>". */
+  | { kind: 'no-answer'; detail: string }
+  | { kind: 'ended' }
+
+/**
+ * Reads Claude Code's messages of a single request up to its result, telling `onActivity` what it
+ * does. The one reading of the SDK's result: claudeOneShot and the profile draft
+ * (src/main/projects/connect.ts) both read through it, each with its own texts. Does not close
+ * `query`.
+ */
+export async function readOneShot(query: AsyncIterable<unknown>, onActivity?: (text: string) => void): Promise<OneShotEnd> {
+  for await (const message of query) {
+    const activity = activityOf(message)
+    if (activity !== null) onActivity?.(activity)
+    if (!isRecord(message) || message.type !== 'result') continue
+    if (message.subtype !== 'success' || message.structured_output === undefined) {
+      const errors = Array.isArray(message.errors) ? message.errors.map(String).join('; ') : ''
+      return { kind: 'no-answer', detail: `${String(message.subtype)}${errors ? `: ${errors}` : ''}` }
+    }
+    return { kind: 'answer', text: typeof message.result === 'string' ? message.result : '', structured: message.structured_output }
+  }
+  return { kind: 'ended' }
+}
+
 /**
  * One request through claudeOneShotQuery: the tools of `readOnlyTools` and nothing that writes
  * (ONE_SHOT_DISALLOWED_TOOLS), the answer in the shape of `outputSchema`. Rejects when Claude Code
@@ -143,25 +172,15 @@ export const claudeOneShot: OneShot = async (prompt, opts) => {
     query.close()
   }
   opts.signal?.addEventListener('abort', stop, { once: true })
-  let result: Record<string, unknown> | null = null
+  let end: OneShotEnd
   try {
-    for await (const message of query) {
-      const activity = activityOf(message)
-      if (activity !== null) opts.onActivity?.(activity)
-      if (isRecord(message) && message.type === 'result') {
-        result = message
-        break
-      }
-    }
+    end = await readOneShot(query, opts.onActivity)
   } finally {
     opts.signal?.removeEventListener('abort', stop)
     query.close()
   }
   if (stopped) throw new Error('the request was stopped')
-  if (result === null) throw new Error(`Claude Code ended before the answer${stderr.length > 0 ? `: ${lastLine(stderr.join(''))}` : ''}`)
-  if (result.subtype !== 'success' || result.structured_output === undefined) {
-    const errors = Array.isArray(result.errors) ? result.errors.map(String).join('; ') : ''
-    throw new Error(`Claude Code gave no answer (${String(result.subtype)}${errors ? `: ${errors}` : ''})`)
-  }
-  return { text: typeof result.result === 'string' ? result.result : '', structured: result.structured_output }
+  if (end.kind === 'ended') throw new Error(`Claude Code ended before the answer${stderr.length > 0 ? `: ${lastLine(stderr.join(''))}` : ''}`)
+  if (end.kind === 'no-answer') throw new Error(`Claude Code gave no answer (${end.detail})`)
+  return { text: end.text, structured: end.structured }
 }
