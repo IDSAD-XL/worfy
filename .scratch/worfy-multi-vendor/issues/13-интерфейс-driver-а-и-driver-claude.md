@@ -1,7 +1,8 @@
 # 13 — Интерфейс driver-а, capabilities и driver Claude
 
 Type: task
-Status: claimed 2026-11-02T08:15Z
+Status: done 2026-11-02T09:56Z
+PR: #1237
 Blocked by: —
 Source: [spec.md](../spec.md), «Модель» (Vendor, Driver, Capabilities), «Соглашения»; решение 06 ([06-граница-vendor.md](06-граница-vendor.md)); Ticket 10 ([10-третий-vendor-на-бумаге.md](10-третий-vendor-на-бумаге.md), «Какие правки нужны границе»); [ADR-0094](../../../docs/adr/0094-vendor-seam.md), п. 1–2
 
