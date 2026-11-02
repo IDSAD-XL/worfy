@@ -387,10 +387,12 @@ class CodexSession implements SessionHandle, CodexModelSource {
   }
 
   private notified(notification: ServerNotification): void {
-    const { threadId } = (notification.params ?? {}) as { threadId?: unknown }
-    // Another thread of the same process (a Subagent's) is not this Session's.
-    if (typeof threadId === 'string' && this.threadId !== '' && threadId !== this.threadId) return
+    // Request ids are the process's, not a thread's: Codex withdraws an approval of any of its threads.
     if (notification.method === 'serverRequest/resolved') this.withdraw(notification.params.requestId)
+    const { threadId } = (notification.params ?? {}) as { threadId?: unknown }
+    // Another thread of the same process (a Subagent's) is not this Session's: none of its events are
+    // shown, but its approvals are asked here, and they name their item only by id.
+    if (typeof threadId === 'string' && this.threadId !== '' && threadId !== this.threadId) return this.items.follow(notification)
     if (notification.method === 'turn/started') this.activeTurn = notification.params.turn.id
     for (const event of this.items.take(notification)) {
       if (event.type === 'result') this.turnEnded(notification.method === 'error' ? notification.params.turnId : (notification.params as { turn: { id: string } }).turn.id)

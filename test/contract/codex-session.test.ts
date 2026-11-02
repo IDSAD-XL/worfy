@@ -9,17 +9,20 @@
 // stops the fake with exit code 101 when worfy sends the method WORFY_TEST_CRASH_ON, and writes the
 // lines WORFY_TEST_INJECT to its stdout right after the fake wrote a message of the method
 // WORFY_TEST_INJECT_AFTER: what no script can play — a request Codex resolves itself, a line that is
-// not JSON, a method the schema does not know, a notification of another thread.
+// not JSON, a method the schema does not know, a notification of another thread. Under
+// WORFY_TEST_HOLD_MS it also starts a child that holds the fake's stdout after the fake exited (HOLDER).
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../src/shared/agent/settings'
+import { PermissionGate } from '../../src/main/agent/permissions'
 import { hasExited } from '../../src/main/agent/session/process'
-import type { AgentProcess, PermissionAsk, RefusalDetails, SessionHandle, SessionPart, SessionStart } from '../../src/main/vendors/session'
+import type { AgentProcess, PermissionAsk, PermissionAsker, RefusalDetails, SessionHandle, SessionPart, SessionStart } from '../../src/main/vendors/session'
+import { OUTPUT_AFTER_EXIT_MS } from '../../src/main/vendors/codex/app-server'
 import { UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { CODEX_CAPABILITIES, codexCapabilities } from '../../src/main/vendors/codex/capabilities'
@@ -34,7 +37,34 @@ const RUNTIME: CodexRuntime = { packaged: false, resourcesPath: '/Resources', pl
 /** How long the fake may take to send what a test waits for. */
 const ANSWER_MS = ms(10_000)
 
-const PRELOAD = `import process from 'node:process'
+/**
+ * A child of the fake that holds the fake's stdout after the fake exited, as a process the app-server
+ * leaves behind would: once the fake is gone it waits WORFY_TEST_LATE_MS, writes WORFY_TEST_LATE_LINE
+ * (if any), and exits WORFY_TEST_HOLD_MS after the fake did — after a minute at the latest.
+ */
+const HOLDER = `const parent = Number(process.env.WORFY_TEST_PARENT)
+const alive = () => { try { process.kill(parent, 0); return true } catch { return false } }
+setTimeout(() => process.exit(0), 60000)
+const watch = setInterval(() => {
+  if (alive()) return
+  clearInterval(watch)
+  const line = process.env.WORFY_TEST_LATE_LINE
+  if (line) setTimeout(() => process.stdout.write(line), Number(process.env.WORFY_TEST_LATE_MS))
+  setTimeout(() => process.exit(0), Number(process.env.WORFY_TEST_HOLD_MS))
+}, 10)
+`
+
+const PRELOAD = `import { spawn } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import process from 'node:process'
+if (process.env.WORFY_TEST_HOLD_MS) {
+  const holder = spawn(process.execPath, ['-e', ${JSON.stringify(HOLDER)}], {
+    stdio: ['ignore', 'inherit', 'ignore'],
+    env: { ...process.env, WORFY_TEST_PARENT: String(process.pid) },
+  })
+  writeFileSync(join(dirname(process.env.WORFY_CODEX_LOG), 'holder.pid'), String(holder.pid))
+}
 const crashOn = process.env.WORFY_TEST_CRASH_ON
 if (crashOn) process.stdin.on('data', (chunk) => {
   if (String(chunk).includes('"method":"' + crashOn + '"')) {
@@ -70,8 +100,27 @@ afterEach(async () => {
     child.kill('SIGKILL')
     await exited
   }
-  for (const root of roots.splice(0)) removeTestTree(root)
+  for (const root of roots.splice(0)) {
+    const holder = holderOf(root)
+    if (holder !== null && alive(holder)) process.kill(holder, 'SIGKILL')
+    removeTestTree(root)
+  }
 })
+
+/** The pid of the child that holds the fake's stdout (HOLDER), if the fake in `root` started one. */
+function holderOf(root: string): number | null {
+  const file = join(root, 'holder.pid')
+  return existsSync(file) ? Number(readFileSync(file, 'utf8')) : null
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
 
 /** Waits until `check` holds, looking every 20 ms, for ANSWER_MS at most. */
 async function eventually(check: () => boolean, what: string): Promise<void> {
@@ -167,6 +216,8 @@ interface Options {
   settings?: SessionSettings
   unattended?: boolean
   resume?: string
+  /** The gate the Session answers approvals with; one that records every request by default. */
+  permissions?: PermissionAsker
 }
 
 /** What a Session gives its driver, with every call recorded in `into`. */
@@ -176,7 +227,7 @@ function startOptions(at: Fake, into: Pick<Live, 'asks' | 'refused' | 'stderr' |
     settings: options.settings ?? DEFAULT_SETTINGS,
     unattended: options.unattended ?? false,
     orchestrator: false,
-    permissions: {
+    permissions: options.permissions ?? {
       ask: (request) =>
         new Promise<string | null>((resolve, reject) => {
           into.asks.push({ request, answer: resolve, refuse: () => reject(new Error('the gate failed')) })
@@ -292,6 +343,15 @@ describe('a Codex Session: start and turns', () => {
     expect(at.requests('turn/interrupt').map((request) => request.params)).toEqual([{ threadId: 'thr_fake_1', turnId: 'turn_1' }])
     await session.handle.interrupt()
     expect(at.requests('turn/interrupt')).toHaveLength(1)
+  })
+
+  it('Interrupt called with a send, neither waiting for the other, interrupts the turn that send starts', async () => {
+    const at = fake('interrupt')
+    const session = await live(at)
+    await Promise.all([session.handle.send(message('Do a long task')), session.handle.interrupt()])
+    const result = await session.until(isResult, 'the result')
+    expect(result).toMatchObject({ subtype: 'interrupted', interrupted: true })
+    expect(at.requests('turn/interrupt').map((request) => request.params)).toEqual([{ threadId: 'thr_fake_1', turnId: 'turn_1' }])
   })
 
   it('a message Codex refuses to take into the running turn is a notice; the turn goes on', async () => {
@@ -542,6 +602,75 @@ describe('a Codex Session: approvals', () => {
     await expect(session.handle.interrupt()).rejects.toThrow(/^Codex did not interrupt the turn: Codex app-server refused turn\/interrupt: fake app-server: waits for the answer to item\/commandExecution\/requestApproval/)
     expect(at.answers()).toHaveLength(1)
   })
+
+  it('asks a Subagent\'s approvals with the files of its own items, and shows none of that thread\'s events', async () => {
+    const at = fake('subagent-approval')
+    const session = await live(at)
+    await session.handle.send(message('Delegate the docs'))
+    await eventually(() => session.asks.length === 1, 'the Subagent\'s approval')
+    const subagent = session.asks[0] as Ask
+    expect(subagent.request).toMatchObject({
+      subject: '/fake/project/sub.md',
+      toolName: 'fileChange',
+      toolUseId: 'patch_sub_1',
+      input: { changes: [{ path: '/fake/project/sub.md', kind: { type: 'add' }, diff: '+written by the Subagent\n' }] },
+      description: 'The Subagent writes a file.',
+    })
+    subagent.answer('accept')
+    await eventually(() => session.asks.length === 2, 'the approval of an item never seen')
+    session.asks[1]?.answer('decline')
+    await eventually(() => session.asks.length === 3, 'the second approval of an item never seen')
+    session.asks[2]?.answer('decline')
+    await session.until(isResult, 'the result')
+    expect(session.events.filter((event) => event.type === 'result')).toHaveLength(1)
+    expect(JSON.stringify(session.events)).not.toContain('patch_sub_1')
+  })
+
+  it('withdraws a Subagent\'s approval Codex resolved itself on that thread, and answers nothing', async () => {
+    const resolved = `${JSON.stringify({ method: 'serverRequest/resolved', params: { threadId: 'thr_sub_1', requestId: 1 } })}\n`
+    const at = fake('subagent-approval', { WORFY_TEST_INJECT_AFTER: 'item/fileChange/requestApproval', WORFY_TEST_INJECT: resolved })
+    const session = await live(at)
+    await session.handle.send(message('Delegate the docs'))
+    await eventually(() => session.asks.length === 1, 'the Subagent\'s approval')
+    await eventually(() => session.asks[0]?.request.signal.aborted === true, 'the request withdrawn')
+    session.asks[0]?.answer('accept')
+    session.handle.close()
+    expect(await session.ended).toBeNull()
+    expect(at.answers()).toEqual([])
+  })
+
+  it('an approval of an item worfy never saw is offered no answer for the Session, so the gate remembers nothing that lets a later one through', async () => {
+    const requests: Extract<AgentEvent, { type: 'permission_request' }>[] = []
+    const gate = new PermissionGate(
+      (event) => {
+        if (event.type === 'permission_request') requests.push(event)
+      },
+      () => undefined,
+    )
+    const at = fake('subagent-approval')
+    const session = await live(at, { permissions: gate })
+    await session.handle.send(message('Delegate the docs'))
+    await eventually(() => requests.length === 1, 'the Subagent\'s approval')
+    expect(requests[0]?.options.map((option) => option.id)).toEqual(['accept', 'acceptForSession', 'decline', 'cancel'])
+    gate.answer(requests[0]?.requestId as string, 'accept')
+    await eventually(() => requests.length === 2, 'the approval of an item never seen')
+    const unseen = requests[1] as (typeof requests)[number]
+    expect(unseen).toMatchObject({ subject: 'file changes (item patch_unseen_1)', toolUseId: 'patch_unseen_1', input: { changes: [] } })
+    expect(unseen.options.map((option) => option.id)).toEqual(['accept', 'decline', 'cancel'])
+    expect(() => gate.answer(unseen.requestId, 'acceptForSession')).toThrow('This request does not offer "acceptForSession"')
+    gate.answer(unseen.requestId, 'accept')
+    // The next one without a name is asked, not let through.
+    await eventually(() => requests.length === 3, 'the second approval of an item never seen')
+    expect(requests[2]).toMatchObject({ subject: 'file changes (item patch_unseen_2)' })
+    gate.answer(requests[2]?.requestId as string, 'decline')
+    await session.until(isResult, 'the result')
+    expect(gate.alwaysAllowed()).toEqual([])
+    expect(at.answers()).toEqual([
+      { id: 1, result: { decision: 'accept' } },
+      { id: 2, result: { decision: 'accept' } },
+      { id: 3, result: { decision: 'decline' } },
+    ])
+  })
 })
 
 describe('a Codex Session: the process', () => {
@@ -570,6 +699,41 @@ describe('a Codex Session: the process', () => {
     await interrupted.until(deltaOf('Starting a long task'), 'the delta')
     await interrupted.handle.interrupt()
     expect((await interrupted.ended)?.message).toBe('Codex app-server exited with code 101')
+  })
+
+  it('a process that dies while an approval is open withdraws the Session\'s request', async () => {
+    const at = fake('approval-interrupt')
+    const session = await live(at)
+    await session.handle.send(message('Clean up'))
+    await eventually(() => session.asks.length === 1, 'the approval')
+    at.spawnedChildren[0]?.kill('SIGKILL')
+    expect((await session.ended)?.message).toBe('Codex app-server was stopped by SIGKILL')
+    expect(session.asks[0]?.request.signal.aborted).toBe(true)
+  })
+
+  it('what the process wrote after its exit, through a child that still holds its output, reaches the Session before the events end', async () => {
+    const late = { method: 'item/agentMessage/delta', params: { threadId: 'thr_fake_1', turnId: 'turn_1', itemId: 'msg_1', delta: 'written after the exit' } }
+    const at = fake('turn', { WORFY_TEST_CRASH_ON: 'turn/start', WORFY_TEST_HOLD_MS: '300', WORFY_TEST_LATE_MS: '300', WORFY_TEST_LATE_LINE: `${JSON.stringify(late)}\n` })
+    const session = await live(at)
+    await session.handle.send(message('Say hello'))
+    expect((await session.ended)?.message).toBe('Codex app-server exited with code 101')
+    expect(session.events).toContainEqual({ type: 'delta', kind: 'text', text: 'written after the exit', parentToolUseId: null })
+    expect(holderOf(at.root)).not.toBeNull()
+  })
+
+  it('a child that holds the output longer ends the events about OUTPUT_AFTER_EXIT_MS after the exit, not when it lets go', async () => {
+    const holdMs = OUTPUT_AFTER_EXIT_MS + ms(6_000)
+    const at = fake('turn', { WORFY_TEST_CRASH_ON: 'turn/start', WORFY_TEST_HOLD_MS: String(holdMs) })
+    const session = await live(at)
+    const exited = new Promise<number>((resolve) => at.spawnedChildren[0]?.once('exit', () => resolve(Date.now())))
+    await session.handle.send(message('Say hello'))
+    const error = await session.ended
+    const waited = Date.now() - (await exited)
+    expect(error?.message).toBe('Codex app-server exited with code 101')
+    expect(waited).toBeGreaterThanOrEqual(OUTPUT_AFTER_EXIT_MS - 50)
+    expect(waited).toBeLessThan(OUTPUT_AFTER_EXIT_MS + ms(3_000))
+    // The output was still held when the events ended.
+    expect(alive(holderOf(at.root) as number)).toBe(true)
   })
 
   it('a start whose process dies in the handshake rejects with its exit code; the Session was told of the process and its stderr', async () => {

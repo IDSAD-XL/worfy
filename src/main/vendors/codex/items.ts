@@ -1,6 +1,7 @@
 // Codex's notifications as worfy's events (worfy-multi-vendor ticket 20; spec of the epic, the neutral
 // events and how Codex maps to them). A pure module: the Codex SessionHandle (session.ts) gives it every notification of
-// its thread, in order, and sends on what comes out.
+// its thread, in order, and sends on what comes out; those of the process's other threads (Subagents)
+// only through follow(), which keeps their running tools for their approvals and gives no events.
 //
 // - `item/agentMessage/delta` → `delta` (text); `item/reasoning/summaryTextDelta` → `delta` (thinking);
 // - a completed `agentMessage` → `text`; a completed `reasoning` with a summary → `thinking`;
@@ -157,6 +158,15 @@ export class CodexItems {
   /** The item `id` while it runs. */
   item(id: string): ThreadItem | undefined {
     return this.started.get(id)
+  }
+
+  /**
+   * A notification of another thread of the same process (a Subagent's): gives no events, but keeps its
+   * tool items while they run, as take() does — that thread's approvals name their item only by id.
+   */
+  follow(notification: ServerNotification): void {
+    if (notification.method === 'item/started' && toolUse(notification.params.item) !== null) this.started.set(notification.params.item.id, notification.params.item)
+    if (notification.method === 'item/completed') this.started.delete(notification.params.item.id)
   }
 
   take(notification: ServerNotification): AgentEvent[] {

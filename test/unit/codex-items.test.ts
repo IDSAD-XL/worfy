@@ -223,6 +223,19 @@ describe('the events of a turn: what the scripts do not play', () => {
     items.take(message)
     expect(items.item('msg_1')).toBeUndefined()
   })
+
+  it('follows another thread\'s tool items the same way without giving events, so their approvals find them', () => {
+    const items = new CodexItems(CONTEXT)
+    const [started, completed] = notificationsOf('approval').filter((notification) => notification.method === 'item/started' || notification.method === 'item/completed')
+    items.follow(started as ServerNotification)
+    expect(items.item('cmd_1')).toMatchObject({ type: 'commandExecution', command: 'pnpm test' })
+    items.follow(completed as ServerNotification)
+    expect(items.item('cmd_1')).toBeUndefined()
+    items.follow(notificationsOf('turn').find((notification) => notification.method === 'item/started') as ServerNotification)
+    expect(items.item('msg_1')).toBeUndefined()
+    // Nothing of what it followed shows up in the thread's own events.
+    expect(items.take(completed as ServerNotification)).toEqual([expect.objectContaining({ type: 'tool_use', id: 'cmd_1' }), expect.objectContaining({ type: 'tool_result', toolUseId: 'cmd_1' })])
+  })
 })
 
 describe('the pieces of the translation', () => {
@@ -304,6 +317,8 @@ describe('approvals (approvals.ts), on the requests of the fake', () => {
     { id: 'decline', label: 'Decline', kind: 'deny' },
     { id: 'cancel', label: 'Decline and stop the turn', kind: 'deny' },
   ]
+  /** An approval whose command or files no one named: no answer the gate would remember for the Session. */
+  const UNNAMED_OPTIONS = OPTIONS.filter((option) => option.id !== 'acceptForSession')
 
   it('a command: the command is the subject, with Codex\'s four answers', () => {
     const [command] = approvalsOf('approval')
@@ -336,23 +351,25 @@ describe('approvals (approvals.ts), on the requests of the fake', () => {
     expect(CODEX_APPROVAL_OPTIONS).toEqual(OPTIONS)
   })
 
-  it('takes the command and folder from the item when the request leaves them out, and names neither when nothing does', () => {
+  it('takes the command and folder from the item when the request leaves them out; when nothing names them, the item\'s id does, with no answer for the Session', () => {
     const [command] = approvalsOf('approval')
     const bare = { ...command!.request, params: { ...command!.request.params, command: null, cwd: undefined, reason: '  ' } } as CodexApprovalRequest
     expect(approvalAsk(bare, command!.item)).toMatchObject({ subject: 'pnpm test', input: { command: 'pnpm test', cwd: '/fake/project' }, description: null })
-    expect(approvalAsk(bare, undefined)).toMatchObject({ subject: 'a command', input: { command: null, cwd: null } })
+    expect(approvalAsk(bare, undefined)).toMatchObject({ subject: 'a command (item cmd_1)', input: { command: null, cwd: null }, options: UNNAMED_OPTIONS })
     const other = { type: 'fileChange', id: 'x', changes: [], status: 'inProgress' } as unknown as ThreadItem
-    expect(approvalAsk(bare, other)).toMatchObject({ subject: 'a command', input: { command: null, cwd: null } })
+    expect(approvalAsk(bare, other)).toMatchObject({ subject: 'a command (item cmd_1)', input: { command: null, cwd: null }, options: UNNAMED_OPTIONS })
   })
 
-  it('a file change without its item, or of several files, and one asking for a folder', () => {
+  it('a file change without its item or files is named by its item\'s id, with no answer for the Session; one of several files, and one asking for a folder', () => {
     const [, patch] = approvalsOf('approval')
-    expect(approvalAsk(patch!.request, undefined)).toMatchObject({ subject: 'file changes', input: { changes: [] } })
+    expect(approvalAsk(patch!.request, undefined)).toMatchObject({ subject: 'file changes (item patch_1)', input: { changes: [] }, options: UNNAMED_OPTIONS })
     const command = { type: 'commandExecution', id: 'patch_1', command: 'x', cwd: '/', commandActions: [], status: 'inProgress' } as unknown as ThreadItem
-    expect(approvalAsk(patch!.request, command)).toMatchObject({ subject: 'file changes' })
+    expect(approvalAsk(patch!.request, command)).toMatchObject({ subject: 'file changes (item patch_1)', options: UNNAMED_OPTIONS })
+    const empty = { type: 'fileChange', id: 'patch_1', status: 'inProgress', changes: [] } as unknown as ThreadItem
+    expect(approvalAsk(patch!.request, empty)).toMatchObject({ subject: 'file changes (item patch_1)', options: UNNAMED_OPTIONS })
     const two = { type: 'fileChange', id: 'patch_1', status: 'inProgress', changes: [{ path: 'a.md', kind: { type: 'add' }, diff: '' }, { path: 'b.md', kind: { type: 'delete' }, diff: '' }] } as unknown as ThreadItem
     const grant = { ...patch!.request, params: { ...patch!.request.params, grantRoot: '/outside' } } as CodexApprovalRequest
-    expect(approvalAsk(grant, two)).toMatchObject({ subject: 'a.md, b.md', blockedPath: '/outside' })
+    expect(approvalAsk(grant, two)).toMatchObject({ subject: 'a.md, b.md', blockedPath: '/outside', options: OPTIONS })
   })
 
   it('knows the two approvals and no other request', () => {

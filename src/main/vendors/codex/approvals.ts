@@ -27,6 +27,14 @@ export const CODEX_APPROVAL_OPTIONS: readonly PermissionOption[] = [
   { id: 'cancel', label: 'Decline and stop the turn', kind: 'deny' },
 ]
 
+/**
+ * The answers of an approval worfy cannot name: without "Accept for this Session". The gate remembers an
+ * `allow_always` answer by its subject (permissions.ts, answer()), and the subject of such an approval
+ * says nothing about what it allows: remembered, it would let through whatever later request comes
+ * without a name.
+ */
+export const CODEX_UNNAMED_APPROVAL_OPTIONS: readonly PermissionOption[] = CODEX_APPROVAL_OPTIONS.filter((option) => option.kind !== 'allow_always')
+
 /** What Codex reads, in the item's status, when an unattended Session declined its request. */
 export const UNATTENDED_DECLINED_MESSAGE =
   'This Session runs unattended (worfy Autopilot): no one is there to answer an approval request, so Codex\'s request is declined.'
@@ -45,20 +53,23 @@ const text = (value: unknown): string | null => (typeof value === 'string' && va
  * `item/started` gave it — a file change request names no file itself, its item does.
  * - a command: the subject is the command; the input its command and folder;
  * - a file change: the subject is the files, in the order the item lists them; the input the changes.
+ * One whose command or files neither the request nor its item names (an item worfy never saw) is named by
+ * its item's id, so no subject the gate remembered answers it, and is offered no answer for the Session.
  */
 export function approvalAsk(request: CodexApprovalRequest, item: ThreadItem | undefined): Omit<PermissionAsk, 'signal'> {
   const common = {
     toolUseId: request.params.itemId,
     description: text(request.params.reason),
     suggestions: [],
-    options: CODEX_APPROVAL_OPTIONS.map((option) => ({ ...option })),
   }
+  const options = (named: boolean) => (named ? CODEX_APPROVAL_OPTIONS : CODEX_UNNAMED_APPROVAL_OPTIONS).map((option) => ({ ...option }))
   if (request.method === 'item/commandExecution/requestApproval') {
     const command = text(request.params.command) ?? (item?.type === 'commandExecution' ? text(item.command) : null)
     const cwd = text(request.params.cwd) ?? (item?.type === 'commandExecution' ? text(item.cwd) : null)
     return {
       ...common,
-      subject: command ?? 'a command',
+      subject: command ?? `a command (item ${request.params.itemId})`,
+      options: options(command !== null),
       toolName: 'commandExecution',
       input: { command, cwd },
       title: 'Codex wants to run a command',
@@ -69,7 +80,8 @@ export function approvalAsk(request: CodexApprovalRequest, item: ThreadItem | un
   const paths = changes.map((change) => change.path)
   return {
     ...common,
-    subject: paths.length > 0 ? paths.join(', ') : 'file changes',
+    subject: paths.length > 0 ? paths.join(', ') : `file changes (item ${request.params.itemId})`,
+    options: options(paths.length > 0),
     toolName: 'fileChange',
     input: { changes },
     title: 'Codex wants to change files',

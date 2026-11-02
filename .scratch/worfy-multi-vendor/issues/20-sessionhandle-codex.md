@@ -66,7 +66,8 @@ Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтраль
   `plan` → Read only; помечено `shortcut:` до Ticket-а 23/25.
 - `items.ts` — notification-ы → `AgentEvent` по списку п. 3; `error` с `willRetry` — `notice`, без него — `result`
   с ошибкой, после которого `turn/completed` того же хода второго `result` не даёт; незнакомое — `unknown`.
-  Notification-ы чужого thread-а (Subagent) Session не получает.
+  События чужого thread-а (Subagent) Session не показывает, но его tool item-ы `items.ts` помнит (`follow`): approval
+  Subagent-а называет свой item только по id.
 - `approvals.ts` — `item/commandExecution/requestApproval` и `item/fileChange/requestApproval` →
   `permission_request` (subject — команда или файлы item-а) с вариантами `accept`, `acceptForSession`, `decline`,
   `cancel`. Interrupt и close сначала отвечают `cancel` на открытые approval-ы, потом шлют `turn/interrupt` или
@@ -96,3 +97,18 @@ Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтраль
 страницы), `approval-interrupt.jsonl`; сам `fake-app-server.mjs` не менялся. Test, который пришлось поправить:
 `test/unit/codex-capabilities.test.ts` — из проверки stub-ов убраны `session.start`/`resume` (stub заменён), добавлены
 test-ы presets, sandbox policy и `model/list`.
+
+Доработка, раунд 1 (REJECTED в PR #1260):
+
+- Approval-ы Subagent-а: item-ы и `serverRequest/resolved` любого thread-а процесса больше не отбрасываются фильтром
+  thread-а — фильтр снимает только события, которые Session показывает. File change Subagent-а спрашивается с путями
+  своего item-а, а запрос, который Codex отозвал в thread-е Subagent-а, отзывается и в Session.
+- Approval, чей item worfy не видел (команду или файлы не называет ни запрос, ни item): subject — `a command (item <id>)`
+  или `file changes (item <id>)`, и варианта «Accept for this Session» нет. Выбраны обе меры: без `allow_always` gate
+  (`permissions.ts`) не может запомнить такой subject, а id item-а в subject не даёт ему совпасть с уже запомненным
+  subject-ом (gate отвечает запомненным до того, как смотрит на варианты). Contract test идёт через настоящий
+  `PermissionGate`.
+- Test-ы на долги ревью: ожидание stdout после выхода процесса (ребёнок фейка держит stdout: строка через ~300 мс
+  доходит; держит дольше `OUTPUT_AFTER_EXIT_MS` — события кончаются ошибкой примерно через этот предел), отзыв
+  открытого approval-а при смерти процесса, Interrupt вместе с send без ожидания друг друга. Новый сценарий фейка —
+  `subagent-approval.jsonl`; `fake-app-server.mjs` не менялся (ребёнок, держащий stdout, — в preload самого test-а).
