@@ -21,7 +21,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statS
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { createInterface } from 'node:readline'
-import { afterEach, describe, expect, inject, it } from 'vitest'
+import { afterEach, describe, expect, inject, it, onTestFinished, vi } from 'vitest'
 import { codexExecutablePath, type CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexLaunch, FAKE_APP_SERVER, FAKE_SCRIPTS, startCodexAppServer } from '../../src/main/vendors/codex/launch'
 import { CODEX_SCHEMA_BUNDLE, codexAjv } from '../../src/main/vendors/codex/schema'
@@ -462,6 +462,11 @@ describe('launch.ts', () => {
   })
 
   it('outside the tests names the pinned binary with app-server, and CODEX_HOME of the environment', () => {
+    // Outside the tests: launch.ts reads VITEST from process.env as well as from `env` (ticket 19).
+    vi.stubEnv('VITEST', '')
+    onTestFinished(() => {
+      vi.unstubAllEnvs()
+    })
     const resolvePackage = () => '/node_modules/@openai/codex-darwin-arm64'
     const runtime: CodexRuntime = { packaged: false, resourcesPath: '/Resources', platform: 'darwin', arch: 'arm64' }
     const launch = codexLaunch({ runtime, appPath: REPO, env: { CODEX_HOME: '/home/user/.codex' }, resolvePackage })
