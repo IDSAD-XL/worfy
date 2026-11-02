@@ -242,6 +242,32 @@ describe('Session.exited', () => {
     expect(stub.order()).toEqual(['spawn 1', KILLED(1)])
   })
 
+  // A process that obeys its SIGTERM: the Session closed during the start closes it as soon as its
+  // driver hands it over, so it ends at that SIGTERM, well before exited() would kill it at the limit.
+  it('closes the process of a start still in progress once its driver answers: SIGTERM, not the SIGKILL at the limit', async () => {
+    const stub = new StubProcesses(() => 'exit-at-once')
+    stubs.push(stub)
+    const fake = fakeQueryFactory({ scriptsDir: join(scratch, 'scripts'), script: 'turn' })
+    let release: () => void = () => undefined
+    const slow = new Promise<void>((done) => {
+      release = done
+    })
+    const withProcess = stub.wrap(fake)
+    const registry = new SessionRegistry(async (request) => {
+      await slow
+      return withProcess(request)
+    })
+    registries.push(registry)
+    const session = registry.start(repo, undefined, () => undefined)
+    // A message waits for the process, as one sent right after opening a Session does.
+    session.send('hello')
+    session.close()
+    release()
+    await session.exited(5000)
+    expect(stub.terminated.has(1)).toBe(true)
+    expect(stub.order()).toEqual(['spawn 1', 'exit 1 SIGTERM'])
+  })
+
   // On the Windows runner Node's exit event of a killed process came seconds after the system had
   // ended it (CI run 40651661632). A process whose event never comes, and whose pid the system no
   // longer runs: exited() hears of it from the system, and the Session drops it, so no SIGKILL.

@@ -563,6 +563,14 @@ export class Session {
     const error = details ? `${reason}\n${details}` : reason
     run.waiting.length = 0
     this.run = null
+    // The process may still be alive: a subscriber threw on one of its events. It is closed before
+    // anything here can throw, or the next message would resume its Vendor session in a second
+    // live process beside it (ADR-0064). Closing a handle whose process is gone does nothing.
+    try {
+      run.handle?.close()
+    } catch (closeError) {
+      console.warn(`[agent] closing ${this.current} failed`, closeError)
+    }
     this.interrupted = false
     // The process is gone, and its background tasks with it.
     this.resetTasks()
