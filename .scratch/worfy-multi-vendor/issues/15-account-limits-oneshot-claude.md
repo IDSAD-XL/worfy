@@ -71,3 +71,21 @@ PR #1242. Поведение first-run, Settings → Plan, черновика п
   через `claudeOneShotQuery` (свои `allowedTools`, `disallowedTools`, `outputFormat`, `canUseTool` и Stop по
   `draftId`), а ответ SDK читает общим `readOneShot` driver-а (`src/main/vendors/claude/one-shot.ts`) — тем же,
   что и `claudeOneShot`, со своими текстами ошибок. Перевод черновика на нейтральный `oneShot` делает Ticket 23.
+
+Ревью — комментарии PR #1242: раунд 1 — REJECTED, раунд 2 — VERIFIED.
+
+- Долг (low): `src/main/projects/connect.ts:570` — проверку «черновик остановлен после чтения ответа» не покрывает
+  test (mutant выживает).
+- Долг (low): `src/main/vendors/claude/one-shot.ts:135` — проверку `subtype` в `readOneShot` не закрепляет test: ни
+  один test не подаёт result с ошибочным `subtype`, но с `structured_output`, и без проверки такой ответ был бы
+  принят.
+- Consider (low): `LimitsRefresher` читает `claudeUsageReader` напрямую; у `limits.read()` нет вызывающих, и его
+  запрос нельзя прервать (`src/main/vendors/claude/limits.ts:154-157`). Ticket 21 учитывает это.
+- Consider (low): `oneMessage()` отдаёт `connect.ts` тип SDK `SDKUserMessage` (`src/main/vendors/claude/one-shot.ts`);
+  `vendor-sdk-imports.test.ts` сигнатуры не проверяет.
+- Consider (low): нейтральный `claudeOneShot` сообщает activity черновика «The draft is ready».
+- Consider (low): `claudeOneShot` теряет отмену, пришедшую, пока стартует `claudeOneShotQuery`: listener
+  добавляется после `await`, `signal.aborted` заново не проверяется.
+- Принято: 13 выживших mutant-ов low (хвост stderr, тексты ошибок, `removeEventListener` / `clearTimeout`, путь к
+  исполняемому файлу в собранном приложении); `checks()` first-run берёт у driver-а только правило входа и версию, а
+  не `account.check()`.

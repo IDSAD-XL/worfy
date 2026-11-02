@@ -64,3 +64,26 @@ Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтраль
 - `src/renderer/session/PermissionCard.tsx`
 - Test-ы: `test/contract/agent-session.test.ts`, `test/contract/agent-events.test.ts`,
   `test/contract/permissions.test.ts`, `test/unit/permission-card.test.tsx`, `test/contract/sdk-compat.test.ts`
+
+## Итог
+
+PR #1243. Ревью — комментарии PR #1243: раунд 1 — REJECTED, 4 находки med исправлены в раунде 2; head после rebase
+проверен заново.
+
+- Долг (low): `fail()` в `src/main/agent/session.ts` — ни один test не закрепляет, что SessionHandle закрывается до
+  `setState('error')` (mutant, который переносит закрытие в конец, выживает).
+- Долг (low): `test/contract/session-handle-lifecycle.test.ts` ждёт фиксированный `settle()` в 50 мс, а не условие.
+- Долг (low): `src/main/vendors/claude/session.ts:327` повторяет правило «Claude вошёл», которое держит
+  `claudeSignedIn` (`src/main/vendors/claude/account.ts:16`); копию убирает Ticket 16.
+- Consider (low): `permission_request` приходит раньше `tool_use`, о котором спрашивает
+  (`src/main/vendors/claude/session.ts:314`): на фейковом агенте карточка рисуется над строкой tool-а.
+- Consider (low): отказ unattended Session (Autopilot) переехал из Session в каждый driver: driver Codex должен
+  отказывать сам (Ticket 20), иначе run Autopilot зависает.
+- Consider (low): запомненный `allow_always` отвечает по `subject`, не проверяя, что новый запрос предлагает вариант с
+  тем же id (`src/main/agent/permissions.ts:76-77`); это важно для вариантов Codex, своих у каждого запроса.
+- Consider (low): `SessionStart.settings.permissionMode` — enum Claude (`src/shared/agent/settings.ts`); пресетам Codex
+  он нужен другим (Ticket 23 или 25).
+- Consider (low): исход `'cancelled'` делит пространство id с id вариантов Vendor-а.
+- Принято: 35 выживших mutant-ов low (запасной путь `supportedModels`, поля карточки подтверждения, slash-меню после
+  падения, тексты исхода в `PermissionCard`, строгость схем). `test/contract/login-shell-capture.test.ts:128` один раз
+  упал под параллельной нагрузкой и прошёл отдельно — flaky test под нагрузкой, с Ticket-ом не связан.

@@ -25,6 +25,9 @@ Source: [spec.md](../spec.md), «Модель» (LimitWindow), «Риски», �
    `account/rateLimits/read` и `ordinaryUsageAllowed`.
 4. Опрос Limits Codex идёт тем же `LimitsRefresher` (`src/main/agent/limits-usage.ts`), что и у Claude, только при
    входе в Codex.
+   Учесть: `LimitsRefresher` читает `claudeUsageReader` напрямую, а не `limits.read()` driver-а: `LimitWindow`
+   теряет точность и статус ответа. У `limits.read()` Claude нет сигнала отмены (`src/main/vendors/claude/limits.ts`;
+   ревью Ticket-а 15). Опрос Codex через тот же refresher должен это учесть.
 
 Глубина review — `high` (driver Codex).
 

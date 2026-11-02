@@ -21,6 +21,10 @@ Source: [spec.md](../spec.md), «Модель» (Vendor), «Решено без 
 4. Реестр Session-ов берёт driver по Vendor-у Session (`vendorDriver(id)`). Orchestrator — всегда `claude` в первом
    выпуске.
 5. Vendor, которого нет в этой сборке или у которого нет входа, — отказ `sessions.new` с причиной, а не падение.
+6. Черновик профиля Project (`src/main/projects/connect.ts`) переходит на нейтральный `vendorDriver(<vendor>).oneShot`.
+   Сейчас он зовёт части driver-а Claude напрямую: `claudeOneShotQuery` (через `src/main/ipc/projects.ts`) и
+   `readOneShot` (`src/main/vendors/claude/one-shot.ts`); так решено в Ticket-е 15. Решено Orchestrator-ом
+   2026-11-02, подтвердить при приёмке.
 
 ## Готово, когда
 
