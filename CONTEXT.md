@@ -183,7 +183,7 @@ _Avoid_: статус-файл, notes
 _Avoid_: сессия, чат, диалог, conversation
 
 **Vendor**:
-Производитель агента, который ведёт Session: Claude Code (Anthropic) или Codex (OpenAI). Vendor выбирается у Session, у Project есть Vendor по умолчанию; вход — только по подписке Vendor-а, API-ключей worfy не принимает. Model — понятие внутри Vendor-а (Opus, Sonnet, GPT-5).
+Производитель агента, который ведёт Session: Claude Code (Anthropic) или Codex (OpenAI). Vendor выбирается у Session, у Project есть Vendor по умолчанию; вход — только по подписке Vendor-а, API-ключей worfy не принимает. Model — понятие внутри Vendor-а (у Claude Code — Opus, Sonnet; у Codex — модели GPT).
 _Avoid_: provider, backend, LLM, «модель» в значении Vendor
 
 **Orchestrator**:
