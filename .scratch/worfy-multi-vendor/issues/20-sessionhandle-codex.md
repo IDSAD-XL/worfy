@@ -21,7 +21,8 @@ Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтраль
 4. `src/main/vendors/codex/approvals.ts` — `item/commandExecution/requestApproval` и
    `item/fileChange/requestApproval` → `permission_request` с `subject` (команда или файлы) и вариантами `accept`,
    `acceptForSession`, `decline`, `cancel`; Interrupt и закрытие отвечают `cancel`.
-5. Модель и effort: список — `model/list` (`supportedReasoningEfforts`, `defaultReasoningEffort`), отдаётся
+5. Изменения — только в `session.ts`, `items.ts`, `approvals.ts`; `index.ts` driver-а Codex не правится.
+6. Модель и effort: список — `model/list` (`supportedReasoningEfforts`, `defaultReasoningEffort`), отдаётся
    capabilities по версии.
 
 Глубина review — `high` (driver Codex).
@@ -37,8 +38,8 @@ Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтраль
 
 ## Где в коде
 
-- `src/main/vendors/codex/session.ts`, `items.ts`, `approvals.ts` (новые)
-- `src/main/vendors/codex/index.ts` — часть session (заглушка Ticket-а 17 заменяется)
+- `src/main/vendors/codex/items.ts`, `approvals.ts` (новые)
+- `src/main/vendors/codex/session.ts` — stub Ticket-а 17 заменяется; `index.ts` не правится
 - `test/unit/codex-items.test.ts`, `test/contract/codex-session.test.ts` (новые)
 
 Только читать: `src/main/vendors/session.ts` и `src/main/vendors/claude/session.ts` (Ticket 14),

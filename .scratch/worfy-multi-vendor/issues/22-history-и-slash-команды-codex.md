@@ -14,7 +14,9 @@ Source: [spec.md](../spec.md), «Модель» (History, таблица час�
 2. `src/main/vendors/codex/commands.ts`: строки slash-меню — `skills/list` (обновление по `skills/changed`) и
    встроенные, у которых есть метод app-server: `/compact` — `thread/compact/start`, `/review` — `review/start`.
    Встроенные TUI без метода в список не входят.
-3. Части history и commands driver-а Codex.
+3. Правятся только `codex/history.ts` и `codex/commands.ts` (stub-и Ticket-а 17); `index.ts` — нет.
+
+Платформенный: `cwd` Session-ов сравнивается с путями Project-а (`isInsidePath`, разные разделители и регистр на Windows).
 
 Глубина review — `high` (driver Codex).
 
@@ -24,12 +26,12 @@ Source: [spec.md](../spec.md), «Модель» (History, таблица час�
       и отличает их; `read` даёт записи с сообщениями, мыслями, командами и их выводом.
 - [ ] Contract test: slash-меню — skills сценария и `/compact`, `/review`; вызов skill уходит item-ом `skill` в
       `turn/start`.
+- [ ] Платформенный PR (ADR-0056, п. 2; ADR-0071): вердикт Windows до merge.
 - [ ] `pnpm typecheck`, `pnpm lint`, `pnpm test` — exit 0.
 
 ## Где в коде
 
-- `src/main/vendors/codex/history.ts`, `commands.ts` (новые)
-- `src/main/vendors/codex/index.ts` — части history и commands
+- `src/main/vendors/codex/history.ts`, `commands.ts` (stub-и Ticket-а 17 заменяются)
 - `test/unit/codex-history.test.ts`, `test/contract/codex-history.test.ts` (новые)
 
 Только читать: `src/shared/transcript/parse.ts:26-50`, `src/main/agent/commands.ts:1-12`,

@@ -8,8 +8,10 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
 ## Что делаем
 
 1. `src/main/vendors/codex/rpc.ts` — JSON-RPC 2.0 поверх строк stdio: request с id и ответ, notification-ы,
-   server→client request-ы с ответом worfy, ошибки JSON-RPC, время ожидания ответа; разбор только по сгенерированным
-   типам. Чистый модуль: вход и выход — строки.
+   server→client request-ы с ответом worfy, ошибки JSON-RPC, время ожидания ответа. Каждое входящее сообщение
+   проверяется `ajv` по сгенерированной JSON Schema (`protocol/json/`, Ticket 17); не прошедшее — событие `unknown`
+   с именем метода и запись в log, а не исключение. Типы TypeScript — из `protocol/ts/`. Чистый модуль: вход и
+   выход — строки.
 2. `src/main/vendors/codex/app-server.ts` — процесс: запуск через `launch.ts` (Ticket 18) без shell, `initialize`
    с `clientInfo.name = 'worfy'` и без `experimentalApi`, затем `initialized`; stderr сохраняется, чтобы объяснить
    падение; `close()` ждёт выхода процесса, как `ClaudeCodeProcess` (`src/main/agent/session/types.ts:30-36`);
@@ -20,6 +22,7 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
 
 ## Готово, когда
 
+- [ ] Unit test `rpc.ts`: сообщение, которое не проходит схему, даёт `unknown`, а не исключение.
 - [ ] Unit test `rpc.ts`: ответ находит свой request при перемешанных notification-ах; server→client request
       получает ответ; битая строка — ошибка, а не исключение; время ожидания — отказ с понятным текстом.
 - [ ] Contract test на фейке: `initialize` с `clientInfo.name = 'worfy'`; фейк, упавший посреди хода, даёт ошибку

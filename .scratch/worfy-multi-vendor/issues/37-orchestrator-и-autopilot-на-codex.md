@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 33, 35
+Blocked by: 33, 35, 45
 Source: [spec.md](../spec.md), «Цель и что видит пользователь» (второй выпуск), «Решено без владельца», п. 5; решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); решение 09 ([09-limits-и-autopilot-по-vendor.md](09-limits-и-autopilot-по-vendor.md))
 
 ## Что происходит
@@ -12,6 +12,8 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   `src/shared/agent/events.ts:116-131`), Wave — в Session Orchestrator-а (`src/main/autopilot/run.ts`).
 
 ## Что делаем
+
+Run на Codex начинается только с Harness, чьи гарантии доказаны parity suite (Ticket 45; решение владельца Q5).
 
 1. Vendor Orchestrator-а — `defaultVendor` Project-а; смена Vendor-а Orchestrator-а — в Settings Project-а, вступает
    со следующего старта Orchestrator-а.

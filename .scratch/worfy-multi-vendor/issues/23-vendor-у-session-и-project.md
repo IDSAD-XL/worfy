@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 14
+Blocked by: 14, 17, 18, 20, 21
 Source: [spec.md](../spec.md), «Модель» (Vendor), «Решено без владельца», п. 5, 7, 8; Ticket 01 ([01-destination-vendor-масштаб.md](01-destination-vendor-масштаб.md), п. 3); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md))
 
 ## Что происходит

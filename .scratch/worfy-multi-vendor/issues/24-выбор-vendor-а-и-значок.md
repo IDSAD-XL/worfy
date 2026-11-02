@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 17, 23
+Blocked by: 17, 18, 20, 21, 23
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 1–2, «Решено без владельца», п. 7, 8, 10; решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); Ticket 01 ([01-destination-vendor-масштаб.md](01-destination-vendor-масштаб.md), п. 3)
 
 ## Что происходит
@@ -17,7 +17,8 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 1. «New session»: выбор Vendor-а — Claude Code или Codex — с Vendor-ом по умолчанию Project-а первым. Vendor без
    входа — недоступен с tooltip «Sign in to Codex in Settings → Vendors» (вход — Ticket 29).
 2. Settings Project-а → Sessions: «Default vendor».
-3. `VendorBadge` — значок и имя Vendor-а на Node Session, в rail-е, в шапке Session view; подпись сообщений агента —
+3. `VendorBadge` — текстовая подпись Vendor-а с нейтральным значком, без логотипов Vendor-ов (решение владельца
+   Q10) на Node Session, в rail-е, в шапке Session view; подпись сообщений агента —
    имя Vendor-а (Orchestrator — по-прежнему `orch`).
 4. Подписи и значки — из `src/shared/vendors/vendor.ts`; проверок имени Vendor-а в renderer нет.
 5. Снимки в обеих темах — `.scratch/worfy-multi-vendor/evidence/24/`.
@@ -26,6 +27,7 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 
 - [ ] e2e (фейки Claude и Codex): «New session» → Codex — Node со значком Codex; Vendor по умолчанию Project-а
       выбран первым; без входа Codex недоступен с tooltip.
+- [ ] Unit test: `VendorBadge` — текст и нейтральный значок, без логотипа.
 - [ ] Unit test: подпись сообщений агента — имя Vendor-а Session.
 - [ ] Снимки обеих тем в `evidence/24/`.
 - [ ] `pnpm typecheck`, `pnpm lint`, unit test-ы renderer-а Session и e2e spec — exit 0.

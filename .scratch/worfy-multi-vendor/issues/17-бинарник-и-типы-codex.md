@@ -19,14 +19,20 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
    `asarUnpack`. LICENSE и NOTICE Codex — в ресурсах сборки.
 2. `src/main/vendors/codex/binary.ts` — `codexExecutablePath(runtime)` (packaged — из `app.asar.unpacked`, иначе —
    из `node_modules`; `codex.exe` на Windows), по образцу `claudeExecutablePath`.
-3. `scripts/codex-protocol.mjs` — запускает `codex app-server generate-ts` закреплённой версии, кладёт вывод в
-   `src/main/vendors/codex/protocol/` и пишет туда `VERSION`. `pnpm lint` сверяет `VERSION` с версией в
-   `package.json` (скрипт без запуска Codex).
+3. `scripts/codex-protocol.mjs` — запускает закреплённый Codex дважды: `codex app-server generate-ts --out …`
+   (типы TypeScript) и `codex app-server generate-json-schema --out …` (JSON Schema того же протокола; команда есть в
+   `rust-v0.166.0`, `codex-rs/cli/src/main.rs:647`, `:735`). Оба вывода — в `src/main/vendors/codex/protocol/`
+   (`ts/`, `json/`) с файлом `VERSION`. Без `--experimental`. `pnpm lint` сверяет `VERSION` с версией в
+   `package.json` (скрипт без запуска Codex). Схемы руками не пишутся и не правятся.
+   Проверка сообщений во время работы — `ajv` (прямая зависимость с точной версией) по этим JSON Schema; её
+   применяют Ticket-ы 18, 19, 30.
 4. `src/main/vendors/codex/capabilities.ts` — статические capabilities Codex: `steer`, `resume`, `limitWindows`,
    `slashCommands` — да; `inProcessMcp`, `canvasTools`, `subagents` (до второго выпуска) — нет, с причинами для
    tooltip; presets «Read only», «Auto», «Full access» (approval policy + sandbox).
-5. `src/main/vendors/codex/index.ts` — driver Codex: capabilities и части-заглушки, которые отвечают «not available
-   yet»; `vendorDriver('codex')` в реестре. В интерфейсе Codex не появляется до Ticket-а 24.
+5. `src/main/vendors/codex/index.ts` — driver Codex из файлов частей `session.ts`, `account.ts`, `limits.ts`,
+   `history.ts`, `commands.ts`, `mcp.ts`; каждая часть пока — stub, который отвечает «not available yet».
+   Ticket-ы 20, 21, 22, 33 заменяют только свой файл части, `index.ts` не правят. `vendorDriver('codex')` в
+   реестре. В интерфейсе Codex не появляется до Ticket-а 24.
 6. В PR — размер сборки до и после.
 
 Глубина review — `high` (driver Codex). Платформенный: упаковка и путь с веткой по платформе.
@@ -36,6 +42,7 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
 - [ ] Unit test пути бинарника: packaged и dev, macOS и Windows (разделители и `codex.exe`), как test-ы
       `claudeExecutablePath`.
 - [ ] Unit test проверки `VERSION`: несовпадение с `package.json` — красный.
+- [ ] В `protocol/json/` лежит bundle JSON Schema закреплённой версии; `ajv` компилирует его без ошибок (test).
 - [ ] Unit test capabilities Codex: три presets, недоступное — с причиной.
 - [ ] `pnpm build` на Mac кладёт бинарник Codex в `app.asar.unpacked`; рост размера сборки записан в PR.
 - [ ] Платформенный PR (ADR-0056, п. 2; ADR-0071): вердикт Windows до merge.
@@ -46,7 +53,8 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
 - `package.json` — `:29` (рядом); `pnpm-lock.yaml`
 - `electron-builder.yml` — `:43-52`
 - `scripts/codex-protocol.mjs` (новый); проверка `VERSION` — в скриптах `pnpm lint`
-- `src/main/vendors/codex/binary.ts`, `capabilities.ts`, `index.ts`, `protocol/` (новые)
+- `src/main/vendors/codex/binary.ts`, `capabilities.ts`, `index.ts`, `session.ts`, `account.ts`, `limits.ts`,
+  `history.ts`, `commands.ts`, `mcp.ts`, `protocol/ts/`, `protocol/json/` (новые)
 - `src/main/vendors/registry.ts`
 - Test-ы: `test/unit/codex-binary.test.ts`, `test/unit/codex-capabilities.test.ts` (новые)
 

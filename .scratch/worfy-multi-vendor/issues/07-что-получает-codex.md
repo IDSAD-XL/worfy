@@ -13,6 +13,8 @@ Source: [map.md](../map.md), Ticket 01
 
 Решено Orchestrator-ом 2026-11-02 по поручению владельца («да, можешь работать над этим эпиком полностью на автопилоте»), подтвердить при приёмке. План по Ticket-ам — [spec.md](../spec.md).
 
+Владелец 2026-11-02 ответил на вопросы Q1–Q11 к spec (раздел «Решения владельца» spec-а). Здесь изменилось: MCP-серверы worfy по HTTP — в первом выпуске (Q1); гарантии workflow на Codex — те же, что на Claude, без «только совет» (Q5); недоступное с причиной — только для функций интерфейса, которых у Codex действительно нет (Q2).
+
 **Первый выпуск — чат:**
 - создание Session с выбором Vendor-а; у Project — Vendor по умолчанию;
 - чат с очередью и steer;
@@ -24,12 +26,12 @@ Source: [map.md](../map.md), Ticket 01
 - Node Session на Canvas с транскриптом через app-server и Session-ы, начатые в терминале (по `cwd`);
 - Limits по каждому Vendor-у;
 - onboarding: найти Codex и войти в него — необязательно; пользователь без Codex ошибки не видит;
-- поиск по транскриптам Codex.
+- поиск по транскриптам Codex;
+- MCP-серверы worfy для Codex по HTTP: tool-ы Canvas, Cards `worfy.ask`, Browser (владелец, Q1: «думаю стоит сразу это сделать»).
 
 **Второй выпуск:**
-- MCP-серверы worfy для Codex по HTTP: tool-ы Canvas, Cards `worfy.ask`, Browser;
 - Node-ы Subagent-ов из thread-ов sub-агентов Codex;
-- Harness на Codex (Ticket 08);
+- Harness на Codex с теми же гарантиями workflow, что на Claude (Ticket 08; владелец, Q5);
 - Autopilot и Wave-ы на Orchestrator-е Codex с budget Limits (Ticket 09);
 - Flight Recorder по Run-ам Codex;
 - Binding.
@@ -38,6 +40,6 @@ Source: [map.md](../map.md), Ticket 01
 
 **Никогда:** всё, что требует API-ключа.
 
-**Как показывать то, чего Vendor не умеет.** Показывать недоступным, с tooltip причины («Codex does not support …»). Скрывать только то, что для Vendor-а не имеет смысла. worfy ничего не эмулирует своими силами.
+**Как показывать то, чего Vendor не умеет** (функции интерфейса, например plan mode; владелец, Q2: «ок»). Показывать недоступным, с tooltip причины («Codex does not support …»). Скрывать только то, что для Vendor-а не имеет смысла. worfy ничего не эмулирует своими силами.
 
 Почему так: первый выпуск — то, что уже даёт app-server без experimental-методов (Ticket 02); всё, что стоит на Harness, MCP в процессе и Autopilot, требует решений 08 и 09 и отдельных Wave. Недоступное с причиной честнее скрытого: пользователь видит, что функция есть у другого Vendor-а, а эмуляция означала бы второй источник поведения, который worfy пришлось бы держать сам.

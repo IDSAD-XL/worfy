@@ -23,8 +23,13 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Соглашения»
 3. `src/main/vendors/codex/launch.ts` — как стартует app-server: бинарник из Ticket-а 17 или, при
    `WORFY_CODEX=fake`, `process.execPath` с фейком. `WORFY_CODEX_SCRIPT`, `WORFY_CODEX_LOG` (request-ы worfy строками
    JSON), `WORFY_CODEX_HOME` (thread-ы фейка). `CODEX_HOME` процесса — из окружения test-а.
-4. Сообщения сценариев типизированы сгенерированными типами (`src/main/vendors/codex/protocol/`): сценарий с полем,
-   которого в типах нет, не проходит test.
+4. Каждое сообщение сценариев проверяется `ajv` по сгенерированной JSON Schema (`src/main/vendors/codex/protocol/json/`,
+   Ticket 17): сценарий с полем или видом, которого нет в схеме закреплённой версии, — красный test. Схем руками нет.
+5. Изоляция всех test-ов: `test/setup-contract.ts` и `test/e2e/launch-env.ts` выставляют `WORFY_CODEX=fake` и
+   `CODEX_HOME` во временной папке (как `WORFY_CLAUDE_HOME`, `test/setup-contract.ts:98-103`,
+   `test/e2e/launch-env.ts:84-85`). Ни один test не запускает настоящий Codex и не читает `~/.codex` разработчика.
+
+Платформенный: запуск процесса фейка и пути `CODEX_HOME` на Windows.
 
 ## Готово, когда
 
@@ -32,7 +37,9 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Соглашения»
       сценария `turn`; лог содержит request-ы worfy.
 - [ ] Contract test: под test-ами `launch.ts` не запускает бинарник `@openai/codex` (подменённый spawn видит только
       `process.execPath`) и ничего не пишет вне временных папок.
-- [ ] Каждый сценарий проходит проверку по сгенерированным типам.
+- [ ] Каждый сценарий проходит проверку `ajv` по сгенерированной JSON Schema; контрольный сценарий с лишним полем — красный.
+- [ ] Contract test: без явного env процесс test-а видит `WORFY_CODEX=fake` и `CODEX_HOME` во временной папке (setup).
+- [ ] Платформенный PR (ADR-0056, п. 2; ADR-0071): вердикт Windows до merge.
 - [ ] `pnpm typecheck`, `pnpm lint`, `pnpm test` — exit 0.
 
 ## Где в коде
@@ -40,5 +47,6 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Соглашения»
 - `test/fixtures/codex-app-server/fake-app-server.mjs`, `test/fixtures/codex-scripts/` (новые)
 - `src/main/vendors/codex/launch.ts` (новый)
 - `test/contract/codex-fake.test.ts` (новый)
+- `test/setup-contract.ts` — `:98-103` (рядом); `test/e2e/launch-env.ts` — `:44`, `:84-85`
 
 Только читать: `src/main/agent/app-registry.ts:170-190`, `src/main/vendors/claude/fake-query.ts` (после Ticket-а 13).

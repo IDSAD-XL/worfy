@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 22, 23
+Blocked by: 22, 23, 24
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 7, «Windows» (пути), «Решено без владельца», п. 9; решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); Ticket 05 ([05-codex-транскрипты.md](05-codex-транскрипты.md)); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
 
 ## Что происходит

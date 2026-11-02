@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 22
+Blocked by: 22, 24
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 10; решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md))
 
 ## Что происходит
@@ -14,7 +14,9 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 
 1. Поиск идёт и по Session-ам Codex Project-а: текст сообщений из `history.read` (Ticket 22), те же пределы и то же
    правило snippet-а (`snippetAround`, `:112`).
-2. Результат несёт `vendor`; renderer показывает значок Vendor-а (`VendorBadge`, Ticket 24).
+2. Результат несёт `vendor`; результаты поиска в Command palette (`src/renderer/palette/CommandPalette.tsx:10`,
+   поиск по транскриптам) показывают `VendorBadge` (Ticket 24).
+4. Снимки в обеих темах — `.scratch/worfy-multi-vendor/evidence/28/`.
 3. Прочитанные thread-ы кэшируются в памяти до изменения времени thread-а, чтобы повторный поиск не читал всё заново.
 
 ## Готово, когда
@@ -27,4 +29,6 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 
 - `src/main/claude-home/search.ts` — `:35`, `:68`, `:112`, `:141`
 - `src/main/ipc/claude-home.ts`
+- `src/renderer/palette/CommandPalette.tsx` — `:10`, строки результата
+- `test/unit/palette-commands.test.tsx`
 - `test/contract/claude-home-search.test.ts`

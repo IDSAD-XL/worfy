@@ -1,12 +1,15 @@
 # 0094 — Граница Vendor-а: свой driver на Vendor, нейтральная модель worfy, Codex через app-server
 Дата: 2026-11-02. Статус: принят. Epic `worfy-multi-vendor`; карта — `.scratch/worfy-multi-vendor/map.md`, решения
-06–09 в её Ticket-ах; spec — `.scratch/worfy-multi-vendor/spec.md`. Решил Orchestrator по поручению владельца
-(«да, можешь работать над этим эпиком полностью на автопилоте»); владелец подтверждает при приёмке.
+06–10 в её Ticket-ах; spec — `.scratch/worfy-multi-vendor/spec.md`. Решения 06–09 принял Orchestrator по поручению
+владельца («да, можешь работать над этим эпиком полностью на автопилоте»); владелец 2026-11-02 ответил на вопросы
+Q1–Q11 к spec (раздел «Решения владельца» spec-а) — его ответы вошли сюда; остальное он подтверждает при приёмке.
+Ticket 10 (третий Vendor на бумаге: Gemini CLI, OpenCode) потребовал правок account, limits и capabilities — они
+вошли в п. 2.
 
 **Контекст.** worfy ведёт Session-ы только Claude Code. Граница агента — `QueryFactory` / `QueryHandle`
 (`src/main/agent/session/types.ts:39`, `:91`), но её методы — методы `Query` Agent SDK (`accountInfo`,
-`setPermissionMode`, `applyFlagSettings`, `supportedCommands`), а поток — сообщения SDK. Мимо неё к SDK идут проба
-Limits (`src/main/agent/limits-usage.ts:281`), черновик профиля Project (`src/main/ipc/projects.ts:90`), Terminal AI
+`setPermissionMode`, `applyFlagSettings`, `supportedCommands`), а поток — сообщения SDK. Мимо неё к SDK идут Limits probe
+(`src/main/agent/limits-usage.ts:281`), черновик профиля Project (`src/main/ipc/projects.ts:90`), Terminal AI
 (`src/main/terminal-ai/assist.ts:105`) и MCP-серверы `worfy-canvas` и `worfy-browser` (`createSdkMcpServer`,
 `src/main/mcp/canvas-server.ts:318`, `src/main/mcp/browser-server.ts:426`). SDK импортируют 15 файлов `src`. Limits —
 окна `five_hour` / `seven_day` (`src/shared/agent/limits.ts:24`), на них стоят budget Autopilot и прогноз Resource
@@ -23,34 +26,62 @@ hook-ам (Ticket-ы 02–05).
 **Решение.**
 
 1. **Нейтральная модель worfy.** Остальной worfy говорит только в типах worfy: `AgentEvent`, записи транскрипта
-   (`src/shared/transcript`), `LimitWindow`, capabilities. Каждый Vendor переводится в них своим адаптером.
+   (`src/shared/transcript`), `LimitWindow`, capabilities. Каждый Vendor переводится в них своим адаптером. Перевод
+   сообщений Agent SDK живёт в `src/shared/vendors/claude/events.ts`: чистый модуль без импорта SDK, в shared —
+   потому что разбор транскриптов Claude (`src/shared/transcript/parse.ts`) зовёт его helper-ы.
 2. **Driver на каждого Vendor-а** в `src/main/vendors/<id>/`. Части:
    - **capabilities** — статическое описание плюс описание по версии: Subagent-ы, hook-и, MCP в процессе, steer во
-     время хода, permission presets (список вариантов самого Vendor-а с подписями), уровни effort, slash-команды,
-     окна Limits, resume. Интерфейс читает только эти флаги, проверок `vendor === 'claude'` нет.
+     время хода, resume, список Session-ов (`historyList`), стабильная смена Model, `oneShot` без tool-ов, полнота
+     slash-команд, источник Limits (`windows`, `errorOnly`, `none`), permission presets (список вариантов самого
+     Vendor-а с подписями), уровни effort. Интерфейс читает только эти флаги, проверок `vendor === 'claude'` нет.
    - **session** — `start(opts)` и `resume(id)` дают SessionHandle: `send(message)` (в очередь или steer, если
      capability есть), `interrupt()`, `close()`, `setModel()`, `setEffort()`, `setPermissionPreset()`,
      `events: AsyncIterable<AgentEvent>`. Запрос подтверждения — одно событие `permission_request`, варианты ответа
      даёт Vendor; в него переводятся `canUseTool` Claude и approval-ы Codex на команду и правку файлов.
-   - **account** — `check()` (вход, план) и `startLogin()`, который открывает URL Vendor-а. Токены — в домашней
-     папке Vendor-а (`~/.claude`, `~/.codex`); ADR-0009 в силе.
-   - **limits** — `read()` даёт `LimitWindow[]` `{vendor, id, label, usedPercent, windowMinutes, resetsAt}`, плюс
-     обновления событиями. `five_hour` и `seven_day` Claude — два окна списка.
+   - **account** — `check()` даёт список подключений `{provider, signedIn, email, plan}` (у Claude и Codex — одно;
+     у Vendor-а вроде OpenCode — несколько). `startLogin()` даёт один из трёх результатов: `{url}` — worfy открывает
+     URL (Codex); `{vendorOpensBrowser}` — Vendor открывает браузер сам; `{terminal}` — вход только в TUI Vendor-а.
+     Токены — в домашней папке Vendor-а (`~/.claude`, `~/.codex`); ADR-0009 в силе.
+   - **limits** — `read()` даёт `LimitWindow[]` `{vendor, provider?, id, label, usedPercent, windowMinutes,
+     resetsAt, state}`; `usedPercent`, `windowMinutes` и `resetsAt` могут быть `null` (не известно); `state` — `ok`,
+     `warning`, `reached` или `null`. Обновления — событием `limits`; отказ по лимиту — нейтральным событием
+     `limit_reached` с причиной `window` (есть окно и сброс — можно ждать) или `quota` (ждать нечего). `five_hour` и
+     `seven_day` Claude — два окна списка, `allowed_warning` — `warning`.
    - **history** — `list(cwd)` и `read(id)` дают записи транскрипта worfy. Claude читает свои JSONL; Codex —
      `thread/list` / `thread/read` app-server, а не rollout-файлы.
    - **commands** — список slash-меню.
    - **mcp** — как MCP-серверы worfy доходят до агента. Claude — SDK-сервер в процессе, как сейчас. Codex —
-     streamable-HTTP MCP endpoint worfy main на localhost с token-ом на Session (второй выпуск).
-   - **oneShot(prompt, opts)** — разовый запрос без tool-ов: черновик профиля Project, Terminal AI, проба Limits.
+     streamable-HTTP MCP endpoint worfy main на `127.0.0.1` с token-ом на Session — в первом выпуске (владелец, Q1).
+   - **oneShot(prompt, opts)** — разовый запрос: Terminal AI и Limits probe — без tool-ов; черновик профиля Project
+     — с read-only tool-ами и structured output через `opts`, как сейчас.
 3. **Codex — через `codex app-server`.** worfy поставляет закреплённую версию бинарника Codex (Apache-2.0,
    npm-сборки по платформам), как ADR-0008 поставляет native binary Claude. Типы протокола генерируются для этой
    версии (`codex app-server generate-ts`) и лежат в репозитории. Experimental-методов по возможности нет.
    Compatibility suite — по каждой версии Codex. Один процесс app-server на Session.
 4. **Только `src/main/vendors/claude/` импортирует `@anthropic-ai/claude-agent-sdk`.** `SessionRegistry`, first-run,
-   черновик профиля, проба Limits, Terminal AI и MCP-серверы идут через driver. Contract test держит правило, как
+   черновик профиля, Limits probe, Terminal AI и MCP-серверы идут через driver. Contract test держит правило, как
    `test/contract/harness-node-only.test.ts` держит своё.
 5. **Harness на Codex — тот же `harness/`** (решение 08): установка через локальный marketplace Codex, TOML агентов
-   при установке, gate на `Stop`. Правила Harness, которые Codex не исполняет, — в «Последствиях».
+   `worfy-implementer`, `worfy-reviewer`, `worfy-scout` при установке — только в `~/.codex/agents/` пользователя (в
+   папку Project-а worfy не пишет, ADR-0005), зависимость `mattpocock-skills` — отдельным plugin-ом.
+6. **Гарантии workflow на Codex — те же, что на Claude** (владелец, Q5: «нужен полный функционал неизменный от
+   выбора вендора что бы сохранить поведение ворфи»). Ничего не остаётся «только советом»:
+
+   | Гарантия | Claude | Codex |
+   |---|---|---|
+   | gate до конца работы | `TaskCompleted`, `TeammateIdle`, `Stop` | `Stop` и `SubagentStop` блокируют конец хода, пока gate красный; `TeammateIdle` охранять нечего — agent teams у Codex нет |
+   | read-only reviewer и scout | список `tools` агента | `PreToolUse` отказывает в правках по `agent_type`; если закреплённая версия не даёт `agent_type` — отдельный thread Codex с sandbox `read-only` |
+   | guard Bash и записи | `PreToolUse` `guard.mjs` | тот же `guard.mjs` с matcher-ами Codex; ввод в открытую exec Session (его hook не видит) для агентов Harness запрещён |
+   | verdict-ы review | скрипты `bin/` и `gh` | те же; `GH_TOKEN` — env процесса app-server, если `SessionStart` не может его выставить |
+   | правила в начале Session и Subagent-а | `SessionStart`, `SubagentStart` | те же события |
+   | учёт Session | `SessionEnd` | `SessionEnd` не дольше 3 s: долгие шаги — в следующий `SessionStart` |
+
+   Каждую гарантию доказывает parity suite: один сценарий на фейке Claude и на фейке app-server, который исполняет
+   hook-и по правилам Codex; итог одинаков. Run Autopilot на Codex без этого suite не начинается.
+   «Недоступно с причиной» остаётся только для функций интерфейса, которых у Codex действительно нет (владелец, Q2).
+7. **ACP** (Agent Client Protocol) — не замена границы: он годится как общая реализация частей session,
+   `permission_request`, commands и mcp для третьего Vendor-а и дальше (Ticket 10), но не даёт Limits подписки,
+   плана аккаунта и MCP в процессе. Claude и Codex — свои driver-ы.
 
 **Что отменяет.** `.scratch/worfy-mvp/spec.md:120` выносил «Другие провайдеры моделей (Codex, OpenRouter, Grok)» за
 рамки. Codex теперь в рамках; OpenRouter и любой вход по API-ключу — по-прежнему нет (Ticket 01, п. 8). Grok и другие
@@ -65,14 +96,10 @@ hook-ам (Ticket-ы 02–05).
 - В приложении два бинарника агентов; размер сборки растёт на бинарник Codex платформы.
 - Codex добавляет Vendor-а, которого нельзя проверить в CI живьём: test-ы идут на фейке app-server
   (`WORFY_CODEX=fake`), живой Codex — только при приёмке владельцем.
-- **Harness на Codex — not enforced on Codex:**
-  - gate на `TaskCompleted` и `TeammateIdle` — таких событий у Codex нет; gate идёт на `Stop` и не отказывает в
-    действии, а продолжает ход;
-  - read-only reviewer и scout — пока test не доказал отказ `PreToolUse` по `agent_type`, reviewer Codex только
-    советует, условие merge — verdict gate;
-  - зависимость plugin-а от `mattpocock-skills` — у Codex нет зависимостей plugin-ов;
-  - `SessionEnd` дольше 3 s — у Codex потолок 3 s;
-  - hook-и после обновления Harness — выключены, пока пользователь не подтвердит их в `/hooks` (ниже, риск 3).
+- Гарантии Harness на Codex держатся другими механизмами (п. 6), и эти механизмы зависят от поведения hook-ов
+  Codex. Фейк app-server повторяет его по исходникам закреплённой версии; живой Codex проверяет приёмка владельца.
+- Hook-и после обновления Harness выключены в Codex, пока пользователь не подтвердит их в `/hooks` (риск 3); Run
+  Autopilot на Codex в это время не начинается.
 
 **Риски.**
 
@@ -96,6 +123,10 @@ hook-ам (Ticket-ы 02–05).
   сжимаются в `.jsonl.zst`, есть paginated-режим; поддерживаемый контракт — `thread/list` / `thread/read`.
 - **Один процесс app-server на все Session-ы.** Отложено: изоляция падений и память не проверены; процесс на
   Session повторяет модель Claude. Общий процесс — оптимизация на потом.
-- **`dynamicTools` app-server для MCP worfy в процессе.** Отклонено на первый выпуск: метод experimental. Второй
-  выпуск — streamable HTTP endpoint на localhost.
+- **`dynamicTools` app-server для MCP worfy в процессе.** Отклонено: метод experimental. Вместо него —
+  streamable HTTP endpoint на localhost.
+- **Reviewer Codex «только советует», пока read-only не доказан.** Отклонено владельцем (Q5): гарантии workflow не
+  зависят от Vendor-а.
+- **TOML агентов в `.codex/agents/` Project-а.** Отклонено: worfy не пишет своё состояние в репозиторий (ADR-0005).
+- **ACP вместо своей границы.** Отклонено (Ticket 10): ACP не даёт Limits подписки и плана аккаунта.
 - **Отдельный Harness для Codex.** Отклонено (решение 08): Codex читает формат Claude, два Harness разошлись бы.

@@ -7,17 +7,21 @@ Source: [spec.md](../spec.md), «Модель» (LimitWindow), «Риски», �
 
 ## Что делаем
 
-1. `src/main/vendors/codex/account.ts`: `check()` — `account/read` → вход, email, `planType`; нет бинарника или
-   аккаунта — `signedIn: false` без исключения. `startLogin()` — `account/login/start {type: "chatgpt"}`, worfy
-   открывает `authUrl` в браузере и ждёт `account/login/completed`. Вход по `apiKey` worfy не предлагает. Токены
+Правятся только файлы частей `codex/account.ts` и `codex/limits.ts` (stub-и Ticket-а 17); `index.ts` — нет.
+
+1. `src/main/vendors/codex/account.ts`: `check()` — `account/read` → одно подключение `{provider: 'openai', signedIn, email, plan}`; нет бинарника или
+   аккаунта — `signedIn: false` без исключения. `startLogin()` — `account/login/start {type: "chatgpt"}` →
+   `{kind: 'url', url: authUrl}`; worfy открывает его в браузере и ждёт `account/login/completed`. Вход по `apiKey` worfy не предлагает. Токены
    хранит Codex (ADR-0009).
 2. `src/main/vendors/codex/limits.ts`: `read()` — `account/rateLimits/read` (с `excludeResetCreditDetails` для
    фонового опроса); notification `account/rateLimits/updated` → событие `limits`. Окна `primary` и `secondary` →
    `LimitWindow` (`vendor: 'codex'`, `id` — `primary` / `secondary`, `windowMinutes` — `windowDurationMins`,
-   `usedPercent`, `resetsAt`), подпись по длительности: `5h`, `daily`, `weekly`, `monthly`. `reached` —
-   `rateLimitReachedType` не `null` или `usedPercent >= 100`.
-3. Ошибка хода с `codexErrorInfo: "usageLimitExceeded"` → событие с двумя случаями: окно на 100 % с `resetsAt`
-   (можно ждать) и без такого окна (план не включает Codex или квота — ждать нечего). Перед ожиданием — повторный
+   `usedPercent`, `resetsAt`), подпись по длительности: `5h`, `daily`, `weekly`, `monthly`. `state`: `reached` —
+   `rateLimitReachedType` не `null` или `usedPercent >= 100`; иначе `ok` (порога `warning` Codex не присылает).
+   Хранение — состояние Limits Codex рядом с состоянием Claude в `LimitsTracker` (`src/main/agent/limits.ts:58`).
+3. Ошибка хода с `codexErrorInfo: "usageLimitExceeded"` → событие `limit_reached` (Ticket 11): окно на 100 % с
+   `resetsAt` — `reason: 'window'` (можно ждать); без такого окна (план не включает Codex или квота) —
+   `reason: 'quota'`, ждать нечего. Перед ожиданием — повторный
    `account/rateLimits/read` и `ordinaryUsageAllowed`.
 4. Опрос Limits Codex идёт тем же `LimitsRefresher` (`src/main/agent/limits-usage.ts`), что и у Claude, только при
    входе в Codex.
@@ -34,8 +38,8 @@ Source: [spec.md](../spec.md), «Модель» (LimitWindow), «Риски», �
 
 ## Где в коде
 
-- `src/main/vendors/codex/account.ts`, `limits.ts` (новые)
-- `src/main/vendors/codex/index.ts` — части account и limits
+- `src/main/vendors/codex/account.ts`, `limits.ts` (stub-и Ticket-а 17 заменяются)
+- `src/main/agent/limits.ts` — `:58` (состояние Codex рядом с Claude)
 - `src/main/agent/limits-usage.ts` — `:75` (`LimitsRefresher`: опрос по Vendor-ам)
 - `test/unit/codex-limits.test.ts`, `test/contract/codex-account.test.ts` (новые)
 

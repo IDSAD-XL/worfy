@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 13
+Blocked by: 11, 13
 Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтральные события), «Риски», п. 4; решение 06 ([06-граница-vendor.md](06-граница-vendor.md), часть session); [ADR-0094](../../../docs/adr/0094-vendor-seam.md), «Последствия»
 
 ## Что происходит
@@ -17,18 +17,19 @@ Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтраль
 
 ## Что делаем
 
-1. `src/main/vendors/session.ts` — `SessionHandle`: `send({text, attachments})`, `interrupt()`, `close()`,
+1. `src/main/vendors/session.ts` (типы созданы Ticket-ом 13) — `SessionHandle`: `send({text, attachments})`, `interrupt()`, `close()`,
    `setModel()`, `setEffort()`, `setPermissionPreset()`, `events: AsyncIterable<AgentEvent>`; `start(opts)` и
    `resume(id)` у части session driver-а.
-2. `src/main/vendors/claude/session.ts` — SessionHandle Claude: держит поток `SDKUserMessage`, зовёт `query()`,
+2. `src/main/vendors/claude/session.ts` (обёртка Ticket-а 13; `claude/index.ts` не правится) — SessionHandle Claude: держит поток `SDKUserMessage`, зовёт `query()`,
    переводит сообщения в `AgentEvent`, отдаёт `account`, `context`, `commands` событиями, переводит `canUseTool` в
    `permission_request`. Разбор сообщений SDK (`sdkMessageToEvents` и схемы, `events.ts:290-685`) переезжает в
    `src/shared/vendors/claude/events.ts`: чистый модуль без импорта SDK; в shared — потому что разбор транскриптов
    Claude (`src/shared/transcript/parse.ts:23`) зовёт его helper-ы (`toolResultText`, `hookSaidSomething`,
    `LOCAL_COMMAND`). В `events.ts` остаётся только модель.
 3. `permission_request` получает `options: {id, label, kind}[]` и `subject`; у Claude — те же три варианта и
-   `toolName`. `permission_resolved` несёт id выбранного варианта. Renderer (`PermissionCard.tsx`) рисует варианты
-   из события — те же три кнопки.
+   `toolName`. `permission_resolved` несёт id выбранного варианта. Канал ответа `agent.permission` принимает id
+   варианта вместо `permissionDecisionSchema` (`src/shared/ipc/agent.ts:108-114`); обработчик —
+   `src/main/ipc/agent.ts:313`. Renderer (`PermissionCard.tsx`) рисует варианты из события — те же три кнопки.
 4. Session, `session/run.ts`, `input-queue.ts` работают только с SessionHandle и `AgentEvent`; импортов SDK в них
    нет.
 5. Фейк Claude остаётся на уровне `QueryHandle` под SessionHandle Claude: все сценарии `test/fixtures/agent-scripts/`
@@ -54,6 +55,7 @@ Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтраль
 - `src/main/agent/session/run.ts` — `:2`; `src/main/agent/session/types.ts` — `:39-91`;
   `src/main/agent/session/registry.ts`; `src/main/agent/session/input-queue.ts`
 - `src/main/agent/permissions.ts` — `:57` и ответы
+- `src/shared/ipc/agent.ts` — `:108-114`; `src/main/ipc/agent.ts` — `:313`
 - `src/main/agent/attachments.ts` — `:25`
 - `src/shared/agent/events.ts` — `:54`, `:91-103`, `:290-685`
 - `src/renderer/session/PermissionCard.tsx`

@@ -11,7 +11,9 @@ Source: [spec.md](../spec.md), «Модель» (части mcp и oneShot), «�
   `src/main/mcp/canvas-server.ts:317-324`, `src/main/mcp/browser-server.ts:425-432`.
 - Terminal AI грузит SDK сам (`src/main/terminal-ai/assist.ts:34`, `:70-105`), опции —
   `src/main/terminal-ai/options.ts:15`, фейк — `fake-backend.ts:21`.
-- После Ticket-ов 13–15 других импортов SDK вне `src/main/vendors/claude/` не остаётся.
+- Опции и путь к бинарнику Claude — `src/main/agent/options.ts` (типы SDK `:77`, `claudeExecutablePath` `:103`,
+  ветки по `win32`); запуск — `sdkQueryFactory` (`src/main/agent/app-registry.ts:92-166`, SDK `:98`).
+- После Ticket-ов 14 и 15 других импортов SDK вне `src/main/vendors/claude/` не остаётся.
 
 ## Что делаем
 
@@ -21,10 +23,18 @@ Source: [spec.md](../spec.md), «Модель» (части mcp и oneShot), «�
 2. Terminal AI: загрузка SDK, `claim` запасного процесса и опции переезжают в
    `src/main/vendors/claude/terminal-ai.ts`; `assist.ts` зовёт driver Claude. Terminal AI остаётся только на Claude
    (решение 07, «позже»).
-3. Список исключений `test/contract/vendor-sdk-imports.test.ts` пуст; исключение, которое уже не импортирует SDK,
+3. Перенос: `src/main/agent/options.ts` → `src/main/vendors/claude/options.ts`, `sdkQueryFactory` →
+   `src/main/vendors/claude/query.ts`; импорты обновляются (`src/main/ipc/harness.ts`, `src/main/ipc/projects.ts`,
+   `src/main/mcp/*`, `src/main/terminal-ai/options.ts`, `test/contract/agent-autocompact.test.ts`,
+   `test/contract/claude-process-stub.ts`, `test/contract/harness-install.test.ts`,
+   `test/contract/orchestrator-relaunch.test.ts`, `test/contract/projects-connect.test.ts`,
+   `test/unit/agent-executable.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/agent-query-factory.test.ts`).
+   Реэкспортов на старых путях нет.
+4. Список исключений `test/contract/vendor-sdk-imports.test.ts` пуст; исключение, которое уже не импортирует SDK,
    теперь — красный test.
 
-Глубина review — `high` (граница). Платформенный: `src/main/terminal-ai/**`.
+Глубина review — `high` (граница). Платформенный: `src/main/terminal-ai/**` и перенос кода с ветками по платформе
+(`options.ts`).
 
 ## Готово, когда
 
@@ -35,7 +45,9 @@ Source: [spec.md](../spec.md), «Модель» (части mcp и oneShot), «�
 
 ## Где в коде
 
-- `src/main/vendors/mcp.ts`, `src/main/vendors/claude/mcp.ts`, `src/main/vendors/claude/terminal-ai.ts`
+- `src/main/vendors/mcp.ts`, `src/main/vendors/claude/mcp.ts`, `src/main/vendors/claude/terminal-ai.ts` (файлы Ticket-а 13)
+- `src/main/agent/options.ts` → `src/main/vendors/claude/options.ts`; `src/main/agent/app-registry.ts` — `:92-166` →
+  `src/main/vendors/claude/query.ts`; импорты — список в п. 3
 - `src/main/mcp/canvas-server.ts` — `:317-324`; `src/main/mcp/browser-server.ts` — `:425-432`
 - `src/main/terminal-ai/assist.ts` — `:34`, `:70-105`, `:464-473`
 - `src/main/terminal-ai/options.ts` — `:15`, `:66-113`; `src/main/terminal-ai/fake-backend.ts` — `:21`

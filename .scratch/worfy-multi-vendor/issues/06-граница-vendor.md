@@ -28,7 +28,7 @@ Source: [map.md](../map.md), Ticket 01
 - **history** — `list(cwd)` и `read(id)` дают нейтральные записи транскрипта, ту модель, которую `src/shared/transcript` уже строит для renderer-а. Claude читает свои JSONL. Codex читает через `thread/list` / `thread/read` app-server, а не свои rollout-файлы.
 - **commands** — список для slash-меню.
 - **mcp** — как MCP-серверы worfy (`worfy-canvas`, `worfy-browser`) доходят до агента Vendor-а. Claude оставляет SDK-сервер в процессе. Codex получает их как streamable-HTTP MCP endpoint, который worfy main поднимает на localhost с token-ом на Session (второй выпуск).
-- **oneShot(prompt, opts)** — разовый запрос без tool-ов: черновик профиля Project, Terminal AI, проба Limits, где нужна.
+- **oneShot(prompt, opts)** — разовый запрос без tool-ов: черновик профиля Project, Terminal AI, Limits probe, где нужен. Уточнено при review PR #1234: черновику профиля Project `opts` даёт read-only tool-ы и structured output, как сейчас (ADR-0094).
 
 **Codex ведётся через `codex app-server`** — JSON-RPC по stdio.
 - worfy поставляет закреплённую версию бинарника Codex (Apache-2.0, npm-сборки по платформам), как ADR-0008 поставляет native binary Claude.
@@ -37,7 +37,7 @@ Source: [map.md](../map.md), Ticket 01
 - Compatibility suite идёт по каждой версии Codex.
 - Один процесс app-server на Session, как у Claude один процесс на Session. Общий процесс — оптимизация на потом, если вообще.
 
-**Кто идёт через driver.** `SessionRegistry` и каждый прямой вызов SDK: first-run, черновик профиля Project, проба Limits (`limits-usage`), Terminal AI, MCP-серверы. `@anthropic-ai/claude-agent-sdk` импортирует только `src/main/vendors/claude/`. Это держит contract test, так же как `harness-node-only`.
+**Кто идёт через driver.** `SessionRegistry` и каждый прямой вызов SDK: first-run, черновик профиля Project, Limits probe (`limits-usage`), Terminal AI, MCP-серверы. `@anthropic-ai/claude-agent-sdk` импортирует только `src/main/vendors/claude/`. Это держит contract test, так же как `harness-node-only`.
 
 **ADR** — ADR-0094 «Граница Vendor-а». Он записывает, что отменяет `.scratch/worfy-mvp/spec.md:120` («Другие провайдеры моделей (Codex, OpenRouter, Grok)» вне рамок).
 
