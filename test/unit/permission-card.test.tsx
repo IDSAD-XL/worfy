@@ -21,7 +21,8 @@ const request = (overrides: Partial<Request> = {}): Request => ({
   title: null,
   description: 'Push the branch',
   blockedPath: null,
-  alwaysAllow: true,
+  subject: 'Bash',
+  options: [{ id: 'allow', label: 'Allow', kind: 'allow' }, { id: 'always_allow', label: 'Always allow', kind: 'allow_always' }, { id: 'deny', label: 'Deny', kind: 'deny' }],
   suggestions: [],
   ...overrides,
 })
@@ -122,7 +123,7 @@ describe('the permission card', () => {
   })
 
   it('offers no "Always allow" when Claude Code says the request must not', async () => {
-    await renderTranscript([request({ alwaysAllow: false })])
+    await renderTranscript([request({ options: [{ id: 'allow', label: 'Allow', kind: 'allow' }, { id: 'deny', label: 'Deny', kind: 'deny' }] })])
     expect(screen.queryByTestId('permission-always-allow')).toBeNull()
     expect(screen.getByTestId('permission-allow')).toBeTruthy()
   })

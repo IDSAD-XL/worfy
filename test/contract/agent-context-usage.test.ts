@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FakeReleases, fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { SessionRegistry, type QueryFactory, type QueryHandle } from '../../src/main/agent/session'
-import { contextUsageOf, type AgentEvent } from '../../src/shared/agent/events'
+import type { AgentEvent } from '../../src/shared/agent/events'
+import { contextUsageOf } from '../../src/shared/vendors/claude/events'
 
 const scriptsDir = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')
 

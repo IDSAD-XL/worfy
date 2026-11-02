@@ -1,136 +1,56 @@
-// Permission requests of one Session (ticket 21). A new Session runs in bypassPermissions and is
-// never asked; once the user picks another permission mode (ticket 19), Claude Code calls
-// canUseTool before a tool it may not run on its own. The gate turns each call into a
-// `permission_request` event and waits for the user's answer from the transcript (`agent.permission`):
+// Permission requests of one Session (ticket 21), in worfy's neutral terms (worfy-multi-vendor
+// ticket 14, ADR-0094 item 2). A Vendor's driver turns its agent's request into a `PermissionAsk`
+// with the options the Vendor offers — Claude Code's canUseTool becomes Allow / Always allow / Deny
+// (src/main/vendors/claude/session.ts) — and the gate opens it as a `permission_request` event and
+// waits for the user's answer from the transcript (`agent.permission`: the id of an option):
 //
-// - "Allow" (`allow`): this one call runs, with its input unchanged;
-// - "Always allow" (`always_allow`): this call runs, and so does every later call of the same tool
-//   in this Session, without asking; requests for the same tool already open are allowed with it.
-//   The list lives here, in main's memory, on the Session's own
-//   gate: it is never written to a settings file, never given to another Session, and a Session
-//   started again (a restart of worfy, Resume) starts with an empty one. A crash of Claude Code
-//   does not end the Session: the process the next send starts (session.ts, begin()) keeps the
-//   list, as the card's "until this Session ends" says;
-// - "Deny" (`deny`): the call does not run, and the model is told the user refused.
+// - an option of kind `allow` lets this one request through;
+// - an option of kind `allow_always` lets it through, and every later request of the same subject in
+//   this Session without asking (Claude: "Always allow", the subject is the tool); requests of the
+//   same subject already open are answered with it too. The list lives here, in main's memory, on
+//   the Session's own gate: it is never written to a settings file, never given to another Session,
+//   and a Session started again (a restart of worfy, Resume) starts with an empty one. A crash of
+//   the agent does not end the Session: the process the next send starts (session.ts, begin())
+//   keeps the list, as the card's "until this Session ends" says;
+// - an option of kind `deny` refuses it; the driver tells its agent the user refused.
 //
-// No answer ever passes `updatedPermissions`: the suggestions Claude Code offers write to
-// settings files (`localSettings`, `projectSettings`, `userSettings`) or switch the mode
-// (`setMode`), and its own `session` layer may outlive a resume (ticket 06, question 8, not
-// checked), so worfy applies none of them and keeps its own list instead.
-//
-// A request nobody answered is refused when the turn is interrupted, when the Session closes or
-// its Claude Code dies (cancelAll), and when Claude Code aborts it itself (the call's signal).
-//
-// An unattended Session (worfy-daily ticket 02, session-settings.ts) runs in bypassPermissions and
-// is not expected to be asked at all. If Claude Code asks anyway, unattendedCanUseTool refuses at
-// once instead of the gate: no `permission_request`, no `needs_permission`, nothing waits for the UI.
-// Claude Code still asks in bypassPermissions for a few of its own checks (`rm -rf` with a target it
-// cannot resolve, for one). It says which in `decisionReason`, and the refusal hands that reason to
-// the model, so it can rewrite the command, and to the subscribers with the Subagent that asked
-// (`agentID`), so the run's journal says who asked and why.
+// A request nobody answered is cancelled when the turn is interrupted, when the Session closes or
+// its agent dies (cancelAll), and when the Vendor withdraws it itself (the request's signal).
 //
 // Questions with answer options (Claude Code's AskUserQuestion tool, worfy-ui ticket 17) come the
-// same way: Claude Code calls canUseTool for them in every permission mode, bypassPermissions
-// included (src/shared/agent/questions.ts says what was recorded). The gate opens them as a
-// `question_request` instead and waits for `answerQuestion`: the picks become the `answers` of the
-// tool's input — the only way the model learns them; "Decline" refuses the call. A question never
-// offers "Always allow", and "Always allow" given to another tool never answers one. Interrupt,
-// close and Claude Code's own abort cancel it like any request; an unattended Session refuses it
-// at once like any request. An AskUserQuestion input worfy cannot read as questions goes the
-// ordinary way, as a permission request.
+// same way: the gate opens them as a `question_request` instead and waits for `answerQuestion`;
+// "Decline" declines them. A question never offers "Always allow", and an `allow_always` answer to
+// another request never answers one. Interrupt, close and the Vendor's own withdrawal cancel it like
+// any request.
+//
+// An unattended Session (worfy-daily ticket 02, session-settings.ts) never reaches the gate: its
+// driver refuses every request at once (SessionStart.unattended).
 import { randomUUID } from 'node:crypto'
-import type { AgentEvent, PermissionDecision } from '../../shared/agent/events'
-import { ASK_USER_QUESTION, formatAnswers, parseQuestions, type Question, type QuestionPick } from '../../shared/agent/questions'
+import type { AgentEvent, PermissionOption } from '../../shared/agent/events'
+import { formatAnswers, type Question, type QuestionPick } from '../../shared/agent/questions'
+import type { PermissionAsk, PermissionAsker, QuestionAsk, QuestionReply } from '../vendors/session'
 
-/** What the model reads when the user pressed "Deny". */
-export const DENIED_MESSAGE = 'The user denied this tool call in worfy.'
-/** What the model reads when the request was dropped: the turn was interrupted or the Session closed. */
-export const CANCELLED_MESSAGE = 'The permission request was cancelled: the user interrupted the turn or closed the Session.'
+// shortcut: Claude Code's canUseTool types stay importable from here for their importers (options.ts,
+// fake-query.ts, src/main/projects/connect.ts); redo when worfy-multi-vendor ticket 16 moves those
+// files into the Claude driver.
+export type { CanUseToolHandler, PermissionAnswer, PermissionRequestOptions } from './session/types'
 
-/** What the model reads when the user pressed "Decline" on a question. */
-export const QUESTION_DECLINED_MESSAGE = 'The user declined to answer the questions in worfy.'
-
-/** What the model reads when an unattended Session was asked for a permission. */
-export const UNATTENDED_DENIED_MESSAGE =
-  'This Session runs unattended (worfy Autopilot): no one is there to answer a permission request, so the tool call is refused.'
-
-/** The options of canUseTool that worfy reads (SDK 0.3.289, test/fixtures/sdk-messages/can-use-tool.json). */
-export interface PermissionRequestOptions {
-  signal: AbortSignal
-  suggestions?: readonly unknown[] | undefined
-  toolUseID?: string | undefined
-  title?: string | undefined
-  description?: string | undefined
-  blockedPath?: string | undefined
-  /** Claude Code says the request must not offer a lasting "don't ask again". */
-  suppressAlwaysAllowRule?: boolean | undefined
-  /** Why Claude Code asks: which of its checks fired. */
-  decisionReason?: string | undefined
-  /** The Subagent that asks; absent for the Session's own turn. */
-  agentID?: string | undefined
-  /** The tool's card is where the user answers (AskUserQuestion); worfy reads the tool's name instead. */
-  requiresUserInteraction?: boolean | undefined
-}
-
-/** Who asked and why, as an unattended refusal reports them; a field Claude Code did not give is absent. */
-export interface RefusalDetails {
-  agent?: string
-  reason?: string
-}
-
-/** The answer canUseTool gives Claude Code; a subset of the SDK's PermissionResult. */
-export type PermissionAnswer = { behavior: 'allow'; updatedInput: Record<string, unknown> } | { behavior: 'deny'; message: string; interrupt?: boolean }
-
-/** canUseTool as a Session hands it to the query (options.ts passes it to the SDK). */
-export type CanUseToolHandler = (toolName: string, input: Record<string, unknown>, options: PermissionRequestOptions) => Promise<PermissionAnswer>
-
-const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null)
-
-/** What the model reads when an unattended Session refused a request Claude Code gave a reason for. */
-export const unattendedDeniedMessage = (reason: string): string =>
-  `${UNATTENDED_DENIED_MESSAGE}\nrefused because: ${reason}; follow the reason above: give a literal, resolvable target`
-
-/**
- * canUseTool of an unattended Session: refuses every call at once and tells `refused` the tool's
- * name, the message given and who asked and why, so the Session can report the refusal to its
- * subscribers. Without a reason the message is UNATTENDED_DENIED_MESSAGE alone.
- */
-export function unattendedCanUseTool(refused: (toolName: string, message: string, details: RefusalDetails) => void): CanUseToolHandler {
-  return (toolName, _input, options) => {
-    const reason = text(options.decisionReason)
-    const agent = text(options.agentID)
-    const message = reason === null ? UNATTENDED_DENIED_MESSAGE : unattendedDeniedMessage(reason)
-    refused(toolName, message, { ...(agent === null ? {} : { agent }), ...(reason === null ? {} : { reason }) })
-    return Promise.resolve({ behavior: 'deny', message })
-  }
-}
+/** How an open request ended: an option picked, questions answered or declined, or cancelled. */
+type Outcome = { kind: 'option'; id: string } | { kind: 'answers'; answers: Record<string, string> } | { kind: 'declined' } | { kind: 'cancelled' }
 
 interface Pending {
-  toolName: string
-  input: Record<string, unknown>
-  alwaysAllow: boolean
+  subject: string
+  options: readonly PermissionOption[]
   /** The questions of a question request; null for a permission request. */
   questions: Question[] | null
-  /** `answers`: what a question request was answered with. */
-  settle(answer: PermissionAnswer, decision: PermissionDecision | 'cancelled', answers?: Record<string, string>): void
+  settle(outcome: Outcome): void
 }
 
-const QUESTION_OUTCOME = { allow: 'answered', always_allow: 'answered', deny: 'declined', cancelled: 'cancelled' } as const
+const CANCELLED: Outcome = { kind: 'cancelled' }
 
-const CANCELLED: PermissionAnswer = { behavior: 'deny', message: CANCELLED_MESSAGE, interrupt: true }
-
-/** What a suggestion is and where it would write; for display only. */
-function suggestionSummaries(suggestions: readonly unknown[] | undefined): { type: string; destination: string | null }[] {
-  return (suggestions ?? []).flatMap((each) => {
-    if (typeof each !== 'object' || each === null) return []
-    const { type, destination } = each as Record<string, unknown>
-    return typeof type === 'string' ? [{ type, destination: typeof destination === 'string' ? destination : null }] : []
-  })
-}
-
-export class PermissionGate {
-  /** Tools the user answered "Always allow" in this Session. */
-  private readonly allowed = new Set<string>()
+export class PermissionGate implements PermissionAsker {
+  /** Subjects the user answered with an `allow_always` option in this Session, and that option's id. */
+  private readonly remembered = new Map<string, string>()
   private readonly open = new Map<string, Pending>()
 
   /**
@@ -147,74 +67,90 @@ export class PermissionGate {
     return this.open.size
   }
 
-  /** The tools "Always allow" covers in this Session. */
+  /** The subjects (Claude: tools) an `allow_always` answer covers in this Session. */
   alwaysAllowed(): string[] {
-    return [...this.allowed]
+    return [...this.remembered.keys()]
   }
 
-  readonly canUseTool: CanUseToolHandler = (toolName, input, options) => {
-    const questions = toolName === ASK_USER_QUESTION ? parseQuestions(input) : null
-    // A question waits for its answer whatever was allowed: allowing it as it is would give the model no answer.
-    if (questions === null && this.allowed.has(toolName)) return Promise.resolve({ behavior: 'allow', updatedInput: input })
-    if (options.signal.aborted) return Promise.resolve(CANCELLED)
+  readonly ask = (request: PermissionAsk): Promise<string | null> => {
+    const remembered = this.remembered.get(request.subject)
+    if (remembered !== undefined) return Promise.resolve(remembered)
+    const { signal } = request
+    if (signal.aborted) return Promise.resolve(null)
     const requestId = randomUUID()
-    const alwaysAllow = questions === null && options.suppressAlwaysAllowRule !== true
-    return new Promise<PermissionAnswer>((resolve) => {
-      const onAbort = () => this.settle(requestId, CANCELLED, 'cancelled')
+    return new Promise<string | null>((resolve) => {
+      const onAbort = () => this.settle(requestId, CANCELLED)
       this.open.set(requestId, {
-        toolName,
-        input,
-        alwaysAllow,
-        questions,
-        settle: (answer, decision, answers) => {
-          options.signal.removeEventListener('abort', onAbort)
-          this.emit(
-            questions === null
-              ? { type: 'permission_resolved', requestId, decision }
-              : { type: 'question_resolved', requestId, outcome: QUESTION_OUTCOME[decision], answers: answers ?? {} },
-          )
-          resolve(answer)
+        subject: request.subject,
+        options: request.options,
+        questions: null,
+        settle: (outcome) => {
+          signal.removeEventListener('abort', onAbort)
+          const picked = outcome.kind === 'option' ? outcome.id : null
+          this.emit({ type: 'permission_resolved', requestId, decision: picked ?? 'cancelled' })
+          resolve(picked)
         },
       })
-      options.signal.addEventListener('abort', onAbort, { once: true })
-      if (questions !== null) {
-        this.emit({ type: 'question_request', requestId, toolUseId: text(options.toolUseID), questions })
-        this.changed(this.open.size)
-        return
-      }
+      signal.addEventListener('abort', onAbort, { once: true })
       this.emit({
         type: 'permission_request',
         requestId,
-        toolName,
-        toolUseId: text(options.toolUseID),
-        input,
-        title: text(options.title),
-        description: text(options.description),
-        blockedPath: text(options.blockedPath),
-        alwaysAllow,
-        suggestions: suggestionSummaries(options.suggestions),
+        subject: request.subject,
+        toolName: request.toolName,
+        toolUseId: request.toolUseId,
+        input: request.input,
+        title: request.title,
+        description: request.description,
+        blockedPath: request.blockedPath,
+        suggestions: request.suggestions,
+        options: request.options.map((option) => ({ ...option })),
       })
       this.changed(this.open.size)
     })
   }
 
+  readonly askQuestions = (request: QuestionAsk): Promise<QuestionReply> => {
+    const { signal, questions } = request
+    if (signal.aborted) return Promise.resolve({ outcome: 'cancelled' })
+    const requestId = randomUUID()
+    return new Promise<QuestionReply>((resolve) => {
+      const onAbort = () => this.settle(requestId, CANCELLED)
+      this.open.set(requestId, {
+        subject: '',
+        options: [],
+        questions,
+        settle: (outcome) => {
+          signal.removeEventListener('abort', onAbort)
+          const reply: QuestionReply =
+            outcome.kind === 'answers' ? { outcome: 'answered', answers: outcome.answers } : outcome.kind === 'declined' ? { outcome: 'declined' } : { outcome: 'cancelled' }
+          this.emit({ type: 'question_resolved', requestId, outcome: reply.outcome, answers: reply.outcome === 'answered' ? reply.answers : {} })
+          resolve(reply)
+        },
+      })
+      signal.addEventListener('abort', onAbort, { once: true })
+      this.emit({ type: 'question_request', requestId, toolUseId: request.toolUseId, questions })
+      this.changed(this.open.size)
+    })
+  }
+
   /**
-   * The user's answer to an open request; false when the request is no longer open (answered,
-   * cancelled, or never made). "Always allow" on a request that does not offer it throws.
+   * The user's answer to an open request: the id of one of its options. False when the request is
+   * no longer open (answered, cancelled, or never made). An option the request does not offer
+   * throws, and so does a question, leaving the request open.
    */
-  answer(requestId: string, decision: PermissionDecision): boolean {
+  answer(requestId: string, optionId: string): boolean {
     const pending = this.open.get(requestId)
     if (pending === undefined) return false
     if (pending.questions !== null) throw new Error('This request is a question: answer it with its options')
-    if (decision === 'always_allow' && !pending.alwaysAllow) throw new Error('This request does not offer "Always allow"')
-    const answer: PermissionAnswer = decision === 'deny' ? { behavior: 'deny', message: DENIED_MESSAGE } : { behavior: 'allow', updatedInput: pending.input }
-    this.settle(requestId, answer, decision)
-    if (decision === 'always_allow') {
-      this.allowed.add(pending.toolName)
-      // Other requests for the same tool already open (parallel Subagents) are covered too: a new
-      // call of the tool would go through without asking, so these do not wait for an answer either.
+    const option = pending.options.find((each) => each.id === optionId)
+    if (option === undefined) throw new Error(`This request does not offer "${optionId}"`)
+    this.settle(requestId, { kind: 'option', id: optionId })
+    if (option.kind === 'allow_always') {
+      this.remembered.set(pending.subject, optionId)
+      // Other requests of the same subject already open (parallel Subagents) are covered too: a new
+      // request of it would go through without asking, so these do not wait for an answer either.
       for (const [otherId, other] of [...this.open]) {
-        if (other.toolName === pending.toolName && other.questions === null) this.settle(otherId, { behavior: 'allow', updatedInput: other.input }, 'always_allow')
+        if (other.questions === null && other.subject === pending.subject) this.settle(otherId, { kind: 'option', id: optionId })
       }
     }
     return true
@@ -231,24 +167,23 @@ export class PermissionGate {
     if (pending === undefined) return false
     if (pending.questions === null) throw new Error('This request is not a question')
     if (picks === null) {
-      this.settle(requestId, { behavior: 'deny', message: QUESTION_DECLINED_MESSAGE }, 'deny')
+      this.settle(requestId, { kind: 'declined' })
       return true
     }
-    const answers = formatAnswers(pending.questions, picks)
-    this.settle(requestId, { behavior: 'allow', updatedInput: { ...pending.input, answers } }, 'allow', answers)
+    this.settle(requestId, { kind: 'answers', answers: formatAnswers(pending.questions, picks) })
     return true
   }
 
-  /** Refuses every open request: the turn was interrupted, or the Session is closing or died. */
+  /** Cancels every open request: the turn was interrupted, or the Session is closing or died. */
   cancelAll(): void {
-    for (const requestId of [...this.open.keys()]) this.settle(requestId, CANCELLED, 'cancelled')
+    for (const requestId of [...this.open.keys()]) this.settle(requestId, CANCELLED)
   }
 
-  private settle(requestId: string, answer: PermissionAnswer, decision: PermissionDecision | 'cancelled', answers?: Record<string, string>): void {
+  private settle(requestId: string, outcome: Outcome): void {
     const pending = this.open.get(requestId)
     if (pending === undefined) return
     this.open.delete(requestId)
-    pending.settle(answer, decision, answers)
+    pending.settle(outcome)
     this.changed(this.open.size)
   }
 }

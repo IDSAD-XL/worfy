@@ -1,7 +1,8 @@
 // Limits from rate_limit_event messages and the status line bridge file:
 // src/shared/agent/limits.ts merges them per window and turns the result into the two bars.
 import { describe, expect, it } from 'vitest'
-import { agentEvent, sdkMessageToEvents } from '../../src/shared/agent/events'
+import { agentEvent } from '../../src/shared/agent/events'
+import { sdkMessageToEvents } from '../../src/shared/vendors/claude/events'
 import {
   emptyLimits,
   limitBars,

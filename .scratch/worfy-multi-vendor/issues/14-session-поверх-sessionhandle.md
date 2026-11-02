@@ -1,7 +1,7 @@
 # 14 — Session поверх SessionHandle
 
 Type: task
-Status: open
+Status: claimed 2026-11-02T10:12Z
 Blocked by: 11, 13
 Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтральные события), «Риски», п. 4; решение 06 ([06-граница-vendor.md](06-граница-vendor.md), часть session); [ADR-0094](../../../docs/adr/0094-vendor-seam.md), «Последствия»
 

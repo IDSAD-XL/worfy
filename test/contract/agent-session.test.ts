@@ -433,10 +433,11 @@ describe('agent channels on the fake agent', () => {
     const h = await harness('turn')
     const id = await h.start()
     await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
-    // Feed one message the fake script does not have, through the same path a real one takes.
-    const session = h.registry.get(id) as unknown as { handle(message: unknown): void }
-    session.handle({ type: 'brand_new_message', session_id: 'x' })
-    expect(h.eventsOf([id]).at(-1)).toEqual({ type: 'unknown', sdkType: 'brand_new_message' })
+    // Feed one message the fake script does not have, through the same path a real one takes: the
+    // Claude driver's handle (src/main/vendors/claude/session.ts), whose events the Session reads.
+    const session = h.registry.get(id) as unknown as { run: { handle: { observe(message: unknown): void } } }
+    session.run.handle.observe({ type: 'brand_new_message', session_id: 'x' })
+    await vi.waitFor(() => expect(h.eventsOf([id]).at(-1)).toEqual({ type: 'unknown', sdkType: 'brand_new_message' }))
     await h.ok('agent.send', { sessionId: id, text: 'hello' })
     await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'result')).toHaveLength(1))
   })

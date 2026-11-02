@@ -15,7 +15,6 @@ import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import { app } from 'electron'
 import { agentEnv, type Env } from './env'
 import { fakeQueryFactory } from './fake-query'
-import { appLimits } from './limits'
 import { sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer } from './options'
 import { currentHarness } from '../harness/locate'
 import { browserForSession, exposeBrowserToolsToFakeAgent, type BrowserResolver, type BrowserSession } from '../mcp/browser-server'
@@ -197,9 +196,9 @@ let appRegistry: SessionRegistry | null = null
  */
 export function sharedRegistry(): SessionRegistry {
   if (appRegistry === null) {
-    // Every Session's rate_limit_event feeds the Limits (ticket 22), the fake agent's too. The
-    // factory is the Claude driver's (src/main/vendors/claude/session.ts): queryFactoryFromEnv.
-    const registry = new SessionRegistry(appLimits().observe(vendorDriver('claude').session.queryFactory()))
+    // The Sessions are the Claude driver's (src/main/vendors/claude/session.ts): queryFactoryFromEnv,
+    // with every Session's rate_limit_event feeding the Limits (ticket 22), the fake agent's too.
+    const registry = new SessionRegistry(vendorDriver('claude').session)
     app.on('will-quit', () => registry.closeAll())
     appRegistry = registry
   }

@@ -1,17 +1,20 @@
 import { useMemo, useState } from 'react'
-import type { AgentEvent, PermissionDecision } from '../../shared/agent/events'
+import type { AgentEvent, PermissionOption, PermissionOptionKind } from '../../shared/agent/events'
 import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
 import { useSessionLog } from './store'
 
-// A permission request in the transcript (ticket 21, BRIEF.md Screen 2): the tool, its input — a
-// Bash command monospaced and whole — and Allow / Always allow / Deny. The answer goes to main
-// with `agent.permission`; once the request is resolved (answered here, or refused by Interrupt or
-// by closing the Session) the card says how and its buttons are gone. "Always allow" covers the
-// tool until the end of this Session only (src/main/agent/permissions.ts).
+// A permission request in the transcript (ticket 21, BRIEF.md Screen 2): what is asked about, its
+// input — a Bash command monospaced and whole — and a button per option the Vendor offers, in its
+// order (worfy-multi-vendor ticket 14; Claude: Allow / Always allow / Deny). The answer — the
+// option's id — goes to main with `agent.permission`; once the request is resolved (answered here,
+// or refused by Interrupt or by closing the Session) the card says how and its buttons are gone. An
+// option of kind `allow_always` covers the subject until the end of this Session only
+// (src/main/agent/permissions.ts).
 
 export type PermissionRequestEvent = Extract<AgentEvent, { type: 'permission_request' }>
+/** The id of the option picked, or `cancelled`. */
 type Resolution = Extract<AgentEvent, { type: 'permission_resolved' }>['decision']
 
 export interface PermissionCardProps {
@@ -20,11 +23,26 @@ export interface PermissionCardProps {
   sessionId: string | null
 }
 
-const RESOLVED: Record<Resolution, string> = {
+/** What the card says once an option of each kind was picked. */
+const RESOLVED: Record<PermissionOptionKind, string> = {
   allow: 'Allowed',
-  always_allow: 'Always allowed in this Session',
+  allow_always: 'Always allowed in this Session',
   deny: 'Denied',
-  cancelled: 'Cancelled',
+}
+
+/** How a button of each kind looks, and its test id. */
+const BUTTON: Record<PermissionOptionKind, { className: string; testId: string }> = {
+  // The primary action's look (theme/primitives.tsx, PrimaryButton).
+  allow: { className: 'w-primary', testId: 'permission-allow' },
+  allow_always: { className: 'w-permission__button', testId: 'permission-always-allow' },
+  deny: { className: 'w-permission__button w-permission__button--deny', testId: 'permission-deny' },
+}
+
+/** What the card says of a resolution: by the kind of the option picked, its label for an option it does not know. */
+function resolutionText(options: readonly PermissionOption[], resolution: Resolution): string {
+  if (resolution === 'cancelled') return 'Cancelled'
+  const option = options.find((each) => each.id === resolution)
+  return option === undefined ? resolution : RESOLVED[option.kind]
 }
 
 /** What a request's input shows: the command of Bash, the input as JSON for other tools. */
@@ -57,11 +75,11 @@ export function PermissionCard({ request, sessionId }: PermissionCardProps) {
   const description = request.description ?? request.title
   const bash = request.toolName === 'Bash'
 
-  const answer = async (decision: PermissionDecision): Promise<void> => {
+  const answer = async (optionId: string): Promise<void> => {
     if (sessionId === null) return
     setSending(true)
     setProblem(null)
-    const result = await invoke('agent.permission', { sessionId, requestId: request.requestId, decision })
+    const result = await invoke('agent.permission', { sessionId, requestId: request.requestId, decision: optionId })
     setSending(false)
     if (!result.ok) setProblem(result.error)
     else if (!result.value.answered) setProblem('This request is no longer open')
@@ -76,7 +94,7 @@ export function PermissionCard({ request, sessionId }: PermissionCardProps) {
           <div className="w-permission__head">
             <span className="w-permission__title">Permission request</span>
             <span className="w-permission__tool w-mono" data-testid="permission-tool">
-              {request.toolName}
+              {request.subject}
             </span>
           </div>
           {description !== null ? <div className="w-permission__description">{description}</div> : null}
@@ -90,25 +108,18 @@ export function PermissionCard({ request, sessionId }: PermissionCardProps) {
           ) : null}
           {open ? (
             <div className="w-permission__actions">
-              {/* The primary action's look (theme/primitives.tsx, PrimaryButton), with a test id. */}
-              <button type="button" className="w-primary" data-testid="permission-allow" disabled={sending} {...writeAction(readOnly, () => void answer('allow'))}>
-                Allow
-              </button>
-              {request.alwaysAllow ? (
-                <button type="button" className="w-permission__button" data-testid="permission-always-allow"
+              {request.options.map((option) => (
+                <button key={option.id} type="button" className={BUTTON[option.kind].className} data-testid={BUTTON[option.kind].testId} data-option-id={option.id}
                   disabled={sending}
-                  {...writeAction(readOnly, () => void answer('always_allow'), `Allow ${request.toolName} until this Session ends`)}
+                  {...writeAction(readOnly, () => void answer(option.id), option.kind === 'allow_always' ? `Allow ${request.subject} until this Session ends` : undefined)}
                 >
-                  Always allow
+                  {option.label}
                 </button>
-              ) : null}
-              <button type="button" className="w-permission__button w-permission__button--deny" data-testid="permission-deny" disabled={sending} {...writeAction(readOnly, () => void answer('deny'))}>
-                Deny
-              </button>
+              ))}
             </div>
           ) : (
             <div className="w-permission__resolved w-mono" data-testid="permission-resolution">
-              {resolution === null ? 'Not answered' : RESOLVED[resolution]}
+              {resolution === null ? 'Not answered' : resolutionText(request.options, resolution)}
             </div>
           )}
           {problem !== null ? (

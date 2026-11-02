@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { sdkMessageToEvents, type AgentEvent, type AgentEventEnvelope } from '../../src/shared/agent/events'
+import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
+import { sdkMessageToEvents } from '../../src/shared/vendors/claude/events'
 import { mainThreadEvents, parseTranscriptLines } from '../../src/shared/transcript/parse'
 import { foldTranscript } from '../../src/renderer/session/fold'
 import { acceptAgentEvent, joinPastAndLive, useSessionLogs } from '../../src/renderer/session/store'

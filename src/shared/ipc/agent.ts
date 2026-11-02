@@ -24,7 +24,7 @@
 import { z } from 'zod'
 import { attachmentSchema, attachmentSourceSchema, attachResultSchema, MAX_ATTACHMENTS } from '../agent/attachments'
 import { slashCommandSchema } from '../agent/commands'
-import { agentEventEnvelope, permissionDecisionSchema, queueSnapshotSchema, sessionState } from '../agent/events'
+import { agentEventEnvelope, permissionOptionIdSchema, queueSnapshotSchema, sessionState } from '../agent/events'
 import { questionPickSchema } from '../agent/questions'
 import { modelOptionSchema, sessionSettingsSchema, settingsChangeSchema } from '../agent/settings'
 import { absolutePathSchema } from '../paths'
@@ -101,13 +101,14 @@ export const agentQueueRemove = invokeChannel('agent.queueRemove', z.object({ se
 export const agentQueueSend = invokeChannel('agent.queueSend', z.object({ sessionId }), z.void(), 'project', 'write')
 
 /**
- * Answers an open permission request: "Allow", "Always allow" (this tool, for the rest of this
- * Session) or "Deny". `answered` is false when the request is no longer open (already answered, or
- * refused by Interrupt or by closing the Session).
+ * Answers an open permission request with one of the options its `permission_request` offered
+ * (`decision`: the option's id; Claude's are "Allow", "Always allow" — this tool, for the rest of
+ * this Session — and "Deny"). An id the request does not offer is refused. `answered` is false when
+ * the request is no longer open (already answered, or refused by Interrupt or by closing the Session).
  */
 export const agentPermission = invokeChannel(
   'agent.permission',
-  z.object({ sessionId, requestId: z.string().min(1), decision: permissionDecisionSchema }),
+  z.object({ sessionId, requestId: z.string().min(1), decision: permissionOptionIdSchema }),
   z.object({ answered: z.boolean() }),
   'project',
   'write',

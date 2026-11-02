@@ -12,7 +12,8 @@ import { join } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 import { questionResultText } from '../../src/main/agent/fake-query'
-import { PermissionGate, QUESTION_DECLINED_MESSAGE, type PermissionAnswer } from '../../src/main/agent/permissions'
+import { PermissionGate, type PermissionAnswer } from '../../src/main/agent/permissions'
+import { claudeCanUseTool, QUESTION_DECLINED_MESSAGE } from '../../src/main/vendors/claude/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { QuestionPick } from '../../src/shared/agent/questions'
 import { claudeEnv, startMessagesApiStandIn, type RecordedToolResult } from './messages-api-stand-in'
@@ -69,7 +70,7 @@ async function ask(mode: 'default' | 'acceptEdits' | 'bypassPermissions', questi
       settingSources: [],
       model: 'claude-sonnet-4-5',
       canUseTool: async (toolName, input, options) => {
-        const answer = await gate.canUseTool(toolName, input, options)
+        const answer = await claudeCanUseTool(gate)(toolName, input, options)
         given.push(answer)
         return answer
       },
