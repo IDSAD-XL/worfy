@@ -1,7 +1,8 @@
 # 19 — Клиент app-server Codex
 
 Type: task
-Status: claimed 2026-11-02T19:11Z
+Status: done 2026-11-02T21:37Z
+PR: #1256
 Blocked by: 17, 18
 Source: [spec.md](../spec.md), «Codex: бинарник и совместимость» (процесс на Session, без experimental), «Windows» (процесс); решение 06 ([06-граница-vendor.md](06-граница-vendor.md)); Ticket 02 ([02-codex-управление-сессией.md](02-codex-управление-сессией.md), «Как встраивать», «Главный риск»); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
 
