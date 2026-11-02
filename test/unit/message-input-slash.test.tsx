@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Attachment, AttachResult } from '../../src/shared/agent/attachments'
 import type { SlashCommand } from '../../src/shared/agent/commands'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
-import { matchCommands, slashQuery } from '../../src/renderer/session/SlashMenu'
+import { matchCommands, putCommand, slashToken } from '../../src/renderer/session/SlashMenu'
 import type { MessageInputHandle, OutgoingMessage } from '../../src/renderer/session/MessageInput'
 
 const COMMANDS: SlashCommand[] = [
@@ -69,19 +69,72 @@ async function mount(onSend: (message: OutgoingMessage) => Promise<string | null
     })
     return free
   }
-  return { field, send, interrupt, type, key }
+  /** Puts the caret at `at`, as an arrow key or a click does, and lets the field read it. */
+  const caretTo = async (at: number, how: 'key' | 'click' = 'key') => {
+    await act(async () => {
+      field.setSelectionRange(at, at)
+      if (how === 'key') fireEvent.keyUp(field, { key: 'ArrowLeft' })
+      else fireEvent.click(field)
+    })
+  }
+  /** Changes the text as a key in the middle of it does: the caret stays where the edit was, not at the end. */
+  const typeAt = async (value: string, at: number) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(field, value)
+      field.setSelectionRange(at, at)
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  /** Selects `from`..`to` in the field, as a double click on a word or Shift with an arrow does. */
+  const select = async (from: number, to: number) => {
+    await act(async () => {
+      field.setSelectionRange(from, to)
+      fireEvent.keyUp(field, { key: 'ArrowRight', shiftKey: true })
+    })
+  }
+  return { field, send, interrupt, type, key, caretTo, typeAt, select }
 }
 
 const items = () => screen.queryAllByTestId('slash-item').map((item) => item.getAttribute('data-name'))
 const selected = () => screen.getAllByTestId('slash-item').find((item) => item.getAttribute('aria-selected') === 'true')?.getAttribute('data-name')
 
-describe('slashQuery and matchCommands', () => {
+describe('slashToken, putCommand and matchCommands', () => {
   it('reads the command name only while it is being typed', () => {
-    expect(slashQuery('/')).toBe('')
-    expect(slashQuery('/sh')).toBe('sh')
-    expect(slashQuery('/ship-ticket ')).toBeNull()
-    expect(slashQuery('say /sh')).toBeNull()
-    expect(slashQuery('')).toBeNull()
+    expect(slashToken('/', 1)).toEqual({ start: 0, end: 1, query: '' })
+    expect(slashToken('/sh', 3)).toEqual({ start: 0, end: 3, query: 'sh' })
+    expect(slashToken('/ship-ticket ', 13)).toBeNull()
+    expect(slashToken('', 0)).toBeNull()
+  })
+
+  it('finds the command word at the caret: at the start, after a space or a line break, never inside a word', () => {
+    expect(slashToken('say /sh', 7)).toEqual({ start: 4, end: 7, query: 'sh' })
+    expect(slashToken('say\t/sh', 7)).toEqual({ start: 4, end: 7, query: 'sh' })
+    expect(slashToken('first line\n/ep', 14)).toEqual({ start: 11, end: 14, query: 'ep' })
+    expect(slashToken('a/b', 3)).toBeNull()
+    expect(slashToken('see src/foo', 11)).toBeNull()
+    expect(slashToken('say/', 4)).toBeNull()
+  })
+
+  it('reads the word at the caret, not to the end of the text: the word runs on to the next space', () => {
+    // The caret in the middle of the text: the word before it counts, the text after it does not.
+    expect(slashToken('fix /sh then more', 7)).toEqual({ start: 4, end: 7, query: 'sh' })
+    expect(slashToken('fix /sh then more', 17)).toBeNull()
+    // The caret inside the word: the filter is the whole word, which ends at the space.
+    expect(slashToken('/ship-ticket now', 3)).toEqual({ start: 0, end: 12, query: 'ship-ticket' })
+    expect(slashToken('/cost', 3)).toEqual({ start: 0, end: 5, query: 'cost' })
+    expect(slashToken('/cost', 1)).toEqual({ start: 0, end: 5, query: 'cost' })
+    // A space between the slash and the caret: no command word.
+    expect(slashToken('/sh x', 5)).toBeNull()
+    expect(slashToken('/sh ', 4)).toBeNull()
+    // A caret past the end is read at the end.
+    expect(slashToken('/sh', 10)).toEqual({ start: 0, end: 3, query: 'sh' })
+  })
+
+  it('putCommand replaces only the word and puts the caret right after the space', () => {
+    expect(putCommand('say /sh', { start: 4, end: 7, query: 'sh' }, 'ship-ticket')).toEqual({ text: 'say /ship-ticket ', caret: 17 })
+    expect(putCommand('fix /sh then', { start: 4, end: 7, query: 'sh' }, 'ship-ticket')).toEqual({ text: 'fix /ship-ticket then', caret: 17 })
+    expect(putCommand('/sh\nnext', { start: 0, end: 3, query: 'sh' }, 'ship-ticket')).toEqual({ text: '/ship-ticket \nnext', caret: 13 })
+    expect(putCommand('/ship-ticket', { start: 0, end: 12, query: 'sh' }, 'ship-ticket')).toEqual({ text: '/ship-ticket ', caret: 13 })
   })
 
   it('lists names that start with the query first, then names that hold it, ignoring case', () => {
@@ -205,11 +258,159 @@ describe('the slash menu', () => {
     await vi.waitFor(() => expect(items()).toEqual(['compact']))
   })
 
-  it('stays closed without a match, and when the slash is not at the start', async () => {
+  it('stays closed without a match, and when the slash is inside a word', async () => {
     const { type } = await mount()
     await type('/zzz')
-    await type('hello /sh')
+    await type('hello a/sh')
+    await type('cd /Users/x')
+    await new Promise((settle) => setTimeout(settle, 20))
     expect(screen.queryByTestId('slash-menu')).toBeNull()
+  })
+
+  it('opens after text; Return puts the command in place of the word and keeps the text before it', async () => {
+    const { field, type, key, send } = await mount()
+    await type('please run /sh')
+    await vi.waitFor(() => expect(items()).toEqual(['ship-ticket', 'reship']))
+    await key('Enter')
+    expect(field.value).toBe('please run /ship-ticket ')
+    expect(field.selectionStart).toBe('please run /ship-ticket '.length)
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('follows the caret: a word in the middle of the text opens the menu; a pick keeps the text after it', async () => {
+    const { field, type, key, caretTo } = await mount()
+    await type('fix /ep then the rest')
+    // The caret at the end stands in "rest": no menu.
+    await new Promise((settle) => setTimeout(settle, 20))
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    await caretTo(7)
+    await vi.waitFor(() => expect(items()).toEqual(['epic-wave']))
+    await key('Tab')
+    expect(field.value).toBe('fix /epic-wave then the rest')
+    expect(field.selectionStart).toBe('fix /epic-wave '.length)
+    await vi.waitFor(() => expect(screen.queryByTestId('slash-menu')).toBeNull())
+  })
+
+  it('a text the field gets back from a failed send has the caret at its end: the menu follows it there', async () => {
+    const { field, type, caretTo } = await mount(() => Promise.resolve('Session s is closed'))
+    await type('fix /ep then')
+    await caretTo(7)
+    await vi.waitFor(() => expect(items()).toEqual(['epic-wave']))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('input-send'))
+    })
+    expect(field.value).toBe('fix /ep then')
+    expect(field.selectionStart).toBe(12)
+    await new Promise((settle) => setTimeout(settle, 20))
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+  })
+
+  it('picking the command a whole word already names leaves the text and moves the caret past its space', async () => {
+    const { field, type, key, caretTo } = await mount()
+    await type('/compact now')
+    // The field has the focus, as when the user types: focusing it again tells nothing.
+    await act(async () => {
+      field.focus()
+    })
+    await caretTo(3)
+    await vi.waitFor(() => expect(items()).toEqual(['compact']))
+    await key('Tab')
+    expect(field.value).toBe('/compact now')
+    expect(field.selectionStart).toBe(9)
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+  })
+
+  it('a caret moved into a finished command filters by the whole word: Return keeps that command', async () => {
+    const { field, type, key, caretTo, send } = await mount()
+    await type('/reship')
+    await caretTo(1)
+    // By the part before the caret (nothing) every command would match, /compact first.
+    await vi.waitFor(() => expect(items()).toEqual(['reship']))
+    await key('Enter')
+    expect(field.value).toBe('/reship ')
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('a selection in the field keeps the menu closed and Return sends; a caret in the word opens it again', async () => {
+    const { field, type, key, caretTo, select, send } = await mount()
+    await type('/reship')
+    await vi.waitFor(() => expect(items()).toEqual(['reship']))
+    // A double click selects the word after the slash.
+    await select(1, 7)
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    expect(await key('Enter')).toBe(false)
+    expect(send).toHaveBeenCalledWith({ text: '/reship', attachments: [] })
+    await type('/reship')
+    await select(1, 7)
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    // The selection did not dismiss the word: a caret back in it opens the menu.
+    await caretTo(4)
+    await vi.waitFor(() => expect(items()).toEqual(['reship']))
+    expect(field.value).toBe('/reship')
+  })
+
+  it('a text given back by a failed send ends the selection made before it: the caret at its end opens the menu', async () => {
+    const { field, type, select } = await mount(() => Promise.resolve('Session s is closed'))
+    await type('/reship')
+    await select(1, 4)
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('input-send'))
+    })
+    expect(field.value).toBe('/reship')
+    expect([field.selectionStart, field.selectionEnd]).toEqual([7, 7])
+    await vi.waitFor(() => expect(items()).toEqual(['reship']))
+  })
+
+  it('typing over a selection reads the caret the edit leaves', async () => {
+    const { type, typeAt, select } = await mount()
+    await type('say hello')
+    await select(4, 9)
+    await typeAt('say /e', 6)
+    await vi.waitFor(() => expect(items()).toEqual(['epic-wave', 'ship-ticket', 'reship']))
+  })
+
+  it('a click in the field reads the caret too', async () => {
+    const { field, type, caretTo } = await mount()
+    await type('/co and more')
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    await caretTo(3, 'click')
+    await vi.waitFor(() => expect(items()).toEqual(['compact']))
+    await caretTo(field.value.length, 'click')
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+  })
+
+  it('Backspace inside a dismissed word in the middle of the text keeps the menu closed', async () => {
+    const { type, key, caretTo, typeAt } = await mount()
+    await type('one /ep two')
+    await caretTo(7)
+    await vi.waitFor(() => expect(items()).toEqual(['epic-wave']))
+    await key('Escape')
+    await typeAt('one /e two', 6)
+    await new Promise((settle) => setTimeout(settle, 20))
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+  })
+
+  it('Escape holds while the caret stays in the word; leaving it and coming back, or another word, opens the menu again', async () => {
+    const { type, key, caretTo } = await mount()
+    await type('one /sh two /ep')
+    await vi.waitFor(() => expect(items()).toEqual(['epic-wave']))
+    await key('Escape')
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    // Inside the same word, typed on or with the caret moved, the menu stays closed.
+    await caretTo(14)
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    await type('one /sh two /e')
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    // Another word opens it.
+    await caretTo(7)
+    await vi.waitFor(() => expect(items()).toEqual(['ship-ticket', 'reship']))
+    // Out of any word, then back into the dismissed one: it opens again.
+    await caretTo(9)
+    expect(screen.queryByTestId('slash-menu')).toBeNull()
+    await caretTo(14)
+    await vi.waitFor(() => expect(items()).toEqual(['epic-wave', 'ship-ticket', 'reship']))
   })
 })
 

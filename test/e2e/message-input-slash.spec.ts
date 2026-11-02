@@ -112,6 +112,22 @@ test('the slash menu lists the skills, Tab puts one in; a pasted image, a droppe
     await expect(menu).toHaveCount(0)
     await expect(field).toHaveValue('/ep')
 
+    // Polish ticket 49: a `/` after text opens the menu too; Return puts the command in after the text.
+    await field.fill('fix the bug')
+    await field.pressSequentially(' /sh')
+    await expect(menu.getByTestId('slash-item')).toHaveText([/\/ship-ticket/])
+    await field.press('Enter')
+    await expect(field).toHaveValue('fix the bug /ship-ticket ')
+    await expect(menu).toHaveCount(0)
+    // The menu follows the caret: ← into a command word in the middle opens it, Escape closes it.
+    await field.fill('fix /ep now')
+    await expect(menu).toHaveCount(0)
+    for (let step = 0; step < 4; step++) await field.press('ArrowLeft')
+    await expect(menu.getByTestId('slash-item')).toHaveText([/\/epic-wave/])
+    await field.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(field).toHaveValue('fix /ep now')
+
     // A pasted image becomes a chip and goes as an image block.
     await field.fill('what is on this screenshot?')
     await window.evaluate(`(() => {

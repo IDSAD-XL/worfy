@@ -19,7 +19,8 @@ import { useSlashMenu } from './SlashMenu'
 // come from composer/ (composer/index.ts): the model, effort and permission pickers and the queue
 // chip (ticket 19).
 //
-// Ticket 20: `/` at the start of the field opens the slash menu (SlashMenu.tsx). Files come in by
+// Ticket 20: `/` at the start of the field or after a space opens the slash menu (SlashMenu.tsx;
+// anywhere in the field since polish ticket 49: the menu follows the caret). Files come in by
 // "+" (main's file dialog), by dropping them on the chat (the Session view hands them over with
 // `drop`, chat-drop.tsx; worfy-ui ticket 28), and by pasting an image; main checks each
 // one (`agent.attach`, src/main/agent/attachments.ts) and the field shows it as a chip until the
@@ -141,6 +142,11 @@ export function AttachmentChips({ chips, onRemove }: { chips: readonly Chip[]; o
 
 export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSend, onInterrupt, ref }: MessageInputProps) {
   const [text, setText] = useState('')
+  // The field's selection, as the textarea reports it: a caret when both ends meet (the slash menu follows it).
+  const [caret, setCaret] = useState(0)
+  const [caretEnd, setCaretEnd] = useState(0)
+  // Where the caret goes once the field shows its next text: after a command picked in the slash menu.
+  const placeCaret = useRef<number | null>(null)
   // Where ↑/↓ are in the history; null while the field holds the user's own text.
   const [at, setAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -167,6 +173,25 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
     if (!element) return
     element.style.height = 'auto'
     element.style.height = `${Math.min(element.scrollHeight, MAX_HEIGHT)}px`
+  }, [text])
+
+  /** Reads the selection from the field: after a click, a key or a selection change moved it. */
+  const readCaret = (element: HTMLTextAreaElement | null = field.current) => {
+    if (!element) return
+    setCaret(element.selectionStart)
+    setCaretEnd(element.selectionEnd)
+  }
+
+  // A text set from outside the field (the history, a ready text, a failed send) moves the caret to
+  // its end, and a picked command puts it after the command: either way, read it again here.
+  useLayoutEffect(() => {
+    const element = field.current
+    if (!element) return
+    const place = placeCaret.current
+    placeCaret.current = null
+    if (place !== null) element.setSelectionRange(place, place)
+    setCaret(element.selectionStart)
+    setCaretEnd(element.selectionEnd)
   }, [text])
 
   const edit = (value: string) => {
@@ -203,8 +228,13 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
   const slash = useSlashMenu(
     sessionId,
     text,
-    (value) => {
+    { start: caret, end: caretEnd },
+    (value, position) => {
+      // The same text (the command was there whole, a space after it) renders nothing new: the caret moves now.
+      if (value === text) field.current?.setSelectionRange(position, position)
+      else placeCaret.current = position
       edit(value)
+      setCaret(position)
       field.current?.focus()
     },
     browsing,
@@ -345,7 +375,13 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
             rows={1}
             value={text}
             disabled={disabled}
-            onChange={(event) => edit(event.target.value)}
+            onChange={(event) => {
+              edit(event.target.value)
+              readCaret(event.target)
+            }}
+            onSelect={() => readCaret()}
+            onKeyUp={() => readCaret()}
+            onClick={() => readCaret()}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
           />
