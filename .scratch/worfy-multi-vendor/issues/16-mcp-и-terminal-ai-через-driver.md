@@ -70,3 +70,36 @@ Source: [spec.md](../spec.md), «Модель» (части mcp и oneShot), «�
 - `src/main/terminal-ai/options.ts` — `:15`, `:66-113`; `src/main/terminal-ai/fake-backend.ts` — `:21`
 - `test/contract/vendor-sdk-imports.test.ts`
 - Test-ы: `test/contract/canvas-tools.test.ts`, `test/contract/terminal-ai-assist.test.ts`
+
+## Итог
+
+PR #1248. Ревью — комментарии PR #1248: раунд 1 (глубина high) — REJECTED, одна находка med; раунд 2 (medium) —
+VERIFIED.
+
+- Раунд 1, med (исправлено): перенос `queryFactoryFromEnv` не кончал цикл импорта, а переносил его — `query.ts`
+  статически импортировал `sharedRegistry` из `agent/app-registry`. В раунде 2 подключение Browser tools фейкового
+  агента переехало в `sharedRegistry()` (`src/main/agent/app-registry.ts`), `claude/session.ts` импортирует `./query`
+  статически, новый `test/contract/vendor-imports.test.ts` краснеет на любой импорт `app-registry` из
+  `src/main/vendors/`. Решено implementer-ом вместо параметра у `queryFactoryFromEnv` (у driver-а нет доступа к
+  реестру без глобального setter-а); подтвердить при приёмке.
+- Отклонение от текста п. 3 (принято ревью): экспортируемые интерфейсы `vendors/claude/options.ts` построены на типах
+  worfy (`ClaudeMcpServer`, `ClaudeOutputFormat`, `ClaudeSettingSource`), иначе правило «тип SDK не выходит из
+  driver-а» было бы нарушено.
+- Изменение поведения: под `WORFY_AGENT=fake` Browser tools подключаются один раз при создании реестра Session-ов, а
+  проверка первого запуска их больше не выставляет; `query.ts` грузится вместе с driver-ом.
+- Долг (low): `test/contract/vendor-imports.test.ts:94` — ветка `.js` → `.ts` не проверена (mutant выживает).
+- Долг (low): `src/main/mcp/browser-server.ts:466` — `import('../ipc/autopilot')` доходит до `app-registry` в момент
+  вызова; цепочки `import()` вне `vendors/` test не прослеживает.
+- Consider (low): `AssistProcessOptions = Readonly<Record<string, unknown>>` (`src/main/terminal-ai/assist.ts`,
+  `src/main/vendors/claude/terminal-ai.ts`) — нетипизированная граница, `coldQueryOptions` приводит её к опциям SDK
+  без проверки; лечится брендированным типом, который делает только driver.
+- Consider (low): `ClaudeMcpServer` можно собрать руками, `sdkServerConfig` приводит его к типу SDK
+  (`src/main/vendors/claude/mcp.ts`); тот же бренд.
+- Consider (low): `sdkTypesLeaving` в `test/contract/vendor-sdk-imports.test.ts` (Ticket 12) не ловит
+  `export type X = ReturnType<typeof prewarmOptions>` внутри driver-а — тип SDK `Options` выходит наружу, test зелёный.
+- Принято: 21 выживший mutant low, которые выживают и на main (опции Terminal AI `stderr`, `maxThinkingTokens`,
+  разделитель prompt-а; описания tool-ов Browser не читает ни один test; ветки fake-агента в `query.ts`); устаревшие
+  пути в комментариях `src/main/ipc/agent.ts:5-6`, `src/main/workflow/profile.ts:40`,
+  `test/e2e/packaged.spec.ts:464,517`, `scripts/spikes/harness-plugin/probe.ts:92`; перевод `docs/features/ru/` отстаёт
+  (ADR-0088).
+- Вердикт Windows: job `windows / full-suite` в `ci-ok` зелёный; scope `pc` — gate full на ПК после Wave (ADR-0086).

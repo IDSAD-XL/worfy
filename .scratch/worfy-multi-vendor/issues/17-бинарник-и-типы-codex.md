@@ -60,3 +60,32 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
 - Test-ы: `test/unit/codex-binary.test.ts`, `test/unit/codex-capabilities.test.ts` (новые)
 
 Только читать: `src/main/vendors/claude/options.ts` (после Ticket-а 13; сейчас `src/main/agent/options.ts:96-130`).
+
+## Итог
+
+PR #1247. Ревью — комментарий PR #1247: раунд 1 (глубина high) — VERIFIED, находок high и med нет.
+
+- `@openai/codex` 0.166.0 (npm `latest` на момент claim) и `ajv` 8.20.0 — точные версии; бинарник лежит в
+  `app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/…/bin/codex` и запускается (`codex-cli 0.166.0`).
+- Размер `.app` на Mac вырос примерно на 346 MiB (+354 088 KiB); почти весь рост — пакет `codex-darwin-arm64`
+  (`bin/codex` 257 MB, `codex-code-mode-host` 66 MB). Таблица — в описании PR. Без `codex-code-mode-host` не
+  пробовали: неизвестно, что из него нужно app-server.
+- Пункт «`pnpm build` кладёт бинарник в `app.asar.unpacked`»: на деле это делает `pnpm package`; `pnpm build` пишет
+  только `out/`. Проверено через `pnpm package`.
+- Решено implementer-ом, подтвердить при приёмке: `limitWindows` → `limitSource: 'windows'`; `slashCommands` →
+  `commandsComplete: false` с причиной (команды только TUI в меню не попадут, Ticket 22); `hooks`, `harness`,
+  `oneShotToolFree` — false; `historyList`, `modelSwitchStable` — true; `effortLevels` и `models` пустые до
+  `model/list` (Ticket 20).
+- `codexAjv` — strict ajv с `strictTypes: false` и `allowUnionTypes: true`: иначе сгенерированные схемы не
+  компилируются.
+- Consider (low): у режима генерации `scripts/codex-protocol.mjs` нет test-а — выживают mutant-ы на проверке версии,
+  на коде выхода Codex и на `CODEX_HOME` (без него Codex писал бы в `~/.codex` пользователя); нужен test со
+  stub-launcher-ом.
+- Consider (low): test «compiles in strict ajv» (`test/unit/codex-protocol.test.ts:81`) строгость не проверяет —
+  mutant `strict: false` выживает; нужен случай с неизвестным format.
+- Принято (low): якорь `$` в проверке точной версии, пустые `ts/` и `json/`, границы int64/uint/uint16 в
+  `schema.ts`, resolver без установленного `@openai/codex` (`binary.ts:42`) и цель linux-arm64 не закреплены test-ами;
+  абсолютные размеры `.app` в PR расходятся с повтором на 12 712 KiB (прирост сходится).
+- Не сделано, вне Ticket-а: `eslint` и gate не исключают сгенерированные `protocol/`; `.gitattributes` не помечает их
+  `linguist-generated` (diff PR — 157 тыс. строк).
+- Вердикт Windows: job `windows / full-suite` в `ci-ok` зелёный; scope `pc` (упаковка) — gate full на ПК после Wave.
