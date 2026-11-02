@@ -20,7 +20,7 @@
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): закрыт, 16/16, принят владельцем 2026-11-02 (Mac). `worfy-guide`: закрыт, 21/21.
 - `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): закрыт, 28/28, принят владельцем 2026-11-01; Windows-часть 25 не проводилась.
 - `worfy-resource-planner`: закрыт, 12/12, принят владельцем 2026-11-01.
-- `worfy-multi-vendor`: 19/45; 19 влит (#1256, клиент app-server Codex); дальше 20 и 21. Подтвердить решения в «Итог» 16, 17 и ступень ревью `high` для 19 (решено без владельца; долги low — в «Итог» 19). Должен: gate full ПК на `a1db12a7` (ADR-0086).
+- `worfy-multi-vendor`: 19/45; 19 влит (#1256); дальше 20, 21. Подтвердить «Итог» 16, 17 и ступень `high` в 19. Должен: gate full ПК на `a1db12a7` (ADR-0086).
 - ПК выключен владельцем 2026-11-02; Wave идут без него, gate full ПК — долгом.
 
 ## Ждёт владельца
