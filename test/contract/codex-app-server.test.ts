@@ -310,7 +310,16 @@ describe('CodexAppServer: a crash and the close', () => {
     expect(warnings).toEqual([expect.stringMatching(/did not exit 200 ms after its stdin was closed; sending SIGKILL$/)])
   })
 
-  it('takes a failed write to a fake that closed its stdin and lives on as a warning, not an uncaught error', async () => {
+  it('takes an error of its stdin as a warning, not an uncaught error', async () => {
+    const { server, warnings } = await start('turn', { WORFY_TEST_LINGER: '1' })
+    // A stream 'error' with no listener throws: without the handler this emit fails the test on every OS.
+    server.process.stdin?.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))
+    expect(warnings).toEqual([expect.stringMatching(/^stdin of the app-server \d+: .*EPIPE/)])
+    expect(hasExited(server.process)).toBe(false)
+  })
+
+  // On Windows closing fd 0 in the fake does not break the pipe for the writer: no EPIPE comes (CI run 41522598755).
+  it.skipIf(process.platform === 'win32')('takes a failed write to a fake that closed its stdin and lives on as a warning, not an uncaught error', async () => {
     const { server, warnings } = await start('turn', { WORFY_TEST_LINGER: '1', WORFY_TEST_CLOSE_STDIN_ON: 'initialized' })
     await eventually(() => server.stderr.includes('the fake app-server closed its stdin'), 'the fake closes its stdin')
     // worfy's end of the pipe still looks writable: only a write learns that nobody reads it.
