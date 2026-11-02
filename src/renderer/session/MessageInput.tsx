@@ -142,8 +142,9 @@ export function AttachmentChips({ chips, onRemove }: { chips: readonly Chip[]; o
 
 export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSend, onInterrupt, ref }: MessageInputProps) {
   const [text, setText] = useState('')
-  // Where the caret stands in the field, as the textarea reports it (the slash menu follows it).
+  // The field's selection, as the textarea reports it: a caret when both ends meet (the slash menu follows it).
   const [caret, setCaret] = useState(0)
+  const [caretEnd, setCaretEnd] = useState(0)
   // Where the caret goes once the field shows its next text: after a command picked in the slash menu.
   const placeCaret = useRef<number | null>(null)
   // Where ↑/↓ are in the history; null while the field holds the user's own text.
@@ -174,10 +175,11 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
     element.style.height = `${Math.min(element.scrollHeight, MAX_HEIGHT)}px`
   }, [text])
 
-  /** Reads the caret from the field: after a click, a key or a selection change moved it. */
-  const readCaret = () => {
-    const element = field.current
-    if (element) setCaret(element.selectionStart)
+  /** Reads the selection from the field: after a click, a key or a selection change moved it. */
+  const readCaret = (element: HTMLTextAreaElement | null = field.current) => {
+    if (!element) return
+    setCaret(element.selectionStart)
+    setCaretEnd(element.selectionEnd)
   }
 
   // A text set from outside the field (the history, a ready text, a failed send) moves the caret to
@@ -189,6 +191,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
     placeCaret.current = null
     if (place !== null) element.setSelectionRange(place, place)
     setCaret(element.selectionStart)
+    setCaretEnd(element.selectionEnd)
   }, [text])
 
   const edit = (value: string) => {
@@ -225,7 +228,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
   const slash = useSlashMenu(
     sessionId,
     text,
-    caret,
+    { start: caret, end: caretEnd },
     (value, position) => {
       // The same text (the command was there whole, a space after it) renders nothing new: the caret moves now.
       if (value === text) field.current?.setSelectionRange(position, position)
@@ -374,11 +377,11 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, onSe
             disabled={disabled}
             onChange={(event) => {
               edit(event.target.value)
-              setCaret(event.target.selectionStart)
+              readCaret(event.target)
             }}
-            onSelect={readCaret}
-            onKeyUp={readCaret}
-            onClick={readCaret}
+            onSelect={() => readCaret()}
+            onKeyUp={() => readCaret()}
+            onClick={() => readCaret()}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
           />

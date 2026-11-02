@@ -4,16 +4,18 @@ import { invoke } from '../ipc'
 import { slashHint } from './hints'
 
 // The slash menu of the input field (ticket 20): a `/` at the start of the field or after a space
-// opens a popover with the Session's slash commands and skills, as Claude Code reports them
-// (`agent.commands`: supportedCommands() and the last system/init — the user's skills under
-// ~/.claude among them). The menu follows the caret (polish ticket 49): it is open while the caret
-// stands in such a word, and what lies between the slash and the caret filters the list: names
-// that start with it first, then names that hold it. ↑/↓ move the selection, Tab or Return puts
-// `/<name> ` in place of that word and leaves the rest of the text as it is; Escape closes the menu
-// until the caret leaves the word. While the field shows a prompt brought back from the history
-// (↑), the menu stays closed: ↑/↓ keep stepping through the history and Return sends it.
+// or a line break opens a popover with the Session's slash commands and skills, as Claude Code
+// reports them (`agent.commands`: supportedCommands() and the last system/init — the user's skills
+// under ~/.claude among them). The menu opens and closes as the caret enters or leaves such a word
+// (polish ticket 49), and stays closed while the field has a selection. The whole word after the
+// slash filters the list, so a finished command keeps itself first wherever the caret stands in
+// it: names that start with it first, then names that hold it. ↑/↓ move the selection, Tab or
+// Return puts `/<name> ` in place of that word and leaves the rest of the text as it is; Escape
+// closes the menu until the caret leaves the word. While the field shows a prompt brought back
+// from the history (↑), the menu stays closed: ↑/↓ keep stepping through the history and Return
+// sends it.
 
-/** The command word at the caret: where it starts (its `/`) and ends, and the name typed up to the caret. */
+/** The command word at the caret: where it starts (its `/`) and ends, and the name it holds after the `/`. */
 export interface SlashToken {
   start: number
   end: number
@@ -30,7 +32,8 @@ export function slashToken(text: string, caret: number): SlashToken | null {
   if (match === null) return null
   const query = match[1] ?? ''
   const rest = /^\S*/.exec(text.slice(at))?.[0] ?? ''
-  return { start: at - query.length - 1, end: at + rest.length, query }
+  // The name is the whole word, not only its part before the caret: a caret moved into `/cost` filters by `cost`.
+  return { start: at - query.length - 1, end: at + rest.length, query: query + rest }
 }
 
 /** The text with the command word replaced by `/<name> `, and the caret right after that space. */
@@ -76,18 +79,19 @@ export interface SlashMenuState {
 }
 
 /**
- * The slash menu over the field whose text is `text` with the caret at `caret`; picking a command
- * calls `setText` with the new text and where the caret goes. `browsing` is true while the field
- * shows a prompt from the history: the menu stays closed then.
+ * The slash menu over the field whose text is `text` with the selection `selection` (a caret when its
+ * ends meet); picking a command calls `setText` with the new text and where the caret goes. The menu
+ * stays closed while the selection is not empty, and while `browsing` (the field shows a prompt from
+ * the history).
  */
 export function useSlashMenu(
   sessionId: string | null,
   text: string,
-  caret: number,
+  selection: { start: number; end: number },
   setText: (text: string, caret: number) => void,
   browsing = false,
 ): SlashMenuState {
-  const token = browsing ? null : slashToken(text, caret)
+  const token = browsing ? null : slashToken(text, selection.start)
   const query = token?.query ?? null
   const start = token?.start ?? null
   // The selection belongs to one filter: a new filter starts at the top. Escape holds while the
@@ -103,7 +107,8 @@ export function useSlashMenu(
   const setSelected = (index: number) => setMenu({ ...current, selected: index })
   const commands = useCommands(sessionId, query !== null)
   const matches = query === null ? [] : matchCommands(commands, query)
-  const open = query !== null && !dismissed && matches.length > 0
+  // A selection (a double click on the word, say) keeps the menu closed but not dismissed: Return sends.
+  const open = query !== null && !dismissed && matches.length > 0 && selection.start === selection.end
 
   const at = Math.min(selected, matches.length - 1)
   const pick = (command: SlashCommand) => {
