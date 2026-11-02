@@ -59,5 +59,35 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
   - `initialize` отвечен ошибкой — после отказа `start()` процесс уже вышел (exit code 0, по закрытию stdin).
   Каждый из трёх test-ов краснеет на своём mutant-е `app-server.ts` (строки 100, 87, 118). `afterEach` убивает по pid
   процесс, который test оставил живым, — без этого mutant строки 118 оставлял бы фейк после прогона.
-- Не проверено: Windows (scope `pc`, gate full на ПК после Wave) — в частности, что `closeSync(0)` в preload на
-  Windows закрывает читающий конец pipe-а и запись даёт EPIPE.
+- Windows: scope `runner` (`scripts/windows-verdict-scope.mjs`, exit 0) — вердикт Windows дал job
+  `windows / full-suite` в зелёном `ci-ok` на `f414127b`; gate full на ПК этому PR не нужен. На Windows закрытие fd 0
+  в фейке не ломает pipe для пишущей стороны: EPIPE нет (CI run 41522598755). Поэтому test с настоящим EPIPE —
+  `it.skipIf(win32)`, а обработчик `error` stdin на всех ОС проверяет test, который сам шлёт `error` в stdin процесса;
+  mutant строки 87 краснит оба.
+- Ревью (PR #1256): ступень `high` по тексту тикета — решено без владельца, подтвердить. Круг 1 — verifier, два
+  reviewer-а, три sceptic-а: REJECTED, три пробела test-ов (выше), 396 178 subagent-токенов. Круг 2 — verifier и
+  reviewer test-ов (`medium`): VERIFIED; debt, 103 447 токенов.
+- Consider (low, долги для тикета 20 и дальше):
+  - `rpc.ts:227` — `emit` зовёт `onEvent` без try/catch: исключение обработчика выходит из `receive()`, хотя
+    комментарий `rpc.ts:158` обещает «Never throws»;
+  - `rpc.ts:113-119` — если `JSON.stringify` или `write` бросает, запись в `pending` и её таймер живут до timeout;
+  - `app-server.ts:80` — request в незаписываемый stdin ждёт весь timeout вместо отказа сразу;
+  - `rpc.ts:174` — ответ-ошибка с `id: null` (parse error JSON-RPC) не находит request, тот ждёт timeout;
+  - `rpc.ts:88` — строка `null` от сервера бросает исключение;
+  - `rpc.ts:19` — bundle схемы 750 KB импортируется статически; когда `session.ts` импортирует `app-server.ts`, он
+    грузится при каждом старте, и у тех, кто работает только с Claude: dynamic import при первой проверке (Ticket 20);
+  - безопасность: `CodexAppServerExit` кладёт до 16 KB stderr, а `rpc.ts:206` — сырую строку в `Error.message`;
+    куда эти тексты пойдут (UI, log), решает Ticket 20;
+  - вне диффа: `launch.ts:47-59` (Ticket 18) передаёт настоящему Codex весь `process.env` worfy без фильтра;
+  - вопрос к Ticket 20: `start()` нельзя прервать во время `initialize`.
+- Noted (low): выжившие mutant-ы test-ов по списку reviewer-а круга 1 (снятие таймера после ответа `rpc.ts:200/219`,
+  ожидание вывода после exit `app-server.ts:33/95`, хвост stderr `:90`, опции `:83/:84/:131`, `respondError` `:140`,
+  второй `close()` `:155`, SIGKILL против SIGTERM `:166`, коды JSON-RPC в test-е сверяются с константами, а не
+  литералами `codex-rpc.test.ts:157`); у linger test-а нет верхней границы времени
+  (`codex-app-server.test.ts:233`); crash test может потерять stderr, если `close` придёт позже 1 s под нагрузкой.
+- Debt круга 2 (low): `codex-app-server.test.ts:247-248` — на Windows `close()` может вернуться (опрос ОС раз в
+  50 ms) раньше события `exit` Node, и `hasExited(child)` / exit code 0 могут мигать; тот же приём в `:297`/`:308`
+  проходит Windows CI. Исправление — сначала `if (!hasExited(child)) await once(child, 'exit')`.
+- Dismissed: подозрение на гонку `wake` в `fake-app-server.mjs:98-108` — три оставшихся процесса фейка несли
+  `WORFY_TEST_LINGER=1` и остались от mutant-ов без SIGKILL; три чистых прогона `codex-app-server.test.ts` (exit 0)
+  процессов не оставили.
