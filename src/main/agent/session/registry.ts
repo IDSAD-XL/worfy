@@ -13,7 +13,11 @@ export class SessionRegistry {
   private readonly observers = new Set<EventSink>()
   private readonly inputObservers = new Set<InputListener>()
 
-  /** `userModel` and `userEffort` read the user's own model and effort (user-model.ts); tests give them fixed answers. */
+  /**
+   * `factory` starts the agent of each Session: the app's is the Claude driver's (app-registry.ts,
+   * src/main/vendors/). `userModel` and `userEffort` read the user's own model and effort
+   * (user-model.ts); tests give them fixed answers.
+   */
   constructor(
     private readonly factory: QueryFactory,
     private readonly userModel: UserModelReader = () => readUserModel(),
