@@ -18,8 +18,20 @@ export interface AccountConnection {
  */
 export type LoginStart = { kind: 'url'; url: string } | { kind: 'vendorOpensBrowser' } | { kind: 'terminal'; command: string }
 
+/** A sign-in that started. */
+export interface LoginAttempt {
+  start: LoginStart
+  /**
+   * The connections once the sign-in is over; null when the Vendor cannot tell (a sign-in in its
+   * own terminal: check() again). Rejects when the sign-in failed or was cancelled.
+   */
+  completed: Promise<AccountConnection[] | null>
+  /** Stops a sign-in that is not over; nothing once it is. */
+  cancel(): void
+}
+
 export interface AccountPart {
   /** The Vendor's connections; rejects when the Vendor did not answer. `signal` stops the ask. */
   check(signal?: AbortSignal): Promise<AccountConnection[]>
-  startLogin(): Promise<LoginStart>
+  startLogin(): Promise<LoginAttempt>
 }

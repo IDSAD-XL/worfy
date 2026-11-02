@@ -9,6 +9,8 @@ export interface OneShotOptions {
   readOnlyTools?: readonly string[] | undefined
   /** The JSON Schema of a structured answer; a text answer when absent. */
   outputSchema?: Readonly<Record<string, unknown>> | undefined
+  /** Told each line of what the request is doing, while it runs (the draft's progress). */
+  onActivity?: ((text: string) => void) | undefined
   /** Stops the request. */
   signal?: AbortSignal | undefined
 }

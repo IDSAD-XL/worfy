@@ -12,6 +12,7 @@ export const claudeAccount: AccountPart = {
     const signedIn = account.subscriptionType !== undefined || (account.tokenSource !== undefined && account.tokenSource !== 'none')
     return [{ provider: 'anthropic', signedIn, email: account.email ?? null, plan: account.subscriptionType ?? null }]
   },
-  // The user signs in themselves: `claude` in a Terminal Node, then /login (the first-run check's hint).
-  startLogin: () => Promise.resolve({ kind: 'terminal', command: 'claude' }),
+  // The user signs in themselves: `claude` in a Terminal Node, then /login (the first-run check's
+  // hint). worfy does not see that end: `completed` says so at once, and the caller checks again.
+  startLogin: () => Promise.resolve({ start: { kind: 'terminal', command: 'claude' }, completed: Promise.resolve(null), cancel: () => undefined }),
 }

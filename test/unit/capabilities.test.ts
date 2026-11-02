@@ -29,6 +29,10 @@ describe('the capabilities of Claude Code', () => {
     expect(CLAUDE_CAPABILITIES.unsupported.steer).toMatch(/queue/)
   })
 
+  it('lists no models of its own: Claude Code names them only to a live Session (supportedModels())', () => {
+    expect(CLAUDE_CAPABILITIES.models).toEqual([])
+  })
+
   it('passes its own schema', () => {
     expect(capabilitiesSchema.parse(CLAUDE_CAPABILITIES)).toEqual(CLAUDE_CAPABILITIES)
   })
@@ -82,6 +86,28 @@ describe('the capabilities schema', () => {
     const [first, second] = valid().permissionPresets
     expect(capabilitiesSchema.safeParse({ ...valid(), permissionPresets: [{ ...first, label: '' }] }).success).toBe(false)
     expect(capabilitiesSchema.safeParse({ ...valid(), permissionPresets: [first, { ...second, id: first?.id }] }).success).toBe(false)
+  })
+})
+
+describe('the models of the capabilities', () => {
+  const opus = { id: 'opus', label: 'Opus', effortLevels: ['low', 'high'] }
+
+  it('takes models with their own effort levels', () => {
+    const parsed = capabilitiesSchema.parse({ ...CLAUDE_CAPABILITIES, models: [opus, { id: 'sonnet', label: 'Sonnet', effortLevels: [] }] })
+    expect(parsed.models).toEqual([opus, { id: 'sonnet', label: 'Sonnet', effortLevels: [] }])
+  })
+
+  it('refuses a model without a label, and two models with one id', () => {
+    expect(capabilitiesSchema.safeParse({ ...CLAUDE_CAPABILITIES, models: [{ ...opus, label: '' }] }).success).toBe(false)
+    const twice = capabilitiesSchema.safeParse({ ...CLAUDE_CAPABILITIES, models: [opus, { ...opus, label: 'Opus again' }] })
+    expect(twice.success).toBe(false)
+    expect(twice.error?.issues[0]?.path).toEqual(['models', 1, 'id'])
+  })
+
+  it('refuses capabilities without a list of models', () => {
+    const without: Partial<Capabilities> = { ...CLAUDE_CAPABILITIES }
+    delete without.models
+    expect(capabilitiesSchema.safeParse(without).success).toBe(false)
   })
 })
 

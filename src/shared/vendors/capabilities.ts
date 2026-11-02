@@ -43,6 +43,15 @@ export const permissionPresetSchema = z.object({
 })
 export type PermissionPreset = z.output<typeof permissionPresetSchema>
 
+/** A model the Vendor offers: its id goes back to the driver, the label to the picker, with the effort levels it takes. */
+export const vendorModelSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  /** Of the Vendor's `effortLevels`; empty when the model takes none. */
+  effortLevels: z.array(z.string().min(1)),
+})
+export type VendorModel = z.output<typeof vendorModelSchema>
+
 const flagsShape = Object.fromEntries(CAPABILITY_FLAGS.map((flag) => [flag, z.boolean()])) as Record<CapabilityFlag, z.ZodBoolean>
 
 /**
@@ -57,6 +66,11 @@ export const capabilitiesSchema = z
     permissionPresets: z.array(permissionPresetSchema).min(1),
     /** The effort levels, lowest first. */
     effortLevels: z.array(z.string().min(1)),
+    /**
+     * The models, in the order the picker lists them. A Vendor may know them only from its running
+     * version or a live Session: the driver's capabilities(session) gives them then.
+     */
+    models: z.array(vendorModelSchema),
     /** Why a capability is missing, by flag. */
     unsupported: z.partialRecord(capabilityFlagSchema, z.string().min(1)),
   })
@@ -66,10 +80,12 @@ export const capabilitiesSchema = z
       if (!capabilities[flag] && reason === undefined) context.addIssue({ code: 'custom', path: ['unsupported', flag], message: `${flag} is missing without a reason` })
       if (capabilities[flag] && reason !== undefined) context.addIssue({ code: 'custom', path: ['unsupported', flag], message: `${flag} is there, yet has a reason it is missing` })
     }
-    const seen = new Set<string>()
-    for (const [index, preset] of capabilities.permissionPresets.entries()) {
-      if (seen.has(preset.id)) context.addIssue({ code: 'custom', path: ['permissionPresets', index, 'id'], message: `duplicate preset id ${preset.id}` })
-      seen.add(preset.id)
+    for (const list of ['permissionPresets', 'models'] as const) {
+      const seen = new Set<string>()
+      for (const [index, { id }] of capabilities[list].entries()) {
+        if (seen.has(id)) context.addIssue({ code: 'custom', path: [list, index, 'id'], message: `duplicate id ${id} in ${list}` })
+        seen.add(id)
+      }
     }
   })
 export type Capabilities = z.output<typeof capabilitiesSchema>
@@ -86,6 +102,8 @@ const CLAUDE_PRESETS: Readonly<Record<PermissionModeChoice, Omit<PermissionPrese
  * Claude Code's capabilities, as today's code runs it: the permission modes and effort levels of
  * the pickers (settings.ts), Limits from the windows of rate_limit_event, the statusline and the
  * Limits probe. A message sent during a turn waits in the Session's queue (src/main/agent/session.ts).
+ * Claude Code lists its models only to a live Session (supportedModels()): none here, the Claude
+ * driver's capabilities(session) adds them.
  */
 export const CLAUDE_CAPABILITIES: Capabilities = {
   subagents: true,
@@ -102,5 +120,6 @@ export const CLAUDE_CAPABILITIES: Capabilities = {
   limitSource: 'windows',
   permissionPresets: PERMISSION_MODES.map((id) => ({ id, ...CLAUDE_PRESETS[id] })),
   effortLevels: [...EFFORT_LEVELS],
+  models: [],
   unsupported: { steer: 'A message sent during a turn waits in the queue and goes when the turn ends.' },
 }

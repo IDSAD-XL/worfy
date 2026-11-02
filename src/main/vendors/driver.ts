@@ -10,11 +10,15 @@ import type { HistoryPart } from './history'
 import type { LimitsPart } from './limits'
 import type { McpPart } from './mcp'
 import type { OneShot } from './one-shot'
-import type { SessionPart } from './session'
+import type { SessionHandle, SessionPart } from './session'
 
 export interface VendorDriver {
   readonly id: VendorId
-  readonly capabilities: Capabilities
+  /**
+   * What the Vendor can do: as such, or for the live Session `session` (a handle of this driver's),
+   * where the running version or the Session may tell more (its models).
+   */
+  capabilities(session?: SessionHandle): Promise<Capabilities>
   readonly session: SessionPart
   readonly account: AccountPart
   readonly limits: LimitsPart
