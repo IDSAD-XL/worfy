@@ -67,6 +67,7 @@ import { terminalShell } from '../terminal/pty'
 import { DEPENDENCY_MARKETPLACE_SOURCE, unorderedWhy } from '../harness/install'
 import { harnessHomes, locateHarness } from '../harness/locate'
 import type { HarnessScriptEnvSource } from '../harness/script-env'
+import { claudeSignedIn } from '../vendors/claude/account'
 import { environmentExit, harnessScriptRunner, HarnessScriptStartError, HARNESS_SCRIPT_TIMEOUT_MS, NODE_NOT_FOUND, scriptFailureDetail } from '../workflow/profile'
 import { hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
 import { MIN_NODE_MAJOR, modelPlan, profileDocsLanguages, QMD_NODE_NEED, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
@@ -303,10 +304,8 @@ async function signIn(deps: CheckDeps): Promise<Row> {
   } catch (error) {
     return row('fail', 'Claude Code did not answer', `Could not ask Claude Code: ${error instanceof Error ? error.message : String(error)}`)
   }
-  // With a login accountInfo() has subscriptionType; without one only apiProvider and tokenSource
-  // "none" (ADR-0009) — the same reading as a Session's start (src/main/agent/session.ts).
-  const signedIn = account.subscriptionType !== undefined || (account.tokenSource !== undefined && account.tokenSource !== 'none')
-  if (!signedIn) return row('fail', 'not signed in', 'Run claude in a Terminal Node, then /login: you sign in yourself', 'claude')
+  // The Claude driver's reading of accountInfo() (ADR-0009).
+  if (!claudeSignedIn(account)) return row('fail', 'not signed in', 'Run claude in a Terminal Node, then /login: you sign in yourself', 'claude')
   const who = [account.email, account.subscriptionType].filter((part): part is string => typeof part === 'string' && part !== '')
   return row('ok', who.length > 0 ? who.join(' · ') : 'signed in')
 }

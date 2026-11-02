@@ -1,8 +1,10 @@
 // The active source of the Limits (src/main/agent/limits-usage.ts): the refresher that asks the
-// SDK's usage every 30 minutes, with a fake clock and a stub reader, and the SDK reader over a fake
-// SDK. No Claude Code starts and nothing goes to the network.
+// SDK's usage every 30 minutes, with a fake clock and a stub reader, and the SDK reader of the Limits
+// probe (src/main/vendors/claude/limits.ts) over a fake SDK. No Claude Code starts and nothing goes
+// to the network.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { askUsage, installLimitsRefresh, LimitsRefresher, sdkUsageReader, USAGE_METHOD, USAGE_REFRESH_MS, usageOptions, type UsageQuery, type UsageSdk } from '../../src/main/agent/limits-usage'
+import { installLimitsRefresh, LimitsRefresher, USAGE_REFRESH_MS } from '../../src/main/agent/limits-usage'
+import { askUsage, sdkUsageReader, USAGE_METHOD, usageOptions, type UsageQuery, type UsageSdk } from '../../src/main/vendors/claude/limits'
 import { emptyLimits, mergeLimits, type LimitUpdate, type LimitsState, type LimitWindowState } from '../../src/shared/agent/limits'
 
 const START = Date.UTC(2026, 9, 19, 18, 0)

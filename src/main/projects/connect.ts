@@ -34,7 +34,6 @@
 // launcher of the Harness scripts (src/main/workflow/profile.ts), as `node <script>`.
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS } from '../../shared/agent/settings'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { ConnectFolder, ConnectMode, DraftIssue, GithubAccountsStep, ProfileDraft } from '../../shared/ipc/projects'
@@ -45,6 +44,7 @@ import { defaultAttribution } from '../harness/attribution'
 import type { GhRunner } from '../github/prs'
 import { scriptEnv, type HarnessLocation } from '../harness/locate'
 import type { HarnessScriptEnv } from '../harness/script-env'
+import { activityOf, ONE_SHOT_DISALLOWED_TOOLS, oneMessage, readOnlyCanUseTool } from '../vendors/claude/one-shot'
 import { environmentExit, runHarnessScript, scriptFailureDetail, type ProfileRun, type ProfileRunner, type SpawnProcess } from '../workflow/profile'
 import { realpathOrSelf } from './real-path'
 import { insideUserTemp } from './temp-folder'
@@ -53,26 +53,12 @@ import type { GitRunner } from './store'
 /** The only tools the draft Session uses: it reads files and answers with its structured output. */
 export const DRAFT_TOOLS: readonly string[] = Object.freeze(['Read', 'Glob', 'Grep'])
 
-/** The tool Claude Code answers an `outputFormat` turn with; canUseTool lets it through. */
-const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput'
-
 /**
  * The tools taken away from the draft Session (and its Subagents): no shell, nothing that writes,
- * nothing that reaches the network or starts other agents.
+ * nothing that reaches the network or starts other agents — those of every single request of the
+ * Claude driver.
  */
-export const DRAFT_DISALLOWED_TOOLS: readonly string[] = Object.freeze([
-  'Bash',
-  'BashOutput',
-  'KillShell',
-  'Write',
-  'Edit',
-  'MultiEdit',
-  'NotebookEdit',
-  'WebFetch',
-  'WebSearch',
-  'Task',
-  'Agent',
-])
+export const DRAFT_DISALLOWED_TOOLS: readonly string[] = ONE_SHOT_DISALLOWED_TOOLS
 
 /** The structured output a draft Session answers with (SDK option `outputFormat`). */
 export interface DraftOutputFormat {
@@ -345,8 +331,7 @@ export function draftMessage(root: string, mode: ConnectMode, facts: unknown): s
 const DRAFT_DENIED = 'The draft Session only reads files with Read, Glob and Grep: worfy writes the profile after the form.'
 
 /** canUseTool of the draft Session: Read, Glob, Grep and its structured answer; anything else is refused. */
-export const draftCanUseTool: CanUseToolHandler = (toolName, input) =>
-  Promise.resolve(DRAFT_TOOLS.includes(toolName) || toolName === STRUCTURED_OUTPUT_TOOL ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: DRAFT_DENIED })
+export const draftCanUseTool: CanUseToolHandler = readOnlyCanUseTool(DRAFT_TOOLS, DRAFT_DENIED)
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -375,30 +360,8 @@ export function sessionSchema(schema: Record<string, unknown>): Record<string, u
   return copy
 }
 
-/** The last action of an SDK message, in a few words; null for a message that shows none. */
-export function activityOf(message: unknown): string | null {
-  if (!isRecord(message)) return null
-  if (message.type === 'system' && message.subtype === 'init') return 'Claude Code started'
-  if (message.type === 'result') return 'The draft is ready'
-  if (message.type !== 'assistant' || !isRecord(message.message) || !Array.isArray(message.message.content)) return null
-  const tools = message.message.content.filter((block): block is Record<string, unknown> => isRecord(block) && block.type === 'tool_use')
-  const tool = tools.at(-1)
-  if (tool === undefined) return null
-  const input = isRecord(tool.input) ? tool.input : {}
-  const detail = [input.file_path, input.path, input.command, input.pattern, input.skill].find((value): value is string => typeof value === 'string' && value !== '')
-  const name = typeof tool.name === 'string' ? tool.name : 'tool'
-  return detail === undefined ? name : `${name} ${detail.length > 120 ? `${detail.slice(0, 119)}…` : detail}`
-}
-
-/** An input that gives Claude Code one message and then ends. */
-function oneMessage(text: string): AsyncIterable<SDKUserMessage> {
-  return {
-    async *[Symbol.asyncIterator]() {
-      await Promise.resolve()
-      yield { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null }
-    },
-  }
-}
+/** The last action of an SDK message, in a few words; null for a message that shows none (the Claude driver reads it). */
+export { activityOf }
 
 // ── what worfy owns in a draft ─────────────────────────────────────────────
 
