@@ -38,8 +38,9 @@ export interface CodexLaunchOptions {
 
 /**
  * The start of a Codex app-server. Under WORFY_CODEX=fake: process.execPath with the fake and
- * ELECTRON_RUN_AS_NODE=1. Otherwise the pinned binary with `app-server`; under vitest that throws, so no
- * test reaches the real Codex even when a test file sets no WORFY_CODEX. Throws as well when this
+ * ELECTRON_RUN_AS_NODE=1. Otherwise the pinned binary with `app-server`; under vitest (VITEST in `env`
+ * or in process.env) that throws, so no test reaches the real Codex even when a test file sets no
+ * WORFY_CODEX or passes an `env` of its own. Throws as well when this
  * platform has no Codex package installed.
  */
 export function codexLaunch(options: CodexLaunchOptions): CodexLaunch {
@@ -51,7 +52,8 @@ export function codexLaunch(options: CodexLaunchOptions): CodexLaunch {
       env: { ...env, ELECTRON_RUN_AS_NODE: '1', WORFY_CODEX_SCRIPTS: env.WORFY_CODEX_SCRIPTS || join(options.appPath, FAKE_SCRIPTS) },
     }
   }
-  if (env.VITEST) throw new Error('the real Codex is not started under vitest: set WORFY_CODEX=fake')
+  // Both environments: a test that passes its own `env` without VITEST is still under vitest.
+  if (env.VITEST || process.env.VITEST) throw new Error('the real Codex is not started under vitest: set WORFY_CODEX=fake')
   const file = codexExecutablePath(options.runtime, options.resolvePackage)
   if (file === undefined) throw new Error(`no Codex for ${options.runtime.platform}-${options.runtime.arch}: the package @openai/codex-${options.runtime.platform}-${options.runtime.arch} is not installed`)
   return { file, args: ['app-server'], env }

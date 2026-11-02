@@ -1,7 +1,7 @@
 # 19 — Клиент app-server Codex
 
 Type: task
-Status: open
+Status: claimed 2026-11-02T19:11Z
 Blocked by: 17, 18
 Source: [spec.md](../spec.md), «Codex: бинарник и совместимость» (процесс на Session, без experimental), «Windows» (процесс); решение 06 ([06-граница-vendor.md](06-граница-vendor.md)); Ticket 02 ([02-codex-управление-сессией.md](02-codex-управление-сессией.md), «Как встраивать», «Главный риск»); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
 
@@ -33,7 +33,30 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
 ## Где в коде
 
 - `src/main/vendors/codex/rpc.ts`, `src/main/vendors/codex/app-server.ts` (новые)
-- `src/main/vendors/codex/launch.ts` (Ticket 18; только вызов)
+- `src/main/vendors/codex/launch.ts` (Ticket 18): вызов и guard от настоящего Codex — `VITEST` читается и из
+  `process.env`, не только из переданного `env` (low-находка ревью Ticket-а 18)
 - `test/unit/codex-rpc.test.ts`, `test/contract/codex-app-server.test.ts` (новые)
+- `test/contract/codex-fake.test.ts`: test пути к настоящему бинарнику сам выключает `VITEST` (stub), иначе его
+  останавливает новый guard
 
 Только читать: `src/main/agent/session/types.ts:30-36`, `src/main/agent/session/process.ts`.
+
+## Итог
+
+- `rpc.ts` — чистый модуль JSON-RPC поверх строк; входящее сообщение проверяется `ajv` по схеме pinned Codex,
+  не прошедшее — событие `unknown`, битая строка — событие `error`, ни то ни другое не бросает исключение.
+- `app-server.ts` — процесс на Session через `launch.ts` без shell; `initialize` с `clientInfo.name = 'worfy'` и
+  `capabilities: null` (без `experimentalApi`), затем `initialized`. Выход процесса отклоняет все ждущие request-ы
+  ошибкой `CodexAppServerExit` с exit code и концом stderr; `close()` закрывает stdin и ждёт выхода, SIGKILL —
+  после `EXIT_WAIT_MS`.
+- Круг 2 (находки verifier-а, три пробела в test-ах; код `app-server.ts` не менялся) — contract test-ы в
+  `test/contract/codex-app-server.test.ts`:
+  - процесс, который не запустился (spawn несуществующего файла: только `error` и `close`, без `exit`), — `start()`
+    отклоняется с «did not start» сразу, а не по времени ожидания `initialize`;
+  - фейк закрыл свой stdin и жив — запись worfy получает EPIPE при `writable === true`; это warning, не
+    uncaught error. Preload test-а закрывает fd 0 явно: `process.stdin.destroy()` его не закрывает;
+  - `initialize` отвечен ошибкой — после отказа `start()` процесс уже вышел (exit code 0, по закрытию stdin).
+  Каждый из трёх test-ов краснеет на своём mutant-е `app-server.ts` (строки 100, 87, 118). `afterEach` убивает по pid
+  процесс, который test оставил живым, — без этого mutant строки 118 оставлял бы фейк после прогона.
+- Не проверено: Windows (scope `pc`, gate full на ПК после Wave) — в частности, что `closeSync(0)` в preload на
+  Windows закрывает читающий конец pipe-а и запись даёт EPIPE.
