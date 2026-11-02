@@ -179,8 +179,12 @@ _Avoid_: статус-файл, notes
 ## Agents
 
 **Session**:
-Один разговор с Claude Code — один транскрипт, который можно продолжить. На Canvas одна Session — один Node, где бы она ни была запущена (worfy, терминал, Claude desktop).
+Один разговор с агентом одного Vendor-а (Claude Code или Codex) — один транскрипт, который можно продолжить. На Canvas одна Session — один Node, где бы она ни была запущена (worfy, терминал, Claude desktop).
 _Avoid_: сессия, чат, диалог, conversation
+
+**Vendor**:
+Производитель агента, который ведёт Session: Claude Code (Anthropic) или Codex (OpenAI). Vendor выбирается у Session, у Project есть Vendor по умолчанию; вход — только по подписке Vendor-а, API-ключей worfy не принимает. Model — понятие внутри Vendor-а (Opus, Sonnet, GPT-5).
+_Avoid_: provider, backend, LLM, «модель» в значении Vendor
 
 **Orchestrator**:
 Главная Session Project, из которой расходится работа; закреплена на Canvas.
