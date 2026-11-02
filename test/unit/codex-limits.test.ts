@@ -8,7 +8,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { appCodexStarter, codexHomeOf, useCodex, withCodex, type CodexAsk } from '../../src/main/vendors/codex/account'
+import { appCodexStarter, codexAccount, codexHomeOf, useCodex, withCodex, type CodexAsk } from '../../src/main/vendors/codex/account'
+import { codexDriver } from '../../src/main/vendors/codex/index'
 import {
   codexLimitReached,
   codexLimitReachedEvent,
@@ -392,9 +393,9 @@ describe('the app\'s app-server for an ask', () => {
     expect(server.process.once).not.toHaveBeenCalled()
   })
 
-  it('the app\'s driver parts are made over the app\'s defaults', () => {
-    expect(typeof codexLimits.poll).toBe('function')
-    expect(typeof codexLimits.read).toBe('function')
+  it('the Codex driver carries these parts', () => {
+    expect(codexDriver().account).toBe(codexAccount)
+    expect(codexDriver().limits).toBe(codexLimits)
   })
 })
 
