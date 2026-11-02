@@ -120,6 +120,7 @@ describe('SDK messages → agent events', () => {
           { ...window, id: 'five_hour', label: '5-hour', usedPercent: 7, windowMinutes: 300, resetsAt: 1791184200, state: 'ok' },
           { ...window, id: 'seven_day', label: '7-day', usedPercent: 62, windowMinutes: 10080, resetsAt: 1791172800, state: null },
         ],
+        status: { text: 'allowed', state: 'ok', windowId: 'five_hour', resetsAt: 1791184200 },
       },
     ])
   })

@@ -405,7 +405,38 @@ describe('observeSessionLimits over the limits and limit_reached events (worfy-m
     ])
   })
 
-  it('a limits event that gives no window a state tells nothing', () => {
-    expect(observed([{ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.2 } } } }])).toEqual([])
+  it('reports a status that names no window, so an allowed one after a refusal ends the refusal', () => {
+    const messages = [
+      event('rejected', 'five_hour', 400),
+      event('allowed', undefined, 500, { five_hour: { utilization: 0.2 } }),
+      event('allowed_warning', undefined, undefined),
+      event('something_new', undefined, 600),
+    ]
+    expect(observed(messages)).toEqual(asBefore(messages))
+    expect(observed(messages)).toEqual([
+      { status: 'rejected', window: 'five_hour', resetsAt: 400 },
+      { status: 'allowed', window: null, resetsAt: 500 },
+      { status: 'allowed_warning', window: null, resetsAt: null },
+      { status: 'something_new', window: null, resetsAt: 600 },
+    ])
+  })
+
+  it('takes the reset time of the status as sent, not that of its window, -1 too', () => {
+    const messages = [
+      event('allowed', 'five_hour', 100, { five_hour: { utilization: 0.1, resetsAt: 200 } }),
+      event('allowed', 'five_hour', -1, { five_hour: { utilization: 0.1, resetsAt: 300 } }),
+      event('allowed', 'five_hour', undefined, { five_hour: { utilization: 0.1, resetsAt: 300 } }),
+    ]
+    expect(observed(messages)).toEqual(asBefore(messages))
+    expect(observed(messages)).toEqual([
+      { status: 'allowed', window: 'five_hour', resetsAt: 100 },
+      { status: 'allowed', window: 'five_hour', resetsAt: -1 },
+      { status: 'allowed', window: 'five_hour', resetsAt: null },
+    ])
+  })
+
+  it('reports a refusal once, though it comes as both limits and limit_reached', () => {
+    const messages = [event('rejected', 'five_hour', 400, { five_hour: { utilization: 1, resetsAt: 900 } })]
+    expect(observed(messages)).toEqual([{ status: 'rejected', window: 'five_hour', resetsAt: 400 }])
   })
 })

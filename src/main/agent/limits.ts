@@ -234,10 +234,11 @@ export interface SessionLimitsStatus {
  * Calls `listener` whenever the Limits status of one Session changes, as the registry sends its
  * events (`observe`, SessionRegistry.observe), for the Session that `isSession` accepts (a
  * Session's id changes once Claude Code names it, so the test is the caller's). A `limit_reached`
- * event is `rejected` for its window; a `limits` event is the status of the first window it gives
- * a state other than `reached` (a refusal always comes with `limit_reached` too), and says nothing
- * when it gives none. An event that repeats the last status, window and reset time is not reported
- * again. Answers the unsubscribe.
+ * event is `rejected` for its window and reset time; a `limits` event is the status it carries, as
+ * the Vendor worded it, with the window and reset time of that status (not of a window), and
+ * nothing when it carries none. An event that repeats the last status, window and reset time is not
+ * reported again: so a refusal, which comes as `limits` and then as `limit_reached` with the same
+ * window and time, is reported once. Answers the unsubscribe.
  */
 export function observeSessionLimits(
   observe: (sink: EventSink) => () => void,
@@ -257,9 +258,8 @@ export function observeSessionLimits(
 
 function sessionLimitsStatusOf(event: Extract<AgentEvent, { type: 'limits' | 'limit_reached' }>): SessionLimitsStatus | null {
   if (event.type === 'limit_reached') return { status: limitStatusOf('reached'), window: event.windowId, resetsAt: event.resetsAt }
-  const told = event.windows.find((window) => window.state !== null && window.state !== 'reached')
-  if (told === undefined || told.state === null) return null
-  return { status: limitStatusOf(told.state), window: told.id, resetsAt: told.resetsAt }
+  const told = event.status
+  return told === null ? null : { status: told.text, window: told.windowId, resetsAt: told.resetsAt }
 }
 
 let appTracker: LimitsTracker | null = null

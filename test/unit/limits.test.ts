@@ -1,7 +1,7 @@
 // Limits from rate_limit_event messages and the status line bridge file:
 // src/shared/agent/limits.ts merges them per window and turns the result into the two bars.
 import { describe, expect, it } from 'vitest'
-import { sdkMessageToEvents } from '../../src/shared/agent/events'
+import { agentEvent, sdkMessageToEvents } from '../../src/shared/agent/events'
 import {
   emptyLimits,
   limitBars,
@@ -329,6 +329,7 @@ describe('the events of a rate_limit_event (worfy-multi-vendor ticket 11)', () =
           { ...window, id: 'five_hour', label: '5-hour', usedPercent: 62, windowMinutes: 300, resetsAt: 1791184200, state: 'ok' },
           { ...window, id: 'seven_day', label: '7-day', usedPercent: 38, windowMinutes: 10080, resetsAt: 1791795600, state: null },
         ],
+        status: { text: 'allowed', state: 'ok', windowId: 'five_hour', resetsAt: 1791184200 },
       },
     ])
   })
@@ -337,8 +338,30 @@ describe('the events of a rate_limit_event (worfy-multi-vendor ticket 11)', () =
     const refused = { ...recorded, rate_limit_info: { ...recorded.rate_limit_info, status: 'rejected' } }
     const events = sdkMessageToEvents(refused, AT)
     expect(events.map((event) => event.type)).toEqual(['limits', 'limit_reached'])
-    expect(events[0]).toMatchObject({ windows: [{ id: 'five_hour', state: 'reached' }, { id: 'seven_day', state: null }] })
+    expect(events[0]).toMatchObject({
+      windows: [{ id: 'five_hour', state: 'reached' }, { id: 'seven_day', state: null }],
+      status: { text: 'rejected', state: 'reached', windowId: 'five_hour', resetsAt: 1791184200 },
+    })
     expect(events[1]).toEqual({ type: 'limit_reached', vendor: 'claude', windowId: 'five_hour', resetsAt: 1791184200, reason: 'window' })
+  })
+
+  it('the events of a refusal pass the schema of agent.event, as they travel to the windows', () => {
+    const refused = { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', rateLimitType: 'seven_day_opus', resetsAt: 1791795600, utilization: 1 } }
+    const events = sdkMessageToEvents(refused, AT)
+    expect(events.map((event) => event.type)).toEqual(['limits', 'limit_reached'])
+    for (const event of events) expect(agentEvent.parse(event)).toEqual(event)
+  })
+
+  it('the status keeps the SDK word, the window and the reset time as sent, even when its window says another time or none is named', () => {
+    const status = (info: Record<string, unknown>) => (sdkMessageToEvents({ type: 'rate_limit_event', rate_limit_info: info }, AT)[0] as { status: unknown }).status
+    expect(status({ status: 'allowed', rateLimitType: 'five_hour', resetsAt: 100, unifiedWindows: { five_hour: { utilization: 0.1, resetsAt: 200 } } })).toEqual({
+      text: 'allowed',
+      state: 'ok',
+      windowId: 'five_hour',
+      resetsAt: 100,
+    })
+    expect(status({ status: 'allowed_warning', resetsAt: -1 })).toEqual({ text: 'allowed_warning', state: 'warning', windowId: null, resetsAt: -1 })
+    expect(status({ status: 'something_new' })).toEqual({ text: 'something_new', state: null, windowId: null, resetsAt: null })
   })
 
   it('a refusal without its own reset time says none, whatever its window says; one without a window still says it was refused', () => {
@@ -346,7 +369,7 @@ describe('the events of a rate_limit_event (worfy-multi-vendor ticket 11)', () =
     expect(sdkMessageToEvents(withoutReset, AT)[1]).toEqual({ type: 'limit_reached', vendor: 'claude', windowId: 'seven_day', resetsAt: null, reason: 'window' })
     const withoutWindow = { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: 1791184200 } }
     expect(sdkMessageToEvents(withoutWindow, AT)).toEqual([
-      { type: 'limits', vendor: 'claude', windows: [] },
+      { type: 'limits', vendor: 'claude', windows: [], status: { text: 'rejected', state: 'reached', windowId: null, resetsAt: 1791184200 } },
       { type: 'limit_reached', vendor: 'claude', windowId: null, resetsAt: 1791184200, reason: 'window' },
     ])
   })
