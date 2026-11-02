@@ -6,10 +6,10 @@
 // re-export from the package, does not export a name it imported from it, and exports no type alias or
 // interface built on one. Exported variables, functions and classes are not read.
 //
-// Today 15 files import the SDK. Each is listed below with the ticket of this epic that takes the
-// import away (14, 15 or 16). An exception that no longer imports is only reported, so tickets 13 to 15
-// leave this file alone; ticket 16 empties the list and makes the test strict. The checks take the
-// root they look at, so the control cases run them on a copy of src/ with a planted file.
+// Since ticket 16 no file outside the driver imports the SDK: the list of exceptions is empty. A file
+// put on it must name the SDK in its code; an exception that no longer does, or is gone, reds the test.
+// The checks take the root they look at, so the control cases run them on a copy of src/ with a
+// planted file.
 
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -28,26 +28,10 @@ const CLAUDE_DRIVER = 'src/main/vendors/claude/'
 const SOURCE = /\.(ts|tsx|mts|cts|js|mjs|cjs)$/
 
 /**
- * The files outside the driver that import the SDK today, each with the ticket of the epic that takes
- * the import away. Ticket 16 leaves this list empty.
+ * The files outside the driver that may import the SDK, each with the ticket that takes the import
+ * away. Empty since ticket 16.
  */
-const EXCEPTIONS: Record<string, number> = {
-  'src/main/agent/attachments.ts': 14,
-  'src/main/agent/session.ts': 14,
-  'src/main/agent/session/run.ts': 14,
-  'src/main/agent/session/types.ts': 14,
-  'src/main/agent/limits-usage.ts': 15,
-  'src/main/ipc/first-run.ts': 15,
-  'src/main/ipc/projects.ts': 15,
-  'src/main/projects/connect.ts': 15,
-  'src/main/agent/app-registry.ts': 16,
-  'src/main/agent/options.ts': 16,
-  'src/main/mcp/browser-server.ts': 16,
-  'src/main/mcp/canvas-server.ts': 16,
-  'src/main/terminal-ai/assist.ts': 16,
-  'src/main/terminal-ai/fake-backend.ts': 16,
-  'src/main/terminal-ai/options.ts': 16,
-}
+const EXCEPTIONS: Record<string, number> = {}
 
 /** Every source file under src/ of `root`, relative to `root` with forward slashes. */
 function sourceFiles(root: string): string[] {
@@ -114,7 +98,7 @@ function outsideDriver(root: string, allowed: Record<string, number> = EXCEPTION
     .flatMap((file) => sdkMentions(root, file).map((mention) => `${file}:${mention}`))
 }
 
-/** The exceptions of `allowed` that no longer name the SDK, or are gone: ticket 16 removes them. */
+/** The exceptions of `allowed` that no longer name the SDK, or are gone. */
 function staleExceptions(root: string, allowed: Record<string, number> = EXCEPTIONS): string[] {
   return Object.keys(allowed).filter((file) => !existsSync(join(root, file)) || sdkMentions(root, file).length === 0)
 }
@@ -208,15 +192,8 @@ describe('only the Claude driver imports the Agent SDK', () => {
     expect(outsideDriver(repo)).toEqual([])
   })
 
-  it('each exception names the ticket of the epic that takes its import away', () => {
-    for (const [file, ticket] of Object.entries(EXCEPTIONS)) expect([14, 15, 16], file).toContain(ticket)
-  })
-
-  it('reports an exception that no longer imports the SDK, and does not fail on it (ticket 16 makes the test strict)', () => {
-    const stale = staleExceptions(repo)
-    if (stale.length > 0) {
-      console.info(`[vendor-sdk-imports] exceptions that no longer import ${SDK}, for ticket 16 to remove: ${stale.join(', ')}`)
-    }
+  it('every exception still names the SDK in its code', () => {
+    expect(staleExceptions(repo)).toEqual([])
   })
 
   it('no SDK type leaves src/main/vendors/claude/ through an export', () => {
@@ -293,7 +270,8 @@ describe('the checks fail on a planted file', () => {
   it('an exception that no longer imports the SDK, or is gone, is reported as stale', () => {
     const root = srcCopy()
     plant(root, 'src/main/clean.ts', 'export const x = 1\n')
-    expect(staleExceptions(root, { 'src/main/clean.ts': 14, 'src/main/gone.ts': 15, 'src/main/agent/options.ts': 16 })).toEqual(['src/main/clean.ts', 'src/main/gone.ts'])
+    plant(root, 'src/main/listed.ts', `import { query } from '${SDK}'\n`)
+    expect(staleExceptions(root, { 'src/main/clean.ts': 14, 'src/main/gone.ts': 15, 'src/main/listed.ts': 16 })).toEqual(['src/main/clean.ts', 'src/main/gone.ts'])
   })
 
   it.each([

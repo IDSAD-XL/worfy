@@ -5,7 +5,7 @@
   ],
   "files": [
     "src/main/agent/session.ts",
-    "src/main/agent/options.ts",
+    "src/main/vendors/claude/options.ts",
     "src/main/agent/resume.ts",
     "src/shared/transcript/parse.ts",
     "src/main/claude-home/registry.ts",

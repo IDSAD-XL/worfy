@@ -136,7 +136,7 @@ export async function claudeUsageReader(): Promise<(signal: AbortSignal) => Prom
     import('../../agent/env'),
     import('../../storage/paths'),
     import('../../terminal-ai/options'),
-    import('../../agent/options'),
+    import('./options'),
   ])
   const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }
   return sdkUsageReader({

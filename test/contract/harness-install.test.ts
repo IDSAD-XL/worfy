@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { bundledClaudeBinary, claudeExecutablePath } from '../../src/main/agent/options'
+import { bundledClaudeBinary, claudeExecutablePath } from '../../src/main/vendors/claude/options'
 import {
   claudeCommandEnv,
   compareHarnessVersions,

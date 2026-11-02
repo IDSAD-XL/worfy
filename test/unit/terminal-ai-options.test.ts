@@ -1,8 +1,9 @@
-// The options of the assist process (src/main/terminal-ai/options.ts): what the spare process starts
+// The options of the assist process (src/main/vendors/claude/terminal-ai.ts): what the spare process starts
 // with at prewarm(), and what each feature sets at claim().
 import { join, posix } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ASSIST_SYSTEM_PROMPT, FEATURE_TIMEOUT_MS, claimOptions, coldQueryOptions, prewarmOptions } from '../../src/main/terminal-ai/options'
+import { ASSIST_SYSTEM_PROMPT, FEATURE_TIMEOUT_MS } from '../../src/main/terminal-ai/options'
+import { claimOptions, coldQueryOptions, prewarmOptions } from '../../src/main/vendors/claude/terminal-ai'
 import { DEFAULT_TERMINAL_AI_SETTINGS, TERMINAL_AI_FEATURES } from '../../src/shared/terminal-ai/settings'
 
 const DATA_DIR = '/Users/me/Library/Application Support/worfy'

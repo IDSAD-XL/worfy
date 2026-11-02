@@ -74,15 +74,16 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, posix, win32 } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
-import type { McpServerConfig, McpStdioServerConfig, Options, OutputFormat, SettingSource, SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk'
-import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
-import { BROWSER_SERVER_NAME } from '../../shared/browser/tools'
-import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
-import type { HarnessKind } from '../../shared/projects/action-templates'
-import { bundledHarnessDir } from '../harness/bundled'
-import { HARNESS_PLUGIN_NAME } from '../harness/locate'
-import type { Env } from './env'
-import type { CanUseToolHandler } from './permissions'
+import type { McpServerConfig, McpStdioServerConfig, Options, SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk'
+import { DEFAULT_SETTINGS, type SessionSettings } from '../../../shared/agent/settings'
+import { BROWSER_SERVER_NAME } from '../../../shared/browser/tools'
+import { CANVAS_SERVER_NAME } from '../../../shared/canvas/tools'
+import type { HarnessKind } from '../../../shared/projects/action-templates'
+import type { Env } from '../../agent/env'
+import type { CanUseToolHandler } from '../../agent/permissions'
+import { bundledHarnessDir } from '../../harness/bundled'
+import { HARNESS_PLUGIN_NAME } from '../../harness/locate'
+import { sdkServerConfig, type ClaudeMcpServer } from './mcp'
 
 export interface RuntimeInfo {
   /** app.isPackaged */
@@ -198,8 +199,8 @@ export function watchedSpawn(spawned: (child: ChildProcess) => void, stderr?: (d
 
 /** The canvas a Session in a Project works with. */
 export interface CanvasAttachment {
-  /** The `worfy-canvas` MCP server bound to the Project. */
-  server: McpServerConfig
+  /** The `worfy-canvas` MCP server bound to the Project (createCanvasServer). */
+  server: ClaudeMcpServer
   /** `<Project data folder>/cards`, where the agent writes Cards. */
   cardsDir: string
   /** Appended to the claude_code system prompt (src/main/mcp/agent-instructions.md). */
@@ -208,8 +209,8 @@ export interface CanvasAttachment {
 
 /** The Browser server a Session in a Project drives Browsers with. */
 export interface BrowserAttachment {
-  /** The `worfy-browser` MCP server bound to the Project. */
-  server: McpServerConfig
+  /** The `worfy-browser` MCP server bound to the Project (createBrowserServer). */
+  server: ClaudeMcpServer
   /** Appended to the claude_code system prompt after the canvas instructions (src/main/mcp/browser-instructions.md). */
   instructions: string
 }
@@ -223,6 +224,15 @@ export interface BrowserAttachment {
 export function withBrowserServer(allowlist: readonly string[]): readonly string[] {
   return allowlist.includes(CANVAS_SERVER_NAME) && !allowlist.includes(BROWSER_SERVER_NAME) ? [...allowlist, BROWSER_SERVER_NAME] : allowlist
 }
+
+/** The structured answer a turn ends with: a JSON Schema the `result` message's `structured_output` follows. */
+export interface ClaudeOutputFormat {
+  type: 'json_schema'
+  schema: Record<string, unknown>
+}
+
+/** A settings file Claude Code reads: the user's, the project's or the local one. */
+export type ClaudeSettingSource = 'user' | 'project' | 'local'
 
 export interface SessionOptionsInput {
   /** Root of the Project the Session works in. */
@@ -276,13 +286,13 @@ export interface SessionOptionsInput {
    * The structured answer the Session ends its turn with (the draft of a Project's connection,
    * src/main/projects/connect.ts): the `result` message then carries `structured_output`.
    */
-  outputFormat?: OutputFormat | undefined
+  outputFormat?: ClaudeOutputFormat | undefined
   /** Tools Claude Code runs without, Subagents included: the draft Session takes away Bash and those that write. */
   disallowedTools?: readonly string[] | undefined
   /** Tools Claude Code runs without asking: the draft Session's Read, Glob and Grep. */
   allowedTools?: readonly string[] | undefined
   /** Which settings files Claude Code reads; user + project + local when absent. */
-  settingSources?: readonly SettingSource[] | undefined
+  settingSources?: readonly ClaudeSettingSource[] | undefined
   /** Only the policy tier may allow a tool: allow rules of every settings file are ignored. */
   permissionRulesFromPolicyOnly?: boolean | undefined
   /**
@@ -370,7 +380,7 @@ function extensionSettings(allowlist: readonly string[], extensions: UserExtensi
 
 /** The options of the draft Session of a Project's connection; see the header. */
 export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources' | 'permissionRulesFromPolicyOnly' | 'canvas' | 'browser' | 'mcpAllowlist' | 'skillsAllowlist' | 'userExtensions' | 'outputFormat' | 'disallowedTools' | 'allowedTools'> & {
-  outputFormat: OutputFormat
+  outputFormat: ClaudeOutputFormat
   allowedTools: readonly string[]
   disallowedTools: readonly string[]
 }
@@ -487,12 +497,12 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.canvas) {
     options.additionalDirectories = [input.canvas.cardsDir]
     if (allowed(CANVAS_SERVER_NAME)) {
-      servers[CANVAS_SERVER_NAME] = input.canvas.server
+      servers[CANVAS_SERVER_NAME] = sdkServerConfig(input.canvas.server)
       appended.push(input.canvas.instructions)
     }
   }
   if (input.browser && allowed(BROWSER_SERVER_NAME)) {
-    servers[BROWSER_SERVER_NAME] = input.browser.server
+    servers[BROWSER_SERVER_NAME] = sdkServerConfig(input.browser.server)
     appended.push(input.browser.instructions)
   }
   if (appended.length > 0) options.systemPrompt = { type: 'preset', preset: 'claude_code', append: appended.join('\n') }

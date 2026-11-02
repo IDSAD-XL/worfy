@@ -338,7 +338,7 @@ and Fix work. Only the panel does not, because the ⌘I shortcut exists on macOS
 | What | Where |
 |---|---|
 | The model: process, queue, refusals | `src/main/terminal-ai/assist.ts` |
-| What goes to the SDK | `src/main/terminal-ai/options.ts` |
+| What goes to the SDK | `src/main/vendors/claude/terminal-ai.ts` |
 | The Limits rule | `src/main/terminal-ai/limits-gate.ts` |
 | The settings file, `terminal-ai.json` in the data folder | `src/main/terminal-ai/settings.ts`, `src/shared/terminal-ai/settings.ts` |
 | Context, redaction, output tail | `src/shared/terminal-ai/context.ts`, `src/shared/terminal-ai/redact.ts`, `src/shared/terminal-ai/output-tail.ts` |

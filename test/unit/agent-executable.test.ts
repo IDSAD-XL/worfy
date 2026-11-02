@@ -3,7 +3,7 @@ import { existsSync, realpathSync } from 'node:fs'
 import { dirname, join, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { claudeExecutablePath, sessionOptions, type RuntimeInfo } from '../../src/main/agent/options'
+import { claudeExecutablePath, sessionOptions, type RuntimeInfo } from '../../src/main/vendors/claude/options'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const resources = '/Applications/worfy.app/Contents/Resources'

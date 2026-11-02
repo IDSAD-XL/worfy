@@ -750,7 +750,7 @@ describe('canvas in a Session', () => {
   }
 
   it('a Session in a Project gets the worfy-canvas server, the Cards folder and the agent instructions in its system prompt', async () => {
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     await sdkQueryFactory((input) => server.canvasForSession(input, deps()), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]))(request(repo))
     const options = sdkOptions()
     const cardsDir = join(dataDir, PROJECT, 'cards')
@@ -770,13 +770,13 @@ describe('canvas in a Session', () => {
   it('a worktree inside the Project is the same Project', async () => {
     const worktree = join(repo, '.claude', 'worktrees', '24')
     mkdirSync(worktree, { recursive: true })
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     await sdkQueryFactory((input) => server.canvasForSession(input, deps()), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]))(request(worktree))
     expect(sdkOptions().additionalDirectories).toEqual([join(dataDir, PROJECT, 'cards')])
   })
 
   it('a Session outside every Project, or whose canvas fails, runs without canvas tools and with the plain preset', async () => {
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     const elsewhere = join(scratch, 'elsewhere')
     mkdirSync(elsewhere)
     await sdkQueryFactory((input) => server.canvasForSession(input, deps()))(request(elsewhere))
@@ -998,7 +998,7 @@ describe('canvas in a Session', () => {
         })
     const before = tree(repo)
 
-    const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
     for (const cwd of [repo, worktree]) await sdkQueryFactory((input) => server.canvasForSession(input, deps()), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]))(request(cwd))
     store.apply(PROJECT, orchestrator())
     const canvas = await server.canvasForSession({ cwd: worktree, resume: undefined }, deps())

@@ -93,7 +93,7 @@
       "src/main/harness/install.ts": "Установщик: состояние, план, порядок версий, текст диалога, замена папки",
       "src/main/ipc/harness.ts": "Единственный установщик приложения и диалог согласия; объявляет harness.changed",
       "src/main/harness/locate.ts": "Какой Harness стоит на Machine и где его скрипты",
-      "src/main/agent/options.ts": "Передаёт копию Session inline и регистрирует её серверы",
+      "src/main/vendors/claude/options.ts": "Передаёт копию Session inline и регистрирует её серверы",
       "src/main/workflow/profile.ts": "Запускает bin/profile и читает поля Profile",
       "src/renderer/shell/toolbar/HarnessStatus.tsx": "Пункт Harness в toolbar",
       "harness/hooks/hooks.json": "Подключает каждый hook plugin"

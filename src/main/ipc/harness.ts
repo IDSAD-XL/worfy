@@ -13,11 +13,11 @@
 // is covered without remembering to announce.
 import { app, BrowserWindow, dialog } from 'electron'
 import { harnessChanged, harnessInstall, harnessState } from '../../shared/ipc/harness'
-import { bundledClaudeBinary } from '../agent/options'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessDir } from '../harness/bundled'
 import { claudeCommandEnv, confirmationText, HarnessInstaller, installOffered, type InstallPlan } from '../harness/install'
 import { claudeHome, harnessHome } from '../storage/paths'
+import { bundledClaudeBinary } from '../vendors/claude/options'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 type InstallResult = Awaited<ReturnType<HarnessInstaller['install']>>
