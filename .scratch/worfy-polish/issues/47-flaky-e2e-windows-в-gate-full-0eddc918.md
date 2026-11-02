@@ -55,6 +55,16 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   дал `{starts: 2}` вместо 1 в обеих попытках, то есть frame Card-а стартовал дважды (это не подделанная запись: нет
   `forged: true`). В Windows CI run-ах #1190 и #1195 зелёный. Гипотеза, не установлена: iframe Card-а на Windows
   перезагружается во время старта приложения.
+- `test/e2e/card-drag.spec.ts:179` («a Card jerked by the lower end of its header…», раунд `the lower end` цикла) и
+  `test/e2e/card-drag.spec.ts:196` («a Note jerked across a Card iframe…»): job `windows-e2e (1/4)` push run-а `main`
+  https://github.com/IDSAD-XL/worfy/actions/runs/41463951333 (`e0d761ea`, 2026-11-02) — красные в обеих попытках:
+  `Error: the window is 1600 px wide`, `Timeout 9989ms exceeded while waiting on the predicate`
+  (`expect(received).toBe(expected)` в `canvasReady`, `test/e2e/helpers.ts:544`, вызов из `start` — строка 93).
+  Окно не доросло до 1600 px за 10 s, то есть упал старт приложения, до жеста, который test проверяет. В том же run-е
+  `card-drag.spec.ts:213` упал так же в первой попытке (`Received: 1264`) и прошёл во второй. То же дерево зелёное на
+  head PR #1247. Причина не установлена. С 2026-11-02 — quarantine (win32), записи
+  `test/quarantine/card-drag-card-jerked-lower-end.json` и `test/quarantine/card-drag-note-jerked-across-card.json`
+  (до 2026-11-16; после строки import test-ы стоят на строках 180 и 197). Timeout не поднимать.
 - Кандидат во flaky test: `test/contract/login-shell-capture.test.ts:144-146` читает файл `after` сразу после
   `existsSync`; под нагрузкой файл может быть ещё пуст (замечено в gate PR #1190, не воспроизведено).
 

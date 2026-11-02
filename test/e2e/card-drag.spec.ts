@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
+import { quarantined } from './quarantine'
 
 // A gesture that runs over a Card's iframe ends on the release (worfy-week ticket 09). A Card's
 // page lives on another origin, worfy-card://, so while the pointer is over its iframe the mouse
@@ -176,7 +177,7 @@ async function clickReachesCard(window: Page, clicks: number): Promise<void> {
 // (M23: the Node stayed `dragging` after the release). Held at the lower end, the very first step
 // is on the iframe, before React Flow has seen a move at all.
 for (const [where, below] of [['the middle', 0.5], ['the lower end', 1]] as const) {
-  test(`a Card jerked by ${where} of its header ends its drag on the release, lands where it was dropped, and the viewport stays`, async () => {
+  quarantined('card-drag-card-jerked-lower-end', { when: where === 'the lower end' })(`a Card jerked by ${where} of its header ends its drag on the release, lands where it was dropped, and the viewport stays`, async () => {
     const window = await start([cardNode('c1', 1000, 200)])
     const viewportBefore = await viewportTransform(window)
     const title = await box(header(window, 'c1'))
@@ -193,7 +194,7 @@ for (const [where, below] of [['the middle', 0.5], ['the lower end', 1]] as cons
   })
 }
 
-test('a Note jerked across a Card iframe ends its drag on the release and lands where it was dropped', async () => {
+quarantined('card-drag-note-jerked-across-card')('a Note jerked across a Card iframe ends its drag on the release and lands where it was dropped', async () => {
   // At zoom 0.5 the Note stands 8 screen px left of the Card (16 on the Canvas, ADR-0038). Held at
   // the right end of its header and pulled right: the first step puts the pointer on the Card's
   // iframe, and the pull carries the Note across the Card to beyond it.
