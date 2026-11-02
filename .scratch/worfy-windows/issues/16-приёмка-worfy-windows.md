@@ -147,3 +147,24 @@ Ticket последний в Epic-е, с другими Ticket-ами он не 
 владельца Q1/Q9 2026-10-31: зелёный с такими исключениями засчитывается) два test-а: `test/contract/terminal-windows.test.ts`
 и `test/contract/workflow-branches-gone.test.ts`, срок до 2026-12-15. Один зелёный прогон: на 8 workers красные раньше
 приходили по одному новому test-у, следующие gate full могут снова покраснеть.
+
+Пункт 3 (2026-11-02, ПК): `test/contract/harness-node-only.test.ts`, 15 test-ов, код 0 на ПК. Проверки берут корень, на
+который смотрят. Контрольные случаи гоняют их на копии `harness/bin`, `harness/hooks` и `harness/.mcp.json` во временной
+папке: подложенный `harness/bin/planted` с `#!/bin/bash` → «harness/bin/planted: a shell script (#!/bin/bash)». Так же
+названы `.py` без shebang, CRLF, сервер `.mcp.json` на `bash` и команды hook-а: скрипт по пути, цепочка после node и
+после запуска gate, `.sh` за node, черновик `worktree-create.sh`. Мутанты на настоящем дереве ПК, каждый — код 1 с
+именем файла: `#!/bin/bash` в `harness/bin`; CRLF в `harness/bin/ticket`; `.gitattributes` без `eol=lf` для `harness/**`
+(«eol unspecified»); команда hook-а `stop.mjs` без node; команда hook-а с `worktree-create.sh`; цепочка `; bash x.sh`
+после node; сервер qmd в `.mcp.json` на `bash`. До этого Ticket-а файла test-а не было.
+- Исключения, решено Orchestrator-ом 2026-11-02, без владельца:
+  1. `harness/hooks/gate.sh` остаётся на bash: это запуск gate, который должен сказать «node not found», поэтому
+     сам не может зависеть от node (решение 2026-10-14 в шапке файла). Команды `TaskCompleted` и `TeammateIdle` в
+     `hooks.json` зовут его — единственная форма команды hook-а не через node.
+  2. `harness/hooks/worktree-create.sh` остаётся на bash, пока не зарегистрирован: test красный, если любая команда
+     hook-а его запускает.
+  3. `.cjs` — Node (`harness/hooks/eval-env.cjs`).
+  Список исключений в test-е: у каждой записи причина; test проверяет, что оба файла есть и что без списка оба названы.
+- `git ls-files --eol harness scripts` на Windows-клоне (`core.autocrlf=true`, main `c22e29d0`): все 373 файла `w/lf`;
+  вывод — [`../evidence/16-ls-files-eol.txt`](../evidence/16-ls-files-eol.txt).
+- Вне пункта (находка ревью): в `harness/evals/**` и `harness/evals-outcome/**` вне папок `tests` лежат 17 shell-файлов
+  (`scaffold.sh` и другие). Тикет проверяет только `harness/bin` и `harness/hooks`.
