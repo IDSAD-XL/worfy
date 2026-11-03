@@ -693,6 +693,10 @@ const CODEX_CONTEXT_LIMIT_TOKENS = 2500
 const REAL_PLUGIN_ROOT = 'C:\\Users\\firstname.lastname\\.codex\\plugins\\cache\\worfy-harness\\worfy\\local'
 /** Approximate, bytes/4, as Codex's estimator is not in the repo. */
 const approximateTokens = (text: string) => Buffer.byteLength(text, 'utf8') / 4
+/** Where inject-rules.mjs cuts the part common with the user's rules: LIMIT, in characters (code points). */
+const USER_RULES_CUT = 10_000
+/** The sentence of the README's «On Codex» known gap that names this overflow (whitespace folded). */
+const README_USER_RULES_GAP = 'User rules can push the part `common` over the limit, and it then spills:'
 
 describe('the rules contexts on Codex, against the additionalContextLimit Codex spills at', () => {
   /** The additionalContext inject-rules.mjs of the installed plugin gives for `part` on `event`, with `userRules` in the slot of the user's own rules. */
@@ -713,25 +717,36 @@ describe('the rules contexts on Codex, against the additionalContextLimit Codex 
   }
 
   // At this commit the margin is about 1 %: orchestrator 2481 tokens by bytes/4 with this root (about 2467
-  // with a 60-character macOS root), common 1493; common with its user-rules slot full is cut at
-  // 10,000 characters, so ASCII user rules reach 2500 at most. User rules in a script of two or more bytes a
-  // character would go over (README, «On Codex», the known gap); the suite checks the size, not the spill.
-  row(7, `every rules context fits Codex's limit of ${CODEX_CONTEXT_LIMIT_TOKENS} tokens (approximate, bytes/4, as Codex's estimator is not in the repo)`, () => {
-    const filler = `${'- A rule of the user, one line of plain ASCII text that fills the slot.\n'.repeat(400)}`
+  // with a 60-character macOS root), common 1493. None of the three holds a path of the machine: they are the
+  // same on every runner. The suite checks the size, not the spill.
+  row(7, `the Harness's own rules contexts fit Codex's limit of ${CODEX_CONTEXT_LIMIT_TOKENS} tokens (approximate, bytes/4, as Codex's estimator is not in the repo)`, () => {
     const contexts = [
       ['SessionStart orchestrator', context('orchestrator', 'SessionStart')],
       ['SessionStart common', context('common', 'SessionStart')],
       ['SubagentStart common', context('common', 'SubagentStart')],
-      ['SubagentStart common with a full ASCII user-rules slot', context('common', 'SubagentStart', filler)],
     ] as const
-    // The plugin root went in, and the full slot was filled to the cut.
     expect(contexts[0][1]).toContain(REAL_PLUGIN_ROOT)
-    expect(contexts[3][1]).toMatch(/\(The user rules are cut here to fit the session hook limit; /)
     const sizes = contexts.map(([name, text]) => `${name}: ${approximateTokens(text)}`)
     expect(
       contexts.filter(([, text]) => approximateTokens(text) > CODEX_CONTEXT_LIMIT_TOKENS).map(([name]) => name),
       `over ${CODEX_CONTEXT_LIMIT_TOKENS} approximate tokens; sizes: ${sizes.join(', ')}`,
     ).toEqual([])
+  })
+
+  // A known gap, not a row. inject-rules.mjs cuts common plus the user's rules at 10,000 characters (code
+  // points), whatever they are; Codex's 2,500 tokens are about 10,000 bytes, and common has multi-byte
+  // characters (20 of them, 40 bytes more), so a full slot is always over, about 2,510. The cut keeps whole
+  // lines and its closing line names the user-rules file: with long filler lines how much is left unused
+  // depended on the length of that path, a temporary folder of the runner (2499.25 on the Mac, 2504.25 on
+  // Linux CI). Lines of one character leave at most two characters unused (a line and its line break), so
+  // the size no longer depends on it.
+  it('known gap: common with a full user-rules slot is over Codex\'s limit and spills; the README names it', () => {
+    const full = context('common', 'SubagentStart', 'x\n'.repeat(6000))
+    expect(full).toMatch(/\(The user rules are cut here to fit the session hook limit; the whole file: /)
+    expect([...full].length, 'the slot is full: within two characters of the cut').toBeGreaterThanOrEqual(USER_RULES_CUT - 2)
+    expect(approximateTokens(full)).toBeGreaterThan(CODEX_CONTEXT_LIMIT_TOKENS)
+    const readme = readFileSync(join(HARNESS, 'README.md'), 'utf8').replace(/\s+/g, ' ')
+    expect(readme).toContain(README_USER_RULES_GAP)
   })
 })
 
