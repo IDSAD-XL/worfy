@@ -9,7 +9,8 @@
 // Each process of the Session gets a token of its own (codexMcpSessions). Codex reads it from the
 // environment variable MCP_TOKEN_ENV of its app-server (`bearer_token_env_var`): the token is in no
 // argument, in neither thread/start nor thread/resume, and in no file. The token ends when the handle
-// closes and when the process exits (session.ts), whichever comes first.
+// closes and when the process exits (session.ts), whichever comes first. The same environment sends
+// Codex's requests to 127.0.0.1 past any proxy the user set (directToLoopback).
 //
 // The Session's events are watched on the way out of the handle (observe): each turn's `init` names
 // the thread the tools act for, and a `fileChange` into a Card's folder makes the Session the Card's
@@ -35,8 +36,8 @@ export interface CodexMcpSession {
   config: Record<string, JsonValue>
   /** The instructions of the servers given (the Cards folder, the Browser), for `developerInstructions`. */
   developerInstructions: string
-  /** What the app-server's environment gets on top of its own: the token, under MCP_TOKEN_ENV. */
-  env: Record<string, string>
+  /** The app-server's environment over `base`: the token under MCP_TOKEN_ENV, and the endpoint reached past any proxy (directToLoopback). */
+  env(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv
   /** The handle with the Session's events watched; its close() also ends the token. */
   observe(handle: SessionHandle): SessionHandle
   /** Ends the token. Calling it again does nothing. */
@@ -52,6 +53,29 @@ export interface CodexMcpDeps {
   /** The MCP servers the Profile of the Project at `cwd` lists (readMcpAllowlist); never rejects. */
   allowlist(cwd: string): Promise<readonly string[]>
   endpoint(): Promise<McpHttpEndpoint>
+}
+
+/** The hosts the endpoint's URLs may name; the URLs name MCP_HTTP_HOST (src/main/mcp/http-server.ts). */
+const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost']
+
+/**
+ * `env` with LOOPBACK_HOSTS added to its NO_PROXY and no_proxy, the user's own entries kept: with
+ * HTTP_PROXY or ALL_PROXY set, Codex would otherwise send its requests to the endpoint — the token in
+ * clear text — through the proxy, which cannot reach 127.0.0.1 of this Machine anyway. A variable the
+ * user set under one spelling only gives its value to the other; every other spelling of it (Windows
+ * reads the name in any case) gets the hosts too.
+ */
+export function directToLoopback(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const spellings = Object.keys(env).filter((key) => key.toLowerCase() === 'no_proxy' && env[key] !== undefined)
+  const anySpelling = spellings.length === 0 ? undefined : env[spellings[0]!]
+  const out: NodeJS.ProcessEnv = { ...env }
+  for (const key of new Set(['NO_PROXY', 'no_proxy', ...spellings])) {
+    const own = (env[key] ?? anySpelling ?? '').trim()
+    const listed = own.split(',').map((entry) => entry.trim().toLowerCase())
+    const missing = LOOPBACK_HOSTS.filter((host) => !listed.includes(host))
+    out[key] = missing.length === 0 ? own : own === '' ? missing.join(',') : `${own},${missing.join(',')}`
+  }
+  return out
 }
 
 /** The paths a `fileChange` tool_use of the Codex driver (items.ts, toolUse) writes. */
@@ -135,7 +159,7 @@ export function codexMcpSessions(deps: CodexMcpDeps): CodexMcpResolver {
     return {
       config,
       developerInstructions: given.map((each) => each.instructions).join('\n\n'),
-      env: { [MCP_TOKEN_ENV]: grant.token },
+      env: (base) => ({ ...directToLoopback(base), [MCP_TOKEN_ENV]: grant.token }),
       observe: (handle) =>
         watched(
           handle,

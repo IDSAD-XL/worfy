@@ -252,7 +252,10 @@ change the Canvas, and it is wider than Cards: it also makes notes, and moves, r
 - A Claude Session gets the server inside the app's process. A Codex Session gets the same tools over HTTP: worfy serves
   them on `127.0.0.1` only, at a port picked when the first Codex Session starts. Each process of a Codex Session gets its
   own token, which Codex reads from the environment variable `WORFY_MCP_TOKEN` of its process; a request without that
-  token is refused. The token is never in a file or in Codex's arguments, and it ends when the process ends. The
+  token is refused, and so is any request a web page sends (one with an `Origin` header). The token is never in a file
+  or in Codex's arguments, and it ends when the process ends. Codex reaches the server directly even when a proxy is
+  set: worfy adds `127.0.0.1` and `localhost` to `NO_PROXY` and `no_proxy` of the Codex process, after the user's own
+  entries. The
   instructions that name the Cards folder go into the thread's developer instructions. A Codex Session does not get the
   Cards folder as an extra writable directory yet: outside Full access, Codex treats a write there like any write
   outside its working directory.

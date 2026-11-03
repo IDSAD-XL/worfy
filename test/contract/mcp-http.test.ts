@@ -234,6 +234,22 @@ describe('the MCP endpoint over HTTP', () => {
     expect(nodesOf(PROJECT)).toEqual([])
   })
 
+  it('a request with an Origin header — a web page\'s — is answered 403, with the token or without, and nothing runs', async () => {
+    const at = await endpoint()
+    const grant = at.grant([canvasServer(context())])
+    const url = grant.urls[CANVAS_SERVER_NAME]!
+    for (const origin of ['http://evil.example', 'http://127.0.0.1:5173', 'null']) {
+      const created = await post(url, grant.token, { jsonrpc: '2.0', id: ++nextId, method: 'tools/call', params: { name: 'create_card', arguments: { title: 'From a page' } } }, { Origin: origin })
+      expect(created.status, origin).toBe(403)
+      expect(created.body?.result, origin).toBeUndefined()
+      expect((await post(url, null, { jsonrpc: '2.0', id: ++nextId, method: 'tools/list' }, { Origin: origin })).status, origin).toBe(403)
+    }
+    expect(nodesOf(PROJECT)).toEqual([])
+    // The same request without Origin, as Codex sends it, goes through.
+    expect((await request(url, grant.token, 'tools/call', { name: 'create_card', arguments: { title: 'From Codex' } })).status).toBe(200)
+    expect(nodesOf(PROJECT)).toHaveLength(1)
+  })
+
   it('close() ends every token and stops listening', async () => {
     const at = await endpoint()
     const grant = at.grant([canvasServer(context())])
@@ -249,13 +265,21 @@ describe('the MCP endpoint over HTTP', () => {
     const throwing: McpServer = {
       name: CANVAS_SERVER_NAME,
       version: '1.0.0',
-      tools: [{ name: 'boom', description: 'Throws', shape: {}, call: () => Promise.reject(new Error('it broke')) }],
+      tools: [
+        { name: 'boom', description: 'Throws', shape: {}, call: () => Promise.reject(new Error('it broke')) },
+        // A result JSON cannot carry: the request fails past the tool, the one path that writes a log line.
+        { name: 'bigint', description: 'Answers what does not serialize', shape: {}, call: () => Promise.resolve({ content: [{ type: 'text', text: 'big' }], size: 1n }) },
+      ],
     }
     const at = await endpoint()
     const grant = at.grant([throwing])
     const url = grant.urls[CANVAS_SERVER_NAME]!
     const thrown = await request(url, grant.token, 'tools/call', { name: 'boom', arguments: {} })
     expect(thrown.body?.result).toEqual({ content: [{ type: 'text', text: 'it broke' }], isError: true })
+    const failed = await request(url, grant.token, 'tools/call', { name: 'bigint', arguments: {} })
+    expect(failed.status).toBe(500)
+    expect(failed.body?.error?.message).toBe('Internal error')
+    expect(lines.filter((line) => line.startsWith('[mcp-http] a request failed'))).toHaveLength(1)
     await request(url, `${grant.token}-wrong`, 'tools/list')
     await post(url, grant.token, '{not json')
     await post(url, grant.token, 'x'.repeat(MAX_BODY_BYTES + 1))

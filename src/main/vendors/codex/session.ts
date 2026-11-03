@@ -546,7 +546,7 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
       appPath: options.appPath,
       cwd: opts.cwd,
       clientVersion: options.clientVersion,
-      env: mcp === null ? options.env : { ...(options.env ?? process.env), ...mcp.env },
+      env: mcp === null ? options.env : mcp.env(options.env ?? process.env),
       timeoutMs: options.timeoutMs,
       log: options.log,
       onEvent: (event) => session.receive(event),
@@ -594,8 +594,11 @@ export function codexSessions(options: () => Promise<CodexServerOptions>): Sessi
   }
 }
 
-/** The app's app-server: the pinned Codex of this build, or the fake under WORFY_CODEX=fake; a Session's windows go to the app's LimitsTracker. */
-async function appServerOptions(): Promise<CodexServerOptions> {
+/**
+ * The app's app-server: the pinned Codex of this build, or the fake under WORFY_CODEX=fake; a Session's
+ * windows go to the app's LimitsTracker, worfy's MCP servers come from appCodexMcp.
+ */
+export async function appServerOptions(): Promise<CodexServerOptions> {
   const [{ app }, { appLimits }] = await Promise.all([import('electron'), import('../../agent/limits')])
   return {
     runtime: { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch },

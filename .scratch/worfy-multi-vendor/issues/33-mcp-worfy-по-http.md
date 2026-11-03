@@ -73,3 +73,37 @@ Source: [spec.md](../spec.md), «Модель» (часть mcp), «Решени
 - Не сделано: папка Cards не добавлена Codex как writable root (у Claude — `additionalDirectories`): вне Full access
   запись Card-файлов идёт через approval Codex. Нужен `writableRoots` в `sandboxPolicy` `turn/start`
   (`capabilities.ts` `codexSandboxPolicy`, `session.ts` `startTurn`) — отдельный Ticket.
+
+### Доработка, раунд 1 (замечания проверки PR #1265)
+
+- Proxy: с `HTTP_PROXY`/`ALL_PROXY` в окружении worfy Codex слал запросы к `127.0.0.1` через proxy — token уходил proxy
+  открытым текстом. Теперь окружение app-server (`directToLoopback`, `codex/mcp.ts`) получает `127.0.0.1,localhost` в
+  `NO_PROXY` и `no_proxy` после записей пользователя; написание, заданное только одно, отдаёт свой список другому; любое
+  другое написание (Windows читает имя без учёта регистра) тоже получает адреса. Session без серверов окружение не
+  меняет. Test-ы: `test/contract/codex-session-mcp.test.ts` (окружение, которое получил fake), `test/unit/codex-mcp-app.test.ts`.
+- Test-ы на остановку: `will-quit` закрывает endpoint приложения; неудачный старт повторяется следующим вызовом, вызов
+  во время неудачного старта получает ту же ошибку; token отзывается, когда app-server не запустился (spawn бросает).
+  Попутно `appMcpHttpEndpoint` сначала берёт `app` Electron, потом слушает порт: при сбое импорта endpoint не остаётся
+  открытым без `will-quit` (test на это тоже есть).
+- Autopilot для Browser profile-ей на Session Codex: unattended Session получает отказ `browser_open` для profile-я без
+  отметки Autopilot (ADR-0078); `openedBy` Browser-а, открытого через endpoint, — thread Session; `appServerOptions`
+  (теперь экспортирован) отдаёт `mcp: appCodexMcp`.
+- Ветка 500 endpoint-а: tool с результатом, который не сериализуется (BigInt), даёт 500 и одну строку в log без token-а.
+- Из «Consider»: запрос с заголовком `Origin` (так шлёт web-страница, Codex — нет) получает 403 до проверки token-а;
+  комментарий над `CODEX_CAPABILITIES` исправлен; test-ы MCP Session Codex вынесены из `codex-session.test.ts` в
+  `test/contract/codex-session-mcp.test.ts` (у `codex-session.test.ts` больше нет изменений этого Ticket-а). Test
+  «token кончается со смертью процесса» убивает процесс fake (SIGKILL), а не роняет его preload-ом.
+- Не сделано из «Consider»: `shell_environment_policy.exclude` для `WORFY_MCP_TOKEN`. Ключ `config` в `thread/start`
+  задаёт значение по своему пути, поэтому список пользователя был бы, по всей видимости, заменён, а не дополнен (не
+  проверено: проверить может только настоящий Codex); чтобы слить, нужно сначала прочитать config пользователя
+  (`config/read`), а в схеме `Config` протокола 0.166.0 у `shell_environment_policy` нет своего типа. Это отдельная
+  работа; при этом token живёт только пока живёт процесс и подходит только к `127.0.0.1` этой машины.
+- Вопрос: заменяет ли `developerInstructions` в `thread/start`/`thread/resume` `developer_instructions` пользователя из
+  `~/.codex/config.toml`? По протоколу 0.166.0 (`protocol/ts/v2/ThreadStartParams.ts`, `ThreadResumeParams.ts`,
+  `json/v2/ThreadStartParams.json`): параметр — одна строка `string | null` без описания и без варианта «добавить»;
+  в `Config` (`protocol/ts/v2/Config.ts`) `developer_instructions` — тоже одна строка `string | null`. Параметры
+  `thread/start` (`model`, `sandbox`, `approvalPolicy`, …) — переопределения ключей config на thread. Ничего в схеме не
+  говорит о склейке, поэтому по протоколу ожидать надо замену: свой `developer_instructions` пользователя Session в
+  Project-е, вероятно, теряет. Подтвердить может только запуск настоящего Codex — его делает владелец (spec.md:442).
+  Если замена подтвердится, исправление — прочитать значение пользователя через `config/read` (`ConfigReadParams.cwd`
+  даёт итоговый config с учётом слоёв Project-а) и передать его перед инструкциями worfy; это отдельный Ticket.

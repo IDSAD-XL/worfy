@@ -87,9 +87,9 @@ export function codexSandboxPolicy(mode: SandboxMode): SandboxPolicy {
 /**
  * Codex's capabilities in the first release. A message sent during a turn steers it (`turn/steer`);
  * a model change holds for the turns after it (`turn/start`); Limits come as windows
- * (`account/rateLimits/*`). Missing, each with the reason a tooltip shows: what worfy does not give
- * Codex yet (Subagent Nodes, hooks and the Harness come with the second release; the canvas tools
- * with worfy's MCP servers over HTTP), and what Codex does not have.
+ * (`account/rateLimits/*`); the canvas tools come from worfy's MCP servers over HTTP (mcp.ts). Missing,
+ * each with the reason a tooltip shows: what worfy does not give Codex yet (Subagent Nodes, hooks and
+ * the Harness come with the second release), and what Codex does not have.
  */
 export const CODEX_CAPABILITIES: Capabilities = {
   subagents: false,

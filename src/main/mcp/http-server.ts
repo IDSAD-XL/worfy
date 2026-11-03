@@ -10,6 +10,9 @@
 //   with another scheme, with a token never granted or one revoked is answered 401 before anything else
 //   is read. A Session reaches only its own servers: the token, not the path, says whose they are. A
 //   token is kept only as its SHA-256, so a lookup compares digests, never the secret itself;
+// - a request that carries an Origin header — what a web page's request does, never Codex's — is answered
+//   403 before anything else: a page in a browser of this Machine reaches no tool, whatever name its
+//   host resolves to (DNS rebinding), as MCP's streamable-HTTP transport asks of a server;
 // - the token is never logged: nothing here writes a header or a body anywhere;
 // - a body is read up to MAX_BODY_BYTES, then the request is answered 413;
 // - close() ends every token and every connection; the app's endpoint closes in `will-quit`.
@@ -156,6 +159,10 @@ export async function startMcpHttpEndpoint(): Promise<McpHttpEndpoint> {
   const grants = new Map<string, ReadonlyMap<string, McpServer>>()
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    if (request.headers.origin !== undefined) {
+      request.resume()
+      return send(response, 403, failure(null, INVALID_REQUEST, 'Forbidden'))
+    }
     const token = bearerOf(request)
     const servers = token === null ? undefined : grants.get(digest(token))
     if (servers === undefined) {
@@ -237,8 +244,9 @@ let shared: Promise<McpHttpEndpoint> | null = null
 export function appMcpHttpEndpoint(): Promise<McpHttpEndpoint> {
   if (shared !== null) return shared
   const starting = (async () => {
-    const endpoint = await startMcpHttpEndpoint()
+    // Electron first: an endpoint is never left listening without the `will-quit` that closes it.
     const { app } = await import('electron')
+    const endpoint = await startMcpHttpEndpoint()
     app.on('will-quit', () => void endpoint.close())
     return endpoint
   })()
