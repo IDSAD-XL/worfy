@@ -722,7 +722,7 @@ describe('a main that does not know `back` (an older build on a Linked machine)'
 
   it('the last answer of a Session Node reads on to the end of the file', async () => {
     views = [
-      { projectId: PROJECT.id, nodeId: 'live-node', sessionId: 'live-1', sdkSessionId: S, state: 'idle', error: null, cwd: ROOT, model: null, version: 1 },
+      { projectId: PROJECT.id, nodeId: 'live-node', vendor: 'claude', sessionId: 'live-1', sdkSessionId: S, state: 'idle', error: null, cwd: ROOT, model: null, version: 1 },
     ]
     answers.push(() => ({ found: true, events: range(0, 3).map(answer), cursor: { offset: 300, fileId: FILE }, reset: false, more: true }))
     answers.push(() => ({ found: true, events: [answer(3), { type: 'notice', kind: 'user', text: 'a prompt' } as AgentEvent], cursor: { offset: 500, fileId: FILE }, reset: false, more: true }))
@@ -744,7 +744,7 @@ describe('a main that does not know `back` (an older build on a Linked machine)'
 describe('the last answer of a resumed Session Node', () => {
   it('reads only the window at the end of the transcript, once', async () => {
     views = [
-      { projectId: PROJECT.id, nodeId: 'live-node', sessionId: 'live-1', sdkSessionId: S, state: 'idle', error: null, cwd: ROOT, model: null, version: 1 },
+      { projectId: PROJECT.id, nodeId: 'live-node', vendor: 'claude', sessionId: 'live-1', sdkSessionId: S, state: 'idle', error: null, cwd: ROOT, model: null, version: 1 },
     ]
     answers.push(() => ok({ ...lines(0, 3), earlier: 12_345 }))
     const { default: SessionNode } = await import('../../src/renderer/canvas/nodes/SessionNode')

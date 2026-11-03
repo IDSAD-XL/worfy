@@ -2,6 +2,7 @@
 // queue" actions send (ticket 23; worfy-windows ticket 17). Each Project runs its own process, so the text is a Project setting. worfy does not
 // know what the skill does: it keeps the string and ticket 23 fills in the placeholders.
 import { z } from 'zod'
+import { vendorIdSchema } from '../vendors/vendor'
 
 /** The placeholders a template may contain, written as `{name}`. */
 export const PLACEHOLDERS = ['epic', 'NN', 'wave', 'slug', 'branch', 'tickets'] as const
@@ -144,18 +145,25 @@ export const projectSettingsSchema = z.object({
    * Machine. Elsewhere the shell is `$SHELL`, and the field is not read.
    */
   terminalShell: terminalShellSettingSchema.optional(),
+  /**
+   * The Vendor of a new Session of the Project when "New session" names none (worfy-multi-vendor
+   * ticket 23, spec decision 8); Claude Code when absent, and absent until the user chooses.
+   */
+  defaultVendor: vendorIdSchema.optional(),
 })
 export type ProjectSettings = z.output<typeof projectSettingsSchema>
 
 /**
- * The settings as `settings.json` is read: a `terminalShell` this version does not know (a data
- * folder of a later worfy, a hand edit) reads as not chosen, and the rest of the file stays. A file
+ * The settings as `settings.json` is read: a `terminalShell` or a `defaultVendor` this version does
+ * not know (a data folder of a later worfy, a hand edit) reads as not chosen, and the rest of the
+ * file stays. A file
  * saved before "Process gate queue" existed has no `gateQueue`: migrateProjectSettings gives it the
  * default. What is saved goes through projectSettingsSchema, which refuses such a value.
  */
 export const savedProjectSettingsSchema = projectSettingsSchema.extend({
   actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.optional() }),
   terminalShell: terminalShellSettingSchema.optional().catch(undefined),
+  defaultVendor: vendorIdSchema.optional().catch(undefined),
 })
 export type SavedProjectSettings = z.output<typeof savedProjectSettingsSchema>
 

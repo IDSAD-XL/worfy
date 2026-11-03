@@ -2,6 +2,7 @@
 // events and a person's actions on to observers.
 import { isMainOnlyEvent } from '../../../shared/agent/events'
 import type { SessionSettings } from '../../../shared/agent/settings'
+import type { VendorId } from '../../../shared/vendors/vendor'
 import type { UserEffortReader, UserModelReader } from '../../claude-home/user-model'
 import { claudeSessions, type UserDefaults } from '../../vendors/claude/session'
 import type { SessionPart } from '../../vendors/session'
@@ -9,29 +10,43 @@ import { Session } from '../session'
 import type { SessionLaunch } from '../session-settings'
 import type { EventSink, InputListener, QueryFactory, SessionInfo } from './types'
 
+/**
+ * The session part of each Vendor's driver, asked for when a Session of that Vendor starts: the app's
+ * is vendorDriver(id).session (app-registry.ts). Throws for a Vendor the registry runs no Sessions of.
+ */
+export interface VendorSessions {
+  sessionsOf(vendor: VendorId): SessionPart
+}
+
 /** Every live Session of the app, by id; a Session is also found by its temporary id. */
 export class SessionRegistry {
   private readonly sessions = new Map<string, Session>()
   private readonly observers = new Set<EventSink>()
   private readonly inputObservers = new Set<InputListener>()
-  /** What starts the agent of each Session. */
-  private readonly starter: SessionPart
+  /** What starts the agent of each Session, by its Vendor. */
+  private readonly starters: VendorSessions
 
   /**
-   * `sessions` starts the agent of each Session: the app's is the Claude driver's session part
-   * (app-registry.ts, src/main/vendors/). A QueryFactory is Claude Code's, started through the Claude
-   * driver; `userModel` and `userEffort` then read the user's own model and effort (user-model.ts),
-   * and tests give them fixed answers.
-   * shortcut: a QueryFactory is taken as Claude Code's, as the tests of the Session start the fake
-   * agent that way; redo when worfy-multi-vendor ticket 23 gives each Session its Vendor's driver.
+   * `sessions` starts the agent of each Session: the app's gives each Vendor its driver's session
+   * part (VendorSessions, app-registry.ts). A single SessionPart or QueryFactory starts Claude Code
+   * only, and a Session of another Vendor is refused: a QueryFactory is Claude Code's, started
+   * through the Claude driver, as the tests of the Session start the fake agent; `userModel` and
+   * `userEffort` then read the user's own model and effort (user-model.ts), and tests give them
+   * fixed answers.
    */
-  constructor(sessions: SessionPart | QueryFactory, userModel?: UserModelReader, userEffort?: UserEffortReader) {
-    if (typeof sessions !== 'function') {
-      this.starter = sessions
+  constructor(sessions: VendorSessions | SessionPart | QueryFactory, userModel?: UserModelReader, userEffort?: UserEffortReader) {
+    if (typeof sessions !== 'function' && 'sessionsOf' in sessions) {
+      this.starters = sessions
       return
     }
     const user: Partial<UserDefaults> = { ...(userModel === undefined ? {} : { model: userModel }), ...(userEffort === undefined ? {} : { effort: userEffort }) }
-    this.starter = claudeSessions(sessions, user)
+    const claude = typeof sessions === 'function' ? claudeSessions(sessions, user) : sessions
+    this.starters = {
+      sessionsOf: (vendor) => {
+        if (vendor !== 'claude') throw new Error(`This registry runs no Sessions of ${vendor}`)
+        return claude
+      },
+    }
   }
 
   /**
@@ -72,15 +87,18 @@ export class SessionRegistry {
    * session that a live Session already runs is refused: two processes of the agent would write
    * one transcript, and both Sessions would send events under one id. `launch` is attended unless
    * Autopilot starts the Session unattended (session-settings.ts). With `after`, the Session is live
-   * at once but starts its agent's process only once `after` settles (Session.start).
+   * at once but starts its agent's process only once `after` settles (Session.start). `vendor` names
+   * whose agent runs the Session: Claude Code unless said (the Orchestrator's, in the first release);
+   * a Vendor the registry runs no Sessions of throws, and nothing starts.
    */
-  start(cwd: string, resume: string | undefined, sink: EventSink, settings?: SessionSettings, launch?: SessionLaunch, after?: Promise<void>): Session {
+  start(cwd: string, resume: string | undefined, sink: EventSink, settings?: SessionSettings, launch?: SessionLaunch, after?: Promise<void>, vendor: VendorId = 'claude'): Session {
     if (resume !== undefined && this.live().some((live) => live.id === resume || live.sdkId === resume)) {
       throw new Error(`Session ${resume} is already live`)
     }
+    const starter = this.starters.sessionsOf(vendor)
     const session = new Session(
       cwd,
-      this.starter,
+      starter,
       (sessionId, event) => {
         for (const observer of this.observers) {
           try {

@@ -3,8 +3,13 @@
 // "New session" places a new live Node and starts a new Session in the Project's root. Resume
 // continues a finished Session on the Session Node that names it — a read-only Node of ticket 14
 // becomes live — or on a new Node, in the cwd the rule of Resume (resume.ts) gives. The Node's data
-// keeps `origin: 'worfy'` and the SDK session id once Claude Code reports it (ADR-0010); the rest
-// lives in memory as the Node's view and goes to the windows on `sessions.changed`.
+// keeps `origin: 'worfy'`, the Vendor and the Vendor's session id once its agent reports it
+// (ADR-0010); the rest lives in memory as the Node's view and goes to the windows on `sessions.changed`.
+//
+// Each Session runs on its Vendor's driver (worfy-multi-vendor ticket 23): "New session" on the Vendor
+// it names, else on the Project's `defaultVendor`, else on Claude Code; Start and Resume on the Vendor
+// of the Node, and Claude Code for a Node saved without one. A Vendor this build does not run, or one
+// nobody is signed in to, is refused with the reason before a Node is made.
 //
 // The model, effort and permission mode picked on a Node are kept like the Orchestrator's
 // (session-settings.ts, worfy-daily ticket 23): each `settings` event of the Node's Session saves
@@ -16,6 +21,7 @@
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import type { LiveSession } from '../../shared/ipc/claude-home'
+import { VENDOR_LABELS, vendorIdSchema, type VendorId } from '../../shared/vendors/vendor'
 import {
   LIVE_SESSION_HEIGHT,
   LIVE_SESSION_WIDTH,
@@ -27,6 +33,7 @@ import {
 import { isArchived, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import type { RegistryRoot } from '../claude-home/registry'
 import { placeDownFrom, placeNewNode } from '../layout/place'
+import type { AccountPart } from '../vendors/account'
 import { closeRefusal, resumeVerdict } from './resume'
 import type { EventSink, Session, SessionRegistry } from './session'
 
@@ -38,6 +45,18 @@ export interface NodeSessionsDeps {
   }
   /** The Project's repository root; throws for a Project that is not in the list. */
   projectPath(projectId: string): string
+  /** The Project's Vendor of a new Session (its settings' `defaultVendor`); Claude Code when absent or when it throws. */
+  defaultVendor?(projectId: string): VendorId | undefined
+  /**
+   * Why a new Session of `vendor` cannot start now — nobody is signed in to it, it did not answer —
+   * or null when it can. Absent: never refused.
+   */
+  vendorRefusal?(vendor: VendorId): Promise<string | null>
+  /**
+   * What the home of `vendor` knows of the Project's Sessions, for the rule of Resume of a Session of
+   * that Vendor: its live processes and each Session's cwd. Absent: `claude` for every Vendor.
+   */
+  vendorSessions?(vendor: VendorId, projectRoot: RegistryRoot): Promise<KnownSessions>
   registry: Pick<SessionRegistry, 'start' | 'list'>
   /** Where the picked model, effort and permission mode of a Node are kept (session-settings.ts). */
   settings: {
@@ -48,12 +67,18 @@ export interface NodeSessionsDeps {
    * What the Claude home knows of the Project's Sessions: live processes and each transcript's cwd.
    * The root is `local` for a call of this Machine's own; otherwise it is judged strictly (RegistryRoot).
    */
-  claude(projectRoot: RegistryRoot): Promise<{ live: readonly LiveSession[]; history: readonly { sessionId: string; cwd?: string | undefined }[] }>
+  claude(projectRoot: RegistryRoot): Promise<KnownSessions>
   isDirectory(path: string): Promise<boolean>
   /** Gets every event of every Session here, e.g. to send it to the windows. */
   broadcast: EventSink
   /** Gets every new view, e.g. to send it to the windows. */
   publish(view: SessionNodeView): void
+}
+
+/** What a Vendor's home knows of a Project's Sessions: live processes, and each one's cwd. */
+export interface KnownSessions {
+  live: readonly LiveSession[]
+  history: readonly { sessionId: string; cwd?: string | undefined }[]
 }
 
 /** One Session started for a Node. */
@@ -69,6 +94,56 @@ interface Run {
 
 /** Data of a Session Node that worfy runs. */
 const isWorfyNode = (node: LayoutNode): boolean => node.kind === SESSION_NODE_KIND && node.data.origin === 'worfy'
+
+/** The Vendor of a Session saved without one: every Session from before worfy-multi-vendor is Claude Code's. */
+const UNNAMED_VENDOR: VendorId = 'claude'
+
+/** `name` as a Vendor this build runs; throws with the reason for any other. */
+function knownVendor(name: string): VendorId {
+  const parsed = vendorIdSchema.safeParse(name)
+  if (!parsed.success) throw new Error(`${name} is not a Vendor this build of worfy runs`)
+  return parsed.data
+}
+
+/** The Vendor of the Session on `node`; throws for one this build does not run (a later worfy's). */
+function vendorOf(node: LayoutNode): VendorId {
+  const saved: unknown = node.data.vendor
+  if (saved === undefined) return UNNAMED_VENDOR
+  try {
+    return knownVendor(String(saved))
+  } catch (error) {
+    throw new Error(`The Session of ${node.id} cannot start: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+}
+
+/** How long the sign-in check of a Vendor may take before New session goes on without its answer. */
+export const SIGN_IN_CHECK_MS = 15_000
+
+/**
+ * A vendorRefusal over the Vendors' account parts: a Vendor nobody is signed in to is refused. A check
+ * that fails or does not answer in `timeoutMs` refuses nothing: the Session then reports the Vendor's
+ * own error, as before the check. A Vendor once found signed in is not asked again in this run of the
+ * app, and a Vendor of `trusted` is never asked.
+ */
+export function signInRefusal(
+  account: (vendor: VendorId) => Pick<AccountPart, 'check'>,
+  options: { trusted?: ReadonlySet<VendorId>; timeoutMs?: number; log?: (message: string, error: unknown) => void } = {},
+): (vendor: VendorId) => Promise<string | null> {
+  const signedIn = new Set<VendorId>(options.trusted)
+  return async (vendor) => {
+    if (signedIn.has(vendor)) return null
+    let connections
+    try {
+      connections = await account(vendor).check(AbortSignal.timeout(options.timeoutMs ?? SIGN_IN_CHECK_MS))
+    } catch (error) {
+      ;(options.log ?? ((message, cause) => console.warn(message, cause)))(`[sessions] could not check the sign-in to ${vendor}; starting the Session anyway`, error)
+      return null
+    }
+    if (!connections.some((connection) => connection.signedIn)) return `Nobody is signed in to ${VENDOR_LABELS[vendor]}: sign in to it first`
+    signedIn.add(vendor)
+    return null
+  }
+}
 
 export class NodeSessions {
   /** The current run of each Node, while its Session is not closed. */
@@ -86,11 +161,25 @@ export class NodeSessions {
   constructor(private readonly deps: NodeSessionsDeps) {}
 
   /**
-   * A new Node, placed where it covers no other, with a new Session in the Project's root. With
-   * `near` ("Ship ticket", worfy-daily ticket 28) the Node goes on the first clear spot at `near.x`,
-   * from `near.y` down; without it, where every Node main makes goes (`placeNewNode`).
+   * "New session": a new Node with a new Session of `vendor`, or of the Project's `defaultVendor`
+   * without it. Refused with the reason, before any Node is made, for a Vendor this build does not
+   * run and for one that cannot start a Session now (vendorRefusal).
    */
-  create(projectId: string, near?: { x: number; y: number }): SessionNodeView {
+  async open(projectId: string, vendor?: string): Promise<SessionNodeView> {
+    this.deps.projectPath(projectId)
+    const id = vendor === undefined ? this.defaultVendor(projectId) : knownVendor(vendor)
+    const refusal = (await this.deps.vendorRefusal?.(id)) ?? null
+    if (refusal !== null) throw new Error(refusal)
+    return this.create(projectId, undefined, id)
+  }
+
+  /**
+   * A new Node, placed where it covers no other, with a new Session of `vendor` (the Project's
+   * `defaultVendor` by default) in the Project's root. With `near` ("Ship ticket", worfy-daily ticket
+   * 28) the Node goes on the first clear spot at `near.x`, from `near.y` down; without it, where every
+   * Node main makes goes (`placeNewNode`).
+   */
+  create(projectId: string, near?: { x: number; y: number }, vendor: VendorId = this.defaultVendor(projectId)): SessionNodeView {
     const root = this.deps.projectPath(projectId)
     const { layout } = this.deps.layout.get(projectId)
     const size = { w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT }
@@ -98,11 +187,11 @@ export class NodeSessions {
     const before = new Set(layout.nodes.map((node) => node.id))
     const after = this.deps.layout.apply(projectId, {
       op: 'create',
-      node: { kind: SESSION_NODE_KIND, x, y, w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT, data: { origin: 'worfy' } satisfies WorfySessionNodeData },
+      node: { kind: SESSION_NODE_KIND, x, y, w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT, data: { origin: 'worfy', vendor } satisfies WorfySessionNodeData },
     })
     const created = after.layout.nodes.find((node) => !before.has(node.id))
     if (!created) throw new Error(`the Session Node of ${projectId} was not created`)
-    return this.launch(projectId, created.id, root, undefined)
+    return this.launch(projectId, created.id, root, undefined, vendor)
   }
 
   /** Starts the Session behind a worfy Node that runs none: its saved session resumed, or a new one. */
@@ -112,12 +201,16 @@ export class NodeSessions {
     const root = this.deps.projectPath(projectId)
     const node = this.deps.layout.get(projectId).layout.nodes.find((each) => each.id === nodeId)
     if (!node || !isWorfyNode(node)) throw new Error(`${nodeId} is not a Session Node of worfy`)
+    const vendor = vendorOf(node)
     const saved = node.data.sessionId
-    if (typeof saved !== 'string' || saved === '') return this.launch(projectId, nodeId, root, undefined)
-    return this.once([`node:${nodeId}`, `session:${saved}`], () => this.resumeOn(projectId, root, node, saved))
+    if (typeof saved !== 'string' || saved === '') return this.launch(projectId, nodeId, root, undefined, vendor)
+    return this.once([`node:${nodeId}`, `session:${saved}`], () => this.resumeOn(projectId, root, node, saved, vendor))
   }
 
-  /** Continues a finished Session on the Session Node that names it, or on a new one. */
+  /**
+   * Continues a finished Session on the Session Node that names it, on that Node's Vendor, or on a new
+   * Node: a Session no Node names is one of the Claude home's.
+   */
   async resume(projectId: string, sessionId: string): Promise<SessionNodeView> {
     const root = this.deps.projectPath(projectId)
     const node = this.deps.layout.get(projectId).layout.nodes.find((each) => each.kind === SESSION_NODE_KIND && each.data.sessionId === sessionId)
@@ -125,7 +218,8 @@ export class NodeSessions {
       const running = this.running(node.id)
       if (running) return running
     }
-    return this.once([`session:${sessionId}`, ...(node ? [`node:${node.id}`] : [])], () => this.resumeOn(projectId, root, node, sessionId))
+    const vendor = node ? vendorOf(node) : UNNAMED_VENDOR
+    return this.once([`session:${sessionId}`, ...(node ? [`node:${node.id}`] : [])], () => this.resumeOn(projectId, root, node, sessionId, vendor))
   }
 
   /**
@@ -198,20 +292,21 @@ export class NodeSessions {
     return promise
   }
 
-  private async resumeOn(projectId: string, root: string, node: LayoutNode | undefined, sessionId: string): Promise<SessionNodeView> {
+  private async resumeOn(projectId: string, root: string, node: LayoutNode | undefined, sessionId: string, vendor: VendorId): Promise<SessionNodeView> {
     // `local` for any caller: a resume needs the access to write, which gives a Linked machine a
     // Terminal in the Project as well (ADR-0052), so a strict read would guard nothing.
-    const claude = await this.deps.claude({ path: root, local: true })
+    const projectRoot = { path: root, local: true }
+    const known = await (this.deps.vendorSessions ? this.deps.vendorSessions(vendor, projectRoot) : this.deps.claude(projectRoot))
     const verdict = await resumeVerdict({
       sessionId,
       projectRoot: root,
-      live: claude.live,
+      live: known.live,
       running: this.runningIds(),
-      recorded: claude.history.find((each) => each.sessionId === sessionId),
+      recorded: known.history.find((each) => each.sessionId === sessionId),
       isDirectory: this.deps.isDirectory,
     })
     if (!verdict.resumable) throw new Error(verdict.label)
-    return this.launch(projectId, this.liveNode(projectId, node, sessionId), verdict.cwd, sessionId)
+    return this.launch(projectId, this.liveNode(projectId, node, sessionId, vendor), verdict.cwd, sessionId, vendor)
   }
 
   /**
@@ -221,8 +316,8 @@ export class NodeSessions {
    * An archived Node comes back onto the Canvas first: Resume is the user's work with it, and the
    * `restore` sets its `touchedAt`, so the automatic archive does not take it again at once.
    */
-  private liveNode(projectId: string, found: LayoutNode | undefined, sessionId: string): string {
-    const data: WorfySessionNodeData = { origin: 'worfy', sessionId }
+  private liveNode(projectId: string, found: LayoutNode | undefined, sessionId: string, vendor: VendorId): string {
+    const data: WorfySessionNodeData = { origin: 'worfy', vendor, sessionId }
     // A read-only Node turns live by `remove` and `create`, and `remove` is refused for a locked
     // Node: refused here, before anything changes (an archived one is not restored first).
     if (found && !isWorfyNode(found) && found.locked) throw new Error(`${found.id} is locked and cannot be turned into a live Session Node`)
@@ -266,13 +361,13 @@ export class NodeSessions {
     return layout.nodes.find((each) => each.id === id)
   }
 
-  private launch(projectId: string, nodeId: string, cwd: string, resume: string | undefined): SessionNodeView {
+  private launch(projectId: string, nodeId: string, cwd: string, resume: string | undefined, vendor: VendorId): SessionNodeView {
     const run: Run = { projectId, nodeId, session: null, sdkSessionId: resume ?? null, settings: this.savedSettings(projectId, nodeId) }
     this.runs.set(nodeId, run)
     // The registry reports `starting` before start() returns: the view must exist by then.
-    this.setView({ projectId, nodeId, sessionId: `starting-${nodeId}`, sdkSessionId: resume ?? null, state: 'starting', error: null, cwd, model: null })
+    this.setView({ projectId, nodeId, vendor, sessionId: `starting-${nodeId}`, sdkSessionId: resume ?? null, state: 'starting', error: null, cwd, model: null })
     try {
-      run.session = this.deps.registry.start(cwd, resume, (sessionId, event) => this.onEvent(run, sessionId, event), run.settings)
+      run.session = this.deps.registry.start(cwd, resume, (sessionId, event) => this.onEvent(run, sessionId, event), run.settings, undefined, undefined, vendor)
     } catch (error) {
       this.runs.delete(nodeId)
       // Closed, not `error`: no Session runs, so the Node can be removed or started again.
@@ -314,6 +409,16 @@ export class NodeSessions {
       }
     }
     this.setView(next)
+  }
+
+  /** The Project's Vendor of a new Session; Claude Code when it has none or it cannot be read, so New session goes on. */
+  private defaultVendor(projectId: string): VendorId {
+    try {
+      return this.deps.defaultVendor?.(projectId) ?? UNNAMED_VENDOR
+    } catch (error) {
+      console.warn(`[sessions] could not read the Vendor of ${projectId}; starting Claude Code`, error)
+      return UNNAMED_VENDOR
+    }
   }
 
   /** The Node's saved picks; the defaults when there are none or they cannot be read, so the start goes on. */

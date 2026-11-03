@@ -22,26 +22,22 @@ import { draftSessionOptions, sessionOptions } from '../../src/main/vendors/clau
 import { defaultAttribution } from '../../src/main/harness/attribution'
 import { proposeAttribution } from '../../src/main/harness/migrate/profiles'
 import {
-  activityOf,
   applyChoices,
   CONNECT_TIMEOUT_MS,
   CONNECT_WRITE_TIMEOUT_MS,
   connectScriptRunner,
   connectTimeoutMs,
-  DRAFT_DISALLOWED_TOOLS,
   DRAFT_TOOLS,
-  draftCanUseTool,
   draftMessage,
   inspectFolder,
   MULTI_REPO_FULL,
   ProjectConnector,
   type AddOutcome,
   type ConnectDeps,
-  type DraftRequest,
 } from '../../src/main/projects/connect'
 import { ghRunner } from '../../src/main/github/prs'
 import type { QueryHandle } from '../../src/main/agent/session'
-import { readOneShot } from '../../src/main/vendors/claude/one-shot'
+import { activityOf, claudeOneShotOver, ONE_SHOT_DISALLOWED_TOOLS, readOnlyCanUseTool, type ClaudeOneShotRequest } from '../../src/main/vendors/claude/one-shot'
 import { ProjectStore, runGit } from '../../src/main/projects/store'
 import { profileRegistryFiles, type HarnessLocation } from '../../src/main/harness/locate'
 import { HarnessScriptStartError, killRunningHarnessScripts, type ProfileRunner, type runHarnessScript, type SpawnProcess } from '../../src/main/workflow/profile'
@@ -49,13 +45,6 @@ import { NODE, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { ghWorld } from './gh-world'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
-
-// The draft reads Claude Code's result through the Claude driver (worfy-multi-vendor ticket 15):
-// readOneShot is the driver's own, watched so a test can see the draft go through it.
-vi.mock('../../src/main/vendors/claude/one-shot', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../src/main/vendors/claude/one-shot')>()
-  return { ...original, readOneShot: vi.fn(original.readOneShot) }
-})
 
 const REPO = join(__dirname, '..', '..')
 const BIN = join(REPO, 'harness', 'bin')
@@ -188,7 +177,7 @@ const installed: HarnessStatus = { state: { kind: 'installed', version: '0.4.0',
 
 interface Harnessed {
   connector: ProjectConnector
-  requests: DraftRequest[]
+  requests: ClaudeOneShotRequest[]
   calls: FakeCall[]
   added: string[]
   activity: string[]
@@ -208,7 +197,7 @@ function sandboxStore(): ProjectStore {
 
 /** A connector over the sandbox; `overrides` replace any of its parts. */
 function connectorWith(overrides: Partial<ConnectDeps> & { script?: string; scriptsDir?: string } = {}): Harnessed {
-  const requests: DraftRequest[] = []
+  const requests: ClaudeOneShotRequest[] = []
   const calls: FakeCall[] = []
   const added: string[] = []
   const fake = fakeQueryFactory({ scriptsDir: overrides.scriptsDir ?? SCRIPTS, script: overrides.script ?? 'profile-draft', record: (call) => calls.push(call), releases: undefined })
@@ -221,10 +210,11 @@ function connectorWith(overrides: Partial<ConnectDeps> & { script?: string; scri
     gateRegistries: () => Promise.resolve(profileRegistryFiles(sandboxEnv())),
     connect: (args, stdin) => runScript('project-connect', args, stdin),
     harness: () => Promise.resolve(installed),
-    query: (request) => {
+    // The draft's single request on the Claude driver's oneShot (worfy-multi-vendor ticket 23), over the fake agent.
+    oneShot: claudeOneShotOver((request) => {
       requests.push(request)
       return fake(request)
-    },
+    }),
     draftSchema: () => SCHEMA,
     reportsLanguage: () => 'ru',
     add: async (root, options): Promise<AddOutcome> => {
@@ -1130,11 +1120,11 @@ describe('the draft Session (step 4)', () => {
     expect(harnessFiles()).toEqual(before)
   })
 
-  /** A connector whose Claude Code writes `stderr` and then plays `messages`; counts its closes. */
+  /** A connector whose Claude Code (on the Claude driver's oneShot) writes `stderr` and then plays `messages`; counts its closes. */
   const playing = (messages: unknown[], stderr = ''): { connector: ProjectConnector; closed: () => number } => {
     let closed = 0
     const { connector } = connectorWith({
-      query: (request) => {
+      oneShot: claudeOneShotOver((request) => {
         if (stderr !== '') request.stderr?.(stderr)
         const handle = {
           async *[Symbol.asyncIterator]() {
@@ -1143,23 +1133,21 @@ describe('the draft Session (step 4)', () => {
           close: () => void (closed += 1),
         }
         return Promise.resolve(handle as unknown as QueryHandle)
-      },
+      }),
     })
     return { connector, closed: () => closed }
   }
 
   it.each([
-    { what: 'no result', messages: [{ type: 'system', subtype: 'init' }], stderr: 'starting\nAPI Error: 529 overloaded\n', reason: 'Claude Code ended before the draft was ready: API Error: 529 overloaded.' },
-    { what: 'no result, no stderr', messages: [], stderr: '', reason: 'Claude Code ended before the draft was ready.' },
-    { what: 'an error result', messages: [{ type: 'result', subtype: 'error_max_turns', errors: ['too long', 'gave up'] }], stderr: '', reason: 'The draft Session gave no draft (error_max_turns: too long; gave up).' },
-    { what: 'success without the structured answer', messages: [{ type: 'result', subtype: 'success', result: 'text only' }], stderr: '', reason: 'The draft Session gave no draft (success).' },
-  ])('$what: the draft fails with its own text, read through the Claude driver, Claude Code closed', async ({ messages, stderr, reason }) => {
+    { what: 'no result', messages: [{ type: 'system', subtype: 'init' }], stderr: 'starting\nAPI Error: 529 overloaded\n', reason: 'The draft Session failed: Claude Code ended before the answer: API Error: 529 overloaded' },
+    { what: 'no result, no stderr', messages: [], stderr: '', reason: 'The draft Session failed: Claude Code ended before the answer' },
+    { what: 'an error result', messages: [{ type: 'result', subtype: 'error_max_turns', errors: ['too long', 'gave up'] }], stderr: '', reason: 'The draft Session failed: Claude Code gave no answer (error_max_turns: too long; gave up)' },
+    { what: 'success without the structured answer', messages: [{ type: 'result', subtype: 'success', result: 'text only' }], stderr: '', reason: 'The draft Session failed: Claude Code gave no answer (success)' },
+  ])('$what: the draft fails with the reason of the oneShot part, Claude Code closed', async ({ messages, stderr, reason }) => {
     const repo = makeRepo(join(scratch, 'shop'))
-    vi.mocked(readOneShot).mockClear()
     const { connector, closed } = playing(messages, stderr)
     const outcome = await connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)
     expect(outcome).toEqual({ status: 'failed', reason, issues: [] })
-    expect(readOneShot).toHaveBeenCalledTimes(1)
     expect(closed()).toBeGreaterThanOrEqual(1)
   })
 
@@ -1167,12 +1155,10 @@ describe('the draft Session (step 4)', () => {
     const repo = makeRepo(join(scratch, 'shop'))
     const lines = readFileSync(join(SCRIPTS, 'profile-draft.jsonl'), 'utf8').trim().split('\n')
     const result = JSON.parse(lines.at(-1) ?? '{}') as Record<string, unknown>
-    vi.mocked(readOneShot).mockClear()
     const activity: string[] = []
     const { connector } = playing([{ type: 'system', subtype: 'init' }, result, { type: 'result', subtype: 'error_during_execution' }])
     const outcome = await connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, (text) => activity.push(text))
     if (outcome.status !== 'draft') throw new Error(`no draft: ${JSON.stringify(outcome)}`)
-    expect(readOneShot).toHaveBeenCalledTimes(1)
     expect(activity).toEqual(['Reading the repositories', 'Claude Code started', 'The draft is ready'])
   })
 
@@ -1192,16 +1178,21 @@ describe('the draft Session (step 4)', () => {
     expect(connector.stop('d1')).toBe(false)
   })
 
-  it('canUseTool lets through only Read, Glob, Grep and the structured answer', async () => {
+  it('canUseTool of the draft\'s request lets through only Read, Glob, Grep and the structured answer', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const run = connectorWith()
+    await run.connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)
+    const request = run.requests[0]
+    if (request === undefined) throw new Error('no request of the draft')
     const signal = new AbortController().signal
     for (const tool of ['Read', 'Glob', 'Grep', 'StructuredOutput']) {
-      expect((await draftCanUseTool(tool, { file_path: '/x' }, { signal })).behavior, tool).toBe('allow')
+      expect((await request.canUseTool(tool, { file_path: '/x' }, { signal })).behavior, tool).toBe('allow')
     }
     for (const tool of ['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task', 'Agent', 'BashOutput', 'mcp__x__y', 'Skill']) {
-      expect((await draftCanUseTool(tool, { command: 'git remote -v' }, { signal })).behavior, tool).toBe('deny')
+      expect((await request.canUseTool(tool, { command: 'git remote -v' }, { signal })).behavior, tool).toBe('deny')
     }
     expect(DRAFT_TOOLS).toEqual(['Read', 'Glob', 'Grep'])
-    expect(DRAFT_DISALLOWED_TOOLS).toEqual(expect.arrayContaining(['Bash', 'Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']))
+    expect(request.disallowedTools).toEqual(expect.arrayContaining(['Bash', 'Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']))
   })
 
   it('Stop while the facts are read ends the draft before any Session', async () => {
@@ -1233,6 +1224,7 @@ describe('the draft Session (step 4)', () => {
   })
 
   it('reads only the user\'s settings and asks the policy tier to ignore every allow rule outside it', () => {
+    const draftCanUseTool = readOnlyCanUseTool(DRAFT_TOOLS, 'The draft only reads files.')
     const options = draftSessionOptions({
       cwd: '/repos/shop',
       env: {},
@@ -1241,7 +1233,7 @@ describe('the draft Session (step 4)', () => {
       canUseTool: draftCanUseTool,
       outputFormat: { type: 'json_schema', schema: SCHEMA },
       allowedTools: DRAFT_TOOLS,
-      disallowedTools: DRAFT_DISALLOWED_TOOLS,
+      disallowedTools: ONE_SHOT_DISALLOWED_TOOLS,
       harnessPlugin: null,
     })
     // Not 'project' or 'local': allow rules in the repository's .claude/settings*.json would let a tool past canUseTool.

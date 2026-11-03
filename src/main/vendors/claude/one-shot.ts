@@ -1,15 +1,14 @@
 // The oneShot part of the Claude driver: a single request to Claude Code that is not a Session. Its
-// one caller today is the draft of a Project's profile (src/main/projects/connect.ts): Claude Code in
-// the folder with read-only tools and a structured answer, with the options of the draft Session
-// (draftSessionOptions, options.ts) and the Harness plugin of this build, as a
-// Session outside every Project.
+// one caller today is the draft of a Project's profile (src/main/projects/connect.ts), through the
+// neutral vendorDriver(<vendor>).oneShot since worfy-multi-vendor ticket 23: Claude Code in the folder
+// with read-only tools and a structured answer, with the options of the draft Session
+// (draftSessionOptions, options.ts) and the Harness plugin of this build, as a Session outside every
+// Project.
 //
-// claudeOneShotQuery is that query as the draft starts it (src/main/ipc/projects.ts): the draft
-// passes its own allowedTools, disallowedTools, outputFormat and canUseTool and reads Claude Code's
-// messages through readOneShot. claudeOneShot is the same query behind the neutral OneShot of the
-// driver: it sets those options from `readOnlyTools` and `outputSchema` the way the draft sets them,
-// and reads the messages through the same readOneShot. The draft moves onto the neutral
-// vendorDriver('claude').oneShot with worfy-multi-vendor ticket 23.
+// claudeOneShotQuery is that query, with allowedTools, disallowedTools, outputFormat and canUseTool
+// set; claudeOneShotOver sets them from `readOnlyTools` and `outputSchema` and reads Claude Code's
+// messages through readOneShot, over a query of its caller's (the fake agent's in the e2e runs of the
+// draft, src/main/ipc/projects.ts); claudeOneShot is it over claudeOneShotQuery.
 //
 // The index of the driver imports this file while the Session registry loads (app-registry.ts): the
 // SDK, the app and the options are loaded at the call.
@@ -141,20 +140,26 @@ export async function readOneShot(query: AsyncIterable<unknown>, onActivity?: (t
   return { kind: 'ended' }
 }
 
+/** Whether `signal` has stopped the request; a call, so the second look is not narrowed away by the first. */
+const isAborted = (signal: AbortSignal | undefined): boolean => signal?.aborted === true
+
+/** Starts the Claude Code of a single request: claudeOneShotQuery, or the fake agent in tests. */
+export type ClaudeOneShotQuery = (request: ClaudeOneShotRequest) => Promise<QueryHandle>
+
 /**
- * One request through claudeOneShotQuery: the tools of `readOnlyTools` and nothing that writes
+ * One request through `start`: the tools of `readOnlyTools` and nothing that writes
  * (ONE_SHOT_DISALLOWED_TOOLS), the answer in the shape of `outputSchema`. Rejects when Claude Code
- * ends without an answer, answers with an error, or `signal` stops it.
+ * ends without an answer, answers with an error, or `signal` stops it; Claude Code is closed in every case.
  */
-export const claudeOneShot: OneShot = async (prompt, opts) => {
+export const claudeOneShotOver = (start: ClaudeOneShotQuery): OneShot => async (prompt, opts) => {
   // shortcut: a request without outputSchema is refused, as the draft (structured) is its only
   // caller and draftSessionOptions needs a structured answer; redo when a text request (Terminal AI)
   // moves onto oneShot.
   if (opts.outputSchema === undefined) throw new Error('oneShot of the Claude driver answers only in the shape of an outputSchema')
-  if (opts.signal?.aborted === true) throw new Error('the request was stopped')
+  if (isAborted(opts.signal)) throw new Error('the request was stopped')
   const allowed = opts.readOnlyTools ?? []
   const stderr: string[] = []
-  const query = await claudeOneShotQuery({
+  const query = await start({
     prompt: oneMessage(prompt),
     cwd: opts.cwd,
     resume: undefined,
@@ -166,6 +171,11 @@ export const claudeOneShot: OneShot = async (prompt, opts) => {
     allowedTools: allowed,
     disallowedTools: ONE_SHOT_DISALLOWED_TOOLS,
   })
+  // Stopped while Claude Code was starting: the listener below would never hear it.
+  if (isAborted(opts.signal)) {
+    query.close()
+    throw new Error('the request was stopped')
+  }
   let stopped = false
   const stop = (): void => {
     stopped = true
@@ -184,3 +194,6 @@ export const claudeOneShot: OneShot = async (prompt, opts) => {
   if (end.kind === 'no-answer') throw new Error(`Claude Code gave no answer (${end.detail})`)
   return { text: end.text, structured: end.structured }
 }
+
+/** One request to Claude Code through the Agent SDK (claudeOneShotQuery): the oneShot part of the Claude driver. */
+export const claudeOneShot: OneShot = claudeOneShotOver(claudeOneShotQuery)

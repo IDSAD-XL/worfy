@@ -11,11 +11,12 @@
 // 3. The Harness check, from the same installer state as the first-run screen (worfy-harness ticket
 //    19): the plugin installed, enabled, of this build's version. Otherwise no Session starts.
 // 4. The draft: first `bin/project-connect --facts <folder>` reads what only a command could tell
-//    (remotes, branches; owner decision 2026-10-09), then a Claude Code Session in the folder gets
-//    `/worfy:connect-project <folder> <mode> --draft-only` with those facts as data, the draft schema
-//    (without `$schema` and `$id`: sessionSchema) as its structured output (outputFormat), and only
-//    Read, Glob and Grep: Bash and every tool that writes or reaches out are taken away
-//    (DRAFT_DISALLOWED_TOOLS), and canUseTool refuses anything outside DRAFT_TOOLS. The answer is
+//    (remotes, branches; owner decision 2026-10-09), then a single request of a Vendor's agent in the
+//    folder (the oneShot part of its driver, ADR-0094; Claude Code in the first release, spec decision
+//    6 of worfy-multi-vendor) gets `/worfy:connect-project <folder> <mode> --draft-only` with those
+//    facts as data, the draft schema (without `$schema` and `$id`: sessionSchema) as its structured
+//    answer, and only the read-only tools of DRAFT_TOOLS: the driver takes away Bash and every tool
+//    that writes or reaches out, and refuses anything outside DRAFT_TOOLS. The answer is
 //    checked against the whole schema of the file by `bin/project-connect --schema-only`; worfy then
 //    sets what it owns (applyChoices: the mode, the Workflow folder, and in Silent mode `attribution`
 //    off as the form's starting value) and asks `--check` for the form.
@@ -28,54 +29,30 @@
 // the folder's `origin` remotes and their write access (src/main/github/accounts.ts). The choice
 // goes into the draft and is written with it; there is no write of its own.
 //
-// Everything that reaches outside — git, gh, the two Harness scripts, the installer, Claude Code,
-// the list — comes in through ConnectDeps, so the contract test runs the steps with stand-ins.
+// Everything that reaches outside — git, gh, the two Harness scripts, the installer, the agent of the
+// draft, the list — comes in through ConnectDeps, so the contract test runs the steps with stand-ins.
 // connectScriptRunner is the app's `connect`: it starts bin/project-connect through the shared
 // launcher of the Harness scripts (src/main/workflow/profile.ts), as `node <script>`.
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { DEFAULT_SETTINGS } from '../../shared/agent/settings'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { ConnectFolder, ConnectMode, DraftIssue, GithubAccountsStep, ProfileDraft } from '../../shared/ipc/projects'
-import type { CanUseToolHandler } from '../agent/permissions'
-import type { QueryHandle, QueryRequest } from '../agent/session'
 import { readGithubAccounts } from '../github/accounts'
 import { defaultAttribution } from '../harness/attribution'
 import type { GhRunner } from '../github/prs'
 import { scriptEnv, type HarnessLocation } from '../harness/locate'
 import type { HarnessScriptEnv } from '../harness/script-env'
-import { activityOf, ONE_SHOT_DISALLOWED_TOOLS, oneMessage, readOneShot, readOnlyCanUseTool } from '../vendors/claude/one-shot'
+import type { OneShot } from '../vendors/one-shot'
 import { environmentExit, runHarnessScript, scriptFailureDetail, type ProfileRun, type ProfileRunner, type SpawnProcess } from '../workflow/profile'
 import { realpathOrSelf } from './real-path'
 import { insideUserTemp } from './temp-folder'
 import type { GitRunner } from './store'
 
-/** The only tools the draft Session uses: it reads files and answers with its structured output. */
-export const DRAFT_TOOLS: readonly string[] = Object.freeze(['Read', 'Glob', 'Grep'])
-
 /**
- * The tools taken away from the draft Session (and its Subagents): no shell, nothing that writes,
- * nothing that reaches the network or starts other agents — those of every single request of the
- * Claude driver.
+ * The only tools the draft Session uses: it reads files and answers with its structured output. The
+ * oneShot part of the driver takes every other tool away (the Claude driver: ONE_SHOT_DISALLOWED_TOOLS).
  */
-export const DRAFT_DISALLOWED_TOOLS: readonly string[] = ONE_SHOT_DISALLOWED_TOOLS
-
-/** The structured output a draft Session answers with (SDK option `outputFormat`). */
-export interface DraftOutputFormat {
-  type: 'json_schema'
-  schema: Record<string, unknown>
-}
-
-/** A Claude Code query of the draft Session: a Session's request plus the draft's own options. */
-export interface DraftRequest extends QueryRequest {
-  outputFormat: DraftOutputFormat
-  /** The tools the Session may use without asking. */
-  allowedTools: readonly string[]
-  disallowedTools: readonly string[]
-}
-
-/** Starts the draft Session's Claude Code: the SDK, or the fake agent in tests. */
-export type DraftQueryFactory = (request: DraftRequest) => Promise<QueryHandle>
+export const DRAFT_TOOLS: readonly string[] = Object.freeze(['Read', 'Glob', 'Grep'])
 
 /** One run of a Harness script: its exit code (null when killed) and output. */
 export interface ScriptRun {
@@ -153,8 +130,8 @@ export interface ConnectDeps {
   connect: ConnectScript
   /** The installer's state (src/main/harness/install.ts), as the first-run screen reads it. */
   harness: () => Promise<HarnessStatus>
-  /** Claude Code for the draft Session. */
-  query: DraftQueryFactory
+  /** The single request of the draft: vendorDriver(<vendor>).oneShot, or one over the fake agent in tests. */
+  oneShot: OneShot
   /** harness/profiles/draft.schema.json of the Harness this build carries, as the file has it; the Session gets `sessionSchema` of it. */
   draftSchema: () => Record<string, unknown>
   /** `language.reports` by default: the system language (`app.getLocale()`), `ru` or `en`. */
@@ -328,11 +305,6 @@ export function draftMessage(root: string, mode: ConnectMode, facts: unknown): s
   ].join('\n')
 }
 
-const DRAFT_DENIED = 'The draft Session only reads files with Read, Glob and Grep: worfy writes the profile after the form.'
-
-/** canUseTool of the draft Session: Read, Glob, Grep and its structured answer; anything else is refused. */
-export const draftCanUseTool: CanUseToolHandler = readOnlyCanUseTool(DRAFT_TOOLS, DRAFT_DENIED)
-
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 // Where a draft-07 schema holds other schemas: one schema or a list of them, and schemas by name.
@@ -359,9 +331,6 @@ export function sessionSchema(schema: Record<string, unknown>): Record<string, u
   }
   return copy
 }
-
-/** The last action of an SDK message, in a few words; null for a message that shows none (the Claude driver reads it). */
-export { activityOf }
 
 // ── what worfy owns in a draft ─────────────────────────────────────────────
 
@@ -452,7 +421,7 @@ const describeIssues = (issues: readonly DraftIssue[]): string =>
 
 export class ProjectConnector {
   /** The draft Sessions running now, by the dialog's draftId. */
-  private readonly running = new Map<string, { query: QueryHandle | null; stopped: boolean }>()
+  private readonly running = new Map<string, { stop: AbortController }>()
 
   constructor(private readonly deps: ConnectDeps) {}
 
@@ -535,7 +504,8 @@ export class ProjectConnector {
     if (blocker !== null) return { status: 'harness', reason: blocker }
 
     // Registered before the facts, so a Stop while they are read ends the draft too.
-    const run = { query: null as QueryHandle | null, stopped: false }
+    const run = { stop: new AbortController() }
+    const stopped = (): boolean => run.stop.signal.aborted
     this.running.set(input.draftId, run)
     let raw: unknown
     try {
@@ -548,31 +518,18 @@ export class ProjectConnector {
       } catch (error) {
         return { status: 'failed', reason: error instanceof Error ? error.message : String(error), issues: [] }
       }
-      if (run.stopped) return { status: 'stopped' }
-      const stderr: string[] = []
-      const query = await this.deps.query({
-        prompt: oneMessage(draftMessage(folder.root, input.mode, facts)),
+      if (stopped()) return { status: 'stopped' }
+      const answer = await this.deps.oneShot(draftMessage(folder.root, input.mode, facts), {
         cwd: folder.root,
-        resume: undefined,
-        stderr: (data) => stderr.push(data),
-        settings: { ...DEFAULT_SETTINGS, permissionMode: 'default' },
-        canUseTool: draftCanUseTool,
-        unattended: false,
-        outputFormat: { type: 'json_schema', schema: sessionSchema(this.deps.draftSchema()) },
-        allowedTools: DRAFT_TOOLS,
-        disallowedTools: DRAFT_DISALLOWED_TOOLS,
+        readOnlyTools: DRAFT_TOOLS,
+        outputSchema: sessionSchema(this.deps.draftSchema()),
+        onActivity,
+        signal: run.stop.signal,
       })
-      run.query = query
-      if (run.stopped) query.close()
-      // The SDK's result is read by the Claude driver (readOneShot); the draft keeps its own texts.
-      const end = await readOneShot(query, onActivity)
-      query.close()
-      if (run.stopped) return { status: 'stopped' }
-      if (end.kind === 'ended') return { status: 'failed', reason: `Claude Code ended before the draft was ready${stderr.length > 0 ? `: ${lastLine(stderr.join(''))}` : ''}.`, issues: [] }
-      if (end.kind === 'no-answer') return { status: 'failed', reason: `The draft Session gave no draft (${end.detail}).`, issues: [] }
-      raw = end.structured
+      if (stopped()) return { status: 'stopped' }
+      raw = answer.structured
     } catch (error) {
-      if (run.stopped) return { status: 'stopped' }
+      if (stopped()) return { status: 'stopped' }
       return { status: 'failed', reason: `The draft Session failed: ${error instanceof Error ? error.message : String(error)}`, issues: [] }
     } finally {
       this.running.delete(input.draftId)
@@ -592,8 +549,7 @@ export class ProjectConnector {
   stop(draftId: string): boolean {
     const run = this.running.get(draftId)
     if (run === undefined) return false
-    run.stopped = true
-    run.query?.close()
+    run.stop.abort()
     return true
   }
 

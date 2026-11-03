@@ -3,24 +3,32 @@
 // finished Session — one started in a terminal, Claude desktop or worfy — on its Node. One
 // conversation is one Node: a new conversation is a new Node, the old one stays.
 //
-// The Node's `data` in the Layout keeps identifiers only (ADR-0010): `origin: 'worfy'` and, once
-// Claude Code has reported it, the SDK session id. Everything else the Node shows comes from the
+// The Node's `data` in the Layout keeps identifiers only (ADR-0010): `origin: 'worfy'`, the Vendor
+// whose agent runs the Session (worfy-multi-vendor ticket 23) and, once the agent has reported it,
+// the Vendor's session id. Everything else the Node shows comes from the
 // live Session (its view, below, kept in memory by main) or from the transcript. Run by
 // src/main/agent/node-sessions.ts, handled in src/main/ipc/sessions.ts (ADR-0006). The events of
 // these Sessions go to every window on `agent.event`, and the `agent.*` channels take their ids.
 import { z } from 'zod'
 import { sessionState } from '../agent/events'
+import { vendorIdSchema } from '../vendors/vendor'
 import { eventChannel, invokeChannel } from './channels'
 
 /** The `kind` of a Session Node in the Layout (the read-only ones of ticket 14 too). */
 export const SESSION_NODE_KIND = 'session'
 /**
  * What a Session Node worfy runs keeps in `data`, as main writes it (src/main/agent/node-sessions.ts):
- * identifiers only (ADR-0010) — the SDK session id, once Claude Code has reported it. The renderer
- * reads the Node with this schema; a read-only Node of ticket 14 has `origin: 'external'`.
+ * identifiers only (ADR-0010) — the Vendor and the Vendor's session id, once the agent has reported
+ * it. The renderer reads the Node with this schema; a read-only Node of ticket 14 has `origin: 'external'`.
  */
 export const worfySessionNodeDataSchema = z.object({
   origin: z.literal('worfy'),
+  /**
+   * The VendorId of the Session's agent; absent on a Node saved before worfy-multi-vendor ticket 23,
+   * which is Claude Code's. A value this build does not know (a later worfy's Vendor) is kept as it
+   * is, and main refuses to start the Node.
+   */
+  vendor: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),
 })
 export type WorfySessionNodeData = z.output<typeof worfySessionNodeDataSchema>
@@ -61,6 +69,8 @@ const sdkSessionId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/, 'not a
 export const sessionNodeViewSchema = z.object({
   projectId,
   nodeId,
+  /** The Vendor whose agent runs the Session; Claude Code in a view of a build from before worfy-multi-vendor ticket 23. */
+  vendor: vendorIdSchema.default('claude'),
   /** The live Session's id for the `agent.*` channels: temporary until Claude Code reports its own. */
   sessionId: z.string().min(1),
   /** The SDK session: the one resumed, or the one Claude Code reported; null for a new one before its first turn. */
@@ -77,13 +87,18 @@ export const sessionNodeViewSchema = z.object({
 })
 export type SessionNodeView = z.output<typeof sessionNodeViewSchema>
 
-/** A new live Session Node with a new Session in the Project's root. */
-export const sessionsNew = invokeChannel('sessions.new', z.object({ projectId }), sessionNodeViewSchema, 'project', 'write')
+/**
+ * A new live Session Node with a new Session in the Project's root, on the agent of `vendor`, or of the
+ * Project's `defaultVendor` without it. A Vendor this build does not run, or one nobody is signed in
+ * to, is refused with the reason; so is a VendorId of a later build, which is why `vendor` is any
+ * short string here rather than a VendorId.
+ */
+export const sessionsNew = invokeChannel('sessions.new', z.object({ projectId, vendor: z.string().min(1).max(64).optional() }), sessionNodeViewSchema, 'project', 'write')
 
 /**
- * Starts the Session behind an existing worfy Session Node that runs none: its saved session,
- * resumed under the rule of Resume, or a new one when the Node has none yet. A Node that runs one
- * answers its view and changes nothing.
+ * Starts the Session behind an existing worfy Session Node that runs none, on the Node's Vendor: its
+ * saved session, resumed under the rule of Resume, or a new one when the Node has none yet. A Node
+ * that runs one answers its view and changes nothing.
  */
 export const sessionsStart = invokeChannel('sessions.start', z.object({ projectId, nodeId }), sessionNodeViewSchema, 'project', 'write')
 

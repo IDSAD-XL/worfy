@@ -215,7 +215,7 @@ function launcher(
         const id = `pending-${count}`
         sessions.set(id, new FakeSession())
         created.push(projectId)
-        return { projectId, nodeId: `node-${count}`, sessionId: id, sdkSessionId: null, state: 'starting', error: null, cwd: `/repo-${projectId}`, model: null, version: count }
+        return { projectId, nodeId: `node-${count}`, vendor: 'claude', sessionId: id, sdkSessionId: null, state: 'starting', error: null, cwd: `/repo-${projectId}`, model: null, version: count }
       },
     },
     orchestrators: {

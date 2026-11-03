@@ -2,13 +2,15 @@
 // ticket 15): the Claude Code of the Project profile draft moved there from src/main/ipc/projects.ts
 // (sdkDraftQuery). The regression check: the options the driver hands to the SDK's query() — above
 // all allowedTools, disallowedTools, outputFormat and the Harness plugin — are the ones sdkDraftQuery
-// handed before the move, both for the draft's own request (claudeOneShotQuery) and for the neutral
-// oneShot given the draft's read-only tools and schema (claudeOneShot). The SDK, the app, the login
+// handed before the move, both for the draft's request (claudeOneShotQuery) and for the neutral
+// oneShot given the draft's read-only tools and schema (claudeOneShot), which the draft goes through
+// since worfy-multi-vendor ticket 23. The SDK, the app, the login
 // shell environment and the Harness on the machine are stood in: nothing starts Claude Code.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
+import type { CanUseToolHandler } from '../../src/main/agent/permissions'
 import type { QueryRequest } from '../../src/main/agent/session'
-import type { DraftRequest } from '../../src/main/projects/connect'
+import type { ClaudeOneShotRequest } from '../../src/main/vendors/claude/one-shot'
 
 const mocks = vi.hoisted(() => ({
   calls: [] as { prompt: unknown; options: Record<string, unknown> }[],
@@ -37,8 +39,8 @@ vi.mock('../../src/main/agent/env', () => ({ agentEnv: () => Promise.resolve({ e
 // The plugin Harness on the machine: the Session gets the Harness copy of this build inline.
 vi.mock('../../src/main/harness/locate', async (original) => ({ ...(await original<object>()), currentHarness: () => ({ kind: 'plugin' }) }))
 
-const { claudeOneShot, claudeOneShotQuery } = await import('../../src/main/vendors/claude/one-shot')
-const { DRAFT_DISALLOWED_TOOLS, DRAFT_TOOLS, draftCanUseTool, sessionSchema } = await import('../../src/main/projects/connect')
+const { claudeOneShot, claudeOneShotQuery, ONE_SHOT_DISALLOWED_TOOLS, readOnlyCanUseTool } = await import('../../src/main/vendors/claude/one-shot')
+const { DRAFT_TOOLS, sessionSchema } = await import('../../src/main/projects/connect')
 const { draftSessionOptions, sessionHarnessPlugin } = await import('../../src/main/vendors/claude/options')
 const { currentHarness } = await import('../../src/main/harness/locate')
 const { bundledHarnessDir } = await import('../../src/main/harness/bundled')
@@ -52,7 +54,7 @@ const FOLDER = '/repos/shop'
  * What sdkDraftQuery of src/main/ipc/projects.ts gave the SDK before the move, written out as it
  * was: the draft Session's options with the Harness of this build.
  */
-async function before(request: DraftRequest): Promise<Record<string, unknown>> {
+async function before(request: ClaudeOneShotRequest): Promise<Record<string, unknown>> {
   return draftSessionOptions({
     cwd: request.cwd,
     env: (await agentEnv()).env,
@@ -73,8 +75,11 @@ const snapshot = (options: Record<string, unknown>): unknown => JSON.parse(JSON.
 
 const prompt: QueryRequest['prompt'] = { [Symbol.asyncIterator]: async function* () {} }
 
-/** The draft's request, as ProjectConnector.draft builds it (src/main/projects/connect.ts). */
-const draftRequest = (): DraftRequest => ({
+/** A refusal of every tool outside the draft's: the canUseTool of the request below. */
+const draftCanUseTool: CanUseToolHandler = readOnlyCanUseTool(DRAFT_TOOLS, 'The draft only reads files.')
+
+/** The draft's request, as the draft built it before it moved onto oneShot. */
+const draftRequest = (): ClaudeOneShotRequest => ({
   prompt,
   cwd: FOLDER,
   resume: undefined,
@@ -84,7 +89,7 @@ const draftRequest = (): DraftRequest => ({
   unattended: false,
   outputFormat: { type: 'json_schema', schema: SCHEMA },
   allowedTools: DRAFT_TOOLS,
-  disallowedTools: DRAFT_DISALLOWED_TOOLS,
+  disallowedTools: ONE_SHOT_DISALLOWED_TOOLS,
 })
 
 const result = { type: 'result', subtype: 'success', result: 'done', structured_output: { profile: { name: 'shop' } } }
@@ -121,7 +126,7 @@ describe('the draft through the oneShot part of the Claude driver', () => {
     const sent = mocks.calls[0]!
     expect(snapshot(sent.options)).toEqual(snapshot(await before(draftRequest())))
     // Its own canUseTool lets through the same tools and refuses the same ones.
-    const canUseTool = sent.options.canUseTool as typeof draftCanUseTool
+    const canUseTool = sent.options.canUseTool as CanUseToolHandler
     const signal = new AbortController().signal
     for (const tool of ['Read', 'Glob', 'Grep', 'StructuredOutput']) expect((await canUseTool(tool, {}, { signal })).behavior, tool).toBe('allow')
     for (const tool of ['Bash', 'Write', 'Edit', 'WebFetch', 'Task', 'Agent', 'mcp__x__y', 'Skill']) expect((await canUseTool(tool, {}, { signal })).behavior, tool).toBe('deny')

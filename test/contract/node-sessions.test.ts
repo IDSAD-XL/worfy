@@ -118,7 +118,7 @@ describe('New session', () => {
     const h = harness()
     const created = h.sessions.create(PROJECT)
     expect(h.node(created.nodeId)).toMatchObject({ kind: 'session', w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT, locked: false })
-    expect(h.node(created.nodeId).data).toStrictEqual({ origin: 'worfy' })
+    expect(h.node(created.nodeId).data).toStrictEqual({ origin: 'worfy', vendor: 'claude' })
     expect(h.requests).toMatchObject([{ cwd: repo, resume: undefined }])
     await h.until(created.nodeId, 'idle')
 
@@ -127,7 +127,7 @@ describe('New session', () => {
     await h.until(created.nodeId, 'idle')
     const sdk = h.view(created.nodeId).sdkSessionId
     // ADR-0010: no model, cwd, state or cost in the Layout — they come from the Session or its transcript.
-    expect(h.node(created.nodeId).data).toStrictEqual({ origin: 'worfy', sessionId: sdk })
+    expect(h.node(created.nodeId).data).toStrictEqual({ origin: 'worfy', vendor: 'claude', sessionId: sdk })
     expect(h.view(created.nodeId)).toMatchObject({ projectId: PROJECT, sessionId: sdk, cwd: repo, model: 'claude-haiku-4-5-20251001', error: null })
     // The Session's events go to the windows under its id.
     expect(h.broadcast.some(({ sessionId, event }) => sessionId === sdk && event.type === 'result')).toBe(true)
@@ -184,13 +184,13 @@ describe('Resume', () => {
     // Same Node, same place, live size, its pin and tags kept, identifiers only.
     expect(h.nodes()).toHaveLength(1)
     expect(h.node(resumed.nodeId)).toMatchObject({ x: 700, y: 80, w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT, pinned: true, tags: ['ops', 'night'] })
-    expect(h.node(resumed.nodeId).data).toStrictEqual({ origin: 'worfy', sessionId: FINISHED })
+    expect(h.node(resumed.nodeId).data).toStrictEqual({ origin: 'worfy', vendor: 'claude', sessionId: FINISHED })
     await h.until(resumed.nodeId, 'idle')
     h.registry.get(h.view(resumed.nodeId).sessionId).send('go on')
     await vi.waitFor(() => expect(h.view(resumed.nodeId).sessionId).toBe(FINISHED))
     // Claude Code reports the resumed session and the worktree as its cwd: the new turn goes into that transcript.
     expect(h.view(resumed.nodeId)).toMatchObject({ sdkSessionId: FINISHED, cwd: worktree })
-    expect(h.node(resumed.nodeId).data).toStrictEqual({ origin: 'worfy', sessionId: FINISHED })
+    expect(h.node(resumed.nodeId).data).toStrictEqual({ origin: 'worfy', vendor: 'claude', sessionId: FINISHED })
   })
 
   it('a read-only Node turned live keeps the Browsers its Session opened, in its Family: the Session never left the Canvas (worfy-browser ticket 06)', async () => {
@@ -200,7 +200,7 @@ describe('Resume', () => {
     const changes: LayoutChange[] = []
     h.layout.onChange((change) => changes.push(change))
     const resumed = await h.sessions.resume(PROJECT, FINISHED)
-    expect(h.node(resumed.nodeId).data).toStrictEqual({ origin: 'worfy', sessionId: FINISHED })
+    expect(h.node(resumed.nodeId).data).toStrictEqual({ origin: 'worfy', vendor: 'claude', sessionId: FINISHED })
     expect(h.node('browser-1')).toMatchObject({ x: 700, y: 900, data: { openedBy: FINISHED } })
     // No change of the swap names the Session as one that left: nobody drops its control of the Browser.
     expect(changes.map((change) => change.op.op)).toEqual(expect.arrayContaining(['remove', 'create']))
@@ -251,7 +251,7 @@ describe('Resume', () => {
   it('makes a new Node for a Session of the history that has none; a second Resume returns the same run', async () => {
     const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: repo }] } })
     const first = await h.sessions.resume(PROJECT, FINISHED)
-    expect(h.node(first.nodeId).data).toStrictEqual({ origin: 'worfy', sessionId: FINISHED })
+    expect(h.node(first.nodeId).data).toStrictEqual({ origin: 'worfy', vendor: 'claude', sessionId: FINISHED })
     const again = await h.sessions.resume(PROJECT, FINISHED)
     expect(again.nodeId).toBe(first.nodeId)
     expect(h.requests).toHaveLength(1)
@@ -570,6 +570,7 @@ describe('sessions.* channels', () => {
   const view: SessionNodeView = {
     projectId: PROJECT,
     nodeId: 'node-1',
+    vendor: 'claude',
     sessionId: 'pending-1',
     sdkSessionId: null,
     state: 'idle',
@@ -585,7 +586,7 @@ describe('sessions.* channels', () => {
     const handlers = new Map<string, (event: IpcMainInvokeEvent, input: unknown) => unknown>()
     const answer = answers.view ?? { ...view, internal: 'leak' }
     const spies = {
-      create: vi.fn(() => answer),
+      open: vi.fn(() => Promise.resolve(answer)),
       start: vi.fn(() => Promise.resolve(answer)),
       resume: vi.fn(() => Promise.resolve(answer)),
       resumable: vi.fn(() => Promise.resolve(answers.verdicts ?? { [FINISHED]: { resumable: true, cwd: '/repo', extra: 1 } })),
@@ -605,7 +606,8 @@ describe('sessions.* channels', () => {
   }
 
   it.each([
-    ['sessions.new', { projectId: 7 }, 'create'],
+    ['sessions.new', { projectId: 7 }, 'open'],
+    ['sessions.new', { projectId: PROJECT, vendor: '' }, 'open'],
     ['sessions.start', { projectId: PROJECT, nodeId: '' }, 'start'],
     ['sessions.resume', { projectId: PROJECT, sessionId: '../../etc/passwd' }, 'resume'],
     ['sessions.resume', { projectId: PROJECT, sessionId: 42 }, 'resume'],
@@ -623,7 +625,9 @@ describe('sessions.* channels', () => {
   it('passes only the declared input and answers only the declared keys', async () => {
     const { call, spies } = await channels()
     expect(await call('sessions.new', { projectId: PROJECT, admin: true })).toStrictEqual({ ok: true, value: view })
-    expect(spies.create).toHaveBeenCalledWith(PROJECT)
+    expect(spies.open).toHaveBeenCalledWith(PROJECT, undefined)
+    expect(await call('sessions.new', { projectId: PROJECT, vendor: 'codex' })).toStrictEqual({ ok: true, value: view })
+    expect(spies.open).toHaveBeenLastCalledWith(PROJECT, 'codex')
     expect(await call('sessions.start', { projectId: PROJECT, nodeId: 'node-1', resume: 'x' })).toStrictEqual({ ok: true, value: view })
     expect(spies.start).toHaveBeenCalledWith(PROJECT, 'node-1')
     expect(await call('sessions.resume', { projectId: PROJECT, sessionId: FINISHED, cwd: '/elsewhere' })).toStrictEqual({ ok: true, value: view })

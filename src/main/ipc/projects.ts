@@ -31,6 +31,7 @@ import {
   type ProjectsState,
 } from '../../shared/ipc/projects'
 import { defaultProjectSettings } from '../../shared/projects/action-templates'
+import type { VendorId } from '../../shared/vendors/vendor'
 import { agentEnv } from '../agent/env'
 import { fakeQueryFactory } from '../agent/fake-query'
 import { toEveryWindow } from '../broadcast'
@@ -42,13 +43,15 @@ import { currentHarness, harnessHomes, locateHarness, profileRegistryFiles, scri
 import { layoutStore } from '../layout/store'
 import { isRemoteCall, localProjectRefusal, setLocalProjects } from '../link/caller'
 import { browseFolder } from '../projects/browse'
-import { connectScriptRunner, ProjectConnector, type ConnectScript, type DraftQueryFactory } from '../projects/connect'
+import { connectScriptRunner, ProjectConnector, type ConnectScript } from '../projects/connect'
 import { projectHolds } from '../projects/holds'
 import { readProjectSettings, writeProjectSettings } from '../projects/settings'
 import { projectStore, runGit } from '../projects/store'
 import { claudeHome, harnessHome } from '../storage/paths'
 import type { TerminalRegistry } from '../terminal/pty'
-import { claudeOneShotQuery } from '../vendors/claude/one-shot'
+import { claudeOneShotOver } from '../vendors/claude/one-shot'
+import type { OneShot } from '../vendors/one-shot'
+import { vendorDriver } from '../vendors/registry'
 import { profileRunner } from '../workflow/profile'
 import { appInstaller } from './harness'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
@@ -85,19 +88,27 @@ function appConnectScript(): ConnectScript {
 const gateRegistries = async (): Promise<string[]> => profileRegistryFiles(scriptEnv(locateHarness(harnessHomes(claudeHome())), (await agentEnv()).env))
 
 /**
- * WORFY_AGENT=fake: the draft Session plays test/fixtures/agent-scripts/<WORFY_DRAFT_SCRIPT or
- * "profile-draft">.jsonl, and appends what it was asked to WORFY_AGENT_LOG, as the Sessions' query does (src/main/vendors/claude/query.ts).
+ * The Vendor whose agent writes the draft of a Project's profile: Claude Code, which the first release
+ * needs for the draft (spec decision 6 of worfy-multi-vendor; a draft on Codex comes with a Codex-only
+ * user, outside that Epic).
  */
-export function draftQueryFromEnv(env: NodeJS.ProcessEnv = process.env): DraftQueryFactory {
-  // Claude Code of the draft through the oneShot part of the Claude driver, with the draft's options.
-  if (env.WORFY_AGENT !== 'fake') return claudeOneShotQuery
+export const DRAFT_VENDOR: VendorId = 'claude'
+
+/**
+ * The single request of the draft: the oneShot part of DRAFT_VENDOR's driver. Under WORFY_AGENT=fake the
+ * Claude driver's oneShot over the fake agent, which plays test/fixtures/agent-scripts/<WORFY_DRAFT_SCRIPT
+ * or "profile-draft">.jsonl and appends what it was asked to WORFY_AGENT_LOG, as the Sessions' query does
+ * (src/main/vendors/claude/query.ts).
+ */
+export function draftOneShotFromEnv(env: NodeJS.ProcessEnv = process.env): OneShot {
+  if (env.WORFY_AGENT !== 'fake') return (prompt, opts) => vendorDriver(DRAFT_VENDOR).oneShot(prompt, opts)
   const log = env.WORFY_AGENT_LOG
   const fake = fakeQueryFactory({
     scriptsDir: env.WORFY_AGENT_SCRIPTS ?? join(app.getAppPath(), 'test', 'fixtures', 'agent-scripts'),
     script: env.WORFY_DRAFT_SCRIPT ?? 'profile-draft',
     record: log ? (call) => appendFileSync(log, `${JSON.stringify({ draft: true, ...call })}\n`) : undefined,
   })
-  return (request) => fake(request)
+  return claudeOneShotOver((request) => fake(request))
 }
 
 const systemLanguage = (): 'ru' | 'en' => (app.getLocale().toLowerCase().startsWith('ru') ? 'ru' : 'en')
@@ -121,7 +132,7 @@ function connector(): ProjectConnector {
     gateRegistries,
     connect: appConnectScript(),
     harness: () => appInstaller().status(),
-    query: draftQueryFromEnv(),
+    oneShot: draftOneShotFromEnv(),
     draftSchema: () => JSON.parse(readFileSync(join(bundledHarnessDir(), 'profiles', 'draft.schema.json'), 'utf8')) as Record<string, unknown>,
     reportsLanguage: systemLanguage,
     add: async (root, options) => {

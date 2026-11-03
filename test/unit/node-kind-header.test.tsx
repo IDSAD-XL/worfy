@@ -40,6 +40,7 @@ let unread: boolean
 const liveView = (state: SessionNodeView['state']): SessionNodeView => ({
   projectId: PROJECT.id,
   nodeId: LIVE_NODE,
+  vendor: 'claude',
   sessionId: 'live-1',
   sdkSessionId: SESSION,
   state,
