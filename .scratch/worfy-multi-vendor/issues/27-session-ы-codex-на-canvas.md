@@ -43,3 +43,51 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   `scripts/e2e-specs.table.json`
 
 Только читать: `src/main/claude-home/registry.ts:51`, `:80`.
+
+## Итог
+
+- `src/main/vendors/codex/sessions-on-canvas.ts`: `codexProjectSessions` — `history.list` driver-а Codex по корню
+  Project-а и по каждому worktree вне его (worktree внутри корня уже в списке корня), каждый thread один раз, новые первыми;
+  `cwd` сравнивается через `isInsidePath` (на Windows — любой разделитель, без учёта регистра). `CodexSessionsOnCanvas`
+  спрашивает Codex не чаще раза в 30 s на Project (`CODEX_SESSIONS_POLL_MS` в `src/shared/ipc/claude-home.ts`), ключ — корень
+  в любом написании. Нет папки Codex home — Codex не спрашивается, опроса нет. Codex не ответил — список остаётся прежним,
+  причина один раз в log, опрос окна выключается; toast-а нет. Ответ не ждёт Codex совсем (раунд 2): `claudeHome.sessions`
+  отдаёт часть Claude и последний известный список Codex (в первый раз пустой), а запрос к Codex идёт в фоне. Пока первый
+  запрос Project-а не ответил, ответ несёт `codexLoading: true`, и окно спрашивает снова через 2 s
+  (`CODEX_LOADING_RETRY_MS`), так что thread-ы видны через несколько секунд после открытия окна, а не через 30 s.
+  Правило Resume ждёт текущий запрос (`settled`): Resume и так запускает Codex.
+- Канал `claudeHome.sessions` добавляет thread-ы Codex в `history` с `vendor: 'codex'` и `origin`, и `codex: true`, пока
+  Codex отвечает; без Codex ответ прежний, только Claude. `claudeHome.transcript` для Session, которой нет в Claude home,
+  читает thread Codex (`history.read`) — только thread из последнего списка этого Project-а.
+- Окно (`useClaudeHome.ts`) при `codex: true` спрашивает список заново каждые 30 s, пока Project открыт.
+- Node: thread, начатый вне worfy и изменённый за последние 10 min (`CODEX_ACTIVE_MS`), получает read-only Node сам
+  (`activeCodexSessions`, `planSessionNodes`); `data.vendor: 'codex'`. На Node — значок Codex, кнопка Resume под строкой
+  папки, вопрос «This Session may be open in a terminal» с Cancel и «Resume anyway». Resume — `sessions.resume`: main берёт
+  Vendor из `data.vendor` Node-а и продолжает thread через driver на live Node на месте read-only.
+- Session view thread-а: значок Codex после заголовка, ответы подписаны `codex`, chip `unknown`.
+- History: строки Codex «terminal · Codex» / «worfy · Codex»; Show ставит Node с Vendor-ом; Resume — вопрос, Node, затем
+  `sessions.resume`.
+- Правило Resume для Codex (`src/main/agent/app-node-sessions.ts`) берёт тот же список, что Canvas, вместо своего
+  `history.list` только корня: thread из worktree вне корня теперь тоже продолжается, и Resume не запускает лишний Codex.
+- Снимки обеих тем: [Node](../evidence/27/27-codex-node-light.png) ([тёмная](../evidence/27/27-codex-node-dark.png)),
+  [транскрипт](../evidence/27/27-codex-transcript-light.png) ([тёмная](../evidence/27/27-codex-transcript-dark.png)),
+  [вопрос Resume](../evidence/27/27-codex-resume-question-light.png) ([тёмная](../evidence/27/27-codex-resume-question-dark.png)),
+  [после Resume](../evidence/27/27-codex-resumed-light.png) ([тёмная](../evidence/27/27-codex-resumed-dark.png)).
+- `scripts/e2e-specs.table.json` не менялся: `sessions-on-canvas.ts` вызывает каждое окно через `claudeHome.sessions`,
+  правила «только этот spec» у него нет — по правилу таблицы путь остаётся вне её (весь набор).
+- Платформенный PR (ADR-0056 п. 2, ADR-0071): вердикт Windows — job CI.
+
+Решено без владельца, подтвердить:
+
+1. Node сам появляется только у thread-а, изменённого за последние 10 min; старые thread-ы — в History (Show, Resume).
+   Иначе Project с сотнями старых thread-ов засыпал бы Canvas.
+2. Chip Node-а и Session view thread-а Codex — `unknown`: Codex не говорит, работает ли thread.
+3. Вопрос перед Resume — и для thread-а с неизвестным `origin`; без вопроса — только thread, начатый в worfy.
+4. Ответ `claudeHome.sessions` не ждёт Codex; пока первый запрос к Codex идёт, окно спрашивает снова каждые 2 s
+   (`codexLoading`, `CODEX_LOADING_RETRY_MS`), до ответа Codex или его отказа (не дольше времени запроса, 30 s на
+   страницу).
+5. Resume и вопрос — и в History, не только на Node (тикет называет Node); строка Codex не спрашивает вердикт main.
+6. Вне «Где в коде» правлены: `src/main/agent/app-node-sessions.ts`, `src/renderer/canvas/overlays/SessionNodes.tsx`,
+   `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/session/HistoryPopover.tsx`,
+   `src/renderer/session/ExternalSessionPanel.tsx`, `docs/features/sessions.md` — без них Node, Resume и транскрипт
+   не работали бы.

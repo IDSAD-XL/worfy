@@ -3,6 +3,10 @@
 // `claudeHome.changed` for that Project; the subscription ends with `claudeHome.close` or with the
 // client (src/main/clients.ts).
 //
+// The history and the transcripts also carry the Project's Codex threads (worfy-multi-vendor ticket 27,
+// src/main/vendors/codex/sessions-on-canvas.ts): `claudeHome.sessions` adds them to the history, and
+// `claudeHome.transcript` reads a Codex thread the Claude home has no transcript of.
+//
 // The live Sessions a watcher sees also go to liveSessionListeners (ticket 21: a notification when
 // a Session from the registry finishes its turn, src/main/notify.ts): once when the watcher starts,
 // and again after each change of the registry.
@@ -19,6 +23,7 @@ import { isRemoteCall, projectRootOf } from '../link/caller'
 import { LINK_MAX_PAYLOAD } from '../link/messages'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
+import { appCodexSessions, codexTranscriptAnswer, NO_CODEX_SESSIONS, type CodexSessions } from '../vendors/codex/sessions-on-canvas'
 import {
   claudeHomeChanged,
   claudeHomeClose,
@@ -268,6 +273,7 @@ export function claudeHomeHandlers(
   projects: () => readonly { readonly path: string }[] = () => projectStore().list(),
   search = new TranscriptSearch(registry),
   hidden = new HiddenSubagents((projectId) => projectStore().dataDir(projectStore().get(projectId).id)),
+  codex: CodexSessions = NO_CODEX_SESSIONS,
 ): HandlerModule {
   const notFound = { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
   /**
@@ -290,7 +296,14 @@ export function claudeHomeHandlers(
       // Watch first, read second: a change made while the files are read still produces an event.
       const client = clientOf(event)
       if (client) await subscriptions.subscribe(client, root, projectRoot)
-      return registry.sessions(root)
+      // The Codex part never waits: its ask starts here, in the background, and the answer takes what
+      // Codex had given by the time the Claude home was read (src/main/vendors/codex/sessions-on-canvas.ts).
+      codex.sessions(rootPath(root))
+      const claude = await registry.sessions(root)
+      const codexAnswer = codex.sessions(rootPath(root))
+      if (!codexAnswer.available && codexAnswer.sessions.length === 0) return claude
+      const history = [...claude.history, ...codexAnswer.sessions].sort((a, b) => b.modifiedAt - a.modifiedAt || a.sessionId.localeCompare(b.sessionId))
+      return { ...claude, history, ...(codexAnswer.available ? { codex: true } : {}), ...(codexAnswer.loading ? { codexLoading: true } : {}) }
     }),
     defineHandler(claudeHomeLive, async ({ projectRoot }, { event }) => ({ live: await registry.live(await rootOf(projectRoot, event)) })),
     defineHandler(claudeHomeClose, async ({ projectRoot }, { event }) => {
@@ -298,9 +311,12 @@ export function claudeHomeHandlers(
       return { closed: client ? await subscriptions.unsubscribe(client.id, projectRoot) : false }
     }),
     defineHandler(claudeHomeTranscript, async ({ projectRoot, sessionId, ...read }, { event }) => {
-      const path = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
-      if (path === null) return notFound
-      return readTranscript(path, read, mainThreadEvents)
+      const root = await rootOf(projectRoot, event)
+      const path = await registry.transcriptPath(root, sessionId)
+      if (path !== null) return readTranscript(path, read, mainThreadEvents)
+      // A Codex thread of the Project: only one the last list of its Codex Sessions named.
+      const events = await codex.transcript(rootPath(root), sessionId)
+      return events === null ? notFound : codexTranscriptAnswer(events, read)
     }),
     defineHandler(claudeHomeSubagents, async ({ projectRoot, sessionId }, { event }) => {
       const path = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
@@ -329,4 +345,14 @@ export function claudeHomeHandlers(
   ]
 }
 
-export default claudeHomeHandlers(new ClaudeHomeRegistry({ home: claudeHome() })) satisfies HandlerModule
+const appRegistry = new ClaudeHomeRegistry({ home: claudeHome() })
+
+export default claudeHomeHandlers(
+  appRegistry,
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  appCodexSessions((root) => appRegistry.roots({ path: root, local: true })),
+) satisfies HandlerModule

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { SHORTCUTS } from '../../shared/shortcuts'
+import { vendorLabel } from '../../shared/vendors/vendor'
 import { flattenSubagents, type SubagentStatus } from '../../shared/transcript/subagents'
 import { readSessionNodeData, sessionStatus } from '../claude-home/session-nodes'
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
@@ -16,6 +17,7 @@ import type { RailBlock } from './rail/index'
 import { SessionPicker } from './SessionPicker'
 import { SessionRail } from './SessionRail'
 import { Transcript } from './Transcript'
+import { VendorBadge } from './VendorBadge'
 import { HideToolsButton } from './HideToolsButton'
 import { SessionFind } from './SessionFind'
 import { useTranscriptFind } from './transcript-find'
@@ -34,6 +36,10 @@ import './session.css'
 // <Session>" link always goes to the Session. Not to where the window was opened from: opened from
 // the Canvas it leads to the parent all the same. The Session opens live when worfy runs it on the
 // Node (the Orchestrator, a Session Node), else read-only from its transcript.
+//
+// A Codex thread started outside worfy (worfy-multi-vendor ticket 27) opens here too: its transcript is
+// read from Codex, the Codex badge follows the title and its answers are labelled `codex`. Codex does
+// not say whether the thread still runs, so its chip says `unknown`.
 
 export interface ExternalSessionPanelProps {
   projectId: string
@@ -117,7 +123,10 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   const data = saved ? readSessionNodeData(saved.data) : null
   const session = live?.find((each) => each.sessionId === sessionId)
   const sessionTitle = session?.name ?? history.find((each) => each.sessionId === sessionId)?.title ?? data?.name ?? `Session ${sessionId.slice(0, 8)}`
-  let chip: { status: Status; label: string } = live === undefined ? { status: 'ready', label: '…' } : sessionStatus(session)
+  // The Vendor of a Session the Claude home does not record (a Codex thread): from its Node, else from the history.
+  const vendor = data?.vendor ?? history.find((each) => each.sessionId === sessionId)?.vendor
+  let chip: { status: Status; label: string } =
+    vendor !== undefined ? { status: 'done', label: 'unknown' } : live === undefined ? { status: 'ready', label: '…' } : sessionStatus(session)
   let title = sessionTitle
   // A Subagent's type is shown without the Harness plugin (`worfy:`); the tooltip keeps the full one.
   let titleTooltip = sessionTitle
@@ -150,6 +159,7 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
         <h1 className="w-session__title" title={titleTooltip}>
           {title}
         </h1>
+        {vendor !== undefined && agentId === undefined ? <VendorBadge vendor={vendor} testId="session-vendor" /> : null}
         <span data-testid="session-state">
           <StatusChip status={chip.status} label={chip.label} />
         </span>
@@ -190,7 +200,7 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
               firstIndex={transcript.first}
               sessionId={null}
               projectId={projectId}
-              assistantLabel="claude"
+              assistantLabel={vendor === undefined ? 'claude' : vendorLabel(vendor, 'agent')}
               earlier={earlierControl(transcript, root, sessionId, agentId)}
               hideTools={hideTools}
               find={find.transcript}

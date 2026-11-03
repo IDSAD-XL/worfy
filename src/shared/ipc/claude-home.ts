@@ -1,6 +1,8 @@
 // The `claudeHome` domain: Sessions of a Project as Claude Code records them under ~/.claude
 // (WORFY_CLAUDE_HOME), wherever they were started. worfy only reads these files (ADR 0002,
 // ADR 0005); the main process side is src/main/claude-home/ and src/main/ipc/claude-home.ts.
+// The history and the transcripts also carry the Project's Codex threads (worfy-multi-vendor
+// ticket 27), read through the Codex driver (src/main/vendors/codex/sessions-on-canvas.ts).
 import { z } from 'zod'
 import { agentEvent } from '../agent/events'
 import { absolutePathSchema } from '../paths'
@@ -53,12 +55,30 @@ export const historySessionSchema = z.object({
   modifiedAt: z.number(),
   /** True when a live Session with this id is in the registry right now. */
   live: z.boolean(),
+  /**
+   * The Vendor whose agent ran it (worfy-multi-vendor ticket 27): `codex` for a Codex thread of the
+   * Project (src/main/vendors/codex/sessions-on-canvas.ts); absent for a transcript of Claude Code.
+   * Any short string, so a Linked machine of a later build may name a Vendor this build does not know.
+   */
+  vendor: z.string().min(1).max(64).optional(),
+  /** Where a Codex thread was started: in worfy or outside it (a terminal, another app); absent when unknown. */
+  origin: z.enum(['worfy', 'external']).optional(),
 })
 
 export const tailCursorSchema = z.object({
   offset: z.number().int().nonnegative(),
   fileId: z.string().nullable(),
 })
+
+/**
+ * How often a window asks for a Project's Sessions again while Codex answers (worfy-multi-vendor
+ * ticket 27): Codex keeps no file of its live Sessions to watch, so its new threads show only when
+ * asked. main asks Codex at most this often for a Project, however often the window asks.
+ */
+export const CODEX_SESSIONS_POLL_MS = 30_000
+
+/** How soon a window asks again while main's first ask of Codex for the Project runs (`codexLoading`). */
+export const CODEX_LOADING_RETRY_MS = 2_000
 
 export type LiveSession = z.infer<typeof liveSessionSchema>
 export type HistorySession = z.infer<typeof historySessionSchema>
@@ -72,7 +92,20 @@ export type HistorySession = z.infer<typeof historySessionSchema>
 export const claudeHomeSessions = invokeChannel(
   'claudeHome.sessions',
   z.object({ projectRoot: absolutePath }),
-  z.object({ live: z.array(liveSessionSchema), history: z.array(historySessionSchema) }),
+  z.object({
+    live: z.array(liveSessionSchema),
+    history: z.array(historySessionSchema),
+    /**
+     * True when Codex answered for this Project: its threads are in `history` (with `vendor: 'codex'`),
+     * and the window asks again every CODEX_SESSIONS_POLL_MS. Absent without a Codex to ask.
+     */
+    codex: z.boolean().optional(),
+    /**
+     * True while main's first ask of Codex for this Project has not answered: the answer never waits for
+     * Codex, so the window asks again after CODEX_LOADING_RETRY_MS to show its threads.
+     */
+    codexLoading: z.boolean().optional(),
+  }),
   'project',
   'read',
 )

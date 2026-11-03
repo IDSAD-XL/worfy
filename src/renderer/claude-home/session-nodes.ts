@@ -9,9 +9,14 @@
 // (the Orchestrator, later the Sessions of ticket 18) keeps its own Node: any Node of another
 // kind that names a Session in `data.sessionId`, or a Session that `agent.list` reports, gets no
 // external Node, and an external Node made before worfy named it is removed.
+//
+// A Codex thread started outside worfy (worfy-multi-vendor ticket 27) gets a read-only Node the same
+// way, with `vendor: 'codex'` in its data. Codex does not say which of its threads runs now, so a
+// thread counts as running while it changed within CODEX_ACTIVE_MS; an older one is in the history
+// («Show», «Resume») like a finished Session of Claude Code.
 import { z } from 'zod'
 import type { SessionState } from '../../shared/agent/events'
-import type { LiveSession } from '../../shared/ipc/claude-home'
+import type { HistorySession, LiveSession } from '../../shared/ipc/claude-home'
 import { SESSION_NODE_KIND, worfySessionNodeDataSchema, type WorfySessionNodeData } from '../../shared/ipc/sessions'
 import { onThePlane } from '../../shared/layout/derived'
 import { freePlace, type Rect } from '../../shared/layout/free-place'
@@ -41,6 +46,11 @@ export const sessionNodeDataSchema = z.object({
   cwd: z.string(),
   /** The name Claude Code gave the Session when the Node was made. */
   name: z.string().optional(),
+  /**
+   * The Vendor whose agent ran the Session (worfy-multi-vendor ticket 27): `codex` for a Codex thread;
+   * absent for Claude Code's. Resume continues the Session on this Vendor (src/main/agent/node-sessions.ts).
+   */
+  vendor: z.string().min(1).max(64).optional(),
   /**
    * `binding`: the Node was placed by its Session's Binding, next to its Ticket or Epic right of the
    * strip of Epic frames (worfy-canvas ticket 11). Such a Node is not where the next Session
@@ -196,8 +206,28 @@ export function sessionRow(session: LiveSession, worfyIds: ReadonlySet<string>, 
   }
 }
 
+/**
+ * How long after its last change a Codex thread started outside worfy counts as running in its
+ * terminal and gets a Node by itself (worfy-multi-vendor ticket 27): Codex keeps no list of its live
+ * Sessions, and a Project may have hundreds of old threads, which stay in the history.
+ */
+export const CODEX_ACTIVE_MS = 10 * 60 * 1000
+
+/** Is `session` a Codex thread of the history? */
+export const isCodexSession = (session: Pick<HistorySession, 'vendor'>): boolean => session.vendor === 'codex'
+
+/**
+ * The Codex threads of the history that get a Node by themselves: started outside worfy (or nobody
+ * knows where) and changed within CODEX_ACTIVE_MS of `now`. A thread worfy started has its own Node.
+ */
+export function activeCodexSessions(history: readonly HistorySession[], now: number): HistorySession[] {
+  return history.filter((session) => isCodexSession(session) && session.origin !== 'worfy' && now - session.modifiedAt <= CODEX_ACTIVE_MS)
+}
+
 export interface SessionNodesInput {
   live: readonly LiveSession[]
+  /** Codex threads that get a Node like a live Session (activeCodexSessions); none by default. */
+  codex?: readonly HistorySession[] | undefined
   nodes: readonly LayoutNode[]
   /** worfySessionIds() */
   worfyIds: ReadonlySet<string>
@@ -239,7 +269,7 @@ function nextPlace(nodes: readonly LayoutNode[]): { x: number; y: number } {
 
 /** A read-only Node for a Session of the history ("Show" in the history, ticket 18), placed like a new live one. */
 export function showSessionNodeOp(
-  session: { sessionId: string; cwd?: string | undefined; title?: string | undefined; entrypoint?: string | undefined },
+  session: { sessionId: string; cwd?: string | undefined; title?: string | undefined; entrypoint?: string | undefined; vendor?: string | undefined },
   nodes: readonly LayoutNode[],
   projectRoot: string,
 ): Extract<LayoutOpInput, { op: 'create' }> {
@@ -250,6 +280,7 @@ export function showSessionNodeOp(
     source: externalSource(session.entrypoint),
     cwd: session.cwd ?? projectRoot,
     ...(session.title === undefined ? {} : { name: session.title }),
+    ...(session.vendor === undefined ? {} : { vendor: session.vendor }),
   }
   return { op: 'create', node: { id: sessionNodeId(session.sessionId), kind: SESSION_KIND, x, y, w: SESSION_WIDTH, h: SESSION_HEIGHT, data } }
 }
@@ -259,7 +290,7 @@ export function showSessionNodeOp(
  * that shows up after its Node was made (a branch is read from the transcript a little later)
  * leaves it where it stands (decision 9 of the owner: Sessions move only by a command).
  */
-export function planSessionNodes({ live, nodes, worfyIds, seen, near, keepOut = [] }: SessionNodesInput): SessionNodesPlan {
+export function planSessionNodes({ live, codex = [], nodes, worfyIds, seen, near, keepOut = [] }: SessionNodesInput): SessionNodesPlan {
   const named = new Set<string>()
   for (const node of nodes) {
     const id = node.data.sessionId
@@ -269,21 +300,25 @@ export function planSessionNodes({ live, nodes, worfyIds, seen, near, keepOut = 
 
   const create: SessionNodesPlan['create'] = []
   const placed: LayoutNode[] = [...nodes]
-  for (const session of live) {
+  // A Codex thread is started in a terminal or another app: its source is the terminal, with its cwd.
+  const sessions: Omit<SessionNodeData, 'origin' | 'placed'>[] = [
+    ...live.map((session) => ({ sessionId: session.sessionId, source: externalSource(session.entrypoint), cwd: session.cwd, ...(session.name === undefined ? {} : { name: session.name }) })),
+    ...codex.map((session) => ({
+      sessionId: session.sessionId,
+      source: 'terminal' as const,
+      cwd: session.cwd ?? '',
+      ...(session.title === undefined ? {} : { name: session.title }),
+      vendor: session.vendor ?? 'codex',
+    })),
+  ]
+  for (const session of sessions) {
     const id = session.sessionId
     if (worfyIds.has(id) || named.has(id) || seen.has(id)) continue
     named.add(id)
     const spot = near?.get(id)
     const { x, y } =
       spot === undefined ? nextPlace(placed) : freePlace({ x: spot.x, y: spot.y, w: SESSION_WIDTH, h: SESSION_HEIGHT }, [...placed.filter(onThePlane), ...keepOut])
-    const data: SessionNodeData = {
-      sessionId: id,
-      origin: 'external',
-      source: externalSource(session.entrypoint),
-      cwd: session.cwd,
-      ...(session.name === undefined ? {} : { name: session.name }),
-      ...(spot === undefined ? {} : { placed: 'binding' as const }),
-    }
+    const data: SessionNodeData = { ...session, origin: 'external', ...(spot === undefined ? {} : { placed: 'binding' as const }) }
     const node = { id: sessionNodeId(id), kind: SESSION_KIND, x, y, w: SESSION_WIDTH, h: SESSION_HEIGHT, data }
     create.push({ op: 'create', node })
     placed.push({ ...node, hidden: false, locked: false, pinned: false, tags: [] })

@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { LiveSession } from '../../src/shared/ipc/claude-home'
+import type { HistorySession, LiveSession } from '../../src/shared/ipc/claude-home'
 import { layoutNodeSchema, type LayoutNode } from '../../src/shared/layout/types'
 import {
+  activeCodexSessions,
+  CODEX_ACTIVE_MS,
+  isCodexSession,
   planSessionNodes,
   readSessionNodeData,
   sessionNodeId,
@@ -9,6 +12,7 @@ import {
   sessionRow,
   sessionSourceLabel,
   sessionStatus,
+  showSessionNodeOp,
   worfySessionIds,
   worfySessions,
   worfySessionTitle,
@@ -390,5 +394,66 @@ describe('a new Session with a Binding (worfy-canvas ticket 11)', () => {
       expect(kept[0]).toEqual(stripKeepOut({ x, right: x + frame.width!, top: y, bottom: y + reserve! }))
       expect(frameReserves('never-built')).toBeUndefined()
     })
+  })
+})
+
+// worfy-multi-vendor ticket 27: a Codex thread started outside worfy gets a read-only Node like a live
+// Session while it changed lately; an older one stays in the history, and «Show» makes its Node.
+describe('a Codex thread of the Project', () => {
+  const NOW = Date.UTC(2026, 10, 3, 12)
+  const thread = (sessionId: string, extra: Partial<HistorySession> = {}): HistorySession => ({
+    sessionId,
+    title: 'Explain the tests',
+    cwd: '/Users/test/projects/demo/src',
+    size: 0,
+    modifiedAt: NOW - 60_000,
+    live: false,
+    vendor: 'codex',
+    origin: 'external',
+    ...extra,
+  })
+
+  it('gets a Node while it changed within CODEX_ACTIVE_MS, unless worfy started it; a Claude Session of the history never does', () => {
+    const history = [
+      thread('C-1'),
+      thread('C-2', { modifiedAt: NOW - CODEX_ACTIVE_MS - 1 }),
+      thread('C-3', { origin: 'worfy' }),
+      thread('C-4', { origin: undefined }),
+      { ...thread('S-1'), vendor: undefined, origin: undefined },
+    ]
+    expect(activeCodexSessions(history, NOW).map((session) => session.sessionId)).toEqual(['C-1', 'C-4'])
+    expect(CODEX_ACTIVE_MS).toBe(10 * 60 * 1000)
+  })
+
+  it('is a read-only Node of the terminal with the Codex Vendor, next to the live Sessions, and none when a Node names it', () => {
+    const plan = planSessionNodes({ live: [live('S-1')], codex: [thread('C-1')], nodes: [], worfyIds: new Set(), seen: new Set() })
+    expect(plan.create.map((op) => op.node.data)).toEqual([
+      { sessionId: 'S-1', origin: 'external', source: 'terminal', cwd: '/Users/test/projects/demo' },
+      { sessionId: 'C-1', origin: 'external', source: 'terminal', cwd: '/Users/test/projects/demo/src', name: 'Explain the tests', vendor: 'codex' },
+    ])
+    expect(readSessionNodeData(plan.create[1]?.node.data ?? {})).toMatchObject({ vendor: 'codex' })
+    // A Node already names it (worfy runs it, or the user removed its Node in this run): none.
+    expect(planSessionNodes({ live: [], codex: [thread('C-1')], nodes: [external('C-1')], worfyIds: new Set(), seen: new Set() }).create).toEqual([])
+    expect(planSessionNodes({ live: [], codex: [thread('C-1')], nodes: [], worfyIds: new Set(), seen: new Set(['C-1']) }).create).toEqual([])
+    expect(planSessionNodes({ live: [], codex: [thread('C-1')], nodes: [], worfyIds: new Set(['C-1']), seen: new Set() }).create).toEqual([])
+  })
+
+  it('«Show» in the history makes its Node with the Vendor; a Claude Session\'s Node names none, as before', () => {
+    expect(showSessionNodeOp(thread('C-2'), [], '/Users/test/projects/demo').node.data).toEqual({
+      sessionId: 'C-2',
+      origin: 'external',
+      source: 'terminal',
+      cwd: '/Users/test/projects/demo/src',
+      name: 'Explain the tests',
+      vendor: 'codex',
+    })
+    expect(showSessionNodeOp({ sessionId: 'S-2', entrypoint: 'cli' }, [], '/Users/test/projects/demo').node.data).toEqual({
+      sessionId: 'S-2',
+      origin: 'external',
+      source: 'terminal',
+      cwd: '/Users/test/projects/demo',
+    })
+    expect(isCodexSession(thread('C-2'))).toBe(true)
+    expect(isCodexSession({ vendor: undefined })).toBe(false)
   })
 })
