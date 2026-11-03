@@ -2,7 +2,8 @@
 // (`<sessionId>/subagents/agent-<agentId>.jsonl`), extracted by the pure
 // src/shared/binding/signals.ts. Every file is read incrementally (tail.ts): asking again while a
 // Session runs costs only the lines appended since. Only `subagents/` itself is listed, as for the
-// Subagent tree (subagents.ts). Nothing here writes anywhere (ADR 0005).
+// Subagent tree (subagents.ts). Nothing here writes anywhere (ADR 0005). A Codex Session has no such
+// transcript: its signals come from its thread (src/main/vendors/codex/binding.ts, ticket 41).
 import { readdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { AgentSignals } from '../../shared/binding/resolve'

@@ -47,6 +47,8 @@ import { installHarnessAfterUpdate } from './update/harness-after-update'
 import { HarnessLagChecks } from './update/harness-lag'
 import { updateEnabled } from './update/stable-copy'
 import { updateDir, updateStateFile } from './update/state'
+import { appCodexBindingSignals } from './vendors/codex/binding'
+import { appCodexSessions } from './vendors/codex/sessions-on-canvas'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
 
 // Before anything else runs: an uncaught exception's stack reaches stderr before Electron's error box
@@ -266,6 +268,10 @@ function installAutoArchive(): () => void {
   const reader = new BindingSignalReader()
   // This Machine's own call (RegistryRoot): it sees what a window of the Project sees.
   const local = (path: string) => ({ path, local: true })
+  // A Codex Session has no Claude transcript: its signals come from its thread, among the Codex Sessions
+  // the windows list (ticket 41). That list was made by the claudeHome handlers at registerIpc, with
+  // their roots; these roots are used only when it was not.
+  const codexBinding = appCodexBindingSignals(appCodexSessions((root) => registry.roots(local(root))))
   const archiver = new AutoArchiver({
     store: layoutStore(),
     projects: () => projectStore().list(),
@@ -278,6 +284,7 @@ function installAutoArchive(): () => void {
         stored: (projectId) => bindingStore().get(projectId).bindings,
         transcriptPath: (root, sessionId) => registry.transcriptPath(local(root), sessionId),
         signals: (path) => reader.file(path, false),
+        vendorSignals: (root, sessionId) => codexBinding.session(root, sessionId),
       }),
     settings: () => archiveSettings(sessionArchiveOf(appSettingsStore().get())),
     now: Date.now,
