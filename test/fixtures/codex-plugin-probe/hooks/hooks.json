@@ -1,0 +1,16 @@
+{
+  "description": "Hooks of the probe plugin: one group per event the fake plays, and two events Codex does not know",
+  "hooks": {
+    "SessionStart": [{ "matcher": "startup|resume", "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/probe.mjs\" context", "timeout": 10 }] }],
+    "SubagentStart": [{ "matcher": "worfy-reviewer|worfy-scout", "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/probe.mjs\" context", "timeout": 10 }] }],
+    "PreToolUse": [
+      { "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/probe.mjs\" deny-reviewers", "timeout": 30 }] },
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/probe.mjs\" record", "timeout": 30 }] }
+    ],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/probe.mjs\" gate", "timeout": 10 }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/probe.mjs\" gate", "timeout": 10 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/probe.mjs\" record", "timeout": 10 }] }],
+    "TaskCompleted": [{ "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/probe.mjs\" record", "timeout": 10 }] }],
+    "TeammateIdle": [{ "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/probe.mjs\" record", "timeout": 10 }] }]
+  }
+}

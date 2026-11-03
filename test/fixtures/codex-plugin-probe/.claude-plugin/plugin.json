@@ -1,0 +1,4 @@
+{
+  "name": "probe",
+  "description": "A plugin of the tests of the fake Codex app-server: its hooks record their input and decide by PROBE_GATE (test/contract/codex-fake-hooks.test.ts)."
+}
