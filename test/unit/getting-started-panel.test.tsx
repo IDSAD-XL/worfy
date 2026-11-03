@@ -409,6 +409,55 @@ describe('the Getting started panel', () => {
     stop()
   })
 
+  // worfy-multi-vendor ticket 29: "Use Codex too", only while Codex is in the build; not a step.
+  it('"Use Codex too" while Codex is in the build: not a step, and its button opens Settings → Vendors', async () => {
+    await renderPanel(twoDone())
+    const section = await waitFor(region)
+    ;(await callOf('vendors.list')).answer({
+      ok: true,
+      value: {
+        vendors: [
+          { vendor: 'claude', inBuild: true, required: true },
+          { vendor: 'codex', inBuild: true, required: false },
+        ],
+      },
+    })
+    const block = await waitFor(() => within(section).getByTestId('getting-started-vendor'))
+    expect(block.dataset.vendor).toBe('codex')
+    expect(within(block).getByText('Use Codex too')).toBeTruthy()
+    expect(within(block).getByText('Optional. Sign in to Codex to start Sessions on it as well. Skip it and nothing changes.')).toBeTruthy()
+    // Not one of the six steps, and nothing of it is marked.
+    expect(steps()).toHaveLength(6)
+    expect(block.closest('[data-testid="getting-started-step"]')).toBeNull()
+    const { useSettingsWindow } = await import('../../src/renderer/settings/settings-window')
+    fireEvent.click(within(block).getByRole('button', { name: 'Sign in to Codex…' }))
+    expect(useSettingsWindow.getState()).toEqual({ open: true, section: 'VendorsSection' })
+  })
+
+  it('no "Use Codex too" when Codex is not in the build, nor when the Vendors cannot be read', async () => {
+    const first = await renderPanel(twoDone())
+    const section = await waitFor(region)
+    ;(await callOf('vendors.list')).answer({
+      ok: true,
+      value: {
+        vendors: [
+          { vendor: 'claude', inBuild: true, required: true },
+          { vendor: 'codex', inBuild: false, required: false },
+        ],
+      },
+    })
+    await act(async () => undefined)
+    expect(within(section).queryByTestId('getting-started-vendor')).toBeNull()
+    first.unmount()
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    await renderPanel(twoDone())
+    const again = await waitFor(region)
+    ;(await callOf('vendors.list')).answer({ ok: false, error: 'no handler' } as IpcResult<unknown>)
+    await waitFor(() => expect(warn).toHaveBeenCalled())
+    expect(within(again).queryByTestId('getting-started-vendor')).toBeNull()
+  })
+
   it('the Projects section answers the request with its own "Add project": the folder picker, as "+" opens it', async () => {
     preload(twoDone())
     const { requestAddProject } = await import('../../src/renderer/projects/add-project')

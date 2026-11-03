@@ -232,6 +232,9 @@ project" and "Remove the demo project". "Show steps" brings the list back until 
 from. The Command palette's "Getting started" shows the panel again at any time, expanded and with the focus on its heading, with or
 without a Project.
 "Connect your own project" under the steps is not part of the demo: "Connect…" opens the same "Add project" as "+" of Projects.
+Below it, while Codex is in this build, "Use Codex too" is optional and not a step: nothing marks it, and the count `n/6` leaves it
+out. "Sign in to Codex…" opens Settings → Vendors, where the sign-in is ([Sessions](sessions.md)). Leaving it alone changes
+nothing; the sign-in to Claude Code stays a check of step 1.
 
 #### Windows
 
@@ -281,6 +284,7 @@ does the work.
   `test/unit/getting-started-panel.test.tsx`, `test/unit/getting-started-hints.test.ts`, `test/unit/getting-started-notice.test.tsx`,
   `test/unit/getting-started-highlight.test.ts`, `test/e2e/getting-started.spec.ts`, `test/e2e/getting-started-entry.spec.ts`,
   `test/e2e/getting-started-hints.spec.ts`, `test/e2e/getting-started-done.spec.ts` and `test/e2e/getting-started-highlight.spec.ts`.
+  `test/e2e/onboarding-codex.spec.ts` checks "Use Codex too", with Codex in the build and without it.
   `test/e2e/guide-entry-links.spec.ts` checks the links to the worfy Guide in the panel and in First run.
 
 ## Demo project

@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
 import { GETTING_STARTED_STEPS, type GettingStartedStep } from '../../shared/ipc/getting-started'
+import type { VendorEntry } from '../../shared/ipc/vendors'
+import { vendorLabel } from '../../shared/vendors/vendor'
 import { invoke, subscribe } from '../ipc'
 import { openGuide } from '../guide/store'
 import { usePipeline } from '../pipeline/usePipeline'
@@ -10,6 +12,7 @@ import { requestAddProject } from '../projects/add-project'
 import { openProject } from '../projects/useProjects'
 import { openSession } from '../session/navigation'
 import { setPendingInput, usePendingInput } from '../session/pending-input'
+import { openSettings } from '../settings/settings-window'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
 import { openFirstRun, useFirstRun } from '../shell/first-run-store'
 import { showToast } from '../toast/toasts'
@@ -62,6 +65,9 @@ import { GETTING_STARTED_COLLAPSED_KEY, skipGettingStarted, useGettingStarted, u
  * worfy-guide ticket 09: "worfy Guide" at the bottom, left of "Skip", under the steps and under Done
  * alike, opens the worfy Guide (ADR-0090) over the window; the panel stays as it was. Nothing in the
  * panel opens the Guide by itself.
+ *
+ * worfy-multi-vendor ticket 29: below "Connect your own project", the optional "Use Codex too" while
+ * Codex is in the build (OptionalVendors). It is not one of the six steps.
  */
 
 const QUESTION = 'What is planned in this project?'
@@ -319,6 +325,41 @@ function useHighlightRing(input: Omit<HighlightInput, 'onScreen'>): void {
   }, [active])
 }
 
+/**
+ * worfy-multi-vendor ticket 29: "Use Codex too", below "Connect your own project" — one block for each
+ * optional Vendor this build carries (`vendors.list`: Codex when its binary is in the build). It is not a
+ * step: nothing marks it, the count «n/6» does not include it, and leaving it alone changes nothing. Its
+ * button opens Settings → Vendors, where the sign-in is. A list that cannot be read shows no block.
+ */
+function OptionalVendors() {
+  const [vendors, setVendors] = useState<VendorEntry[]>([])
+  useEffect(() => {
+    let live = true
+    void invoke('vendors.list').then((result) => {
+      if (!live) return
+      if (result.ok) setVendors(result.value.vendors.filter((entry) => entry.inBuild && !entry.required))
+      else console.warn('vendors.list failed; Getting started offers no other Vendor:', result.error)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+  return vendors.map(({ vendor }) => {
+    const label = vendorLabel(vendor)
+    return (
+      <div key={vendor} style={styles.connect} data-testid="getting-started-vendor" data-vendor={vendor}>
+        <span style={styles.title}>Use {label} too</span>
+        <p style={styles.line}>Optional. Sign in to {label} to start Sessions on it as well. Skip it and nothing changes.</p>
+        <div style={styles.action}>
+          <button type="button" className="w-action" onClick={() => openSettings('VendorsSection')}>
+            Sign in to {label}…
+          </button>
+        </div>
+      </div>
+    )
+  })
+}
+
 /** `sessionView`: the window shows the Session view, and the panel stands under its header (TOP_IN_SESSION). */
 export function GettingStartedPanel({ sessionView = false }: { sessionView?: boolean } = {}) {
   const snapshot = useGettingStarted()
@@ -548,6 +589,7 @@ export function GettingStartedPanel({ sessionView = false }: { sessionView?: boo
                 </button>
               </div>
             </div>
+            <OptionalVendors />
           </>
         )}
         <div style={styles.footer}>

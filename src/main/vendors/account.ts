@@ -34,4 +34,9 @@ export interface AccountPart {
   /** The Vendor's connections; rejects when the Vendor did not answer. `signal` stops the ask. */
   check(signal?: AbortSignal): Promise<AccountConnection[]>
   startLogin(): Promise<LoginAttempt>
+  /**
+   * Whether this build carries the Vendor's agent, so that a sign-in can happen at all; starts nothing.
+   * Absent: always (Claude Code comes with every build).
+   */
+  inBuild?(): Promise<boolean>
 }
