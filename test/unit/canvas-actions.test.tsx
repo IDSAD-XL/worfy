@@ -571,6 +571,30 @@ describe('a refused start of Autopilot (worfy-polish ticket 50)', () => {
     expect(toasts.getState().toasts).toHaveLength(1)
   })
 
+  it('a refusal for a run on another Machine is a toast too, with the chip and "Start anyway"; a refused "Start anyway" replaces it', async () => {
+    const message = 'Autopilot is already running Epic demo of this repository on Studio'
+    startAnswer = { ok: true, value: { runningElsewhere: { epic: 'demo', machine: 'Studio', message } } }
+    const { toasts } = await import('../../src/renderer/toast/toasts')
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const button = await screen.findByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(button)
+    await vi.waitFor(() => expect(screen.getByTestId('autopilot-elsewhere').textContent).toBe('running on Studio'))
+    expect(screen.getByRole('button', { name: 'Autopilot' }).getAttribute('data-error')).toBe(message)
+    expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', text: message, projectId: PROJECT, testId: 'autopilot-start-refused' }])
+    // "Start anyway" goes with override, and its own refusal is the toast now: still one.
+    const reason = 'The Orchestrator is in a turn: wait for it to end, or Interrupt it, before starting Autopilot'
+    startAnswer = { ok: false, error: `autopilot.start failed: ${reason}` }
+    fireEvent.click(screen.getByTestId('action-autopilot-anyway'))
+    await vi.waitFor(() => expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', text: reason }]))
+    expect(toasts.getState().toasts).toHaveLength(1)
+    expect(calls.filter((call) => call.channel === 'autopilot.start').map((call) => call.input)).toEqual([
+      { projectId: PROJECT, epic: 'demo' },
+      { projectId: PROJECT, epic: 'demo', override: true },
+    ])
+  })
+
   it('a start that goes shows no toast', async () => {
     startAnswer = { ok: true, value: { ...autopilot, epic: 'demo', status: 'running', wave: 1, revision: 2 } }
     const { toasts } = await import('../../src/renderer/toast/toasts')

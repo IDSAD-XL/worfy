@@ -92,3 +92,10 @@ Diagnosis подтвердился: красный contract test упал на `
 
 Снимки toast отказа (e2e `test/e2e/autopilot.spec.ts`, Orchestrator в ходе): `../evidence/50/50-refused-toast-light.png`,
 `../evidence/50/50-refused-toast-dark.png`.
+
+Раунд 1 (ревью PR #1307): новый Run забирает ожидание старого только после последнего шага старта, который может
+упасть (workflow watch), — упавший старт оставляет задачи, keep-awake и journal старому Run-у. Grace time возврата
+хранится на Orchestrator-е и снимается, когда новый Run забирает Session или начинается новый grace time: старый
+таймер больше не отдаёт Session раньше хода последней задачи. Новые test-ы: wiring `sharedChatStarts` с
+`awaitsGiveBack` (`test/contract/autopilot-wiring.test.ts`), toast отказа «running on <Machine>» и «Start anyway»,
+упавший старт после takeover, grace time старого Run-а, конец нового Run-а и возврат Session attended.

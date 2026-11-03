@@ -863,9 +863,6 @@ export class Autopilot {
         })
         await this.journalHarness(run)
         await this.journalForecast(run, model.tickets)
-        // A stopped run of the Project may still have waited for this Session's tasks: they are
-        // this run's now, which journals them and holds keep-awake (worfy-polish ticket 50).
-        this.takeOvers.get(projectId)?.()
         run.awake = this.deps.keepAwake()
         run.awake.start()
         this.subscribe(run)
@@ -878,6 +875,10 @@ export class Autopilot {
           return this.snapshot(run)
         }
         run.cleanups.push(unwatch)
+        // A stopped run of the Project may still have waited for this Session's tasks: they are
+        // this run's now, which journals them and holds keep-awake (worfy-polish ticket 50). Only
+        // here, past the last step that can fail: a start that fails leaves them to that run.
+        this.takeOvers.get(projectId)?.()
       } catch (error) {
         await this.release(run, true)
         throw error

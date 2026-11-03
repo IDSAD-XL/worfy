@@ -164,6 +164,8 @@ interface Entry {
   launch: SessionLaunch
   /** A launch to switch to once the running turn ends; null when none waits. */
   wanted: SessionLaunch | null
+  /** The grace time after the last background task, before the waiting launch goes on without its turn; null when none runs. */
+  grace: ReturnType<typeof setTimeout> | null
 }
 
 /** Why "New conversation" is refused while Autopilot runs the Orchestrator. */
@@ -278,6 +280,8 @@ export class Orchestrators {
     if (!awaitsGiveBack(entry) && (liveTasksOf(entry) > 0 || entry.wanted !== null)) throw new Error(ORCHESTRATOR_HAS_TASKS)
     if ((entry.run?.session?.queued().items.length ?? 0) > 0) throw new Error(ORCHESTRATOR_HAS_QUEUE)
     entry.wanted = null
+    // The grace time of the stopped run's give-back would otherwise fire into the new run's own one.
+    this.cancelGrace(entry)
     if (!entry.launch.unattended) await this.relaunch(entry, { unattended: true })
     // The Project may have left the list while the old process was waited for.
     if (this.entries.get(projectId) !== entry || entry.cancelled) throw new Error(`the Orchestrator of ${projectId} was stopped`)
@@ -376,6 +380,7 @@ export class Orchestrators {
       settings: this.savedSettings(projectId, node.id, firstSettings),
       launch: ATTENDED,
       wanted: null,
+      grace: null,
     }
     entry.ready = this.start(entry)
     return entry
@@ -595,9 +600,24 @@ export class Orchestrators {
   }
 
   private relaunchAfterGrace(entry: Entry, run: Run): void {
-    const timer = setTimeout(() => this.relaunchIfFree(entry, run), this.deps.returnGraceMs ?? RETURN_GRACE_MS)
+    this.cancelGrace(entry)
+    const timer = setTimeout(() => {
+      if (entry.grace === timer) entry.grace = null
+      this.relaunchIfFree(entry, run)
+    }, this.deps.returnGraceMs ?? RETURN_GRACE_MS)
+    entry.grace = timer
     // A relaunch that never comes due must not keep the app (or a test) alive.
     ;(timer as { unref?: () => void }).unref?.()
+  }
+
+  /**
+   * Drops the grace time that runs, if any (worfy-polish ticket 50): a new run took the Session
+   * over, or a later last task starts its own. An older one would otherwise give the Session back
+   * before the turn of the task that ended last.
+   */
+  private cancelGrace(entry: Entry): void {
+    if (entry.grace !== null) clearTimeout(entry.grace)
+    entry.grace = null
   }
 
   /** A new session: no id to resume, and its cost starts from zero. */

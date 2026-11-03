@@ -1,8 +1,12 @@
 // The app's Autopilot (src/main/ipc/autopilot.ts, sharedAutopilot) hands the run what a new SDK
 // session per Wave needs (worfy-throughput ticket 52): the Orchestrators' newUnattendedSession, the
 // brief of "Run wave" and the kind of the Harness on the machine. The app's Orchestrators, launcher
-// and Harness lookup are stand-ins here, so each call is seen as the run's deps make it.
+// and Harness lookup are stand-ins here, so each call is seen as the run's deps make it. The app's
+// starts from a chat (sharedChatStarts) run over the same Orchestrators and a stand-in Session
+// registry, Project list and workflow read (worfy-polish ticket 50).
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ORCHESTRATOR_HAS_TASKS } from '../../src/main/agent/orchestrator'
+import { AFTER_TURN_MESSAGE } from '../../src/main/autopilot/chat-start'
 import type { AutopilotDeps } from '../../src/main/autopilot/run'
 import type { HarnessKind } from '../../src/shared/projects/action-templates'
 
@@ -19,6 +23,16 @@ const stand = vi.hoisted(() => ({
     newUnattendedSession: vi.fn((projectId: string) => Promise.resolve({ projectId, sessionId: 'new-session' })),
     setUnattended: vi.fn(() => Promise.resolve(null)),
     giveBackNow: vi.fn(() => Promise.resolve(null)),
+    open: vi.fn((projectId: string) => Promise.resolve({ projectId, sessionId: 'orchestrator-session' })),
+    /** Session ids whose stopped run waits to be given back (Orchestrators.awaitsGiveBack). */
+    waiting: new Set<string>(),
+    awaitsGiveBack: vi.fn((sessionId: string): boolean => stand.orchestrators.waiting.has(sessionId)),
+  },
+  /** The Orchestrator's Session in the app's registry: in a turn, with one live background task, nothing queued. */
+  session: {
+    state: 'busy',
+    backgroundTasks: () => [{ taskId: 'task_impl_0001' }],
+    queued: () => ({ items: [] }),
   },
   launcher: {
     autopilotWave: vi.fn((_projectId: string, _epic: string, _resume: readonly number[], brief: boolean) => Promise.resolve({ text: brief ? 'with brief' : 'without' })),
@@ -29,6 +43,24 @@ const stand = vi.hoisted(() => ({
 }))
 
 vi.mock('../../src/main/agent/app-orchestrators', async (original) => ({ ...(await original<object>()), sharedOrchestrators: () => stand.orchestrators }))
+vi.mock('../../src/main/agent/app-registry', async (original) => ({
+  ...(await original<object>()),
+  sharedRegistry: () => ({
+    get: (sessionId: string) => {
+      if (sessionId !== 'orchestrator-session') throw new Error(`no Session ${sessionId}`)
+      return stand.session
+    },
+    observe: () => () => undefined,
+  }),
+}))
+vi.mock('../../src/main/projects/store', async (original) => ({
+  ...(await original<object>()),
+  projectStore: () => ({ get: (id: string) => ({ id, name: 'Demo', path: '/nowhere/demo' }), list: () => [] }),
+}))
+vi.mock('../../src/main/workflow/reader', async (original) => ({
+  ...(await original<object>()),
+  readWorkflow: () => Promise.resolve({ model: { root: '/nowhere/demo', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: [], error: null, branchErrors: [] } }),
+}))
 vi.mock('../../src/main/ipc/actions', async (original) => ({ ...(await original<object>()), sharedLauncher: () => stand.launcher }))
 vi.mock('../../src/main/ipc/checks', async (original) => ({ ...(await original<object>()), sharedPrTracker: () => ({ read: () => Promise.resolve({ pulls: [] }) }) }))
 vi.mock('../../src/main/harness/locate', async (original) => ({
@@ -36,7 +68,7 @@ vi.mock('../../src/main/harness/locate', async (original) => ({
   currentHarness: () => ({ kind: stand.harness, binDir: '/nowhere', gateDir: '/nowhere', harnessHome: '/nowhere', checked: ['/nowhere', '/nowhere'] }),
 }))
 
-const { sharedAutopilot } = await import('../../src/main/ipc/autopilot')
+const { sharedAutopilot, sharedChatStarts } = await import('../../src/main/ipc/autopilot')
 
 /** What the app's Autopilot was built with. */
 const deps = (): AutopilotDeps => (sharedAutopilot() as unknown as { deps: AutopilotDeps }).deps
@@ -67,5 +99,29 @@ describe('the deps of the app\'s Autopilot (worfy-throughput ticket 52)', () => 
     expect(deps().harness()).toBe('plugin')
     stand.harness = 'legacy'
     expect(deps().harness()).toBe('legacy')
+  })
+})
+
+describe("the app's starts from a chat ask the app's Orchestrators about a stopped run's Session (worfy-polish ticket 50)", () => {
+  /** autopilot_start confirmed in a turn of the Project's Orchestrator, whose Session has a live background task. */
+  const fromTurn = () => sharedChatStarts().startFromChat({ projectId: 'demo-00000050', epic: 'demo', by: 'tool', session: 'orchestrator-session', mode: 'fastest' })
+
+  // The checks of the run itself are Autopilot's (autopilot-background.test.ts); here they pass.
+  // The refusal goes first: the start promised after the turn stays waiting in the app's ChatStarts
+  // (the stand-in Session never goes idle), and would refuse any later start with its hint.
+  it('an attended Session with a live task is refused, as before', async () => {
+    vi.spyOn(sharedAutopilot(), 'startCheck').mockResolvedValue(null)
+    await expect(fromTurn()).resolves.toEqual({ kind: 'refused', message: ORCHESTRATOR_HAS_TASKS })
+  })
+
+  it('a Session that waits to be given back is not refused for the same live task: the run starts after the turn', async () => {
+    vi.spyOn(sharedAutopilot(), 'startCheck').mockResolvedValue(null)
+    stand.orchestrators.waiting.add('orchestrator-session')
+    try {
+      await expect(fromTurn()).resolves.toEqual({ kind: 'after-turn', message: AFTER_TURN_MESSAGE })
+      expect(stand.orchestrators.awaitsGiveBack).toHaveBeenCalledWith('orchestrator-session')
+    } finally {
+      stand.orchestrators.waiting.clear()
+    }
   })
 })
