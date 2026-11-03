@@ -34,7 +34,7 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
 
 ## Готово, когда
 
-- [ ] Вручную, владелец: записи (Plus) в `test/fixtures/codex-messages/`, manifest — закреплённая версия; test зелёный.
+- [x] Вручную, владелец: записи (Plus) в `test/fixtures/codex-messages/`, manifest — закреплённая версия; test зелёный.
 - [ ] Контрольный случай: manifest другой версии — test красный; пустая папка записей — test красный.
 - [ ] Контрольный случай: сценарий фейка с видом сообщения, которого нет в записях, — красный.
 - [ ] В записях нет email, id аккаунта и путей домашней папки.
@@ -74,7 +74,7 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
 - `test/contract/codex-compat.test.ts` — один test на записи: manifest и `cliVersion` каждого thread-а — закреплённой
   версии, `node_modules` — тоже; каждая запись проходит `ajv` по сгенерированной JSON Schema (как её сгенерировал
   Codex, объекты открыты); каждый шаг сценариев фейка — вид и пути ключей из записей, кроме исключений `EXCEPTIONS` с
-  причиной (пока пусто; лишнее исключение — красный). Пять test-ов тех же проверок на данных в самом test-е зелёные
+  причиной (после записей владельца их 12, см. «Раунд 2»; лишнее исключение — красный). Пять test-ов тех же проверок на данных в самом test-е зелёные
   при любой папке записей. `WORFY_CODEX_RECORDINGS` — другая папка записей, только для контрольных случаев.
 - Контрольные случаи (синтетические записи из сценариев фейка во временной папке, не в репозитории): своя версия —
   exit 0; manifest `0.167.0` — exit 1; пустая папка — exit 1; без ответа `review/start` — exit 1 с
@@ -83,3 +83,39 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
 - Скрипт проверен только на фейке (`--app-server` с обёрткой над `fake-app-server.mjs`): отказ без флага, под `CI` и
   `VITEST`; в записанных файлах нет email, id аккаунта, токенов, домашней папки и временных путей. Настоящий Codex не
   запускался. Пока владелец не снял записи, test красный — так задумано (п. 3).
+
+### Раунд 2: записи владельца
+
+- Владелец снял записи Codex 0.166.0 (план Plus, 2026-11-03, `darwin-arm64`); Orchestrator положил их в PR. На них test
+  был красным: 29 путей ключей и видов сообщений, которые играют сценарии фейка, а в записях их нет.
+- Ни один из 29 не оказался ошибкой фейка: ни в одном записанном виде сообщения живой Codex не прислал поле под другим
+  именем или в другой форме. Каждый — случай, до которого живой прогон не дошёл, а JSON Schema закреплённой версии его
+  описывает. Они стали 12 исключениями `EXCEPTIONS` (вид и путь ключа, у каждого причина):
+  - reasoning: элементы `reasoning` в `item/started`, `item/completed`, `thread/read` и `item/reasoning/summaryTextDelta` —
+    ни один ход прогона не дал reasoning, хотя скрипт просил `model_reasoning_summary = "detailed"`;
+  - план: `item(plan)` и `turn/plan/updated` — модель ответила, что `update_plan` ей недоступен (`turn.jsonl:72`);
+  - `reason` в `item/commandExecution/requestApproval` — approval-ы прогона шли под политикой `untrusted`, где Codex
+    reason не даёт; он даёт его, когда модель просит выйти из sandbox (в schema: «e.g. request for network access»);
+  - `item(mcpToolCall).error.message` — инструмент `fail` вернул ошибку результатом (`error: null`), а `error` — вызов, не
+    дошедший до инструмента (сервер не запущен);
+  - отказ `thread/compact/start` — Codex не отказал ни разу: даже пустой thread он сжал (`compact.jsonl:16`, ответ `{}`, затем
+    ход с `contextCompaction`);
+  - `skills/changed` — за 15 с после новой skill не пришёл;
+  - skill-элемент в `thread/read` — скрипт посылает skill текстом (`$capture-greeting`), worfy — элементом `skill`;
+  - `status` `notLoaded` в `thread/list` — прогон просил список в том же процессе, где thread-ы загружены.
+  Исключение пропускает только свой вид и путь ключа с тем, что под ним: новый ключ рядом (например
+  `item(mcpToolCall).error.code`) — красный, это проверяет отдельный test.
+- Новая проверка: записи hook-ов есть для `PreToolUse` (16), `Stop` (9) и `SubagentStop` (1), и у каждого входа
+  `SubagentStop` есть `agent_type` (1 из 1) — для фейка hook-ов (Ticket 44).
+- Обезличивание: три значения записей Orchestrator заменил руками — имя Mac-а в `serverName` (`remoteControl/status/changed`),
+  `installationId` и `loginId`. Теперь их заменяет скрипт: имя хоста из `os.hostname()` и из `serverName` — на
+  `capture-host.local` (только целое имя: хост `mac` не трогает `macos`), `installationId` —
+  `00000000-0000-4000-8000-000000000001`, `loginId` — `…0002`; если что-то из них осталось, скрипт ничего не пишет.
+  Test сверяет: в сохранённых записях эти значения уже такие, какими их пишет скрипт. Повторно записи не снимались.
+- Под `CI` и `VITEST` скрипт отказывает раньше всего, `--help` тоже (было: `--help` выходил с кодом 0 до отказа).
+- Контрольные случаи на копиях записей владельца во временной папке: свои записи — exit 0; manifest `0.167.0` — exit 1;
+  пустая папка — exit 1; без ответа `review/start` — exit 1 с `review.jsonl:5: result review/start — no recorded message
+  of this kind`; `threadId: 5` в `turn/started` — exit 1 с `v2/TurnStartedNotification/threadId must be string`; вход
+  `SubagentStop` без `agent_type` — exit 1 с `hooks/SubagentStop.jsonl:1: no agent_type`.
+- Следующая запись закроет часть исключений, если скрипт пошлёт skill элементом `skill` и попросит `thread/list` после
+  перезапуска; в этом раунде сценарий скрипта не менялся.

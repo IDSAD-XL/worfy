@@ -19,8 +19,9 @@
 //     compaction, review, a failed turn, skills, thread list and read); a resume after the restart.
 //   - records every message both ways, in the step form of the fake's scripts
 //     (test/fixtures/codex-scripts/), one file per part of the scenario, and every hook input.
-//   - replaces the email, the account and user ids, the tokens, the home folder and the temporary
-//     folders in what it writes, checks that none is left, and replaces the recordings of the output
+//   - replaces the email, the account and user ids, the tokens, the home folder, the temporary folders,
+//     the host name, the installation id and the login id in what it writes, checks that none is left,
+//     and replaces the recordings of the output
 //     folder (default test/fixtures/codex-messages/; its README.md stays) with a manifest.json.
 //   - logs out of the temporary login and removes the temporary folder.
 //
@@ -33,7 +34,7 @@ import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { homedir, tmpdir } from 'node:os'
+import { homedir, hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
@@ -136,12 +137,23 @@ export function readSteps(file, name = file) {
 
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
 
+/**
+ * A replacement `{ from, to, what }` replaces every occurrence of `from`; one with `name: true` (a host
+ * name) only a whole name, not one inside a longer name: a host `mac` leaves `macos` as it is.
+ */
+const NAME_CHAR = 'A-Za-z0-9-'
+const literal = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const matcherOf = ({ from, name }) => (name === true ? new RegExp(`(?<![${NAME_CHAR}])${literal(from)}(?![${NAME_CHAR}])`, 'g') : null)
+
 /** Every occurrence of each `from` in the strings and keys of `value` becomes its `to`; every email too. */
 export function scrub(value, replacements) {
   const ordered = [...replacements].filter(({ from }) => from.length > 0).sort((a, b) => b.from.length - a.from.length)
   const text = (string) => {
     let out = string
-    for (const { from, to } of ordered) out = out.split(from).join(to)
+    for (const replacement of ordered) {
+      const matcher = matcherOf(replacement)
+      out = matcher === null ? out.split(replacement.from).join(replacement.to) : out.replace(matcher, () => replacement.to)
+    }
     return out.replace(EMAIL, (email) => (email === 'owner@example.com' ? email : 'owner@example.com'))
   }
   const visit = (node) => {
@@ -153,9 +165,60 @@ export function scrub(value, replacements) {
   return visit(value)
 }
 
-/** The `from`s of `replacements` still found in `text`, as the names of what they are. */
+/** The `from`s of `replacements` still found in `text`, as the names of what they are, each once. */
 export function leftovers(text, replacements) {
-  return replacements.filter(({ from }) => from.length > 0 && text.includes(from)).map(({ what }) => what)
+  const found = replacements.filter((replacement) => {
+    if (replacement.from.length === 0) return false
+    const matcher = matcherOf(replacement)
+    return matcher === null ? text.includes(replacement.from) : matcher.test(text)
+  })
+  return [...new Set(found.map(({ what }) => what))]
+}
+
+const HOST = 'capture-host'
+
+/**
+ * The host name `host` (os.hostname(): `Name.local` on a Mac) as replacements of whole names: the host
+ * name and its first label with `.local` become `capture-host.local`, the first label alone
+ * `capture-host`. The app-server names the host in `serverName` of remoteControl/status/changed.
+ */
+export function hostReplacements(host) {
+  const whole = typeof host === 'string' ? host.trim() : ''
+  if (whole === '') return []
+  const [label] = whole.split('.')
+  const names = new Map([
+    [whole, `${HOST}.local`],
+    [`${label}.local`, `${HOST}.local`],
+    [label, HOST],
+  ])
+  return [...names].map(([from, to]) => ({ from, to, what: 'the host name', name: true }))
+}
+
+/**
+ * Identifiers of the run that the messages carry under these keys, each replaced by a fixed id: the
+ * installation id of the app-server and the id of the sign-in. The host name of `serverName` in
+ * remoteControl/status/changed too: the form the app-server gives may differ from os.hostname().
+ */
+const IDENTIFIERS = {
+  installationId: { to: '00000000-0000-4000-8000-000000000001', what: 'the installation id' },
+  loginId: { to: '00000000-0000-4000-8000-000000000002', what: 'the login id' },
+}
+
+/** The replacements of the identifiers in the recorded steps `steps` (IDENTIFIERS, and the `serverName` of the host). */
+export function identifierReplacements(steps) {
+  const found = new Map()
+  const visit = (node) => {
+    if (Array.isArray(node)) for (const child of node) visit(child)
+    else if (isObject(node)) {
+      for (const [key, child] of Object.entries(node)) {
+        if (typeof child === 'string' && child.length > 0 && Object.hasOwn(IDENTIFIERS, key)) found.set(child, IDENTIFIERS[key])
+        else visit(child)
+      }
+    }
+  }
+  visit(steps)
+  const hosts = steps.flatMap((step) => (isObject(step) && step.notify === 'remoteControl/status/changed' && typeof step.params?.serverName === 'string' ? hostReplacements(step.params.serverName) : []))
+  return [...[...found].map(([from, { to, what }]) => ({ from, to, what })), ...hosts]
 }
 
 // --- The run ---------------------------------------------------------------------------------------
@@ -474,6 +537,23 @@ const pathReplacements = (path, to, what) => {
   return [...new Set([path, real])].map((from) => ({ from, to, what }))
 }
 
+/**
+ * Everything a run replaces in what it writes: its folders (the Project, CODEX_HOME, the temporary
+ * folder), the home folder, the host name, the identifiers the recorded `steps` carry and the `secrets`
+ * of the login.
+ */
+export function replacementsOf({ project, codexHome, work, home, host, steps, secrets }) {
+  return [
+    ...pathReplacements(project, '/capture/project', 'the Project folder'),
+    ...pathReplacements(codexHome, '/capture/codex-home', 'the CODEX_HOME folder'),
+    ...pathReplacements(work, '/capture', 'the temporary folder'),
+    ...pathReplacements(home, '/home/owner', 'the home folder'),
+    ...hostReplacements(host),
+    ...identifierReplacements(steps),
+    ...secrets,
+  ]
+}
+
 /** Plays the scenario; every message lands in `recorder`. Returns what the login named. */
 async function scenario({ command, env, folders, recorder, options, secrets }) {
   const { codexHome, project } = folders
@@ -699,13 +779,7 @@ async function run(options) {
     for (const name of ['OPENAI_API_KEY', 'CODEX_API_KEY']) delete env[name]
     if (!(await gitInit(folders.project, env))) recorder.note('git init of the Project failed: the review has no uncommitted changes to look at')
     await scenario({ command, env, folders, recorder, options, secrets })
-    const replacements = [
-      ...pathReplacements(folders.project, '/capture/project', 'the Project folder'),
-      ...pathReplacements(folders.codexHome, '/capture/codex-home', 'the CODEX_HOME folder'),
-      ...pathReplacements(work, '/capture', 'the temporary folder'),
-      ...pathReplacements(homedir(), '/home/owner', 'the home folder'),
-      ...secrets,
-    ]
+    const replacements = replacementsOf({ ...folders, work, home: homedir(), host: hostname(), steps: [...recorder.parts.values()].flat(), secrets })
     const files = []
     const plan = (() => {
       for (const steps of recorder.parts.values()) {
@@ -741,7 +815,11 @@ async function run(options) {
   }
 }
 
-async function main(argv) {
+/** The run with the arguments `argv`: its exit code. Under CI or VITEST it refuses before it reads them, `--help` too. */
+export async function main(argv) {
+  for (const name of ['CI', 'VITEST']) {
+    if (process.env[name]) return fail(2, `refused: ${name} is set, and tests and CI never start the real Codex`)
+  }
   let options
   try {
     options = parseArgs(argv)
@@ -753,9 +831,6 @@ async function main(argv) {
     return 0
   }
   if (!options.useMyLogin) return fail(2, `refused: the run signs in to your ChatGPT account and spends its limits; for the owner only, with --use-my-login\n${HELP}`)
-  for (const name of ['CI', 'VITEST']) {
-    if (process.env[name]) return fail(2, `refused: ${name} is set, and tests and CI never start the real Codex`)
-  }
   try {
     return await run(options)
   } catch (error) {

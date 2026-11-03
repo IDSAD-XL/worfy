@@ -10,7 +10,9 @@
 //     and key paths the live app-server sent: every step of its scripts (test/fixtures/codex-scripts/)
 //     against the recordings (kinds and key paths: kindOf and shapeOf of scripts/codex-capture.mjs), so
 //     contract tests on the fake do not pass on an invented form. A shape the recordings lack passes only
-//     with an exception that names why (EXCEPTIONS).
+//     with an exception that names why (EXCEPTIONS);
+//   - the recorded hook inputs (hooks/<event>.jsonl) have PreToolUse, Stop and SubagentStop, and every
+//     SubagentStop input names its agent_type: the fake of hooks (worfy-multi-vendor ticket 44) plays them.
 // Never starts Codex: the recordings are taken by the owner, with their ChatGPT login.
 //
 // How the pinned Codex changes, in a PR of its own:
@@ -56,13 +58,27 @@ interface Played {
   step: Step
 }
 type Shape = Record<string, string[]>
+/** What replaces a value that names the owner or the run in the recordings (scripts/codex-capture.mjs). */
+interface Replacement {
+  from: string
+  to: string
+  what: string
+  name?: boolean
+}
 interface CodexCapture {
   kindOf(step: Step): string
   bodyOf(step: Step): unknown
   shapeOf(value: unknown): Shape
   readSteps(file: string, name?: string): Played[]
+  scrub<T>(value: T, replacements: readonly Replacement[]): T
+  leftovers(text: string, replacements: readonly Replacement[]): string[]
+  hostReplacements(host: string): Replacement[]
+  identifierReplacements(steps: readonly unknown[]): Replacement[]
+  replacementsOf(run: { project: string; codexHome: string; work: string; home: string; host: string; steps: readonly unknown[]; secrets: readonly Replacement[] }): Replacement[]
+  main(argv: string[]): Promise<number>
 }
-const { kindOf, bodyOf, shapeOf, readSteps } = (await import(pathToFileURL(join(ROOT, 'scripts', 'codex-capture.mjs')).href)) as CodexCapture
+const capture = (await import(pathToFileURL(join(ROOT, 'scripts', 'codex-capture.mjs')).href)) as CodexCapture
+const { kindOf, bodyOf, shapeOf, readSteps } = capture
 
 interface Manifest {
   codex?: unknown
@@ -123,6 +139,51 @@ function versionProblems(recordings: Recordings, pinned: string, installed: stri
   if (threads.length === 0) problems.push(`${where}: no recorded thread names its cliVersion`)
   for (const { at, version } of threads) if (version !== pinned) problems.push(`${at}: a thread of Codex ${String(version)}, package.json pins ${pinned}`)
   return problems
+}
+
+// --- The recorded hook inputs, for the fake of hooks (worfy-multi-vendor ticket 44) ----------------
+
+/** The hook events whose inputs the recordings must have. */
+const HOOK_EVENTS = ['PreToolUse', 'Stop', 'SubagentStop'] as const
+
+/** The inputs of `hooks/<event>.jsonl` in `folder` for each event of HOOK_EVENTS: null for no file, a line that is not JSON as a string. */
+function readHooks(folder: string): Record<string, unknown[] | null> {
+  return Object.fromEntries(
+    HOOK_EVENTS.map((event) => {
+      const file = join(folder, 'hooks', `${event}.jsonl`)
+      if (!existsSync(file)) return [event, null]
+      const lines = readFileSync(file, 'utf8')
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== '')
+      return [
+        event,
+        lines.map((line): unknown => {
+          try {
+            return JSON.parse(line) as unknown
+          } catch {
+            return line
+          }
+        }),
+      ]
+    }),
+  )
+}
+
+/**
+ * What is wrong with the recorded hook inputs: each event of HOOK_EVENTS has at least one input, every
+ * input is an object of that event, and every SubagentStop input names the Subagent's agent_type.
+ */
+function hookProblems(hooks: Record<string, unknown[] | null>): string[] {
+  return HOOK_EVENTS.flatMap((event) => {
+    const inputs = hooks[event] ?? null
+    if (inputs === null || inputs.length === 0) return [`hooks/${event}.jsonl: no recorded input of ${event}`]
+    return inputs.flatMap((input, index) => {
+      const where = `hooks/${event}.jsonl:${index + 1}`
+      if (!isSchema(input) || input.hook_event_name !== event) return [`${where}: not an input of ${event}`]
+      if (event === 'SubagentStop' && (typeof input.agent_type !== 'string' || input.agent_type === '')) return [`${where}: no agent_type`]
+      return []
+    })
+  })
 }
 
 // --- The recordings against the JSON Schema of the pinned Codex ------------------------------------
@@ -253,7 +314,32 @@ interface Exception {
   reason: string
 }
 
-const EXCEPTIONS: readonly Exception[] = []
+// The recordings of Codex 0.166.0 (plan Plus, 2026-11-03) lack these; each is a case the live run did not
+// reach, which the JSON Schema of the pinned Codex has (the suite checks every fake step against it too).
+const EXCEPTIONS: readonly Exception[] = [
+  // Reasoning items: the run asked for summaries (model_reasoning_summary = "detailed"), and no turn of it
+  // gave a reasoning item or a summary delta.
+  { kind: 'notify item/started', path: 'item(reasoning)', reason: 'no turn of the live run gave a reasoning item' },
+  { kind: 'notify item/completed', path: 'item(reasoning)', reason: 'no turn of the live run gave a reasoning item' },
+  { kind: 'notify item/reasoning/summaryTextDelta', reason: 'no turn of the live run gave a reasoning summary' },
+  { kind: 'result thread/read', path: 'thread.turns[].items[](reasoning)', reason: 'the thread read in the live run had no reasoning item' },
+  // The plan: in the live run the model answered that update_plan was unavailable (turn.jsonl:72).
+  { kind: 'notify item/completed', path: 'item(plan)', reason: 'update_plan was unavailable to the model in the live run' },
+  { kind: 'notify turn/plan/updated', reason: 'update_plan was unavailable to the model in the live run' },
+  // The approvals of the live run were asked under the untrusted policy, which gives no reason; Codex gives
+  // one when the model asks to leave the sandbox (the schema: "e.g. request for network access").
+  { kind: 'request item/commandExecution/requestApproval', path: 'reason', reason: 'the live run asked no approval to leave the sandbox' },
+  // The live MCP tool that failed returned its error as a result (mcp.jsonl, tool `fail`: error null);
+  // `error` is a call that never reached the tool, as a server that is not running.
+  { kind: 'notify item/completed', path: 'item(mcpToolCall).error.message', reason: 'the live run had no MCP call that failed before the tool' },
+  // Codex compacted even the empty thread of the live run (compact.jsonl:16, result {}): it refused none.
+  { kind: 'error thread/compact/start', reason: 'Codex refused no compaction in the live run' },
+  { kind: 'notify skills/changed', reason: 'the live run got no skills/changed within 15 s of adding a skill' },
+  // The capture sends the skill as text ($name), worfy as a skill item of turn/start.
+  { kind: 'result thread/read', path: 'thread.turns[].items[](userMessage).content[](skill)', reason: 'the live run sent no skill item' },
+  // The live run listed threads in the process that had loaded them (idle, systemError).
+  { kind: 'result thread/list', path: 'data[].status(notLoaded)', reason: 'the live run listed no thread its process had not loaded' },
+]
 
 const covers = (exception: Exception, kind: string, path?: string): boolean => {
   if (exception.kind !== kind) return false
@@ -298,6 +384,7 @@ describe('the pinned Codex and its recorded messages', () => {
     // Without recordings of this version nothing below means anything: stop here, naming the owner's command.
     expect(versionProblems(recordings, pinnedCodex(), installedCodex())).toEqual([])
     expect.soft(schemaProblems(recordings.steps)).toEqual([])
+    expect.soft(hookProblems(readHooks(recordings.folder))).toEqual([])
     const played = fakeSteps()
     expect(played.length).toBeGreaterThan(0)
     const { invented, used } = inventedShapes(played, shapesByKind(recordings.steps), EXCEPTIONS)
@@ -359,5 +446,112 @@ describe('the checks of the recordings', () => {
     const extra: Played = { where: 'y.jsonl:1', step: { notify: 'turn/started', params: { threadId: 't', turn: { id: 'u', items: [], status: 'inProgress', mood: 'cheerful' } } } }
     expect(inventedShapes([extra], recorded, []).invented).toEqual(['y.jsonl:1: notify turn/started turn.mood — no recorded notify turn/started has this key'])
     expect(inventedShapes([extra], recorded, [{ kind: 'notify turn/started', path: 'turn.mood', reason: 'test' }]).invented).toEqual([])
+  })
+})
+
+describe('the recorded hook inputs and the exceptions', () => {
+  const input = (event: string, extra: Record<string, unknown> = {}) => ({ session_id: 's', cwd: '/capture/project', hook_event_name: event, ...extra })
+  const complete = { PreToolUse: [input('PreToolUse')], Stop: [input('Stop')], SubagentStop: [input('SubagentStop', { agent_type: 'default' })] }
+
+  it('refuse a missing hook event, an input of another event and a SubagentStop input without agent_type', () => {
+    expect(hookProblems(complete)).toEqual([])
+    expect(hookProblems({ ...complete, Stop: null })).toEqual(['hooks/Stop.jsonl: no recorded input of Stop'])
+    expect(hookProblems({ ...complete, PreToolUse: [] })).toEqual(['hooks/PreToolUse.jsonl: no recorded input of PreToolUse'])
+    expect(hookProblems({ ...complete, Stop: [input('Stop'), input('PreToolUse')] })).toEqual(['hooks/Stop.jsonl:2: not an input of Stop'])
+    expect(hookProblems({ ...complete, Stop: ['{not json'] })).toEqual(['hooks/Stop.jsonl:1: not an input of Stop'])
+    expect(hookProblems({ ...complete, SubagentStop: [input('SubagentStop', { agent_type: 'default' }), input('SubagentStop')] })).toEqual(['hooks/SubagentStop.jsonl:2: no agent_type'])
+    expect(hookProblems({ ...complete, SubagentStop: [input('SubagentStop', { agent_type: '' })] })).toEqual(['hooks/SubagentStop.jsonl:1: no agent_type'])
+  })
+
+  it('the exceptions let through only their kind and key path: a new key next to one is named', () => {
+    const recorded = shapesByKind(readRecordings(DEFAULT_RECORDINGS).steps)
+    const next: Played[] = [
+      { where: 'z.jsonl:1', step: { notify: 'item/completed', params: { threadId: 't', turnId: 'u', completedAtMs: 1, item: { type: 'mcpToolCall', id: 'm', server: 's', tool: 't', status: 'failed', arguments: {}, result: null, error: { message: 'x', code: 7 } } } } },
+      { where: 'z.jsonl:2', step: { request: 'item/commandExecution/requestApproval', params: { threadId: 't', turnId: 'u', itemId: 'i', startedAtMs: 1, reason: 'r', mood: 'cheerful' } } },
+      { where: 'z.jsonl:3', step: { notify: 'item/completed', params: { threadId: 't', turnId: 'u', completedAtMs: 1, item: { type: 'agentMessage', id: 'a', text: 'x', mood: 'cheerful' } } } },
+    ]
+    expect(inventedShapes(next, recorded, EXCEPTIONS).invented).toEqual([
+      'z.jsonl:1: notify item/completed item(mcpToolCall).error.code — no recorded notify item/completed has this key',
+      'z.jsonl:2: request item/commandExecution/requestApproval mood — no recorded request item/commandExecution/requestApproval has this key',
+      'z.jsonl:3: notify item/completed item(agentMessage).mood — no recorded notify item/completed has this key',
+    ])
+  })
+})
+
+describe('the capture script', () => {
+  const MAC = 'Alexeys-MacBook-Pro-164.local'
+
+  it('replaces the host name, whole names only, and names one that is left', () => {
+    const host = capture.hostReplacements(MAC)
+    const status = { notify: 'remoteControl/status/changed', params: { status: 'disabled', serverName: MAC, installationId: null, environmentId: null } }
+    expect(capture.scrub(status, host).params.serverName).toBe('capture-host.local')
+    expect(capture.scrub(['Alexeys-MacBook-Pro-164 is up', 'see Alexeys-MacBook-Pro-164.local.'], host)).toEqual(['capture-host is up', 'see capture-host.local.'])
+    expect(capture.leftovers(JSON.stringify(status), host)).toEqual(['the host name'])
+    expect(capture.leftovers(JSON.stringify(capture.scrub(status, host)), host)).toEqual([])
+
+    // A short host name: not a part of a longer word.
+    const mac = capture.hostReplacements('mac')
+    expect(capture.scrub({ platformOs: 'macos', userAgent: 'worfy (Mac OS 26.6.1)', host: 'mac', at: 'mac.local' }, mac)).toEqual({ platformOs: 'macos', userAgent: 'worfy (Mac OS 26.6.1)', host: 'capture-host', at: 'capture-host.local' })
+    expect(capture.leftovers('{"platformOs":"macos","machine":"imac-2"}', mac)).toEqual([])
+    expect(capture.leftovers('{"serverName":"mac"}', mac)).toEqual(['the host name'])
+    expect(capture.hostReplacements('')).toEqual([])
+  })
+
+  it('replaces the installation id, the login id and the host of serverName, and leaves the serverName of an MCP server', () => {
+    const steps = [
+      { notify: 'remoteControl/status/changed', params: { status: 'disabled', serverName: 'studio.lan', installationId: '6f1c2d3e-0000-4000-8000-0000000000aa', environmentId: null } },
+      { expect: 'account/login/start', params: { type: 'chatgpt' }, result: { type: 'chatgpt', loginId: 'a1b2c3d4-0000-4000-8000-0000000000bb', authUrl: 'https://auth.example/x' } },
+      { notify: 'account/login/completed', params: { loginId: 'a1b2c3d4-0000-4000-8000-0000000000bb', success: true, error: null } },
+      { request: 'mcpServer/elicitation/request', params: { serverName: 'capture', message: 'on studio.lan' } },
+    ]
+    const replacements = capture.identifierReplacements(steps)
+    expect(capture.scrub(steps, replacements)).toEqual([
+      { notify: 'remoteControl/status/changed', params: { status: 'disabled', serverName: 'capture-host.local', installationId: '00000000-0000-4000-8000-000000000001', environmentId: null } },
+      { expect: 'account/login/start', params: { type: 'chatgpt' }, result: { type: 'chatgpt', loginId: '00000000-0000-4000-8000-000000000002', authUrl: 'https://auth.example/x' } },
+      { notify: 'account/login/completed', params: { loginId: '00000000-0000-4000-8000-000000000002', success: true, error: null } },
+      { request: 'mcpServer/elicitation/request', params: { serverName: 'capture', message: 'on capture-host.local' } },
+    ])
+    expect(new Set(capture.leftovers(JSON.stringify(steps), replacements))).toEqual(new Set(['the installation id', 'the login id', 'the host name']))
+    expect(capture.leftovers(JSON.stringify(capture.scrub(steps, replacements)), replacements)).toEqual([])
+  })
+
+  it('a run replaces its folders, the home folder, the host name, the identifiers and the secrets of the login', () => {
+    const steps = [
+      { notify: 'remoteControl/status/changed', params: { status: 'disabled', serverName: 'studio.lan', installationId: 'inst-7', environmentId: null } },
+      { notify: 'account/login/completed', params: { loginId: 'login-9', success: true, error: null } },
+    ]
+    const replacements = capture.replacementsOf({
+      project: '/nowhere/worfy-capture-1/project',
+      codexHome: '/nowhere/worfy-capture-1/codex-home',
+      work: '/nowhere/worfy-capture-1',
+      home: '/Users/someone',
+      host: MAC,
+      steps,
+      secrets: [{ from: 'someone@example.org', to: 'owner@example.com', what: 'the email' }],
+    })
+    const recorded = [
+      ...steps,
+      { notify: 'warning', params: { threadId: 't', message: `${MAC}: /nowhere/worfy-capture-1/codex-home/hooks.json, /nowhere/worfy-capture-1/project, /nowhere/worfy-capture-1/x, /Users/someone/.zshrc, someone@example.org` } },
+    ]
+    const text = JSON.stringify(recorded)
+    expect(new Set(capture.leftovers(text, replacements))).toEqual(new Set(['the CODEX_HOME folder', 'the Project folder', 'the temporary folder', 'the home folder', 'the host name', 'the installation id', 'the login id', 'the email']))
+    const scrubbed = capture.scrub(recorded, replacements)
+    expect(capture.leftovers(JSON.stringify(scrubbed), replacements)).toEqual([])
+    expect(scrubbed[2]).toEqual({ notify: 'warning', params: { threadId: 't', message: 'capture-host.local: /capture/codex-home/hooks.json, /capture/project, /capture/x, /home/owner/.zshrc, owner@example.com' } })
+  })
+
+  it('the committed recordings carry the values the script writes in their place', () => {
+    const steps = readRecordings(DEFAULT_RECORDINGS).steps.map(({ step }) => step)
+    const replacements = capture.identifierReplacements(steps)
+    expect(new Set(replacements.map(({ to }) => to))).toEqual(new Set(['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', 'capture-host.local', 'capture-host']))
+    expect(capture.scrub(steps, replacements)).toEqual(steps)
+  })
+
+  it('refuses under VITEST before it reads its arguments, --help too', async () => {
+    // Without VITEST the calls below could reach the real Codex: they never run then.
+    expect(process.env.VITEST).toBeTruthy()
+    if (!process.env.VITEST) return
+    expect(await capture.main(['--help'])).toBe(2)
+    expect(await capture.main(['--no-such-flag'])).toBe(2)
   })
 })

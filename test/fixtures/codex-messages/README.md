@@ -25,9 +25,10 @@ node scripts/codex-capture.mjs --use-my-login
   hook-а: по одному JSON на строку. Для фейка hook-ов (Ticket 44).
 - `manifest.json` — версия Codex (`codex`), дата (`capturedAt`), план (`plan`), платформа, разделы.
 
-Email, id аккаунта и пользователя, токены, домашняя папка и временные папки заменены
-(`owner@example.com`, `capture-account-id`, `capture-user-id`, `/home/owner`, `/capture/...`); перед записью
-скрипт проверяет, что их в тексте не осталось.
+Email, id аккаунта и пользователя, токены, домашняя папка, временные папки, имя Mac-а (`serverName`),
+`installationId` и `loginId` заменены (`owner@example.com`, `capture-account-id`, `capture-user-id`, `/home/owner`,
+`/capture/...`, `capture-host.local`, `00000000-0000-4000-8000-000000000001` и `…0002`); перед записью скрипт
+проверяет, что их в тексте не осталось.
 
 Contract test `test/contract/codex-compat.test.ts` сверяет manifest с `package.json`, каждую запись — с JSON
 Schema закреплённой версии (`src/main/vendors/codex/protocol/json/`), а сценарии фейка — с видами сообщений и
