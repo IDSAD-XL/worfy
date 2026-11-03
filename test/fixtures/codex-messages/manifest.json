@@ -1,0 +1,29 @@
+{
+  "codex": "0.166.0",
+  "capturedAt": "2026-11-03",
+  "plan": "plus",
+  "platform": "darwin-arm64",
+  "appServer": "pinned",
+  "parts": [
+    "login",
+    "account",
+    "hooks",
+    "hooks-approved",
+    "skills",
+    "turn",
+    "mcp",
+    "file-change",
+    "approval",
+    "approval-declined",
+    "approval-interrupt",
+    "steer",
+    "interrupt",
+    "subagent",
+    "compact",
+    "review",
+    "turn-failed",
+    "threads",
+    "resume",
+    "logout"
+  ]
+}
