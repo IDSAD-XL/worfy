@@ -57,6 +57,14 @@ had before. The test on Codex inputs is
 `test/contract/harness-codex-hooks.test.ts`: it installs this folder into a temporary `CODEX_HOME` and
 runs its hooks with the hook engine of the fake app-server (`test/fixtures/codex-app-server/hook-runner.mjs`).
 
+A known gap, not verified live: Codex spills a hook's `additionalContext` that is longer than the hook's
+`additionalContextLimit` to a file and gives the model a preview of it. With no limit in `hooks.json`, as
+here, that limit is about 2,500 tokens. The rules parts stay under it today with about 1 % to spare:
+the part `orchestrator` is about 2,480 tokens by bytes/4. A longer part would go over. So would user
+rules written in a script of two or more bytes a character, or the profile sections of
+`session-start.mjs` (up to 20,000 bytes each). `test/contract/codex-parity.test.ts` checks the size of
+the rules parts against that limit, not the spill itself.
+
 ## Import and history
 
 These files were imported with their git history from the author's `~/.claude`

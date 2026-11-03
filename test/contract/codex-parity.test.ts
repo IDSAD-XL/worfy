@@ -44,9 +44,9 @@ const REPO = join(import.meta.dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
 const RUNTIME: CodexRuntime = { packaged: false, resourcesPath: '/Resources', platform: process.platform, arch: process.arch }
 const WINDOWS = process.platform === 'win32'
-/** How long one scripted turn may take: its Stops run the gate. */
+/** One deadline for all the messages a scenario waits for: its Stops run the gate. */
 const TURN_MS = ms(60_000)
-const SETUP_MS = ms(180_000)
+const SETUP_MS = ms(90_000)
 /** The most a SessionEnd hook gets on Codex (hook-runner.mjs, timeoutSec): Codex's own limit, not a test limit, so not scaled. */
 const CODEX_SESSION_END_MS = 3000
 const ACCOUNT = 'octo-org'
@@ -177,6 +177,9 @@ function readmeGuarantees(): string[] {
   return table.slice(2).map((line) => (line.split('|')[1] ?? '').trim())
 }
 
+/** A comment line of a shell or TypeScript test: a check cited there would prove nothing. */
+const COMMENT_LINE = /^\s*(#|\/\/|\*)/
+
 describe('the table of guarantees', () => {
   it('has the rows 1 to 9 in order, each with a Claude test or the reason Claude Code needs none', () => {
     expect(GUARANTEES.map((row) => row.row)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
@@ -197,7 +200,7 @@ describe('the table of guarantees', () => {
         const file = join(REPO, proof.file)
         expect(existsSync(file), `row ${row.row}: ${proof.file} exists`).toBe(true)
         const lines = readFileSync(file, 'utf8').replace(/\r\n/g, '\n').split('\n')
-        expect(lines.findIndex((line) => line.includes(proof.check)), `row ${row.row}: ${proof.file} has the check ${proof.check}`).toBeGreaterThan(-1)
+        expect(lines.findIndex((line) => !COMMENT_LINE.test(line) && line.includes(proof.check)), `row ${row.row}: ${proof.file} has the check ${proof.check}`).toBeGreaterThan(-1)
       }
     }
   })
@@ -341,7 +344,7 @@ beforeAll(async () => {
     bundledDir: bundled,
     pluginDir,
     codex: join(stubs, 'codex.mjs'),
-    env: { PATH: process.env.PATH, HOME: join(root, 'home'), CODEX_HOME: unapprovedHome, STUB_STATE: join(stubs, 'codex-state.json') },
+    env: { PATH: process.env.PATH, HOME: join(root, 'home'), USERPROFILE: join(root, 'home'), CODEX_HOME: unapprovedHome, STUB_STATE: join(stubs, 'codex-state.json') },
     codexHome: unapprovedHome,
     recordFile: join(root, 'data', 'harness-codex.json'),
   })
@@ -405,6 +408,8 @@ function project(name: string): Project {
     ...own,
     WORFY_CODEX: 'fake',
     HOME: home,
+    // os.homedir() on Windows.
+    USERPROFILE: home,
     XDG_CONFIG_HOME: join(home, '.config'),
     XDG_CACHE_HOME: join(home, '.cache'),
     HARNESS_HOME: join(dir, 'harness-home'),
@@ -464,19 +469,62 @@ class Played {
   }
 }
 
-/** Waits for the first message of `seen` that matches; fails with what came instead. */
-function waitFor(seen: Message[], subscribe: (wake: () => void) => void, match: (message: Message) => boolean, stderr: () => string): Promise<Message> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`the fake sent no such message in time; it sent ${JSON.stringify(seen).slice(-4000)}; stderr: ${stderr()}`)), TURN_MS)
-    const look = () => {
-      const found = seen.find(match)
-      if (found === undefined) return
-      clearTimeout(timer)
-      resolve(found)
+/**
+ * The messages of one scenario as they come, with one deadline for every wait of the scenario (waits do not
+ * stack), and a wait that fails at once on a hook prompt the script does not expect: a Stop that holds a
+ * turn it should let end makes a held turn red in seconds, not at the deadline.
+ */
+class Watch {
+  readonly seen: Message[] = []
+  private readonly deadline = Date.now() + TURN_MS
+  private readonly prompts = new Map<string, number>()
+  private failure: string | undefined
+  private wake: () => void = () => undefined
+
+  /** `maxPrompts`: how many hook prompts (turns a Stop held) each thread may get by the script. */
+  constructor(
+    private readonly maxPrompts: number,
+    private readonly stderr: () => string = () => '',
+  ) {}
+
+  add(message: Message): void {
+    this.seen.push(message)
+    if (message.method === 'item/completed' && message.params?.item?.type === 'hookPrompt') {
+      const thread = String(message.params.threadId)
+      const count = (this.prompts.get(thread) ?? 0) + 1
+      this.prompts.set(thread, count)
+      if (count > this.maxPrompts) this.fail(`hook prompt ${count} on ${thread}, where the script expects at most ${this.maxPrompts}: a Stop held a turn it should have let end`)
     }
-    subscribe(look)
-    look()
-  })
+    this.wake()
+  }
+
+  /** Makes every wait fail at once with `why` (the first reason stays). */
+  fail(why: string): void {
+    this.failure ??= why
+    this.wake()
+  }
+
+  /** The first message that matches; rejects at the scenario's deadline or at the first failure. */
+  next(match: (message: Message) => boolean): Promise<Message> {
+    return new Promise((resolve, reject) => {
+      const stop = (why: string) => {
+        clearTimeout(timer)
+        this.wake = () => undefined
+        reject(new Error(`${why}; the fake sent ${JSON.stringify(this.seen).slice(-4000)}; stderr: ${this.stderr()}`))
+      }
+      const timer = setTimeout(() => stop('the fake sent no such message before the deadline of the scenario'), Math.max(0, this.deadline - Date.now()))
+      const look = () => {
+        if (this.failure !== undefined) return stop(this.failure)
+        const found = this.seen.find(match)
+        if (found === undefined) return
+        clearTimeout(timer)
+        this.wake = () => undefined
+        resolve(found)
+      }
+      this.wake = look
+      look()
+    })
+  }
 }
 
 const mainTurnDone = (message: Message) => message.method === 'turn/completed' && message.params?.threadId === 'thr_fake_1'
@@ -484,22 +532,26 @@ const mainTurnDone = (message: Message) => message.method === 'turn/completed' &
 /**
  * Plays the script `script` on the fake with `codexHome` as worfy does, for one turn: initialize, thread/start
  * in the project's worktree, turn/start; then closes its stdin (the end of the Session: SessionEnd runs) and
- * waits for it to exit. `endMs`: from the close to the exit.
+ * waits for it to exit. `endMs`: from the close to the exit. `maxPrompts`: the hook prompts the script
+ * expects on each thread (Watch).
  */
-async function play(script: string, codexHome: string, p: Project): Promise<Played & { endMs: number; code: number | null }> {
+async function play(script: string, codexHome: string, p: Project, maxPrompts = 0): Promise<Played & { endMs: number; code: number | null }> {
   const launch = codexLaunch({ runtime: RUNTIME, appPath: REPO, env: { ...p.env, WORFY_CODEX_SCRIPT: script, CODEX_HOME: codexHome } })
   const child = spawn(scriptNode(), launch.args, { cwd: p.work, env: launch.env, stdio: 'pipe' })
   child.stdin.on('error', () => undefined)
   let stderr = ''
   child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
-  const seen: Message[] = []
-  let wake: () => void = () => undefined
-  createInterface({ input: child.stdout }).on('line', (line) => {
-    seen.push(JSON.parse(line) as Message)
-    wake()
-  })
-  const exit = new Promise<number | null>((resolve) => child.on('exit', resolve))
-  const next = (match: (message: Message) => boolean) => waitFor(seen, (look) => (wake = look), match, () => stderr)
+  const watch = new Watch(maxPrompts, () => stderr)
+  const seen = watch.seen
+  createInterface({ input: child.stdout }).on('line', (line) => watch.add(JSON.parse(line) as Message))
+  const exit = new Promise<number | null>((resolve) =>
+    child.on('exit', (code) => {
+      // Before the turn ended this fails the waits at once; after the close nothing waits any more.
+      watch.fail(`the fake exited with code ${String(code)} before the turn ended`)
+      resolve(code)
+    }),
+  )
+  const next = (match: (message: Message) => boolean) => watch.next(match)
   const send = (message: object) => child.stdin.write(`${JSON.stringify(message)}\n`)
   try {
     send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'worfy', version: '0.0.0' } } })
@@ -532,17 +584,20 @@ const contexts = (runs: HookRun[]) => runs.flatMap((run) => run.entries.filter((
 const statuses = (runs: HookRun[]) => runs.map((run) => run.status)
 const reasons = (runs: HookRun[]) => runs.filter((run) => run.status === 'blocked').flatMap((run) => run.entries.map((entry) => entry.text))
 
-/** The rows whose scenario passed; the last test checks that every row of the table is among them. */
-const passed = new Set<number>()
-const row = (n: number, title: string, check: () => void | Promise<void>, timeout?: number) =>
+/** The checks each row has, and those that passed: the last test checks that every row has checks and that all of them passed. */
+const registered = new Map<number, number>()
+const passed = new Map<number, number>()
+const row = (n: number, title: string, check: () => void | Promise<void>, timeout?: number) => {
+  registered.set(n, (registered.get(n) ?? 0) + 1)
   it(
     `row ${n}: ${title}`,
     async () => {
       await check()
-      passed.add(n)
+      passed.set(n, (passed.get(n) ?? 0) + 1)
     },
     timeout,
   )
+}
 
 // --- Rows 1, 4, 7, 8: the guards, the rules at the start, the end of the Session -----------------------
 
@@ -617,6 +672,64 @@ describe('a turn with a reviewer and a scout (parity-guards.jsonl)', () => {
   })
 })
 
+// --- Row 7, the size: under Codex's additionalContextLimit -------------------------------------------------
+
+/**
+ * Codex's additionalContextLimit when a hook sets none, as hooks.json does not: "`null` uses 2,500 tokens"
+ * (the pinned schema, src/main/vendors/codex/protocol/json/codex_app_server_protocol.v2.schemas.json,
+ * ConfiguredHookHandler). A context over it is spilled to a file and the model gets a preview.
+ */
+const CODEX_CONTEXT_LIMIT_TOKENS = 2500
+/**
+ * A plugin root as long as a real one (74 characters): the plugin cache of a CODEX_HOME under a typical user
+ * home on Windows. The temporary root of this test is longer than any real one and would count against the
+ * rules what a user never has.
+ */
+const REAL_PLUGIN_ROOT = 'C:\\Users\\firstname.lastname\\.codex\\plugins\\cache\\worfy-harness\\worfy\\local'
+/** Approximate, bytes/4, as Codex's estimator is not in the repo. */
+const approximateTokens = (text: string) => Buffer.byteLength(text, 'utf8') / 4
+
+describe('the rules contexts on Codex, against the additionalContextLimit Codex spills at', () => {
+  /** The additionalContext inject-rules.mjs of the installed plugin gives for `part` on `event`, with `userRules` in the slot of the user's own rules. */
+  function context(part: string, event: string, userRules?: string): string {
+    const harnessHome = mkdtempSync(join(root, 'rules-size-'))
+    if (userRules !== undefined) {
+      mkdirSync(join(harnessHome, 'user'))
+      writeFileSync(join(harnessHome, 'user', 'rules.md'), userRules)
+    }
+    const own = Object.fromEntries(Object.entries(process.env).filter(([key]) => !MACHINE_VARIABLES.test(key)))
+    const result = spawnSync(scriptNode(), [join(pluginRootOf(approvedHome), 'hooks', 'inject-rules.mjs'), part], {
+      input: JSON.stringify({ hook_event_name: event, cwd: root }),
+      env: { ...own, CLAUDE_PLUGIN_ROOT: REAL_PLUGIN_ROOT, HARNESS_HOME: harnessHome },
+      encoding: 'utf8',
+    })
+    expect([result.status, result.stderr]).toEqual([0, ''])
+    return (JSON.parse(result.stdout) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext
+  }
+
+  // At this commit the margin is about 1 %: orchestrator 2481 tokens by bytes/4 with this root (about 2467
+  // with a 60-character macOS root), common 1493; common with its user-rules slot full is cut at
+  // 10,000 characters, so ASCII user rules reach 2500 at most. User rules in a script of two or more bytes a
+  // character would go over (README, «On Codex», the known gap); the suite checks the size, not the spill.
+  row(7, `every rules context fits Codex's limit of ${CODEX_CONTEXT_LIMIT_TOKENS} tokens (approximate, bytes/4, as Codex's estimator is not in the repo)`, () => {
+    const filler = `${'- A rule of the user, one line of plain ASCII text that fills the slot.\n'.repeat(400)}`
+    const contexts = [
+      ['SessionStart orchestrator', context('orchestrator', 'SessionStart')],
+      ['SessionStart common', context('common', 'SessionStart')],
+      ['SubagentStart common', context('common', 'SubagentStart')],
+      ['SubagentStart common with a full ASCII user-rules slot', context('common', 'SubagentStart', filler)],
+    ] as const
+    // The plugin root went in, and the full slot was filled to the cut.
+    expect(contexts[0][1]).toContain(REAL_PLUGIN_ROOT)
+    expect(contexts[3][1]).toMatch(/\(The user rules are cut here to fit the session hook limit; /)
+    const sizes = contexts.map(([name, text]) => `${name}: ${approximateTokens(text)}`)
+    expect(
+      contexts.filter(([, text]) => approximateTokens(text) > CODEX_CONTEXT_LIMIT_TOKENS).map(([name]) => name),
+      `over ${CODEX_CONTEXT_LIMIT_TOKENS} approximate tokens; sizes: ${sizes.join(', ')}`,
+    ).toEqual([])
+  })
+})
+
 // --- Rows 2, 3: the gate before the end of the work ------------------------------------------------------
 
 describe('a turn whose implementer and main agent each break the work, then fix it (parity-gate.jsonl)', () => {
@@ -624,7 +737,8 @@ describe('a turn whose implementer and main agent each break the work, then fix 
   let run: Played
   beforeAll(async () => {
     p = project('gate')
-    run = await play('parity-gate', approvedHome, p)
+    // One held turn on each thread, the red one: a second is a Stop that held a green turn.
+    run = await play('parity-gate', approvedHome, p, 1)
   }, SETUP_MS)
 
   /** A red Stop (SubagentStop) of `threadId` kept the turn going with the gate's reason, the fix ran, then a green one ended it. */
@@ -693,8 +807,7 @@ describe('a reviewer that posts its verdict in a Session worfy starts (parity-ve
   beforeAll(async () => {
     p = project('verdict')
     ghLog = join(p.dir, 'gh.log')
-    const seen: Message[] = []
-    let wake: () => void = () => undefined
+    const watch = new Watch(0)
     // worfy's own lookup of the token: `gh auth token -u <account>` through the stand-in, as appGhToken does with WORFY_GH.
     const auth = accountAuth({ account: () => Promise.resolve(ACCOUNT), run: ghRunner({ command: ghStub, env: () => Promise.resolve({ ...p.env, GH_STUB_LOG: ghLog, GH_STUB_ACCOUNT: ACCOUNT, GH_STUB_TOKEN: TOKEN }) }) })
     const part = codexSessions(() =>
@@ -709,10 +822,7 @@ describe('a reviewer that posts its verdict in a Session worfy starts (parity-ve
           const child = spawn(scriptNode(), [...args], options)
           children.push(child)
           if (child.stdout !== null)
-            createInterface({ input: child.stdout }).on('line', (line) => {
-              seen.push(JSON.parse(line) as Message)
-              wake()
-            })
+            createInterface({ input: child.stdout }).on('line', (line) => watch.add(JSON.parse(line) as Message))
           return child
         },
       }),
@@ -730,7 +840,7 @@ describe('a reviewer that posts its verdict in a Session worfy starts (parity-ve
     })
     try {
       await handle.send({ text: 'Review the PR', attachments: [] })
-      await waitFor(seen, (look) => (wake = look), mainTurnDone, () => '')
+      await watch.next(mainTurnDone)
     } finally {
       handle.close()
       for (const child of children) {
@@ -738,7 +848,7 @@ describe('a reviewer that posts its verdict in a Session worfy starts (parity-ve
         await new Promise<void>((resolve) => child.once('exit', () => resolve()))
       }
     }
-    run = new Played(seen, '')
+    run = new Played(watch.seen, '')
   }, SETUP_MS)
 
   row(6, 'worfy-reviewer posts its verdict with gh, and that gh has GH_TOKEN of the Profile\'s account', () => {
@@ -789,7 +899,9 @@ describe('the same turn before the hooks are approved, and after the plugin chan
 })
 
 describe('the table, once every scenario ran', () => {
-  it('every row passed its scenario', () => {
-    expect([...passed].sort((a, b) => a - b)).toEqual(GUARANTEES.map((guarantee) => guarantee.row))
+  it('every row passed all its checks', () => {
+    const rows = GUARANTEES.map((guarantee) => guarantee.row)
+    expect([...registered.keys()].sort((a, b) => a - b)).toEqual(rows)
+    expect(rows.filter((n) => passed.get(n) !== registered.get(n)), 'rows with a check that did not pass').toEqual([])
   })
 })
