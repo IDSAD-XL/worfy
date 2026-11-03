@@ -41,6 +41,8 @@ let listeners: Map<string, (payload: unknown) => void>
 let launches: LaunchesSnapshot
 let shipAnswer: IpcResult<unknown>
 let autopilot: AutopilotState
+/** What autopilot.start answers; null answers the bridge's default. */
+let startAnswer: IpcResult<unknown> | null
 /** What autopilot.stop answers; null answers the stopping state at once. */
 let stopAnswer: Promise<IpcResult<unknown>> | null
 /** What autopilot.forceStop answers; null answers the stopped state at once. */
@@ -56,6 +58,7 @@ beforeEach(() => {
   vi.resetModules()
   calls = []
   autopilot = { projectId: PROJECT, epic: null, status: 'stopped', wave: 0, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, harnessBehind: null, revision: 1 }
+  startAnswer = null
   stopAnswer = null
   forceStopAnswer = null
   estimateAnswer = null
@@ -89,6 +92,8 @@ beforeEach(() => {
           return Promise.resolve({ ok: true, value: { sessionId: 'o1', text: '/epic-wave Ticket-ы 08, 09 эпика demo', delivery: 'sent' } })
         case 'autopilot.state':
           return Promise.resolve({ ok: true, value: autopilot })
+        case 'autopilot.start':
+          return Promise.resolve(startAnswer ?? { ok: true, value: { closed: true } })
         case 'autopilot.stop':
           return stopAnswer ?? Promise.resolve({ ok: true, value: { ...autopilot, stopping: true, revision: autopilot.revision + 1 } })
         case 'autopilot.forceStop':
@@ -540,6 +545,42 @@ describe('the Harness in main is newer than the Stable copy (worfy-harness ticke
     await screen.findByTestId('autopilot-harness-behind')
     act(() => listeners.get('autopilot.changed')?.({ ...autopilot, harnessBehind: null, revision: 8 }))
     await vi.waitFor(() => expect(screen.queryByTestId('autopilot-harness-behind')).toBeNull())
+  })
+})
+
+describe('a refused start of Autopilot (worfy-polish ticket 50)', () => {
+  it("is an error toast with main's reason, as well as the button's tooltip; a second refusal replaces it", async () => {
+    const reason = 'The Orchestrator is in a turn: wait for it to end, or Interrupt it, before starting Autopilot'
+    startAnswer = { ok: false, error: `autopilot.start failed: ${reason}` }
+    const { toasts } = await import('../../src/renderer/toast/toasts')
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const button = await screen.findByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    expect(toasts.getState().toasts).toEqual([])
+    fireEvent.click(button)
+    await vi.waitFor(() => expect(button.getAttribute('data-error')).toBe(reason))
+    expect(button.getAttribute('title')).toBe(reason)
+    expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', text: reason, projectId: PROJECT, testId: 'autopilot-start-refused' }])
+    // Refused again, for another reason: still one toast, now with that reason.
+    const other = "Messages wait in the Orchestrator's queue: send or remove them before starting Autopilot"
+    startAnswer = { ok: false, error: `autopilot.start failed: ${other}` }
+    fireEvent.click(button)
+    await vi.waitFor(() => expect(button.getAttribute('data-error')).toBe(other))
+    expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', text: other }])
+    expect(toasts.getState().toasts).toHaveLength(1)
+  })
+
+  it('a start that goes shows no toast', async () => {
+    startAnswer = { ok: true, value: { ...autopilot, epic: 'demo', status: 'running', wave: 1, revision: 2 } }
+    const { toasts } = await import('../../src/renderer/toast/toasts')
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const button = await screen.findByRole('button', { name: 'Autopilot' })
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(button)
+    await screen.findByRole('button', { name: 'Stop autopilot' })
+    expect(toasts.getState().toasts).toEqual([])
   })
 })
 

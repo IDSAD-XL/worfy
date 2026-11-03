@@ -231,7 +231,7 @@ export function sharedChatStarts(): ChatStarts {
       }
     },
     whenIdle: (sessionId) => whenIdle(sharedRegistry(), sessionId),
-    orchestratorRefusal: (sessionId) => orchestratorRefusal(sharedRegistry().get(sessionId)),
+    orchestratorRefusal: (sessionId) => orchestratorRefusal(sharedRegistry().get(sessionId), sharedOrchestrators().awaitsGiveBack(sessionId)),
     notify: (sessionId, text) => {
       try {
         sharedRegistry().get(sessionId).notice(text)

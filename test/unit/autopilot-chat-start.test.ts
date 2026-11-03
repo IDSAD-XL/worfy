@@ -269,6 +269,12 @@ describe('orchestratorRefusal', () => {
     expect(orchestratorRefusal({ backgroundTasks: () => [], queued: () => ({ items: [{}] }) })).toBe(ORCHESTRATOR_HAS_QUEUE)
     expect(orchestratorRefusal({ backgroundTasks: () => [], queued: () => ({ items: [] }) })).toBeNull()
   })
+
+  it("a stopped run's Session that waits to be given back is taken over as it is: its live tasks refuse nothing, its queue still does (worfy-polish ticket 50)", () => {
+    expect(orchestratorRefusal({ backgroundTasks: () => [task], queued: () => ({ items: [] }) }, true)).toBeNull()
+    expect(orchestratorRefusal({ backgroundTasks: () => [task], queued: () => ({ items: [{}] }) }, true)).toBe(ORCHESTRATOR_HAS_QUEUE)
+    expect(orchestratorRefusal({ backgroundTasks: () => [task], queued: () => ({ items: [] }) }, false)).toBe(ORCHESTRATOR_HAS_TASKS)
+  })
 })
 
 describe('whenIdle', () => {

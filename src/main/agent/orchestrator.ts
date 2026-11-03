@@ -18,7 +18,9 @@
 // it again would kill them). The settings of an unattended Session are not saved: its forced
 // bypassPermissions would overwrite the mode the user picked for the Node. Going unattended is
 // refused while a turn runs (also the last turn of a run that was just stopped), while background
-// tasks live and while messages wait in the queue; going back to attended carries the queue over
+// tasks of an attended Session live and while messages wait in the queue. A stopped run's Session
+// that still waits to be given back is taken over by the next run as it is, without a relaunch, so
+// its tasks live on (worfy-polish ticket 50). Going back to attended carries the queue over
 // to the new Session. Before each Wave after a run's first, Autopilot asks for a new SDK session of
 // the unattended Orchestrator (newUnattendedSession, worfy-throughput ticket 52): the old Session
 // closes, as on "New conversation", only while no turn, background task or queued message would be
@@ -182,6 +184,9 @@ const inTurn = (state: string): boolean => state === 'busy' || state === 'needs_
 /** The live background tasks of the Orchestrator's current Session (ADR-0029). */
 const liveTasksOf = (entry: Entry): number => entry.run?.session?.backgroundTasks().length ?? 0
 
+/** A stopped run's unattended Session that waits to be given back, for its turn or its background tasks. */
+const awaitsGiveBack = (entry: Entry): boolean => entry.launch.unattended && entry.wanted !== null && !entry.wanted.unattended
+
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /** The running Orchestrators of the app, one per Project at most. */
@@ -240,11 +245,12 @@ export class Orchestrators {
   /**
    * Autopilot (worfy-daily ticket 04): starts the Orchestrator's Session again unattended, or
    * attended again, continuing the same SDK session. Going unattended opens the Orchestrator first
-   * and is refused while a turn runs — also an unattended turn left over from a stopped run — and
-   * while messages wait in the queue. Going back to attended while a turn runs waits for the turn's
-   * end; the queue goes over to the attended Session. Answers the view, after a relaunch once the new
-   * Session's process has started (ADR-0064); for an Orchestrator that is not open, going attended
-   * does nothing.
+   * and is refused while a turn runs — also an unattended turn left over from a stopped run — while
+   * an attended Session has live background tasks, and while messages wait in the queue; a stopped
+   * run's Session that still waits to be given back is kept as it is (worfy-polish ticket 50).
+   * Going back to attended while a turn runs waits for the turn's end; the queue goes over to the
+   * attended Session. Answers the view, after a relaunch once the new Session's process has started
+   * (ADR-0064); for an Orchestrator that is not open, going attended does nothing.
    */
   async setUnattended(projectId: string, unattended: boolean): Promise<OrchestratorView | null> {
     if (!unattended) {
@@ -265,9 +271,11 @@ export class Orchestrators {
     const entry = this.entries.get(projectId)
     if (entry === undefined) throw new Error(`the Orchestrator of ${projectId} was stopped`)
     if (inTurn(this.current(entry).state)) throw new Error(ORCHESTRATOR_IN_TURN)
-    // Also while a stopped run's Session waits to be given back: for its tasks, or for the turn
-    // the last one's task-notification starts.
-    if (liveTasksOf(entry) > 0 || entry.wanted !== null) throw new Error(ORCHESTRATOR_HAS_TASKS)
+    // A stopped run's Session that waits to be given back — for its tasks, or for the turn the last
+    // one's task-notification starts — is taken over as it runs, unattended: the give-back is called
+    // off and nothing starts again, so its tasks live on (worfy-polish ticket 50). An attended
+    // Session with live tasks is refused: starting it again unattended would kill them.
+    if (!awaitsGiveBack(entry) && (liveTasksOf(entry) > 0 || entry.wanted !== null)) throw new Error(ORCHESTRATOR_HAS_TASKS)
     if ((entry.run?.session?.queued().items.length ?? 0) > 0) throw new Error(ORCHESTRATOR_HAS_QUEUE)
     entry.wanted = null
     if (!entry.launch.unattended) await this.relaunch(entry, { unattended: true })
@@ -321,6 +329,18 @@ export class Orchestrators {
   /** Whether the Project's Orchestrator runs unattended now. */
   isUnattended(projectId: string): boolean {
     return this.entries.get(projectId)?.launch.unattended ?? false
+  }
+
+  /**
+   * Whether `sessionId` is the unattended Session of an Orchestrator whose run has stopped and which
+   * only waits to be given back, for its turn or its background tasks (worfy-polish ticket 50): no
+   * run drives it, so a person may be at it again, and a new run takes it over (setUnattended).
+   */
+  awaitsGiveBack(sessionId: string): boolean {
+    for (const entry of this.entries.values()) {
+      if (entry.run?.session?.id === sessionId) return awaitsGiveBack(entry)
+    }
+    return false
   }
 
   /** The last view of the Orchestrator behind a Node, or null. */

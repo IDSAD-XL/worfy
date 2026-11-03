@@ -29,6 +29,8 @@ const app = vi.hoisted(() => ({
   showMessageBox: null as unknown as (...args: unknown[]) => Promise<unknown>,
   /** Session id → whether it runs unattended; a Session not here is not in the registry. */
   sessions: new Map<string, boolean>(),
+  /** The unattended Sessions whose run has stopped and which only wait to be given back (Orchestrators.awaitsGiveBack). */
+  givingBack: new Set<string>(),
   chat: null as unknown,
   workflowReads: [] as string[],
   /** What readRecentRuns answers; null: the journals cannot be read. */
@@ -53,6 +55,7 @@ vi.mock('../../src/main/agent/app-registry', () => ({
     },
   }),
 }))
+vi.mock('../../src/main/agent/app-orchestrators', () => ({ sharedOrchestrators: () => ({ awaitsGiveBack: (sessionId: string) => app.givingBack.has(sessionId) }) }))
 vi.mock('../../src/main/ipc/autopilot', () => ({ sharedChatStarts: () => app.chat }))
 vi.mock('../../src/main/workflow/reader', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -161,6 +164,7 @@ beforeEach(async () => {
     [NODE_SESSION, false],
     [AUTOPILOT_SESSION, true],
   ])
+  app.givingBack = new Set()
   app.chat = null
   app.workflowReads = []
   app.runs = []
@@ -263,6 +267,7 @@ function tool(
   const confirmations = vi.fn((prompt: Parameters<typeof confirm.confirmAutopilotStart>[1]) => confirm.confirmAutopilotStart(owner, prompt, box))
   const starter = confirm.autopilotStarter({
     unattended: (sessionId) => app.sessions.get(sessionId) ?? null,
+    awaitsGiveBack: (sessionId) => app.givingBack.has(sessionId),
     busy: (projectId) => w.chat.busyRefusal(projectId),
     workflow: options.workflow ?? (() => Promise.resolve(MODEL)),
     projectName: () => PROJECT_NAME,
@@ -507,6 +512,32 @@ describe('autopilot_start: refusals without a dialog', () => {
     expect(w.out.starts).toEqual([])
   })
 
+  it("an Orchestrator's unattended Session whose run has stopped and which waits to be given back gets the dialog; once a run drives it again, it is refused (worfy-polish ticket 50)", async () => {
+    // The run stopped (turn-error) while the Orchestrator's background tasks live: its Session stays
+    // unattended until they end, and the person asks in it for a new run.
+    app.sessions.set(ORCHESTRATOR, true)
+    app.givingBack.add(ORCHESTRATOR)
+    const w = world({ orchestratorInTurn: true })
+    const { box, shown, answer } = messageBox()
+    const { starter } = tool(w, box)
+    const rpc = await connect(ORCHESTRATOR, starter)
+    const call = rpc.call('autopilot_start', { epic: EPIC, tickets: ['06'] })
+    await vi.waitFor(() => expect(shown).toHaveLength(1))
+    answer(0)
+    const result = await call
+    expect(result.isError, textOf(result)).toBeFalsy()
+    expect(textOf(result)).toBe(AFTER_TURN_MESSAGE)
+    w.out.endTurn()
+    await vi.waitFor(() => expect(w.out.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', tickets: [6], mode: 'fastest' }]]))
+    // The new run has taken the Session over: no one is at it again, and no dialog is shown.
+    app.givingBack.delete(ORCHESTRATOR)
+    w.out.running = null
+    const again = await rpc.call('autopilot_start', { epic: EPIC })
+    expect(again.isError).toBe(true)
+    expect(textOf(again)).toBe(confirm.UNATTENDED_MESSAGE)
+    expect(shown).toHaveLength(1)
+  })
+
   it('a Session worfy does not know, or a call before the Session id is known, is refused the same way', async () => {
     const w = world()
     const { box, shown } = messageBox()
@@ -617,6 +648,14 @@ describe("autopilot_start: the app's wiring (appDeps().autopilotStart, appAutopi
     // The same Session once the registry says it runs unattended (Autopilot took it).
     app.sessions.set(NODE_SESSION, true)
     expect(textOf(await (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC }))).toBe(confirm.UNATTENDED_MESSAGE)
+    // The app's Orchestrators say when such a Session's run has stopped and it only waits to be given back: then it is asked.
+    app.givingBack.add(NODE_SESSION)
+    const asked = (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(box.shown).toHaveLength(1))
+    box.answer(4)
+    expect(textOf(await asked)).toBe(confirm.CANCELED_MESSAGE)
+    box.shown.length = 0
+    app.givingBack.delete(NODE_SESSION)
     // The app's ChatStarts says whether a run goes on.
     w.out.running = 'billing'
     expect(textOf(await (await connect(ORCHESTRATOR, starter)).call('autopilot_start', { epic: EPIC }))).toBe(chatRunningHint('billing'))
