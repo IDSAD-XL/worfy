@@ -175,9 +175,9 @@ any data arrives it says "no data yet". A window without data says "no data".
 - **Claude Code** comes first, with two bars, 5-hour and 7-day.
 - **Codex** has a section only while the user is signed in to it. Its bars are the windows its plan reports, shortest first, each
   labelled by its length (`5h`, `weekly`). A plan that reports no windows shows "No limits reported".
-- **Vendor names.** Every section after Claude Code's starts with its Vendor's short badge, a neutral icon and `Codex`.
-  Claude Code's section, first and always there, shows no name: its tooltip names it. A section without bars shows its badge
-  beside its line: `Codex No limits reported`, `Claude no data yet`.
+- **Vendor logos.** Every section, Claude Code's too, starts with its Vendor's logo in the text colour and shows no Vendor
+  name, to save the toolbar's width: the section's tooltip and its accessible name (`Codex limits`) name the Vendor. A section
+  without bars shows its logo beside its line: `No limits reported`, `no data yet`.
 - **Several sections** make the panel compact, so it fits next to the rest of the toolbar in a 1280 px window and the Project
   title with its branch line stays whole: no "Limits" heading, a thin line between the sections, narrower bars, and the reset line
   is the time alone (`Thu 09:00`), with `resets …` as its tooltip.

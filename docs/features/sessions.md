@@ -36,8 +36,8 @@ Each time the list opens, main checks the sign-in of every Vendor it has not yet
 Session on its Project's default Vendor at once. "New session" in the Command palette uses the default Vendor too. The
 default Vendor is "Default vendor" in [Project settings](projects.md).
 
-**Vendor badge.** The Vendor shows as its name beside a neutral icon (a circle for Claude Code, a rounded square for Codex,
-never a logo): on a live Session Node before its folder, short (`Claude`, `Codex`, the whole name in the tooltip); in the
+**Vendor badge.** The Vendor shows as its name beside its logo, drawn in the text colour (Claude's starburst for Claude Code,
+the OpenAI mark for Codex): on a live Session Node before its folder, short (`Claude`, `Codex`, the whole name in the tooltip); in the
 Session view's header after the title; in the rail's first block, "Vendor"; in the Vendor list of "New session". The
 Orchestrator has none. The agent's messages in the transcript are labelled with the Vendor's name, `claude` or `codex`; the
 Orchestrator's stay `orch`.

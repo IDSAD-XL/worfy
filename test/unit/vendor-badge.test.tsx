@@ -5,8 +5,9 @@ import { VendorBadge } from '../../src/renderer/session/VendorBadge'
 import { ProjectSettings } from '../../src/renderer/shell/ProjectSettings'
 import { signInHint, vendorIcon, vendorLabel } from '../../src/shared/vendors/vendor'
 
-// The Vendor in the interface (worfy-multi-vendor ticket 24): the VendorBadge — a text label with a
-// neutral icon, no logo —, the Vendor picker of "New session" and "Default vendor" in Project settings.
+// The Vendor in the interface (worfy-multi-vendor ticket 24): the VendorBadge — the Vendor's logo in the
+// text colour and its text label (owner, 2026-11-03, reversing Q10 of the spec) —, the Vendor picker of
+// "New session" and "Default vendor" in Project settings.
 // main is replaced: what it answers is set by each test, and what it was asked is recorded.
 
 type Answer = { ok: true; value: unknown } | { ok: false; error: string }
@@ -31,20 +32,38 @@ beforeEach(() => {
   main.answers = {}
 })
 
+/**
+ * The start and the end of each logo's path in Simple Icons 15.22.0 (icons/claude.svg, icons/openai.svg),
+ * written out here rather than taken from vendor.ts, so a swapped or redrawn logo fails.
+ */
+const LOGOS = {
+  claude: { start: 'm4.7144 15.9555 4.7174-2.6471', end: '.2307-.2429 1.9064-1.3114Z', label: 'Claude Code' },
+  codex: { start: 'M22.2819 9.8211a5.9847 5.9847', end: '2.9994l-2.5974 1.4997-2.6067-1.4997Z', label: 'Codex' },
+} as const
+
+/** The one path of a badge's logo; the logo is a single filled path, nothing else. */
+const logoPath = (badge: HTMLElement): string => {
+  const icon = within(badge).getByTestId('vendor-badge-icon')
+  expect(icon.querySelectorAll('*').length).toBe(1)
+  return icon.querySelector('path')?.getAttribute('d') ?? ''
+}
+
 describe('VendorBadge', () => {
-  it('is the Vendor\'s text label beside a neutral icon drawn as plain strokes: no logo, no image', () => {
-    render(<VendorBadge vendor="codex" />)
+  it.each(Object.entries(LOGOS))('%s: the Vendor\'s logo filled with the text colour, beside its text label', (vendor, logo) => {
+    render(<VendorBadge vendor={vendor} />)
     const badge = screen.getByTestId('vendor-badge')
-    expect(badge.textContent).toBe('Codex')
-    expect(badge.dataset.vendor).toBe('codex')
-    // The icon is decoration: the label names the Vendor. It is a stroked shape in the text colour.
+    expect(badge.textContent).toBe(logo.label)
+    expect(badge.dataset.vendor).toBe(vendor)
+    // The logo is decoration: the label names the Vendor. It is drawn in currentColor, so it follows the theme.
     const icon = within(badge).getByTestId('vendor-badge-icon')
     expect(icon.getAttribute('aria-hidden')).toBe('true')
-    expect(icon.getAttribute('stroke')).toBe('currentColor')
-    expect(icon.getAttribute('fill')).toBe('none')
-    expect([...icon.querySelectorAll('path')].map((path) => path.getAttribute('d'))).toEqual([...vendorIcon('codex')])
+    expect(icon.getAttribute('viewBox')).toBe('0 0 24 24')
+    expect(icon.getAttribute('fill')).toBe('currentColor')
+    expect(icon.getAttribute('stroke')).toBeNull()
+    const d = logoPath(badge)
+    expect(d.startsWith(logo.start) && d.endsWith(logo.end), `the ${vendor} logo, got ${d.slice(0, 40)}…`).toBe(true)
+    expect(d).toBe(vendorIcon(vendor))
     expect(badge.querySelector('img, image, use')).toBeNull()
-    expect(icon.querySelectorAll('*').length).toBe(icon.querySelectorAll('path').length)
   })
 
   it('takes its label from src/shared/vendors/vendor.ts; the short one has the whole name as its tooltip', () => {
@@ -56,11 +75,22 @@ describe('VendorBadge', () => {
     expect(screen.getByTestId('whole').getAttribute('title')).toBeNull()
   })
 
-  it('the two Vendors have different neutral shapes; a Vendor of a later build shows its id', () => {
-    expect(vendorIcon('claude')).not.toEqual(vendorIcon('codex'))
+  it('the icon form is the logo alone: no text, the whole name as its accessible name and tooltip', () => {
+    render(<VendorBadge vendor="claude" form="icon" />)
+    const badge = screen.getByRole('img', { name: 'Claude Code' })
+    expect(badge.dataset.testid).toBe('vendor-badge')
+    expect(badge.textContent).toBe('')
+    expect(badge.getAttribute('title')).toBe('Claude Code')
+    expect(logoPath(badge).startsWith(LOGOS.claude.start)).toBe(true)
+  })
+
+  it('a Vendor of a later build shows its id beside a plain shape, neither Vendor\'s logo', () => {
     render(<VendorBadge vendor="gemini" />)
-    expect(screen.getByTestId('vendor-badge').textContent).toBe('gemini')
-    expect(screen.getByTestId('vendor-badge-icon').querySelectorAll('path')).toHaveLength(1)
+    const badge = screen.getByTestId('vendor-badge')
+    expect(badge.textContent).toBe('gemini')
+    const d = logoPath(badge)
+    expect(d).not.toBe(vendorIcon('claude'))
+    expect(d).not.toBe(vendorIcon('codex'))
   })
 })
 

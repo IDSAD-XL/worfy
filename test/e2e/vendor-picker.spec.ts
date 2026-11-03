@@ -121,11 +121,13 @@ test('a pick of Codex runs a Codex Session: its Node, the Session view and the a
     const live = window.locator('[data-testid="session-node"][data-live="true"]')
     await expect(live).toHaveCount(1)
     await expect(live.getByTestId('session-node-status')).toHaveText('idle')
-    // The Node carries the Codex badge: the neutral icon and the text.
+    // The Node carries the Codex badge: the OpenAI logo in the text colour and the text (owner, 2026-11-03).
     const badge = live.getByTestId('session-node-vendor')
     await expect(badge).toHaveAttribute('data-vendor', 'codex')
     await expect(badge).toHaveText('Codex')
     await expect(badge.getByTestId('vendor-badge-icon')).toBeVisible()
+    await expect(badge.getByTestId('vendor-badge-icon')).toHaveAttribute('fill', 'currentColor')
+    await expect(badge.locator('path')).toHaveAttribute('d', /^M22\.2819 9\.8211/)
     // The Vendor is saved in the Node's data (identifiers only, ADR-0010); the Layout is written a moment later.
     const nodeId = (await live.getAttribute('data-node-id')) ?? ''
     const savedData = (): unknown => {

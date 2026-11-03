@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { emptyLimitsView, type LimitWindow, type LimitsState, type LimitsView } from '../../src/shared/agent/limits'
 import { LimitsMeterView } from '../../src/renderer/shell/toolbar/LimitsMeter'
+import { vendorIcon } from '../../src/shared/vendors/vendor'
 
 // The toolbar's LimitsMeter, the only place the Limits are shown, drawn from one state:
 // 1791184200 = Mon 2026-10-05 07:10 UTC, 1791795600 = Mon 2026-10-12 09:00 UTC.
@@ -85,28 +86,47 @@ describe('LimitsMeterView: a section per Vendor', () => {
     vendor: 'codex', id, label, usedPercent, windowMinutes, resetsAt: 1791795600, state: 'ok', receivedAt: AT, source: 'read', ...extra,
   })
   const sectionNames = (): string[] => screen.getAllByRole('group', { name: / limits$/ }).map((group) => group.getAttribute('aria-label')!)
+  /** The start of each Vendor's logo path (Simple Icons, src/shared/vendors/vendor.ts), written out so a swap fails. */
+  const LOGO_START = { claude: 'm4.7144 15.9555', codex: 'M22.2819 9.8211' } as const
+  /**
+   * A section's first child is its Vendor's logo alone (owner, 2026-11-03): no visible name; the logo is
+   * named and titled with the Vendor's whole name, and so is the section.
+   */
+  const expectLogoFirst = (vendor: 'claude' | 'codex', name: string): void => {
+    const section = screen.getByRole('group', { name: `${name} limits` })
+    expect(section.getAttribute('title')).toBe(name)
+    const logo = section.firstElementChild as HTMLElement
+    expect(logo.dataset.testid).toBe(`limits-${vendor}-logo`)
+    expect(logo.dataset.vendor).toBe(vendor)
+    expect(logo.textContent).toBe('')
+    expect(logo.getAttribute('role')).toBe('img')
+    expect(logo.getAttribute('aria-label')).toBe(name)
+    expect(logo.getAttribute('title')).toBe(name)
+    const svg = logo.querySelector('svg')
+    expect(svg?.getAttribute('aria-hidden')).toBe('true')
+    expect(svg?.getAttribute('fill')).toBe('currentColor')
+    const d = svg?.querySelector('path')?.getAttribute('d') ?? ''
+    expect(d.startsWith(LOGO_START[vendor]), `the ${vendor} logo, got ${d.slice(0, 30)}…`).toBe(true)
+    expect(d).toBe(vendorIcon(vendor))
+  }
 
-  it('two Vendors are two sections: Claude\'s named by its tooltip, Codex\'s by its badge; Codex labels its bars with the window\'s label', () => {
+  it('two Vendors are two sections, each with its Vendor\'s logo and no visible name; Codex labels its bars with the window\'s label', () => {
     // The 7-day window comes first in the list: the bars go by the window's length, not the order read.
     const view: LimitsView = { claude, vendors: { codex: [codex('secondary', 'weekly', 40, 10080), codex('primary', '5h', 12, 300)] } }
     render(<LimitsMeterView state={view} now={AT} timeZone={TZ} />)
     expect(sectionNames()).toEqual(['Claude Code limits', 'Codex limits'])
 
-    // Codex's section starts with its short VendorBadge (worfy-multi-vendor ticket 24), so it is seen which
-    // bars are Codex's; Claude's, first and always there, keeps its name as the tooltip, as the F mockup draws
-    // it: badges on both took the Project title's width at 1280 px. A thin line parts the sections.
+    // Each section starts with its Vendor's logo, Claude's too, and no Vendor's name is visible text: the
+    // logos say whose bars are whose, the names are the tooltips (owner, 2026-11-03). A thin line parts the sections.
     const meter = screen.getByRole('group', { name: 'Limits' })
-    expect(meter.textContent).toBe('5-hour62%07:107-daylimit reachedCodex5h12%09:00weekly40%Mon 09:00')
+    expect(meter.textContent).toBe('5-hour62%07:107-daylimit reached5h12%09:00weekly40%Mon 09:00')
     expect([...meter.children].map((child) => child.getAttribute('data-testid'))).toEqual(['limits-claude', 'limits-divider', 'limits-codex'])
     expect(screen.getByTestId('limits-divider').getAttribute('aria-hidden')).toBe('true')
-    const badge = screen.getByTestId('limits-codex-name')
-    expect(badge.textContent).toBe('Codex')
-    expect(badge.dataset.vendor).toBe('codex')
-    expect(badge.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
-    expect(screen.queryByTestId('limits-claude-name')).toBeNull()
+    expectLogoFirst('claude', 'Claude Code')
+    expectLogoFirst('codex', 'Codex')
+    expect(screen.getByRole('img', { name: 'Codex' })).toBe(screen.getByTestId('limits-codex-logo'))
 
     const claudeSection = screen.getByRole('group', { name: 'Claude Code limits' })
-    expect(claudeSection.getAttribute('title')).toBe('Claude Code')
     // Two sections make the panel compact: no "Limits" heading (the group keeps the name), the reset line is the time alone.
     expect(screen.getByRole('group', { name: 'Limits' }).dataset.compact).toBe('true')
     expect(screen.queryByText('Limits')).toBeNull()
@@ -114,8 +134,6 @@ describe('LimitsMeterView: a section per Vendor', () => {
     expect(within(claudeSection).getByTestId('limit-five_hour-note').getAttribute('title')).toBe('resets 07:10')
 
     const codexSection = screen.getByRole('group', { name: 'Codex limits' })
-    expect(codexSection.firstElementChild?.getAttribute('data-testid')).toBe('limits-codex-name')
-    expect(codexSection.getAttribute('title')).toBeNull()
     const bars = within(codexSection).getAllByRole('meter')
     expect(bars.map((bar) => [bar.getAttribute('aria-label'), bar.getAttribute('aria-valuenow')])).toEqual([['5h limit', '12'], ['weekly limit', '40']])
     // A window longer than a day shows the weekday of its reset, as Claude's 7-day one.
@@ -136,11 +154,10 @@ describe('LimitsMeterView: a section per Vendor', () => {
     render(<LimitsMeterView state={state} now={AT} timeZone={TZ} />)
     expect(sectionNames()).toEqual(['Claude Code limits'])
     expect(screen.queryByTestId('limits-codex')).toBeNull()
-    // One section is drawn as in the F mockup: the heading, no Vendor name, no line, the whole reset line.
+    // One section is drawn as in the F mockup, its logo added: the heading, no Vendor name, no line, the whole reset line.
     expect(screen.getByRole('group', { name: 'Limits' }).dataset.compact).toBeUndefined()
     expect(screen.getByRole('group', { name: 'Limits' }).textContent).toMatch(/^Limits5-hour62%resets 07:10/)
-    expect(screen.getByRole('group', { name: 'Claude Code limits' }).getAttribute('title')).toBe('Claude Code')
-    expect(screen.queryByTestId('limits-claude-name')).toBeNull()
+    expectLogoFirst('claude', 'Claude Code')
     expect(screen.queryByTestId('limits-divider')).toBeNull()
   })
 
@@ -149,9 +166,10 @@ describe('LimitsMeterView: a section per Vendor', () => {
     expect(sectionNames()).toEqual(['Claude Code limits', 'Codex limits'])
     expect(screen.getByTestId('limits-codex-empty').textContent).toBe('No limits reported')
     expect(screen.getByTestId('limits-claude-empty').textContent).toBe('no data yet')
-    // Without bars a section says whose it is by its badge, as one with bars does.
-    expect(screen.getByRole('group', { name: 'Limits' }).textContent).toBe('Claudeno data yetCodexNo limits reported')
-    expect(screen.getByRole('group', { name: 'Codex limits' }).getAttribute('title')).toBeNull()
+    // Without bars a section says whose it is by its logo, as one with bars does; its line is the only text.
+    expect(screen.getByRole('group', { name: 'Limits' }).textContent).toBe('no data yetNo limits reported')
+    expectLogoFirst('claude', 'Claude Code')
+    expectLogoFirst('codex', 'Codex')
     expect(screen.queryByRole('meter')).toBeNull()
     expect(screen.queryByTestId('limits-empty')).toBeNull()
   })
