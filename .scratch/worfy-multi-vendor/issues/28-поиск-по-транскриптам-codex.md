@@ -1,7 +1,8 @@
 # 28 — Поиск по транскриптам Codex
 
 Type: task
-Status: claimed 2026-11-03T12:02Z
+Status: done 2026-11-03T12:47Z
+PR: #1289
 Blocked by: 22, 24
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 10; решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md))
 
