@@ -1,7 +1,8 @@
 # 20 — SessionHandle Codex
 
 Type: task
-Status: claimed 2026-11-02T21:51Z
+Status: done 2026-11-03T00:35Z
+PR: #1260
 Blocked by: 14, 19
 Source: [spec.md](../spec.md), «Модель» (SessionHandle, Нейтральные события — соответствие Codex), «Цель», п. 3–5; решение 06 ([06-граница-vendor.md](06-граница-vendor.md), часть session); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); Ticket 02 ([02-codex-управление-сессией.md](02-codex-управление-сессией.md), таблица механизмов)
 
