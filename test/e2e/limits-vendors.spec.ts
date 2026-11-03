@@ -1,9 +1,11 @@
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, repoRoot } from './helpers'
+import { profileJsonScript } from '../harness-node'
 
 // The Limits panel by Vendor (worfy-multi-vendor ticket 26) against the built app: Claude's section from
 // limits.json, and the Codex section from the background poll of the Codex driver, which e2e runs make
@@ -12,6 +14,30 @@ import { launchApp, repoRoot } from './helpers'
 // account-plus.jsonl — signed in to the Plus plan, a 5-hour window at 12 % and a weekly one at 40 %.
 // A Codex Session cannot start in the app yet (tickets 23 and 24), so the section comes from the poll,
 // not from a Codex turn; the turn's `limits` event is test/contract/codex-session-limits.test.ts.
+// The window is 1280 px wide with a Project open, as the F mockup draws the toolbar: with both sections the
+// Project title and its branch line stay whole (ticket 26, rework round 1).
+
+/** The Project of the F mockup (docs/design/F-canvas-light.dc.html): the title reads `worfy — auction`. */
+const PROJECT = 'auction'
+const WIDTH = 1280
+
+/**
+ * A `bin/profile` stub that knows every folder, so "Add project" puts the repository into the list at
+ * once (as in test/e2e/toolbar.spec.ts).
+ */
+const KNOWS_ALL = profileJsonScript('{"name":"stub","_resolved":{"workspace":null}}')
+
+function makeRepo(parent: string, name: string): string {
+  const dir = join(parent, name)
+  mkdirSync(dir, { recursive: true })
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, env })
+  git('init', '-q', '-b', 'main')
+  writeFileSync(join(dir, 'README.md'), name)
+  git('add', '.')
+  git('commit', '-q', '-m', 'init')
+  return realpathSync.native(dir)
+}
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -61,13 +87,37 @@ async function screenshots(window: Page, name: string): Promise<void> {
 test('signed in to Codex: a Codex section with the windows of its plan next to Claude\'s, inside the toolbar', async () => {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: 'account-plus', WORFY_CODEX_SCRIPTS: join(repoRoot, 'test', 'fixtures', 'codex-scripts') } })
   try {
-    const { window } = launched
+    const { app, window } = launched
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+    await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)).toBe(true)
+    // Set the size once the window is on screen (macOS fits a window shown later into the display).
+    await expect
+      .poll(async () => {
+        const width = await window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)
+        if (width !== WIDTH) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted, 800), WIDTH)
+        return width
+      })
+      .toBe(WIDTH)
+    const repo = makeRepo(scratch, PROJECT)
+    mkdirSync(join(launched.claudeHome, 'bin'), { recursive: true })
+    writeFileSync(join(launched.claudeHome, 'bin', 'profile'), KNOWS_ALL, { mode: 0o755 })
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = (() => Promise.resolve({ canceled: false, filePaths: [path] })) as typeof dialog.showOpenDialog
+    }, repo)
+    await window.getByRole('button', { name: 'Add project' }).click()
+    const toolbar = window.getByRole('banner')
+    await expect(toolbar.locator('.w-toolbar__name')).toHaveText(`worfy — ${PROJECT}`)
+
     const meter = window.getByTestId('limits-meter')
     const claude = meter.getByRole('group', { name: 'Claude Code limits' })
     const codex = meter.getByRole('group', { name: 'Codex limits' })
 
     await expect(codex).toBeVisible()
-    await expect(codex.getByTestId('limits-codex-name')).toHaveText('Codex')
+    // The Vendor's name is the section's tooltip, not a visible label; a thin line parts the two sections.
+    await expect(codex).toHaveAttribute('title', 'Codex')
+    await expect(meter.getByTestId('limits-codex-name')).toHaveCount(0)
+    await expect(meter).not.toContainText('Codex')
+    await expect(meter.getByTestId('limits-divider')).toHaveCount(1)
     // Shortest window first, each labelled by its length as Codex's own TUI does.
     await expect(codex.getByRole('meter')).toHaveCount(2)
     await expect(codex.getByRole('meter', { name: '5h limit' })).toHaveAttribute('aria-valuenow', '12')
@@ -82,13 +132,13 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     expect(first.x, 'the 5-hour window before the weekly one').toBeLessThan(second.x)
 
     // Claude's section keeps its bars and their test ids.
-    await expect(claude.getByTestId('limits-claude-name')).toHaveText('Claude Code')
+    await expect(claude).toHaveAttribute('title', 'Claude Code')
+    await expect(meter).not.toContainText('Claude Code')
     await expect(claude.getByTestId('limit-five_hour-value')).toHaveText('62%')
     await expect(claude.getByTestId('limit-seven_day-value')).toHaveText('38%')
     expect((await box(claude)).x, 'Claude\'s section first').toBeLessThan((await box(codex)).x)
 
     // Both sections fit the toolbar: the meter ends before the Harness column, inside the window.
-    const toolbar = window.getByRole('banner')
     const limits = await box(meter)
     const harness = await box(toolbar.getByTestId('harness-column'))
     expect(limits.x + limits.width, `the Limits (${JSON.stringify(limits)}) end before the Harness column (${JSON.stringify(harness)})`).toBeLessThanOrEqual(harness.x)
@@ -108,6 +158,23 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
       })
       expect(cut, `a text of ${id} is cut`).toBe(false)
     }
+
+    // The Project title and its branch line stay whole next to both sections: neither is cut with an
+    // ellipsis (visible Vendor names once left the title ~6 px, `w…`), and the title ends before the View switch.
+    const title = await box(toolbar.locator('.w-toolbar__title'))
+    const view = await box(toolbar.getByRole('group', { name: 'View', exact: true }))
+    expect(title.x + title.width, `the title (${JSON.stringify(title)}) ends before the View switch (${JSON.stringify(view)})`).toBeLessThanOrEqual(view.x)
+    for (const [part, locator] of [
+      ['title', toolbar.locator('.w-toolbar__name')],
+      ['branch line', toolbar.locator('.w-toolbar__subtitle-text')],
+    ] as const) {
+      const overflow = await locator.evaluate((node) => {
+        const found = node as unknown as { scrollWidth: number; clientWidth: number }
+        return { scrollWidth: found.scrollWidth, clientWidth: found.clientWidth }
+      })
+      expect(overflow.scrollWidth, `the ${part} is whole (${JSON.stringify(overflow)})`).toBeLessThanOrEqual(overflow.clientWidth)
+    }
+    await expect(toolbar.locator('.w-toolbar__subtitle-text')).toHaveText(`${PROJECT} · main`)
 
     await screenshots(window, 'limits-vendors')
   } finally {

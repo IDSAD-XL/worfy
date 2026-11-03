@@ -175,8 +175,11 @@ any data arrives it says "no data yet". A window without data says "no data".
 - **Claude Code** comes first, with two bars, 5-hour and 7-day.
 - **Codex** has a section only while the user is signed in to it. Its bars are the windows its plan reports, shortest first, each
   labelled by its length (`5h`, `weekly`). A plan that reports no windows shows "No limits reported".
-- **Several sections** make the panel compact, so it fits next to the rest of the toolbar in a 1280 px window: no "Limits"
-  heading, narrower bars, and the reset line is the time alone (`Thu 09:00`), with `resets …` as its tooltip.
+- **Vendor names** are not shown next to the bars: a section's tooltip names its Vendor. A section without bars shows the name
+  beside its line, `Codex No limits reported`.
+- **Several sections** make the panel compact, so it fits next to the rest of the toolbar in a 1280 px window and the Project
+  title with its branch line stays whole: no "Limits" heading, a thin line between the sections, narrower bars, and the reset line
+  is the time alone (`Thu 09:00`), with `resets …` as its tooltip.
 
 - **Value:** the used share, `62%`. Without a share it is the status in words: allowed, near limit, limit reached.
 - **Reset:** `resets 14:20` for the 5-hour window and `resets Thu 09:00` for the 7-day one; a Codex window longer than a day shows the

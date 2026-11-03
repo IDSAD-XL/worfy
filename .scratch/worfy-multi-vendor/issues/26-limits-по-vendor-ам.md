@@ -59,8 +59,16 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
     «no data yet» в своём разделе. Имя раздела — `VENDOR_LABELS` («Claude Code», «Codex»).
   - Компактная панель при двух и более разделах: два раздела обычной ширины выталкивали поле поиска за окно 1280 px на
     144 px (замер e2e). Поэтому без заголовка «Limits» (он остаётся именем группы), отступы 8 вместо 12, полосы 80 px
-    вместо 104, строка сброса — только время (`Sat 00:40`), полная строка `resets …` — tooltip. Только Claude — вид
-    прежний. Сжимается заголовок Project-а — так toolbar устроен и раньше.
+    вместо 104, строка сброса — только время (`Sat 00:40`), полная строка `resets …` — tooltip.
+  - Имя Vendor-а у раздела с полосами не видно — это tooltip раздела и его доступное имя (`Codex limits`); между
+    разделами — тонкая линия. Видно имя только у раздела без полос: `Codex No limits reported`, `Claude Code no data yet`.
+    Пункт 1 «Что делаем» («имя Vendor-а и его окна») так выполнен через tooltip, а не через подпись. Причина — ревью
+    раунда 1: видимые имена («Claude Code», «Codex») занимали ширину заголовка Project-а, и в окне 1280 px с двумя
+    разделами заголовок сжимался до ~6 px («w…»), строка ветки — до обрывка. Без имён заголовок `worfy — auction` и
+    строка `auction · main` целые (ширина заголовка 102 px, запас до переключателя View ~12 px, замер e2e). В макете F
+    имён тоже нет, поэтому и один раздел Claude — как в макете: «Limits» и две полосы, без «Claude Code». Короткая
+    видимая метка Vendor-а не влезает: каждая подпись — ещё ~35 px на раздел. Значок Vendor-а (`VendorBadge`, Ticket 24)
+    может стать такой меткой позже.
   - Codex-окно длиннее суток показывает день недели сброса, как 7-day у Claude; окно неизвестной длины — последним.
 - Сделано:
   - `src/shared/agent/limits.ts` — `limitsViewSchema` / `LimitsView` (`claude` + `vendors`), `vendorLimitBars` (окна по
@@ -84,7 +92,7 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   `test/contract/codex-session-limits.test.ts` (новый: `usage-limit-window`, `usage-limit-quota`, `turn`),
   `test/contract/limits.test.ts` (`null` / `[]`, `view()`, `limits.changed` на окна Vendor-а), `test/unit/limits-usage.test.ts`
   (опрос Codex под фейками), `test/e2e/limits-vendors.spec.ts` (новый: раздел Codex из опроса, порядок, всё в toolbar
-  1280 px, ни один текст полосы не обрезан); поправлены под новую форму канала `test/contract/link-access.test.ts`,
+  1280 px с открытым Project-ом, ни один текст полосы не обрезан, заголовок Project-а и строка ветки целые); поправлены под новую форму канала `test/contract/link-access.test.ts`,
   `test/unit/canvas-actions.test.tsx`. Правило в `scripts/e2e-specs.table.json` не добавлено: `src/main/agent/limits.ts`
   и соседи видны многим spec-ам, при сомнении — путь вне таблицы.
 - Снимки: [светлая тема](../evidence/26/26-limits-vendors-light.png), [тёмная тема](../evidence/26/26-limits-vendors-dark.png).

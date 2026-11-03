@@ -196,7 +196,6 @@ class CodexSession implements SessionHandle, CodexModelSource {
 
   readonly events: AsyncIterable<AgentEvent> = { [Symbol.asyncIterator]: () => this.out[Symbol.asyncIterator]() }
 
-  /** One message of the app-server. */
   /**
    * The app-server's messages, in order. While a refusal by the Limits is decided (refusal()), what
    * comes after it waits: so `limit_reached` comes before the turn's `result`.
