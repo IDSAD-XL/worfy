@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp, openSecondWindow, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, newSessionOn, openSecondWindow, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
@@ -621,7 +621,7 @@ test('a click on a Session in the sidebar ends focus mode and shows the Canvas w
     await expect(window.locator('.react-flow__node.selected')).toHaveCount(2)
 
     // A Session with a Node in the Layout: "New session" of the sidebar. Its row is the one to click.
-    await window.getByTestId('sidebar-new-session').click()
+    await newSessionOn(window)
     const node = window.locator('[data-testid="session-node"][data-live="true"]')
     await expect(node).toHaveCount(1)
     await expect(node.getByTestId('session-node-status')).toHaveText('idle')

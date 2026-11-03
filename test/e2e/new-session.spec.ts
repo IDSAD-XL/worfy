@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { canvasReady, launchApp } from './helpers'
+import { canvasReady, launchApp, newSessionOn } from './helpers'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
 
@@ -201,9 +201,9 @@ test('New session, New conversation, the history and Resume', async () => {
     const live = window.locator('[data-testid="session-node"][data-live="true"]')
 
     // ── New session, twice: two live Nodes, two Sessions answering side by side.
-    await window.getByTestId('sidebar-new-session').click()
+    await newSessionOn(window)
     await expect(live).toHaveCount(1)
-    await window.getByTestId('sidebar-new-session').click()
+    await newSessionOn(window)
     await expect(live).toHaveCount(2)
     const [first, second] = [live.nth(0), live.nth(1)]
     await expect(first.getByTestId('session-node-title')).toHaveText('New session')
@@ -366,7 +366,7 @@ test('New session with an Epic frame on the Canvas: the new Node and the frame d
     const frame = window.getByTestId('rf__node-epic:demo')
     await expect(frame).toBeVisible()
 
-    await window.getByTestId('sidebar-new-session').click()
+    await newSessionOn(window)
     const live = window.locator('[data-testid="session-node"][data-live="true"]')
     await expect(live).toHaveCount(1)
     const id = (await live.getAttribute('data-node-id')) ?? ''
@@ -394,7 +394,7 @@ test('during a turn a live Node can be neither closed nor removed', async () => 
     const { window } = launched
     await canvasReady(launched, { size: { width: 1400, height: 900 } })
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
-    await window.getByTestId('sidebar-new-session').click()
+    await newSessionOn(window)
     const node = window.locator('[data-testid="session-node"][data-live="true"]')
     await expect(node).toHaveCount(1)
     await panTo(window, (await node.getAttribute('data-node-id')) ?? '')

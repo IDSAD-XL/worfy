@@ -11,7 +11,10 @@
 //   permission mode a new Session has (bypassPermissions); the text is its first message. The
 //   Ticket stays open until the launched agent runs `ticket claim`, so the launcher remembers the
 //   launch while its Session lives and refuses a second one for the same Ticket meanwhile
-//   (`launchedHint`); the button learns of it through `actions.launches.changed`.
+//   (`launchedHint`); the button learns of it through `actions.launches.changed`. The Session runs on
+//   Claude Code whatever the Project's `defaultVendor`: the Harness's skills run under Claude Code
+//   only until worfy-multi-vendor tickets 35 and 36 bring them to Codex (ticket 24, decided without the
+//   owner — to confirm).
 // - Run wave: the text goes to the Project's Orchestrator; while a turn runs it waits in the
 //   Orchestrator's queue (ticket 19). Autopilot (worfy-daily ticket 04) sends its Waves the same
 //   way (autopilotWave); while it runs in a Project, "Run wave" by hand is refused there, so a
@@ -40,7 +43,8 @@ import type { LaunchesSnapshot } from '../../shared/ipc/actions'
 import type { BindingAgent } from '../../shared/ipc/bindings'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import type { SessionNodeView } from '../../shared/ipc/sessions'
-import { AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, type ProjectSettings } from '../../shared/projects/action-templates'
+import { AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, SHIP_TICKET_VENDOR, type ProjectSettings } from '../../shared/projects/action-templates'
+import type { VendorId } from '../../shared/vendors/vendor'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { Session } from '../agent/session'
 
@@ -57,10 +61,11 @@ export interface LaunchDeps {
   /** A fresh read of the Project's workflow model. */
   workflow(root: string): Promise<WorkflowModel>
   /**
-   * "New session": a new Session Node with a new Session in the Project's root; with `near`, on the
-   * first clear spot at `near.x`, from `near.y` down (src/main/layout/place.ts, `placeDownFrom`).
+   * "New session": a new Session Node with a new Session of `vendor` in the Project's root; with
+   * `near`, on the first clear spot at `near.x`, from `near.y` down (src/main/layout/place.ts,
+   * `placeDownFrom`).
    */
-  sessions: { create(projectId: string, near?: CanvasSpot): SessionNodeView }
+  sessions: { create(projectId: string, near: CanvasSpot | undefined, vendor: VendorId): SessionNodeView }
   /** The Project's Orchestrator, opened (and started) when it is not yet. */
   orchestrators: { open(projectId: string): Promise<OrchestratorView> }
   /** The app's live Sessions, by any of their ids. */
@@ -194,7 +199,7 @@ export class ActionLauncher {
       const launched = this.liveLaunch(key) !== undefined
       const state = shipTicketState({ ticket, tickets: model.tickets, template: this.deps.settings(projectId).actionTemplates.shipTicket, branch, launched })
       if (!state.enabled) throw new Error(state.reason)
-      const view = this.deps.sessions.create(projectId, near)
+      const view = this.deps.sessions.create(projectId, near, SHIP_TICKET_VENDOR)
       const session = this.deps.registry.get(view.sessionId)
       session.send(state.text)
       this.launches.set(key, { projectId, epic, num, session })

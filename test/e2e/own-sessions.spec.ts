@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, newSessionOn, type LaunchedApp } from './helpers'
 import { profileJsonScript } from '../harness-node'
 
 /**
@@ -101,7 +101,7 @@ test('a New session keeps one Node before and after its first turn; the sidebar 
     await expect(window.getByTestId('orchestrator-node').getByTestId('orchestrator-state')).toHaveText('idle')
 
     // ── New session, before its first turn: one Node for it, and none for the Orchestrator's entry.
-    await window.getByTestId('sidebar-new-session').click()
+    await newSessionOn(window)
     const live = window.locator('[data-testid="session-node"][data-live="true"]')
     await expect(live).toHaveCount(1)
     await expect(live.getByTestId('session-node-status')).toHaveText('idle')

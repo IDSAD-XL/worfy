@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentEvent } from '../../shared/agent/events'
 import { chatCommandToast } from '../../shared/autopilot/chat-command'
 import { ORCHESTRATOR_KIND, readOrchestratorData } from '../../shared/ipc/orchestrator'
+import { UNNAMED_VENDOR, vendorLabel } from '../../shared/vendors/vendor'
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
 import { earlierControl, loadEarlierTranscript, loadEarlierUntil, sessionTranscriptNow, useSessionTranscript } from '../claude-home/useClaudeHome'
@@ -22,6 +23,7 @@ import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
 import { useShowSession } from './shown-session'
 import { ensureAgentEvents, joinPastAndLive, keepsTurnBeforeResume, useSessionControls, useSessionLog } from './store'
 import { Transcript } from './Transcript'
+import { VendorBadge } from './VendorBadge'
 import { HideToolsButton } from './HideToolsButton'
 import { SessionFind } from './SessionFind'
 import { pastSettled, useTranscriptFind } from './transcript-find'
@@ -29,8 +31,8 @@ import { useSessionToolsHidden } from './transcript-view'
 import './session.css'
 
 // The Session view (the Session side of the toolbar's Canvas / Session switch): one Session in
-// full. A header with its state, model, effort, permission mode and cost, and an Interrupt
-// button; the transcript; the input field; and on the right the rail, made of the blocks in
+// full. A header with its state, the Vendor of a Session Node's agent (VendorBadge.tsx), model,
+// effort, permission mode and cost, and an Interrupt button; the transcript; the input field; and on the right the rail, made of the blocks in
 // rail/ (rail/index.ts). It shows the Session a double click on its Node opened (navigation.ts),
 // or else the active Project's Orchestrator.
 //
@@ -206,8 +208,12 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // default model is «default» until then: only init says which model it stands for.
   const model = modelPick !== null ? (modelPick.model ?? 'default') : (facts.model ?? view?.model ?? null)
   const heading = orchestrator !== undefined || nodeSession === undefined ? 'Orchestrator' : 'Session'
-  // «orch» is the Orchestrator's alone; any other Session answers as «claude», as a read-only one does (worfy-daily ticket 24).
-  const assistantLabel = orchestrator !== undefined || savedNode?.kind === 'orchestrator' ? 'orch' : 'claude'
+  // The Vendor whose agent runs a Session Node (worfy-multi-vendor ticket 24): its view's, else the one
+  // its Node saved, Claude Code for a Node saved without one; null for the Orchestrator.
+  const savedVendor = savedNode?.data.vendor
+  const vendor = orchestrator !== undefined || savedNode?.kind === 'orchestrator' ? null : (nodeSession?.vendor ?? (typeof savedVendor === 'string' ? savedVendor : UNNAMED_VENDOR))
+  // «orch» is the Orchestrator's alone (worfy-daily ticket 24); any other Session answers by its Vendor's name, «claude» or «codex».
+  const assistantLabel = vendor === null ? 'orch' : vendorLabel(vendor, 'agent')
   // The transcript shows the message when main gives it to Claude Code (a `prompt` event): at
   // once, or after the running turn when it waits in the queue.
   const send = async ({ text, attachments }: OutgoingMessage): Promise<string | null> => {
@@ -251,6 +257,8 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
             </>
           ) : null}
         </h1>
+        {/* Once main's view of a Session Node is here: no Vendor flashes in the Orchestrator's header before its view. */}
+        {orchestrator === undefined && nodeSession !== undefined ? <VendorBadge vendor={nodeSession.vendor} testId="session-vendor" /> : null}
         <span data-testid="session-state" title={view?.error ?? undefined}>
           <StatusChip status={chip.status} label={chip.label} />
         </span>

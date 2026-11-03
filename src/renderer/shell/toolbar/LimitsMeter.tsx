@@ -2,6 +2,7 @@ import { Fragment } from 'react'
 import { limitSections, type LimitSection, type LimitsView } from '../../../shared/agent/limits'
 import { LimitBarView } from '../../limits/LimitBar'
 import { useLimits, useNow } from '../../limits/useLimits'
+import { VendorBadge } from '../../session/VendorBadge'
 
 // The Limits in the toolbar: a section per Vendor with its windows' bars — Claude's 5-hour and 7-day,
 // then each other Vendor signed in to (Codex) with the windows its plan reports, shortest first, or
@@ -10,10 +11,13 @@ import { useLimits, useNow } from '../../limits/useLimits'
 // Limits read through src/renderer/limits/useLimits.ts. This is the only place worfy shows the Limits;
 // the Session view's rail does not repeat them.
 //
-// A section with bars does not show its Vendor's name, as the F mockup shows none: the name is the
-// section's tooltip and its accessible name (`Codex limits`). Visible names took the width the Project
-// title needs, and at 1280 px the title fell to its first letter (ticket 26, rework round 1). A section
-// without bars says whose it is: `Codex No limits reported`.
+// Each section after Claude's starts with its Vendor's short VendorBadge (`Codex`; worfy-multi-vendor
+// ticket 24, decided without the owner — to confirm), so it is seen which bars are whose. Claude's
+// section, first and always there, stays as the F mockup draws it: its name is its tooltip. A section
+// without bars shows its badge beside its line, Claude's too (`Claude no data yet`). Every section's
+// accessible name is `<Vendor> limits`. The width is tight: whole names at 1280 px left the Project
+// title its first letter (ticket 26, rework round 1), and a badge on Claude's section as well as on
+// Codex's left it none (test/e2e/limits-vendors.spec.ts).
 //
 // With more than one section the panel is compact, so that it, the Project title with its branch line,
 // the Harness column and the search field stay whole in a 1280 px window (test/e2e/limits-vendors.spec.ts):
@@ -31,28 +35,25 @@ const muted = { fontSize: 'var(--text-11)', color: 'var(--text-muted)' } as cons
 
 /**
  * One Vendor's section. Claude's bars keep their test ids (`limit-five_hour`); another Vendor's carry
- * its id (`limit-codex-primary`), since its window ids are its own. The Vendor's name is shown only
- * beside the line said in place of the bars; with bars it is the section's tooltip.
+ * its id (`limit-codex-primary`), since its window ids are its own. Every section but the first starts
+ * with its Vendor's badge, and so does one without bars; the first with bars has its name as the tooltip.
  */
 function SectionView({ section, first, compact }: { section: LimitSection; first: boolean; compact: boolean }) {
   const prefix = first ? 'limit' : `limit-${section.vendor}`
+  const badge = !first || section.empty !== null
   return (
     <div
       role="group"
       aria-label={`${section.name} limits`}
-      title={section.empty === null ? section.name : undefined}
+      title={badge ? undefined : section.name}
       data-testid={`limits-${section.vendor}`}
       style={{ display: 'flex', alignItems: 'center', gap: compact ? COMPACT_GAP : GAP, flex: 'none' }}
     >
+      {badge ? <VendorBadge vendor={section.vendor} form="short" muted testId={`limits-${section.vendor}-name`} /> : null}
       {section.empty !== null ? (
-        <>
-          <span style={{ ...muted, whiteSpace: 'nowrap' }} data-testid={`limits-${section.vendor}-name`}>
-            {section.name}
-          </span>
-          <span style={{ ...muted, whiteSpace: 'nowrap' }} data-testid={`limits-${section.vendor}-empty`}>
-            {section.empty}
-          </span>
-        </>
+        <span style={{ ...muted, whiteSpace: 'nowrap' }} data-testid={`limits-${section.vendor}-empty`}>
+          {section.empty}
+        </span>
       ) : (
         section.bars.map((bar) => <LimitBarView key={bar.window} bar={bar} testId={`${prefix}-${bar.window}`} compact={compact} />)
       )}

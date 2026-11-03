@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { launchApp, newSessionOn } from './helpers'
 import { catScript } from '../harness-node'
 
 // The Autopilot command typed in a chat (worfy-flight-recorder ticket 22, ADR-0091) in the built app
@@ -263,7 +263,7 @@ test('the command typed in the chat of a Session Node starts Autopilot; a second
     await expect(frame.getByTestId('action-autopilot')).toBeVisible()
     await expect(window.getByTestId('orchestrator-node').getByTestId('orchestrator-state')).toHaveText('idle')
 
-    await window.getByTestId('sidebar-new-session').click()
+    await newSessionOn(window)
     const node = window.locator('[data-testid="session-node"][data-live="true"]')
     await expect(node.getByTestId('session-node-status')).toHaveText('idle')
     const input = node.getByTestId('session-node-input')

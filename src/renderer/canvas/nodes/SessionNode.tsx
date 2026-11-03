@@ -4,6 +4,7 @@ import { chatCommandToast } from '../../../shared/autopilot/chat-command'
 import { TRANSCRIPT_WINDOW_BYTES } from '../../../shared/ipc/claude-home'
 import type { ProjectView } from '../../../shared/ipc/projects'
 import type { WorfySessionNodeData } from '../../../shared/ipc/sessions'
+import { UNNAMED_VENDOR } from '../../../shared/vendors/vendor'
 import {
   readSessionNodeData,
   readWorfySessionNodeData,
@@ -26,6 +27,7 @@ import { AttachmentChips, type Chip } from '../../session/MessageInput'
 import { openSession } from '../../session/navigation'
 import { isRunning, useSessionNodeView } from '../../session/node-sessions'
 import { useSessionLog } from '../../session/store'
+import { VendorBadge } from '../../session/VendorBadge'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { showToast } from '../../toast/toasts'
 import { badges, type SlotSubject } from '../badges'
@@ -47,7 +49,8 @@ import type { CanvasNodeProps } from './index'
 //   Session view (session/ExternalSessionPanel.tsx).
 // - Live (ticket 18): a Session worfy runs (`data.origin: 'worfy'`, src/shared/ipc/sessions.ts),
 //   made by "New session" or by Resume. It shows main's view of the Session (session/node-sessions.ts),
-//   its last answer and an input field. A Node whose Session is not running offers Resume, under
+//   the Vendor whose agent runs it before its folder (session/VendorBadge.tsx, worfy-multi-vendor
+//   ticket 24), its last answer and an input field. A Node whose Session is not running offers Resume, under
 //   the rule of src/main/agent/resume.ts; a message sent to it resumes it first. Until the live
 //   Session answers, a resumed Node shows the last answer of its transcript (worfy-daily ticket 22).
 //   A file or an image dropped on the Node goes with the next message, as one dropped on the input
@@ -440,6 +443,8 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
       </div>
       <div style={styles.body}>
         <div style={styles.line}>
+          {/* On the line under the header, not in it: the header's chip and buttons leave the title no room for it. */}
+          <VendorBadge vendor={view?.vendor ?? info.vendor ?? UNNAMED_VENDOR} form="short" testId="session-node-vendor" />
           <span className="w-mono" style={styles.source} data-testid="session-node-source" title={cwd}>
             worfy · {cwd}
           </span>

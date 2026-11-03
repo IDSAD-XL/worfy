@@ -66,9 +66,13 @@ export function LimitBarView({ bar, testId = `limit-${bar.window}`, compact = fa
 
 const RESETS = 'resets '
 
-/** The width of a bar: room for `resets Thu 09:00`; a compact one has room for `Thu 09:00`. */
+/**
+ * The width of a bar: room for `resets Thu 09:00`; a compact one has room for `Thu 09:00` and
+ * `weekly 40%`, and no more: the Codex badge of a compact panel (worfy-multi-vendor ticket 24) takes the
+ * width it gave up, so the Project title stays whole at 1280 px (test/e2e/limits-vendors.spec.ts).
+ */
 const WIDTH = 104
-const COMPACT_WIDTH = 80
+const COMPACT_WIDTH = 66
 
 /**
  * The reset line, `resets Thu 09:00`: the word in the UI font, the time in mono, as in the F

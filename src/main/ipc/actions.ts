@@ -43,7 +43,7 @@ export function sharedLauncher(): ActionLauncher {
     settings: (projectId) => readProjectSettings(projectStore().dataDir(projectStore().get(projectId).id)),
     branch: (root) => projectStore().branch(root),
     workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
-    sessions: { create: (projectId, near) => sharedNodeSessions().create(projectId, near) },
+    sessions: { create: (projectId, near, vendor) => sharedNodeSessions().create(projectId, near, vendor) },
     orchestrators: { open: (projectId) => sharedOrchestrators().open(projectId) },
     registry: { get: (sessionId) => sharedRegistry().get(sessionId) },
     bindings: { setLaunch: (projectId, agent, target) => bindingStore().setLaunch(projectId, agent, target) },

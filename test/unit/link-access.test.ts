@@ -235,6 +235,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'runs.open',
     'runs.retry',
     'sessions.resumable',
+    // The Vendor picker of "New session" (worfy-multi-vendor ticket 24): the settings and each Vendor's sign-in are read.
+    'sessions.vendors',
     'sessions.views',
     'terminal.shells',
     'terminalAi.fix.state',

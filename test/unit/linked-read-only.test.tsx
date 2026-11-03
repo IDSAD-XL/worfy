@@ -550,7 +550,7 @@ describe('the Session view, the sidebar and the Orchestrator', () => {
 
   it('read-only: "New session" in the sidebar is inactive and starts nothing; Full access: it asks M', async () => {
     const draw = async (readOnly: boolean) => {
-      await windowOn(M, readOnly)
+      await windowOn(M, readOnly, { 'sessions.vendors': { defaultVendor: 'claude', choices: [{ vendor: 'claude', refusal: null }] } })
       const { default: SessionsSection } = await import('../../src/renderer/shell/sidebar/SessionsSection')
       render(<SessionsSection />)
       return screen.findByTestId('sidebar-new-session')
@@ -562,8 +562,11 @@ describe('the Session view, the sidebar and the Orchestrator', () => {
     cleanup()
 
     const active = await draw(false)
-    expect(active.getAttribute('title')).toBe("A new Session in the Project's root")
+    expect(active.getAttribute('title')).toBe("A new Session in the Project's root, on the Vendor you pick")
     fireEvent.click(active)
+    // The Vendor picker (worfy-multi-vendor ticket 24) asks M which Vendors it offers; a pick starts the Session there.
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Claude Code/ }))
+    expect(fake.sent).toContain('sessions.vendors')
     await waitFor(() => expect(fake.sent).toContain('sessions.new'))
   })
 

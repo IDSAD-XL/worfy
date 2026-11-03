@@ -214,9 +214,11 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
 - "Project settings…" holds the message templates of "Ship ticket", "Run wave" and "Process gate queue", with the
   placeholders `{epic}`, `{NN}`, `{wave}`, `{slug}`, `{branch}` and `{tickets}`. An unknown placeholder shows an error under
   the field and turns off Save. "Reset to default" puts in the defaults of the Harness found on the Machine now. On Windows
-  the dialog also has the [Terminal shell](terminal.md). The settings also keep `defaultVendor`, the Vendor of a new
-  [Session](sessions.md) when "New session" names none: Claude Code when it is absent, and a value this build does not know
-  reads as absent. The dialog does not show it yet, and its Save keeps the saved value.
+  the dialog also has the [Terminal shell](terminal.md). "Default vendor" (`defaultVendor` in the settings) is the Vendor
+  "New session" lists first and a [Session](sessions.md) started without a pick runs on: None (Claude Code), Claude Code or
+  Codex. "None" clears a saved one, and Claude Code is then the default. A value this build does not know reads as absent.
+  "Ship ticket" runs on Claude Code whatever is chosen. A Linked machine on a build without the field saves without it, and
+  the saved value stays.
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.
 - "Remove from list" acts at once, without a question. The Project leaves the list. If it was the active one, the first of

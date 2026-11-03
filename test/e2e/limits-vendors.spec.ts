@@ -12,10 +12,10 @@ import { profileJsonScript } from '../harness-node'
 // on the fake app-server (WORFY_CODEX=fake, src/main/agent/limits-usage.ts). The poll starts only when
 // the launch's CODEX_HOME exists: here it does, and the fake plays test/fixtures/codex-scripts/
 // account-plus.jsonl — signed in to the Plus plan, a 5-hour window at 12 % and a weekly one at 40 %.
-// A Codex Session cannot start in the app yet (tickets 23 and 24), so the section comes from the poll,
-// not from a Codex turn; the turn's `limits` event is test/contract/codex-session-limits.test.ts.
-// The window is 1280 px wide with a Project open, as the F mockup draws the toolbar: with both sections the
-// Project title and its branch line stay whole (ticket 26, rework round 1).
+// The section comes from the poll, not from a Codex turn; the turn's `limits` event is
+// test/contract/codex-session-limits.test.ts.
+// The window is 1280 px wide with a Project open, as the F mockup draws the toolbar: with both sections and
+// the Codex badge (ticket 24) the Project title and its branch line stay whole (ticket 26, rework round 1).
 
 /** The Project of the F mockup (docs/design/F-canvas-light.dc.html): the title reads `worfy — auction`. */
 const PROJECT = 'auction'
@@ -113,10 +113,11 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     const codex = meter.getByRole('group', { name: 'Codex limits' })
 
     await expect(codex).toBeVisible()
-    // The Vendor's name is the section's tooltip, not a visible label; a thin line parts the two sections.
-    await expect(codex).toHaveAttribute('title', 'Codex')
-    await expect(meter.getByTestId('limits-codex-name')).toHaveCount(0)
-    await expect(meter).not.toContainText('Codex')
+    // Codex's section starts with its short Vendor badge (ticket 24); Claude's, first, keeps its name as the
+    // tooltip, as the F mockup draws it. A thin line parts the two sections.
+    await expect(codex.getByTestId('limits-codex-name')).toHaveText('Codex')
+    await expect(claude).toHaveAttribute('title', 'Claude Code')
+    await expect(meter.getByTestId('limits-claude-name')).toHaveCount(0)
     await expect(meter.getByTestId('limits-divider')).toHaveCount(1)
     // Shortest window first, each labelled by its length as Codex's own TUI does.
     await expect(codex.getByRole('meter')).toHaveCount(2)
@@ -132,8 +133,6 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     expect(first.x, 'the 5-hour window before the weekly one').toBeLessThan(second.x)
 
     // Claude's section keeps its bars and their test ids.
-    await expect(claude).toHaveAttribute('title', 'Claude Code')
-    await expect(meter).not.toContainText('Claude Code')
     await expect(claude.getByTestId('limit-five_hour-value')).toHaveText('62%')
     await expect(claude.getByTestId('limit-seven_day-value')).toHaveText('38%')
     expect((await box(claude)).x, 'Claude\'s section first').toBeLessThan((await box(codex)).x)
@@ -150,7 +149,7 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     expect(search.x + search.width, `the search field ends inside the window (${width} px)`).toBeLessThanOrEqual(width)
 
     // No text of a bar is cut in the narrower bars: the labels, the shares and the reset times are whole.
-    for (const id of ['limit-five_hour', 'limit-seven_day', 'limit-codex-primary', 'limit-codex-secondary']) {
+    for (const id of ['limit-five_hour', 'limit-seven_day', 'limit-codex-primary', 'limit-codex-secondary', 'limits-codex-name']) {
       const cut = await meter.getByTestId(id).evaluate((node) => {
         type Element = { scrollWidth: number; clientWidth: number; querySelectorAll(selector: string): Iterable<Element> }
         const element = node as unknown as Element

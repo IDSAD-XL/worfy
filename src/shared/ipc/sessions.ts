@@ -96,6 +96,21 @@ export type SessionNodeView = z.output<typeof sessionNodeViewSchema>
 export const sessionsNew = invokeChannel('sessions.new', z.object({ projectId, vendor: z.string().min(1).max(64).optional() }), sessionNodeViewSchema, 'project', 'write')
 
 /**
+ * What the Vendor picker of "New session" offers (worfy-multi-vendor ticket 24): the Vendors in the
+ * order to list them, the Project's `defaultVendor` first, each with why a Session of it cannot start
+ * now (nobody is signed in to it) or null. A Vendor is any short string, as in `sessions.new`: a
+ * Linked machine of a later build may run one this build does not know.
+ */
+export const sessionVendorsSchema = z.object({
+  defaultVendor: z.string().min(1).max(64),
+  choices: z.array(z.object({ vendor: z.string().min(1).max(64), refusal: z.string().nullable() })),
+})
+export type SessionVendors = z.output<typeof sessionVendorsSchema>
+
+/** The Vendors "New session" of the Project can pick (above); asking may start a Vendor's process to check its sign-in. */
+export const sessionsVendors = invokeChannel('sessions.vendors', z.object({ projectId }), sessionVendorsSchema, 'project', 'read')
+
+/**
  * Starts the Session behind an existing worfy Session Node that runs none, on the Node's Vendor: its
  * saved session, resumed under the rule of Resume, or a new one when the Node has none yet. A Node
  * that runs one answers its view and changes nothing.
@@ -129,6 +144,7 @@ export const sessionsChanged = eventChannel('sessions.changed', sessionNodeViewS
 declare module './channels' {
   interface IpcContract {
     'sessions.new': typeof sessionsNew
+    'sessions.vendors': typeof sessionsVendors
     'sessions.start': typeof sessionsStart
     'sessions.resume': typeof sessionsResume
     'sessions.resumable': typeof sessionsResumable

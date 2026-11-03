@@ -174,6 +174,24 @@
         "test/e2e/autopilot-chat.spec.ts"
       ],
       "why": "The Run history screen (worfy-flight-recorder tickets 18, 19): every window mounts it in the hidden view `history`, where it draws one line until openRunHistory opens a Run, and only flight-recorder.spec.ts and flight-recorder-detail.spec.ts (its detail panel, filter and «Retry») open one; its mount is covered by test/unit/flight-recorder-view.test.tsx. The entries into it (ticket 20): the toast when a Run stops (stop-toast.ts, installed by every window, shown only on a stop) and the screen opened from it, from the Epic frame and from the palette, which autopilot.spec.ts and autopilot-chat.spec.ts (a Run started from a chat) drive. Left out: main.tsx, AppShell.tsx and Toolbar.tsx, which every window runs through, and the runs IPC of main, whose handlers every app loads."
+    },
+    {
+      "paths": [
+        "src/renderer/session/NewSessionVendor.tsx"
+      ],
+      "specs": [
+        "test/e2e/autopilot-chat.spec.ts",
+        "test/e2e/focus-sidebar.spec.ts",
+        "test/e2e/linked-machines.spec.ts",
+        "test/e2e/linked-notify.spec.ts",
+        "test/e2e/new-session.spec.ts",
+        "test/e2e/own-sessions.spec.ts",
+        "test/e2e/session-controls.spec.ts",
+        "test/e2e/session-question.spec.ts",
+        "test/e2e/session-two-windows.spec.ts",
+        "test/e2e/vendor-picker.spec.ts"
+      ],
+      "why": "The Vendor picker of \"New session\" (worfy-multi-vendor ticket 24): it opens only when \"New session\" in the sidebar is pressed. vendor-picker.spec.ts drives it — the order, the Default vendor, a Vendor nobody is signed in to — and the other spec files start their Sessions through it (newSessionOn in helpers.ts). Left out: VendorBadge.tsx, which every Session Node, the Session view and the Limits panel draw, and SessionsSection.tsx of the sidebar, which every window mounts."
     }
   ]
 }
