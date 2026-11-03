@@ -80,3 +80,9 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 Для Ticket-а 42 (устаревшие строки документации): `docs/features/vendors.md:83` («A Codex Session shows no Subagents on the
 Canvas»), `docs/features/vendors.md:112` (список флагов — `subagents` у Codex теперь да), `docs/features/vendors.md:140`
 (события Subagent-а не показываются в транскрипте — верно, но Subagent-ы теперь есть на Canvas).
+
+### Долги gate (Wave 12, PR #1299)
+
+- [low] `src/shared/ipc/claude-home.ts:178`: `subagentInfoSchema` ограничивает `name`, `subagentType`, `model` 500 символами, а `codexSubagentTree` передаёт значения Codex без обрезки; слишком длинный nickname уронит проверку всего ответа. Обрезать до 500 в `codexSubagentTree`.
+- [low] `src/renderer/canvas/nodes/SubagentNode.tsx:119`: tooltip «No transcript of this Subagent yet» вводит в заблуждение для Subagent-а Codex, у которого транскрипта не будет.
+- Для Ticket-а 42: устарели `docs/features/vendors.md:83`, `:112`, `:140`.

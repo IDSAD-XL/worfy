@@ -117,3 +117,12 @@ Source: [spec.md](../spec.md), «Windows» (Harness на Codex), «Решени�
 - Устаревшие строки для Ticket-а 42: `docs/features/vendors.md:84` («has no Harness»), `docs/features/harness.md:12`
   (ставится только как plugin Claude Code), `:28-34` (таблица состояний toolbar без части Codex), `:42-58` («What an
   install does» без команд Codex и агентов).
+
+### Долги gate (Wave 12, PR #1298)
+
+Раунд 1 — REJECTED (3 med: test-ы удаления файлов агентов, перезапись немаркированного файла пользователя, статус Codex до 120 s), раунд 2 — VERIFIED.
+
+- [low] `src/main/harness/codex-agents.ts:~142`: ошибка `lstat`, кроме ENOENT, считается файлом пользователя (верно), но test-а нет; проверяется на POSIX не под root с папкой агентов `0o444`.
+- [low] `src/main/harness/codex-install.ts`, `boundedRead`: без `clearTimeout(timer)` test-ы зелёные (остаётся таймер на 10 s).
+- [low] `src/main/harness/install.ts:461`, `runTool`: команде по timeout посылается только SIGTERM; Codex, который его игнорирует, останется жив.
+- Для Ticket-а 42: устарели `docs/features/vendors.md:84`, `docs/features/harness.md:12`, `:28-34`, `:42-58`.
