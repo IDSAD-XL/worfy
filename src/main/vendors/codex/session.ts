@@ -13,6 +13,10 @@
 // - setModel, setEffort, setPermissionPreset: what the next `turn/start` takes — only what changed
 //   since the thread was last told (the stable surface: a change does not reach a running turn). null
 //   — "Default" — is the model `model/list` marks as default, and that model's default effort.
+// - a message that starts with a command of the slash menu (commands.ts, ticket 22): `/compact` →
+//   `thread/compact/start`, `/review` → `review/start` inline, a skill → its `$name` and a `skill` item
+//   in the input of the turn. The skills are those of `skills/list`, asked once per process and again
+//   after `skills/changed`.
 // - interrupt: every open approval is answered `cancel`, then `turn/interrupt`.
 // - close: open approvals are answered `cancel`, then the process ends (CodexAppServer.close).
 // - presets → approval policy and sandbox (capabilities.ts, codexPresetFor); notifications → events
@@ -48,6 +52,7 @@ import type { CodexAppServer } from './app-server'
 import { approvalAsk, decisionOf, isApprovalRequest, UNATTENDED_DECLINED_MESSAGE, type CodexDecision } from './approvals'
 import type { CodexRuntime } from './binary'
 import { codexModelOptions, codexPermissionPreset, codexPresetFor, codexSandboxPolicy, type CodexModelSource } from './capabilities'
+import { codexCommandOf, codexSlashCommands, CODEX_BUILT_IN_COMMANDS, slashName, type CodexCommand, type CodexSkillSource } from './commands'
 import { boundedText, CodexItems } from './items'
 import { CODEX_VENDOR, codexLimitReachedEvent, codexLimitsEvent } from './limits'
 import type { SpawnProcess } from './launch'
@@ -58,6 +63,9 @@ import type { ServerNotification } from './protocol/ts/ServerNotification'
 import type { ServerRequest } from './protocol/ts/ServerRequest'
 import type { Model } from './protocol/ts/v2/Model'
 import type { ModelListResponse } from './protocol/ts/v2/ModelListResponse'
+import type { ReviewStartResponse } from './protocol/ts/v2/ReviewStartResponse'
+import type { SkillMetadata } from './protocol/ts/v2/SkillMetadata'
+import type { SkillsListResponse } from './protocol/ts/v2/SkillsListResponse'
 import type { ThreadStartResponse } from './protocol/ts/v2/ThreadStartResponse'
 import type { TurnStartParams } from './protocol/ts/v2/TurnStartParams'
 import type { TurnStartResponse } from './protocol/ts/v2/TurnStartResponse'
@@ -122,15 +130,19 @@ function startError(error: unknown): Error {
   return new Error(exit !== null ? `${exitText(exit)} before the Session started` : boundedText(`Codex did not start the Session: ${messageOf(error)}`), { cause: error })
 }
 
-/** The user's message as Codex's input: each image as a data URL, then the text with the attached files' paths. */
-export function userInput(message: SessionMessage): UserInput[] {
+/**
+ * The user's message as Codex's input: each image as a data URL, then the text with the attached files'
+ * paths. A message that calls a skill has its `$name` in place of `/name`, and the `skill` item after the text.
+ */
+export function userInput(message: SessionMessage, skill?: Extract<CodexCommand, { kind: 'skill' }>): UserInput[] {
   const images: UserInput[] = message.attachments.flatMap((each) => (each.kind === 'image' ? [{ type: 'image' as const, url: `data:${each.mediaType};base64,${each.data}` }] : []))
+  if (skill !== undefined) return [...images, { type: 'text', text: messageText(skill.text, message.attachments), text_elements: [] }, { type: 'skill', name: skill.name, path: skill.path }]
   const text = messageText(message.text, message.attachments)
   return text === '' && images.length > 0 ? images : [...images, { type: 'text', text, text_elements: [] }]
 }
 
 /** One `codex app-server` process of a Session, behind worfy's SessionHandle. */
-class CodexSession implements SessionHandle, CodexModelSource {
+class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource {
   private server: CodexAppServer | null = null
   private threadId = ''
   private readonly out = new InputQueue<AgentEvent>()
@@ -145,6 +157,8 @@ class CodexSession implements SessionHandle, CodexModelSource {
   /** Open approvals, by the id of their request: the controller withdraws the Session's request. */
   private readonly approvals = new Map<RequestId, AbortController>()
   private modelList: Promise<Model[]> | null = null
+  /** The skills of `skills/list` for the Session's folder; null until asked, and again after `skills/changed`. */
+  private skillList: Promise<SkillMetadata[]> | null = null
   /** The model the thread runs on, as Codex last named it. */
   private model = ''
   /** The version of Codex that runs the thread, as the thread names it. */
@@ -270,8 +284,7 @@ class CodexSession implements SessionHandle, CodexModelSource {
   }
 
   send(message: SessionMessage): Promise<void> {
-    const input = userInput(message)
-    this.sending = this.sending.then(() => this.deliver(input))
+    this.sending = this.sending.then(() => this.deliver(message))
     return this.sending
   }
 
@@ -322,9 +335,28 @@ class CodexSession implements SessionHandle, CodexModelSource {
     }
   }
 
-  /** The slash menu is the commands part's (ticket 22). */
-  commands(): Promise<SlashCommand[]> {
-    return Promise.resolve([])
+  /**
+   * The slash menu (commands.ts): the built-in commands and the skills of `skills/list`; the built-in
+   * ones alone when Codex cannot list its skills, none once the process is gone.
+   */
+  async commands(): Promise<SlashCommand[]> {
+    if (this.server === null || this.done) return []
+    try {
+      return codexSlashCommands(await this.codexSkills())
+    } catch (error) {
+      console.warn(`[codex] skills/list of thread ${this.threadId} failed`, error)
+      return [...CODEX_BUILT_IN_COMMANDS]
+    }
+  }
+
+  /** The skills of `skills/list` for the Session's folder, asked once per process and again after `skills/changed`; a failed ask is asked again next time. */
+  codexSkills(): Promise<SkillMetadata[]> {
+    if (this.server === null || this.done) return Promise.reject(new Error('Codex is not running'))
+    const list = (this.skillList ??= this.request<SkillsListResponse>('skills/list', { cwds: [this.opts.cwd] }).then((answer) => answer.data.flatMap((entry) => entry.skills)))
+    list.catch(() => {
+      if (this.skillList === list) this.skillList = null
+    })
+    return list
   }
 
   /** The models of `model/list`, asked once per process; a failed ask is asked again next time. */
@@ -358,21 +390,26 @@ class CodexSession implements SessionHandle, CodexModelSource {
     return server === null ? Promise.reject(new Error('Codex is not running')) : server.request<R, M>(method, params)
   }
 
-  /** One message: into the turn that runs, or as a new turn. Never rejects. */
-  private async deliver(input: UserInput[]): Promise<void> {
+  /** One message: a command of the slash menu, into the turn that runs, or as a new turn. Never rejects. */
+  private async deliver(message: SessionMessage): Promise<void> {
+    if (this.done) return
+    const command = await this.commandOf(message)
     if (this.done) return
     const turn = this.activeTurn
     try {
+      if (command?.kind === 'compact' || command?.kind === 'review') return await this.runCommand(command, turn)
+      const input = userInput(message, command ?? undefined)
       if (turn !== null && (await this.steer(turn, input))) return
       await this.startTurn(input)
     } catch (error) {
       // A process that is gone ends the events itself.
       if (this.done || exitOf(error) !== null) return
+      const what = command === null || command.kind === 'skill' ? 'start the turn' : `run /${command.kind}`
       this.out.push({
         type: 'result',
         subtype: 'error',
         isError: true,
-        error: boundedText(`Codex did not start the turn: ${messageOf(error)}`),
+        error: boundedText(`Codex did not ${what}: ${messageOf(error)}`),
         text: null,
         costUsd: 0,
         durationMs: 0,
@@ -382,6 +419,39 @@ class CodexSession implements SessionHandle, CodexModelSource {
         interrupted: false,
       })
     }
+  }
+
+  /**
+   * The command of the slash menu a message runs, or null. The skills are asked only for a `/name` that
+   * is no built-in command; when Codex cannot list them, the message goes as it was typed.
+   */
+  private async commandOf(message: SessionMessage): Promise<CodexCommand | null> {
+    const name = slashName(message.text)
+    if (name === null) return null
+    if (CODEX_BUILT_IN_COMMANDS.some((each) => each.name === name)) return codexCommandOf(message, [])
+    try {
+      return codexCommandOf(message, await this.codexSkills())
+    } catch (error) {
+      console.warn(`[codex] skills/list of thread ${this.threadId} failed; /${name} goes as text`, error)
+      return null
+    }
+  }
+
+  /**
+   * `/compact` or `/review`. Each starts a turn of its own, which ends with its `result` as any turn does;
+   * while another turn runs Codex would refuse it, so the Session is told to send it again after that one.
+   */
+  private async runCommand(command: Extract<CodexCommand, { kind: 'compact' | 'review' }>, turn: string | null): Promise<void> {
+    if (turn !== null) {
+      this.out.push({ type: 'notice', kind: 'notification', text: `Codex runs /${command.kind} only between turns: send it again once this turn ends.` })
+      return
+    }
+    if (command.kind === 'compact') {
+      await this.request('thread/compact/start', { threadId: this.threadId })
+      return
+    }
+    const answer = await this.request<ReviewStartResponse>('review/start', { threadId: this.threadId, target: command.target, delivery: 'inline' })
+    if (answer.turn.id !== this.lastEnded) this.activeTurn = answer.turn.id
   }
 
   /**
@@ -459,6 +529,11 @@ class CodexSession implements SessionHandle, CodexModelSource {
   }
 
   private notified(notification: ServerNotification): void {
+    // The skills on disk changed: the menu asks `skills/list` again next time.
+    if (notification.method === 'skills/changed') {
+      this.skillList = null
+      return
+    }
     // Request ids are the process's, not a thread's: Codex withdraws an approval of any of its threads.
     if (notification.method === 'serverRequest/resolved') this.withdraw(notification.params.requestId)
     const { threadId } = (notification.params ?? {}) as { threadId?: unknown }

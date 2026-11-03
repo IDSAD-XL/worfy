@@ -1,7 +1,7 @@
 # 22 — History и slash-команды Codex
 
 Type: task
-Status: open
+Status: claimed 2026-11-03T01:03Z
 Blocked by: 20
 Source: [spec.md](../spec.md), «Модель» (History, таблица частей); решение 06 ([06-граница-vendor.md](06-граница-vendor.md), части history и commands); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); Ticket 05 ([05-codex-транскрипты.md](05-codex-транскрипты.md)); Ticket 02 ([02-codex-управление-сессией.md](02-codex-управление-сессией.md), строка «Список slash-команд»)
 
@@ -37,3 +37,33 @@ Source: [spec.md](../spec.md), «Модель» (History, таблица час�
 
 Только читать: `src/shared/transcript/parse.ts:26-50`, `src/main/agent/commands.ts:1-12`,
 `src/main/vendors/codex/items.ts` (Ticket 20).
+
+## Итог
+
+- `src/main/vendors/codex/history.ts` — часть history driver-а Codex. Каждый запрос — свой короткоживущий
+  `codex app-server`, как у account (`withCodex`, `account.ts`); без папки CODEX_HOME процесс не запускается, у такого
+  Codex thread-ов нет.
+  - `list(cwd)` — `thread/list {sourceKinds: cli, vscode, exec, appServer; archived: false; sortKey: updated_at, desc}`
+    постранично (100 × до 20 страниц, `shortcut:` в коде). Thread-ы Subagent-ов (`subAgent*`) не входят.
+    Папку сравнивает worfy, `isInsidePath` (`src/main/claude-home/registry.ts:80`) в NFC: папка Project-а или папка
+    внутри неё, на Windows — любой разделитель и без учёта регистра. Фильтр `cwd` самого Codex сравнивает путь точно и
+    теряет подпапки и другой регистр, поэтому он не передаётся — отличие от п. 1 «Что делаем» (решено без владельца,
+    подтвердить). Название — `name`, иначе `preview`; время — `updatedAt` × 1000; `origin` — `originator`: `worfy` —
+    своя, другой — `external`, нет — `null`.
+  - `read(id, cwd)` — `thread/read {threadId, includeTurns: true}`, `cwd` не нужен. Item-ы переводит `CodexItems`
+    Ticket-а 20 (как `item/completed` живой Session); сообщение пользователя — `notice` `user`, как в транскрипте
+    Claude; у записи — id item-а и время начала его хода.
+- `src/main/vendors/codex/commands.ts` — slash-меню: `/compact`, `/review`, затем включённые skills `skills/list` по
+  имени, каждый один раз (описание — `interface.shortDescription`, `shortDescription`, `description`). Разбор
+  сообщения: `/compact` → `thread/compact/start`; `/review` → `review/start` inline (`uncommittedChanges`, с текстом —
+  `custom`); skill → текст `$name …` и item `skill {name, path}` в том же `turn/start`. Встроенная команда с вложениями
+  уходит обычным сообщением, чтобы вложения не потерялись (решено без владельца, подтвердить).
+- `src/main/vendors/codex/session.ts` — п. 3 «Что делаем» («правятся только history.ts и commands.ts») неверен: разбор
+  команды и item `skill` — в `deliver`/`userInput` Session; `skills/list` спрашивается раз на процесс и снова после
+  `skills/changed`; `commands()` отдаёт строки меню (без skills, если `skills/list` не ответил; пусто после close).
+  `/compact` или `/review` во время хода — notice «только между ходами» (решено без владельца, подтвердить); отказ
+  Codex — `result` с ошибкой `Codex did not run /compact: …`.
+- `commandsComplete` у Codex остаётся `false`: команды TUI без метода (`/model`, `/plan` …) в меню не входят.
+- Тесты: `test/unit/codex-history.test.ts`, `test/contract/codex-history.test.ts` (сценарии `threads`, `thread-read`),
+  новые случаи в конце `test/contract/codex-session.test.ts` (сценарии `skills`, `compact`, `review`);
+  `test/unit/codex-capabilities.test.ts` — убраны проверки stub-ов history и commands.

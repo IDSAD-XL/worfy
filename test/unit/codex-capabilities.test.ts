@@ -74,23 +74,17 @@ describe('the Codex driver', () => {
     expect(codexDriver().mcp.delivery).toBe('http')
   })
 
-  it('answers every part it does not run yet with PartNotWired, naming the ticket that wires it', async () => {
-    const { history, oneShot } = codexDriver()
-    const cases: [Promise<unknown>, RegExp][] = [
-      [history.list('/p'), /history of the codex driver .*ticket 22/],
-      [history.read('t-1', '/p'), /history of the codex driver .*ticket 22/],
-      [oneShot('hi', { cwd: '/p' }), /oneShot of the codex driver .*first release/],
-    ]
-    for (const [answer, message] of cases) {
-      const error: unknown = await answer.catch((caught: unknown) => caught)
-      expect(error).toBeInstanceOf(PartNotWired)
-      expect((error as Error).message).toMatch(message)
-    }
+  it('answers the part it does not run in the first release with PartNotWired, saying so', async () => {
+    const error: unknown = await codexDriver()
+      .oneShot('hi', { cwd: '/p' })
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(PartNotWired)
+    expect((error as Error).message).toMatch(/oneShot of the codex driver .*first release/)
   })
 
-  it('answers the slash menu with PartNotWired too', async () => {
+  it('lists the slash menu only of a Codex Session\'s handle', async () => {
     const handle = {} as Parameters<ReturnType<typeof codexDriver>['commands']['list']>[0]
-    await expect(codexDriver().commands.list(handle)).rejects.toThrow(/commands of the codex driver .*ticket 22/)
+    await expect(codexDriver().commands.list(handle)).rejects.toThrow(/Session handle of the Codex driver/)
   })
 })
 

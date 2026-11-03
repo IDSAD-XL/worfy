@@ -1,0 +1,10 @@
+{"expect":"initialize","result":{"codexHome":"/fake/codex-home","platformFamily":"unix","platformOs":"macos","userAgent":"worfy-fake-app-server/0.166.0"}}
+{"expect":"initialized"}
+{"expect":"thread/start","result":{"approvalPolicy":"on-request","approvalsReviewer":"user","cwd":"/fake/project","model":"gpt-5.5-codex","modelProvider":"openai","reasoningEffort":"medium","sandbox":{"type":"workspaceWrite"},"thread":{"id":"thr_fake_1","sessionId":"ses_thr_fake_1","cliVersion":"0.166.0","createdAt":1793000000,"updatedAt":1793000000,"cwd":"/fake/project","ephemeral":false,"modelProvider":"openai","model":"gpt-5.5-codex","originator":"worfy","preview":"","projectId":null,"source":"appServer","status":{"type":"idle"},"turns":[]}}}
+{"notify":"thread/started","params":{"thread":{"id":"thr_fake_1","sessionId":"ses_thr_fake_1","cliVersion":"0.166.0","createdAt":1793000000,"updatedAt":1793000000,"cwd":"/fake/project","ephemeral":false,"modelProvider":"openai","model":"gpt-5.5-codex","originator":"worfy","preview":"","projectId":null,"source":"appServer","status":{"type":"idle"},"turns":[]}}}
+{"expect":"thread/compact/start","result":{}}
+{"notify":"turn/started","params":{"threadId":"thr_fake_1","turn":{"id":"turn_c1","items":[],"status":"inProgress","startedAt":1793000000}}}
+{"notify":"item/started","params":{"threadId":"thr_fake_1","turnId":"turn_c1","startedAtMs":1793000000000,"item":{"type":"contextCompaction","id":"cc_1"}}}
+{"notify":"item/completed","params":{"threadId":"thr_fake_1","turnId":"turn_c1","completedAtMs":1793000002000,"item":{"type":"contextCompaction","id":"cc_1"}}}
+{"notify":"turn/completed","params":{"threadId":"thr_fake_1","turn":{"id":"turn_c1","items":[],"status":"completed","startedAt":1793000000,"completedAt":1793000003,"durationMs":3000}}}
+{"expect":"thread/compact/start","error":{"code":-32600,"message":"nothing to compact yet"}}
