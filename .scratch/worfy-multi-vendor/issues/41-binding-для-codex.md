@@ -1,7 +1,8 @@
 # 41 — Binding для Session-ов Codex
 
 Type: task
-Status: open
+Status: done 2026-11-03T16:01Z
+PR: #1297
 Blocked by: —
 Source: [spec.md](../spec.md), «Цель и что видит пользователь» (второй выпуск); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); [CONTEXT.md](../../../CONTEXT.md), термин Binding
 
