@@ -1,7 +1,8 @@
 # 24 — Выбор Vendor-а и значок
 
 Type: task
-Status: claimed 2026-11-03T04:25Z
+Status: done 2026-11-03T05:28Z
+PR: #1274
 Blocked by: 17, 18, 20, 21, 23
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 1–2, «Решено без владельца», п. 7, 8, 10; решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); Ticket 01 ([01-destination-vendor-масштаб.md](01-destination-vendor-масштаб.md), п. 3)
 
