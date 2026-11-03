@@ -1,7 +1,8 @@
 # 25 — Пикеры, диалог подтверждения и slash-меню по capabilities
 
 Type: task
-Status: open
+Status: done 2026-11-03T10:55Z
+PR: #1282
 Blocked by: 22, 24
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 4–6, 11, «Модель» (Capabilities); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md), «Как показывать то, чего Vendor не умеет»)
 
