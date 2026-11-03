@@ -19,14 +19,26 @@
 // Exit codes: 2 holds the turn (the message is on stderr), 0 otherwise. A failure inside the hook
 // is one line on stderr and code 0: a broken hook must not hold every turn of the session.
 //
+// On Codex (worfy-multi-vendor ticket 36; the input tells, codex-input.mjs) the hook runs the gate
+// itself. Codex has no TaskCompleted or TeammateIdle, the events that run the gate under Claude Code,
+// so on Stop and on SubagentStop in a registered project this hook first runs `gate.mjs fast` with the hook input on stdin
+// (the gate's green cache keeps a turn that changed nothing cheap), then holds the turn on its red
+// marker as below: neither the agent nor a Subagent finishes with a red gate. Codex reads the block
+// the same way (exit 2, the reason on stderr). Its Stop output takes no hookSpecificOutput, so a
+// message to the model is {"decision":"block","reason":…}: Codex continues the turn with the reason
+// as a new prompt, the extra turn additionalContext costs under Claude Code. Under Claude Code,
+// SubagentStop is no gate point and the hook does nothing on it; the Stop hook stays cheap there.
+//
 // For tests: CLAUDE_GATE_STATE (the state folder), CLAUDE_GATE_RESOLVE (the resolver),
 // CLAUDE_GATE_CONFIG (read by the resolver). Tests: hooks/tests/gate-notverified.test.sh,
-// gate-unregistered.test.sh, bin/tests/harness-home.test.sh.
+// gate-unregistered.test.sh, bin/tests/harness-home.test.sh; on Codex inputs
+// test/contract/harness-codex-hooks.test.ts.
 
 import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { isCodexInput } from "./codex-input.mjs"
 import { gateStateDir, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
 
 const MAX_BLOCKS = 2
@@ -79,11 +91,24 @@ function touch(p) {
 }
 
 // The context for the model without blocking the turn. Control characters other than tab and line
-// breaks are dropped.
-function say(text) {
+// breaks are dropped. On Codex the same message is a block with the message as its reason (see the
+// header): Codex's Stop output knows no additionalContext.
+function say(text, codex) {
     const kept = (ch) => ch >= " " || ch === "\t" || ch === "\n" || ch === "\r"
     const clean = [...text].filter(kept).join("")
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "Stop", additionalContext: clean } }))
+    const output = codex ? { decision: "block", reason: clean } : { hookSpecificOutput: { hookEventName: "Stop", additionalContext: clean } }
+    process.stdout.write(JSON.stringify(output))
+}
+
+// Runs `gate.mjs fast` (next to this script) with the hook input on stdin, in the current folder, and
+// waits for it; its output is dropped, since Codex reads the stdout of a Stop hook as its decision.
+// The verdict is in the markers the gate leaves, read below.
+function runGate(here, input) {
+    spawnSync(process.execPath, [path.join(here, "gate.mjs"), "fast"], {
+        input,
+        stdio: ["pipe", "ignore", "ignore"],
+        windowsHide: true,
+    })
 }
 
 // What the hook does; the exit code it returns.
@@ -98,6 +123,8 @@ function main() {
     try {
         payload = JSON.parse(input)
     } catch {}
+    const codex = isCodexInput(payload)
+    if (field(payload, "hook_event_name") === "SubagentStop" && !codex) return 0
 
     const repo = worktreeRoot()
     if (!repo) return 0
@@ -122,7 +149,7 @@ function main() {
         notes += (notes ? " " : "") + s
     }
     const flushNotes = () => {
-        if (notes) say(`${notes} This is not a green result — say "not verified", not "done".`)
+        if (notes) say(`${notes} This is not a green result — say "not verified", not "done".`, codex)
         return 0
     }
 
@@ -136,6 +163,9 @@ function main() {
     })
     if (!which.error && !which.signal && which.status === 0) resolved = true
     let key = String(which.stdout ?? "").replace(/\n+$/, "").split("\t")[0]
+    // On Codex, the gate of a registered project runs here; a folder outside the registry gets no run
+    // and no "not verified" turn, as under Claude Code, where the gate runs on TaskCompleted only.
+    if (codex && resolved && key) runGate(here, input)
 
     // Gate markers without a project key (code 3: not registered, the registry cannot be read,
     // no node). Take only our own: of this tree and this session. A marker without a session
@@ -228,7 +258,7 @@ function main() {
                 touch(giveup)
                 note(`The quality gate is still red and was not cleared in ${MAX_BLOCKS} attempts. Do not describe this work as verified — say plainly that the gate fails.`)
             }
-            if (notes) say(notes)
+            if (notes) say(notes, codex)
             return 0
         }
 
