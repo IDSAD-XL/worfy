@@ -44,8 +44,13 @@ describe('the capabilities of Codex', () => {
     expect(CODEX_CAPABILITIES).toMatchObject({ steer: true, resume: true, historyList: true, modelSwitchStable: true, limitSource: 'windows' })
   })
 
-  it('lacks Subagents, MCP in the app\'s process, the canvas tools, hooks and the Harness, each with a reason', () => {
-    for (const flag of ['subagents', 'inProcessMcp', 'canvasTools', 'hooks', 'harness', 'oneShotToolFree', 'commandsComplete'] as const) {
+  it('has the canvas tools (over HTTP, ticket 33), with no reason they are missing', () => {
+    expect(CODEX_CAPABILITIES.canvasTools).toBe(true)
+    expect(CODEX_CAPABILITIES.unsupported.canvasTools).toBeUndefined()
+  })
+
+  it('lacks Subagents, MCP in the app\'s process, hooks and the Harness, each with a reason', () => {
+    for (const flag of ['subagents', 'inProcessMcp', 'hooks', 'harness', 'oneShotToolFree', 'commandsComplete'] as const) {
       expect(CODEX_CAPABILITIES[flag]).toBe(false)
       expect(CODEX_CAPABILITIES.unsupported[flag]).toMatch(/\w/)
     }

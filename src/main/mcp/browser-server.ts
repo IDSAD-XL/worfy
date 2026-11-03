@@ -1,6 +1,7 @@
 // The Browser MCP server `worfy-browser` (ADR-0078 items 4, 5 and 8; worfy-browser ticket 04):
 // in process, like `worfy-canvas` (canvas-server.ts), one per Session in a Project, bound to that
-// Project. It opens a Browser under an existing Browser profile — a new Browser Node next to the
+// Project; for Codex worfy main serves it over HTTP on 127.0.0.1 (browserBindingForSession,
+// src/main/mcp/http-server.ts; worfy-multi-vendor ticket 33). It opens a Browser under an existing Browser profile — a new Browser Node next to the
 // Session's Node, a Layout `create` that is not a step of ⌘Z, with the Session in `data.openedBy` —
 // and drives Live Browsers over CDP (src/main/browser/cdp.ts).
 //
@@ -489,6 +490,32 @@ export function appBrowserContext(projectId: string, sessionId: () => string | n
  * (canvasForSession) — or null when `cwd` is in no Project.
  */
 export async function browserForSession(request: Parameters<BrowserResolver>[0], deps: BrowserDeps = browserAppDeps()): Promise<BrowserSession | null> {
+  const browser = await browserBindingForSession(request, deps)
+  if (browser === null) return null
+  const server = await claudeMcpServer(browser.server)
+  return {
+    attachment: { server, instructions: browser.instructions },
+    observe: (query) =>
+      observeMessages(query, (message) => {
+        for (const event of sdkMessageToEvents(message)) if (event.type === 'init') browser.setSessionId(event.sdkSessionId)
+      }),
+  }
+}
+
+/**
+ * The Browser of one Session for a driver that serves the server its own way (Codex, over HTTP:
+ * src/main/mcp/http-server.ts), in worfy's terms only. The driver tells it the Session's id.
+ */
+export interface BrowserBinding {
+  server: McpServer
+  /** The agent instructions of the Browser tools (browserInstructions). */
+  instructions: string
+  /** The Session's id from now on: each turn's init names it. */
+  setSessionId(id: string): void
+}
+
+/** The Browser binding of a Session starting in `cwd`, found as browserForSession finds it; null outside every Project. */
+export async function browserBindingForSession(request: Parameters<BrowserResolver>[0], deps: BrowserDeps = browserAppDeps()): Promise<BrowserBinding | null> {
   let project = projectForCwd(deps.projects(), request.cwd)
   if (project === undefined) {
     const root = await (deps.repositoryRoot ?? repositoryRoot)(request.cwd)
@@ -496,13 +523,12 @@ export async function browserForSession(request: Parameters<BrowserResolver>[0],
   }
   if (project === undefined) return null
   let sessionId: string | null = request.resume ?? null
-  const server = await createBrowserServer(appBrowserContext(project.id, () => sessionId, deps, request.autopilot === true))
   return {
-    attachment: { server, instructions: browserInstructions() },
-    observe: (query) =>
-      observeMessages(query, (message) => {
-        for (const event of sdkMessageToEvents(message)) if (event.type === 'init') sessionId = event.sdkSessionId
-      }),
+    server: browserServer(appBrowserContext(project.id, () => sessionId, deps, request.autopilot === true)),
+    instructions: browserInstructions(),
+    setSessionId: (id) => {
+      sessionId = id
+    },
   }
 }
 
