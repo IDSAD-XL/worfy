@@ -6,7 +6,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
-import type { SubagentSignal } from '../../src/shared/transcript/subagents'
+import type { SubagentInfo, SubagentSignal } from '../../src/shared/transcript/subagents'
 
 const ROOT = '/Users/test/projects/demo'
 const A = 'aaaaaaaa-0000-4000-8000-00000000000a'
@@ -20,7 +20,10 @@ const running = (sessionId: string): SubagentSignal[] => [
 let asked: Array<{ channel: string; input: unknown }>
 let changed: ((payload: unknown) => void) | undefined
 /** What main answers for a Session's files; by default, a running Subagent. */
-let filesOf: (sessionId: string) => { signals: SubagentSignal[]; files: []; found: boolean; processStartedAt?: number }
+let filesOf: (sessionId: string) => { signals: SubagentSignal[]; files: []; found: boolean; processStartedAt?: number; tree?: SubagentInfo[] }
+/** The Project's history main answers; with `codex`, the window asks for it every CODEX_SESSIONS_POLL_MS. */
+let history: { sessionId: string; modifiedAt: number }[]
+let codexList: boolean
 
 beforeEach(() => {
   vi.resetModules()
@@ -28,6 +31,8 @@ beforeEach(() => {
   asked = []
   changed = undefined
   filesOf = (sessionId) => ({ signals: running(sessionId), files: [], found: true })
+  history = []
+  codexList = false
   const bridge = {
     invoke: (channel: string, input: unknown) => {
       asked.push({ channel, input })
@@ -35,7 +40,10 @@ beforeEach(() => {
         const { sessionId } = input as { sessionId: string }
         return Promise.resolve({ ok: true, value: filesOf(sessionId) })
       }
-      if (channel === 'claudeHome.sessions') return Promise.resolve({ ok: true, value: { live: [], history: [] } })
+      if (channel === 'claudeHome.sessions') {
+        const entries = history.map((entry) => ({ ...entry, size: 0, live: false }))
+        return Promise.resolve({ ok: true, value: { live: [], history: entries, ...(codexList ? { codex: true } : {}) } })
+      }
       if (channel === 'claudeHome.live') return Promise.resolve({ ok: true, value: { live: [] } })
       return Promise.resolve({ ok: true, value: {} })
     },
@@ -195,5 +203,87 @@ describe('hidden Subagent entries', () => {
     // The read asked before the Hide answers now, with the list as it was then.
     await act(async () => answerRead!({ ok: true, value: { sessions: {} } }))
     expect(hook.result.current).toEqual({ [A]: ['toolu_x'] })
+  })
+})
+
+// A Session whose tree main builds from its Vendor's process (a Codex Session, worfy-multi-vendor ticket 34):
+// no file event comes for it, so it is asked again while a Subagent of it runs, less often than files,
+// and when the Project's history shows the Session changed.
+describe('useSubagentTrees: a tree main builds (a Codex Session)', () => {
+  const entry = (status: SubagentInfo['status']): SubagentInfo => ({
+    id: 'agent:thr-ada',
+    agentId: 'thr-ada',
+    toolUseId: null,
+    parentAgentId: null,
+    name: 'Ada',
+    subagentType: 'explorer',
+    model: null,
+    description: null,
+    status,
+    background: true,
+    startedAt: 1000,
+    durationMs: status === 'running' ? null : 5000,
+    summary: null,
+    verdict: null,
+    depth: 1,
+    transcript: false,
+    children: [],
+  })
+
+  it('shows the tree as main built it, and asks again every TREE_POLL_MS while a Subagent of it runs', async () => {
+    let status: SubagentInfo['status'] = 'running'
+    filesOf = () => ({ signals: [], files: [], found: true, tree: [entry(status)] })
+    const { hook, store } = await mount([A])
+    await vi.waitFor(() => expect(hook.result.current.get(A)).toEqual([entry('running')]))
+    expect(readsOf(A)).toBe(1)
+    // Not at the pace of the files.
+    await act(async () => vi.advanceTimersByTime(store.POLL_MS))
+    expect(readsOf(A)).toBe(1)
+    await act(async () => vi.advanceTimersByTime(store.TREE_POLL_MS - store.POLL_MS))
+    await vi.waitFor(() => expect(readsOf(A)).toBe(2))
+
+    status = 'done'
+    await act(async () => vi.advanceTimersByTime(store.TREE_POLL_MS))
+    await vi.waitFor(() => expect(hook.result.current.get(A)?.[0]?.status).toBe('done'))
+    const reads = readsOf(A)
+    await act(async () => vi.advanceTimersByTime(store.TREE_POLL_MS * 3))
+    expect(readsOf(A)).toBe(reads)
+  })
+
+  it('asks again when the history shows the Session changed, and so for a Session main did not find yet', async () => {
+    const { CODEX_SESSIONS_POLL_MS } = await import('../../src/shared/ipc/claude-home')
+    codexList = true
+    history = [{ sessionId: A, modifiedAt: 1 }]
+    filesOf = (sessionId) => (sessionId === A ? { signals: [], files: [], found: true, tree: [entry('done')] } : { signals: [], files: [], found: false })
+    const { hook } = await mount([A, B])
+    await vi.waitFor(() => expect(hook.result.current.get(A)).toHaveLength(1))
+    await vi.waitFor(() => expect(readsOf(B)).toBe(1))
+    expect(readsOf(A)).toBe(1)
+
+    // The next list: A changed, B appears.
+    history = [
+      { sessionId: A, modifiedAt: 2 },
+      { sessionId: B, modifiedAt: 2 },
+    ]
+    await act(async () => vi.advanceTimersByTime(CODEX_SESSIONS_POLL_MS))
+    await vi.waitFor(() => expect(readsOf(A)).toBe(2))
+    await vi.waitFor(() => expect(readsOf(B)).toBe(2))
+    // The same list again changes nothing.
+    await act(async () => vi.advanceTimersByTime(CODEX_SESSIONS_POLL_MS))
+    expect(readsOf(A)).toBe(2)
+    expect(readsOf(B)).toBe(2)
+  })
+
+  it('does not ask a Session of files again when the history shows it changed: its file events do', async () => {
+    const { CODEX_SESSIONS_POLL_MS } = await import('../../src/shared/ipc/claude-home')
+    codexList = true
+    history = [{ sessionId: A, modifiedAt: 1 }]
+    filesOf = () => ({ signals: [], files: [], found: true })
+    await mount([A])
+    await vi.waitFor(() => expect(readsOf(A)).toBe(1))
+    history = [{ sessionId: A, modifiedAt: 2 }]
+    await act(async () => vi.advanceTimersByTime(CODEX_SESSIONS_POLL_MS))
+    await vi.waitFor(() => expect(asked.filter(({ channel }) => channel === 'claudeHome.sessions').length).toBeGreaterThan(1))
+    expect(readsOf(A)).toBe(1)
   })
 })

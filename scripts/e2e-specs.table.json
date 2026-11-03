@@ -211,6 +211,16 @@
         "test/e2e/settings.spec.ts"
       ],
       "why": "Settings → Vendors (worfy-multi-vendor ticket 29): the section draws only while it is the one shown. onboarding-codex.spec.ts opens it — the sign-in to Codex on the fake, a Codex signed out, a build without Codex — and settings.spec.ts walks the section list of the window, which every section file joins through the eager import.meta.glob of sections.ts. Left out: src/main/ipc/vendors.ts and src/shared/ipc/vendors.ts, which every launch loads with the IPC handlers and the renderer's channels, and GettingStartedPanel.tsx, which every window mounts."
+    },
+    {
+      "paths": [
+        "src/main/vendors/codex/subagents.ts"
+      ],
+      "specs": [
+        "test/e2e/codex-sessions-on-canvas.spec.ts",
+        "test/e2e/codex-subagents.spec.ts"
+      ],
+      "why": "The Subagents of a Codex Session (worfy-multi-vendor ticket 34): main reads a tree from Codex only for a Codex thread the Project's list names, so only a spec with a Codex Session's Node on the Canvas runs it. codex-subagents.spec.ts shows the tree; codex-sessions-on-canvas.spec.ts draws such a Node, whose ask for the tree meets a script without one. Left out: src/main/ipc/claude-home.ts and src/renderer/claude-home/subagents.ts, which every Claude Session runs through."
     }
   ]
 }

@@ -11,6 +11,13 @@
 //   moments before Claude Code has written the files. An event carries no time, so the time worfy
 //   first saw it stands in for its start or end.
 //
+// A Session whose Vendor keeps no `subagents/` folder (a Codex Session, worfy-multi-vendor ticket 34) gets
+// its tree built in main (`tree` of the answer), read from the Vendor's own process: no file event comes
+// for it. It is asked again every TREE_POLL_MS while a Subagent of it runs, and when the Project's
+// history shows the Session changed (its `modifiedAt`; main asks Codex for that list every
+// CODEX_SESSIONS_POLL_MS). So is a Session main did not find yet: a Codex Session started in worfy is
+// found once the Project's list names it.
+//
 // Several views read one Session — its Node's tree on the Canvas, the rail of the Session view —
 // so each (Project, Session) is asked for once and kept while anyone reads it.
 import { useEffect, useMemo, useState } from 'react'
@@ -24,6 +31,11 @@ import { useClaudeHome } from './useClaudeHome'
 
 /** How often the files are asked again while a Subagent of the Session runs. */
 export const POLL_MS = 2000
+/**
+ * How often a tree main builds from a Vendor's process is asked again while a Subagent of it runs: each
+ * ask starts that process, so less often than the files.
+ */
+export const TREE_POLL_MS = 5000
 
 export interface SessionFiles {
   signals: readonly SubagentSignal[]
@@ -31,6 +43,8 @@ export interface SessionFiles {
   found: boolean
   /** When the Session's running process started, when main knows it (ADR-0085). */
   processStartedAt?: number | undefined
+  /** The tree itself, built in main for a Vendor that keeps no `subagents/` folder (ticket 34). */
+  tree?: readonly SubagentInfo[] | undefined
 }
 
 interface SubagentsStore {
@@ -97,6 +111,10 @@ interface Reader {
   timer: ReturnType<typeof setInterval> | undefined
   /** Whether the Session's tree, live events included, has a running Subagent (noteRunning). */
   live: boolean
+  /** The interval of `timer`. */
+  every: number
+  /** The Session's `modifiedAt` in the Project's history when last looked at (noteHistory). */
+  modifiedAt: number | undefined
 }
 
 const readers = new Map<string, Reader>()
@@ -131,17 +149,24 @@ function refresh(root: string, sessionId: string): void {
 
 const anyRunning = (tree: readonly SubagentInfo[]): boolean => tree.some((info) => info.status === 'running' || anyRunning(info.children))
 
+/** The tree of what main answered: the one it built, or the one its signals and files make. */
+const treeOfFiles = (files: SessionFiles): readonly SubagentInfo[] => files.tree ?? buildSubagentTree(files)
+
 /** Polls while the Session's files, or its tree with the live events, say a Subagent runs. */
 function schedule(root: string, sessionId: string): void {
   const key = keyOf(root, sessionId)
   const reader = readers.get(key)
   if (reader === undefined) return
   const files = useSubagentsStore.getState().bySession[key] ?? EMPTY_FILES
-  const running = reader.live || anyRunning(buildSubagentTree(files))
-  if (running && reader.timer === undefined) reader.timer = setInterval(() => refresh(root, sessionId), POLL_MS)
-  else if (!running && reader.timer !== undefined) {
+  const running = reader.live || anyRunning(treeOfFiles(files))
+  const every = files.tree === undefined ? POLL_MS : TREE_POLL_MS
+  if (reader.timer !== undefined && (!running || reader.every !== every)) {
     clearInterval(reader.timer)
     reader.timer = undefined
+  }
+  if (running && reader.timer === undefined) {
+    reader.every = every
+    reader.timer = setInterval(() => refresh(root, sessionId), every)
   }
 }
 
@@ -165,8 +190,25 @@ function acquire(root: string, sessionId: string): void {
     reader.users += 1
     return
   }
-  readers.set(key, { users: 1, running: false, again: false, timer: undefined, live: false })
+  readers.set(key, { users: 1, running: false, again: false, timer: undefined, live: false, every: POLL_MS, modifiedAt: undefined })
   refresh(root, sessionId)
+}
+
+/**
+ * The Project's history changed: a Session whose tree main builds from its Vendor's process is asked again
+ * when its `modifiedAt` there changed since it was last looked at, and a Session main did not find also when
+ * the history names it for the first time (main may know it by now).
+ */
+function noteHistory(root: string, history: readonly { sessionId: string; modifiedAt: number }[]): void {
+  for (const { sessionId, modifiedAt } of history) {
+    const key = keyOf(root, sessionId)
+    const reader = readers.get(key)
+    if (reader === undefined || reader.modifiedAt === modifiedAt) continue
+    const seenBefore = reader.modifiedAt !== undefined
+    reader.modifiedAt = modifiedAt
+    const files = useSubagentsStore.getState().bySession[key]
+    if (files !== undefined && (!files.found || (seenBefore && files.tree !== undefined))) refresh(root, sessionId)
+  }
 }
 
 /** The hooks tell whether a Session's tree, live events included, has a running Subagent. */
@@ -201,6 +243,7 @@ function release(root: string, sessionId: string): void {
 
 /** The tree of one Session from its files and, for a Session of worfy, its live events. */
 export function treeOf(files: SessionFiles | undefined, events: readonly AgentEvent[] | undefined): readonly SubagentInfo[] {
+  if (files?.tree !== undefined) return files.tree.length === 0 ? EMPTY_TREE : files.tree
   const live = events && events.length > 0 ? liveSignals(events) : []
   if ((files === undefined || (files.signals.length === 0 && files.files.length === 0)) && live.length === 0) return EMPTY_TREE
   return buildSubagentTree({ signals: [...(files?.signals ?? []), ...live], files: files?.files ?? [], processStartedAt: files?.processStartedAt })
@@ -224,7 +267,7 @@ function cachedTree(key: string, files: SessionFiles | undefined, events: readon
  * while the calling component is mounted. The same object while nothing changed.
  */
 export function useSubagentTrees(root: string | undefined, sessionIds: readonly string[]): ReadonlyMap<string, readonly SubagentInfo[]> {
-  useClaudeHome(root)
+  const { history } = useClaudeHome(root)
   const ids = sessionIds.join('\n')
   useEffect(() => {
     ensureAgentEvents()
@@ -258,6 +301,9 @@ export function useSubagentTrees(root: string | undefined, sessionIds: readonly 
     if (root === undefined || ids === '') return
     for (const sessionId of ids.split('\n')) noteRunning(root, sessionId, anyRunning(trees.get(sessionId) ?? EMPTY_TREE))
   }, [root, ids, trees])
+  useEffect(() => {
+    if (root !== undefined && ids !== '') noteHistory(root, history)
+  }, [root, ids, history, bySession])
   return trees
 }
 
