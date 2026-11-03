@@ -1,7 +1,8 @@
 # 29 — Onboarding и вход в Codex
 
 Type: task
-Status: claimed 2026-11-03T09:51Z
+Status: done 2026-11-03T11:51Z
+PR: #1283
 Blocked by: 21, 24
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 9, «Решено без владельца», п. 6; решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); [ADR-0009](../../../docs/adr/0009-claude-code-login-check-account-info.md)
 
