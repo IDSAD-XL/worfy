@@ -10,7 +10,7 @@ import { clickMenuItem } from './menu'
 // agents on their fakes: Claude Code on the fake agent, Codex on the fake app-server (WORFY_CODEX=fake,
 // which every launch sets; the real Codex never starts, and nothing here signs in anywhere).
 //
-// - Fake `login`: Getting started offers "Use Codex too", whose button opens Settings → Vendors; there
+// - Fake `login`: Getting started offers the link "Use Codex too" in its footer, which opens Settings → Vendors; there
 //   «Sign in to Codex» runs the fake's ChatGPT sign-in. Its page reaches only a recorder that replaces
 //   shell.openExternal in main — no browser opens, no OpenAI page loads. The row then shows the account
 //   the sign-in ended with. The fake plays one script from its start for every process and keeps no
@@ -119,13 +119,13 @@ test('fake `login`: Getting started → Settings → Vendors → «Sign in to Co
     await canvasReady(launched, { size: SIZE })
     await recordOutside(app)
 
-    // Getting started offers Codex, apart from its six steps.
+    // Getting started offers Codex in its footer, apart from its six steps.
     const panel = window.getByTestId('getting-started')
-    const useCodex = panel.locator('[data-testid="getting-started-vendor"][data-vendor="codex"]')
-    await expect(useCodex).toContainText('Use Codex too')
+    const useCodex = panel.getByRole('button', { name: 'Use Codex too' })
+    await expect(useCodex).toHaveAttribute('data-vendor', 'codex')
     await expect(panel.getByTestId('getting-started-step')).toHaveCount(6)
     await screenshots(window, panel, '29-getting-started')
-    await useCodex.getByRole('button', { name: 'Sign in to Codex…' }).click()
+    await useCodex.click()
 
     // Its button opens Settings on Vendors: Claude Code signed in (the fake agent's account), Codex not.
     const dialog = window.getByRole('dialog', { name: 'Settings' })

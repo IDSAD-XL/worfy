@@ -232,9 +232,10 @@ project" and "Remove the demo project". "Show steps" brings the list back until 
 from. The Command palette's "Getting started" shows the panel again at any time, expanded and with the focus on its heading, with or
 without a Project.
 "Connect your own project" under the steps is not part of the demo: "Connect…" opens the same "Add project" as "+" of Projects.
-Below it, while Codex is in this build, "Use Codex too" is optional and not a step: nothing marks it, and the count `n/6` leaves it
-out. "Sign in to Codex…" opens Settings → Vendors, where the sign-in is ([Sessions](sessions.md)). Leaving it alone changes
-nothing; the sign-in to Claude Code stays a check of step 1.
+While Codex is in this build, the footer has the link "Use Codex too" between "worfy Guide" and "Skip", under the steps and under
+Done alike. It is optional and not a step: nothing marks it, and the count `n/6` leaves it out. It opens Settings → Vendors, where
+the sign-in is ([Sessions](sessions.md)). Leaving it alone changes nothing; the sign-in to Claude Code stays a check of step 1. It
+adds no height to the panel, so the toasts still fit under the panel in the Session view.
 
 #### Windows
 

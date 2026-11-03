@@ -57,10 +57,14 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   `WORFY_CODEX=absent` — сборка без Codex для e2e: ничего не запускается, как на платформе без пакета Codex. Это правки
   вне «Где в коде» (`account.ts`, `codex/account.ts`, `codex/launch.ts`): без них e2e сборки без бинарника пришлось бы
   гонять на настоящем Codex.
-- Getting started: под «Connect your own project» — «Use Codex too», только когда Codex в сборке. Это не шаг: не
-  отмечается, в счёт `n/6` не входит; кнопка «Sign in to Codex…» открывает Settings → Vendors (решено без владельца,
-  подтвердить: вход один, в Settings, а не вторая кнопка входа в панели). Проверка входа в Claude Code
-  (`src/main/ipc/first-run.ts`) не менялась, test-ы first-run — без правок ожиданий.
+- Getting started: ссылка «Use Codex too» в нижней строке панели, между «worfy Guide» и «Skip», только когда Codex в
+  сборке; tooltip объясняет, что шаг необязательный. Это не шаг: не отмечается, в счёт `n/6` не входит; ссылка
+  открывает Settings → Vendors (решено без владельца, подтвердить: вход один, в Settings, а не вторая кнопка входа в
+  панели). Сначала это был отдельный блок под «Connect your own project», но он делал панель выше на ~100 px: в
+  Session view toast «Skip» больше не помещался под панелью, вставал наверх и закрывал Hide tools
+  (`test/e2e/getting-started.spec.ts`, красный CI на macOS и Windows). Ссылка в нижней строке высоты не добавляет
+  (решено без владельца, подтвердить). Проверка входа в Claude Code (`src/main/ipc/first-run.ts`) не менялась,
+  test-ы first-run — без правок ожиданий.
 - Нет входа, нет бинарника: Codex в «New session» неактивен с tooltip `Sign in to Codex in Settings → Vendors`
   (Ticket 24); toast-ов и диалогов ошибок нет. В сборке без бинарника tooltip тот же (решено без владельца, подтвердить):
   особый текст потребовал бы правки `app-node-sessions.ts`, который правит параллельный Ticket 27; Settings → Vendors

@@ -66,8 +66,8 @@ import { GETTING_STARTED_COLLAPSED_KEY, skipGettingStarted, useGettingStarted, u
  * alike, opens the worfy Guide (ADR-0090) over the window; the panel stays as it was. Nothing in the
  * panel opens the Guide by itself.
  *
- * worfy-multi-vendor ticket 29: below "Connect your own project", the optional "Use Codex too" while
- * Codex is in the build (OptionalVendors). It is not one of the six steps.
+ * worfy-multi-vendor ticket 29: in the footer, between "worfy Guide" and "Skip", the optional link "Use
+ * Codex too" while Codex is in the build (OptionalVendors). It is not one of the six steps.
  */
 
 const QUESTION = 'What is planned in this project?'
@@ -326,10 +326,12 @@ function useHighlightRing(input: Omit<HighlightInput, 'onScreen'>): void {
 }
 
 /**
- * worfy-multi-vendor ticket 29: "Use Codex too", below "Connect your own project" — one block for each
- * optional Vendor this build carries (`vendors.list`: Codex when its binary is in the build). It is not a
- * step: nothing marks it, the count «n/6» does not include it, and leaving it alone changes nothing. Its
- * button opens Settings → Vendors, where the sign-in is. A list that cannot be read shows no block.
+ * worfy-multi-vendor ticket 29: "Use Codex too", a link in the footer between "worfy Guide" and "Skip" —
+ * one for each optional Vendor this build carries (`vendors.list`: Codex when its binary is in the build).
+ * It is not a step: nothing marks it, the count «n/6» does not include it, and leaving it alone changes
+ * nothing. It opens Settings → Vendors, where the sign-in is. In the footer it adds no height: a taller
+ * panel would leave no room for the toasts under it in the Session view, and they would cover the
+ * Session's header. A list that cannot be read shows no link.
  */
 function OptionalVendors() {
   const [vendors, setVendors] = useState<VendorEntry[]>([])
@@ -347,15 +349,17 @@ function OptionalVendors() {
   return vendors.map(({ vendor }) => {
     const label = vendorLabel(vendor)
     return (
-      <div key={vendor} style={styles.connect} data-testid="getting-started-vendor" data-vendor={vendor}>
-        <span style={styles.title}>Use {label} too</span>
-        <p style={styles.line}>Optional. Sign in to {label} to start Sessions on it as well. Skip it and nothing changes.</p>
-        <div style={styles.action}>
-          <button type="button" className="w-action" onClick={() => openSettings('VendorsSection')}>
-            Sign in to {label}…
-          </button>
-        </div>
-      </div>
+      <button
+        key={vendor}
+        type="button"
+        style={styles.guide}
+        title={`Optional: sign in to ${label} in Settings → Vendors to start Sessions on it as well`}
+        data-testid="getting-started-vendor"
+        data-vendor={vendor}
+        onClick={() => openSettings('VendorsSection')}
+      >
+        Use {label} too
+      </button>
     )
   })
 }
@@ -589,13 +593,13 @@ export function GettingStartedPanel({ sessionView = false }: { sessionView?: boo
                 </button>
               </div>
             </div>
-            <OptionalVendors />
           </>
         )}
         <div style={styles.footer}>
           <button type="button" style={styles.guide} onClick={() => openGuide()}>
             worfy Guide
           </button>
+          <OptionalVendors />
           <button type="button" style={styles.skip} onClick={() => void skip()}>
             Skip
           </button>

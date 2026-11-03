@@ -410,7 +410,7 @@ describe('the Getting started panel', () => {
   })
 
   // worfy-multi-vendor ticket 29: "Use Codex too", only while Codex is in the build; not a step.
-  it('"Use Codex too" while Codex is in the build: not a step, and its button opens Settings → Vendors', async () => {
+  it('"Use Codex too" while Codex is in the build: a link in the footer, not a step, and it opens Settings → Vendors', async () => {
     await renderPanel(twoDone())
     const section = await waitFor(region)
     ;(await callOf('vendors.list')).answer({
@@ -422,15 +422,15 @@ describe('the Getting started panel', () => {
         ],
       },
     })
-    const block = await waitFor(() => within(section).getByTestId('getting-started-vendor'))
-    expect(block.dataset.vendor).toBe('codex')
-    expect(within(block).getByText('Use Codex too')).toBeTruthy()
-    expect(within(block).getByText('Optional. Sign in to Codex to start Sessions on it as well. Skip it and nothing changes.')).toBeTruthy()
-    // Not one of the six steps, and nothing of it is marked.
+    const link = await waitFor(() => within(section).getByRole('button', { name: 'Use Codex too' }))
+    expect(link.dataset.vendor).toBe('codex')
+    expect(link.getAttribute('title')).toBe('Optional: sign in to Codex in Settings → Vendors to start Sessions on it as well')
+    // In the footer, between "worfy Guide" and "Skip"; not one of the six steps.
+    expect([...link.parentElement!.children].map((each) => each.textContent)).toEqual(['worfy Guide', 'Use Codex too', 'Skip'])
     expect(steps()).toHaveLength(6)
-    expect(block.closest('[data-testid="getting-started-step"]')).toBeNull()
+    expect(link.closest('[data-testid="getting-started-step"]')).toBeNull()
     const { useSettingsWindow } = await import('../../src/renderer/settings/settings-window')
-    fireEvent.click(within(block).getByRole('button', { name: 'Sign in to Codex…' }))
+    fireEvent.click(link)
     expect(useSettingsWindow.getState()).toEqual({ open: true, section: 'VendorsSection' })
   })
 
