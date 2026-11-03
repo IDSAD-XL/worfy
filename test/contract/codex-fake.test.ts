@@ -7,7 +7,10 @@
 //   the bundle first (closedBundle): a field the pinned version does not have fails it, as does a method
 //   it does not have. The control script with an extra field lives in this file, not among the fixtures.
 // - The fake plays a script over stdio and logs worfy's messages (WORFY_CODEX_LOG); it writes only into
-//   the log and WORFY_CODEX_HOME.
+//   the log and WORFY_CODEX_HOME. The acts of the agent (ticket 44: "tool", "stop", "start" steps) go with a
+//   notification of the script, so the same check covers them; what the fake sends on its own while the
+//   agent acts — hook runs, a hook prompt, items the sandbox refused — is checked against the same closed
+//   schema here, and test/contract/codex-fake-hooks.test.ts checks how it acts.
 // - launch.ts under the tests starts the fake under process.execPath and never the binary of
 //   @openai/codex; the spawn here is a stand-in that only records what it is given.
 // - test/setup-contract.ts gives every test file WORFY_CODEX=fake and a CODEX_HOME of its own in the
@@ -17,7 +20,7 @@
 // launch.ts gives: under `pnpm test` process.execPath is Electron, which starts far slower under load,
 // and the program launch.ts picks is checked on its own, through the spawn stand-in.
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -26,6 +29,7 @@ import { codexExecutablePath, type CodexRuntime } from '../../src/main/vendors/c
 import { codexLaunch, FAKE_APP_SERVER, FAKE_SCRIPTS, startCodexAppServer } from '../../src/main/vendors/codex/launch'
 import { CODEX_SCHEMA_BUNDLE, codexAjv } from '../../src/main/vendors/codex/schema'
 import { DIRECT_START_PROFILE, directStartEnv, launchEnv } from '../e2e/launch-env'
+import { approvePluginHooks } from '../fixtures/codex-app-server/hook-runner.mjs'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
@@ -416,6 +420,56 @@ describe('the fake app-server', () => {
     const { code, stderr } = await fake.close()
     expect(code).toBe(2)
     expect(stderr).toMatch(/cannot read the script .*no-such-script\.jsonl/)
+  })
+
+  it('stops with exit code 2 on an act of the agent it cannot play (ticket 44)', async () => {
+    const root = tempRoot()
+    const item = { type: 'agentMessage', id: 'msg_1', text: '' }
+    const bad: Record<string, [object, RegExp]> = {
+      'tool-on-turn': [{ tool: 'Bash', notify: 'turn/completed', params: {} }, /a "tool" step goes with the notification item\/completed/],
+      'tool-no-item': [{ tool: 'Bash', notify: 'item/completed', params: {} }, /a "tool" step has the item of the tool in params\.item/],
+      'stop-what': [{ stop: 'session', notify: 'turn/completed', params: {} }, /"stop" is "turn" or "subagent"/],
+      'subagent-no-type': [{ start: 'subagent', notify: 'turn/started', params: {} }, /a Subagent step names its "agentType"/],
+      'two-acts': [{ tool: 'Bash', stop: 'turn', notify: 'item/completed', params: { item } }, /not several/],
+      'extra-key': [{ tool: 'Bash', mood: 'calm', notify: 'item/completed', params: { item } }, /a "tool" step has no "mood"/],
+    }
+    for (const [name, [step]] of Object.entries(bad)) writeFileSync(join(root, `${name}.jsonl`), `${JSON.stringify(step)}\n`)
+    for (const [name, [, message]] of Object.entries(bad)) {
+      const { code, stderr } = await startFake(root, { WORFY_CODEX_SCRIPT: name, WORFY_CODEX_SCRIPTS: root }).close()
+      expect(code, name).toBe(2)
+      expect(stderr, name).toMatch(message)
+    }
+  })
+
+  it('sends only messages of the JSON Schema while the agent acts: hook runs, a hook prompt, refusals of the sandbox (ticket 44)', async () => {
+    const root = tempRoot()
+    const codexHome = join(root, 'codex-home')
+    cpSync(join(REPO, 'test', 'fixtures', 'codex-plugin-probe'), join(codexHome, 'plugins', 'cache', 'probe-market', 'probe', 'local'), { recursive: true })
+    approvePluginHooks(codexHome)
+    const sent: Message[] = []
+    // The Stop of hooks blocks once (a red gate); sandbox has no steps after its Stop, so its gate is green.
+    for (const [script, sandbox, gate] of [['hooks', 'workspace-write', 'red'], ['sandbox', 'read-only', 'green']] as const) {
+      const project = join(root, script)
+      mkdirSync(project)
+      const fake = startFake(project, { WORFY_CODEX_SCRIPT: script, CODEX_HOME: codexHome, PROBE_GATE: gate })
+      await handshake(fake)
+      fake.send({ id: 2, method: 'thread/start', params: { cwd: project, sandbox } })
+      await fake.next(answerTo(2))
+      fake.send({ id: 3, method: 'turn/start', params: { threadId: 'thr_fake_1', input: [{ type: 'text', text: 'Work' }] } })
+      await fake.next((message) => message.method === 'turn/completed' && message.params?.threadId === 'thr_fake_1')
+      expect((await fake.close()).code).toBe(0)
+      sent.push(...fake.seen.filter((message) => message.method !== undefined))
+    }
+    const kinds = new Set(
+      sent.map((message) => {
+        const item = message.params?.item as { type?: string; status?: string } | undefined
+        const run = message.params?.run as { status?: string } | undefined
+        return [message.method, item?.type, item?.status ?? run?.status].filter((part) => part !== undefined).join(' ')
+      }),
+    )
+    for (const kind of ['hook/started running', 'hook/completed blocked', 'hook/completed completed', 'item/completed hookPrompt', 'item/started fileChange inProgress', 'item/completed fileChange declined', 'item/completed commandExecution failed']) expect(kinds, kind).toContain(kind)
+    const lines = sent.map((message) => JSON.stringify(message.id === undefined ? { notify: message.method, params: message.params } : { request: message.method, params: message.params }))
+    expect(checkScript(lines.join('\n'))).toEqual([])
   })
 })
 

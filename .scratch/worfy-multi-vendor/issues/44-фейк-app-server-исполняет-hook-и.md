@@ -39,12 +39,12 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Гарантии workf
 
 ## Готово, когда
 
-- [ ] Contract test: hook `PreToolUse` с deny — tool не выполнен; `Stop` с block — ход продолжен с `reason`;
+- [x] Contract test: hook `PreToolUse` с deny — tool не выполнен; `Stop` с block — ход продолжен с `reason`;
       `TaskCompleted` в `hooks.json` — пропущен; без подтверждения hash — hook-и не запускаются.
-- [ ] Contract test: в thread-е с sandbox `read-only` правка файла и команда, помеченная «пишет», получают отказ, файл
+- [x] Contract test: в thread-е с sandbox `read-only` правка файла и команда, помеченная «пишет», получают отказ, файл
       не меняется; чтение проходит; в thread-е с `workspace-write` та же правка проходит. Так оба пути read-only
       Ticket-а 36 проверяемы до его выбора.
-- [ ] Contract test: поля входа hook-ов фейка (`PreToolUse`, `Stop`, `SubagentStop`) совпадают с полями записей
+- [x] Contract test: поля входа hook-ов фейка (`PreToolUse`, `Stop`, `SubagentStop`) совпадают с полями записей
       Ticket-а 30 в `test/fixtures/codex-messages/hooks/`. Если в записях нет `agent_type` (настоящий Codex перестал
       его присылать) — test красный.
 - [ ] Платформенный PR (ADR-0056, п. 2; ADR-0071): вердикт Windows до merge.
@@ -57,3 +57,76 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Гарантии workf
 - `test/contract/codex-fake-hooks.test.ts` (новый)
 
 Только читать: `test/fixtures/codex-messages/hooks/` (записи Ticket-а 30).
+
+## Итог
+
+Фейк app-server исполняет hook-и plugin-а, установленного во временный `CODEX_HOME`, по правилам Codex 0.166.0, и
+держит sandbox thread-а. Правила взяты из source `codex-rs/` тега `rust-v0.166.0` (ссылки на файлы — в шапке
+`test/fixtures/codex-app-server/hook-runner.mjs`); Codex не скачивался и не запускался.
+
+- `hook-runner.mjs` (новый): plugin-ы из `CODEX_HOME/plugins/cache/<marketplace>/<plugin>/<version>/`, их
+  `hooks/hooks.json`; события `SessionStart`, `SubagentStart`, `PreToolUse`, `Stop`, `SubagentStop`, `SessionEnd`;
+  незнакомые Codex (`TaskCompleted`, `TeammateIdle`) пропускаются молча. Matcher-ы — как в `matcher.rs`: пусто или `*` —
+  всё, `[A-Za-z0-9_|]` — точный список, иначе regex; `apply_patch` отвечает и на `Edit`, `Write`. `PreToolUse`:
+  `permissionDecision: "deny"` с причиной, `decision: "block"` или exit 2 со stderr — tool не выполняется. `Stop` /
+  `SubagentStop`: `decision: "block"` или exit 2 — ход продолжается, причина приходит item-ом `hookPrompt`, следующий
+  `Stop` идёт с `stop_hook_active: true`; `continue: false` — ход кончается. Timeout — 600 s по умолчанию, у
+  `SessionEnd` 1 s по умолчанию и не больше 3 s; по истечении дерево процессов hook-а убивается. Вход hook-а — поля и их
+  порядок из `schema.rs`; `agent_id` и `agent_type` в `PreToolUse` — только внутри Subagent-а, как в записях Ticket-а 30.
+- Доверие — как Codex проверяет его при запуске: hook регистрируется, только если в `config.toml` `CODEX_HOME` есть
+  `[hooks.state."<key>"]` с `trusted_hash` (любой строкой, и пустой); иначе — молча пропускается. Каждый запуск сверяет
+  два hash-а, как `matches_hash` в `plugin_trust.rs`: `trusted_hash` — с hash-ем объявления hook-а (`declarationHash`,
+  ровно `hook_hash` из `discovery.rs` и `version_for_toml` из `config/src/fingerprint.rs`), `trusted_content_hash` — с
+  SHA-256 папки plugin-а (алгоритм `plugin_fingerprint.rs`). Не совпал любой — run `failed` с «plugin contents changed;
+  hook approval required», действие идёт дальше. `approvePluginHooks` пишет подтверждение для test-ов, как `/hooks`
+  пользователя.
+- Каждый запуск hook-а фейк сообщает notification-ами `hook/started` и `hook/completed` (форма — как в записях).
+- Sandbox: thread с `read-only` отказывает в `fileChange` (status `declined`) и в команде, которую шаг помечает
+  `"writes": true` (status `failed`, exit code 1); файл не меняется; чтение идёт как обычно. В `workspace-write`
+  правка пишется под `cwd` thread-а (`add`, `update` по hunk-ам, `delete`). `fileChange`, у которого `path` или
+  `move_path` выходит за `cwd` thread-а (`../x`, абсолютный путь снаружи), отклоняется целиком (`declined`) в любом
+  sandbox-е, ничего не пишется и не удаляется.
+- Новые шаги сценария — ключ на шаге `notify` (формат — в шапке `fake-app-server.mjs`): `"tool"` на `item/completed`
+  (агент вызывает tool как `agentType`), `"stop": "turn" | "subagent"` на `turn/completed` (агент или Subagent
+  заканчивает ход; `continuation` — сколько следующих шагов играть только после block), `"start": "subagent"`. Так
+  новые шаги проходят ту же проверку JSON Schema (`codex-fake.test.ts`) и сверку с записями (`codex-compat.test.ts`)
+  без правок этих проверок. «Thread открыт с sandbox S» — `sandbox` результата `thread/start` в сценарии; `sandbox`,
+  который просит worfy, важнее.
+- Сценарии `hooks.jsonl` (агент и Subagent `worfy-reviewer`, Stop с block один раз) и `sandbox.jsonl`; plugin test-ов —
+  `test/fixtures/codex-plugin-probe/`. Прежние шаги и сценарии не менялись.
+- Test-ы: `test/contract/codex-fake-hooks.test.ts` (13) — deny, block и продолжение, hook-и `TaskCompleted` и
+  `TeammateIdle` не регистрируются, без подтверждения, с изменённой папкой и с неверным `trusted_hash` при верном hash-е
+  папки, hash объявления против literal-ов test-а самого Codex, exit 2, `SessionEnd` 3 s, read-only и workspace-write,
+  правка за пределами `cwd`, поля входа против записей (и красный, если в записях нет `agent_type`); `codex-fake.test.ts` (+2) — всё, что фейк шлёт сам (hook run-ы, `hookPrompt`,
+  отказы sandbox), проходит закрытую JSON Schema; неверные шаги — exit 2. Без новой реализации фейка новый test
+  красный: 7 из 9.
+
+Решено без владельца, подтвердить:
+
+1. Отказ `PreToolUse`: фейк не шлёт item tool-а вовсе (ни `item/started`, ни `item/completed`), только `hook/completed`
+   со status `blocked` и причиной. Что шлёт живой app-server при deny, записи Ticket-а 30 не показывают.
+2. Отказ sandbox: `fileChange` — `declined`, команда — `failed` с exit code 1 и текстом «Operation not permitted»
+   (так команда кончается под sandbox, который не даёт писать). Approval под `read-only` фейк не спрашивает.
+3. Sandbox по умолчанию, без слова сценария и worfy, — `workspace-write`.
+4. `SessionStart` идёт после первого `turn/start` thread-а (в записях run `sessionStart` несёт `turnId` первого хода);
+   `SessionEnd` — при закрытии stdin, без notification-ов.
+5. Контекст `SessionStart` / `SubagentStart` (`additionalContext` или простой stdout) — запись `context` в
+   `hook/completed`; разбор этих двух событий в Codex не сверялся.
+6. Hash объявления hook-а фейк считает ровно как Codex (`hook_hash`): нормализованный handler (команда этой ОС до
+   подстановки `${PLUGIN_ROOT}`, timeout с умолчанием, `async`, `statusMessage`, `additionalContextLimit` не по
+   умолчанию и только у событий, которые его держат), matcher — только у событий с matcher-ом; JSON с ключами по
+   алфавиту, SHA-256. Сверено с literal-ами `trusted_hash` test-а Codex `core/tests/suite/hooks.rs` (тег
+   `rust-v0.166.0`) — совпали оба. С записями Ticket-а 30 (`hooks/list`, `currentHash`) сверить нельзя: в них путь
+   команды заменён при очистке, а hash считался от настоящего. Осталось `shortcut:` — подтверждение без
+   `trusted_content_hash` (старое, до fingerprint-ов папки) фейк проваливает, Codex переносит его через свой legacy-файл.
+7. Команда hook-а идёт через shell Node (`/bin/sh -c`, на Windows `cmd.exe /d /s /c`), как Codex без настроенного
+   shell; `${CLAUDE_PLUGIN_ROOT}` и соседние подставляются в текст до запуска, поэтому `node "…"` работает и на Windows.
+8. `fileChange` за пределами `cwd` thread-а фейк отклоняет (`declined`), как sandbox `workspace-write` не даёт писать
+   вне рабочей папки; сценарий с такой правкой — ошибка test-а, а не запись на диск test-машины.
+
+Для Ticket-а 42 (документация второго выпуска): `docs/features/vendors.md:180-186` («The fake Codex») не говорит, что
+фейк исполняет hook-и установленного plugin-а и держит sandbox thread-а.
+
+Платформенный: на Windows проверить `test/contract/codex-fake-hooks.test.ts` и `test/contract/codex-fake.test.ts` —
+запуск `node "${CLAUDE_PLUGIN_ROOT}/…"` через `cmd.exe`, путь с `\` в hash папки, `taskkill /T /F` по timeout-у
+`SessionEnd`.
