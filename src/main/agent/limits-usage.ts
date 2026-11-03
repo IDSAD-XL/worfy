@@ -44,7 +44,8 @@ export interface VendorLimitsPoll {
 
 export interface LimitsRefresherOptions {
   limits: LimitsStore
-  read: UsageReader
+  /** Claude's usage ask; without it only the other Vendors are polled (e2e runs on the fake agent). */
+  read?: UsageReader
   /** The other Vendors to poll at the start and every interval; none by default. */
   vendors?: readonly VendorLimitsPoll[]
   /** Clock in milliseconds; tests pass a fake one. */
@@ -106,7 +107,7 @@ export class LimitsRefresher {
    * the next ask.
    */
   async check(passiveOnly: boolean): Promise<void> {
-    if (this.running !== null || this.stopped || this.fresh(passiveOnly, this.intervalMs)) return
+    if (this.options.read === undefined || this.running !== null || this.stopped || this.fresh(passiveOnly, this.intervalMs)) return
     await this.ask()
   }
 
@@ -119,7 +120,7 @@ export class LimitsRefresher {
   async refreshIfOlder(maxAgeMs: number): Promise<void> {
     if (this.running !== null) return this.running
     // A number exactly `maxAgeMs` old is not older than that: fresh within one millisecond more.
-    if (this.stopped || this.fresh(false, maxAgeMs + 1)) return
+    if (this.options.read === undefined || this.stopped || this.fresh(false, maxAgeMs + 1)) return
     await this.ask()
   }
 
@@ -159,7 +160,7 @@ export class LimitsRefresher {
 
   private async askOnce(): Promise<void> {
     try {
-      const answer = await this.options.read(this.quit.signal)
+      const answer = await this.options.read!(this.quit.signal)
       if (this.stopped) return
       const updates = limitUpdatesFromUsage(answer, this.now())
       if (updates.length === 0) {
@@ -203,16 +204,21 @@ export function refreshAppUsage(maxAgeMs: number): Promise<void> {
 
 /**
  * Starts the app's refresher over appLimits(), for Claude and Codex; answers the function that stops it
- * (for `will-quit`). With WORFY_AGENT=fake (e2e runs) or under vitest nothing starts: no Claude Code, no
- * Codex.
+ * (for `will-quit`). Under vitest nothing starts. With WORFY_AGENT=fake (e2e runs) Claude Code is never
+ * asked, and Codex is polled only when it is the fake too (WORFY_CODEX=fake, which the e2e runs set):
+ * the fake app-server answers from its script, and the Limits panel shows the Codex section from that
+ * poll (worfy-multi-vendor ticket 26, test/e2e/limits-vendors.spec.ts). The poll starts nothing while
+ * the launch's CODEX_HOME does not exist, as in every other e2e run. refreshAppUsage() keeps resolving
+ * at once there: it is Claude's ask.
  */
 export async function installLimitsRefresh(env: NodeJS.ProcessEnv = process.env): Promise<() => void> {
-  if (env.WORFY_AGENT === 'fake' || env.VITEST) return () => undefined
+  const fakeAgent = env.WORFY_AGENT === 'fake'
+  if (env.VITEST || (fakeAgent && env.WORFY_CODEX !== 'fake')) return () => undefined
   const [{ appLimits }, { claudeUsageReader }, { CODEX_VENDOR, codexLimits }] = await Promise.all([import('./limits'), import('../vendors/claude/limits'), import('../vendors/codex/limits')])
   const codex: VendorLimitsPoll = { vendor: CODEX_VENDOR, poll: (signal) => codexLimits.poll(signal) }
-  const refresher = new LimitsRefresher({ limits: appLimits(), read: await claudeUsageReader(), vendors: [codex] })
+  const refresher = new LimitsRefresher({ limits: appLimits(), ...(fakeAgent ? {} : { read: await claudeUsageReader() }), vendors: [codex] })
   refresher.start()
-  appRefresher = refresher
+  if (!fakeAgent) appRefresher = refresher
   return () => {
     refresher.stop()
     if (appRefresher === refresher) appRefresher = null

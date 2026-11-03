@@ -17,6 +17,9 @@
 // - presets → approval policy and sandbox (capabilities.ts, codexPresetFor); notifications → events
 //   (items.ts); approvals → permission requests (approvals.ts). An unattended Session (Autopilot)
 //   declines every approval at once and reports it through `refused`, so its turn never waits for a person.
+// - Limits (ticket 26): `account/rateLimits/updated` → a `limits` event, whose windows also go to the
+//   app's LimitsTracker for the Limits panel; a turn refused by the Limits (`usageLimitExceeded`) →
+//   `limit_reached` (limits.ts, decision 09) before the error that ends the turn.
 //
 // The process is reported to the Session (SessionStart.spawned) the moment it is spawned, before its
 // handshake: a Session closed while the start runs waits for that process too, every failure of the
@@ -35,6 +38,7 @@ import { spawn } from 'node:child_process'
 import { messageText } from '../../../shared/agent/attachments'
 import type { SlashCommand } from '../../../shared/agent/commands'
 import type { AgentEvent } from '../../../shared/agent/events'
+import type { LimitWindow } from '../../../shared/agent/limits'
 import type { ModelOption } from '../../../shared/agent/settings'
 import { InputQueue } from '../../agent/session/input-queue'
 import { hasExited, within } from '../../agent/session/process'
@@ -44,8 +48,10 @@ import { approvalAsk, decisionOf, isApprovalRequest, UNATTENDED_DECLINED_MESSAGE
 import type { CodexRuntime } from './binary'
 import { codexModelOptions, codexPermissionPreset, codexPresetFor, codexSandboxPolicy, type CodexModelSource } from './capabilities'
 import { boundedText, CodexItems } from './items'
+import { CODEX_VENDOR, codexLimitReachedEvent, codexLimitsEvent } from './limits'
 import type { SpawnProcess } from './launch'
 import type { RequestId } from './protocol/ts/RequestId'
+import type { AccountRateLimitsUpdatedNotification } from './protocol/ts/v2/AccountRateLimitsUpdatedNotification'
 import type { ServerNotification } from './protocol/ts/ServerNotification'
 import type { ServerRequest } from './protocol/ts/ServerRequest'
 import type { Model } from './protocol/ts/v2/Model'
@@ -70,6 +76,8 @@ export interface CodexServerOptions {
   /** How long a request waits for its answer; rpc.ts's REQUEST_TIMEOUT_MS by default. */
   timeoutMs?: number
   log?: (line: string) => void
+  /** Where the windows of each `limits` event of the Session go: the app's LimitsTracker; nowhere by default. */
+  limits?: (windows: readonly LimitWindow[]) => void
 }
 
 /** The JSON-RPC error a server→client request worfy does not answer gets (rpc.ts's METHOD_NOT_FOUND). */
@@ -142,10 +150,16 @@ class CodexSession implements SessionHandle, CodexModelSource {
   /** What the thread was last told: by its start, then by each `turn/start` that named a change. */
   private told: TurnSettings
   private readonly items: CodexItems
+  /** The windows of the Session's last `limits` event: what a refusal is decided by when reading them again fails. */
+  private limitWindows: readonly LimitWindow[] = []
+  /** A refusal by the Limits being decided: the messages that came after it wait for it (receive()). */
+  private deciding: Promise<void> | null = null
 
   constructor(
     private readonly opts: SessionStart,
     preset: string,
+    /** Where the windows of each `limits` event go (CodexServerOptions.limits). */
+    private readonly recordLimits: (windows: readonly LimitWindow[]) => void = () => undefined,
   ) {
     // Effort is not part of thread/start: the thread starts on Codex's own, and the first turn names the Session's.
     this.told = { model: opts.settings.model, effort: null, preset }
@@ -182,19 +196,73 @@ class CodexSession implements SessionHandle, CodexModelSource {
 
   readonly events: AsyncIterable<AgentEvent> = { [Symbol.asyncIterator]: () => this.out[Symbol.asyncIterator]() }
 
-  /** One message of the app-server. */
+  /**
+   * The app-server's messages, in order. While a refusal by the Limits is decided (refusal()), what
+   * comes after it waits: so `limit_reached` comes before the turn's `result`.
+   */
   receive(event: CodexRpcEvent): void {
     if (this.done) return
+    const wait = this.deciding === null ? this.take(event) : this.deciding.then(() => this.take(event) ?? undefined)
+    if (wait === null) return
+    this.deciding = wait
+    void wait.then(() => {
+      if (this.deciding === wait) this.deciding = null
+    })
+  }
+
+  /** One message of the app-server: null once it is handled, or the decision of a refusal by the Limits to wait for. */
+  private take(event: CodexRpcEvent): Promise<void> | null {
+    if (this.done) return null
     switch (event.type) {
-      case 'notification':
-        return this.notified(event.notification)
+      case 'notification': {
+        const { notification } = event
+        if (notification.method === 'error' && notification.params.error.codexErrorInfo === 'usageLimitExceeded' && !notification.params.willRetry) return this.refusal(notification)
+        if (notification.method === 'account/rateLimits/updated') this.limitsUpdated(notification.params)
+        else this.notified(notification)
+        break
+      }
       case 'request':
-        return this.asked(event.request)
+        this.asked(event.request)
+        break
       case 'unknown':
-        return this.out.push({ type: 'unknown', sdkType: event.method ?? 'message' })
+        this.out.push({ type: 'unknown', sdkType: event.method ?? 'message' })
+        break
       case 'error':
-        return this.out.push({ type: 'unknown', sdkType: 'not-json' })
+        this.out.push({ type: 'unknown', sdkType: 'not-json' })
+        break
     }
+    return null
+  }
+
+  /**
+   * Codex's windows changed (`account/rateLimits/updated`, during a turn): a `limits` event, and the
+   * windows go to the Limits panel (CodexServerOptions.limits). The notification names no thread: the
+   * windows are the account's.
+   */
+  private limitsUpdated(params: AccountRateLimitsUpdatedNotification): void {
+    const event = codexLimitsEvent(params, Date.now())
+    this.limitWindows = event.windows
+    this.out.push(event)
+    try {
+      this.recordLimits(event.windows)
+    } catch (error) {
+      console.warn('[codex] could not record the Limits of the Session', error)
+    }
+  }
+
+  /**
+   * A turn of this thread refused by the Limits (`usageLimitExceeded`): the windows are read again on
+   * this app-server and `limit_reached` goes out (decision 09: a used-up window to wait for, or a quota),
+   * then the error itself, which ends the turn. Another thread's refusal (a Subagent's) is only passed on.
+   */
+  private async refusal(notification: Extract<ServerNotification, { method: 'error' }>): Promise<void> {
+    const { threadId } = notification.params
+    const server = this.server
+    if (server !== null && (this.threadId === '' || threadId === this.threadId)) {
+      const decided = await codexLimitReachedEvent(server, notification.params, this.limitWindows)
+      if (decided !== null && !this.done) this.out.push(decided.event)
+    }
+    if (!this.done) this.notified(notification)
   }
 
   send(message: SessionMessage): Promise<void> {
@@ -462,7 +530,7 @@ class CodexSession implements SessionHandle, CodexModelSource {
 async function open(options: CodexServerOptions, opts: SessionStart, resume: string | undefined): Promise<SessionHandle> {
   const preset = codexPresetFor(opts.settings.permissionMode)
   if (preset === undefined) throw new Error(`${opts.settings.permissionMode} is no permission preset of Codex`)
-  const session = new CodexSession(opts, preset.id)
+  const session = new CodexSession(opts, preset.id, options.limits)
   const { CodexAppServer, OUTPUT_AFTER_EXIT_MS } = await import('./app-server')
   const spawnProcess = options.spawnProcess ?? spawn
   let server: CodexAppServer
@@ -510,13 +578,14 @@ export function codexSessions(options: () => Promise<CodexServerOptions>): Sessi
   }
 }
 
-/** The app's app-server: the pinned Codex of this build, or the fake under WORFY_CODEX=fake. */
+/** The app's app-server: the pinned Codex of this build, or the fake under WORFY_CODEX=fake; a Session's windows go to the app's LimitsTracker. */
 async function appServerOptions(): Promise<CodexServerOptions> {
-  const { app } = await import('electron')
+  const [{ app }, { appLimits }] = await Promise.all([import('electron'), import('../../agent/limits')])
   return {
     runtime: { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch },
     appPath: app.getAppPath(),
     clientVersion: app.getVersion(),
+    limits: (windows) => appLimits().setWindows(CODEX_VENDOR, windows),
   }
 }
 

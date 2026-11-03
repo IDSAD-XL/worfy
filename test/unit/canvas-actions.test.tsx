@@ -49,7 +49,7 @@ let forceStopAnswer: Promise<IpcResult<unknown>> | null
 let estimateAnswer: unknown
 /** What appSettings.get answers; null answers the bridge's default, which the renderer does not take. */
 let appSettings: AppSettings | null
-/** What limits.open answers: the live Limits of the toolbar (useLimits). */
+/** Claude's part of what limits.open answers: the live Limits of the toolbar (useLimits). */
 let limitsState: LimitsState
 
 beforeEach(() => {
@@ -97,7 +97,7 @@ beforeEach(() => {
           if (estimateAnswer !== null) return Promise.resolve({ ok: true, value: estimateAnswer })
           return Promise.resolve({ ok: true, value: { closed: true } })
         case 'limits.open':
-          return Promise.resolve({ ok: true, value: limitsState })
+          return Promise.resolve({ ok: true, value: { claude: limitsState, vendors: {} } })
         case 'appSettings.get':
           if (appSettings !== null) return Promise.resolve({ ok: true, value: appSettings })
           return Promise.resolve({ ok: true, value: { closed: true } })
@@ -396,10 +396,10 @@ describe('the Epic forecast in the hint of Autopilot (worfy-resource-planner tic
     limitsState = { windows: {} }
     const autopilot = await hint()
     await vi.waitFor(() => expect(autopilot.getAttribute('title')).toBe(`${BUDGET_AWARE}. Used now: unknown`))
-    act(() => listeners.get('limits.changed')?.(live(0.8)))
+    act(() => listeners.get('limits.changed')?.({ claude: live(0.8), vendors: {} }))
     await vi.waitFor(() => expect(autopilot.getAttribute('title')).toBe(`${BUDGET_AWARE}. ${RECOMMENDED}`))
     // 90 %: 15 % kept leaves nothing free, not even Wave 1 fits.
-    act(() => listeners.get('limits.changed')?.(live(0.9)))
+    act(() => listeners.get('limits.changed')?.({ claude: live(0.9), vendors: {} }))
     await vi.waitFor(() => expect(autopilot.getAttribute('title')).toBe(`${BUDGET_AWARE}. Used now: 90%, resets in 2 d 5 h. Recommended: no Wave now, all 2 after the reset`))
     expect(calls.filter((call) => call.channel === 'autopilot.estimate')).toHaveLength(1)
   })

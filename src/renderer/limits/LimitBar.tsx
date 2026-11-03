@@ -30,18 +30,21 @@ export const STALE_OPACITY = 0.55
  * One window: label and share (or status in words) on the first line, the bar, then the reset
  * time. Data older than an hour adds no line: the bar is dimmed and its tooltip is the value and
  * "as of <time>" (`62% · as of 13:05`; the value stays readable when it is cut), so the toolbar
- * never grows.
+ * never grows. `testId` names the bar and, with a suffix, its value and reset line: `limit-<window>` by
+ * default; the toolbar gives another Vendor's bars its id as well (`limit-codex-primary`).
+ * `compact`: the narrower bar of a toolbar with several Vendor sections, whose reset line is the time
+ * alone (`Fri 03:18`), with the whole line as its tooltip.
  */
-export function LimitBarView({ bar }: { bar: LimitBar }) {
+export function LimitBarView({ bar, testId = `limit-${bar.window}`, compact = false }: { bar: LimitBar; testId?: string; compact?: boolean }) {
   const valueColor = bar.level === 'blocked' ? 'var(--blocked-text)' : 'var(--text)'
   const stale = bar.asOf !== null
   return (
     <div
-      data-testid={`limit-${bar.window}`}
+      data-testid={testId}
       data-level={bar.level}
       data-stale={stale ? 'true' : undefined}
       title={stale ? `${bar.value} · ${bar.asOf}` : undefined}
-      style={{ display: 'flex', flexDirection: 'column', gap: 3, width: 104, ...(stale ? { opacity: STALE_OPACITY } : {}) }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 3, width: compact ? COMPACT_WIDTH : WIDTH, ...(stale ? { opacity: STALE_OPACITY } : {}) }}
     >
       {/* One line: a status in words ("limit reached") is set in the UI font, which is narrower
           than mono, and anything still wider ends with an ellipsis instead of wrapping. */}
@@ -50,30 +53,34 @@ export function LimitBarView({ bar }: { bar: LimitBar }) {
         <span
           title={stale ? undefined : bar.value}
           style={{ ...(bar.percent === null ? {} : mono), minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600, color: valueColor }}
-          data-testid={`limit-${bar.window}-value`}
+          data-testid={`${testId}-value`}
         >
           {bar.value}
         </span>
       </div>
       <Meter bar={bar} height={4} />
-      {bar.resets !== null && <ResetsLine text={bar.resets} testId={`limit-${bar.window}-note`} />}
+      {bar.resets !== null && <ResetsLine text={bar.resets} testId={`${testId}-note`} compact={compact} />}
     </div>
   )
 }
 
 const RESETS = 'resets '
 
+/** The width of a bar: room for `resets Thu 09:00`; a compact one has room for `Thu 09:00`. */
+const WIDTH = 104
+const COMPACT_WIDTH = 80
+
 /**
  * The reset line, `resets Thu 09:00`: the word in the UI font, the time in mono, as in the F
- * mockup. A line wider than the bar ends with an ellipsis rather than running into the next bar;
- * the full line is its tooltip.
+ * mockup; in a compact bar the time alone. A line wider than the bar ends with an ellipsis rather
+ * than running into the next bar; the full line is its tooltip.
  */
-function ResetsLine({ text, testId }: { text: string; testId: string }) {
+function ResetsLine({ text, testId, compact }: { text: string; testId: string; compact: boolean }) {
   const line: CSSProperties = { fontSize: 'var(--text-11)', lineHeight: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
-  if (!text.startsWith(RESETS)) {
+  if (!text.startsWith(RESETS) || compact) {
     return (
       <div style={{ ...line, ...mono }} title={text} data-testid={testId}>
-        {text}
+        {compact && text.startsWith(RESETS) ? text.slice(RESETS.length) : text}
       </div>
     )
   }

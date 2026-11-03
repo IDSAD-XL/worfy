@@ -19,6 +19,7 @@
 // turns the merged state into what the toolbar and the Session rail draw. Everything here is pure:
 // main keeps the state, the renderer draws it.
 import { z } from 'zod'
+import { VENDOR_IDS, VENDOR_LABELS, type VendorId } from '../vendors/vendor'
 
 /** The windows the toolbar shows, in display order. */
 export const LIMIT_WINDOWS = ['five_hour', 'seven_day'] as const
@@ -301,7 +302,8 @@ export const BLOCKED_FROM = 0.85
 export type LimitLevel = 'normal' | 'working' | 'blocked'
 
 export interface LimitBar {
-  window: LimitWindowId
+  /** The window's id: Claude's `five_hour`, `seven_day`; another Vendor's own (`primary`). */
+  window: string
   label: string
   /** Rounded used share, 0..100 and more; null when the source gave no share. */
   percent: number | null
@@ -354,17 +356,120 @@ export function limitBars(state: LimitsState, now: number, options: DisplayOptio
     if (known === undefined) return { window, label, percent: null, value: 'no data', resets: null, asOf: null, level: 'normal' }
 
     const percent = known.utilization === null ? null : Math.round(known.utilization * 100)
-    const value = percent !== null ? `${percent}%` : known.status === null ? 'unknown' : (STATUS_WORDS[known.status] ?? known.status)
-    let resets: string | null = null
-    if (known.resetsAt !== null) {
-      const at = known.resetsAt * 1000
-      resets = window === 'seven_day' ? `resets ${weekday(at, timeZone)} ${clock(at, timeZone)}` : `resets ${clock(at, timeZone)}`
+    return {
+      window,
+      label,
+      percent,
+      value: valueOf(percent, known.status),
+      resets: resetsLine(known.resetsAt, window === 'seven_day', timeZone),
+      asOf: asOfLine(known.receivedAt, now, timeZone),
+      level: levelOf(known.utilization, known.status),
     }
-    let asOf: string | null = null
-    if (now - known.receivedAt > STALE_AFTER_MS) {
-      const sameDay = day(known.receivedAt, timeZone) === day(now, timeZone)
-      asOf = `as of ${sameDay ? '' : `${weekday(known.receivedAt, timeZone)} `}${clock(known.receivedAt, timeZone)}`
-    }
-    return { window, label, percent, value, resets, asOf, level: levelOf(known.utilization, known.status) }
   })
+}
+
+/** `62%`, or the status in words when there is no share, or `unknown`. */
+function valueOf(percent: number | null, status: string | null): string {
+  if (percent !== null) return `${percent}%`
+  return status === null ? 'unknown' : (STATUS_WORDS[status] ?? status)
+}
+
+/** `resets 14:20`, or `resets Thu 09:00` `withWeekday`; null when the reset time is unknown. */
+function resetsLine(resetsAt: number | null, withWeekday: boolean, timeZone: string | undefined): string | null {
+  if (resetsAt === null) return null
+  const at = resetsAt * 1000
+  return withWeekday ? `resets ${weekday(at, timeZone)} ${clock(at, timeZone)}` : `resets ${clock(at, timeZone)}`
+}
+
+/** `as of 13:05` (with the weekday on another day) when the data is older than STALE_AFTER_MS; null when fresh. */
+function asOfLine(receivedAt: number, now: number, timeZone: string | undefined): string | null {
+  if (now - receivedAt <= STALE_AFTER_MS) return null
+  const sameDay = day(receivedAt, timeZone) === day(now, timeZone)
+  return `as of ${sameDay ? '' : `${weekday(receivedAt, timeZone)} `}${clock(receivedAt, timeZone)}`
+}
+
+/** A window longer than a day shows the weekday of its reset, as Claude's 7-day one does. */
+const DAY_MINUTES = 24 * 60
+
+/**
+ * The bars of a Vendor's windows in the neutral view (another Vendor than Claude: Codex), shortest
+ * window first, a window of unknown length last; each labelled with the window's own `label`. The
+ * colour thresholds are Claude's (WORKING_FROM, BLOCKED_FROM), and a window in the state `reached`
+ * is drawn blocked whatever its share.
+ */
+export function vendorLimitBars(windows: readonly LimitWindow[], now: number, options: DisplayOptions = {}): LimitBar[] {
+  const { timeZone } = options
+  const length = (window: LimitWindow): number => window.windowMinutes ?? Number.MAX_VALUE
+  return [...windows]
+    .sort((a, b) => length(a) - length(b))
+    .map((window): LimitBar => {
+      const status = window.state === null ? null : limitStatusOf(window.state)
+      const percent = window.usedPercent === null ? null : Math.round(window.usedPercent)
+      return {
+        window: window.id,
+        label: window.label,
+        percent,
+        value: valueOf(percent, status),
+        resets: resetsLine(window.resetsAt, window.windowMinutes === null || window.windowMinutes > DAY_MINUTES, timeZone),
+        asOf: asOfLine(window.receivedAt, now, timeZone),
+        level: levelOf(window.usedPercent === null ? null : window.usedPercent / 100, status),
+      }
+    })
+}
+
+/**
+ * What the Limits panel draws (main sends it, src/shared/ipc/limits.ts): Claude's stored state, and
+ * the windows of each other Vendor the user is signed in to. A Vendor that is not a key of `vendors`
+ * is signed out, or was never read, and has no section; `[]` is a Vendor signed in whose plan reports
+ * no windows.
+ */
+export const limitsViewSchema = z.object({
+  claude: limitsStateSchema,
+  vendors: z.record(z.string(), z.array(limitWindowSchema)),
+})
+export type LimitsView = z.infer<typeof limitsViewSchema>
+
+export const emptyLimitsView = (): LimitsView => ({ claude: emptyLimits(), vendors: {} })
+
+/** The Vendor whose Limits are the stored state; its section comes first. */
+const CLAUDE: VendorId = 'claude'
+
+/** The line of a section of a signed-in Vendor whose plan reports no windows. */
+export const NO_LIMITS_REPORTED = 'No limits reported'
+
+/** One Vendor's part of the Limits panel: its name, and its bars or the line said in their place. */
+export interface LimitSection {
+  vendor: string
+  /** The Vendor's name as shown (VENDOR_LABELS); the id for a Vendor this build does not know. */
+  name: string
+  bars: LimitBar[]
+  /** `no data yet` (Claude, nothing known) or NO_LIMITS_REPORTED in place of the bars; null when there are bars. */
+  empty: string | null
+}
+
+const vendorName = (vendor: string): string => (Object.hasOwn(VENDOR_LABELS, vendor) ? VENDOR_LABELS[vendor as VendorId] : vendor)
+
+/** The order of the sections after Claude's: the Vendors in VENDOR_IDS order, then any other by id. */
+const vendorRank = (vendor: string): number => {
+  const known = (VENDOR_IDS as readonly string[]).indexOf(vendor)
+  return known === -1 ? VENDOR_IDS.length : known
+}
+
+/**
+ * The sections to draw at `now`: Claude's first, then one per other Vendor signed in to. Null when
+ * nothing is known about Claude's windows and no other Vendor is signed in ("Limits: no data yet").
+ */
+export function limitSections(view: LimitsView, now: number, options: DisplayOptions = {}): LimitSection[] | null {
+  const claude = limitBars(view.claude, now, options)
+  const others = Object.keys(view.vendors)
+    .filter((vendor) => vendor !== CLAUDE)
+    .sort((a, b) => vendorRank(a) - vendorRank(b) || a.localeCompare(b))
+  if (claude === null && others.length === 0) return null
+  return [
+    { vendor: CLAUDE, name: vendorName(CLAUDE), bars: claude ?? [], empty: claude === null ? 'no data yet' : null },
+    ...others.map((vendor): LimitSection => {
+      const bars = vendorLimitBars(view.vendors[vendor]!, now, options)
+      return { vendor, name: vendorName(vendor), bars, empty: bars.length === 0 ? NO_LIMITS_REPORTED : null }
+    }),
+  ]
 }

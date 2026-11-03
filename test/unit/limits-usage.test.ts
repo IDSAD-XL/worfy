@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installLimitsRefresh, LimitsRefresher, USAGE_REFRESH_MS, type VendorLimitsPoll } from '../../src/main/agent/limits-usage'
+import { installLimitsRefresh, LimitsRefresher, refreshAppUsage, USAGE_REFRESH_MS, type VendorLimitsPoll } from '../../src/main/agent/limits-usage'
 import { askUsage, claudeUsageReader, sdkUsageReader, USAGE_METHOD, usageOptions, type UsageQuery, type UsageSdk } from '../../src/main/vendors/claude/limits'
 import { emptyLimits, mergeLimits, type LimitUpdate, type LimitWindow, type LimitsState, type LimitWindowState } from '../../src/shared/agent/limits'
 import { removeTestTree } from '../remove'
@@ -105,7 +105,7 @@ describe('the interval', () => {
 describe('installLimitsRefresh', () => {
   afterEach(() => vi.useRealTimers())
 
-  it.each([{ WORFY_AGENT: 'fake' }, { VITEST: 'true' }])('starts nothing with %o: no timer, no Claude Code', async (env) => {
+  it.each([{ WORFY_AGENT: 'fake' }, { VITEST: 'true' }, { VITEST: 'true', WORFY_CODEX: 'fake' }])('starts nothing with %o: no timer, no Claude Code', async (env) => {
     vi.useFakeTimers()
     const stop = await installLimitsRefresh(env)
     expect(vi.getTimerCount()).toBe(0)
@@ -161,6 +161,19 @@ describe('the app\'s Limits probe and refresher', () => {
       await vi.waitFor(() => expect(app.codexWindows).toEqual([['codex', [{ id: 'primary' }]]]))
       expect(app.codexPolls).toHaveLength(1)
       expect(app.codexPolls[0]!.aborted).toBe(false)
+    } finally {
+      stop()
+    }
+    expect(app.codexPolls[0]!.aborted).toBe(true)
+  })
+
+  it('e2e runs with the fake Codex (WORFY_AGENT=fake, WORFY_CODEX=fake) poll Codex only: Claude Code is never asked, and refreshAppUsage stays Claude\'s, resolving at once (ticket 26)', async () => {
+    const stop = await installLimitsRefresh({ WORFY_AGENT: 'fake', WORFY_CODEX: 'fake' })
+    try {
+      await vi.waitFor(() => expect(app.codexWindows).toEqual([['codex', [{ id: 'primary' }]]]))
+      await refreshAppUsage(0)
+      expect(app.queries).toEqual([])
+      expect(app.recorded).toEqual([])
     } finally {
       stop()
     }

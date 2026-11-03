@@ -18,10 +18,12 @@
 //
 // Next to Claude's state the tracker keeps the windows of the other Vendors (Codex, worfy-multi-vendor
 // ticket 21), as the neutral Limit windows their drivers read, in memory only: limits.json keeps
-// Claude's form (spec, decision 3 of the order), and the poll at the start brings them back.
+// Claude's form (spec, decision 3 of the order), and the poll at the start brings them back. Two
+// sources write them: the background poll (limits-usage.ts) and every `limits` event of a Codex
+// Session (src/main/vendors/codex/session.ts, ticket 26). view() is what the Limits panel draws.
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
-import { emptyLimits, limitStatusOf, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitWindow, type LimitsState } from '../../shared/agent/limits'
+import { emptyLimits, limitStatusOf, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitWindow, type LimitsState, type LimitsView } from '../../shared/agent/limits'
 import { observeMessages } from '../mcp/canvas-server'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { dataRoot } from '../storage/paths'
@@ -58,8 +60,11 @@ export interface LimitsTrackerOptions {
 }
 
 export type LimitsListener = (state: LimitsState) => void
-/** Told the windows of a Vendor other than Claude whenever they are recorded; [] once it is signed out. */
-export type VendorWindowsListener = (vendor: string, windows: readonly LimitWindow[]) => void
+/**
+ * Told the windows of a Vendor other than Claude whenever they are recorded: [] when it is signed in
+ * and its plan reports none, null once it is signed out.
+ */
+export type VendorWindowsListener = (vendor: string, windows: readonly LimitWindow[] | null) => void
 
 export class LimitsTracker {
   private state: LimitsState
@@ -114,9 +119,18 @@ export class LimitsTracker {
     }
   }
 
-  /** The windows of a Vendor other than Claude as last read; [] when none were, or it is signed out. */
-  windowsOf(vendor: string): readonly LimitWindow[] {
-    return this.vendorWindows.get(vendor) ?? []
+  /**
+   * The windows of a Vendor other than Claude as last read: [] when it is signed in and its plan
+   * reports none, null when it is signed out or was not read yet (the Limits panel then has no
+   * section for it).
+   */
+  windowsOf(vendor: string): readonly LimitWindow[] | null {
+    return this.vendorWindows.get(vendor) ?? null
+  }
+
+  /** What the Limits panel draws: Claude's state, and the windows of every other Vendor signed in to. */
+  view(): LimitsView {
+    return { claude: this.state, vendors: Object.fromEntries([...this.vendorWindows].map(([vendor, windows]) => [vendor, [...windows]])) }
   }
 
   /** Calls `listener` with every recording of a Vendor's windows; returns the function that unsubscribes. */
@@ -136,7 +150,7 @@ export class LimitsTracker {
     else this.vendorWindows.set(vendor, windows)
     for (const listener of this.vendorListeners) {
       try {
-        listener(vendor, windows ?? [])
+        listener(vendor, windows)
       } catch (error) {
         console.warn('[limits] a subscriber of the Vendor windows threw', error)
       }

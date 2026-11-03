@@ -372,7 +372,8 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   const estimate = useWaveEstimate(projectId, state?.status ?? 'stopped')
   const now = useNow()
   // The Limits as the toolbar shows them, kept current by limits.changed.
-  const limits = useLimits()
+  // Claude's windows: the forecast is of a Run on Claude (worfy-multi-vendor ticket 38 adds Codex's).
+  const limits = useLimits().claude
   // Each field alone: a selector that builds an object would give a new one on every read.
   const mode = useAppSettings((settings) => autopilotRunOf(settings).mode)
   const windowFrom = useAppSettings((settings) => autopilotRunOf(settings).window.from)

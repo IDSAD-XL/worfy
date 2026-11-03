@@ -505,7 +505,7 @@ describe('access on', () => {
     setViewState({ minimap: false })
     for (const client of clients.list()) {
       emit(client, notifyOpen, {})
-      emit(client, limitsChanged, { windows: {} })
+      emit(client, limitsChanged, { claude: { windows: {} }, vendors: {} })
     }
     // A `project` event after them: once it arrived, the earlier ones would have too.
     expect(await callB('layout.apply', { projectId: PROJECT, op: note('after-view') })).toMatchObject({ ok: true })

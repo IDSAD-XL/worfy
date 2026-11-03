@@ -1,15 +1,16 @@
-// The Limits for the toolbar: what main knows (`limits.open`), kept current
-// through `limits.changed`, and a clock that redraws the bars so old data is dimmed in time.
+// The Limits for the toolbar: what main knows (`limits.open`) — Claude's windows and those of every
+// other Vendor signed in to — kept current through `limits.changed`, and a clock that redraws the bars
+// so old data is dimmed in time.
 import { useEffect, useState } from 'react'
-import { emptyLimits, type LimitsState } from '../../shared/agent/limits'
+import { emptyLimitsView, type LimitsView } from '../../shared/agent/limits'
 import { invoke, subscribe } from '../ipc'
 
 /** How often the bars are redrawn, so a bar is dimmed once its data gets old. */
 const REDRAW_MS = 60 * 1000
 
 /** The Limits from main, kept current through `limits.changed`; empty until the first answer. */
-export function useLimits(): LimitsState {
-  const [state, setState] = useState<LimitsState>(emptyLimits)
+export function useLimits(): LimitsView {
+  const [state, setState] = useState<LimitsView>(emptyLimitsView)
   useEffect(() => {
     let active = true
     let changed = false
