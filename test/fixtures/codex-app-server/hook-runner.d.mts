@@ -8,7 +8,7 @@ export interface HookHandler {
   event: string
   matcher: string | null
   match: (names: string[]) => boolean
-  declared: { type: string; command?: string; commandWindows?: string; timeout?: number; async?: boolean; statusMessage?: string }
+  declared: { type: string; command?: string; commandWindows?: string; command_windows?: string; timeout?: number; async?: boolean; statusMessage?: string; additionalContextLimit?: number }
   displayOrder: number
   sourcePath: string
   pluginId: string
@@ -53,6 +53,8 @@ export interface HookFields {
 }
 
 export declare function pluginFingerprint(root: string): string
+/** The hash of a hook's declaration, as Codex's hook_hash computes it: what trusted_hash must equal. */
+export declare function declarationHash(handler: Pick<HookHandler, 'event' | 'matcher' | 'declared'>): string
 export declare function readCodexConfig(codexHome: string): { hooks: Map<string, Record<string, unknown>>; plugins: Map<string, Record<string, unknown>> }
 export declare function approvePluginHooks(codexHome: string): string[]
 export declare function installedPlugins(codexHome: string): { id: string; root: string; data: string }[]

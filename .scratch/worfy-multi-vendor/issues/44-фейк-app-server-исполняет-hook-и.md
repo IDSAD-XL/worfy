@@ -73,15 +73,19 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Гарантии workf
   `Stop` идёт с `stop_hook_active: true`; `continue: false` — ход кончается. Timeout — 600 s по умолчанию, у
   `SessionEnd` 1 s по умолчанию и не больше 3 s; по истечении дерево процессов hook-а убивается. Вход hook-а — поля и их
   порядок из `schema.rs`; `agent_id` и `agent_type` в `PreToolUse` — только внутри Subagent-а, как в записях Ticket-а 30.
-- Доверие — как Codex проверяет его при запуске: hook исполняется, только если в `config.toml` `CODEX_HOME` есть
-  `[hooks.state."<key>"]` с `trusted_hash`; иначе — молча пропускается. Каждый запуск сверяет `trusted_content_hash` с
-  SHA-256 папки plugin-а (алгоритм `plugin_fingerprint.rs`); папка изменилась после подтверждения — run `failed` с
-  «plugin contents changed; hook approval required», действие идёт дальше. `approvePluginHooks` пишет подтверждение
-  для test-ов, как `/hooks` пользователя.
+- Доверие — как Codex проверяет его при запуске: hook регистрируется, только если в `config.toml` `CODEX_HOME` есть
+  `[hooks.state."<key>"]` с `trusted_hash` (любой строкой, и пустой); иначе — молча пропускается. Каждый запуск сверяет
+  два hash-а, как `matches_hash` в `plugin_trust.rs`: `trusted_hash` — с hash-ем объявления hook-а (`declarationHash`,
+  ровно `hook_hash` из `discovery.rs` и `version_for_toml` из `config/src/fingerprint.rs`), `trusted_content_hash` — с
+  SHA-256 папки plugin-а (алгоритм `plugin_fingerprint.rs`). Не совпал любой — run `failed` с «plugin contents changed;
+  hook approval required», действие идёт дальше. `approvePluginHooks` пишет подтверждение для test-ов, как `/hooks`
+  пользователя.
 - Каждый запуск hook-а фейк сообщает notification-ами `hook/started` и `hook/completed` (форма — как в записях).
 - Sandbox: thread с `read-only` отказывает в `fileChange` (status `declined`) и в команде, которую шаг помечает
   `"writes": true` (status `failed`, exit code 1); файл не меняется; чтение идёт как обычно. В `workspace-write`
-  правка пишется под `cwd` thread-а (`add`, `update` по hunk-ам, `delete`).
+  правка пишется под `cwd` thread-а (`add`, `update` по hunk-ам, `delete`). `fileChange`, у которого `path` или
+  `move_path` выходит за `cwd` thread-а (`../x`, абсолютный путь снаружи), отклоняется целиком (`declined`) в любом
+  sandbox-е, ничего не пишется и не удаляется.
 - Новые шаги сценария — ключ на шаге `notify` (формат — в шапке `fake-app-server.mjs`): `"tool"` на `item/completed`
   (агент вызывает tool как `agentType`), `"stop": "turn" | "subagent"` на `turn/completed` (агент или Subagent
   заканчивает ход; `continuation` — сколько следующих шагов играть только после block), `"start": "subagent"`. Так
@@ -90,9 +94,10 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Гарантии workf
   который просит worfy, важнее.
 - Сценарии `hooks.jsonl` (агент и Subagent `worfy-reviewer`, Stop с block один раз) и `sandbox.jsonl`; plugin test-ов —
   `test/fixtures/codex-plugin-probe/`. Прежние шаги и сценарии не менялись.
-- Test-ы: `test/contract/codex-fake-hooks.test.ts` (9) — deny, block и продолжение, `TaskCompleted`, без подтверждения
-  и с изменённой папкой, exit 2, `SessionEnd` 3 s, read-only и workspace-write, поля входа против записей (и красный,
-  если в записях нет `agent_type`); `codex-fake.test.ts` (+2) — всё, что фейк шлёт сам (hook run-ы, `hookPrompt`,
+- Test-ы: `test/contract/codex-fake-hooks.test.ts` (13) — deny, block и продолжение, hook-и `TaskCompleted` и
+  `TeammateIdle` не регистрируются, без подтверждения, с изменённой папкой и с неверным `trusted_hash` при верном hash-е
+  папки, hash объявления против literal-ов test-а самого Codex, exit 2, `SessionEnd` 3 s, read-only и workspace-write,
+  правка за пределами `cwd`, поля входа против записей (и красный, если в записях нет `agent_type`); `codex-fake.test.ts` (+2) — всё, что фейк шлёт сам (hook run-ы, `hookPrompt`,
   отказы sandbox), проходит закрытую JSON Schema; неверные шаги — exit 2. Без новой реализации фейка новый test
   красный: 7 из 9.
 
@@ -107,10 +112,17 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Гарантии workf
    `SessionEnd` — при закрытии stdin, без notification-ов.
 5. Контекст `SessionStart` / `SubagentStart` (`additionalContext` или простой stdout) — запись `context` в
    `hook/completed`; разбор этих двух событий в Codex не сверялся.
-6. Hash объявления hook-а (`trusted_hash`) фейк считает по-своему: Codex при запуске проверяет только, что он есть.
-   Помечено `shortcut:` в коде.
+6. Hash объявления hook-а фейк считает ровно как Codex (`hook_hash`): нормализованный handler (команда этой ОС до
+   подстановки `${PLUGIN_ROOT}`, timeout с умолчанием, `async`, `statusMessage`, `additionalContextLimit` не по
+   умолчанию и только у событий, которые его держат), matcher — только у событий с matcher-ом; JSON с ключами по
+   алфавиту, SHA-256. Сверено с literal-ами `trusted_hash` test-а Codex `core/tests/suite/hooks.rs` (тег
+   `rust-v0.166.0`) — совпали оба. С записями Ticket-а 30 (`hooks/list`, `currentHash`) сверить нельзя: в них путь
+   команды заменён при очистке, а hash считался от настоящего. Осталось `shortcut:` — подтверждение без
+   `trusted_content_hash` (старое, до fingerprint-ов папки) фейк проваливает, Codex переносит его через свой legacy-файл.
 7. Команда hook-а идёт через shell Node (`/bin/sh -c`, на Windows `cmd.exe /d /s /c`), как Codex без настроенного
    shell; `${CLAUDE_PLUGIN_ROOT}` и соседние подставляются в текст до запуска, поэтому `node "…"` работает и на Windows.
+8. `fileChange` за пределами `cwd` thread-а фейк отклоняет (`declined`), как sandbox `workspace-write` не даёт писать
+   вне рабочей папки; сценарий с такой правкой — ошибка test-а, а не запись на диск test-машины.
 
 Для Ticket-а 42 (документация второго выпуска): `docs/features/vendors.md:180-186` («The fake Codex») не говорит, что
 фейк исполняет hook-и установленного plugin-а и держит sandbox thread-а.

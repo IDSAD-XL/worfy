@@ -33,11 +33,15 @@
 //   https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/protocol/src/hooks.rs
 //     the event names of hooks.json; any other name (TaskCompleted, TeammateIdle) is skipped silently
 //
-// Trust, as Codex checks it while it runs: a plugin hook runs only when config.toml of CODEX_HOME holds a
-// trusted_hash for its key; without one it is skipped silently. Each run compares trusted_content_hash with
-// the fingerprint of the plugin folder: a folder changed since the approval fails the run with "plugin
-// contents changed; hook approval required", and the action goes on. approvePluginHooks writes that
-// approval for the tests, as a user's /hooks would.
+// Trust, as Codex checks it while it runs: a plugin hook is registered only when config.toml of CODEX_HOME
+// holds a trusted_hash for its key; without one it is skipped silently. Each run then asks two things
+// (plugin_trust.rs, matches_hash): the trusted_hash is the hash of the hook's declaration (declarationHash,
+// hook_hash of discovery.rs), and the trusted_content_hash is the fingerprint of the plugin folder now. A
+// hook edited or a folder changed since the approval fails the run with "plugin contents changed; hook
+// approval required", and the action goes on. approvePluginHooks writes that approval for the tests, as a
+// user's /hooks would.
+//   https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/config/src/fingerprint.rs
+//     version_for_toml, the hash of a declaration
 //
 // The fake plays six events: SessionStart, SubagentStart, PreToolUse, Stop, SubagentStop, SessionEnd.
 // shortcut: the other events Codex knows (PostToolUse, UserPromptSubmit, PreCompact…) are read but never
@@ -112,16 +116,48 @@ export function pluginFingerprint(root) {
   return `sha256:${hash.digest('hex')}`
 }
 
+/** Events whose handlers keep their additionalContextLimit (discovery.rs); the default is left out of the hash. */
+const CONTEXT_EVENTS = new Set(['PreToolUse', 'PostToolUse', 'SessionStart', 'UserPromptSubmit', 'SubagentStart'])
+const DEFAULT_CONTEXT_LIMIT = 2500
+
+/** The command a handler runs: commandWindows (or its alias command_windows) on Windows when it is given. */
+function commandOf(declared) {
+  const windows = declared.commandWindows ?? declared.command_windows
+  return process.platform === 'win32' && typeof windows === 'string' ? windows : declared.command
+}
+
+const sortedKeys = (value) => (Array.isArray(value) ? value.map(sortedKeys) : value !== null && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortedKeys(value[key])])) : value)
+
 /**
- * The hash of one hook as a declaration.
- * shortcut: not Codex's exact form (the TOML normalisation of its version_for_toml was not checked); Codex
- * itself only asks at run time that a trusted_hash be there, and so does the fake. Compute it as Codex does
- * when a test must match the trusted_hash Codex reports in hooks/list.
+ * The hash of one hook as a declaration, as hook_hash of discovery.rs computes it: the normalized identity
+ * {event_name, matcher, hooks: [the handler]} as TOML (None fields left out), then version_for_toml of
+ * codex-rs/config/src/fingerprint.rs: JSON with every object's keys sorted, no spaces, SHA-256. The handler
+ * is normalized first: the command of this OS before `${PLUGIN_ROOT}` is replaced, the timeout with its
+ * default, async as a boolean, statusMessage, additionalContextLimit only on an event that keeps it and when
+ * it is not the default; the matcher only on an event that has one. Checked against the trusted_hash
+ * literals of Codex's own test, codex-rs/core/tests/suite/hooks.rs at the same tag (codex-fake-hooks.test.ts).
  */
-function declarationHash(handler) {
-  const sorted = (value) => (Array.isArray(value) ? value.map(sorted) : value !== null && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted(value[key])])) : value)
-  const declaration = { event_name: snake(handler.event), matcher: handler.matcher ?? null, hooks: [handler.declared] }
-  return `sha256:${createHash('sha256').update(JSON.stringify(sorted(declaration))).digest('hex')}`
+export function declarationHash(handler) {
+  const { event, declared } = handler
+  const normalized = { type: 'command', command: commandOf(declared), timeout: timeoutSec(event, declared.timeout), async: declared.async === true }
+  if (typeof declared.statusMessage === 'string') normalized.statusMessage = declared.statusMessage
+  const limit = declared.additionalContextLimit
+  if (CONTEXT_EVENTS.has(event) && typeof limit === 'number' && limit !== DEFAULT_CONTEXT_LIMIT) normalized.additionalContextLimit = limit
+  const identity = { event_name: snake(event), hooks: [normalized] }
+  if (!NO_MATCHER.has(event) && typeof handler.matcher === 'string') identity.matcher = handler.matcher
+  return `sha256:${createHash('sha256').update(JSON.stringify(sortedKeys(identity))).digest('hex')}`
+}
+
+/**
+ * Whether a run of `handler` may go on, as PluginHookTrust::matches_hash decides it (plugin_trust.rs):
+ * its trusted_hash is the hash of its declaration, and its trusted_content_hash the fingerprint of the
+ * plugin folder now. Either one off fails the run with "plugin contents changed; hook approval required".
+ * shortcut: an approval with no trusted_content_hash fails here; Codex migrates such a declaration-only
+ * approval through its legacy trust file instead. Play that when a test needs an approval from before
+ * content fingerprints.
+ */
+function trusted(handler, fingerprint) {
+  return handler.state.trusted_hash === declarationHash(handler) && handler.state.trusted_content_hash === fingerprint
 }
 
 const tomlString = (value) => JSON.stringify(value)
@@ -257,7 +293,7 @@ export function loadHooks(codexHome, { all = false } = {}) {
     handlers.push(...fileHandlers)
   }
   if (all) return { handlers, warnings }
-  return { handlers: handlers.filter((handler) => PLAYED_EVENTS.includes(handler.event) && handler.state.enabled !== false && typeof handler.state.trusted_hash === 'string' && handler.state.trusted_hash !== ''), warnings }
+  return { handlers: handlers.filter((handler) => PLAYED_EVENTS.includes(handler.event) && handler.state.enabled !== false && typeof handler.state.trusted_hash === 'string'), warnings }
 }
 
 // --- Input ----------------------------------------------------------------------------------------------
@@ -322,7 +358,7 @@ function killTree(child) {
 /** Runs one handler with `input` on stdin: its exit code (null on a timeout), stdout and stderr. */
 function execute(handler, input, cwd) {
   const vars = { PLUGIN_ROOT: handler.pluginRoot, CLAUDE_PLUGIN_ROOT: handler.pluginRoot, PLUGIN_DATA: handler.pluginData, CLAUDE_PLUGIN_DATA: handler.pluginData }
-  const text = (process.platform === 'win32' && typeof handler.declared.commandWindows === 'string' ? handler.declared.commandWindows : handler.declared.command) ?? ''
+  const text = commandOf(handler.declared) ?? ''
   const command = text.replace(/\$\{(PLUGIN_ROOT|CLAUDE_PLUGIN_ROOT|PLUGIN_DATA|CLAUDE_PLUGIN_DATA)\}/g, (_, name) => vars[name])
   const seconds = timeoutSec(handler.event, handler.declared.timeout)
   return new Promise((resolve) => {
@@ -448,7 +484,7 @@ export async function runHooks(handlers, event, { input, matchValue, cwd, onStar
       const started = Date.now()
       const run = summary(handler, event, input.tool_use_id, started)
       onStarted(run)
-      const outcome = handler.state.trusted_content_hash === fingerprint(handler.pluginRoot) ? outcomeOf(event, await execute(handler, input, cwd)) : { status: 'failed', entries: [{ kind: 'error', text: 'plugin contents changed; hook approval required' }] }
+      const outcome = trusted(handler, fingerprint(handler.pluginRoot)) ? outcomeOf(event, await execute(handler, input, cwd)) : { status: 'failed', entries: [{ kind: 'error', text: 'plugin contents changed; hook approval required' }] }
       // An async hook never decides (engine/mod.rs).
       const decided = handler.declared.async === true && event !== 'SessionEnd' ? { ...outcome, block: undefined, stop: undefined, status: outcome.status === 'failed' ? 'failed' : 'completed' } : outcome
       const done = { ...run, status: decided.status, completedAt: Math.floor(Date.now() / 1000), durationMs: Date.now() - started, entries: decided.entries }

@@ -24,8 +24,9 @@
 //       the step marks "writes":true, is refused (fileChange: status "declined"; command: "failed", exit
 //       code 1) and nothing is written. Otherwise item/started goes out, the changes of a completed
 //       fileChange are written under the thread's cwd (add: the diff is the content; update: the hunks;
-//       delete), and then the item/completed of the step. The fake never runs a command: whether one
-//       writes is what the step says.
+//       delete), and then the item/completed of the step. A fileChange with a path or a move_path that
+//       resolves outside the thread's cwd is declined whole, as under read-only, and nothing is written.
+//       The fake never runs a command: whether one writes is what the step says.
 //   "stop":"turn" or "stop":"subagent" on turn/completed — the agent, or the Subagent "agentId" of
 //       "agentType", ends its turn with "lastAgentMessage". Stop (SubagentStop) runs: a block keeps the
 //       turn open: a hookPrompt item with the reason goes out instead of the turn/completed, and the next
@@ -53,7 +54,7 @@
 // It writes nothing else: no CODEX_HOME, no file next to the script; the hooks it runs and the file
 // changes of a "tool" step in a thread that may write are the agent's own writes.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
 import { hookInput, loadHooks, runHooks } from './hook-runner.mjs'
@@ -265,10 +266,19 @@ function patched(text, diff) {
   return result
 }
 
-/** Writes the changes of a fileChange item under `cwd`. */
+/** The first path of `changes` (a move_path included) that is not inside `cwd`; undefined when all are. */
+function outsideOf(changes, cwd) {
+  const paths = (changes ?? []).flatMap((change) => [change.path, ...(typeof change.kind?.move_path === 'string' ? [change.kind.move_path] : [])])
+  return paths.find((path) => {
+    const rel = relative(resolve(cwd), resolve(cwd, path))
+    return rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)
+  })
+}
+
+/** Writes the changes of a fileChange item under `cwd`; every path is inside it (outsideOf). */
 function applyChanges(changes, cwd) {
   for (const change of changes ?? []) {
-    const path = isAbsolute(change.path) ? change.path : join(cwd, change.path)
+    const path = resolve(cwd, change.path)
     if (change.kind?.type === 'add') {
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, change.diff)
@@ -280,7 +290,7 @@ function applyChanges(changes, cwd) {
         process.stderr.write(`fake app-server: the diff of ${change.path} does not fit the file; it is left as it was\n`)
         continue
       }
-      const target = typeof change.kind.move_path === 'string' ? (isAbsolute(change.kind.move_path) ? change.kind.move_path : join(cwd, change.kind.move_path)) : path
+      const target = typeof change.kind.move_path === 'string' ? resolve(cwd, change.kind.move_path) : path
       mkdirSync(dirname(target), { recursive: true })
       writeFileSync(target, text)
       if (target !== path && existsSync(path)) unlinkSync(path)
@@ -314,7 +324,15 @@ async function playTool(step) {
     send({ method: 'item/completed', params: { ...params, item: refused(params.item) } })
     return
   }
-  if (params.item.type === 'fileChange' && params.item.status === 'completed') applyChanges(params.item.changes, thread.cwd)
+  if (params.item.type === 'fileChange' && params.item.status === 'completed') {
+    const outside = outsideOf(params.item.changes, thread.cwd)
+    if (outside !== undefined) {
+      process.stderr.write(`fake app-server: ${params.item.id} changes ${outside}, outside the thread's cwd; the change is declined\n`)
+      send({ method: 'item/completed', params: { ...params, item: refused(params.item) } })
+      return
+    }
+    applyChanges(params.item.changes, thread.cwd)
+  }
   send({ method: step.notify, params })
 }
 
