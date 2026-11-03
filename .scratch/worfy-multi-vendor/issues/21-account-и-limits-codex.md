@@ -88,3 +88,30 @@ Source: [spec.md](../spec.md), «Модель» (LimitWindow), «Риски», �
   Сценарии фейка не добавлялись.
 - Не сделано здесь: вызов `codexLimitReachedEvent` и `codexLimitsEvent` из Session Codex — это `session.ts`
   (Ticket 20), запись `limits` Session-ов Codex в `LimitsTracker` и показ — Ticket 26.
+
+Ревью (PR #1259):
+
+- Ступень `high` по тексту тикета — решено без владельца, подтвердить. Один круг — verifier и два reviewer-а
+  (корректность с безопасностью; test-ы с mutation testing): VERIFIED, находок high и med нет, 283 083 subagent-токена.
+  Mutation 121/130; все mutant-ы закрытия процесса и остановки опроса убиты.
+- Consider (low):
+  - `check()` превращает зависший handshake `initialize` в `signedIn: false`: вошедшему предложат вход
+    (`account.ts:357-362`);
+  - отмена не прерывает `start()`: отказ только после handshake, до 60 с; процесс всё равно закрывается
+    (`account.ts:156`, `:281-283`; `limits.ts:595-596`);
+  - `codexLimitReached` не сравнивает `resetsAt` с текущим временем: окно со сбросом в прошлом даёт `window`, ждать
+    нечего (`limits.ts:542-548`);
+  - `setWindows`/`windowsOf`/`subscribeWindows` дают `[]` и для «вошёл, окон нет», и для «вышел»
+    (`src/main/agent/limits.ts:145`, `:161-163`, `:182`) — Ticket 26 нужна эта разница (решение 09);
+  - вопрос: решение читает только `rateLimits`, не `rateLimitsByLimitId`: отказ по bucket-у модели даст `quota`
+    (`limits.ts:563-564`).
+- Noted (low): без test-ов — фильтр событий входа (`account.ts:179`), передача `timeoutMs` (`account.ts:50`), окна без
+  `windowDurationMins`/`resetsAt` (`limits.ts:59`, `:67`), дробный `usedPercent` (`:65`), `codexHome` по умолчанию
+  (`:169`), логгер по умолчанию (`account.ts:143`), склейка `installLimitsRefresh` с driver-ом Codex
+  (`limits-usage.ts:212-213`, только typecheck); вне диффа — `launch.ts:47,59` отдаёт процессу Codex весь `process.env`
+  с API-ключами (долг Ticket-а 19).
+- Подключение `codexLimitReachedEvent`/`codexLimitsEvent` к Session Codex не сделано ни здесь, ни в Ticket-е 20
+  (там `usageLimitExceeded` — только `result` с ошибкой): нужен Ticket, который его сделает (решено без владельца,
+  подтвердить: событие `limits` Session-а нужно Ticket-у 26 для окон, `limit_reached` — Ticket-у 38, п. 2; подключение
+  делает тот из них, кто придёт первым).
+- Dismissed: нет.

@@ -118,3 +118,36 @@ test-ы presets, sandbox policy и `model/list`.
   test-е (`holdClose`): события кончаются только после `close`, если он пришёл до предела, и через
   `OUTPUT_AFTER_EXIT_MS`, если `close` нет; оба mutant-а `session.ts:176` (без ожидания и без предела) красные. Test-ы с
   ребёнком — только вне Windows (`it.skipIf`), строка пишется через 100 мс после выхода вместо 300.
+
+Ревью (PR #1260):
+
+- Ступень `high` по тексту тикета — решено без владельца, подтвердить. Круг 1 — verifier, два reviewer-а, два
+  sceptic-а: REJECTED, четыре пункта (approval-ы Subagent-а без путей и три пробела test-ов, которые сторожат остановку
+  процесса и Interrupt; закрыты доработкой выше), 631 561 subagent-токен. Круг 2 — verifier и reviewer (`medium`):
+  VERIFIED; debt, 144 743 токена.
+- Consider (low):
+  - steer теряет сообщение, если отказ `turn/steer` пришёл раньше `turn/completed` того же хода
+    (`session.ts:319-329`). Сегодня путь недостижим: Session ставит сообщения в очередь во время хода
+    (`src/main/agent/session.ts:285`). Долг блокирует тот Ticket, который начнёт слать сообщения во время хода в steer;
+    дешёвая починка — при отказе «no active turn» сразу `turn/start` (по схеме 0.166 `turn/start` на идущем ходе его
+    steer-ит). Понижено с med с согласия reviewer-а;
+  - Interrupt при открытом approval сначала отвечает `cancel`, потом ждёт ответа на `turn/interrupt` до 60 с, если
+    Codex не ответит (`session.ts:207-212`);
+  - timeout `turn/start`, когда Codex всё же начал ход, даёт два `result` на одно сообщение (`session.ts:296-311`);
+  - после смены preset-а `turn/start` шлёт явную policy `workspace-write` (`networkAccess: false`, `writableRoots: []`),
+    которая может перекрыть `config.toml` пользователя посреди Session — строже, не мягче (`codexSandboxPolicy`);
+  - безопасность: `console.warn` пишет в log весь объект ошибки, `CodexAppServerExit` несёт до 16 KB stderr
+    (`session.ts:248`, `:384`) — писать только `exitText`;
+  - нет test-а на стороне Codex для закрытия Session, пока app-server стартует; процесс ограничен `consume`/`exited`
+    Session и timeout-ом request-а 60 с;
+  - вне диффа: `src/main/agent/permissions.ts:76` запоминает ответ только по subject, без имени tool-а: «Accept for this
+    Session» на правку `/p/build.sh` примет и команду, чья строка ровно `/p/build.sh`.
+- Debt круга 2 (low): `codex-session.test.ts:769` проверяет только нижнюю границу; выжили mutant-ы
+  `approvals.ts:72` (вариант Session привязан к `cwd`, а не к команде) и `approvals.ts:65` (без копии вариантов).
+- Noted (low): без test-ов — защита `lastEnded`/`activeTurn` (`session.ts:346`, `:402-403`), переход опоздавшего steer
+  в `turn/start` (`:294`, `:325`), `error` без `willRetry` через Session (`:396`), отказ `turn/interrupt` закончившегося
+  хода (`:215`), выбор «Default» до следующего хода (`codex-session.test.ts:421-428`), 8 из 10 `QUIET`
+  (`items.ts:53-61`), предел 2000 символов (`items.ts:30`, `:269`, `session.ts:110`) — mutation круга 1 172/232;
+  `model/list` молча обрезается после 10 страниц. Вопросы к настоящему Codex: уникальны ли id item-ов между thread-ами
+  (общая карта `started`, `items.ts:148/169`; запасной путь безопасен); `item/fileChange/patchUpdated` не читается.
+- Dismissed: нет.
