@@ -1,7 +1,8 @@
 # 23 — Vendor у Session и у Project
 
 Type: task
-Status: claimed 2026-11-03T01:03Z
+Status: done 2026-11-03T02:18Z
+PR: #1267
 Blocked by: 14, 17, 18, 20, 21
 Source: [spec.md](../spec.md), «Модель» (Vendor), «Решено без владельца», п. 5, 7, 8; Ticket 01 ([01-destination-vendor-масштаб.md](01-destination-vendor-масштаб.md), п. 3); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md))
 
