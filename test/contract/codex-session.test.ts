@@ -11,6 +11,8 @@
 // WORFY_TEST_INJECT_AFTER: what no script can play — a request Codex resolves itself, a line that is
 // not JSON, a method the schema does not know, a notification of another thread. Under
 // WORFY_TEST_HOLD_MS it also starts a child that holds the fake's stdout after the fake exited (HOLDER).
+// HOLDER does not keep the pipe open on Windows; holdClose() holds back the 'close' of the fake's
+// process itself, the same on every OS.
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -20,7 +22,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../src/shared/agent/settings'
 import { PermissionGate } from '../../src/main/agent/permissions'
-import { hasExited } from '../../src/main/agent/session/process'
+import { hasExited, within } from '../../src/main/agent/session/process'
 import type { AgentProcess, PermissionAsk, PermissionAsker, RefusalDetails, SessionHandle, SessionPart, SessionStart } from '../../src/main/vendors/session'
 import { OUTPUT_AFTER_EXIT_MS } from '../../src/main/vendors/codex/app-server'
 import { UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
@@ -145,12 +147,50 @@ interface Ask {
   refuse: () => void
 }
 
+/** The 'close' of one process held back: it reaches the process's listeners only after release(). */
+interface CloseHold {
+  release: () => void
+  /** Whether the process's listeners got its 'close'. */
+  closed: () => boolean
+}
+
+/**
+ * Holds back the 'close' of `child` — the end of its stdout and stderr — until release(), as a pipe a
+ * child of the process still held would: what the process wrote still arrives, only the end of its
+ * output waits.
+ */
+function holdClose(child: ChildProcess): CloseHold {
+  const emit = child.emit.bind(child)
+  let released = false
+  let closed = false
+  let held: unknown[] | null = null
+  const pass = (args: unknown[]): void => {
+    closed = true
+    emit('close', ...args)
+  }
+  child.emit = ((event: string | symbol, ...args: unknown[]): boolean => {
+    if (event !== 'close') return emit(event, ...args)
+    if (released) pass(args)
+    else held = args
+    return true
+  }) as ChildProcess['emit']
+  return {
+    release: () => {
+      released = true
+      if (held !== null) pass(held)
+    },
+    closed: () => closed,
+  }
+}
+
 /** A session part over the fake playing `script`, and what a test looks at. */
 interface Fake {
   part: SessionPart
   root: string
   log: string
   spawnedChildren: ChildProcess[]
+  /** With `holdClose`, the 'close' of each process the stand-in started, in the order of `spawnedChildren`. */
+  holds: CloseHold[]
   /** What worfy sent the fake so far. */
   logged: () => Logged[]
   requests: (method: string) => Logged[]
@@ -158,17 +198,19 @@ interface Fake {
   answers: () => Logged[]
 }
 
-function fake(script: string, env: Record<string, string> = {}): Fake {
+function fake(script: string, env: Record<string, string> = {}, options: { holdClose?: boolean } = {}): Fake {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'worfy-codex-session-'))
   roots.push(root)
   const log = join(root, 'codex.log')
   const preload = join(root, 'preload.mjs')
   writeFileSync(preload, PRELOAD)
   const spawnedChildren: ChildProcess[] = []
-  const spawnProcess = (_file: string, args: readonly string[], options: SpawnOptions): ChildProcess => {
-    const child = spawn(scriptNode(), ['--import', pathToFileURL(preload).href, ...args], options)
+  const holds: CloseHold[] = []
+  const spawnProcess = (_file: string, args: readonly string[], spawnOptions: SpawnOptions): ChildProcess => {
+    const child = spawn(scriptNode(), ['--import', pathToFileURL(preload).href, ...args], spawnOptions)
     children.push(child)
     spawnedChildren.push(child)
+    if (options.holdClose === true) holds.push(holdClose(child))
     return child
   }
   const part = codexSessions(() =>
@@ -193,6 +235,7 @@ function fake(script: string, env: Record<string, string> = {}): Fake {
     root,
     log,
     spawnedChildren,
+    holds,
     logged,
     requests: (method) => logged().filter((message) => message.method === method),
     answers: () => logged().filter((message) => message.method === undefined),
@@ -711,9 +754,39 @@ describe('a Codex Session: the process', () => {
     expect(session.asks[0]?.request.signal.aborted).toBe(true)
   })
 
-  it('what the process wrote after its exit, through a child that still holds its output, reaches the Session before the events end', async () => {
+  it('the events end only once the output of the process closed, when it closes after the exit', async () => {
+    const at = fake('turn', { WORFY_TEST_CRASH_ON: 'turn/start' }, { holdClose: true })
+    const session = await live(at)
+    const [child, hold] = [at.spawnedChildren[0] as ChildProcess, at.holds[0] as CloseHold]
+    // 100 ms after the exit: well before OUTPUT_AFTER_EXIT_MS, whose timer starts at the same exit.
+    child.once('exit', () => setTimeout(() => hold.release(), 100))
+    const closedAtTheEnd = session.ended.then(() => hold.closed())
+    await session.handle.send(message('Say hello'))
+    expect((await session.ended)?.message).toBe('Codex app-server exited with code 101')
+    expect(await closedAtTheEnd).toBe(true)
+  })
+
+  it('output that never closes ends the events OUTPUT_AFTER_EXIT_MS after the exit', async () => {
+    const at = fake('turn', { WORFY_TEST_CRASH_ON: 'turn/start' }, { holdClose: true })
+    const session = await live(at)
+    const hold = at.holds[0] as CloseHold
+    const exited = new Promise<number>((resolve) => at.spawnedChildren[0]?.once('exit', () => resolve(Date.now())))
+    // Taken when the events end: the send itself settles only once the app-server gave up on the output too.
+    const endedAt = session.ended.then(() => Date.now())
+    const sent = session.handle.send(message('Say hello'))
+    expect(await within(endedAt, OUTPUT_AFTER_EXIT_MS + ms(3_000))).toBe(true)
+    const waited = (await endedAt) - (await exited)
+    await sent
+    expect((await session.ended)?.message).toBe('Codex app-server exited with code 101')
+    expect(hold.closed()).toBe(false)
+    expect(waited).toBeGreaterThanOrEqual(OUTPUT_AFTER_EXIT_MS - 50)
+  })
+
+  // On Windows a child that inherits the fake's stdout does not keep the pipe open after the fake
+  // exits (CI run 41546176352): the two tests above hold the end of the output there instead.
+  it.skipIf(process.platform === 'win32')('what the process wrote after its exit, through a child that still holds its output, reaches the Session before the events end', async () => {
     const late = { method: 'item/agentMessage/delta', params: { threadId: 'thr_fake_1', turnId: 'turn_1', itemId: 'msg_1', delta: 'written after the exit' } }
-    const at = fake('turn', { WORFY_TEST_CRASH_ON: 'turn/start', WORFY_TEST_HOLD_MS: '300', WORFY_TEST_LATE_MS: '300', WORFY_TEST_LATE_LINE: `${JSON.stringify(late)}\n` })
+    const at = fake('turn', { WORFY_TEST_CRASH_ON: 'turn/start', WORFY_TEST_HOLD_MS: '200', WORFY_TEST_LATE_MS: '100', WORFY_TEST_LATE_LINE: `${JSON.stringify(late)}\n` })
     const session = await live(at)
     await session.handle.send(message('Say hello'))
     expect((await session.ended)?.message).toBe('Codex app-server exited with code 101')
@@ -721,7 +794,7 @@ describe('a Codex Session: the process', () => {
     expect(holderOf(at.root)).not.toBeNull()
   })
 
-  it('a child that holds the output longer ends the events about OUTPUT_AFTER_EXIT_MS after the exit, not when it lets go', async () => {
+  it.skipIf(process.platform === 'win32')('a child that holds the output longer ends the events about OUTPUT_AFTER_EXIT_MS after the exit, not when it lets go', async () => {
     const holdMs = OUTPUT_AFTER_EXIT_MS + ms(6_000)
     const at = fake('turn', { WORFY_TEST_CRASH_ON: 'turn/start', WORFY_TEST_HOLD_MS: String(holdMs) })
     const session = await live(at)
