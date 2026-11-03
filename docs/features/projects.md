@@ -165,7 +165,9 @@ Project joins the list there without changing that Machine's active Project, and
 
 1. `projects.connect.inspect` answers `added`, `new` or `rejected`. For `added` it has already called `ProjectStore.add`.
 2. `projects.connect.draft` checks the folder and the Harness, runs `project-connect --facts`, starts the Session with the
-   draft schema as its structured output, and sends `projects.connect.activity`. The answer passes `--schema-only`, goes
+   draft schema as its structured output, and sends `projects.connect.activity`. The Session is a single request through
+   the oneShot part of the Claude Code driver (`vendorDriver('claude').oneShot`); a failure of it reads "The draft Session
+   failed: " and its reason. The answer passes `--schema-only`, goes
    through `applyChoices` and then `--check`.
 3. `projects.connect.check` runs `--check` on every edit, and an older answer is dropped.
 4. `projects.connect.write` runs `project-connect` without arguments. `bin/profile -C` must then know the folder, and only
@@ -212,7 +214,9 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
 - "Project settings…" holds the message templates of "Ship ticket", "Run wave" and "Process gate queue", with the
   placeholders `{epic}`, `{NN}`, `{wave}`, `{slug}`, `{branch}` and `{tickets}`. An unknown placeholder shows an error under
   the field and turns off Save. "Reset to default" puts in the defaults of the Harness found on the Machine now. On Windows
-  the dialog also has the [Terminal shell](terminal.md).
+  the dialog also has the [Terminal shell](terminal.md). The settings also keep `defaultVendor`, the Vendor of a new
+  [Session](sessions.md) when "New session" names none: Claude Code when it is absent, and a value this build does not know
+  reads as absent. The dialog does not show it yet, and its Save keeps the saved value.
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.
 - "Remove from list" acts at once, without a question. The Project leaves the list. If it was the active one, the first of

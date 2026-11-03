@@ -1085,11 +1085,24 @@ describe('a Project local to this Machine (localOnly)', () => {
 })
 
 describe('the draft Session of Connect (worfy-multi-vendor ticket 15)', () => {
-  it('outside e2e runs it is Claude Code through the oneShot part of the Claude driver; WORFY_AGENT=fake plays the fake agent', async () => {
+  it('outside e2e runs it is the oneShot part of the Claude driver, through vendorDriver (worfy-multi-vendor ticket 23); WORFY_AGENT=fake plays the fake agent', async () => {
     await start()
-    const { draftQueryFromEnv } = await import('../../src/main/ipc/projects')
-    const { claudeOneShotQuery } = await import('../../src/main/vendors/claude/one-shot')
-    expect(draftQueryFromEnv({})).toBe(claudeOneShotQuery)
-    expect(draftQueryFromEnv({ WORFY_AGENT: 'fake', WORFY_AGENT_SCRIPTS: join(scratch, 'scripts') })).not.toBe(claudeOneShotQuery)
+    const { draftOneShotFromEnv, DRAFT_VENDOR } = await import('../../src/main/ipc/projects')
+    const { vendorDriver } = await import('../../src/main/vendors/registry')
+    expect(DRAFT_VENDOR).toBe('claude')
+    const answer = { text: '', structured: { profile: {} } }
+    // The Claude driver is one object for the app's life: its oneShot is what the draft calls.
+    const oneShot = vi.spyOn(vendorDriver('claude'), 'oneShot').mockResolvedValue(answer)
+    onTestFinished(() => oneShot.mockRestore())
+    const opts = { cwd: scratch, readOnlyTools: ['Read'], outputSchema: {} }
+    await expect(draftOneShotFromEnv({})('draft it', opts)).resolves.toBe(answer)
+    expect(oneShot).toHaveBeenCalledWith('draft it', opts)
+
+    // The fake agent plays the draft's script through the Claude driver's oneShot, not the SDK.
+    oneShot.mockClear()
+    const scripts = join(import.meta.dirname, '..', 'fixtures', 'agent-scripts')
+    const fake = await draftOneShotFromEnv({ WORFY_AGENT: 'fake', WORFY_AGENT_SCRIPTS: scripts })('draft it', { cwd: scratch, readOnlyTools: ['Read'], outputSchema: {} })
+    expect(fake.structured).toEqual(expect.objectContaining({ profile: expect.any(Object) }))
+    expect(oneShot).not.toHaveBeenCalled()
   })
 })

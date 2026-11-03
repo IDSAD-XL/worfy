@@ -222,12 +222,12 @@ test('New session, New conversation, the history and Resume', async () => {
     expect(ids[0]).toMatch(/^[0-9a-f-]{36}$/)
     expect(ids[1]).toMatch(/^[0-9a-f-]{36}$/)
     expect(ids[0]).not.toBe(ids[1])
-    // The Layout keeps identifiers only (ADR-0010).
+    // The Layout keeps identifiers only (ADR-0010): the Vendor and the session id.
     // (The running terminal Session has its read-only Node of ticket 14 next to them.)
     const saved = (await nodes(window)).filter((node) => node.kind === 'session' && node.data.origin === 'worfy').map((node) => node.data)
     expect(saved.sort((a, b) => String(a.sessionId).localeCompare(String(b.sessionId)))).toEqual(
       ids
-        .map((sessionId) => ({ origin: 'worfy', sessionId }))
+        .map((sessionId) => ({ origin: 'worfy', vendor: 'claude', sessionId }))
         .sort((a, b) => String(a.sessionId).localeCompare(String(b.sessionId))),
     )
     await window.screenshot({ path: test.info().outputPath('new-sessions.png') })
@@ -294,7 +294,7 @@ test('New session, New conversation, the history and Resume', async () => {
     await expect(finishedNode.getByTestId('session-node-answer')).toHaveText('Hello from the fake agent')
     await expect(finishedNode).toHaveAttribute('data-session-id', FINISHED)
     await expect(finishedNode).toHaveAttribute('data-cwd', projectPath)
-    expect((await nodes(window)).find((node) => node.id === `session:${FINISHED}`)?.data).toEqual({ origin: 'worfy', sessionId: FINISHED })
+    expect((await nodes(window)).find((node) => node.id === `session:${FINISHED}`)?.data).toEqual({ origin: 'worfy', vendor: 'claude', sessionId: FINISHED })
 
     // Resume of a Session started in a worktree: it goes on in that worktree.
     await window.getByTestId('sidebar-history').click()

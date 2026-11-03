@@ -30,6 +30,7 @@ const request = (overrides: Partial<Request> = {}): Request => ({
 const nodeView = (overrides: Partial<SessionNodeView> = {}): SessionNodeView => ({
   projectId: 'alpha',
   nodeId: 'node-7',
+  vendor: 'claude',
   sessionId: 'sdk-7',
   sdkSessionId: 'sdk-7',
   state: 'needs_permission',

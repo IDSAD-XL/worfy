@@ -64,7 +64,7 @@ const HISTORY_A = [
   { sessionId: S_DONE, title: 'Wave 2 review', size: 1, modifiedAt: 1, live: false },
   { sessionId: S_IDLE, title: 'Desktop notes', size: 1, modifiedAt: 1, live: false },
 ]
-const RUN_VIEW: SessionNodeView = { projectId: A, nodeId: 'node-run', sessionId: 'pending-9', sdkSessionId: S_RUN, state: 'busy', error: null, cwd: ROOT_A, model: null, version: 1 }
+const RUN_VIEW: SessionNodeView = { projectId: A, nodeId: 'node-run', vendor: 'claude', sessionId: 'pending-9', sdkSessionId: S_RUN, state: 'busy', error: null, cwd: ROOT_A, model: null, version: 1 }
 
 const orchestratorView = (projectId: string, nodeId: string) => ({ projectId, nodeId, sessionId: null, state: 'idle', error: null, model: null, costUsd: 0, statusBlock: null, version: 1 })
 

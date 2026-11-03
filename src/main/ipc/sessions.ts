@@ -8,9 +8,9 @@ import { isRemoteCall } from '../link/caller'
 import { defineHandler, type HandlerModule } from './index'
 
 /** The handlers over a set of Node Sessions; tests pass their own. */
-export function sessionsHandlers(sessions: () => Pick<NodeSessions, 'create' | 'start' | 'resume' | 'resumable' | 'list' | 'close'>): HandlerModule {
+export function sessionsHandlers(sessions: () => Pick<NodeSessions, 'open' | 'start' | 'resume' | 'resumable' | 'list' | 'close'>): HandlerModule {
   return [
-    defineHandler(sessionsNew, ({ projectId }) => sessions().create(projectId)),
+    defineHandler(sessionsNew, ({ projectId, vendor }) => sessions().open(projectId, vendor)),
     defineHandler(sessionsStart, ({ projectId, nodeId }) => sessions().start(projectId, nodeId)),
     defineHandler(sessionsResume, ({ projectId, sessionId }) => sessions().resume(projectId, sessionId)),
     // A window's call is local; a Linked machine's is judged strictly (src/main/claude-home/registry.ts, RegistryRoot).

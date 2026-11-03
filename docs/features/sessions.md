@@ -19,6 +19,15 @@ worfy runs Sessions itself and shows the ones started elsewhere. Each Session ha
 A Session worfy runs belongs to the app, not to a window. Its events go to every window, closing a window does not stop
 it, and it stops when worfy quits.
 
+**Vendor.** Each Session runs on one Vendor's agent: Claude Code or Codex. A live Node keeps its Vendor next to its Session
+id, and a Node saved before Vendors existed is Claude Code's. "New session" uses the Vendor it is given, else the Project's
+default Vendor (`defaultVendor` in the Project's `settings.json`), else Claude Code. Start and Resume use the Node's
+Vendor. "New session" refuses a Vendor this build does not run, or one nobody is signed in to, with the reason, before any
+Node appears. Claude Code is not asked again, because the first-run check already requires its sign-in. A sign-in check
+that fails or takes more than 15 seconds refuses nothing, and the Session then shows the Vendor's own error. A Node whose
+Vendor this build does not know keeps it and refuses to start. The Orchestrator is always Claude Code. The interface does
+not offer Codex yet, so a new Session is Claude Code's unless the Project's `defaultVendor` names Codex.
+
 **States.** A Session is in one of six states, shown as a chip.
 
 | State | Chip status | Meaning |
@@ -230,6 +239,8 @@ events go to every client on `agent.event`, and the renderer store keeps the new
   Session over the fake agent.
 - `test/contract/orchestrator.test.ts`, `test/contract/orchestrator-relaunch.test.ts`, `test/contract/node-sessions.test.ts`,
   `test/contract/permissions.test.ts`.
+- `test/contract/sessions-vendor.test.ts`: the Vendor of a Node and of a Project, Claude Code on the fake agent and Codex on
+  the fake app-server.
 - `test/unit/agent-queue.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/resume-rule.test.ts`,
   `test/unit/session-process-exit.test.ts`.
 - `test/e2e/session-view.spec.ts`, `test/e2e/session-controls.spec.ts`, `test/e2e/permissions.spec.ts`,

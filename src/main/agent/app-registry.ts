@@ -1,6 +1,7 @@
-// The app's Session registry. Its Sessions are the Claude driver's (src/main/vendors/claude/session.ts),
-// which start Claude Code — or the fake agent under WORFY_AGENT=fake — through
-// src/main/vendors/claude/query.ts.
+// The app's Session registry. Each Session runs on its Vendor's driver (worfy-multi-vendor ticket 23):
+// Claude Code's (src/main/vendors/claude/session.ts, the fake agent under WORFY_AGENT=fake) or
+// Codex's (src/main/vendors/codex/session.ts, the fake app-server under WORFY_CODEX=fake). The
+// Orchestrator's Sessions are Claude Code's in the first release (spec decision 5).
 //
 // The driver never imports this module (test/contract/vendor-imports.test.ts): what the fake agent
 // needs from the registry — whether a Session runs unattended — is wired here, where the registry
@@ -41,9 +42,10 @@ let appRegistry: SessionRegistry | null = null
  */
 export function sharedRegistry(): SessionRegistry {
   if (appRegistry === null) {
-    // The Sessions are the Claude driver's (src/main/vendors/claude/session.ts): queryFactoryFromEnv,
-    // with every Session's rate_limit_event feeding the Limits (ticket 22), the fake agent's too.
-    const registry = new SessionRegistry(vendorDriver('claude').session)
+    // Each Session on the session part of its Vendor's driver, made when the first Session of that
+    // Vendor starts. Claude's: queryFactoryFromEnv, with every Session's rate_limit_event feeding the
+    // Limits (ticket 22), the fake agent's too.
+    const registry = new SessionRegistry({ sessionsOf: (vendor) => vendorDriver(vendor).session })
     app.on('will-quit', () => registry.closeAll())
     exposeBrowserToolsForFakeAgent(registry)
     appRegistry = registry
