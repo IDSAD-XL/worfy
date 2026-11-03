@@ -168,3 +168,29 @@ Ticket последний в Epic-е, с другими Ticket-ами он не 
   вывод — [`../evidence/16-ls-files-eol.txt`](../evidence/16-ls-files-eol.txt).
 - Вне пункта (находка ревью): в `harness/evals/**` и `harness/evals-outcome/**` вне папок `tests` лежат 17 shell-файлов
   (`scaffold.sh` и другие). Тикет проверяет только `harness/bin` и `harness/hooks`.
+
+Пункт 1 (2026-11-02, ПК): установщик `worfy Setup 0.3.0.exe` из `pnpm package` на main `c22e29d0`, SHA-256
+`b222a08b7c6ae11b8efc2d79e422caf773b9fa8a3433a40c21c94ff962c08e94`. Владелец поставил его в `%LOCALAPPDATA%\Programs\worfy`.
+После Replace Harness в шапке `claude plugin list --json` показывает `worfy@worfy-harness` `0.3.0+c22e29d0`, enabled:
+[`../evidence/16-claude-plugin-list.json`](../evidence/16-claude-plugin-list.json). 2026-11-03 обе копии обновлены до
+`bacbbcef`, установщик SHA-256 `d0468532b04da41709e54c28f5683a8d4daf98eeb68a68934e8686e485d8c0f8`; plugin list —
+`0.3.0+bacbbcef`, enabled: [`../evidence/16-claude-plugin-list-bacbbcef.json`](../evidence/16-claude-plugin-list-bacbbcef.json).
+- Не сделано: экрана первого запуска нет. Установленная копия делит данные пользователя со Stable copy, которая уже
+  настроена, поэтому worfy сразу открывает Canvas. Снимков `16-установка.png` и `16-первый-запуск.png` нет.
+- `test/unit/first-run-windows.test.ts` лежит в `test/unit` и входит в `pnpm test`. Шаг `test` gate full на ПК зелёный на
+  main `9c81e5b0` и `2644e70c`; отдельной строки по этому файлу в выводе gate нет.
+
+Пункт 2 (2026-11-03, ПК; снимки делал владелец, computer use выключен):
+- Копия: установленная из `Programs\worfy`, `v0.3.1339`, Harness `0.3.0+bacbbcef`, а не Stable copy, как требует пункт.
+- Canvas с Epic-ами worfy (worfy-multi-vendor 36/45, worfy-throughput 57/60, строка Done):
+  [`../evidence/16-canvas-worfy-epics.webp`](../evidence/16-canvas-worfy-epics.webp). Это проект Mac, видный через связь машин. Своего Project worfy на ПК нет, поэтому эта часть пункта не закрыта.
+- Session в локальном проекте ПК (stolyar) вызвала Bash tool: `MINGW64_NT-10.0-26300`, `/f/SWE/basiz-stolyar/stolyar`,
+  `5eb1ff8`. Сам вызов на снимке свёрнут, виден вывод: [`../evidence/16-session-bash.webp`](../evidence/16-session-bash.webp).
+- Terminal `pwsh.exe`: `$PSVersionTable.PSEdition` → `Core`:
+  [`../evidence/16-terminal-pwsh.webp`](../evidence/16-terminal-pwsh.webp).
+- `gate fast` в worktree на main `31ea6aae`: код 0, зелёный, 134.1 s, `[gate] green (fast): worfy/.:lint worfy/.:typecheck`:
+  [`../evidence/16-gate-fast.txt`](../evidence/16-gate-fast.txt), [`../evidence/16-gate-fast.log`](../evidence/16-gate-fast.log).
+- Сброс GPU: окно установленной копии потеряло картинку после установщика NVIDIA Broadcast и вернулось после перезапуска
+  worfy ([`../evidence/16-window-after-restart.webp`](../evidence/16-window-after-restart.webp)). Это наблюдение, а не
+  дефект worfy, если без установщика NVIDIA не повторится. Захват экрана computer use зависал до перезагрузки ПК.
+- Wave Autopilot не начата: ждёт Project worfy на ПК из чистого клона; добавляет его и жмёт Run wave владелец.

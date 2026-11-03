@@ -1,0 +1,9 @@
+[
+  {
+    "id": "worfy@worfy-harness",
+    "version": "0.3.0+bacbbcef",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "%USERPROFILE%\\.claude\\plugins\\cache\\worfy-harness\\worfy\\0.3.0-bacbbcef"
+  }
+]
