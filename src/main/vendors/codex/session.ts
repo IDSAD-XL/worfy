@@ -3,6 +3,7 @@
 // WORFY_CODEX=fake, behind worfy's SessionHandle.
 //
 // - start: `thread/start {cwd, approvalPolicy, sandbox, model}`; resume: `thread/resume {threadId, …}`.
+//   A Session in a Project adds worfy's MCP servers to both (`config`, `developerInstructions`; mcp.ts).
 //   The start check of a Codex Session is that thread answering: the handle then gives `account`, and the
 //   Session takes messages. Whether the user is signed in to Codex is the account part's question
 //   (ticket 21); a turn of a signed-out Codex fails with Codex's own error.
@@ -50,6 +51,7 @@ import { codexModelOptions, codexPermissionPreset, codexPresetFor, codexSandboxP
 import { boundedText, CodexItems } from './items'
 import { CODEX_VENDOR, codexLimitReachedEvent, codexLimitsEvent } from './limits'
 import type { SpawnProcess } from './launch'
+import { appCodexMcp, type CodexMcpResolver } from './mcp'
 import type { RequestId } from './protocol/ts/RequestId'
 import type { AccountRateLimitsUpdatedNotification } from './protocol/ts/v2/AccountRateLimitsUpdatedNotification'
 import type { ServerNotification } from './protocol/ts/ServerNotification'
@@ -78,6 +80,8 @@ export interface CodexServerOptions {
   log?: (line: string) => void
   /** Where the windows of each `limits` event of the Session go: the app's LimitsTracker; nowhere by default. */
   limits?: (windows: readonly LimitWindow[]) => void
+  /** worfy's MCP servers of a Session (mcp.ts, ticket 33); without it a Session gets none. */
+  mcp?: CodexMcpResolver
 }
 
 /** The JSON-RPC error a server→client request worfy does not answer gets (rpc.ts's METHOD_NOT_FOUND). */
@@ -533,6 +537,8 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
   const session = new CodexSession(opts, preset.id, options.limits)
   const { CodexAppServer, OUTPUT_AFTER_EXIT_MS } = await import('./app-server')
   const spawnProcess = options.spawnProcess ?? spawn
+  // The servers' token goes to the process through its environment only (mcp.ts, MCP_TOKEN_ENV).
+  const mcp = (await options.mcp?.({ cwd: opts.cwd, resume, unattended: opts.unattended })) ?? null
   let server: CodexAppServer
   try {
     server = await CodexAppServer.start({
@@ -540,7 +546,7 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
       appPath: options.appPath,
       cwd: opts.cwd,
       clientVersion: options.clientVersion,
-      env: options.env,
+      env: mcp === null ? options.env : { ...(options.env ?? process.env), ...mcp.env },
       timeoutMs: options.timeoutMs,
       log: options.log,
       onEvent: (event) => session.receive(event),
@@ -552,11 +558,20 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
       },
     })
   } catch (error) {
+    mcp?.close()
     throw startError(error)
   }
+  // The token lives as long as the process: it ends when the process exits, or when the handle closes.
+  if (mcp !== null) server.process.once('exit', () => mcp.close())
   session.started(server)
   try {
-    const params = { cwd: opts.cwd, approvalPolicy: preset.approvalPolicy, sandbox: preset.sandbox, ...(opts.settings.model === null ? {} : { model: opts.settings.model }) }
+    const params = {
+      cwd: opts.cwd,
+      approvalPolicy: preset.approvalPolicy,
+      sandbox: preset.sandbox,
+      ...(opts.settings.model === null ? {} : { model: opts.settings.model }),
+      ...(mcp === null ? {} : { config: mcp.config, developerInstructions: mcp.developerInstructions }),
+    }
     const response =
       resume === undefined
         ? await server.request<ThreadStartResponse, 'thread/start'>('thread/start', params)
@@ -564,10 +579,11 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
     session.attach(response, OUTPUT_AFTER_EXIT_MS)
   } catch (error) {
     session.close()
+    mcp?.close()
     await server.close()
     throw startError(error)
   }
-  return session
+  return mcp === null ? session : mcp.observe(session)
 }
 
 /** The session part of the Codex driver over the app-server `options` give: the app's (codexSession), or a test's. */
@@ -586,6 +602,7 @@ async function appServerOptions(): Promise<CodexServerOptions> {
     appPath: app.getAppPath(),
     clientVersion: app.getVersion(),
     limits: (windows) => appLimits().setWindows(CODEX_VENDOR, windows),
+    mcp: appCodexMcp,
   }
 }
 

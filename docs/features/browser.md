@@ -130,7 +130,8 @@ over. While a Session clicks or types, the keyboard focus of the window stays wh
 
 The tools come from the MCP server `worfy-browser`, one server per Session. A Session gets it when it starts in a
 Project, with its canvas attached, and when the Profile's list of MCP servers, if there is one, names `worfy-browser`
-or `worfy-canvas`.
+or `worfy-canvas`. A Codex Session gets the same server over HTTP on `127.0.0.1`, with a token of its own, as it gets
+`worfy-canvas` (see [Cards](cards.md), "Who gets the tools").
 
 | Tool | What it does |
 |---|---|
@@ -273,7 +274,7 @@ and its modifiers go to the page as they are.
 | The attach check; permissions and window requests of a page | `src/main/browser/attach-policy.ts`, `src/main/window.ts` |
 | The MCP server and its instructions | `src/main/mcp/browser-server.ts`, `src/main/mcp/browser-instructions.md` |
 | Tool schemas, limits, answer texts | `src/shared/browser/tools.ts` |
-| Which Session gets the server | `src/main/vendors/claude/query.ts`, `src/main/vendors/claude/options.ts` |
+| Which Session gets the server | `src/main/vendors/claude/query.ts`, `src/main/vendors/claude/options.ts`, `src/main/vendors/codex/mcp.ts` |
 | Browsers leaving with a Session; ⌘Z | `src/main/layout/store.ts`, `src/renderer/canvas/history.ts` |
 | The frame; its geometry, address, Open bar and profile choice | `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/nodes/browser-frame.ts` |
 | The sidebar and the viewport | `src/renderer/canvas/nodes/BrowserSidebar.tsx`, `src/renderer/canvas/nodes/browser-viewport.ts` |

@@ -28,6 +28,12 @@ import { OUTPUT_AFTER_EXIT_MS } from '../../src/main/vendors/codex/app-server'
 import { UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { CODEX_CAPABILITIES, codexCapabilities } from '../../src/main/vendors/codex/capabilities'
+import { SessionRegistry } from '../../src/main/agent/session'
+import { CardAsk } from '../../src/main/cards/ask'
+import { sendFromCard } from '../../src/main/ipc/card-api'
+import { LayoutStore } from '../../src/main/layout/store'
+import { startMcpHttpEndpoint, type McpHttpEndpoint } from '../../src/main/mcp/http-server'
+import type { CodexMcpResolver } from '../../src/main/vendors/codex/mcp'
 import { codexSessions } from '../../src/main/vendors/codex/session'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
@@ -191,6 +197,10 @@ interface Fake {
   spawnedChildren: ChildProcess[]
   /** With `holdClose`, the 'close' of each process the stand-in started, in the order of `spawnedChildren`. */
   holds: CloseHold[]
+  /** The arguments and the environment each process was started with, in the order of `spawnedChildren`. */
+  launches: { args: readonly string[]; env: NodeJS.ProcessEnv }[]
+  /** worfy's MCP servers of the Sessions started from now on; none until a test sets it. */
+  mcp?: CodexMcpResolver
   /** What worfy sent the fake so far. */
   logged: () => Logged[]
   requests: (method: string) => Logged[]
@@ -206,7 +216,9 @@ function fake(script: string, env: Record<string, string> = {}, options: { holdC
   writeFileSync(preload, PRELOAD)
   const spawnedChildren: ChildProcess[] = []
   const holds: CloseHold[] = []
+  const launches: Fake['launches'] = []
   const spawnProcess = (_file: string, args: readonly string[], spawnOptions: SpawnOptions): ChildProcess => {
+    launches.push({ args, env: spawnOptions.env ?? {} })
     const child = spawn(scriptNode(), ['--import', pathToFileURL(preload).href, ...args], spawnOptions)
     children.push(child)
     spawnedChildren.push(child)
@@ -221,6 +233,7 @@ function fake(script: string, env: Record<string, string> = {}, options: { holdC
       env: { ...process.env, WORFY_CODEX_SCRIPT: script, WORFY_CODEX_LOG: log, ...env },
       spawnProcess,
       log: () => undefined,
+      ...(made.mcp === undefined ? {} : { mcp: made.mcp }),
     }),
   )
   const logged = (): Logged[] => {
@@ -230,16 +243,18 @@ function fake(script: string, env: Record<string, string> = {}, options: { holdC
       return []
     }
   }
-  return {
+  const made: Fake = {
     part,
     root,
     log,
     spawnedChildren,
     holds,
+    launches,
     logged,
     requests: (method) => logged().filter((message) => message.method === method),
     answers: () => logged().filter((message) => message.method === undefined),
   }
+  return made
 }
 
 /** A live handle, with everything its Session would see. */
@@ -854,5 +869,195 @@ describe('a Codex Session: the process', () => {
     await session.handle.interrupt()
     expect(at.requests('turn/start')).toEqual([])
     expect(at.requests('model/list')).toEqual([])
+  })
+})
+
+// worfy's MCP servers for a Codex Session in a Project (ticket 33, src/main/vendors/codex/mcp.ts): the
+// endpoint of src/main/mcp/http-server.ts, the Project's canvas and Browser bound as the Claude driver
+// binds them, and the Profile's list naming `worfy-canvas`.
+describe('a Codex Session: worfy\'s MCP servers', () => {
+  const PROJECT = 'demo-0a1b2c3d'
+
+  interface Mcp {
+    resolver: CodexMcpResolver
+    store: LayoutStore
+    cardsDir: string
+  }
+
+  const endpoints: McpHttpEndpoint[] = []
+  afterEach(async () => {
+    for (const endpoint of endpoints.splice(0)) await endpoint.close()
+  })
+
+  /** The servers of a Session whose cwd is `root`, a Project's root; the data folder lies in it too. */
+  async function mcpFor(root: string, listed: readonly string[] = ['worfy-canvas']): Promise<Mcp> {
+    const { canvasBindingForSession } = await import('../../src/main/mcp/canvas-server')
+    const { browserBindingForSession } = await import('../../src/main/mcp/browser-server')
+    const { codexMcpSessions } = await import('../../src/main/vendors/codex/mcp')
+    const store = new LayoutStore(() => join(root, 'data'), { write: () => undefined })
+    const projects = () => [{ id: PROJECT, name: 'demo', path: root }]
+    const endpoint = await startMcpHttpEndpoint()
+    endpoints.push(endpoint)
+    const resolver = codexMcpSessions({
+      canvas: (request) => canvasBindingForSession(request, { projects, dataDir: () => join(root, 'data'), layout: store, workflow: () => Promise.resolve({ epics: [], tickets: [], error: null }) }),
+      browser: (request) => browserBindingForSession(request, { projects, layout: store, profiles: () => [], live: {} as never }),
+      allowlist: () => Promise.resolve(listed),
+      endpoint: () => Promise.resolve(endpoint),
+    })
+    return { resolver, store, cardsDir: join(root, 'data', 'cards') }
+  }
+
+  interface Server {
+    url: string
+    bearer_token_env_var: string
+  }
+
+  /** The servers thread/start (or thread/resume) named, by name. */
+  const serversOf = (request: Logged | undefined): Record<string, Server> =>
+    Object.fromEntries(Object.entries((request?.params?.config ?? {}) as Record<string, Server>).map(([key, value]) => [key.replace(/^mcp_servers\./, ''), value]))
+
+  const call = async (server: Server, token: string | undefined, method: string, params: unknown = {}): Promise<{ status: number; body: { result?: { content?: { text: string }[]; tools?: { name: string }[] } } | null }> => {
+    const response = await fetch(server.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }) },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    })
+    const text = await response.text()
+    return { status: response.status, body: text === '' ? null : JSON.parse(text) }
+  }
+
+  it('starts the thread with worfy-canvas and worfy-browser: their URLs and the token\'s variable in config, the token only in the process\'s environment', async () => {
+    const withMcp = fake('turn')
+    const mcp = await mcpFor(withMcp.root)
+    withMcp.mcp = mcp.resolver
+    const session = await live(withMcp)
+    await session.until((event) => event.type === 'account', 'account')
+    const [start] = withMcp.requests('thread/start')
+    expect(start?.params).toMatchObject({ cwd: withMcp.root, approvalPolicy: 'never', sandbox: 'danger-full-access' })
+    expect(Object.keys(start?.params?.config as object).sort()).toEqual(['mcp_servers.worfy-browser', 'mcp_servers.worfy-canvas'])
+    const servers = serversOf(start)
+    for (const [name, server] of Object.entries(servers)) {
+      expect(server).toEqual({ url: expect.stringMatching(new RegExp(`^http://127\\.0\\.0\\.1:\\d+/mcp/${name}$`)), bearer_token_env_var: 'WORFY_MCP_TOKEN' })
+    }
+    // The instructions a Claude Session gets in its system prompt: where the Cards go, how the Browser is driven.
+    expect(start?.params?.developerInstructions).toContain(mcp.cardsDir)
+    expect(start?.params?.developerInstructions).toMatch(/browser_open/)
+    const [launch] = withMcp.launches
+    const token = launch?.env.WORFY_MCP_TOKEN
+    expect(token).toMatch(/^[\w-]{43}$/)
+    // Nowhere else: not in the arguments, not in what worfy sent the app-server (the fake's log file).
+    expect(launch?.args.join(' ')).not.toContain(token)
+    expect(readFileSync(withMcp.log, 'utf8')).not.toContain(token)
+    const canvas = await call(servers['worfy-canvas']!, token, 'tools/list')
+    expect(canvas.body?.result?.tools?.map((tool) => tool.name)).toContain('create_card')
+    const browser = await call(servers['worfy-browser']!, token, 'tools/list')
+    expect(browser.body?.result?.tools?.map((tool) => tool.name)).toContain('browser_open')
+  })
+
+  it('a tool call through the endpoint creates a Card next to the Session\'s Node, as for Claude', async () => {
+    const withMcp = fake('turn')
+    const mcp = await mcpFor(withMcp.root)
+    withMcp.mcp = mcp.resolver
+    // The Session's Node, by the id the thread's init gives: new Nodes go next to it.
+    mcp.store.apply(PROJECT, { op: 'create', node: { id: 'session-node', kind: 'session', x: 1000, y: 2000, w: 400, h: 300, data: { sessionId: 'thr_fake_1' } } })
+    const session = await live(withMcp)
+    await session.handle.send(message('Make a clock'))
+    await session.until(isResult, 'the result')
+    const token = withMcp.launches[0]?.env.WORFY_MCP_TOKEN
+    const created = await call(serversOf(withMcp.requests('thread/start')[0])['worfy-canvas']!, token, 'tools/call', { name: 'create_card', arguments: { title: 'Clock' } })
+    expect(created.status).toBe(200)
+    const card = JSON.parse(created.body?.result?.content?.[0]?.text ?? '{}') as { id: string; folder: string; x: number; y: number }
+    expect(card.folder).toBe(join(mcp.cardsDir, card.id))
+    expect(existsSync(card.folder)).toBe(true)
+    const node = mcp.store.get(PROJECT).layout.nodes.find((each) => each.id === card.id)
+    expect(node).toMatchObject({ kind: 'card', data: { title: 'Clock' } })
+    // Placed near the Session's Node, not at the origin: the tools know the Session's thread.
+    expect(Math.abs(card.x - 1000) + Math.abs(card.y - 2000)).toBeLessThan(1500)
+  })
+
+  it('resumes the thread with the servers and a new token; the old one no longer opens anything', async () => {
+    const first = fake('turn')
+    const mcp = await mcpFor(first.root)
+    first.mcp = mcp.resolver
+    const one = await live(first)
+    await one.until((event) => event.type === 'account', 'account')
+    const oldToken = first.launches[0]?.env.WORFY_MCP_TOKEN
+    const servers = serversOf(first.requests('thread/start')[0])
+    one.handle.close()
+    expect((await call(servers['worfy-canvas']!, oldToken, 'tools/list')).status).toBe(401)
+    const second = fake('resume')
+    second.mcp = mcp.resolver
+    // The same Project folder as the first process: a Session resumed where it ran.
+    const two = await live({ ...second, root: first.root }, { resume: 'thr_fake_1' })
+    await two.until((event) => event.type === 'account', 'account')
+    const [resume] = second.requests('thread/resume')
+    expect(resume?.params).toMatchObject({ threadId: 'thr_fake_1', cwd: first.root })
+    expect(serversOf(resume)).toEqual(servers)
+    const newToken = second.launches[0]?.env.WORFY_MCP_TOKEN
+    expect(newToken).not.toBe(oldToken)
+    expect((await call(servers['worfy-canvas']!, newToken, 'tools/list')).status).toBe(200)
+    expect((await call(servers['worfy-canvas']!, oldToken, 'tools/list')).status).toBe(401)
+    expect((await call(servers['worfy-canvas']!, undefined, 'tools/list')).status).toBe(401)
+  })
+
+  it('the token ends when the process dies', async () => {
+    const withMcp = fake('turn', { WORFY_TEST_CRASH_ON: 'turn/start' })
+    withMcp.mcp = (await mcpFor(withMcp.root)).resolver
+    const session = await live(withMcp)
+    await session.until((event) => event.type === 'account', 'account')
+    const token = withMcp.launches[0]?.env.WORFY_MCP_TOKEN
+    const server = serversOf(withMcp.requests('thread/start')[0])['worfy-canvas']!
+    expect((await call(server, token, 'tools/list')).status).toBe(200)
+    await session.handle.send(message('Say hello'))
+    expect(await session.ended).toBeInstanceOf(Error)
+    expect((await call(server, token, 'tools/list')).status).toBe(401)
+  })
+
+  it('without worfy-canvas in the Profile\'s list, or outside every Project, the thread starts as before: no servers, no token', async () => {
+    const withMcp = fake('turn')
+    withMcp.mcp = (await mcpFor(withMcp.root, ['qmd'])).resolver
+    await (await live(withMcp)).until((event) => event.type === 'account', 'account')
+    expect(withMcp.requests('thread/start').map((request) => request.params)).toEqual([{ cwd: withMcp.root, approvalPolicy: 'never', sandbox: 'danger-full-access' }])
+    expect(withMcp.launches[0]?.env.WORFY_MCP_TOKEN).toBeUndefined()
+
+    const noProject = fake('turn')
+    // The Project is a folder inside the Session's cwd, so the cwd is in no Project.
+    noProject.mcp = (await mcpFor(join(noProject.root, 'another-project'))).resolver
+    await (await live(noProject)).until((event) => event.type === 'account', 'account')
+    expect(noProject.requests('thread/start').map((request) => request.params)).toEqual([{ cwd: noProject.root, approvalPolicy: 'never', sandbox: 'danger-full-access' }])
+    expect(noProject.launches[0]?.env.WORFY_MCP_TOKEN).toBeUndefined()
+  })
+
+  it('a Card the Codex Session wrote names it the last editor, and the Card\'s session.ask reaches that Session', async () => {
+    const withMcp = fake('card-edit')
+    const mcp = await mcpFor(withMcp.root)
+    withMcp.mcp = mcp.resolver
+    mcp.store.apply(PROJECT, { op: 'create', node: { id: 'card-1', kind: 'card', x: 0, y: 0, w: 360, h: 280, data: { title: 'Clock' } } })
+    const registry = new SessionRegistry(withMcp.part)
+    const events: AgentEvent[] = []
+    const session = registry.start(withMcp.root, undefined, (_id, event) => events.push(event), DEFAULT_SETTINGS)
+    try {
+      await eventually(() => session.state === 'idle', 'the Session is idle')
+      session.send('Make the clock Card')
+      await eventually(() => events.some(isResult), 'the first turn ends')
+      // The fileChange into data/cards/card-1/ made the thread the Card's last editor.
+      expect(mcp.store.get(PROJECT).layout.nodes.find((node) => node.id === 'card-1')?.data.lastEditor).toBe('thr_fake_1')
+
+      const ask = new CardAsk({
+        nodes: (projectId) => mcp.store.get(projectId).layout.nodes,
+        sessions: () => registry.list(),
+        orchestrator: () => Promise.reject(new Error('the Orchestrator is not the recipient here')),
+        cardTitle: () => Promise.resolve('Clock'),
+        refuseUnattended: () => undefined,
+        send: (sessionId, text) => sendFromCard(registry, sessionId, text),
+      })
+      const prepared = await ask.prepare(PROJECT, 'card-1', 'Make it tick')
+      expect(prepared.recipientLabel).toBe('Session thr_fake, which last edited this Card')
+      expect(ask.finish(PROJECT, prepared.askId, true)).toEqual({ sent: true, recipient: 'session' })
+      await eventually(() => withMcp.requests('turn/start').length === 2, 'the message reaches Codex')
+      expect(withMcp.requests('turn/start')[1]?.params).toMatchObject({ threadId: 'thr_fake_1', input: [text('Message from Card "Clock" (card-1):\n\nMake it tick')] })
+    } finally {
+      registry.closeAll()
+    }
   })
 })

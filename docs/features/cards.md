@@ -249,6 +249,15 @@ change the Canvas, and it is wider than Cards: it also makes notes, and moves, r
 
 - The Session gets the server only if the Project's Profile lists it. The default list does.
 - A Session whose working directory is in no Project runs without these tools. So does a Session whose canvas failed to start.
+- A Claude Session gets the server inside the app's process. A Codex Session gets the same tools over HTTP: worfy serves
+  them on `127.0.0.1` only, at a port picked when the first Codex Session starts. Each process of a Codex Session gets its
+  own token, which Codex reads from the environment variable `WORFY_MCP_TOKEN` of its process; a request without that
+  token is refused. The token is never in a file or in Codex's arguments, and it ends when the process ends. The
+  instructions that name the Cards folder go into the thread's developer instructions. A Codex Session does not get the
+  Cards folder as an extra writable directory yet: outside Full access, Codex treats a write there like any write
+  outside its working directory.
+- A file Codex writes into a Card's folder records that Session as the Card's last editor, as Claude's writes do, so the
+  Card's `session.ask` reaches it.
 - The draft Session that worfy runs when a Project is connected has no MCP server at all.
 
 **The tools:**
@@ -326,6 +335,8 @@ the folder is not created. A working directory in the 8.3 short spelling of a Pr
 | `src/main/vendors/claude/mcp.ts` | Serves the server to Claude Code in the app's process |
 | `src/main/vendors/claude/options.ts` | Passes the server, the Cards folder and the instructions to Claude Code |
 | `src/main/vendors/claude/query.ts` | Resolves the canvas when a Session starts |
+| `src/main/mcp/http-server.ts` | The HTTP endpoint on `127.0.0.1` that serves the server to Codex, one token per Session process |
+| `src/main/vendors/codex/mcp.ts`, `src/main/vendors/codex/session.ts` | Which Codex Session gets the server, its URL and token, and the last editor of a Card Codex wrote |
 | `src/main/workflow/profile.ts` | The Profile's list of MCP servers and the default list |
 | `src/main/layout/store.ts` | `LayoutStore`, which every Layout change goes through |
 | `src/shared/layout/free-place.ts` | The nearest free place and the 16 px gap |

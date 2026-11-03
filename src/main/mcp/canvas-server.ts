@@ -1,6 +1,8 @@
 // The canvas MCP server `worfy-canvas` (ADR-0003): every Session of worfy gets one. canvasServer()
 // describes it in worfy's terms (src/main/vendors/mcp.ts); for Claude Code the Claude driver serves
-// it in process (createCanvasServer, src/main/vendors/claude/mcp.ts). The agent writes a Card's files itself; everything that changes
+// it in process (createCanvasServer, src/main/vendors/claude/mcp.ts), and for Codex worfy main serves it
+// over HTTP on 127.0.0.1 (canvasBindingForSession, src/main/mcp/http-server.ts; worfy-multi-vendor
+// ticket 33). The agent writes a Card's files itself; everything that changes
 // the Layout goes through these tools, which call the same LayoutStore.apply() the renderer's
 // IPC calls, so the agent's and the user's changes take one path and are checked the same way.
 //
@@ -41,7 +43,7 @@ import {
   type LinkTarget,
   type ListedNode,
 } from '../../shared/canvas/tools'
-import { cardEditedBy } from '../../shared/cards/last-editor'
+import { cardEditedBy, cardOfPath } from '../../shared/cards/last-editor'
 import { EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, SOURCE_NODE_KINDS, SUBAGENT_KIND, SUBAGENT_TREE_KIND, isSourceNodeId, isSubagentNodeId, shownOnCanvas } from '../../shared/layout/derived'
 import { isArchived, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import type { WorkflowModel } from '../../shared/workflow/types'
@@ -342,21 +344,26 @@ interface RecorderOptions {
   sessionId: () => string | null
 }
 
+/** Records the Session, once its id is known, as the last editor of Card `cardId`, if the Card has a Node. */
+function noteEditor(options: RecorderOptions, cardId: string): void {
+  const sessionId = options.sessionId()
+  if (sessionId === null) return
+  try {
+    const node = options.layout.get(options.projectId).layout.nodes.find((each) => each.id === cardId && each.kind === CARD_KIND)
+    if (node && node.data.lastEditor !== sessionId) options.layout.apply(options.projectId, { op: 'patchData', id: cardId, data: { lastEditor: sessionId } })
+  } catch (error) {
+    console.warn(`[canvas] could not record the last editor of Card ${cardId}`, error)
+  }
+}
+
 /** Records, from a Session's events, the Session that wrote into a Card's folder. */
 function editRecorder(options: RecorderOptions): (events: readonly AgentEvent[]) => void {
   return (events) => {
-    const sessionId = options.sessionId()
-    if (sessionId === null) return
+    if (options.sessionId() === null) return
     for (const event of events) {
       if (event.type !== 'tool_use') continue
       const cardId = cardEditedBy({ cwd: options.cwd, name: event.name, input: event.input }, options.cardsDir)
-      if (cardId === null) continue
-      try {
-        const node = options.layout.get(options.projectId).layout.nodes.find((each) => each.id === cardId && each.kind === CARD_KIND)
-        if (node && node.data.lastEditor !== sessionId) options.layout.apply(options.projectId, { op: 'patchData', id: cardId, data: { lastEditor: sessionId } })
-      } catch (error) {
-        console.warn(`[canvas] could not record the last editor of Card ${cardId}`, error)
-      }
+      if (cardId !== null) noteEditor(options, cardId)
     }
   }
 }
@@ -481,18 +488,24 @@ async function projectOfSession(deps: CanvasDeps, cwd: string): Promise<StoredPr
   return root === null ? undefined : projectForCwd(deps.projects(), root)
 }
 
-/**
- * The canvas for a Session starting in `cwd`; null when `cwd` is in no Project, and the Session
- * then runs without canvas tools. Makes the Project's Cards folder, which the Session may write.
- */
-export const canvasForSession = async (request: { cwd: string; resume: string | undefined }, deps: CanvasDeps = appDeps()): Promise<CanvasSession | null> => {
+/** The canvas of one Session before a driver serves it: the server in worfy's terms and the Session's id. */
+interface SessionCanvas {
+  projectId: string
+  cardsDir: string
+  server: McpServer
+  sessionId: () => string | null
+  setSessionId(id: string): void
+}
+
+/** The Project of a Session's cwd, its Cards folder (made here) and the server bound to both; null outside every Project. */
+async function sessionCanvas(request: { cwd: string; resume: string | undefined }, deps: CanvasDeps): Promise<SessionCanvas | null> {
   const project = await projectOfSession(deps, request.cwd)
   if (!project) return null
   const cardsDir = join(deps.dataDir(project.id), 'cards')
   // Not through a link that leads off the machine: create_card then says why no Card is made.
   if (!cardsFolderAway(cardsDir)) mkdirSync(cardsDir, { recursive: true })
   let sessionId: string | null = request.resume ?? null
-  const server = await createCanvasServer({
+  const server = canvasServer({
     projectId: project.id,
     cardsDir,
     layout: deps.layout,
@@ -500,7 +513,27 @@ export const canvasForSession = async (request: { cwd: string; resume: string | 
     sessionId: () => sessionId,
     ...(deps.autopilotStart === undefined ? {} : { autopilotStart: deps.autopilotStart }),
   })
-  const record = editRecorder({ projectId: project.id, cardsDir, cwd: request.cwd, layout: deps.layout, sessionId: () => sessionId })
+  return {
+    projectId: project.id,
+    cardsDir,
+    server,
+    sessionId: () => sessionId,
+    setSessionId: (id) => {
+      sessionId = id
+    },
+  }
+}
+
+/**
+ * The canvas for a Session starting in `cwd`; null when `cwd` is in no Project, and the Session
+ * then runs without canvas tools. Makes the Project's Cards folder, which the Session may write.
+ */
+export const canvasForSession = async (request: { cwd: string; resume: string | undefined }, deps: CanvasDeps = appDeps()): Promise<CanvasSession | null> => {
+  const canvas = await sessionCanvas(request, deps)
+  if (canvas === null) return null
+  const { projectId, cardsDir } = canvas
+  const server = await claudeMcpServer(canvas.server)
+  const record = editRecorder({ projectId, cardsDir, cwd: request.cwd, layout: deps.layout, sessionId: canvas.sessionId })
   return {
     attachment: { server, cardsDir, instructions: agentInstructions(cardsDir) },
     observe: (query) =>
@@ -508,8 +541,47 @@ export const canvasForSession = async (request: { cwd: string; resume: string | 
         const events = sdkMessageToEvents(message)
         // The same rule as the Session's own id (src/main/agent/session.ts): each turn's init
         // carries it, and a resumed Session may get a new one there.
-        for (const event of events) if (event.type === 'init') sessionId = event.sdkSessionId
+        for (const event of events) if (event.type === 'init') canvas.setSessionId(event.sdkSessionId)
         record(events)
       }),
+  }
+}
+
+/**
+ * The canvas of one Session for a driver that serves the server its own way (Codex, over HTTP:
+ * src/main/mcp/http-server.ts), in worfy's terms only. The driver tells it the Session's id and the
+ * files the Session wrote.
+ */
+export interface CanvasBinding {
+  server: McpServer
+  cardsDir: string
+  /** The agent instructions of the Project's Cards folder (agentInstructions). */
+  instructions: string
+  /** The Session's id from now on: each turn's init names it, and a resumed Session may get a new one. */
+  setSessionId(id: string): void
+  /**
+   * Records the Session as the last editor of each Card whose folder holds one of `paths` (a relative
+   * path is read against the Session's cwd), as canvasForSession records Claude Code's file writes.
+   */
+  wrote(paths: readonly string[]): void
+}
+
+/** The canvas binding of a Session starting in `cwd`, found as canvasForSession finds it; null outside every Project. */
+export async function canvasBindingForSession(request: { cwd: string; resume: string | undefined }, deps: CanvasDeps = appDeps()): Promise<CanvasBinding | null> {
+  const canvas = await sessionCanvas(request, deps)
+  if (canvas === null) return null
+  const { projectId, cardsDir } = canvas
+  const options: RecorderOptions = { projectId, cardsDir, cwd: request.cwd, layout: deps.layout, sessionId: canvas.sessionId }
+  return {
+    server: canvas.server,
+    cardsDir,
+    instructions: agentInstructions(cardsDir),
+    setSessionId: canvas.setSessionId,
+    wrote: (paths) => {
+      for (const path of paths) {
+        const cardId = cardOfPath(path, cardsDir, request.cwd)
+        if (cardId !== null) noteEditor(options, cardId)
+      }
+    },
   }
 }

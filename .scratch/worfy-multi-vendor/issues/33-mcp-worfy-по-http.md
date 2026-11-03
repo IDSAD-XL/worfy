@@ -1,7 +1,7 @@
 # 33 — MCP worfy по HTTP для Codex
 
 Type: task
-Status: open
+Status: claimed 2026-11-03T01:04Z
 Blocked by: 16, 20
 Source: [spec.md](../spec.md), «Модель» (часть mcp), «Решения владельца» (Q1 — первый выпуск); решение 06 ([06-граница-vendor.md](06-граница-vendor.md), часть mcp); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); Ticket 04 ([04-codex-расширения-для-harness.md](04-codex-расширения-для-harness.md), «MCP подробнее»)
 
@@ -44,3 +44,32 @@ Source: [spec.md](../spec.md), «Модель» (часть mcp), «Решени
 - `test/contract/mcp-http.test.ts` (новый)
 
 Только читать: `src/main/cards/ask.ts`, `src/main/ipc/card-api.ts`.
+
+## Итог
+
+- `src/main/mcp/http-server.ts` — streamable-HTTP MCP endpoint в worfy main. Слушает только `127.0.0.1`, порт свободный,
+  выбирается при старте; в приложении endpoint стартует с первой Session Codex в Project-е и закрывается в `will-quit`.
+  `grant(servers)` даёт Session token (32 случайных байта) и URL каждого сервера (`/mcp/<имя>`); token хранится только как
+  SHA-256. Без token-а, с другой схемой, с чужим или отозванным token-ом — 401 до чтения тела; сервер выбирает token, не
+  путь. Протокол — stateless часть streamable HTTP: POST с JSON-ответом (и batch), уведомление — 202, GET — 405, тело
+  больше 8 MiB — 413; методы `initialize`, `ping`, `tools/list`, `tools/call`. Ничего не пишет в log, кроме текста ошибки.
+- `canvas-server.ts`, `browser-server.ts` — `canvasBindingForSession` и `browserBindingForSession`: те же описания
+  серверов (`canvasServer`, `browserServer`), привязанные к Project-у Session без SDK; `canvasForSession` и
+  `browserForSession` Claude строятся поверх них, поведение Claude не меняется.
+- `src/main/vendors/codex/mcp.ts` — часть mcp driver-а Codex: `worfy-canvas` и `worfy-browser` для Session в Project-е по
+  тем же правилам, что у Claude (список MCP Profile-а, Browser — вместе с canvas, Autopilot-режим для unattended).
+  В `thread/start` и `thread/resume` идут ключи `config` `mcp_servers.<имя> = {url, bearer_token_env_var: "WORFY_MCP_TOKEN"}`
+  (по ключу на сервер — свои серверы пользователя не затираются) и `developerInstructions` с инструкциями серверов
+  (папка Cards, Browser). Token — только в окружении процесса app-server: не в argv, не в JSON-RPC, не в файлах.
+  Token живёт, пока живёт процесс: отзывается при `close()` handle-а и при выходе процесса. События handle-а
+  наблюдаются: `init` даёт tool-ам id thread-а, `fileChange` в папку Card записывает Session в `lastEditor`, поэтому
+  `session.ask` Card доходит до Session Codex тем же путём `src/main/cards/ask.ts`.
+- capabilities Codex: `canvasTools: true`, причины недоступности нет.
+- Откуда context Session для token-а — решено без владельца, подтвердить: внутри driver-а Codex (`codex/mcp.ts`), теми
+  же поисками Project-а, что у Claude; нейтральный `SessionStart` (`src/main/vendors/session.ts`) не расширен.
+- Проверка на настоящем Codex 0.166.0 (вне test-ов, временный `CODEX_HOME`): `thread/start` с этими `config`
+  подключил оба сервера (`mcpServer/startupStatus/updated` → `ready`, `authStatus: bearerToken`, по 9 tool-ов),
+  `mcpServer/tool/call` `create_card` дошёл до endpoint-а; token не найден ни в одном файле `CODEX_HOME`.
+- Не сделано: папка Cards не добавлена Codex как writable root (у Claude — `additionalDirectories`): вне Full access
+  запись Card-файлов идёт через approval Codex. Нужен `writableRoots` в `sandboxPolicy` `turn/start`
+  (`capabilities.ts` `codexSandboxPolicy`, `session.ts` `startTurn`) — отдельный Ticket.
