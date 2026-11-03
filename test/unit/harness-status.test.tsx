@@ -62,6 +62,52 @@ describe('HarnessStatusView', () => {
     expect(screen.queryByTestId('harness-action')).toBeNull()
   })
 
+  describe('the Harness in Codex (worfy-multi-vendor ticket 35)', () => {
+    const installed: HarnessState = { kind: 'installed', version: '0.2.0+bbbbbbb', enabled: true }
+    const withCodex = (state: HarnessState, codex: NonNullable<Status['codex']>): Status => ({ ...status(state, true), codex })
+    const agentsDir = '/Users/me/.codex/agents'
+
+    it('Codex not installed, outdated or failed: a part after the version, and the one action installs it', () => {
+      const cases: [NonNullable<Status['codex']>['state'], string, string][] = [
+        [{ kind: 'not-installed' }, '· Codex: not installed', 'Install in Codex'],
+        [{ kind: 'outdated', from: '0.1.0+aaaaaaa', to: '0.2.0+bbbbbbb' }, '· Codex 0.1.0+aaaaaaa', 'Update Harness in Codex'],
+        [{ kind: 'error', step: 'plugin add', reason: 'codex plugin add worfy@worfy-harness exited with 3' }, '· Codex error: plugin add', 'Retry'],
+      ]
+      for (const [state, text, label] of cases) {
+        const onInstall = vi.fn()
+        render(<HarnessStatusView status={withCodex(installed, { state, agentsDir, hooksToApprove: false })} busy={false} failure={undefined} onInstall={onInstall} />)
+        expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb')
+        expect(screen.getByTestId('harness-codex').textContent).toBe(text)
+        expect(screen.getByTestId('harness-codex').getAttribute('data-state')).toBe(state.kind)
+        fireEvent.click(screen.getByRole('button', { name: label }))
+        expect(onInstall).toHaveBeenCalledTimes(1)
+        cleanup()
+      }
+    })
+
+    it('an error in Codex carries its reason in the tooltip', () => {
+      const reason = 'codex plugin add worfy@worfy-harness exited with 3:\nfailed'
+      render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'error', step: 'plugin add', reason }, agentsDir, hooksToApprove: false })} busy={false} failure={undefined} onInstall={() => undefined} />)
+      expect(screen.getByTestId('harness-codex').getAttribute('title')).toBe(reason)
+    })
+
+    it('installed in Codex: nothing more, or, right after an install, the hooks to approve in Codex and no button', () => {
+      render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'installed', version: '0.2.0+bbbbbbb' }, agentsDir, hooksToApprove: false })} busy={false} failure={undefined} onInstall={() => undefined} />)
+      expect(screen.queryByTestId('harness-codex')).toBeNull()
+      cleanup()
+      render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'installed', version: '0.2.0+bbbbbbb' }, agentsDir, hooksToApprove: true })} busy={false} failure={undefined} onInstall={() => undefined} />)
+      expect(screen.getByTestId('harness-codex').textContent).toBe('· Codex: approve hooks')
+      expect(screen.getByTestId('harness-codex').getAttribute('title')).toContain('/hooks')
+      expect(screen.queryByTestId('harness-action')).toBeNull()
+    })
+
+    it('while Claude Code has no Harness of this build, its line alone speaks: Codex comes with the same Install', () => {
+      render(<HarnessStatusView status={withCodex({ kind: 'not-installed' }, { state: { kind: 'not-installed' }, agentsDir, hooksToApprove: false })} busy={false} failure={undefined} onInstall={() => undefined} />)
+      expect(screen.queryByTestId('harness-codex')).toBeNull()
+      expect(screen.getByRole('button', { name: 'Install' })).not.toBeNull()
+    })
+  })
+
   it('an error carries its reason in the tooltip', () => {
     render(<HarnessStatusView status={status(STATES[2]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
     expect(screen.getByTestId('harness-text').getAttribute('title')).toBe('claude plugin marketplace add … exited with 1')

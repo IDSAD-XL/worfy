@@ -11,13 +11,20 @@
 // sent from the app's one installer, not from the `harness.install` handler: the first-run screen
 // installs through `firstRun.run` (src/main/ipc/first-run.ts), and every caller of appInstaller()
 // is covered without remembering to announce.
+//
+// The same installer installs the Harness into Codex too (worfy-multi-vendor ticket 35,
+// src/main/harness/codex-install.ts), with the Codex binary this build pins, or WORFY_CODEX_CLI when
+// set (a stand-in in tests); under WORFY_CODEX=fake or absent and under vitest there is none.
+import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
 import { harnessChanged, harnessInstall, harnessState } from '../../shared/ipc/harness'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessDir } from '../harness/bundled'
+import { CodexHarness, codexInstallBinary } from '../harness/codex-install'
 import { claudeCommandEnv, confirmationText, HarnessInstaller, installOffered, type InstallPlan } from '../harness/install'
-import { claudeHome, harnessHome } from '../storage/paths'
+import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { bundledClaudeBinary } from '../vendors/claude/options'
+import { codexHomeOf } from '../vendors/codex/account'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 type InstallResult = Awaited<ReturnType<HarnessInstaller['install']>>
@@ -73,13 +80,28 @@ export function appInstaller(): HarnessInstaller {
   if (installer !== null) return installer
   const env = process.env
   const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }
+  const bundledDir = bundledHarnessDir()
+  const home = harnessHome(env)
+  const codex = codexInstallBinary(env, runtime)
   installer = new AnnouncingInstaller({
-    bundledDir: bundledHarnessDir(),
-    harnessHome: harnessHome(env),
+    bundledDir,
+    harnessHome: home,
     claude: env.WORFY_CLAUDE || bundledClaudeBinary(runtime),
     env: claudeCommandEnv(env),
     canInstall: installOffered({ packaged: app.isPackaged, env }),
     claudeHome: claudeHome(env),
+    ...(codex === undefined
+      ? {}
+      : {
+          codex: new CodexHarness({
+            bundledDir,
+            pluginDir: join(home, 'plugin'),
+            codex,
+            env,
+            codexHome: codexHomeOf(env),
+            recordFile: join(dataRoot(env), 'harness-codex.json'),
+          }),
+        }),
   })
   return installer
 }

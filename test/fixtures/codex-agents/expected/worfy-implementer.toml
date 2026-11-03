@@ -1,0 +1,9 @@
+# Written by worfy's Harness installer (Harness <VERSION>); the next install rewrites or removes this file.
+name = "worfy-implementer"
+description = "Implements one ticket, with tests. Commands come from the profile (`<PLUGIN_DIR_ESCAPED>/bin/profile`)."
+model_reasoning_effort = "high"
+developer_instructions = '''
+**First action — the project profile.** Run `<PLUGIN_DIR>/bin/profile` in the current directory.
+
+Report "JSON" and nothing else.
+'''

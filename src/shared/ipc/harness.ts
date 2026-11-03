@@ -50,6 +50,38 @@ export const harnessDependencySchema = z.object({
 })
 export type HarnessDependency = z.infer<typeof harnessDependencySchema>
 
+/**
+ * The step an install into Codex failed at (worfy-multi-vendor ticket 35): one `codex plugin`
+ * command, or writing the Codex agents (`worfy-*.toml` in <CODEX_HOME>/agents).
+ */
+export const codexHarnessStepSchema = z.enum(['plugin list', 'marketplace add', 'plugin add', 'dependency marketplace add', 'dependency add', 'agents'])
+export type CodexHarnessStep = z.infer<typeof codexHarnessStepSchema>
+
+export const codexHarnessStateSchema = z.discriminatedUnion('kind', [
+  /** Codex does not list the plugin worfy. */
+  z.object({ kind: z.literal('not-installed') }),
+  /** Codex lists it with this build's version, its dependencies too, and the agents are this build's. */
+  z.object({ kind: z.literal('installed'), version: z.string() }),
+  /** Another version (`from`; null when Codex names none), or agents of another build: an install brings `to`. */
+  z.object({ kind: z.literal('outdated'), from: z.string().nullable(), to: z.string() }),
+  /** A step failed (`reason` ends with the command's output), or a dependency is not installed. */
+  z.object({ kind: z.literal('error'), step: codexHarnessStepSchema, reason: z.string() }),
+])
+export type CodexHarnessState = z.infer<typeof codexHarnessStateSchema>
+
+/** The Harness in Codex, next to the one in Claude Code; the same Install installs both. */
+export const codexHarnessSchema = z.object({
+  state: codexHarnessStateSchema,
+  /** <CODEX_HOME>/agents, where the agents worfy-implementer, worfy-reviewer and worfy-scout go. */
+  agentsDir: z.string(),
+  /**
+   * This run installed or updated the plugin in Codex: Codex keeps its hooks off until the user
+   * approves them in Codex (`/hooks`; the step itself is worfy-multi-vendor ticket 39).
+   */
+  hooksToApprove: z.boolean(),
+})
+export type CodexHarness = z.infer<typeof codexHarnessSchema>
+
 export const harnessStatusSchema = z.object({
   state: harnessStateSchema,
   /** The `version` of the Harness copy this build carries; null when the build has none. */
@@ -63,6 +95,8 @@ export const harnessStatusSchema = z.object({
   pluginDir: z.string(),
   /** The dependencies of the Harness, in plugin.json's order; from the same `plugin list` as the state. */
   dependencies: z.array(harnessDependencySchema),
+  /** The Harness in Codex; absent when this build has no Codex or Codex never ran on this machine (no CODEX_HOME). */
+  codex: codexHarnessSchema.optional(),
 })
 export type HarnessStatus = z.infer<typeof harnessStatusSchema>
 
