@@ -1,7 +1,7 @@
 # 36 — Гарантии Harness под Codex: gate, guard-ы, read-only reviewer и scout
 
 Type: task
-Status: done 2026-11-03T21:45Z
+Status: done 2026-11-03T21:51Z
 PR: #1308
 Blocked by: 35, 44
 Source: [spec.md](../spec.md), «Гарантии workflow на Codex», «Решения владельца» (Q5); решение 08 ([08-harness-для-codex.md](08-harness-для-codex.md)); Ticket 04 ([04-codex-расширения-для-harness.md](04-codex-расширения-для-harness.md), «Гарантии Harness без механизма в Codex»); [ADR-0094](../../../docs/adr/0094-vendor-seam.md), «Гарантии workflow на Codex»; [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
