@@ -33,11 +33,11 @@ describe('rail block discovery', () => {
     const ids = railBlocks.map((block) => block.id)
     expect(railBlocks.map((block) => [block.id, block.order])).toContainEqual([PROBE, 1000])
     // The real blocks are found too: the copy's glob runs over the real directory's files.
-    expect(ids).toEqual(expect.arrayContaining(['BindingRail', 'SubagentsRail']))
+    expect(ids).toEqual(expect.arrayContaining(['BindingRail', 'SubagentsRail', 'VendorRail']))
   })
 
   it('has no Limits block: the Limits live in the toolbar only', async () => {
     const { railBlocks } = (await import(/* @vite-ignore */ probe!.modulePath)) as typeof import('../../src/renderer/session/rail/index')
-    expect(railBlocks.map((block) => block.id).sort()).toEqual(['BindingRail', 'SubagentsRail', PROBE].sort())
+    expect(railBlocks.map((block) => block.id).sort()).toEqual(['BindingRail', 'SubagentsRail', 'VendorRail', PROBE].sort())
   })
 })

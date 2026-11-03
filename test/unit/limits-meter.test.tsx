@@ -86,19 +86,24 @@ describe('LimitsMeterView: a section per Vendor', () => {
   })
   const sectionNames = (): string[] => screen.getAllByRole('group', { name: / limits$/ }).map((group) => group.getAttribute('aria-label')!)
 
-  it('two Vendors are two sections, each with its bars and its name as the tooltip; Codex labels its bars with the window\'s label', () => {
+  it('two Vendors are two sections: Claude\'s named by its tooltip, Codex\'s by its badge; Codex labels its bars with the window\'s label', () => {
     // The 7-day window comes first in the list: the bars go by the window's length, not the order read.
     const view: LimitsView = { claude, vendors: { codex: [codex('secondary', 'weekly', 40, 10080), codex('primary', '5h', 12, 300)] } }
     render(<LimitsMeterView state={view} now={AT} timeZone={TZ} />)
     expect(sectionNames()).toEqual(['Claude Code limits', 'Codex limits'])
 
-    // No visible Vendor names (the F mockup has none, and they took the Project title's width at 1280 px):
-    // each name is its section's tooltip and accessible name, and a thin line parts the sections.
+    // Codex's section starts with its short VendorBadge (worfy-multi-vendor ticket 24), so it is seen which
+    // bars are Codex's; Claude's, first and always there, keeps its name as the tooltip, as the F mockup draws
+    // it: badges on both took the Project title's width at 1280 px. A thin line parts the sections.
     const meter = screen.getByRole('group', { name: 'Limits' })
-    expect(meter.textContent).toBe('5-hour62%07:107-daylimit reached5h12%09:00weekly40%Mon 09:00')
-    expect(screen.queryByTestId(/^limits-[a-z]+-name$/)).toBeNull()
+    expect(meter.textContent).toBe('5-hour62%07:107-daylimit reachedCodex5h12%09:00weekly40%Mon 09:00')
     expect([...meter.children].map((child) => child.getAttribute('data-testid'))).toEqual(['limits-claude', 'limits-divider', 'limits-codex'])
     expect(screen.getByTestId('limits-divider').getAttribute('aria-hidden')).toBe('true')
+    const badge = screen.getByTestId('limits-codex-name')
+    expect(badge.textContent).toBe('Codex')
+    expect(badge.dataset.vendor).toBe('codex')
+    expect(badge.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(screen.queryByTestId('limits-claude-name')).toBeNull()
 
     const claudeSection = screen.getByRole('group', { name: 'Claude Code limits' })
     expect(claudeSection.getAttribute('title')).toBe('Claude Code')
@@ -109,7 +114,8 @@ describe('LimitsMeterView: a section per Vendor', () => {
     expect(within(claudeSection).getByTestId('limit-five_hour-note').getAttribute('title')).toBe('resets 07:10')
 
     const codexSection = screen.getByRole('group', { name: 'Codex limits' })
-    expect(codexSection.getAttribute('title')).toBe('Codex')
+    expect(codexSection.firstElementChild?.getAttribute('data-testid')).toBe('limits-codex-name')
+    expect(codexSection.getAttribute('title')).toBeNull()
     const bars = within(codexSection).getAllByRole('meter')
     expect(bars.map((bar) => [bar.getAttribute('aria-label'), bar.getAttribute('aria-valuenow')])).toEqual([['5h limit', '12'], ['weekly limit', '40']])
     // A window longer than a day shows the weekday of its reset, as Claude's 7-day one.
@@ -143,8 +149,8 @@ describe('LimitsMeterView: a section per Vendor', () => {
     expect(sectionNames()).toEqual(['Claude Code limits', 'Codex limits'])
     expect(screen.getByTestId('limits-codex-empty').textContent).toBe('No limits reported')
     expect(screen.getByTestId('limits-claude-empty').textContent).toBe('no data yet')
-    // Without bars a section says whose it is: the name is shown beside the line, not as a tooltip.
-    expect(screen.getByRole('group', { name: 'Limits' }).textContent).toBe('Claude Codeno data yetCodexNo limits reported')
+    // Without bars a section says whose it is by its badge, as one with bars does.
+    expect(screen.getByRole('group', { name: 'Limits' }).textContent).toBe('Claudeno data yetCodexNo limits reported')
     expect(screen.getByRole('group', { name: 'Codex limits' }).getAttribute('title')).toBeNull()
     expect(screen.queryByRole('meter')).toBeNull()
     expect(screen.queryByTestId('limits-empty')).toBeNull()

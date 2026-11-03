@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { MIN_SIZE } from '../../src/shared/window/bounds'
-import { launchApp, smallestWindow } from './helpers'
+import { launchApp, newSessionOn, smallestWindow } from './helpers'
 import { nextFrames, settled } from './wait'
 
 // The input field's pickers and message queue (ticket 19) against the built app, on the fake agent
@@ -640,7 +640,7 @@ test('in a Session as in the Orchestrator the pickers start at the left of their
     await atTheLeft('the Orchestrator')
 
     await resizeWindow(app, bar, 1400, 900)
-    await window.getByTestId('sidebar-new-session').click()
+    await newSessionOn(window)
     const live = window.locator('[data-testid="session-node"][data-live="true"]')
     await expect(live.getByTestId('session-node-status')).toHaveText('idle')
     await live.getByTestId('session-node-title').dblclick()

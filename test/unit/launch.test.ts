@@ -198,6 +198,7 @@ function launcher(
   const orchestrator = change.orchestrator ?? new FakeSession()
   sessions.set('orch-1', orchestrator)
   const created: string[] = []
+  const vendors: string[] = []
   const bindings: unknown[] = []
   const changes: LaunchesSnapshot[] = []
   let count = 0
@@ -210,8 +211,9 @@ function launcher(
     branch: async () => 'main',
     workflow: change.workflow ?? (async (root) => ({ root, epics: [{ epic: 'worfy-mvp', hasSpec: true, hasMap: false, title: null }], tickets: change.tickets ?? TICKETS, error: null, branchErrors: [], ...change.model })),
     sessions: {
-      create: (projectId) => {
+      create: (projectId, _near, vendor) => {
         count += 1
+        vendors.push(vendor)
         const id = `pending-${count}`
         sessions.set(id, new FakeSession())
         created.push(projectId)
@@ -236,7 +238,7 @@ function launcher(
   }
   const launch = new ActionLauncher(deps)
   made.push({ launch, sessions })
-  return { launch, sessions, created, bindings, orchestrator, changes }
+  return { launch, sessions, created, vendors, bindings, orchestrator, changes }
 }
 
 describe('ActionLauncher.shipTicket', () => {
@@ -251,6 +253,12 @@ describe('ActionLauncher.shipTicket', () => {
     session.sdkId = 'sdk-7'
     await launch.idle()
     expect(bindings).toEqual([{ projectId: 'p', agent: { sessionId: 'sdk-7', agentId: null }, target: { kind: 'ticket', epic: 'worfy-mvp', num: 7 } }])
+  })
+
+  it('starts the Session on Claude Code whatever the Project\'s default Vendor (worfy-multi-vendor ticket 24)', async () => {
+    const { launch, vendors } = launcher()
+    await launch.shipTicket('p', 'worfy-mvp', 7)
+    expect(vendors).toEqual(['claude'])
   })
 
   it('sends a changed template as it is, with its values', async () => {

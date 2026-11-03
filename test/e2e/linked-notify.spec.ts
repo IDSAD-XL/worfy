@@ -18,7 +18,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { canvasReady, launchApp, linkThroughUi, machineIdOf, setProjectsAccess, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, linkThroughUi, machineIdOf, newSessionOn, setProjectsAccess, type LaunchedApp } from './helpers'
 import { quarantined } from './quarantine'
 import { ms } from '../time-scale'
 
@@ -128,7 +128,7 @@ quarantined('linked-notify-turn-click-opens-in-b')('a turn of a Session of A end
 
     // A Session of A's Project, on its Canvas.
     const live = a.window.locator('[data-testid="session-node"][data-live="true"]')
-    await a.window.getByTestId('sidebar-new-session').click()
+    await newSessionOn(a.window)
     await expect(live).toHaveCount(1)
     await expect(live.getByTestId('session-node-status')).toHaveText('idle')
     const nodeId = await live.getAttribute('data-node-id')

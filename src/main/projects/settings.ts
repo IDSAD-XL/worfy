@@ -34,16 +34,18 @@ export function readProjectSettings(projectDataDir: string, harness: HarnessKind
 /**
  * Saves the settings; a template with an unknown placeholder throws and nothing is written. Settings
  * without `gateQueue` (a Linked machine on a build from before "Process gate queue") keep the saved
- * one, or the default when none is saved. Settings without `defaultVendor` keep the saved one: the
- * settings dialog does not offer it yet (worfy-multi-vendor ticket 24), and its save must not drop it.
+ * one, or the default when none is saved. Settings without `defaultVendor` keep the saved one (a
+ * Linked machine on a build from before the field), and `defaultVendor: null` clears it: "Default
+ * vendor" set back to none in Project settings (worfy-multi-vendor ticket 24).
  */
 export function writeProjectSettings(projectDataDir: string, settings: ProjectSettingsInput, harness: HarnessKind = currentHarness().kind): ProjectSettings {
   let saved: ProjectSettings | undefined
   const read = (): ProjectSettings => (saved ??= readProjectSettings(projectDataDir, harness))
   const gateQueue = settings.actionTemplates.gateQueue ?? read().actionTemplates.gateQueue
-  const defaultVendor = settings.defaultVendor ?? read().defaultVendor
+  const { defaultVendor: asked, ...rest } = settings
+  const defaultVendor = asked === null ? undefined : (asked ?? read().defaultVendor)
   writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, {
-    ...settings,
+    ...rest,
     ...(defaultVendor === undefined ? {} : { defaultVendor }),
     actionTemplates: { ...settings.actionTemplates, gateQueue },
   })

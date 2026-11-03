@@ -2,7 +2,7 @@
 // queue" actions send (ticket 23; worfy-windows ticket 17). Each Project runs its own process, so the text is a Project setting. worfy does not
 // know what the skill does: it keeps the string and ticket 23 fills in the placeholders.
 import { z } from 'zod'
-import { vendorIdSchema } from '../vendors/vendor'
+import { vendorIdSchema, type VendorId } from '../vendors/vendor'
 
 /** The placeholders a template may contain, written as `{name}`. */
 export const PLACEHOLDERS = ['epic', 'NN', 'wave', 'slug', 'branch', 'tickets'] as const
@@ -136,6 +136,13 @@ export type ActionTemplates = z.output<typeof actionTemplatesSchema>
 export const terminalShellSettingSchema = z.enum(['powershell', 'git-bash'])
 export type TerminalShellSetting = z.output<typeof terminalShellSettingSchema>
 
+/**
+ * The Vendor of a Session "Ship ticket" starts (src/main/actions/launch.ts): Claude Code whatever the
+ * Project's `defaultVendor`. The Harness's skills — `/ship-ticket` among them — reach Codex only with
+ * worfy-multi-vendor tickets 35 and 36 (ticket 24, decided without the owner — to confirm).
+ */
+export const SHIP_TICKET_VENDOR: VendorId = 'claude'
+
 /** A Project's settings, kept in `<Project data folder>/settings.json`. */
 export const projectSettingsSchema = z.object({
   actionTemplates: actionTemplatesSchema,
@@ -179,10 +186,13 @@ export const projectSettingsAnswerSchema = projectSettingsSchema.extend({
 
 /**
  * The settings `projects.settings.set` takes. A Linked machine on an older build sends no
- * `gateQueue`; main keeps the saved one, or the default (writeProjectSettings).
+ * `gateQueue`; main keeps the saved one, or the default (writeProjectSettings). `defaultVendor`:
+ * a Vendor sets it, `null` clears it ("Default vendor" set back to none, worfy-multi-vendor ticket 24),
+ * and its absence keeps the saved one, as a build from before the field sends it.
  */
 export const projectSettingsInputSchema = projectSettingsSchema.extend({
   actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.optional() }),
+  defaultVendor: vendorIdSchema.nullable().optional(),
 })
 export type ProjectSettingsInput = z.output<typeof projectSettingsInputSchema>
 

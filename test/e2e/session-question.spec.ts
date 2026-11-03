@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp } from './helpers'
+import { canvasReady, launchApp, newSessionOn } from './helpers'
 
 // Questions with answer options (worfy-ui ticket 17) against the built app, on the fake agent:
 // test/fixtures/agent-scripts/question.jsonl asks one simple question in its first turn and two
@@ -149,7 +149,7 @@ test('a Session in the background: "Waits for answer" on its Node, a toast answe
   try {
     const { window } = app
     await canvasReady(app, { size: { width: 1400, height: 900 } })
-    await window.getByTestId('sidebar-new-session').click()
+    await newSessionOn(window)
     const session = window.locator('[data-testid="session-node"][data-live="true"]')
     await expect(session).toHaveCount(1)
     await expect(session.getByTestId('session-node-status')).toHaveText('idle')

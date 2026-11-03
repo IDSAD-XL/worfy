@@ -6,9 +6,11 @@ import {
   PLACEHOLDER_DESCRIPTIONS,
   PLACEHOLDERS,
   templateError,
+  SHIP_TICKET_VENDOR,
   type ActionTemplates,
   type TerminalShellSetting,
 } from '../../shared/projects/action-templates'
+import { UNNAMED_VENDOR, VENDOR_IDS, vendorLabel, type VendorId } from '../../shared/vendors/vendor'
 import { invoke, invokeOn, windowMachine } from '../ipc'
 import { useReadOnly } from '../projects/useProjects'
 import { PrimaryButton } from '../theme/primitives'
@@ -78,6 +80,14 @@ const styles = {
 /** The shells of the Machine of the Project, as terminal.shells answers. */
 type ShellOptions = { id: TerminalShellSetting; label: string; found: boolean }[]
 
+/** "Default vendor": a Vendor, or none — New session then lists Claude Code first (worfy-multi-vendor ticket 24). */
+type VendorChoice = VendorId | 'none'
+
+const VENDOR_OPTIONS: readonly { value: VendorChoice; label: string }[] = [
+  { value: 'none', label: `None (${vendorLabel(UNNAMED_VENDOR)})` },
+  ...VENDOR_IDS.map((vendor) => ({ value: vendor, label: vendorLabel(vendor) })),
+]
+
 /**
  * "Project settings…": the action templates of one Project (ticket 23 sends them). A template with
  * an unknown placeholder shows its error under the field and cannot be saved; main checks the same
@@ -86,12 +96,18 @@ type ShellOptions = { id: TerminalShellSetting; label: string; found: boolean }[
  * On a Machine that has shells to choose from — Windows (worfy-windows ticket 10) — it also shows
  * the shell of the Project's Terminals. The choice applies to the next shell that starts: Restart,
  * or a new Terminal Node. Elsewhere there is no such field, and a saved choice is kept as it is.
+ *
+ * "Default vendor" (worfy-multi-vendor ticket 24): the Vendor "New session" lists first and a Session
+ * started without a pick runs on. "None" clears it, and Claude Code is then the default.
  */
 export function ProjectSettings({ project, machine, onClose }: ProjectSettingsProps) {
   // The calls go to the Project's Machine.
   const call: typeof invoke = machine === undefined ? invoke : (channel, ...args) => invokeOn(machine, channel, ...args)
   const [templates, setTemplates] = useState<ActionTemplates>()
   const [terminalShell, setTerminalShell] = useState<TerminalShellSetting>()
+  // The Vendor as saved (undefined: none), and as chosen in the dialog.
+  const [savedVendor, setSavedVendor] = useState<VendorId>()
+  const [vendor, setVendor] = useState<VendorChoice>('none')
   const [shells, setShells] = useState<ShellOptions>([])
   const [failure, setFailure] = useState<string>()
   const [saving, setSaving] = useState(false)
@@ -100,6 +116,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   const titleId = useId()
   const fieldId = useId()
   const shellId = useId()
+  const vendorId = useId()
   const firstField = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -110,6 +127,8 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
       if (result.ok) {
         setTemplates(result.value.actionTemplates)
         setTerminalShell(result.value.terminalShell)
+        setSavedVendor(result.value.defaultVendor)
+        setVendor(result.value.defaultVendor ?? 'none')
       } else setFailure(result.error)
     })
     // No answer, or a failure, leaves the list empty: the field is not shown.
@@ -133,7 +152,11 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
     if (!templates || invalid || readOnly !== null) return
     setSaving(true)
     // The whole settings go back: the templates, and the shell when one is chosen or was saved before.
-    const result = await call('projects.settings.set', { id: project.id, settings: { actionTemplates: templates, ...(terminalShell === undefined ? {} : { terminalShell }) } })
+    // "Default vendor": a Vendor, or null to clear a saved one; nothing when none was saved or chosen,
+    // so a Linked machine on a build from before the field takes the save too.
+    const defaultVendor = vendor !== 'none' ? vendor : savedVendor !== undefined ? null : undefined
+    const settings = { actionTemplates: templates, ...(terminalShell === undefined ? {} : { terminalShell }), ...(defaultVendor === undefined ? {} : { defaultVendor }) }
+    const result = await call('projects.settings.set', { id: project.id, settings })
     setSaving(false)
     if (result.ok) onClose()
     else setFailure(result.error)
@@ -226,6 +249,17 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
               data-testid="project-settings-shell"
             />
             <span style={styles.hint}>Applies to the next shell: Restart a Terminal, or open a new one.</span>
+          </div>
+        ) : null}
+
+        {templates ? (
+          <div style={styles.field}>
+            <label htmlFor={vendorId} style={styles.label}>
+              Default vendor
+            </label>
+            {/* Named by the label above; Esc on its open list closes the list alone, not this window. */}
+            <Select<VendorChoice> id={vendorId} style={styles.input} value={vendor} options={VENDOR_OPTIONS} onChange={setVendor} data-testid="project-settings-vendor" />
+            <span style={styles.hint}>Listed first in New session. Ship ticket runs on {vendorLabel(SHIP_TICKET_VENDOR)} whatever is chosen here.</span>
           </div>
         ) : null}
 

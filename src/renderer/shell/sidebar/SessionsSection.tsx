@@ -12,13 +12,15 @@ import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { HistoryPopover } from '../../session/HistoryPopover'
 import { nodeSession, openSession, setView, useNavigation } from '../../session/navigation'
+import { NewSessionVendor } from '../../session/NewSessionVendor'
 import { ensureProject, isRunning, useSessionNodeViews } from '../../session/node-sessions'
 import { StatusChip } from '../../theme/primitives'
 import { SidebarSection } from '../SidebarSection'
 
 /**
  * The live Sessions of the active Project, wherever they were started (design F, sidebar «Sessions»),
- * "New session" (a new live Session Node in the Project's root, ticket 18) and the Project's history
+ * "New session" (a new live Session Node in the Project's root, ticket 18, on the Vendor picked in
+ * session/NewSessionVendor.tsx, worfy-multi-vendor ticket 24) and the Project's history
  * (session/HistoryPopover.tsx). A Session worfy runs — the Orchestrator, a Session Node's — is
  * «worfy», with the name and state its Node shows (worfy-daily ticket 24, claude-home/session-nodes.ts,
  * sessionRow); the others are «terminal» or «desktop» by where Claude Code says they were started.
@@ -82,13 +84,15 @@ function Sessions({ project }: { project: ProjectView }) {
   )
   const worfyIds = useMemo(() => worfySessionIds(nodes ?? [], [...worfy.keys()]), [nodes, worfy])
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [vendorOpen, setVendorOpen] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   // On a read-only screen (worfy-link ticket 25) "New session" is inactive, saying why.
   const readOnly = useReadOnly()
 
-  const newSession = async () => {
+  const newSession = async (vendor: string | undefined) => {
+    setVendorOpen(false)
     setProblem(null)
-    const result = await invoke('sessions.new', { projectId: project.id })
+    const result = await invoke('sessions.new', { projectId: project.id, ...(vendor === undefined ? {} : { vendor }) })
     if (!result.ok) {
       setProblem(result.error)
       return
@@ -168,7 +172,16 @@ function Sessions({ project }: { project: ProjectView }) {
       }
       trailing={
         <>
-          <button type="button" style={styles.action} data-testid="sidebar-new-session" {...writeAction(readOnly, () => void newSession(), "A new Session in the Project's root")}>
+          <button
+            type="button"
+            style={styles.action}
+            data-testid="sidebar-new-session"
+            aria-haspopup="menu"
+            aria-expanded={vendorOpen}
+            // The picker closes on a press outside it: this button toggles it instead.
+            onMouseDown={(event) => event.stopPropagation()}
+            {...writeAction(readOnly, () => setVendorOpen((open) => !open), "A new Session in the Project's root, on the Vendor you pick")}
+          >
             New session
           </button>
           <button type="button" style={styles.action} data-testid="sidebar-history" aria-expanded={historyOpen} onClick={() => setHistoryOpen((open) => !open)}>
@@ -188,6 +201,7 @@ function Sessions({ project }: { project: ProjectView }) {
           {orchestratorNode ? <FollowOrchestrator nodeId={orchestratorNode.id} /> : null}
           {/* Placed against the section, under its header: it opens over a collapsed section too. */}
           {historyOpen ? <HistoryPopover project={project} onClose={() => setHistoryOpen(false)} /> : null}
+          {vendorOpen ? <NewSessionVendor projectId={project.id} onPick={(vendor) => void newSession(vendor)} onClose={() => setVendorOpen(false)} /> : null}
         </>
       }
     >

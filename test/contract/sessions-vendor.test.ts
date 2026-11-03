@@ -230,7 +230,7 @@ describe('the Vendor of a Session Node', () => {
       codex: [{ provider: 'openai', signedIn: false, email: null, plan: null }],
     }
     const h = harness({ vendorRefusal: signInRefusal((vendor) => ({ check: () => Promise.resolve(connections[vendor]) })) })
-    await expect(h.sessions.open(PROJECT, 'codex')).rejects.toThrow('Nobody is signed in to Codex: sign in to it first')
+    await expect(h.sessions.open(PROJECT, 'codex')).rejects.toThrow('Sign in to Codex in Settings → Vendors')
     expect(h.nodes()).toEqual([])
     expect(h.asked).toEqual([])
 
@@ -256,7 +256,7 @@ describe('the sign-in check of New session', () => {
   it('asks again after a refusal: the user may sign in meanwhile', async () => {
     const check = vi.fn().mockResolvedValueOnce(signedIn(false)).mockResolvedValueOnce(signedIn(true))
     const refusal = signInRefusal(() => ({ check }))
-    expect(await refusal('codex')).toBe('Nobody is signed in to Codex: sign in to it first')
+    expect(await refusal('codex')).toBe('Sign in to Codex in Settings → Vendors')
     expect(await refusal('codex')).toBeNull()
     expect(check).toHaveBeenCalledTimes(2)
   })
@@ -311,14 +311,58 @@ describe('the default Vendor of a Project', () => {
     await h.until(created.nodeId, 'idle')
   })
 
-  it('a save of the settings without defaultVendor keeps the saved one; one with it changes it', () => {
+  it('a save of the settings without defaultVendor keeps the saved one; one with it changes it; null clears it', () => {
     const dataDir = join(scratch, 'data', PROJECT)
     savedSettings({ ...defaultProjectSettings('plugin'), defaultVendor: 'codex' })
-    // The settings dialog saves the templates and the shell only (it offers no Vendor before ticket 24).
+    // A Linked machine on a build from before "Default vendor" saves the templates and the shell only.
     const kept = writeProjectSettings(dataDir, { actionTemplates: defaultProjectSettings('plugin').actionTemplates, terminalShell: 'powershell' }, 'plugin')
     expect(kept).toMatchObject({ terminalShell: 'powershell', defaultVendor: 'codex' })
     const changed = writeProjectSettings(dataDir, { ...defaultProjectSettings('plugin'), defaultVendor: 'claude' }, 'plugin')
     expect(changed.defaultVendor).toBe('claude')
     expect(readProjectSettings(dataDir, 'plugin').defaultVendor).toBe('claude')
+
+    // "Default vendor" set back to none (worfy-multi-vendor ticket 24): the field leaves the file.
+    const cleared = writeProjectSettings(dataDir, { ...defaultProjectSettings('plugin'), terminalShell: 'git-bash', defaultVendor: null }, 'plugin')
+    expect(cleared).toStrictEqual({ ...defaultProjectSettings('plugin'), terminalShell: 'git-bash' })
+    expect(JSON.parse(readFileSync(join(dataDir, 'settings.json'), 'utf8'))).not.toHaveProperty('defaultVendor')
+  })
+})
+
+describe('the Vendor picker of New session (worfy-multi-vendor ticket 24)', () => {
+  const connections = (codex: boolean): Record<VendorId, AccountConnection[]> => ({
+    claude: [{ provider: 'anthropic', signedIn: true, email: null, plan: null }],
+    codex: [{ provider: 'openai', signedIn: codex, email: null, plan: null }],
+  })
+
+  it('lists every Vendor, the Project\'s default first, each with the reason it cannot start now', async () => {
+    const signedOut = harness({ vendorRefusal: signInRefusal((vendor) => ({ check: () => Promise.resolve(connections(false)[vendor]) })) })
+    expect(await signedOut.sessions.vendors(PROJECT)).toStrictEqual({
+      defaultVendor: 'claude',
+      choices: [
+        { vendor: 'claude', refusal: null },
+        { vendor: 'codex', refusal: 'Sign in to Codex in Settings → Vendors' },
+      ],
+    })
+
+    savedSettings({ ...defaultProjectSettings('plugin'), defaultVendor: 'codex' })
+    const signedIn = harness({ vendorRefusal: signInRefusal((vendor) => ({ check: () => Promise.resolve(connections(true)[vendor]) })) })
+    expect(await signedIn.sessions.vendors(PROJECT)).toStrictEqual({
+      defaultVendor: 'codex',
+      choices: [
+        { vendor: 'codex', refusal: null },
+        { vendor: 'claude', refusal: null },
+      ],
+    })
+    // Asking starts nothing and makes no Node.
+    expect(signedIn.asked).toEqual([])
+    expect(signedIn.nodes()).toEqual([])
+  })
+
+  it('without a sign-in check every Vendor can start', async () => {
+    const h = harness()
+    expect((await h.sessions.vendors(PROJECT)).choices).toStrictEqual([
+      { vendor: 'claude', refusal: null },
+      { vendor: 'codex', refusal: null },
+    ])
   })
 })

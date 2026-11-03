@@ -21,13 +21,14 @@
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import type { LiveSession } from '../../shared/ipc/claude-home'
-import { VENDOR_LABELS, vendorIdSchema, type VendorId } from '../../shared/vendors/vendor'
+import { signInHint, UNNAMED_VENDOR, VENDOR_IDS, vendorIdSchema, type VendorId } from '../../shared/vendors/vendor'
 import {
   LIVE_SESSION_HEIGHT,
   LIVE_SESSION_WIDTH,
   SESSION_NODE_KIND,
   type ResumeVerdict,
   type SessionNodeView,
+  type SessionVendors,
   type WorfySessionNodeData,
 } from '../../shared/ipc/sessions'
 import { isArchived, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
@@ -95,9 +96,6 @@ interface Run {
 /** Data of a Session Node that worfy runs. */
 const isWorfyNode = (node: LayoutNode): boolean => node.kind === SESSION_NODE_KIND && node.data.origin === 'worfy'
 
-/** The Vendor of a Session saved without one: every Session from before worfy-multi-vendor is Claude Code's. */
-const UNNAMED_VENDOR: VendorId = 'claude'
-
 /** `name` as a Vendor this build runs; throws with the reason for any other. */
 function knownVendor(name: string): VendorId {
   const parsed = vendorIdSchema.safeParse(name)
@@ -139,7 +137,7 @@ export function signInRefusal(
       ;(options.log ?? ((message, cause) => console.warn(message, cause)))(`[sessions] could not check the sign-in to ${vendor}; starting the Session anyway`, error)
       return null
     }
-    if (!connections.some((connection) => connection.signedIn)) return `Nobody is signed in to ${VENDOR_LABELS[vendor]}: sign in to it first`
+    if (!connections.some((connection) => connection.signedIn)) return signInHint(vendor)
     signedIn.add(vendor)
     return null
   }
@@ -171,6 +169,19 @@ export class NodeSessions {
     const refusal = (await this.deps.vendorRefusal?.(id)) ?? null
     if (refusal !== null) throw new Error(refusal)
     return this.create(projectId, undefined, id)
+  }
+
+  /**
+   * What the Vendor picker of "New session" offers (worfy-multi-vendor ticket 24): every Vendor this
+   * build runs, the Project's `defaultVendor` first, each with the reason a Session of it cannot start
+   * now (vendorRefusal) or null. The checks run together.
+   */
+  async vendors(projectId: string): Promise<SessionVendors> {
+    this.deps.projectPath(projectId)
+    const first = this.defaultVendor(projectId)
+    const order = [first, ...VENDOR_IDS.filter((each) => each !== first)]
+    const choices = await Promise.all(order.map(async (vendor) => ({ vendor, refusal: (await this.deps.vendorRefusal?.(vendor)) ?? null })))
+    return { defaultVendor: first, choices }
   }
 
   /**

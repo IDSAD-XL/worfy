@@ -857,6 +857,48 @@ describe('SessionPanel', () => {
     await mountPanel({ './Binding.tsx': { default: (props: RailBlockProps) => <p>{`bound to ${props.nodeId} · ${props.sessionId}`}</p>, order: 10 } })
     expect(within(screen.getByTestId('session-rail')).getByText('bound to orch · pending-1')).toBeTruthy()
   })
+
+  // worfy-multi-vendor ticket 24: the agent's messages carry the name of the Session's Vendor, the
+  // header and the rail its VendorBadge; the Orchestrator stays «orch» with no badge.
+  describe('the Vendor of a Session Node', () => {
+    async function mountNode(vendor: 'claude' | 'codex') {
+      answers['orchestrator.view'] = () => ({ view: null })
+      const guard = renderGuard()
+      const { SessionPanel } = await import('../../src/renderer/session/SessionView')
+      const { railBlocks } = await import('../../src/renderer/session/rail/index')
+      const nodeSessions = await import('../../src/renderer/session/node-sessions')
+      guard()
+      nodeSessions.acceptSessionNodeView({ projectId: 'alpha', nodeId: 'node-1', vendor, sessionId: 'thr-1', sdkSessionId: null, state: 'idle', error: null, cwd: '/p', model: 'gpt-5.5', version: 1 })
+      render(<SessionPanel projectId="alpha" projectName="alpha" nodeId="node-1" blocks={railBlocks.filter((block) => block.id === 'VendorRail')} />)
+      await screen.findByText('gpt-5.5')
+    }
+
+    it('a Codex Session: its answers are labelled «codex», the header and the rail show the Codex badge', async () => {
+      await mountNode('codex')
+      emit('thr-1', { type: 'prompt', text: 'hi' })
+      emit('thr-1', text('hello from Codex'))
+      const answer = screen.getByTestId('transcript-text')
+      expect(within(answer).getByText('codex')).toBeTruthy()
+      expect(within(answer).queryByText('claude')).toBeNull()
+      expect(screen.getByTestId('session-vendor').textContent).toBe('Codex')
+      expect(screen.getByTestId('session-vendor').dataset.vendor).toBe('codex')
+      expect(within(screen.getByTestId('session-rail')).getByTestId('vendor-rail-badge').textContent).toBe('Codex')
+    })
+
+    it('a Claude Code Session: «claude», and the badge says Claude Code', async () => {
+      await mountNode('claude')
+      emit('thr-1', text('hello from Claude'))
+      expect(within(screen.getByTestId('transcript-text')).getByText('claude')).toBeTruthy()
+      expect(screen.getByTestId('session-vendor').textContent).toBe('Claude Code')
+    })
+
+    it('the Orchestrator: «orch», and no Vendor badge in the header', async () => {
+      await mountPanel()
+      emit('pending-1', text('status block'))
+      expect(within(screen.getByTestId('transcript-text')).getByText('orch')).toBeTruthy()
+      expect(screen.queryByTestId('session-vendor')).toBeNull()
+    })
+  })
 })
 
 describe('opening the Session view', () => {

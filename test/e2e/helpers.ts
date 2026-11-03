@@ -1159,6 +1159,15 @@ export async function oneBoxEachInOnePass<N extends string>(page: Page, selector
 const firstOfEach = (lists: Record<string, Rect[]>): Record<string, Rect> => Object.fromEntries(Object.entries(lists).map(([name, list]) => [name, list[0]!]))
 
 /**
+ * "New session" in the sidebar, then `vendor` in its Vendor picker (worfy-multi-vendor ticket 24):
+ * Claude Code by default, which every launch can start (its sign-in is the first-run check's).
+ */
+export async function newSessionOn(window: Page, vendor = 'claude'): Promise<void> {
+  await window.getByTestId('sidebar-new-session').click()
+  await window.locator(`[data-testid="new-session-vendor-option"][data-vendor="${vendor}"]`).click()
+}
+
+/**
  * The room a test leaves between a control it clicks and each edge of the page (issue #1153). A
  * control outside the page is clicked only after Playwright scrolls the Canvas, which React Flow
  * undoes at once; whether the click lands first is a race, lost on Windows.

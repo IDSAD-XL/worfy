@@ -25,6 +25,7 @@ import {
   launchLinkedPair,
   linkThroughUi,
   machineIdOf,
+  newSessionOn,
   openLinkDialog,
   openMachinesSettings,
   PROJECTS_ACCESS_LABEL,
@@ -849,7 +850,7 @@ test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Auto
 
     // A Session started in A runs on B and is live in B's window.
     const live = (window: Page) => window.locator('[data-testid="session-node"][data-live="true"]')
-    await a.window.getByTestId('sidebar-new-session').click()
+    await newSessionOn(a.window)
     await expect(live(a.window)).toHaveCount(1)
     const sessionNode = await live(a.window).getAttribute('data-node-id')
     await expect(bWindow.locator(`[data-testid="session-node"][data-live="true"][data-node-id="${sessionNode}"]`)).toHaveCount(1)

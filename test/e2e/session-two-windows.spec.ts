@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp, openSecondWindow, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, newSessionOn, openSecondWindow, type LaunchedApp } from './helpers'
 
 // worfy-link ticket 04 against the built app on the fake agent: a Session belongs to the app, not
 // to the window it was started in (ADR-0053, point 4). Two windows of one worfy are two clients of
@@ -97,7 +97,7 @@ const liveNode = (window: Page, nodeId: string): Locator => window.locator(`[dat
 /** "New session" in the sidebar of `window`: the Node id of the new live Session Node once it is idle. */
 async function newSession(window: Page): Promise<string> {
   const live = window.locator('[data-testid="session-node"][data-live="true"]')
-  await window.getByTestId('sidebar-new-session').click()
+  await newSessionOn(window)
   await expect(live).toHaveCount(1)
   await expect(live.getByTestId('session-node-status')).toHaveText('idle')
   const id = await live.getAttribute('data-node-id')

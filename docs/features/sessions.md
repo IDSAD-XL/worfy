@@ -23,10 +23,24 @@ it, and it stops when worfy quits.
 id, and a Node saved before Vendors existed is Claude Code's. "New session" uses the Vendor it is given, else the Project's
 default Vendor (`defaultVendor` in the Project's `settings.json`), else Claude Code. Start and Resume use the Node's
 Vendor. "New session" refuses a Vendor this build does not run, or one nobody is signed in to, with the reason, before any
-Node appears. Claude Code is not asked again, because the first-run check already requires its sign-in. A sign-in check
-that fails or takes more than 15 seconds refuses nothing, and the Session then shows the Vendor's own error. A Node whose
-Vendor this build does not know keeps it and refuses to start. The Orchestrator is always Claude Code. The interface does
-not offer Codex yet, so a new Session is Claude Code's unless the Project's `defaultVendor` names Codex.
+Node appears; the reason of one nobody is signed in to is `Sign in to Codex in Settings → Vendors`. Claude Code is not
+asked again, because the first-run check already requires its sign-in. A sign-in check that fails or takes more than 15
+seconds refuses nothing, and the Session then shows the Vendor's own error. A Node whose Vendor this build does not know
+keeps it and refuses to start. The Orchestrator is always Claude Code, and so is a Session that "Ship ticket" starts,
+whatever the Project's default Vendor: the Harness's skills run under Claude Code only.
+
+**Picking the Vendor.** "New session" in the sidebar opens a list, "New session on", with every Vendor this build runs: the
+Project's default Vendor first, marked `default`, then the others. A Vendor nobody is signed in to stays in the list,
+inactive, and its tooltip gives the reason. A pick starts the Session on that Vendor; Esc or a click outside closes the list.
+Each time the list opens, main checks the sign-in of every Vendor it has not yet found signed in. A Linked machine on a build without the list starts the
+Session on its Project's default Vendor at once. "New session" in the Command palette uses the default Vendor too. The
+default Vendor is "Default vendor" in [Project settings](projects.md).
+
+**Vendor badge.** The Vendor shows as its name beside a neutral icon (a circle for Claude Code, a rounded square for Codex,
+never a logo): on a live Session Node before its folder, short (`Claude`, `Codex`, the whole name in the tooltip); in the
+Session view's header after the title; in the rail's first block, "Vendor"; in the Vendor list of "New session". The
+Orchestrator has none. The agent's messages in the transcript are labelled with the Vendor's name, `claude` or `codex`; the
+Orchestrator's stay `orch`.
 
 **States.** A Session is in one of six states, shown as a chip.
 
@@ -119,7 +133,7 @@ refuses the call. The card has no "Always allow".
 - Files picked outside the Project, and every dropped file, are copied into the Project's data folder, up to 20 MB each.
 
 **Session view.** The second view of the window, beside the Canvas. Its header holds the title ("Orchestrator" or "Session"
-and the Project), the state chip, the Session picker, Model, Effort, Permissions, Cost, Hide tools and Interrupt. Cost shows
+and the Project), the Vendor badge of a Session Node, the state chip, the Session picker, Model, Effort, Permissions, Cost, Hide tools and Interrupt. Cost shows
 a figure for the Orchestrator only: `$0.00`, with four decimals below a dollar. Other Sessions show a dash. The view shows
 the Session opened last in this Project while its Node is on the Canvas, and otherwise the Orchestrator. The memory of that
 choice lives as long as the window. The Session picker lists the Orchestrator first, then the running Sessions, then the
@@ -223,6 +237,7 @@ for a process also asks the system.
 | Events, settings and channels | `src/shared/agent/events.ts`, `src/shared/agent/settings.ts`, `src/shared/ipc/agent.ts`, `src/shared/ipc/sessions.ts`, `src/shared/ipc/orchestrator.ts` |
 | Handlers | `src/main/ipc/agent.ts`, `src/main/ipc/sessions.ts`, `src/main/ipc/orchestrator.ts`, `src/main/ipc/session-autocompact.ts` |
 | Session view | `src/renderer/session/SessionView.tsx`, `src/renderer/session/MessageInput.tsx`, `src/renderer/session/navigation.ts` |
+| Vendor picker and badge | `src/renderer/session/NewSessionVendor.tsx`, `src/renderer/session/VendorBadge.tsx`, `src/renderer/session/rail/VendorRail.tsx`, `src/shared/vendors/vendor.ts` |
 | Renderer store, the join of past and live events | `src/renderer/session/store.ts` |
 | Cards | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Items under the input field, found by glob | `src/renderer/session/composer/` |
@@ -244,12 +259,13 @@ events go to every client on `agent.event`, and the renderer store keeps the new
 - `test/contract/orchestrator.test.ts`, `test/contract/orchestrator-relaunch.test.ts`, `test/contract/node-sessions.test.ts`,
   `test/contract/permissions.test.ts`.
 - `test/contract/sessions-vendor.test.ts`: the Vendor of a Node and of a Project, Claude Code on the fake agent and Codex on
-  the fake app-server.
+  the fake app-server, and what the Vendor list of "New session" offers.
 - `test/unit/agent-queue.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/resume-rule.test.ts`,
   `test/unit/session-process-exit.test.ts`.
 - `test/e2e/session-view.spec.ts`, `test/e2e/session-controls.spec.ts`, `test/e2e/permissions.spec.ts`,
   `test/e2e/session-question.spec.ts`, `test/e2e/session-resume.spec.ts`, `test/e2e/own-sessions.spec.ts`,
-  `test/e2e/orchestrator.spec.ts`, `test/e2e/chat-attachments.spec.ts`, `test/e2e/context-meter.spec.ts`.
+  `test/e2e/orchestrator.spec.ts`, `test/e2e/chat-attachments.spec.ts`, `test/e2e/context-meter.spec.ts`,
+  `test/e2e/vendor-picker.spec.ts`.
 
 ## Subagent
 
