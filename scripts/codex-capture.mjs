@@ -7,7 +7,8 @@
 // start the real Codex.
 //
 // What a run does:
-//   - makes a temporary folder with a CODEX_HOME, a Project folder (a git repository with one commit) and
+//   - makes a temporary folder with a CODEX_HOME, an empty home folder (the app-server's HOME and
+//     USERPROFILE: no user skills of ~/.agents), a Project folder (a git repository with one commit) and
 //     a hook recorder; the user's ~/.codex is never read or written. CODEX_HOME gets a config.toml that
 //     keeps the login in a file of that folder (not in the keychain), asks for reasoning summaries and
 //     names one stdio MCP server of the run (`capture`, tools `echo` and `fail`), and a hooks.json whose
@@ -20,8 +21,9 @@
 //   - records every message both ways, in the step form of the fake's scripts
 //     (test/fixtures/codex-scripts/), one file per part of the scenario, and every hook input.
 //   - replaces the email, the account and user ids, the tokens, the home folder, the temporary folders,
-//     the host name, the installation id and the login id in what it writes, checks that none is left,
-//     and replaces the recordings of the output
+//     the host name, the installation id, the login id and the terminal of the User-Agent in what it
+//     writes, checks that none is left and that skills/list lists no user skill outside the temporary
+//     folder, and replaces the recordings of the output
 //     folder (default test/fixtures/codex-messages/; its README.md stays) with a manifest.json.
 //   - logs out of the temporary login and removes the temporary folder.
 //
@@ -45,7 +47,7 @@ import { removeTree } from './remove-tree.mjs'
 const HELP = `usage: node scripts/codex-capture.mjs --use-my-login [options]
 
 Starts the pinned Codex app-server (@openai/codex of package.json) with a temporary
-CODEX_HOME, signs in with a new ChatGPT login (open the link it prints), plays the
+CODEX_HOME and home folder, signs in with a new ChatGPT login (open the link it prints), plays the
 scenario of the compatibility suite and writes the messages to the output folder.
 For the owner only: it uses the owner's ChatGPT plan. Refuses under CI and VITEST.
 
@@ -204,7 +206,25 @@ const IDENTIFIERS = {
   loginId: { to: '00000000-0000-4000-8000-000000000002', what: 'the login id' },
 }
 
-/** The replacements of the identifiers in the recorded steps `steps` (IDENTIFIERS, and the `serverName` of the host). */
+const TERMINAL = 'capture-terminal'
+
+/**
+ * The User-Agent `userAgent` of the app-server with the owner's terminal replaced by `capture-terminal`,
+ * or null for one of another form. Codex builds it as `<originator>/<version> (<os> <os version>; <arch>)
+ * <terminal>` and an optional ` (<suffix>)` (codex-rs/login/src/auth/default_client.rs); the terminal token
+ * (`WarpTerminal/v0.2026…`, `iTerm.app/3.5`, `unknown`…) holds only letters, digits and `-_./`
+ * (codex-rs/terminal-detection/src/lib.rs). The OS part stays.
+ */
+export function neutralUserAgent(userAgent) {
+  const match = /^([^()]*\([^()]*\)) [A-Za-z0-9_./-]+( \(.*\))?$/.exec(userAgent)
+  return match === null ? null : `${match[1]} ${TERMINAL}${match[2] ?? ''}`
+}
+
+/**
+ * The replacements of the identifiers in the recorded steps `steps` (IDENTIFIERS, the `serverName` of the
+ * host, and each `userAgent` as a whole by its form without the terminal: the token alone, `unknown` say,
+ * could be any other word of the recordings).
+ */
 export function identifierReplacements(steps) {
   const found = new Map()
   const visit = (node) => {
@@ -212,6 +232,7 @@ export function identifierReplacements(steps) {
     else if (isObject(node)) {
       for (const [key, child] of Object.entries(node)) {
         if (typeof child === 'string' && child.length > 0 && Object.hasOwn(IDENTIFIERS, key)) found.set(child, IDENTIFIERS[key])
+        else if (key === 'userAgent' && typeof child === 'string' && neutralUserAgent(child) !== null) found.set(child, { to: neutralUserAgent(child), what: 'the terminal' })
         else visit(child)
       }
     }
@@ -445,12 +466,16 @@ const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostTool
 
 const tomlString = (value) => JSON.stringify(value)
 
-/** The temporary folder of a run: CODEX_HOME with its config and hooks, the Project, the hook recorder. */
+/**
+ * The temporary folder of a run: CODEX_HOME with its config and hooks, an empty home folder, the Project,
+ * the hook recorder.
+ */
 function prepare(work) {
   const codexHome = join(work, 'codex-home')
+  const home = join(work, 'home')
   const project = join(work, 'project')
   const hookInputs = join(work, 'hook-inputs')
-  for (const folder of [codexHome, project, hookInputs]) mkdirSync(folder, { recursive: true })
+  for (const folder of [codexHome, home, project, hookInputs]) mkdirSync(folder, { recursive: true })
   const mcpServer = join(work, 'mcp-capture.mjs')
   const hookRecorder = join(work, 'hook-recorder.mjs')
   writeFileSync(mcpServer, MCP_SERVER)
@@ -476,7 +501,36 @@ function prepare(work) {
   const skill = join(project, '.agents', 'skills', 'capture-greeting')
   mkdirSync(skill, { recursive: true })
   writeFileSync(join(skill, 'SKILL.md'), '---\nname: capture-greeting\ndescription: Greets the user in one short line.\n---\n\nSay hello in one short line.\n')
-  return { codexHome, project, hookInputs }
+  return { codexHome, home, project, hookInputs }
+}
+
+/**
+ * The environment of the app-server of a run, from `base` (process.env): CODEX_HOME and the home folder
+ * (HOME, USERPROFILE on Windows) are the run's temporary ones, so Codex reads no ~/.codex and no user
+ * skills of ~/.agents/skills (codex-rs/ext/skills/src/host_roots.rs: `dirs::home_dir()`, which is $HOME
+ * on macOS and Linux). The sign-in needs nothing of the real home: Codex keeps it in CODEX_HOME
+ * (`cli_auth_credentials_store = "file"` in the run's config.toml), and the owner opens the link the
+ * script prints. No API key: with one Codex would sign in with the key instead of ChatGPT.
+ */
+export function appServerEnv(base, { codexHome, home }) {
+  const env = { ...base, CODEX_HOME: codexHome, HOME: home, USERPROFILE: home }
+  for (const name of ['OPENAI_API_KEY', 'CODEX_API_KEY']) delete env[name]
+  return env
+}
+
+/**
+ * The paths of the user-scope skills that skills/list in `steps` lists outside the folder `work`: a home
+ * folder the run did not make. On Windows `dirs::home_dir()` asks the system for the profile folder
+ * rather than reading USERPROFILE, so the run checks what it got instead of trusting the environment.
+ */
+export function skillsOutside(steps, work) {
+  const roots = [...new Set([work, existsSync(work) ? realpathSync(work) : work])]
+  const inside = (path) => roots.some((root) => path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}\\`))
+  return steps.flatMap((step) =>
+    isObject(step) && step.expect === 'skills/list' && Array.isArray(step.result?.data)
+      ? step.result.data.flatMap((entry) => (Array.isArray(entry?.skills) ? entry.skills : [])).filter((skill) => skill?.scope === 'user' && typeof skill.path === 'string' && !inside(skill.path)).map((skill) => skill.path)
+      : [],
+  )
 }
 
 /** A git repository with one commit in `project`, for the review of uncommitted changes. */
@@ -774,12 +828,12 @@ async function run(options) {
   const secrets = []
   try {
     const folders = prepare(work)
-    const env = { ...process.env, CODEX_HOME: folders.codexHome }
-    // The run signs in with ChatGPT: a key in the environment would sign it in with the key instead.
-    for (const name of ['OPENAI_API_KEY', 'CODEX_API_KEY']) delete env[name]
+    const env = appServerEnv(process.env, folders)
     if (!(await gitInit(folders.project, env))) recorder.note('git init of the Project failed: the review has no uncommitted changes to look at')
     await scenario({ command, env, folders, recorder, options, secrets })
-    const replacements = replacementsOf({ ...folders, work, home: homedir(), host: hostname(), steps: [...recorder.parts.values()].flat(), secrets })
+    const foreign = skillsOutside([...recorder.parts.values()].flat(), work)
+    if (foreign.length > 0) return fail(1, `nothing written: skills/list lists ${foreign.length} user skills outside the temporary folder (${foreign.slice(0, 3).join(', ')}…): the app-server saw the real home folder`)
+    const replacements = replacementsOf({ project: folders.project, codexHome: folders.codexHome, work, home: homedir(), host: hostname(), steps: [...recorder.parts.values()].flat(), secrets })
     const files = []
     const plan = (() => {
       for (const steps of recorder.parts.values()) {

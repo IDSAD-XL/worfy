@@ -1,4 +1,4 @@
-{"expect":"initialize","params":{"clientInfo":{"name":"worfy","title":"worfy","version":"capture"},"capabilities":null},"result":{"userAgent":"worfy/0.166.0 (Mac OS 26.6.1; arm64) WarpTerminal/v0.2026.08.05.09.03.stable_01 (worfy; capture)","codexHome":"/capture/codex-home","platformFamily":"unix","platformOs":"macos"}}
+{"expect":"initialize","params":{"clientInfo":{"name":"worfy","title":"worfy","version":"capture"},"capabilities":null},"result":{"userAgent":"worfy/0.166.0 (Mac OS 26.6.1; arm64) capture-terminal (worfy; capture)","codexHome":"/capture/codex-home","platformFamily":"unix","platformOs":"macos"}}
 {"expect":"initialized"}
 {"notify":"remoteControl/status/changed","params":{"status":"disabled","serverName":"capture-host.local","installationId":"00000000-0000-4000-8000-000000000001","environmentId":null}}
 {"expect":"account/read","params":{"refreshToken":false},"result":{"account":null,"requiresOpenaiAuth":true,"workspaceRouting":null}}
