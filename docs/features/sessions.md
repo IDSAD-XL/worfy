@@ -1,8 +1,8 @@
 # Sessions
 
-Two Features. **Session** is one conversation with Claude Code. A **Subagent** is an agent that a Session started.
+Two Features. **Session** is one conversation with the agent of one Vendor, Claude Code or Codex. A **Subagent** is an agent that a Session started.
 Transcript, Claude home, Memory and Limits are on the page [Transcripts and usage](transcripts-and-usage.md). Terms are
-explained in [Concepts](concepts.md).
+explained in [Concepts](concepts.md). Picking a Vendor, signing in to it and what a Codex Session offers are on [Vendors](vendors.md).
 
 ## Session
 
@@ -29,33 +29,14 @@ seconds refuses nothing, and the Session then shows the Vendor's own error. A No
 keeps it and refuses to start. The Orchestrator is always Claude Code, and so is a Session that "Ship ticket" starts,
 whatever the Project's default Vendor: the Harness's skills run under Claude Code only.
 
-**Picking the Vendor.** "New session" in the sidebar opens a list, "New session on", with every Vendor this build runs: the
-Project's default Vendor first, marked `default`, then the others. A Vendor nobody is signed in to stays in the list,
-inactive, and its tooltip gives the reason. A pick starts the Session on that Vendor; Esc or a click outside closes the list.
-Each time the list opens, main checks the sign-in of every Vendor it has not yet found signed in. A Linked machine on a build without the list starts the
-Session on its Project's default Vendor at once. "New session" in the Command palette uses the default Vendor too. The
-default Vendor is "Default vendor" in [Project settings](projects.md).
-
-**Signing in to a Vendor.** Settings → Vendors has one row per Vendor this build runs, Claude Code marked `required` and
-Codex `optional`. A signed-in row shows `Signed in: <email> · <plan>`, as the first-run sign-in check does. A Vendor nobody
-is signed in to has "Sign in to <Vendor>". For Codex, main starts the ChatGPT sign-in and opens its page in the browser;
-the row says to finish it there, offers "Cancel", and then shows the account the sign-in ended with. A sign-in left open
-is cancelled after 10 minutes, and when worfy quits. For Claude Code the row names the command to run in a Terminal Node,
-`claude`, and offers "Check again". A Vendor this build does not carry says so and offers nothing. A check or a sign-in
-that fails is a line in its row; nothing pops up. worfy keeps no tokens: each Vendor keeps its sign-in in its own home
-folder. Each time the "New session on" list opens it checks again, so a Vendor signed in here can start a Session at once.
-
-**Vendor badge.** The Vendor shows as its name beside its logo, drawn in the text colour (Claude's starburst for Claude Code,
-the OpenAI mark for Codex): on a live Session Node before its folder, short (`Claude`, `Codex`, the whole name in the tooltip); in the
-Session view's header after the title; in the rail's first block, "Vendor"; in the Vendor list of "New session". The
-Orchestrator has none. The agent's messages in the transcript are labelled with the Vendor's name, `claude` or `codex`; the
-Orchestrator's stay `orch`.
+**Picking the Vendor and signing in.** "New session" in the sidebar opens the list "New session on", Settings → Vendors holds
+each Vendor's sign-in, and a badge shows each Session's Vendor: all three are on [Vendors](vendors.md).
 
 **States.** A Session is in one of six states, shown as a chip.
 
 | State | Chip status | Meaning |
 | ----- | ----------- | ------- |
-| `starting` | working | The process started. It becomes `idle` when Claude Code answers about the account |
+| `starting` | working | The process started. It becomes `idle` when the agent answers its start check: Claude Code about the account, Codex with its thread |
 | `idle` | ready | Waits for a message |
 | `busy` | working | A turn runs |
 | `needs_permission` | blocked | A turn waits for an answer to a permission request |
@@ -67,12 +48,10 @@ The chip's text is the state's name: `needs_permission` reads "needs permission"
 **Sending.** Return sends, Shift+Return starts a new line. ↑ and ↓ in an empty field walk the history of sent messages.
 The field grows to 200 pixels. An empty message without attachments is refused. A send that fails puts the text and the
 attachment chips back into the field. "/" at the start of the field or after a space or a line break opens the menu of
-the slash commands and skills that Claude Code reports for this Session. The menu opens and closes as the caret enters or
+the slash commands and skills that the Session's Vendor reports. The menu opens and closes as the caret enters or
 leaves such a word, and stays closed while text in the field is selected. The whole word filters the menu, and a picked
 command replaces only that word: the text around it stays. Escape closes the menu until the caret leaves the word. A
-Codex Session lists its enabled skills and the two commands its app server runs, `/compact` and `/review` (the uncommitted
-changes, or the instructions typed after it); its other commands work only in Codex's own terminal. A message that
-starts with a skill's name calls that skill.
+message that starts with a skill's name calls that skill. A Codex Session's menu is on [Vendors](vendors.md).
 
 **Queue.** A message sent during a turn waits in a queue in main. The hint beside the send button says "Return to queue"
 then. Messages go one per turn, each after the `result` of the previous turn. The chip "N queued" opens the list, where ×
@@ -120,6 +99,7 @@ labelled `codex`. Resume of such a Node, or of its history row, continues the sa
 for a thread worfy did not start it first asks "This Session may be open in a terminal", with Cancel and "Resume anyway".
 
 **Model, effort and permission mode.** Three pickers sit under the input field and the header shows the current values.
+The lists below are Claude Code's; a Codex Session's, and its permission requests, are on [Vendors](vendors.md).
 
 - Model: the rows come from Claude Code. Haiku is never offered. A saved Haiku falls back to the default model and effort.
   "Default" means the `model` and `effortLevel` of the user's `settings.json`, read at each process start. When the user's
@@ -257,8 +237,6 @@ for a process also asks the system.
 | Events, settings and channels | `src/shared/agent/events.ts`, `src/shared/agent/settings.ts`, `src/shared/ipc/agent.ts`, `src/shared/ipc/sessions.ts`, `src/shared/ipc/orchestrator.ts` |
 | Handlers | `src/main/ipc/agent.ts`, `src/main/ipc/sessions.ts`, `src/main/ipc/orchestrator.ts`, `src/main/ipc/session-autocompact.ts` |
 | Session view | `src/renderer/session/SessionView.tsx`, `src/renderer/session/MessageInput.tsx`, `src/renderer/session/navigation.ts` |
-| Vendor picker and badge | `src/renderer/session/NewSessionVendor.tsx`, `src/renderer/session/VendorBadge.tsx`, `src/renderer/session/rail/VendorRail.tsx`, `src/shared/vendors/vendor.ts` |
-| Settings → Vendors: each Vendor's sign-in | `src/renderer/settings/VendorsSection.tsx`, `src/main/ipc/vendors.ts`, `src/shared/ipc/vendors.ts`, `src/main/vendors/account.ts` |
 | Renderer store, the join of past and live events | `src/renderer/session/store.ts` |
 | Cards | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Items under the input field, found by glob | `src/renderer/session/composer/` |
@@ -268,8 +246,9 @@ for a process also asks the system.
 | Notifications | `src/main/notify.ts`, `src/renderer/session/notification-target.ts` |
 
 **Data flow.** A window calls `agent.send`. The handler tells the input observers, checks the attachments and passes the
-message to the Session, keeping the order of one Session's messages. The Session pushes it to the query's input, or to the
-queue during a turn. Each SDK message becomes `AgentEvent`s in the shared schema that transcript files are parsed into. The
+message to the Session, keeping the order of one Session's messages. The Session passes it to its Vendor's SessionHandle, or to
+the queue during a turn. The driver of the Vendor turns its agent's messages into `AgentEvent`s, the shared schema that
+transcript files are parsed into ([Vendors](vendors.md)). The
 events go to every client on `agent.event`, and the renderer store keeps the newest 5000 per Session. `queue`, `settings` and
 `context` events are not transcript rows: the store keeps only the latest of each.
 
@@ -284,14 +263,11 @@ events go to every client on `agent.event`, and the renderer store keeps the new
 - `test/contract/codex-sessions-on-canvas.test.ts`: the Codex threads of a Project's root and worktrees on the fake
   app-server, the Windows path rule, the 30-second limit and the `claudeHome` answers; `test/e2e/codex-sessions-on-canvas.spec.ts`:
   a Codex Session from a terminal, its transcript and Resume with the question.
-- `test/contract/vendors-ipc.test.ts`, `test/unit/settings-vendors.test.tsx`, `test/e2e/onboarding-codex.spec.ts`: Settings →
-  Vendors and the sign-in to Codex on the fake app-server, a Codex signed out and a build without Codex.
 - `test/unit/agent-queue.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/resume-rule.test.ts`,
   `test/unit/session-process-exit.test.ts`.
 - `test/e2e/session-view.spec.ts`, `test/e2e/session-controls.spec.ts`, `test/e2e/permissions.spec.ts`,
   `test/e2e/session-question.spec.ts`, `test/e2e/session-resume.spec.ts`, `test/e2e/own-sessions.spec.ts`,
-  `test/e2e/orchestrator.spec.ts`, `test/e2e/chat-attachments.spec.ts`, `test/e2e/context-meter.spec.ts`,
-  `test/e2e/vendor-picker.spec.ts`.
+  `test/e2e/orchestrator.spec.ts`, `test/e2e/chat-attachments.spec.ts`, `test/e2e/context-meter.spec.ts`.
 
 ## Subagent
 

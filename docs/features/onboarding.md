@@ -57,6 +57,8 @@ or "2 failed · 1 warning".
 | qmd | qmd models | Whether the question of the models was answered | Warning with the size and "Skip…", and "Download…" once qmd is installed. After a skip the row is OK, and "Download…" stays while qmd is installed |
 | qmd | qmd collections | The collections of each connected Project that has a Profile | Warning with "Set up…", or with what to install first |
 
+Codex has no row: it is an optional [Vendor](vendors.md), and its sign-in is in Settings → Vendors.
+
 The size of the models is 2.4 GiB, or 2.2 GiB when a Profile has its documents in Russian. The qmd rows report what they find
 only as a warning, because the Harness searches with grep without qmd. A tool gets 15 s to answer. A check that throws is
 Failed with the error, and the other rows still run.
@@ -234,7 +236,7 @@ without a Project.
 "Connect your own project" under the steps is not part of the demo: "Connect…" opens the same "Add project" as "+" of Projects.
 While Codex is in this build, the footer has the link "Use Codex too" between "worfy Guide" and "Skip", under the steps and under
 Done alike. It is optional and not a step: nothing marks it, and the count `n/6` leaves it out. It opens Settings → Vendors, where
-the sign-in is ([Sessions](sessions.md)). Leaving it alone changes nothing; the sign-in to Claude Code stays a check of step 1. It
+the sign-in is ([Vendors](vendors.md)). Leaving it alone changes nothing; the sign-in to Claude Code stays a check of step 1. It
 adds no height to the panel, so the toasts still fit under the panel in the Session view.
 
 #### Windows

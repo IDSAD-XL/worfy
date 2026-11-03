@@ -29,6 +29,7 @@ Epic-ам и Ticket-ам.
 | [Projects](projects.md) | Full mode и Silent mode, переключатель, просмотр ADR и HANDOFF |
 | [Workflow](workflow.md) | Ticket и Epic на Canvas, Pipeline, Binding |
 | [Sessions](sessions.md) | Session, Subagent |
+| [Vendors](vendors.md) | Vendor: Claude Code и Codex, driver каждого |
 | [Transcripts и usage](transcripts-and-usage.md) | Transcript, Claude home, Memory, Limits |
 | [Gate и GitHub](gate-and-github.md) | Gate, Gate full, бейджи PR и CI |
 | [Browser](browser.md) | Browser, Browser profile |
