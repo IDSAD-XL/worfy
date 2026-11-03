@@ -1,7 +1,8 @@
 # 44 — Фейк app-server исполняет hook-и по правилам Codex
 
 Type: task
-Status: open
+Status: done 2026-11-03T16:45Z
+PR: #1300
 Blocked by: —
 Source: [spec.md](../spec.md), «Фейк и test-ы», «Гарантии workflow на Codex», «Решения владельца» (Q5 — parity suite на фейке); Ticket 04 ([04-codex-расширения-для-harness.md](04-codex-расширения-для-harness.md), таблица и «Гарантии Harness без механизма в Codex»); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
 
