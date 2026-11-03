@@ -39,7 +39,7 @@ Source: слово владельца 2026-11-03: «Будем фиксить э
 3. **Toast отказа.** Любой отказ старта по кнопке Autopilot на Canvas — toast ошибки с причиной (`showToast` из
    `src/renderer/toast/toasts`), а не только `title` кнопки. Текст причины — тот же, что сейчас в `data-error`.
 4. Возврат Session после остановки Run-а с живыми задачами по-прежнему ждёт их конца: relaunch остановил бы фоновые задачи
-   (Agent-ы и CI wait-ы Orchestrator-а). Решено без владельца, подтвердить: владелец выбрал «Session сразу снова attended,
+   (Agent-ы и CI wait-ы Orchestrator-а). Владелец подтвердил 2026-11-03: вместо выбранного сначала «Session сразу снова attended,
    даже с живыми задачами»; п. 1–2 дают тот же результат для старта Autopilot-а и не убивают задачи.
 5. Страница `docs/features/autopilot.md` и её перевод `docs/features/ru/autopilot.md` — абзац о старте после остановки Run-а
    и о toast отказа, если страница описывает эти случаи.
@@ -61,3 +61,34 @@ Source: слово владельца 2026-11-03: «Будем фиксить э
 - `src/main/autopilot/chat-confirm.ts` — `autopilotStarter`, `deps.unattended`.
 - `src/main/ipc/autopilot.ts`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/renderer/canvas/actions/action-button.ts`.
 - `test/contract/autopilot-background.test.ts`, `test/contract/autopilot-start-tool.test.ts`, `test/unit/canvas-actions.test.tsx`.
+
+## Итог
+
+Diagnosis подтвердился: красный contract test упал на `ORCHESTRATOR_HAS_TASKS` из
+`src/main/agent/orchestrator.ts` (`setUnattended`, проверка `entry.wanted !== null`), а `autopilot_start` —
+на `UNATTENDED_MESSAGE` из `chat-confirm.ts`.
+
+- **Старт в Session, которая ждёт возврата.** `orchestrator.ts`: `awaitsGiveBack(entry)` — launch unattended и
+  `entry.wanted` = attended. Тогда `setUnattended(true)` не отказывает за живые задачи: снимает ожидание и оставляет
+  текущий launch без relaunch. `ORCHESTRATOR_IN_TURN` и `ORCHESTRATOR_HAS_QUEUE` остались; `ORCHESTRATOR_HAS_TASKS`
+  остался для attended Session с живыми задачами (новый contract test это держит).
+- **Прежний Run, который ждал задачи** (`linger` в `run.ts`): когда новый Run забирает Session, ожидание старого Run-а
+  кончается без строки в его journal-е. Keep-awake старого Run-а снимается, задачи пишет journal нового Run-а. Иначе
+  старый journal получал бы те же строки `background-tasks` до конца нового Run-а, а `orchestrator-returned` — только
+  при возврате после нового Run-а. Новый вид строки в journal не заводил. **Решено без владельца, подтвердить.**
+- **`autopilot_start`.** Новый dep `awaitsGiveBack` (`Orchestrators.awaitsGiveBack(sessionId)`): unattended Session,
+  которая лишь ждёт возврата, получает диалог; пока Run идёт — по-прежнему `UNATTENDED_MESSAGE`. Вызов из хода самой
+  Session идёт через `ChatStarts.startAfterTurn` → `orchestratorRefusal`: в этом состоянии живые задачи тоже не отказ
+  (иначе после диалога пришёл бы `ORCHESTRATOR_HAS_TASKS`).
+- **Toast.** Любой отказ `autopilot.start` по кнопке — toast `error` с той же причиной, что в `title`/`data-error`
+  (key на Project, testId `autopilot-start-refused`). Отказ «running on <Machine>» тоже даёт toast, рядом с chip и
+  «Start anyway»: тикет говорит «любой отказ». **Решено без владельца, подтвердить.**
+- Старый contract test «refuses a new run while the Orchestrator of a stalled run waits for the last task's turn» ждал
+  `ORCHESTRATOR_HAS_TASKS`. По п. 1 это поведение снято, и test теперь проверяет обратное: старт проходит, Session та
+  же, relaunch-а нет.
+- `docs/features/autopilot.md`: причина отказа — в tooltip и toast; старт во время ожидания возврата; `autopilot_start`
+  в такой Session. Перевод `docs/features/ru/autopilot.md` не правил: по `rules.md` в PR с поведением правится только
+  английская страница.
+
+Снимки toast отказа (e2e `test/e2e/autopilot.spec.ts`, Orchestrator в ходе): `../evidence/50/50-refused-toast-light.png`,
+`../evidence/50/50-refused-toast-dark.png`.
