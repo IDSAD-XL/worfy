@@ -67,3 +67,12 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 `:404` (чтение — только `binding-signals.ts`) и `:422` (test-ы) не называют чтение Session Codex из её thread-а
 (`src/main/vendors/codex/binding.ts`, `test/contract/codex-binding.test.ts`); `docs/features/vendors.md:83` — Binding
 у Session Codex теперь есть.
+
+Доработка, раунд 1 (красный CI job `windows (3/3) / full-suite` на PR #1297): `bindings.signals` в
+`test/contract/codex-binding.test.ts` на Windows отвечал `found: false`. Причина — в test-е, не в коде продукта: handler
+делает `resolve(projectRoot)`, и на Windows `/fake/project` становится `D:\fake\project`, а stub списка Session-ов Codex
+сравнивал корень строкой с `/fake/project`. Настоящий список (`CodexSessionsOnCanvas.cached`, тикет 27) ищет по ключу,
+который сам приводит корень к одному написанию (resolve, на Windows — без учёта регистра), а `CodexBindingSignals` отдаёт
+ему корень как получил, так что пользователь Windows на это не наткнётся. Test-ы handler-а и Archive теперь идут через
+настоящий `CodexSessionsOnCanvas`; новый test проверяет на macOS написания Windows (`C:\…`, `C:/…`, другой регистр,
+`\` в конце, другой диск) по правилам `win32` вплоть до Binding к Ticket-у по папке worktree и через Archive.

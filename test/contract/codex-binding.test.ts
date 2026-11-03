@@ -22,6 +22,7 @@ import { codexAskStarter, type StartCodex } from '../../src/main/vendors/codex/a
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { CodexBindingSignals } from '../../src/main/vendors/codex/binding'
 import { codexHistoryPart } from '../../src/main/vendors/codex/history'
+import { CodexSessionsOnCanvas } from '../../src/main/vendors/codex/sessions-on-canvas'
 import type { HistoryPart, HistorySession } from '../../src/main/vendors/history'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { EMPTY_AGENT_SIGNALS, resolveBinding, type BindingWorkflow } from '../../src/shared/binding/resolve'
@@ -95,8 +96,24 @@ function fakeHistory(script: string) {
   return { history: codexHistoryPart({ start, codexHome: () => codexHome }), started, codexHome }
 }
 
-/** The Project's Codex Sessions as the last list found them: `threads` for PROJECT_ROOT, none elsewhere. */
+/**
+ * The Project's Codex Sessions as the last list found them: `threads` for PROJECT_ROOT, none elsewhere.
+ * Only for a test that hands the reader PROJECT_ROOT as written: a caller that resolves the root first
+ * (the `bindings.signals` handler; on Windows it gains a drive letter) goes through `onCanvas`.
+ */
 const listed = (threads: () => HistorySession[]) => ({ cached: (root: string) => (root === PROJECT_ROOT ? threads() : []) })
+
+/**
+ * The app's list of a Project's Codex Sessions (sessions-on-canvas.ts) over a history whose `list` gives
+ * `threads`, filled for `root` the way a window's `claudeHome.sessions` fills it. It finds them however
+ * a later caller spells the root, by the rules of `platform`.
+ */
+async function onCanvas(threads: HistorySession[], root: string, platform: NodeJS.Platform = process.platform): Promise<CodexSessionsOnCanvas> {
+  const history: Pick<HistoryPart, 'list' | 'read'> = { list: async () => threads, read: async () => [] }
+  const sessions = new CodexSessionsOnCanvas({ history, roots: async (each) => [each], platform })
+  await sessions.settled(root)
+  return sessions
+}
 const thread = (updatedAt: number | null, cwd: string | null = PROJECT_ROOT): HistorySession => ({ id: THREAD, cwd, title: 'Take ticket 07 of worfy-demo', updatedAt, origin: 'worfy' })
 const branches =
   (map: Record<string, string>) =>
@@ -255,10 +272,13 @@ async function register(vendors: readonly VendorBindingSignals[]) {
 }
 
 describe('a Codex Session where Bindings are read', () => {
-  const reader = () => new CodexBindingSignals({ history: fakeHistory('thread-binding').history, sessions: listed(() => [thread(1793000200)]), branch: branches({ [WORKTREE]: 'worfy-demo/07' }) })
+  // The list is the app's own: the handler resolves the root it is given (on Windows `/fake/project`
+  // becomes `D:\fake\project`), and the list finds its Sessions under either spelling.
+  const reader = async () =>
+    new CodexBindingSignals({ history: fakeHistory('thread-binding').history, sessions: await onCanvas([thread(1793000200)], PROJECT_ROOT), branch: branches({ [WORKTREE]: 'worfy-demo/07' }) })
 
   it('bindings.signals answers the signals of a Session with no Claude transcript from its Vendor', async () => {
-    const invoke = await register([reader()])
+    const invoke = await register([await reader()])
     expect(await invoke('bindings.signals', { projectRoot: PROJECT_ROOT, sessionId: THREAD })).toEqual({
       ok: true,
       value: { found: true, session: { ...EMPTY_AGENT_SIGNALS, cwd: WORKTREE, gitBranch: 'worfy-demo/07' }, subagents: [] },
@@ -270,7 +290,7 @@ describe('a Codex Session where Bindings are read', () => {
   })
 
   it('the archive binds it to its Ticket, so a done Ticket can archive it', async () => {
-    const codex = reader()
+    const codex = await reader()
     const found = await sessionBindings({ id: 'demo-0000000d', path: PROJECT_ROOT }, [THREAD, 'gone'], workflow, {
       stored: () => [],
       transcriptPath: async () => null,
@@ -283,5 +303,31 @@ describe('a Codex Session where Bindings are read', () => {
         ['gone', null],
       ]),
     )
+  })
+
+  it('on Windows the Session is found however the root is spelled, and its worktree folder binds it', async () => {
+    // A window resolves the root (`C:\…`); the Project list keeps git's `C:/…`; a drive letter's case
+    // and the separators differ. The reader hands the root to the list as it got it.
+    const windowsRoot = 'C:\\fake\\project'
+    const windowsWorktree = 'C:\\fake\\project\\.claude\\worktrees\\07'
+    const sessions = await onCanvas([thread(1, windowsRoot)], windowsRoot, 'win32')
+    const { history, reads } = stubHistory(() => [command('c1', 'pnpm test', windowsWorktree)])
+    const codex = new CodexBindingSignals({ history, sessions, branch: branches({}) })
+    const expected = { ...EMPTY_AGENT_SIGNALS, cwd: windowsWorktree }
+
+    for (const spelling of [windowsRoot, 'C:/fake/project', 'c:\\Fake\\Project\\']) expect(await codex.session(spelling, THREAD)).toEqual(expected)
+    expect(resolveBinding({ signals: expected }, workflow)).toEqual({ target: { kind: 'ticket', epic: 'worfy-demo', num: 7 }, source: 'worktree', detail: '.claude/worktrees/07' })
+    // The thread is read in its own folder, once: the spelling of the root does not change the thread.
+    expect(reads).toEqual([{ id: THREAD, cwd: windowsRoot }])
+
+    const found = await sessionBindings({ id: 'demo-0000000d', path: 'C:/fake/project' }, [THREAD], workflow, {
+      stored: () => [],
+      transcriptPath: async () => null,
+      signals: async () => EMPTY_AGENT_SIGNALS,
+      vendorSignals: (root, sessionId) => codex.session(root, sessionId),
+    })
+    expect(found).toEqual(new Map([[THREAD, { kind: 'ticket', epic: 'worfy-demo', num: 7 }]]))
+    // Another drive is another Project.
+    expect(await codex.session('D:\\fake\\project', THREAD)).toBeNull()
   })
 })
