@@ -148,3 +148,19 @@ manifest-е, фейк надо научить (его `shortcut:` в шапке 
   на фейке app-server: токен account-а в env процесса, он сильнее `GH_TOKEN` worfy, без account-а — env как был, ошибка
   получения — строка log-а без токена. Mutant-ы каждой правки раунда (ключ по Session, формулировка reviewer-а, флаги
   без prompt-а, `-e` у shell, timeout resolver-а, токен не передан) — test-ы красные.
+
+## Раунд 2 (проверка и eval)
+
+Проверка второго раунда — APPROVE, все пункты раунда 1 исправлены. Review шёл с глубиной `high`: четыре reviewer-а, refute
+pass и проверка раунда, около 0.7 млн токенов subagent-ов. Eval `status-block` (его выбирает `--changed` по
+`hooks/hooks.json`): на PR — 0.67, 1 из 3 run-ов, $0.45; на `origin/main` — 0.50, 0 из 3, $0.37. Ошибка одна и та же:
+модель не зовёт `epic-status` через Bash. Значит, PR ничего не ухудшил, а сам case падает и на main. Docker-ссылки из
+`~/.docker` на время run-а убирались и вернулись (решение владельца 2026-10-29, Q6).
+
+Остаётся (low, без Ticket-а):
+- если в Profile задан `github.account`, но у gh нет входа в него, Session Codex сохраняет собственный `GH_TOKEN` worfy
+  (поведение до PR). Claude его не получает;
+- `appGhToken` (`src/main/vendors/codex/session.ts:724`) без test-а и без своего timeout-а;
+- не проверено вживую: пропускает ли Codex `GH_TOKEN` в shell (`shell_environment_policy` и имена с TOKEN) — как и
+  `WORFY_MCP_TOKEN` в Ticket-е 33;
+- README «On Codex» называет пробел: matcher `Bash|apply_patch` не видит `mcp__*` и `spawn_agent` read-only агентов.
