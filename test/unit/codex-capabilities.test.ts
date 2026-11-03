@@ -1,14 +1,25 @@
 // The static capabilities of Codex and its driver of stubs (src/main/vendors/codex/; worfy-multi-vendor
 // ticket 17): three permission presets in Codex's words, each an approval policy and a sandbox; what
 // Codex lacks comes with the reason a tooltip shows; every part that later tickets wire answers that it
-// is not wired yet. Nothing here runs Codex.
-import { describe, expect, it } from 'vitest'
+// is not wired yet. The models and effort levels of `model/list` (ticket 20), and the preset a Session's
+// permission setting means. Nothing here runs Codex.
+import { describe, expect, it, vi } from 'vitest'
 import { capabilitiesSchema } from '../../src/shared/vendors/capabilities'
-import { CODEX_CAPABILITIES, CODEX_PERMISSION_PRESETS, codexPermissionPreset } from '../../src/main/vendors/codex/capabilities'
+import {
+  capabilitiesWithModels,
+  CODEX_CAPABILITIES,
+  CODEX_PERMISSION_PRESETS,
+  codexCapabilities,
+  codexModelOptions,
+  codexModelSource,
+  codexPermissionPreset,
+  codexPresetFor,
+  codexSandboxPolicy,
+} from '../../src/main/vendors/codex/capabilities'
+import type { Model } from '../../src/main/vendors/codex/protocol/ts/v2/Model'
 import { codexDriver } from '../../src/main/vendors/codex'
 import { PartNotWired } from '../../src/main/vendors/driver'
-import type { SessionStart } from '../../src/main/vendors/session'
-import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
+import type { SessionHandle } from '../../src/main/vendors/session'
 
 describe('the capabilities of Codex', () => {
   it('pass the schema of capabilities', () => {
@@ -47,17 +58,6 @@ describe('the capabilities of Codex', () => {
 })
 
 describe('the Codex driver', () => {
-  const start: SessionStart = {
-    cwd: '/p',
-    settings: DEFAULT_SETTINGS,
-    unattended: false,
-    orchestrator: false,
-    permissions: { ask: () => Promise.resolve(null), askQuestions: () => Promise.resolve({ outcome: 'cancelled' }) },
-    refused: () => undefined,
-    stderr: () => undefined,
-    spawned: () => undefined,
-  }
-
   it('is the codex driver, the same object each time, with the static capabilities', async () => {
     const driver = codexDriver()
     expect(driver.id).toBe('codex')
@@ -70,10 +70,8 @@ describe('the Codex driver', () => {
   })
 
   it('answers every part it does not run yet with PartNotWired, naming the ticket that wires it', async () => {
-    const { session, history, oneShot } = codexDriver()
+    const { history, oneShot } = codexDriver()
     const cases: [Promise<unknown>, RegExp][] = [
-      [session.start(start), /session of the codex driver .*ticket 20/],
-      [session.resume('t-1', start), /session of the codex driver .*ticket 20/],
       [history.list('/p'), /history of the codex driver .*ticket 22/],
       [history.read('t-1', '/p'), /history of the codex driver .*ticket 22/],
       [oneShot('hi', { cwd: '/p' }), /oneShot of the codex driver .*first release/],
@@ -88,5 +86,87 @@ describe('the Codex driver', () => {
   it('answers the slash menu with PartNotWired too', async () => {
     const handle = {} as Parameters<ReturnType<typeof codexDriver>['commands']['list']>[0]
     await expect(codexDriver().commands.list(handle)).rejects.toThrow(/commands of the codex driver .*ticket 22/)
+  })
+})
+
+describe('the presets of a Session\'s permission setting', () => {
+  it('takes a preset of Codex by its id, and stands one in for each permission mode of Claude Code', () => {
+    expect(['read-only', 'auto', 'full-access', 'bypassPermissions', 'acceptEdits', 'default', 'plan'].map((setting) => codexPresetFor(setting)?.id)).toEqual([
+      'read-only', 'auto', 'full-access', 'full-access', 'auto', 'read-only', 'read-only',
+    ])
+    expect(codexPresetFor('everything')).toBeUndefined()
+    expect(codexPresetFor('')).toBeUndefined()
+  })
+
+  it('gives each sandbox mode the policy of a turn: no network, nothing beyond the workspace', () => {
+    expect(codexSandboxPolicy('read-only')).toEqual({ type: 'readOnly', networkAccess: false })
+    expect(codexSandboxPolicy('workspace-write')).toEqual({ type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false })
+    expect(codexSandboxPolicy('danger-full-access')).toEqual({ type: 'dangerFullAccess' })
+  })
+})
+
+describe('the models of model/list', () => {
+  const model = (slug: string, efforts: string[], fields: Partial<Model> = {}): Model =>
+    ({
+      id: `id-${slug}`,
+      model: slug,
+      displayName: slug.toUpperCase(),
+      description: '',
+      hidden: false,
+      isDefault: false,
+      supportedReasoningEfforts: efforts.map((reasoningEffort) => ({ reasoningEffort, description: reasoningEffort })),
+      defaultReasoningEffort: efforts[0] ?? 'medium',
+      ...fields,
+    }) as Model
+  const models = [
+    model('b', ['high', 'ultra', 'low']),
+    model('a', ['xhigh', 'minimal', 'none', 'turbo'], { isDefault: true }),
+    model('hidden', ['medium'], { hidden: true }),
+    model('b', ['medium']),
+  ]
+
+  it('lists the models it does not hide, each once by its model name, and every effort level lowest first, unknown ones after', () => {
+    const capabilities = capabilitiesWithModels(models)
+    expect(capabilities.models).toEqual([
+      { id: 'b', label: 'B', effortLevels: ['high', 'ultra', 'low'] },
+      { id: 'a', label: 'A', effortLevels: ['xhigh', 'minimal', 'none', 'turbo'] },
+    ])
+    expect(capabilities.effortLevels).toEqual(['none', 'minimal', 'low', 'high', 'xhigh', 'ultra', 'turbo'])
+    expect(capabilitiesSchema.parse(capabilities)).toEqual(capabilities)
+    expect({ ...capabilities, models: [], effortLevels: [] }).toEqual(CODEX_CAPABILITIES)
+  })
+
+  it('a model without effort levels takes none', () => {
+    const bare = { ...model('c', []), supportedReasoningEfforts: undefined } as unknown as Model
+    expect(capabilitiesWithModels([bare]).models).toEqual([{ id: 'c', label: 'C', effortLevels: [] }])
+    expect(codexModelOptions([bare])).toEqual([{ value: 'c', displayName: 'C', efforts: [] }])
+  })
+
+  it('gives the picker "Default" for Codex\'s default model first, then each model, with the levels the picker has', () => {
+    expect(codexModelOptions(models)).toEqual([
+      { value: null, displayName: 'Default (A)', efforts: ['xhigh'] },
+      { value: 'b', displayName: 'B', efforts: ['high', 'low'] },
+      { value: 'a', displayName: 'A', efforts: ['xhigh'] },
+    ])
+    expect(codexModelOptions(models.filter((each) => !each.isDefault))[0]?.value).toBe('b')
+  })
+
+  it('asks a Codex Session for its models: the static capabilities without one, when it fails and when it lists none', async () => {
+    const source = (list: () => Promise<Model[]>) => ({ codexModels: list }) as unknown as SessionHandle
+    expect(codexModelSource(undefined)).toBeNull()
+    expect(codexModelSource({} as SessionHandle)).toBeNull()
+    const handle = source(() => Promise.resolve(models))
+    expect(codexModelSource(handle)).toBe(handle)
+    expect(await codexCapabilities()).toBe(CODEX_CAPABILITIES)
+    expect(await codexCapabilities({} as SessionHandle)).toBe(CODEX_CAPABILITIES)
+    expect(await codexCapabilities(handle)).toEqual(capabilitiesWithModels(models))
+    expect(await codexCapabilities(source(() => Promise.resolve([models[2] as Model])))).toBe(CODEX_CAPABILITIES)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      expect(await codexCapabilities(source(() => Promise.reject(new Error('gone'))))).toBe(CODEX_CAPABILITIES)
+      expect(warn).toHaveBeenCalledOnce()
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
