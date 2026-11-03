@@ -1,7 +1,8 @@
 # 34 — Subagent-ы Codex на Canvas
 
 Type: task
-Status: claimed 2026-11-03T14:33Z
+Status: done 2026-11-03T15:29Z
+PR: #1299
 Blocked by: —
 Source: [spec.md](../spec.md), «Цель и что видит пользователь» (второй выпуск); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); Ticket 05 ([05-codex-транскрипты.md](05-codex-транскрипты.md), «Sub-агенты»); ADR-0030, ADR-0031, ADR-0085 (Subagent-ы на Canvas)
 
