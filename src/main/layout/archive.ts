@@ -584,12 +584,17 @@ export interface SessionBindingSources {
   transcriptPath(projectRoot: string, sessionId: string): Promise<string | null>
   /** The Binding signals of the transcript at `path` (src/main/claude-home/binding-signals.ts). */
   signals(path: string): Promise<AgentSignals>
+  /**
+   * The Binding signals of a Session with no Claude transcript, from the history of the Vendor that
+   * has it (src/main/ipc/bindings.ts, VendorBindingSignals); null when none has it. None by default.
+   */
+  vendorSignals?(projectRoot: string, sessionId: string): Promise<AgentSignals | null>
 }
 
 /**
  * The Binding target of each Session, resolved as the renderer resolves it
  * (src/renderer/binding/store.ts): the manual Binding, else the launch one, else the signals of
- * its transcript. A Session that is not bound maps to null.
+ * its transcript (or of its Vendor's history). A Session that is not bound maps to null.
  */
 export async function sessionBindings(
   project: ArchiveProject,
@@ -606,7 +611,7 @@ export async function sessionBindings(
     let signals: AgentSignals | null = null
     if (!manual.has(sessionId) && !launch.has(sessionId)) {
       const path = await sources.transcriptPath(project.path, sessionId)
-      signals = path === null ? null : await sources.signals(path)
+      signals = path !== null ? await sources.signals(path) : ((await sources.vendorSignals?.(project.path, sessionId)) ?? null)
     }
     found.set(sessionId, resolveBinding({ manual: manual.get(sessionId), launch: launch.get(sessionId), signals }, workflow)?.target ?? null)
   }
