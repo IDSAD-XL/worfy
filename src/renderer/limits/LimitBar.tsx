@@ -68,12 +68,12 @@ const RESETS = 'resets '
 
 /**
  * The width of a bar: room for `resets Thu 09:00`; a compact one, of a panel with several Vendor
- * sections, for `Thu 09:00` and `weekly 40%`. The sections name their Vendor by its logo alone, so the
- * compact bars keep the width they had before the Vendor names (worfy-multi-vendor ticket 24) and the
- * Project title stays whole at 1280 px (test/e2e/limits-vendors.spec.ts).
+ * sections, for `Thu 09:00` and `weekly 40%`. 72 px is the widest at which the Project title stays whole
+ * in a 1280 px window next to two sections, each with its Vendor's logo (worfy-multi-vendor ticket 24):
+ * at 73 px the title is cut by 1 px, at 80 px by 29 px (test/e2e/limits-vendors.spec.ts).
  */
 const WIDTH = 104
-const COMPACT_WIDTH = 80
+const COMPACT_WIDTH = 72
 
 /**
  * The reset line, `resets Thu 09:00`: the word in the UI font, the time in mono, as in the F
