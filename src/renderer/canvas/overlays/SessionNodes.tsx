@@ -5,12 +5,14 @@
 // asks for it (claude-home/focus.ts). A new Session whose Binding is known when its Node is made
 // gets its Node next to its Ticket or Epic, right of the strip of Epic frames (worfy-canvas
 // ticket 11, session-spot.ts); a Node already made is not moved when the Binding shows up later.
+// A Codex thread started in a terminal that changed lately counts as live (activeCodexSessions,
+// worfy-multi-vendor ticket 27) and gets its Node the same way.
 import { useEffect, useRef } from 'react'
 import { useReactFlow, useStoreApi } from '@xyflow/react'
 import { ZOOM_MAX, ZOOM_MIN } from '../../../shared/layout/types'
 import { useManualBindings } from '../../binding/store'
 import { useSessionFocus } from '../../claude-home/focus'
-import { planSessionNodes, worfySessionIds } from '../../claude-home/session-nodes'
+import { activeCodexSessions, planSessionNodes, worfySessionIds } from '../../claude-home/session-nodes'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { invoke } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
@@ -84,7 +86,7 @@ function useFocusRequests(projectId: string): void {
 }
 
 function SessionNodesSync({ projectId, root }: { projectId: string; root: string }) {
-  const { live } = useClaudeHome(root)
+  const { live, history } = useClaudeHome(root)
   const { state } = useLayout(projectId)
   const { model } = useWorkflow(root)
   // Asks main for the Project's manual Bindings; bindingSpots reads them from the store.
@@ -92,9 +94,9 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
   const store = useStoreApi<CanvasFlowNode>()
   const busy = useRef(false)
   const again = useRef(false)
-  const latest = useRef({ live, state, projectId, root, model })
+  const latest = useRef({ live, history, state, projectId, root, model })
   useEffect(() => {
-    latest.current = { live, state, projectId, root, model }
+    latest.current = { live, history, state, projectId, root, model }
   })
 
   useFocusRequests(projectId)
@@ -110,12 +112,13 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
       try {
         do {
           again.current = false
-          const { live: current, state: layout, projectId: project, root: projectRoot } = latest.current
+          const { live: current, history: past, state: layout, projectId: project, root: projectRoot } = latest.current
           if (current === undefined || layout === undefined) return
+          const codex = activeCodexSessions(past, Date.now())
           const seen = seenOf(project)
           const nodes = layout.layout.nodes
           for (const node of nodes) if (typeof node.data.sessionId === 'string') seen.add(node.data.sessionId)
-          const first = planSessionNodes({ live: current, nodes, worfyIds: worfySessionIds(nodes, []), seen })
+          const first = planSessionNodes({ live: current, codex, nodes, worfyIds: worfySessionIds(nodes, []), seen })
           if (first.create.length === 0 && first.remove.length === 0) continue
           // Only now ask main which Sessions it runs: a Session of worfy's whose Node does not name it yet.
           const worfyIds = worfySessionIds(nodes, await runningIds())
@@ -129,7 +132,7 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
           })
           // Spots read from another Project's Canvas place nothing: the Project changed during the reads.
           const { near, keepOut } = latest.current.projectId === project ? spots : { near: undefined, keepOut: undefined }
-          const plan = planSessionNodes({ live: current, nodes, worfyIds, seen, near, keepOut })
+          const plan = planSessionNodes({ live: current, codex, nodes, worfyIds, seen, near, keepOut })
           // Not the user's gestures: sent without a step of the undo history (history.ts), as the other
           // automatic writers of the Layout do. The Canvas's LayoutOps would record them.
           const target = latest.current.projectId
@@ -144,7 +147,7 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
       }
     }
     void sync()
-  }, [live, state, store])
+  }, [live, history, state, store])
 
   return null
 }

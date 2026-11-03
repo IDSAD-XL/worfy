@@ -114,3 +114,43 @@ describe('History: where a Session was started', () => {
     await expectSources({ 'S-other-sdk': 'terminal', 'S-print-live': 'terminal' })
   })
 })
+
+// worfy-multi-vendor ticket 27: a Codex thread of the Project is a row too. Its Resume does not ask
+// main's rule of Resume (which reads the Claude home): it asks first whether the thread may be open in
+// a terminal, puts the thread's read-only Node with its Vendor on the Canvas, then resumes it there.
+describe('History: a Codex thread', () => {
+  const codex = (sessionId: string, origin: 'worfy' | 'external'): HistorySession => ({ ...history(sessionId, undefined), cwd: `${ROOT}/src`, vendor: 'codex', origin })
+
+  it('says where it was started and that it is Codex\'s', async () => {
+    sessions = [codex('C-term', 'external'), codex('C-worfy', 'worfy')]
+    await expectSources({ 'C-term': 'terminal · Codex', 'C-worfy': 'worfy · Codex' })
+  })
+
+  it('Resume asks first, then puts its Node with the Vendor on the Canvas and resumes it; main\'s verdicts are not asked for it', async () => {
+    sessions = [codex('C-term', 'external')]
+    const bridge = (globalThis as { worfy?: WorfyBridge }).worfy as unknown as { invoke: (channel: string, input?: unknown) => Promise<unknown> }
+    const answer = bridge.invoke
+    const calls: { channel: string; input: unknown }[] = []
+    bridge.invoke = (channel, input) => {
+      calls.push({ channel, input })
+      if (channel === 'layout.apply') return Promise.resolve({ ok: true, value: { projectId: PROJECT.id, layout: { nodes, viewport: { x: 0, y: 0, zoom: 1 } }, revision: 2 } })
+      if (channel === 'sessions.resume') return Promise.resolve({ ok: false, error: 'stop here' })
+      return answer(channel, input)
+    }
+    const { HistoryPopover } = await import('../../src/renderer/session/HistoryPopover')
+    render(<HistoryPopover project={PROJECT} onClose={() => undefined} />)
+    const row = await screen.findByTestId('history-session')
+    const resume = within(row).getByTestId('history-resume')
+    await vi.waitFor(() => expect((resume as HTMLButtonElement).disabled).toBe(false))
+    resume.click()
+    const question = await within(row).findByTestId('history-resume-question')
+    expect(question.textContent).toContain('This Session may be open in a terminal')
+    expect(calls.some((call) => call.channel === 'sessions.resume')).toBe(false)
+    within(question).getByTestId('history-resume-confirm').click()
+    await vi.waitFor(() => expect(calls.some((call) => call.channel === 'sessions.resume')).toBe(true))
+    const created = calls.find((call) => call.channel === 'layout.apply')?.input as { op: { op: string; node: { data: Record<string, unknown> } } }
+    expect(created.op).toMatchObject({ op: 'create', node: { data: { sessionId: 'C-term', origin: 'external', vendor: 'codex', cwd: `${ROOT}/src` } } })
+    expect(calls.find((call) => call.channel === 'sessions.resume')?.input).toEqual({ projectId: PROJECT.id, sessionId: 'C-term' })
+    expect(calls.filter((call) => call.channel === 'sessions.resumable').every((call) => !(call.input as { sessionIds: string[] }).sessionIds.includes('C-term'))).toBe(true)
+  })
+})

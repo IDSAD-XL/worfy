@@ -16,6 +16,7 @@ import { layoutStore } from '../layout/store'
 import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
+import { appCodexSessions } from '../vendors/codex/sessions-on-canvas'
 import { vendorDriver } from '../vendors/registry'
 import { sharedRegistry } from './app-registry'
 import { NodeSessions, signInRefusal, type KnownSessions } from './node-sessions'
@@ -31,14 +32,18 @@ const SIGNED_IN_AT_FIRST_RUN: ReadonlySet<VendorId> = new Set(['claude'])
 
 /**
  * Where the rule of Resume learns what each Vendor knows of a Project's Sessions. Claude Code: the
- * Claude home, its live processes and transcripts. Codex: its driver's history, the cwd of each thread;
- * which of them still runs in a terminal Codex does not tell (spec decision 9).
+ * Claude home, its live processes and transcripts. Codex: its driver's history of the Project's root and
+ * worktrees, the cwd of each thread — the list the Canvas shows (worfy-multi-vendor ticket 27), asked of
+ * Codex again only when it is older than CODEX_SESSIONS_POLL_MS; which thread still runs in a terminal
+ * Codex does not tell (spec decision 9).
  */
 function vendorSessions(claude: ClaudeHomeRegistry): Record<VendorId, (projectRoot: RegistryRoot) => Promise<KnownSessions>> {
+  const codex = appCodexSessions((root) => claude.roots({ path: root, local: true }))
   return {
     claude: (projectRoot) => claude.sessions(projectRoot),
     codex: async (projectRoot) => {
-      const threads = await vendorDriver('codex').history.list(rootPath(projectRoot))
+      await codex.sessions(rootPath(projectRoot))
+      const threads = codex.cached(rootPath(projectRoot))
       return { live: [], history: threads.map((thread) => ({ sessionId: thread.id, ...(thread.cwd === null ? {} : { cwd: thread.cwd }) })) }
     },
   }

@@ -100,6 +100,15 @@ history. The history popover lists up to 100 past Sessions, newest first, each w
 desktop or terminal. Show puts a read-only Node on the Canvas, or goes to the Node the Session has. The title is the last
 custom title, then the AI title, then the first prompt.
 
+**Codex Sessions of the Project.** The Codex threads whose folder is the Project root, one of its worktrees or a folder inside
+one of them are in the history too, as `terminal · Codex` or `worfy · Codex`. On Windows the folder is compared with either
+separator and in any case. Codex keeps no list of its running Sessions, so while the Project is open worfy asks Codex again
+every 30 seconds, and not at all without a Codex home folder; a Codex that does not answer stops the asking without an
+error. A thread started outside worfy that changed in the last 10 minutes gets a read-only Node by itself, with the Codex
+badge and the chip `unknown`; an older one gets its Node through Show. Its transcript is read from Codex and its answers are
+labelled `codex`. Resume of such a Node, or of its history row, continues the same Codex thread on a live Node in its place;
+for a thread worfy did not start it first asks "This Session may be open in a terminal", with Cancel and "Resume anyway".
+
 **Model, effort and permission mode.** Three pickers sit under the input field and the header shows the current values.
 
 - Model: the rows come from Claude Code. Haiku is never offered. A saved Haiku falls back to the default model and effort.
@@ -229,6 +238,7 @@ for a process also asks the system.
 | The registry of live Sessions, the test agent | `src/main/agent/session/registry.ts`, `src/main/agent/app-registry.ts`, `src/main/agent/fake-query.ts` |
 | Query options, MCP and skills lists, autocompact | `src/main/vendors/claude/options.ts`, `src/main/vendors/claude/query.ts` |
 | Codex slash menu: skills, `/compact`, `/review` | `src/main/vendors/codex/commands.ts`, `src/main/vendors/codex/session.ts` |
+| Codex Sessions of the Project in the history and on the Canvas | `src/main/vendors/codex/sessions-on-canvas.ts`, `src/main/ipc/claude-home.ts`, `src/renderer/claude-home/session-nodes.ts` |
 | Process environment | `src/main/agent/env.ts` |
 | Queue, permissions, saved settings | `src/main/agent/queue.ts`, `src/main/agent/permissions.ts`, `src/main/agent/session-settings.ts` |
 | Rules of Resume and closing | `src/main/agent/resume.ts` |
@@ -260,6 +270,9 @@ events go to every client on `agent.event`, and the renderer store keeps the new
   `test/contract/permissions.test.ts`.
 - `test/contract/sessions-vendor.test.ts`: the Vendor of a Node and of a Project, Claude Code on the fake agent and Codex on
   the fake app-server, and what the Vendor list of "New session" offers.
+- `test/contract/codex-sessions-on-canvas.test.ts`: the Codex threads of a Project's root and worktrees on the fake
+  app-server, the Windows path rule, the 30-second limit and the `claudeHome` answers; `test/e2e/codex-sessions-on-canvas.spec.ts`:
+  a Codex Session from a terminal, its transcript and Resume with the question.
 - `test/unit/agent-queue.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/resume-rule.test.ts`,
   `test/unit/session-process-exit.test.ts`.
 - `test/e2e/session-view.spec.ts`, `test/e2e/session-controls.spec.ts`, `test/e2e/permissions.spec.ts`,

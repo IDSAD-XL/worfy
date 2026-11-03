@@ -6,6 +6,7 @@ import type { ProjectView } from '../../../shared/ipc/projects'
 import type { WorfySessionNodeData } from '../../../shared/ipc/sessions'
 import { UNNAMED_VENDOR } from '../../../shared/vendors/vendor'
 import {
+  isCodexSession,
   readSessionNodeData,
   readWorfySessionNodeData,
   sessionSourceLabel,
@@ -58,6 +59,11 @@ import type { CanvasNodeProps } from './index'
 //   above the Node's input field, and a refusal shows in the Node's problem line. A drop on a Node
 //   whose Session is not running resumes it first: an attachment belongs to a running Session.
 //   A read-only Node takes no files.
+// - Read-only, of Codex (worfy-multi-vendor ticket 27): a Codex thread of the Project started outside
+//   worfy (`data.vendor: 'codex'`, claude-home/session-nodes.ts). It shows the Codex badge, its
+//   transcript comes from Codex (`history.read`), and Resume continues the thread on a live Node in
+//   its place (`sessions.resume`). Codex does not say whether the thread still runs in its terminal,
+//   so Resume of a thread worfy did not start asks first: «This Session may be open in a terminal».
 //
 // The registry (index.ts) needs the kind and size here as literals; `satisfies` fails the
 // typecheck the moment they differ from those of claude-home/session-nodes.ts.
@@ -96,6 +102,8 @@ const styles = {
     color: 'var(--text-secondary)',
   },
   badges: { display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)' },
+  question: { flex: 'none', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--space-1)', minWidth: 0, fontSize: 'var(--text-11)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' },
+  questionText: { flexBasis: '100%', whiteSpace: 'normal' },
   tools: { flex: 'none', display: 'flex', gap: 2 },
   tool: {
     padding: '0 4px',
@@ -499,6 +507,9 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
   )
 }
 
+/** The chip of a Codex thread started outside worfy: Codex does not say whether it still runs. */
+const CODEX_OUTSIDE_CHIP = { status: 'done', label: 'unknown' } as const satisfies { status: Status; label: string }
+
 function SessionNode({ id, data, selected }: CanvasNodeProps) {
   const ops = useLayoutOps()
   const readOnly = useReadOnly()
@@ -507,6 +518,9 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
   const project = activeProject(useProjects())
   const { live, history } = useClaudeHome(project?.path)
   const titleId = useTitleElementId(id)
+  // A Codex Node's Resume: asking whether to go on while the thread may be open in a terminal, and why it failed.
+  const [asking, setAsking] = useState(false)
+  const [resumeProblem, setResumeProblem] = useState<string | null>(null)
 
   if (worfy !== null && project !== undefined) return <LiveSessionNode id={id} selected={selected} info={worfy} project={project} keep={data.node.keep === true} />
 
@@ -519,10 +533,21 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
   }
 
   const session = live?.find((each) => each.sessionId === info.sessionId)
-  const chip = live === undefined ? { status: 'ready' as const, label: '…' } : sessionStatus(session)
+  const past = history.find((each) => each.sessionId === info.sessionId)
+  const codex = isCodexSession(info)
+  // Codex keeps no registry of live Sessions: whether the thread still runs in its terminal is not known.
+  const chip = codex ? CODEX_OUTSIDE_CHIP : live === undefined ? { status: 'ready' as const, label: '…' } : sessionStatus(session)
   // The registry is read and has no process for it: finished (sessionStatus).
-  const finished = live !== undefined && session === undefined
-  const title = session?.name ?? history.find((each) => each.sessionId === info.sessionId)?.title ?? info.name ?? `Session ${info.sessionId.slice(0, 8)}`
+  const finished = !codex && live !== undefined && session === undefined
+  const title = session?.name ?? past?.title ?? info.name ?? `Session ${info.sessionId.slice(0, 8)}`
+  const resume = async (): Promise<void> => {
+    setAsking(false)
+    setResumeProblem(null)
+    const result = await invoke('sessions.resume', { projectId: project.id, sessionId: info.sessionId })
+    if (!result.ok) setResumeProblem(result.error)
+  }
+  // A thread worfy started is not open in a terminal; any other may be, unknown where it was started too.
+  const askResume = () => (past?.origin === 'worfy' ? void resume() : setAsking(true))
   const subject: SlotSubject = { kind: 'session', projectId: project.id, root: project.path, sessionId: info.sessionId }
   // What Hide and Remove leave behind (worfy-week ticket 12): a Session that runs goes on; any other
   // keeps its transcript — also true while the registry has not been read yet.
@@ -570,6 +595,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
       </div>
       <div style={styles.body}>
         <div style={styles.line}>
+          {codex ? <VendorBadge vendor={info.vendor ?? UNNAMED_VENDOR} form="short" testId="session-node-vendor" /> : null}
           <span style={styles.readOnly} data-testid="session-node-read-only">
             read-only
           </span>
@@ -577,7 +603,31 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
             {sessionSourceLabel(info)}
           </span>
         </div>
-        {badges.length ? (
+        {codex && !asking ? (
+          <div className="nodrag" style={styles.question}>
+            {/* Under the header, not in it: the header's chip and buttons leave the title no room for one more. */}
+            <button type="button" style={styles.tool} data-testid="session-node-resume" {...writeAction(readOnly, askResume, 'Continue this Session in worfy')}>
+              Resume
+            </button>
+          </div>
+        ) : null}
+        {asking ? (
+          <div className="nodrag" style={styles.question} role="alertdialog" aria-label="Resume the Session" data-testid="session-node-resume-question">
+            <span style={styles.questionText}>This Session may be open in a terminal</span>
+            <button type="button" style={styles.tool} onClick={() => setAsking(false)}>
+              Cancel
+            </button>
+            <button type="button" style={{ ...styles.tool, color: 'var(--text)' }} data-testid="session-node-resume-confirm" onClick={() => void resume()}>
+              Resume anyway
+            </button>
+          </div>
+        ) : null}
+        {resumeProblem !== null ? (
+          <div style={styles.error} role="alert" data-testid="session-node-error">
+            {resumeProblem}
+          </div>
+        ) : null}
+        {badges.length && !asking ? (
           <div style={styles.badges}>
             {badges.map(({ id: badgeId, Component }) => (
               <Component key={badgeId} subject={subject} />

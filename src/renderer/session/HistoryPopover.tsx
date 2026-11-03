@@ -7,7 +7,7 @@ import { shownOnCanvas } from '../../shared/layout/derived'
 import { showNode } from '../canvas/show-node'
 import { applyLayoutOp, currentLayout, useLayout } from '../canvas/useLayout'
 import { focusSessionNode } from '../claude-home/focus'
-import { externalSource, readSessionNodeData, SESSION_KIND, showSessionNodeOp, worfySessionIds, worfySessions } from '../claude-home/session-nodes'
+import { externalSource, isCodexSession, readSessionNodeData, SESSION_KIND, showSessionNodeOp, worfySessionIds, worfySessions } from '../claude-home/session-nodes'
 import { refreshClaudeHome, useClaudeHome } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
@@ -30,6 +30,12 @@ import { ensureProject, useSessionNodeViews } from './node-sessions'
 // the program on the Agent SDK for TypeScript that writes transcripts into its Projects. Not so for
 // one with a read-only Node: worfy found it running as someone else's. A live one follows the
 // sidebar: worfy knows every Session it runs now, so an unknown live `sdk-ts` is not its.
+//
+// A Codex thread of the Project (`vendor: 'codex'`, worfy-multi-vendor ticket 27) is a row too, «worfy»
+// or «terminal» by where Codex says it was started, with «Codex» after it. Its Resume does not wait for
+// main's verdict, which reads only the Claude home: it puts the thread's read-only Node on the Canvas
+// when there is none, so main resumes it on Codex, and for a thread worfy did not start it asks first,
+// as the Node does: «This Session may be open in a terminal».
 
 /** Rows the popover shows; older Sessions stay in the transcripts. */
 export const HISTORY_ROWS = 100
@@ -79,6 +85,7 @@ interface KnownSessions {
 
 /** Where a Session was started: «worfy» when worfy runs or ran it, else by its transcript's `entrypoint`. */
 function historySource(session: HistorySession, known: KnownSessions): string {
+  if (isCodexSession(session)) return `${known.worfy.has(session.sessionId) || session.origin === 'worfy' ? 'worfy' : 'terminal'} · Codex`
   if (known.worfy.has(session.sessionId)) return 'worfy'
   if (session.entrypoint === 'sdk-ts' && !session.live && !known.external.has(session.sessionId)) return 'worfy'
   return externalSource(session.entrypoint)
@@ -133,8 +140,12 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
   }, [nodes, orchestrators, sessionNodes, project.id, history])
   const rows = useMemo(() => history.slice(0, HISTORY_ROWS), [history])
   const liveKey = (live ?? []).map((session) => `${session.sessionId}:${session.status}`).join(',')
-  const verdicts = useVerdicts(project.id, rows, `${liveKey}|${history.length}`)
+  // main's rule of Resume reads the Claude home: a Codex thread is not asked about.
+  const claudeRows = useMemo(() => rows.filter((row) => !isCodexSession(row)), [rows])
+  const verdicts = useVerdicts(project.id, claudeRows, `${liveKey}|${history.length}`)
   const [problem, setProblem] = useState<{ sessionId: string; text: string } | null>(null)
+  /** The Codex thread whose Resume asks whether it may be open in a terminal. */
+  const [asking, setAsking] = useState<string | null>(null)
   // On a read-only screen (worfy-link ticket 25) Resume is inactive, and so is Show where it would
   // put a Node on the Canvas; a Node already shown is only focused.
   const readOnly = useReadOnly()
@@ -163,8 +174,18 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
 
   // The resumed Session opens where the user is (worfy-polish ticket 44): live in the Session view
   // when that is shown, else its Node on the Canvas. Its Node comes back first when it is archived or hidden.
-  const resume = async (session: HistorySession) => {
+  const resume = async (session: HistorySession, confirmed = false) => {
     setProblem(null)
+    setAsking(null)
+    if (isCodexSession(session)) {
+      if (!confirmed && session.origin !== 'worfy') {
+        setAsking(session.sessionId)
+        return
+      }
+      // main resumes a Session on the Vendor of the Node that names it: a Codex thread needs its Node first.
+      const nodes = currentLayout(project.id)?.nodes ?? []
+      if (!nodes.some((node) => node.data.sessionId === session.sessionId)) await applyLayoutOp(project.id, showSessionNodeOp(session, nodes, project.path))
+    }
     const result = await invoke('sessions.resume', { projectId: project.id, sessionId: session.sessionId })
     if (!result.ok) {
       setProblem({ sessionId: session.sessionId, text: result.error })
@@ -194,7 +215,8 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
     body = (
       <ul style={styles.list}>
         {rows.map((session) => {
-          const verdict = verdicts[session.sessionId]
+          const codex = isCodexSession(session)
+          const verdict: ResumeVerdict | undefined = codex ? { resumable: true, cwd: session.cwd ?? project.path } : verdicts[session.sessionId]
           const title = session.title ?? `Session ${session.sessionId.slice(0, 8)}`
           const refused = verdict !== undefined && !verdict.resumable ? verdict.label : null
           const why = problem?.sessionId === session.sessionId ? problem.text : refused
@@ -231,6 +253,17 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
               {why !== null ? (
                 <div style={styles.why} data-testid="history-resume-why">
                   {why}
+                </div>
+              ) : null}
+              {asking === session.sessionId ? (
+                <div style={styles.meta} role="alertdialog" aria-label="Resume the Session" data-testid="history-resume-question">
+                  <span>This Session may be open in a terminal</span>
+                  <button type="button" style={styles.button} onClick={() => setAsking(null)}>
+                    Cancel
+                  </button>
+                  <button type="button" style={styles.button} data-testid="history-resume-confirm" onClick={() => void resume(session, true)}>
+                    Resume anyway
+                  </button>
                 </div>
               ) : null}
             </li>
