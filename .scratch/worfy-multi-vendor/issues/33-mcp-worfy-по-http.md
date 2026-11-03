@@ -1,7 +1,8 @@
 # 33 — MCP worfy по HTTP для Codex
 
 Type: task
-Status: claimed 2026-11-03T01:04Z
+Status: done 2026-11-03T03:36Z
+PR: #1265
 Blocked by: 16, 20
 Source: [spec.md](../spec.md), «Модель» (часть mcp), «Решения владельца» (Q1 — первый выпуск); решение 06 ([06-граница-vendor.md](06-граница-vendor.md), часть mcp); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); Ticket 04 ([04-codex-расширения-для-harness.md](04-codex-расширения-для-harness.md), «MCP подробнее»)
 
