@@ -1,4 +1,4 @@
-// What a hook input says about Codex (worfy-multi-vendor ticket 36). Codex installs the Harness from
+// What a hook input says about Codex. Codex installs the Harness from
 // the same plugin folder as Claude Code and runs the same hooks/hooks.json, so a hook tells the two
 // apart by its input. The pinned Codex (0.166.0, codex-rs/hooks/src/schema.rs at rust-v0.166.0):
 //   - PreToolUse, Stop, SubagentStop, SubagentStart, UserPromptSubmit carry `turn_id`, a field the
@@ -6,8 +6,8 @@
 //   - SessionStart and SessionEnd carry no turn_id, but their transcript is a Codex rollout file,
 //     <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<thread>.jsonl; Claude Code's is <session>.jsonl;
 //   - `agent_type` names the agent inside a Subagent only (PreToolUse, SubagentStop); the agents of
-//     the Harness are worfy-implementer, worfy-reviewer and worfy-scout (src/main/harness/codex-agents.ts).
-// The live inputs of ticket 30 are in test/fixtures/codex-messages/hooks/.
+//     the Harness are worfy-implementer, worfy-reviewer and worfy-scout (the Codex agents worfy writes).
+// Inputs a live Codex gave are recorded in test/fixtures/codex-messages/hooks/ of the worfy repository.
 
 import path from "node:path"
 

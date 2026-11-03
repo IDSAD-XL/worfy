@@ -10,7 +10,7 @@
 // `git -C /p checkout HEAD -- .` and `git checkout -f .` are the same action,
 // and they must be caught the same way.
 //
-// On Codex (worfy-multi-vendor ticket 36; the input tells, codex-input.mjs) the hook gets Codex's
+// On Codex (the input tells, codex-input.mjs) the hook gets Codex's
 // tools: `Bash` for a shell command, as under Claude Code, and `apply_patch` for a file edit (the
 // matcher of hooks.json names both; Claude Code has no apply_patch). Two rules hold there besides the
 // ones below:

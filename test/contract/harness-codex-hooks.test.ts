@@ -15,9 +15,9 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { approvePluginHooks, hookInput, loadHooks, runHooks, type HookFields, type HookHandler } from '../fixtures/codex-app-server/hook-runner.mjs'
-import { isCodexInput } from '../../harness/hooks/codex-input.mjs'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
@@ -33,6 +33,8 @@ const RUN_MS = ms(60_000)
 let root: string
 let plugin: string
 let handlers: HookHandler[]
+/** isCodexInput of harness/hooks/codex-input.mjs, a script of the Harness without types. */
+let isCodexInput: (input: unknown) => boolean
 
 /** The recorded inputs of one hook event (ticket 30). */
 const recorded = (event: string) =>
@@ -41,7 +43,9 @@ const recorded = (event: string) =>
     .split('\n')
     .map((line) => JSON.parse(line) as Record<string, unknown>)
 
-beforeAll(() => {
+beforeAll(async () => {
+  const codexInput = (await import(pathToFileURL(join(HARNESS, 'hooks', 'codex-input.mjs')).href)) as { isCodexInput: typeof isCodexInput }
+  isCodexInput = codexInput.isCodexInput
   root = realpathSync.native(mkdtempSync(join(realpathSync(tmpdir()), 'worfy-codex-harness-')))
   const codexHome = join(root, 'codex-home')
   plugin = join(codexHome, 'plugins', 'cache', 'worfy-harness', 'worfy', 'local')

@@ -10,7 +10,7 @@
 // bin/profile runs as `node <script>` (process.execPath), not by its #! line. A failure inside the
 // hook is one line on stderr and code 0.
 //
-// On Codex (worfy-multi-vendor ticket 36; the input tells, codex-input.mjs) a SessionEnd hook gets 1 s
+// On Codex (the input tells, codex-input.mjs) a SessionEnd hook gets 1 s
 // by default and 3 s at most, and Codex kills it after that (codex-rs/hooks/src/engine/discovery.rs at
 // rust-v0.166.0). The hook has one step that waits, the bin/profile call, which takes about 0.1 s; under
 // Codex it gets CODEX_PROFILE_MS, so the hook ends inside the 3 s even when that call hangs. The lock

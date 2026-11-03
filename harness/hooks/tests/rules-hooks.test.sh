@@ -556,7 +556,7 @@ for (const l of out) process.stdout.write(l + "\n")' "$HJ" "$1" 2>/dev/null
 if [ "$(hj valid)" = ok ]; then ok "hooks.json is valid JSON with .hooks"; else bad "hooks.json missing or invalid"; fi
 
 # The hooks of ~/.claude/settings.json:5-109, plus the three inject-rules entries; qmd-refresh came
-# with the qmd server of the plugin. Codex runs the same file (worfy-multi-vendor ticket 36): SubagentStop,
+# with the qmd server of the plugin. Codex runs the same file (README.md, "On Codex"): SubagentStop,
 # the 900 s of stop.mjs (it runs the gate on Codex) and apply_patch in the guard's matcher are for it;
 # under Claude Code stop.mjs does nothing on SubagentStop and no tool is called apply_patch. No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
 # a project with a worktree.root outside the repository is connected (decided 2026-10-09). Every Node script runs as an explicit

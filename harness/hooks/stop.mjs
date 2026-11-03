@@ -19,11 +19,11 @@
 // Exit codes: 2 holds the turn (the message is on stderr), 0 otherwise. A failure inside the hook
 // is one line on stderr and code 0: a broken hook must not hold every turn of the session.
 //
-// On Codex (worfy-multi-vendor ticket 36; the input tells, codex-input.mjs) the hook runs the gate
+// On Codex (the input tells, codex-input.mjs) the hook runs the gate
 // itself. Codex has no TaskCompleted or TeammateIdle, the events that run the gate under Claude Code,
-// so on Stop and on SubagentStop in a registered project this hook first runs `gate.mjs fast` with the hook input on stdin
-// (the gate's green cache keeps a turn that changed nothing cheap), then holds the turn on its red
-// marker as below: neither the agent nor a Subagent finishes with a red gate. Codex reads the block
+// so on Stop and on SubagentStop in a registered project this hook first runs `gate.mjs fast` with
+// the hook input on stdin (the gate's green cache keeps a turn that changed nothing cheap), then
+// holds the turn on its red marker as below: neither the agent nor a Subagent finishes with a red gate. Codex reads the block
 // the same way (exit 2, the reason on stderr). Its Stop output takes no hookSpecificOutput, so a
 // message to the model is {"decision":"block","reason":…}: Codex continues the turn with the reason
 // as a new prompt, the extra turn additionalContext costs under Claude Code. Under Claude Code,
