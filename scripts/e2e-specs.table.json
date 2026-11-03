@@ -192,6 +192,15 @@
         "test/e2e/vendor-picker.spec.ts"
       ],
       "why": "The Vendor picker of \"New session\" (worfy-multi-vendor ticket 24): it opens only when \"New session\" in the sidebar is pressed. vendor-picker.spec.ts drives it — the order, the Default vendor, a Vendor nobody is signed in to — and the other spec files start their Sessions through it (newSessionOn in helpers.ts). Left out: VendorBadge.tsx, which every Session Node, the Session view and the Limits panel draw, and SessionsSection.tsx of the sidebar, which every window mounts."
+    },
+    {
+      "paths": [
+        "src/main/vendors/codex/approvals.ts"
+      ],
+      "specs": [
+        "test/e2e/codex-session.spec.ts"
+      ],
+      "why": "Codex's approvals as permission requests (worfy-multi-vendor tickets 20, 25): the code runs only when the fake app-server asks for an approval, and codex-session.spec.ts is the only spec whose scenario (session-controls.jsonl) asks for one. Left out: the pickers, PermissionCard.tsx and SlashMenu.tsx, which every Claude Session draws, and the rest of the Codex driver, which every Codex Session runs through (vendor-picker.spec.ts, limits-vendors.spec.ts)."
     }
   ]
 }

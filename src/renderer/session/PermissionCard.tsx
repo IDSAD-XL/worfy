@@ -7,7 +7,10 @@ import { useSessionLog } from './store'
 
 // A permission request in the transcript (ticket 21, BRIEF.md Screen 2): what is asked about, its
 // input — a Bash command monospaced and whole — and a button per option the Vendor offers, in its
-// order (worfy-multi-vendor ticket 14; Claude: Allow / Always allow / Deny). The answer — the
+// order (worfy-multi-vendor ticket 14; Claude: Allow / Always allow / Deny; Codex: Accept, Accept for
+// this Session, Decline, Decline and stop the turn). The input is read by its shape, not by the
+// Vendor (ticket 25): one that names a command and the folder it runs in shows the command whole and
+// the folder under it; one that lists file changes shows the files, one per line. The answer — the
 // option's id — goes to main with `agent.permission`; once the request is resolved (answered here,
 // or refused by Interrupt or by closing the Session) the card says how and its buttons are gone. An
 // option of kind `allow_always` covers the subject until the end of this Session only
@@ -45,12 +48,34 @@ function resolutionText(options: readonly PermissionOption[], resolution: Resolu
   return option === undefined ? resolution : RESOLVED[option.kind]
 }
 
-/** What a request's input shows: the command of Bash, the input as JSON for other tools. */
+const fields = (input: unknown): Record<string, unknown> | null => (typeof input === 'object' && input !== null && !Array.isArray(input) ? (input as Record<string, unknown>) : null)
+
+/**
+ * The command a request would run, and the folder it runs in: Bash's command (no folder), or the
+ * command of an input that names its folder (`cwd`, a string or null); null for any other request.
+ */
+function commandOf(toolName: string, input: unknown): { command: string; cwd: string | null } | null {
+  const record = fields(input)
+  if (record === null || typeof record.command !== 'string') return null
+  if (toolName === 'Bash') return { command: record.command, cwd: null }
+  if (!('cwd' in record) || (record.cwd !== null && typeof record.cwd !== 'string')) return null
+  return { command: record.command, cwd: typeof record.cwd === 'string' && record.cwd !== '' ? record.cwd : null }
+}
+
+/** The files a request would change, in its order: an input whose `changes` each name a `path`; null for any other request. */
+function filesOf(input: unknown): string[] | null {
+  const changes = fields(input)?.changes
+  if (!Array.isArray(changes) || changes.length === 0) return null
+  const paths = changes.map((change) => fields(change)?.path)
+  return paths.every((path): path is string => typeof path === 'string') ? paths : null
+}
+
+/** What a request's input shows: the command whole, the files one per line, else the input as JSON. */
 function permissionInputText(toolName: string, input: unknown): string {
-  if (toolName === 'Bash' && typeof input === 'object' && input !== null) {
-    const command = (input as Record<string, unknown>).command
-    if (typeof command === 'string') return command
-  }
+  const command = commandOf(toolName, input)
+  if (command !== null) return command.command
+  const files = filesOf(input)
+  if (files !== null) return files.join('\n')
   return JSON.stringify(input, null, 2) ?? String(input)
 }
 
@@ -73,7 +98,7 @@ export function PermissionCard({ request, sessionId }: PermissionCardProps) {
   // On a read-only screen (worfy-link ticket 25) the request shows; answering it is inactive.
   const readOnly = useReadOnly()
   const description = request.description ?? request.title
-  const bash = request.toolName === 'Bash'
+  const command = commandOf(request.toolName, request.input)
 
   const answer = async (optionId: string): Promise<void> => {
     if (sessionId === null) return
@@ -98,9 +123,14 @@ export function PermissionCard({ request, sessionId }: PermissionCardProps) {
             </span>
           </div>
           {description !== null ? <div className="w-permission__description">{description}</div> : null}
-          <pre className={`w-permission__input w-mono${bash ? ' w-permission__input--command' : ''}`} data-testid="permission-input">
+          <pre className={`w-permission__input w-mono${command !== null ? ' w-permission__input--command' : ''}`} data-testid="permission-input">
             {permissionInputText(request.toolName, request.input)}
           </pre>
+          {command?.cwd != null ? (
+            <div className="w-permission__note w-mono" data-testid="permission-cwd" title="The folder the command runs in">
+              in {command.cwd}
+            </div>
+          ) : null}
           {request.blockedPath !== null ? (
             <div className="w-permission__note w-mono" data-testid="permission-blocked-path">
               {request.blockedPath}

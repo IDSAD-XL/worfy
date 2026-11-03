@@ -474,7 +474,8 @@ describe('a Codex Session: model, effort and preset', () => {
     expect(await session.handle.models()).toEqual([
       { value: null, displayName: 'Default (GPT-5.5 Codex)', efforts: ['low', 'medium', 'high', 'xhigh'] },
       { value: 'gpt-5.5-codex', displayName: 'GPT-5.5 Codex', efforts: ['low', 'medium', 'high', 'xhigh'] },
-      { value: 'gpt-5.4', displayName: 'GPT-5.4', efforts: ['low', 'medium', 'high'] },
+      // Codex's own `minimal` since the pickers read the capabilities (worfy-multi-vendor ticket 25).
+      { value: 'gpt-5.4', displayName: 'GPT-5.4', efforts: ['minimal', 'low', 'medium', 'high'] },
     ])
     expect(at.requests('model/list').map((request) => request.params)).toEqual([{}, { cursor: 'page-2' }])
 

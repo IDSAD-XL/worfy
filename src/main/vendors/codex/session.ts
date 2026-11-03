@@ -51,7 +51,7 @@ import type { SessionHandle, SessionMessage, SessionPart, SessionStart } from '.
 import type { CodexAppServer } from './app-server'
 import { approvalAsk, decisionOf, isApprovalRequest, UNATTENDED_DECLINED_MESSAGE, type CodexDecision } from './approvals'
 import type { CodexRuntime } from './binary'
-import { codexModelOptions, codexPermissionPreset, codexPresetFor, codexSandboxPolicy, type CodexModelSource } from './capabilities'
+import { codexModelOptions, codexPermissionPreset, codexPresetFor, codexSandboxPolicy, codexSettings, type CodexModelSource } from './capabilities'
 import { codexCommandOf, codexSlashCommands, CODEX_BUILT_IN_COMMANDS, slashName, type CodexCommand, type CodexSkillSource } from './commands'
 import { boundedText, CodexItems } from './items'
 import { CODEX_VENDOR, codexLimitReachedEvent, codexLimitsEvent } from './limits'
@@ -666,6 +666,7 @@ export function codexSessions(options: () => Promise<CodexServerOptions>): Sessi
   return {
     start: async (opts) => open(await options(), opts, undefined),
     resume: async (id, opts) => open(await options(), opts, id),
+    settingsFor: codexSettings,
   }
 }
 

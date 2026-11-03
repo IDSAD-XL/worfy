@@ -27,6 +27,7 @@ import { slashCommandSchema } from '../agent/commands'
 import { agentEventEnvelope, permissionOptionIdSchema, queueSnapshotSchema, sessionState } from '../agent/events'
 import { questionPickSchema } from '../agent/questions'
 import { modelOptionSchema, sessionSettingsSchema, settingsChangeSchema } from '../agent/settings'
+import { capabilitiesSchema } from '../vendors/capabilities'
 import { absolutePathSchema } from '../paths'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -94,6 +95,12 @@ export const agentConfigure = invokeChannel('agent.configure', z.object({ sessio
 /** The model picker's rows: supportedModels() of the live Session, or the model of its last system/init. */
 export const agentModels = invokeChannel('agent.models', z.object({ sessionId }), z.object({ models: z.array(modelOptionSchema) }), 'project', 'read')
 
+/**
+ * What the Session's Vendor can do (worfy-multi-vendor ticket 25): the pickers' presets and effort
+ * levels, the flags, and the reason of each one it lacks, for a tooltip.
+ */
+export const agentCapabilities = invokeChannel('agent.capabilities', z.object({ sessionId }), capabilitiesSchema, 'project', 'read')
+
 /** Takes a queued message out before it is sent; `removed` is false when it was no longer queued. */
 export const agentQueueRemove = invokeChannel('agent.queueRemove', z.object({ sessionId, id: z.string().min(1) }), z.object({ removed: z.boolean() }), 'project', 'write')
 
@@ -143,6 +150,7 @@ declare module './channels' {
     'agent.controls': typeof agentControls
     'agent.configure': typeof agentConfigure
     'agent.models': typeof agentModels
+    'agent.capabilities': typeof agentCapabilities
     'agent.queueRemove': typeof agentQueueRemove
     'agent.queueSend': typeof agentQueueSend
     'agent.permission': typeof agentPermission

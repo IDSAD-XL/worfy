@@ -75,7 +75,7 @@ import { createRequire } from 'node:module'
 import { dirname, join, posix, win32 } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import type { McpServerConfig, McpStdioServerConfig, Options, SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk'
-import { DEFAULT_SETTINGS, type SessionSettings } from '../../../shared/agent/settings'
+import { DEFAULT_SETTINGS, EFFORT_LEVELS, PERMISSION_MODES, type EffortChoice, type PermissionModeChoice, type SessionSettings } from '../../../shared/agent/settings'
 import { BROWSER_SERVER_NAME } from '../../../shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../../shared/canvas/tools'
 import type { HarnessKind } from '../../../shared/projects/action-templates'
@@ -452,6 +452,20 @@ export function sessionHarnessPlugin(harness: HarnessKind, bundledDir: () => str
   return harness === 'legacy' ? null : bundledDir()
 }
 
+/**
+ * The permission mode Claude Code starts in: the Session's setting when it is one of Claude Code's
+ * modes. A setting of another Vendor's preset (a saved pick the Session never refused) starts in
+ * `default`, which asks before each tool.
+ */
+function claudeMode(setting: string): PermissionModeChoice {
+  return (PERMISSION_MODES as readonly string[]).includes(setting) ? (setting as PermissionModeChoice) : 'default'
+}
+
+/** The effort Claude Code starts with: the Session's setting when it is one of Claude Code's levels, else none (the model's default). */
+function claudeEffort(setting: string | null): EffortChoice | null {
+  return setting !== null && (EFFORT_LEVELS as readonly string[]).includes(setting) ? (setting as EffortChoice) : null
+}
+
 export function sessionOptions(input: SessionOptionsInput): Options {
   const settings = input.settings ?? DEFAULT_SETTINGS
   const options: Options = {
@@ -459,7 +473,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
     env: input.env,
     settingSources: [...(input.settingSources ?? ['user', 'project', 'local'])],
     systemPrompt: { type: 'preset', preset: 'claude_code' },
-    permissionMode: input.unattended === true ? 'bypassPermissions' : settings.permissionMode,
+    permissionMode: input.unattended === true ? 'bypassPermissions' : claudeMode(settings.permissionMode),
     // Not required by SDK 0.3.289 (ticket 06, question 9), but documented as required with
     // bypassPermissions: passing it keeps a stricter SDK from silently falling back to prompts.
     // Passed in every mode, so the user can switch a Session to bypassPermissions mid-session.
@@ -471,7 +485,8 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   const executable = claudeExecutablePath(input.runtime)
   if (executable !== undefined) options.pathToClaudeCodeExecutable = executable
   if (settings.model !== null) options.model = settings.model
-  if (settings.effort !== null) options.effort = settings.effort
+  const effort = claudeEffort(settings.effort)
+  if (effort !== null) options.effort = effort
   if (input.resume !== undefined) options.resume = input.resume
   else if (input.sessionId !== undefined) options.sessionId = input.sessionId
   // Read by Claude Code once, when the process starts: a running Session keeps its window.

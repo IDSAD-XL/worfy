@@ -126,4 +126,11 @@ export interface SessionPart {
   start(opts: SessionStart & { sessionId?: string | undefined }): Promise<SessionHandle>
   /** Starts the agent again on the Vendor's session `id`: a Session reopened, or one whose process died. */
   resume(id: string, opts: SessionStart): Promise<SessionHandle>
+  /**
+   * The settings `settings` in this Vendor's own terms, for a Session about to run on it: a permission
+   * setting or an effort level the Vendor does not offer (the defaults name Claude Code's mode; a pick
+   * saved before the pickers read the capabilities) becomes the Vendor's nearest one. Absent: the
+   * settings as they are.
+   */
+  settingsFor?(settings: SessionSettings): SessionSettings
 }

@@ -2,11 +2,15 @@ import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { SlashCommand } from '../../shared/agent/commands'
 import { invoke } from '../ipc'
 import { slashHint } from './hints'
+import { useCapabilities } from './useCapabilities'
 
 // The slash menu of the input field (ticket 20): a `/` at the start of the field or after a space
-// or a line break opens a popover with the Session's slash commands and skills, as Claude Code
-// reports them (`agent.commands`: supportedCommands() and the last system/init — the user's skills
-// under ~/.claude among them). The menu opens and closes as the caret enters or leaves such a word
+// or a line break opens a popover with the Session's slash commands and skills, as the commands part
+// of its Vendor's driver lists them (`agent.commands`; worfy-multi-vendor ticket 25): Claude Code's
+// supportedCommands() and the last system/init — the user's skills under ~/.claude among them —,
+// Codex's skills and the commands its app-server runs. A Vendor whose list is not complete
+// (`commandsComplete` of its capabilities) gets a last, inactive line that says so, its reason in
+// the tooltip. The menu opens and closes as the caret enters or leaves such a word
 // (polish ticket 49), and stays closed while the field has a selection. The whole word after the
 // slash filters the list, so a finished command keeps itself first wherever the caret stands in
 // it: names that start with it first, then names that hold it. ↑/↓ move the selection, Tab or
@@ -106,6 +110,8 @@ export function useSlashMenu(
   const { selected, dismissed } = current
   const setSelected = (index: number) => setMenu({ ...current, selected: index })
   const commands = useCommands(sessionId, query !== null)
+  const { capabilities } = useCapabilities(sessionId)
+  const incomplete = capabilities?.commandsComplete === false ? (capabilities.unsupported.commandsComplete ?? null) : null
   const matches = query === null ? [] : matchCommands(commands, query)
   // A selection (a double click on the word, say) keeps the menu closed but not dismissed: Return sends.
   const open = query !== null && !dismissed && matches.length > 0 && selection.start === selection.end
@@ -172,6 +178,11 @@ export function useSlashMenu(
           </div>
         ))}
       </div>
+      {incomplete !== null ? (
+        <div className="w-slash__note" aria-disabled="true" title={incomplete} data-testid="slash-incomplete">
+          Not every command is listed
+        </div>
+      ) : null}
     </div>
   ) : null
 

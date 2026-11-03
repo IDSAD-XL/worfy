@@ -35,6 +35,8 @@ export interface SelectOption<V extends string = string> {
   label: string
   /** Secondary text on the right of the option. */
   detail?: string
+  /** The option's tooltip: what it means, where its label alone does not say. */
+  title?: string
   disabled?: boolean
 }
 
@@ -331,6 +333,7 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
                 aria-selected={isSelected}
                 aria-disabled={option.disabled === true ? true : undefined}
                 data-value={option.value}
+                title={option.title}
                 data-active={index === activeIndex ? 'true' : undefined}
                 className="w-select-option"
                 onMouseMove={() => {

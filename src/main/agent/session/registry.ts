@@ -6,7 +6,7 @@ import type { VendorId } from '../../../shared/vendors/vendor'
 import type { UserEffortReader, UserModelReader } from '../../claude-home/user-model'
 import { claudeSessions, type UserDefaults } from '../../vendors/claude/session'
 import type { SessionPart } from '../../vendors/session'
-import { Session } from '../session'
+import { Session, STATIC_CLAUDE_PARTS, type SessionVendorParts } from '../session'
 import type { SessionLaunch } from '../session-settings'
 import type { EventSink, InputListener, QueryFactory, SessionInfo } from './types'
 
@@ -16,6 +16,11 @@ import type { EventSink, InputListener, QueryFactory, SessionInfo } from './type
  */
 export interface VendorSessions {
   sessionsOf(vendor: VendorId): SessionPart
+  /**
+   * The capabilities and the slash menu of each Vendor's driver (worfy-multi-vendor ticket 25): the
+   * app's is vendorDriver(id). Absent: Claude Code's capabilities as such, and the rows each handle lists.
+   */
+  partsOf?(vendor: VendorId): SessionVendorParts
 }
 
 /** Every live Session of the app, by id; a Session is also found by its temporary id. */
@@ -119,6 +124,7 @@ export class SessionRegistry {
       resume,
       settings,
       launch,
+      this.starters.partsOf?.(vendor) ?? STATIC_CLAUDE_PARTS,
     )
     this.sessions.set(session.id, session)
     session.start(after)

@@ -38,6 +38,7 @@ import {
   agentAnswerQuestion,
   agentAttach,
   agentAttachPick,
+  agentCapabilities,
   agentClose,
   agentCommands,
   agentConfigure,
@@ -300,6 +301,7 @@ export function agentHandlers(
       return session.configure(change)
     }),
     defineHandler(agentModels, async ({ sessionId }) => ({ models: await registry().get(sessionId).models() })),
+    defineHandler(agentCapabilities, ({ sessionId }) => registry().get(sessionId).capabilities()),
     defineHandler(agentQueueRemove, ({ sessionId, id }) => {
       const session = registry().get(sessionId)
       registry().noteInput(sessionId, 'removed a queued message')

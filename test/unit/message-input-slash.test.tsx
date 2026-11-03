@@ -160,6 +160,33 @@ describe('the key hints of the field', () => {
 })
 
 describe('the slash menu', () => {
+  // worfy-multi-vendor ticket 25: the capabilities of the Session's Vendor (src/shared/vendors/capabilities.ts).
+  it('a Vendor whose list is not complete gets a last, inactive line, its reason in the tooltip', async () => {
+    const { CLAUDE_CAPABILITIES } = await import('../../src/shared/vendors/capabilities')
+    const reason = 'The other commands work only in the agent\'s own terminal.'
+    answers['agent.capabilities'] = () => ({ ...CLAUDE_CAPABILITIES, commandsComplete: false, unsupported: { ...CLAUDE_CAPABILITIES.unsupported, commandsComplete: reason } })
+    const { type } = await mount()
+    await type('/sh')
+    await vi.waitFor(() => expect(screen.queryByTestId('slash-incomplete')).not.toBeNull())
+    const note = screen.getByTestId('slash-incomplete')
+    expect(note.textContent).toBe('Not every command is listed')
+    expect(note.title).toBe(reason)
+    expect(note.getAttribute('aria-disabled')).toBe('true')
+    expect(items()).toEqual(['ship-ticket', 'reship'])
+  })
+
+  it('a Vendor that lists every command gets no such line', async () => {
+    const { CLAUDE_CAPABILITIES } = await import('../../src/shared/vendors/capabilities')
+    answers['agent.capabilities'] = () => CLAUDE_CAPABILITIES
+    const { type } = await mount()
+    await type('/sh')
+    await vi.waitFor(() => expect(items()).toEqual(['ship-ticket', 'reship']))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.queryByTestId('slash-incomplete')).toBeNull()
+  })
+
   it('/sh shows /ship-ticket with its description; Tab puts it into the field', async () => {
     const { field, type, key, send } = await mount()
     await type('/sh')

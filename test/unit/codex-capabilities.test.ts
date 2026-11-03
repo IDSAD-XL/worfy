@@ -15,7 +15,9 @@ import {
   codexPermissionPreset,
   codexPresetFor,
   codexSandboxPolicy,
+  codexSettings,
 } from '../../src/main/vendors/codex/capabilities'
+import { DEFAULT_SETTINGS, OTHER_VENDOR_PRESETS, sessionSettingsSchema } from '../../src/shared/agent/settings'
 import type { Model } from '../../src/main/vendors/codex/protocol/ts/v2/Model'
 import { codexDriver } from '../../src/main/vendors/codex'
 import { PartNotWired } from '../../src/main/vendors/driver'
@@ -97,6 +99,20 @@ describe('the presets of a Session\'s permission setting', () => {
     expect(codexPresetFor('')).toBeUndefined()
   })
 
+  // worfy-multi-vendor ticket 25: a Session's settings carry the Vendor's own preset and effort ids.
+  it("puts a Session's settings in Codex's terms: a mode of Claude Code becomes its preset, an effort Codex has no name for the default", () => {
+    expect(codexSettings(DEFAULT_SETTINGS)).toEqual({ model: null, effort: null, permissionMode: 'full-access' })
+    expect(codexSettings({ model: 'gpt-5.5-codex', effort: 'max', permissionMode: 'acceptEdits' })).toEqual({ model: 'gpt-5.5-codex', effort: null, permissionMode: 'auto' })
+    const own = { model: null, effort: 'minimal', permissionMode: 'read-only' }
+    expect(codexSettings(own)).toBe(own)
+  })
+
+  it("takes in a Session's settings every preset id and effort level Codex has, and the settings schema names no other Vendor's", () => {
+    expect([...OTHER_VENDOR_PRESETS].sort()).toEqual(CODEX_PERMISSION_PRESETS.map((preset) => preset.id).sort())
+    for (const preset of CODEX_PERMISSION_PRESETS) expect(sessionSettingsSchema.safeParse({ ...DEFAULT_SETTINGS, permissionMode: preset.id }).success, preset.id).toBe(true)
+    for (const level of ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']) expect(sessionSettingsSchema.safeParse({ ...DEFAULT_SETTINGS, effort: level }).success, level).toBe(true)
+  })
+
   it('gives each sandbox mode the policy of a turn: no network, nothing beyond the workspace', () => {
     expect(codexSandboxPolicy('read-only')).toEqual({ type: 'readOnly', networkAccess: false })
     expect(codexSandboxPolicy('workspace-write')).toEqual({ type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false })
@@ -141,11 +157,12 @@ describe('the models of model/list', () => {
     expect(codexModelOptions([bare])).toEqual([{ value: 'c', displayName: 'C', efforts: [] }])
   })
 
-  it('gives the picker "Default" for Codex\'s default model first, then each model, with the levels the picker has', () => {
+  it('gives the picker "Default" for Codex\'s default model first, then each model, with the levels a Session\'s settings take', () => {
+    // Codex's own levels (none, minimal) since the pickers read the capabilities (ticket 25); one worfy has no name for is left out.
     expect(codexModelOptions(models)).toEqual([
-      { value: null, displayName: 'Default (A)', efforts: ['xhigh'] },
+      { value: null, displayName: 'Default (A)', efforts: ['xhigh', 'minimal', 'none'] },
       { value: 'b', displayName: 'B', efforts: ['high', 'low'] },
-      { value: 'a', displayName: 'A', efforts: ['xhigh'] },
+      { value: 'a', displayName: 'A', efforts: ['xhigh', 'minimal', 'none'] },
     ])
     expect(codexModelOptions(models.filter((each) => !each.isDefault))[0]?.value).toBe('b')
   })

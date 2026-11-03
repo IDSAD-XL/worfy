@@ -14,15 +14,39 @@ export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export const effortSchema = z.enum(EFFORT_LEVELS)
 export type EffortChoice = z.infer<typeof effortSchema>
 
+/**
+ * The permission presets and effort levels of the other Vendors, beside Claude Code's above: Codex's
+ * (src/main/vendors/codex/capabilities.ts, CODEX_PERMISSION_PRESETS and EFFORT_ORDER). A Session's
+ * settings take an id one of the Vendors offers and nothing else, so a mistyped one is refused at the
+ * door, as before Vendors (worfy-multi-vendor ticket 25); the Session then refuses an id its own Vendor
+ * does not offer. test/unit/codex-capabilities.test.ts holds the two lists to the driver's.
+ */
+export const OTHER_VENDOR_PRESETS: readonly string[] = ['read-only', 'auto', 'full-access']
+export const OTHER_VENDOR_EFFORTS: readonly string[] = ['none', 'minimal']
+
+const PERMISSION_SETTINGS: ReadonlySet<string> = new Set([...PERMISSION_MODES, ...OTHER_VENDOR_PRESETS])
+const EFFORT_SETTINGS: ReadonlySet<string> = new Set([...OTHER_VENDOR_EFFORTS, ...EFFORT_LEVELS])
+
+/** Whether a Session's settings take this effort level: one of Claude Code's or another Vendor's. */
+export const isEffortSetting = (level: string): boolean => EFFORT_SETTINGS.has(level)
+
 export const sessionSettingsSchema = z.object({
-  /** A model id or alias for setModel(); null: Claude Code's default model. */
+  /** A model id or alias for setModel(); null: the Vendor's default model. */
   model: z.string().min(1).nullable(),
   /**
-   * The effort level worfy asked for; null: the model's default. Claude Code does not report the
-   * level it applies (no `effort` in system/init, ticket 06), so this is what was asked, not a fact.
+   * The effort level worfy asked for, one of the Vendor's `effortLevels` (capabilities.ts); null: the
+   * model's default. Claude Code does not report the level it applies (no `effort` in system/init,
+   * ticket 06), so this is what was asked, not a fact.
    */
-  effort: effortSchema.nullable(),
-  permissionMode: permissionModeSchema,
+  effort: z
+    .string()
+    .refine(isEffortSetting, 'no effort level of any Vendor')
+    .nullable(),
+  /**
+   * The id of one of the Vendor's `permissionPresets` (capabilities.ts): Claude Code's permission mode,
+   * Codex's preset (worfy-multi-vendor ticket 25). The Session refuses an id its Vendor does not offer.
+   */
+  permissionMode: z.string().refine((id) => PERMISSION_SETTINGS.has(id), 'no permission preset of any Vendor'),
 })
 export type SessionSettings = z.output<typeof sessionSettingsSchema>
 
@@ -55,8 +79,8 @@ export const modelOptionSchema = z.object({
   /** What setModel() takes; null for Claude Code's default model. */
   value: z.string().min(1).nullable(),
   displayName: z.string(),
-  /** The effort levels the model takes; empty when it takes none. */
-  efforts: z.array(effortSchema),
+  /** The effort levels the model takes, of the Vendor's `effortLevels`; empty when it takes none. */
+  efforts: z.array(z.string().min(1)),
 })
 export type ModelOption = z.output<typeof modelOptionSchema>
 
