@@ -1,0 +1,5 @@
+[gate] scope (fast): all packages — . (reason: HEAD is detached — unknown which branch is being checked)
+[gate] time (fast): worfy/.:lint 70.9 s
+[gate] time (fast): worfy/.:typecheck 62.2 s
+[gate] time (fast): 134.1 s in all; worfy/.:lint 70.9 s, worfy/.:typecheck 62.2 s
+[gate] green (fast): worfy/.:lint worfy/.:typecheck
