@@ -713,6 +713,8 @@ export class Autopilot {
   private quitting = false
   /** Stopped runs whose Orchestrator still waits for its background tasks; each one's app-quit. */
   private readonly lingering = new Set<() => Promise<void>>()
+  /** The same stopped runs by Project: ends one's wait without a journal line, when a new run takes its Orchestrator over. */
+  private readonly takeOvers = new Map<string, () => void>()
   /** The last stopped state of each Project, also after its run is gone. */
   private readonly last = new Map<string, AutopilotState>()
   /** The last answer of deps.harnessDrift for each Project (AutopilotState.harnessBehind). */
@@ -873,6 +875,10 @@ export class Autopilot {
           return this.snapshot(run)
         }
         run.cleanups.push(unwatch)
+        // A stopped run of the Project may still have waited for this Session's tasks: they are
+        // this run's now, which journals them and holds keep-awake (worfy-polish ticket 50). Only
+        // here, past the last step that can fail: a start that fails leaves them to that run.
+        this.takeOvers.get(projectId)?.()
       } catch (error) {
         await this.release(run, true)
         throw error
@@ -1846,24 +1852,40 @@ export class Autopilot {
    * until the turn and the tasks have ended (orchestrator.ts gives it back then). Meanwhile every
    * change of the set goes to the journal; once the Session is closed — given back —
    * `orchestrator-returned` is written and keep-awake released. If the app quits first, the tasks
-   * alive then are journaled as killed (none, when only the turn was running).
+   * alive then are journaled as killed (none, when only the turn was running). A new run of the
+   * Project may take the Session over meanwhile (worfy-polish ticket 50): the wait then ends with
+   * no line of its own, and the tasks are the new run's.
    */
   private linger(run: Run): void {
     const session = run.session
     if (session === null) return
     let unsubscribe: () => void = () => undefined
-    const finish = async (last: JournalEventFields): Promise<void> => {
-      if (!this.lingering.delete(quit)) return
+    const end = (): boolean => {
+      if (!this.lingering.delete(quit)) return false
+      if (this.takeOvers.get(run.projectId) === takeOver) this.takeOvers.delete(run.projectId)
       unsubscribe()
-      await this.write(run, last)
+      return true
+    }
+    const stopAwake = (): void => {
       try {
         run.awake?.stop()
       } catch (error) {
         console.error(`[autopilot] ${run.projectId}: could not release keep-awake`, error)
       }
     }
+    const finish = async (last: JournalEventFields): Promise<void> => {
+      if (!end()) return
+      await this.write(run, last)
+      stopAwake()
+    }
     const quit = (): Promise<void> => finish({ kind: 'tasks-killed', reason: 'app-quit', tasks: journalTasks(this.liveTasks(run)) })
+    // A new run took the Session as it runs: the tasks go on in that run, and nothing more of this
+    // one's journal follows its run-stopped.
+    const takeOver = (): void => {
+      if (end()) stopAwake()
+    }
     this.lingering.add(quit)
+    this.takeOvers.set(run.projectId, takeOver)
     unsubscribe = this.deps.registry.observe((sessionId, event) => {
       if (sessionId !== session.id) return
       if (event.type === 'background_tasks') void this.write(run, { kind: 'background-tasks', tasks: journalTasks(event.tasks) })

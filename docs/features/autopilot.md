@@ -19,10 +19,11 @@ says what it does, that the display stays on until the run ends, the Run mode th
 Settings → Autopilot), and the Epic forecast of what is left of the Epic. [Run planning](run-planning.md) gives these
 lines.
 
-A start is refused, with the reason on the button, in these cases:
+A start is refused in these cases. The reason shows in the button's tooltip and in an error toast:
 
 - The Project already has a run. A Project has at most one run at a time.
-- The Orchestrator is in a turn, has live background tasks, or has messages waiting in its queue.
+- The Orchestrator is in a turn, has live background tasks, or has messages waiting in its queue. Live background tasks
+  do not refuse a start while a stopped run still waits for them (see "After any other stop").
 - The "Run wave" template is empty or does not contain `{tickets}`.
 - The Project has no such Epic, or the workflow cannot be read.
 - The Project is worfy's own repository and this is a development build. Any checkout of that repository counts, the
@@ -73,7 +74,8 @@ in the chosen mode, over the named Tickets when there are any. The Autopilot but
 always start in the default mode. When the asking Session is the Project's Orchestrator in its turn, the run starts once that turn
 is over, and the agent gets "Autopilot starts after this turn". Without a dialog the tool refuses:
 
-- a Session that runs unattended, such as the Orchestrator during a run: no one is there to confirm;
+- a Session that runs unattended, such as the Orchestrator during a run: no one is there to confirm. The Orchestrator of a
+  stopped run that still waits for its turn or background tasks is not refused: it gets the dialog;
 - a Session worfy cannot find;
 - a Project with a run under way: "Autopilot is already running Epic X. Stop it first.", and the journal gets nothing;
 - a Project whose start from a chat waits for the Orchestrator's turn to end;
@@ -197,9 +199,13 @@ Orchestrator is not started again, and background tasks end with the app.
 #### After any other stop
 
 The Orchestrator goes back to the person at once when nothing runs. If a turn or a background task is still alive, the status
-already says `stopped`, but the Orchestrator stays unattended and the display stays on until they end, and a new start is
-refused. The tasks may keep working during that time. After the last task the Orchestrator waits 30 seconds for the turn its
-task-notification starts, then goes back.
+already says `stopped`, but the Orchestrator stays unattended and the display stays on until they end. The tasks may keep
+working during that time. After the last task the Orchestrator waits 30 seconds for the turn its task-notification starts,
+then goes back.
+
+A new run may start during that wait, from the Autopilot button or from `autopilot_start`, unless a turn is still running.
+It takes the same unattended Orchestrator over as it is. The Orchestrator is not started again, so its background tasks
+keep running. They become the new run's tasks, and the old run's journal gets no more lines.
 
 #### Why a run stops
 

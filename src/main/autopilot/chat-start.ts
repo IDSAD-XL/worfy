@@ -39,9 +39,13 @@ export const chatWaitingHint = (epic: string): string => `Autopilot is about to 
 /** What the Orchestrator's Session shows when the start promised after its turn is refused then. */
 export const lateRefusalNotice = (epic: string, message: string): string => `Autopilot did not start Epic ${epic}: ${message}`
 
-/** Why the Orchestrator could not go unattended once its turn ends, as Orchestrators.setUnattended says it; null when it could. */
-export function orchestratorRefusal(session: { backgroundTasks(): readonly BackgroundTask[]; queued(): { items: readonly unknown[] } }): string | null {
-  if (session.backgroundTasks().length > 0) return ORCHESTRATOR_HAS_TASKS
+/**
+ * Why the Orchestrator could not go unattended once its turn ends, as Orchestrators.setUnattended
+ * says it; null when it could. `awaitsGiveBack`: the Session is a stopped run's, still unattended,
+ * which the new run takes over as it is, so its live tasks refuse nothing (worfy-polish ticket 50).
+ */
+export function orchestratorRefusal(session: { backgroundTasks(): readonly BackgroundTask[]; queued(): { items: readonly unknown[] } }, awaitsGiveBack = false): string | null {
+  if (!awaitsGiveBack && session.backgroundTasks().length > 0) return ORCHESTRATOR_HAS_TASKS
   if (session.queued().items.length > 0) return ORCHESTRATOR_HAS_QUEUE
   return null
 }

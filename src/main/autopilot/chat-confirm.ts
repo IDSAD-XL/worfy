@@ -2,7 +2,10 @@
 // start of Autopilot that an agent asks for in a chat, confirmed by a person first.
 //
 // - A Session that runs unattended (Autopilot) is refused before any dialog: no one is there to
-//   answer it. So is a call whose Session worfy cannot find: no one could tell whether it is.
+//   answer it. So is a call whose Session worfy cannot find: no one could tell whether it is. An
+//   Orchestrator's Session whose run has stopped and which only waits to be given back (for its turn
+//   or its background tasks) is no longer driven by a run: it gets the dialog, and the new run takes
+//   it over as it is (Orchestrators.awaitsGiveBack, worfy-polish ticket 50).
 // - While a run of the Project goes on, or a start from a chat waits for the Orchestrator's turn to
 //   end, the refusal is ChatStarts' own (chatRunningHint, chatWaitingHint), also before any dialog,
 //   and nothing reaches the journal. An Epic or a Ticket the Project does not have is refused before
@@ -177,6 +180,8 @@ export interface AutopilotToolRequest {
 export interface AutopilotToolDeps {
   /** Whether the Session runs unattended now; null when the app has no such Session. */
   unattended(sessionId: string): boolean | null
+  /** Whether the Session is an Orchestrator's whose run has stopped and which only waits to be given back (Orchestrators.awaitsGiveBack). */
+  awaitsGiveBack(sessionId: string): boolean
   /** Why a start from a chat is refused now: a run under way or starting, or a start waiting for a turn's end (ChatStarts.busyRefusal); null when none. */
   busy(projectId: string): string | null
   /** A fresh read of the Project's Epics and Tickets. */
@@ -225,7 +230,7 @@ export function autopilotStarter(deps: AutopilotToolDeps): AutopilotStarter {
     if (session === null) throw new Error(UNKNOWN_SESSION_MESSAGE)
     const unattended = deps.unattended(session)
     if (unattended === null) throw new Error(UNKNOWN_SESSION_MESSAGE)
-    if (unattended) throw new Error(UNATTENDED_MESSAGE)
+    if (unattended && !deps.awaitsGiveBack(session)) throw new Error(UNATTENDED_MESSAGE)
     const busy = deps.busy(projectId)
     if (busy !== null) throw new Error(busy)
     if (asking.has(projectId)) throw new Error(CONFIRM_PENDING_MESSAGE)
@@ -259,9 +264,10 @@ export function autopilotStarter(deps: AutopilotToolDeps): AutopilotStarter {
 export function appAutopilotStarter(): AutopilotStarter {
   let tool: Promise<AutopilotStarter> | null = null
   const load = async (): Promise<AutopilotStarter> => {
-    const [{ sharedChatStarts }, { sharedRegistry }, { appLimits }, { appSettingsStore }, { readRecentRuns }] = await Promise.all([
+    const [{ sharedChatStarts }, { sharedRegistry }, { sharedOrchestrators }, { appLimits }, { appSettingsStore }, { readRecentRuns }] = await Promise.all([
       import('../ipc/autopilot'),
       import('../agent/app-registry'),
+      import('../agent/app-orchestrators'),
       import('../agent/limits'),
       import('../settings/store'),
       import('./journal'),
@@ -274,6 +280,7 @@ export function appAutopilotStarter(): AutopilotStarter {
           return null
         }
       },
+      awaitsGiveBack: (sessionId) => sharedOrchestrators().awaitsGiveBack(sessionId),
       busy: (projectId) => sharedChatStarts().busyRefusal(projectId),
       workflow: async (projectId) => (await readWorkflow({ root: projectStore().get(projectId).path, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
       projectName: (projectId) => projectStore().get(projectId).name,

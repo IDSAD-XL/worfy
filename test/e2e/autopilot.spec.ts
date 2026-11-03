@@ -1041,3 +1041,86 @@ test('the narrow fix round of a Wave Ticket goes to the run journal from the com
     await launched.close()
   }
 })
+
+/** A part of the window in both themes as evidence of worfy-polish ticket 50, kept with the test's output. */
+async function evidence50(window: Page, target: Locator, name: string): Promise<void> {
+  for (const scheme of ['light', 'dark'] as const) {
+    await window.emulateMedia({ colorScheme: scheme })
+    await target.screenshot({ path: test.info().outputPath(`50-${name}-${scheme}.png`) })
+  }
+  await window.emulateMedia({ colorScheme: null })
+}
+
+test('the Autopilot button after a turn-error stop while the Orchestrator\'s background tasks live: a new run takes the Orchestrator as it runs, and no task is killed (worfy-polish ticket 50)', async () => {
+  // The Wave's turn starts both tasks and ends with a server error (API 500): the run stops with
+  // turn-error, and the Orchestrator stays unattended while the tasks live (ADR-0029).
+  const { dataDir, log } = prepare()
+  const scripts = join(scratch, 'scripts')
+  mkdirSync(scripts, { recursive: true })
+  const fixture = readFileSync(join(repoRoot, 'test', 'fixtures', 'agent-scripts', 'autopilot-background.jsonl'), 'utf8').split('\n').filter(Boolean)
+  const first = fixture.findIndex((line) => line.includes('"type": "result"'))
+  const failed = { ...(JSON.parse(fixture[first]!) as Record<string, unknown>), is_error: true, result: 'API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}', terminal_reason: 'api_error' }
+  writeFileSync(join(scripts, 'autopilot-turn-error.jsonl'), `${fixture.with(first, JSON.stringify(failed)).join('\n')}\n`)
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: join(scratch, 'claude-home'), WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'autopilot-turn-error', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    await recordPower(app)
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    const status = frame.getByTestId('autopilot-status')
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+
+    await frame.getByTestId('action-autopilot').click()
+    await expect(status).toHaveText('stopped: turn error')
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'background-tasks', 'background-tasks', 'session-error', 'run-stopped turn-error'])
+
+    // Pressed again: the run starts, with the same Session and process; nothing was closed.
+    await frame.getByTestId('action-autopilot').click()
+    await expect(frame.getByTestId('action-stop-autopilot')).toHaveText('Stop autopilot')
+    await expect(status).not.toHaveText(/^stopped/)
+    await expect(window.getByTestId('autopilot-start-refused')).toHaveCount(0)
+    await expect.poll(() => readdirSync(join(dataDir, 'autopilot')).length).toBe(2)
+    expect(closes(log)).toEqual([])
+    await expect.poll(() => messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`, `/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a refused start of Autopilot is an error toast with main\'s reason, as well as the button\'s tooltip (worfy-polish ticket 50)', async () => {
+  // `orchestrator`: the first turn holds until it is interrupted, so a person's message keeps the
+  // Orchestrator in a turn and main refuses the start (ORCHESTRATOR_IN_TURN).
+  const { dataDir, log } = prepare()
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: join(scratch, 'claude-home'), WORFY_AGENT_SCRIPT: 'orchestrator', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    await recordPower(app)
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    const autopilot = frame.getByTestId('action-autopilot')
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    await expect(autopilot).toHaveAttribute('aria-disabled', 'false')
+
+    const view = (await bridgeCall(window, 'orchestrator.open', { projectId: PROJECT })) as { ok: boolean; value?: { sessionId: string | null } }
+    const sessionId = view.value?.sessionId ?? null
+    expect(sessionId).not.toBeNull()
+    expect(await bridgeCall(window, 'agent.send', { sessionId, text: 'how is it going?' })).toMatchObject({ ok: true })
+    await expect.poll(() => messages(log)).toEqual(['how is it going?'])
+
+    const reason = 'The Orchestrator is in a turn: wait for it to end, or Interrupt it, before starting Autopilot'
+    await autopilot.click()
+    const toast = window.getByTestId('autopilot-start-refused')
+    await expect(toast).toBeVisible()
+    await expect(toast).toHaveAttribute('data-kind', 'error')
+    await expect(toast.locator('.w-toast__text')).toHaveText(reason)
+    await expect(autopilot).toHaveAttribute('title', reason)
+    await expect(autopilot).toHaveAttribute('data-error', reason)
+    await expect(frame.getByTestId('autopilot-status')).toHaveCount(0)
+    expect(existsSync(join(dataDir, 'autopilot')) ? readdirSync(join(dataDir, 'autopilot')) : []).toEqual([])
+    await evidence50(window, toast, 'refused-toast')
+  } finally {
+    await launched.close()
+  }
+})

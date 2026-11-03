@@ -20,6 +20,7 @@ import { openRunHistory } from '../../flight-recorder/open'
 import { useLimits, useNow } from '../../limits/useLimits'
 import { useReadOnly } from '../../projects/useProjects'
 import { useAppSettings } from '../../settings/useAppSettings'
+import { showToast } from '../../toast/toasts'
 import type { SlotProps } from '../badges'
 import { ActionButton } from './action-button'
 import { ActionMenu, type ActionMenuItem } from './action-menu'
@@ -57,7 +58,8 @@ import { hasRunWave, useRunWaveState } from './gates'
 //   (flight-recorder/stop-toast.ts) opens the same.
 // Autopilot can start when "Run wave" could (the same verdict, gates.ts) with a template that names
 // the Wave's Tickets ({tickets}, ADR-0033), and the Project has no run; main checks again and may still refuse (the Orchestrator is in a turn, worfy's own
-// repository in a development build): the button then shows main's reason. The Project's run state
+// repository in a development build): the button then shows main's reason, and an error toast
+// says it too (worfy-polish ticket 50; also for "Start anyway"). The Project's run state
 // is asked once (`autopilot.state`), then taken from `autopilot.changed`; a state replaces the one
 // before it only with a higher revision.
 //
@@ -206,13 +208,26 @@ function useAutopilot(projectId: string): AutopilotState | undefined {
 async function start(projectId: string, epic: string, override = false): Promise<string | undefined> {
   setElsewhere(projectId, null)
   const result = await invoke('autopilot.start', override ? { projectId, epic, override } : { projectId, epic })
-  if (!result.ok) return failureReason('autopilot.start', result.error)
+  if (!result.ok) return refused(projectId, failureReason('autopilot.start', result.error))
   if ('runningElsewhere' in result.value) {
     setElsewhere(projectId, result.value.runningElsewhere)
-    return result.value.runningElsewhere.message
+    return refused(projectId, result.value.runningElsewhere.message)
   }
   take(result.value)
   return undefined
+}
+
+/** The key and `data-testid` of the toast of a refused start (worfy-polish ticket 50). */
+const START_REFUSED_TOAST = 'autopilot-start-refused'
+
+/**
+ * A refused start is an error toast with main's reason too, not only the button's tooltip, which
+ * no one sees without hovering (worfy-polish ticket 50). One toast per Project: a new refusal
+ * replaces it.
+ */
+function refused(projectId: string, reason: string): string {
+  showToast({ kind: 'error', key: `${START_REFUSED_TOAST}:${projectId}`, testId: START_REFUSED_TOAST, projectId, text: reason })
+  return reason
 }
 
 /** What the chip of the run's Machine says on hover; the Linked machines not asked, when any. */
