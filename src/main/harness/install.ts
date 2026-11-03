@@ -41,9 +41,10 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import type { HarnessDependency, HarnessState, HarnessStatus, HarnessStep } from '../../shared/ipc/harness'
+import { skippedAgentsText, type CodexHarness as CodexHarnessStatus, type HarnessDependency, type HarnessState, type HarnessStatus, type HarnessStep } from '../../shared/ipc/harness'
 import { programStart } from '../program'
 import { claudeHome } from '../storage/paths'
+import type { CodexHarness, CodexPlan, CodexStepError } from './codex-install'
 import { HARNESS_PLUGIN_NAME, locateHarness } from './locate'
 
 /** The marketplace of harness/.claude-plugin/marketplace.json. */
@@ -63,7 +64,7 @@ export const DEPENDENCY_MARKETPLACE_SOURCE = 'anthropics/claude-plugins-official
 const TAIL_LINES = 5
 const COMMAND_TIMEOUT_MS = 120_000
 /** The limit of a command that downloads (the dependency's marketplace and plugin come from GitHub). */
-const DOWNLOAD_TIMEOUT_MS = 600_000
+export const DOWNLOAD_TIMEOUT_MS = 600_000
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -111,6 +112,8 @@ export interface InstallPlan {
   commands: string[][]
   /** `bin/epic-status` of the old Harness in the Claude home when it is still there (ADR-0049, `legacy`); null otherwise. */
   legacyHarness: string | null
+  /** What the install does in Codex after the Claude Code part (worfy-multi-vendor ticket 35); absent when nothing. */
+  codex?: CodexPlan
 }
 
 export interface InstallerOptions {
@@ -135,6 +138,11 @@ export interface InstallerOptions {
   platform?: NodeJS.Platform
   /** How long a rename or removal that a held-open file refuses on Windows is tried again; 60 s by default. */
   renameRetryMs?: number
+  /**
+   * The Harness in Codex (codex-install.ts, worfy-multi-vendor ticket 35): installed by the same
+   * install, after the Claude Code part. Without it the status has no `codex`.
+   */
+  codex?: CodexHarness
 }
 
 /** Errors of a rename on Windows that a file held open causes — an antivirus scan, an editor, a running Claude Code. */
@@ -325,6 +333,44 @@ const copyWhole = (from: string, to: string): Promise<void> => cp(from, to, { re
 
 /** The text of the consent dialog for a plan: every command worfy will run, in the order it runs them. */
 export function confirmationText(plan: InstallPlan): { button: string; message: string; detail: string } {
+  const { codex } = plan
+  if (codex === undefined) return claudeConfirmationText(plan)
+  if (plan.copy || plan.commands.length > 0 || plan.dependencyCommands.length > 0) {
+    const text = claudeConfirmationText(plan)
+    return { ...text, detail: [text.detail, '', ...codexLines(codex, true)].join('\n') }
+  }
+  // Claude Code has the Harness of this build: only Codex changes.
+  const [message, button] =
+    codex.commands.length > 0
+      ? codex.from === null
+        ? [`Install the worfy Harness ${codex.to} in Codex?`, 'Install']
+        : [`Update the worfy Harness in Codex ${codex.from} → ${codex.to}?`, 'Update']
+      : codex.dependencyCommands.length > 0
+        ? ['Install the plugins the worfy Harness needs in Codex?', 'Install']
+        : ['Update the worfy agents in Codex?', 'Update']
+  return { button, message, detail: [`The Harness of this build (${plan.to}) is already installed in Claude Code from ${plan.pluginDir}.`, '', ...codexLines(codex, false)].join('\n') }
+}
+
+/** The Codex part of the dialog (worfy-multi-vendor ticket 35): its commands, the agents it writes, and the hooks to approve. */
+function codexLines(codex: CodexPlan, then: boolean): string[] {
+  const lines: string[] = []
+  const commands = [...codex.dependencyCommands, ...codex.commands]
+  if (commands.length > 0) {
+    lines.push(`${then ? 'Then, in Codex, worfy' : 'In Codex, worfy'} installs the same Harness folder with Codex's own commands:`, ...commands.map((args) => `  codex ${args.join(' ')}`), '')
+    if (codex.dependencyCommands.length > 0) lines.push('Codex has no plugin dependencies, so the plugins the Harness needs are installed as plugins of their own.', '')
+  }
+  const { write, remove, skipped } = codex.agents
+  if (write.length > 0 || remove.length > 0) {
+    const parts = [write.length > 0 ? `writes ${write.join(', ')}` : '', remove.length > 0 ? `removes ${remove.join(', ')} of an older Harness` : ''].filter((part) => part !== '')
+    lines.push(`worfy ${parts.join(' and ')} in ${codex.agentsDir}: the Codex agents of the Harness. Agent files of your own stay as they are.`, '')
+  }
+  if (skipped.length > 0) lines.push(skippedAgentsText(skipped, codex.agentsDir), '')
+  if (codex.commands.length > 0) lines.push('Codex keeps the hooks of a new or updated plugin off until you approve them in Codex (/hooks).')
+  else if (lines.at(-1) === '') lines.pop()
+  return lines
+}
+
+function claudeConfirmationText(plan: InstallPlan): { button: string; message: string; detail: string } {
   const update = plan.from !== null
   // worfy is installed with this build's version and only a dependency is missing.
   const onlyDependencies = !plan.copy && plan.commands.length === 0 && plan.dependencyCommands.length > 0
@@ -393,6 +439,52 @@ export function confirmationText(plan: InstallPlan): { button: string; message: 
   }
 }
 
+/** `status` with the Harness in Codex, when Codex is there. */
+const withCodexPart = (status: HarnessStatus, codex: CodexHarnessStatus | null | undefined): HarnessStatus => (codex === undefined || codex === null ? status : { ...status, codex })
+
+/** A command-line program the installer runs: its binary, its name on a command line and in a message, and its environment. */
+export interface Tool {
+  /** The file to run; undefined when the build has none. A `.mjs` (a stand-in in tests) runs under worfy's own Node. */
+  binary: string | undefined
+  /** As a command line names it: `claude`, `codex`. */
+  command: string
+  /** As a message names it: `Claude Code`, `Codex`. */
+  product: string
+  env: Env
+}
+
+/**
+ * Runs one command of `tool` in a folder without project settings, so a list shows only what the
+ * user scope holds. A missing binary, a non-zero exit or a timeout rejects with an Error whose
+ * message is the command line, what happened and the last lines of the output (tail()).
+ */
+export function runTool(tool: Tool, args: string[], timeout = COMMAND_TIMEOUT_MS): Promise<{ stdout: string; stderr: string }> {
+  const { binary, command, product, env } = tool
+  const line = `${command} ${args.join(' ')}`
+  if (binary === undefined) return Promise.reject(new Error(`${line}: no ${product} binary in this build`))
+  // A `.mjs` (a stand-in in tests, WORFY_CLAUDE) runs under worfy's own Node (src/main/program.ts);
+  // the system cannot say it is missing, Node would.
+  const start = programStart(binary, binary)
+  const [script] = start.args
+  if (script !== undefined && !existsSync(script)) return Promise.reject(new Error(`${line}: ${product} not found at ${binary} (ENOENT)`))
+  return new Promise((resolve, reject) => {
+    execFile(start.file, [...start.args, ...args], { env: { ...env, ...start.env }, cwd: tmpdir(), timeout, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
+      if (error === null) {
+        resolve({ stdout, stderr })
+        return
+      }
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'EACCES') {
+        reject(new Error(`${line}: ${product} not found at ${binary} (${code})`))
+        return
+      }
+      const exit = typeof code === 'number' ? `exited with ${String(code)}` : error.killed ? 'was stopped (timeout)' : `failed (${error.message.split('\n')[0] ?? ''})`
+      const output = tail(stderr, stdout)
+      reject(new Error(`${line} ${exit}${output === '' ? '' : `:\n${output}`}`))
+    })
+  })
+}
+
 export class HarnessInstaller {
   private readonly pluginDir: string
   private running: Promise<{ outcome: InstallOutcome; status: HarnessStatus }> | null = null
@@ -405,6 +497,13 @@ export class HarnessInstaller {
 
   /** The state, as the toolbar shows it. Writes nothing; runs `plugin list` only when the plugin folder is there. */
   async status(): Promise<HarnessStatus> {
+    // Side by side: the Codex read is bounded (CodexHarness.status), and the Claude Code read does not wait for it to start.
+    const [claude, codex] = await Promise.all([this.claudeStatus(), this.options.codex?.status()])
+    return withCodexPart(claude, codex)
+  }
+
+  /** The state in Claude Code alone. */
+  private async claudeStatus(): Promise<HarnessStatus> {
     let facts: Facts
     try {
       facts = await this.facts(false)
@@ -412,6 +511,11 @@ export class HarnessInstaller {
       return this.withState(this.errorState(error), this.unchecked())
     }
     return this.withState(this.stateOf(facts), facts.dependencies)
+  }
+
+  /** The status with the Harness in Codex, when there is one (`failure`: what the install into Codex just failed with). */
+  private async withCodex(status: HarnessStatus, failure?: CodexStepError): Promise<HarnessStatus> {
+    return withCodexPart(status, await this.options.codex?.status(failure))
   }
 
   /**
@@ -435,17 +539,22 @@ export class HarnessInstaller {
       // Also without the plugin folder: what is installed already decides what the dialog names.
       facts = await this.facts(true)
     } catch (error) {
-      return { outcome: 'done', status: this.withState(this.errorState(error), this.unchecked()) }
+      return { outcome: 'done', status: await this.withCodex(this.withState(this.errorState(error), this.unchecked())) }
     }
     let planned: Planned
     try {
       planned = await this.planOf(facts)
     } catch (error) {
-      return { outcome: 'done', status: this.withState(this.errorState(error), facts.dependencies) }
+      return { outcome: 'done', status: await this.withCodex(this.withState(this.errorState(error), facts.dependencies)) }
     }
-    const { plan, marketplacesUnread } = planned
-    if (plan === null) return { outcome: 'nothing-to-do', status: this.withState(this.stateOf(facts), facts.dependencies) }
-    if (!(await confirm(plan))) return { outcome: 'declined', status: this.withState(this.stateOf(facts), facts.dependencies) }
+    const { marketplacesUnread } = planned
+    // Codex after Claude Code: it installs from the copy the Claude Code part puts in place. A Codex
+    // that cannot be read does not stop the Claude Code part; its status says why.
+    const codex = (await this.options.codex?.tryPlan()) ?? { plan: null, failure: null }
+    const plan = this.withCodexPlan(planned.plan, codex.plan, facts)
+    const stateNow = async (): Promise<HarnessStatus> => this.withCodex(this.withState(this.stateOf(facts), facts.dependencies), codex.failure ?? undefined)
+    if (plan === null) return { outcome: 'nothing-to-do', status: await stateNow() }
+    if (!(await confirm(plan))) return { outcome: 'declined', status: await stateNow() }
 
     // What the commands that ran so far left of the dependencies, for the status of a failed run.
     let dependencies = facts.dependencies
@@ -461,9 +570,32 @@ export class HarnessInstaller {
       if (plan.copy) await this.replaceCopy()
       for (const args of plan.commands) await this.harnessCommand(args)
     } catch (error) {
-      return { outcome: 'done', status: this.withState(this.errorState(error), dependencies) }
+      // Codex is not touched: its plugin would come from a copy that is not this build's.
+      return { outcome: 'done', status: await this.withCodex(this.withState(this.errorState(error), dependencies)) }
     }
-    return { outcome: 'done', status: await this.status() }
+    const codexFailure = plan.codex === undefined ? null : await this.options.codex?.tryApply(plan.codex)
+    return { outcome: 'done', status: await this.withCodex(await this.claudeStatus(), codexFailure ?? undefined) }
+  }
+
+  /**
+   * The plan of the Claude Code part with the Codex part added; with nothing to do in Claude Code,
+   * a plan of the Codex part alone (no copy, no `claude` command). Null when neither has anything.
+   */
+  private withCodexPlan(plan: InstallPlan | null, codex: CodexPlan | null, facts: Facts): InstallPlan | null {
+    if (codex === null) return plan
+    if (plan !== null) return { ...plan, codex }
+    return {
+      pluginDir: this.pluginDir,
+      from: facts.entry?.version ?? null,
+      folder: facts.folder ?? null,
+      to: codex.to,
+      copy: false,
+      dependencies: [],
+      dependencyCommands: [],
+      commands: [],
+      legacyHarness: null,
+      codex,
+    }
   }
 
   /**
@@ -860,28 +992,8 @@ export class HarnessInstaller {
   /** Runs one `claude` command; a missing binary or a non-zero exit is a StepError of `step`. */
   private claude(args: string[], step: HarnessStep, timeout = COMMAND_TIMEOUT_MS): Promise<{ stdout: string; stderr: string }> {
     const { claude, env } = this.options
-    if (claude === undefined) return Promise.reject(new StepError(step, `${commandLine(args)}: no Claude Code binary in this build`))
-    // A `.mjs` (a stand-in in tests, WORFY_CLAUDE) runs under worfy's own Node (src/main/program.ts);
-    // the system cannot say it is missing, Node would.
-    const start = programStart(claude, claude)
-    const [script] = start.args
-    if (script !== undefined && !existsSync(script)) return Promise.reject(new StepError(step, `${commandLine(args)}: Claude Code not found at ${claude} (ENOENT)`))
-    return new Promise((resolve, reject) => {
-      // cwd: a folder without project settings, so `plugin list` shows only what the user scope holds.
-      execFile(start.file, [...start.args, ...args], { env: { ...env, ...start.env }, cwd: tmpdir(), timeout, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
-        if (error === null) {
-          resolve({ stdout, stderr })
-          return
-        }
-        const code = (error as NodeJS.ErrnoException).code
-        if (code === 'ENOENT' || code === 'EACCES') {
-          reject(new StepError(step, `${commandLine(args)}: Claude Code not found at ${claude} (${code})`))
-          return
-        }
-        const exit = typeof code === 'number' ? `exited with ${String(code)}` : error.killed ? 'was stopped (timeout)' : `failed (${error.message.split('\n')[0] ?? ''})`
-        const output = tail(stderr, stdout)
-        reject(new StepError(step, `${commandLine(args)} ${exit}${output === '' ? '' : `:\n${output}`}`))
-      })
+    return runTool({ binary: claude, command: 'claude', product: 'Claude Code', env }, args, timeout).catch((error: unknown) => {
+      throw new StepError(step, messageOf(error))
     })
   }
 }

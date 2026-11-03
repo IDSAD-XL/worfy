@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { HarnessStatus as Status } from '../../../shared/ipc/harness'
+import { skippedAgentsText, type HarnessStatus as Status } from '../../../shared/ipc/harness'
 import type { UpdateSnapshot } from '../../../shared/ipc/update'
 import MigrationForm from '../../harness/MigrationForm'
 import AppMemory from '../../memory/AppMemory'
@@ -182,15 +182,71 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate, harnessBehin
       button = action('retry', 'Retry', 'Retry reads the state again and runs what is left of the install, a missing dependency of the plugin included; the dialog names every command before anything runs')
       break
   }
+  // The Harness in Codex (worfy-multi-vendor ticket 35) only next to a Harness Claude Code has: the
+  // same Install installs both, Claude Code first, so until then the line above says what to do.
+  const codex = state.kind === 'installed' && status.codex !== undefined ? codexPart(status.codex) : null
+  if (codex?.button !== undefined) button = action(codex.button.icon, codex.button.label, codex.button.title, codex.button.icon === 'update')
   return (
     <span role="group" aria-label="Harness" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flex: 'none' }} data-testid="harness-status" data-state={state.kind}>
       <span style={{ ...textStyle, color: tone }} title={title} data-testid="harness-text">
         {text}
       </span>
+      {codex === null ? null : (
+        <span style={{ ...textStyle, color: codex.tone }} title={codex.title} data-testid="harness-codex" data-state={codex.state}>
+          · {codex.text}
+        </span>
+      )}
       {button}
       {onMigrate === undefined ? null : <IconButton icon="migrate" label="Move old Harness…" onClick={onMigrate} testId="harness-migrate" />}
     </span>
   )
+}
+
+interface CodexPart {
+  state: string
+  text: string
+  title: string
+  tone: string
+  button?: { icon: IconButtonProps['icon']; label: string; title: string }
+}
+
+/** What the line adds for the Harness in Codex: a short text, its tooltip, and the action when there is one. */
+function codexPart(codex: NonNullable<Status['codex']>): CodexPart | null {
+  const { state, skippedAgents } = codex
+  const muted = 'var(--text-muted)'
+  // Agent files worfy leaves alone, as a file of the user's own has the name: said in the tooltip, and as the text when nothing else is.
+  const skipped = skippedAgents.length === 0 ? '' : skippedAgentsText(skippedAgents, codex.agentsDir)
+  const withSkipped = (title: string): string => (skipped === '' ? title : `${title}\n${skipped}`)
+  switch (state.kind) {
+    case 'installed':
+      // Codex turns the hooks of an updated plugin off until they are approved (worfy-multi-vendor ticket 39 adds the step).
+      if (codex.hooksToApprove) return { state: 'hooks', text: 'Codex: approve hooks', title: withSkipped('Codex keeps the Harness hooks off after an install or update until you approve them in Codex (/hooks)'), tone: muted }
+      return skipped === '' ? null : { state: 'skipped-agents', text: `Codex: ${String(skippedAgents.length)} ${skippedAgents.length === 1 ? 'agent' : 'agents'} not written`, title: skipped, tone: muted }
+    case 'not-installed':
+      return {
+        state: state.kind,
+        text: 'Codex: not installed',
+        title: 'The Harness is not installed in Codex',
+        tone: muted,
+        button: { icon: 'install', label: 'Install in Codex', title: `Install the Harness in Codex, with the agents in ${codex.agentsDir}` },
+      }
+    case 'outdated':
+      return {
+        state: state.kind,
+        text: `Codex ${state.from ?? '?'}`,
+        title: withSkipped(`Codex has the Harness ${state.from ?? 'of an unknown version'}; this build has ${state.to}`),
+        tone: muted,
+        button: { icon: 'update', label: 'Update Harness in Codex', title: `Update Harness in Codex: ${state.from ?? 'unknown'} → ${state.to}` },
+      }
+    case 'error':
+      return {
+        state: state.kind,
+        text: `Codex error: ${state.step}`,
+        title: state.reason,
+        tone: 'var(--blocked-text)',
+        button: { icon: 'retry', label: 'Retry', title: 'Retry reads the state of Codex again and runs what is left of the install; the dialog names every command before anything runs' },
+      }
+  }
 }
 
 /**

@@ -1,0 +1,7 @@
+# Written by worfy's Harness installer (Harness <VERSION>); the next install rewrites or removes this file.
+name = "worfy-reviewer"
+description = "Reviews a diff through one assigned lens; fixes nothing."
+model_reasoning_effort = "high"
+developer_instructions = '''
+Run the checks yourself and attach the exit code.
+'''

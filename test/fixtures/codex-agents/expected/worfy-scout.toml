@@ -1,0 +1,7 @@
+# Written by worfy's Harness installer (Harness <VERSION>); the next install rewrites or removes this file.
+name = "worfy-scout"
+description = "Read-only code scout: answers \"where is X\"."
+model_reasoning_effort = "medium"
+developer_instructions = '''
+Edit no repository files. Its one write is `<PLUGIN_DIR>/bin/code-map put`.
+'''

@@ -50,6 +50,52 @@ export const harnessDependencySchema = z.object({
 })
 export type HarnessDependency = z.infer<typeof harnessDependencySchema>
 
+/**
+ * The step an install into Codex failed at (worfy-multi-vendor ticket 35): one `codex plugin`
+ * command, or writing the Codex agents (`worfy-*.toml` in <CODEX_HOME>/agents).
+ */
+export const codexHarnessStepSchema = z.enum(['plugin list', 'marketplace add', 'plugin add', 'dependency marketplace add', 'dependency add', 'agents'])
+export type CodexHarnessStep = z.infer<typeof codexHarnessStepSchema>
+
+export const codexHarnessStateSchema = z.discriminatedUnion('kind', [
+  /** Codex does not list the plugin worfy. */
+  z.object({ kind: z.literal('not-installed') }),
+  /** Codex lists it with this build's version, its dependencies too, and the agents are this build's. */
+  z.object({ kind: z.literal('installed'), version: z.string() }),
+  /** Another version (`from`; null when Codex names none), or agents of another build: an install brings `to`. */
+  z.object({ kind: z.literal('outdated'), from: z.string().nullable(), to: z.string() }),
+  /** A step failed (`reason` ends with the command's output), or a dependency is not installed. */
+  z.object({ kind: z.literal('error'), step: codexHarnessStepSchema, reason: z.string() }),
+])
+export type CodexHarnessState = z.infer<typeof codexHarnessStateSchema>
+
+/** The Harness in Codex, next to the one in Claude Code; the same Install installs both. */
+export const codexHarnessSchema = z.object({
+  state: codexHarnessStateSchema,
+  /** <CODEX_HOME>/agents, where the agents worfy-implementer, worfy-reviewer and worfy-scout go. */
+  agentsDir: z.string(),
+  /**
+   * This run installed or updated the plugin in Codex: Codex keeps its hooks off until the user
+   * approves them in Codex (`/hooks`; the step itself is worfy-multi-vendor ticket 39).
+   */
+  hooksToApprove: z.boolean(),
+  /**
+   * Agent files of the Harness worfy does not write, as a file of the user's own (one without
+   * worfy's mark) has the name: `worfy-implementer.toml` and the like. worfy never writes over it.
+   */
+  skippedAgents: z.array(z.string()),
+})
+export type CodexHarness = z.infer<typeof codexHarnessSchema>
+
+/**
+ * What the dialog and the toolbar say of the agent files worfy does not write (codexAgentsDrift's
+ * `skipped`): a file of the user's own has the name, and worfy never writes over it.
+ */
+export function skippedAgentsText(skipped: readonly string[], agentsDir: string): string {
+  const one = skipped.length === 1
+  return `worfy leaves ${skipped.join(', ')} in ${agentsDir} as ${one ? 'it is' : 'they are'}: ${one ? 'it is a file' : 'they are files'} of your own, not ${one ? 'one' : 'ones'} worfy wrote. To get ${one ? 'that agent' : 'those agents'} of the Harness in Codex, rename or remove ${one ? 'it' : 'them'}, then install again.`
+}
+
 export const harnessStatusSchema = z.object({
   state: harnessStateSchema,
   /** The `version` of the Harness copy this build carries; null when the build has none. */
@@ -63,6 +109,8 @@ export const harnessStatusSchema = z.object({
   pluginDir: z.string(),
   /** The dependencies of the Harness, in plugin.json's order; from the same `plugin list` as the state. */
   dependencies: z.array(harnessDependencySchema),
+  /** The Harness in Codex; absent when this build has no Codex or Codex never ran on this machine (no CODEX_HOME). */
+  codex: codexHarnessSchema.optional(),
 })
 export type HarnessStatus = z.infer<typeof harnessStatusSchema>
 
