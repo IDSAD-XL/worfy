@@ -86,6 +86,19 @@ describe('the events of a turn (items.ts), on the scripts of the fake', () => {
     ])
   })
 
+  it('review: the exitedReviewMode item of /review is a text event and the answer of the turn\'s result', () => {
+    const review = (id: string, text: string): AgentEvent => ({ type: 'text', text, messageId: id, parentToolUseId: null, synthetic: false })
+    expect(play(notificationsOf('review'))).toEqual([
+      ['thread/started', []],
+      ['turn/started', [INIT]],
+      ['item/completed', [review('review_r1', 'No problems in the uncommitted changes.')]],
+      ['turn/completed', [result({ text: 'No problems in the uncommitted changes.' })]],
+      ['turn/started', [INIT]],
+      ['item/completed', [review('review_r2', 'The tests miss the empty case.')]],
+      ['turn/completed', [result({ text: 'The tests miss the empty case.' })]],
+    ])
+  })
+
   it('items: reasoning → thinking; MCP tools, a command and a file change → tool_use and tool_result; a plan and an unknown notification → unknown', () => {
     expect(play(notificationsOf('items'))).toEqual([
       ['thread/started', []],

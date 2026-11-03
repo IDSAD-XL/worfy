@@ -1,8 +1,8 @@
 // The SessionHandle of the Codex driver (src/main/vendors/codex/session.ts, worfy-multi-vendor ticket 20)
 // on the fake app-server (WORFY_CODEX=fake, which test/setup-contract.ts sets): a turn, steer during a
 // turn, Interrupt, resume, the model, effort and preset of the next turn, approvals and their answers,
-// an unattended Session, a crash, and starts that fail without leaving a process. What worfy sent is
-// read from the fake's log (WORFY_CODEX_LOG).
+// an unattended Session, a crash, starts that fail without leaving a process, and the slash menu
+// (ticket 22: skills, /compact, /review). What worfy sent is read from the fake's log (WORFY_CODEX_LOG).
 //
 // The fake runs under scriptNode() (test/script-node.ts) through the spawn stand-in of the session
 // part, as in test/contract/codex-app-server.test.ts. A preload module of the test's own (`--import`)
@@ -27,6 +27,7 @@ import type { AgentProcess, PermissionAsk, PermissionAsker, RefusalDetails, Sess
 import { OUTPUT_AFTER_EXIT_MS } from '../../src/main/vendors/codex/app-server'
 import { UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
+import { codexDriver } from '../../src/main/vendors/codex'
 import { CODEX_CAPABILITIES, codexCapabilities } from '../../src/main/vendors/codex/capabilities'
 import { codexSessions } from '../../src/main/vendors/codex/session'
 import { removeTestTree } from '../remove'
@@ -854,5 +855,106 @@ describe('a Codex Session: the process', () => {
     await session.handle.interrupt()
     expect(at.requests('turn/start')).toEqual([])
     expect(at.requests('model/list')).toEqual([])
+  })
+})
+
+describe('a Codex Session: the slash menu (worfy-multi-vendor ticket 22)', () => {
+  const skillsOf = (at: Fake) => at.requests('skills/list').map((request) => request.params)
+
+  it('lists /compact, /review and the enabled skills of skills/list; a skill call goes as a skill item in turn/start; skills/changed asks again', async () => {
+    const at = fake('skills')
+    const session = await live(at)
+    await session.until((event) => event.type === 'account', 'account')
+    const rows = await codexDriver().commands.list(session.handle)
+    expect(rows).toEqual([
+      { name: 'compact', description: expect.any(String) as string, argumentHint: '', kind: 'command' },
+      { name: 'review', description: expect.any(String) as string, argumentHint: '[instructions]', kind: 'command' },
+      { name: 'release-notes', description: 'Draft release notes', argumentHint: '', kind: 'skill' },
+    ])
+    expect(await session.handle.commands()).toEqual(rows)
+    expect(skillsOf(at)).toEqual([{ cwds: [at.root] }])
+
+    await session.handle.send(message('/release-notes for 1.2'))
+    await session.until(isResult, 'the result')
+    expect(at.requests('turn/start').map((request) => request.params)).toEqual([
+      { threadId: 'thr_fake_1', input: [text('$release-notes for 1.2'), { type: 'skill', name: 'release-notes', path: '/fake/codex-home/skills/release-notes/SKILL.md' }] },
+    ])
+    // skills/changed came before the turn's end: the next menu asks again, and gives no event of its own.
+    expect(session.events.filter((event) => event.type === 'unknown')).toEqual([])
+    expect((await session.handle.commands()).map((row) => row.name)).toEqual(['compact', 'review', 'release-notes', 'triage'])
+    expect(skillsOf(at)).toHaveLength(2)
+  })
+
+  it('/compact runs thread/compact/start, and its turn ends with a result; one Codex refuses ends with a result that says why', async () => {
+    const at = fake('compact')
+    const session = await live(at)
+    await session.until((event) => event.type === 'account', 'account')
+    await session.handle.send(message('/compact'))
+    await session.until(isResult, 'the result of the compaction')
+    expect(at.requests('thread/compact/start').map((request) => request.params)).toEqual([{ threadId: 'thr_fake_1' }])
+    expect(at.requests('turn/start')).toEqual([])
+    expect(at.requests('skills/list')).toEqual([])
+
+    await session.handle.send(message('/compact'))
+    const refused = await session.until((event) => event.type === 'result' && event.isError, 'the refusal')
+    expect(refused).toMatchObject({ type: 'result', subtype: 'error', error: expect.stringMatching(/^Codex did not run \/compact: .*nothing to compact yet/) as string })
+  })
+
+  it('/review reviews the uncommitted changes inline, and /review with text gives Codex those instructions', async () => {
+    const at = fake('review')
+    const session = await live(at)
+    await session.until((event) => event.type === 'account', 'account')
+    await session.handle.send(message('/review'))
+    await session.until(isResult, 'the first review')
+    await session.handle.send(message('/review focus on the tests'))
+    await eventually(() => session.events.filter(isResult).length === 2, 'the second review')
+    expect(at.requests('review/start').map((request) => request.params)).toEqual([
+      { threadId: 'thr_fake_1', target: { type: 'uncommittedChanges' }, delivery: 'inline' },
+      { threadId: 'thr_fake_1', target: { type: 'custom', instructions: 'focus on the tests' }, delivery: 'inline' },
+    ])
+    // Codex gives the review in its exitedReviewMode item: a text event, and the answer of the turn's result.
+    expect(session.events.filter((event) => event.type === 'text').map((event) => (event as { text: string }).text)).toEqual(['No problems in the uncommitted changes.', 'The tests miss the empty case.'])
+    expect(session.events.filter(isResult).map((event) => (event as { text: string | null }).text)).toEqual(['No problems in the uncommitted changes.', 'The tests miss the empty case.'])
+  })
+
+  it('/compact and /review while a turn runs give a notice and send nothing; the turn goes on', async () => {
+    const at = fake('interrupt')
+    const session = await live(at)
+    await session.handle.send(message('Do a long task'))
+    await session.until(deltaOf('Starting a long task'), 'the delta')
+    await session.handle.send(message('/compact'))
+    await session.handle.send(message('/review'))
+    await eventually(() => session.events.filter((event) => event.type === 'notice').length === 2, 'the two notices')
+    expect(session.events.filter((event) => event.type === 'notice')).toEqual([
+      { type: 'notice', kind: 'notification', text: 'Codex runs /compact only between turns: send it again once this turn ends.' },
+      { type: 'notice', kind: 'notification', text: 'Codex runs /review only between turns: send it again once this turn ends.' },
+    ])
+    expect(at.requests('thread/compact/start')).toEqual([])
+    expect(at.requests('review/start')).toEqual([])
+    expect(at.requests('turn/steer')).toEqual([])
+    expect(session.events.some(isResult)).toBe(false)
+    await session.handle.interrupt()
+    await session.until(isResult, 'the result')
+  })
+
+  it('the menu is /compact and /review alone when Codex cannot list its skills, and asks again next time', async () => {
+    // The turn script answers no skills/list: the fake refuses it.
+    const at = fake('turn')
+    const session = await live(at)
+    await session.until((event) => event.type === 'account', 'account')
+    const rows = await session.handle.commands()
+    expect(rows.map((row) => `${row.kind}:${row.name}`)).toEqual(['command:compact', 'command:review'])
+    await session.handle.commands()
+    expect(at.requests('skills/list')).toHaveLength(2)
+  })
+
+  it('a /name that is no command and no skill goes as the text typed', async () => {
+    const at = fake('turn')
+    const session = await live(at)
+    await session.until((event) => event.type === 'account', 'account')
+    await session.handle.send(message('/model gpt-5'))
+    // The turn script answers no skills/list: the message goes as typed all the same.
+    await session.until(isResult, 'the result')
+    expect(at.requests('turn/start').map((request) => request.params)).toEqual([{ threadId: 'thr_fake_1', input: [text('/model gpt-5')] }])
   })
 })

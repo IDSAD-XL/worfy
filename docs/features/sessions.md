@@ -46,7 +46,10 @@ The field grows to 200 pixels. An empty message without attachments is refused. 
 attachment chips back into the field. "/" at the start of the field or after a space or a line break opens the menu of
 the slash commands and skills that Claude Code reports for this Session. The menu opens and closes as the caret enters or
 leaves such a word, and stays closed while text in the field is selected. The whole word filters the menu, and a picked
-command replaces only that word: the text around it stays. Escape closes the menu until the caret leaves the word.
+command replaces only that word: the text around it stays. Escape closes the menu until the caret leaves the word. A
+Codex Session lists its enabled skills and the two commands its app server runs, `/compact` and `/review` (the uncommitted
+changes, or the instructions typed after it); its other commands work only in Codex's own terminal. A message that
+starts with a skill's name calls that skill.
 
 **Queue.** A message sent during a turn waits in a queue in main. The hint beside the send button says "Return to queue"
 then. Messages go one per turn, each after the `result` of the previous turn. The chip "N queued" opens the list, where ×
@@ -211,6 +214,7 @@ for a process also asks the system.
 | One Session: states, send, Interrupt, crash | `src/main/agent/session.ts`, `src/main/agent/session/` |
 | The registry of live Sessions, the test agent | `src/main/agent/session/registry.ts`, `src/main/agent/app-registry.ts`, `src/main/agent/fake-query.ts` |
 | Query options, MCP and skills lists, autocompact | `src/main/vendors/claude/options.ts`, `src/main/vendors/claude/query.ts` |
+| Codex slash menu: skills, `/compact`, `/review` | `src/main/vendors/codex/commands.ts`, `src/main/vendors/codex/session.ts` |
 | Process environment | `src/main/agent/env.ts` |
 | Queue, permissions, saved settings | `src/main/agent/queue.ts`, `src/main/agent/permissions.ts`, `src/main/agent/session-settings.ts` |
 | Rules of Resume and closing | `src/main/agent/resume.ts` |

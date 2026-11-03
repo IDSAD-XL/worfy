@@ -4,7 +4,8 @@
 // only through follow(), which keeps their running tools for their approvals and gives no events.
 //
 // - `item/agentMessage/delta` → `delta` (text); `item/reasoning/summaryTextDelta` → `delta` (thinking);
-// - a completed `agentMessage` → `text`; a completed `reasoning` with a summary → `thinking`;
+// - a completed `agentMessage` → `text`, and so a completed `exitedReviewMode` (the review of `/review`,
+//   ticket 22): each is the turn's answer; a completed `reasoning` with a summary → `thinking`;
 // - `commandExecution`, `fileChange`, `mcpToolCall` → `tool_use` when they start and `tool_result` when
 //   they complete (a tool that completes without having started gets both then);
 // - `turn/started` → `init` (the thread's id as the Vendor's session id); `turn/completed` → `result`,
@@ -228,6 +229,10 @@ export class CodexItems {
       case 'agentMessage':
         this.answers.set(turnId, item.text)
         return [{ type: 'text', text: item.text, messageId: item.id, parentToolUseId: null, synthetic: false }]
+      case 'exitedReviewMode':
+        // The review of `/review` (review/start): Codex gives its findings in this item, not in an agent message.
+        this.answers.set(turnId, item.review)
+        return [{ type: 'text', text: item.review, messageId: item.id, parentToolUseId: null, synthetic: false }]
       case 'reasoning': {
         const summary = (item.summary ?? []).filter((part) => part.trim() !== '').join('\n\n')
         return summary === '' ? [] : [{ type: 'thinking', text: summary, messageId: item.id, parentToolUseId: null }]
