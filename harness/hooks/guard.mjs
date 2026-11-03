@@ -9,11 +9,27 @@
 // The parsing goes by the segments of the command and by its arguments, not by a string match:
 // `git -C /p checkout HEAD -- .` and `git checkout -f .` are the same action,
 // and they must be caught the same way.
+//
+// On Codex (the input tells, codex-input.mjs) the hook gets Codex's
+// tools: `Bash` for a shell command, as under Claude Code, and `apply_patch` for a file edit (the
+// matcher of hooks.json names both; Claude Code has no apply_patch). Two rules hold there besides the
+// ones below:
+//   - worfy-reviewer and worfy-scout edit no file: their apply_patch is denied by `agent_type`, as
+//     Claude Code gives them no Edit or Write tool; their shell commands go through the rules below,
+//     as their Bash does under Claude Code;
+//   - an agent of the Harness opens no interactive shell or interpreter: what it would type there
+//     later goes through Codex's write_stdin, which runs no PreToolUse hook (codex-rs/core/src/tools/
+//     handlers/unified_exec/write_stdin.rs at rust-v0.166.0), so none of these rules would see it.
+//     This deny is best effort and lexical, as every rule here is: it catches the plain starts
+//     (`bash`, `node`, `python3`, `tmux`), and a program that reads its input can still be driven
+//     (`cat | bash`, `sh /dev/stdin`, a REPL module, a wrapper it does not know). Closing it fully
+//     takes Codex itself: no write_stdin for these agents, or a sandbox.
 
 import fs from "node:fs"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
+import { codexAgent, isCodexInput, isHarnessAgent, READ_ONLY_AGENTS } from "./codex-input.mjs"
 
 // bin/silent-check of this Harness: the folder above hooks/, found from this script's real file.
 const SILENT_CHECK =
@@ -41,6 +57,16 @@ let payload
 try {
     payload = JSON.parse(raw)
 } catch {
+    ok()
+}
+const codex = isCodexInput(payload)
+const agent = codex ? codexAgent(payload) : ""
+if (codex && payload?.tool_name === "apply_patch") {
+    if (READ_ONLY_AGENTS.has(agent))
+        deny(
+            `${agent} edits no file: on Codex its apply_patch is refused, as Claude Code gives a reviewer and a scout no Edit or Write tool. ` +
+                "Name the change in your report instead of making it; shell commands that only read and check stay allowed."
+        )
     ok()
 }
 if (payload?.tool_name !== "Bash") ok()
@@ -78,6 +104,54 @@ const normalizeGit = (s) =>
         .replace(/[ \t]+/g, " ")
 
 const segments = (s) => s.split(/;|&&|\|\||\||\n/)
+
+// --- 0. Codex: an interactive shell of an agent of the Harness ------------------
+// A command whose first stage reads the session's input as commands: a shell, a language
+// interpreter or a terminal multiplexer started without a script, a command given on the line or a
+// redirected input. On Codex such a command opens an exec Session that write_stdin then types into
+// unguarded. A command given is -c for a shell (-Command, -File, /c for PowerShell and cmd) and
+// -c, -e, -p, -m for an interpreter; -v, --version, --help, --test and bash -n run no prompt.
+// shortcut: the operand test takes any word that is not an option as a script (`bash --rcfile x`
+// passes) and the lists name the common programs only; widen them when a refused start is seen to
+// pass in a recording of Codex (test/fixtures/codex-messages/hooks/PreToolUse.jsonl).
+const SHELLS = /^(sh|bash|zsh|dash|ksh|mksh|fish|csh|tcsh|ash|pwsh|powershell|cmd)$/
+const INTERPRETERS = /^(node|nodejs|deno|bun|python|python2|python3|py|ipython|irb|ruby|perl|php|lua)$/
+const MULTIPLEXERS = /^(tmux|screen|script)$/
+const SHELL_GIVEN = /^(-c|-command|-file|-encodedcommand|\/c)$/i
+const INTERPRETER_GIVEN = /^(-c|-e|-p|-m|--eval|--print)$/
+const NO_PROMPT = /^(-v|-V|--version|-h|--help|--test|-n)$/
+const WRAPPERS = /^(sudo|env|command|nohup|time|exec|nice|stdbuf|caffeinate)$/
+// `form` is the command with each quoted string as the word Q: a quoted script is an operand, and a
+// quoted text is no command.
+const interactiveStart = (form) => {
+    for (const command of form.split(/&&|\|\||[;\n]|(?<![<>&])&(?![<>&])/)) {
+        // Only the first stage of a pipeline reads the session's input, and not when it is redirected.
+        const first = command.split("|")[0]
+        if (/<<data>>|<<<|(^|\s)\d*<(?!<)/.test(first)) continue
+        const words = first.trim().split(/\s+/).filter(Boolean)
+        while (words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0]) || WRAPPERS.test(words[0]))) words.shift()
+        if (!words.length) continue
+        const name = words[0].replace(/.*[\\/]/, "").replace(/\.exe$/i, "")
+        const args = words.slice(1)
+        if (MULTIPLEXERS.test(name)) return name
+        if (!SHELLS.test(name) && !INTERPRETERS.test(name)) continue
+        if (args.some((a) => NO_PROMPT.test(a))) continue
+        const lower = args.map((a) => a.toLowerCase())
+        if (lower.includes("-i") || lower.includes("-s") || lower.includes("-") || lower.includes("/k") || lower.includes("-noexit")) return name
+        if (args.some((a) => (SHELLS.test(name) ? SHELL_GIVEN : INTERPRETER_GIVEN).test(a))) continue
+        if (args.some((a) => !/^[-+]/.test(a) && !(name === "cmd" && a.startsWith("/")))) continue
+        return name
+    }
+    return null
+}
+if (codex && isHarnessAgent(agent)) {
+    const opened = interactiveStart(noHeredoc.replace(/'[^']*'/g, "Q").replace(/"[^"]*"/g, "Q"))
+    if (opened)
+        deny(
+            `On Codex an agent of the Harness opens no interactive \`${opened}\`: what it would type into it later (write_stdin) passes no guard. ` +
+                "Run each command as a shell command of its own, or give the program its script: `bash -c '…'`, `node script.mjs`, `python3 -c '…'`."
+        )
+}
 
 // --- 1. Destroying uncommitted work -------------------------------------------
 const HOWTO =

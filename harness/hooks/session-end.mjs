@@ -10,12 +10,26 @@
 // bin/profile runs as `node <script>` (process.execPath), not by its #! line. A failure inside the
 // hook is one line on stderr and code 0.
 //
+// On Codex (the input tells, codex-input.mjs) a SessionEnd hook gets 1 s
+// by default and 3 s at most, and Codex kills it after that (codex-rs/hooks/src/engine/discovery.rs at
+// rust-v0.166.0). The hook has one step that waits, the bin/profile call, which takes about 0.1 s; under
+// Codex it gets CODEX_PROFILE_MS, so the hook ends inside the 3 s even when that call hangs. The lock
+// is released by its own SessionEnd hook (bin/worktree-lock release).
+// shortcut: a profile call that runs out of time under Codex records no line for /retro, so one
+// session goes uncounted; move the step to the next SessionStart when session-end gains a step whose
+// loss matters, or when the profile call is seen to take a second.
+//
 // For tests: CLAUDE_PROFILE_BIN, CLAUDE_GATE_CONFIG, CLAUDE_PROFILES_DIR — as with session-start.mjs.
 
 import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { isCodexInput } from "./codex-input.mjs"
+
+// How long the bin/profile call may take under Codex, in milliseconds: the rest of 3 s goes to
+// starting node twice.
+const CODEX_PROFILE_MS = 2000
 
 function readStdin() {
     if (process.stdin.isTTY) return ""
@@ -34,13 +48,19 @@ function isDir(p) {
     }
 }
 
-// The session directory: `cwd` of the hook JSON when it is a folder, else the current folder.
-function sessionDir(input) {
-    let cwd = ""
+// The parsed hook input, or null.
+function parse(input) {
     try {
-        const value = JSON.parse(input)?.cwd
-        if (typeof value === "string") cwd = value
-    } catch {}
+        return JSON.parse(input)
+    } catch {
+        return null
+    }
+}
+
+// The session directory: `cwd` of the hook JSON when it is a folder, else the current folder.
+function sessionDir(payload) {
+    const value = payload?.cwd
+    const cwd = typeof value === "string" ? value : ""
     return cwd && isDir(cwd) ? cwd : process.cwd()
 }
 
@@ -55,11 +75,13 @@ function main() {
     const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)))
     const profileBin = process.env.CLAUDE_PROFILE_BIN || path.join(path.dirname(here), "bin", "profile")
 
-    const cwd = sessionDir(readStdin())
+    const payload = parse(readStdin())
+    const cwd = sessionDir(payload)
     const run = spawnSync(process.execPath, [profileBin, "-C", cwd, "--json"], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
         windowsHide: true,
+        ...(isCodexInput(payload) ? { timeout: CODEX_PROFILE_MS } : {}),
     })
     if (run.error) throw run.error
     if (run.status !== 0) return

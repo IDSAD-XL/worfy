@@ -556,7 +556,9 @@ for (const l of out) process.stdout.write(l + "\n")' "$HJ" "$1" 2>/dev/null
 if [ "$(hj valid)" = ok ]; then ok "hooks.json is valid JSON with .hooks"; else bad "hooks.json missing or invalid"; fi
 
 # The hooks of ~/.claude/settings.json:5-109, plus the three inject-rules entries; qmd-refresh came
-# with the qmd server of the plugin. No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
+# with the qmd server of the plugin. Codex runs the same file (README.md, "On Codex"): SubagentStop,
+# the 900 s of stop.mjs (it runs the gate on Codex) and apply_patch in the guard's matcher are for it;
+# under Claude Code stop.mjs does nothing on SubagentStop and no tool is called apply_patch. No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
 # a project with a worktree.root outside the repository is connected (decided 2026-10-09). Every Node script runs as an explicit
 # `node "${CLAUDE_PLUGIN_ROOT}/…"`: Windows starts no
 # script by its #! line. One exception: the gate hooks call the launcher gate.sh, because without
@@ -575,12 +577,13 @@ SessionStart||$N/hooks/gh-token-env.mjs"|10
 SubagentStart||$N/hooks/inject-rules.mjs" common|10
 TaskCompleted||$R/hooks/gate.sh" fast|900
 TeammateIdle||$R/hooks/gate.sh" fast|900
-Stop||$N/hooks/stop.mjs"|10
+Stop||$N/hooks/stop.mjs"|900
+SubagentStop||$N/hooks/stop.mjs"|900
 Stop||$N/bin/worktree-lock" beat|5
 Stop||$N/bin/qmd-refresh" --quiet|15
 SessionEnd||$N/hooks/session-end.mjs"|10
 SessionEnd||$N/bin/worktree-lock" release|5
-PreToolUse|Bash|$N/hooks/guard.mjs"|30
+PreToolUse|Bash|apply_patch|$N/hooks/guard.mjs"|30
 EOF
 expected="$(printf '%s' "$hooks_expected" | sort)"
 actual="$(hj hooks | sort)"

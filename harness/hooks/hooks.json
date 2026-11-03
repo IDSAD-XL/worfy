@@ -1,5 +1,5 @@
 {
-  "description": "worfy Harness hooks: rules for sessions and subagents, the quality gate, worktree locks, session bookkeeping, GH_TOKEN of the project's GitHub account, the Bash guard and the qmd index refresh",
+  "description": "worfy Harness hooks: rules for sessions and subagents, the quality gate, worktree locks, session bookkeeping, GH_TOKEN of the project's GitHub account, the Bash guard and the qmd index refresh; on Codex the same file, where stop.mjs runs the gate on Stop and SubagentStop and guard.mjs also sees apply_patch",
   "hooks": {
     "SessionStart": [
       {
@@ -87,7 +87,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/stop.mjs\"",
-            "timeout": 10
+            "timeout": 900
           }
         ]
       },
@@ -106,6 +106,17 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/qmd-refresh\" --quiet",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/stop.mjs\"",
+            "timeout": 900
           }
         ]
       }
@@ -132,7 +143,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|apply_patch",
         "hooks": [
           {
             "type": "command",

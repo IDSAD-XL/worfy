@@ -19,17 +19,35 @@
 // Exit codes: 2 holds the turn (the message is on stderr), 0 otherwise. A failure inside the hook
 // is one line on stderr and code 0: a broken hook must not hold every turn of the session.
 //
+// On Codex (the input tells, codex-input.mjs) the hook runs the gate
+// itself. Codex has no TaskCompleted or TeammateIdle, the events that run the gate under Claude Code,
+// so on Stop and on SubagentStop in a registered project this hook first runs `gate.mjs fast` with
+// the hook input on stdin (the gate's green cache keeps a turn that changed nothing cheap), then
+// holds the turn on its red marker as below: neither the agent nor a Subagent finishes with a red gate. Codex reads the block
+// the same way (exit 2, the reason on stderr). Its Stop output takes no hookSpecificOutput, so a
+// message to the model is {"decision":"block","reason":…}: Codex continues the turn with the reason
+// as a new prompt, the extra turn additionalContext costs under Claude Code. Under Claude Code,
+// SubagentStop is no gate point and the hook does nothing on it; the Stop hook stays cheap there.
+// A Subagent of Codex counts its blocks and hears each note on its own (by agent_id), so it does not
+// use up those of the agent that started it; worfy-reviewer and worfy-scout, which edit no file, are
+// held on red too and told to report the red gate rather than fix it.
+//
 // For tests: CLAUDE_GATE_STATE (the state folder), CLAUDE_GATE_RESOLVE (the resolver),
 // CLAUDE_GATE_CONFIG (read by the resolver). Tests: hooks/tests/gate-notverified.test.sh,
-// gate-unregistered.test.sh, bin/tests/harness-home.test.sh.
+// gate-unregistered.test.sh, bin/tests/harness-home.test.sh; on Codex inputs
+// test/contract/harness-codex-hooks.test.ts.
 
 import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { codexAgent, isCodexInput, READ_ONLY_AGENTS } from "./codex-input.mjs"
 import { gateStateDir, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
 
 const MAX_BLOCKS = 2
+// How long the resolver may take: about the 10 s the whole hook had under Claude Code before its
+// limit in hooks.json became the 900 s the gate run on Codex needs.
+const RESOLVE_MS = 10_000
 
 function readStdin() {
     if (process.stdin.isTTY) return ""
@@ -79,11 +97,24 @@ function touch(p) {
 }
 
 // The context for the model without blocking the turn. Control characters other than tab and line
-// breaks are dropped.
-function say(text) {
+// breaks are dropped. On Codex the same message is a block with the message as its reason (see the
+// header): Codex's Stop output knows no additionalContext.
+function say(text, codex) {
     const kept = (ch) => ch >= " " || ch === "\t" || ch === "\n" || ch === "\r"
     const clean = [...text].filter(kept).join("")
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "Stop", additionalContext: clean } }))
+    const output = codex ? { decision: "block", reason: clean } : { hookSpecificOutput: { hookEventName: "Stop", additionalContext: clean } }
+    process.stdout.write(JSON.stringify(output))
+}
+
+// Runs `gate.mjs fast` (next to this script) with the hook input on stdin, in the current folder, and
+// waits for it; its output is dropped, since Codex reads the stdout of a Stop hook as its decision.
+// The verdict is in the markers the gate leaves, read below.
+function runGate(here, input) {
+    spawnSync(process.execPath, [path.join(here, "gate.mjs"), "fast"], {
+        input,
+        stdio: ["pipe", "ignore", "ignore"],
+        windowsHide: true,
+    })
 }
 
 // What the hook does; the exit code it returns.
@@ -98,6 +129,8 @@ function main() {
     try {
         payload = JSON.parse(input)
     } catch {}
+    const codex = isCodexInput(payload)
+    if (field(payload, "hook_event_name") === "SubagentStop" && !codex) return 0
 
     const repo = worktreeRoot()
     if (!repo) return 0
@@ -106,6 +139,13 @@ function main() {
 
     const session = field(payload, "session_id") || "unknown"
     const safe = session.replace(/[^A-Za-z0-9_-]/g, "_")
+    // Whose turn it is, for the block counter and the "once" files: the session, or on Codex a
+    // Subagent of it by its agent_id. A Subagent's input carries the session_id of its parent, and
+    // its blocks and notes must not use up the parent's.
+    const agentId = codex ? field(payload, "agent_id") : ""
+    const owner = agentId ? `${safe}.${agentId.replace(/[^A-Za-z0-9_-]/g, "_")}` : safe
+    // A reviewer or a scout edits no file: on red it reports the gate instead of fixing it.
+    const readOnly = codex && READ_ONLY_AGENTS.has(codexAgent(payload))
     const transcript = field(payload, "transcript_path")
     const counterDir = path.join(state, "stop-blocks")
     try {
@@ -122,7 +162,7 @@ function main() {
         notes += (notes ? " " : "") + s
     }
     const flushNotes = () => {
-        if (notes) say(`${notes} This is not a green result — say "not verified", not "done".`)
+        if (notes) say(`${notes} This is not a green result — say "not verified", not "done".`, codex)
         return 0
     }
 
@@ -133,9 +173,13 @@ function main() {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
         windowsHide: true,
+        timeout: RESOLVE_MS,
     })
     if (!which.error && !which.signal && which.status === 0) resolved = true
     let key = String(which.stdout ?? "").replace(/\n+$/, "").split("\t")[0]
+    // On Codex, the gate of a registered project runs here; a folder outside the registry gets no run
+    // and no "not verified" turn, as under Claude Code, where the gate runs on TaskCompleted only.
+    if (codex && resolved && key) runGate(here, input)
 
     // Gate markers without a project key (code 3: not registered, the registry cannot be read,
     // no node). Take only our own: of this tree and this session. A marker without a session
@@ -177,7 +221,7 @@ function main() {
             // the gate run. The resolver now finds it — drop the marker silently, otherwise
             // the model would hear "not verified" about a project that is already registered.
             if (kind === "unregistered" && resolved && key) continue
-            const once = path.join(counterDir, `${safe}__nokey-${kind}__${rtag}`)
+            const once = path.join(counterDir, `${owner}__nokey-${kind}__${rtag}`)
             if (exists(once)) continue
             touch(once)
             note(`The quality gate exited with code 3 (not verified): ${msg}`)
@@ -210,7 +254,7 @@ function main() {
     consumeNokey()
 
     if (size(redMarker) > 0) {
-        const counter = path.join(counterDir, `${safe}__${key}-${tag}`)
+        const counter = path.join(counterDir, `${owner}__${key}-${tag}`)
         let count = 0
         try {
             count = Number.parseInt(fs.readFileSync(counter, "utf8"), 10) || 0
@@ -223,12 +267,12 @@ function main() {
         if (count > MAX_BLOCKS) {
             // Enough hammering, but the unverified state must be named out loud —
             // once per session per tree, not on every turn.
-            const giveup = path.join(counterDir, `${safe}__redgiveup__${key}-${tag}`)
+            const giveup = path.join(counterDir, `${owner}__redgiveup__${key}-${tag}`)
             if (!exists(giveup)) {
                 touch(giveup)
                 note(`The quality gate is still red and was not cleared in ${MAX_BLOCKS} attempts. Do not describe this work as verified — say plainly that the gate fails.`)
             }
-            if (notes) say(notes)
+            if (notes) say(notes, codex)
             return 0
         }
 
@@ -239,9 +283,10 @@ function main() {
         // The command the model runs, with / on Windows too: it reads the same in Git Bash and PowerShell.
         const gate = path.join(here, "gate.mjs")
         const shown = process.platform === "win32" ? gate.replaceAll("\\", "/") : gate
-        process.stderr.write(
-            `The quality gate is red (failed at ${failedAt}). Run \`node "${shown}" fast </dev/null; echo "EXIT=$?"\` and fix what it points to before finishing. If it cannot be fixed here, say so instead of reporting the work as done.${notes ? ` Also: ${notes}` : ""}\n`,
-        )
+        const what = readOnly
+            ? `You edit no file, so do not fix it: say in your answer that the gate is red, where it failed and that the work is not verified, then finish.`
+            : `Run \`node "${shown}" fast </dev/null; echo "EXIT=$?"\` and fix what it points to before finishing. If it cannot be fixed here, say so instead of reporting the work as done.`
+        process.stderr.write(`The quality gate is red (failed at ${failedAt}). ${what}${notes ? ` Also: ${notes}` : ""}\n`)
         return 2
     }
 
@@ -249,7 +294,7 @@ function main() {
         // Do not block: an unavailable Docker or unbuilt dependencies cannot be fixed
         // by the model. But this must not pass silently either — otherwise "not verified"
         // turns into "done".
-        const once = path.join(counterDir, `${safe}__unv__${key}-${tag}`)
+        const once = path.join(counterDir, `${owner}__unv__${key}-${tag}`)
         if (!exists(once)) {
             touch(once)
             let text = ""
