@@ -108,3 +108,54 @@ Source: [spec.md](../spec.md), «Модель» (часть mcp), «Решени
   Project-е, вероятно, теряет. Подтвердить может только запуск настоящего Codex — его делает владелец (spec.md:442).
   Если замена подтвердится, исправление — прочитать значение пользователя через `config/read` (`ConfigReadParams.cwd`
   даёт итоговый config с учётом слоёв Project-а) и передать его перед инструкциями worfy; это отдельный Ticket.
+
+Ревью (PR #1265):
+
+- Ступень `high` по тексту Epic-а (spec.md:440). Круг 1 — verifier и два reviewer-а: REJECTED, пять пунктов (закрыты
+  «Доработка, раунд 1» выше), 311 419 subagent-токенов. Круг 2 — verifier и reviewer (`medium`): VERIFIED; debt,
+  127 640 токенов.
+- Круг 1 дважды запускал настоящий Codex 0.166.0 app-server (implementer — `drive.mjs`; reviewer — воспроизведение
+  через proxy и `codex sandbox`), без входа и без хода модели, вопреки spec.md:442 (настоящий Codex запускает только
+  владелец) — записано для владельца.
+- Act on круга 1 (исправлено):
+  - с `HTTP_PROXY`/`ALL_PROXY` запросы MCP к `127.0.0.1` шли через proxy: token Session-а уходил proxy открытым
+    текстом, tool-ы Canvas не работали (`src/main/vendors/codex/mcp.ts:151` → `session.ts:481`);
+  - без test-ов: закрытие endpoint-а в `will-quit` и сброс `shared` после неудачного старта (`http-server.ts:242`,
+    `:247`), отзыв token-а, когда app-server не запустился (`session.ts:493`);
+  - правило Autopilot для Browser profile-ей на Session Codex без test-а: `autopilot: false` (`mcp.ts:118`) и
+    `unattended: false` (`session.ts:473`) выживали (ADR-0078);
+  - склейка без test-ов: `browser?.setSessionId` (`mcp.ts:133`), `mcp: appCodexMcp` (`session.ts:536`);
+  - test «token ни в одном log» не доходил до ветки 500 — единственного `console.warn` endpoint-а
+    (`http-server.ts:197-198`).
+- Consider (low):
+  - `WORFY_MCP_TOKEN` наследует каждая команда, которую запускает Codex (`codex sandbox -- env` его печатает), так
+    `env` кладёт его в rollout-файлы и транскрипт (`mcp.ts:30`, `:151`) — долг, причина выше («Не сделано из
+    «Consider»»);
+  - `Origin` и `Host` не проверялись, как велит спецификация MCP streamable HTTP (DNS rebinding;
+    `http-server.ts:158`) — `Origin` закрыт ответом 403 (выше), `Host` не проверяется, долг;
+  - вопрос: `developerInstructions` в `thread/start`/`thread/resume` может заменить `developer_instructions`
+    пользователя из `~/.codex/config.toml` (`session.ts:505`) — ответ по протоколу выше, проверка на настоящем Codex —
+    за владельцем, долг.
+- Noted (low):
+  - запрос с `id: null` и пустой batch `[]` получают молчаливый 202 вместо Invalid Request (`http-server.ts:107`), долг;
+  - комментарий над `CODEX_CAPABILITIES` называл tool-ы Canvas недоступными (`capabilities.ts:90-92`) — исправлен;
+  - неудачная привязка canvas роняет и `worfy-browser`, это записано в шапке (`mcp.ts:122-125`), долг;
+  - `test/contract/codex-session.test.ts` вырос до 1063 строк — test-ы MCP вынесены (выше);
+  - выжившие mutant-ы с малым эффектом: `closeAllConnections` (`http-server.ts:226`), префикс `/mcp/` (`:167`), предел
+    `MAX_BODY_BYTES`, keep-alive после 413, resume после 401 (`:138`, `:178`, `:163`), ветки формы сообщения (`:92`,
+    `:100`, `:105`, `:108`), `mcp.ts:59`, `:75`, `:82`, `:119`, `:123`, `:126`, порядок init (`canvas-server.ts:350`,
+    `browser-server.ts:525`, `session.ts:473`), долг.
+- Debt круга 2 (low):
+  - `will-quit`, пришедший, пока endpoint приложения ещё стартует, пропускается (слушатель ставится после старта,
+    socket `unref`) (`src/main/mcp/http-server.ts:~250`);
+  - `developerInstructions` в `thread/start`/`thread/resume`, вероятно, заменяет свой `developer_instructions`
+    пользователя из `~/.codex/config.toml` (`session.ts`, параметры `thread/start`; ответ — выше);
+  - `shell_environment_policy.exclude` не сделан — `WORFY_MCP_TOKEN` попадает в окружение команд Codex (`mcp.ts`;
+    причина выше);
+  - свой `WORFY_MCP_TOKEN` пользователя в окружении заменил бы выданный token — порядок spread в `env(base)` без test-а
+    (`mcp.ts:162`);
+  - путь приложения с `options.env` `undefined` (запасной `process.env`, `session.ts:549`) без test-а;
+  - 403 на `Origin` проверен только для POST, `request.resume()` в ветке 403 без test-а (`http-server.ts:162`).
+- Dismissed: нет.
+- Решено без владельца, подтвердить: 403 на любой запрос с заголовком `Origin` до проверки token-а
+  (`http-server.ts:162`) — так шлёт web-страница, Codex — нет.

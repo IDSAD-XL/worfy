@@ -97,3 +97,22 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   `test/unit/canvas-actions.test.tsx`. Правило в `scripts/e2e-specs.table.json` не добавлено: `src/main/agent/limits.ts`
   и соседи видны многим spec-ам, при сомнении — путь вне таблицы.
 - Снимки: [светлая тема](../evidence/26/26-limits-vendors-light.png), [тёмная тема](../evidence/26/26-limits-vendors-dark.png).
+
+Ревью (PR #1266):
+
+- Ступень `low` — по умолчанию: в Wave под Autopilot один verifier (rules-review-depth.md), в профиле нет
+  `review.depth.wave`. Круг 1 — verifier: REJECTED, один пункт (med; закрыт доработкой — компактные разделы без
+  видимых имён Vendor-ов, выше), 84 525 subagent-токенов. Круг 2 — verifier (`low`): VERIFIED; debt, 56 250 токенов.
+- Act on круга 1 (исправлено): с входом в Codex в окне 1280 px заголовок Project-а в toolbar сжимался до ~5.6 px
+  («w...»), строка ветки — до обрывка: ширину занимали имена Vendor-ов у компактных разделов
+  (`src/renderer/shell/toolbar/LimitsMeter.tsx:34-36`, `src/renderer/limits/LimitBar.tsx:71`); e2e не мерил заголовок.
+- Consider (low): с одним Claude появлялась видимая подпись «Claude Code», которой нет в макете F
+  (`docs/design/F-canvas-light.dc.html:121-122`, `LimitsMeter.tsx:34-36`) — закрыто тем же исправлением.
+- Noted (low):
+  - `receive()` держал старый doc comment «One message of the app-server.» перед новым
+    (`src/main/vendors/codex/session.ts:199`) — на `main` остался один комментарий (`session.ts:231`);
+  - в общем списке stash осталась запись `d5d143133` «WIP on worfy-multi-vendor/26» (содержимое в commit-ах), долг.
+- Debt круга 2 (low): с двумя разделами Limits ничто видимое не говорит, который из них Codex — только tooltip,
+  доступное имя и разные подписи окон (5h/weekly против 5-hour/7-day); короткая видимая метка Vendor-а (`VendorBadge`)
+  — перенесено в Ticket 24.
+- Dismissed: нет.

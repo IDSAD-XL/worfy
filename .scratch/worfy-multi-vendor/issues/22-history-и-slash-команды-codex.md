@@ -80,3 +80,46 @@ Source: [spec.md](../spec.md), «Модель» (History, таблица час�
   - Unit test: skill с картинкой и файлом не теряет их (`userInput`). Contract test-ы: `/compact` и `/review` во время
     хода дают notice и ничего не шлют; меню без skills (`/compact`, `/review`), когда `skills/list` не ответил.
   - Skill с `/` в имени в меню не попадает: `slashName` такое имя не прочтёт, строка меню его бы не запустила.
+
+Ревью (PR #1264):
+
+- Ступень `high` по тексту Epic-а (spec.md:440). Круг 1 — verifier, два reviewer-а, sceptic: REJECTED, пять пунктов
+  (закрыты доработкой «Rework, раунд 1» выше), 348 394 subagent-токена. Круг 2 — verifier и reviewer (`medium`):
+  VERIFIED; debt, 130 566 токенов. После rebase на `d977ed503` (head `780336468`) — повторная проверка (`low`):
+  `git range-diff` — оба commit-а те же, `ci-ok` зелёный; вердикт круга 2 в силе, токены не измерены.
+- Act on круга 1 (исправлено):
+  - не доказано, что короткоживущий app-server history закрывается по timeout, при отказе `thread/read` и на пределе
+    страниц (`history.ts:127`, `:131`, `:143`; mutant-ы timeout и бесконечного цикла выживали);
+  - `/review` терял результат: Codex отдаёт ревью в item `exitedReviewMode.review`, `items.ts:236-240` делал из него
+    `unknown`; фикстура `review.jsonl:6,10` выдумывала `agentMessage`;
+  - test сверял `sourceKinds` и размер страницы с той же константой (`history.ts:35`,
+    `test/contract/codex-history.test.ts:79`);
+  - skill с вложениями без test-а — картинки и файлы могли теряться (`session.ts:127`);
+  - ветки команд без test-ов: `/compact` или `/review` во время хода (`session.ts:373`), меню `/compact` + `/review`
+    при отказе `skills/list` (`session.ts:276`).
+- Consider (low), долг:
+  - нет фильтра `cwd` в `thread/list`: список Project-а пуст, если его thread-ы старше 2000 новейших в других папках;
+    запуски `exec` видны как Session-ы (`history.ts:35`, `:45`, `:130`);
+  - Interrupt между ответом `thread/compact/start` и `turn/started` теряется молча (`session.ts:377-379`, `:223`);
+  - slash-меню пусто после смерти процесса, а main держит для него `lastHandle` (`session.ts:270-271`);
+  - `read` теряет `image`/`localImage` сообщений пользователя, «Attached files:» не становятся вложениями
+    (`history.ts:76-84`, `:100`);
+  - skill с `/` в имени был в меню, а `slashName` его не находил (`commands.ts:57`, `:66`) — закрыто в доработке выше.
+- Noted (low), долг:
+  - встроенная команда с вложениями уходит обычным текстом без notice (`commands.ts:79-80`);
+  - комментарий `history.ts:18` «worfy writes nothing into CODEX_HOME» слишком силён: `thread/list` чинит state db;
+  - без test-ов: повтор после отказа `skills/list` (`session.ts:285`), `activeTurn` после `review/start` (`:382`), текст
+    ошибки skill (`:335`), `shortDescription`, фильтр пустого имени и `trimStart` (`commands.ts:47`, `:57`, `:77`),
+    мелкие ветки `history.ts:52`, `:58`, `:70`, `:83`, `:94`.
+- Debt круга 2 (low):
+  - `agentMessage` и `exitedReviewMode` в одном ходе `/review` дают два события `text`, ответ — ревью (оно последнее);
+    фикстуры на пару нет, на настоящем Codex не проверено (`src/main/vendors/codex/items.ts:229-235`);
+  - `enteredReviewMode` по-прежнему приходит событием `unknown` (`items.ts`, ветка `default`);
+  - строка, которая делает ход `/review` текущим (и её проверка `lastEnded`), без test-а: сообщение или Interrupt во
+    время ревью не проверены (`src/main/vendors/codex/session.ts:450`);
+  - `codexSkills()` после закрытия handle-а без test-а (`session.ts:350`).
+- Dismissed: нет.
+- Решено без владельца, подтвердить: `exec` в `sourceKinds` `thread/list` (`history.ts:35`) — запуски `codex exec` в
+  папке Project-а видны в списке Session-ов. Остальные решения этого «Итог» уже отмечены выше: нет фильтра `cwd`
+  (предел 2000 новейших thread-ов), встроенная команда с вложениями — обычным текстом, `/compact` или `/review` во
+  время хода — notice.

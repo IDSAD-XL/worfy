@@ -23,6 +23,18 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 4. Подписи и значки — из `src/shared/vendors/vendor.ts`; проверок имени Vendor-а в renderer нет.
 5. Снимки в обеих темах — `.scratch/worfy-multi-vendor/evidence/24/`.
 
+Из ревью Wave 7 (low; решено без владельца, подтвердить):
+
+6. «Ship ticket» зовёт `sessions.create`, который берёт `defaultVendor` Project-а и обходит отказ без входа из `open`
+   (`src/main/actions/launch.ts:197`, `src/main/agent/node-sessions.ts:182`): с выбором «Default vendor» Codex skill
+   Harness уйдёт в Codex раньше Ticket-ов 35/36. Закрепить «Ship ticket» за `claude` или пропустить его через
+   `vendorRefusal` (ревью PR #1267, Ticket 23).
+7. Save настроек без `defaultVendor` сохраняет сохранённое значение (`src/main/projects/settings.ts:44`): «Default
+   vendor» можно заменить, но не сбросить — выбору нужен сброс (ревью PR #1267, Ticket 23).
+8. С двумя разделами Limits ничто видимое не говорит, который из них Codex — только tooltip и доступное имя: короткая
+   видимая метка Vendor-а (`VendorBadge`) в панели Limits (`src/renderer/shell/toolbar/LimitsMeter.tsx`), не ломая
+   ширину заголовка Project-а в окне 1280 px (ревью PR #1266, Ticket 26).
+
 ## Готово, когда
 
 - [ ] e2e (фейки Claude и Codex): «New session» → Codex — Node со значком Codex; Vendor по умолчанию Project-а
@@ -41,3 +53,5 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 - `src/renderer/settings/SessionsSection.tsx`
 - `test/e2e/vendor-picker.spec.ts` (новый), `scripts/e2e-specs.table.json`
 - `test/unit/session-view.test.tsx`
+- Из ревью Wave 7 (п. 6–8): `src/main/actions/launch.ts`, `src/main/agent/node-sessions.ts`,
+  `src/main/projects/settings.ts`, `src/renderer/shell/toolbar/LimitsMeter.tsx`, `test/e2e/limits-vendors.spec.ts`
