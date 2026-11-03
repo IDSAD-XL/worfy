@@ -1,7 +1,8 @@
 # 26 — Limits по Vendor-ам в панели
 
 Type: task
-Status: claimed 2026-11-03T01:03Z
+Status: done 2026-11-03T02:50Z
+PR: #1266
 Blocked by: 21
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 8; решение 09 ([09-limits-и-autopilot-по-vendor.md](09-limits-и-autopilot-по-vendor.md)); [CONTEXT.md](../../../CONTEXT.md), термин Limits
 
