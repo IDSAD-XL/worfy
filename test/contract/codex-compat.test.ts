@@ -74,6 +74,8 @@ interface CodexCapture {
   leftovers(text: string, replacements: readonly Replacement[]): string[]
   hostReplacements(host: string): Replacement[]
   identifierReplacements(steps: readonly unknown[]): Replacement[]
+  pluginReplacements(steps: readonly unknown[]): Replacement[]
+  neutralPluginSkills<T>(steps: readonly T[]): T[]
   replacementsOf(run: { project: string; codexHome: string; work: string; home: string; host: string; steps: readonly unknown[]; secrets: readonly Replacement[] }): Replacement[]
   neutralUserAgent(userAgent: string): string | null
   appServerEnv(base: Record<string, string | undefined>, folders: { codexHome: string; home: string }): Record<string, string | undefined>
@@ -554,7 +556,7 @@ describe('the recorded hook inputs and the exceptions', () => {
     const steps = readRecordings(DEFAULT_RECORDINGS).steps.map(({ step }) => step as { expect?: string; result?: { data?: { skills?: { name: string; path: string; scope: string }[] }[] } })
     const users = steps.filter((step) => step.expect === 'skills/list').flatMap((step) => (step.result?.data ?? []).flatMap((entry) => (entry.skills ?? []).filter((skill) => skill.scope === 'user')))
     expect(users.length).toBeGreaterThan(0)
-    expect(users.filter((skill) => !/^(capture-plugin:)?capture-skill-[a-z]$/.test(skill.name)).map((skill) => skill.name)).toEqual([])
+    expect(users.filter((skill) => !/^(capture-plugin-[a-z]:)?capture-skill-[a-z]$/.test(skill.name)).map((skill) => skill.name)).toEqual([])
     // Nowhere in the recordings a skill folder of the home folder other than the neutral ones.
     const text = readdirSync(DEFAULT_RECORDINGS, { recursive: true, encoding: 'utf8' })
       .filter((name) => name.endsWith('.jsonl'))
@@ -633,6 +635,106 @@ describe('the capture script', () => {
       new Set(['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', 'capture-host.local', 'capture-host', 'worfy/0.166.0 (Mac OS 26.6.1; arm64) capture-terminal (worfy; capture)']),
     )
     expect(capture.scrub(steps, replacements)).toEqual(steps)
+    // The plugins of the account (owner decision Q12): already the neutral ones, which the script writes as they are.
+    expect(capture.pluginReplacements(steps)).toEqual([])
+    expect(capture.neutralPluginSkills(steps)).toEqual(steps)
+    const pluginIds = steps.flatMap((step) => JSON.stringify(step).match(/"pluginId":"[^"]*"/g) ?? [])
+    expect(new Set(pluginIds)).toEqual(new Set(['"pluginId":"capture-plugin-a@openai-curated-remote"']))
+    const servers = steps.flatMap((step) => ((step as Step).notify === 'mcpServer/startupStatus/updated' ? [(step as { params: { name: string } }).params.name] : []))
+    expect(new Set(servers)).toEqual(new Set(['capture', 'codex_apps', 'capture_plugin_a_mcp']))
+  })
+
+  it('replaces the plugins of the account: their ids, skills, folders and MCP servers, and names one that is left', () => {
+    const cache = '/nowhere/worfy-capture-1/codex-home/plugins/cache/openai-curated-remote'
+    const pluginSkill = (plugin: string, skill: string, face: Record<string, string | null>) => ({
+      name: `${plugin}:${skill}`,
+      description: `The ${skill} skill of ${plugin}, for the owner's ${plugin} files.`,
+      interface: face,
+      path: `${cache}/${plugin}/1.2.0/skills/${skill}/SKILL.md`,
+      scope: 'user',
+      enabled: true,
+      pluginId: `${plugin}@openai-curated-remote`,
+    })
+    const full = (skill: string) => ({ displayName: skill, shortDescription: `Work with ${skill}`, iconSmall: `${cache}/figma/1.2.0/skills/${skill}/assets/figma-small.svg`, iconLarge: null, iconSmallUrl: null, iconLargeUrl: 'https://cdn.example/figma.png', brandColor: '#F24E1E', defaultPrompt: `Use $figma:${skill} on this file.` })
+    const bare = { displayName: 'Notion', shortDescription: null, iconSmall: null, iconLarge: null, iconSmallUrl: null, iconLargeUrl: null, brandColor: null, defaultPrompt: null }
+    const repo = { name: 'capture-greeting', description: 'Greets the user in one short line.', path: '/nowhere/worfy-capture-1/project/.agents/skills/capture-greeting/SKILL.md', scope: 'repo', enabled: true, pluginId: null }
+    const skills = [repo, pluginSkill('figma', 'figma-code-workflows', full('figma-code-workflows')), pluginSkill('figma', 'figma-use', full('figma-use')), pluginSkill('notion', 'notion-research', bare)]
+    const status = (name: string) => ({ notify: 'mcpServer/startupStatus/updated', params: { threadId: 't', name, status: 'ready', error: null, failureReason: null } })
+    const steps = [
+      { expect: 'skills/list', params: { cwds: ['/nowhere/worfy-capture-1/project'] }, result: { data: [{ cwd: '/nowhere/worfy-capture-1/project', skills, errors: [] }] } },
+      status('capture'),
+      status('codex_apps'),
+      status('creative_production_mcp'),
+      status('notion_mcp'),
+      status('creative_production_mcp'),
+      { notify: 'warning', params: { threadId: 't', message: 'figma:figma-use needs figma@openai-curated-remote; creative_production_mcp is slow; capture_tools stays' } },
+      { expect: 'config/read', result: { disabledPluginIds: ['notion@openai-curated-remote'] } },
+    ]
+    const plugins = capture.pluginReplacements(steps)
+    expect(new Set(capture.leftovers(JSON.stringify(steps), plugins))).toEqual(new Set(['a plugin of the account', 'a plugin skill of the account', 'an MCP server of a plugin']))
+    const replacements = capture.replacementsOf({ project: '/nowhere/worfy-capture-1/project', codexHome: '/nowhere/worfy-capture-1/codex-home', work: '/nowhere/worfy-capture-1', home: '/Users/someone', host: 'studio', steps, secrets: [] })
+    const written = capture.neutralPluginSkills(capture.scrub(steps, replacements))
+    expect(capture.leftovers(JSON.stringify(written), replacements)).toEqual([])
+    const neutral = '/capture/codex-home/plugins/cache/openai-curated-remote'
+    expect(written[0]).toEqual({
+      expect: 'skills/list',
+      params: { cwds: ['/capture/project'] },
+      result: {
+        data: [
+          {
+            cwd: '/capture/project',
+            skills: [
+              { ...repo, path: '/capture/project/.agents/skills/capture-greeting/SKILL.md' },
+              {
+                name: 'capture-plugin-a:capture-skill-a',
+                description: 'A neutral plugin skill of the capture.',
+                interface: { displayName: 'Capture Skill A', shortDescription: 'A neutral plugin skill.', iconSmall: `${neutral}/capture-plugin-a/1.2.0/skills/capture-skill-a/assets/capture-skill-a-small.svg`, iconLarge: null, iconSmallUrl: null, iconLargeUrl: 'https://example.com/capture-skill-a.png', brandColor: '#000000', defaultPrompt: 'Use $capture-skill-a to say hello.' },
+                path: `${neutral}/capture-plugin-a/1.2.0/skills/capture-skill-a/SKILL.md`,
+                scope: 'user',
+                enabled: true,
+                pluginId: 'capture-plugin-a@openai-curated-remote',
+              },
+              {
+                name: 'capture-plugin-a:capture-skill-b',
+                description: 'A neutral plugin skill of the capture.',
+                interface: { displayName: 'Capture Skill B', shortDescription: 'A neutral plugin skill.', iconSmall: `${neutral}/capture-plugin-a/1.2.0/skills/capture-skill-b/assets/capture-skill-b-small.svg`, iconLarge: null, iconSmallUrl: null, iconLargeUrl: 'https://example.com/capture-skill-b.png', brandColor: '#000000', defaultPrompt: 'Use $capture-skill-b to say hello.' },
+                path: `${neutral}/capture-plugin-a/1.2.0/skills/capture-skill-b/SKILL.md`,
+                scope: 'user',
+                enabled: true,
+                pluginId: 'capture-plugin-a@openai-curated-remote',
+              },
+              {
+                name: 'capture-plugin-b:capture-skill-c',
+                description: 'A neutral plugin skill of the capture.',
+                interface: { ...bare, displayName: 'Capture Skill C' },
+                path: `${neutral}/capture-plugin-b/1.2.0/skills/capture-skill-c/SKILL.md`,
+                scope: 'user',
+                enabled: true,
+                pluginId: 'capture-plugin-b@openai-curated-remote',
+              },
+            ],
+            errors: [],
+          },
+        ],
+      },
+    })
+    expect(written.slice(1, 6).map((step) => (step as { params: { name: string } }).params.name)).toEqual(['capture', 'codex_apps', 'capture_plugin_a_mcp', 'capture_plugin_b_mcp', 'capture_plugin_a_mcp'])
+    expect(written[6]).toEqual({ notify: 'warning', params: { threadId: 't', message: 'capture-plugin-a:capture-skill-b needs capture-plugin-a@openai-curated-remote; capture_plugin_a_mcp is slow; capture_tools stays' } })
+    expect(written[7]).toEqual({ expect: 'config/read', result: { disabledPluginIds: ['capture-plugin-b@openai-curated-remote'] } })
+    expect(capture.shapeOf(written)).toEqual(capture.shapeOf(steps))
+
+    // The run checks the same replacements after its scrub: a plugin, a plugin skill or an MCP server left as it came is named.
+    for (const [left, what] of [
+      ['figma@openai-curated-remote', 'a plugin of the account'],
+      ['/codex-home/plugins/cache/openai-curated-remote/notion/1.2.0/README.md', 'a plugin of the account'],
+      ['figma:figma-use', 'a plugin skill of the account'],
+      ["The figma-use skill of figma, for the owner's figma files.", 'a plugin skill of the account'],
+      ['notion_mcp', 'an MCP server of a plugin'],
+    ]) {
+      expect(capture.leftovers(`${JSON.stringify(written)} ${left}`, replacements)).toEqual([what])
+    }
+    // An MCP server name only as a whole name.
+    expect(capture.leftovers('notion_mcp_v2 and my-notion_mcp', replacements)).toEqual([])
   })
 
   it('replaces the terminal of the User-Agent, keeps its OS part, and names one that is left', () => {

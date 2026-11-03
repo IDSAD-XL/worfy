@@ -21,8 +21,8 @@
 //   - records every message both ways, in the step form of the fake's scripts
 //     (test/fixtures/codex-scripts/), one file per part of the scenario, and every hook input.
 //   - replaces the email, the account and user ids, the tokens, the home folder, the temporary folders,
-//     the host name, the installation id, the login id and the terminal of the User-Agent in what it
-//     writes, checks that none is left and that skills/list lists no user skill outside the temporary
+//     the host name, the installation id, the login id, the terminal of the User-Agent and the plugins
+//     of the account (their ids, skills and MCP servers) in what it writes, checks that none is left and that skills/list lists no user skill outside the temporary
 //     folder, and replaces the recordings of the output
 //     folder (default test/fixtures/codex-messages/; its README.md stays) with a manifest.json.
 //   - logs out of the temporary login and removes the temporary folder.
@@ -141,9 +141,10 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
 
 /**
  * A replacement `{ from, to, what }` replaces every occurrence of `from`; one with `name: true` (a host
- * name) only a whole name, not one inside a longer name: a host `mac` leaves `macos` as it is.
+ * name, an MCP server) only a whole name, not one inside a longer name: a host `mac` leaves `macos` as it
+ * is, a server `notion_mcp` leaves `notion_mcp_v2`.
  */
-const NAME_CHAR = 'A-Za-z0-9-'
+const NAME_CHAR = 'A-Za-z0-9_-'
 const literal = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const matcherOf = ({ from, name }) => (name === true ? new RegExp(`(?<![${NAME_CHAR}])${literal(from)}(?![${NAME_CHAR}])`, 'g') : null)
 
@@ -240,6 +241,122 @@ export function identifierReplacements(steps) {
   visit(steps)
   const hosts = steps.flatMap((step) => (isObject(step) && step.notify === 'remoteControl/status/changed' && typeof step.params?.serverName === 'string' ? hostReplacements(step.params.serverName) : []))
   return [...[...found].map(([from, { to, what }]) => ({ from, to, what })), ...hosts]
+}
+
+/**
+ * MCP servers that are not a plugin of the account: the run's own (`capture`, in its config.toml) and
+ * the one Codex starts for every ChatGPT login (`codex_apps`).
+ */
+const OWN_MCP_SERVERS = new Set(['capture', 'codex_apps'])
+
+const letter = (index) => String.fromCharCode(97 + (index % 26)) + (index >= 26 ? String(Math.floor(index / 26)) : '')
+
+/** The skills of the skills/list answers in `steps`, in the order they come. */
+const listedSkills = (steps) =>
+  steps.flatMap((step) =>
+    isObject(step) && step.expect === 'skills/list' && Array.isArray(step.result?.data)
+      ? step.result.data.flatMap((entry) => (Array.isArray(entry?.skills) ? entry.skills.filter(isObject) : []))
+      : [],
+  )
+
+/** `plugins/cache/<marketplace>/<plugin>/<version>/skills/<folder>/SKILL.md` at the end of a plugin skill's path. */
+const PLUGIN_SKILL_PATH = /plugins([/\\])cache\1([^/\\]+)\1([^/\\]+)\1([^/\\]+)\1skills\1(.+)\1SKILL\.md$/
+
+const NEUTRAL_PLUGIN_SKILL = 'A neutral plugin skill of the capture.'
+
+/**
+ * The replacements of the plugins of the account that the recorded `steps` name (owner decision Q12,
+ * 2026-11-03): ChatGPT installs the account's plugins from OpenAI's catalog into CODEX_HOME, and
+ * skills/list lists their skills. Each distinct plugin id `<plugin>@<marketplace>` becomes
+ * `capture-plugin-a@<marketplace>`, `-b`… in the order they come; a plugin skill `<plugin>:<skill>`
+ * becomes `capture-plugin-a:capture-skill-<letter>`, its folder and description too. The letters of the
+ * skills count every user-scope skill, so a plugin skill never shares a folder name with a user skill.
+ * Every MCP server other than the run's own and `codex_apps` (the plugins bring them, and the
+ * messages do not say whose it is) becomes `capture_plugin_a_mcp`, `_b_`… A value already neutral
+ * maps to itself and gives no replacement.
+ */
+export function pluginReplacements(steps) {
+  const plugins = new Map()
+  const pluginOf = (id) => {
+    if (!plugins.has(id)) {
+      const at = id.lastIndexOf('@')
+      plugins.set(id, { name: at > 0 ? id.slice(0, at) : id, neutral: `capture-plugin-${letter(plugins.size)}`, marketplace: at > 0 ? id.slice(at + 1) : null })
+    }
+    return plugins.get(id)
+  }
+  const found = new Map()
+  const add = (from, to, what, name) => {
+    if (from.length > 0 && from !== to && !found.has(from)) found.set(from, { from, to, what, ...(name ? { name: true } : {}) })
+  }
+  const userSkills = []
+  for (const skill of listedSkills(steps)) {
+    const ofPlugin = typeof skill.pluginId === 'string' && skill.pluginId !== ''
+    if ((skill.scope === 'user' || ofPlugin) && typeof skill.name === 'string' && !userSkills.includes(skill.name)) userSkills.push(skill.name)
+    if (!ofPlugin) continue
+    const plugin = pluginOf(skill.pluginId)
+    const id = plugin.marketplace === null ? plugin.neutral : `${plugin.neutral}@${plugin.marketplace}`
+    add(skill.pluginId, id, 'a plugin of the account')
+    if (typeof skill.name !== 'string') continue
+    const neutralSkill = `capture-skill-${letter(userSkills.indexOf(skill.name))}`
+    add(skill.name, `${plugin.neutral}:${neutralSkill}`, 'a plugin skill of the account')
+    if (typeof skill.description === 'string') add(skill.description, NEUTRAL_PLUGIN_SKILL, 'a plugin skill of the account')
+    const match = typeof skill.path === 'string' ? PLUGIN_SKILL_PATH.exec(skill.path) : null
+    if (match !== null) {
+      const [, sep, marketplace, folder, version, skillFolder] = match
+      const pluginFolder = ['plugins', 'cache', marketplace, folder].join(sep)
+      const neutralFolder = ['plugins', 'cache', marketplace, plugin.neutral].join(sep)
+      add(`${pluginFolder}${sep}`, `${neutralFolder}${sep}`, 'a plugin of the account')
+      add([pluginFolder, version, 'skills', skillFolder, ''].join(sep), [neutralFolder, version, 'skills', neutralSkill, ''].join(sep), 'a plugin skill of the account')
+    }
+  }
+  const servers = []
+  for (const step of steps) {
+    const name = isObject(step) && step.notify === 'mcpServer/startupStatus/updated' ? step.params?.name : undefined
+    if (typeof name === 'string' && name !== '' && !OWN_MCP_SERVERS.has(name) && !servers.includes(name)) servers.push(name)
+  }
+  servers.forEach((name, index) => add(name, `capture_plugin_${letter(index)}_mcp`, 'an MCP server of a plugin', true))
+  return [...found.values()]
+}
+
+/**
+ * The recorded `steps` with every plugin skill of skills/list in its neutral form, after scrub() gave it
+ * its neutral name and path: the description and each string of `interface` become neutral text, icons
+ * a file of the skill's folder, null stays null. Keys and JSON types stay as they came.
+ */
+export function neutralPluginSkills(steps) {
+  const neutralInterface = (face, skill, folder) => {
+    if (!isObject(face)) return face
+    const sep = folder.includes('\\') && !folder.includes('/') ? '\\' : '/'
+    const short = skill.slice(skill.lastIndexOf(':') + 1)
+    const title = short.split('-').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+    const values = {
+      displayName: title,
+      shortDescription: 'A neutral plugin skill.',
+      iconSmall: [folder, 'assets', `${short}-small.svg`].join(sep),
+      iconLarge: [folder, 'assets', `${short}.png`].join(sep),
+      iconSmallUrl: `https://example.com/${short}-small.svg`,
+      iconLargeUrl: `https://example.com/${short}.png`,
+      brandColor: '#000000',
+      defaultPrompt: `Use $${short} to say hello.`,
+    }
+    return Object.fromEntries(Object.entries(face).map(([key, value]) => [key, typeof value === 'string' ? (values[key] ?? 'capture') : value]))
+  }
+  const neutralSkill = (skill) => {
+    if (!isObject(skill) || typeof skill.pluginId !== 'string' || skill.pluginId === '' || typeof skill.name !== 'string') return skill
+    const folder = typeof skill.path === 'string' ? skill.path.replace(/[/\\]SKILL\.md$/, '') : ''
+    return Object.fromEntries(
+      Object.entries(skill).map(([key, value]) => {
+        if (key === 'description' && typeof value === 'string') return [key, NEUTRAL_PLUGIN_SKILL]
+        if (key === 'interface') return [key, neutralInterface(value, skill.name, folder)]
+        return [key, value]
+      }),
+    )
+  }
+  return steps.map((step) =>
+    isObject(step) && step.expect === 'skills/list' && isObject(step.result) && Array.isArray(step.result.data)
+      ? { ...step, result: { ...step.result, data: step.result.data.map((entry) => (isObject(entry) && Array.isArray(entry.skills) ? { ...entry, skills: entry.skills.map(neutralSkill) } : entry)) } }
+      : step,
+  )
 }
 
 // --- The run ---------------------------------------------------------------------------------------
@@ -593,8 +710,8 @@ const pathReplacements = (path, to, what) => {
 
 /**
  * Everything a run replaces in what it writes: its folders (the Project, CODEX_HOME, the temporary
- * folder), the home folder, the host name, the identifiers the recorded `steps` carry and the `secrets`
- * of the login.
+ * folder), the home folder, the host name, the identifiers and the plugins of the account the recorded
+ * `steps` carry and the `secrets` of the login.
  */
 export function replacementsOf({ project, codexHome, work, home, host, steps, secrets }) {
   return [
@@ -604,6 +721,7 @@ export function replacementsOf({ project, codexHome, work, home, host, steps, se
     ...pathReplacements(home, '/home/owner', 'the home folder'),
     ...hostReplacements(host),
     ...identifierReplacements(steps),
+    ...pluginReplacements(steps),
     ...secrets,
   ]
 }
@@ -841,7 +959,7 @@ async function run(options) {
       }
       return null
     })()
-    for (const [part, steps] of recorder.parts) if (steps.length > 0) files.push([`${part}.jsonl`, jsonl(scrub(steps, replacements))])
+    for (const [part, steps] of recorder.parts) if (steps.length > 0) files.push([`${part}.jsonl`, jsonl(neutralPluginSkills(scrub(steps, replacements)))])
     const hooks = hookInputs(folders.hookInputs)
     for (const [event, inputs] of hooks) files.push([join('hooks', `${event}.jsonl`), jsonl(scrub(inputs, replacements))])
     const manifest = {
