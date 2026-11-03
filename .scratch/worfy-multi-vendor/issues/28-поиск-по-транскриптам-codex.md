@@ -55,3 +55,9 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   Codex найден, snippet и пределы как у Claude, кэш до смены времени, отказ Codex, ничего не записано в Claude home, Codex home
   и папки Project-ов); `test/unit/palette-transcripts.test.tsx`; e2e `test/e2e/codex-transcript-search.spec.ts`.
 - Снимки: [светлая тема](../evidence/28/28-codex-search-light.png), [тёмная тема](../evidence/28/28-codex-search-dark.png).
+- Ревью (verify-28, ступень `low`, PR #1289): `VERIFIED`. Долги:
+  - debt (Consider, low): два поиска подряд на холодном кэше оба читают у Codex один и тот же непрочитанный thread
+    (`src/main/claude-home/search.ts:298`; окно шлёт новый поиск после каждой паузы 250 ms, main ничего не отменяет).
+    Это лишние запуски процесса, результат не страдает. Исправление — держать начатое чтение thread-а по его ключу.
+  - debt (Noted, low): пока не пришёл первый список Session-ов Codex Project-а, поиск молча не видит thread-ы Codex и отвечает
+    `limited: false` (`src/main/ipc/claude-home.ts:281-282`). Ограничение описано в `docs/features/app-shell.md`.
