@@ -20,8 +20,7 @@
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): закрыт, 16/16, принят владельцем 2026-11-02 (Mac). `worfy-guide`: закрыт, 21/21.
 - `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): закрыт, 28/28, принят владельцем 2026-11-01; Windows-часть 25 не проводилась.
 - `worfy-resource-planner`: закрыт, 12/12, принят владельцем 2026-11-01.
-- `worfy-multi-vendor`: 32/45, Wave 11 влита (31, #1292); дальше 32. Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33; `high` 19–21; запуски Codex (33). Должен: gate full ПК на `2644e70c` (scope `pc`: #1289), в очереди ПК через мост.
-- ПК: gate full на `9c81e5b0` (после Wave 9) принят 2026-11-03.
+- `worfy-multi-vendor`: 32/45, Wave 11 влита (31, #1292); 32 ждёт владельца. Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33; `high` 19–21; запуски Codex (33).
 
 ## Ждёт владельца
 
@@ -32,6 +31,7 @@
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
 - `worfy-windows`, ПК: 12 — SmartScreen установщика; 07 закрыт (#1127, отступления Q31 подтвердить).
 - Приёмки (Q14).
+- `worfy-multi-vendor` 32 — приёмка на Mac Stable с Codex (Plus), «План приёмки» Ticket-а; сначала Stable ≥ `fabd82321`.
 - `worfy-ui` (закрыт): Windows-часть не проводилась — AltGr на ПК (03), gate full на Windows для 03 и 10, 11 (решения в PR #328); долги — «Итог» 03–06, 09, 10, 13–15.
 - Решено без владельца, подтвердить: видно ли новое описание аудита в приложении Claude (`worfy-guide` 20 п. 1 сделан).
 
