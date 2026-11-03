@@ -30,16 +30,23 @@
 // The version: the one `codex plugin list --json` names for worfy@worfy-harness. A plugin of a local
 // marketplace may be listed without a version of its own (`local`); then the version worfy recorded
 // after its last install into Codex stands for it, so an update runs once, not on every Install.
+//
+// The status reads Codex for CODEX_STATUS_TIMEOUT_MS at most: every read of the Harness state waits
+// for it (the toolbar, the first-run screen, the Update check), the Claude Code part included, so a
+// Codex that hangs makes its own part an error rather than holding the rest.
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { CodexHarness as CodexHarnessStatus, CodexHarnessState, CodexHarnessStep } from '../../shared/ipc/harness'
 import { codexExecutablePath, type CodexPackageResolver, type CodexRuntime } from '../vendors/codex/binary'
 import { CODEX_ABSENT } from '../vendors/codex/launch'
-import { codexAgentFiles, codexAgentsDrift, writeCodexAgents } from './codex-agents'
+import { codexAgentFiles, codexAgentsDrift, writeCodexAgents, type CodexAgentsDrift } from './codex-agents'
 import { compareHarnessVersions, DEPENDENCY_MARKETPLACE, DEPENDENCY_MARKETPLACE_SOURCE, DOWNLOAD_TIMEOUT_MS, HARNESS_MARKETPLACE, HARNESS_PLUGIN_ID, runTool, type Tool } from './install'
 
 type Env = Readonly<Record<string, string | undefined>>
+
+/** How long the status waits for `codex plugin list`; then the Codex part is an error and the command is stopped. */
+export const CODEX_STATUS_TIMEOUT_MS = 10_000
 
 /**
  * The Codex binary of the install commands: WORFY_CODEX_CLI when set (tests point it at a stand-in),
@@ -74,8 +81,8 @@ export interface CodexPlan {
   commands: string[][]
   /** <CODEX_HOME>/agents. */
   agentsDir: string
-  /** The agent files to write (missing or different) and worfy's older files to remove. */
-  agents: { write: string[]; remove: string[] }
+  /** The agent files to write (missing or different), worfy's older files to remove, and the names a file of the user's own holds. */
+  agents: CodexAgentsDrift
 }
 
 export interface CodexInstallerOptions {
@@ -97,6 +104,8 @@ export interface CodexInstallerOptions {
   renameRetryMs?: number
   /** Renames an agent file into place; tests inject one that fails as a file held open on Windows does. */
   renameFile?: (from: string, to: string) => Promise<void>
+  /** How long the status waits for `codex plugin list`; CODEX_STATUS_TIMEOUT_MS by default. */
+  statusTimeoutMs?: number
 }
 
 interface ListedPlugin {
@@ -170,6 +179,14 @@ function manifestVersion(dir: string): string | null {
   }
 }
 
+/** The state the status reports, and the agents a file of the user's own keeps out (codexAgentsDrift's `skipped`). */
+interface StateRead {
+  state: CodexHarnessState
+  skipped: string[]
+}
+
+const stepState = (error: CodexStepError): CodexHarnessState => ({ kind: 'error', step: error.step, reason: error.message })
+
 /** "Marketplace `x` is already added" is not a failure; "already added from a different source" is. */
 const alreadyAdded = (message: string): boolean => /already added/i.test(message) && !/different source/i.test(message)
 
@@ -188,33 +205,59 @@ export class CodexHarness {
     return join(this.options.codexHome, 'agents')
   }
 
-  /** The state in Codex; null when Codex is not there. Writes nothing; runs `codex plugin list` only. */
+  /**
+   * The state in Codex; null when Codex is not there. Writes nothing; runs `codex plugin list` only,
+   * and waits for it statusTimeoutMs at most: a Codex that does not answer by then is an error of
+   * `plugin list`, its command is stopped, and an answer that comes later is dropped.
+   */
   async status(failure?: CodexStepError): Promise<CodexHarnessStatus | null> {
     if (!this.present()) return null
-    let state: CodexHarnessState
-    if (failure !== undefined) state = { kind: 'error', step: failure.step, reason: failure.message }
-    else {
-      try {
-        state = this.stateOf(await this.listed())
-      } catch (error) {
-        if (!(error instanceof CodexStepError)) throw error
-        state = { kind: 'error', step: error.step, reason: error.message }
-      }
-    }
-    return { state, agentsDir: this.agentsDir, hooksToApprove: this.hooksToApprove && state.kind === 'installed' }
+    const { state, skipped } = failure === undefined ? await this.boundedRead() : { state: stepState(failure), skipped: [] }
+    return { state, agentsDir: this.agentsDir, hooksToApprove: this.hooksToApprove && state.kind === 'installed', skippedAgents: skipped }
   }
 
-  private stateOf(listed: Map<string, ListedPlugin>): CodexHarnessState {
-    const bundled = manifestVersion(this.options.bundledDir)
-    const entry = listed.get(HARNESS_PLUGIN_ID)
-    if (entry === undefined) return { kind: 'not-installed' }
-    const version = this.versionOf(entry)
-    if (bundled === null) return { kind: 'installed', version: version ?? '' }
-    const missing = dependenciesOf(this.options.bundledDir).filter((id) => !listed.has(id))
-    if (missing.length > 0) return { kind: 'error', step: 'dependency add', reason: `the Harness needs ${missing.join(', ')}, and Codex does not list ${missing.length === 1 ? 'it' : 'them'} as installed` }
-    const agents = codexAgentsDrift(this.agentsDir, this.agentFiles(bundled))
-    if (version !== bundled || agents.write.length > 0 || agents.remove.length > 0) return { kind: 'outdated', from: version, to: bundled }
-    return { kind: 'installed', version }
+  private async boundedRead(): Promise<StateRead> {
+    const limit = this.options.statusTimeoutMs ?? CODEX_STATUS_TIMEOUT_MS
+    let timer: NodeJS.Timeout | undefined
+    const late = new Promise<StateRead>((resolve) => {
+      timer = setTimeout(() => {
+        resolve({ state: { kind: 'error', step: 'plugin list', reason: `codex plugin list --json did not answer in ${String(Math.round(limit / 1000))} s` }, skipped: [] })
+      }, limit)
+    })
+    try {
+      return await Promise.race([this.read(limit), late])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /** The state from `codex plugin list` (stopped after `timeout`), with the agents a file of the user's own keeps out. */
+  private async read(timeout: number): Promise<StateRead> {
+    try {
+      const listed = await this.listed(timeout)
+      const bundled = manifestVersion(this.options.bundledDir)
+      const entry = listed.get(HARNESS_PLUGIN_ID)
+      if (entry === undefined) return { state: { kind: 'not-installed' }, skipped: [] }
+      const version = this.versionOf(entry)
+      if (bundled === null) return { state: { kind: 'installed', version: version ?? '' }, skipped: [] }
+      const missing = dependenciesOf(this.options.bundledDir).filter((id) => !listed.has(id))
+      if (missing.length > 0) return { state: { kind: 'error', step: 'dependency add', reason: `the Harness needs ${missing.join(', ')}, and Codex does not list ${missing.length === 1 ? 'it' : 'them'} as installed` }, skipped: [] }
+      const agents = this.agentsDrift(bundled)
+      const outdated = version !== bundled || agents.write.length > 0 || agents.remove.length > 0
+      return { state: outdated ? { kind: 'outdated', from: version, to: bundled } : { kind: 'installed', version }, skipped: agents.skipped }
+    } catch (error) {
+      if (!(error instanceof CodexStepError)) throw error
+      return { state: stepState(error), skipped: [] }
+    }
+  }
+
+  /** codexAgentsDrift of this build's agents; an agents folder that cannot be read fails the step `agents`. */
+  private agentsDrift(version: string): CodexAgentsDrift {
+    try {
+      return codexAgentsDrift(this.agentsDir, this.agentFiles(version))
+    } catch (error) {
+      throw new CodexStepError('agents', `reading the Codex agents in ${this.agentsDir} failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   /** The version Codex lists, or, for a plugin Codex lists without a build version, the one worfy recorded. */
@@ -256,7 +299,7 @@ export class CodexHarness {
     const commands: string[][] = []
     if (entry === undefined && !(known?.has(HARNESS_MARKETPLACE) ?? false)) commands.push(['plugin', 'marketplace', 'add', this.options.pluginDir])
     if (entry === undefined || from !== bundled) commands.push(['plugin', 'add', HARNESS_PLUGIN_ID])
-    const agents = codexAgentsDrift(this.agentsDir, this.agentFiles(bundled))
+    const agents = this.agentsDrift(bundled)
     if (dependencyCommands.length === 0 && commands.length === 0 && agents.write.length === 0 && agents.remove.length === 0) return null
     return { from, to: bundled, dependencyCommands, commands, agentsDir: this.agentsDir, agents }
   }
@@ -328,10 +371,10 @@ export class CodexHarness {
     }
   }
 
-  /** Every installed plugin of `codex plugin list --json`. */
-  private async listed(): Promise<Map<string, ListedPlugin>> {
+  /** Every installed plugin of `codex plugin list --json`; the command is stopped after `timeout` (runTool's own limit by default). */
+  private async listed(timeout?: number): Promise<Map<string, ListedPlugin>> {
     const args = ['plugin', 'list', '--json']
-    const { stdout } = await this.codex(args, 'plugin list')
+    const { stdout } = await this.codex(args, 'plugin list', timeout)
     let parsed: unknown
     try {
       parsed = JSON.parse(stdout)

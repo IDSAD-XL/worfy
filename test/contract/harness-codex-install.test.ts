@@ -7,7 +7,7 @@
 // are temporary folders. `claude` and `codex` are stand-ins (Node scripts the installer starts under
 // worfy's own Node, src/main/program.ts) that log their arguments and keep their own state outside
 // the sandbox, so the sandbox shows only what worfy itself wrote. The real Codex never runs.
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -15,7 +15,7 @@ import { CODEX_AGENT_MARK, codexAgentFiles, writeCodexAgents } from '../../src/m
 import { CodexHarness, codexInstallBinary, codexMarketplacesOf, codexPluginsOf, type CodexInstallerOptions } from '../../src/main/harness/codex-install'
 import { confirmationText, DEPENDENCY_MARKETPLACE_SOURCE, HARNESS_PLUGIN_ID, HarnessInstaller, type InstallPlan } from '../../src/main/harness/install'
 import { harnessHome } from '../../src/main/storage/paths'
-import { harnessStatusSchema } from '../../src/shared/ipc/harness'
+import { harnessStatusSchema, skippedAgentsText } from '../../src/shared/ipc/harness'
 import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
@@ -40,6 +40,15 @@ const path = process.env.STUB_CLAUDE_STATE
 const state = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : { marketplaces: {}, plugins: {} }
 const manifest = (dir, file) => JSON.parse(readFileSync(join(dir, '.claude-plugin', file), 'utf8'))
 const command = args.slice(0, args[1] === 'marketplace' ? 3 : 2).join(' ')
+if (command === 'plugin list' && (process.env.STUB_CLAUDE_WAIT_FOR ?? '') !== '') {
+  // Answers only once the file exists (the codex stand-in writes it as it starts), for 10 s at most.
+  const deadline = Date.now() + 10_000
+  while (!existsSync(process.env.STUB_CLAUDE_WAIT_FOR) && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+  if (!existsSync(process.env.STUB_CLAUDE_WAIT_FOR)) {
+    process.stderr.write('claude plugin list waited for codex in vain\\n')
+    process.exit(4)
+  }
+}
 if (command === 'plugin marketplace list') process.stdout.write(JSON.stringify(Object.keys(state.marketplaces).map((name) => ({ name }))))
 else if (command === 'plugin marketplace add') state.marketplaces[isAbsolute(args[3]) ? manifest(args[3], 'marketplace.json').name : basename(args[3])] = args[3]
 else if (command === 'plugin install' || command === 'plugin update') {
@@ -55,11 +64,18 @@ writeFileSync(path, JSON.stringify(state))
 //   STUB_CODEX_FAIL           a command line prefix that exits 3 with an error on stderr
 //   STUB_CODEX_LOCAL_VERSION  a plugin of a local marketplace is listed with the version "local"
 //   STUB_CODEX_STATE          the file of its state ({ marketplaces, plugins }), outside the sandbox
+//   STUB_CODEX_HANG           \`plugin list\` writes its pid to STUB_CODEX_STARTED and does not answer
+//                             (for 20 s, so nothing outlives the test); \`ignore-term\` ignores SIGTERM too
 const CODEX_STUB = `
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, isAbsolute, join } from 'node:path'
 const args = process.argv.slice(2)
 appendFileSync(process.env.STUB_LOG, JSON.stringify(['codex', ...args]) + '\\n')
+if ((process.env.STUB_CODEX_HANG ?? '') !== '' && args.join(' ') === 'plugin list --json') {
+  if (process.env.STUB_CODEX_HANG === 'ignore-term') process.on('SIGTERM', () => undefined)
+  writeFileSync(process.env.STUB_CODEX_STARTED, String(process.pid))
+  setTimeout(() => process.exit(0), 20_000)
+} else {
 appendFileSync(process.env.STUB_CODEX_HOMES, JSON.stringify(process.env.CODEX_HOME ?? null) + '\\n')
 if ((process.env.STUB_CODEX_FAIL ?? '') !== '' && args.join(' ').startsWith(process.env.STUB_CODEX_FAIL)) {
   process.stderr.write('noise\\n' + args.join(' ') + ' failed: stub error\\n')
@@ -98,6 +114,7 @@ if (command === 'plugin marketplace list') {
   process.stdout.write(JSON.stringify({ marketplaces }))
 }
 writeFileSync(path, JSON.stringify(state))
+}
 `
 
 interface Sandbox {
@@ -248,7 +265,7 @@ describe('Install Harness in Codex', () => {
     expect(outcome).toBe('done')
     expect(harnessStatusSchema.parse(status)).toEqual(status)
     expect(status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
-    expect(status.codex).toEqual({ state: { kind: 'installed', version: V1 }, agentsDir: join(sb.codexHome, 'agents'), hooksToApprove: true })
+    expect(status.codex).toEqual({ state: { kind: 'installed', version: V1 }, agentsDir: join(sb.codexHome, 'agents'), hooksToApprove: true, skippedAgents: [] })
     // Codex after Claude Code, from the same folder; the dependency is a plugin of its own, first.
     const claudeDone = calls().lastIndexOf(`claude plugin install ${HARNESS_PLUGIN_ID} --scope user`)
     expect(claudeDone).toBeGreaterThan(-1)
@@ -426,6 +443,182 @@ describe('the Codex agents', () => {
     expect((await installer(bundle, harness).status()).codex?.state).toEqual({ kind: 'outdated', from: V1, to: V1 })
     // No staging file is left behind.
     expect(readdirSync(agentsDir).filter((name) => name.startsWith('.'))).toEqual([])
+  })
+})
+
+describe("the files of the agents folder that are not worfy's", () => {
+  const MARKED = `${CODEX_AGENT_MARK} (Harness ${V1}); the next install rewrites or removes this file.\nname = "x"\n`
+  const agentsDir = (): string => join(sb.codexHome, 'agents')
+  const thisBuild = (): Map<string, string> => codexAgentFiles(join(REPO, 'harness'), sb.pluginDir, V1)
+  /** Writes `text` into the agents folder and returns a check that it is still there, unchanged. */
+  const put = (name: string, text: string): (() => void) => {
+    writeFileSync(join(agentsDir(), name), text)
+    return () => expect(readFileSync(join(agentsDir(), name), 'utf8')).toBe(text)
+  }
+
+  it('removes only a worfy-*.toml whose first line is the mark: the mark further down, another extension, a folder or an unreadable file stay', async () => {
+    mkdirSync(agentsDir(), { recursive: true })
+    put('worfy-old.toml', MARKED)
+    const checks = [
+      // The mark, but not on line 1.
+      put('worfy-mark-later.toml', `name = "mine"\n${MARKED}`),
+      // The mark, in a file that is not .toml.
+      put('worfy-x.txt', MARKED),
+    ]
+    // A folder with the name of an agent file, holding a marked file.
+    mkdirSync(join(agentsDir(), 'worfy-dir.toml'))
+    checks.push(put(join('worfy-dir.toml', 'inside.toml'), MARKED))
+    // A marked file worfy cannot read (POSIX permissions; root reads it anyway, Windows has no such mode).
+    const locked = join(agentsDir(), 'worfy-locked.toml')
+    const unreadable = process.platform !== 'win32' && process.getuid?.() !== 0
+    if (unreadable) {
+      writeFileSync(locked, MARKED)
+      chmodSync(locked, 0o000)
+    }
+    try {
+      const { removed } = await writeCodexAgents(agentsDir(), thisBuild())
+      expect(removed).toEqual(['worfy-old.toml'])
+      expect(existsSync(join(agentsDir(), 'worfy-old.toml'))).toBe(false)
+      for (const check of checks) check()
+      expect(statSync(join(agentsDir(), 'worfy-dir.toml')).isDirectory()).toBe(true)
+      if (unreadable) {
+        chmodSync(locked, 0o644)
+        expect(readFileSync(locked, 'utf8')).toBe(MARKED)
+      }
+    } finally {
+      if (unreadable && existsSync(locked)) chmodSync(locked, 0o644)
+    }
+  })
+
+  // A symlink needs a privilege on Windows that a test cannot count on.
+  it.skipIf(process.platform === 'win32')("a symlink is the user's, whatever it points at: dangling, at a file of the user's, or at a marked file", async () => {
+    mkdirSync(agentsDir(), { recursive: true })
+    const outside = join(sb.root, 'outside')
+    mkdirSync(outside)
+    writeFileSync(join(outside, 'mine.toml'), 'name = "mine"\n')
+    writeFileSync(join(outside, 'marked.toml'), MARKED)
+    const links: Record<string, string> = {
+      'worfy-dangling.toml': join(outside, 'no-such-file.toml'),
+      'worfy-user-link.toml': join(outside, 'mine.toml'),
+      'worfy-marked-link.toml': join(outside, 'marked.toml'),
+      // Under the name of an agent of this build: not written through, not replaced.
+      'worfy-scout.toml': join(outside, 'marked.toml'),
+    }
+    for (const [name, target] of Object.entries(links)) symlinkSync(target, join(agentsDir(), name), 'file')
+
+    const { written, removed, skipped } = await writeCodexAgents(agentsDir(), thisBuild())
+    expect(removed).toEqual([])
+    expect(skipped).toEqual(['worfy-scout.toml'])
+    expect(written).toEqual(['worfy-implementer.toml', 'worfy-reviewer.toml'])
+    for (const [name, target] of Object.entries(links)) {
+      expect(lstatSync(join(agentsDir(), name)).isSymbolicLink()).toBe(true)
+      expect(readlinkSync(join(agentsDir(), name))).toBe(target)
+    }
+    expect(readFileSync(join(outside, 'mine.toml'), 'utf8')).toBe('name = "mine"\n')
+    expect(readFileSync(join(outside, 'marked.toml'), 'utf8')).toBe(MARKED)
+  })
+
+  it("an agent file of the user's own under an agent's name is never written over: the dialog and the status name it, and Install writes it once it is gone", async () => {
+    mkdirSync(agentsDir(), { recursive: true })
+    const unchanged = put('worfy-implementer.toml', 'name = "worfy-implementer"\ndeveloper_instructions = "mine"\n')
+    const bundle = makeBundle('v1', V1)
+    const plans: InstallPlan[] = []
+
+    const { status } = await installer(bundle).install(yes(plans))
+
+    unchanged()
+    expect(plans[0]?.codex?.agents).toEqual({ write: ['worfy-reviewer.toml', 'worfy-scout.toml'], remove: [], skipped: ['worfy-implementer.toml'] })
+    const { detail } = confirmationText(plans[0] as InstallPlan)
+    expect(detail).toContain(skippedAgentsText(['worfy-implementer.toml'], agentsDir()))
+    expect(detail).toContain('Agent files of your own stay as they are.')
+    // Installed, not outdated for ever: worfy has nothing to do, and the status says what is left to the user.
+    expect(status.codex).toMatchObject({ state: { kind: 'installed', version: V1 }, skippedAgents: ['worfy-implementer.toml'] })
+    expect((await installer(bundle).install(yes())).outcome).toBe('nothing-to-do')
+    unchanged()
+
+    // The user moves the file away: the agent is missing, and Install writes it.
+    rmSync(join(agentsDir(), 'worfy-implementer.toml'))
+    expect((await installer(bundle).status()).codex).toMatchObject({ state: { kind: 'outdated', from: V1, to: V1 }, skippedAgents: [] })
+    await installer(bundle).install(yes())
+    expect(readFileSync(join(agentsDir(), 'worfy-implementer.toml'), 'utf8').startsWith(CODEX_AGENT_MARK)).toBe(true)
+  })
+
+  it('an agents folder that is a file is an error of the step agents in Codex, and the Claude Code part goes on', async () => {
+    const bundle = makeBundle('v1', V1)
+    await installer(bundle).install(yes())
+    removeTestTree(agentsDir())
+    writeFileSync(agentsDir(), 'not a folder')
+
+    const status = await installer(bundle).status()
+    expect(status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    expect(status.codex?.state).toMatchObject({ kind: 'error', step: 'agents', reason: expect.stringContaining(agentsDir()) as unknown })
+
+    // An update with the file in place: Claude Code updates; Codex reports the step.
+    const result = await installer(makeBundle('v2', V2)).install(yes())
+    expect(result.status.state).toEqual({ kind: 'installed', version: V2, enabled: true })
+    expect(result.status.codex?.state).toMatchObject({ kind: 'error', step: 'agents' })
+    expect(readFileSync(agentsDir(), 'utf8')).toBe('not a folder')
+  })
+})
+
+describe('a Codex that does not answer', () => {
+  const started = (): string => join(sb.stubs, 'codex-started')
+  const alive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+  /** Stops the hanging stand-in, if it started and still runs. */
+  const stopStandIn = (): void => {
+    if (!existsSync(started())) return
+    const pid = Number(readFileSync(started(), 'utf8'))
+    if (alive(pid)) process.kill(pid, 'SIGKILL')
+  }
+  const within = <T,>(promise: Promise<T>, ms: number): Promise<T | 'late'> => {
+    let timer: NodeJS.Timeout | undefined
+    const late = new Promise<'late'>((resolve) => {
+      timer = setTimeout(() => resolve('late'), ms)
+    })
+    return Promise.race([promise, late]).finally(() => clearTimeout(timer))
+  }
+
+  it('holds the Claude Code part only until the limit: then the Codex part is an error of plugin list, and both are read side by side', async () => {
+    const bundle = makeBundle('v1', V1)
+    await installer(bundle).install(yes())
+    // Codex hangs and ignores SIGTERM; Claude Code answers only once the Codex read has started.
+    sb.env.STUB_CODEX_HANG = 'ignore-term'
+    sb.env.STUB_CODEX_STARTED = started()
+    sb.env.STUB_CLAUDE_WAIT_FOR = started()
+    try {
+      const status = await within(installer(bundle, codexHarness(bundle, { statusTimeoutMs: 1_000 })).status(), 8_000)
+      if (status === 'late') throw new Error('the status waited for the Codex that hangs')
+      expect(status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+      expect(status.codex?.state).toEqual({ kind: 'error', step: 'plugin list', reason: 'codex plugin list --json did not answer in 1 s' })
+      expect(harnessStatusSchema.parse(status)).toEqual(status)
+    } finally {
+      stopStandIn()
+    }
+  })
+
+  it('stops the codex command it gave up on', async () => {
+    const bundle = makeBundle('v1', V1)
+    await installer(bundle).install(yes())
+    sb.env.STUB_CODEX_HANG = 'term'
+    sb.env.STUB_CODEX_STARTED = started()
+    try {
+      const status = await within(installer(bundle, codexHarness(bundle, { statusTimeoutMs: 1_000 })).status(), 8_000)
+      if (status === 'late') throw new Error('the status waited for the Codex that hangs')
+      expect(status.codex?.state).toMatchObject({ kind: 'error', step: 'plugin list' })
+      const pid = Number(readFileSync(started(), 'utf8'))
+      const deadline = Date.now() + 5_000
+      while (alive(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(alive(pid)).toBe(false)
+    } finally {
+      stopStandIn()
+    }
   })
 })
 

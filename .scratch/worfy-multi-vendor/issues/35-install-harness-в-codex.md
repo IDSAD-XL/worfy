@@ -69,6 +69,10 @@ Source: [spec.md](../spec.md), «Windows» (Harness на Codex), «Решени�
   папка данных; первая установка, повторная, обновление, расхождение версий, версия `local`, ошибка команды, отказ в
   диалоге, Codex без `CODEX_HOME`, повтор rename на Windows; TOML совпадают с `test/fixtures/codex-agents/expected/`);
   `test/unit/harness-status.test.tsx` — часть Codex в toolbar. Test-ы установки в Claude Code прошли без правок.
+  Раунд 1 добавил случаи: файлы папки агентов, которые не принадлежат worfy (пометка не в первой строке, `worfy-x.txt`
+  с пометкой, папка `worfy-dir.toml`, нечитаемый файл, symlink-и), файл пользователя под именем агента, папка агентов —
+  файл, зависший `codex plugin list` (stand-in, который не отвечает и игнорирует SIGTERM) и остановка этой команды.
+  Каждый случай краснеет на своём mutant-е (11 mutant-ов).
 - Решено без владельца, подтвердить:
   1. Обновление в Codex — снова `codex plugin add worfy@worfy-harness`, а не `codex plugin marketplace upgrade`: справка
      закреплённого Codex 0.166.0 говорит, что `upgrade` обновляет Git marketplace-ы, а локальный marketplace — сама папка,
@@ -83,8 +87,10 @@ Source: [spec.md](../spec.md), «Windows» (Harness на Codex), «Решени�
      модели, только по effort `medium`.
   5. `${CLAUDE_PLUGIN_ROOT}` в тексте агентов заменяется на `<harnessHome>/plugin`: в TOML агента Codex переменную не
      подставляет, а скрипты Harness лежат в этой папке.
-  6. Файл `worfy-*.toml` считается файлом worfy, только если первая строка — пометка installer-а. Чужой файл с тем же
-     префиксом без пометки installer не удаляет и не переписывает (кроме трёх имён, которые он пишет сам).
+  6. Файл `worfy-*.toml` считается файлом worfy, только если это обычный файл и его первая строка — пометка
+     installer-а. Всё остальное — файл пользователя: без пометки, с пометкой не в первой строке, нечитаемый, symlink
+     (даже на файл с пометкой), папка. Installer его не удаляет и не переписывает (раунд 1, решено без владельца,
+     подтвердить).
   7. Порядок: сначала Claude Code, потом Codex. Ошибка в части Claude Code — Codex не трогается; ошибка в Codex —
      Claude Code остаётся установленным, статус Codex — `error` с шагом. Toolbar показывает часть Codex, только когда
      у Claude Code Harness этой сборки.
@@ -92,6 +98,18 @@ Source: [spec.md](../spec.md), «Windows» (Harness на Codex), «Решени�
      к hook-ам — Ticket 39.
   9. Stand-in `codex` для test-ов — переменная `WORFY_CODEX_CLI`; под `WORFY_CODEX=fake|absent` и под vitest бинарника
      Codex для установки нет.
+  10. Файл пользователя под именем агента этой сборки (`worfy-implementer.toml`, `worfy-reviewer.toml`,
+      `worfy-scout.toml`) installer не переписывает и не делает копию: этот агент пропускается. Диалог называет файл и
+      говорит «переименуйте или удалите его, потом Install»; статус несёт `skippedAgents`, toolbar показывает
+      `· Codex: 1 agent not written` с тем же текстом в tooltip. Статус при этом `installed`, а не вечный `outdated`:
+      worfy здесь делать нечего. Выбран вариант без перезаписи как наименее неожиданный (раунд 1, решено без владельца,
+      подтвердить).
+  11. Статус читает Codex не дольше 10 s (`CODEX_STATUS_TIMEOUT_MS`): потом часть Codex — `error` шага `plugin list`
+      («did not answer in 10 s»), команда останавливается, поздний ответ отбрасывается. Части Claude Code и Codex
+      читаются параллельно, так что зависший Codex держит любое чтение статуса не дольше 10 s, а не 120 s. Чтение для
+      плана установки (`plan()`) осталось с общим пределом команды 120 s (раунд 1, решено без владельца, подтвердить).
+  12. `<CODEX_HOME>/agents`, который оказался файлом, — ошибка шага `agents` в части Codex; статус и установка Claude
+      Code идут дальше (раунд 1).
 - Не проверено запуском: формат `codex plugin list --json` и `codex plugin marketplace list --json` закреплённого Codex
   (читается терпимо: список, `{ plugins }` или `{ marketplaces: [{ name, plugins }] }`, версия — `localVersion` или
   `version`), спрашивает ли `codex plugin add` подтверждение без TTY. Это — приёмка 43.

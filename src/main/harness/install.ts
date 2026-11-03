@@ -41,7 +41,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import type { HarnessDependency, HarnessState, HarnessStatus, HarnessStep } from '../../shared/ipc/harness'
+import { skippedAgentsText, type CodexHarness as CodexHarnessStatus, type HarnessDependency, type HarnessState, type HarnessStatus, type HarnessStep } from '../../shared/ipc/harness'
 import { programStart } from '../program'
 import { claudeHome } from '../storage/paths'
 import type { CodexHarness, CodexPlan, CodexStepError } from './codex-install'
@@ -359,11 +359,12 @@ function codexLines(codex: CodexPlan, then: boolean): string[] {
     lines.push(`${then ? 'Then, in Codex, worfy' : 'In Codex, worfy'} installs the same Harness folder with Codex's own commands:`, ...commands.map((args) => `  codex ${args.join(' ')}`), '')
     if (codex.dependencyCommands.length > 0) lines.push('Codex has no plugin dependencies, so the plugins the Harness needs are installed as plugins of their own.', '')
   }
-  const { write, remove } = codex.agents
+  const { write, remove, skipped } = codex.agents
   if (write.length > 0 || remove.length > 0) {
     const parts = [write.length > 0 ? `writes ${write.join(', ')}` : '', remove.length > 0 ? `removes ${remove.join(', ')} of an older Harness` : ''].filter((part) => part !== '')
     lines.push(`worfy ${parts.join(' and ')} in ${codex.agentsDir}: the Codex agents of the Harness. Agent files of your own stay as they are.`, '')
   }
+  if (skipped.length > 0) lines.push(skippedAgentsText(skipped, codex.agentsDir), '')
   if (codex.commands.length > 0) lines.push('Codex keeps the hooks of a new or updated plugin off until you approve them in Codex (/hooks).')
   else if (lines.at(-1) === '') lines.pop()
   return lines
@@ -438,6 +439,9 @@ function claudeConfirmationText(plan: InstallPlan): { button: string; message: s
   }
 }
 
+/** `status` with the Harness in Codex, when Codex is there. */
+const withCodexPart = (status: HarnessStatus, codex: CodexHarnessStatus | null | undefined): HarnessStatus => (codex === undefined || codex === null ? status : { ...status, codex })
+
 /** A command-line program the installer runs: its binary, its name on a command line and in a message, and its environment. */
 export interface Tool {
   /** The file to run; undefined when the build has none. A `.mjs` (a stand-in in tests) runs under worfy's own Node. */
@@ -493,7 +497,9 @@ export class HarnessInstaller {
 
   /** The state, as the toolbar shows it. Writes nothing; runs `plugin list` only when the plugin folder is there. */
   async status(): Promise<HarnessStatus> {
-    return this.withCodex(await this.claudeStatus())
+    // Side by side: the Codex read is bounded (CodexHarness.status), and the Claude Code read does not wait for it to start.
+    const [claude, codex] = await Promise.all([this.claudeStatus(), this.options.codex?.status()])
+    return withCodexPart(claude, codex)
   }
 
   /** The state in Claude Code alone. */
@@ -509,8 +515,7 @@ export class HarnessInstaller {
 
   /** The status with the Harness in Codex, when there is one (`failure`: what the install into Codex just failed with). */
   private async withCodex(status: HarnessStatus, failure?: CodexStepError): Promise<HarnessStatus> {
-    const codex = await this.options.codex?.status(failure)
-    return codex === undefined || codex === null ? status : { ...status, codex }
+    return withCodexPart(status, await this.options.codex?.status(failure))
   }
 
   /**

@@ -79,8 +79,22 @@ export const codexHarnessSchema = z.object({
    * approves them in Codex (`/hooks`; the step itself is worfy-multi-vendor ticket 39).
    */
   hooksToApprove: z.boolean(),
+  /**
+   * Agent files of the Harness worfy does not write, as a file of the user's own (one without
+   * worfy's mark) has the name: `worfy-implementer.toml` and the like. worfy never writes over it.
+   */
+  skippedAgents: z.array(z.string()),
 })
 export type CodexHarness = z.infer<typeof codexHarnessSchema>
+
+/**
+ * What the dialog and the toolbar say of the agent files worfy does not write (codexAgentsDrift's
+ * `skipped`): a file of the user's own has the name, and worfy never writes over it.
+ */
+export function skippedAgentsText(skipped: readonly string[], agentsDir: string): string {
+  const one = skipped.length === 1
+  return `worfy leaves ${skipped.join(', ')} in ${agentsDir} as ${one ? 'it is' : 'they are'}: ${one ? 'it is a file' : 'they are files'} of your own, not ${one ? 'one' : 'ones'} worfy wrote. To get ${one ? 'that agent' : 'those agents'} of the Harness in Codex, rename or remove ${one ? 'it' : 'them'}, then install again.`
+}
 
 export const harnessStatusSchema = z.object({
   state: harnessStateSchema,

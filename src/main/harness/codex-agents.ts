@@ -6,11 +6,13 @@
 // (ADR-0005). Only the installer writes them; agents never do.
 //
 // Each file starts with MARK. A `worfy-*.toml` with the mark that this build does not write (an
-// agent an older Harness had) is removed; a file without it is the user's own and stays.
+// agent an older Harness had) is removed; a file without it is the user's own and stays, even when
+// it has the name of an agent of this build: that agent is then skipped (the status names it), not
+// written over the user's file.
 //
 // On Windows a write (a rename over the old file) or a removal that a file held open refuses is
 // tried again for a while (retriedOnWindows of install.ts).
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readFileSync, type Stats } from 'node:fs'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { retriedOnWindows } from './install'
@@ -121,28 +123,55 @@ export function codexAgentFiles(harnessDir: string, pluginDir: string, version: 
   return files
 }
 
-/** Whether a file in the agents folder is one the installer wrote: `worfy-*.toml` whose first line is the mark. */
-function writtenByWorfy(agentsDir: string, name: string): boolean {
-  if (!name.startsWith(CODEX_AGENT_PREFIX) || !name.endsWith('.toml')) return false
+/**
+ * Who a name in the agents folder belongs to: nobody (nothing there), worfy (a regular file whose
+ * first line is the mark), or the user (anything else: a file without the mark, one that cannot be
+ * read, a symlink, a folder). The installer never wrote a symlink, so a symlink is the user's even
+ * when it points at a file with the mark.
+ */
+function ownerOf(agentsDir: string, name: string): { owner: 'none' } | { owner: 'user' } | { owner: 'worfy'; text: string } {
+  const path = join(agentsDir, name)
+  let entry: Stats
   try {
-    return readFileSync(join(agentsDir, name), 'utf8').startsWith(CODEX_AGENT_MARK)
-  } catch {
-    return false
+    entry = lstatSync(path)
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? { owner: 'none' } : { owner: 'user' }
   }
+  if (!entry.isFile()) return { owner: 'user' }
+  let text: string
+  try {
+    text = readFileSync(path, 'utf8')
+  } catch {
+    return { owner: 'user' }
+  }
+  return text.startsWith(CODEX_AGENT_MARK) ? { owner: 'worfy', text } : { owner: 'user' }
 }
 
-/** What the agents folder lacks against `files`: files to write (missing or different) and worfy's files to remove. */
-export function codexAgentsDrift(agentsDir: string, files: ReadonlyMap<string, string>): { write: string[]; remove: string[] } {
-  const write = [...files].filter(([name, text]) => {
-    try {
-      return readFileSync(join(agentsDir, name), 'utf8') !== text
-    } catch {
-      return true
-    }
-  })
+/** What install would change in the agents folder against `files`. */
+export interface CodexAgentsDrift {
+  /** Agent files to write: missing, or worfy's own with another text. */
+  write: string[]
+  /** `worfy-*.toml` files worfy wrote that this build has no agent for. */
+  remove: string[]
+  /** Agent files of this build that worfy does not write, as a file of the user's own has the name. */
+  skipped: string[]
+}
+
+/**
+ * What the agents folder lacks against `files`. A name of `files` taken by a file of the user's own
+ * is skipped, never overwritten. Throws when the agents folder cannot be listed (a file in its place).
+ */
+export function codexAgentsDrift(agentsDir: string, files: ReadonlyMap<string, string>): CodexAgentsDrift {
   const present = existsSync(agentsDir) ? readdirSync(agentsDir) : []
-  const remove = present.filter((name) => !files.has(name) && writtenByWorfy(agentsDir, name))
-  return { write: write.map(([name]) => name), remove }
+  const write: string[] = []
+  const skipped: string[] = []
+  for (const [name, text] of files) {
+    const entry = ownerOf(agentsDir, name)
+    if (entry.owner === 'user') skipped.push(name)
+    else if (entry.owner === 'none' || entry.text !== text) write.push(name)
+  }
+  const remove = present.filter((name) => !files.has(name) && name.startsWith(CODEX_AGENT_PREFIX) && name.endsWith('.toml') && ownerOf(agentsDir, name).owner === 'worfy')
+  return { write, remove, skipped }
 }
 
 export interface WriteAgentsOptions {
@@ -157,10 +186,10 @@ export interface WriteAgentsOptions {
 /**
  * Brings the agents folder to `files`: each file that is missing or different is written next to
  * its place and renamed over it, and each `worfy-*.toml` the installer wrote that is not in `files`
- * is removed. A file without the mark is never touched. Throws the first failure.
+ * is removed. A file of the user's own is never touched, whatever its name. Throws the first failure.
  */
-export async function writeCodexAgents(agentsDir: string, files: ReadonlyMap<string, string>, options: WriteAgentsOptions = {}): Promise<{ written: string[]; removed: string[] }> {
-  const { write, remove } = codexAgentsDrift(agentsDir, files)
+export async function writeCodexAgents(agentsDir: string, files: ReadonlyMap<string, string>, options: WriteAgentsOptions = {}): Promise<{ written: string[]; removed: string[]; skipped: string[] }> {
+  const { write, remove, skipped } = codexAgentsDrift(agentsDir, files)
   const retry = { ...(options.platform === undefined ? {} : { platform: options.platform }), ...(options.retryMs === undefined ? {} : { retryMs: options.retryMs }) }
   await mkdir(agentsDir, { recursive: true })
   for (const name of write) {
@@ -175,5 +204,5 @@ export async function writeCodexAgents(agentsDir: string, files: ReadonlyMap<str
     }
   }
   for (const name of remove) await retriedOnWindows(() => rm(join(agentsDir, name), { force: true }), retry)
-  return { written: write, removed: remove }
+  return { written: write, removed: remove, skipped }
 }

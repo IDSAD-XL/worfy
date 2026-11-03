@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { HarnessStatus as Status } from '../../../shared/ipc/harness'
+import { skippedAgentsText, type HarnessStatus as Status } from '../../../shared/ipc/harness'
 import type { UpdateSnapshot } from '../../../shared/ipc/update'
 import MigrationForm from '../../harness/MigrationForm'
 import AppMemory from '../../memory/AppMemory'
@@ -212,14 +212,16 @@ interface CodexPart {
 
 /** What the line adds for the Harness in Codex: a short text, its tooltip, and the action when there is one. */
 function codexPart(codex: NonNullable<Status['codex']>): CodexPart | null {
-  const { state } = codex
+  const { state, skippedAgents } = codex
   const muted = 'var(--text-muted)'
+  // Agent files worfy leaves alone, as a file of the user's own has the name: said in the tooltip, and as the text when nothing else is.
+  const skipped = skippedAgents.length === 0 ? '' : skippedAgentsText(skippedAgents, codex.agentsDir)
+  const withSkipped = (title: string): string => (skipped === '' ? title : `${title}\n${skipped}`)
   switch (state.kind) {
     case 'installed':
       // Codex turns the hooks of an updated plugin off until they are approved (worfy-multi-vendor ticket 39 adds the step).
-      return codex.hooksToApprove
-        ? { state: 'hooks', text: 'Codex: approve hooks', title: 'Codex keeps the Harness hooks off after an install or update until you approve them in Codex (/hooks)', tone: muted }
-        : null
+      if (codex.hooksToApprove) return { state: 'hooks', text: 'Codex: approve hooks', title: withSkipped('Codex keeps the Harness hooks off after an install or update until you approve them in Codex (/hooks)'), tone: muted }
+      return skipped === '' ? null : { state: 'skipped-agents', text: `Codex: ${String(skippedAgents.length)} ${skippedAgents.length === 1 ? 'agent' : 'agents'} not written`, title: skipped, tone: muted }
     case 'not-installed':
       return {
         state: state.kind,
@@ -232,7 +234,7 @@ function codexPart(codex: NonNullable<Status['codex']>): CodexPart | null {
       return {
         state: state.kind,
         text: `Codex ${state.from ?? '?'}`,
-        title: `Codex has the Harness ${state.from ?? 'of an unknown version'}; this build has ${state.to}`,
+        title: withSkipped(`Codex has the Harness ${state.from ?? 'of an unknown version'}; this build has ${state.to}`),
         tone: muted,
         button: { icon: 'update', label: 'Update Harness in Codex', title: `Update Harness in Codex: ${state.from ?? 'unknown'} → ${state.to}` },
       }
