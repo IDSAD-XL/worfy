@@ -5,7 +5,8 @@
 // and any case). Codex keeps no file of its live Sessions (ticket 05), so nothing is watched: the
 // Project's window asks again every CODEX_SESSIONS_POLL_MS, and Codex is asked at most that often for
 // a Project, however often the window asks (the Claude part of the same answer changes far more
-// often). Without a Codex home folder nothing is asked and the window does not poll; a Codex that
+// often). An answer never waits for Codex: it carries the last list, and while the first ask of a
+// Project runs it says so (`loading`), so the window asks again in a moment. Without a Codex home folder nothing is asked and the window does not poll; a Codex that
 // cannot be asked (no binary, no answer) leaves the list as it was, says so once in the log and turns
 // the window's polling off. No error reaches the user.
 //
@@ -63,17 +64,13 @@ export function codexHomeSession(session: HistorySession): HomeSession | null {
   }
 }
 
-/**
- * How long an answer of `claudeHome.sessions` waits for Codex: the Claude part of the same answer must
- * not wait for a Codex that starts slowly or hangs (an ask may take CODEX_ASK_TIMEOUT_MS, 30 s).
- */
-export const CODEX_ANSWER_WAIT_MS = 5_000
-
-/** What the Codex part of `claudeHome.sessions` answers for a Project. */
+/** What the Codex part of `claudeHome.sessions` answers for a Project: at once, never waiting for Codex. */
 export interface CodexSessionsAnswer {
   sessions: HomeSession[]
   /** False when Codex could not be asked the last time: the window does not poll. */
   available: boolean
+  /** True while the first ask for the Project has not answered yet: the window asks again soon. */
+  loading: boolean
 }
 
 /** A read of a transcript, as `claudeHome.transcript` asks for it. */
@@ -126,11 +123,6 @@ export interface CodexSessionsOptions {
   platform?: NodeJS.Platform
   /** How often Codex is asked at most, per Project; CODEX_SESSIONS_POLL_MS by default. */
   pollMs?: number
-  /**
-   * How long an answer waits for a list Codex is still giving; CODEX_ANSWER_WAIT_MS by default. After
-   * it the answer has the last list, and the list being asked for comes with the next answer.
-   */
-  waitMs?: number
   now?: () => number
   log?: (message: string, cause: unknown) => void
 }
@@ -141,6 +133,8 @@ interface Known {
   sessions: HistorySession[]
   available: boolean
   asking?: Promise<void>
+  /** True once an ask for the Project finished, answered or failed. */
+  answered: boolean
   /** The reason last written to the log, so a Codex that keeps failing says it once. */
   failure?: string
 }
@@ -149,21 +143,38 @@ interface Known {
 export class CodexSessionsOnCanvas {
   private readonly known = new Map<string, Known>()
   private readonly pollMs: number
-  private readonly waitMs: number
   private readonly now: () => number
   private readonly log: (message: string, cause: unknown) => void
 
   constructor(private readonly options: CodexSessionsOptions) {
     this.pollMs = options.pollMs ?? CODEX_SESSIONS_POLL_MS
-    this.waitMs = options.waitMs ?? CODEX_ANSWER_WAIT_MS
     this.now = options.now ?? Date.now
     this.log = options.log ?? ((message, cause) => console.warn(message, cause))
   }
 
-  /** The Codex Sessions of the Project at `root`: asked of Codex when the last ask is older than `pollMs`. */
-  async sessions(root: string): Promise<CodexSessionsAnswer> {
-    const known = await this.fresh(root)
-    return { sessions: known.sessions.flatMap((session) => codexHomeSession(session) ?? []), available: known.available }
+  /**
+   * The Codex Sessions of the Project at `root` as the last ask found them (none before the first one
+   * answers), at once: an answer of `claudeHome.sessions` never waits for Codex, which may start slowly or
+   * hang (an ask may take CODEX_ASK_TIMEOUT_MS, 30 s). A new ask starts in the background when the last
+   * one is older than `pollMs`.
+   */
+  sessions(root: string): CodexSessionsAnswer {
+    const known = this.fresh(root)
+    return {
+      sessions: known.sessions.flatMap((session) => codexHomeSession(session) ?? []),
+      available: known.available,
+      loading: known.asking !== undefined && !known.answered,
+    }
+  }
+
+  /**
+   * The Codex Sessions of the Project at `root` once an ask in flight (or one started now, when the last
+   * is older than `pollMs`) has finished: for the rule of Resume, which starts Codex anyway.
+   */
+  async settled(root: string): Promise<readonly HistorySession[]> {
+    const known = this.fresh(root)
+    if (known.asking !== undefined) await known.asking
+    return known.sessions
   }
 
   /** The Codex Sessions the last ask found for `root`, without asking Codex; none before the first ask. */
@@ -191,9 +202,10 @@ export class CodexSessionsOnCanvas {
     return mainThreadEvents(await this.options.history.read(id, session.cwd ?? root))
   }
 
-  private async fresh(root: string): Promise<Known> {
+  /** The Project's entry, with an ask started in the background when the last is older than `pollMs`. */
+  private fresh(root: string): Known {
     const key = this.key(root)
-    const known = this.known.get(key) ?? { at: Number.NEGATIVE_INFINITY, sessions: [], available: true }
+    const known = this.known.get(key) ?? { at: Number.NEGATIVE_INFINITY, sessions: [], available: true, answered: false }
     this.known.set(key, known)
     if (this.options.present?.() === false) {
       known.available = false
@@ -201,17 +213,11 @@ export class CodexSessionsOnCanvas {
     }
     if (known.asking === undefined && this.now() - known.at >= this.pollMs) {
       known.at = this.now()
+      // ask() never rejects: it catches every failure.
       known.asking = this.ask(root, known).finally(() => {
         known.asking = undefined
+        known.answered = true
       })
-    }
-    if (known.asking !== undefined) {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const waited = new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, this.waitMs)
-      })
-      await Promise.race([known.asking, waited])
-      clearTimeout(timer)
     }
     return known
   }
@@ -232,11 +238,12 @@ export class CodexSessionsOnCanvas {
 }
 
 /** What the `claudeHome` handlers and the rule of Resume use of the Codex Sessions. */
-export type CodexSessions = Pick<CodexSessionsOnCanvas, 'sessions' | 'transcript' | 'cached'>
+export type CodexSessions = Pick<CodexSessionsOnCanvas, 'sessions' | 'settled' | 'transcript' | 'cached'>
 
 /** For a caller without Codex (tests of the Claude part): no Sessions, nothing to poll. */
 export const NO_CODEX_SESSIONS: CodexSessions = {
-  sessions: () => Promise.resolve({ sessions: [], available: false }),
+  sessions: () => ({ sessions: [], available: false, loading: false }),
+  settled: () => Promise.resolve([]),
   transcript: () => Promise.resolve(null),
   cached: () => [],
 }

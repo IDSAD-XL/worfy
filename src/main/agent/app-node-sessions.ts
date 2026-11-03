@@ -42,8 +42,7 @@ function vendorSessions(claude: ClaudeHomeRegistry): Record<VendorId, (projectRo
   return {
     claude: (projectRoot) => claude.sessions(projectRoot),
     codex: async (projectRoot) => {
-      await codex.sessions(rootPath(projectRoot))
-      const threads = codex.cached(rootPath(projectRoot))
+      const threads = await codex.settled(rootPath(projectRoot))
       return { live: [], history: threads.map((thread) => ({ sessionId: thread.id, ...(thread.cwd === null ? {} : { cwd: thread.cwd }) })) }
     },
   }

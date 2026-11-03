@@ -3,8 +3,10 @@
 // sets) playing test/fixtures/codex-scripts/threads-worktrees.jsonl: the threads of the Project's root
 // and of its worktree are found, a folder outside them is not — nor one whose name only starts like the
 // root's or the worktree's. A Windows folder spelled in another case is found by the rule of Windows
-// paths, on any system. Codex is asked at most once per CODEX_SESSIONS_POLL_MS for a Project, never
-// without a Codex home, and a Codex that fails keeps the last list and is logged once. Through the
+// paths, on any system. Codex is asked at most once per CODEX_SESSIONS_POLL_MS for a Project, in the
+// background, never without a Codex home, and a Codex that fails keeps the last list and is logged once.
+// An answer never waits for Codex: a Codex that hangs leaves the Claude part of `claudeHome.sessions`
+// on time, and its threads come with a later answer. Through the
 // `claudeHome` channels the threads are Sessions of the history with `vendor: 'codex'`, and a thread's
 // transcript is read from Codex only for a thread of the Project.
 //
@@ -146,13 +148,16 @@ function counted(threads: () => HistorySession[] | Error) {
 const THREAD: HistorySession = { id: id(1), cwd: '/fake/project/src', title: 'Explain the tests', updatedAt: Date.UTC(2026, 10, 3, 10), origin: 'external' }
 
 describe('asking Codex for a Project at most once per CODEX_SESSIONS_POLL_MS', () => {
-  it('answers the last list until CODEX_SESSIONS_POLL_MS passed, then asks again', async () => {
+  it('answers the last list at once, asks in the background, and asks again once CODEX_SESSIONS_POLL_MS passed', async () => {
     let now = 1_000_000
     const { history, asked } = counted(() => [THREAD])
     const codex = new CodexSessionsOnCanvas({ history, roots: async (root) => [root], now: () => now, platform: 'darwin' })
-    const first = await codex.sessions(PROJECT)
-    expect(first).toEqual({
+    // The first answer has no list yet and says Codex is loading; the ask runs meanwhile.
+    expect(codex.sessions(PROJECT)).toEqual({ sessions: [], available: true, loading: true })
+    await codex.settled(PROJECT)
+    expect(codex.sessions(PROJECT)).toEqual({
       available: true,
+      loading: false,
       sessions: [
         {
           sessionId: id(1),
@@ -169,10 +174,12 @@ describe('asking Codex for a Project at most once per CODEX_SESSIONS_POLL_MS', (
     })
     now += CODEX_SESSIONS_POLL_MS - 1
     // Another spelling of the same root shares the answer.
-    await codex.sessions(`${PROJECT}/`)
+    codex.sessions(`${PROJECT}/`)
     expect(asked).toEqual([PROJECT])
     now += 1
-    await codex.sessions(PROJECT)
+    // A later ask is no longer `loading`: the last list stands until it answers.
+    expect(codex.sessions(PROJECT)).toMatchObject({ loading: false, sessions: [{ sessionId: id(1) }] })
+    await codex.settled(PROJECT)
     expect(asked).toEqual([PROJECT, PROJECT])
     expect(CODEX_SESSIONS_POLL_MS).toBe(30_000)
   })
@@ -180,32 +187,16 @@ describe('asking Codex for a Project at most once per CODEX_SESSIONS_POLL_MS', (
   it('two asks at once start one list', async () => {
     const { history, asked } = counted(() => [THREAD])
     const codex = new CodexSessionsOnCanvas({ history, roots: async (root) => [root] })
-    await Promise.all([codex.sessions(PROJECT), codex.sessions(PROJECT)])
+    codex.sessions(PROJECT)
+    await Promise.all([codex.settled(PROJECT), codex.settled(PROJECT)])
     expect(asked).toHaveLength(1)
-  })
-
-  it('an answer waits for a slow Codex at most waitMs, with the last list; the list comes with the next answer', async () => {
-    let release = (): void => undefined
-    let slow = false
-    const history: Pick<HistoryPart, 'list' | 'read'> = {
-      list: () => (slow ? new Promise((resolve) => (release = () => resolve([THREAD]))) : Promise.resolve([])),
-      read: () => Promise.resolve([]),
-    }
-    let now = 0
-    const codex = new CodexSessionsOnCanvas({ history, roots: async (root) => [root], now: () => now, waitMs: 20 })
-    expect(await codex.sessions(PROJECT)).toEqual({ sessions: [], available: true })
-    slow = true
-    now += CODEX_SESSIONS_POLL_MS
-    expect(await codex.sessions(PROJECT)).toEqual({ sessions: [], available: true })
-    release()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect((await codex.sessions(PROJECT)).sessions.map((session) => session.sessionId)).toEqual([id(1)])
   })
 
   it('without a Codex home asks nothing and turns the polling off', async () => {
     const { history, asked } = counted(() => [THREAD])
     const codex = new CodexSessionsOnCanvas({ history, roots: async (root) => [root], present: () => false })
-    expect(await codex.sessions(PROJECT)).toEqual({ sessions: [], available: false })
+    expect(codex.sessions(PROJECT)).toEqual({ sessions: [], available: false, loading: false })
+    expect(await codex.settled(PROJECT)).toEqual([])
     expect(asked).toEqual([])
   })
 
@@ -215,24 +206,28 @@ describe('asking Codex for a Project at most once per CODEX_SESSIONS_POLL_MS', (
     const logged: string[] = []
     const { history } = counted(() => answer)
     const codex = new CodexSessionsOnCanvas({ history, roots: async (root) => [root], now: () => now, log: (message) => logged.push(message) })
-    await codex.sessions(PROJECT)
+    await codex.settled(PROJECT)
     answer = new Error('no Codex for this platform')
     now += CODEX_SESSIONS_POLL_MS
-    const failed = await codex.sessions(PROJECT)
+    await codex.settled(PROJECT)
+    const failed = codex.sessions(PROJECT)
     expect(failed.available).toBe(false)
+    expect(failed.loading).toBe(false)
     expect(failed.sessions.map((session) => session.sessionId)).toEqual([id(1)])
     now += CODEX_SESSIONS_POLL_MS
-    await codex.sessions(PROJECT)
+    await codex.settled(PROJECT)
     expect(logged).toHaveLength(1)
     answer = [THREAD]
     now += CODEX_SESSIONS_POLL_MS
-    expect((await codex.sessions(PROJECT)).available).toBe(true)
+    await codex.settled(PROJECT)
+    expect(codex.sessions(PROJECT).available).toBe(true)
   })
 
   it('a thread whose id cannot name a Session is left out of the history', async () => {
     const { history } = counted(() => [THREAD, { ...THREAD, id: 'thr/../x' }])
     const codex = new CodexSessionsOnCanvas({ history, roots: async (root) => [root] })
-    expect((await codex.sessions(PROJECT)).sessions.map((session) => session.sessionId)).toEqual([id(1)])
+    await codex.settled(PROJECT)
+    expect(codex.sessions(PROJECT).sessions.map((session) => session.sessionId)).toEqual([id(1)])
   })
 
   it('reads the transcript of a thread of the Project only, in its own folder, without the Subagents\' records', async () => {
@@ -240,7 +235,7 @@ describe('asking Codex for a Project at most once per CODEX_SESSIONS_POLL_MS', (
     const codex = new CodexSessionsOnCanvas({ history, roots: async (root) => [root] })
     // Before a list nothing is the Project's.
     expect(await codex.transcript(PROJECT, id(1))).toBeNull()
-    await codex.sessions(PROJECT)
+    await codex.settled(PROJECT)
     expect(await codex.transcript(PROJECT, id(9))).toBeNull()
     const events = await codex.transcript(PROJECT, id(1))
     expect(events).toEqual([{ type: 'notice', kind: 'user', text: 'Explain the tests', at: Date.parse('2026-11-03T10:00:00.000Z') }])
@@ -294,9 +289,34 @@ describe('the claudeHome channels with the Codex Sessions', () => {
 
   it('claudeHome.sessions gives the Codex threads in the history, with the Vendor, and says Codex answered', async () => {
     const { history } = counted(() => [THREAD])
-    const call = await ipcOver(new CodexSessionsOnCanvas({ history, roots: async (root) => [root] }))
+    const codex = new CodexSessionsOnCanvas({ history, roots: async (root) => [root] })
+    const call = await ipcOver(codex)
+    await call('claudeHome.sessions', { projectRoot: PROJECT })
+    await codex.settled(PROJECT)
     const answer = await call('claudeHome.sessions', { projectRoot: PROJECT })
     expect(answer).toMatchObject({ ok: true, value: { live: [], codex: true, history: [{ sessionId: id(1), vendor: 'codex', origin: 'external', title: 'Explain the tests' }] } })
+    expect((answer as { value: Record<string, unknown> }).value.codexLoading).toBeUndefined()
+  })
+
+  it('a Codex that never answers holds back nothing: the Claude part comes at once, the threads with a later answer', async () => {
+    let release = (): void => undefined
+    const history: Pick<HistoryPart, 'list' | 'read'> = {
+      // Answers only when the test lets it: until then, a Codex that hangs.
+      list: () => new Promise((resolve) => (release = () => resolve([THREAD]))),
+      read: () => Promise.resolve([]),
+    }
+    const codex = new CodexSessionsOnCanvas({ history, roots: async (root) => [root] })
+    const call = await ipcOver(codex)
+    const bound = new Promise<'waited'>((resolve) => setTimeout(() => resolve('waited'), 1000))
+    const first = await Promise.race([call('claudeHome.sessions', { projectRoot: PROJECT }), bound])
+    expect(first).toEqual({ ok: true, value: { live: [], history: [], codex: true, codexLoading: true } })
+    // Asked again while Codex still hangs: still at once, and no second Codex is started.
+    expect(await Promise.race([call('claudeHome.sessions', { projectRoot: PROJECT }), bound])).toMatchObject({ ok: true, value: { codexLoading: true } })
+    release()
+    await codex.settled(PROJECT)
+    const later = await call('claudeHome.sessions', { projectRoot: PROJECT })
+    expect(later).toMatchObject({ ok: true, value: { codex: true, history: [{ sessionId: id(1), vendor: 'codex' }] } })
+    expect((later as { value: Record<string, unknown> }).value.codexLoading).toBeUndefined()
   })
 
   it('without a Codex the answer is the Claude home\'s alone, as before', async () => {
@@ -306,8 +326,10 @@ describe('the claudeHome channels with the Codex Sessions', () => {
 
   it('claudeHome.transcript reads a Codex thread of the Project, and finds none of another', async () => {
     const { history } = counted(() => [THREAD])
-    const call = await ipcOver(new CodexSessionsOnCanvas({ history, roots: async (root) => [root] }))
+    const codex = new CodexSessionsOnCanvas({ history, roots: async (root) => [root] })
+    const call = await ipcOver(codex)
     await call('claudeHome.sessions', { projectRoot: PROJECT })
+    await codex.settled(PROJECT)
     const read = await call('claudeHome.transcript', { projectRoot: PROJECT, sessionId: id(1), back: { bytes: 1024 } })
     expect(read).toMatchObject({ ok: true, value: { found: true, earlier: 0, events: [{ type: 'notice', kind: 'user', text: 'Explain the tests' }] } })
     expect(await call('claudeHome.transcript', { projectRoot: '/fake/elsewhere', sessionId: id(1), back: { bytes: 1024 } })).toMatchObject({ ok: true, value: { found: false } })

@@ -296,10 +296,14 @@ export function claudeHomeHandlers(
       // Watch first, read second: a change made while the files are read still produces an event.
       const client = clientOf(event)
       if (client) await subscriptions.subscribe(client, root, projectRoot)
-      const [claude, codexAnswer] = await Promise.all([registry.sessions(root), codex.sessions(rootPath(root))])
+      // The Codex part never waits: its ask starts here, in the background, and the answer takes what
+      // Codex had given by the time the Claude home was read (src/main/vendors/codex/sessions-on-canvas.ts).
+      codex.sessions(rootPath(root))
+      const claude = await registry.sessions(root)
+      const codexAnswer = codex.sessions(rootPath(root))
       if (!codexAnswer.available && codexAnswer.sessions.length === 0) return claude
       const history = [...claude.history, ...codexAnswer.sessions].sort((a, b) => b.modifiedAt - a.modifiedAt || a.sessionId.localeCompare(b.sessionId))
-      return { ...claude, history, ...(codexAnswer.available ? { codex: true } : {}) }
+      return { ...claude, history, ...(codexAnswer.available ? { codex: true } : {}), ...(codexAnswer.loading ? { codexLoading: true } : {}) }
     }),
     defineHandler(claudeHomeLive, async ({ projectRoot }, { event }) => ({ live: await registry.live(await rootOf(projectRoot, event)) })),
     defineHandler(claudeHomeClose, async ({ projectRoot }, { event }) => {

@@ -104,7 +104,8 @@ custom title, then the AI title, then the first prompt.
 one of them are in the history too, as `terminal · Codex` or `worfy · Codex`. On Windows the folder is compared with either
 separator and in any case. Codex keeps no list of its running Sessions, so while the Project is open worfy asks Codex again
 every 30 seconds, and not at all without a Codex home folder; a Codex that does not answer stops the asking without an
-error. A thread started outside worfy that changed in the last 10 minutes gets a read-only Node by itself, with the Codex
+error. The list of Sessions never waits for Codex: its threads come with a later answer, which the window asks for every
+2 seconds while Codex gives its first list. A thread started outside worfy that changed in the last 10 minutes gets a read-only Node by itself, with the Codex
 badge and the chip `unknown`; an older one gets its Node through Show. Its transcript is read from Codex and its answers are
 labelled `codex`. Resume of such a Node, or of its history row, continues the same Codex thread on a live Node in its place;
 for a thread worfy did not start it first asks "This Session may be open in a terminal", with Cancel and "Resume anyway".

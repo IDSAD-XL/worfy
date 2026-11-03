@@ -77,6 +77,9 @@ export const tailCursorSchema = z.object({
  */
 export const CODEX_SESSIONS_POLL_MS = 30_000
 
+/** How soon a window asks again while main's first ask of Codex for the Project runs (`codexLoading`). */
+export const CODEX_LOADING_RETRY_MS = 2_000
+
 export type LiveSession = z.infer<typeof liveSessionSchema>
 export type HistorySession = z.infer<typeof historySessionSchema>
 
@@ -97,6 +100,11 @@ export const claudeHomeSessions = invokeChannel(
      * and the window asks again every CODEX_SESSIONS_POLL_MS. Absent without a Codex to ask.
      */
     codex: z.boolean().optional(),
+    /**
+     * True while main's first ask of Codex for this Project has not answered: the answer never waits for
+     * Codex, so the window asks again after CODEX_LOADING_RETRY_MS to show its threads.
+     */
+    codexLoading: z.boolean().optional(),
   }),
   'project',
   'read',

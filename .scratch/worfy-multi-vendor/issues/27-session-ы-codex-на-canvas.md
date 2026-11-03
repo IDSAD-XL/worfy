@@ -51,8 +51,11 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   `cwd` сравнивается через `isInsidePath` (на Windows — любой разделитель, без учёта регистра). `CodexSessionsOnCanvas`
   спрашивает Codex не чаще раза в 30 s на Project (`CODEX_SESSIONS_POLL_MS` в `src/shared/ipc/claude-home.ts`), ключ — корень
   в любом написании. Нет папки Codex home — Codex не спрашивается, опроса нет. Codex не ответил — список остаётся прежним,
-  причина один раз в log, опрос окна выключается; toast-а нет. Ответ ждёт Codex не дольше 5 s (`CODEX_ANSWER_WAIT_MS`):
-  история Claude не ждёт медленный Codex, его список приходит со следующим ответом.
+  причина один раз в log, опрос окна выключается; toast-а нет. Ответ не ждёт Codex совсем (раунд 2): `claudeHome.sessions`
+  отдаёт часть Claude и последний известный список Codex (в первый раз пустой), а запрос к Codex идёт в фоне. Пока первый
+  запрос Project-а не ответил, ответ несёт `codexLoading: true`, и окно спрашивает снова через 2 s
+  (`CODEX_LOADING_RETRY_MS`), так что thread-ы видны через несколько секунд после открытия окна, а не через 30 s.
+  Правило Resume ждёт текущий запрос (`settled`): Resume и так запускает Codex.
 - Канал `claudeHome.sessions` добавляет thread-ы Codex в `history` с `vendor: 'codex'` и `origin`, и `codex: true`, пока
   Codex отвечает; без Codex ответ прежний, только Claude. `claudeHome.transcript` для Session, которой нет в Claude home,
   читает thread Codex (`history.read`) — только thread из последнего списка этого Project-а.
@@ -80,7 +83,9 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
    Иначе Project с сотнями старых thread-ов засыпал бы Canvas.
 2. Chip Node-а и Session view thread-а Codex — `unknown`: Codex не говорит, работает ли thread.
 3. Вопрос перед Resume — и для thread-а с неизвестным `origin`; без вопроса — только thread, начатый в worfy.
-4. Ожидание Codex в ответе `claudeHome.sessions` — 5 s, дальше прежний список.
+4. Ответ `claudeHome.sessions` не ждёт Codex; пока первый запрос к Codex идёт, окно спрашивает снова каждые 2 s
+   (`codexLoading`, `CODEX_LOADING_RETRY_MS`), до ответа Codex или его отказа (не дольше времени запроса, 30 s на
+   страницу).
 5. Resume и вопрос — и в History, не только на Node (тикет называет Node); строка Codex не спрашивает вердикт main.
 6. Вне «Где в коде» правлены: `src/main/agent/app-node-sessions.ts`, `src/renderer/canvas/overlays/SessionNodes.tsx`,
    `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/session/HistoryPopover.tsx`,

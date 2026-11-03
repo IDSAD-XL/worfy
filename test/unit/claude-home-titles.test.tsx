@@ -20,6 +20,8 @@ let history: HistorySession[]
 let liveNow: LiveSession[]
 /** Whether main says Codex answered (`codex` of `claudeHome.sessions`, worfy-multi-vendor ticket 27). */
 let codex: boolean
+/** Whether main's first ask of Codex still runs (`codexLoading`). */
+let codexLoading: boolean
 let changed: ((payload: unknown) => void) | undefined
 const asked: string[] = []
 /** While set, `claudeHome.sessions` answers wait here until the test resolves them. */
@@ -29,11 +31,12 @@ let heldLive: { resolve: () => void }[] | undefined
 
 beforeEach(() => {
   vi.resetModules()
-  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
   asked.length = 0
   history = []
   liveNow = live
   codex = false
+  codexLoading = false
   changed = undefined
   held = undefined
   heldLive = undefined
@@ -42,7 +45,7 @@ beforeEach(() => {
       asked.push(channel)
       if (channel === 'claudeHome.sessions') {
         // The answer is what main read when the request came in, however late it arrives.
-        const value = { live: liveNow, history, ...(codex ? { codex: true } : {}) }
+        const value = { live: liveNow, history, ...(codex ? { codex: true } : {}), ...(codexLoading ? { codexLoading: true } : {}) }
         if (held === undefined) return Promise.resolve({ ok: true, value })
         const queue = held
         return new Promise((resolve) => queue.push({ resolve: () => resolve({ ok: true, value }) }))
@@ -319,6 +322,35 @@ describe('the Codex threads of the history (worfy-multi-vendor ticket 27)', () =
     third.unmount()
     const before = historyReads()
     await wait(3 * CODEX_SESSIONS_POLL_MS)
+    expect(historyReads()).toBe(before)
+  })
+})
+
+describe('Codex still loading in main (worfy-multi-vendor ticket 27, round 2)', () => {
+  it('asks once more after CODEX_LOADING_RETRY_MS while main says Codex is loading, and stops once it is not', async () => {
+    const { CODEX_LOADING_RETRY_MS } = await import('../../src/shared/ipc/claude-home')
+    liveNow = []
+    codexLoading = true
+    const { hook } = await mount()
+    const wait = async (ms: number) => act(async () => await vi.advanceTimersByTimeAsync(ms))
+    expect(historyReads()).toBe(1)
+    await wait(CODEX_LOADING_RETRY_MS)
+    expect(historyReads()).toBe(2)
+    // Still loading: once more.
+    await wait(CODEX_LOADING_RETRY_MS)
+    expect(historyReads()).toBe(3)
+    codexLoading = false
+    await wait(CODEX_LOADING_RETRY_MS)
+    expect(historyReads()).toBe(4)
+    await wait(10 * CODEX_LOADING_RETRY_MS)
+    expect(historyReads()).toBe(4)
+    // The window that leaves while Codex loads asks nothing more.
+    codexLoading = true
+    hook.unmount()
+    const { hook: again } = await mount()
+    again.unmount()
+    const before = historyReads()
+    await wait(10 * CODEX_LOADING_RETRY_MS)
     expect(historyReads()).toBe(before)
   })
 })

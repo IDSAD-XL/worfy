@@ -24,14 +24,16 @@
 // The history also lists the Project's Codex threads (`vendor: 'codex'`, worfy-multi-vendor ticket 27).
 // Codex keeps no file of its live Sessions, so while main says Codex answered (`codex` of the answer)
 // the whole list is asked again every CODEX_SESSIONS_POLL_MS; without a Codex nothing polls, and a
-// Codex that stops answering only stops the polling (main logs why), never shows an error.
+// Codex that stops answering only stops the polling (main logs why), never shows an error. main's answer
+// never waits for Codex; while its first ask of the Project runs (`codexLoading`) the list is asked again
+// after CODEX_LOADING_RETRY_MS, so the threads show a moment after the window opens.
 //
 // One read goes past the shared copy: liveSessionsNow() asks main for the live list once, for a
 // decision that cannot wait for the next poll, and neither reads nor updates the copy.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { AgentEvent } from '../../shared/agent/events'
-import { CODEX_SESSIONS_POLL_MS, TRANSCRIPT_WINDOW_BYTES, type HistorySession, type LiveSession } from '../../shared/ipc/claude-home'
+import { CODEX_LOADING_RETRY_MS, CODEX_SESSIONS_POLL_MS, TRANSCRIPT_WINDOW_BYTES, type HistorySession, type LiveSession } from '../../shared/ipc/claude-home'
 import type { InvokeOutput } from '../../shared/ipc/channels'
 import { invoke, readableReason, showSubscribeError, subscribe } from '../ipc'
 import { dismissToast, showToast, toasts } from '../toast/toasts'
@@ -110,6 +112,8 @@ const users = new Map<string, number>()
 const polls = new Map<string, ReturnType<typeof setInterval>>()
 /** The polls of the whole list of each root whose Codex answered. */
 const codexPolls = new Map<string, ReturnType<typeof setInterval>>()
+/** The one ask of each root whose Codex was still loading at the last answer. */
+const codexRetries = new Map<string, ReturnType<typeof setTimeout>>()
 /**
  * Live Sessions whose history was read since they appeared, by root: listed live by a
  * `claudeHome.sessions` answer, or given their one read by `refreshLive`.
@@ -156,6 +160,23 @@ function scheduleCodexPoll(root: string, codex: boolean): void {
   }
 }
 
+/** Asks for the whole list of `root` once more after CODEX_LOADING_RETRY_MS while main's Codex ask runs. */
+function scheduleCodexRetry(root: string, loading: boolean): void {
+  const timer = codexRetries.get(root)
+  if (loading && timer === undefined && users.has(root)) {
+    codexRetries.set(
+      root,
+      setTimeout(() => {
+        codexRetries.delete(root)
+        void refreshAll(root)
+      }, CODEX_LOADING_RETRY_MS),
+    )
+  } else if (!loading && timer !== undefined) {
+    clearTimeout(timer)
+    codexRetries.delete(root)
+  }
+}
+
 function readFor(root: string): Set<string> {
   const read = reread.get(root) ?? new Set<string>()
   reread.set(root, read)
@@ -175,6 +196,7 @@ async function refreshAll(root: string): Promise<void> {
     for (const session of result.value.live) read.add(session.sessionId)
     setEntry(root, { ...(newerLive ? {} : { live: result.value.live }), history: result.value.history, error: undefined })
     scheduleCodexPoll(root, result.value.codex === true)
+    scheduleCodexRetry(root, result.value.codexLoading === true)
   } else {
     console.error(`claudeHome.sessions ${root} failed:`, result.error)
     applied.set(root, { ...shown, history: request })
@@ -306,6 +328,7 @@ function release(root: string): void {
   if (timer !== undefined) clearInterval(timer)
   polls.delete(root)
   scheduleCodexPoll(root, false)
+  scheduleCodexRetry(root, false)
   useClaudeHomeStore.setState(({ byRoot }) => {
     const rest = { ...byRoot }
     delete rest[root]
