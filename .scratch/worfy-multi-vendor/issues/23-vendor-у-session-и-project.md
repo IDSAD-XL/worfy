@@ -100,3 +100,21 @@ Source: [spec.md](../spec.md), «Модель» (Vendor), «Решено без 
   Harness на Codex — Ticket-ы 35–39; до них Project с `defaultVendor: codex` отправит «Ship ticket» в Codex.
 - Текст отказа черновика стал «The draft Session failed: <причина oneShot>» вместо своих текстов черновика («Claude
   Code ended before the draft was ready», «The draft Session gave no draft (…)»): причину теперь даёт driver.
+- Два файла вне «Где в коде»: `src/main/agent/session/registry.ts` (выбор driver-а по Vendor-у Session) и
+  `src/main/projects/settings.ts` (Save без `defaultVendor` сохраняет сохранённый) — причины выше, в списке файлов.
+
+Ревью (PR #1267):
+
+- Ступень `low` — по умолчанию: в Wave под Autopilot один verifier (rules-review-depth.md), в профиле нет
+  `review.depth.wave`. Один круг — verifier: VERIFIED, находок high и med нет, 79 919 subagent-токенов.
+- Consider (low), долг:
+  - «Ship ticket» зовёт `sessions.create`, который берёт `defaultVendor` Project-а и обходит отказ без входа из `open`
+    (`src/main/actions/launch.ts:197`, `src/main/agent/node-sessions.ts:182`): с `defaultVendor: codex` skill Harness
+    уйдёт в Codex раньше Ticket-ов 35/36; из UI недостижимо до Ticket-а 24 — перенесено в Ticket 24;
+  - `vendor` вида Node-а с `default('claude')` не разбирает незнакомый Vendor с Linked machine той же версии протокола
+    (`src/shared/ipc/sessions.ts:73`) — исправить, когда появится третий Vendor;
+  - Save без `defaultVendor` сохраняет сохранённое значение: его можно заменить, но не сбросить
+    (`src/main/projects/settings.ts:44`) — перенесено в Ticket 24.
+- Noted (low): первый gate fast был красным на `test/contract/login-shell-capture.test.ts:128` (отдельно 3/3 зелёный,
+  в CI зелёный) — flaky test под нагрузкой.
+- Dismissed: нет.
