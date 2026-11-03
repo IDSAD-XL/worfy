@@ -584,20 +584,25 @@ const contexts = (runs: HookRun[]) => runs.flatMap((run) => run.entries.filter((
 const statuses = (runs: HookRun[]) => runs.map((run) => run.status)
 const reasons = (runs: HookRun[]) => runs.filter((run) => run.status === 'blocked').flatMap((run) => run.entries.map((entry) => entry.text))
 
-/** The checks each row has, and those that passed: the last test checks that every row has checks and that all of them passed. */
-const registered = new Map<number, number>()
+/**
+ * The checks of each row that ran, and those that passed: the last test checks that every row ran checks and
+ * that all of them passed. A check skipped because its scenario failed in beforeAll is not counted, and that
+ * failure makes the file red on its own. `row` only hands its parameters on to `it`, so the test of spawns at
+ * load (test/unit/e2e-no-spawn-on-load.test.ts) knows its callback runs later.
+ */
+const ran = new Map<number, number>()
 const passed = new Map<number, number>()
-const row = (n: number, title: string, check: () => void | Promise<void>, timeout?: number) => {
-  registered.set(n, (registered.get(n) ?? 0) + 1)
+const count = (counts: Map<number, number>, n: number) => counts.set(n, (counts.get(n) ?? 0) + 1)
+const row = (n: number, title: string, check: () => void | Promise<void>, timeout?: number) =>
   it(
     `row ${n}: ${title}`,
     async () => {
+      count(ran, n)
       await check()
-      passed.set(n, (passed.get(n) ?? 0) + 1)
+      count(passed, n)
     },
     timeout,
   )
-}
 
 // --- Rows 1, 4, 7, 8: the guards, the rules at the start, the end of the Session -----------------------
 
@@ -901,7 +906,7 @@ describe('the same turn before the hooks are approved, and after the plugin chan
 describe('the table, once every scenario ran', () => {
   it('every row passed all its checks', () => {
     const rows = GUARANTEES.map((guarantee) => guarantee.row)
-    expect([...registered.keys()].sort((a, b) => a - b)).toEqual(rows)
-    expect(rows.filter((n) => passed.get(n) !== registered.get(n)), 'rows with a check that did not pass').toEqual([])
+    expect([...ran.keys()].sort((a, b) => a - b)).toEqual(rows)
+    expect(rows.filter((n) => passed.get(n) !== ran.get(n)), 'rows with a check that did not pass').toEqual([])
   })
 })
