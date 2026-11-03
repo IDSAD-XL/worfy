@@ -885,7 +885,7 @@ describe('a Codex Session: the slash menu (worfy-multi-vendor ticket 22)', () =>
     expect(skillsOf(at)).toHaveLength(2)
   })
 
-  it('/compact runs thread/compact/start, and its turn ends with a result; one Codex refuses ends with a result that says why', async () => {
+  it('/compact runs thread/compact/start, and its turn ends with a result, a second one too; one refused ends with a result that says why', async () => {
     const at = fake('compact')
     const session = await live(at)
     await session.until((event) => event.type === 'account', 'account')
@@ -895,9 +895,16 @@ describe('a Codex Session: the slash menu (worfy-multi-vendor ticket 22)', () =>
     expect(at.requests('turn/start')).toEqual([])
     expect(at.requests('skills/list')).toEqual([])
 
+    // Codex 0.166.0 compacts a thread with nothing new to compact too (test/fixtures/codex-messages/compact.jsonl:16).
+    await session.handle.send(message('/compact'))
+    await eventually(() => session.events.filter(isResult).length === 2, 'the result of the second compaction')
+    expect(session.events.filter(isResult).map((event) => event.type === 'result' && event.isError)).toEqual([false, false])
+    expect(at.requests('thread/compact/start').map((request) => request.params)).toEqual([{ threadId: 'thr_fake_1' }, { threadId: 'thr_fake_1' }])
+
+    // A refusal (here the fake's, its script has ended) is a result that names it.
     await session.handle.send(message('/compact'))
     const refused = await session.until((event) => event.type === 'result' && event.isError, 'the refusal')
-    expect(refused).toMatchObject({ type: 'result', subtype: 'error', error: expect.stringMatching(/^Codex did not run \/compact: .*nothing to compact yet/) as string })
+    expect(refused).toMatchObject({ type: 'result', subtype: 'error', error: expect.stringMatching(/^Codex did not run \/compact: Codex app-server refused thread\/compact\/start: fake app-server: waits for nothing: the script compact has ended/) as string })
   })
 
   it('/review reviews the uncommitted changes inline, and /review with text gives Codex those instructions', async () => {

@@ -1,0 +1,7 @@
+{"expect":"initialize","params":{"clientInfo":{"name":"worfy","title":"worfy","version":"capture"},"capabilities":null},"result":{"userAgent":"worfy/0.166.0 (Mac OS 26.6.1; arm64) capture-terminal (worfy; capture)","codexHome":"/capture/codex-home","platformFamily":"unix","platformOs":"macos"}}
+{"expect":"initialized"}
+{"notify":"remoteControl/status/changed","params":{"status":"disabled","serverName":"capture-host.local","installationId":"00000000-0000-4000-8000-000000000001","environmentId":null}}
+{"expect":"account/read","params":{"refreshToken":false},"result":{"account":null,"requiresOpenaiAuth":true,"workspaceRouting":null}}
+{"expect":"account/rateLimits/read","error":{"code":-32600,"message":"codex account authentication required to read rate limits"}}
+{"expect":"account/login/start","params":{"type":"chatgpt"},"result":{"type":"chatgpt","loginId":"00000000-0000-4000-8000-000000000002","authUrl":"https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_EMoamEEZ73f0CkXaXp7hrann&redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%2Fcallback&code_challenge=8IAh_XLlGcp6AZryGFpd98vJjYPgw-ZM-zLx2_6K9xc&code_challenge_method=S256&state=v8m2QFW-IUnadw3z0pPIi0NrcAblLWBcMxLTqLlwzZI&scope=openid+profile+email+offline_access+api.connectors.read+api.connectors.invoke&id_token_add_organizations=true&codex_cli_simplified_flow=true&originator=worfy"}}
+{"notify":"account/login/completed","params":{"loginId":"00000000-0000-4000-8000-000000000002","success":true,"error":null,"onboardingEntrypoint":null}}
