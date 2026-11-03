@@ -69,6 +69,12 @@ export const appCodexStarter: StartCodex = async (onEvent) => {
   return codexAskStarter({ runtime, appPath: app.getAppPath(), clientVersion: app.getVersion(), cwd })(onEvent)
 }
 
+/** Whether the app can start a Codex: the pinned binary of this build, or the fake under WORFY_CODEX=fake. */
+export const appCodexInBuild = async (): Promise<boolean> => {
+  const [{ app }, { codexInBuild }] = await Promise.all([import('electron'), import('./launch')])
+  return codexInBuild({ runtime: { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }, appPath: app.getAppPath() })
+}
+
 /** The folder Codex keeps its sign-in in: CODEX_HOME, else ~/.codex (as Codex itself picks it). */
 export const codexHomeOf = (env: Readonly<Record<string, string | undefined>> = process.env): string => env.CODEX_HOME || join(homedir(), '.codex')
 
@@ -128,6 +134,8 @@ export interface CodexAccountOptions {
   /** Where the one line about a Codex that does not start goes; console.debug by default. */
   log?: (message: string, error?: unknown) => void
   loginTimeoutMs?: number
+  /** Whether this build can start a Codex: appCodexInBuild by default. */
+  inBuild?: () => Promise<boolean>
 }
 
 const openWithShell = async (url: string): Promise<void> => {
@@ -161,6 +169,7 @@ export function codexAccountPart(options: CodexAccountOptions = {}): AccountPart
       return [await useCodex(started, signal, readCodexAccount)]
     },
     startLogin: () => startCodexLogin(start, openUrl, loginTimeoutMs),
+    inBuild: options.inBuild ?? appCodexInBuild,
   }
 }
 

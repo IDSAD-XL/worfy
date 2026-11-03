@@ -36,6 +36,15 @@ Each time the list opens, main checks the sign-in of every Vendor it has not yet
 Session on its Project's default Vendor at once. "New session" in the Command palette uses the default Vendor too. The
 default Vendor is "Default vendor" in [Project settings](projects.md).
 
+**Signing in to a Vendor.** Settings → Vendors has one row per Vendor this build runs, Claude Code marked `required` and
+Codex `optional`. A signed-in row shows `Signed in: <email> · <plan>`, as the first-run sign-in check does. A Vendor nobody
+is signed in to has "Sign in to <Vendor>". For Codex, main starts the ChatGPT sign-in and opens its page in the browser;
+the row says to finish it there, offers "Cancel", and then shows the account the sign-in ended with. A sign-in left open
+is cancelled after 10 minutes, and when worfy quits. For Claude Code the row names the command to run in a Terminal Node,
+`claude`, and offers "Check again". A Vendor this build does not carry says so and offers nothing. A check or a sign-in
+that fails is a line in its row; nothing pops up. worfy keeps no tokens: each Vendor keeps its sign-in in its own home
+folder. Each time the "New session on" list opens it checks again, so a Vendor signed in here can start a Session at once.
+
 **Vendor badge.** The Vendor shows as its name beside its logo, drawn in the text colour (Claude's starburst for Claude Code,
 the OpenAI mark for Codex): on a live Session Node before its folder, short (`Claude`, `Codex`, the whole name in the tooltip); in the
 Session view's header after the title; in the rail's first block, "Vendor"; in the Vendor list of "New session". The
@@ -249,6 +258,7 @@ for a process also asks the system.
 | Handlers | `src/main/ipc/agent.ts`, `src/main/ipc/sessions.ts`, `src/main/ipc/orchestrator.ts`, `src/main/ipc/session-autocompact.ts` |
 | Session view | `src/renderer/session/SessionView.tsx`, `src/renderer/session/MessageInput.tsx`, `src/renderer/session/navigation.ts` |
 | Vendor picker and badge | `src/renderer/session/NewSessionVendor.tsx`, `src/renderer/session/VendorBadge.tsx`, `src/renderer/session/rail/VendorRail.tsx`, `src/shared/vendors/vendor.ts` |
+| Settings → Vendors: each Vendor's sign-in | `src/renderer/settings/VendorsSection.tsx`, `src/main/ipc/vendors.ts`, `src/shared/ipc/vendors.ts`, `src/main/vendors/account.ts` |
 | Renderer store, the join of past and live events | `src/renderer/session/store.ts` |
 | Cards | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Items under the input field, found by glob | `src/renderer/session/composer/` |
@@ -274,6 +284,8 @@ events go to every client on `agent.event`, and the renderer store keeps the new
 - `test/contract/codex-sessions-on-canvas.test.ts`: the Codex threads of a Project's root and worktrees on the fake
   app-server, the Windows path rule, the 30-second limit and the `claudeHome` answers; `test/e2e/codex-sessions-on-canvas.spec.ts`:
   a Codex Session from a terminal, its transcript and Resume with the question.
+- `test/contract/vendors-ipc.test.ts`, `test/unit/settings-vendors.test.tsx`, `test/e2e/onboarding-codex.spec.ts`: Settings →
+  Vendors and the sign-in to Codex on the fake app-server, a Codex signed out and a build without Codex.
 - `test/unit/agent-queue.test.ts`, `test/unit/agent-options.test.ts`, `test/unit/resume-rule.test.ts`,
   `test/unit/session-process-exit.test.ts`.
 - `test/e2e/session-view.spec.ts`, `test/e2e/session-controls.spec.ts`, `test/e2e/permissions.spec.ts`,

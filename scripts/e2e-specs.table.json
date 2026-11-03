@@ -201,6 +201,16 @@
         "test/e2e/codex-session.spec.ts"
       ],
       "why": "Codex's approvals as permission requests (worfy-multi-vendor tickets 20, 25): the code runs only when the fake app-server asks for an approval, and codex-session.spec.ts is the only spec whose scenario (session-controls.jsonl) asks for one. Left out: the pickers, PermissionCard.tsx and SlashMenu.tsx, which every Claude Session draws, and the rest of the Codex driver, which every Codex Session runs through (vendor-picker.spec.ts, limits-vendors.spec.ts)."
+    },
+    {
+      "paths": [
+        "src/renderer/settings/VendorsSection.tsx"
+      ],
+      "specs": [
+        "test/e2e/onboarding-codex.spec.ts",
+        "test/e2e/settings.spec.ts"
+      ],
+      "why": "Settings → Vendors (worfy-multi-vendor ticket 29): the section draws only while it is the one shown. onboarding-codex.spec.ts opens it — the sign-in to Codex on the fake, a Codex signed out, a build without Codex — and settings.spec.ts walks the section list of the window, which every section file joins through the eager import.meta.glob of sections.ts. Left out: src/main/ipc/vendors.ts and src/shared/ipc/vendors.ts, which every launch loads with the IPC handlers and the renderer's channels, and GettingStartedPanel.tsx, which every window mounts."
     }
   ]
 }
