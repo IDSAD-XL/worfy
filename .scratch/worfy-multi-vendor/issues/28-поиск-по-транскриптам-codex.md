@@ -1,7 +1,7 @@
 # 28 — Поиск по транскриптам Codex
 
 Type: task
-Status: open
+Status: claimed 2026-11-03T12:02Z
 Blocked by: 22, 24
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 10; решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md))
 
@@ -32,3 +32,25 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 - `src/renderer/palette/CommandPalette.tsx` — `:10`, строки результата
 - `test/unit/palette-commands.test.tsx`
 - `test/contract/claude-home-search.test.ts`
+
+## Итог
+
+- `src/main/claude-home/search.ts`: `TranscriptSearch` принимает список `VendorThreads` (Vendor, его thread-ы из последнего
+  списка Project-а, чтение thread-а). Кандидаты — транскрипты Claude и thread-ы Codex, одним списком по времени, новые первыми
+  (тот же порядок, что у истории `claudeHome.sessions`). Те же `SEARCH_LIMITS`: thread считается одним прочитанным
+  транскриптом, UTF-8 байты его сообщений — в предел `bytes` (размер thread-а известен только после чтения). Тот же
+  `snippetAround`; ищутся только сообщения пользователя и ответы агента (`eventMessages`), не команды и не их вывод. Thread с
+  id, который не может быть Session-ом (`sessionIdSchema`), пропускается, как в истории.
+- Текст прочитанного thread-а хранится в памяти (тот же LRU-кэш, что у транскриптов, ключ `\0codex\0<id>`) до смены времени
+  thread-а в списке; thread без времени читается при каждом поиске. Codex, не прочитавший один thread, до конца этого поиска
+  больше не спрашивается, ответ говорит `limited: true` («Older transcripts were not searched»).
+- `src/main/ipc/claude-home.ts`: `claudeHome.search` ищет и по thread-ам Codex через `CodexSessions` (`cached` и `transcript`):
+  сам список у Codex не спрашивает, читает только thread-ы из последнего списка Project-а.
+- `src/shared/ipc/claude-home.ts`: у результата поиска — необязательное поле `vendor` (`codex`); у результата Claude поля нет,
+  как в `historySessionSchema`, поэтому ожидания test-ов поиска Claude (`toStrictEqual`) не менялись.
+- Command palette: каждая строка «In transcripts» кончается логотипом Vendor-а (`VendorBadge`, форма `icon`, имя Vendor-а — в
+  tooltip и в `aria-label`); строка без `vendor` — Claude Code.
+- Test-ы: `test/contract/claude-home-search.test.ts` (фейк app-server со списком thread-ов и чтением каждого: текст сообщения
+  Codex найден, snippet и пределы как у Claude, кэш до смены времени, отказ Codex, ничего не записано в Claude home, Codex home
+  и папки Project-ов); `test/unit/palette-transcripts.test.tsx`; e2e `test/e2e/codex-transcript-search.spec.ts`.
+- Снимки: [светлая тема](../evidence/28/28-codex-search-light.png), [тёмная тема](../evidence/28/28-codex-search-dark.png).

@@ -8,13 +8,16 @@
 //
 // Below the commands, "In transcripts" lists the Project's Sessions whose conversation contains the
 // query (`claudeHome.search`, worfy-polish ticket 10): Sessions of worfy and those started in a
-// terminal or Claude Desktop alike. Picking one opens it in the Session view.
+// terminal or Claude Desktop alike, and the Project's Codex threads (worfy-multi-vendor ticket 28). Each
+// row ends with the logo of the Vendor whose agent ran the Session (VendorBadge, its name as the
+// tooltip). Picking one opens it in the Session view.
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ActionState } from '../../shared/actions/render-template'
 import { TRANSCRIPT_SEARCH, type TranscriptHit } from '../../shared/ipc/claude-home'
 import type { ProjectView } from '../../shared/ipc/projects'
 import { SHORTCUTS } from '../../shared/shortcuts'
+import { UNNAMED_VENDOR } from '../../shared/vendors/vendor'
 import { useRunWaveState, useShipTicketState } from '../canvas/actions/gates'
 import { useLayout } from '../canvas/useLayout'
 import { sessionNodeId } from '../claude-home/session-nodes'
@@ -26,6 +29,7 @@ import { invoke, readableReason, windowMachine } from '../ipc'
 import { useGateQueue } from '../projects/useGateQueue'
 import { activeProject, useProjects, useReadOnly } from '../projects/useProjects'
 import { openSession, useNavigation } from '../session/navigation'
+import { VendorBadge } from '../session/VendorBadge'
 import { label, matches } from '../shortcuts/match'
 import { useUpdate } from '../update/store'
 import { useWorkflow } from '../workflow/useWorkflow'
@@ -147,9 +151,10 @@ function SearchIcon() {
 
 interface RowProps {
   command: PaletteCommand
-  /** A transcript hit: the detail is prose, not an id; `hint` is its tooltip. */
+  /** A transcript hit: the detail is prose, not an id; `hint` is its tooltip, `vendor` its Vendor's logo. */
   prose?: boolean | undefined
   hint?: string | undefined
+  vendor?: string | undefined
   id: string
   /** The first row of its group. */
   first: boolean
@@ -182,7 +187,7 @@ function useCut<T extends HTMLElement>(text: string, wrapped: boolean) {
   return [ref, cut] as const
 }
 
-function RowButton({ command, prose, hint, id, first, active, onPick, onHover, state }: RowProps & { state: ActionState | null }) {
+function RowButton({ command, prose, hint, vendor, id, first, active, onPick, onHover, state }: RowProps & { state: ActionState | null }) {
   const enabled = state === null || state.enabled
   const detail = command.detail ?? ''
   const wrapped = !prose && command.group === WRAPPED_GROUP
@@ -225,6 +230,7 @@ function RowButton({ command, prose, hint, id, first, active, onPick, onHover, s
             {detail}
           </span>
         ) : null}
+        {vendor !== undefined ? <VendorBadge vendor={vendor} form="icon" muted testId="palette-option-vendor" /> : null}
         {state !== null && !state.enabled ? (
           <span style={styles.note} data-testid="palette-option-note">
             {state.reason}
@@ -421,6 +427,8 @@ export function PaletteBody({ commands, empty, onClose, transcripts }: BodyProps
   const hits = useMemo(() => (found.status === 'done' && transcripts !== undefined ? found.hits.map((hit) => hitCommand(hit, transcripts, query)) : []), [found, transcripts, query])
   // The row shows the snippet from its match on; the tooltip has all of it.
   const snippets = useMemo(() => new Map(found.status === 'done' ? found.hits.map((hit) => [hitId(hit.sessionId), hit.snippet]) : []), [found])
+  // A hit without a Vendor is a transcript of Claude Code (`claudeHome.search` names only another Vendor).
+  const vendors = useMemo(() => new Map(found.status === 'done' ? found.hits.map((hit) => [hitId(hit.sessionId), hit.vendor ?? UNNAMED_VENDOR]) : []), [found])
   const note = transcriptsNote(found)
   const listed = useMemo<RowGroup<PaletteCommand, string>[]>(() => (hits.length > 0 || note !== null ? [...groups, { name: TRANSCRIPTS_GROUP, rows: hits }] : groups), [groups, hits, note])
   const rows = useMemo(() => [...shown, ...hits], [shown, hits])
@@ -533,7 +541,7 @@ export function PaletteBody({ commands, empty, onClose, transcripts }: BodyProps
                         },
                       }
                       return group.name === TRANSCRIPTS_GROUP ? (
-                        <RowButton key={command.id} {...props} prose hint={snippets.get(command.id)} state={null} />
+                        <RowButton key={command.id} {...props} prose hint={snippets.get(command.id)} vendor={vendors.get(command.id)} state={null} />
                       ) : (
                         <CommandRow key={command.id} {...props} />
                       )
