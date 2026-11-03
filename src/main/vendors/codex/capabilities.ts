@@ -104,12 +104,13 @@ export function codexSandboxPolicy(mode: SandboxMode): SandboxPolicy {
 /**
  * Codex's capabilities in the first release. A message sent during a turn steers it (`turn/steer`);
  * a model change holds for the turns after it (`turn/start`); Limits come as windows
- * (`account/rateLimits/*`); the canvas tools come from worfy's MCP servers over HTTP (mcp.ts). Missing,
- * each with the reason a tooltip shows: what worfy does not give Codex yet (Subagent Nodes, hooks and
- * the Harness come with the second release), and what Codex does not have.
+ * (`account/rateLimits/*`); the canvas tools come from worfy's MCP servers over HTTP (mcp.ts); its
+ * Subagents get Nodes on the canvas from Codex's threads (subagents.ts, ticket 34). Missing, each with the
+ * reason a tooltip shows: what worfy does not give Codex yet (hooks and the Harness come with the second
+ * release), and what Codex does not have.
  */
 export const CODEX_CAPABILITIES: Capabilities = {
-  subagents: false,
+  subagents: true,
   hooks: false,
   inProcessMcp: false,
   canvasTools: true,
@@ -125,7 +126,6 @@ export const CODEX_CAPABILITIES: Capabilities = {
   effortLevels: [],
   models: [],
   unsupported: {
-    subagents: 'Subagents of a Codex Session do not show on the canvas yet.',
     hooks: 'worfy does not run hooks in Codex yet.',
     inProcessMcp: 'Codex runs in a process of its own: worfy reaches it over HTTP, not inside the app.',
     oneShotToolFree: 'One-off requests (the Project profile draft, Terminal AI) run on Claude Code only.',

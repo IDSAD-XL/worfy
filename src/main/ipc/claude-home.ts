@@ -6,7 +6,8 @@
 // The history and the transcripts also carry the Project's Codex threads (worfy-multi-vendor ticket 27,
 // src/main/vendors/codex/sessions-on-canvas.ts): `claudeHome.sessions` adds them to the history, and
 // `claudeHome.transcript` reads a Codex thread the Claude home has no transcript of, and
-// `claudeHome.search` searches those threads too (ticket 28).
+// `claudeHome.search` searches those threads too (ticket 28). `claudeHome.subagents` answers the Subagent
+// tree of such a thread, read from Codex (ticket 34, src/main/vendors/codex/subagents.ts).
 //
 // The live Sessions a watcher sees also go to liveSessionListeners (ticket 21: a notification when
 // a Session from the registry finishes its turn, src/main/notify.ts): once when the watcher starts,
@@ -25,6 +26,7 @@ import { LINK_MAX_PAYLOAD } from '../link/messages'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { appCodexSessions, codexTranscriptAnswer, NO_CODEX_SESSIONS, type CodexSessions } from '../vendors/codex/sessions-on-canvas'
+import { appCodexSubagents, NO_CODEX_SUBAGENTS, type CodexSubagents } from '../vendors/codex/subagents'
 import {
   claudeHomeChanged,
   claudeHomeClose,
@@ -43,7 +45,7 @@ import {
 import type { AgentEvent } from '../../shared/agent/events'
 import { findNeedle } from '../../shared/transcript/find'
 import { mainThreadEvents, parseTranscriptLine, timedEvent, type TranscriptEntry } from '../../shared/transcript/parse'
-import { summaryLine, type SubagentFile, type SubagentSignal } from '../../shared/transcript/subagents'
+import { summaryLine, type SubagentFile, type SubagentInfo, type SubagentSignal } from '../../shared/transcript/subagents'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** The client the subscriptions serve (src/main/clients.ts); tests pass a fake. */
@@ -167,6 +169,8 @@ export interface SubagentsAnswer {
   truncated?: boolean
   /** When the Session's running process started (ADR-0085); kept when the answer is cut. */
   processStartedAt?: number
+  /** The tree of a Codex Session, built in main (ticket 34); `signals` and `files` are empty then. */
+  tree?: SubagentInfo[]
 }
 
 /**
@@ -275,6 +279,7 @@ export function claudeHomeHandlers(
   search: TranscriptSearch | undefined = undefined,
   hidden = new HiddenSubagents((projectId) => projectStore().dataDir(projectStore().get(projectId).id)),
   codex: CodexSessions = NO_CODEX_SESSIONS,
+  codexSubagents: CodexSubagents = NO_CODEX_SUBAGENTS,
 ): HandlerModule {
   const notFound = { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
   // The search reads the Codex threads the last list of the Project's Codex Sessions named, never asking for a list itself.
@@ -323,9 +328,16 @@ export function claudeHomeHandlers(
       return events === null ? notFound : codexTranscriptAnswer(events, read)
     }),
     defineHandler(claudeHomeSubagents, async ({ projectRoot, sessionId }, { event }) => {
-      const path = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
-      if (path === null) return { found: false, signals: [], files: [] }
-      const answer = { found: true, ...(await subagents.session(path)) }
+      const root = await rootOf(projectRoot, event)
+      const path = await registry.transcriptPath(root, sessionId)
+      let answer: SubagentsAnswer
+      if (path !== null) answer = { found: true, ...(await subagents.session(path)) }
+      else {
+        // A Codex thread of the Project: only one the last list of its Codex Sessions named.
+        const tree = await codexSubagents.tree(rootPath(root), sessionId)
+        if (tree === null) return { found: false, signals: [], files: [] }
+        answer = { found: true, signals: [], files: [], tree }
+      }
       // A window's own main has no limit; a link connection has (LINK_MAX_PAYLOAD).
       return isRemoteCall(event) ? fitSubagentsAnswer(answer, SUBAGENTS_LINK_BYTES) : answer
     }),
@@ -350,13 +362,6 @@ export function claudeHomeHandlers(
 }
 
 const appRegistry = new ClaudeHomeRegistry({ home: claudeHome() })
+const appCodex = appCodexSessions((root) => appRegistry.roots({ path: root, local: true }))
 
-export default claudeHomeHandlers(
-  appRegistry,
-  undefined,
-  undefined,
-  undefined,
-  undefined,
-  undefined,
-  appCodexSessions((root) => appRegistry.roots({ path: root, local: true })),
-) satisfies HandlerModule
+export default claudeHomeHandlers(appRegistry, undefined, undefined, undefined, undefined, undefined, appCodex, appCodexSubagents(appCodex)) satisfies HandlerModule

@@ -348,6 +348,10 @@ const EXCEPTIONS: readonly Exception[] = [
   { kind: 'result thread/read', path: 'thread.turns[].items[](userMessage).content[](skill)', reason: 'the live run sent no skill item' },
   // The live run listed threads in the process that had loaded them (idle, systemError).
   { kind: 'result thread/list', path: 'data[].status(notLoaded)', reason: 'the live run listed no thread its process had not loaded' },
+  // A Session's Subagents (worfy-multi-vendor ticket 34): the live run listed only the interactive sources
+  // and read no thread that had started a Subagent, so no recorded thread is a Subagent's.
+  { kind: 'result thread/read', path: 'thread.turns[].items[](subAgentActivity)', reason: 'the thread read in the live run started no Subagent; its live turn gave these items (subagent.jsonl)' },
+  { kind: 'result thread/list', path: 'data[].source.subAgent', reason: 'the live run listed no Subagent thread (sourceKinds subAgent*); SessionSource of the schema' },
 
   // JSON types at a key path the recordings have with another type. Each is one the generated schema
   // allows there (`X | null`, src/main/vendors/codex/protocol/ts/v2/) and worfy reads; where worfy reads
@@ -359,6 +363,10 @@ const EXCEPTIONS: readonly Exception[] = [
   { kind: 'result model/list', path: 'nextCursor', type: 'string', reason: 'the live list of models fit one page; worfy asks for the next page while there is a cursor (settings)' },
   { kind: 'result thread/list', path: 'nextCursor', type: 'null', reason: 'the live run listed two pages of one thread each and never reached the last page; null ends the paging of worfy' },
   { kind: 'result thread/list', path: 'data[].name', type: 'string', reason: 'no thread of the live run had a name (thread/name/set); worfy shows the name of a named one' },
+  { kind: 'result thread/list', path: 'data[].parentThreadId', type: 'string', reason: 'the live run listed no Subagent thread: only a Subagent has a parent (Thread); worfy builds the tree by it' },
+  { kind: 'result thread/list', path: 'data[].source', type: 'object', reason: 'the live run listed no Subagent thread: its source is { subAgent } (SessionSource); worfy hides the service ones by it' },
+  { kind: 'result thread/list', path: 'data[].agentNickname', type: 'string', reason: 'the live run listed no Subagent thread: only a spawned one has a nickname (Thread); worfy names its Node by it' },
+  { kind: 'result thread/list', path: 'data[].agentRole', type: 'string', reason: 'the live run listed no Subagent thread: only a spawned one has a role (Thread); worfy shows it as its type' },
   { kind: 'notify error', path: 'error.codexErrorInfo', type: 'null', reason: 'the one error of the live run (modelNotFound) had its info; an error without one is CodexErrorInfo | null, as the retried one of turn-failed' },
   { kind: 'notify error', path: 'error.additionalDetails', type: 'string', reason: 'the one error of the live run had no details; worfy shows them when Codex gives some (items.ts)' },
   { kind: 'notify turn/completed', path: 'turn.error.additionalDetails', type: 'string', reason: 'the one failed turn of the live run had no details; worfy shows them when Codex gives some (items.ts)' },

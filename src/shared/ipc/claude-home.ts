@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { agentEvent } from '../agent/events'
 import { absolutePathSchema } from '../paths'
 import { findNeedle, MIN_TRANSCRIPT_FIND } from '../transcript/find'
-import { subagentFileSchema, subagentSignalSchema } from '../transcript/subagents'
+import { subagentFileSchema, subagentSignalSchema, type SubagentInfo } from '../transcript/subagents'
 import { eventChannel, invokeChannel } from './channels'
 
 /** An absolute path, POSIX or Windows; the main process resolves it again before use. */
@@ -171,6 +171,34 @@ export const claudeHomeTranscript = invokeChannel(
   'read',
 )
 
+const shortText = z.string().max(500).nullable()
+
+/**
+ * One entry of a Subagent tree built in main (SubagentInfo, src/shared/transcript/subagents.ts): a Vendor
+ * that keeps no `subagents/` folder gives the tree itself (worfy-multi-vendor ticket 34).
+ */
+export const subagentInfoSchema: z.ZodType<SubagentInfo> = z.lazy(() =>
+  z.object({
+    id: z.string().min(1).max(200),
+    agentId: shortText,
+    toolUseId: shortText,
+    parentAgentId: shortText,
+    name: shortText,
+    subagentType: shortText,
+    model: shortText,
+    description: shortText,
+    status: z.enum(['running', 'done', 'error', 'interrupted']),
+    background: z.boolean(),
+    startedAt: z.number().nullable(),
+    durationMs: z.number().nullable(),
+    summary: shortText,
+    verdict: z.enum(['VERIFIED', 'REJECTED']).nullable(),
+    depth: z.number().int().positive(),
+    transcript: z.boolean(),
+    children: z.array(subagentInfoSchema),
+  }),
+)
+
 /**
  * What the Session's transcript and its `subagents/` folder say about its Subagents (ticket 15):
  * the signals of the Session's own thread and a summary of each Subagent's files. The renderer
@@ -181,7 +209,7 @@ export const claudeHomeTranscript = invokeChannel(
  * `truncated` is set when the answer to a Linked machine was shortened to fit a link connection
  * (LINK_MAX_PAYLOAD, src/main/link/messages.ts): the texts of results and answers are cut, and in
  * the last resort the oldest signals and files are left out (src/main/ipc/claude-home.ts,
- * fitSubagentsAnswer).
+ * fitSubagentsAnswer). A Codex Session of the Project gets its tree in `tree` instead (worfy-multi-vendor ticket 34).
  */
 export const claudeHomeSubagents = invokeChannel(
   'claudeHome.subagents',
@@ -197,6 +225,12 @@ export const claudeHomeSubagents = invokeChannel(
      * older build drops a field it does not know, but refuses a signal it does not know (ADR-0079).
      */
     processStartedAt: z.number().optional(),
+    /**
+     * The tree itself, for a Session whose Vendor keeps no `subagents/` folder (a Codex Session: its
+     * Subagents are threads of Codex, src/main/vendors/codex/subagents.ts); the renderer shows it as it
+     * is. `signals` and `files` are empty then.
+     */
+    tree: z.array(subagentInfoSchema).optional(),
   }),
   'project',
   'read',
