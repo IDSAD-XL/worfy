@@ -77,3 +77,14 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 ему корень как получил, так что пользователь Windows на это не наткнётся. Test-ы handler-а и Archive теперь идут через
 настоящий `CodexSessionsOnCanvas`; новый test проверяет на macOS написания Windows (`C:\…`, `C:/…`, другой регистр,
 `\` в конце, другой диск) по правилам `win32` вплоть до Binding к Ticket-у по папке worktree и через Archive.
+
+### Долги gate (Wave 12, PR #1297)
+
+Красный Windows job CI на первом head — дефект test-а (сравнение корня строкой), исправлен в раунде по CI; gate — VERIFIED.
+
+- [low] `test/contract/codex-binding.test.ts:161`: «два запроса сразу делят одно чтение» не охранено — test ждёт первый `session()` до `Promise.all`; mutant без ветки `reading` (`src/main/vendors/codex/binding.ts:~104`) зелёный.
+- [low] `binding.ts:92`: `gitBranch` на каждый запрос `session()` (ограничено: чтение файлов в репозитории, 1 s `git` вне его).
+- [low] `binding.ts:126`: `thread/read` возвращает весь thread при каждом изменении `updatedAt`; дочитывание — только на уровне разбора.
+- [low] `binding.ts:~97`: `known` не чистится; thread, который всё время падает, стоит одного процесса Codex на запрос живой Session.
+- Вне diff: `src/renderer/binding/store.ts:~153` обновляет сигналы по `claudeHome.changed`, которого у thread-ов Codex нет (только mount и опрос живых Session-ов); авто-Archive Session-ов Codex работает после того, как окно заполнило список Session-ов Codex.
+- Для Ticket-а 42: устарели `docs/features/workflow.md:371`, `:404`, `:422`, `docs/features/vendors.md:83`.

@@ -131,3 +131,12 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Гарантии workf
 Платформенный: на Windows проверить `test/contract/codex-fake-hooks.test.ts` и `test/contract/codex-fake.test.ts` —
 запуск `node "${CLAUDE_PLUGIN_ROOT}/…"` через `cmd.exe`, путь с `\` в hash папки, `taskkill /T /F` по timeout-у
 `SessionEnd`.
+
+### Долги gate (Wave 12, PR #1300)
+
+Раунд 1 — REJECTED (med: фейк не сверял `trusted_hash` с hash-ем объявления hook-а), раунд 2 — VERIFIED: `declarationHash` даёт оба literal-а `codex-rs/core/tests/suite/hooks.rs:4785`, `:4787` (rust-v0.166.0).
+
+- [low] `test/fixtures/codex-app-server/fake-app-server.mjs:270`: проверка «вне cwd» — по тексту пути; symlink внутри cwd, ведущий наружу, не ловится.
+- [low] `hook-runner.mjs:357`, `:364`: тексты отказа отличаются от Codex (`pre_tool_use.rs:281`, `:289`); их пока никто не читает.
+- [low] `fake-app-server.mjs:~185`: фейк читает `CODEX_HOME` из окружения; в dev с выставленным `CODEX_HOME` пользователя он запустит его настоящие подтверждённые hook-и (test-ы и e2e всегда ставят временный).
+- Для Ticket-а 42: `docs/features/vendors.md:180-186` (раздел «The fake Codex») не говорит про hook-и и sandbox.
