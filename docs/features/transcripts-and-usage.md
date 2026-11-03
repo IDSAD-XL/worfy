@@ -169,12 +169,20 @@ opens a stopped sampler gets a sample at once. A reload drops the old page's ope
 
 ### Behaviour
 
-The toolbar shows "Limits" with two bars, 5-hour and 7-day, the same for every Project. The Session view does not repeat them. Before
+The toolbar shows "Limits" with a section per Vendor, the same for every Project. The Session view does not repeat them. Before
 any data arrives it says "no data yet". A window without data says "no data".
 
+- **Claude Code** comes first, with two bars, 5-hour and 7-day.
+- **Codex** has a section only while the user is signed in to it. Its bars are the windows its plan reports, shortest first, each
+  labelled by its length (`5h`, `weekly`). A plan that reports no windows shows "No limits reported".
+- **Several sections** make the panel compact, so it fits next to the rest of the toolbar in a 1280 px window: no "Limits"
+  heading, narrower bars, and the reset line is the time alone (`Thu 09:00`), with `resets …` as its tooltip.
+
 - **Value:** the used share, `62%`. Without a share it is the status in words: allowed, near limit, limit reached.
-- **Reset:** `resets 14:20` for the 5-hour window and `resets Thu 09:00` for the 7-day one.
-- **Colour:** changes at 60% and 85%. A near-limit status also gives the first colour, and a rejected one the second.
+- **Reset:** `resets 14:20` for the 5-hour window and `resets Thu 09:00` for the 7-day one; a Codex window longer than a day shows the
+  weekday too.
+- **Colour:** changes at 60% and 85%. A near-limit status also gives the first colour, and a rejected one the second; so does a Codex
+  window Codex reports as reached.
 - **Old data:** older than an hour, the bar dims and its tooltip ends with `as of 13:05`.
 
 ### How it works
@@ -189,6 +197,12 @@ any data arrives it says "no data yet". A window without data says "no data".
   [ADR-0047](../adr/0047-harness-lessons-by-pr-early-owner-switch.md)). The user's status line keeps its output and exit code.
 - **One merge rule.** A newer update replaces the older one of the same window. An update without a reset time keeps a known reset
   still ahead, and one without a status keeps the known status within the same window: resets at most an hour apart.
+- **Codex's windows.** Two sources, both full lists that replace what was known: a background poll at the start and every 30 minutes
+  (it asks the account first and forgets the windows once the user is signed out), and the `account/rateLimits/updated` notification
+  during a Codex Session's turn. They are kept in memory only; `limits.json` keeps Claude's form.
+- **A Codex turn refused by its Limits** gives a `limit_reached` event before the turn's result: the windows are read again on the
+  Session's own app-server, and a used-up window with a reset time is the one to wait for; otherwise it is a quota with nothing to
+  wait for.
 
 #### Windows
 
@@ -201,14 +215,17 @@ and a poll every second still looks at the file.
 | ---- | ----- |
 | Reading sources, merge, bars (pure) | `src/shared/agent/limits.ts` |
 | Tracker, `limits.json` in the data folder, watching the status line file | `src/main/agent/limits.ts` |
-| The usage request | `src/main/agent/limits-usage.ts` |
+| The usage request, the poll of Codex | `src/main/agent/limits-usage.ts` |
+| Codex's windows and events | `src/main/vendors/codex/limits.ts`, `src/main/vendors/codex/session.ts` |
 | The script behind the status line | `scripts/statusline-bridge.sh`, `scripts/statusline-bridge.mjs` |
 | Handlers, channels | `src/main/ipc/limits.ts`, `src/shared/ipc/limits.ts` |
 | The bars | `src/renderer/shell/toolbar/LimitsMeter.tsx`, `src/renderer/limits/LimitBar.tsx`, `src/renderer/limits/useLimits.ts` |
 
-**Data flow.** Each source gives per-window updates to `LimitsTracker`, which merges them, saves the state and tells subscribers. A
-window opens `limits.open`, then receives `limits.changed` with the whole new state. It redraws every 60 seconds so that a bar goes
+**Data flow.** Each source gives per-window updates to `LimitsTracker`, which merges them, saves the state and tells subscribers.
+Codex's windows go to the same tracker as a list per Vendor. A window opens `limits.open`, then receives `limits.changed` with the
+whole new view: Claude's state and the windows of each other Vendor signed in to. It redraws every 60 seconds so that a bar goes
 stale without a new value.
 
 **Main tests.** `test/unit/limits.test.ts`, `test/unit/limits-usage.test.ts`, `test/contract/limits.test.ts`,
-`test/contract/limits-watch-root.test.ts`, `test/unit/limits-meter.test.tsx`, `test/e2e/limits.spec.ts`.
+`test/contract/limits-watch-root.test.ts`, `test/unit/limits-meter.test.tsx`, `test/contract/codex-session-limits.test.ts`,
+`test/e2e/limits.spec.ts`, `test/e2e/limits-vendors.spec.ts`.

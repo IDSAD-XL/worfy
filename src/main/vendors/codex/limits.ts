@@ -116,7 +116,7 @@ export interface CodexRateLimits {
  * Asks `account/rateLimits/read` of a running app-server. `background`: a poll, which skips the
  * reset-credit details (`excludeResetCreditDetails`), as Codex asks of background polls.
  */
-export async function readCodexRateLimits(ask: CodexAsk, background: boolean, now: () => number = Date.now): Promise<CodexRateLimits> {
+export async function readCodexRateLimits(ask: Pick<CodexAsk, 'request'>, background: boolean, now: () => number = Date.now): Promise<CodexRateLimits> {
   const answer = await ask.request<GetAccountRateLimitsResponse>('account/rateLimits/read', background ? { excludeResetCreditDetails: true } : {}, CODEX_ASK_TIMEOUT_MS)
   return { windows: codexLimitWindows(answer.rateLimits, now(), 'read'), ordinaryUsageAllowed: answer.ordinaryUsageAllowed ?? null }
 }
@@ -133,7 +133,7 @@ export interface CodexLimitReachedEvent extends CodexRateLimits {
  * stay the basis when the read fails. `ordinaryUsageAllowed` is passed on for the caller that decides
  * whether to wait.
  */
-export async function codexLimitReachedEvent(ask: CodexAsk, error: ErrorNotification, known: readonly LimitWindow[], now: () => number = Date.now): Promise<CodexLimitReachedEvent | null> {
+export async function codexLimitReachedEvent(ask: Pick<CodexAsk, 'request'>, error: ErrorNotification, known: readonly LimitWindow[], now: () => number = Date.now): Promise<CodexLimitReachedEvent | null> {
   if (error.error.codexErrorInfo !== 'usageLimitExceeded') return null
   let limits: CodexRateLimits = { windows: [...known], ordinaryUsageAllowed: null }
   try {

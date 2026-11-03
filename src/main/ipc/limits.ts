@@ -1,5 +1,6 @@
 // Handlers of the `limits` domain (src/shared/ipc/limits.ts). A client (src/main/clients.ts) that
-// opens the Limits gets every later change on `limits.changed` until it is destroyed.
+// opens the Limits gets the whole view again on `limits.changed` after every change, of Claude's state
+// or of another Vendor's windows, until it is destroyed.
 import { appLimits, type LimitsTracker } from '../agent/limits'
 import { clientOf, type Client } from '../clients'
 import { limitsChanged, limitsOpen } from '../../shared/ipc/limits'
@@ -13,15 +14,16 @@ export function limitsHandlers(tracker: () => LimitsTracker): HandlerModule {
       const client = clientOf(event)
       if (client !== undefined && !subscribed.has(client) && !client.isDestroyed()) {
         subscribed.add(client)
-        const unsubscribe = tracker().subscribe((state) => {
-          if (!client.isDestroyed()) emit(client, limitsChanged, state)
-        })
+        const send = (): void => {
+          if (!client.isDestroyed()) emit(client, limitsChanged, tracker().view())
+        }
+        const unsubscribe = [tracker().subscribe(send), tracker().subscribeWindows(send)]
         client.once('destroyed', () => {
-          unsubscribe()
+          for (const each of unsubscribe) each()
           subscribed.delete(client)
         })
       }
-      return tracker().snapshot()
+      return tracker().view()
     }),
   ]
 }

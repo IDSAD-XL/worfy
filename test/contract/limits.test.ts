@@ -13,7 +13,7 @@ import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
 import { limitsHandlers } from '../../src/main/ipc/limits'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { sdkMessageToEvents } from '../../src/shared/vendors/claude/events'
-import type { LimitWindow, LimitsState } from '../../src/shared/agent/limits'
+import type { LimitWindow, LimitsState, LimitsView } from '../../src/shared/agent/limits'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
@@ -161,17 +161,25 @@ describe('LimitsTracker: the windows of the other Vendors (Codex, worfy-multi-ve
     const limits = tracker()
     for (const message of recorded('init.jsonl')) limits.recordSdkMessage(message)
     const claude = limits.snapshot()
-    expect(limits.windowsOf('codex')).toEqual([])
+    expect(limits.windowsOf('codex')).toBeNull()
+    expect(limits.view()).toEqual({ claude, vendors: {} })
 
     limits.setWindows('codex', [window(12), { ...window(40), id: 'secondary', label: 'weekly' }])
     limits.setWindows('codex', [window(15)])
     expect(limits.windowsOf('codex')).toEqual([window(15)])
-    expect(limits.windowsOf('other')).toEqual([])
+    expect(limits.windowsOf('other')).toBeNull()
     expect(limits.snapshot()).toBe(claude)
+    expect(limits.view()).toEqual({ claude, vendors: { codex: [window(15)] } })
+
+    // Signed in, and the plan reports no windows (ticket 26): [], not the null of a Vendor signed out.
+    limits.setWindows('codex', [])
+    expect(limits.windowsOf('codex')).toEqual([])
+    expect(limits.view()).toEqual({ claude, vendors: { codex: [] } })
 
     limits.setWindows('codex', null)
-    expect(limits.windowsOf('codex')).toEqual([])
+    expect(limits.windowsOf('codex')).toBeNull()
     expect(limits.snapshot()).toBe(claude)
+    expect(limits.view()).toEqual({ claude, vendors: {} })
   })
 
   it('keeps them in memory only: limits.json keeps Claude\'s form', () => {
@@ -181,12 +189,12 @@ describe('LimitsTracker: the windows of the other Vendors (Codex, worfy-multi-ve
     limits.setWindows('codex', [window(12)])
     expect(readFileSync(join(dataDir, 'limits.json'), 'utf8')).toBe(saved)
     expect(readdirSync(dataDir)).toEqual(['limits.json'])
-    expect(tracker(NOW + 1).windowsOf('codex')).toEqual([])
+    expect(tracker(NOW + 1).windowsOf('codex')).toBeNull()
   })
 
-  it('tells its subscribers each recording, [] on sign-out, nothing for a Vendor forgotten twice; a subscriber that throws is logged', () => {
+  it('tells its subscribers each recording, null on sign-out, nothing for a Vendor forgotten twice; a subscriber that throws is logged', () => {
     const limits = tracker()
-    const told: [string, readonly LimitWindow[]][] = []
+    const told: [string, readonly LimitWindow[] | null][] = []
     const claudeStates: LimitsState[] = []
     limits.subscribe((state) => claudeStates.push(state))
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
@@ -198,14 +206,15 @@ describe('LimitsTracker: the windows of the other Vendors (Codex, worfy-multi-ve
       limits.setWindows('codex', null)
       expect(told).toEqual([])
       limits.setWindows('codex', [window(12)])
+      limits.setWindows('codex', [])
       limits.setWindows('codex', null)
       limits.setWindows('codex', null)
-      expect(told).toEqual([['codex', [window(12)]], ['codex', []]])
+      expect(told).toEqual([['codex', [window(12)]], ['codex', []], ['codex', null]])
       expect(warn).toHaveBeenCalledWith('[limits] a subscriber of the Vendor windows threw', expect.any(Error))
       expect(claudeStates).toEqual([])
       unsubscribe()
       limits.setWindows('codex', [window(20)])
-      expect(told).toHaveLength(2)
+      expect(told).toHaveLength(3)
     } finally {
       warn.mockRestore()
     }
@@ -339,7 +348,7 @@ describe('limits channels', () => {
     }
   }
 
-  async function register(source: () => Pick<LimitsTracker, 'snapshot' | 'subscribe'>): Promise<(input: unknown, window?: FakeWindow) => Promise<IpcResult<unknown>>> {
+  async function register(source: () => Pick<LimitsTracker, 'view' | 'subscribe' | 'subscribeWindows'>): Promise<(input: unknown, window?: FakeWindow) => Promise<IpcResult<unknown>>> {
     const handlers = new Map<string, Listener>()
     await registerIpc(
       { handle: (channel, listener) => handlers.set(channel, listener as Listener) },
@@ -358,18 +367,18 @@ describe('limits channels', () => {
     const limits = tracker()
     limits.recordSdkMessage(recorded('init.jsonl').find((message) => (message as { type?: string }).type === 'rate_limit_event'))
     const open = await register(() => limits)
-    expect(await open(undefined)).toEqual({ ok: true, value: limits.snapshot() })
+    expect(await open(undefined)).toEqual({ ok: true, value: { claude: limits.snapshot(), vendors: {} } })
     const refused = await open({ window: 'five_hour' })
     expect(refused.ok).toBe(false)
   })
 
   it('sends only what the contract describes: unknown keys are dropped, a wrong type is refused', async () => {
     const window = { utilization: 0.5, resetsAt: 1791184200, status: 'allowed', receivedAt: NOW, source: 'sdk' as const }
-    let snapshot: unknown = { windows: { five_hour: { ...window, raw: { headers: 'x' } } }, debug: true }
-    const open = await register(() => ({ snapshot: () => snapshot as LimitsState, subscribe: () => () => undefined }))
-    expect(await open(undefined)).toEqual({ ok: true, value: { windows: { five_hour: window } } })
+    let snapshot: unknown = { claude: { windows: { five_hour: { ...window, raw: { headers: 'x' } } }, debug: true }, vendors: {} }
+    const open = await register(() => ({ view: () => snapshot as LimitsView, subscribe: () => () => undefined, subscribeWindows: () => () => undefined }))
+    expect(await open(undefined)).toEqual({ ok: true, value: { claude: { windows: { five_hour: window } }, vendors: {} } })
 
-    snapshot = { windows: { five_hour: { ...window, utilization: '50%' } } }
+    snapshot = { claude: { windows: { five_hour: { ...window, utilization: '50%' } } }, vendors: {} }
     const refused = await open(undefined)
     expect(refused).toEqual({ ok: false, error: 'limits.open: invalid output from the handler' })
   })
@@ -383,12 +392,25 @@ describe('limits channels', () => {
 
     const update = { window: 'five_hour', state: { utilization: 0.7, resetsAt: null, status: null, receivedAt: NOW + 1, source: 'sdk' as const } }
     limits.record([update])
-    expect(window.sent).toEqual([{ channel: `${IPC_CHANNEL_PREFIX}limits.changed`, payload: { windows: { five_hour: update.state } } }])
+    const claude = { windows: { five_hour: update.state } }
+    expect(window.sent).toEqual([{ channel: `${IPC_CHANNEL_PREFIX}limits.changed`, payload: { claude, vendors: {} } }])
+
+    // Another Vendor's windows (ticket 26): signed in with windows, signed in with none, signed out.
+    const codex: LimitWindow = { vendor: 'codex', id: 'primary', label: '5h', usedPercent: 12, windowMinutes: 300, resetsAt: 1793003600, state: 'ok', receivedAt: NOW, source: 'read' }
+    limits.setWindows('codex', [codex])
+    limits.setWindows('codex', [])
+    limits.setWindows('codex', null)
+    expect(window.sent.slice(1).map(({ payload }) => payload)).toEqual([
+      { claude, vendors: { codex: [codex] } },
+      { claude, vendors: { codex: [] } },
+      { claude, vendors: {} },
+    ])
 
     // The 'destroyed' listener alone must stop the events (isDestroyed() is still false here).
     for (const listener of window.onDestroyed) listener()
     limits.record([{ ...update, state: { ...update.state, receivedAt: NOW + 2 } }])
-    expect(window.sent).toHaveLength(1)
+    limits.setWindows('codex', [codex])
+    expect(window.sent).toHaveLength(4)
   })
 })
 
