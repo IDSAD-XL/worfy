@@ -1,7 +1,8 @@
 # 30 — Compatibility suite Codex и скрипт записи
 
 Type: task
-Status: claimed 2026-11-03T04:25Z
+Status: done 2026-11-03T07:02Z
+PR: #1273
 Blocked by: 22
 Source: [spec.md](../spec.md), «Codex: бинарник и совместимость», «Риски», п. 2; решение 06 ([06-граница-vendor.md](06-граница-vendor.md)); Ticket 02 ([02-codex-управление-сессией.md](02-codex-управление-сессией.md), «Главный риск»); решение владельца Q8 (план Plus)
 
