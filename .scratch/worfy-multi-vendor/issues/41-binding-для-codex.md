@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 32
+Blocked by: —
 Source: [spec.md](../spec.md), «Цель и что видит пользователь» (второй выпуск); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); [CONTEXT.md](../../../CONTEXT.md), термин Binding
 
 ## Что происходит

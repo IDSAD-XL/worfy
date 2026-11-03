@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 32
+Blocked by: —
 Source: [spec.md](../spec.md), «Windows» (Harness на Codex), «Решения владельца» (Q4, Q5); решение 08 ([08-harness-для-codex.md](08-harness-для-codex.md)); Ticket 04 ([04-codex-расширения-для-harness.md](04-codex-расширения-для-harness.md), «Как доставить и версионировать»); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
 
 ## Что происходит
