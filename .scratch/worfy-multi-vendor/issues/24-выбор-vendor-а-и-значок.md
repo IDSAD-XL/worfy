@@ -24,7 +24,7 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 4. Подписи и значки — из `src/shared/vendors/vendor.ts`; проверок имени Vendor-а в renderer нет.
 5. Снимки в обеих темах — `.scratch/worfy-multi-vendor/evidence/24/`.
 
-Из ревью Wave 7 (low; решено без владельца, подтвердить):
+Из ревью Wave 7 (low; решено без владельца, подтверждено владельцем 2026-11-03):
 
 6. «Ship ticket» зовёт `sessions.create`, который берёт `defaultVendor` Project-а и обходит отказ без входа из `open`
    (`src/main/actions/launch.ts:197`, `src/main/agent/node-sessions.ts:182`): с выбором «Default vendor» Codex skill
@@ -64,7 +64,9 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   пометкой `default`. Vendor без входа остаётся в списке неактивным, его tooltip — причина отказа main:
   `Sign in to Codex in Settings → Vendors` (`signInHint` в `src/shared/vendors/vendor.ts`; та же строка — отказ
   `sessions.new`). Машина без канала `sessions.vendors` (Linked machine старой сборки) получает New session на Vendor-е
-  по умолчанию, как до списка. «New session» в Command palette по-прежнему берёт Vendor по умолчанию.
+  по умолчанию, как до списка. «New session» в Command palette по-прежнему берёт Vendor по умолчанию, без выбора; если это Codex без входа, main
+  отказывает с `Sign in to Codex in Settings → Vendors`. Расхождение low, тикетом не становится (решение владельца
+  2026-11-03).
 - `VendorBadge` (`src/renderer/session/VendorBadge.tsx`): нейтральный значок (круг — Claude Code, скруглённый квадрат —
   Codex, без логотипов) и текст. Показан: на Node Session — в строке папки, коротко (`Claude`, `Codex`, полное имя в
   tooltip); в шапке Session view после заголовка; в первом блоке rail-а «Vendor» (`rail/VendorRail.tsx`); в списке
@@ -73,15 +75,15 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   `UNNAMED_VENDOR`); проверок имени Vendor-а в renderer нет.
 - «Default vendor» — в диалоге «Project settings…» (`src/renderer/shell/ProjectSettings.tsx`), а не в Settings → Sessions:
   раздел Settings → Sessions — настройки Machine, а `defaultVendor` хранится в `settings.json` Project-а, которые правит
-  этот диалог (решено без владельца, подтвердить).
-- Пункт 6 (решено без владельца, подтвердить): «Ship ticket» закреплён за `claude` (`SHIP_TICKET_VENDOR` в
+  этот диалог (решено без владельца, подтверждено владельцем 2026-11-03).
+- Пункт 6 (решено без владельца, подтверждено владельцем 2026-11-03): «Ship ticket» закреплён за `claude` (`SHIP_TICKET_VENDOR` в
   `src/shared/projects/action-templates.ts`, `src/main/actions/launch.ts`), а не пропущен через `vendorRefusal`. Это
   безопаснее: skills Harness до Ticket-ов 35/36 работают только под Claude Code, а `vendorRefusal` пропустил бы в Codex
   любого, кто в него вошёл. Диалог настроек говорит это под полем.
 - Пункт 7: «None (Claude Code)» в «Default vendor» сбрасывает значение — `projects.settings.set` принимает
   `defaultVendor: null` и убирает поле из файла; отсутствие поля, как раньше, сохраняет сохранённое (Linked machine старой
   сборки).
-- Пункт 8 (решено без владельца, подтвердить): видимая метка — только у разделов после первого (`Codex`) и у раздела без
+- Пункт 8 (решено без владельца, подтверждено владельцем 2026-11-03): видимая метка — только у разделов после первого (`Codex`) и у раздела без
   полос; раздел Claude, первый и всегда присутствующий, остаётся как в макете F, имя — tooltip. Метки у обоих разделов
   сжимали заголовок Project-а в окне 1280 px до 0 px, одна метка Codex — до 56 из 102 px (замер e2e). Поэтому полосы
   компактной панели сужены с 80 до 66 px (`src/renderer/limits/LimitBar.tsx`): `Sat 00:40` и `weekly 40%` целые,
