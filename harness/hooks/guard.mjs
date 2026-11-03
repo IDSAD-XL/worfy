@@ -20,6 +20,10 @@
 //   - an agent of the Harness opens no interactive shell or interpreter: what it would type there
 //     later goes through Codex's write_stdin, which runs no PreToolUse hook (codex-rs/core/src/tools/
 //     handlers/unified_exec/write_stdin.rs at rust-v0.166.0), so none of these rules would see it.
+//     This deny is best effort and lexical, as every rule here is: it catches the plain starts
+//     (`bash`, `node`, `python3`, `tmux`), and a program that reads its input can still be driven
+//     (`cat | bash`, `sh /dev/stdin`, a REPL module, a wrapper it does not know). Closing it fully
+//     takes Codex itself: no write_stdin for these agents, or a sandbox.
 
 import fs from "node:fs"
 import path from "node:path"
@@ -103,15 +107,19 @@ const segments = (s) => s.split(/;|&&|\|\||\||\n/)
 
 // --- 0. Codex: an interactive shell of an agent of the Harness ------------------
 // A command whose first stage reads the session's input as commands: a shell, a language
-// interpreter or a terminal multiplexer started without a script, a -c / -e command or a redirected
-// input. On Codex such a command opens an exec Session that write_stdin then types into unguarded.
+// interpreter or a terminal multiplexer started without a script, a command given on the line or a
+// redirected input. On Codex such a command opens an exec Session that write_stdin then types into
+// unguarded. A command given is -c for a shell (-Command, -File, /c for PowerShell and cmd) and
+// -c, -e, -p, -m for an interpreter; -v, --version, --help, --test and bash -n run no prompt.
 // shortcut: the operand test takes any word that is not an option as a script (`bash --rcfile x`
 // passes) and the lists name the common programs only; widen them when a refused start is seen to
 // pass in a recording of Codex (test/fixtures/codex-messages/hooks/PreToolUse.jsonl).
 const SHELLS = /^(sh|bash|zsh|dash|ksh|mksh|fish|csh|tcsh|ash|pwsh|powershell|cmd)$/
 const INTERPRETERS = /^(node|nodejs|deno|bun|python|python2|python3|py|ipython|irb|ruby|perl|php|lua)$/
 const MULTIPLEXERS = /^(tmux|screen|script)$/
-const RUNS_GIVEN = /^(-c|-e|-p|-m|--eval|--print|--command|-command|-file|-encodedcommand|\/c)$/i
+const SHELL_GIVEN = /^(-c|-command|-file|-encodedcommand|\/c)$/i
+const INTERPRETER_GIVEN = /^(-c|-e|-p|-m|--eval|--print)$/
+const NO_PROMPT = /^(-v|-V|--version|-h|--help|--test|-n)$/
 const WRAPPERS = /^(sudo|env|command|nohup|time|exec|nice|stdbuf|caffeinate)$/
 // `form` is the command with each quoted string as the word Q: a quoted script is an operand, and a
 // quoted text is no command.
@@ -127,9 +135,10 @@ const interactiveStart = (form) => {
         const args = words.slice(1)
         if (MULTIPLEXERS.test(name)) return name
         if (!SHELLS.test(name) && !INTERPRETERS.test(name)) continue
+        if (args.some((a) => NO_PROMPT.test(a))) continue
         const lower = args.map((a) => a.toLowerCase())
         if (lower.includes("-i") || lower.includes("-s") || lower.includes("-") || lower.includes("/k") || lower.includes("-noexit")) return name
-        if (lower.some((a) => RUNS_GIVEN.test(a))) continue
+        if (args.some((a) => (SHELLS.test(name) ? SHELL_GIVEN : INTERPRETER_GIVEN).test(a))) continue
         if (args.some((a) => !/^[-+]/.test(a) && !(name === "cmd" && a.startsWith("/")))) continue
         return name
     }

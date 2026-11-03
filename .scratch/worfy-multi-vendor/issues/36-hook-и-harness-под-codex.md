@@ -54,6 +54,7 @@ Source: [spec.md](../spec.md), «Гарантии workflow на Codex», «Ре�
 - `harness/hooks/hooks.json` — `:62`, `:73`, `:84`, `:113`, `:133`
 - `harness/hooks/tests/`
 - `harness/README.md`
+- `src/main/vendors/codex/session.ts` — `GH_TOKEN` в env app-server (раунд 1)
 
 ## Шаг 1: приходит ли `agent_type` в `PreToolUse`
 
@@ -113,9 +114,37 @@ thread с sandbox `read-only`) не нужен.
 - для `worfy-*` запрещён любой интерактивный старт, не только тот, в который потом пишут: hook не видит, будет ли
   `write_stdin`; список программ — частый, в коде помечен `shortcut:`.
 
-Не сделано в этом Ticket-е:
-- **`GH_TOKEN` для shell Codex** (п. 5). Hook Codex не может выставить env Session (см. шаг 1), поэтому токен должен
-  прийти с env процесса app-server, а его стартует worfy (`src/main/vendors/codex/session.ts`, `env` у
-  `CodexAppServer.start`) — это вне следа Ticket-а. Пока `gh` в shell Codex идёт с аккаунтом gh пользователя.
-- Фейк Ticket-а 44 читает только `hooks/hooks.json`; если Harness когда-нибудь даст Codex свой файл через `hooks` в
-  manifest-е, фейк надо научить (его `shortcut:` в шапке это и называет).
+Не проверено до первого живого запуска: что Codex называет свой агент `worfy-reviewer` в `agent_type` именем из TOML
+агента. В записи Ticket-а 30 есть только встроенный `default`; если имя придёт другим, deny по `agent_type` не сработает.
+
+Фейк Ticket-а 44 читает только `hooks/hooks.json`; если Harness когда-нибудь даст Codex свой файл через `hooks` в
+manifest-е, фейк надо научить (его `shortcut:` в шапке это и называет).
+
+## Раунд 1
+
+По review PR #1308 (`/tmp/worfy-mv-w13/review-36-refute.md`), после rebase на `origin/main` 93808b4b0:
+
+- `stop.mjs`: счётчик блоков и файлы «один раз» под Codex — по `agent_id`, если он есть во входе, иначе по Session, как
+  было. Subagent (вход несёт `session_id` родителя) больше не тратит блоки и заметки главного агента. `worfy-reviewer` и
+  `worfy-scout` на красном gate по-прежнему держатся (ADR-0094, п. 6), но причина говорит им сообщить о красном gate, а
+  не чинить. У вызова resolver-а — 10 s: под Claude зависание стоит столько же, сколько до 900 s в `hooks.json`.
+- `guard.mjs`: для shell «команда дана» — только `-c` (у PowerShell и cmd — `-Command`, `-File`, `/c`), `-e`, `-p`, `-m`
+  — только у интерпретаторов; `-v`, `-V`, `--version`, `-h`, `--help`, `--test`, `bash -n` пропускаются. В шапке и в
+  README честно: запрет интерактивного shell — best effort и лексический, программу, которая читает ввод, всё ещё можно
+  вести (`cat | bash`, `sh /dev/stdin`); закрыть полностью может только сам Codex.
+- **`GH_TOKEN` (п. 5) сделан:** `src/main/vendors/codex/session.ts` берёт токен `github.account` Profile-а папки Session-а
+  (`gh auth token -u <account>`, как PR tracker и как hook `gh-token-env.mjs` у Claude) и кладёт его в env процесса
+  app-server; оттуда он идёт в каждый shell Session-а. Без account-а или без входа gh под ним — env worfy как раньше
+  (свой `GH_TOKEN` worfy, если он есть, проходит). Токен не пишется в log; причина отказа называет только account.
+  Решено без владельца, подтвердить: без account-а `GH_TOKEN` worfy не убирается (у Claude `agentEnv` его убирает).
+- Страницы `docs/features/skills-agents-and-hooks.md` (matcher `Bash|apply_patch`, 900 s у `Stop`, строка
+  `SubagentStop`) и `docs/features/gate-and-github.md` (на Codex gate запускают `Stop` и `SubagentStop`) — только
+  английские.
+- Test-ы: в `harness-codex-hooks.test.ts` +5 (два красных SubagentStop reviewer-а, потом Stop главного агента всё ещё
+  блокирует; заметка give-up и заметка «not verified» в форме `{"decision":"block","reason":…}` с exit 0, каждая — и
+  Subagent-у, и главному агенту; `SessionEnd` с быстрым profile пишет строку `pending-retro.log`; зависший resolver
+  отпускает Stop Claude примерно через 10 s) и новые случаи guard-а (`node -v`, `node --test`, `bash --version`,
+  `bash -n`, `python3 -V` проходят; `bash -e`, `sh -m` — нет). Новый `test/contract/codex-session-gh-token.test.ts` (5)
+  на фейке app-server: токен account-а в env процесса, он сильнее `GH_TOKEN` worfy, без account-а — env как был, ошибка
+  получения — строка log-а без токена. Mutant-ы каждой правки раунда (ключ по Session, формулировка reviewer-а, флаги
+  без prompt-а, `-e` у shell, timeout resolver-а, токен не передан) — test-ы красные.

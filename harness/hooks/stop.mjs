@@ -28,6 +28,9 @@
 // message to the model is {"decision":"block","reason":…}: Codex continues the turn with the reason
 // as a new prompt, the extra turn additionalContext costs under Claude Code. Under Claude Code,
 // SubagentStop is no gate point and the hook does nothing on it; the Stop hook stays cheap there.
+// A Subagent of Codex counts its blocks and hears each note on its own (by agent_id), so it does not
+// use up those of the agent that started it; worfy-reviewer and worfy-scout, which edit no file, are
+// held on red too and told to report the red gate rather than fix it.
 //
 // For tests: CLAUDE_GATE_STATE (the state folder), CLAUDE_GATE_RESOLVE (the resolver),
 // CLAUDE_GATE_CONFIG (read by the resolver). Tests: hooks/tests/gate-notverified.test.sh,
@@ -38,10 +41,13 @@ import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { isCodexInput } from "./codex-input.mjs"
+import { codexAgent, isCodexInput, READ_ONLY_AGENTS } from "./codex-input.mjs"
 import { gateStateDir, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
 
 const MAX_BLOCKS = 2
+// How long the resolver may take: about the 10 s the whole hook had under Claude Code before its
+// limit in hooks.json became the 900 s the gate run on Codex needs.
+const RESOLVE_MS = 10_000
 
 function readStdin() {
     if (process.stdin.isTTY) return ""
@@ -133,6 +139,13 @@ function main() {
 
     const session = field(payload, "session_id") || "unknown"
     const safe = session.replace(/[^A-Za-z0-9_-]/g, "_")
+    // Whose turn it is, for the block counter and the "once" files: the session, or on Codex a
+    // Subagent of it by its agent_id. A Subagent's input carries the session_id of its parent, and
+    // its blocks and notes must not use up the parent's.
+    const agentId = codex ? field(payload, "agent_id") : ""
+    const owner = agentId ? `${safe}.${agentId.replace(/[^A-Za-z0-9_-]/g, "_")}` : safe
+    // A reviewer or a scout edits no file: on red it reports the gate instead of fixing it.
+    const readOnly = codex && READ_ONLY_AGENTS.has(codexAgent(payload))
     const transcript = field(payload, "transcript_path")
     const counterDir = path.join(state, "stop-blocks")
     try {
@@ -160,6 +173,7 @@ function main() {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
         windowsHide: true,
+        timeout: RESOLVE_MS,
     })
     if (!which.error && !which.signal && which.status === 0) resolved = true
     let key = String(which.stdout ?? "").replace(/\n+$/, "").split("\t")[0]
@@ -207,7 +221,7 @@ function main() {
             // the gate run. The resolver now finds it — drop the marker silently, otherwise
             // the model would hear "not verified" about a project that is already registered.
             if (kind === "unregistered" && resolved && key) continue
-            const once = path.join(counterDir, `${safe}__nokey-${kind}__${rtag}`)
+            const once = path.join(counterDir, `${owner}__nokey-${kind}__${rtag}`)
             if (exists(once)) continue
             touch(once)
             note(`The quality gate exited with code 3 (not verified): ${msg}`)
@@ -240,7 +254,7 @@ function main() {
     consumeNokey()
 
     if (size(redMarker) > 0) {
-        const counter = path.join(counterDir, `${safe}__${key}-${tag}`)
+        const counter = path.join(counterDir, `${owner}__${key}-${tag}`)
         let count = 0
         try {
             count = Number.parseInt(fs.readFileSync(counter, "utf8"), 10) || 0
@@ -253,7 +267,7 @@ function main() {
         if (count > MAX_BLOCKS) {
             // Enough hammering, but the unverified state must be named out loud —
             // once per session per tree, not on every turn.
-            const giveup = path.join(counterDir, `${safe}__redgiveup__${key}-${tag}`)
+            const giveup = path.join(counterDir, `${owner}__redgiveup__${key}-${tag}`)
             if (!exists(giveup)) {
                 touch(giveup)
                 note(`The quality gate is still red and was not cleared in ${MAX_BLOCKS} attempts. Do not describe this work as verified — say plainly that the gate fails.`)
@@ -269,9 +283,10 @@ function main() {
         // The command the model runs, with / on Windows too: it reads the same in Git Bash and PowerShell.
         const gate = path.join(here, "gate.mjs")
         const shown = process.platform === "win32" ? gate.replaceAll("\\", "/") : gate
-        process.stderr.write(
-            `The quality gate is red (failed at ${failedAt}). Run \`node "${shown}" fast </dev/null; echo "EXIT=$?"\` and fix what it points to before finishing. If it cannot be fixed here, say so instead of reporting the work as done.${notes ? ` Also: ${notes}` : ""}\n`,
-        )
+        const what = readOnly
+            ? `You edit no file, so do not fix it: say in your answer that the gate is red, where it failed and that the work is not verified, then finish.`
+            : `Run \`node "${shown}" fast </dev/null; echo "EXIT=$?"\` and fix what it points to before finishing. If it cannot be fixed here, say so instead of reporting the work as done.`
+        process.stderr.write(`The quality gate is red (failed at ${failedAt}). ${what}${notes ? ` Also: ${notes}` : ""}\n`)
         return 2
     }
 
@@ -279,7 +294,7 @@ function main() {
         // Do not block: an unavailable Docker or unbuilt dependencies cannot be fixed
         // by the model. But this must not pass silently either — otherwise "not verified"
         // turns into "done".
-        const once = path.join(counterDir, `${safe}__unv__${key}-${tag}`)
+        const once = path.join(counterDir, `${owner}__unv__${key}-${tag}`)
         if (!exists(once)) {
             touch(once)
             let text = ""

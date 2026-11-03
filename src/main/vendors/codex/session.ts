@@ -31,6 +31,14 @@
 // start closes it (CodexAppServer.start and open() below), and the Session closes a handle that comes
 // after it closed. So the start needs no way of its own to be stopped, and leaves no process behind.
 //
+// GH_TOKEN (worfy-multi-vendor ticket 36): a Codex hook cannot set the environment of a Session (its
+// SessionStart output has additionalContext only), so the token a Claude Session gets from the Harness
+// hook (gh-token-env.mjs, `gh auth token -u <github.account of the Profile>`) goes into the environment
+// of the app-server process instead, and from there into every shell of the Session. Without an
+// account, or without a gh login for it, the process gets worfy's own environment as before, its own
+// GH_TOKEN included when it has one. The token is never logged; the reason it is missing names only
+// the account (accountAuth).
+//
 // Texts out of the process: its stderr goes, as it comes, to SessionStart.stderr, which the Session
 // keeps a bounded tail of and adds to the error of a process that died (as for Claude Code); the error
 // the events end with names only the exit code. An error text of the app-server that goes into an
@@ -90,6 +98,20 @@ export interface CodexServerOptions {
   limits?: (windows: readonly LimitWindow[]) => void
   /** worfy's MCP servers of a Session (mcp.ts, ticket 33); without it a Session gets none. */
   mcp?: CodexMcpResolver
+  /**
+   * GH_TOKEN of the GitHub account of the Profile at `cwd`, or null when there is none; may reject with
+   * a reason that holds no token. Without it the process gets the environment as it is.
+   */
+  ghToken?: (cwd: string) => Promise<string | null>
+}
+
+/** `env` with GH_TOKEN set to `token`, in the one spelling (Windows reads names in any case); `env` itself without one. */
+export function withGhToken(env: NodeJS.ProcessEnv, token: string | null): NodeJS.ProcessEnv {
+  if (token === null) return env
+  const out: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(env)) if (key.toUpperCase() !== 'GH_TOKEN') out[key] = value
+  out.GH_TOKEN = token
+  return out
 }
 
 /** The JSON-RPC error a server→client request worfy does not answer gets (rpc.ts's METHOD_NOT_FOUND). */
@@ -614,6 +636,14 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
   const spawnProcess = options.spawnProcess ?? spawn
   // The servers' token goes to the process through its environment only (mcp.ts, MCP_TOKEN_ENV).
   const mcp = (await options.mcp?.({ cwd: opts.cwd, resume, unattended: opts.unattended })) ?? null
+  let token: string | null = null
+  try {
+    token = (await options.ghToken?.(opts.cwd)) ?? null
+  } catch (error) {
+    // The reason names the account, never a token (accountAuth); the Session starts without one.
+    options.log?.(`[codex] no GH_TOKEN for the Session: ${messageOf(error)}`)
+  }
+  const env = withGhToken(options.env ?? process.env, token)
   let server: CodexAppServer
   try {
     server = await CodexAppServer.start({
@@ -621,7 +651,7 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
       appPath: options.appPath,
       cwd: opts.cwd,
       clientVersion: options.clientVersion,
-      env: mcp === null ? options.env : mcp.env(options.env ?? process.env),
+      env: mcp === null ? env : mcp.env(env),
       timeoutMs: options.timeoutMs,
       log: options.log,
       onEvent: (event) => session.receive(event),
@@ -682,7 +712,27 @@ export async function appServerOptions(): Promise<CodexServerOptions> {
     clientVersion: app.getVersion(),
     limits: (windows) => appLimits().setWindows(CODEX_VENDOR, windows),
     mcp: appCodexMcp,
+    ghToken: appGhToken,
   }
+}
+
+/**
+ * GH_TOKEN of the Profile's GitHub account for a Session at `cwd`, as the PR tracker takes it
+ * (src/main/ipc/checks.ts, appPrOptions): gh with the login shell's environment, or WORFY_GH with
+ * worfy's own, and `bin/profile` with the Harness scripts' environment.
+ */
+async function appGhToken(cwd: string): Promise<string | null> {
+  const [{ agentEnv }, { accountAuth, ghRunner }, { readGithubAccount }, { harnessScriptEnv }, { claudeHome }] = await Promise.all([
+    import('../../agent/env'),
+    import('../../github/prs'),
+    import('../../workflow/profile'),
+    import('../../harness/script-env'),
+    import('../../storage/paths'),
+  ])
+  const stub = process.env.WORFY_GH
+  const run = ghRunner({ command: stub || undefined, env: stub ? () => Promise.resolve(process.env) : async () => (await agentEnv()).env })
+  const account = async (root: string): Promise<string | null> => (await readGithubAccount({ root, claudeHome: claudeHome(), env: await harnessScriptEnv(), log: () => undefined })).account
+  return (await accountAuth({ account, run })(cwd)).GH_TOKEN ?? null
 }
 
 export const codexSession: SessionPart = codexSessions(appServerOptions)

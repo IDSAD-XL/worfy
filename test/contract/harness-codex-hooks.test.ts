@@ -75,11 +75,12 @@ function project() {
   writeFileSync(
     pm,
     WINDOWS
-      ? '@echo off\r\nset /p m=<"%~dp0mode"\r\nif "%m%"=="ok" exit /b 0\r\necho Tests 1 failed\r\nexit /b 1\r\n'
-      : `#!/bin/sh\n[ "$(cat "${join(dir, 'mode')}")" = ok ] && exit 0\necho "Tests 1 failed"\nexit 1\n`,
+      ? '@echo off\r\nset /p m=<"%~dp0mode"\r\nif "%m%"=="ok" exit /b 0\r\nif "%m%"=="envbad" (echo sh: tool: command not found& exit /b 127)\r\necho Tests 1 failed\r\nexit /b 1\r\n'
+      : `#!/bin/sh\nm="$(cat "${join(dir, 'mode')}")"\n[ "$m" = ok ] && exit 0\n[ "$m" = envbad ] && { echo "sh: tool: command not found"; exit 127; }\necho "Tests 1 failed"\nexit 1\n`,
   )
   if (!WINDOWS) chmodSync(pm, 0o755)
-  const mode = (value: 'ok' | 'bad') => writeFileSync(join(dir, 'mode'), `${value}\n`)
+  // ok passes, bad is a real test failure (red), envbad a missing tool (not verified).
+  const mode = (value: 'ok' | 'bad' | 'envbad') => writeFileSync(join(dir, 'mode'), `${value}\n`)
   mode('ok')
   const state = join(dir, 'state')
   writeFileSync(join(dir, 'config.json'), JSON.stringify({ repos: [{ key: 'c', match: work, pm, root: { fast: ['check'] }, workspace: {} }] }))
@@ -105,9 +106,16 @@ const stopOf = (event: 'Stop' | 'SubagentStop', cwd: string, more: Partial<HookF
 const toolOf = (cwd: string, toolName: string, toolInput: unknown, agentType?: string) =>
   runHooks(handlers, 'PreToolUse', { input: hookInput('PreToolUse', turn(cwd, { toolName, toolInput, toolUseId: 'call-1', ...(agentType === undefined ? {} : { agentId: 'agent-1', agentType }) })), matchValue: toolName, cwd })
 
+/** The input of a Codex Stop, or of a SubagentStop of `agentType` with `agentId`, as the engine gives it. */
+const codexStopInput = (cwd: string, agentId?: string, agentType = 'worfy-reviewer') =>
+  agentId === undefined ? hookInput('Stop', turn(cwd)) : hookInput('SubagentStop', turn(cwd, { agentId, agentType, agentTranscriptPath: null }))
+
 /** Runs stop.mjs of the copy as Claude Code would: `input` on stdin, in `cwd`. */
 const claudeStop = (cwd: string, input: object) =>
   spawnSync(scriptNode(), [join(plugin, 'hooks', 'stop.mjs')], { cwd, input: JSON.stringify(input), encoding: 'utf8', env: process.env })
+
+/** The same with a Codex input: the exit code and the output as the engine reads them. */
+const codexStop = claudeStop
 
 describe('the hook inputs of the pinned Codex', () => {
   it('are told from Claude Code by every recorded input of the events the Harness hooks', () => {
@@ -154,6 +162,44 @@ describe('gate before the end of the work: Stop and SubagentStop on Codex', () =
     expect(JSON.parse(readFileSync(join(state, verdicts[0] as string), 'utf8'))).toMatchObject({ outcome: 'green', profile: 'fast', key: 'c' })
   }, RUN_MS)
 
+  it('count the blocks of each Subagent on their own: two red SubagentStops of the reviewer leave the main Stop its own two', async () => {
+    const { work, mode } = project()
+    mode('bad')
+    for (let n = 0; n < 2; n++) {
+      const sub = await runHooks(handlers, 'SubagentStop', { input: codexStopInput(work, 'reviewer-1'), matchValue: '', cwd: work })
+      // A reviewer edits no file: it is held on red, and told to report the gate, not fix it.
+      expect(sub.block).toMatch(/^The quality gate is red \(failed at .+\)\. You edit no file, so do not fix it: say in your answer that the gate is red/)
+    }
+    const main = await runHooks(handlers, 'Stop', { input: codexStopInput(work), matchValue: '', cwd: work })
+    expect(main.block).toMatch(/^The quality gate is red \(failed at .+\)\. Run `node /)
+    expect((await runHooks(handlers, 'Stop', { input: codexStopInput(work), matchValue: '', cwd: work })).block).toMatch(/^The quality gate is red/)
+  }, RUN_MS)
+
+  it('say the give-up note on Codex as a block with the note as its reason, exit 0, after two blocks', async () => {
+    const { work, mode } = project()
+    mode('bad')
+    for (let n = 0; n < 2; n++) expect(codexStop(work, codexStopInput(work)).status).toBe(2)
+    const third = codexStop(work, codexStopInput(work))
+    expect(third.status).toBe(0)
+    expect(JSON.parse(third.stdout)).toEqual({ decision: 'block', reason: expect.stringMatching(/^The quality gate is still red and was not cleared in 2 attempts\./) })
+    // Said once: the next Stop lets the turn end in silence.
+    expect(codexStop(work, codexStopInput(work))).toMatchObject({ status: 0, stdout: '' })
+  }, RUN_MS)
+
+  it('say the not-verified note to the Subagent and to the main agent, each once, as a block with the note, exit 0', async () => {
+    const { work, mode } = project()
+    mode('envbad')
+    const note = { decision: 'block', reason: expect.stringMatching(/^The last gate run could not verify the work: .+ This is not a green result — say "not verified", not "done"\.$/) }
+    const sub = codexStop(work, codexStopInput(work, 'scout-1', 'worfy-scout'))
+    expect(sub.status).toBe(0)
+    expect(JSON.parse(sub.stdout)).toEqual(note)
+    const main = codexStop(work, codexStopInput(work))
+    expect(main.status).toBe(0)
+    expect(JSON.parse(main.stdout)).toEqual(note)
+    expect(codexStop(work, codexStopInput(work, 'scout-1', 'worfy-scout'))).toMatchObject({ status: 0, stdout: '' })
+    expect(codexStop(work, codexStopInput(work))).toMatchObject({ status: 0, stdout: '' })
+  }, RUN_MS)
+
   it('run no gate outside a registered project and say nothing there', async () => {
     const { work, state, dir } = project()
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ repos: [] }))
@@ -172,6 +218,19 @@ describe('Claude Code: the Stop hook stays as it was', () => {
     expect([run.status, run.stdout, run.stderr]).toEqual([0, '', ''])
     expect(readdirNames(state).filter((name) => name.startsWith('verdict-'))).toEqual([])
   })
+
+  it('lets the turn go after about 10 s when the registry resolver hangs, as the 10 s limit of the hook did before it became 900 s', () => {
+    const { work, dir } = project()
+    const hung = join(dir, 'hung-resolver.mjs')
+    writeFileSync(hung, 'setTimeout(() => undefined, 120000)\n')
+    vi.stubEnv('CLAUDE_GATE_RESOLVE', hung)
+    const started = Date.now()
+    const run = claudeStop(work, { session_id: 'claude-3', transcript_path: join(work, 'claude-3.jsonl'), cwd: work, hook_event_name: 'Stop', stop_hook_active: false })
+    expect([run.status, run.stdout]).toEqual([0, ''])
+    const took = Date.now() - started
+    expect(took).toBeGreaterThanOrEqual(9_000)
+    expect(took).toBeLessThan(60_000)
+  }, RUN_MS)
 
   it('does nothing on a SubagentStop of Claude Code, even with the red marker of a gate run', async () => {
     const { work, mode } = project()
@@ -223,11 +282,13 @@ describe('read-only reviewer and scout, the guards with the matchers of Codex', 
 
   it('denies an agent of the Harness an interactive shell or interpreter, whose later input no hook sees', async () => {
     const { work } = project()
-    for (const command of ['bash', 'cd sub && zsh -i', 'node', 'python3', 'sh -s', 'pwsh -NoExit']) {
+    // For a shell only -c gives the command: `bash -e` is still an interactive bash.
+    for (const command of ['bash', 'cd sub && zsh -i', 'node', 'python3', 'sh -s', 'pwsh -NoExit', 'bash -e', 'sh -m']) {
       const denied = await toolOf(work, 'Bash', { command }, 'worfy-implementer')
       expect(denied.block, command).toMatch(/^On Codex an agent of the Harness opens no interactive `/)
     }
-    for (const command of ['bash -c "ls"', 'bash ./run.sh', 'node script.mjs', 'python3 -c "print(1)"', 'cat steps.sh | bash', 'bash < steps.sh', 'echo "then bash -i"', 'cmd /c dir']) {
+    // A command given (-c for a shell), a script, a redirected input, a flag that opens no prompt.
+    for (const command of ['bash -c "ls"', 'bash ./run.sh', 'node script.mjs', 'python3 -c "print(1)"', 'cat steps.sh | bash', 'bash < steps.sh', 'echo "then bash -i"', 'cmd /c dir', 'node -v', 'node --test', 'bash --version', 'bash -n', 'python3 -V']) {
       const allowed = await toolOf(work, 'Bash', { command }, 'worfy-implementer')
       expect(allowed.block, command).toBeUndefined()
     }
@@ -238,6 +299,21 @@ describe('read-only reviewer and scout, the guards with the matchers of Codex', 
 })
 
 describe('the end of a Session on Codex', () => {
+  it('records the Session for /retro when the profile answers, and the lock release hook completes as well', async () => {
+    const { work, dir } = project()
+    const profileDir = join(dir, 'profile')
+    mkdirSync(profileDir)
+    const fast = join(dir, 'fast-profile.mjs')
+    writeFileSync(fast, `process.stdout.write(${JSON.stringify(JSON.stringify({ session: { retro_reminder_after: 3 }, _resolved: { dir: profileDir } }))})\n`)
+    vi.stubEnv('CLAUDE_PROFILE_BIN', fast)
+    const input = hookInput('SessionEnd', { sessionId: 'ses-1', transcriptPath: join(dir, 'sessions', 'rollout-2026-11-03T07-11-41-ses-1.jsonl'), cwd: work })
+    const end = await runHooks(handlers, 'SessionEnd', { input, matchValue: 'other', cwd: work })
+    expect(end.runs.map((run) => run.status)).toEqual(['completed', 'completed'])
+    const recordedLines = readFileSync(join(profileDir, 'state', 'pending-retro.log'), 'utf8').split('\n')
+    expect(recordedLines).toEqual([expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\t/), ''])
+    expect(recordedLines[0]?.split('\t')[1]).toBe(work)
+  }, RUN_MS)
+
   it('ends inside the 3 s of Codex even when the profile call hangs', async () => {
     const { work, dir } = project()
     const slow = join(dir, 'slow-profile.mjs')

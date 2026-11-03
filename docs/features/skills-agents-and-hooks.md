@@ -187,9 +187,10 @@ Claude Code runs these commands on its events. The limit is in seconds.
 | `SessionStart` | `gh-token-env.mjs` | 10 | `GH_TOKEN` of the Project's account |
 | `SessionStart` | `worktree-lock claim` | 10 | Registers in the tree, and says who is already there |
 | `SubagentStart` | `inject-rules.mjs common` | 10 | The common rules and the user's rules |
-| `PreToolUse` on Bash | `guard.mjs` | 30 | The Bash guard |
+| `PreToolUse` on `Bash\|apply_patch` | `guard.mjs` | 30 | The Bash guard. `apply_patch` is Codex's file edit, which Claude Code does not have: on Codex the guard refuses it to `worfy-reviewer` and `worfy-scout` |
 | `TaskCompleted`, `TeammateIdle` | `gate.sh fast` | 900 | The [Gate](gate-and-github.md) |
-| `Stop` | `stop.mjs` | 10 | Holds the turn while the Gate is red, see the [Gate](gate-and-github.md) |
+| `Stop` | `stop.mjs` | 900 | Holds the turn while the Gate is red, see the [Gate](gate-and-github.md). Under Claude Code it runs no checks and the limit is only a ceiling; on Codex it runs the Gate first |
+| `SubagentStop` | `stop.mjs` | 900 | Does nothing under Claude Code. On Codex it runs the Gate and holds a Subagent's turn the same way |
 | `Stop` | `worktree-lock beat` | 5 | Marks the Session alive |
 | `Stop` | `qmd-refresh --quiet` | 15 | Updates the index in the background if a main branch moved or a memory or lessons file is newer than the last update. When qmd cannot run (no qmd, a node too old for it), it exits 0, runs no update, and writes the reason to the log at most once a day |
 | `SessionEnd` | `session-end.mjs` | 10 | Notes a Session without a retrospective |
