@@ -262,13 +262,20 @@ export const transcriptHitSchema = z.object({
   at: z.number(),
   /** Up to 120 characters of the first message that matches, around the match; `…` where cut. */
   snippet: z.string().max(TRANSCRIPT_SEARCH.snippet),
+  /**
+   * The Vendor whose agent ran the Session (worfy-multi-vendor ticket 28): `codex` for a Codex thread of
+   * the Project; absent for a transcript of Claude Code, as in `historySessionSchema`. Any short string,
+   * so a Linked machine of a later build may name a Vendor this build does not know.
+   */
+  vendor: z.string().min(1).max(64).optional(),
 })
 
 export type TranscriptHit = z.infer<typeof transcriptHitSchema>
 
 /**
  * Sessions of a Project whose transcript contains `query` (at least 3 characters, case ignored)
- * in the user's messages or Claude's replies — not in tool calls or their output. Newest first,
+ * in the user's messages or the agent's replies — not in tool calls or their output: the transcripts
+ * of Claude Code and the Project's Codex threads (worfy-multi-vendor ticket 28). Newest first,
  * at most 20; `limited` says a limit of the search (src/main/claude-home/search.ts) left some of
  * the Project's transcripts unsearched. Reads only; no subscription.
  */

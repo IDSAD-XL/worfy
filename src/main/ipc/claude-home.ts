@@ -5,7 +5,8 @@
 //
 // The history and the transcripts also carry the Project's Codex threads (worfy-multi-vendor ticket 27,
 // src/main/vendors/codex/sessions-on-canvas.ts): `claudeHome.sessions` adds them to the history, and
-// `claudeHome.transcript` reads a Codex thread the Claude home has no transcript of.
+// `claudeHome.transcript` reads a Codex thread the Claude home has no transcript of, and
+// `claudeHome.search` searches those threads too (ticket 28).
 //
 // The live Sessions a watcher sees also go to liveSessionListeners (ticket 21: a notification when
 // a Session from the registry finishes its turn, src/main/notify.ts): once when the watcher starts,
@@ -14,7 +15,7 @@ import { resolve } from 'node:path'
 import { imageRef } from '../agent/attachments'
 import { HiddenSubagents } from '../claude-home/hidden-subagents'
 import { ClaudeHomeRegistry, rootPath, type ClaudeHomeWatch, type RegistryRoot } from '../claude-home/registry'
-import { TranscriptSearch } from '../claude-home/search'
+import { SEARCH_LIMITS, TranscriptSearch, type VendorThreads } from '../claude-home/search'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readLinesBefore, readNewLines, type TailCursor } from '../claude-home/tail'
 import { FIND_LIMITS, findInTranscript } from '../claude-home/transcript-find'
@@ -271,11 +272,14 @@ export function claudeHomeHandlers(
   subscriptions = new ClaudeHomeSubscriptions(registry),
   subagents = new SubagentReader(),
   projects: () => readonly { readonly path: string }[] = () => projectStore().list(),
-  search = new TranscriptSearch(registry),
+  search: TranscriptSearch | undefined = undefined,
   hidden = new HiddenSubagents((projectId) => projectStore().dataDir(projectStore().get(projectId).id)),
   codex: CodexSessions = NO_CODEX_SESSIONS,
 ): HandlerModule {
   const notFound = { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
+  // The search reads the Codex threads the last list of the Project's Codex Sessions named, never asking for a list itself.
+  const codexThreads: VendorThreads = { vendor: 'codex', cached: (root) => codex.cached(root), transcript: (root, id) => codex.transcript(root, id) }
+  const finder = search ?? new TranscriptSearch(registry, SEARCH_LIMITS, [codexThreads])
   /**
    * The resolved root. For a call from a Linked machine, also the real path its check answers:
    * git runs there, so a link swapped in after the check does not lead it elsewhere, while the
@@ -334,7 +338,7 @@ export function claudeHomeHandlers(
       if (path === null) return notFound
       return readTranscript(path, { cursor, maxBytes, back }, (entries) => entries.map(timedEvent))
     }),
-    defineHandler(claudeHomeSearch, async ({ projectRoot, query }, { event }) => search.search(await rootOf(projectRoot, event), query)),
+    defineHandler(claudeHomeSearch, async ({ projectRoot, query }, { event }) => finder.search(await rootOf(projectRoot, event), query)),
     defineHandler(claudeHomeTranscriptFind, async ({ projectRoot, sessionId, agentId, query, before, from }, { event }) => {
       const session = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       const path = session === null || agentId === undefined ? session : await subagentTranscriptPath(session, agentId)

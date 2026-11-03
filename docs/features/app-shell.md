@@ -59,12 +59,15 @@ row wraps its title onto up to 3 lines and then cuts it. The tooltip of an "In t
 
 **In transcripts.** The search starts 250 ms after the last key, for a query of 3 to 200 characters. Case is ignored. It
 covers every Session Claude Code recorded for the Project, wherever it was started: worfy, a terminal or Claude Desktop. It
-reads the user's messages and Claude's replies, not tool calls, their output, thinking, hooks or the records of Subagents.
+also covers the Project's Codex Sessions, those the last list of them found (see [Sessions](sessions.md)). It reads the
+user's messages and the agent's replies, not tool calls, their output, thinking, hooks or the records of Subagents.
 
-At most 20 Sessions come back, newest first, each with a snippet of up to 120 characters from around the match. One search
-reads at most 200 transcripts and 64 MiB. When a limit leaves some unread, the group says "Older transcripts were not
-searched". It also says "Searching…" and "Could not search the transcripts: …". These rows come in addition to the 50
-command rows, below them.
+At most 20 Sessions come back, newest first, Claude Code's and Codex's together, each with a snippet of up to 120
+characters from around the match. Each row ends with the logo of the Vendor whose agent ran the Session; its tooltip names
+the Vendor. One search reads at most 200 transcripts and 64 MiB; a Codex thread counts as one transcript, and its messages
+count against the 64 MiB. When a limit leaves some unread, the group says "Older transcripts were not searched". It says the
+same when Codex fails to read a thread: the rest of that search asks Codex for no other thread. It also says "Searching…" and
+"Could not search the transcripts: …". These rows come in addition to the 50 command rows, below them.
 
 **Without a Project** the palette has the View rows, the Project rows and the machine rows, and no transcript search.
 
@@ -93,6 +96,7 @@ Machine of the Project.
   ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflow.md)).
 - **Commands rank in the renderer, transcripts search in main.** Ranking is a pure function that runs on every keystroke.
   The transcript search runs in main and keeps the text of a transcript in memory, by its file's size and modification time.
+  It keeps the text of a Codex thread the same way, by the thread's time; a thread whose time changed is read again.
   An answer to an older query is dropped when it arrives.
 
 ### Implementation
@@ -106,6 +110,7 @@ Machine of the Project.
 | What makes Run wave and Ship ticket active | `src/renderer/canvas/actions/gates.ts`, `src/shared/actions/render-template.ts` |
 | What Run wave, Ship ticket and Process gate queue start | `src/main/actions/launch.ts`, `src/main/ipc/actions.ts` |
 | The transcript search and its limits | `src/main/claude-home/search.ts`, `src/shared/ipc/claude-home.ts` |
+| The Codex threads the search reads | `src/main/ipc/claude-home.ts`, `src/main/vendors/codex/sessions-on-canvas.ts` |
 
 Main tests: `test/unit/palette-commands.test.tsx`, `test/unit/palette-groups.test.tsx`,
 `test/unit/palette-transcripts.test.tsx`, `test/unit/palette-manual-check-row.test.tsx`,

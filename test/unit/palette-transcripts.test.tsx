@@ -1,7 +1,8 @@
 // The "In transcripts" group of the command palette (⌘K, worfy-polish ticket 10): the query of the
 // field goes to `claudeHome.search` once typing pauses; while no answer is there the group says
 // "Searching…"; an answer to an older query is never shown; picking a hit opens its Session in the
-// Session view. `invoke` is a mock: nothing here reaches main or a Claude home.
+// Session view; each row ends with the logo of its Vendor (worfy-multi-vendor ticket 28). `invoke` is a
+// mock: nothing here reaches main or a Claude home.
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptHit } from '../../src/shared/ipc/claude-home'
@@ -173,6 +174,29 @@ describe('the In transcripts group of the palette', () => {
     await calls[0]!.answer({ ok: true, value: { hits: [], limited: false } })
     expect(group()).toBeNull()
     expect(screen.getByText('Nothing matches')).toBeTruthy()
+  })
+
+  it('ends each row with its Vendor\'s logo, named by its tooltip: Codex for a Codex thread, Claude Code for a hit without a Vendor (worfy-multi-vendor/28)', async () => {
+    const onClose = open()
+    type('zebra')
+    await wait(TRANSCRIPT_SEARCH_DELAY_MS)
+    const C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const codexHit: TranscriptHit = { ...hit(A, 'Theme the stripes', 'The zebra pattern now lives in theme.ts.'), vendor: 'codex' }
+    const later: TranscriptHit = { ...hit(C, 'Later', 'a zebra of a later Vendor'), vendor: 'gemini' }
+    await calls[0]!.answer({ ok: true, value: { hits: [codexHit, hit(B, 'Zebra config', 'Where does the Zebra config live?'), later], limited: false } })
+    const rows = within(group()!).getAllByRole('option')
+    const badges = rows.map((row) => within(row).getByTestId('palette-option-vendor'))
+    expect(badges.map((badge) => [badge.dataset['vendor'], badge.getAttribute('aria-label')])).toEqual([
+      ['codex', 'Codex'],
+      ['claude', 'Claude Code'],
+      ['gemini', 'gemini'],
+    ])
+    // The logo alone: the row reads as before, its title and snippet.
+    expect(hitTitles()).toEqual(['Theme the stripesThe zebra pattern now lives in theme.ts.', 'Zebra configWhere does the Zebra config live?', 'Latera zebra of a later Vendor'])
+    // The Codex thread opens in the Session view as a Claude transcript does.
+    fireEvent.click(rows[0]!)
+    expect(useNavigation.getState().opened['p1']).toMatchObject({ external: { sessionId: A } })
+    expect(onClose).toHaveBeenCalledOnce()
   })
 
   it('shows the snippet from a little before the match, and the whole snippet as the tooltip', async () => {
