@@ -1,7 +1,8 @@
 # 22 — History и slash-команды Codex
 
 Type: task
-Status: claimed 2026-11-03T01:03Z
+Status: done 2026-11-03T04:03Z
+PR: #1264
 Blocked by: 20
 Source: [spec.md](../spec.md), «Модель» (History, таблица частей); решение 06 ([06-граница-vendor.md](06-граница-vendor.md), части history и commands); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); Ticket 05 ([05-codex-транскрипты.md](05-codex-транскрипты.md)); Ticket 02 ([02-codex-управление-сессией.md](02-codex-управление-сессией.md), строка «Список slash-команд»)
 
