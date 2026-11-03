@@ -33,6 +33,11 @@ App-server записи идёт с временными `HOME` и `USERPROFILE`
 видит; если `skills/list` всё же назвал skill пользователя вне временной папки, скрипт ничего не пишет. В записях
 0.166.0 skill-ы пользователя (14 и 69 записей в двух ответах `skills/list`: из `~/.agents` владельца и из plugin-ов
 его аккаунта) заменены на нейтральные `capture-skill-a`…`d` той же формы (решение владельца Q6, 2026-11-03).
+Plugin-ы аккаунта из каталога OpenAI скрипт тоже заменяет (решение владельца Q12, 2026-11-03): id plugin-а —
+на `capture-plugin-a@<marketplace>`, `-b`… по порядку появления, его skill-ы — на `capture-plugin-a:capture-skill-<буква>`
+(папка, описание и `interface` — нейтральные, `null` остаётся `null`), MCP server-ы, кроме `capture` и `codex_apps`, — на
+`capture_plugin_a_mcp`, `_b_`…; остаток любого из них в тексте — тоже отказ записывать. В записях 0.166.0 это
+`capture-plugin-a` и `capture_plugin_a_mcp`.
 
 Contract test `test/contract/codex-compat.test.ts` сверяет manifest с `package.json`, каждую запись — с JSON
 Schema закреплённой версии (`src/main/vendors/codex/protocol/json/`), а сценарии фейка — с видами сообщений и

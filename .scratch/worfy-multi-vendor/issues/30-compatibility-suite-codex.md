@@ -175,3 +175,17 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
   ответа `review/start`, `threadId: 5` — exit 1 с теми же строками, что в раунде 2; новый — `backwardsCursor: null` во всех
   записанных `thread/list` — exit 1 с `threads-pages.jsonl:3: result thread/list backwardsCursor is string — every
   recorded result thread/list has null here`.
+
+### После merge: решение владельца Q12 (2026-11-03)
+
+- Plugin-ы аккаунта ChatGPT убраны из записей и заменяются скриптом при следующих записях (ветка
+  `fix/codex-recordings-plugins`): MCP server plugin-а в `mcpServer/startupStatus/updated` восьми записей стал
+  `capture_plugin_a_mcp`, нейтральный plugin из Q6 — `capture-plugin-a@openai-curated-remote` с skill-ами
+  `capture-plugin-a:capture-skill-c` и `-d` (имена skill-ов раунда 3 уже были нейтральными). `pluginReplacements` и
+  `neutralPluginSkills` в `scripts/codex-capture.mjs` дают те же значения и добавляют id, skill-ы, папки, описания и
+  MCP server-ы plugin-ов в проверку остатка, которая отказывает записывать. Список `.tmp/plugins/plugins/…` в выводе
+  команды (`resume`, `review`, `threads`, hook `PostToolUse`) — копия каталога curated plugin-ов в `CODEX_HOME/.tmp`, а
+  не установленные plugin-ы аккаунта (те лежат в `plugins/cache`); он остался, решение — за владельцем.
+- Долг (low, verifier PR #1273, https://github.com/IDSAD-XL/worfy/pull/1273#issuecomment-6597109864): шаги фейка
+  `item/commandExecution/requestApproval` не несут `kind` (у живого Codex всегда `"kind":"command"`, в схеме поле
+  обязательное); worfy его не читает; suite проверяет только, что фейк не играет лишнего, обратного не проверяет.
