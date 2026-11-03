@@ -156,6 +156,7 @@ describe('the slash menu of a Codex Session', () => {
       skill('triage', { path: '/repo/.codex/skills/triage/SKILL.md' }),
       skill('compact'),
       skill('two words'),
+      skill('team/triage'),
     ])
     expect(rows).toEqual([
       ...CODEX_BUILT_IN_COMMANDS,
@@ -196,5 +197,19 @@ describe('the slash menu of a Codex Session', () => {
       { type: 'skill', name: 'triage', path: '/s/triage/SKILL.md' },
     ])
     expect(userInput({ text: '/triage the new ones', attachments: [] })).toEqual([{ type: 'text', text: '/triage the new ones', text_elements: [] }])
+  })
+
+  it('a skill call keeps its attachments: each image before the text, the paths of the files in it', () => {
+    const call = { kind: 'skill' as const, name: 'triage', path: '/s/triage/SKILL.md', text: '$triage the new ones' }
+    const image = { kind: 'image' as const, name: 'shot.png', mediaType: 'image/png' as const, size: 3, data: 'AAAA' }
+    const file = { kind: 'file' as const, name: 'notes.md', path: '/p/notes.md', size: 10, copied: false }
+    const input = userInput({ text: '/triage the new ones', attachments: [image, file] }, call)
+    expect(input.map((each) => each.type)).toEqual(['image', 'text', 'skill'])
+    expect(input[0]).toEqual({ type: 'image', url: 'data:image/png;base64,AAAA' })
+    const text = (input[1] as { text: string }).text
+    expect(text.startsWith('$triage the new ones')).toBe(true)
+    expect(text).toContain('/p/notes.md')
+    expect(text).not.toContain('/triage')
+    expect(input[2]).toEqual({ type: 'skill', name: 'triage', path: '/s/triage/SKILL.md' })
   })
 })

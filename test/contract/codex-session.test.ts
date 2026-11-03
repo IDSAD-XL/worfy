@@ -912,7 +912,40 @@ describe('a Codex Session: the slash menu (worfy-multi-vendor ticket 22)', () =>
       { threadId: 'thr_fake_1', target: { type: 'uncommittedChanges' }, delivery: 'inline' },
       { threadId: 'thr_fake_1', target: { type: 'custom', instructions: 'focus on the tests' }, delivery: 'inline' },
     ])
+    // Codex gives the review in its exitedReviewMode item: a text event, and the answer of the turn's result.
     expect(session.events.filter((event) => event.type === 'text').map((event) => (event as { text: string }).text)).toEqual(['No problems in the uncommitted changes.', 'The tests miss the empty case.'])
+    expect(session.events.filter(isResult).map((event) => (event as { text: string | null }).text)).toEqual(['No problems in the uncommitted changes.', 'The tests miss the empty case.'])
+  })
+
+  it('/compact and /review while a turn runs give a notice and send nothing; the turn goes on', async () => {
+    const at = fake('interrupt')
+    const session = await live(at)
+    await session.handle.send(message('Do a long task'))
+    await session.until(deltaOf('Starting a long task'), 'the delta')
+    await session.handle.send(message('/compact'))
+    await session.handle.send(message('/review'))
+    await eventually(() => session.events.filter((event) => event.type === 'notice').length === 2, 'the two notices')
+    expect(session.events.filter((event) => event.type === 'notice')).toEqual([
+      { type: 'notice', kind: 'notification', text: 'Codex runs /compact only between turns: send it again once this turn ends.' },
+      { type: 'notice', kind: 'notification', text: 'Codex runs /review only between turns: send it again once this turn ends.' },
+    ])
+    expect(at.requests('thread/compact/start')).toEqual([])
+    expect(at.requests('review/start')).toEqual([])
+    expect(at.requests('turn/steer')).toEqual([])
+    expect(session.events.some(isResult)).toBe(false)
+    await session.handle.interrupt()
+    await session.until(isResult, 'the result')
+  })
+
+  it('the menu is /compact and /review alone when Codex cannot list its skills, and asks again next time', async () => {
+    // The turn script answers no skills/list: the fake refuses it.
+    const at = fake('turn')
+    const session = await live(at)
+    await session.until((event) => event.type === 'account', 'account')
+    const rows = await session.handle.commands()
+    expect(rows.map((row) => `${row.kind}:${row.name}`)).toEqual(['command:compact', 'command:review'])
+    await session.handle.commands()
+    expect(at.requests('skills/list')).toHaveLength(2)
   })
 
   it('a /name that is no command and no skill goes as the text typed', async () => {

@@ -67,3 +67,15 @@ Source: [spec.md](../spec.md), «Модель» (History, таблица час�
 - Тесты: `test/unit/codex-history.test.ts`, `test/contract/codex-history.test.ts` (сценарии `threads`, `thread-read`),
   новые случаи в конце `test/contract/codex-session.test.ts` (сценарии `skills`, `compact`, `review`);
   `test/unit/codex-capabilities.test.ts` — убраны проверки stub-ов history и commands.
+- Rework, раунд 1 (замечания проверки PR #1264):
+  - `/review`: Codex отдаёт ревью в item `exitedReviewMode.review`, а не в `agentMessage`. `CodexItems.itemCompleted`
+    (`items.ts`) делает из него событие `text` и ответ хода, так что `result.text` — текст ревью. Сценарий `review`
+    теперь шлёт `exitedReviewMode` вместо выдуманного `agentMessage`.
+  - Короткоживущий процесс history закрывается и после timeout запроса (`CODEX_ASK_TIMEOUT_MS`, 30 s), и после отказа
+    `thread/read`, и после 20-й страницы `thread/list`: contract test-ы с молчащим stand-in (timeout подменяется на
+    200 ms в обёртке `StartCodex`, а запрошенный остаётся проверен — 30 000), со сценарием `threads` для отказа
+    `thread/read` и с новым сценарием `threads-pages` (21 страница, ровно 20 запросов).
+  - Test-ы проверяют литералы `sourceKinds` и размер страницы (100), а не константы модуля.
+  - Unit test: skill с картинкой и файлом не теряет их (`userInput`). Contract test-ы: `/compact` и `/review` во время
+    хода дают notice и ничего не шлют; меню без skills (`/compact`, `/review`), когда `skills/list` не ответил.
+  - Skill с `/` в имени в меню не попадает: `slashName` такое имя не прочтёт, строка меню его бы не запустила.

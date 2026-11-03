@@ -48,13 +48,14 @@ const describe = (skill: SkillMetadata): string => skill.interface?.shortDescrip
 
 /**
  * The rows of the menu: the built-in commands, then the enabled skills by name, each once. A skill named
- * like a built-in command is left out: `/compact` runs the command.
+ * like a built-in command is left out: `/compact` runs the command. So is one whose name has a space or
+ * a `/`: slashName() never reads such a name, so its row could not run it.
  */
 export function codexSlashCommands(skills: readonly SkillMetadata[]): SlashCommand[] {
   const rows: SlashCommand[] = [...CODEX_BUILT_IN_COMMANDS]
   const seen = new Set(BUILT_IN)
   for (const skill of [...skills].sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!skill.enabled || skill.name === '' || /\s/.test(skill.name) || seen.has(skill.name)) continue
+    if (!skill.enabled || skill.name === '' || /[\s/]/.test(skill.name) || seen.has(skill.name)) continue
     seen.add(skill.name)
     rows.push({ name: skill.name, description: describe(skill), argumentHint: '', kind: 'skill' })
   }
