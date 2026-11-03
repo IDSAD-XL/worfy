@@ -55,3 +55,65 @@ Harness, установленным Ticket-ом 35 во временный `CODE
 - `harness/hooks/tests/` или `harness/bin/tests/` — новый test стороны Claude, только для строки без доказательства
 
 Только читать: `harness/README.md` (раздел «On Codex», Ticket 36), `test/fixtures/codex-app-server/hook-runner.mjs`.
+
+## Итог
+
+- `test/contract/codex-parity.test.ts` (новый, 14 test-ов): таблица гарантий — данные в начале файла (`GUARANTEES`,
+  строки 1–9), у каждой строки — гарантия, сценарий на Codex и test-ы Claude, которые её доказывают.
+  - Таблица сверяется с README Harness: каждая строка таблицы раздела «On Codex» (`harness/README.md`) должна иметь
+    строку в `GUARANTEES`, и каждая строка, которая называет гарантию README, называет существующую. Новая гарантия в
+    README без строки — красный test.
+  - Каждый test Claude назван файлом и текстом проверки, на которую строка опирается (строка файла по тексту, не по
+    номеру: номера строк в таблице ticket-а уже разошлись с файлами). Переименованный файл или удалённая проверка —
+    красный test.
+  - Команды строки 4 берутся из самого test-а Claude (`guard-silent.test.sh`, `expect "full: …" deny …`), и сценарий
+    обязан запускать те же команды; правило записи строки 5 (`WRITE_RULE`) и список агентов (`for a in implementer
+    reviewer`) — тоже из `agents-text.test.sh`.
+  - Последний test проверяет, что все 9 строк прошли свои сценарии.
+- Сценарии идут на фейке app-server с hook-runner-ом и sandbox-ом (Ticket 44), по трём новым script-ам
+  `test/fixtures/codex-scripts/parity-{guards,gate,verdict}.jsonl` (собраны из handshake `hooks.jsonl` и форм шагов
+  `hooks.jsonl` / `sandbox.jsonl`; `codex-fake.test.ts` и `codex-compat.test.ts` их проверяют).
+- Harness ставит во временный `CODEX_HOME` установщик Ticket-а 35 (`CodexHarness.plan` + `apply`) со stand-in-ом CLI
+  `codex`: stand-in на `plugin add` из локального marketplace кладёт папку в `plugins/cache/<marketplace>/<plugin>/local`
+  — туда, где plugin ищет hook-runner фейка (раскладка та же, что у `harness-codex-hooks.test.ts`). Агенты TOML пишет
+  сам установщик. Hook-и подтверждаются, как в `/hooks` (`approvePluginHooks`). У каждого прогона свой реестр gate,
+  состояние gate, `HARNESS_HOME`, `HOME`, `XDG_*` и stand-in `bin/profile`; переменные `CLAUDE_*`, `GATE_*`, `QMD_*`,
+  `GH_TOKEN` машины в env фейка не попадают. В `~/.claude` и `~/.codex` ничего не пишется (проверено grep-ом после
+  прогона).
+- Строки:
+  1. `apply_patch` от `worfy-reviewer` (add и update) и `worfy-scout` — deny с причиной, item не стартует, файлы не
+     меняются; их `git diff` и `ls` выполняются; `apply_patch` главного агента записан (отказ — по агенту, а не по tool-у).
+  2. Главный агент ломает `status.txt` (gate красный) → `Stop` — hook prompt с причиной gate, ход продолжается; агент
+     чинит → `Stop` зелёный, `turn/completed` один и после исправления; последний verdict gate — green.
+  3. То же для `SubagentStop` у `worfy-implementer`.
+  4. `git reset --hard` и `pnpm test | tail -5` — deny у главного агента и у reviewer-а, с теми словами, что ждёт test
+     Claude; та же pipe под `set -o pipefail` выполняется.
+  5. `worfy-implementer.toml` и `worfy-reviewer.toml`, которые записал установщик, несут правило записи в `~/.claude`
+     в начале пункта списка, как test Claude требует от `.md`. Scout в строку не входит: test Claude его не проверяет
+     (не строже Claude).
+  6. Session запускает настоящий `codexSessions` (src/main/vendors/codex/session.ts) с `ghToken` через `accountAuth` и
+     stand-in `gh` (`gh auth token -u octo-org`). `worfy-reviewer` запускает `gh pr comment 7 --body VERIFIED`, guard
+     пропускает, `GH_TOKEN` аккаунта — в env процесса app-server. Фейк команды не исполняет, поэтому test запускает ту же
+     команду с env процесса, как это сделал бы shell Session-а. Stand-in `gh` получил токен аккаунта.
+  7. `SessionStart` даёт части `orchestrator` и `common`, `SubagentStart` reviewer-а и scout-а — `common`, каждая
+     ровно как ждёт test Claude: файл части с подставленным корнем plugin-а.
+  8. `SessionEnd` при закрытии stdin пишет строку в `pending-retro.log` профиля; от закрытия до выхода фейка — меньше
+     3 s.
+  9. Без подтверждения hash фейк не запускает ни одного hook-а: правка reviewer-а записана, `git reset --hard` прошёл.
+     Если plugin изменился после подтверждения, каждый hook падает с `plugin contents changed; hook approval required`
+     и ничего не решает. Test так и называет: без подтверждения строки 1–8 не держатся, отказ старта Run — Ticket 39.
+- Новый test стороны Claude: `harness/hooks/tests/stop-gate-cycle.test.sh`. Строку 2 названные test-ы доказывали
+  только по частям: красный маркер держит ход (`harness-home.test.sh`, `gate-notverified.test.sh`), зелёный прогон
+  снимает маркер (`gate-verdict.test.sh`). Новый test проходит один цикл в зарегистрированном worktree: красный gate →
+  `Stop` под Claude — exit 2 с причиной; зелёный gate → `Stop` — exit 0 молча. Поведение не менялось.
+- Уточнение таблицы ticket-а: к строке 3 добавлен `harness/hooks/tests/gate-shim.test.sh` (`hooks.json` запускает gate
+  через `gate.sh`, и его красный — exit 2, как у `gate.mjs`). Решено без владельца, подтвердить.
+- Не строки таблицы: deny интерактивного shell-а агенту Harness и запись reviewer-а через shell (строже Claude), а также
+  известные пробелы README (tool-ы `mcp__*` и `spawn_agent` у read-only агентов). Suite на них не падает.
+- Контрольные случаи «Готово, когда» (мутанты в worktree, потом `git checkout`):
+  - `deny` в `guard.mjs` выключен (`process.exit(0)` в начале `deny`): suite exit 1 — красные строки 1 и 4.
+  - отказ `apply_patch` для `worfy-reviewer` убран (`&& agent !== "worfy-reviewer"`): exit 1 — красная строка 1.
+  - сверх ticket-а: `stop.mjs` не запускает gate под Codex — красные строки 2 и 3; лишняя гарантия в README и
+    переименованный test Claude — красные test-ы таблицы.
+- Решено без владельца, подтвердить: проверки test-ов Claude названы текстом, а не номером строки. Номера строк из
+  таблицы ticket-а уже не совпадали с файлами (например, `rules-hooks.test.sh:576-577` теперь на 578–579).
