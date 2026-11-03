@@ -43,9 +43,9 @@ let appRegistry: SessionRegistry | null = null
 export function sharedRegistry(): SessionRegistry {
   if (appRegistry === null) {
     // Each Session on the session part of its Vendor's driver, made when the first Session of that
-    // Vendor starts. Claude's: queryFactoryFromEnv, with every Session's rate_limit_event feeding the
+    // Vendor starts; the driver's capabilities and commands answer its pickers and slash menu. Claude's: queryFactoryFromEnv, with every Session's rate_limit_event feeding the
     // Limits (ticket 22), the fake agent's too.
-    const registry = new SessionRegistry({ sessionsOf: (vendor) => vendorDriver(vendor).session })
+    const registry = new SessionRegistry({ sessionsOf: (vendor) => vendorDriver(vendor).session, partsOf: (vendor) => vendorDriver(vendor) })
     app.on('will-quit', () => registry.closeAll())
     exposeBrowserToolsForFakeAgent(registry)
     appRegistry = registry

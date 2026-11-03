@@ -48,3 +48,44 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 - `src/main/agent/commands.ts`
 - Test-ы: `test/unit/pickers-captions.test.tsx`, `test/unit/permission-card.test.tsx`,
   `test/unit/message-input-slash.test.tsx`, `test/e2e/codex-session.spec.ts` (новый), `scripts/e2e-specs.table.json`
+
+## Итог
+
+- Пикеры (`src/renderer/session/composer/Pickers.tsx`) читают capabilities Vendor-а Session через новый канал
+  `agent.capabilities` (`src/shared/ipc/agent.ts`, `src/main/ipc/agent.ts` → `Session.capabilities()` → `capabilities(handle)`
+  driver-а). Permission — `permissionPresets` с подписью Vendor-а, описание preset-а — tooltip строки списка (новое поле
+  `title` у `SelectOption`, `src/renderer/theme/Select.tsx`); `MODE_LABELS` удалён, подписи Claude — только в
+  `CLAUDE_CAPABILITIES`. Effort — отметки в порядке `effortLevels` Vendor-а; пустой список моделей — все уровни Vendor-а.
+  Model — строки `agent.models` (у Claude — supportedModels(), у Codex — `model/list` с «Default (…)» = `setModel(null)`);
+  пустой список — строка с моделью из `system/init`, как раньше.
+- Недоступное: Vendor без `modelSwitchStable` — пикер Model неактивен, tooltip — причина из `unsupported`. Slash-меню
+  Vendor-а без `commandsComplete` (Codex) — последняя неактивная строка «Not every command is listed», tooltip — причина.
+  Session, чьи capabilities main не дал, считается Session Claude Code (как Node без Vendor-а) — решено без владельца,
+  подтвердить.
+- Настройки Session несут id preset-а и уровень effort Vendor-а (`src/shared/agent/settings.ts`): схема принимает id,
+  которые даёт хоть один Vendor (режимы Claude, `read-only` / `auto` / `full-access`, уровни Claude и `none` / `minimal`),
+  чужое по-прежнему отказывается на входе IPC. Session отказывает в preset-е и уровне, которых нет у её Vendor-а
+  (`offeredRefusal` в `src/main/agent/session.ts`). Новая Session Codex переводит настройки в термины Codex
+  (`SessionPart.settingsFor`, `codexSettings`): `bypassPermissions` по умолчанию → «Full access», `acceptEdits` → «Auto»,
+  `default` и `plan` → «Read only», `max` → default. Shortcut-ы тикетов 20 и 23 (`PRESET_OF_CLAUDE_MODE` как единственный
+  путь, `pickerEfforts` только с уровнями Claude) сняты. Решено без владельца, подтвердить: схема перечисляет id всех
+  Vendor-ов (`OTHER_VENDOR_PRESETS`, `OTHER_VENDOR_EFFORTS`, сверка с driver-ом — `test/unit/codex-capabilities.test.ts`),
+  а не принимает любую строку — так старые test-ы Claude держат свои ожидания.
+- Claude Code с сохранённым чужим id (не дойдёт через пикер, только из файла) стартует в `default` и без effort
+  (`claudeMode`, `claudeEffort` в `src/main/vendors/claude/options.ts`) — решено без владельца, подтвердить.
+- Диалог подтверждения (`src/renderer/session/PermissionCard.tsx`) читает input по форме, без имени Vendor-а: команда с
+  `cwd` — команда целиком и строка `in <cwd>`; `changes` с `path` — файлы по строке. Кнопки — варианты Vendor-а в его
+  порядке (у Codex четыре).
+- Slash-меню берёт строки из части commands driver-а: `Session.commands()` зовёт `commands.list(handle)` (а не handle
+  напрямую). `src/main/agent/commands.ts` остался каталогом Claude, который зовёт commands Claude-driver-а.
+- e2e `test/e2e/codex-session.spec.ts` (фейк, сценарий `test/fixtures/codex-scripts/session-controls.jsonl`): presets «Read
+  only», «Auto», «Full access»; выбор «Auto» уходит в `turn/start` (`on-request` + `workspaceWrite`); slash-меню —
+  `/compact`, `/review`, skills сценария `release-notes`, `triage` и строка о неполном списке; approval команды — диалог с
+  четырьмя вариантами, `accept` доходит до фейка (`WORFY_CODEX_LOG`). Правило в `scripts/e2e-specs.table.json` —
+  `src/main/vendors/codex/approvals.ts` → этот spec.
+- Снимки обеих тем (только Session view: боковая панель показывает временную папку машины):
+  [presets](../evidence/25/25-presets-light.png) ([тёмная](../evidence/25/25-presets-dark.png)),
+  [slash-меню](../evidence/25/25-slash-menu-light.png) ([тёмная](../evidence/25/25-slash-menu-dark.png)),
+  [approval](../evidence/25/25-approval-light.png) ([тёмная](../evidence/25/25-approval-dark.png)).
+- Не сделано здесь: шапка Session view показывает режим из `init` как есть (`Permissions auto`, а не «Auto»;
+  `src/renderer/session/SessionView.tsx`, `permissionLabel`); tooltip кнопки Effort говорит о Claude Code и у Session Codex.

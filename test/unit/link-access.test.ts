@@ -173,6 +173,8 @@ describe('the read-or-write mark of `project` channels', () => {
   /** Changes nothing, starts or stops nothing, sends nothing into a Session or a Terminal. */
   const READ_CALLS = [
     'actions.launches',
+    // What a Session's Vendor can do, for its pickers and slash menu (worfy-multi-vendor ticket 25).
+    'agent.capabilities',
     'agent.commands',
     'agent.controls',
     'agent.list',

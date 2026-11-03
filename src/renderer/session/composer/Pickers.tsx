@@ -1,30 +1,30 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react'
-import { EFFORT_LEVELS, PERMISSION_MODES, type EffortChoice, type ModelOption, type PermissionModeChoice, type SettingsChange } from '../../../shared/agent/settings'
+import type { ModelOption, SettingsChange } from '../../../shared/agent/settings'
 import { invoke } from '../../ipc'
 import { useReadOnly } from '../../projects/useProjects'
 import { Select, SelectChevron, type SelectOption } from '../../theme/Select'
 import { useSessionControls } from '../store'
+import { useCapabilities } from '../useCapabilities'
 import type { ComposerItemProps } from './index'
 
 // The model, effort and permission mode of the Session, under its input field (ticket 19). A
 // change goes to main (`agent.configure`), which applies it to the live Session without a restart
 // and to every later start of it; the pickers then show what main reports (`settings` events).
-// The models come from Claude Code (`agent.models`: supportedModels(), or the model of the last
-// system/init). Claude Code does not report the effort it applies (ticket 06), so the effort
-// shown is the level worfy asked for.
+// The models come from the Session's Vendor (`agent.models`: Claude Code's supportedModels(), Codex's
+// `model/list`, or the model of the last system/init). Claude Code does not report the effort it
+// applies (ticket 06), so the effort shown is the level worfy asked for.
+//
+// What the pickers offer is the Vendor's (`agent.capabilities`, src/shared/vendors/capabilities.ts;
+// worfy-multi-vendor ticket 25): the permission presets with the Vendor's labels and descriptions, the
+// effort levels in its order. What the Vendor cannot do is shown inactive, its reason in the tooltip:
+// a Vendor whose model change does not hold mid-Session (`modelSwitchStable`) has the model picker
+// inactive. The interface never names a Vendor: a Session whose capabilities main cannot give is
+// taken for Claude Code's, as a Session Node saved without a Vendor is.
 //
 // The model and the permission mode are lists on the shared Select (theme/Select.tsx). The effort
 // is a slider in a popover of its button, with the levels of the picked model as its marks.
 
 export const order = 10
-
-const MODE_LABELS: Record<PermissionModeChoice, string> = {
-  bypassPermissions: 'Bypass permissions',
-  acceptEdits: 'Accept edits',
-  default: 'Ask before tools',
-  plan: 'Plan only',
-}
-const MODE_OPTIONS: SelectOption<PermissionModeChoice>[] = PERMISSION_MODES.map((mode) => ({ value: mode, label: MODE_LABELS[mode] }))
 
 /** The Select value of the default model, which setModel() takes as undefined; `data-value` of the effort button on the model's default too. */
 const DEFAULT_VALUE = ''
@@ -33,20 +33,22 @@ const DEFAULT_VALUE = ''
 const EFFORT_REST_MS = 600
 
 /** A mark of the effort slider: a level, or null for the model's default. */
-type EffortMark = EffortChoice | null
+type EffortMark = string | null
 const markName = (mark: EffortMark): string => mark ?? 'default'
 
 /**
- * The marks of the effort slider, left to right: the model's default, then the levels in the order
- * of EFFORT_LEVELS — those the picked model takes, and two more where the model does not list
- * them: the saved level, and the level the thumb was moved to (the list of models may arrive after
- * the thumb moved, and the popover must go on showing the level it will send). No marks at all
- * when there is no level to offer.
+ * The marks of the effort slider, left to right: the model's default, then the levels in the
+ * Vendor's order (`order`, its `effortLevels`; a level it does not list goes after them) — those the
+ * picked model takes, and two more where the model does not list them: the saved level, and the
+ * level the thumb was moved to (the list of models may arrive after the thumb moved, and the popover
+ * must go on showing the level it will send). No marks at all when there is no level to offer.
  */
-function effortMarks(efforts: readonly EffortChoice[], saved: EffortChoice | null, moved: EffortMark): EffortMark[] {
-  const levels = EFFORT_LEVELS.filter((level) => efforts.includes(level) || level === saved || level === moved)
+function effortMarks(order: readonly string[], efforts: readonly string[], saved: string | null, moved: EffortMark): EffortMark[] {
+  const wanted = new Set([...efforts, ...(saved === null ? [] : [saved]), ...(moved === null ? [] : [moved])])
+  const levels = [...order.filter((level) => wanted.has(level)), ...[...wanted].filter((level) => !order.includes(level))]
   return levels.length === 0 ? [] : [null, ...levels]
 }
+
 
 /** The models of a Session; fetched again when the list opens, as it may grow after the first turn. */
 function useModels(sessionId: string | null): { models: readonly ModelOption[]; refresh: () => void } {
@@ -155,9 +157,11 @@ function useCaptions(): { ref: RefObject<HTMLSpanElement | null>; captions: Capt
 
 interface EffortPickerProps {
   /** The level main reports; null: the model's default. */
-  effort: EffortChoice | null
-  /** The levels the picked model takes; every level while the list of models is empty. */
-  efforts: readonly EffortChoice[]
+  effort: string | null
+  /** The levels the picked model takes; every level of the Vendor while the list of models is empty. */
+  efforts: readonly string[]
+  /** The Vendor's effort levels, lowest first: the order of the marks. */
+  order: readonly string[]
   disabled: boolean
   configure: (change: SettingsChange) => void
 }
@@ -169,7 +173,7 @@ interface EffortPickerProps {
  * leaving it), or EFFORT_REST_MS after the thumb last moved — never on a single move, and never a
  * level main already has. A picker that goes away with the thumb moved sends its level too.
  */
-function EffortPicker({ effort, efforts, disabled, configure }: EffortPickerProps) {
+function EffortPicker({ effort, efforts, order, disabled, configure }: EffortPickerProps) {
   const popoverId = useId()
   const [open, setOpen] = useState(false)
   /** Where the user put the thumb since the popover opened; undefined: not moved, the thumb is on `effort`. */
@@ -189,7 +193,7 @@ function EffortPicker({ effort, efforts, disabled, configure }: EffortPickerProp
 
   // The mark the thumb was moved to stays a mark while the thumb stands on it, whatever the model
   // lists by now: the level shown is the level sent.
-  const marks = effortMarks(efforts, effort, moved !== undefined ? moved.mark : null)
+  const marks = effortMarks(order, efforts, effort, moved !== undefined ? moved.mark : null)
   const inactive = disabled || marks.length === 0
   // A picker that lost its levels (or its Session's settings) under an open popover closes it for
   // good. A thumb moved before the settings went is still sent when its rest is over.
@@ -372,12 +376,24 @@ function EffortPicker({ effort, efforts, disabled, configure }: EffortPickerProp
 
 export default function Pickers({ sessionId }: ComposerItemProps) {
   const { settings } = useSessionControls(sessionId)
-  const { models, refresh } = useModels(sessionId)
+  const { models, refresh: refreshModels } = useModels(sessionId)
+  const { capabilities, refresh: refreshCapabilities } = useCapabilities(sessionId)
+  const refresh = () => {
+    refreshModels()
+    refreshCapabilities()
+  }
   const [error, setError] = useState<string | null>(null)
   // On a read-only screen (worfy-link ticket 25) the pickers show the settings and change nothing.
   const readOnly = useReadOnly()
-  const disabled = sessionId === null || settings === null || readOnly !== null
+  const disabled = sessionId === null || settings === null || capabilities === undefined || readOnly !== null
   const { ref, captions } = useCaptions()
+  // A capability the Vendor lacks: the picker is inactive, and its tooltip says why.
+  const modelReason = capabilities?.modelSwitchStable === false ? capabilities.unsupported.modelSwitchStable : undefined
+  const presets = capabilities?.permissionPresets ?? []
+  const presetOptions: SelectOption[] = presets.map((preset) => ({ value: preset.id, label: preset.label, title: preset.description }))
+  const permissionMode = settings?.permissionMode ?? presets[0]?.id ?? ''
+  const permissionLabel = presets.find((preset) => preset.id === permissionMode)?.label ?? permissionMode
+  const effortOrder = capabilities?.effortLevels ?? []
 
   const configure = (change: SettingsChange) => {
     if (sessionId === null || readOnly !== null) return
@@ -394,8 +410,8 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
     ...(rows.some((row) => row.value === null) ? [] : [{ value: DEFAULT_VALUE, label: 'Default model' }]),
     ...rows.map((row) => ({ value: row.value ?? DEFAULT_VALUE, label: row.displayName })),
   ]
-  // While the list of models is empty (it has not arrived, or main could not get it) every level is on offer.
-  const efforts = models.length === 0 ? EFFORT_LEVELS : (rows.find((row) => row.value === model)?.efforts ?? [])
+  // While the list of models is empty (it has not arrived, or main could not get it) every level of the Vendor is on offer.
+  const efforts = models.length === 0 ? effortOrder : (rows.find((row) => row.value === model)?.efforts ?? [])
   const effort = settings?.effort ?? null
   /** A model change; an effort level the new model does not list goes back to the model's default with it. */
   const modelChange = (next: string | null): SettingsChange => {
@@ -411,25 +427,25 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
         aria-label="Model"
         data-testid="picker-model"
         prefix="Model"
-        title={readOnly ?? modelOptions.find((option) => option.value === (model ?? DEFAULT_VALUE))?.label}
+        title={readOnly ?? modelReason ?? modelOptions.find((option) => option.value === (model ?? DEFAULT_VALUE))?.label}
         mono
-        disabled={disabled}
+        disabled={disabled || modelReason !== undefined}
         value={model ?? DEFAULT_VALUE}
         options={modelOptions}
         onOpen={refresh}
         onChange={(next) => configure(modelChange(next === DEFAULT_VALUE ? null : next))}
       />
       {/* A thumb moved in one Session never goes to another: the picker starts anew with the Session. */}
-      <EffortPicker key={sessionId ?? ''} effort={effort} efforts={efforts} disabled={disabled} configure={configure} />
+      <EffortPicker key={sessionId ?? ''} effort={effort} efforts={efforts} order={effortOrder} disabled={disabled} configure={configure} />
       <Select
         className={`w-pickers__select w-pickers__select--permissions${captions.permissions ? '' : ' w-pickers__select--bare'}`}
         aria-label="Permission mode"
         data-testid="picker-permissions"
         prefix="Permissions"
-        title={readOnly ?? MODE_LABELS[settings?.permissionMode ?? 'bypassPermissions']}
+        title={readOnly ?? permissionLabel}
         disabled={disabled}
-        value={settings?.permissionMode ?? 'bypassPermissions'}
-        options={MODE_OPTIONS}
+        value={permissionMode}
+        options={presetOptions}
         onChange={(mode) => configure({ permissionMode: mode })}
       />
       {error !== null ? (

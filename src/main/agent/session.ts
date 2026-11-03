@@ -66,6 +66,8 @@ import {
   type SessionSettings,
   type SettingsChange,
 } from '../../shared/agent/settings'
+import { CLAUDE_CAPABILITIES, type Capabilities } from '../../shared/vendors/capabilities'
+import type { VendorDriver } from '../vendors/driver'
 import type { AgentProcess, RefusalDetails, SessionHandle, SessionPart, SessionStart } from '../vendors/session'
 import { shownAttachments } from './attachments'
 import { PermissionGate } from './permissions'
@@ -92,6 +94,30 @@ export type {
 export { modelOptions, USER_MODEL_FALLBACK } from './session/models'
 export { EXIT_WAIT_MS, HALT_TURN_MS, KILL_EXIT_MS } from './session/process'
 export { SessionRegistry } from './session/registry'
+
+/**
+ * What a Session reads of its Vendor's driver besides the session part (worfy-multi-vendor ticket 25):
+ * the capabilities — the pickers' presets and effort levels, which a settings change must keep to — and
+ * the rows of the slash menu.
+ */
+export type SessionVendorParts = Pick<VendorDriver, 'capabilities' | 'commands'>
+
+/** Claude Code's capabilities as such, and the rows the handle itself lists: a Session started without its driver's parts. */
+export const STATIC_CLAUDE_PARTS: SessionVendorParts = {
+  capabilities: () => Promise.resolve(CLAUDE_CAPABILITIES),
+  commands: { list: (handle) => handle.commands() },
+}
+
+/** Why `change` is not one the Vendor of `capabilities` offers, or null when it is. */
+function offeredRefusal(capabilities: Capabilities, change: SettingsChange): string | null {
+  if (change.permissionMode !== undefined && !capabilities.permissionPresets.some((preset) => preset.id === change.permissionMode)) {
+    return `${change.permissionMode} is no permission preset of this Session's agent`
+  }
+  if (change.effort !== undefined && change.effort !== null && !capabilities.effortLevels.includes(change.effort)) {
+    return `${change.effort} is no effort level of this Session's agent`
+  }
+  return null
+}
 
 /** Whether a Session state is a running turn. */
 const inTurn = (state: SessionState): boolean => state === 'busy' || state === 'needs_permission'
@@ -147,13 +173,17 @@ export class Session {
     resume: string | undefined,
     settings: SessionSettings = DEFAULT_SETTINGS,
     private readonly launch: SessionLaunch = ATTENDED,
+    /** The Vendor's capabilities and slash menu (SessionVendorParts). */
+    private readonly parts: SessionVendorParts = STATIC_CLAUDE_PARTS,
   ) {
     // A new Session's id is the Vendor session id it asks the driver for (begin()).
     this.current = resume === undefined ? randomUUID() : `pending-${randomUUID()}`
     this.sdkSessionId = resume ?? null
-    // A haiku saved before ticket 07 goes back to the default model; the start's `settings` event
-    // lets the Orchestrator save the corrected picks.
-    this.settingsValue = withSelectableModel(launchSettings(settings, launch))
+    // A haiku saved before ticket 07 goes back to the default model; a permission setting or effort
+    // the Vendor does not offer becomes its nearest one (SessionPart.settingsFor). The start's
+    // `settings` event lets the Orchestrator and the Node save the corrected picks.
+    const launched = withSelectableModel(launchSettings(settings, launch))
+    this.settingsValue = sessions.settingsFor?.(launched) ?? launched
   }
 
   /** No person is at this Session (Autopilot): nothing it does may wait for the UI. */
@@ -399,6 +429,8 @@ export class Session {
       return Promise.reject(new Error(`${change.model}: a Session runs on sonnet or a larger model`))
     }
     const task = this.configuring.then(async () => {
+      const offered = offeredRefusal(await this.capabilities(), change)
+      if (offered !== null) throw new Error(offered)
       const before = this.settingsValue
       const wanted = mergeSettings(before, change)
       const run = this.run
@@ -423,10 +455,18 @@ export class Session {
     return model === null || !isSelectableModel(model) ? [] : [{ value: model, displayName: model, efforts: [] }]
   }
 
-  /** The slash menu's rows: those of the live process, or what the latest one said of them. */
+  /**
+   * What the Session's Vendor can do (worfy-multi-vendor ticket 25): its capabilities as its driver
+   * gives them for the live process, the models of the running agent among them; without one, as such.
+   */
+  capabilities(): Promise<Capabilities> {
+    return this.parts.capabilities(this.run?.handle ?? undefined)
+  }
+
+  /** The slash menu's rows, from the commands part of the Vendor's driver: those of the live process, or what the latest one said of them. */
   commands(): Promise<SlashCommand[]> {
     const handle = this.run?.handle ?? this.lastHandle
-    return handle === null ? Promise.resolve([]) : handle.commands()
+    return handle === null ? Promise.resolve([]) : this.parts.commands.list(handle)
   }
 
   close(): void {

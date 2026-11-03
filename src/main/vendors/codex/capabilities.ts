@@ -2,7 +2,7 @@
 // the pinned version can do in the first release. The models and their effort levels come from
 // `model/list` of the running version, through a live Session (ticket 20): capabilities(session) and the
 // model picker's rows (codexModelOptions) take them from there.
-import { EFFORT_LEVELS, type EffortChoice, type ModelOption } from '../../../shared/agent/settings'
+import { isEffortSetting, type ModelOption, type SessionSettings } from '../../../shared/agent/settings'
 import type { Capabilities, PermissionPreset, VendorModel } from '../../../shared/vendors/capabilities'
 import type { VendorDriver } from '../driver'
 import type { SessionHandle } from '../session'
@@ -50,10 +50,11 @@ export function codexPermissionPreset(id: string): CodexPermissionPreset | undef
   return CODEX_PERMISSION_PRESETS.find((preset) => preset.id === id)
 }
 
-// shortcut: a Session's settings carry Claude Code's permission modes (src/shared/agent/settings.ts),
-// so a Codex Session is given one of them; redo when a Session's settings take the Vendor's preset ids
-// (worfy-multi-vendor ticket 23 or 25).
-/** The Codex preset that stands for each of Claude Code's permission modes. */
+/**
+ * The Codex preset that stands for each of Claude Code's permission modes: a Session's settings carry
+ * the Vendor's preset id (worfy-multi-vendor ticket 25), but the defaults and the picks saved before
+ * that name Claude Code's modes.
+ */
 const PRESET_OF_CLAUDE_MODE: Readonly<Record<string, string>> = {
   bypassPermissions: 'full-access',
   acceptEdits: 'auto',
@@ -67,6 +68,22 @@ const PRESET_OF_CLAUDE_MODE: Readonly<Record<string, string>> = {
  */
 export function codexPresetFor(setting: string): CodexPermissionPreset | undefined {
   return codexPermissionPreset(setting) ?? codexPermissionPreset(PRESET_OF_CLAUDE_MODE[setting] ?? '')
+}
+
+/** Codex's effort levels lowest first, as far as worfy knows them; a level it does not know goes after them. */
+const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
+
+/**
+ * A Session's settings in Codex's terms (SessionPart.settingsFor): a permission mode of Claude Code
+ * becomes the Codex preset that stands for it, an effort level Codex has no such name for (Claude
+ * Code's `max`) the model's default. A setting that names neither a preset nor a mode stays, and the
+ * start refuses it.
+ */
+export function codexSettings(settings: SessionSettings): SessionSettings {
+  const preset = codexPresetFor(settings.permissionMode)
+  const permissionMode = preset?.id ?? settings.permissionMode
+  const effort = settings.effort !== null && EFFORT_ORDER.includes(settings.effort) ? settings.effort : null
+  return permissionMode === settings.permissionMode && effort === settings.effort ? settings : { ...settings, permissionMode, effort }
 }
 
 /**
@@ -117,9 +134,6 @@ export const CODEX_CAPABILITIES: Capabilities = {
   },
 }
 
-/** Codex's effort levels lowest first, as far as worfy knows them; a level it does not know goes after them. */
-const EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
-
 /** The models the picker lists: those `model/list` does not hide, each once. */
 function shownModels(models: readonly Model[]): Model[] {
   const seen = new Set<string>()
@@ -144,10 +158,8 @@ export function capabilitiesWithModels(models: readonly Model[]): Capabilities {
   return { ...CODEX_CAPABILITIES, models: vendorModels, effortLevels: [...levels].sort((a, b) => rank(a) - rank(b)) }
 }
 
-// shortcut: the model picker takes only Claude Code's effort levels (ModelOption.efforts), so a Codex
-// level it does not have (minimal, none) is left out of its rows; redo when the pickers read the
-// capabilities (worfy-multi-vendor ticket 25).
-const pickerEfforts = (model: Model): EffortChoice[] => effortsOf(model).filter((level): level is EffortChoice => (EFFORT_LEVELS as readonly string[]).includes(level))
+/** The levels of a model the picker offers: those a Session's settings take (a level worfy has no name for is left out). */
+const pickerEfforts = (model: Model): string[] => effortsOf(model).filter(isEffortSetting)
 
 /**
  * The model picker's rows of `model/list`: "Default" (value null) for the model Codex marks as its

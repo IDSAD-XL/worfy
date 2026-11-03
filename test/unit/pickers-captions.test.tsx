@@ -4,7 +4,7 @@
 // gives the pickers ROOM px, and a value is cut when ROOM is less than the pickers need with the
 // captions shown in that layout (NEED). The captions shown are read the way session.css hides
 // them: from `data-probe` while the pickers measure, otherwise from the buttons' classes.
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSettings } from '../../src/shared/agent/settings'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
@@ -163,5 +163,86 @@ describe('the captions of the model and permission pickers', () => {
       expect(mode().title).toBe('Bypass permissions')
       expect(model().textContent).toBe('ModelDefault (recommended)')
     }
+  })
+})
+
+// worfy-multi-vendor ticket 25: the pickers offer what the Session's Vendor offers (agent.capabilities).
+describe("the pickers read the Vendor's capabilities", () => {
+  const REASON = 'This agent keeps its model for the whole Session.'
+  const asked: { channel: string; input: unknown }[] = []
+
+  async function mountOn(capabilities: unknown): Promise<void> {
+    asked.length = 0
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        if (channel === 'agent.controls') return Promise.resolve({ ok: true, value: { settings: { model: null, effort: null, permissionMode: 'full-access' }, queue: { items: [], paused: false } } })
+        if (channel === 'agent.models') return Promise.resolve({ ok: true, value: { models: [{ value: null, displayName: 'Default (GPT)', efforts: ['high', 'minimal'] }] } })
+        if (channel === 'agent.capabilities') return Promise.resolve({ ok: true, value: capabilities })
+        return Promise.resolve({ ok: true, value: { model: null, effort: null, permissionMode: 'full-access' } })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    await mount()
+  }
+
+  const codexLike = async () => {
+    const { CLAUDE_CAPABILITIES } = await import('../../src/shared/vendors/capabilities')
+    return {
+      ...CLAUDE_CAPABILITIES,
+      modelSwitchStable: false,
+      permissionPresets: [
+        { id: 'read-only', label: 'Read only', description: 'Reads files; asks before anything else.' },
+        { id: 'auto', label: 'Auto', description: 'Works in the project folder.' },
+        { id: 'full-access', label: 'Full access', description: 'Runs anything without asking.' },
+      ],
+      effortLevels: ['minimal', 'low', 'high'],
+      unsupported: { ...CLAUDE_CAPABILITIES.unsupported, modelSwitchStable: REASON },
+    }
+  }
+
+  it('a capability the Vendor lacks makes its picker inactive, with the reason as the tooltip', async () => {
+    await mountOn(await codexLike())
+    expect((model() as HTMLButtonElement).disabled).toBe(true)
+    expect(model().title).toBe(REASON)
+    // What the Vendor can do stays active.
+    expect((mode() as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it("lists the Vendor's presets with its labels and descriptions, and sends the picked preset's id", async () => {
+    await mountOn(await codexLike())
+    expect(mode().textContent).toBe('PermissionsFull access')
+    expect(mode().title).toBe('Full access')
+    act(() => {
+      fireEvent.click(mode())
+    })
+    const rows = within(screen.getByTestId('picker-permissions-list')).getAllByRole('option')
+    expect(rows.map((row) => [row.textContent, row.title])).toEqual([
+      ['Read only', 'Reads files; asks before anything else.'],
+      ['Auto', 'Works in the project folder.'],
+      ['Full access', 'Runs anything without asking.'],
+    ])
+    act(() => {
+      fireEvent.click(rows[1]!)
+    })
+    expect(asked).toContainEqual({ channel: 'agent.configure', input: { sessionId: 's', change: { permissionMode: 'auto' } } })
+  })
+
+  it("orders the effort marks as the Vendor orders its levels", async () => {
+    await mountOn(await codexLike())
+    act(() => {
+      fireEvent.click(screen.getByTestId('picker-effort'))
+    })
+    expect(screen.getAllByTestId('effort-mark').map((mark) => mark.dataset['mark'])).toEqual(['default', 'minimal', 'high'])
+  })
+
+  it("takes a Session whose capabilities main cannot give for Claude Code's", async () => {
+    await mountOn({ not: 'capabilities' })
+    expect((model() as HTMLButtonElement).disabled).toBe(false)
+    act(() => {
+      fireEvent.click(mode())
+    })
+    expect(within(screen.getByTestId('picker-permissions-list')).getAllByRole('option').map((row) => row.textContent)).toEqual(['Bypass permissions', 'Accept edits', 'Ask before tools', 'Plan only'])
   })
 })

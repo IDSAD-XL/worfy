@@ -27,6 +27,14 @@ const request = (overrides: Partial<Request> = {}): Request => ({
   ...overrides,
 })
 
+/** Codex's answers to an approval (CODEX_APPROVAL_OPTIONS of src/main/vendors/codex/approvals.ts). */
+const CODEX_OPTIONS: Request['options'] = [
+  { id: 'accept', label: 'Accept', kind: 'allow' },
+  { id: 'acceptForSession', label: 'Accept for this Session', kind: 'allow_always' },
+  { id: 'decline', label: 'Decline', kind: 'deny' },
+  { id: 'cancel', label: 'Decline and stop the turn', kind: 'deny' },
+]
+
 const nodeView = (overrides: Partial<SessionNodeView> = {}): SessionNodeView => ({
   projectId: 'alpha',
   nodeId: 'node-7',
@@ -132,6 +140,64 @@ describe('the permission card', () => {
   it('shows another tool’s input as JSON', async () => {
     await renderTranscript([request({ toolName: 'Write', input: { file_path: '/tmp/a.txt', content: 'hi' } })])
     expect(JSON.parse(screen.getByTestId('permission-input').textContent ?? '')).toEqual({ file_path: '/tmp/a.txt', content: 'hi' })
+  })
+
+  // worfy-multi-vendor ticket 25: a Codex approval, as its driver puts it (approvalAsk of
+  // src/main/vendors/codex/approvals.ts; test/unit/codex-items.test.ts holds the driver to it).
+  it("shows a Codex command whole with the folder it runs in, and Codex's four answers in its order", async () => {
+    await renderTranscript([
+      request({
+        toolName: 'commandExecution',
+        toolUseId: 'cmd_1',
+        subject: COMMAND,
+        input: { command: COMMAND, cwd: '/work/alpha' },
+        title: 'Codex wants to run a command',
+        description: 'The command runs outside the sandbox.',
+        options: CODEX_OPTIONS,
+      }),
+    ])
+    const card = screen.getByTestId('permission-card')
+    expect(within(card).getByTestId('permission-tool').textContent).toBe(COMMAND)
+    const input = within(card).getByTestId('permission-input')
+    expect(input.textContent).toBe(COMMAND)
+    expect(input.className).toContain('w-permission__input--command')
+    expect(within(card).getByTestId('permission-cwd').textContent).toBe('in /work/alpha')
+    expect(within(card).getByText('The command runs outside the sandbox.')).toBeTruthy()
+    const buttons = within(card).getAllByRole('button')
+    expect(buttons.map((button) => [button.textContent, button.dataset.optionId])).toEqual([
+      ['Accept', 'accept'],
+      ['Accept for this Session', 'acceptForSession'],
+      ['Decline', 'decline'],
+      ['Decline and stop the turn', 'cancel'],
+    ])
+    await act(async () => {
+      fireEvent.click(buttons[3]!)
+      await Promise.resolve()
+    })
+    expect(asked.filter((each) => each.channel === 'agent.permission')).toEqual([{ channel: 'agent.permission', input: { sessionId: 's1', requestId: 'req-1', decision: 'cancel' } }])
+  })
+
+  it('shows the files a Codex change would write, one per line, and no folder', async () => {
+    const changes = [
+      { path: '/work/alpha/README.md', kind: { type: 'update', move_path: null }, diff: '-old\n+new\n' },
+      { path: '/work/alpha/docs/notes.md', kind: { type: 'add' }, diff: '+hi\n' },
+    ]
+    await renderTranscript([
+      request({
+        toolName: 'fileChange',
+        toolUseId: 'patch_1',
+        subject: changes.map((change) => change.path).join(', '),
+        input: { changes },
+        title: 'Codex wants to change files',
+        description: null,
+        options: CODEX_OPTIONS,
+      }),
+    ])
+    const card = screen.getByTestId('permission-card')
+    expect(within(card).getByTestId('permission-tool').textContent).toBe('/work/alpha/README.md, /work/alpha/docs/notes.md')
+    expect(within(card).getByTestId('permission-input').textContent).toBe('/work/alpha/README.md\n/work/alpha/docs/notes.md')
+    expect(within(card).queryByTestId('permission-cwd')).toBeNull()
+    expect(within(card).getAllByRole('button')).toHaveLength(4)
   })
 
   it('says so when the request is no longer open', async () => {
