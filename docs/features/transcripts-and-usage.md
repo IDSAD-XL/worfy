@@ -2,7 +2,7 @@
 
 Four Features around a [Session](sessions.md). A **Transcript** is the record of a Session on screen. **Claude home** is what
 worfy reads from Claude Code's own folder. **Memory** is the memory figure of worfy's own processes, not Claude's memory.
-**Limits** are the two subscription windows in the toolbar. Terms are explained in [Concepts](concepts.md).
+**Limits** are the subscription windows of each [Vendor](vendors.md) in the toolbar. Terms are explained in [Concepts](concepts.md).
 
 ## Transcript
 
@@ -28,11 +28,14 @@ count up to their first 20 000 characters. Matches count oldest first, as "1 of 
 of the file not loaded yet counts too.
 
 **Search across a Project.** "In transcripts" in the Command palette takes 3 to 200 characters. It covers only user messages and
-Claude's replies, and answers up to 20 hits with a 120-character snippet, within 200 files and 64 MB. Picking a hit opens the Session.
+the agent's replies, in Claude Code's transcripts and in the Project's Codex threads together, and answers up to 20 hits with a
+120-character snippet, within 200 transcripts and 64 MB; a Codex thread counts as one transcript. Each hit ends with the logo of
+its Vendor. Picking a hit opens the Session. The details are in [App shell](app-shell.md).
 
 **Read-only view.** A Session started elsewhere opens in the same view, marked "Read-only: started in terminal" or "Read-only:
 started in Claude desktop". A Subagent's opens as "Read-only: Subagent transcript". Without a file it says "No transcript of this
-Session yet". While a Subagent's transcript is open, the back arrow or ⌘[ goes to what started it.
+Session yet". A Codex thread started outside worfy opens there too: its transcript is read from Codex, whole, its answers
+are labelled `codex`, and its chip says `unknown`, because Codex does not say whether the thread still runs. While a Subagent's transcript is open, the back arrow or ⌘[ goes to what started it.
 
 #### Windows
 
@@ -59,6 +62,7 @@ The find bar opens with Ctrl+F, and back is Ctrl+[.
 | Find | `src/shared/transcript/find.ts`, `src/main/claude-home/transcript-find.ts`, `src/renderer/session/transcript-find.ts`, `src/renderer/session/SessionFind.tsx` |
 | Hide tools | `src/renderer/session/transcript-view.ts`, `src/renderer/session/HideToolsButton.tsx` |
 | Project search | `src/main/claude-home/search.ts`, `src/renderer/palette/CommandPalette.tsx` |
+| A Codex thread's transcript | `src/main/vendors/codex/history.ts`, `src/main/vendors/codex/sessions-on-canvas.ts`, `src/main/ipc/claude-home.ts` |
 | Read-only view | `src/renderer/session/ExternalSessionPanel.tsx` |
 | Loading and following a file | `src/renderer/claude-home/useClaudeHome.ts` |
 
@@ -68,7 +72,8 @@ and a cursor. Later reads continue from the cursor, and "Load earlier" reads bac
 
 **Main tests.** `test/contract/transcript-parse.test.ts`, `test/contract/transcript-find.test.ts`,
 `test/unit/transcript-find.test.ts`, `test/unit/transcript-hide-tools.test.tsx`, `test/unit/session-find.test.tsx`,
-`test/contract/session-history-tail.test.tsx`, `test/e2e/session-history-tail.spec.ts`, `test/e2e/external-session.spec.ts`.
+`test/contract/session-history-tail.test.tsx`, `test/e2e/session-history-tail.spec.ts`, `test/e2e/external-session.spec.ts`,
+`test/contract/codex-history.test.ts`, `test/e2e/codex-transcript-search.spec.ts`.
 
 ## Claude home
 
