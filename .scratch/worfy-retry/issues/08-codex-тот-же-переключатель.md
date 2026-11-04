@@ -23,6 +23,12 @@ Source: [spec.md](../spec.md), «Как работает» → «Повтор п
    `auto-continue-quota.jsonl` (`usageLimitExceeded`, квота без сброса).
 3. Если `httpStatusCode` из `codexErrorInfo` нужен для вида ошибки (500 против 503) и теряется — передать его в
    `terminalReason` в `items.ts`; иначе `src/` не правится.
+4. **`responseTooManyFailedAttempts` с `httpStatusCode` 429**: Codex уже исчерпал свои повторы по rate limit. Такой
+   ход читается как `other` — повтора Auto-continue нет; это не временный обрыв потока. Сегодня `turnFailureKind`
+   (`src/shared/agent/turn-failure.ts:45`) даёт для любого `responseTooManyFailedAttempts` `transient` `stream`:
+   `httpStatusCode` до него не доходит. Нужны код в `terminalReason` (п. 3) и отдельный случай 429 в классификаторе;
+   `turn-failure.ts` и его unit test тогда входят в «Где в коде» этого Ticket-а. Contract test — ход `failed` с
+   `responseTooManyFailedAttempts` и `httpStatusCode` 429 → `retry-refused` `not-transient`, продолжение не ушло.
 
 ## Готово, когда
 
