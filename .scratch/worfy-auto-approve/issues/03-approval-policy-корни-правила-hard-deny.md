@@ -43,6 +43,9 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3–6; «Бе
       `localPath`), не из `args`; подкоманда, которую Ticket 02 не знает, приходит с `writes: ['<unknown>']`.
       `localPath` есть и у голого слова (`origin`): это папка на случай, если remote с таким именем не
       настроен. Настоящий URL remote-а — из git config, его Ticket 02 не видит.
+- [ ] Чтение тоже судится по корням: `reads` подкоманд чтения git (`diff`, `log`, `blame`, `grep` …) и
+      `git config` перечисляют файлы, которые они могут напечатать (`~/.gitconfig` среди них); цель чтения в
+      hard-deny (`~/.ssh` и др.) — hard-deny, вне корней — не allow.
 - [ ] Unit test: worktree живой Session-и вне Run-а (`SessionRegistry` — через параметр) — hard-deny.
 - [ ] Прогон по категориям Ticket-а 01 (локально, только числа) — в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на Linux, macOS, Windows.

@@ -135,3 +135,15 @@ Source: [spec.md](../spec.md), «Как работает», п. 2; «Безоп�
 16. **Mutation testing, round 3** (тот же скрипт, плюс 17 mutant-ов нового кода разбора опций git и конца
     опций, плюс имена `GIT_BRANCH_LONG`): 634 mutant-а — убит 601 (5 по зависанию test-а), 18 ушли вместе с
     кодом, выжили те же 15 эквивалентных, что в п. 13.
+17. **Round 4: что читают подкоманды чтения git.** `git diff /dev/null x`, `--no-index` и `git blame --contents=x`
+    печатают любой файл, не только репозиторий. Какое слово — revision, а какое — путь, здесь не известно,
+    поэтому в `reads` идёт каждое слово, которое не опция, и значение каждого `--name=value`. Слово, путь
+    которого может уйти из репозитория (абсолютный, с компонентом `..`), — `judged: false`, как и `--no-index`
+    по любому префиксу. Значение, приклеенное к короткой опции (`-O/tmp/order`), с `/`, `\`, `~` или `.` —
+    `judged: false`. Revision в одном компоненте с символом extended glob zsh (`HEAD~3`, `main^`) идёт в `reads`
+    как написан. Цена: в `reads` попадают и revision-ы (`/…/HEAD~3`), и шаблоны `git grep`.
+18. **`git config`:** `--global`, `--system`, `--file`, `--blob` (по любому префиксу) и `-f` — `judged: false`.
+    Чтение без `--local` или `--worktree` перечисляет и файлы пользователя: `~/.gitconfig` и
+    `$XDG_CONFIG_HOME/git/config` (или `~/.config/git/config`); без HOME — `judged: false`.
+19. **Mutation testing, round 4** (плюс 11 mutant-ов кода round 4 и имена `GIT_CONFIG_OUTSIDE`): 654 mutant-а —
+    убито 620 (5 по зависанию test-а), 19 ушли вместе с кодом, выжили те же 15 эквивалентных, что в п. 13.
