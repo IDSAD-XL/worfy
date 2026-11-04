@@ -239,6 +239,17 @@ describe('the `limit_reached` event of a turn\'s error', () => {
     debug.mockRestore()
   })
 
+  it('usage-limit-no-windows: no window known and the read failing is a window with no reset (rechecked), not a quota (worfy-multi-vendor ticket 38)', async () => {
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined)
+    const reached = await codexLimitReachedEvent(standIn({}), refusal('usage-limit-no-windows'), [], () => NOW)
+    expect(reached).toEqual({ event: { type: 'limit_reached', vendor: 'codex', windowId: null, resetsAt: null, reason: 'window' }, windows: [], ordinaryUsageAllowed: null })
+    // A read that answers with windows none of which is used up is a quota, as before.
+    const fine = snapshot({ primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: 1793009999 } })
+    const answered = await codexLimitReachedEvent(standIn({ 'account/rateLimits/read': () => ({ rateLimits: fine }) }), refusal('usage-limit-no-windows'), [], () => NOW)
+    expect(answered?.event).toEqual({ type: 'limit_reached', vendor: 'codex', windowId: null, resetsAt: null, reason: 'quota' })
+    debug.mockRestore()
+  })
+
   it('the fresh read decides over the Session\'s last windows, and its ordinaryUsageAllowed is passed on', async () => {
     const fresh = snapshot({ primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: 1793009999 } })
     const ask = standIn({ 'account/rateLimits/read': () => ({ rateLimits: fresh, ordinaryUsageAllowed: false }) })

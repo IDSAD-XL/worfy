@@ -35,6 +35,7 @@ import { BrowserWindow, dialog, type Dialog, type MessageBoxOptions } from 'elec
 import { ticketNumber } from '../../shared/actions/render-template'
 import type { LimitsState } from '../../shared/agent/limits'
 import { budgetFromSettings, type AutopilotBudget } from '../../shared/autopilot/budget'
+import { vendorLimitsOf, type VendorLimits } from '../../shared/autopilot/budget-window'
 import { epicForecast, remainingWaves } from '../../shared/autopilot/forecast'
 import { dialogLines } from '../../shared/autopilot/forecast-lines'
 import type { JournalEvent } from '../../shared/autopilot/journal'
@@ -205,6 +206,11 @@ export interface ForecastSources {
   /** Settings → Autopilot: the default Run mode and the Start window, and the budget with its reserve. */
   settings(): { run: AutopilotRunSettings; budget: AutopilotBudget }
   now(): number
+  /**
+   * The Vendor of the Project's Orchestrator and its windows when it is not Claude (worfy-multi-vendor
+   * ticket 38): the samples and the lines are that Vendor's. Absent or undefined: Claude.
+   */
+  vendor?(projectId: string): VendorLimits | undefined
 }
 
 /** The forecast lines of the dialog for `epic` (only the named Tickets when there are any); none when the journals cannot be read. */
@@ -216,8 +222,9 @@ async function forecastLines(sources: ForecastSources, projectId: string, model:
     console.warn(`[autopilot] ${projectId}: the start dialog shows no forecast, the run journals cannot be read`, error)
     return []
   }
-  const forecast = epicForecast({ samples: waveSamples(runs), waves: remainingWaves(model.tickets, epic, tickets) })
-  return dialogLines({ forecast, wave: waveDurationP90(runs), limits: sources.limits(), now: sources.now(), reserve: settings.budget.reserve, window: settings.run.window })
+  const vendor = sources.vendor?.(projectId)
+  const forecast = epicForecast({ samples: waveSamples(runs, vendor?.vendor), waves: remainingWaves(model.tickets, epic, tickets) })
+  return dialogLines({ forecast, wave: waveDurationP90(runs), limits: sources.limits(), now: sources.now(), reserve: settings.budget.reserve, window: settings.run.window, ...(vendor === undefined ? {} : { vendor }) })
 }
 
 /** Answers a call of the tool: the text of a start, or throws the refusal. */
@@ -298,6 +305,11 @@ export function appAutopilotStarter(): AutopilotStarter {
           return { run: autopilotRunOf(settings), budget: budgetFromSettings(settings) }
         },
         now: () => Date.now(),
+        // As appVendorLimits of the button's estimate (ipc/autopilot.ts): the Vendor the Project's Orchestrator runs on.
+        vendor: (projectId) => {
+          const vendor = sharedOrchestrators().runsOn(projectId)
+          return vendorLimitsOf(vendor, appLimits().windowsOf(vendor))
+        },
       },
     })
   }

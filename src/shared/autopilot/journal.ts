@@ -390,6 +390,7 @@ const journalLimitWindowSchema = z.object({
 export type JournalLimitWindow = z.output<typeof journalLimitWindowSchema>
 /** The `limits` of a Wave's line of a run on a Vendor other than Claude (worfy-multi-vendor ticket 38): every window of that Vendor. */
 export const vendorJournalLimitsSchema = z.object({ windows: z.array(journalLimitWindowSchema).min(1) })
+export type VendorJournalLimits = z.output<typeof vendorJournalLimitsSchema>
 /** The `limits` field of wave-started and wave-finished: the share of the windows when the line was written, in the shape of the run's Vendor. */
 export const journalLimitsSchema = z.union([claudeJournalLimitsSchema, vendorJournalLimitsSchema])
 export type JournalLimits = z.output<typeof journalLimitsSchema>
@@ -528,25 +529,39 @@ export function journalLimits(state: LimitsState): JournalLimits | undefined {
  * windows of `vendor` among `windows` (LimitsTracker.windowsOf), their times as ISO; undefined when
  * there is none, so the line goes without the field.
  */
-export function journalVendorLimits(vendor: string, windows: readonly LimitWindow[]): JournalLimits | undefined {
+export function journalVendorLimits(vendor: string, windows: readonly LimitWindow[]): VendorJournalLimits | undefined {
   // A value the format refuses would cost the Wave's whole line (formatJournalLine throws): a number
-  // out of range is written as unknown, a window without an id or a time is left out.
+  // out of range is written as unknown, a window without an id or a time is left out. A time is
+  // written only when it is a date of years 0–9999 (isoTime): `new Date(1e13 * 1000).toISOString()`
+  // throws, and a year of six digits is outside the format.
   const known = (value: number | null, positive: boolean): number | null => (value !== null && Number.isFinite(value) && (positive ? value > 0 : value >= 0) ? value : null)
-  const own = windows.filter((window) => window.vendor === vendor && window.id !== '' && Number.isFinite(window.receivedAt))
+  const isoOf = (ms: number | null): string | null => {
+    if (ms === null || !Number.isFinite(ms)) return null
+    const date = new Date(ms)
+    const year = date.getUTCFullYear()
+    return Number.isNaN(date.getTime()) || year < 0 || year > 9999 ? null : date.toISOString()
+  }
+  const own = windows.flatMap((window) => {
+    const receivedAt = isoOf(window.receivedAt)
+    return window.vendor === vendor && window.id !== '' && receivedAt !== null ? [{ window, receivedAt }] : []
+  })
   if (own.length === 0 || vendor === '') return undefined
   return {
-    windows: own.map((window) => ({
-      vendor: window.vendor,
-      ...(window.provider === undefined ? {} : { provider: window.provider }),
-      id: window.id,
-      label: window.label,
-      usedPercent: known(window.usedPercent, false),
-      windowMinutes: known(window.windowMinutes, true),
-      resetsAt: known(window.resetsAt, false) === null ? null : new Date(window.resetsAt! * 1000).toISOString(),
-      receivedAt: new Date(window.receivedAt).toISOString(),
-      state: window.state,
-      source: window.source,
-    })),
+    windows: own.map(({ window, receivedAt }) => {
+      const resetsAt = known(window.resetsAt, false)
+      return {
+        vendor: window.vendor,
+        ...(window.provider === undefined ? {} : { provider: window.provider }),
+        id: window.id,
+        label: window.label,
+        usedPercent: known(window.usedPercent, false),
+        windowMinutes: known(window.windowMinutes, true),
+        resetsAt: resetsAt === null ? null : isoOf(resetsAt * 1000),
+        receivedAt,
+        state: window.state,
+        source: window.source,
+      }
+    }),
   }
 }
 

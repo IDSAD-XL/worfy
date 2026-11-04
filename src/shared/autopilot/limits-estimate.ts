@@ -11,7 +11,7 @@
 // window the same at both ends; such a Vendor gives whole percents only, so its estimate needs
 // VENDOR_ESTIMATE_MIN_WAVES Waves.
 import { SAME_WINDOW_RESET_GAP_S, type LimitsState } from '../agent/limits'
-import { journalBudgetWindow, listsWindows, STORED_LIMITS_VENDOR, VENDOR_ESTIMATE_MIN_WAVES, type JournalBudgetWindow } from './budget-window'
+import { budgetWindows, journalBudgetWindow, listsWindows, STORED_LIMITS_VENDOR, VENDOR_ESTIMATE_MIN_WAVES, type JournalBudgetWindow, type VendorLimits } from './budget-window'
 import type { JournalEvent } from './journal'
 import { waveDurationP90, type WaveDuration } from './wave-duration'
 
@@ -132,6 +132,12 @@ export interface EstimateAnswer {
   samples: number[]
   /** The p90 of the Wave duration and its number of samples (waveDurationP90). */
   durations: WaveDuration
+  /**
+   * The Vendor of the Project's Orchestrator when it is not Claude (worfy-multi-vendor ticket 38): the
+   * estimate, the samples and `sevenDay` (its longest window) are that Vendor's, and the hint reads
+   * its live windows. Absent: Claude.
+   */
+  vendor?: string
 }
 
 /**
@@ -140,13 +146,15 @@ export interface EstimateAnswer {
  * for the Epic forecast of the Autopilot button (worfy-resource-planner ticket 06) the per-Ticket
  * samples and the Wave duration of the same runs.
  */
-export function estimateAnswer(runs: readonly (readonly JournalEvent[])[], limits: LimitsState): EstimateAnswer {
-  const week = limits.windows.seven_day
+export function estimateAnswer(runs: readonly (readonly JournalEvent[])[], limits: LimitsState, vendor?: VendorLimits): EstimateAnswer {
+  const own = vendor !== undefined && listsWindows(vendor.vendor) ? vendor : undefined
+  const week = budgetWindows(limits, own).week
   return {
-    estimate: waveEstimate(runs),
-    sevenDay: week === undefined ? null : { utilization: week.utilization, resetsAt: week.resetsAt, receivedAt: week.receivedAt },
-    samples: waveSamples(runs),
+    estimate: waveEstimate(runs, own?.vendor),
+    sevenDay: week === null ? null : { utilization: week.utilization, resetsAt: week.resetsAt, receivedAt: week.receivedAt },
+    samples: waveSamples(runs, own?.vendor),
     durations: waveDurationP90(runs),
+    ...(own === undefined ? {} : { vendor: own.vendor }),
   }
 }
 

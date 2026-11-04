@@ -18,7 +18,7 @@ import { BUDGET_FRESH_MS, budgetDecision, weekReadings, type BudgetInput } from 
 import { budgetWindows, journalBudgetWindow, longestWindow, VENDOR_ESTIMATE_MIN_WAVES } from '../../src/shared/autopilot/budget-window'
 import { epicForecast, FORECAST_MIN_SAMPLES, type EpicForecast } from '../../src/shared/autopilot/forecast'
 import { fitBeforeReset, forecastLine, WIDE_RANGE_TEXT } from '../../src/shared/autopilot/forecast-lines'
-import { formatJournalLine, journalLimits, journalVendorLimits, parseJournal, type JournalEvent, type JournalLimits } from '../../src/shared/autopilot/journal'
+import { formatJournalLine, journalLimits, journalVendorLimits, parseJournal, type JournalEvent, type JournalLimits, type VendorJournalLimits } from '../../src/shared/autopilot/journal'
 import { ESTIMATE_MIN_WAVES, estimateMinWaves, waveEstimate, waveGrowth, waveSamples, type WaveLine } from '../../src/shared/autopilot/limits-estimate'
 import { RESUME_MARGIN_MS, resumeAt, stillUsedUp } from '../../src/shared/autopilot/resume-at'
 
@@ -56,7 +56,7 @@ const line = (kind: 'wave-started' | 'wave-finished', wave: number, when: number
   ({ at: iso(when), run: RUN, project: 'demo-00000001', epic: 'demo', kind, wave, tickets, ...(limits === undefined ? {} : { limits }) }) as WaveLine
 
 /** The {windows} limits of a Codex Wave line, the windows received at `when`. */
-const codexLimits = (windows: readonly LimitWindow[], when: number): JournalLimits => journalVendorLimits('codex', windows.map((window) => ({ ...window, receivedAt: when })))!
+const codexLimits = (windows: readonly LimitWindow[], when: number): VendorJournalLimits => journalVendorLimits('codex', windows.map((window) => ({ ...window, receivedAt: when })))!
 /** The {five_hour, seven_day} limits of a Claude Wave line. */
 const claudeLimits = (week: number, when: number): JournalLimits => ({ five_hour: null, seven_day: { utilization: week, receivedAt: iso(when), resetsAt: iso(WEEK_RESET) } })
 
@@ -79,6 +79,13 @@ describe('the budget window of the run\'s Vendor (budget-window.ts)', () => {
     expect(longestWindow([codex('primary', 1, 300, FIVE_RESET), { ...codex('secondary', 2, 10080, WEEK_RESET), windowMinutes: null }])?.id).toBe('primary')
     expect(longestWindow([{ ...codex('primary', 1, 300, FIVE_RESET), windowMinutes: null }])?.id).toBe('primary')
     expect(longestWindow([])).toBeNull()
+  })
+
+  it("a Wave line's {windows} with another Vendor's window too: the run's Vendor's longest window, never the other's", () => {
+    const limits = { windows: [...codexLimits(plus(10, 40), NOW).windows, { ...codexLimits(pro(90), NOW).windows[0]!, vendor: 'other', id: 'monthly', windowMinutes: 43_200 }] } as JournalLimits
+    expect(journalBudgetWindow(limits, 'codex')).toEqual({ id: 'secondary', utilization: 0.4, receivedAt: iso(NOW), resetsAt: iso(WEEK_RESET) })
+    expect(journalBudgetWindow(limits, 'other')).toMatchObject({ id: 'monthly', utilization: 0.9 })
+    expect(journalBudgetWindow(limits, 'gemini')).toBeNull()
   })
 
   it('reads Claude\'s seven_day and five_hour from the stored state, and another Vendor\'s windows only from its own list', () => {
@@ -125,6 +132,10 @@ describe('the budget on Codex (budget.ts)', () => {
     // `reached` without 100 % (Codex named the limit reached) holds it too; at 99 % and `ok` the Wave goes.
     expect(decide({ vendor: { vendor: 'codex', windows: [codex('primary', 80, 300, FIVE_RESET, { state: 'reached' }), codex('secondary', 40, 10080, WEEK_RESET)] } })).toMatchObject({ kind: 'stop', cause: 'five-hour' })
     expect(decide({ vendor: { vendor: 'codex', windows: plus(99, 40) } })).toEqual({ kind: 'go' })
+    // Two time windows full with different resets: the Wave waits for the later one.
+    const hourly = { ...codex('primary', 100, 60, FIVE_RESET + 3_600_000), id: 'hourly' }
+    expect(decide({ vendor: { vendor: 'codex', windows: [hourly, ...plus(100, 40)] } })).toMatchObject({ kind: 'stop', cause: 'five-hour', until: FIVE_RESET + 3_600_000 + RESUME_MARGIN_MS })
+    expect(decide({ vendor: { vendor: 'codex', windows: [...plus(100, 40), hourly] } })).toMatchObject({ kind: 'stop', cause: 'five-hour', until: FIVE_RESET + 3_600_000 + RESUME_MARGIN_MS })
     // The weekly window used up: no share of today at all.
     expect(decide({ vendor: { vendor: 'codex', windows: plus(10, 90) } })).toMatchObject({ kind: 'stop', cause: 'daily-share' })
   })
@@ -242,6 +253,13 @@ describe('`limits` of a Wave line in the Journal: both shapes (journal.ts)', () 
     const written = journalVendorLimits('codex', odd)
     expect(written).toEqual({ windows: [{ vendor: 'codex', id: 'primary', label: 'weekly', usedPercent: null, windowMinutes: null, resetsAt: iso(FIVE_RESET), receivedAt: iso(NOW), state: 'ok', source: 'read' }] })
     expect(() => formatJournalLine({ ...line('wave-started', 1, NOW, written) })).not.toThrow()
+    // A time out of the range of dates (finite, but past year 9999) does not throw: an unknown reset, and
+    // a window received at no writable time is left out.
+    const far = journalVendorLimits('codex', [{ ...codex('primary', 10, 300, FIVE_RESET), resetsAt: 1e13 }, { ...codex('secondary', 40, 10080, WEEK_RESET), receivedAt: 1e17 }])
+    expect(far).toEqual({ windows: [expect.objectContaining({ id: 'primary', resetsAt: null, receivedAt: iso(NOW) })] })
+    expect(() => formatJournalLine({ ...line('wave-started', 1, NOW, far) })).not.toThrow()
+    expect(journalVendorLimits('codex', [{ ...codex('primary', 10, 300, FIVE_RESET), receivedAt: 1e13 * 1000 }])).toBeUndefined()
+    expect(journalVendorLimits('codex', [{ ...codex('primary', 10, 300, FIVE_RESET), resetsAt: 300_000_000_000 }])?.windows[0]?.resetsAt).toBeNull()
     expect(journalVendorLimits('codex', [])).toBeUndefined()
     expect(journalVendorLimits('codex', [{ ...codex('primary', 1, 300, FIVE_RESET), vendor: 'claude' }])).toBeUndefined()
     // Claude's lines are written as before.
@@ -289,6 +307,20 @@ describe('a Codex refusal: usage-limit-window waits until resetsAt, usage-limit-
     expect(wait.plan(hit!)).toEqual({ kind: 'at', at: 1_793_003_600_000 + RESUME_MARGIN_MS, resetsAt: 1_793_003_600_000 })
   })
 
+  it('a quota after a refusal with the same window and reset (both unknown) is a new status, not a repeat', () => {
+    let sink: EventSink | null = null
+    const statuses: SessionLimitsStatus[] = []
+    observeSessionLimits((each) => ((sink = each), () => (sink = null)), () => true, (status) => statuses.push(status))
+    const unknown = { type: 'limit_reached', vendor: 'codex', windowId: null, resetsAt: null, reason: 'window' } as AgentEvent
+    ;(sink as EventSink | null)?.('s', unknown)
+    ;(sink as EventSink | null)?.('s', QUOTA)
+    ;(sink as EventSink | null)?.('s', QUOTA)
+    expect(statuses).toEqual([
+      { status: 'rejected', window: null, resetsAt: null },
+      { status: 'rejected', window: null, resetsAt: null, quota: true },
+    ])
+  })
+
   it('usage-limit-quota: the hit is a quota, and the plan is to stop (vendor-quota), not to wait', () => {
     const { wait, statuses } = refused(QUOTA)
     expect(statuses).toEqual([{ status: 'rejected', window: null, resetsAt: null, quota: true }])
@@ -306,6 +338,10 @@ describe('a Codex refusal: usage-limit-window waits until resetsAt, usage-limit-
     expect(stillUsedUp([{ ...reads(40, later + 600_000)[0]!, state: 'reached' }], later)).toEqual({ window: 'primary', resetsAt: S(later + 600_000) })
     expect(stillUsedUp(reads(99, later + 600_000), later)).toBeNull()
     expect(stillUsedUp(reads(100, later - 1000), later)).toBeNull()
+    // A reset at `now` or before is over: that window is skipped, also when it is the later one of two.
+    expect(stillUsedUp(reads(100, later), later)).toBeNull()
+    expect(stillUsedUp([...reads(100, later), { ...codex('secondary', 40, 10080, later + 7_200_000), receivedAt: later }], later)).toBeNull()
+    expect(stillUsedUp([{ ...reads(100, later - 1000)[0]!, id: 'past' }, ...reads(100, later + 600_000)], later)).toEqual({ window: 'primary', resetsAt: S(later + 600_000) })
     expect(stillUsedUp([...reads(100, later + 600_000), { ...codex('secondary', 100, 10080, later + 7_200_000), receivedAt: later }], later)).toEqual({ window: 'secondary', resetsAt: S(later + 7_200_000) })
   })
 })

@@ -170,8 +170,16 @@ interface HarnessOptions {
   limitsClock?: number
   /** Codex's windows known before the run (the app's poll). */
   codexWindows?: LimitWindow[]
-  /** What each read of Codex's windows anew answers, in order (the last again after); none: no such read. */
+  /**
+   * What each read of Codex's windows anew answers, in order (the last again after); none: no such read.
+   * The app's `usage.refresh(olderThanMs, vendor)` reads when asked for Codex with age 0, with no
+   * windows known, or with a window older than the age by the clock, as limits-usage.ts does.
+   */
   reads?: LimitWindow[][]
+  /** Each read waits for this promise before it answers (a slow read during a Force stop). */
+  hold?: Promise<void>
+  /** Each read fails (the app's poll gets no answer): the windows stay as they were. */
+  readFails?: boolean
   /** How many of the run's wait timers fire at once; the rest never do (default none). */
   fires?: number
   /** The budget of the Limits (Settings → Autopilot) and the past runs' journals. */
@@ -335,19 +343,24 @@ function harness(options: HarnessOptions) {
             }
             return () => undefined
           },
-          ...(reads === undefined
-            ? {}
-            : {
-                readWindows: (vendor: string) => {
-                  readCount += 1
-                  if (vendor !== 'codex') return Promise.resolve(null)
-                  codexWindows = reads.length > 1 ? reads.shift()! : reads[0]!
-                  return Promise.resolve(codexWindows)
-                },
-              }),
+        }
+  const usage: AutopilotDeps['usage'] =
+    reads === undefined && options.readFails !== true
+      ? undefined
+      : {
+          refresh: async (olderThanMs, vendor) => {
+            if (vendor !== 'codex') return
+            const fresh = codexWindows !== null && codexWindows.length > 0 && olderThanMs > 0 && codexWindows.every((each) => each.receivedAt > (clock ?? Date.now()) - olderThanMs - 1)
+            if (fresh) return
+            readCount += 1
+            if (options.hold !== undefined) await options.hold
+            if (options.readFails === true || reads === undefined) throw new Error('no answer from Codex')
+            codexWindows = reads.length > 1 ? reads.shift()! : reads[0]!
+          },
         }
   const autopilot = new Autopilot({
     ...(limits === undefined ? {} : { limits }),
+    ...(usage === undefined ? {} : { usage }),
     ...(options.budget === undefined ? {} : { budget: options.budget }),
     projectRoot: () => repo,
     selfRefusal: () => Promise.resolve(null),
@@ -645,6 +658,39 @@ describe('the Limits of a Run on Codex and the gate queue\'s turn (worfy-multi-v
     { vendor: 'codex', id: 'secondary', label: 'weekly', usedPercent: week, windowMinutes: 10080, resetsAt: 1_793_400_000, state: 'ok', receivedAt: CLOCK, source: 'read' },
   ]
   const USAGE_LIMIT = "You've hit your usage limit. Try again later."
+  /** Plus's windows read `age` ms before CLOCK: older than the run's FRESH_USAGE_MS, so each Wave line reads them anew. */
+  const stale = (five: number, week: number, age = 6 * 60_000): LimitWindow[] => plus(five, week).map((each) => ({ ...each, receivedAt: CLOCK - age }))
+  /**
+   * Past runs of the Project: three Waves on Claude at 5 % of its week each, then six on Codex at 30 %
+   * of Plus's weekly window each (one Ticket a Wave), and one on Codex today, 20 minutes before CLOCK,
+   * from 39 % to 40 % of the weekly window of now; only the Codex ones give samples to a Run on Codex.
+   */
+  const pastRuns = (): JournalEvent[][] => {
+    const iso = (at: number): string => new Date(at).toISOString()
+    const day = 86_400_000
+    const line = (run: string, kind: 'wave-started' | 'wave-finished', wave: number, at: number, limits: unknown) =>
+      ({ at: iso(at), run, project: PROJECT, epic: EPIC, kind, wave, tickets: ['01'], limits }) as JournalEvent
+    const claude = (used: number, at: number) => ({ five_hour: null, seven_day: { utilization: used, receivedAt: iso(at), resetsAt: iso(at + 3 * day) } })
+    const codex = (used: number, at: number, resets = at + 3 * day) => ({
+      windows: [
+        { vendor: 'codex', id: 'primary', label: '5h', usedPercent: 10, windowMinutes: 300, resetsAt: iso(at + 4 * 3_600_000), receivedAt: iso(at), state: 'ok', source: 'read' },
+        { vendor: 'codex', id: 'secondary', label: 'weekly', usedPercent: used, windowMinutes: 10080, resetsAt: iso(resets), receivedAt: iso(at), state: 'ok', source: 'read' },
+      ],
+    })
+    const first = CLOCK - 20 * day
+    const claudeRun = [1, 2, 3].flatMap((wave) => [
+      line('2026-10-01T10-00-00-000Z-c1a0de', 'wave-started', wave, first + wave * 3_600_000, claude(0.1 + (wave - 1) * 0.05, first + wave * 3_600_000)),
+      line('2026-10-01T10-00-00-000Z-c1a0de', 'wave-finished', wave, first + wave * 3_600_000 + 1_800_000, claude(0.1 + wave * 0.05, first + wave * 3_600_000 + 1_800_000)),
+    ])
+    const later = CLOCK - 10 * day
+    const codexRuns = [1, 2, 3, 4, 5, 6].map((wave) => {
+      const at = later + wave * day
+      return [line(`2026-10-1${wave}T10-00-00-000Z-c0de00`, 'wave-started', 1, at, codex(10, at)), line(`2026-10-1${wave}T10-00-00-000Z-c0de00`, 'wave-finished', 1, at + 1_800_000, codex(40, at + 1_800_000))]
+    })
+    const today = '2026-10-26T07-00-00-000Z-c0de07'
+    const todayRun = [line(today, 'wave-started', 1, CLOCK - 20 * 60_000, codex(39, CLOCK - 20 * 60_000, 1_793_400_000_000)), line(today, 'wave-finished', 1, CLOCK - 10 * 60_000, codex(40, CLOCK - 10 * 60_000, 1_793_400_000_000))]
+    return [claudeRun, ...codexRuns, todayRun]
+  }
 
   it('usage-limit-window: the Wave\'s turn refused with the 5-hour window used up waits until its resetsAt, and does not stop', async () => {
     const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-window', 'resume'], hooksApproved: true, limitsClock: CLOCK })
@@ -703,6 +749,96 @@ describe('the Limits of a Run on Codex and the gate queue\'s turn (worfy-multi-v
     expect(events.find((event) => event.kind === 'forecast')).toMatchObject({ week: { utilization: 0.41, resetsAt: new Date(1_793_400_000_000).toISOString() } })
     expect(events.find((event) => event.kind === 'budget-stop')).toMatchObject({ cause: 'five-hour', until: new Date(1_793_003_600_000 + RESUME_MARGIN_MS).toISOString() })
     expect(events.some((event) => event.kind === 'wave-started')).toBe(false)
+  })
+
+  it("the budget and the forecast of a Run on Codex take Codex's past Waves and windows: need, samples and fit are Codex's, not Claude's", async () => {
+    const h = harness({
+      vendor: () => 'codex',
+      scripts: ['turn', 'turn', 'resume'],
+      hooksApproved: true,
+      limitsClock: CLOCK,
+      // 40 % of the weekly window used, 15 % kept: today's share of about 10 %, 1 % of it used today, is less
+      // than the 30 % one Ticket takes on Codex; Claude's three Waves give no estimate, which would go.
+      codexWindows: plus(10, 40),
+      budget: { settings: () => ({ enabled: true, reserve: 0.15 }), runs: () => Promise.resolve(pastRuns()) },
+    })
+    await h.autopilot.start(PROJECT, EPIC, { mode: 'budget-aware' })
+    await until(() => h.autopilot.state(PROJECT).status === 'waiting', "the budget's wait")
+    const events = await h.journal()
+    const forecast = events.find((event) => event.kind === 'forecast')
+    // Seven Codex samples (Claude has three); 45 % free before the reset holds one Wave of 30 %.
+    expect(forecast).toMatchObject({ samples: 7, fit: 1, week: { utilization: 0.4 } })
+    const stop = events.find((event) => event.kind === 'budget-stop')
+    expect(stop).toMatchObject({ cause: 'daily-share' })
+    expect(stop?.kind === 'budget-stop' ? stop.need : null).toBeCloseTo(0.3, 6)
+    expect(events.some((event) => event.kind === 'wave-started')).toBe(false)
+  })
+
+  it("run-stopped's actual on Codex is the growth of Codex's weekly window over the run's Wave", async () => {
+    const h = harness({
+      vendor: () => 'codex',
+      scripts: ['turn', 'autopilot-wave', 'resume'],
+      hooksApproved: true,
+      limitsClock: CLOCK,
+      // Read before wave-started at 40 %, before wave-finished at 46 %.
+      codexWindows: stale(10, 30, 60 * 60_000),
+      reads: [stale(10, 40), stale(12, 46)],
+    })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    const stopped = (await h.journal()).find((event) => event.kind === 'run-stopped')
+    expect(stopped).toMatchObject({ reason: 'no-ready-wave', actual: { waves: 1, counted: 1 } })
+    expect(stopped?.kind === 'run-stopped' ? stopped.actual?.share : null).toBeCloseTo(0.06, 6)
+    expect(h.reads()).toBe(2)
+  })
+
+  it('a window still used up after the wait whose reset is more than 24 h after the wait began: the run stops with limits-timeout, no second wait, no continuation', async () => {
+    const far = plus(100, 64).map((each) => (each.id === 'primary' ? { ...each, resetsAt: CLOCK / 1000 + 30 * 3600 } : each))
+    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-window', 'resume'], hooksApproved: true, limitsClock: CLOCK, fires: 1, reads: [plus(12, 40), far] })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'limits-timeout', resumesAt: null })
+    expect(h.autopilot.state(PROJECT).message).toContain('more than 24 h after the wait began')
+    const kinds = (await h.journal()).map((event) => event.kind)
+    expect(kinds.filter((kind) => kind === 'waiting-until')).toHaveLength(1)
+    expect(kinds).not.toContain('resumed')
+    expect((await h.journal()).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'limits-timeout' })
+  })
+
+  it('Force stop during the read of Codex\'s windows after a wait ends the run at once: no resumed, no new prompt to the Session', async () => {
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => (release = resolve))
+    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-window', 'resume'], hooksApproved: true, limitsClock: CLOCK, fires: 1, codexWindows: plus(10, 10), reads: [plus(30, 40)], hold })
+    try {
+      await h.autopilot.start(PROJECT, EPIC)
+      await until(() => h.reads() === 1, 'the read after the wait')
+      const prompts = h.observed.filter((event) => event.type === 'prompt').length
+      let stopped = false
+      const stopping = h.autopilot.forceStop(PROJECT).then(() => (stopped = true))
+      await until(() => stopped, 'Force stop while the read is held')
+      release()
+      await stopping
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      const kinds = (await h.journal()).map((event) => event.kind)
+      expect(kinds).not.toContain('resumed')
+      expect(kinds).toContain('run-stopped')
+      expect(h.observed.filter((event) => event.type === 'prompt').length).toBe(prompts)
+      expect(h.autopilot.state(PROJECT).status).toBe('stopped')
+    } finally {
+      release()
+    }
+  })
+
+  it('usage-limit-no-windows: a refusal with no window known and the read failing is a window with no reset, rechecked; not vendor-quota', async () => {
+    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-no-windows', 'resume'], hooksApproved: true, limitsClock: CLOCK })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'waiting', 'the wait for the Limits')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'waiting', reason: null })
+    const events = await h.journal()
+    const hit = events.find((event) => event.kind === 'limits-hit')
+    expect(hit).toMatchObject({ window: null, resetsAt: null })
+    expect(hit).not.toHaveProperty('reason')
+    expect(events.some((event) => event.kind === 'run-stopped')).toBe(false)
   })
 
   it('usage-limit-quota: refused with no window used up, the Run stops at once with vendor-quota and the error text, without a wait', async () => {

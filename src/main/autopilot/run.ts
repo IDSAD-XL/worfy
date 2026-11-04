@@ -143,7 +143,7 @@
 //   Wave has finished, on a Force stop and a quit too.
 // - The Limits of the run's Vendor (worfy-multi-vendor ticket 38, src/shared/autopilot/budget-window.ts):
 //   on Claude, as above; on another Vendor the Wave lines carry that Vendor's windows ({windows}, read
-//   anew before a line when older than FRESH_USAGE_MS, deps.limits.readWindows), and the budget, the
+//   anew before a line when older than FRESH_USAGE_MS, deps.usage.refresh with the Vendor), and the budget, the
 //   estimate, the forecast and `actual` read its longest window and the journals' numbers of runs on
 //   the same Vendor.
 // - The gate queue's turn is asked of the Vendor first, as every Wave after the first is (waveRefused):
@@ -324,8 +324,10 @@ export interface AutopilotDeps {
   /**
    * Asks the usage once when a Limits window is older than `olderThanMs` (LimitsRefresher.refreshIfOlder),
    * resolving once the answer is in `limits`; without it the Wave's lines carry what `limits` has.
+   * `vendor`, a Vendor other than Claude (worfy-multi-vendor ticket 38): polls that Vendor's windows
+   * instead, whatever is known when `olderThanMs` is 0.
    */
-  usage?: { refresh(olderThanMs: number): Promise<void> }
+  usage?: { refresh(olderThanMs: number, vendor?: string): Promise<void> }
   /**
    * The budget of the Limits (worfy-throughput ticket 41): the settings in force, read before each
    * Wave, and the events of the Project's recent runs, the current one included (readRecentRuns).
@@ -1506,18 +1508,16 @@ export class Autopilot {
 
   /**
    * freshLimits on a Vendor other than Claude (worfy-multi-vendor ticket 38): its windows are read
-   * anew first (deps.limits.readWindows) when none is known or the oldest is older than
-   * FRESH_USAGE_MS, cut short as the usage's ask is; a failed read is logged and the line takes what
+   * anew first (deps.usage.refresh with the Vendor: one poll when none is known or one is older than
+   * FRESH_USAGE_MS), cut short as the usage's ask is; a failed read is logged and the line takes what
    * there is.
    */
   private async freshVendorLimits(run: Run, cutShort?: Promise<void>): Promise<JournalLimits | undefined> {
     const wait = run.limits
     if (wait === null) return undefined
-    const known = wait.windowsOf(run.vendor)
-    const stale = known.length === 0 || known.some((window) => wait.clock() - window.receivedAt > FRESH_USAGE_MS)
-    if (stale && !run.rushed) {
+    if (this.deps.usage !== undefined && !run.rushed) {
       try {
-        await Promise.race([wait.readWindows(run.vendor), run.rushing, ...(cutShort === undefined ? [] : [cutShort])])
+        await Promise.race([this.deps.usage.refresh(FRESH_USAGE_MS, run.vendor), run.rushing, ...(cutShort === undefined ? [] : [cutShort])])
       } catch (error) {
         console.warn(`[autopilot] ${run.projectId}: could not read the Limits of ${run.vendor} before a Wave's line`, error)
       }
@@ -1768,19 +1768,23 @@ export class Autopilot {
   }
 
   /**
-   * After a wait on a Vendor other than Claude: its windows read anew (deps.limits.readWindows). A
-   * window still used up with its reset ahead gives the time to wait until once more; null goes on —
-   * no window used up, no such read, or a read that failed (the turn then shows whether it is refused).
+   * After a wait on a Vendor other than Claude: its windows read anew (deps.usage.refresh with the
+   * Vendor and age 0, a poll whatever is known), then judged as known. A window still used up with its
+   * reset ahead gives the time to wait until once more; null goes on — no window used up, or a read
+   * that failed and left windows whose resets have passed (the turn then shows whether it is refused).
+   * A Force stop or the quit does not wait for the read (Run.rush): the caller then sees `rushed` and
+   * sends nothing, whatever this answers.
    */
   private async stillRefused(run: Run, wait: LimitsWait): Promise<LimitsHit | null> {
     if (!listsWindows(run.vendor)) return null
-    try {
-      const windows = await wait.readWindows(run.vendor)
-      return windows === null ? null : stillUsedUp(windows, wait.clock())
-    } catch (error) {
-      console.warn(`[autopilot] ${run.projectId}: could not read the Limits of ${run.vendor} after the wait; the Orchestrator goes on`, error)
-      return null
+    if (this.deps.usage !== undefined && !run.rushed) {
+      try {
+        await Promise.race([this.deps.usage.refresh(0, run.vendor), run.rushing])
+      } catch (error) {
+        console.warn(`[autopilot] ${run.projectId}: could not read the Limits of ${run.vendor} after the wait; the windows known decide`, error)
+      }
     }
+    return stillUsedUp(wait.windowsOf(run.vendor), wait.clock())
   }
 
   /**
@@ -1792,9 +1796,10 @@ export class Autopilot {
     if (wait === null || !wait.isCurrent(id) || run.cycle.phase === 'stopped' || run.session === null) return
     // On another Vendor, the windows are read again first: still used up, the run waits once more.
     const again = await this.stillRefused(run, wait)
-    // Read anew after the read: a stop may have come meanwhile.
+    // Read anew after the read: a stop may have come meanwhile. A Force stop or the quit waits behind this
+    // step in the run's order: no continuation (a paid turn) goes out before it.
     const phase = run.cycle.phase as CycleState['phase']
-    if (!wait.isCurrent(id) || phase === 'stopped' || run.session === null) return
+    if (!wait.isCurrent(id) || phase === 'stopped' || run.session === null || run.rushed || this.quitting) return
     if (again !== null) {
       const plan = wait.plan(again)
       if (plan.kind === 'give-up') {

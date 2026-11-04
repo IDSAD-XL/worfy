@@ -385,7 +385,7 @@ export class Orchestrators {
    */
   async unattendedRefusal(projectId: string): Promise<string | null> {
     if (this.deps.capabilities === undefined) return null
-    const vendor = this.entries.get(projectId)?.vendor ?? this.vendorOf(projectId)
+    const vendor = this.runsOn(projectId)
     let capabilities: Pick<Capabilities, 'harness' | 'unsupported'>
     try {
       capabilities = await this.deps.capabilities(vendor)
@@ -489,6 +489,15 @@ export class Orchestrators {
       console.warn(`[orchestrator] could not save the first settings of ${projectId}`, error)
     }
     return firstSettings
+  }
+
+  /**
+   * The Vendor the Project's Orchestrator runs on: the open Orchestrator's, else the Project's
+   * (defaultVendor), Claude Code when it names none. What Autopilot's forecast and budget of the
+   * Project read their Limits by (worfy-multi-vendor ticket 38).
+   */
+  runsOn(projectId: string): VendorId {
+    return this.entries.get(projectId)?.vendor ?? this.vendorOf(projectId)
   }
 
   /** The Project's Vendor for its Orchestrator; Claude Code when it names none or cannot be read. */

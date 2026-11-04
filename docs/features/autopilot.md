@@ -170,7 +170,9 @@ refusal, the run stops with `limits-timeout`.
 On a Codex Orchestrator the refusal is Codex's `usageLimitExceeded`. When a Codex window is used up and has a reset time,
 the run waits for that reset, as above. When the time comes, worfy reads the Codex windows again: while one is still used
 up, the run waits once more. When no window is used up, Codex has nothing to reset: the plan does not include Codex, or a
-quota ran out. The run then stops at once with `vendor-quota`, and the tooltip shows Codex's error text.
+quota ran out. The run then stops at once with `vendor-quota`, and the tooltip shows Codex's error text. When worfy
+knows no Codex window at the refusal and cannot read them either, it does not take that for a quota: the run waits as
+for a window without a reset time and tries again every 30 minutes.
 
 When the time comes, the Orchestrator gets one message: continue from where it stopped, and first add an entry about the
 pause to HANDOFF. worfy does not write that entry itself.
@@ -186,8 +188,9 @@ forecast.
 A run on a Codex Orchestrator weighs the budget by the Codex windows. The longest window takes the place of the 7-day
 window. Every shorter window takes the place of the 5-hour one: while it is full, the next Wave waits for its reset. The
 estimate of a Wave and the forecast in the journal take their samples only from earlier runs on Codex. Codex reports
-whole percents only, so the estimate needs 5 such Waves, not 3. The tooltip and the start dialog still show the forecast
-by Claude's 7-day window.
+whole percents only, so the estimate needs 5 such Waves, not 3. The tooltip of the Autopilot button and the
+`autopilot_start` dialog of a Project whose Orchestrator runs on Codex show the forecast by the same Codex samples and
+the live Codex windows, and say that the range is wide because Codex reports whole percents.
 
 #### Stopping
 
@@ -241,7 +244,7 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn. |
 | `background-stalled` | Background tasks gave no event for an hour. |
 | `limits-timeout` | The wait for the Limits would pass 24 hours. |
-| `vendor-quota` | Codex refused a turn by its Limits, and no window is used up, so nothing will reset. `message` has Codex's error text. |
+| `vendor-quota` | Codex refused a turn by its Limits, and no window is used up, so nothing will reset. Codex's error text is the message of the run's state (the status line's tooltip) and `message` of the `limits-hit` line. |
 | `window-too-short` | The Run mode is Start window, and the next Wave usually takes longer than the whole window. The tooltip names the Wave, its usual duration and the window. |
 | `interrupted` | A turn of the Wave was interrupted, or a person's turn was, leaving the Wave held in the queue. |
 | `turn-error` | A turn of the Wave ended with an error that is not a refusal by the Limits. |
@@ -418,7 +421,7 @@ it cannot read.
 |---|---|
 | `run-started` | The run began. Has `origin`, and `override` or `unasked` when they apply. `by` says who started it: `button`, `command` or `tool`. `tickets` names the Tickets of a run over named Tickets. `mode` is the Run mode: `fastest`, `budget-aware` or `start-window`. `vendor` is the Vendor of the Orchestrator, `claude` or `codex`; a line without it is a run on Claude Code. |
 | `harness-behind` | The Harness in `main` is newer: after `run-started`, and before a `wave-started` when the count changed. |
-| `forecast` | The Epic forecast at the start, once, after `run-started` and `harness-behind`, before the first `wave-started`: the Run mode, the Waves and Tickets left, the samples, `low` and `high` (p10 and p90 of the share of the week, `null` under 5 samples), `fit` (how many Waves fit before the 7-day reset with the reserve; only when the Run has a recommendation, in Budget-aware or in Start window with the budget on, else `null`), `week` (the 7-day number at the start), the p90 of a Wave's duration with its sample count, and `window` in Start window. Journals that cannot be read give `samples: 0`; the run goes on. |
+| `forecast` | The Epic forecast at the start, once, after `run-started` and `harness-behind`, before the first `wave-started`: the Run mode, the Waves and Tickets left, the samples, `low` and `high` (p10 and p90 of the share of the week, `null` under 5 samples), `fit` (how many Waves fit before the 7-day reset with the reserve; only when the Run has a recommendation, in Budget-aware or in Start window with the budget on, else `null`), `week` (the 7-day number at the start). In a run on Codex, `samples`, `fit` and `week` are of the longest Codex window and of earlier Codex Waves only, the p90 of a Wave's duration with its sample count, and `window` in Start window. Journals that cannot be read give `samples: 0`; the run goes on. |
 | `wave-started`, `wave-finished` | A Wave went or ended. `wave-started` has the text sent, the skipped Tickets and `session`, the id of the Orchestrator's SDK session the Wave went to (its transcript's name). Both may have `limits`: `{five_hour, seven_day}` in a run on Claude Code, `{windows}` with the Codex windows in a run on Codex. |
 | `ticket-status` | The `Status:` of a Ticket of the run's Epic changed during the run, seen on a change the workflow watch reports or in a last read right before `run-stopped` (not on a Force stop). A Ticket whose file appeared during the run gets the status it was first seen with. Has `state` (`claimed`, `blocked`, `done`, `open`), and `statusAt`, `reason` and `waits` when the Ticket has those lines ([ADR-0092](../adr/0092-run-history.md)). |
 | `narrow-round` | A state of the narrow fix round on a Wave Ticket's PR, once per Ticket and outcome. |
@@ -433,7 +436,7 @@ it cannot read.
 | `run-stopping` | A graceful Stop came during a turn or tasks. |
 | `gate-queue` | The run sent "Process gate queue". |
 | `gate-queue-finished` | The turn of "Process gate queue" ended. `run-stopped` follows. |
-| `run-stopped` | The run ended, with its reason. `tickets` for `blocked-tickets` and `user-force-stop`. `lastText` for a stop for want of a Wave. `actual` once a Wave has finished, on a Force stop and a quit too: the growth of the 7-day share over the run's Waves (`share`), the Waves finished (`waves`) and how many of them counted (`counted`; a Wave with a stale number or a week reset inside does not). |
+| `run-stopped` | The run ended, with its reason. `tickets` for `blocked-tickets` and `user-force-stop`. `lastText` for a stop for want of a Wave. `actual` once a Wave has finished, on a Force stop and a quit too: the growth of the 7-day share over the run's Waves (`share`; in a run on Codex, of the longest Codex window), the Waves finished (`waves`) and how many of them counted (`counted`; a Wave with a stale number or a week reset inside does not). |
 | `orchestrator-returned` | The Orchestrator is a person's Session again, after a stop that had to wait, or after a Force stop. |
 | `tasks-killed` | Tasks the run waited for ended with the process, on a quit or a Force stop. |
 

@@ -9,6 +9,7 @@ import { openRun } from '../../src/main/autopilot/journal'
 import { SELF_PROJECT_MESSAGE, STOP_TEXT } from '../../src/main/autopilot/run'
 import { budgetStopText, localDayStart, nextLocalDayStart } from '../../src/shared/autopilot/budget'
 import { RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
+import { defaultProjectSettings } from '../../src/shared/projects/action-templates'
 import { hourText, nextWindowStart, windowWaitText } from '../../src/shared/autopilot/run-mode'
 import { autopilotStatusLine } from '../../src/shared/ipc/autopilot'
 import { launchApp, repoRoot } from './helpers'
@@ -827,6 +828,75 @@ test('the hint of Autopilot: the Epic forecast of five past Waves, with the reco
       'title',
       `${head}. Mode: Start window (Settings → Autopilot). ${forecast}. Only 1 of 2 Waves fits before the reset: then the run waits for the Limits. Start window 23:00–07:00: a Wave usually takes up to 1 h 0 min`,
     )
+
+    // Showing the forecast starts nothing and writes nothing: no run, no journal, no message.
+    expect(readdirSync(join(dataDir, 'autopilot'))).toEqual(journalsBefore)
+    expect(messages(log)).toEqual([])
+    expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
+    expect(files(claudeHome)).toEqual(claudeHomeBefore)
+  } finally {
+    await launched.close()
+  }
+})
+
+test("the hint of Autopilot on a Project whose Orchestrator runs on Codex: the forecast of Codex's past Waves over Codex's live weekly window, marked wide, not Claude's week (worfy-multi-vendor ticket 38)", async () => {
+  const { dataDir, claudeHome, log, repo, statusBefore, claudeHomeBefore } = prepare()
+  writeFileSync(join(dataDir, PROJECT, 'settings.json'), JSON.stringify({ ...defaultProjectSettings('plugin'), defaultVendor: 'codex' }))
+  const now = Date.now()
+  const weekReset = now + 3 * 86_400_000 + 30 * 60_000
+  // Codex Plus as the fake answers the app's poll: the 5-hour window at 12 %, the weekly one at 40 % (no account
+  // name, no id: the fake's snapshot of account/rateLimits/read only).
+  const scripts = mkdtempSync(join(scratch, 'codex-scripts-'))
+  const plus = { limitId: 'codex', limitName: null, planType: 'plus', primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: Math.floor((now + 2 * 3_600_000) / 1000) }, secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: Math.floor(weekReset / 1000) } }
+  const accountPlus = readFileSync(join(repoRoot, 'test', 'fixtures', 'codex-scripts', 'account-plus.jsonl'), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const step = JSON.parse(line) as { expect: string; result?: unknown }
+      return JSON.stringify(step.expect === 'account/rateLimits/read' ? { ...step, result: { rateLimits: plus } } : step)
+    })
+  writeFileSync(join(scripts, 'account-plus-now.jsonl'), `${accountPlus.join('\n')}\n`)
+  const codexHome = join(scratch, 'codex-home')
+  mkdirSync(codexHome, { recursive: true })
+  // Five past Waves on Codex of one Ticket, an hour each, each 10 % of the weekly window with fresh numbers at both ends.
+  let clock = now - 20 * 3_600_000
+  const past = await openRun({ project: PROJECT, epic: EPIC, vendor: 'codex' }, { env: { WORFY_DATA_DIR: dataDir }, now: () => new Date(clock) })
+  const windows = (week: number) => ({
+    windows: [
+      { vendor: 'codex', id: 'primary', label: '5h', usedPercent: 10, windowMinutes: 300, resetsAt: new Date(clock + 3_600_000 * 2).toISOString(), receivedAt: new Date(clock).toISOString(), state: 'ok' as const, source: 'read' },
+      { vendor: 'codex', id: 'secondary', label: 'weekly', usedPercent: week, windowMinutes: 10080, resetsAt: new Date(weekReset).toISOString(), receivedAt: new Date(clock).toISOString(), state: 'ok' as const, source: 'read' },
+    ],
+  })
+  for (let wave = 1; wave <= 5; wave += 1) {
+    await past.append({ kind: 'wave-started', wave, tickets: ['01'], limits: windows(wave * 10 - 10) })
+    clock += 3_600_000
+    await past.append({ kind: 'wave-finished', wave, tickets: ['01'], limits: windows(wave * 10) })
+    clock += 3_600_000
+  }
+  await past.append({ kind: 'run-stopped', reason: 'user-stop' })
+  // Claude's week at 75 %: a hint by Claude's window would say "Used now: 75%" and that no Wave fits.
+  writeFileSync(
+    join(dataDir, 'limits.json'),
+    JSON.stringify({ windows: { seven_day: { utilization: 0.75, resetsAt: Math.floor(weekReset / 1000), status: null, receivedAt: now, source: 'usage' } } }),
+  )
+  writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ autopilotRun: { mode: 'budget-aware' } }))
+  const journalsBefore = readdirSync(join(dataDir, 'autopilot'))
+
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_LOG: log, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: 'account-plus-now', WORFY_CODEX_SCRIPTS: scripts }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    const header = frame.locator('header')
+    const autopilot = frame.getByTestId('action-autopilot')
+    await expect(autopilot).toHaveAttribute('aria-disabled', 'false')
+    const head = `Run the Waves of ${EPIC} one after another, without a person. ${DISPLAY_STAYS_ON}`
+    // Left: Wave 1 of 01 and 02, Wave 2 of 03; 10 % a Ticket by Codex's samples, 30 % in all.
+    const forecast = 'This Epic: 2 Waves, 3 Tickets left, usually about 30% of the week. The range is wide: this Vendor reports its Limits in whole percents only. Used now: 40%, resets in 3 d 0 h'
+    // Budget-aware: 1 − 15 % − 40 % = 45 % free, both Waves (20 % and 10 %) fit.
+    await expect(autopilot).toHaveAttribute('title', `${head}. Mode: Budget-aware (Settings → Autopilot). ${forecast}. All 2 Waves fit before the reset without the reserve`, { timeout: ms(20_000) })
+    await snapshots(window, header, '38-autopilot-forecast-codex')
 
     // Showing the forecast starts nothing and writes nothing: no run, no journal, no message.
     expect(readdirSync(join(dataDir, 'autopilot'))).toEqual(journalsBefore)

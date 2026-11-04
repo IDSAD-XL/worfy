@@ -33,6 +33,14 @@ export interface VendorLimits {
 export const listsWindows = (vendor: string | undefined): vendor is string => vendor !== undefined && vendor !== STORED_LIMITS_VENDOR
 
 /**
+ * The windows of `vendor` for the budget and the forecast: undefined for Claude, whose Limits are the
+ * stored state; another Vendor's `windows` as last read ([] when unknown).
+ */
+export function vendorLimitsOf(vendor: string, windows: readonly LimitWindow[] | null | undefined): VendorLimits | undefined {
+  return listsWindows(vendor) ? { vendor, windows: windows ?? [] } : undefined
+}
+
+/**
  * The longest of `windows`: the greatest known length, the first of equal ones; a window of unknown
  * length only when none has a length. Null for none.
  */
