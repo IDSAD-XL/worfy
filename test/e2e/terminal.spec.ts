@@ -1,9 +1,10 @@
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
-import { rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, openSecondWindow, packagedBuild, packagedExecutable, type LaunchedApp, type LaunchOptions } from './helpers'
+import { inspectableBuild } from './fuses'
+import { launchApp, openSecondWindow, packagedExecutable, type LaunchedApp, type LaunchOptions } from './helpers'
 import { childrenOf, chooseGitBash, printJoined, shellsOf, SIZE_EXPRESSION, WINDOWS, windowsProcessName } from './terminal-shell'
 import { windowsProfileEnv } from '../windows-profile'
 import { ms } from '../time-scale'
@@ -695,18 +696,25 @@ test('on Windows, Git Bash chosen in the settings starts in the Project root; cl
 })
 
 test(`the Terminal works in the packaged ${WINDOWS ? 'worfy.exe' : 'worfy.app'} (node-pty unpacked from app.asar)`, { tag: '@packaged' }, async () => {
-  const launched = await launch({ executablePath: packagedExecutable(packagedBuild()) })
+  // A copy of the dist/ build with the Node inspector fuse back on, which Playwright needs to drive
+  // it (test/e2e/fuses.ts); it lives in a temporary folder of this test.
+  const dir = await mkdtemp(join(tmpdir(), 'worfy-packaged-terminal-'))
   try {
-    const { window } = launched
-    expect(await launched.app.evaluate(({ app }) => app.isPackaged)).toBe(true)
-    const node = await newTerminal(window)
-    await expectPwdIsRoot(window, node)
-    await run(window, node, PRINT_TERM_PROGRAM, /^tp=worfy$/m)
-    await window.screenshot({ path: test.info().outputPath('packaged-terminal.png') })
-    const pid = await pidOf(node)
-    await node.getByRole('button', { name: 'Close terminal' }).click()
-    await expect.poll(() => alive(pid), { timeout: ms(10_000) }).toBe(false)
+    const launched = await launch({ executablePath: packagedExecutable(await inspectableBuild(dir)) })
+    try {
+      const { window } = launched
+      expect(await launched.app.evaluate(({ app }) => app.isPackaged)).toBe(true)
+      const node = await newTerminal(window)
+      await expectPwdIsRoot(window, node)
+      await run(window, node, PRINT_TERM_PROGRAM, /^tp=worfy$/m)
+      await window.screenshot({ path: test.info().outputPath('packaged-terminal.png') })
+      const pid = await pidOf(node)
+      await node.getByRole('button', { name: 'Close terminal' }).click()
+      await expect.poll(() => alive(pid), { timeout: ms(10_000) }).toBe(false)
+    } finally {
+      await launched.close()
+    }
   } finally {
-    await launched.close()
+    await removeDir(dir)
   }
 })

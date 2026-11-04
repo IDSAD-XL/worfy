@@ -1,7 +1,10 @@
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { inspectableCopy } from '../e2e/fuses'
 import { NO_WINDOW_RESTORE, repoRoot } from '../e2e/helpers'
 import { ms } from '../time-scale'
 
@@ -194,8 +197,25 @@ function worfyPlugin(box: Sandbox): { status: number | null; entry?: { id: strin
 
 // ── The app ─────────────────────────────────────────────────────────────────
 
+/** The temporary folders of packagedApp's copies, removed after the run. */
+const appCopies: string[] = []
+test.afterAll(async () => {
+  for (const dir of appCopies.splice(0)) await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+})
+
+/**
+ * dist/mac*\/worfy.app of `pnpm package`, or WORFY_PACKAGED_APP, as a copy in a temporary folder
+ * with the Node inspector fuse back on: the build ships with it off (electron-builder.yml), and
+ * Playwright's _electron.launch drives only an app whose inspector it can open (test/e2e/fuses.ts).
+ */
+async function packagedApp(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'worfy-e3-app-'))
+  appCopies.push(dir)
+  return inspectableCopy(builtPackagedApp(), join(dir, 'app'))
+}
+
 /** dist/mac*\/worfy.app of `pnpm package`, or WORFY_PACKAGED_APP. */
-function packagedApp(): string {
+function builtPackagedApp(): string {
   if (process.env.WORFY_PACKAGED_APP) return process.env.WORFY_PACKAGED_APP
   const dist = join(repoRoot, 'dist')
   const apps = existsSync(dist)
@@ -462,7 +482,7 @@ test('silent: control — a read of the draft dialog gets what is left of the wa
 test('sandbox: the packaged app installs its Harness and qmd into an empty Claude home', async () => {
   test.setTimeout(process.env.E3_QMD_MODELS === '1' ? ms(90 * 60_000) : ms(20 * 60_000))
   requireLock()
-  const app = packagedApp()
+  const app = await packagedApp()
   const version = appVersion(app)
   const box = sandbox()
   // Before the start, read now and asserted after the sign-in step.
@@ -527,7 +547,7 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
   const remote = process.env.E3_SILENT_REPO
   if (!remote) throw new Error(NO_REPO)
   if (!/^[\w.-]+\/[\w.-]+$/.test(remote)) throw new Error(`E3_SILENT_REPO is <owner>/<name>, not ${remote}`)
-  const app = packagedApp()
+  const app = await packagedApp()
   const box = sandbox()
   const bin = join(box.plugin, 'bin')
   // GH_TOKEN of the account, once the sandbox is known to be signed in. It stays in this process's

@@ -62,6 +62,24 @@ asarUnpack:
   - node_modules/@openai/codex-*/**
   - node_modules/@xterm/headless/**
 
+# Electron fuses, switches in the Electron binary that only a build can flip (worfy-auto-approve
+# ticket 12). electron-builder flips them in the packaged worfy and worfy.exe right before signing;
+# `pnpm dev` and the e2e runs of out/ start the stock Electron of node_modules, whose fuses are untouched.
+# - runAsNode off: ELECTRON_RUN_AS_NODE does not turn worfy into a Node that any process of the
+#   machine can run with worfy's rights and signature. A `.mjs` stand-in of a test (WORFY_GH,
+#   WORFY_CLAUDE, WORFY_CODEX=fake) runs under node from the PATH in the packaged app instead
+#   (src/main/program.ts, scriptRunner).
+# - enableNodeCliInspectArguments off: --inspect and its kin are ignored, and `kill -USR1 <pid>`
+#   no longer opens the Node inspector of the main process. With it, a Bash command of an agent
+#   could write Auto-approval On into the memory of the settings store and close the inspector
+#   before debugAccess() (src/main/settings/store.ts) looks. Playwright's _electron.launch needs
+#   that inspector, so the packaged e2e tests drive a copy with this fuse turned back on
+#   (test/e2e/fuses.ts); the tests of the fuses themselves read dist/ as it is built.
+# The other fuses keep Electron's defaults: no ticket has weighed them yet.
+electronFuses:
+  runAsNode: false
+  enableNodeCliInspectArguments: false
+
 mac:
   target: dir
   # Drawn from build/brand/*.svg by `pnpm icons` (scripts/make-icons.mjs) and committed. Without it

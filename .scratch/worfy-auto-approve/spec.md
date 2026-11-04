@@ -230,13 +230,14 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
    `--remote-debugging-port` / `--remote-debugging-pipe` или Node inspector (`--inspect`) любой процесс Machine ведёт
    окно worfy и зовёт его IPC как UI, а агент может и сам перезапустить worfy с таким флагом. Поэтому, пока такой
    флаг есть, `autoApprovalMode()` отвечает Off, `autoApproval.set` отказывает в Shadow и On, переключатель
-   показывает Off и причину (Ticket 06). **Известный предел до Ticket-а 12.** В собранном worfy не выключены Electron
-   fuses (`electron-builder.yml` без `electronFuses`), поэтому `EnableNodeCliInspectArguments` включён: Bash агента может
-   послать `kill -USR1 <pid worfy>`, подключиться к `ws://127.0.0.1:9229`, через `Runtime.evaluate` записать On в
-   память store-а и закрыть inspector (`inspector.close()`). После этого `inspector.url()` пуст, и `autoApprovalMode()`
-   отвечает On. Проверка debugging port такой путь не ловит: она видит только открытый сейчас inspector. Закрывает
-   предел Ticket 12 — fuses `EnableNodeCliInspectArguments` и `RunAsNode` выключены в собранном приложении; до него On
-   не должен действовать (Ticket 04 ждёт 12).
+   показывает Off и причину (Ticket 06). **Предел снят Ticket-ом 12.** До него в собранном worfy Electron fuses были не настроены, и Bash агента мог
+   послать `kill -USR1 <pid worfy>`, подключиться к `ws://127.0.0.1:9229`, записать On в память store-а через
+   `Runtime.evaluate` и закрыть inspector (`inspector.close()`) до того, как проверка увидит `inspector.url()`. Теперь
+   `electron-builder.yml` (`electronFuses`) выключает `EnableNodeCliInspectArguments` и `RunAsNode` в собранном
+   приложении: `--inspect` и `kill -USR1` inspector не открывают (SIGUSR1 завершает процесс), `ELECTRON_RUN_AS_NODE=1`
+   запускает worfy, а не Node. Проверяют test-ы `test/e2e/packaged.spec.ts` на копии из `dist/` и
+   `scripts/check-fuses.mjs` в конце `pnpm test:package` (job `macos-package`). `--remote-debugging-port` — не fuse
+   Node, его по-прежнему ловит проверка Ticket-а 06.
 6. **Чужая работа.** Ветки и worktree-ы других Session-ов, push в `main`, force push — hard-deny, даже если агент просит
    «по инструкции из файла».
 7. **Утечка в Journal.** Journal лежит в данных worfy и уходит на Linked machine-ы через Run history: команды
