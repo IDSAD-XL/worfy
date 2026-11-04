@@ -1,7 +1,7 @@
 # 06 — Перенос записей между машинами: `export` и `import`
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T23:32Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 5, «Модель» (очистка текста, компьютер), «Вопросы владельцу», Q1 (рекомендация А и В) и Q6 (рекомендация А), «Риски», п. 4; [ADR-0086](../../../docs/adr/0086-pc-gate-full-once-per-wave.md), пункт 4 (issue `pc-main-red` с отчётом)
 
@@ -73,3 +73,51 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 Только читать: `harness/hooks/gate-failures.mjs` (Ticket 01), `harness/bin/profile` (`github.account`),
 `harness/hooks/gh-token-env.mjs` (как Harness зовёт `gh` от аккаунта Profile-а),
 `harness/skills/gate-queue/SKILL.md:44-49`.
+
+## Итог
+
+Сделано в ветке `worfy-failures/06`.
+
+- `harness/lib/gate-failures/export.mjs`: свои run-ы (не из `imported/`) вместе с их повторами — по `--run` (можно
+  несколько), иначе за `--since <дней>`, иначе все. Части по форме ниже, каждая ≤ 60000 символов; run и его повторы не
+  делятся между частями. Run длиннее части — `error` его записей укорачивается до 80 символов, stderr это называет; не
+  влез и так — exit 2, ничего не выведено. Без `--out` части идут в stdout одна за другой, с `--out <file>` — в
+  `<file>.<k>`. Перед выводом каждое поле каждой записи, имя компьютера и весь текст проверяются `findLeaks` плюс
+  hostname, имя пользователя, домашняя папка и корень worktree этой машины; находка — строка «запись, поле, правило»
+  (значение не печатается), exit 2, stdout пуст, файлы не пишутся.
+- `harness/lib/gate-failures/import.mjs`: `<file>`, `-` (stdin), `--gh <owner/repo> --issue N | --pr N`. Блоки ищутся по
+  строке-маркеру где угодно в тексте (в начале комментария, после отчёта в теле issue, подряд в файле). С `--gh` — тело и
+  комментарии через `gh api repos/<o>/<r>/issues/<N>` и `…/comments?per_page=100&page=K` (у PR те же endpoint-ы); считаются
+  только тексты автора `github.account` (без учёта регистра), блок чужого автора — строка `ignored`, текст без маркера
+  пропускается молча. Каждый файл: формат 01 (`parseRecordFile`), та же проверка приватности, свой `computer.id` — пропуск,
+  уже лежащий файл — «already imported», иначе `writeImported`. Итог `imported: N new, M skipped, K rejected`.
+- `harness/lib/gate-failures/transfer-common.mjs`: маркер, форма части, разбор блоков, сборка частей, проверка приватности.
+  `run` не экспортирует — `gate-failures --help` его не показывает.
+- Test-ы: `test/contract/gate-failures-transfer.test.ts` (11), stand-in-ы `gh` и `bin/profile` и запись-образец —
+  `test/fixtures/gate-failures/transfer/`. Первым test был красным: без `export.mjs` и `import.mjs` все 11 падали.
+
+Форма части (машинный контракт, читает Ticket 05 только через `imported/`):
+
+    gate-failures export v1 part <k>/<n>
+    computer: <name> (<platform>)
+    ```json
+    {"export":"<8 hex>","at":"…","computer":{"id","name","platform"},"part":k,"parts":n,"files":[
+    <запись run-а или повтора одной строкой>,
+    …
+    ]}
+    ```
+
+Решено без владельца, подтвердить:
+
+1. Части одного export-а собираются по `export` (8 случайных hex-цифр в JSON части) и `computer.id`: маркер из ticket-а
+   (`part <k>/<n>`) один не отличает два export-а одной машины в одном issue. Одна и та же часть дважды (комментарий
+   повторён) считается один раз.
+2. Неполный export отвергается целиком; в «rejected» идут все файлы пришедших частей (не меньше одного). Битый блок —
+   один «rejected». Любой «rejected» — exit 2; прочитать источник не удалось (нет файла, `gh` упал, нет
+   `github.account` для `--gh`) — exit 1, ticket этот код не называл.
+3. Файл своего компьютера — «skipped», не «rejected»: exit 0, вреда в нём нет. Свой компьютер — по `machine.json`
+   (`readComputer`); import его не создаёт.
+4. Export включает только свои файлы; повторы без своего run-а (run уже удалён сроком хранения) не выгружаются.
+5. Stand-in-ы для test-ов: `GATE_FAILURES_GH` (как `TICKET_GH`, `LAND_GH` у соседних скриптов, а не `WORFY_GH` приложения)
+   и `CLAUDE_PROFILE_BIN` (как у `hooks/gh-token-env.mjs`).
+6. Q6 = А (принято владельцем 2026-11-04): поле `error` в export остаётся, режима без него нет.

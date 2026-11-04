@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "kind": "run",
+  "run": "0f1e2d3c/20261104T100000Z",
+  "at": "2026-11-04T10:00:00Z",
+  "key": "demo",
+  "profile": "full",
+  "head": "0123456789abcdef0123456789abcdef01234567",
+  "outcome": "red",
+  "computer": { "id": "a1b2c3d4", "name": "pc", "platform": "win32" },
+  "dirty": false,
+  "failures": [
+    {
+      "step": "demo/.:test",
+      "runner": "vitest",
+      "file": "test/unit/a.test.ts",
+      "line": 4,
+      "name": "a > b",
+      "test": "vitest test/unit/a.test.ts > a > b",
+      "ms": 12,
+      "error": "expected 1 to be 2 in <repo>/test/unit/a.test.ts and ~/cache",
+      "attempt": 1,
+      "rerun": ["node", "scripts/vitest-electron.mjs", "test/unit/a.test.ts", "-t", "a > b"]
+    },
+    {
+      "step": "demo/.:lint",
+      "runner": null,
+      "file": null,
+      "line": null,
+      "name": null,
+      "test": null,
+      "ms": 900,
+      "error": "lint failed",
+      "attempt": 1,
+      "rerun": null
+    }
+  ]
+}
