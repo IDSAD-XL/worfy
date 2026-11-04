@@ -16,16 +16,28 @@
 // through privacy.findings with the host name of this machine and the personal deny list
 // (<Harness home>/user/privacy.json). An image (.png, .jpg, .jpeg, .webp, .gif) — the text of its
 // metadata: PNG tEXt, iTXt, zTXt (inflated with node:zlib) and eXIf; JPEG APP1 (Exif, XMP) and COM;
-// WebP EXIF and "XMP "; GIF comments. Pixels are not read.
+// WebP EXIF and "XMP "; GIF comments. Pixels are not read. A clip (.webm, .mp4) — the text of its
+// container: webm (Matroska, EBML elements) Info Title, MuxingApp, WritingApp, the Name of a track,
+// Tags SimpleTag TagName and TagString, Attachments FileName and FileDescription, chapter ChapString;
+// mp4 (ISO BMFF boxes) moov/udta (©… atoms and the rest of user data), meta/ilst items, keys, the
+// name of hdlr, uuid boxes (XMP). Frames are not read. A clip also gives a finding for a track of
+// sound (webm TrackType 2 or an A_ codec, mp4 hdlr "soun": Playwright records none, so it is the
+// microphone of the machine), for a size over 8 MB (8 × 1024 × 1024 bytes), for a duration over 60 s
+// (webm Info Duration × TimecodeScale, mp4 mvhd duration / timescale or mvex/mehd) and for no duration
+// in its header (the limit could not be held otherwise).
 //
 // The scrub: note. An image or other binary file the branch adds (--changed: A or untracked) must
 // have a line, also added by the branch to a Markdown file of the tickets root, of the form
 //   - evidence: screenshot <verdict> · <ref> · … · scrub: <YYYY-MM-DD>
 // whose path in backticks in <ref>, resolved from the folder of that ticket file, is this very file
 // (normalized paths; case-insensitive on Windows). The same file name elsewhere does not count. Without
-// one: the finding "image needs a human check (no scrub: note)". The line is parsed here with one
-// expression (SCREENSHOT_LINE), not with harness/lib/evidence.cjs, so this check stands on its own;
-// shortcut: a line inside a code fence counts as a note too, redo when this check is wired to
+// one: the finding "image needs a human check (no scrub: note)". A clip the branch adds is marked only
+// by such a line of the kind video ("- evidence: video … · scrub: <date>"; a screenshot line does not
+// mark a clip), and needs its contact sheet <name>.sheet.png, added by the same branch, next to it:
+// "video needs a human check (no scrub: note)", "video needs a contact sheet". The note of a clip
+// covers its sheet; the metadata of the sheet is checked like that of any image. The lines are parsed
+// here with one expression (EVIDENCE_NOTE), not with harness/lib/evidence.cjs, so this check stands on
+// its own; shortcut: a line inside a code fence counts as a note too, redo when this check is wired to
 // evidence.cjs and its parser can say which lines are code.
 "use strict"
 
@@ -41,7 +53,9 @@ const USAGE = `usage: evidence-check [--changed] [--base <ref>] [--root <tickets
 
 The privacy check of what a branch adds to the tickets root: home folder paths with a user name, host
 names, Tailscale addresses, UUIDs, email addresses, tokens and the words of the personal list
-<Harness home>/user/privacy.json, in text, in file paths and in the metadata of images.
+<Harness home>/user/privacy.json, in text, in file paths, in the metadata of images and in the
+container of clips (.webm, .mp4). A clip with a track of sound, over 8 MB, over 60 s or with no
+duration in its header is a finding too.
 
   --changed       the files of the tickets root that differ from the base (added or modified, staged
                   or not) and the untracked ones; of a modified text file only the added lines
@@ -54,16 +68,22 @@ names, Tailscale addresses, UUIDs, email addresses, tokens and the words of the 
 
 An image or other binary file the branch adds needs a line "- evidence: screenshot … · scrub: <date>"
 added by the branch to a ticket, whose path in backticks leads to that file: a person looked at the
-pixels. Without it: "image needs a human check (no scrub: note)".
+pixels. Without it: "image needs a human check (no scrub: note)". A clip the branch adds needs a line
+"- evidence: video … · scrub: <date>" (a screenshot line does not count) and its contact sheet
+<name>.sheet.png added next to it: "video needs a human check (no scrub: note)", "video needs a
+contact sheet". The note of the clip covers its sheet.
 
 Output: <file>:<line>: <rule>: <masked value> — the value as its first two characters, "…" and its
-length; for an image <line> is the metadata chunk, for a file path it is "path".
+length; for an image <line> is the metadata chunk, for a clip the element or atom, for a file path
+it is "path", and "-" for a finding about the whole file.
 Exit 0 — "evidence-check: ok (N files)" (or nothing to check: the tickets root is outside the
 repository); 1 — findings, the last line "evidence-check: N findings"; 2 — the check could not run.
 
 What the check does not catch:
   - text on the pixels of a screenshot: Machine names in the sidebar, a Project title, terminal
     output in the picture — only a person and the scrub: note;
+  - the frames of a clip between the seconds of its contact sheet (what showed for less than a
+    second may be on no frame of the sheet), and text on the pixels of a clip;
   - a host or user name in an unpredictable form (a short form, another spelling) that is not in the
     personal list;
   - the name of the other machine (the PC on the Mac and back) until it is in the personal list:
@@ -75,8 +95,14 @@ What the check does not catch:
 
 const TEXT_EXT = new Set([".md", ".json", ".jsonl", ".txt", ".log", ".cpuprofile"])
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"])
+const VIDEO_EXT = new Set([".webm", ".mp4"])
+// The limits of a clip (worfy-evidence, answer Qv2).
+const VIDEO_MAX_BYTES = 8 * 1024 * 1024
+const VIDEO_MAX_SECONDS = 60
+const SHEET = ".sheet.png"
 // shortcut: the scrub: note is parsed here, not by evidence.cjs; redo when this check is wired to evidence.cjs.
-const SCREENSHOT_LINE = /^\s*[-*]\s+evidence:\s+screenshot\s+(.*)$/
+// One expression for both kinds that mark a file: a screenshot marks an image or another binary file, a video a clip.
+const EVIDENCE_NOTE = /^\s*[-*]\s+evidence:\s+(screenshot|video)\s+(.*)$/
 const SCRUB_FIELD = /^scrub:\s*\d{4}-\d{2}-\d{2}$/
 
 // The exit code, thrown up to the end of the script: process.exit() could cut the output short on a
@@ -174,7 +200,7 @@ function main() {
     function isBinary(file, buf) {
         const ext = path.extname(file).toLowerCase()
         if (TEXT_EXT.has(ext)) return false
-        if (IMAGE_EXT.has(ext)) return true
+        if (IMAGE_EXT.has(ext) || VIDEO_EXT.has(ext)) return true
         return buf.subarray(0, 8192).includes(0)
     }
 
@@ -281,6 +307,211 @@ function main() {
         return []
     }
 
+    // --- the container of clips: { texts: [element or atom, text], audio, seconds } --------------------------
+    // Read by hand, without a dependency: the headers of the container, never the frames.
+    // webm — Matroska, EBML: an element is an ID (1–4 bytes, its marker bit kept) and a size (a variable-length
+    // integer of 1–8 bytes; all value bits set — unknown size). The children of an element of unknown size (a live
+    // recording's Segment or Cluster) are read as if they were its siblings: the elements after it are still found.
+    const EBML_MASTER = new Set([
+        0x18538067, // Segment
+        0x1549a966, // Info
+        0x1654ae6b, // Tracks
+        0xae, // TrackEntry
+        0x1254c367, // Tags
+        0x7373, // Tag
+        0x67c8, // SimpleTag
+        0x1941a469, // Attachments
+        0x61a7, // AttachedFile
+        0x1043a770, // Chapters
+        0x45b9, // EditionEntry
+        0xb6, // ChapterAtom
+        0x80, // ChapterDisplay
+    ])
+    const EBML_TEXT = new Map([
+        [0x7ba9, "Title"],
+        [0x4d80, "MuxingApp"],
+        [0x5741, "WritingApp"],
+        [0x536e, "Name"],
+        [0x45a3, "TagName"],
+        [0x4487, "TagString"],
+        [0x466e, "FileName"],
+        [0x467e, "FileDescription"],
+        [0x85, "ChapString"],
+    ])
+    const CLUSTER = 0x1f43b675
+    function webmFacts(buf) {
+        const facts = { texts: [], audio: false, seconds: null }
+        const vint = (at, maxLen, keepMarker) => {
+            if (at >= buf.length) return null
+            const first = buf[at]
+            let len = 1
+            while (len <= maxLen && !(first & (0x80 >> (len - 1)))) len++
+            if (len > maxLen || at + len > buf.length) return null
+            let value = keepMarker ? first : first & (0xff >> len)
+            let allOnes = value === 0xff >> len
+            for (let i = 1; i < len; i++) {
+                value = value * 256 + buf[at + i]
+                if (buf[at + i] !== 0xff) allOnes = false
+            }
+            return { value, len, unknown: !keepMarker && allOnes }
+        }
+        const uint = (from, to) => {
+            let n = 0
+            for (let i = from; i < to; i++) n = n * 256 + buf[i]
+            return n
+        }
+        const float = (from, to) => (to - from === 4 ? buf.readFloatBE(from) : to - from === 8 ? buf.readDoubleBE(from) : NaN)
+        const durations = [] // [Duration, TimecodeScale] of each Info
+        function walk(from, to, depth, ctx) {
+            let at = from
+            while (at < to) {
+                const id = vint(at, 4, true)
+                if (!id) return
+                const size = vint(at + id.len, 8, false)
+                if (!size) return
+                const start = at + id.len + size.len
+                if (size.unknown) {
+                    if (!EBML_MASTER.has(id.value) && id.value !== CLUSTER) return // nothing to skip by
+                    at = start // its children follow as siblings
+                    continue
+                }
+                const end = Math.min(to, start + size.value)
+                if (EBML_MASTER.has(id.value) && depth < 12) {
+                    if (id.value === 0x1549a966) {
+                        const info = { duration: null, scale: 1000000 }
+                        walk(start, end, depth + 1, { info })
+                        durations.push(info)
+                    } else if (id.value === 0xae) {
+                        const track = { type: null, codec: "" }
+                        walk(start, end, depth + 1, { track })
+                        if (track.type === 2 || track.codec.startsWith("A_")) facts.audio = true
+                    } else walk(start, end, depth + 1, {})
+                } else if (EBML_TEXT.has(id.value)) facts.texts.push([EBML_TEXT.get(id.value), utf8(buf.subarray(start, end))])
+                else if (id.value === 0x4489 && ctx.info) ctx.info.duration = float(start, end)
+                else if (id.value === 0x2ad7b1 && ctx.info) ctx.info.scale = uint(start, end)
+                else if (id.value === 0x83 && ctx.track) ctx.track.type = uint(start, end)
+                else if (id.value === 0x86 && ctx.track) ctx.track.codec = buf.toString("latin1", start, end)
+                at = start + size.value
+            }
+        }
+        walk(0, buf.length, 0, {})
+        for (const { duration, scale } of durations) {
+            const seconds = (duration * scale) / 1e9
+            if (Number.isFinite(seconds) && seconds > 0) facts.seconds = Math.max(facts.seconds ?? 0, seconds)
+        }
+        return facts
+    }
+    // mp4 — ISO BMFF: a box is a size (4 bytes; 1 — an 8-byte size follows; 0 — to the end) and a type of four
+    // characters; a "uuid" box has 16 more bytes of its own type.
+    const XMP_UUID = "be7acfcb97a942e89c71999491e3afac"
+    function mp4Facts(buf) {
+        const facts = { texts: [], audio: false, seconds: null }
+        const printable = (type) => (/^[\x20-\x7e\xa9]{4}$/.test(type) ? type : null)
+        const raw = (from, to) => utf8(buf.subarray(from, to)).replace(/[\x00-\x08\x0b-\x1f]+/g, " ")
+        function boxes(from, to) {
+            const list = []
+            let at = from
+            while (at + 8 <= to) {
+                let size = buf.readUInt32BE(at)
+                const type = buf.toString("latin1", at + 4, at + 8)
+                let start = at + 8
+                if (size === 1) {
+                    if (at + 16 > to) break
+                    size = Number(buf.readBigUInt64BE(at + 8))
+                    start = at + 16
+                } else if (size === 0) size = to - at
+                if (size < start - at) break
+                const end = Math.min(to, at + size)
+                let usertype = null
+                if (type === "uuid" && start + 16 <= end) {
+                    usertype = buf.toString("hex", start, start + 16)
+                    start += 16
+                }
+                list.push({ type, start, end, usertype })
+                at += size
+            }
+            return list
+        }
+        let mvhd = null
+        let mehd = null
+        function hdlr(b, inMdia) {
+            if (b.start + 24 > b.end) return
+            if (inMdia && buf.toString("latin1", b.start + 8, b.start + 12) === "soun") facts.audio = true
+            const name = raw(b.start + 24, b.end).trim()
+            if (name) facts.texts.push(["hdlr", name])
+        }
+        function meta(b) {
+            // ISO meta is a full box (4 bytes of version and flags before its children); the QuickTime one is not.
+            const quicktime = b.start + 8 <= b.end && buf.toString("latin1", b.start + 4, b.start + 8) === "hdlr"
+            for (const c of boxes(b.start + (quicktime ? 0 : 4), b.end)) {
+                if (c.type === "hdlr") hdlr(c, false)
+                else if (c.type === "ilst") {
+                    for (const item of boxes(c.start, c.end)) {
+                        const name = printable(item.type) ?? "ilst"
+                        const parts = boxes(item.start, item.end)
+                        const known = parts.filter((p) => p.type === "data" || p.type === "mean" || p.type === "name")
+                        if (!known.length) facts.texts.push([name, raw(item.start, item.end)])
+                        for (const p of known) facts.texts.push([name, raw(p.start + (p.type === "data" ? 8 : 4), p.end)])
+                    }
+                } else facts.texts.push([printable(c.type) ?? "meta", raw(c.start, c.end)]) // keys, xml, and the rest
+            }
+        }
+        function udta(b) {
+            for (const c of boxes(b.start, b.end)) {
+                if (c.type === "meta") meta(c)
+                else if (c.type.startsWith("\xa9")) {
+                    // QuickTime text: entries of a 2-byte length, a 2-byte language and the text.
+                    let at = c.start
+                    const texts = []
+                    while (at + 4 <= c.end) {
+                        const len = buf.readUInt16BE(at)
+                        if (at + 4 + len > c.end) break
+                        texts.push(utf8(buf.subarray(at + 4, at + 4 + len)))
+                        at += 4 + len
+                    }
+                    facts.texts.push([c.type, at === c.end && texts.length ? texts.join(" ") : raw(c.start, c.end)])
+                } else facts.texts.push([printable(c.type) ?? "udta", raw(c.start, c.end)])
+            }
+        }
+        function walk(list, depth, inMdia) {
+            for (const b of list) {
+                if (b.type === "uuid") facts.texts.push([b.usertype === XMP_UUID ? "XMP" : "uuid", raw(b.start, b.end)])
+                else if (b.type === "mvhd") mvhd = b
+                else if (b.type === "mehd") mehd = b
+                else if (b.type === "hdlr") hdlr(b, inMdia)
+                else if (b.type === "udta") udta(b)
+                else if (b.type === "meta") meta(b)
+                else if (depth < 8 && (b.type === "moov" || b.type === "trak" || b.type === "mdia" || b.type === "mvex"))
+                    walk(boxes(b.start, b.end), depth + 1, b.type === "mdia")
+            }
+        }
+        walk(boxes(0, buf.length), 0, false)
+        if (mvhd && mvhd.start + 4 <= mvhd.end) {
+            const v1 = buf[mvhd.start] === 1
+            const at = mvhd.start + (v1 ? 20 : 12)
+            if (at + (v1 ? 12 : 8) <= mvhd.end) {
+                const scale = buf.readUInt32BE(at)
+                let duration = v1 ? Number(buf.readBigUInt64BE(at + 4)) : buf.readUInt32BE(at + 4)
+                const unknown = v1 ? duration >= 2 ** 64 - 1 : duration === 0xffffffff
+                if ((duration === 0 || unknown) && mehd && mehd.start + 4 <= mehd.end) {
+                    const m1 = buf[mehd.start] === 1
+                    if (mehd.start + (m1 ? 12 : 8) <= mehd.end) duration = m1 ? Number(buf.readBigUInt64BE(mehd.start + 4)) : buf.readUInt32BE(mehd.start + 4)
+                    else duration = 0
+                } else if (unknown) duration = 0
+                if (scale > 0 && duration > 0) facts.seconds = duration / scale
+            }
+        }
+        return facts
+    }
+    function clipFacts(file, buf) {
+        const ext = path.extname(file).toLowerCase()
+        try {
+            return ext === ".mp4" ? mp4Facts(buf) : webmFacts(buf)
+        } catch {
+            return { texts: [], audio: false, seconds: null } // a broken clip: its duration is unknown, a finding
+        }
+    }
+
     // --- one file -------------------------------------------------------------------------------------
     // file: the path as printed; abs: where it is; lines: the added [line, text] pairs, or null for the whole
     // file; pathChecked: whether the path itself is checked; needsNote: an added binary file.
@@ -294,9 +525,24 @@ function main() {
             die(2, `cannot read ${privacy.maskText(file, options)}: ${e.code || e.message}`)
         }
         if (isBinary(file, buf)) {
+            const ext = path.extname(file).toLowerCase()
+            const key = sameCase(path.resolve(abs))
+            if (VIDEO_EXT.has(ext)) {
+                const clip = clipFacts(file, buf)
+                for (const [element, text] of clip.texts) checkText(file, text.replace(/\r?\n/g, " "), element)
+                if (clip.audio) report(file, "-", "video", "video has an audio track")
+                if (buf.length > VIDEO_MAX_BYTES) report(file, "-", "video", "video over 8 MB")
+                if (clip.seconds === null) report(file, "-", "video", "video duration unknown")
+                else if (clip.seconds > VIDEO_MAX_SECONDS) report(file, "-", "video", "video over 60 s")
+                if (needsNote) {
+                    if (!notes.video.has(key)) report(file, "-", "scrub", "video needs a human check (no scrub: note)")
+                    if (!added.has(sameCase(sheetOf(path.resolve(abs))))) report(file, "-", "scrub", "video needs a contact sheet")
+                }
+                return
+            }
             for (const [chunk, text] of imageText(file, buf)) checkText(file, text.replace(/\r?\n/g, " "), chunk)
-            if (needsNote && !notes.has(sameCase(path.resolve(abs)))) {
-                const what = IMAGE_EXT.has(path.extname(file).toLowerCase()) ? "image" : "binary file"
+            if (needsNote && !notes.screenshot.has(key) && !sheetMarked(path.resolve(abs))) {
+                const what = IMAGE_EXT.has(ext) ? "image" : "binary file"
                 report(file, "-", "scrub", `${what} needs a human check (no scrub: note)`)
             }
             return
@@ -304,17 +550,27 @@ function main() {
         const text = buf.toString("utf8")
         checkLines(file, lines ?? splitLines(text))
     }
-    const notes = new Set() // the files the scrub: notes added by the branch lead to, normalized
+    // The files the scrub: notes added by the branch lead to, normalized, by the kind of the note.
+    const notes = { screenshot: new Set(), video: new Set() }
     function collectNotes(ticketAbs, lines) {
         for (const [, text] of lines) {
-            const m = SCREENSHOT_LINE.exec(text)
+            const m = EVIDENCE_NOTE.exec(text)
             if (!m) continue
-            const fields = m[1].split(" · ").map((f) => f.trim())
+            const fields = m[2].split(" · ").map((f) => f.trim())
             if (!fields.slice(1).some((f) => SCRUB_FIELD.test(f))) continue
             const ref = /`([^`]+)`/.exec(fields[1] ?? "")
-            if (ref) notes.add(sameCase(path.resolve(path.dirname(ticketAbs), ref[1])))
+            if (ref) notes[m[1]].add(sameCase(path.resolve(path.dirname(ticketAbs), ref[1])))
         }
     }
+    // The contact sheet of a clip: <the clip's name without its extension>.sheet.png, next to it.
+    const sheetOf = (clipAbs) => clipAbs.slice(0, clipAbs.length - path.extname(clipAbs).length) + SHEET
+    // A sheet is covered by the video note of its clip, of either extension.
+    function sheetMarked(abs) {
+        if (!abs.toLowerCase().endsWith(SHEET)) return false
+        const base = abs.slice(0, abs.length - SHEET.length)
+        return [...VIDEO_EXT].some((ext) => notes.video.has(sameCase(base + ext)))
+    }
+    const added = new Set() // the files the branch adds (--changed: A or untracked), normalized
 
     // --- --changed: the files of the tickets root the branch adds or changes ---------------------------
     const jobs = []
@@ -399,6 +655,7 @@ function main() {
                     lines = addedLines(d.out)
                 }
                 jobs.push({ file: rel, abs, lines, changed: true, pathChecked: st === "A", needsNote: st === "A" })
+                if (st === "A") added.add(sameCase(path.resolve(abs)))
             }
         }
     }

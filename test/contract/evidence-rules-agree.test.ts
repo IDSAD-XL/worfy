@@ -79,6 +79,15 @@ describe('the Evidence rules of the Harness and of worfy agree', () => {
     expect([...COPIES]).toEqual(harness.COPIES)
   })
 
+  it('both know the kind video, and give a manual item without a proof the same reason', () => {
+    expect(KINDS).toContain('video')
+    expect(harness.KINDS).toContain('video')
+    const markdown = ['## Done when', '', '- [ ] (manual) The card moves.', '  - evidence: test-run pass · `pnpm test` exit 0 · mac dev · abcdef1', ''].join('\n')
+    const reason = 'manual item needs owner-check, screenshot or video'
+    expect(evidenceItems(markdown).map((item) => item.reason)).toEqual([reason])
+    expect(harnessItems(markdown)).toMatchObject([{ reason }])
+  })
+
   it('the shared fixtures are there: the grammar cases and Tickets in both languages', () => {
     expect(grammar.length).toBeGreaterThanOrEqual(20)
     expect(tickets.some((name) => name.startsWith('en/'))).toBe(true)

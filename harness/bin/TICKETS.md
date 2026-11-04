@@ -75,23 +75,30 @@ for one release. `lib/evidence.cjs` holds the grammar and the state rules; `bin/
 
 - `- evidence: <kind> <verdict> · <ref> · <platform> <copy> · <sha>[ · scrub: <YYYY-MM-DD>]`, the fields split
   by ` · `.
-- `kind`: `commit`, `test-run`, `ci-check`, `gate`, `review`, `screenshot`, `owner-check`. `verdict`: `pass` or
+- `kind`: `commit`, `test-run`, `ci-check`, `gate`, `review`, `screenshot`, `video`, `owner-check`. `verdict`: `pass` or
   `fail`, for every kind; a reviewer's `VERIFIED` is written `pass`, `REJECTED` — `fail`.
 - `ref`: free text without ` · ` and on one line: a command with its exit code, `PR #N`, a URL, a path in
   backticks relative to the ticket file.
 - `platform`: `mac`, `windows`, `linux`, `ci` — the platform, never a host name. `copy`: `stable`, `installed`,
-  `dev`, `ci`, or `-` when no app was run. `commit` and `review` always have `- -`; `screenshot` and
+  `dev`, `ci`, or `-` when no app was run. `commit` and `review` always have `- -`; `screenshot`, `video` and
   `owner-check` name the copy.
 - `sha`: 7 to 40 hex digits, the commit the fact is bound to. `scrub: <date>`: a person checked the pixels of a
-  screenshot.
+  screenshot, or every frame of the contact sheet of a video.
+- A `video` is a clip, `.scratch/<epic>/evidence/<NN>-<what>.webm` (or `.mp4`), its path in backticks in `ref`:
+  no longer than 60 s, no bigger than 8 MB (8 × 1024 × 1024 bytes), without sound. Next to it lies its contact
+  sheet `<NN>-<what>.sheet.png`: one PNG, a frame for every second, which is what is checked by eye before
+  `scrub:`; the clip is watched when the sheet raises a question. `bin/evidence-check` reads the metadata of the
+  container (webm and mp4) and finds a clip with a track of sound, over 8 MB, over 60 s or with no duration in its
+  header; a clip a branch adds needs a `video` line with `scrub:` (a `screenshot` line does not mark it) and its
+  sheet added by the same branch. The video line covers the sheet.
 - `- needs: <platform> [<copy>]` — optional, the item's requirement, written by the ticket's author.
 
 Every checkbox item of the section, at any depth, gets a number in file order from 1; an Evidence or needs line
 belongs to the nearest checkbox item above it. Code blocks are not read. The state of an item:
 `failed` — its last Evidence line says `fail`; `verified` — a `pass` line of any kind but `review` (for a
-manual item only `owner-check` or `screenshot`) that matches `needs`, if there is one, by platform and copy;
-`not-verified` — the rest, with the reason: `no evidence`, `review only`, `needs <p> <c>, got <p> <c>`,
-`manual item needs owner-check or screenshot`, `unreadable evidence line`.
+manual item only `owner-check`, `screenshot` or `video`) that matches `needs`, if there is one, by platform and
+copy; `not-verified` — the rest, with the reason: `no evidence`, `review only`, `needs <p> <c>, got <p> <c>`,
+`manual item needs owner-check, screenshot or video`, `unreadable evidence line`.
 
 - `ticket evidence <epic> <NN>` prints the matrix: `<n>. <state> <reason?> — <text>` per item, its lines
   under it, and last `evidence: N of M verified` (M counts the items without lines). Exit 0.
@@ -104,8 +111,13 @@ manual item only `owner-check` or `screenshot`) that matches `needs`, if there i
     or anything that starts with `--`; a plain `-` is a value);
   - exit 2 — a `screenshot` whose `--ref` has a path in backticks and no `--scrub <date>`: "a screenshot
     needs --scrub <date>: check the pixels by eye first";
+  - exit 2 — a `video` without `--scrub <date>`, always: "a video needs --scrub <date>: check every frame of
+    its contact sheet first"; a `video` whose `--ref` has no path in backticks, whose first path is not a
+    `.webm` or `.mp4` file (from the ticket's folder), or whose clip has no `<name>.sheet.png` next to it
+    ("no contact sheet next to the clip: <path>"). These are checked in Silent mode too and with `-n`;
   - exit 1 — the privacy check (`bin/evidence-check`) found something in a file that a path in backticks
-    of `--ref` leads to (taken from the ticket's folder); its output, values masked, goes to stderr. Also
+    of `--ref` leads to (taken from the ticket's folder), or in the contact sheet of a `video`; its output,
+    values masked, goes to stderr. Also
     with `-n`. The repository is the one that holds the tickets root, whatever the working directory.
     Not checked, and the line is written: a project in Silent mode by its profile (`_resolved.mode`,
     read from the working directory; its Workflow folder may be a git work tree of its own), and,

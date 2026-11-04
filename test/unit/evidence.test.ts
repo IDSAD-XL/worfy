@@ -6,7 +6,7 @@ import { evidenceItems, evidenceSummary } from '../../src/shared/workflow/eviden
 
 const SHA = 'abcdef1'
 const line = (kind: string, verdict: string, where: string, extra = ''): string => {
-  const ref = kind === 'review' ? 'PR #12' : kind === 'screenshot' ? '`../evidence/05-a.webp`' : '`pnpm test` exit 0'
+  const ref = kind === 'review' ? 'PR #12' : kind === 'screenshot' ? '`../evidence/05-a.webp`' : kind === 'video' ? '`../evidence/05-drag.webm`' : '`pnpm test` exit 0'
   return `  - evidence: ${kind} ${verdict} · ${ref} · ${where} · ${SHA}${extra}`
 }
 
@@ -38,10 +38,13 @@ describe('evidence: the state of an item', () => {
       'needs windows stable, got windows installed',
     ],
     ['one of several proofs meets needs', ticket('An item.', '  - needs: linux', line('test-run', 'pass', 'mac dev'), line('test-run', 'pass', 'linux -')), 'verified', null],
-    ['a manual item with a test run only', ticket('(manual) The owner looks.', line('test-run', 'pass', 'mac dev')), 'not-verified', 'manual item needs owner-check or screenshot'],
+    ['a manual item with a test run only', ticket('(manual) The owner looks.', line('test-run', 'pass', 'mac dev')), 'not-verified', 'manual item needs owner-check, screenshot or video'],
     ['a manual item with a review only', ticket('(manual) The owner looks.', line('review', 'pass', '- -')), 'not-verified', 'review only'],
     ['a manual item the owner checked', ticket('(manual, owner) The owner looks.', '  - evidence: owner-check pass · 2026-11-04 owner said ok · mac stable · abcdef1'), 'verified', null],
     ['a manual item with a screenshot', ticket('(manual) The owner looks.', line('screenshot', 'pass', 'mac stable', ' · scrub: 2026-11-04')), 'verified', null],
+    ['a manual item with a clip (video)', ticket('(manual) The card moves.', line('video', 'pass', 'mac dev', ' · scrub: 2026-11-05')), 'verified', null],
+    ['a manual item whose clip failed', ticket('(manual) The card moves.', line('video', 'pass', 'mac dev', ' · scrub: 2026-11-05'), line('video', 'fail', 'mac dev', ' · scrub: 2026-11-05')), 'failed', null],
+    ['a video meets needs by platform and copy', ticket('(manual) The card moves.', '  - needs: windows dev', line('video', 'pass', 'windows dev', ' · scrub: 2026-11-05')), 'verified', null],
     ['an unreadable line beside a pass', ticket('An item.', line('test-run', 'pass', 'mac dev'), '  - evidence: test-run VERIFIED · x · mac dev · abcdef1'), 'not-verified', 'unreadable evidence line'],
     ['an unreadable needs line', ticket('An item.', '  - needs: bsd', line('test-run', 'pass', 'mac dev')), 'not-verified', 'unreadable evidence line'],
     ['an unreadable line does not hide a fail', ticket('An item.', '  - evidence: nonsense', line('test-run', 'fail', 'mac dev')), 'failed', null],
@@ -55,6 +58,13 @@ describe('evidence: what is read', () => {
     const [item] = evidenceItems(ticket('An item.', line('screenshot', 'pass', 'windows installed', ' · scrub: 2026-11-04')))
     expect(item).toMatchObject({ index: 1, text: 'An item.', checked: false, manual: false, needs: null, errors: [], line: 7 })
     expect(item!.evidence).toEqual([{ kind: 'screenshot', verdict: 'pass', ref: '`../evidence/05-a.webp`', platform: 'windows', copy: 'installed', sha: SHA, scrub: '2026-11-04', line: 8 }])
+  })
+
+  it('reads a video line; a video names the copy of the app, like a screenshot', () => {
+    const [item] = evidenceItems(ticket('(manual) The card moves.', line('video', 'pass', 'mac dev', ' · scrub: 2026-11-05')))
+    expect(item!.evidence).toEqual([{ kind: 'video', verdict: 'pass', ref: '`../evidence/05-drag.webm`', platform: 'mac', copy: 'dev', sha: SHA, scrub: '2026-11-05', line: 8 }])
+    const [noCopy] = evidenceItems(ticket('(manual) The card moves.', line('video', 'pass', 'mac -', ' · scrub: 2026-11-05')))
+    expect(noCopy!.errors).toEqual(['line 8: video names the copy of the app it checked: stable, installed, dev, ci'])
   })
 
   it('says why a line does not read, with its line number', () => {

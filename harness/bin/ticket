@@ -39,10 +39,13 @@
 //                                       writes `- evidence: …` after the last line of item <item> (from 1); the
 //                                       platform defaults to this system's (ci under GitHub Actions), the sha to
 //                                       git HEAD, the copy to "-". A line the grammar refuses — exit 2, nothing written;
-//                                       so is a screenshot with a path in backticks and no --scrub. Each file a path
+//                                       so is a screenshot with a path in backticks and no --scrub, a video
+//                                       without --scrub, and a video whose first path in backticks is not a
+//                                       .webm or .mp4 file with <name>.sheet.png next to it. Each file a path
 //                                       in backticks of --ref leads to (from the ticket's folder) goes through
-//                                       bin/evidence-check first: findings — exit 1, nothing written (not checked
-//                                       when the tickets root lies outside the repository).
+//                                       bin/evidence-check first, and so does the contact sheet of a video:
+//                                       findings — exit 1, nothing written (not checked when the tickets root
+//                                       lies outside the repository).
 //   ticket done also prints `evidence: N of M verified` and each unverified or failed item to stderr; its exit
 //   code does not change.
 //
@@ -245,6 +248,8 @@ function evidenceUsage() {
     // A screenshot with a path to its file: a person looked at the pixels first: an image without that note is a finding of evidence-check.
     if (kind === "screenshot" && /`[^`]+`/.test(evArgs.ref) && evArgs.scrub === null)
         evUsage("a screenshot needs --scrub <date>: check the pixels by eye first")
+    // A video always: a person or an agent checked every frame of its contact sheet (worfy-evidence, answer Qv1).
+    if (kind === "video" && evArgs.scrub === null) evUsage("a video needs --scrub <date>: check every frame of its contact sheet first")
     return { item: Number(item), fields }
 }
 const evLine = cmd === "evidence" ? evidenceUsage() : null
@@ -637,7 +642,7 @@ function silentByProfile() {
     }
     return p?._resolved?.mode === "silent"
 }
-function checkRefFiles(ref) {
+function checkRefFiles(ref, more = []) {
     if (silentByProfile()) return
     const real = (p) => {
         try {
@@ -662,6 +667,7 @@ function checkRefFiles(ref) {
         // Relative to the top of the repository, so the output names the file without the home folder of whoever runs it.
         if (isFile) files.push(path.relative(topReal, real(abs)) || abs)
     }
+    for (const abs of more) files.push(path.relative(topReal, real(abs)) || abs)
     if (!files.length) return
     const check = path.join(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url))), "evidence-check")
     try {
@@ -670,6 +676,31 @@ function checkRefFiles(ref) {
         process.stderr.write(String(e.stdout ?? "") + String(e.stderr ?? (e.stdout === undefined ? e.message : "")))
         die(`ticket evidence: the privacy check of the file in --ref failed (evidence-check exit ${e.status ?? e.code}): line not written`)
     }
+}
+
+// The clip of a video line and its contact sheet: the first path in backticks of the ref, from the folder of the
+// ticket file, is a .webm or .mp4 file, and <its name without the extension>.sheet.png lies next to it (TICKETS.md,
+// "Evidence"). Refusals are exit 2, in Silent mode too: nothing is published there, but the clip and the sheet are
+// still what a person looks at. Returns the path of the sheet, which the privacy check reads with the clip.
+function clipSheet(ref) {
+    const m = /`([^`]+)`/.exec(ref)
+    if (!m) evUsage("a video ref is the path of its clip in backticks, from the ticket's folder: `../evidence/<NN>-<what>.webm`")
+    const clip = m[1]
+    const ext = path.extname(clip).toLowerCase()
+    if (ext !== ".webm" && ext !== ".mp4") evUsage(`a video is a .webm or .mp4 file, got ${clip}`)
+    const isFile = (p) => {
+        try {
+            return fs.statSync(p).isFile()
+        } catch {
+            return false
+        }
+    }
+    const abs = path.resolve(path.dirname(target), clip)
+    if (!isFile(abs)) evUsage(`no clip at ${clip}`)
+    const sheet = `${clip.slice(0, clip.length - ext.length)}.sheet.png`
+    const sheetAbs = path.resolve(path.dirname(target), sheet)
+    if (!isFile(sheetAbs)) evUsage(`no contact sheet next to the clip: ${sheet}`)
+    return sheetAbs
 }
 
 function evidence() {
@@ -691,7 +722,7 @@ function evidence() {
     }
     const it = items.find((x) => x.index === evLine.item)
     if (!it) evUsage(`no item ${evLine.item} in the "done" section of ${rel(target)}: it has ${items.length} checkbox item(s)`)
-    checkRefFiles(evLine.fields.ref)
+    checkRefFiles(evLine.fields.ref, evLine.fields.kind === "video" ? [clipSheet(evLine.fields.ref)] : [])
     const line = it.indent + formatEvidence(evLine.fields)
     // it.end is 1-based: the new line takes the index right after it.
     lines.splice(it.end, 0, line)

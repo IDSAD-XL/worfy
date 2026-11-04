@@ -210,16 +210,19 @@ node "$CHECK" "$T/files/missing.md" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "missing file -> exit 2" || bad "missing file: exit $rc"
 node "$CHECK" --help >"$T/help.txt" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && grep -q 'does not catch' "$T/help.txt" && grep -q 'pixels' "$T/help.txt" && grep -q 'history' "$T/help.txt" \
+    && grep -q 'between the seconds of its contact sheet' "$T/help.txt" && grep -q 'pixels of a clip' "$T/help.txt" \
     && ok "--help lists what the check does not catch" || bad "--help: exit $rc"
 
 # The fixture of stand-in forms and this ticket pass the check themselves.
 node "$CHECK" "$FIX/stand-ins.md" >"$T/out-fix.txt" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && ok "fixture of stand-in forms -> exit 0" || bad "fixture: exit $rc: $(head -c 600 "$T/out-fix.txt")"
-TICKET_FILE="$HARNESS/../.scratch/worfy-evidence/issues/02-privacy-check-evidence-check.md"
-if [ -f "$TICKET_FILE" ]; then
+for TICKET_FILE in "$HARNESS/../.scratch/worfy-evidence/issues/02-privacy-check-evidence-check.md" "$HARNESS/../.scratch/worfy-evidence/issues/10-"*.md; do
+    [ -f "$TICKET_FILE" ] || continue
     node "$CHECK" "$TICKET_FILE" >"$T/out-ticket.txt" 2>&1; rc=$?
-    [ "$rc" -eq 0 ] && ok "the ticket file -> exit 0" || bad "ticket file: exit $rc: $(head -c 600 "$T/out-ticket.txt")"
-fi
+    [ "$rc" -eq 0 ] && ok "the ticket file $(basename "$TICKET_FILE" | cut -c1-2) -> exit 0" || bad "ticket file: exit $rc: $(head -c 600 "$T/out-ticket.txt")"
+done
+node "$CHECK" "$(dirname "$0")/fixtures/evidence/mkclip.cjs" "$(dirname "$0")/fixtures/evidence/grammar.json" "$(dirname "$0")/fixtures/evidence/ru/02-states.md" >"$T/out-fix2.txt" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "the shared Evidence fixtures and the clip builder -> exit 0" || bad "evidence fixtures: exit $rc: $(head -c 600 "$T/out-fix2.txt")"
 
 # --- 6. evidence-check --changed in a temporary repository -----------------------------------------
 R="$T/repo"; mkdir -p "$R/.scratch/ep/issues" "$R/.scratch/ep/evidence" "$R/docs"
@@ -312,6 +315,102 @@ done
 (cd "$C" && node "$CHECK" --changed --root "$R/.scratch" --base HEAD) >"$T/out-root-other.txt" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -qF ".scratch/ep/issues/04-staged.md:1: email: " "$T/out-root-other.txt" \
     && ok "--root in a repository, run from another repository -> the root's repository is checked" || bad "--root from another repo: exit $rc: $(head -c 600 "$T/out-root-other.txt")"
+
+# --- 7. clips (.webm, .mp4): container metadata, sound, size, duration ------------------------------------------------
+# The clips are built from bytes by fixtures/evidence/mkclip.cjs: EBML elements and ISO BMFF boxes, no frames. Each
+# value is put together from pieces above; the spec goes to node through a file.
+MKCLIP="$(dirname "$0")/fixtures/evidence/mkclip.cjs"
+mkclip() { if [ -n "${2:-}" ]; then printf '%s' "$2" >"$T/clip.json"; node "$MKCLIP" "$1" "$T/clip.json"; else node "$MKCLIP" "$1"; fi; }
+V="$T/clips"; mkdir -p "$V"
+MB8=$((8 * 1024 * 1024))
+mkclip "$V/clean.webm"
+mkclip "$V/lavf.webm" '{"writingApp":"Lavf60.16.100","muxingApp":"Lavf60.16.100","tagName":"ENCODER","tagString":"Lavc60.31.102 libvpx"}'
+mkclip "$V/w-title.webm" "{\"title\":\"$MAC_PATH/clip\"}"
+mkclip "$V/w-tag.webm" "{\"tagString\":\"$MAC_PATH/x\"}"
+mkclip "$V/w-att.webm" "{\"attachment\":\"$HOST_LOCAL.txt\"}"
+mkclip "$V/w-track.webm" "{\"trackName\":\"by $EMAIL\"}"
+mkclip "$V/w-live.webm" "{\"liveCluster\":true,\"tagString\":\"id $UUID\"}"
+mkclip "$V/w-muxing.webm" "{\"muxingApp\":\"on $HOST_DESK\"}"
+mkclip "$V/w-audio.webm" '{"audio":true}'
+mkclip "$V/w-big.webm" "{\"size\":$((MB8 + 1))}"
+mkclip "$V/w-8mb.webm" "{\"size\":$MB8}"
+mkclip "$V/w-61.webm" '{"duration":61}'
+mkclip "$V/w-60.webm" '{"duration":60}'
+mkclip "$V/w-scale.webm" '{"duration":61,"timecodeScale":1000}'
+mkclip "$V/w-nodur.webm" '{"duration":null}'
+mkclip "$V/clean.mp4" '{"format":"mp4"}'
+mkclip "$V/m-too.mp4" "{\"format\":\"mp4\",\"too\":\"$MAC_PATH/enc\"}"
+mkclip "$V/m-lavf.mp4" '{"format":"mp4","too":"Lavf61.1.100"}'
+mkclip "$V/m-nam.mp4" "{\"format\":\"mp4\",\"nam\":\"key $TOK_GH\"}"
+mkclip "$V/m-xmp.mp4" "{\"format\":\"mp4\",\"xmp\":\"<x:xmpmeta>$EMAIL</x:xmpmeta>\"}"
+mkclip "$V/m-audio.mp4" '{"format":"mp4","audio":true}'
+mkclip "$V/m-61.mp4" '{"format":"mp4","duration":61}'
+mkclip "$V/m-nodur.mp4" '{"format":"mp4","duration":null}'
+mkclip "$V/m-big.mp4" "{\"format\":\"mp4\",\"size\":$((MB8 + 1))}"
+printf 'not a clip at all' >"$V/broken.webm"
+(cd "$V" && node "$CHECK" clean.webm lavf.webm w-title.webm w-tag.webm w-att.webm w-track.webm w-live.webm w-muxing.webm w-audio.webm w-big.webm w-8mb.webm \
+    w-61.webm w-60.webm w-scale.webm w-nodur.webm clean.mp4 m-too.mp4 m-lavf.mp4 m-nam.mp4 m-xmp.mp4 m-audio.mp4 m-61.mp4 m-nodur.mp4 m-big.mp4 broken.webm) >"$T/out-clips.txt" 2>&1; rc=$?
+for want in "w-title.webm:Title: home-path: jd…(4)" "w-tag.webm:TagString: home-path: jd…(4)" "w-att.webm:FileName: host: " "w-track.webm:Name: email: " \
+    "w-live.webm:TagString: uuid: " "w-muxing.webm:MuxingApp: host: " "m-too.mp4:©too: home-path: jd…(4)" "m-nam.mp4:©nam: token: gh…(" "m-xmp.mp4:XMP: email: " \
+    "w-audio.webm:-: video: video has an audio track" "m-audio.mp4:-: video: video has an audio track" \
+    "w-big.webm:-: video: video over 8 MB" "m-big.mp4:-: video: video over 8 MB" "w-61.webm:-: video: video over 60 s" "w-scale.webm:-: video: video over 60 s" \
+    "m-61.mp4:-: video: video over 60 s" "w-nodur.webm:-: video: video duration unknown" "m-nodur.mp4:-: video: video duration unknown" \
+    "broken.webm:-: video: video duration unknown"; do
+    grep -qF -- "$want" "$T/out-clips.txt" && ok "clip finding: $want" || bad "clip: missing '$want' (exit $rc): $(head -c 1500 "$T/out-clips.txt")"
+done
+for clean in clean.webm lavf.webm w-8mb.webm w-60.webm clean.mp4 m-lavf.mp4; do
+    grep -qF "$clean:" "$T/out-clips.txt" && bad "clip $clean reported: $(grep -F "$clean:" "$T/out-clips.txt")" || ok "clip $clean -> no finding"
+done
+grep -q 'needs a human check\|contact sheet' "$T/out-clips.txt" && bad "an explicit clip asked for a scrub: note or a sheet" || ok "explicit clips need no scrub: note and no sheet"
+[ "$rc" -eq 1 ] && [ "$(tail -n 1 "$T/out-clips.txt")" = "evidence-check: 19 findings" ] && ok "clips: exit 1, 19 findings" || bad "clips: exit $rc, last: $(tail -n 1 "$T/out-clips.txt")"
+l="$(leaks "$T/out-clips.txt")"; [ -z "$l" ] && ok "clips: no value printed whole" || bad "clips leak: $l"
+
+# --changed: the scrub: note of a clip is an added "- evidence: video … · scrub:" line whose ref leads to it, and its
+# contact sheet <name>.sheet.png is added by the same branch.
+R2="$T/repo2"; E2="$R2/.scratch/ep/evidence"; mkdir -p "$R2/.scratch/ep/issues" "$E2"
+g2() { git -C "$R2" -c user.name=t -c user.email=t@example.com "$@"; }
+g2 init -q -b main
+printf '# 01\n' >"$R2/.scratch/ep/issues/01-a.md"
+mkclip "$E2/01-old.webm"
+mkimg png-plain "$E2/08-oldsheet.sheet.png"
+g2 add -A && g2 commit -q -m base
+g2 update-ref refs/remotes/origin/main HEAD
+g2 checkout -q -b feature
+note() { printf -- '- evidence: %s pass · `../evidence/%s` · mac dev · abc1234%s\n' "$1" "$2" "${3- · scrub: 2026-11-05}"; }
+{
+    printf '# 02\n\n'
+    note video 02-marked.webm
+    note video 09-marked.mp4
+    note screenshot 04-shot.webm
+    note video 05-nosheet.webm
+    note video 06-dirtysheet.webm
+    note video 07-noscrub.webm ''
+    note video 08-oldsheet.webm
+} >"$R2/.scratch/ep/issues/02-b.md"
+for c in 02-marked 03-noline 04-shot 05-nosheet 06-dirtysheet 07-noscrub 08-oldsheet; do mkclip "$E2/$c.webm"; done
+mkclip "$E2/09-marked.mp4" '{"format":"mp4"}'
+for c in 02-marked 03-noline 04-shot 07-noscrub 09-marked; do mkimg png-plain "$E2/$c.sheet.png"; done
+mkimg png-text "$E2/06-dirtysheet.sheet.png" "cwd $MAC_PATH"
+mkclip "$E2/01-old.webm" '{"duration":7}'
+g2 add -A && g2 commit -q -m feature
+(cd "$R2" && node "$CHECK" --changed) >"$T/out-clips2.txt" 2>&1; rc=$?
+P=".scratch/ep/evidence"
+for want in "$P/03-noline.webm:-: scrub: video needs a human check (no scrub: note)" "$P/03-noline.sheet.png:-: scrub: image needs a human check" \
+    "$P/04-shot.webm:-: scrub: video needs a human check (no scrub: note)" "$P/05-nosheet.webm:-: scrub: video needs a contact sheet" \
+    "$P/06-dirtysheet.sheet.png:tEXt: home-path: jd…(4)" "$P/07-noscrub.webm:-: scrub: video needs a human check (no scrub: note)" \
+    "$P/08-oldsheet.webm:-: scrub: video needs a contact sheet"; do
+    grep -qF -- "$want" "$T/out-clips2.txt" && ok "--changed clip: $want" || bad "--changed clip misses '$want' (exit $rc): $(head -c 1500 "$T/out-clips2.txt")"
+done
+for clean in 02-marked.webm 02-marked.sheet.png 09-marked.mp4 09-marked.sheet.png 01-old.webm 04-shot.sheet.png 06-dirtysheet.webm: 07-noscrub.sheet.png; do
+    case "$clean" in
+        04-shot.sheet.png|07-noscrub.sheet.png) # a sheet of a clip that has no video note of its own: an image without a note
+            grep -qF "$P/$clean:-: scrub: image needs a human check" "$T/out-clips2.txt" && ok "--changed: $clean is not covered by a clip without a video note" \
+                || bad "--changed: $clean should need its own note: $(head -c 1500 "$T/out-clips2.txt")" ;;
+        *) grep -qF "$P/$clean" "$T/out-clips2.txt" && bad "--changed reported $clean: $(grep -F "$P/$clean" "$T/out-clips2.txt")" || ok "--changed: $clean -> no finding" ;;
+    esac
+done
+[ "$rc" -eq 1 ] && [ "$(tail -n 1 "$T/out-clips2.txt")" = "evidence-check: 9 findings" ] && ok "--changed clips: exit 1, 9 findings" || bad "--changed clips: exit $rc, last: $(tail -n 1 "$T/out-clips2.txt")"
+l="$(leaks "$T/out-clips2.txt")"; [ -z "$l" ] && ok "--changed clips: no value printed whole" || bad "--changed clips leak: $l"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || bad "the real home changed"
