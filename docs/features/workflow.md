@@ -384,7 +384,7 @@ binds and removes as here.
 
 ### How it works
 
-- **Automatic Bindings are never stored.** They are read from the transcripts each time
+- **Automatic Bindings are never stored.** They are read from the transcripts, or a Codex Session's thread, each time
   ([ADR-0002](../adr/0002-worfy-is-a-view-over-the-workflow.md)). Only manual and launch Bindings are kept, in
   `<Project data folder>/bindings.json`, never in the repository or `~/.claude`
   ([ADR-0005](../adr/0005-worfy-own-state-inventory.md)). An agent has at most one of each. They are in a file, so a Binding survives a restart.
@@ -403,6 +403,11 @@ binds and removes as here.
 - **Reading is incremental.** main folds the new lines of each transcript into a state, so asking again costs only what was
   appended. The renderer asks again when a transcript changes and every 3 s for a live Session, because a Subagent's file is not
   watched.
+- **A Codex Session is read from its thread.** It has no transcript file. Its commands come from its Codex thread through
+  the history of the Codex driver, by the same parse as a Claude Code Bash command, and the branch is the one checked out
+  now in the folder of its last command. Codex is asked again only when the Project's list of Codex Sessions, asked every
+  30 s, shows the thread changed, and only the new events are folded in. Its skills and Subagents give no signal. The
+  Session's Vendor is the one whose history names it ([Vendors](vendors.md)).
 - **A launch Binding is written once Claude Code reports the session id** that names the transcript. A Session that reports none
   in 10 minutes is not bound by its launch.
 
@@ -418,6 +423,7 @@ The claim, the Ticket path and the worktree folder are read with `\` as well as 
 | Signals from transcript records | `src/shared/binding/signals.ts` |
 | Reading a branch or a folder as a Ticket | `src/shared/workflow/ticket-ref.ts` |
 | Reading transcripts incrementally | `src/main/claude-home/binding-signals.ts` |
+| Reading a Codex Session's thread | `src/main/vendors/codex/binding.ts` |
 | The store of manual and launch Bindings | `src/main/layout/bindings.ts` |
 | IPC | `src/shared/ipc/bindings.ts`, `src/main/ipc/bindings.ts` |
 | The renderer's copy, resolving | `src/renderer/binding/store.ts` |
@@ -436,6 +442,8 @@ the lines between them.
 
 - `test/e2e/binding.spec.ts`: claim, worktree folder, `/epic-wave` and task in the app; a drag that survives a restart; removing.
 - `test/contract/bindings.test.ts`: the reader over a synthetic Claude home, the store and the channels.
+- `test/contract/codex-binding.test.ts`: a Codex Session on the fake app-server bound by its branch, the reads of only new
+  events, `bindings.signals` and the automatic Archive.
 - `test/unit/binding.test.ts`: the signals in order of strength, labels, reading transcript records.
 - `test/unit/binding-canvas.test.tsx`, `test/unit/done-shelf-binding.test.tsx`: anchors, which lines are drawn, drop targets, the
   rail block.

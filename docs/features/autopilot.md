@@ -365,7 +365,9 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | `src/main/actions/launch.ts` | `autopilotWave`, `autopilotRefusal`, `autopilotGateQueue`: the text from the template, sent to the Orchestrator. |
 | `src/shared/actions/render-template.ts` | `runWaveState`: the verdict and the text, shared with the button. |
 | `src/shared/workflow/waves.ts` | `readyWave`: the ready Wave and the Tickets left out. |
-| `src/main/agent/orchestrator.ts` | `setUnattended`, `giveBackNow`, `newUnattendedSession`, and the refusals for a turn, tasks or a queue. |
+| `src/main/agent/orchestrator.ts` | `setUnattended`, `giveBackNow`, `newUnattendedSession`, and the refusals for a turn, tasks or a queue. `runsOn`: the Vendor a run goes on; `unattendedRefusal`: the refusal of a Vendor whose Harness does not hold. |
+| `src/main/agent/app-orchestrators.ts` | The Orchestrator's Vendor, the Project's `defaultVendor`, read at its start. |
+| `src/shared/autopilot/budget-window.ts` | Which Limits window a run's budget reads: Claude Code's 7-day and 5-hour, or the Codex windows by length. Pure. |
 | `src/main/vendors/codex/harness-hooks.ts` | Whether the Harness hooks are approved in Codex (`hooks/list`), and the refusal of a Codex run while they are not. |
 | `src/renderer/harness/CodexHooksStep.tsx` | The step "Approve the Harness hooks in Codex" with "Check again". |
 | `src/main/agent/session-settings.ts` | The launch of a Session and the forced permission mode. |
@@ -478,6 +480,8 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/contract/autopilot-background.test.ts` | Background tasks, and stops while they live. |
 | `test/contract/autopilot-start-tool.test.ts` | The tool `autopilot_start`: the dialog, its 10 minutes, the window it is on, the refusals without it, the start after the Orchestrator's turn. |
 | `test/contract/autopilot-limits.test.ts` | The wait for the Limits and the budget, with a clock the test moves. |
+| `test/contract/codex-orchestrator.test.ts` | A run on a Codex Orchestrator on the fake app-server: Full access, the refusal while the hooks are not approved, before a later Wave and before the gate queue, the wait for a Codex window, `vendor-quota`, the budget by the Codex windows. |
+| `test/unit/autopilot-vendor-limits.test.ts` | The budget window of Codex, its samples and forecast, both forms of `limits` in the journal. |
 | `test/contract/autopilot-journal.test.ts` | The journal files, a line appended from outside, no write outside the data folder. |
 | `test/contract/autopilot-wiring.test.ts` | The wiring of a new session per Wave in `sharedAutopilot`. |
 | `test/e2e/autopilot.spec.ts` | The built app: a run, the wait for the Limits, the budget, background tasks, Force stop, the narrow fix round. |

@@ -1,8 +1,8 @@
 # Vendors
 
 One Feature. A **Vendor** is the maker of the agent a [Session](sessions.md) runs on: Claude Code (Anthropic) or Codex
-(OpenAI). This page covers how the user picks a Vendor and signs in to it, what a Codex Session offers and lacks, and how
-worfy runs each agent behind one seam. The Session itself (states, queue, Resume, history) is on [Sessions](sessions.md),
+(OpenAI). This page covers how the user picks a Vendor and signs in to it, what a Codex Session offers and lacks, how the
+Orchestrator, Subagents, Binding and the Harness work on Codex, and how worfy runs each agent behind one seam. The Session itself (states, queue, Resume, history) is on [Sessions](sessions.md),
 the Limits panel on [Transcripts and usage](transcripts-and-usage.md). Terms are explained in [Concepts](concepts.md).
 
 ## Vendors
@@ -20,11 +20,17 @@ inactive, and its tooltip gives the reason, `Sign in to Codex in Settings → Ve
 Vendor; Esc or a click outside closes the list. Each time the list opens, main checks the sign-in of every Vendor it has not
 yet found signed in. A Linked machine on a build without the list starts the Session on its Project's default Vendor at
 once. "New session" in the Command palette uses the default Vendor too. The default Vendor is "Default vendor" in
-[Project settings](projects.md), and Claude Code while none is chosen. The Project's Orchestrator runs on it too, from its
-next start ("New conversation", or the next start of worfy), and so does Autopilot, which drives the Orchestrator; a run
-on a Codex Orchestrator is refused only while the Harness's hooks are not approved in Codex's `/hooks` (see
-[Autopilot, During a run](autopilot.md#during-a-run)). A
-Session that "Ship ticket" starts always runs on Claude Code. One Project holds Sessions of both Vendors side by side.
+[Project settings](projects.md), and Claude Code while none is chosen. A Session that "Ship ticket" starts always runs on
+Claude Code. One Project holds Sessions of both Vendors side by side.
+
+**The Orchestrator and Autopilot on Codex.** The Project's Orchestrator runs on the default Vendor too, read at its next
+start: "New conversation", or the next start of worfy. It keeps that Vendor while it runs, and so do the new Sessions
+Autopilot starts for its Waves. A saved Session of the other Vendor is not resumed: a new one starts, and the old one stays
+in the history ([Sessions, Orchestrator](sessions.md#behaviour)). Autopilot drives a Codex Orchestrator the way it drives a
+Claude Code one, unattended, in the preset Full access. It weighs the budget by the Codex windows, waits for a used-up
+Codex window to reset, and stops with `vendor-quota` when Codex refuses a turn while no window is used up. A run on Codex
+is refused while the Harness's hooks are not approved in Codex's `/hooks`. The details are in
+[Autopilot](autopilot.md#during-a-run).
 
 **Signing in to a Vendor.** Settings → Vendors has one row per Vendor this build runs, Claude Code marked `required` and
 Codex `optional`. A signed-in row shows `Signed in: <email> · <plan>`, as the first-run sign-in check does. A Vendor nobody
@@ -83,9 +89,37 @@ during one, they come back as a notice to send again once the turn ends. A messa
 that skill. The last line of the menu, "Not every command is listed", is inactive; its tooltip says that the other Codex
 commands work only in its own terminal.
 
-**What a Codex Session does not have.** worfy emulates nothing a Vendor lacks. A Codex Session shows no Subagents on the
-Canvas, runs no hooks and has no Harness. One-off requests, the Project profile draft and [Terminal AI](terminal.md), run on
-Claude Code only.
+**Subagents of a Codex Session.** Codex keeps each Subagent as a thread of its own, and worfy builds the Session's tree of
+Subagents from those threads. They show on the Canvas and in the rail as Claude Code's do ([Sessions,
+Subagent](sessions.md#subagent)), with the name and type the model gave them, the model, the first line of the thread's
+preview and a status:
+
+| Status | When |
+| ------ | ---- |
+| `running` | Codex reports the agent started, busy or still starting |
+| `done` | Codex reports it completed or shut down |
+| `interrupted` | Codex reports it interrupted, or it was still running when the Session's last turn was interrupted |
+| `error` | Codex reports it errored or not found, its spawn failed, or its thread ended in a system error |
+
+The children Codex starts by itself (a review, a compaction, the memory consolidation, the guardian) are not shown, and
+neither is anything under them. A Codex Subagent has no transcript worfy reads, so its Node opens none. While one of
+them runs, the window asks for the tree again every 5 seconds, and each ask starts a short-lived Codex process.
+
+**Binding of a Codex Session.** A Codex Session binds to a Ticket by the same rules as a Claude Code Session
+([Workflow, Binding](workflow.md#binding)). Its signals come from the commands of its Codex thread: the last
+`ticket claim`, the folder of the last command (else the thread's own folder), and the branch checked out in that folder
+now. An edit of a Ticket's file binds nothing, as for Claude Code. Skills and Subagents of a Codex Session give no
+signal. The "ticket done" rule of the automatic Archive reaches a Codex Session the same way.
+
+**The Harness in Codex.** The one installer of the Harness, the toolbar's and First run's, also installs it into Codex
+as a Codex plugin, and writes its three agents `worfy-implementer`, `worfy-reviewer` and `worfy-scout` into Codex's agents
+folder. Codex keeps the hooks of a new or updated plugin off until the user approves them in `/hooks`, and the toolbar
+shows how. The install, the approval and how each guarantee of the workflow holds on Codex are on
+[Harness](harness.md#in-codex).
+
+**What a Codex Session does not have.** worfy emulates nothing a Vendor lacks. The capability `hooks` is off for Codex,
+with the reason "worfy does not run hooks in Codex yet."; the Harness's hooks are run by Codex itself, once approved.
+One-off requests, the Project profile draft and [Terminal AI](terminal.md) run on Claude Code only.
 
 **Limits per Vendor.** The Limits panel of the toolbar has a section per Vendor: Claude Code's 5-hour and 7-day windows, and
 while the user is signed in to Codex, the windows its plan reports, labelled by their length (`5h`, `weekly`). The details
@@ -116,7 +150,7 @@ opens Settings → Vendors ([Onboarding](onboarding.md)).
   past Sessions, a stable model change, a one-off request without tools, a complete slash menu, the Harness), where Limits
   come from, the permission presets and the effort levels. Every missing flag carries the reason a tooltip shows. A Session
   whose capabilities main cannot give is taken for a Claude Code Session, as a Node saved without a Vendor is.
-- **A driver in parts.** Each Vendor's driver has the same parts:
+- **A driver in parts.** Each Vendor's driver has the same parts, and `harnessHooks` is optional:
 
   | Part | What it gives | Claude Code | Codex |
   | ---- | ------------- | ----------- | ----- |
@@ -128,6 +162,7 @@ opens Settings → Vendors ([Onboarding](onboarding.md)).
   | commands | The slash menu | `supportedCommands()` | `skills/list` and two built-in commands |
   | mcp | worfy's MCP servers | In the app's process | HTTP on `127.0.0.1` |
   | oneShot | A one-off request | `query()` | Refused |
+  | harnessHooks | Whether the Vendor runs the Harness's hooks now | None: Claude Code runs a plugin's hooks without an approval | `hooks/list` |
 
 - **Only the Claude Code driver imports the Agent SDK.** Nothing else in worfy imports it, so the SDK's messages never reach
   the Session layer or the renderer.
@@ -140,7 +175,9 @@ opens Settings → Vendors ([Onboarding](onboarding.md)).
 - **Codex's items become worfy's events.** Streamed text gives `delta`, a finished agent message `text`, a reasoning summary
   `thinking`. Commands, file changes and MCP tool calls give `tool_use` and `tool_result`. The end of a turn gives `result`,
   token use gives `context`, and an approval request gives `permission_request` with Codex's four answers. The events of
-  other threads of the process, a Subagent's, are not shown.
+  other threads of the process, a Subagent's, are not shown in the Session's transcript: the tree of Subagents is read from
+  the threads (`thread/list`, `thread/read`) in a short-lived process of its own. In a thread read back from the history,
+  Codex's items about Subagents become `subagent` events, so the Session's history shows a row per Subagent.
 - **The queue is worfy's.** A Codex Session queues messages in main as a Claude Code Session does. Codex's own queue is an
   experimental method. The driver can steer a running turn (`turn/steer`), but the Session hands it a message only between
   turns.
@@ -161,10 +198,10 @@ The binary is `codex.exe` from the package of the platform, x64 or arm64. The pr
 | ---- | ----- |
 | Vendor ids, labels, logos, the sign-in hint | `src/shared/vendors/vendor.ts` |
 | Capabilities and Claude Code's | `src/shared/vendors/capabilities.ts` |
-| The driver interface and its parts | `src/main/vendors/driver.ts`, `src/main/vendors/session.ts`, `src/main/vendors/account.ts`, `src/main/vendors/limits.ts`, `src/main/vendors/history.ts`, `src/main/vendors/commands.ts`, `src/main/vendors/mcp.ts`, `src/main/vendors/one-shot.ts` |
+| The driver interface and its parts | `src/main/vendors/driver.ts`, `src/main/vendors/session.ts`, `src/main/vendors/account.ts`, `src/main/vendors/limits.ts`, `src/main/vendors/history.ts`, `src/main/vendors/commands.ts`, `src/main/vendors/mcp.ts`, `src/main/vendors/one-shot.ts`, `src/main/vendors/harness-hooks.ts` |
 | The driver of a Vendor | `src/main/vendors/registry.ts` |
 | The Claude Code driver | `src/main/vendors/claude/`; the translation of SDK messages `src/shared/vendors/claude/events.ts` |
-| The Codex driver | `src/main/vendors/codex/index.ts`, one file per part: `capabilities.ts`, `session.ts`, `account.ts`, `limits.ts`, `history.ts`, `commands.ts`, `mcp.ts`, `one-shot.ts` |
+| The Codex driver | `src/main/vendors/codex/index.ts`, one file per part: `capabilities.ts`, `session.ts`, `account.ts`, `limits.ts`, `history.ts`, `commands.ts`, `mcp.ts`, `one-shot.ts`, `harness-hooks.ts` |
 | Codex process, JSON-RPC client, schema check | `src/main/vendors/codex/launch.ts`, `src/main/vendors/codex/app-server.ts`, `src/main/vendors/codex/rpc.ts`, `src/main/vendors/codex/schema.ts` |
 | Codex items to events, approvals | `src/main/vendors/codex/items.ts`, `src/main/vendors/codex/approvals.ts` |
 | The pinned binary | `src/main/vendors/codex/binary.ts`, `electron-builder.yml`, `build/codex/` |
@@ -174,6 +211,10 @@ The binary is `codex.exe` from the package of the platform, x64 or arm64. The pr
 | Settings → Vendors | `src/renderer/settings/VendorsSection.tsx`, `src/main/ipc/vendors.ts`, `src/shared/ipc/vendors.ts` |
 | Pickers, permission card and slash menu by capabilities | `src/renderer/session/useCapabilities.ts`, `src/renderer/session/composer/Pickers.tsx`, `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/SlashMenu.tsx` |
 | Codex Sessions of the Project | `src/main/vendors/codex/sessions-on-canvas.ts` |
+| Subagents of a Codex Session | `src/main/vendors/codex/subagents.ts`, `src/main/ipc/claude-home.ts`, `src/renderer/claude-home/subagents.ts` |
+| Binding signals of a Codex Session | `src/main/vendors/codex/binding.ts`, `src/main/ipc/bindings.ts`, `src/main/layout/archive.ts` |
+| The Vendor of the Orchestrator, the refusal of a Codex run | `src/main/agent/app-orchestrators.ts`, `src/main/agent/orchestrator.ts`, `src/shared/ipc/orchestrator.ts` |
+| The Harness in Codex | `src/main/harness/codex-install.ts`, `src/main/harness/codex-agents.ts`, `src/renderer/harness/CodexHooksStep.tsx` |
 
 **Data flow.** "New session" with a Vendor goes to main, which checks the sign-in through the Vendor's account part and
 starts the Session on its driver. The Session takes `AgentEvent`s from the driver's SessionHandle, whatever the Vendor, and
@@ -184,7 +225,11 @@ permission card and the slash menu from them.
 `WORFY_CODEX=fake` the driver starts `test/fixtures/codex-app-server/fake-app-server.mjs` under worfy's own executable
 instead of the binary. The fake plays a script of `test/fixtures/codex-scripts/` step by step: `WORFY_CODEX_SCRIPT` names
 it (`turn` by default), `WORFY_CODEX_LOG` is the file where the fake writes worfy's requests, and `WORFY_CODEX_HOME` keeps
-its threads. `WORFY_CODEX=absent` stands for a build without Codex. Under vitest the real binary refuses to start even
+its threads. The fake also runs the hooks of a plugin installed in its `CODEX_HOME` by the rules of the pinned Codex
+(`test/fixtures/codex-app-server/hook-runner.mjs`): a hook runs only once it is approved with the right hashes,
+`PreToolUse` can deny a tool, `Stop` and `SubagentStop` can hold a turn, and `SessionEnd` gets 3 s at most. It answers
+`hooks/list` from that plugin. It keeps a thread's sandbox: `read-only` refuses a file change and a command that writes,
+and no sandbox lets a file change reach outside the thread's folder. `WORFY_CODEX=absent` stands for a build without Codex. Under vitest the real binary refuses to start even
 without `WORFY_CODEX`. `test/setup-contract.ts` and `test/e2e/launch-env.ts` set `WORFY_CODEX=fake` and a `CODEX_HOME` in a
 temporary folder for every run.
 
@@ -202,7 +247,13 @@ a `CODEX_HOME` in a temporary folder; it refuses without that flag and under CI.
   `test/unit/codex-binary.test.ts`, `test/unit/codex-in-build.test.ts`, `test/unit/codex-protocol.test.ts`,
   `test/unit/codex-limits.test.ts`, `test/unit/codex-history.test.ts`, `test/contract/codex-app-server.test.ts`,
   `test/contract/codex-session.test.ts`, `test/contract/codex-account.test.ts`, `test/contract/codex-history.test.ts`,
-  `test/contract/codex-session-limits.test.ts`, `test/contract/codex-session-mcp.test.ts`, `test/contract/codex-fake.test.ts`.
+  `test/contract/codex-session-limits.test.ts`, `test/contract/codex-session-mcp.test.ts`, `test/contract/codex-fake.test.ts`,
+  `test/contract/codex-fake-hooks.test.ts` (the fake's hooks and sandbox).
+- Subagents and Binding: `test/contract/codex-subagents.test.ts`, `test/unit/subagent-trees.test.tsx`,
+  `test/e2e/codex-subagents.spec.ts`, `test/contract/codex-binding.test.ts`.
+- The Orchestrator and the Harness on Codex: `test/contract/codex-orchestrator.test.ts`,
+  `test/contract/app-orchestrators.test.ts`, `test/contract/codex-harness-hooks.test.ts`,
+  `test/contract/harness-codex-install.test.ts`, `test/contract/codex-parity.test.ts`, `test/e2e/codex-hooks-step.spec.ts`.
 - The interface: `test/contract/sessions-vendor.test.ts`, `test/contract/vendors-ipc.test.ts`,
   `test/unit/settings-vendors.test.tsx`, `test/unit/vendor-badge.test.tsx`, `test/unit/permission-card.test.tsx`,
   `test/e2e/vendor-picker.spec.ts`, `test/e2e/codex-session.spec.ts` (presets, the slash menu and an approval on the fake),

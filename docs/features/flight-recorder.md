@@ -208,7 +208,10 @@ driver, not from the Claude home: `wave-started.session` names the Orchestrator'
 own thread is read too. An agent's span starts when it is spawned (`spawn_agent`) and ends when its thread reports it
 done. A `send_message` or `followup_task` to an agent that has finished starts its next span (`#2`). A Codex agent may
 be named `impl_NN`; that names its Ticket the same way `impl-NN` does. A Wave whose thread Codex cannot read gives
-`transcript deleted`. A journal without `vendor` is a Claude run.
+`transcript deleted`. A journal without `vendor` is a Claude run. Each read of a thread may start a Codex process, one
+thread at a time. The threads of a run on Codex are read whole at each recompute, because the Codex history cannot be
+read on from where the last read stopped. A thread that grows does not make a live run on Codex compute again; its
+journal growing and a new answer of GitHub do, as for any run.
 
 **Which Ticket a piece of work is.** An agent's Ticket comes from its name (`impl-NN`, `verify-NN`), else from its
 description, branch or Ticket path in its prompt. An agent with no Ticket named, in the worktree of an agent of a
@@ -252,7 +255,8 @@ is over is read whole, once per computation, and kept nowhere.
 | `src/shared/flight-recorder/from-gate.ts` | The facts of a gate log and of the `gate:` commits. |
 | `src/shared/flight-recorder/journal-walk.mjs`, `src/shared/flight-recorder/pr-facts.mjs` | The journal and PR parse shared with `scripts/critical-path.mjs`, plain modules with declarations. |
 | `src/main/flight-recorder/service.ts` | The service: the runs of a Project, one run's timeline from all readers, the live recompute and Retry. |
-| `src/main/flight-recorder/transcripts.ts` | Finds and reads the Orchestrator's and the Subagents' transcripts of a run. |
+| `src/main/flight-recorder/transcripts.ts` | Finds and reads the Orchestrator's and the Subagents' transcripts of a run; for a run on Codex, its threads through the history part of the Codex driver. |
+| `src/main/vendors/codex/history.ts` | A Codex thread as transcript entries, with the Subagents' starts and ends as `subagent` events. |
 | `src/main/flight-recorder/github.ts` | Asks `gh`, at most once a minute, and the repository's page from remote `origin`. |
 | `src/main/flight-recorder/gate-logs.ts` | Reads the gate logs under the Harness home. |
 | `src/main/flight-recorder/local-verdicts.ts` | The marks file and git, for Tickets without a PR. |
@@ -310,6 +314,6 @@ These tests call no model and no GitHub: the journal and transcripts are fixture
 | `test/unit/canvas-actions.test.tsx`, `test/unit/palette-commands.test.tsx` | "History", "Run history" in "⋯", "Open Run history". |
 | `test/unit/toolbar-runs.test.tsx` | The **Runs** tab: four tabs, the Project it passes, selected on the screen, inactive without a Project. |
 | `test/contract/flight-recorder-service.test.ts` | The service over all readers, the live recompute, Retry. |
-| `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` | The readers in main. |
+| `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` | The readers in main. The transcripts test also reads a run on Codex from the fake app-server (`test/fixtures/codex-scripts/flight-recorder-run.jsonl`). |
 | `test/contract/runs-ipc.test.ts` | The `runs` channels. |
 | `test/e2e/flight-recorder.spec.ts`, `test/e2e/flight-recorder-detail.spec.ts` | The built app: the screen, labels that cross no bar, the panel, Retry, Problems only. |

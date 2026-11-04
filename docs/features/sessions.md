@@ -284,7 +284,9 @@ events go to every client on `agent.event`, and the renderer store keeps the new
 ### Behaviour
 
 A Subagent is an agent a Session started with the Agent tool, or one agent of a workflow script. worfy finds them for any
-Session, wherever it was started, and shows them in two places.
+Session, wherever it was started, and shows them in two places. The Subagents of a Codex Session come from Codex's own
+threads, with no transcript to open. They show the same way, but their statuses are read from Codex, as
+[Vendors](vendors.md) describes; the table of statuses and How it works below are Claude Code's.
 
 **On the Canvas.** Each Subagent is a Node of 260 by 84 pixels to the right of its parent, and the Subagents it started are to
 the right of it. It shows the name, type, model, status with the time it has run, and the first line of its final answer. A

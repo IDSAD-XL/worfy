@@ -9,7 +9,8 @@ page](gate-and-github.md).
 
 ### Behaviour
 
-Each build of worfy carries a copy of the Harness and installs it as the Claude Code plugin `worfy`, in the user scope.
+Each build of worfy carries a copy of the Harness and installs it as the Claude Code plugin `worfy`, in the user scope,
+and into Codex as well when Codex is on the Machine (see [In Codex](#in-codex)).
 The Harness home is the folder of the Harness on a Machine, by default `worfy-harness` inside the Claude home, and the
 copy goes into its folder `plugin`. Three places offer the install: the Harness item of the toolbar, the [First
 run](onboarding.md) checks, and Settings → Pipeline when the Harness has no script for the Pipeline editor. All three
@@ -126,6 +127,58 @@ the backup and the one command that undoes it, `node <backup>/restore.mjs`. That
 plugin, and it disables the plugin first. It keeps what changed after the move in the folder `after` of the backup, and
 a second run changes nothing. Sessions already running keep the old hooks until they restart.
 
+#### In Codex
+
+The same install puts the same plugin folder into Codex, after the Claude Code part, when this build carries Codex and
+Codex's home folder exists (`CODEX_HOME`, else `.codex` in the home folder). Without that folder worfy touches nothing
+of Codex. The commands run the Codex binary of this build, never the user's `codex`, in this order:
+
+1. The dependency, as a plugin of its own, because Codex has no dependencies between plugins: `codex plugin marketplace
+   add anthropics/claude-plugins-official` when Codex does not know it, then `codex plugin add mattpocock-skills@claude-plugins-official`.
+2. On a first install `codex plugin marketplace add <plugin folder>`, when Codex does not know it, then `codex plugin add
+   worfy@worfy-harness`; with another version only the latter.
+3. The agents `worfy-implementer.toml`, `worfy-reviewer.toml` and `worfy-scout.toml` in `<CODEX_HOME>/agents`.
+
+The consent dialog names the Codex commands and agent files after the Claude Code part, or alone when Claude Code already
+has this build's Harness, and says that Codex keeps the hooks of a new or updated plugin off until they are approved in
+`/hooks`. A failure in the Claude Code part leaves Codex untouched. A failure in Codex leaves Claude Code installed, and
+the Codex part of the toolbar item shows the step that failed. A Codex command gets 120 s, and one that adds a marketplace
+or the dependency 600 s.
+
+**The agents.** Each one is made from the agent of the same name in the plugin: its `description`, its text as the
+developer instructions with the plugin folder in place of `${CLAUDE_PLUGIN_ROOT}`, and its `effort` as the reasoning
+effort. A Claude model name such as `inherit` or `sonnet` is not written, so the agent takes the model of the Session that
+starts it. Every file worfy writes starts with the line `# Written by worfy's Harness installer`. A `worfy-*.toml` file
+without it is the user's own: worfy neither rewrites nor removes it. When such a file has the name of an agent of this build,
+that agent is not written, and the toolbar says so. A marked file of an agent this build does not have is removed.
+
+**On the toolbar.** The Codex part follows the Claude Code text after `·`, only while the Claude Code part is installed.
+The state waits for `codex plugin list --json` 10 s at most, and then the Codex part alone is `Codex error: plugin list`.
+
+| Codex part | Button | When |
+|---|---|---|
+| Nothing | None | Codex lists this build's version and every agent file is in place |
+| `Codex: not installed` | Install in Codex | Codex does not list `worfy@worfy-harness` |
+| `Codex <from>` | Update Harness in Codex | Another version, or an agent file to write or remove |
+| `Codex error: <step>` | Retry | A step failed, or Codex lists the plugin without its dependency. The tooltip holds the reason |
+| `Codex: approve hooks` | The text itself opens the step below | An install or update in Codex by this run of worfy, and no check has found the hooks approved since |
+| `Codex: 1 agent not written`, `Codex: 2 agents not written` | None | Files of the user's own have agents' names. The tooltip names them and says to rename or remove them, then install again |
+
+**Approving the hooks.** Codex trusts a plugin's hooks by the hash of the plugin folder, so after every install or
+update of the Harness its hooks are off in Codex until the user approves them. Without them the gate and the guards of
+the workflow do not run in Codex, and [Autopilot](autopilot.md#during-a-run) refuses a run on Codex. The dialog "Approve
+the Harness hooks in Codex" says what to do: open Codex in a terminal (`codex`), type `/hooks`, approve the hooks of the
+plugin `worfy`, come back and press "Check again". The check asks Codex and answers with one of three lines:
+
+- "Approved: Codex runs the Harness hooks, and a Codex Autopilot Run can start." The button becomes "Done", and
+  "Codex: approve hooks" goes away in every window.
+- "The Harness hooks are still off in Codex. Approve them in /hooks, then check again."
+- "worfy could not read the hooks from Codex. Check that the Harness is installed in Codex, then check again."
+
+The dialog opens by itself in the windows open when an install or update in Codex left hooks to approve. After "Close",
+only "Codex: approve hooks" opens it again. That flag is kept only while worfy runs: after a restart the toolbar does not
+show it, but Autopilot still asks Codex before every run.
+
 #### On Windows
 
 A rename or removal of the plugin folders that a held-open file refuses is tried again for up to 60 s: on `EPERM`,
@@ -156,6 +209,12 @@ that Machine itself.
   ([ADR-0049](../adr/0049-worfy-sessions-without-inline-plugin-on-legacy-harness.md)). That is why the move removes this
   file last.
 - **Reading writes nothing.** Without the plugin folder the state runs no command, and a dependency shows as unchecked.
+- **Codex installs from the same folder.** The copy the Claude Code part keeps in the plugin folder is Codex's local
+  marketplace too, so an update in Codex is `plugin add` again: the folder itself is already the new copy. A plugin of a
+  local marketplace may be listed with the version `local`; the version worfy installed is then read from its own record,
+  `harness-codex.json` in its data folder ([ADR-0005](../adr/0005-worfy-own-state-inventory.md)). A Codex agent cannot be
+  shipped in a plugin, which is why worfy writes the agent files itself, into `<CODEX_HOME>/agents` only and never into a
+  Project.
 
 ### Implementation
 
@@ -165,6 +224,10 @@ that Machine itself.
 | `electron-builder.yml` | Puts the copy into the app's resources, outside `app.asar`, because a script inside it cannot be run |
 | `src/main/harness/bundled.ts` | Finds the copy and its version |
 | `src/main/harness/install.ts` | The installer: state, plan, version order, dialog text, swap of the folder |
+| `src/main/harness/codex-install.ts` | The Codex part of the installer: its state, commands and record |
+| `src/main/harness/codex-agents.ts` | The Codex agents: the TOML of each agent, which files are worfy's, the writes |
+| `src/main/vendors/codex/harness-hooks.ts` | Whether the Harness hooks are approved in Codex (`hooks/list`) |
+| `src/renderer/harness/CodexHooksStep.tsx` | The step "Approve the Harness hooks in Codex", whose "Check again" is the channel `harness.codexHooks` |
 | `src/main/harness/locate.ts` | Which Harness is on the Machine (`plugin`, `legacy`, `none`), and the folders of its scripts and Gate state |
 | `src/main/ipc/harness.ts` | The app's one installer and the consent dialog. Announces `harness.changed` |
 | `src/shared/ipc/harness.ts` | The channels and states |
@@ -182,7 +245,10 @@ the one file outside them.
 Main tests: `test/contract/harness-install.test.ts`, with a stand-in Claude Code and failures injected in the copy and
 the renames. `test/e2e/harness-install.spec.ts` and `test/e2e/harness-migrate.spec.ts` go through the toolbar. Also
 `test/contract/harness-changed.test.ts`, `test/contract/harness-migrate.test.ts`, `test/unit/harness-locate.test.ts`,
-`test/unit/harness-status.test.tsx` and `test/unit/harness-migration-form.test.tsx`.
+`test/unit/harness-status.test.tsx` and `test/unit/harness-migration-form.test.tsx`. In Codex:
+`test/contract/harness-codex-install.test.ts`, with a stand-in `codex` and a temporary `CODEX_HOME`, whose agent files
+must equal `test/fixtures/codex-agents/expected/`; `test/contract/codex-harness-hooks.test.ts`,
+`test/unit/codex-hooks-step.test.tsx` and `test/e2e/codex-hooks-step.spec.ts` for the approval.
 
 ## Plugin
 
@@ -264,6 +330,32 @@ For its own Sessions worfy registers the server itself, under the name the tools
 **Text.** The plugin is written in English, apart from the words of other languages that it must read in people's
 Tickets, older Profiles and the verdict lines of an older Gate, and the old Russian forms of the Wave command. A test keeps its files free of one person's names, accounts and home paths, of work projects, and of
 worfy's own decision, Ticket and Wave numbers.
+
+#### On Codex
+
+Codex runs the same plugin with the same `hooks/hooks.json`; there is no second set of hooks. A hook tells Codex from
+Claude Code by its input: Codex adds `turn_id` to the events of a turn, and its transcript is a `rollout-*.jsonl` file. The
+workflow keeps the guarantees it has on Claude Code, no stricter, each by a mechanism Codex has:
+
+| Guarantee | On Codex |
+|---|---|
+| The gate before the work ends | Codex has no `TaskCompleted` or `TeammateIdle`. On `Stop` and `SubagentStop` in a registered Project, `stop.mjs` runs `gate.mjs fast` itself and holds the turn while it is red; Codex goes on with the reason |
+| A read-only reviewer and scout | The Bash guard refuses `apply_patch`, Codex's file edit, to `worfy-reviewer` and `worfy-scout`; their shell commands go through the Bash rules |
+| The Bash guard | The same `guard.mjs` on `Bash\|apply_patch`. Input typed into an open shell runs no hook, so an agent `worfy-*` may not start an interactive shell, interpreter or terminal multiplexer |
+| Rules at the start | `SessionStart` and `SubagentStart`, the same events |
+| Session bookkeeping | `SessionEnd`, which Codex gives 3 s at most |
+| Review verdicts | The same scripts and `gh`. A Codex hook cannot set a Session's environment, so worfy puts `GH_TOKEN` of the Profile's `github.account` into the environment of the Codex process of the Session |
+| The hooks are on | Only after the user approved them in `/hooks`; until then Autopilot refuses a run on Codex |
+
+`harness/README.md`, section "On Codex", holds the full table with the known gaps, such as the `mcp__*` tools of the
+read-only agents, which the guard's matcher does not see. That Codex names a custom agent `worfy-reviewer` in a hook's
+input is not verified on a live Codex yet.
+
+**The parity suite.** `test/contract/codex-parity.test.ts` proves the table on the fake app-server, which runs hooks and
+keeps a sandbox as the pinned Codex does ([Vendors, the fake Codex](vendors.md#implementation)). The installer puts the
+Harness into a temporary `CODEX_HOME`, and nine scenarios run on it. Each row names the Claude Code test that proves the
+same guarantee there, by file and by the text of the check: a renamed file or a removed check fails the suite, and so does
+a guarantee in `harness/README.md` without a row.
 
 #### On Windows
 
