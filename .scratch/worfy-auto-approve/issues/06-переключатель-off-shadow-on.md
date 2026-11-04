@@ -34,11 +34,17 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
 ## Готово, когда
 
 - [ ] Unit test компонента: три положения, клик пишет через IPC, read-only на Linked machine, нет у обычной Session.
+  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · 5487c4ce6e8b759372633f5e5920f624a1715ad0
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/auto-approve.spec.ts test/e2e/eco-mode.spec.ts test/e2e/session-controls.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · 5487c4ce6e8b759372633f5e5920f624a1715ad0
 - [ ] Contract test настройки: нет файла — `off`; мусор — `off`; запись одного Project-а не трогает другие и
       `autoContinue`.
+  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · 5487c4ce6e8b759372633f5e5920f624a1715ad0
 - [ ] Contract test: канал не принимает запись с Linked machine.
+  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · 5487c4ce6e8b759372633f5e5920f624a1715ad0
 - [ ] Ответ про перечитывание `app-settings.json` — в «Итог».
+  - evidence: commit pass · Auto-approval: the inspector is asked on every request; Electron fuses ticket · - - · 5487c4ce6e8b759372633f5e5920f624a1715ad0
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 5487c4ce6e8b759372633f5e5920f624a1715ad0
 
 ## Тесты
 
