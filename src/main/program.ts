@@ -24,7 +24,7 @@
 // so ELECTRON_RUN_AS_NODE=1 would start a second worfy there, not a Node. scriptRunner tells the two
 // apart.
 
-import { basename, posix, resolve, win32 } from 'node:path'
+import { posix, resolve, win32 } from 'node:path'
 import { isWindowsAbsolutePath } from '../shared/paths'
 import { fileOrAlias, findOnPath, type FileExists } from './agent/env'
 
@@ -71,12 +71,16 @@ export interface ScriptRunner {
  * - any other file (worfy.app's `worfy`, `worfy.exe`): the packaged app, whose RunAsNode fuse is
  *   off. `node` by name, which the child's own PATH resolves as it resolves `gh`: no node there, and
  *   the start fails as a missing program does.
- * The rule of Electron's app.isPackaged, which reads the file name the same way; this file is loaded
- * by tests outside Electron, so it does not ask `app`.
+ * The rule of Electron's app.isPackaged, by the file name; this file is loaded by tests outside
+ * Electron, so it does not ask `app`. The name is the part after the last `/` or `\\`, and both
+ * names count on every system: `execPath` is a file of the machine worfy runs on, while a caller's
+ * platform may be another one it stands for (a test of "Sign in with gh" off Windows, run on a
+ * Windows host), and a file named `electron.exe` off Windows, or `electron` on Windows, is never a
+ * packaged worfy.
  */
-export function scriptRunner(execPath: string = process.execPath, platform: NodeJS.Platform = process.platform): ScriptRunner {
-  const name = (platform === 'win32' ? win32.basename(execPath) : basename(execPath)).toLowerCase()
-  const stock = name === (platform === 'win32' ? 'electron.exe' : 'electron')
+export function scriptRunner(execPath: string = process.execPath): ScriptRunner {
+  const name = (execPath.split(/[\\/]/).pop() ?? '').toLowerCase()
+  const stock = name === 'electron' || name === 'electron.exe'
   return stock ? { file: execPath, env: { ELECTRON_RUN_AS_NODE: '1' } } : { file: 'node', env: {} }
 }
 
@@ -87,11 +91,11 @@ export function scriptRunner(execPath: string = process.execPath, platform: Node
  * A relative `.mjs` is resolved against worfy's own folder (stubScript). A path absolute in either
  * form — POSIX or Windows — stays as it is.
  */
-export function programStart(override: string | undefined, usual: string, execPath: string = process.execPath, platform: NodeJS.Platform = process.platform): ProgramStart {
+export function programStart(override: string | undefined, usual: string, execPath: string = process.execPath): ProgramStart {
   if (override === undefined) return { file: usual, args: [], env: {} }
   const script = stubScript(override)
   if (script === null) return { file: override, args: [], env: {} }
-  const runner = scriptRunner(execPath, platform)
+  const runner = scriptRunner(execPath)
   return { file: runner.file, args: [script], env: runner.env }
 }
 
@@ -108,7 +112,7 @@ export function programStartInPty(
   system: { platform?: NodeJS.Platform; env?: Readonly<Record<string, string | undefined>>; exists?: FileExists; execPath?: string } = {},
 ): ProgramStart {
   const script = override === undefined ? null : stubScript(override)
-  if (script === null || (system.platform ?? process.platform) !== 'win32') return programStart(override, usual, system.execPath, system.platform)
+  if (script === null || (system.platform ?? process.platform) !== 'win32') return programStart(override, usual, system.execPath)
   const node = findOnPath('node', system.env ?? {}, system.exists ?? fileOrAlias)
   if (node === null) throw new Error(`node.exe was not found in the Path: the .mjs stand-in ${override} needs it on Windows`)
   return { file: node, args: [script], env: {} }

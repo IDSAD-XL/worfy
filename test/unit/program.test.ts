@@ -17,22 +17,29 @@ const PACKAGED_EXE = 'C:\\Users\\someone\\AppData\\Local\\Programs\\worfy\\worfy
 
 describe('scriptRunner', () => {
   it('is the stock Electron itself in run-as-Node mode, whatever the case of its name', () => {
-    expect(scriptRunner(NODE, 'darwin')).toEqual({ file: NODE, env: { ELECTRON_RUN_AS_NODE: '1' } })
-    expect(scriptRunner('/repo/node_modules/electron/dist/electron', 'linux')).toEqual({ file: '/repo/node_modules/electron/dist/electron', env: { ELECTRON_RUN_AS_NODE: '1' } })
-    expect(scriptRunner(ELECTRON_EXE, 'win32')).toEqual({ file: ELECTRON_EXE, env: { ELECTRON_RUN_AS_NODE: '1' } })
-    expect(scriptRunner('C:\\repo\\Electron.EXE', 'win32')).toEqual({ file: 'C:\\repo\\Electron.EXE', env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(scriptRunner(NODE)).toEqual({ file: NODE, env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(scriptRunner('/repo/node_modules/electron/dist/electron')).toEqual({ file: '/repo/node_modules/electron/dist/electron', env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(scriptRunner(ELECTRON_EXE)).toEqual({ file: ELECTRON_EXE, env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(scriptRunner('C:\\repo\\Electron.EXE')).toEqual({ file: 'C:\\repo\\Electron.EXE', env: { ELECTRON_RUN_AS_NODE: '1' } })
   })
 
   it('is node of the PATH, with no variable added, for the packaged worfy and worfy.exe', () => {
-    expect(scriptRunner(PACKAGED, 'darwin')).toEqual({ file: 'node', env: {} })
-    expect(scriptRunner(PACKAGED_EXE, 'win32')).toEqual({ file: 'node', env: {} })
+    expect(scriptRunner(PACKAGED)).toEqual({ file: 'node', env: {} })
+    expect(scriptRunner(PACKAGED_EXE)).toEqual({ file: 'node', env: {} })
   })
 
-  it('reads the file name by the rules of the system: electron.exe off Windows, or a folder named electron, is not the stock Electron', () => {
-    expect(scriptRunner('/opt/electron.exe', 'darwin')).toEqual({ file: 'node', env: {} })
-    expect(scriptRunner('C:\\electron\\worfy.exe', 'win32')).toEqual({ file: 'node', env: {} })
-    expect(scriptRunner('/repo/electron/worfy', 'linux')).toEqual({ file: 'node', env: {} })
-    expect(scriptRunner('C:\\repo\\electron', 'win32')).toEqual({ file: 'node', env: {} })
+  it('reads the file name after the last / or \\ on every system: a folder named electron is not the stock Electron', () => {
+    expect(scriptRunner('C:\\electron\\worfy.exe')).toEqual({ file: 'node', env: {} })
+    expect(scriptRunner('/repo/electron/worfy')).toEqual({ file: 'node', env: {} })
+    expect(scriptRunner('/repo/electron.app/Contents/MacOS/worfy')).toEqual({ file: 'node', env: {} })
+  })
+
+  it('reads a Windows path and a POSIX path alike, whatever system the test runs on', () => {
+    // execPath is a file of the machine worfy runs on; a caller's platform may stand for another one
+    // (a test of "Sign in with gh" off Windows on a Windows host): the reading must not depend on it.
+    expect(scriptRunner(ELECTRON_EXE).file).toBe(ELECTRON_EXE)
+    expect(scriptRunner(NODE).file).toBe(NODE)
+    expect(scriptRunner('electron.exe').file).toBe('electron.exe')
   })
 
   it('by default reads the file this process runs from: the stock Electron under `pnpm test`', () => {
@@ -42,8 +49,8 @@ describe('scriptRunner', () => {
 
 describe('programStart', () => {
   it.each(['/repo/test/fixtures/gh/gh-stub.mjs', 'C:\\repo\\test\\fixtures\\gh\\gh-stub.mjs'])('an override that ends in .mjs runs as a script of worfy\'s own Node: %s', (script) => {
-    expect(programStart(script, 'gh', NODE, 'darwin')).toEqual({ file: NODE, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } })
-    expect(programStart(script, 'gh', ELECTRON_EXE, 'win32')).toEqual({ file: ELECTRON_EXE, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(programStart(script, 'gh', NODE)).toEqual({ file: NODE, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(programStart(script, 'gh', ELECTRON_EXE)).toEqual({ file: ELECTRON_EXE, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } })
   })
 
   it('a relative .mjs override is resolved against worfy\'s own folder: the child runs in another one', () => {
@@ -54,18 +61,8 @@ describe('programStart', () => {
     expect(programStart('/stub/gh.mjs', 'gh').file).toBe(process.execPath)
   })
 
-  it('reads worfy\'s file by the rules of the system it is given, not of the one the test runs on', () => {
-    // electron.exe by its Windows path: the stock Electron on Windows; off Windows the whole string is
-    // one file name, not \`electron\`, so it counts as a packaged app.
-    expect(programStart('/stub/gh.mjs', 'gh', ELECTRON_EXE, 'win32').file).toBe(ELECTRON_EXE)
-    expect(programStart('/stub/gh.mjs', 'gh', ELECTRON_EXE, 'darwin').file).toBe('node')
-  })
-
-  it.each([
-    [PACKAGED, 'darwin'],
-    [PACKAGED_EXE, 'win32'],
-  ] as const)('in the packaged app (%s) a .mjs override runs under node of the PATH, without ELECTRON_RUN_AS_NODE', (execPath, platform) => {
-    expect(programStart('/repo/test/fixtures/gh/gh-stub.mjs', 'gh', execPath, platform)).toEqual({ file: 'node', args: ['/repo/test/fixtures/gh/gh-stub.mjs'], env: {} })
+  it.each([PACKAGED, PACKAGED_EXE])('in the packaged app (%s) a .mjs override runs under node of the PATH, without ELECTRON_RUN_AS_NODE', (execPath) => {
+    expect(programStart('/repo/test/fixtures/gh/gh-stub.mjs', 'gh', execPath)).toEqual({ file: 'node', args: ['/repo/test/fixtures/gh/gh-stub.mjs'], env: {} })
   })
 
   it.each(['gh', '/opt/homebrew/bin/gh', 'C:\\Program Files\\GitHub CLI\\gh.exe', '/repo/test/fixtures/gh/gh', '/stubs.mjs/gh', '/stub/gh.js', '/stub/gh.cjs', '/stub/gh.mjs.bak'])(
@@ -91,11 +88,11 @@ describe('programStartInPty', () => {
     expect(programStartInPty(join('test', 'gh-stub.mjs'), 'gh', { platform: 'linux', execPath: NODE }).args).toEqual([resolve('test', 'gh-stub.mjs')])
   })
 
-  it('off Windows passes the system it is given on to programStart', () => {
-    // A Windows test host would read the macOS path by Windows rules (no electron.exe there) and
-    // answer node, had the platform not been passed on.
-    expect(programStartInPty('/repo/gh-stub.mjs', 'gh', { platform: 'darwin', execPath: NODE }).file).toBe(NODE)
-    expect(programStartInPty('/repo/gh-stub.mjs', 'gh', { platform: 'linux', execPath: ELECTRON_EXE }).file).toBe('node')
+  it('off Windows reads worfy\'s file the same whatever system the test runs on', () => {
+    // "Sign in with gh" tests stand for macOS with the test host's own execPath: on a Windows host
+    // that is electron.exe, and it must still count as the stock Electron.
+    expect(programStartInPty('/repo/gh-stub.mjs', 'gh', { platform: 'darwin', execPath: ELECTRON_EXE })).toEqual({ file: ELECTRON_EXE, args: ['/repo/gh-stub.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(programStartInPty('/repo/gh-stub.mjs', 'gh', { platform: 'linux', execPath: NODE }).file).toBe(NODE)
   })
 
   it('off Windows in the packaged app a .mjs override runs under node of the PATH', () => {

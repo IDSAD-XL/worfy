@@ -48,7 +48,7 @@ export interface CodexLaunchOptions {
 
 /**
  * The start of a Codex app-server. Under WORFY_CODEX=fake: the fake under scriptRunner of
- * `execPath` (process.execPath by default), read by the rules of `runtime.platform`. Otherwise the pinned binary with `app-server`; under vitest (VITEST in `env`
+ * `execPath` (process.execPath by default). Otherwise the pinned binary with `app-server`; under vitest (VITEST in `env`
  * or in process.env) that throws, so no test reaches the real Codex even when a test file sets no
  * WORFY_CODEX or passes an `env` of its own. Throws as well when this
  * platform has no Codex package installed.
@@ -56,7 +56,7 @@ export interface CodexLaunchOptions {
 export function codexLaunch(options: CodexLaunchOptions): CodexLaunch {
   const env = options.env ?? process.env
   if (env.WORFY_CODEX === 'fake') {
-    const runner = scriptRunner(options.execPath, options.runtime.platform)
+    const runner = scriptRunner(options.execPath)
     return {
       file: runner.file,
       args: [join(options.appPath, FAKE_APP_SERVER)],

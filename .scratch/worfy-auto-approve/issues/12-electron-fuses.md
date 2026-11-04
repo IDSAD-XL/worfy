@@ -72,7 +72,7 @@ enableNodeCliInspectArguments: false }`; electron-builder переключает
 | Место | Что ломалось без fuse | Что сделано |
 |---|---|---|
 | `src/main/program.ts` `programStart` — `.mjs` override (`WORFY_GH`, `WORFY_CLAUDE`, override `git` в `harness-drift.ts`) | ставят только test-ы; в собранном приложении `ELECTRON_RUN_AS_NODE=1` запустил бы второй worfy вместо Node (на Windows packaged test-ы дают `gh-stub.mjs`) | новый `scriptRunner`: stock Electron из `node_modules` (`electron`, `electron.exe` — правило `app.isPackaged`) — как раньше, сам в run-as-Node; любой другой файл (собранный `worfy`, `worfy.exe`) — `node` по имени, его находит PATH ребёнка |
-| `programStartInPty` | на Windows уже `node.exe` из Path; вне Windows — `programStart` | передаёт `platform` в `programStart` |
+| `programStartInPty` | на Windows уже `node.exe` из Path; вне Windows — `programStart` | без изменений: `platform` в `scriptRunner` не идёт (см. ниже) |
 | `src/main/vendors/codex/launch.ts` — `WORFY_CODEX=fake` | собранное приложение при старте читает Limits Codex и запускало второй worfy (видно на копии с fuse выкл.: `another worfy already runs over <data>; quitting`) | тот же `scriptRunner`. Fake в `app.asar` не попадает (`test/fixtures` вне `files`), поэтому в собранном приложении он не работал и до Ticket-а; теперь `node` не находит файл — тот же отказ, без второго окна |
 | `scripts/vitest-electron.mjs:80`, `scripts/terminal-flood-bench.mjs`, `scripts/eval-run-env.mjs:97` | ничего: запускают Electron из `node_modules` или node скрипта, не собранный бинарь | не тронуто |
 | `test/e2e/launch-env.ts:67-71`, `test/e2e/projects-connect.spec.ts:290` | ничего: первое убирает `ELECTRON_RUN_AS_NODE` из env приложения, второе — `process.execPath` процесса test-а (node) | не тронуто |
@@ -102,6 +102,16 @@ electron-builder, а arm64 Mac такой бинарь не запустит, п
 runtime); `codesign --verify --deep --strict` копии — exit 0, `Identifier=dev.worfy.app`, `Signature=adhoc`.
 Windows: fuses лежат в самом `worfy.exe`; сборка не подписана (сертификата нет до E4), подписи ломать нечего.
 Packaged test-ы Windows — те же spec-и, тот же helper.
+
+**`scriptRunner` читает имя файла без `platform` (решено без владельца, раунд 3).** Раунд 2 передавал в
+`scriptRunner` платформу вызывающего, и на Windows CI упали два test-а «Sign in with gh»
+(`test/contract/github-accounts.test.ts:257`, `:278`): они изображают macOS (`platform: 'darwin'`), а `execPath`
+у них — настоящий файл хоста, `electron.exe`. Платформа, которую изображает test, не может читать путь
+машины, на которой он идёт. Теперь имя — часть после последнего `/` или `\`, и `electron` и `electron.exe`
+считаются stock Electron на любой системе. Отличие от `app.isPackaged` только в невозможных случаях
+(файл `electron.exe` вне Windows, `electron` без `.exe` на Windows): собранный worfy так не называется. Параметр
+`platform` убран из `scriptRunner` и `programStart`, `codexLaunch` его не передаёт; мутанты P9/P10 раунда 2
+(передача платформы) исчезли вместе с кодом.
 
 **Windows не проверен в CI — прямо.** Ни один job CI не читает fuses `.exe`: `windows-e2e` идёт с
 `--grep-invert @packaged`, а `windows` — это `pnpm test` (там только contract test конфигурации и `check-fuses.mjs` на
