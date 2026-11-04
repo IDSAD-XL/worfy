@@ -121,16 +121,19 @@ const record = (value: unknown): Record<string, unknown> | null => (typeof value
 const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null)
 
 /**
- * The installed plugins of `codex plugin list --json`, by `name@marketplace`. Read leniently: a list
- * of plugins, `{ plugins }`, or `{ marketplaces: [{ name, plugins }] }` as the app-server's
- * plugin/list answers; a plugin is `{ id | name, marketplace?, localVersion | version, installed?, enabled? }`.
+ * The installed plugins of `codex plugin list --json`, by `name@marketplace`. Codex 0.166.0 prints
+ * `{ installed: [...], available: [...] }` with `{ pluginId: "name@marketplace", name, marketplaceName,
+ * version, installed, enabled }` (test/fixtures/codex-cli/plugin-list-0.166.0.json); only `installed`
+ * is read, `available` lists plugins that are not installed. Older guesses are still read: a list of
+ * plugins, `{ plugins }`, or `{ marketplaces: [{ name, plugins }] }` as the app-server's plugin/list
+ * answers, with `{ id | name, marketplace?, localVersion | version, installed?, enabled? }`.
  */
 export function codexPluginsOf(parsed: unknown): Map<string, ListedPlugin> | null {
   const plugins = new Map<string, ListedPlugin>()
   const add = (item: unknown, marketplace: string | null): void => {
     const entry = record(item)
     if (entry === null || entry.installed === false) return
-    const id = text(entry.id)
+    const id = text(entry.pluginId) ?? text(entry.id)
     const name = text(entry.name)
     const market = text(entry.marketplace) ?? text(entry.marketplaceName) ?? marketplace
     const key = id?.includes('@') ? id : name !== null && market !== null ? `${name}@${market}` : id !== null && market !== null ? `${id}@${market}` : null
@@ -139,6 +142,7 @@ export function codexPluginsOf(parsed: unknown): Map<string, ListedPlugin> | nul
   }
   const top = record(parsed)
   if (Array.isArray(parsed)) for (const item of parsed as unknown[]) add(item, null)
+  else if (Array.isArray(top?.installed)) for (const item of top.installed as unknown[]) add(item, null)
   else if (Array.isArray(top?.plugins)) for (const item of top.plugins as unknown[]) add(item, null)
   else if (Array.isArray(top?.marketplaces)) {
     for (const market of top.marketplaces as unknown[]) {
