@@ -247,7 +247,14 @@ describe('worfy-image:// serves nothing else', () => {
     // A last part that is no machine label is part of the store's name.
     expect(parseImageHost('canvas.0a1b2c3d')).toEqual({ store: 'canvas.0a1b2c3d', machineLabel: null })
     expect(parseImageHost(MACHINE)).toEqual({ store: MACHINE, machineLabel: null })
-    for (const host of ['attachments', `attachments.${MACHINE}`, `canvas.0a1b2c3d.${MACHINE}`]) expect(imageHost(parseImageHost(host))).toBe(host)
+    for (const host of ['attachments', `attachments.${MACHINE}`, `canvas-0a1b2c3d.${MACHINE}`, 'canvas-0a1b2c3d']) expect(imageHost(parseImageHost(host))).toBe(host)
+    // The Canvas store is spelled canvas-<label> in a host (worfy-evidence ticket 12); the older canvas.<label> still reads as the same store.
+    expect(parseImageHost('canvas-0a1b2c3d')).toEqual({ store: 'canvas.0a1b2c3d', machineLabel: null })
+    expect(parseImageHost(`canvas-0a1b2c3d.${MACHINE}`)).toEqual({ store: 'canvas.0a1b2c3d', machineLabel: MACHINE })
+    expect(imageHost(parseImageHost('canvas.0a1b2c3d'))).toBe('canvas-0a1b2c3d')
+    // Only a Canvas store is respelled: another name with a dash is a store of that name.
+    expect(parseImageHost('evidence-0a1b2c3d')).toEqual({ store: 'evidence-0a1b2c3d', machineLabel: null })
+    expect(parseImageHost('canvas-0a1b2c3')).toEqual({ store: 'canvas-0a1b2c3', machineLabel: null })
   })
 })
 

@@ -49,7 +49,8 @@ verdict, platform and copy, the short SHA, the ref. The SHA opens `<repository>/
 system's default program. A `screenshot` line whose file lies in `<epic>/evidence/` shows a thumbnail under it; a click
 opens the image over the window, with "Open in default app". A `video` line's clip (webm or mp4) plays in place, muted,
 with its controls, and "Contact sheet" opens the sheet next to it over the window. A file that does not load says "File
-not found" or "File over 8 MB" (worfy serves Evidence files up to 8 MB). A window on a Linked machine shows no preview. The text and the matrix follow edits of the file. "Open in editor" opens the file. A file over 1 MB is not read. When a read
+not found", "File over 8 MB" (worfy serves Evidence files up to 8 MB) or "File cannot be shown" (served, but not a picture
+or a clip the window draws), with "Open in default app"; a missing contact sheet says so next to the clip. A window on a Linked machine shows no preview. The text and the matrix follow edits of the file. "Open in editor" opens the file. A file over 1 MB is not read. When a read
 fails, "The Ticket file could not be read" shows with the reason, and the text read earlier stays.
 
 **The Epic frame.** Its header has the Epic's name, the H1 of its `spec.md`, a progress bar of 12 segments, the count

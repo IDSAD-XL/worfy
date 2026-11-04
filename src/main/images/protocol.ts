@@ -32,7 +32,7 @@
 // (src/renderer/index.html). The scheme is standard and secure, like worfy-card://
 // (src/main/cards/protocol.ts): its URL has a host, and a page on file:// or on the dev server loads it
 // as an image; `stream` lets a <video> read it in ranges.
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { lstat, open, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { protocol, type CustomScheme } from 'electron'
 import { FILE_COPY_LIMIT_BYTES, IMAGE_EXTENSIONS, IMAGE_FILE_NAME_PATTERN } from '../../shared/agent/attachments'
@@ -46,7 +46,7 @@ import { appLinkedImageSource } from './remote'
 export const IMAGE_CONTENT_TYPES: Readonly<Record<string, string>> = Object.fromEntries(Object.entries(IMAGE_EXTENSIONS).map(([type, ext]) => [`.${ext}`, type]))
 
 /** The extensions the Evidence store serves (`media`): the images', and the clips a test helper records. */
-export const EVIDENCE_CONTENT_TYPES: Readonly<Record<string, string>> = { ...IMAGE_CONTENT_TYPES, '.webm': 'video/webm', '.mp4': 'video/mp4' }
+export const EVIDENCE_CONTENT_TYPES: Readonly<Record<string, string>> = { ...IMAGE_CONTENT_TYPES, '.jpeg': 'image/jpeg', '.webm': 'video/webm', '.mp4': 'video/mp4' }
 
 /** The largest sent image served: the largest file worfy copies into its data folder. */
 export const ATTACHMENT_IMAGE_LIMIT_BYTES = FILE_COPY_LIMIT_BYTES
@@ -115,6 +115,10 @@ export interface ImageFileOptions {
   fileSize?: (path: string) => Promise<number | null>
   /** Reads the file served; rejects when it cannot. */
   read?: (path: string) => Promise<Uint8Array>
+  /** Opens a file of a `media` store for reading (fs.open); rejects when it cannot. */
+  open?: (path: string) => Promise<MediaFile>
+  /** lstat of a path: the file the name leads to now, by device and inode. */
+  lstat?: (path: string) => Promise<FileIdentity>
 }
 
 const fileSizeOf = async (path: string): Promise<number | null> => {
@@ -243,20 +247,60 @@ export function byteRange(header: string | null | undefined, size: number): Byte
   return { start, end: last === '' ? size - 1 : Math.min(Number(last), size - 1) }
 }
 
-/** The answer of a `media` store: the whole file with Accept-Ranges, or the range asked for with 206 and Content-Range. */
-function mediaResponse(method: string, extension: string, size: number, header: string | null | undefined, read: () => Promise<Uint8Array>): Promise<Response> | Response {
-  const headers = { ...IMAGE_HEADERS, 'Content-Type': EVIDENCE_CONTENT_TYPES[extension] ?? 'application/octet-stream', 'Accept-Ranges': 'bytes' }
-  const range = byteRange(header, size)
-  if (range === 'unsatisfiable') return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } })
-  const status = range === null ? 200 : 206
-  const span = range ?? { start: 0, end: size - 1 }
-  const length = Math.max(0, span.end - span.start + 1)
-  const rangeHeaders = { ...headers, 'Content-Length': String(length), ...(range === null ? {} : { 'Content-Range': `bytes ${span.start}-${span.end}/${size}` }) }
-  if (method === 'HEAD') return new Response(null, { status, headers: rangeHeaders })
-  return read().then(
-    (body) => new Response(body.slice(span.start, span.start + length), { status, headers: rangeHeaders }),
-    () => notFound(),
-  )
+/** What tells one file from another: its device and inode (fs.Stats). */
+export interface FileIdentity {
+  dev: number
+  ino: number
+}
+
+/** An open file of a `media` store: the part of fs/promises' FileHandle the handler uses. */
+export interface MediaFile {
+  stat(): Promise<FileIdentity & { size: number }>
+  read(buffer: Uint8Array, offset: number, length: number, position: number): Promise<{ bytesRead: number }>
+  close(): Promise<void>
+}
+
+const tooLargeMedia = (limit: number): Response => plain(413, `An Evidence file is served up to ${limit} bytes`)
+
+/**
+ * The answer of a `media` store for the file findImageFile checked: the whole file with Accept-Ranges, or the
+ * range asked for with 206 and Content-Range. The file is opened once, and that descriptor is what is served:
+ * its device and inode must be those of the path now (lstat) — a link or another file put at the path since
+ * the check is a 404 — its size is the descriptor's, checked against the limit again, and only the bytes of
+ * the range are read from it. A file that ends before them (cut since) is a 404.
+ */
+async function mediaResponse(method: string, extension: string, file: string, limit: number, header: string | null | undefined, options: ImageFileOptions): Promise<Response> {
+  let handle: MediaFile
+  try {
+    handle = await (options.open ?? ((path: string) => open(path, 'r')))(file)
+  } catch {
+    return notFound()
+  }
+  try {
+    const [opened, named] = await Promise.all([handle.stat(), (options.lstat ?? lstat)(file)])
+    if (opened.dev !== named.dev || opened.ino !== named.ino) return notFound()
+    const size = opened.size
+    if (size > limit) return tooLargeMedia(limit)
+    const headers = { ...IMAGE_HEADERS, 'Content-Type': EVIDENCE_CONTENT_TYPES[extension] ?? 'application/octet-stream', 'Accept-Ranges': 'bytes' }
+    const range = byteRange(header, size)
+    if (range === 'unsatisfiable') return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } })
+    const status = range === null ? 200 : 206
+    const span = range ?? { start: 0, end: size - 1 }
+    const length = Math.max(0, span.end - span.start + 1)
+    const rangeHeaders = { ...headers, 'Content-Length': String(length), ...(range === null ? {} : { 'Content-Range': `bytes ${span.start}-${span.end}/${size}` }) }
+    if (method === 'HEAD') return new Response(null, { status, headers: rangeHeaders })
+    const body = new Uint8Array(length)
+    for (let done = 0; done < length; ) {
+      const { bytesRead } = await handle.read(body, done, length - done, span.start + done)
+      if (bytesRead === 0) return notFound()
+      done += bytesRead
+    }
+    return new Response(body, { status, headers: rangeHeaders })
+  } catch {
+    return notFound()
+  } finally {
+    await handle.close().catch(() => undefined)
+  }
 }
 
 /** An image of a Linked machine: its bytes from the second source, checked again on this side. */
@@ -305,11 +349,11 @@ export function createImageHandler(locate: ImageStoreLocator, options: ImageFile
     if (store === null) return notFound()
     const found = await findImageFile(store, address.name, options)
     // Only a `media` store tells a file over its limit; for the others it is not there, as before.
-    if (found === 'too-large' && store.media) return plain(413, `An Evidence file is served up to ${store.limit} bytes`)
+    if (found === 'too-large' && store.media) return tooLargeMedia(store.limit)
     if (typeof found === 'string') return notFound()
     const file = found.path
     const extension = nativePath.extname(file).toLowerCase()
-    if (store.media) return mediaResponse(request.method, extension, found.size, request.headers?.get('range'), () => (options.read ?? readFile)(file))
+    if (store.media) return mediaResponse(request.method, extension, file, store.limit, request.headers?.get('range'), options)
     if (request.method === 'HEAD') return imageResponse('HEAD', extension, new Uint8Array())
     let body: Uint8Array
     try {

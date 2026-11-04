@@ -7,6 +7,7 @@ import { expect, test, type ElectronApplication, type Locator, type Page } from 
 import { catScript } from '../harness-node'
 import { canvasReady, expectSettledWithoutOverlaps, launchApp, repoRoot, ticketCardCuts } from './helpers'
 import { ms } from '../time-scale'
+import { canvasImageUrl, evidenceFileUrl } from '../../src/shared/images'
 
 // The Evidence of a Ticket in the built app (worfy-evidence ticket 06). The cards carry the chip «Evidence n/m» —
 // neutral, green, red — and the widest card, with a gate, a PR, CI, a verdict and Evidence, keeps every chip
@@ -19,8 +20,10 @@ import { ms } from '../time-scale'
 //
 // The second test (worfy-evidence ticket 12): a screenshot line's thumbnail in the matrix opens the image over the
 // window, and a video line's clip — the fixture of test/fixtures/evidence-clip/, drawn from a pattern, no sound —
-// plays in place from worfy-image://evidence.<project label>/ and seeks to its middle, which needs the protocol's
-// 206 answers to a Range.
+// plays in place from worfy-image://evidence-<project label>/ and seeks to its middle, which needs the protocol's
+// 206 answers to a Range. Its Project's label is digits only (`00000006`): a Canvas image of it loads too, and
+// the window's own URL parser takes the addresses of both stores, which it would refuse as `canvas.00000006`
+// or `evidence.00000006` (an IPv4 address to Chromium).
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -282,7 +285,12 @@ test('the matrix shows a screenshot over the window and plays a clip in place, s
   const dataDir = join(scratch, 'data')
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: repo }], activeId: PROJECT }))
-  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 40, y: 40, zoom: 1 } }))
+  // A Canvas image of the same Project, whose label is digits only.
+  const picture = `${'a'.repeat(32)}.png`
+  mkdirSync(join(dataDir, PROJECT, 'images'))
+  copyFileSync(join(CLIP_FIXTURE, 'clip.sheet.png'), join(dataDir, PROJECT, 'images', picture))
+  const imageNode = { id: 'pic', kind: 'image', x: 40, y: 40, w: 320, h: 55, hidden: false, locked: false, pinned: false, tags: [], data: { file: picture, width: 640, height: 110, mime: 'image/png' } }
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [imageNode], viewport: { x: 40, y: 40, zoom: 1 } }))
   const harnessHome = join(scratch, 'no-harness-home')
 
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: harnessHome, HARNESS_HOME: harnessHome } })
@@ -290,6 +298,17 @@ test('the matrix shows a screenshot over the window and plays a clip in place, s
     const { window } = launched
     const card = window.locator(`.react-flow__node [data-testid="ticket-node"][data-epic="${EPIC}"][data-ticket="12"]`)
     await canvasReady(launched, { visible: [card], size: { width: 1600, height: 1000 } })
+
+    // The label 00000006 as the window parses it: the address of each store is a URL, the old spelling is not.
+    const parsed = await window.evaluate(
+      (urls) => urls.map((url) => URL.canParse(url)),
+      [canvasImageUrl(PROJECT, picture, null)!, evidenceFileUrl(PROJECT, 'demo/evidence/12-shot.png', null)!, `worfy-image://canvas.00000006/${picture}`, 'worfy-image://evidence.00000006/x.png'],
+    )
+    expect(parsed).toEqual([true, true, false, false])
+    const canvasPicture = window.locator('[data-testid="image-node"][data-node-id="pic"]').getByRole('img', { name: 'Image' })
+    await expect(canvasPicture).toHaveAttribute('src', `worfy-image://canvas-00000006/${picture}`)
+    await expect(canvasPicture).toHaveJSProperty('naturalWidth', 640)
+
     await card.dblclick()
     const tile = window.getByTestId('focus-mode').getByTestId('focus-tile')
     const matrix = tile.getByTestId('evidence-matrix')

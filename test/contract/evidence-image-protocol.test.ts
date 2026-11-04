@@ -7,13 +7,30 @@
 // a file of the Tickets root outside `evidence/`, a .mov, another Project, a layout that could not be
 // read, a Tickets root that holds the home folder, a Linked machine's address. The other stores keep
 // their answers: no clip, no Range, a file over the limit a 404.
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { open } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EVIDENCE_FILE_LIMIT_BYTES, EVIDENCE_FILE_PATTERN, evidenceFileUrl, evidenceImagesStore, IMAGE_SCHEME, parseImageHost } from '../../src/shared/images'
 import { imagesFile } from '../../src/shared/ipc/images'
 import { removeTestTree } from '../remove'
+
+// The app's own stores (appImageStore, appSharedImageStore, the images.file handler) over the Projects of this test.
+const app = vi.hoisted(() => ({ scratch: '', ids: [] as string[] }))
+vi.mock('../../src/main/projects/store', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/main/projects/store')>()),
+  projectStore: () => ({
+    list: () => app.ids.map((id) => ({ id })),
+    get: (id: string) => ({ id, path: `${app.scratch}/${id}` }),
+    dataDir: (id: string) => `${app.scratch}/data/${id}`,
+  }),
+}))
+vi.mock('../../src/main/workflow/folder', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/main/workflow/folder')>()
+  return { ...actual, projectLayouts: () => ({ get: async (root: string) => actual.fullLayout(root) }) }
+})
+vi.mock('../../src/main/storage/paths', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../src/main/storage/paths')>()), dataRoot: () => `${app.scratch}/data` }))
 
 vi.mock('electron', () => ({
   protocol: { registerSchemesAsPrivileged: () => undefined, handle: () => undefined },
@@ -25,7 +42,7 @@ vi.mock('electron', () => ({
 }))
 
 const { byteRange, createImageHandler, EVIDENCE_CONTENT_TYPES, findImageFile, imageStatus, resolveImageFile } = await import('../../src/main/images/protocol')
-const { evidenceImageStore } = await import('../../src/main/images/stores')
+const { appImageStore, appSharedImageStore, evidenceImageStore } = await import('../../src/main/images/stores')
 const { fullLayout } = await import('../../src/main/workflow/folder')
 type ProjectLayout = ReturnType<typeof fullLayout>
 
@@ -60,6 +77,8 @@ const status = async (url: string) => (await get(url)).status
 
 beforeEach(() => {
   scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-evidence-image-protocol-')))
+  app.scratch = scratch
+  app.ids = [DEMO]
   root = join(scratch, DEMO)
   tickets = join(root, '.scratch')
   mkdirSync(join(tickets, 'demo', 'evidence', 'sub'), { recursive: true })
@@ -234,9 +253,71 @@ describe('worfy-image://evidence-<project label>/', () => {
     expect((await failing({ url: address('demo/evidence/12-shot.png'), method: 'GET' })).status).toBe(404)
   })
 
-  it('a file that cannot be read is a 404', async () => {
-    const unreadable = createImageHandler((store) => evidenceImageStore(store, projects()), { read: () => Promise.reject(new Error('EIO')) })
+  it('a file that cannot be opened is a 404', async () => {
+    const unreadable = createImageHandler((store) => evidenceImageStore(store, projects()), { open: () => Promise.reject(new Error('EIO')) })
     expect((await unreadable({ url: address('demo/evidence/12-clip.webm'), method: 'GET' })).status).toBe(404)
+  })
+
+  it('reads from one descriptor only the bytes of the range, and closes it', async () => {
+    const reads: [number, number][] = []
+    let closed = 0
+    const counting = createImageHandler((store) => evidenceImageStore(store, projects()), {
+      open: async (path) => {
+        const handle = await open(path, 'r')
+        return {
+          stat: () => handle.stat(),
+          read: (buffer, offset, length, position) => {
+            reads.push([position, length])
+            return handle.read(buffer, offset, length, position)
+          },
+          close: async () => {
+            closed += 1
+            await handle.close()
+          },
+        }
+      },
+    })
+    const response = await counting({ url: address('demo/evidence/12-clip.webm'), method: 'GET', headers: new Headers({ Range: 'bytes=100-149' }) })
+    expect([response.status, response.headers.get('Content-Range')]).toEqual([206, 'bytes 100-149/300'])
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(CLIP.subarray(100, 150))
+    expect(reads).toEqual([[100, 50]])
+    expect(closed).toBe(1)
+  })
+
+  it('serves the descriptor it checked: another file at the path since the check, one grown over 8 MB, one cut short — none is served', async () => {
+    const clip = join(tickets, 'demo', 'evidence', '12-clip.webm')
+    const other = statSync(join(tickets, 'demo', 'evidence', '12-shot.png'))
+    const swapped = createImageHandler((store) => evidenceImageStore(store, projects()), { lstat: async () => ({ dev: other.dev, ino: other.ino }) })
+    expect((await swapped({ url: address('demo/evidence/12-clip.webm'), method: 'GET' })).status).toBe(404)
+    // The same path and file pass the same check.
+    const same = statSync(clip)
+    const kept = createImageHandler((store) => evidenceImageStore(store, projects()), { lstat: async () => ({ dev: same.dev, ino: same.ino }) })
+    expect((await kept({ url: address('demo/evidence/12-clip.webm'), method: 'GET' })).status).toBe(200)
+
+    const real = (path: string) => open(path, 'r')
+    const grown = createImageHandler((store) => evidenceImageStore(store, projects()), {
+      open: async (path) => {
+        const handle = await real(path)
+        return { stat: async () => ({ ...(await handle.stat()), size: EVIDENCE_FILE_LIMIT_BYTES + 1 }), read: (...args) => handle.read(...args), close: () => handle.close() }
+      },
+    })
+    expect((await grown({ url: address('demo/evidence/12-clip.webm'), method: 'GET' })).status).toBe(413)
+    const cut = createImageHandler((store) => evidenceImageStore(store, projects()), {
+      open: async (path) => {
+        const handle = await real(path)
+        return { stat: () => handle.stat(), read: async () => ({ bytesRead: 0 }), close: () => handle.close() }
+      },
+    })
+    expect((await cut({ url: address('demo/evidence/12-clip.webm'), method: 'GET' })).status).toBe(404)
+  })
+
+  it('serves a .jpeg and a .jpg as image/jpeg', async () => {
+    writeFileSync(join(tickets, 'demo', 'evidence', 'shot.jpeg'), PNG)
+    writeFileSync(join(tickets, 'demo', 'evidence', 'shot.jpg'), PNG)
+    for (const name of ['demo/evidence/shot.jpeg', 'demo/evidence/shot.jpg']) {
+      const response = await get(address(name))
+      expect([response.status, response.headers.get('Content-Type')], name).toEqual([200, 'image/jpeg'])
+    }
   })
 
   it('never leaves this Machine: a Linked machine’s address is a 404, and images.file does not take the store', async () => {
@@ -285,5 +366,27 @@ describe('the other stores keep their answers', () => {
       expect(await resolveImageFile({ ...any, nested: true }, 'demo/evidence/back\\slash.png')).toBeNull()
       expect(await resolveImageFile({ dir: join(tickets, 'demo', 'evidence'), names: /.*/, limit: 1000 }, 'back\\slash.png')).toBeNull()
     }
+  })
+})
+
+describe('the stores of the app', () => {
+  it('give this Machine’s window the Evidence store of a Project, and the shared stores as before', async () => {
+    expect(await appImageStore('evidence-0a1b2c3d')).toMatchObject({ dir: join(scratch, DEMO, '.scratch'), nested: true, media: true, limit: EVIDENCE_FILE_LIMIT_BYTES })
+    expect(await appImageStore('evidence-0b1c2d3e')).toBeNull()
+    expect(await appImageStore('canvas.0a1b2c3d')).toMatchObject({ dir: join(scratch, 'data', DEMO, 'images') })
+    expect(await appImageStore('attachments')).toMatchObject({ dir: join(scratch, 'data', 'attachments', 'images') })
+    expect(appSharedImageStore('evidence-0a1b2c3d')).toBeNull()
+    expect(appSharedImageStore('canvas.0a1b2c3d')).toMatchObject({ dir: join(scratch, 'data', DEMO, 'images') })
+  })
+
+  it('images.file, the link to another Machine, finds no Evidence store even past its input check', async () => {
+    const { default: handlers } = await import('../../src/main/ipc/images')
+    const handler = handlers.find(({ channel }) => channel.name === 'images.file')!
+    const ask = (store: string, name: string) => (handler.handle as (input: unknown, context: unknown) => Promise<unknown>)({ store, name, offset: 0, length: 100 }, {})
+    expect(await ask('evidence-0a1b2c3d', 'demo/evidence/12-shot.png')).toEqual({ status: 'missing' })
+    // A Canvas image of the same Project still goes.
+    mkdirSync(join(scratch, 'data', DEMO, 'images'), { recursive: true })
+    writeFileSync(join(scratch, 'data', DEMO, 'images', `${'a'.repeat(32)}.png`), PNG)
+    expect(await ask('canvas.0a1b2c3d', `${'a'.repeat(32)}.png`)).toMatchObject({ status: 'file' })
   })
 })

@@ -368,8 +368,10 @@ serves both this Machine's and a Linked machine's images.
 **Data flow.** A paste or drop checks the size, reads the bytes and sends them with `canvasImage.add`. `storeImage`
 checks the size and the first bytes, reads the natural size from the header and writes
 `<Project data folder>/images/<id>.<ext>` without overwriting. The renderer then creates the Node in one `create` per image. The Node
-asks for `worfy-image://canvas.<project label>/<file>`, or with `.<machine label>` added after the label for a Linked
-machine. There the bytes come in chunks over `images.file` and are checked again: 404 for no file or an unknown Machine,
+asks for `worfy-image://canvas-<project label>/<file>`, or with `.<machine label>` added after the label for a Linked
+machine. The host has a `-` before the label, not a `.`: the window reads a host whose last part is all digits as an
+IPv4 address and refuses it, and a project label is all digits for about 2 % of Projects. main still reads the older
+`canvas.<project label>` spelling, and the store keeps its name `canvas.<project label>` over the link. There the bytes come in chunks over `images.file` and are checked again: 404 for no file or an unknown Machine,
 413 when too large, 502 when unreachable. Only GET and HEAD are served.
 
 **Main tests:**

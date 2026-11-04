@@ -9,7 +9,7 @@
 // its own message), and an image whose header tells no size. The natural size comes from the
 // image's own header, so the Layout never takes the renderer's word for it.
 //
-// The window shows an image through worfy-image://canvas.<project label>/<file>
+// The window shows an image through worfy-image://canvas-<project label>/<file>
 // (src/shared/images.ts): canvasImageStore() is that store for the protocol's locator, which serves
 // only names of IMAGE_FILE_PATTERN from the Project's images folder, up to CANVAS_IMAGE_LIMIT_BYTES.
 //

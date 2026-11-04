@@ -15,8 +15,10 @@ import { imageFailure } from './image-url'
 // The bytes come from main by worfy-image://evidence-<project label>/<epic>%2Fevidence%2F<file>
 // (src/shared/images.ts): the path below the Project's Tickets root, which the ref, relative to the Ticket file's
 // folder `<epic>/issues/`, names. main serves only `<epic>/evidence/…` there, up to 8 MB. A file that does not load
-// says why — «File not found» or «File over 8 MB», as images.status tells — next to a link to open it in the
-// system's program. A window on a Linked machine draws no preview: the matrix shows «File is on <Machine>» for
+// says why — «File not found», «File over 8 MB», or «File cannot be shown» for one main serves but the window does
+// not draw, as images.status tells — next to a link to open it in the system's program; so does a picture that does
+// not load over the window (a missing contact sheet): the overlay closes, and the reason shows next to the preview. A
+// window on a Linked machine draws no preview: the matrix shows «File is on <Machine>» for
 // the ref, as before.
 
 const FAILURE: Readonly<Record<ImageStatus, string>> = {
@@ -46,6 +48,8 @@ type Overlay = { src: string; name: string; path: string } | null
 export function EvidencePreview({ projectId, kind, evidencePath, path, label, onOpen }: EvidencePreviewProps) {
   const [failure, setFailure] = useState<string | null>(null)
   const [overlay, setOverlay] = useState<Overlay>(null)
+  /** Why the picture over the window did not load, and the file it was: shown next to the preview once it closed. */
+  const [overlayFailure, setOverlayFailure] = useState<{ reason: string; path: string } | null>(null)
   const src = evidenceFileUrl(projectId, evidencePath, null)
   if (src === null) return null
 
@@ -94,11 +98,25 @@ export function EvidencePreview({ projectId, kind, evidencePath, path, label, on
           </a>
         </>
       )}
+      {overlayFailure === null ? null : (
+        <span className="w-evidence__overlay-failed" data-testid="evidence-overlay-failed">
+          <span data-testid="evidence-overlay-reason">{overlayFailure.reason}</span>
+          {' · '}
+          <a href={overlayFailure.path} onClick={openDefault(overlayFailure.path)} data-testid="evidence-open-default">
+            Open in default app
+          </a>
+        </span>
+      )}
       {overlay === null ? null : (
         <ImageOverlay
           src={overlay.src}
           name={overlay.name}
           onClose={() => setOverlay(null)}
+          onError={() => {
+            const shown = overlay
+            setOverlay(null)
+            void imageFailure(shown.src).then((status) => setOverlayFailure({ reason: FAILURE[status], path: shown.path }))
+          }}
           actions={
             <button type="button" className="w-evidence-overlay__open" data-testid="evidence-open-default" onClick={openDefault(overlay.path)}>
               Open in default app

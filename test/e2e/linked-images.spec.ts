@@ -1,7 +1,7 @@
 // Images on the Canvas of a Linked machine (worfy-canvas ticket 24) on two built worfy. A and B are
 // linked and both list one folder as a Project; the Canvas of B holds an image Node whose file is in
 // B's data folder only, one whose file is gone and one whose file is over 20 MB. A opens the Project
-// of B: the image comes from B over the link (worfy-image://canvas.<project label>.<machine label of
+// of B: the image comes from B over the link (worfy-image://canvas-<project label>.<machine label of
 // B>/<file>) and shows whole, with its proportions; the other two show a plate that says why. On A
 // the image of B is only shown: selected, it has no resize handles, and Delete leaves it and its file
 // on B where they are. Bonjour is off and the link server listens on loopback only (launchApp).
@@ -146,7 +146,7 @@ test('A shows the image of B from B, undistorted and only to look at; a missing 
     const node = a.window.locator('[data-testid="image-node"][data-node-id="pic"]')
     const picture = node.getByRole('img', { name: 'Image' })
     const src = await picture.getAttribute('src', { timeout: FIRST_IMAGE_MS })
-    expect(src).toMatch(new RegExp(`^worfy-image://canvas\\.${LABEL}\\.[0-9a-f]{32}/${PICTURE}$`))
+    expect(src).toMatch(new RegExp(`^worfy-image://canvas-${LABEL}\\.[0-9a-f]{32}/${PICTURE}$`))
     await expect(picture).toHaveJSProperty('complete', true, { timeout: FIRST_IMAGE_MS })
     await expect(picture).toHaveJSProperty('naturalWidth', NATURAL.width)
     await expect(picture).toHaveJSProperty('naturalHeight', NATURAL.height)

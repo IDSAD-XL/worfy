@@ -133,6 +133,10 @@
   border-radius: var(--radius-button);
   background: #000000;
 }
+.w-evidence__overlay-failed {
+  align-self: flex-end;
+  font-family: var(--font-mono);
+}
 .w-evidence__preview--failed {
   align-items: baseline;
   gap: 0;

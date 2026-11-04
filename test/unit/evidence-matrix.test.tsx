@@ -260,6 +260,20 @@ describe('the screenshot and the clip in the matrix', () => {
     expect(calls('shell.openInEditor')[1]).toEqual({ projectId: PROJECT, path: '.scratch/demo/evidence/12-clip.webm' })
   })
 
+  it('a contact sheet that does not load closes the overlay and says why next to the clip, with a link to open it', async () => {
+    ipc.status = 'missing'
+    render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={media()} repoUrl={REPO} baseDir={FOLDER} />)
+    fireEvent.click(within(clipRow()).getByRole('link', { name: 'Contact sheet' }))
+    fireEvent.error(screen.getByTestId('image-overlay-image'))
+    expect(screen.queryByTestId('image-overlay')).toBeNull()
+    await waitFor(() => expect(within(clipRow()).getByTestId('evidence-overlay-reason').textContent).toBe('File not found'))
+    expect(calls('images.status')).toEqual([{ url: `${STORE}/demo%2Fevidence%2F12-clip.sheet.png` }])
+    // The clip itself still plays.
+    expect(within(clipRow()).getByTestId('evidence-video')).toBeTruthy()
+    fireEvent.click(within(within(clipRow()).getByTestId('evidence-overlay-failed')).getByRole('link', { name: 'Open in default app' }))
+    await waitFor(() => expect(calls('shell.openInEditor')).toEqual([{ projectId: PROJECT, path: '.scratch/demo/evidence/12-clip.sheet.png' }]))
+  })
+
   it('on a Linked machine draws neither the thumbnail nor the <video>: the ref tells where the file is', () => {
     ipc.machine = 'machine-m'
     render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={media()} repoUrl={REPO} baseDir={FOLDER} />)
