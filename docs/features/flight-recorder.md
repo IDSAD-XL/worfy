@@ -185,7 +185,7 @@ commits are found by the branch of a Ticket and by sha; nothing is stamped into 
 | Source | Gives |
 |---|---|
 | The Autopilot journal | The run and its Waves, the waits for the Limits, the budget, background tasks and the gate queue, the Tickets' statuses (`ticket-status`), the narrow fix round, Session errors, refused dialogs, a person's actions, the stop. |
-| The Orchestrator's transcript | Its turns, the `Agent` calls and the `SendMessage` calls that resume an agent, the task-notifications. |
+| The Orchestrator's transcript | Its turns, the `Agent` calls and the `SendMessage` calls that resume an agent, the task-notifications. On Codex: the spawns, `send_message` and `followup_task`, and the Subagents' ends. |
 | The Subagents' transcripts | The start, the end and the outcome of each agent. |
 | GitHub | The PR opened and its new heads, CI runs and their retries, verdict comments, marks of agents on the head, the merge, and the label of the cross-machine gate (the wait `Other Machine`). |
 | Gate logs | Each gate run: its time, outcome, head, worktree and steps. |
@@ -202,6 +202,13 @@ page lists the lines. The Harness writes nothing into the journal, and the gate 
 the Session whose prompt with that text lies nearest the Wave's start is taken. A journal with neither, or a file that
 is gone, gives the label `transcript deleted`. A transcript belongs to the Project when the folder its records name
 lies in the Project's root, not by the name of its folder.
+
+**A run on Codex.** When `run-started.vendor` is `codex`, the transcripts are read through the history of the Codex
+driver, not from the Claude home: `wave-started.session` names the Orchestrator's Codex thread, and each Subagent's
+own thread is read too. An agent's span starts when it is spawned (`spawn_agent`) and ends when its thread reports it
+done. A `send_message` or `followup_task` to an agent that has finished starts its next span (`#2`). A Codex agent may
+be named `impl_NN`; that names its Ticket the same way `impl-NN` does. A Wave whose thread Codex cannot read gives
+`transcript deleted`. A journal without `vendor` is a Claude run.
 
 **Which Ticket a piece of work is.** An agent's Ticket comes from its name (`impl-NN`, `verify-NN`), else from its
 description, branch or Ticket path in its prompt. An agent with no Ticket named, in the worktree of an agent of a

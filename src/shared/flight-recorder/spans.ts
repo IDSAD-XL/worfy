@@ -147,14 +147,14 @@ function ms(iso: Iso): number {
 
 const optionalMs = (iso: Iso | null | undefined): number | null => (iso === null || iso === undefined ? null : ms(iso))
 
-/** The subkind of an agent: by its Harness type (`worfy:implementer`), else by its name (`impl-12`). */
+/** The subkind of an agent: by its Harness type (`worfy:implementer`), else by its name (`impl-12`; `impl_12` as a Codex agent path names it). */
 export function agentSubkind(name: string, agentType?: string): AgentSubkind {
   const type = agentType === undefined ? null : harnessName(agentType)
   if (type === 'implementer') return 'implementer'
   if (type === 'reviewer' || type === 'verifier') return 'verifier'
   if (type !== null && agentType !== undefined) return 'other'
-  if (/^impl(?:ementer)?-/iu.test(name)) return 'implementer'
-  if (/^(?:verify|verifier|review|reviewer)-/iu.test(name)) return 'verifier'
+  if (/^impl(?:ementer)?[-_]/iu.test(name)) return 'implementer'
+  if (/^(?:verify|verifier|review|reviewer)[-_]/iu.test(name)) return 'verifier'
   return 'other'
 }
 

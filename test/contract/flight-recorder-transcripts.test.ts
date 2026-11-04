@@ -8,6 +8,7 @@
 //
 // The night-Run fixture (test/fixtures/flight-recorder/night-run/) is read in place; tests that add
 // files copy it into a temporary home of their own.
+import { spawn } from 'node:child_process'
 import { realpathSync, symlinkSync } from 'node:fs'
 import { appendFile, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -20,8 +21,13 @@ import { PROMPT_LEAD_MS, readRunTranscripts, streamLines, TranscriptCompactor, T
 import { canonicalWorktree } from '../../src/main/flight-recorder/worktree-path'
 import { comparablePath } from '../../src/shared/flight-recorder/from-gate'
 import { agentIdsIn, SubagentParse, TranscriptParse, transcriptFacts, type SubagentLines } from '../../src/shared/flight-recorder/from-transcript'
+import { codexAskStarter, type CodexAsk, type StartCodex } from '../../src/main/vendors/codex/account'
+import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
+import { codexHistoryPart } from '../../src/main/vendors/codex/history'
+import type { HistoryPart } from '../../src/main/vendors/history'
 import { shapedSession, writeShapedSession } from './flight-recorder-shaped-transcript'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const FIXTURE = join(__dirname, '..', 'fixtures', 'flight-recorder', 'night-run', 'claude')
 const ROOT = '/Users/someone/Stuff/CanvasForAI'
@@ -749,5 +755,119 @@ describe('the reader on a live Run keeps one parse per file (TranscriptParses, w
     expect(tail.parses.size).toBe(1)
     tail.clear()
     expect(tail.parses.size).toBe(0)
+  })
+})
+
+// A Run on Codex (worfy-multi-vendor ticket 40): `run-started.vendor` is codex, so the transcripts are
+// read through the history part of the Codex driver (codexHistoryPart over the fake app-server, the
+// scenario test/fixtures/codex-scripts/flight-recorder-run.jsonl), not from the Claude home. The scenario
+// answers three `thread/read`s in turn — the Orchestrator's thread, then its two Subagents' — so the
+// three reads share one fake process here; in the app each read starts its own.
+describe('a Run on Codex: the transcripts come through the Codex driver\'s history', () => {
+  const ORCH = '019a0000-0000-7000-8000-000000000401'
+  const SUB_A = '019a0000-0000-7000-8000-000000000402'
+  const SUB_B = '019a0000-0000-7000-8000-000000000403'
+  const at = (seconds: number): string => new Date((1793000000 + seconds) * 1000).toISOString()
+  const RUN: TranscriptRun = {
+    epic: 'worfy-multi-vendor',
+    root: '/fake/project',
+    startedAt: at(0),
+    stoppedAt: at(100),
+    vendor: 'codex',
+    waves: [{ number: 1, startedAt: at(1), finishedAt: at(90), tickets: ['worfy-multi-vendor/40', 'worfy-multi-vendor/41'], session: ORCH }],
+  }
+  const REPO = join(__dirname, '..', '..')
+  const RUNTIME: CodexRuntime = { packaged: false, resourcesPath: '/Resources', platform: process.platform, arch: process.arch }
+  const opened: CodexAsk[] = []
+  afterAll(async () => {
+    for (const ask of opened.splice(0)) await ask.close()
+  })
+
+  /** The Codex history part over one fake process playing `script`, and the log of what worfy sent it. */
+  async function codexHistory(script: string) {
+    const cwd = await realpath(await mkdtemp(join(base, 'codex-')))
+    const codexHome = join(cwd, 'codex-home')
+    await mkdir(codexHome)
+    const log = join(cwd, 'codex.log')
+    const starter = codexAskStarter({
+      runtime: RUNTIME,
+      appPath: REPO,
+      cwd,
+      clientVersion: '9.9.9',
+      env: { ...process.env, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: script, WORFY_CODEX_LOG: log },
+      spawnProcess: (_file, args, options) => spawn(scriptNode(), [...args], options),
+      log: () => undefined,
+    })
+    let shared: Promise<CodexAsk> | undefined
+    const start: StartCodex = async (onEvent) => {
+      shared ??= starter(onEvent).then((ask) => (opened.push(ask), ask))
+      // Each read closes its ask: the shared process stays open for the next read and is closed after the test.
+      return { ...(await shared), close: () => Promise.resolve() }
+    }
+    const reads = async (): Promise<string[]> =>
+      (await readFile(log, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((each) => JSON.parse(each) as { method?: string; params?: { threadId?: string } })
+        .flatMap((message) => (message.method === 'thread/read' ? [message.params?.threadId ?? ''] : []))
+    return { part: codexHistoryPart({ start, codexHome: () => codexHome }), reads }
+  }
+
+  it('shows two agent spans of two Subagents, the follow-up as a second span, and the Orchestrator\'s turns; nothing from the Claude home', async () => {
+    const claude = await home('codex-run-claude-home', false)
+    const before = await snapshot(claude)
+    const codex = await codexHistory('flight-recorder-run')
+    const asked: string[] = []
+    const facts = await readRunTranscripts(RUN, {
+      env: { WORFY_CLAUDE_HOME: claude },
+      history: (vendor) => (asked.push(vendor), codex.part),
+      // A Codex Run reads no file: a line source that is asked fails the test.
+      readLines: (file) => Promise.reject(new Error(`read ${file}`)),
+    })
+    expect(asked).toEqual(['codex'])
+    // The Orchestrator's thread first, then the Subagents in the order they started.
+    expect(await codex.reads()).toEqual([ORCH, SUB_A, SUB_B])
+    expect(await snapshot(claude)).toEqual(before)
+
+    expect(facts.lost).toEqual([])
+    expect(facts.work.map(({ id, name, ticket, start, end, agent, pr, outcome }) => ({ id, name, ticket, start, end, agent, pr, outcome }))).toEqual([
+      // impl_40: its name says its Ticket; its report, the last answer of its own thread, its PR.
+      { id: `${SUB_A}#1`, name: 'impl_40', ticket: 'worfy-multi-vendor/40', start: at(3), end: at(20), agent: SUB_A, pr: 140, outcome: undefined },
+      // second_worker: its prompt, the first message of its own thread, names the branch of 41.
+      { id: `${SUB_B}#1`, name: 'second_worker', ticket: 'worfy-multi-vendor/41', start: at(4), end: at(30), agent: SUB_B, pr: 141, outcome: undefined },
+      // followup_task to the Subagent that had ended: the second span, to its next completion; its answer names no PR.
+      { id: `${SUB_B}#2`, name: 'second_worker', ticket: 'worfy-multi-vendor/41', start: at(41), end: at(60), agent: SUB_B, pr: undefined, outcome: undefined },
+    ])
+    expect(facts.work.every((fact) => fact.kind === 'agent' && fact.session === ORCH && fact.startSource === 'transcript' && fact.endSource === 'transcript')).toBe(true)
+    expect(facts.turns).toEqual([
+      { id: `${ORCH}:1`, start: at(1), end: at(32), tickets: ['worfy-multi-vendor/40', 'worfy-multi-vendor/41'], session: ORCH, startSource: 'transcript', endSource: 'transcript' },
+      { id: `${ORCH}:2`, start: at(40), end: at(62), tickets: ['worfy-multi-vendor/41'], session: ORCH, startSource: 'transcript', endSource: 'transcript' },
+    ])
+  })
+
+  it('a Wave whose thread the history cannot read, or that names none, is lost as a deleted transcript is', async () => {
+    const failing: HistoryPart = { list: () => Promise.resolve([]), read: (id) => Promise.reject(new Error(`no thread ${id}`)) }
+    const run: TranscriptRun = { ...RUN, waves: [...RUN.waves, { number: 2, startedAt: at(91), finishedAt: null, tickets: ['worfy-multi-vendor/42'] }] }
+    const facts = await readRunTranscripts(run, { history: () => failing })
+    expect(facts.work).toEqual([])
+    expect(facts.turns).toEqual([])
+    expect(facts.lost).toEqual([
+      { kind: 'orchestrator-turn', name: 'Orchestrator', source: 'transcript-deleted', start: at(1), end: at(90) },
+      { kind: 'agent', ticket: 'worfy-multi-vendor/40', name: 'impl-40', source: 'transcript-deleted' },
+      { kind: 'agent', ticket: 'worfy-multi-vendor/41', name: 'impl-41', source: 'transcript-deleted' },
+      { kind: 'orchestrator-turn', name: 'Orchestrator', source: 'transcript-deleted', start: at(91), end: at(100) },
+      { kind: 'agent', ticket: 'worfy-multi-vendor/42', name: 'impl-42', source: 'transcript-deleted' },
+    ])
+  })
+
+  it('a Run with no vendor is Claude\'s: read from the Claude home, never through a driver\'s history', async () => {
+    const asked: string[] = []
+    const facts = await readRunTranscripts(withSession(NIGHT, SESSION), { env: { WORFY_CLAUDE_HOME: FIXTURE }, history: (vendor) => (asked.push(vendor), { list: () => Promise.resolve([]), read: () => Promise.resolve([]) }) })
+    expect(asked).toEqual([])
+    expect(facts.lost).toEqual([])
+    expect(facts.work.length).toBeGreaterThan(0)
+    const claude = await readRunTranscripts({ ...withSession(NIGHT, SESSION), vendor: 'claude' }, { env: { WORFY_CLAUDE_HOME: FIXTURE }, history: (vendor) => (asked.push(vendor), { list: () => Promise.resolve([]), read: () => Promise.resolve([]) }) })
+    expect(asked).toEqual([])
+    expect(claude).toEqual(facts)
   })
 })

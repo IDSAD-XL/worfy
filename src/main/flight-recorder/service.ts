@@ -44,7 +44,7 @@ import { marksInFile, gitRunner, type GitRunner } from '../workflow/stages'
 import { readGateLogs } from './gate-logs'
 import { GITHUB_READ_INTERVAL_MS, GithubReader, repoPageUrl } from './github'
 import { readLocalVerdicts, type LocalTicket } from './local-verdicts'
-import { readRunTranscripts, streamLines, TranscriptCompactor, TranscriptParses, type ReadLines } from './transcripts'
+import { readRunTranscripts, streamLines, TranscriptCompactor, TranscriptParses, type ReadLines, type TranscriptReadOptions } from './transcripts'
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -96,6 +96,8 @@ export interface FlightRecorderOptions {
   schedule?: (tick: () => Promise<void>, ms: number) => () => void
   /** The incremental read of a file (src/main/claude-home/tail.ts); replaced in tests to see where a read starts. */
   tail?: typeof readNewLines
+  /** The history part of a Vendor's driver, for a Run of another Vendor than Claude (transcripts.ts); the driver's by default. */
+  history?: TranscriptReadOptions['history']
 }
 
 const iso = (ms: number): string => new Date(ms).toISOString()
@@ -511,8 +513,11 @@ export class FlightRecorder {
     if (!tailed) state.lines?.clear()
     state.lines?.begin()
     const transcripts = await readRunTranscripts(
-      { epic: journal.epic, root, startedAt: journal.run.startedAt, stoppedAt: end, waves: journal.waves },
-      tailed && state.lines !== null ? { env: this.env, readLines: state.lines.read, parses: state.lines.parses } : { env: this.env, readLines: streamLines },
+      { epic: journal.epic, root, startedAt: journal.run.startedAt, stoppedAt: end, waves: journal.waves, vendor: journal.vendor },
+      {
+        ...(tailed && state.lines !== null ? { env: this.env, readLines: state.lines.read, parses: state.lines.parses } : { env: this.env, readLines: streamLines }),
+        ...(this.options.history === undefined ? {} : { history: this.options.history }),
+      },
     )
     state.lines?.settle()
 

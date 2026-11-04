@@ -27,15 +27,30 @@
 // to the next and takes only the lines that came since, so a step costs what was appended, not the file.
 // The worktree of an agent is handed over by `canonicalWorktree` (worktree-path.ts), the helper reader
 // 16 calls too, so an agent and a gate run of one worktree meet.
+//
+// A Run of another Vendor (`run-started.vendor`, worfy-multi-vendor tickets 37 and 40; a Journal that
+// names none is Claude's, UNNAMED_VENDOR) is read through the history part of that Vendor's driver
+// (src/main/vendors/registry.ts), not from the Claude home: `history.read(wave-started.session, root)` is
+// the Orchestrator's transcript as worfy's entries, and `history.read(<agent id>, root)` the transcript
+// of each Subagent whose span starts in the Run's Waves, one after the other (each read may start a
+// process of the Vendor). The facts are the same as a Claude Run's (from-transcript.ts, appendEntries).
+// A Wave with no session, or one the history cannot read, is lost as a deleted transcript is; a
+// Subagent the history cannot read keeps its spans from the Orchestrator's transcript alone.
+// shortcut: such a Run is read whole at each recompute (no tail, no kept parse); redo with a tail of the
+// history part once a Vendor's driver can give the entries since the last read.
 import { createReadStream } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { LostFact, TurnFact, WaveFact, WorkFact } from '../../shared/flight-recorder/facts'
 import { SubagentParse, TranscriptParse, transcriptCwd, wavePromptTimes } from '../../shared/flight-recorder/from-transcript'
+import type { TranscriptEntry } from '../../shared/transcript/parse'
 import { AGENT_TOOLS } from '../../shared/transcript/subagents'
+import { UNNAMED_VENDOR, type VendorId } from '../../shared/vendors/vendor'
 import { isInsidePath, projectDirName } from '../claude-home/registry'
 import { claudeHome } from '../storage/paths'
+import type { HistoryPart } from '../vendors/history'
+import { vendorDriver } from '../vendors/registry'
 import { canonicalWorktree, type CanonicalOptions } from './worktree-path'
 
 type Env = Readonly<Record<string, string | undefined>>
@@ -69,6 +84,8 @@ export interface TranscriptRun {
   startedAt: Iso
   stoppedAt: Iso | null
   waves: readonly TranscriptWave[]
+  /** The Vendor of the Orchestrator (`run-started.vendor`); none — Claude, as every Run before it was written. */
+  vendor?: VendorId | undefined
 }
 
 /**
@@ -85,6 +102,8 @@ export interface TranscriptReadOptions extends CanonicalOptions {
   readLines?: ReadLines
   /** The parses kept from the last read (ticket 27); none by default: every file is parsed whole. */
   parses?: TranscriptParses
+  /** The history part of a Vendor's driver, for a Run of a Vendor other than UNNAMED_VENDOR; vendorDriver(vendor).history by default. */
+  history?: (vendor: VendorId) => HistoryPart
 }
 
 export interface RunTranscripts {
@@ -320,8 +339,69 @@ async function subagentFiles(dir: string, session: string, ids: ReadonlySet<stri
 
 const ms = (iso: Iso): number => Date.parse(iso)
 
+/** The Orchestrator lane and the agents of the Tickets of a Wave whose transcript is gone. */
+function lostWave(wave: TranscriptWave, end: Iso | null): LostFact[] {
+  return [
+    { kind: 'orchestrator-turn', name: 'Orchestrator', source: 'transcript-deleted', start: wave.startedAt, ...(end === null ? {} : { end }) },
+    ...wave.tickets.map((ticket): LostFact => ({ kind: 'agent', ticket, name: `impl-${/(\d+)$/u.exec(ticket)?.[1] ?? ticket}`, source: 'transcript-deleted' })),
+  ]
+}
+
+/** The time window of each Session: from just before its first Wave's start to its last Wave's end. */
+function widen(windows: Map<string, { start: number; end: number }>, session: string, wave: TranscriptWave, end: Iso | null): void {
+  const window = windows.get(session) ?? { start: Infinity, end: -Infinity }
+  window.start = Math.min(window.start, ms(wave.startedAt) - PROMPT_LEAD_MS)
+  window.end = Math.max(window.end, end === null ? Infinity : ms(end))
+  windows.set(session, window)
+}
+
+/** An agent with no Ticket of its own: the Ticket of an agent in the same worktree, else the Run's. */
+function placeByWorktree(work: WorkFact[]): void {
+  const ticketOfWorktree = new Map<string, string>()
+  for (const fact of work) if (typeof fact.ticket === 'string' && fact.worktree !== undefined) ticketOfWorktree.set(fact.worktree, fact.ticket)
+  for (const fact of work) if (fact.ticket === undefined) fact.ticket = ticketOfWorktree.get(fact.worktree ?? '') ?? null
+}
+
+/**
+ * The facts of a Run of a Vendor whose transcripts its driver's history reads (the header): the
+ * Orchestrator's thread of each Wave, then each Subagent the Run's Waves started, one read at a time.
+ */
+async function readHistoryTranscripts(run: TranscriptRun, history: HistoryPart, options: TranscriptReadOptions): Promise<RunTranscripts> {
+  const tickets = [...new Set(run.waves.flatMap((wave) => wave.tickets))]
+  const read = new Map<string, TranscriptEntry[] | null>()
+  const entriesOf = async (id: string): Promise<TranscriptEntry[] | null> => {
+    if (!read.has(id)) read.set(id, await history.read(id, run.root).catch(() => null))
+    return read.get(id) ?? null
+  }
+  const lost: LostFact[] = []
+  const windows = new Map<string, { start: number; end: number }>()
+  for (const wave of run.waves) {
+    const end = wave.finishedAt ?? run.stoppedAt
+    if (wave.session === undefined || (await entriesOf(wave.session)) === null) lost.push(...lostWave(wave, end))
+    else widen(windows, wave.session, wave, end)
+  }
+  const work: WorkFact[] = []
+  const turns: TurnFact[] = []
+  for (const [session, window] of windows) {
+    const parse = new TranscriptParse().appendEntries(read.get(session)!)
+    const inside = (at: Iso) => ms(at) >= window.start && ms(at) <= window.end
+    const subagents = new Map<string, { meta: unknown; parse: SubagentParse }>()
+    for (const id of parse.agentIdsIn(inside)) {
+      const entries = await entriesOf(id)
+      if (entries !== null) subagents.set(id, { meta: null, parse: new SubagentParse().appendEntries(entries) })
+    }
+    const facts = parse.facts({ session, epic: run.epic, tickets, subagents, inside })
+    for (const fact of facts.work) work.push(fact.worktree === undefined ? fact : { ...fact, worktree: await canonicalWorktree(fact.worktree, options) })
+    turns.push(...facts.turns)
+  }
+  placeByWorktree(work)
+  return { work, turns, lost }
+}
+
 /** The facts of the transcripts of a Run. */
 export async function readRunTranscripts(run: TranscriptRun, options: TranscriptReadOptions = {}): Promise<RunTranscripts> {
+  const vendor = run.vendor ?? UNNAMED_VENDOR
+  if (vendor !== UNNAMED_VENDOR) return readHistoryTranscripts(run, (options.history ?? ((id) => vendorDriver(id).history))(vendor), options)
   const platform = options.platform ?? process.platform
   const readLines = options.readLines ?? streamLines
   const parses = options.parses ?? new TranscriptParses()
@@ -378,15 +458,8 @@ export async function readRunTranscripts(run: TranscriptRun, options: Transcript
       if (session !== undefined && (await sessionLines(session)) === null) session = undefined
     }
     const end = wave.finishedAt ?? run.stoppedAt
-    if (session === undefined) {
-      lost.push({ kind: 'orchestrator-turn', name: 'Orchestrator', source: 'transcript-deleted', start: wave.startedAt, ...(end === null ? {} : { end }) })
-      for (const ticket of wave.tickets) lost.push({ kind: 'agent', ticket, name: `impl-${/(\d+)$/u.exec(ticket)?.[1] ?? ticket}`, source: 'transcript-deleted' })
-      continue
-    }
-    const window = windows.get(session) ?? { start: Infinity, end: -Infinity }
-    window.start = Math.min(window.start, ms(wave.startedAt) - PROMPT_LEAD_MS)
-    window.end = Math.max(window.end, end === null ? Infinity : ms(end))
-    windows.set(session, window)
+    if (session === undefined) lost.push(...lostWave(wave, end))
+    else widen(windows, session, wave, end)
   }
 
   const work: WorkFact[] = []
@@ -405,10 +478,7 @@ export async function readRunTranscripts(run: TranscriptRun, options: Transcript
     turns.push(...facts.turns)
   }
 
-  // An agent with no Ticket of its own: the Ticket of an agent in the same worktree, else the Run's.
-  const ticketOfWorktree = new Map<string, string>()
-  for (const fact of work) if (typeof fact.ticket === 'string' && fact.worktree !== undefined) ticketOfWorktree.set(fact.worktree, fact.ticket)
-  for (const fact of work) if (fact.ticket === undefined) fact.ticket = ticketOfWorktree.get(fact.worktree ?? '') ?? null
+  placeByWorktree(work)
   parses.settle()
   return { work, turns, lost }
 }

@@ -13,7 +13,9 @@
 // - read(id): `thread/read {includeTurns: true}`; Codex finds the thread by its id, so `cwd` is not
 //   used (spec, "Decided without the owner", item 13). Its items become worfy's transcript entries
 //   through the translation of a live Session (items.ts, ticket 20); the user's messages become the
-//   notices a Claude transcript gives for them.
+//   notices a Claude transcript gives for them, and the items about Subagents (spawn_agent,
+//   send_message, followup_task, wait, subAgentActivity) the `subagent` events of a Claude transcript
+//   (ticket 40: the Flight Recorder reads a Codex Run's agents from them). Each entry has its item's time.
 //
 // worfy writes nothing into CODEX_HOME (ADR-0005): it only looks whether the folder exists, and no
 // Codex is started when it does not: such a Codex has no threads.
@@ -24,6 +26,8 @@ import { isInsidePath } from '../../claude-home/registry'
 import type { HistoryPart, HistorySession } from '../history'
 import { appCodexStarter, CODEX_ASK_TIMEOUT_MS, codexHomeOf, withCodex, type StartCodex } from './account'
 import { CodexItems } from './items'
+import type { CollabAgentStatus } from './protocol/ts/v2/CollabAgentStatus'
+import type { CollabAgentTool } from './protocol/ts/v2/CollabAgentTool'
 import type { Thread } from './protocol/ts/v2/Thread'
 import type { ThreadItem } from './protocol/ts/v2/ThreadItem'
 import type { ThreadListResponse } from './protocol/ts/v2/ThreadListResponse'
@@ -84,22 +88,97 @@ function userText(item: Extract<ThreadItem, { type: 'userMessage' }>): string {
 }
 
 const isoOf = (seconds: number | null | undefined): string | undefined => (typeof seconds === 'number' ? new Date(seconds * 1000).toISOString() : undefined)
+const isoOfMs = (ms: number | null | undefined): string | undefined => (typeof ms === 'number' && Number.isFinite(ms) ? new Date(ms).toISOString() : undefined)
+
+type SubagentEvent = Extract<AgentEvent, { type: 'subagent' }>
+
+/** The name the model gave a Subagent: the last part of its agent path (`/root/impl_40` → `impl_40`). */
+const agentName = (path: string): string | null => path.split('/').filter((part) => part !== '').at(-1) ?? null
+
+/** How a Subagent's state ends, in the words of a task-notification (`completed`, `failed`, `stopped`); null while it works. */
+const ENDED_AS: Readonly<Record<CollabAgentStatus, string | null>> = {
+  pendingInit: null,
+  running: null,
+  completed: 'completed',
+  shutdown: 'completed',
+  errored: 'failed',
+  notFound: 'failed',
+  interrupted: 'stopped',
+}
+
+/** The collab tools that set a Subagent working again (send_message, followup_task…). */
+const RESUMING_TOOLS: ReadonlySet<CollabAgentTool> = new Set(['sendMessage', 'followupTask', 'sendInput', 'resumeAgent'])
+
+const subagentEvent = (phase: SubagentEvent['phase'], taskId: string, toolUseId: string, fields: Partial<Pick<SubagentEvent, 'description' | 'status' | 'summary' | 'result'>> = {}): SubagentEvent => ({
+  type: 'subagent',
+  phase,
+  taskId,
+  toolUseId,
+  description: fields.description ?? null,
+  subagentType: null,
+  status: fields.status ?? null,
+  summary: fields.summary ?? null,
+  ...(fields.result === undefined ? {} : { result: fields.result }),
+})
+
+/**
+ * What an item of a parent thread says of its Subagents (worfy-multi-vendor ticket 40), as the
+ * `subagent` events a Claude transcript gives for its agents: `started` when one is spawned or set
+ * working again (send_message, followup_task), `finished` when it ends, each at its own time. A
+ * `subAgentActivity` names the agent by the last part of its path; a `wait` or `closeAgent` gives the
+ * states the Subagents ended in, with their answers. A spawn that failed is a start and a failed end,
+ * with the state's message as the reason; one that names no thread stands for its Subagent by the
+ * call's id, so the attempt still shows. Null for an item of another type.
+ */
+function subagentEvents(item: ThreadItem): { at: number | null | undefined; event: SubagentEvent }[] | null {
+  if (item.type === 'subAgentActivity') {
+    const description = agentName(item.agentPath)
+    const ended = item.kind === 'completed' ? 'completed' : item.kind === 'interrupted' ? 'stopped' : null
+    const event = ended === null ? subagentEvent('started', item.agentThreadId, item.id, { description }) : subagentEvent('finished', item.agentThreadId, item.id, { description, status: ended })
+    return [{ at: item.startedAtMs, event }]
+  }
+  if (item.type !== 'collabAgentToolCall') return null
+  const started = item.startedAtMs
+  const done = item.completedAtMs ?? item.startedAtMs
+  if (item.status === 'failed') {
+    if (item.tool !== 'spawnAgent') return []
+    const agents = item.receiverThreadIds.length > 0 ? item.receiverThreadIds : [item.id]
+    return agents.flatMap((agent) => [
+      { at: started, event: subagentEvent('started', agent, item.id) },
+      { at: done, event: subagentEvent('finished', agent, item.id, { status: 'failed', summary: item.agentsStates[agent]?.message ?? null }) },
+    ])
+  }
+  if (item.tool === 'spawnAgent' || RESUMING_TOOLS.has(item.tool)) return item.receiverThreadIds.map((agent) => ({ at: started, event: subagentEvent('started', agent, item.id) }))
+  if (item.tool === 'interruptAgent') return item.receiverThreadIds.map((agent) => ({ at: done, event: subagentEvent('finished', agent, item.id, { status: 'stopped' }) }))
+  if (item.tool !== 'wait' && item.tool !== 'closeAgent') return []
+  return Object.entries(item.agentsStates).flatMap(([agent, state]) => {
+    const status = state === undefined ? null : ENDED_AS[state.status]
+    return status === null || state === undefined ? [] : [{ at: done, event: subagentEvent('finished', agent, item.id, { status, result: state.message }) }]
+  })
+}
 
 /**
  * The transcript entries of a thread read with its turns: per item, the events a live Session gives
- * when the item completes (items.ts), each with the item's id and the time its turn started.
+ * when the item completes (items.ts), each with the item's id and the item's own time — its start for
+ * a message of the user and a tool call, its end for the rest — else the time its turn started. The
+ * items about Subagents give `subagent` events (subagentEvents), which the Flight Recorder builds an
+ * agent's spans from (worfy-multi-vendor ticket 40).
  */
 export function codexTranscript(thread: Thread): TranscriptEntry[] {
   // Only item/completed goes in: the context is asked for a turn's init and result, which a read never gives.
   const items = new CodexItems({ threadId: () => thread.id, cwd: () => thread.cwd, version: () => thread.cliVersion, model: () => thread.model ?? '', preset: () => '' })
   return (thread.turns ?? []).flatMap((turn: Turn) => {
-    const timestamp = isoOf(turn.startedAt)
+    const turnStart = isoOf(turn.startedAt)
+    const entry = (item: ThreadItem, event: AgentEvent, ms: number | null | undefined): TranscriptEntry => {
+      const timestamp = isoOfMs(ms) ?? turnStart
+      return { uuid: item.id, ...(timestamp === undefined ? {} : { timestamp }), sidechain: false, event }
+    }
     return turn.items.flatMap((item) => {
-      const events: AgentEvent[] =
-        item.type === 'userMessage'
-          ? [{ type: 'notice', kind: 'user', text: userText(item) }]
-          : items.take({ method: 'item/completed', params: { threadId: thread.id, turnId: turn.id, item, completedAtMs: 0 } })
-      return events.map((event) => ({ uuid: item.id, ...(timestamp === undefined ? {} : { timestamp }), sidechain: false, event }))
+      if (item.type === 'userMessage') return [entry(item, { type: 'notice', kind: 'user', text: userText(item) }, item.startedAtMs)]
+      const ofSubagents = subagentEvents(item)
+      if (ofSubagents !== null) return ofSubagents.map(({ at, event }) => entry(item, event, at))
+      const events = items.take({ method: 'item/completed', params: { threadId: thread.id, turnId: turn.id, item, completedAtMs: 0 } })
+      return events.map((event) => entry(item, event, event.type === 'tool_use' ? item.startedAtMs : (item.completedAtMs ?? item.startedAtMs)))
     })
   })
 }
