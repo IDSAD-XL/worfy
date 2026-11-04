@@ -1,0 +1,4 @@
+{"at":"2026-10-21T09:00:00.000Z","run":"2026-10-21T09-00-00-000Z-d4e5f6","project":"demo","epic":"demo-epic","kind":"run-started"}
+{"at":"2026-10-21T09:10:00.000Z","run":"2026-10-21T09-00-00-000Z-d4e5f6","project":"demo","epic":"demo-epic","kind":"refused-dialog","session":"demo-session-1","what":"permission_request Bash","agent":"ademo1","reason":"This shell -c script runs rm and could not be checked at /tmp/demo/x"}
+{"at":"2026-10-21T09:20:00.000Z","run":"2026-10-21T09-00-00-000Z-d4e5f6","project":"demo","epic":"demo-epic","kind":"refused-dialog","session":"demo-session-1","what":"card_ask demo-card"}
+{"at":"2026-10-21T09:30:00.000Z","run":"2026-10-21T09-00-00-000Z-d4e5f6","project":"demo","epic":"demo-epic","kind":"refused-dialog","session":"demo-session-1","what":"permission_request mcp__demo__send_message"}

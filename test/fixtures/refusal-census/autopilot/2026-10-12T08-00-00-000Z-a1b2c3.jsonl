@@ -1,0 +1,5 @@
+{"at":"2026-10-12T08:00:00.000Z","run":"2026-10-12T08-00-00-000Z-a1b2c3","project":"demo","epic":"demo-epic","kind":"run-started"}
+{"at":"2026-10-12T08:10:00.000Z","run":"2026-10-12T08-00-00-000Z-a1b2c3","project":"demo","epic":"demo-epic","kind":"refused-dialog","session":"demo-session-1","what":"permission_request Bash"}
+{"at":"2026-10-12T08:12:00.000Z","run":"2026-10-12T08-00-00-000Z-a1b2c3","project":"demo","epic":"demo-epic","kind":"refused-dialog","session":"demo-session-1","what":"permission_request AskUserQuestion"}
+{"at":"2026-10-12T09:00:00.000Z","run":"2026-10-12T08-00-00-000Z-a1b2c3","project":"demo","epic":"demo-epic","kind":"run-stopped","reason":"done"}
+{"broken": 

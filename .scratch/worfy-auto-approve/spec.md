@@ -68,21 +68,66 @@ implementer-Subagent запустил многострочный `zsh -c '…'`,
 - **Guard Harness-а** `harness/hooks/guard.mjs` (PreToolUse на Bash) режет команду на сегменты простым `split`
   (`:106`): для «запретить» такого разбора хватает, для «разрешить» — нет.
 
-## Данные прошлых ночей (предварительно; полный подсчёт — Ticket 01)
+## Данные прошлых ночей
 
-Посчитано на Mac-е 2026-11-04, только числами; ни команд, ни путей в репозиторий не скопировано.
+Подсчёт — Ticket 01, скрипт `scripts/refusal-census.mjs` (Node, только читает; печатает числа по категориям и
+очищенные шаблоны, ни команд, ни путей, ни id). Mac и PC — 2026-11-04, Journal-ы установленного worfy и все
+transcript-ы `~/.claude/projects`. Ни одной строки из настоящих данных в репозиторий не скопировано. Отказ — `tool_result`
+с `is_error: true`, текст которого начинается с текста отказа: на Mac так помечены все 10 (10 из 10 с `is_error: true`).
 
-- Journal: 40 Run-ов (2026-10-06 … 2026-11-03), 9 строк `refused-dialog` в 8 Run-ах: 5 — Bash, 4 — AskUserQuestion.
-  `reason` есть у одной (поле появилось позже остальных строк). 7 из 8 Run-ов с отказом — до правила 2026-10-20;
-  после него Run-ов всего 4.
-- Transcript-ы Claude Code: 10 отказов в 8 transcript-ах за 7 дней. AskUserQuestion — 4; Bash — 6: `cd` и `rm` с glob
-  — 2, `rm` с целью `$VAR/$VAR` — 2, многострочный скрипт — 1, прочее — 1. Причины Claude Code: «shell -c script runs
-  rm and could not be checked» — 1, «Dangerous rm operation on statically-unresolvable target» — 1, без причины — 8.
-- Codex: 0 отказов (unattended Codex не спрашивает, см. выше). PC (Windows) не считан.
+- **Journal (Mac):** 40 Run-ов (36 до правила 2026-10-20, 4 после), 9 строк `refused-dialog` в 8 Run-ах (7 до правила,
+  1 после): Bash — 5, AskUserQuestion — 4, `card_ask` — 0. `reason` есть у одной строки (поле появилось позже).
+- **Transcript-ы (Mac):** 8973 файла, отказ в 8; 10 отказов за 7 дней, 8 до правила и 2 после. Все Bash-отказы — у
+  Subagent-ов (implementer-ы), все AskUserQuestion — у самой Session Orchestrator-а. Причина Claude Code есть у двух:
+  «This shell -c script runs rm and could not be checked» — 1 (у команды без `rm` и без `-c`: проверка Claude Code
+  судит по своему разбору), «Dangerous rm operation on statically-unresolvable target: <path>» — 1; без причины — 8.
+- Journal видит на один Bash-отказ меньше transcript-ов (5 против 6); почему — не выяснено (Run без Journal-а или
+  отказ вне Autopilot-а). Счёт по категориям — по transcript-ам: только в них есть команда.
+- **Codex:** 0 (unattended Codex не спрашивает, «Что уже есть»).
 
-Вывод для плана: отказов немного (примерно один на четыре Run-а), но каждый ломает шаг. Почти половина — не
-разрешения, а вопросы (AskUserQuestion), и их политика не одобряет («Как работает», п. 6). Поэтому Ticket 01 идёт
-первым и решает, что дешевле лечится правилом агента или PreToolUse hook-ом, чем одобрением.
+Категории: `rm-after-cd-glob` — `rm` с glob в той же команде после `cd`; `rm-var-target` — цель `rm` с переменной;
+`multiline-c-script` — `sh` / `bash` / `zsh -c` с многострочным скриптом; `bash-other` — прочий Bash; дальше —
+AskUserQuestion, Edit / Write (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`), MCP tool, неизвестный tool. Порядок
+проверки Bash — как в таблице: первая подошедшая категория. Решения: (а) одобрение по политике (Ticket 03),
+(б) правило агента (`common.md`, Ticket 09), (в) PreToolUse hook, переписывающий команду (Ticket 09), (г) ничего —
+отказ правильный.
+
+| Категория | Mac, всего (после правила) | PC, всего | Чем лечить |
+| --- | --- | --- | --- |
+| `rm-after-cd-glob` | 2 (1) | 0 | (а) правило «удаление внутри корней» с учётом `cd` по ходу команды; цель вне корней — park; (б) правило «удаляй по буквальному пути» уже есть (`common.md:80`) |
+| `rm-var-target` | 2 (0) | 0 | (а) для `X=$(mktemp -d)` и `X=<буквальное>` в той же команде; цель из цикла — deny-with-hint; (б) уточнить правило: не удалять в цикле по переменной |
+| `multiline-c-script` | 1 (0) | 0 | (а) только если разобрана каждая строка; zsh built-in-ы (`zmodload`, `typeset`, `setopt` …) — deny-with-hint; (б) «скрипт — в файл» уже есть |
+| `bash-other` | 1 (0) | 0 | (г): записи и удаления в команде нет, проверку Claude Code не повторить — deny-with-hint без одобрения |
+| AskUserQuestion | 4 (1) | 0 | (б) правило для Orchestrator-а под Autopilot-ом (Ticket 09): не спрашивать, решить по правилам Project-а или записать вопрос в «Вопросы владельцу» Ticket-а; политика — deny-with-hint (Q8 → (а)) |
+| Edit / Write | 0 | 0 | (а) внутри корней; данных нет |
+| MCP tool | 0 | 0 | park (Q3); данных нет |
+| Неизвестный tool | 0 | 0 | park (Q3); данных нет |
+| **Всего** | **10 (2)** | **0** | |
+
+**Черновая политика по прошлым отказам (Mac, `--draft`).** Грубый набросок Ticket-а 03 внутри скрипта (корни —
+worktree-ы репозитория `cwd`, его `.scratch`, scratchpad Claude Code, папка `mktemp -d`; symlink не проверяется):
+allow — 0, deny-with-hint — 9, park — 1, hard-deny — 0. Причины deny: вопрос — 4, цикл или условие — 3,
+here-document — 1, zsh built-in — 1; park — цель вне корней. Вывод: на данных Mac-а одобрение не спасло бы ни одного
+шага — команды агентов сложнее грамматики «Как работает», п. 2. Пользу дают текст deny-with-hint (агент переписывает
+команду) и правила агента (Ticket 09); одобрение (Ticket 03) — для простых команд, которых в этих данных нет.
+Повтор с настоящей политикой — после Ticket 03.
+
+**(в) PreToolUse hook — не выбран ни для одной категории.** `updatedInput` в ответе PreToolUse hook-а есть в
+Claude Code 2.1.289, который ставит worfy (`@anthropic-ai/claude-agent-sdk` 0.3.289, поле `claudeCodeVersion` его
+`package.json`): `PreToolUseHookSpecificOutput.updatedInput?: Record<string, unknown>`
+(`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:2752`), документация — https://code.claude.com/docs/en/hooks
+(PreToolUse, decision control). Живьём не проверено (настоящий Claude Code в test-ах не запускается): видит ли
+собственная проверка `rm` Claude Code уже переписанную команду, неизвестно. Кроме того, hook меняет команду
+незаметно для агента, а deny-with-hint даёт тот же результат ценой одного хода. Поэтому Ticket 09 — только
+правила агента (AskUserQuestion; удаление не в цикле, не в here-document, не в `-c`-скрипте).
+
+**Q8 по данным:** вопросы — 4 из 10 отказов, все — у Session Orchestrator-а; ответ — (а) deny-with-hint и правило
+агента (Ticket 09), park не нужен.
+
+**PC (Windows), 2026-11-04**, прогон через Session PC (PowerShell, ветка Ticket-а): 755 transcript-ов, Journal-ов нет:
+Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autopilot` нет). Отказов 0 во всех категориях, черновая
+политика 0 / 0 / 0 / 0. Вывода это не меняет. Но и про Windows эти нули ничего не говорят: unattended-данных на ПК ещё
+нет, и отказы, текст которых бывает только на Windows (Git Bash, пути `C:\…`), этим подсчётом не проверены.
 
 ## Что видит владелец
 
