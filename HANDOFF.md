@@ -11,7 +11,7 @@
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): закрыт, 28/28, принят владельцем 2026-11-02.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 46/48; 47 (flaky Windows): части 1–5 влиты, ждёт 20 зелёных `windows-e2e`; 48 — шапка на узком окне, открыт.
+- `worfy-polish`: 53/55; 47 (flaky Windows): части 1–5 влиты, ждёт 20 зелёных `windows-e2e`; 48 открыт. Подтвердить: «Итог» 52–55.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 57/60; открыты 05, 31, 43; 60 — Eco mode в чате (#1057). 43: eco проверяет друг. 31: замер 2026-11-06.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
@@ -20,7 +20,7 @@
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): закрыт, 16/16, принят владельцем 2026-11-02 (Mac). `worfy-guide`: закрыт, 21/21.
 - `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): закрыт, 28/28, принят владельцем 2026-11-01; Windows-часть 25 не проводилась.
 - `worfy-resource-planner`: закрыт, 12/12, принят владельцем 2026-11-01.
-- `worfy-multi-vendor`: 43/45, код и docs в main; остались 32 и 43 (приёмка владельца). Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–42, 44, 45 (`additionalContextLimit`), ADR-0095; `high` 19–21. Должен: gate full ПК на `e47b1bd9`.
+- `worfy-multi-vendor`: 44/46, код в main; остались 32 и 43 (приёмка владельца). Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–42, 44, 45 (`additionalContextLimit`), 46, ADR-0095; `high` 19–21. Должен: gate full ПК на `c4eb4117`.
 - Новые Epic-и 2026-11-04: `worfy-evidence` в работе (Q1–Q7 подтвердить), `worfy-failures` и `worfy-faults` приняты (повтор хода — Epic `worfy-retry`).
 
 ## Ждёт владельца
@@ -32,7 +32,7 @@
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
 - `worfy-windows`, ПК: 12 — SmartScreen установщика; 07 закрыт (#1127, отступления Q31 подтвердить).
 - Приёмки (Q14).
-- `worfy-multi-vendor` 32, потом 43 — на Mac Stable новее `51c48323` с Codex (Plus), затем ПК; план — в Ticket-ах.
+- `worfy-multi-vendor` 32, потом 43 — на Mac Stable `b09dfab0` (43 п. 1 на Mac пройден), затем ПК; план в Ticket-ах.
 - `worfy-ui` (закрыт): Windows-часть не проводилась — AltGr на ПК (03), gate full на Windows для 03 и 10, 11 (решения в PR #328); долги — «Итог» 03–06, 09, 10, 13–15.
 - Решено без владельца, подтвердить: видно ли новое описание аудита в приложении Claude (`worfy-guide` 20 п. 1 сделан).
 
