@@ -1177,6 +1177,11 @@ verdict covered (`"fail"` for `REJECTED`), and an entry
 `{"item": <n>, "kind": "ci-check", "verdict": "pass", "ref": "<URL of the final check's run on the head>"}`
 for each item the final CI check proves. Their `sha` is the PR's `<head>`, and a `ci-check` line gets
 the platform `ci`. `land` writes them with `ticket evidence` in its documents PR, before `ticket done`.
+Add them to the state file, once per PR, before the first `land` run (each argument after `<N>` is one entry):
+
+`node -e 'const fs = require("fs"), [file, n, ...add] = process.argv.slice(1); const st = JSON.parse(fs.readFileSync(file, "utf8")); const pr = st.prs.find((p) => p.number === Number(n)); if (!pr) { console.error("no PR #" + n + " in " + file); process.exit(1) } pr.evidence = [...(pr.evidence || []), ...add.map((a) => JSON.parse(a))]; fs.writeFileSync(file, JSON.stringify(st, null, 2) + "\n")' <state file> <N> '{"item": <n>, "kind": "review", "verdict": "pass", "ref": "PR #<N>"}' '{"item": <n>, "kind": "ci-check", "verdict": "pass", "ref": "<run URL>", "platform": "ci"}'; echo "EXIT=$?"`
+
+`EXIT=1` with `no PR #<N>` — that PR is not in the state file. A second run adds the entries again.
 
 In Silent mode `land` opens no documents PR (`ticket done` is the orchestrator's, in the Workflow
 folder), and the Evidence lines are the orchestrator's too: after the verdict and the CI, before

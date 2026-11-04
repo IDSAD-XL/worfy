@@ -820,9 +820,26 @@ for p in '`prs[].evidence`' '{"item": <n>, "kind": "review", "verdict": "pass", 
     'into the ticket files in the Workflow folder'; do
     ev "$EWS" "epic-wave, Merge with land" "$p"
 done
+# The recipe that adds prs[].evidence to a state file of land: its line of the skill, run on a fixture
+# state file with the placeholders filled in, leaves the entries in the shape land checks.
+RECIPE_EV="$(grep -F "node -e 'const fs = require(\"fs\"), [file, n, ...add]" "$EWS" | head -n 1 | sed 's/^`//; s/`$//')"
+if [ -z "$RECIPE_EV" ]; then bad "epic-wave: no recipe that adds prs[].evidence to the state file"
+else
+    printf '%s\n' '{"tickets_root": ".scratch", "prs": [{"number": 7, "epic": "demo", "ticket": "02", "head": "abc1234", "checks": []}]}' >"$T/land-state.json"
+    run_ev="${RECIPE_EV//<state file>/$T/land-state.json}"; run_ev="${run_ev//<N>/7}"; run_ev="${run_ev//<n>/1}"; run_ev="${run_ev//<run URL>/https://example.com/run/1}"
+    out="$(bash -c "$run_ev" 2>&1)"
+    got="$(jq -c '.prs[0].evidence' "$T/land-state.json" 2>&1)"
+    [ "$out" = "EXIT=0" ] && [ "$got" = '[{"item":1,"kind":"review","verdict":"pass","ref":"PR #7"},{"item":1,"kind":"ci-check","verdict":"pass","ref":"https://example.com/run/1","platform":"ci"}]' ] \
+        && ok "epic-wave: the prs[].evidence recipe adds a review and a ci-check entry to the PR" \
+        || bad "epic-wave: the prs[].evidence recipe: [$out] [$got]"
+    out="$(bash -c "${run_ev// 7 / 8 }" 2>&1)"
+    [[ "$out" == *'no PR #8 in '* && "$out" == *'EXIT=1' ]] && ok "epic-wave: the prs[].evidence recipe refuses a PR the state file lacks" \
+        || bad "epic-wave: the prs[].evidence recipe on a missing PR: [$out]"
+fi
+ev "$IM" "implementer, the Evidence lines" '`EXIT=1` — an argument error (an unknown flag, or a flag without its value), and nothing was written either.'
 for p in 'owner-check pass --ref "<date>: <the owner'"'"'s word>" --copy <copy>' \
     'screenshot pass --ref '"'"'`<path relative to the ticket file>`'"'"' --copy <copy> --scrub <YYYY-MM-DD>' \
-    'once a person has checked its pixels' 'without it the line is refused' \
+    'once a person has checked its pixels' '`--scrub` is the date of that check, and a screenshot line needs it' \
     'A screenshot no person has checked yet gets no line and is not committed'; do
     ev "$GUI" "ship-ticket step 6, manual items" "$p"
 done

@@ -46,6 +46,7 @@ is the script of `F tickets.status_tool`; its line goes under the item of `F tic
 - A screenshot: whoever took it writes
   `ticket evidence <epic> <NN> <item> screenshot pass --ref '`<path relative to the ticket file>`' --copy <copy> --scrub <YYYY-MM-DD>; echo "EXIT=$?"`
   once a person has checked its pixels: no Machine, host or user names and no terminal text that must
-  not be public. `--scrub` is the date of that check; without it the line is refused.
+  not be public. `--scrub` is the date of that check, and a screenshot line needs it: without it the
+  privacy check (`evidence-check`) reports the new screenshot as one that needs a human check.
 - A screenshot no person has checked yet gets no line and is not committed: name it in the report,
   for the person who checks it.

@@ -17,6 +17,7 @@ The quotes around `<ref>` are single: in double quotes the shell runs what stand
 - Only `pass`: a red check is your work (step 5), not a line. A manual item (`tickets.manual_mark`) gets no line from you.
   An item no check of yours proved gets no line and goes into `not_verified`.
 - `EXIT=2` — the line was refused (its grammar or the item number), and nothing was written: fix the arguments.
+  `EXIT=1` — an argument error (an unknown flag, or a flag without its value), and nothing was written either.
 - Commit the ticket file with its lines on your branch, after the checked commit: the lines go into the PR diff and the review.
   In Silent mode `ticket` writes them into the ticket file in the Workflow folder, and the branch gets nothing.
 - In the report, each claim that proves an item carries its number in `item`.
