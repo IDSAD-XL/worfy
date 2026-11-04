@@ -35,6 +35,7 @@ Source: [spec.md](../spec.md), «Данные прошлых ночей»; Q8; T
 - [ ] `pnpm lint`, `pnpm test` — exit 0.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 014b732cd0d05cf2b42081acf333ebb6086af490
   - evidence: gate pass · `gate fast` exit 0 · mac - · 014b732cd0d05cf2b42081acf333ebb6086af490
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 702db2d27c2273e7c014bb27d063b8b1fb7c98ad
 
 ## Тесты
 
