@@ -229,7 +229,7 @@ test('a Card shrunk by its corner so the pointer falls onto its iframe ends the 
   await clickReachesCard(window, 1)
 })
 
-test('the Canvas panned with the middle button across a Card ends the pan on the release', async () => {
+quarantined('card-drag-canvas-middle-pan')('the Canvas panned with the middle button across a Card ends the pan on the release', async () => {
   const window = await start([cardNode('c1', 1000, 200)])
   const card = await box(nodeElement(window, 'c1'))
   // Pressed on the plane just right of the Card and pulled left: the first step puts the pointer on the Card's iframe.

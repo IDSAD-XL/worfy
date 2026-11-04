@@ -65,6 +65,10 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   head PR #1247. Причина не установлена. С 2026-11-02 — quarantine (win32), записи
   `test/quarantine/card-drag-card-jerked-lower-end.json` и `test/quarantine/card-drag-note-jerked-across-card.json`
   (до 2026-11-16; после строки import test-ы стоят на строках 180 и 197). Timeout не поднимать.
+- `test/e2e/card-drag.spec.ts:232` («the Canvas panned with the middle button across a Card…»): та же причина —
+  `the window is 1600 px wide` в `canvasReady` в обеих попытках, job `windows-e2e (1/4)` run-а
+  https://github.com/IDSAD-XL/worfy/actions/runs/41840970500 (head PR #1367 `8be4575b`, diff не касается Canvas).
+  С 2026-11-04 — quarantine (win32), запись `test/quarantine/card-drag-canvas-middle-pan.json` (до 2026-11-16).
 - Кандидат во flaky test: `test/contract/login-shell-capture.test.ts:144-146` читает файл `after` сразу после
   `existsSync`; под нагрузкой файл может быть ещё пуст (замечено в gate PR #1190, не воспроизведено).
 
