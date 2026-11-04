@@ -58,9 +58,11 @@ else if (command === 'plugin install' || command === 'plugin update') {
 writeFileSync(path, JSON.stringify(state))
 `
 
-// Codex's side. Its answers follow the pinned Codex 0.166.0 as far as its help texts tell
-// (\`codex plugin list --json\`, \`codex plugin marketplace add|list\`, \`codex plugin add\`): a list of
-// marketplaces with their plugins. What a test can ask of it:
+// Codex's side. Its answers follow the pinned Codex 0.166.0: \`plugin list --json\` prints
+// { installed, available } as the live recording test/fixtures/codex-cli/plugin-list-0.166.0.json
+// does (worfy-multi-vendor ticket 46), \`plugin marketplace list --json\` prints
+// { marketplaces: [{ name, root, marketplaceSource }] }; \`plugin marketplace add\` and \`plugin add\`
+// follow its help texts. What a test can ask of it:
 //   STUB_CODEX_FAIL           a command line prefix that exits 3 with an error on stderr
 //   STUB_CODEX_LOCAL_VERSION  a plugin of a local marketplace is listed with the version "local"
 //   STUB_CODEX_STATE          the file of its state ({ marketplaces, plugins }), outside the sandbox
@@ -86,7 +88,7 @@ const state = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : { mark
 const manifest = (dir, file) => JSON.parse(readFileSync(join(dir, '.claude-plugin', file), 'utf8'))
 const command = args.slice(0, args[1] === 'marketplace' ? 3 : 2).join(' ')
 if (command === 'plugin marketplace list') {
-  process.stdout.write(JSON.stringify({ marketplaces: Object.entries(state.marketplaces).map(([name, source]) => ({ name, path: source })) }))
+  process.stdout.write(JSON.stringify({ marketplaces: Object.entries(state.marketplaces).map(([name, source]) => ({ name, root: source, marketplaceSource: { sourceType: isAbsolute(source) ? 'local' : 'git', source } })) }))
 } else if (command === 'plugin marketplace add') {
   const name = isAbsolute(args[3]) ? manifest(args[3], 'marketplace.json').name : basename(args[3])
   if (name in state.marketplaces) process.stdout.write('Marketplace \`' + name + '\` is already added.\\n')
@@ -105,13 +107,11 @@ if (command === 'plugin marketplace list') {
   state.plugins[args[2]] = local ? (process.env.STUB_CODEX_LOCAL_VERSION ? 'local' : manifest(source, 'plugin.json').version) : '1.4.0'
   process.stdout.write('Added plugin \`' + name + '\` from marketplace \`' + market + '\`\\n')
 } else if (command === 'plugin list') {
-  const marketplaces = Object.keys(state.marketplaces).map((market) => ({
-    name: market,
-    plugins: Object.entries(state.plugins)
-      .filter(([id]) => id.endsWith('@' + market))
-      .map(([id, version]) => ({ id, name: id.split('@')[0], localVersion: version, installed: true, enabled: true })),
-  }))
-  process.stdout.write(JSON.stringify({ marketplaces }))
+  const installed = Object.entries(state.plugins).map(([pluginId, version]) => {
+    const [name, marketplaceName] = pluginId.split('@')
+    return { pluginId, name, marketplaceName, version, installed: true, enabled: true, installPolicy: 'AVAILABLE', authPolicy: 'ON_USE' }
+  })
+  process.stdout.write(JSON.stringify({ installed, available: [] }, null, 2) + '\\n')
 }
 writeFileSync(path, JSON.stringify(state))
 }
@@ -623,6 +623,22 @@ describe('a Codex that does not answer', () => {
 })
 
 describe('reading Codex', () => {
+  it('reads the live plugin list of Codex 0.166.0: { installed, available } with pluginId, version and enabled', () => {
+    const live = JSON.parse(readFileSync(join(REPO, 'test', 'fixtures', 'codex-cli', 'plugin-list-0.166.0.json'), 'utf8')) as { installed: Record<string, unknown>[]; available: unknown[] }
+    const plugins = codexPluginsOf(live)
+    expect(plugins?.size).toBe(live.installed.length)
+    expect(plugins?.get('documents@openai-primary-runtime')).toEqual({ version: '26.1026.10807', enabled: true })
+    expect(plugins?.get('github@openai-curated-remote')).toEqual({ version: '0.1.13-77c10e110b37', enabled: true })
+    expect(plugins?.has(HARNESS_PLUGIN_ID)).toBe(false)
+    // The Harness is found once Codex lists it among the installed; a disabled one keeps enabled false.
+    const harness = { pluginId: HARNESS_PLUGIN_ID, name: 'worfy', marketplaceName: 'worfy-harness', version: V1, installed: true, enabled: false }
+    expect(codexPluginsOf({ ...live, installed: [...live.installed, harness] })?.get(HARNESS_PLUGIN_ID)).toEqual({ version: V1, enabled: false })
+    // `available` lists plugins that are not installed: the Harness there is not installed.
+    expect(codexPluginsOf({ installed: live.installed, available: [{ ...harness, installed: false, enabled: false }] })?.has(HARNESS_PLUGIN_ID)).toBe(false)
+    expect(codexPluginsOf({ installed: [], available: [harness] })?.size).toBe(0)
+    expect(codexMarketplacesOf({ marketplaces: [{ name: 'worfy-harness', root: '/x', marketplaceSource: { sourceType: 'local', source: '/x' } }] })).toEqual(new Set(['worfy-harness']))
+  })
+
   it('reads the plugin list as a list, as { plugins }, or as marketplaces with their plugins', () => {
     const plugin = { id: HARNESS_PLUGIN_ID, localVersion: V1, installed: true, enabled: false }
     expect(codexPluginsOf([plugin])?.get(HARNESS_PLUGIN_ID)).toEqual({ version: V1, enabled: false })

@@ -48,7 +48,7 @@ const state = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : { mark
 const manifest = (dir, file) => JSON.parse(readFileSync(join(dir, '.claude-plugin', file), 'utf8'))
 const command = args.slice(0, args[1] === 'marketplace' ? 3 : 2).join(' ')
 if (command === 'plugin marketplace list') {
-  process.stdout.write(JSON.stringify({ marketplaces: Object.entries(state.marketplaces).map(([name, source]) => ({ name, path: source })) }))
+  process.stdout.write(JSON.stringify({ marketplaces: Object.entries(state.marketplaces).map(([name, source]) => ({ name, root: source, marketplaceSource: { sourceType: isAbsolute(source) ? 'local' : 'git', source } })) }))
 } else if (command === 'plugin marketplace add') {
   state.marketplaces[isAbsolute(args[3]) ? manifest(args[3], 'marketplace.json').name : basename(args[3])] = args[3]
 } else if (command === 'plugin add') {
@@ -63,11 +63,9 @@ if (command === 'plugin marketplace list') {
     state.plugins[args[2]] = manifest(source, 'plugin.json').version
   } else state.plugins[args[2]] = '1.4.0'
 } else if (command === 'plugin list') {
-  const marketplaces = Object.keys(state.marketplaces).map((market) => ({
-    name: market,
-    plugins: Object.entries(state.plugins).filter(([id]) => id.endsWith('@' + market)).map(([id, version]) => ({ id, name: id.split('@')[0], localVersion: version, installed: true, enabled: true })),
-  }))
-  process.stdout.write(JSON.stringify({ marketplaces }))
+  // The shape of the live Codex 0.166.0 (test/fixtures/codex-cli/plugin-list-0.166.0.json, ticket 46).
+  const installed = Object.entries(state.plugins).map(([pluginId, version]) => ({ pluginId, name: pluginId.split('@')[0], marketplaceName: pluginId.split('@')[1], version, installed: true, enabled: true }))
+  process.stdout.write(JSON.stringify({ installed, available: [] }))
 } else {
   process.stderr.write('codex stand-in: unsupported command: ' + args.join(' ') + '\\n')
   process.exit(2)
