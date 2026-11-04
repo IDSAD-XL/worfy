@@ -1,7 +1,8 @@
 # 01 — Формат записи, очистка и каркас `gate-failures`
 
 Type: task
-Status: claimed 2026-11-04T18:47Z
+Status: done 2026-11-04T23:22Z
+PR: #1392
 Blocked by: —
 Source: [spec.md](../spec.md), «Модель» (файл run-а, запись о падении, файл повтора, компьютер, очистка текста, срок хранения), «Решено без владельца» (CLI с подкомандами, модуль рядом с `gate-log.mjs`, `.d.mts`, очистка поверх `privacy.cjs`), «Импортированные записи», «Риски», п. 4 и 7; [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md), [ADR-0074](../../../docs/adr/0074-harness-neutral-by-language-and-project.md)
 
@@ -49,28 +50,38 @@ Source: [spec.md](../spec.md), «Модель» (файл run-а, запись �
 - [ ] Unit test: файл run-а с двумя записями test-ов и одной записью шага читается; без `version`, с `version: 2`,
       с `at` не датой — не читается, причина названа.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
+  - evidence: review pass · PR #1392 · - - · 8deabd2c6b441e5ec1f951d7bb912c80ff2ebfd1
 - [ ] Unit test: файл run-а без `dirty` не читается.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
+  - evidence: review pass · PR #1392 · - - · 8deabd2c6b441e5ec1f951d7bb912c80ff2ebfd1
 - [ ] Unit test очистки: `/Users/jdoe/x`, `C:\Users\jdoe\x`, `C:/Users/jdoe/x`, `/c/Users/jdoe/x`,
       `C:\Users\RUNNER~1\x`, hostname, UUID, email, `ghp_…`, `Bearer …` — заменены; после `scrub` `findLeaks` пуст; `scrubRecord` чистит
       `error`, `name` и `file`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
+  - evidence: review pass · PR #1392 · - - · 8deabd2c6b441e5ec1f951d7bb912c80ff2ebfd1
 - [ ] Unit test: `testId` не содержит строки файла; два файла с одинаковым id в разных run-ах — один test.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
+  - evidence: review pass · PR #1392 · - - · 8deabd2c6b441e5ec1f951d7bb912c80ff2ebfd1
 - [ ] Contract test: `machine.json` создаётся один раз, второй запуск даёт тот же `id`; в файле нет hostname и имени
       пользователя.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
+  - evidence: review pass · PR #1392 · - - · 8deabd2c6b441e5ec1f951d7bb912c80ff2ebfd1
 - [ ] Contract test: `gate-failures list --json` над временной папкой состояния (`CLAUDE_GATE_STATE`) с тремя
       файлами и одним в `imported/<id>/`; импортированный помечен `imported: true`; файл старше 60 дней удаляет
       `pruneFailures` в обеих папках, моложе — остаётся.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
+  - evidence: review pass · PR #1392 · - - · 8deabd2c6b441e5ec1f951d7bb912c80ff2ebfd1
 - [ ] Contract test: неизвестная подкоманда — exit 2 и usage; `--help` называет `list` и `machine`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
+  - evidence: review pass · PR #1392 · - - · 8deabd2c6b441e5ec1f951d7bb912c80ff2ebfd1
 - [ ] Ни один test не пишет в настоящую `~/.claude` (`HARNESS_HOME` во временной папке).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
+  - evidence: review pass · PR #1392 · - - · 8deabd2c6b441e5ec1f951d7bb912c80ff2ebfd1
 - [ ] `pnpm typecheck` принимает импорт `gate-failures.mjs` из test-ов (объявления `.d.mts`).
   - evidence: test-run pass · `pnpm typecheck` exit 0 (step worfy/.:typecheck of gate fast) · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
+  - evidence: review pass · PR #1392 · - - · 8deabd2c6b441e5ec1f951d7bb912c80ff2ebfd1
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/41921586154 · ci - · 8deabd2c6b441e5ec1f951d7bb912c80ff2ebfd1
 
 ## Тесты
 
