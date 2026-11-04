@@ -1,7 +1,8 @@
 # 05 — worfy читает Evidence
 
 Type: task
-Status: claimed 2026-11-04T01:27Z
+Status: done 2026-11-04T02:44Z
+PR: #1323
 Branch: worfy-evidence/05
 Blocked by: 01
 Source: [spec.md](../spec.md), «Модель» (весь раздел), «Что есть сейчас» (разбор «Готово, когда» в worfy, двойные правила), «Решено без владельца», п. 1, 3, 6, 7
