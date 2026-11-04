@@ -1,7 +1,8 @@
 # 12 — Electron fuses: без Node inspector и run-as-Node в собранном worfy
 
 Type: task
-Status: claimed 2026-11-04T17:20Z
+Status: done 2026-11-04T22:36Z
+PR: #1381
 Blocked by: —
 Source: [spec.md](../spec.md), «Безопасность», п. 5 (известный предел до этого Ticket-а); review PR #1368 (Ticket 06)
 
