@@ -30,7 +30,10 @@ afterAll(() => {
 // The shells by name; each is looked for when its tests run, not when the file loads
 // (test/unit/e2e-no-spawn-on-load.test.ts). sh and bash are on every macOS and Linux machine.
 const shells: string[] = ON_WINDOWS ? ['git-bash'] : ['sh', 'dash', 'bash', 'zsh']
-const REQUIRED = new Set(['sh', 'bash', 'git-bash'])
+// macOS ships zsh as its own shell, so there a missing zsh is a red test, not a skip. The darwin guard
+// also puts this file into the macos-tests CI job (scripts/ci-scope.mjs, DARWIN_GUARD): without it a
+// pull request runs this file on Linux and Windows only, where zsh may be missing.
+const REQUIRED = new Set(['sh', 'bash', 'git-bash', ...(process.platform === 'darwin' ? ['zsh'] : [])])
 const found = new Map<string, string | null>()
 
 /** The program of the shell `name`, or null when the machine has none. */

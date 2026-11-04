@@ -9,25 +9,34 @@
 // only when all three read it the same way. Inside it:
 //
 // - simple commands joined by `&&`, `||`, `;`, `|` and newlines; `#` comments;
-// - words of unquoted, single-quoted and double-quoted text, `\` escapes and line continuations;
+// - words of unquoted, single-quoted and double-quoted text, `\` escapes; a line continuation only
+//   between words (inside a word, `$NA\<newline>ME` for one, the shells disagree);
 // - `$NAME` and `${NAME}` with a value known from the environment or from an assignment earlier in the
 //   same command; an unquoted value must hold no blank and no glob character (bash splits and globs
 //   it, zsh does not);
-// - assignments `NAME=value` on their own, and `NAME=$(mktemp -d)`: a new folder inside TMPDIR;
+// - assignments `NAME=value` on their own, and `NAME=$(mktemp -d)`: a new folder inside TMPDIR. The
+//   name must be one the shell gives no meaning to (not PATH, PS4, GLOBIGNORE, zsh `path`, a
+//   `BASH_`, `GIT_` or `LD_` name…) and not exported;
 // - `~` and `~/…` at the start of a word, from HOME;
 // - redirections `>`, `>>`, `>|`, `<`, each with an optional fd number, and `N>&M`;
-// - glob `*` and `?` in the last component of a path;
-// - `cd <path>`, `exit`, and `sh -c`, `bash -c`, `zsh -c` with one script, which is read by the same
-//   grammar with the same folder and environment.
+// - glob `*` and `?` in the last component of a path. A glob that may expand into a word starting
+//   with `-` is refused where the program would read it as an option (`git grep -e x *` with a file
+//   named `-O…`); rm, rmdir and echo take no option that names a path, so their globs stay;
+// - `cd <path>`, `exit` with no operand or one number, `set -e`, `-u`, `-o pipefail`, and `sh -c`,
+//   `bash -c`, `zsh -c` (options `-e`, `-u` only) with one unglobbed script, which is read by the
+//   same grammar with the same folder and environment.
 //
 // Outside it (each `judged: false` with a reason): command substitution other than the mktemp
 // assignment, backquotes, arithmetic, `eval`, `source`, `.`, functions, `if` / `for` / `while` /
 // `case` and the other reserved words, subshells and groups, here-docs and here-strings, process
 // substitution, background `&`, `&>`, zsh built-ins such as `zmodload`, any other built-in that
-// changes the shell, an unknown variable, IFS, `~user`, special parameters (`$?`, `$1`, `$@`…),
-// `${…}` forms other than `${NAME}`, zsh subscripts and modifiers (`$X[1]`, `$X:h`), brace
-// expansion, `[` globs, an assignment before a program (it changes the program's environment), an
-// assignment to an exported variable, `cd` or `exit` inside a pipeline.
+// changes the shell (`chdir`, `set -x`), an unknown variable, IFS, OLDPWD, `~user`, special
+// parameters (`$?`, `$1`, `$@`…), `${…}` forms other than `${NAME}`, zsh subscripts and modifiers
+// (`$X[1]`, `$X:h`), zsh numeric globs (`<1-9>`), brace expansion, `[` globs, an assignment before a
+// program (it changes the program's environment), `cd` or `exit` inside a pipeline, an `exit` that
+// may go on (with a redirection or more operands), `/dev/tcp` and `/dev/udp`, `ln` and the
+// link and backup options of cp and mv, `test -v` and `-R`, and git commands that start an editor or
+// gpg (a commit without a message, `tag -s`, `rebase --continue`).
 //
 // The folder a command runs in is followed through `cd`: a command after `cd x;` may run in x or,
 // when the cd failed, in the folder before it, and the action is listed once for each. Likewise a
@@ -43,8 +52,10 @@
 //
 // Known programs come from a table (PROGRAMS below). A program outside it writes UNKNOWN, which the
 // policy never approves. Not seen here and so not covered: aliases and functions of the user's shell
-// snapshot, which could give a known name another meaning, and options set in it (zsh EXTENDED_GLOB,
-// CHASE_LINKS). `why` is always a fixed text of this module, never a piece of the command.
+// snapshot, which could give a known name another meaning, options set in it or in `~/.zshenv` (zsh
+// EXTENDED_GLOB, CHASE_LINKS), and the repository's git config and hooks (an alias, a pager, a
+// pre-commit hook run code). `why` is always a fixed text of this module, never a piece of the
+// command.
 
 /** One program the command runs, in order. */
 export interface ShellAction {
@@ -64,6 +75,33 @@ export interface ShellAction {
   network: boolean
   /** The index in `actions` of the program whose output is this one's input, through a pipe. */
   stdinFrom: number | null
+  /** For git: what the subcommand does to branches and remotes, parsed here so the policy never reads `args`. */
+  git?: GitFacts
+}
+
+/** What a git command does beyond the paths of its action. */
+export interface GitFacts {
+  /** The subcommand, after the global options; null for a bare `git`. */
+  subcommand: string | null
+  /** `git branch -d / -D / --delete`: the branches it deletes, and whether by force (-D, -f). */
+  branchDelete?: { branches: string[]; force: boolean }
+  /** `git push`: where to and what. */
+  push?: GitPush
+}
+
+export interface GitPush {
+  /** The remote as written (a name, a URL or a path); null for the upstream of the current branch. */
+  remote: string | null
+  /** The remote when it is a repository on this disk, as an absolute path; it is in `writes` too. */
+  localPath: string | null
+  /** The refspecs as written (`main`, `HEAD:main`, `+x`, `:old`). */
+  refspecs: string[]
+  /** Whether it may overwrite history: -f, --force, --force-with-lease, --force-if-includes, --mirror, a `+` refspec. */
+  force: boolean
+  /** Whether it deletes remote refs: -d, --delete, --prune, --mirror, a refspec with an empty source (`:x`). */
+  delete: boolean
+  /** Whether it pushes refs it does not name: --all, --mirror, --tags, --follow-tags. */
+  many: boolean
 }
 
 export type Analysis = { judged: true; actions: ShellAction[] } | { judged: false; why: string }
@@ -81,8 +119,19 @@ export interface AnalyzeContext {
 export const UNKNOWN = '<unknown>'
 /** What git writes or reads: the repository that holds the action's `cwd` (ticket 03 finds its top). */
 export const REPOSITORY = '<repository>'
-/** The last component of the folder `mktemp -d` creates inside TMPDIR, numbered from 1 in a command. */
-export const NEW_TEMP_FOLDER = '<new-temp-folder>'
+/**
+ * The last component of the folder `mktemp -d` creates inside TMPDIR: `<new-temp-folder-1>`,
+ * `<new-temp-folder-2>`… in the order of the command. The folder does not exist yet when the policy
+ * looks; `<` and `>` cannot be in a Windows file name.
+ */
+export function newTempFolderName(n: number): string {
+  return `<new-temp-folder-${n}>`
+}
+
+/** Whether a path component is one that newTempFolderName gives. */
+export function isNewTempFolder(component: string): boolean {
+  return /^<new-temp-folder-[1-9][0-9]*>$/.test(component)
+}
 
 // How deep `sh -c` may nest, how many folder and variable states a command may branch into, and how
 // many actions it may list.
@@ -239,7 +288,7 @@ class Parser {
       const raw = this.src.slice(start, this.i)
       if ((next === '<' || next === '>') && /^[0-9]+$/.test(raw)) {
         // dash takes one digit as an fd; bash and zsh take more.
-        if (raw.length > 1) fail('a redirection outside the grammar')
+        if (raw.length > 1) fail('an fd of more than one digit')
         redirects.push(this.redirect())
         continue
       }
@@ -253,9 +302,11 @@ class Parser {
     const c = this.peek()
     const n = this.peek(1)
     let op: '>' | '>>' | '>|' | '<'
+    // zsh reads `<1-9>` and `<->` as a numeric glob, not a redirection.
+    if (c === '<' && /^<[0-9]*-[0-9]*>/.test(this.src.slice(this.i))) fail('a zsh numeric glob')
     if (c === '<') {
       if (n === '<') fail('a here-doc or a here-string')
-      if (n === '&' || n === '>') fail('a redirection outside the grammar')
+      if (n === '&' || n === '>') fail('a <& or <> redirection')
       if (n === '(') fail('a process substitution')
       op = '<'
       this.i++
@@ -264,14 +315,14 @@ class Parser {
       if (n === '&') {
         this.i += 2
         const digit = this.peek()
-        if (digit === undefined || !/[0-9]/.test(digit)) fail('a redirection outside the grammar')
+        if (digit === undefined || !/[0-9]/.test(digit)) fail('a >& to a file')
         this.i++
         const end = this.peek()
-        if (end !== undefined && !WORD_END.has(end)) fail('a redirection outside the grammar')
+        if (end !== undefined && !WORD_END.has(end)) fail('a >& to a file')
         return { kind: 'dup' }
       }
       if (n === '>') {
-        if (this.peek(2) === '&' || this.peek(2) === '(' || this.peek(2) === '|') fail('a redirection outside the grammar')
+        if (this.peek(2) === '&' || this.peek(2) === '(' || this.peek(2) === '|') fail('a >>&, >>( or >>| redirection')
         op = '>>'
         this.i += 2
       } else if (n === '|') {
@@ -303,8 +354,10 @@ class Parser {
       if (c === '\\') {
         const n = this.peek(1)
         if (n === undefined) fail('a backslash at the end of the command')
+        // The shell removes a line continuation before it reads names: `$H\<newline>OME` is $HOME.
+        if (n === '\n') fail('a line continuation inside a word')
         this.i += 2
-        if (n !== '\n') text(n, true)
+        text(n, true)
       } else if (c === "'") {
         const close = this.src.indexOf("'", this.i + 1)
         if (close < 0) fail('an unterminated quote')
@@ -323,7 +376,7 @@ class Parser {
           if (d === '\\') {
             const n = this.peek(1)
             if (n === undefined) fail('an unterminated quote')
-            if (n === '\n') this.i += 2
+            if (n === '\n') fail('a line continuation inside a word')
             else if (n === '$' || n === '`' || n === '"' || n === '\\') {
               text(n, true)
               this.i += 2
@@ -401,6 +454,8 @@ interface Expanded {
   literalGlob: boolean
   /** An unquoted `^`, `#` or `~` inside the word: a pattern for zsh with EXTENDED_GLOB. */
   extendedGlob: boolean
+  /** A glob at the very start (`*x`, `?`, zsh `^x`): it may expand to a file name that begins with `-`. */
+  leadingGlob: boolean
 }
 
 interface Scope {
@@ -412,17 +467,24 @@ interface Scope {
 }
 
 function variable(name: string, state: State, scope: Scope): string {
-  if (name === 'IFS') fail('IFS')
-  if (name === 'OLDPWD') fail('an unknown variable')
+  if (name === 'IFS') fail('a reference to IFS')
+  if (name === 'OLDPWD') fail('a reference to OLDPWD')
   if (name === 'PWD') {
     // The shell holds PWD with `.` and `..` folded; the folder here keeps them for ticket 03.
     if (/(^|[\\/])\.\.?([\\/]|$)/.test(state.cwd) || /[\\/]{2}/.test(state.cwd.slice(1))) fail('a $PWD after a cd with . or ..')
     return shellForm(state.cwd, scope.win)
   }
-  const value = state.assigned.get(name) ?? scope.context.env[name]
+  const assigned = state.assigned.get(name)
+  if (assigned !== undefined) return assigned
+  const value = scope.context.env[name]
   if (value === undefined) fail('an unknown variable')
+  // Git Bash turns these from the Windows form into its own when it starts (the MSYS runtime
+  // converts HOME, TMPDIR, TMP and TEMP): `~` is `/c/Users/…` there, not `C:\Users\…`.
+  if (scope.win && WINDOWS_CONVERTED.has(name) && /^[A-Za-z]:[\\/]/.test(value)) return shellForm(windowsAbsolute(value) ?? value, true)
   return value
 }
+
+const WINDOWS_CONVERTED = new Set(['HOME', 'TMPDIR', 'TMP', 'TEMP'])
 
 /**
  * The word `word` after expansion. `field`: an argument, where an unquoted empty word disappears and
@@ -434,6 +496,7 @@ function expand(word: Word, state: State, scope: Scope, field: boolean): Expande
   let globAt = -1
   let literalGlob = false
   let extendedGlob = false
+  let leadingCaret = false
   let quotedAny = false
   word.parts.forEach((part, index) => {
     if (part.kind === 'mktemp') fail('a command substitution')
@@ -472,12 +535,15 @@ function expand(word: Word, state: State, scope: Scope, field: boolean): Expande
         if (field && (before === '=' || before === ':')) fail('a ~ after = or :')
         if (!field && before === ':') fail('a ~ after :')
         extendedGlob = true
-      } else if (c === '^' || c === '#') extendedGlob = true
+      } else if (c === '^' || c === '#') {
+        extendedGlob = true
+        if (c === '^' && value.length === 0) leadingCaret = true
+      }
       value += c
     }
   })
   if (field && !quotedAny && value === '') return undefined
-  return { value, globAt: field ? globAt : -1, literalGlob, extendedGlob }
+  return { value, globAt: field ? globAt : -1, literalGlob, extendedGlob, leadingGlob: field && (globAt === 0 || leadingCaret) }
 }
 
 // --- Paths ----------------------------------------------------------------------------------
@@ -547,6 +613,7 @@ interface Effects {
   network: boolean
   /** The folder the program works in, when it differs from the shell's (git -C). */
   cwd?: string
+  git?: GitFacts
 }
 
 const none = (): Effects => ({ writes: [], deletes: [], reads: [], network: false })
@@ -570,7 +637,8 @@ interface Option {
 /** The word from index `from` on: the value of an option written `--name=value` or `-xvalue`. */
 function slice(word: Expanded, from: number): Expanded {
   if (word.globAt >= 0 && word.globAt < from) fail('a glob in an option')
-  return { ...word, value: word.value.slice(from), globAt: word.globAt < 0 ? -1 : word.globAt - from }
+  const globAt = word.globAt < 0 ? -1 : word.globAt - from
+  return { ...word, value: word.value.slice(from), globAt, leadingGlob: globAt === 0 }
 }
 
 function options(args: Expanded[], spec: OptionSpec): { options: Option[]; operands: Expanded[] } {
@@ -630,18 +698,18 @@ const flagsOf = (letters: string, ...long: string[]): OptionSpec => ({ flags: le
 
 const RM = flagsOf('dfiIPRrvWx', 'force', 'recursive', 'dir', 'verbose', 'interactive', 'one-file-system', 'no-preserve-root', 'preserve-root')
 const RMDIR = flagsOf('v', 'verbose', 'ignore-fail-on-non-empty')
-const MV = flagsOf('bfhinuvTZ', 'force', 'interactive', 'no-clobber', 'update', 'verbose', 'no-target-directory', 'strip-trailing-slashes')
-const CP = flagsOf('abcdfHiLlnNPpRrsTuvXxZ', 'archive', 'force', 'interactive', 'no-clobber', 'recursive', 'verbose', 'dereference', 'no-dereference', 'parents', 'update', 'one-file-system', 'link', 'symbolic-link', 'no-target-directory', 'strip-trailing-slashes', 'remove-destination')
+// No -b: a backup `<destination>~` is a write beside the destination. cp has no -l / -s (links): see `ln`.
+const MV = flagsOf('fhinuvTZ', 'force', 'interactive', 'no-clobber', 'update', 'verbose', 'no-target-directory', 'strip-trailing-slashes')
+const CP = flagsOf('acdfHiLnNPpRrTuvXxZ', 'archive', 'force', 'interactive', 'no-clobber', 'recursive', 'verbose', 'dereference', 'no-dereference', 'parents', 'update', 'one-file-system', 'no-target-directory', 'strip-trailing-slashes', 'remove-destination')
 const MKDIR: OptionSpec = { flags: 'pv', values: 'm', long: { parents: 'flag', verbose: 'flag', mode: 'value' } }
 const TOUCH: OptionSpec = { flags: 'acfhm', values: 'rtdA', long: { 'no-create': 'flag', 'no-dereference': 'flag', reference: 'value', date: 'value', time: 'value' } }
-const LN = flagsOf('bfhinLPrsTvw', 'force', 'interactive', 'no-dereference', 'symbolic', 'verbose', 'relative', 'logical', 'physical', 'no-target-directory')
 const TEE = flagsOf('aip', 'append', 'ignore-interrupts')
 
 function paths(words: Expanded[], cwd: string, scope: Scope): string[] {
   return words.map((word) => pathOf(word, cwd, scope))
 }
 
-/** mv, cp, ln: sources and one destination, the last operand. */
+/** mv, cp: sources and one destination, the last operand. */
 function sourcesAndDestination(operands: Expanded[], cwd: string, scope: Scope): { sources: string[]; destination: string } {
   if (operands.length < 2) fail('a missing destination')
   const destination = operands.at(-1) as Expanded
@@ -796,6 +864,31 @@ function deniedLong(name: string, denied: string[]): boolean {
   return denied.some((full) => full.startsWith(name) || name.startsWith(full))
 }
 
+const GIT_BRANCH_LIST = ['-a', '-r', '-l', '-v', '-vv', '--all', '--remotes', '--list', '--show-current', '--no-color']
+const GIT_BRANCH_DELETE: OptionSpec = { flags: 'dDfr', long: { delete: 'flag', force: 'flag', remotes: 'flag' }, anywhere: true }
+// What may start an editor or gpg in the local subcommands, beyond GIT_LOCAL_DENIED_*: a commit
+// without a message of its own, `commit -c`, an annotated tag without one, a signed tag, an
+// interactive rebase through pull, and `--continue`, which commits.
+function gitLaunches(sub: string, rest: Expanded[]): boolean {
+  const end = rest.findIndex((arg) => arg.value === '--')
+  const words = (end < 0 ? rest : rest.slice(0, end)).map((arg) => arg.value)
+  const short = (letter: string): boolean => words.some((v) => /^-[A-Za-z]+$/.test(v) && v.includes(letter))
+  const long = (name: string): boolean => words.some((v) => v === `--${name}` || v.startsWith(`--${name}=`))
+  if (words.includes('--continue')) return true
+  if (sub === 'commit') return short('c') || !(short('m') || short('C') || long('message') || long('reuse-message') || long('no-edit'))
+  if (sub === 'tag') return short('u') || long('local-user') || long('sign') || ((short('a') || long('annotate')) && !(short('m') || long('message')))
+  if (sub === 'pull') return words.some((v) => /^--rebase=i/.test(v))
+  return false
+}
+
+/** Whether a git remote names a repository on this disk rather than a remote name or a URL. */
+function localRemote(remote: string): string | undefined {
+  if (remote.startsWith('file://')) return remote.slice('file://'.length)
+  if (/^(\/|\.\.?(\/|$)|[A-Za-z]:[\\/])/.test(remote)) return remote
+  if (remote.includes('/') && !remote.includes(':')) return remote
+  return undefined
+}
+
 function git(args: Expanded[], cwd: string, scope: Scope): Effects {
   if (GIT_ENV.some((name) => scope.context.env[name] !== undefined)) fail('a GIT_ variable that moves the repository')
   let folder = cwd
@@ -808,14 +901,16 @@ function git(args: Expanded[], cwd: string, scope: Scope): Effects {
       folder = exactPathOf(path, folder, scope)
     } else if (v === '--no-pager' || v === '-P' || v === '--no-optional-locks') continue
     else if (v.startsWith('-')) {
-      if (v === '--version' || v === '--help') return { ...none(), cwd: folder }
+      if (v === '--version' || v === '--help') return { ...none(), cwd: folder, git: { subcommand: null } }
       fail('a git option that names programs or another repository')
     } else break
   }
   const sub = args[i]?.value
   const rest = args.slice(i + 1)
-  const repository = (effects: Partial<Effects> = {}): Effects => ({ ...none(), cwd: folder, writes: [REPOSITORY], ...effects })
-  if (sub === undefined) return { ...none(), cwd: folder }
+  const facts: GitFacts = { subcommand: sub ?? null }
+  const base = (): Effects => ({ ...none(), cwd: folder, git: facts })
+  const repository = (effects: Partial<Effects> = {}): Effects => ({ ...base(), writes: [REPOSITORY], ...effects })
+  if (sub === undefined) return base()
   if (GIT_READ.has(sub)) {
     for (const arg of rest) {
       const v = arg.value
@@ -823,16 +918,23 @@ function git(args: Expanded[], cwd: string, scope: Scope): Effects {
       if (v.startsWith('--') && deniedLong(v.slice(2).split('=')[0] ?? '', GIT_READ_DENIED)) fail('a git option that writes a file or runs a program')
       if (sub === 'grep' && /^-[^-]*O/.test(v)) fail('a git option that writes a file or runs a program')
     }
-    return { ...none(), cwd: folder, reads: [REPOSITORY] }
+    return { ...base(), reads: [REPOSITORY] }
   }
   if (sub === 'config') {
     const reading = rest.length > 0 && rest.every((arg) => ['--get', '--get-all', '--get-regexp', '--list', '-l', '--show-origin', '--local', '--global', '--worktree', '--null', '-z', '--name-only'].includes(arg.value) || !arg.value.startsWith('-')) && rest.some((arg) => ['--get', '--get-all', '--get-regexp', '--list', '-l'].includes(arg.value))
     // A setting can name a program git runs later (core.fsmonitor, core.pager, an alias).
-    return reading ? { ...none(), cwd: folder, reads: [REPOSITORY] } : { ...none(), cwd: folder, writes: [UNKNOWN] }
+    return reading ? { ...base(), reads: [REPOSITORY] } : { ...base(), writes: [UNKNOWN] }
   }
   if (sub === 'branch') {
-    const listing = rest.every((arg) => ['-a', '-r', '-l', '-v', '-vv', '--all', '--remotes', '--list', '--show-current', '--no-color'].includes(arg.value))
-    return listing ? { ...none(), cwd: folder, reads: [REPOSITORY] } : repository()
+    if (rest.every((arg) => GIT_BRANCH_LIST.includes(arg.value))) return { ...base(), reads: [REPOSITORY] }
+    const values = rest.map((arg) => arg.value)
+    if (values.some((v) => /^-[A-Za-z]*[mMcC]/.test(v) || /^--(move|copy)$/.test(v))) fail('a git branch rename or copy')
+    if (values.some((v) => /^-[A-Za-z]*[dD]/.test(v) || v === '--delete')) {
+      const parsed = options(rest, GIT_BRANCH_DELETE)
+      const force = parsed.options.some((option) => option.name === 'D' || option.name === 'f' || option.name === 'force')
+      facts.branchDelete = { branches: parsed.operands.map((word) => word.value), force }
+    }
+    return repository()
   }
   if (sub === 'clean') {
     const parsed = options(rest, { flags: 'fdxXnq', values: 'e', long: { force: 'flag', 'dry-run': 'flag', quiet: 'flag', exclude: 'value' }, anywhere: true })
@@ -840,12 +942,12 @@ function git(args: Expanded[], cwd: string, scope: Scope): Effects {
       // Git matches a pathspec with its own globs and magic (`:/` is the top of the repository).
       if (/[*?[]/.test(spec.value) || spec.value.startsWith(':')) fail('a git pathspec with a glob or magic')
     }
-    return { ...none(), cwd: folder, deletes: parsed.operands.length === 0 ? [folder] : paths(parsed.operands, folder, scope) }
+    return { ...base(), deletes: parsed.operands.length === 0 ? [folder] : paths(parsed.operands, folder, scope) }
   }
   if (sub === 'worktree') {
     const action = rest[0]?.value
     const more = rest.slice(1)
-    if (action === 'list') return { ...none(), cwd: folder, reads: [REPOSITORY] }
+    if (action === 'list') return { ...base(), reads: [REPOSITORY] }
     if (action === 'prune' || action === 'lock' || action === 'unlock' || action === 'repair') return repository()
     if (action === 'remove') {
       const parsed = options(more, { flags: 'f', long: { force: 'flag' } })
@@ -863,11 +965,24 @@ function git(args: Expanded[], cwd: string, scope: Scope): Effects {
       if (parsed.operands.length !== 2) fail('a git worktree move without two paths')
       return repository({ deletes: [exactPathOf(parsed.operands[0] as Expanded, folder, scope)], writes: [REPOSITORY, exactPathOf(parsed.operands[1] as Expanded, folder, scope)] })
     }
-    return { ...none(), cwd: folder, writes: [UNKNOWN] }
+    return { ...base(), writes: [UNKNOWN] }
   }
   if (sub === 'push') {
-    options(rest, GIT_PUSH)
-    return repository({ network: true })
+    const parsed = options(rest, GIT_PUSH)
+    const named = new Set(parsed.options.map((option) => option.name))
+    const remoteWord = parsed.operands[0]
+    const refspecs = parsed.operands.slice(1).map((word) => word.value)
+    const local = remoteWord === undefined ? undefined : localRemote(remoteWord.value)
+    const localPath = local === undefined || remoteWord === undefined ? null : exactPathOf({ ...remoteWord, value: local }, folder, scope)
+    facts.push = {
+      remote: remoteWord?.value ?? null,
+      localPath,
+      refspecs,
+      force: ['f', 'force', 'force-with-lease', 'force-if-includes', 'mirror'].some((name) => named.has(name)) || refspecs.some((spec) => spec.startsWith('+')),
+      delete: ['d', 'delete', 'prune', 'mirror'].some((name) => named.has(name)) || refspecs.some((spec) => spec.startsWith(':')),
+      many: ['all', 'mirror', 'tags', 'follow-tags'].some((name) => named.has(name)),
+    }
+    return repository({ network: true, writes: localPath === null ? [REPOSITORY] : [REPOSITORY, localPath] })
   }
   if (GIT_LOCAL.has(sub)) {
     for (const arg of rest) {
@@ -877,10 +992,11 @@ function git(args: Expanded[], cwd: string, scope: Scope): Effects {
         if (deniedLong(v.slice(2).split('=')[0] ?? '', GIT_LOCAL_DENIED_LONG)) fail('a git option that reads a file or runs a program')
       } else if (v.startsWith('-') && [...v.slice(1)].some((ch) => GIT_LOCAL_DENIED_SHORT.includes(ch))) fail('a git option that reads a file or runs a program')
     }
+    if (gitLaunches(sub, rest)) fail('a git command that starts an editor or gpg')
     return repository({ network: sub === 'fetch' || sub === 'pull' })
   }
   // Another subcommand, or an alias, which may run any program.
-  return { ...none(), cwd: folder, writes: [UNKNOWN] }
+  return { ...base(), writes: [UNKNOWN] }
 }
 
 /** cat, ls, head, tail, wc: short options only; operands are read. */
@@ -905,7 +1021,7 @@ function newTempFolder(state: State, scope: Scope): string {
   if (tmp === undefined || tmp === '') fail('mktemp without TMPDIR')
   const base = scope.win ? shellForm(windowsAbsolute(tmp) ?? fail('a TMPDIR that is not absolute'), true) : tmp.startsWith('/') ? tmp : fail('a TMPDIR that is not absolute')
   scope.counter.tempFolders++
-  return `${base}${base.endsWith('/') ? '' : '/'}${NEW_TEMP_FOLDER.slice(0, -1)}-${scope.counter.tempFolders}>`
+  return `${base}${base.endsWith('/') ? '' : '/'}${newTempFolderName(scope.counter.tempFolders)}`
 }
 
 const pushDefined = (list: string[], value: string | undefined): void => {
@@ -920,8 +1036,11 @@ function table(program: string, args: Expanded[], state: State, scope: Scope): E
     case 'false':
     case ':':
     case 'pwd':
+      return none()
     case 'test':
     case '[':
+      // bash evaluates the subscript of `test -v 'a[$(…)]'`; -R is the same for a nameref.
+      if (args.some((word) => word.value === '-v' || word.value === '-R')) fail('a test -v or -R')
       return none()
     case 'printf':
       if (args[0]?.value.startsWith('-v') === true) fail('a printf -v assignment')
@@ -945,7 +1064,9 @@ function table(program: string, args: Expanded[], state: State, scope: Scope): E
       return { ...none(), reads: sources, writes: [destination] }
     }
     case 'ln':
-      return { ...none(), writes: [sourcesAndDestination(options(args, LN).operands, cwd, scope).destination] }
+      // A link makes a later path of the same command lead elsewhere (`ln ~/.zshrc z; echo x >> z`), and
+      // a hard link shares the file it names: neither fits writes and reads.
+      return fail('a link')
     case 'mkdir':
       return { ...none(), writes: paths(options(args, MKDIR).operands, cwd, scope) }
     case 'touch': {
@@ -973,17 +1094,48 @@ function table(program: string, args: Expanded[], state: State, scope: Scope): E
 
 // Built-ins that change the shell itself or run code the grammar cannot see.
 const BUILTINS = new Set([
-  'eval', 'source', '.', 'exec', 'builtin', 'command', 'alias', 'unalias', 'set', 'shopt', 'setopt', 'unsetopt', 'emulate', 'export', 'readonly', 'local', 'declare', 'typeset', 'integer', 'float', 'unset', 'trap', 'read', 'mapfile', 'readarray', 'let', 'getopts', 'pushd', 'popd', 'dirs', 'zmodload', 'autoload', 'enable', 'disable', 'hash', 'rehash', 'unhash', 'fc', 'history', 'r', 'return', 'break', 'continue', 'shift', 'wait', 'jobs', 'fg', 'bg', 'disown', 'functions', 'unfunction', 'noglob', 'nocorrect', '-', 'ulimit', 'umask', 'limit', 'unlimit', 'bindkey', 'zle', 'zstyle', 'zparseopts', 'zpty', 'zsocket', 'ztcp', 'sched', 'vared', 'compdef', 'compinit', 'zcompile', 'caller', 'complete', 'compgen', 'compopt', 'suspend', 'logout', 'times', 'ttyctl', 'pushln',
+  'eval', 'source', '.', 'exec', 'builtin', 'command', 'alias', 'unalias', 'set', 'shopt', 'setopt', 'unsetopt', 'emulate', 'export', 'readonly', 'local', 'declare', 'typeset', 'integer', 'float', 'unset', 'trap', 'read', 'mapfile', 'readarray', 'let', 'getopts', 'pushd', 'popd', 'dirs', 'zmodload', 'autoload', 'enable', 'disable', 'hash', 'rehash', 'unhash', 'fc', 'history', 'r', 'return', 'break', 'continue', 'shift', 'wait', 'jobs', 'fg', 'bg', 'disown', 'functions', 'unfunction', 'noglob', 'nocorrect', '-', 'ulimit', 'umask', 'limit', 'unlimit', 'bindkey', 'zle', 'zstyle', 'zparseopts', 'zpty', 'zsocket', 'ztcp', 'sched', 'vared', 'compdef', 'compinit', 'zcompile', 'caller', 'complete', 'compgen', 'compopt', 'suspend', 'logout', 'times', 'ttyctl', 'pushln', 'chdir',
 ])
 const RESERVED = new Set(['if', 'then', 'else', 'elif', 'fi', 'case', 'esac', 'for', 'while', 'until', 'do', 'done', 'in', 'function', 'select', 'time', 'coproc', 'repeat', 'foreach', 'end', '!', '{', '}', '[[', ']]'])
 const SHELLS = new Set(['sh', 'bash', 'zsh'])
-// Variables whose change moves where programs come from, what `cd` and `~` mean, or how words split.
-const PROTECTED = new Set(['IFS', 'PATH', 'CDPATH', 'HOME', 'PWD', 'OLDPWD', 'TMPDIR', 'ENV', 'BASH_ENV'])
+// The programs of the table, which read their options from their words.
+const TABLE = new Set(['echo', 'true', 'false', ':', 'pwd', 'test', '[', 'printf', 'cat', 'ls', 'head', 'tail', 'wc', 'rm', 'rmdir', 'mv', 'cp', 'mkdir', 'touch', 'tee', 'mktemp', 'git', 'curl', 'wget'])
+// Programs for which an option a file name could become changes nothing listed: rm and rmdir take no
+// option with a path, echo only prints.
+const GLOB_OPTION_HARMLESS = new Set(['rm', 'rmdir', 'echo'])
+// Programs that do not take `--` as the end of their options.
+const NO_END_OF_OPTIONS = new Set(['test', '[', 'curl'])
+
+/**
+ * Refuses a glob that may expand into an option (a file named `-Oprogram` turns `git grep -e x *`
+ * into a run of a program; `--target-directory=…` moves cp's writes): before `--`, a word of a table
+ * program that starts with a glob. printf reads options only before its format.
+ */
+function refuseGlobOptions(program: string, args: Expanded[]): void {
+  if (!TABLE.has(program) || GLOB_OPTION_HARMLESS.has(program)) return
+  let ended = false
+  args.forEach((word, n) => {
+    if (ended) return
+    if (word.value === '--' && word.globAt < 0 && !NO_END_OF_OPTIONS.has(program)) ended = true
+    else if (word.leadingGlob && !(program === 'printf' && n > 0)) fail('a glob that may expand into an option')
+  })
+}
+// Names a shell gives a meaning to (bash, sh, zsh, including zsh's lower-case ones tied to an upper-case
+// twin: `path` is PATH, `cdpath` is CDPATH). An assignment to one changes later commands — where
+// programs come from, what cd and ~ mean, how words split, what a trace line runs (PS4) — so only a
+// name outside this list and outside SPECIAL_PREFIX may be assigned.
+const SPECIAL = new Set([
+  'IFS', 'PATH', 'CDPATH', 'HOME', 'PWD', 'OLDPWD', 'TMPDIR', 'TMPPREFIX', 'TMPSUFFIX', 'ENV', 'SHELL', 'SHELLOPTS', 'SHLVL', 'POSIXLY_CORRECT', 'GLOBIGNORE', 'GLOBSORT', 'EXECIGNORE', 'FIGNORE', 'FCEDIT', 'EDITOR', 'VISUAL', 'PAGER',
+  'MAIL', 'MAILCHECK', 'MAILPATH', 'MANPATH', 'MODULE_PATH', 'FPATH', 'NULLCMD', 'READNULLCMD', 'STTY', 'TMOUT', 'TIMEFORMAT', 'TIMEFMT', 'REPORTTIME', 'REPORTMEMORY', 'KEYTIMEOUT', 'WORDCHARS', 'WATCH', 'WATCHFMT', 'LOGCHECK', 'SAVEHIST', 'LISTMAX', 'DIRSTACKSIZE', 'CORRECT_IGNORE', 'CORRECT_IGNORE_FILE', 'SPROMPT', 'RPROMPT', 'RPROMPT2', 'RPS1', 'RPS2', 'POSTEDIT', 'PSVAR', 'ZDOTDIR', 'ZBEEP', 'KEYBOARD_HACK', 'TERM', 'TERMINFO', 'TERMINFO_DIRS', 'LANG', 'LINES', 'COLUMNS', 'BAUD', 'CHILD_MAX', 'FUNCNEST', 'HOSTFILE', 'INPUTRC', 'IGNOREEOF', 'EMACS', 'INSIDE_EMACS', 'auto_resume', 'histchars', 'HISTCHARS',
+  'OPTIND', 'OPTARG', 'OPTERR', 'REPLY', 'LINENO', 'RANDOM', 'SRANDOM', 'SECONDS', 'EPOCHSECONDS', 'EPOCHREALTIME', 'PPID', 'UID', 'EUID', 'GID', 'EGID', 'GROUPS', 'HOSTNAME', 'HOSTTYPE', 'MACHTYPE', 'OSTYPE', 'CPUTYPE', 'VENDOR', 'HOST', 'LOGNAME', 'USERNAME', 'TTY', 'TTYIDLE', 'ERRNO', 'ARGV0', 'PIPESTATUS', 'FUNCNAME', 'DIRSTACK', 'COPROC', 'MAPFILE', 'MATCH', 'MBEGIN', 'MEND', 'CURSOR', 'BUFFER', 'LBUFFER', 'RBUFFER', 'MARK', 'CONTEXT', 'KEYS', 'NUMERIC', 'WIDGET', 'LASTWIDGET', 'PREBUFFER', 'PREDISPLAY', 'POSTDISPLAY', 'BUFFERLINES', 'HISTNO',
+  'path', 'cdpath', 'fpath', 'manpath', 'module_path', 'mailpath', 'fignore', 'psvar', 'prompt', 'watch', 'argv', 'status', 'pipestatus', 'signals', 'match', 'mbegin', 'mend', 'reply', 'options', 'parameters', 'commands', 'functions', 'aliases', 'galiases', 'saliases', 'builtins', 'history', 'historywords', 'jobdirs', 'jobstates', 'jobtexts', 'modules', 'nameddirs', 'userdirs', 'usergroups', 'reswords', 'dirstack', 'funcstack', 'funcfiletrace', 'funcsourcetrace', 'functrace', 'widgets', 'keymaps', 'mapfile', 'errnos', 'sysparams', 'termcap', 'terminfo', 'patchars', 'epochtime', 'langinfo', 'killring', 'region_highlight', 'zsh_eval_context', 'zsh_scheduled_events', '_',
+])
+const SPECIAL_PREFIX = /^(BASH|ZSH|zsh_|ZLE|zle_|HIST|PS[0-9]|PROMPT|COMP|READLINE|LC_|GIT_|LD_|DYLD_|dis_|ZFTP|zftp_|ztcp|ISEARCH|YANK|TRY_BLOCK)/
 
 // --- Evaluation -----------------------------------------------------------------------------
 
 function evaluate(script: string, context: AnalyzeContext, depth: number, counter: { tempFolders: number }): ShellAction[] {
-  if (context.env['IFS'] !== undefined) fail('IFS')
+  if (context.env['IFS'] !== undefined) fail('IFS in the environment')
   const win = context.platform === 'win32'
   const scope: Scope = { context, win, depth, counter, actions: [] }
   const steps = new Parser(script).script()
@@ -1035,7 +1187,8 @@ function assign(words: Word[], state: State, scope: Scope): State[] {
     const first = word.parts[0] as { kind: 'text'; text: string; quoted: boolean }
     const eq = first.text.indexOf('=')
     const name = first.text.slice(0, eq)
-    if (PROTECTED.has(name) || name.startsWith('GIT_') || scope.context.env[name] !== undefined) fail('an assignment to an exported variable')
+    if (scope.context.env[name] !== undefined) fail('an assignment to an exported variable')
+    if (SPECIAL.has(name) || SPECIAL_PREFIX.test(name)) fail('an assignment to a variable the shell gives a meaning to')
     // zsh expands `=cmd` at the start of an assignment's value too.
     if (first.text[eq + 1] === '=') fail('a zsh = expansion')
     const valueWord: Word = { parts: [{ ...first, text: first.text.slice(eq + 1) }, ...word.parts.slice(1)] }
@@ -1059,14 +1212,15 @@ function assign(words: Word[], state: State, scope: Scope): State[] {
   return states
 }
 
-// `set -e`, `-u`, `-x` and `-o pipefail` (and their `+` forms) only stop a script earlier or print it:
-// the actions listed without them still cover every run. Any other `set` changes the shell.
+// `set -e`, `-u` and `-o pipefail` (and their `+` forms) only stop a script earlier: the actions listed
+// without them still cover every run. Any other `set` changes the shell; `-x` among them, as each
+// trace line expands PS4, which may hold a command substitution.
 function isHarmlessSet(program: string, args: Expanded[]): boolean {
   if (program !== 'set' || args.length === 0) return false
   for (let n = 0; n < args.length; n++) {
     const v = (args[n] as Expanded).value
-    if (/^[-+][eux]+$/.test(v)) continue
-    if ((v === '-o' || v === '+o') && ['errexit', 'nounset', 'xtrace', 'pipefail'].includes(args[n + 1]?.value ?? '')) {
+    if (/^[-+][eu]+$/.test(v)) continue
+    if ((v === '-o' || v === '+o') && ['errexit', 'nounset', 'pipefail'].includes(args[n + 1]?.value ?? '')) {
       n++
       continue
     }
@@ -1104,6 +1258,8 @@ function command(cmd: Command, state: State, scope: Scope, stdinFrom: number | n
     const target = expand(redirect.target, state, scope, true)
     if (target === undefined) fail('an empty path')
     if (target.value === '/dev/null') continue
+    // bash opens a connection for /dev/tcp/<host>/<port> and /dev/udp/…
+    if (/^\/dev\/(tcp|udp)\//.test(target.value)) fail('a /dev/tcp or /dev/udp redirection')
     const path = exactPathOf(target, state.cwd, scope)
     if (redirect.op === '<') reads.push(path)
     else writes.push(path)
@@ -1117,6 +1273,7 @@ function command(cmd: Command, state: State, scope: Scope, stdinFrom: number | n
     reads: [...effects.reads, ...reads],
     network: effects.network,
     stdinFrom,
+    ...(effects.git === undefined ? {} : { git: effects.git }),
   })
   const both = [{ ...state, ok: true }, { ...state, ok: false }]
 
@@ -1134,15 +1291,20 @@ function command(cmd: Command, state: State, scope: Scope, stdinFrom: number | n
   }
   if (program === 'exit') {
     if (inPipeline) fail('an exit inside a pipeline')
+    // An exit whose redirection fails, or with more than one operand or one that is no number,
+    // does not exit: bash and zsh go on with the next command.
+    if (cmd.redirects.length > 0 || args.length > 1 || (args[0] !== undefined && !/^[0-9]+$/.test(args[0].value))) fail('an exit that may not exit')
     const index = emit(scope, action(none()))
     return { states: [], index }
   }
   if (SHELLS.has(program)) {
-    const at = args.findIndex((word) => !/^-[eux]+$/.test(word.value))
+    const at = args.findIndex((word) => !/^-[eu]+$/.test(word.value))
     const flag = at < 0 ? undefined : args[at]?.value
-    if (flag !== undefined && /^-[eux]*c$/.test(flag)) {
+    if (flag !== undefined && /^-[eu]*c$/.test(flag)) {
       const script = args[at + 1]
       if (script === undefined || args.length !== at + 2) fail('a shell -c without exactly one script')
+      // The outer shell globs the script word before the inner one reads it: a file name becomes code.
+      if (script.globAt >= 0 || script.extendedGlob) fail('a glob in a shell -c script')
       if (scope.depth + 1 > MAX_DEPTH) fail('shells nested too deep')
       if (program === 'bash' && scope.context.env['BASH_ENV'] !== undefined) fail('a bash -c with BASH_ENV set')
       const index = emit(scope, action(none()))
@@ -1157,9 +1319,12 @@ function command(cmd: Command, state: State, scope: Scope, stdinFrom: number | n
       for (const each of inner) emit(scope, { ...each, stdinFrom: each.stdinFrom === null ? null : each.stdinFrom + base })
       return { states: both, index }
     }
-    if (flag !== undefined && flag.startsWith('-') && flag.includes('c')) fail('a shell option other than -e, -u, -x before -c')
+    // Any other -c form (bash -l -c, bash -o xtrace -c) runs a script with options the grammar
+    // does not model: refuse it rather than call it a script file.
+    if (args.some((word) => /^[-+][A-Za-z]*c/.test(word.value))) fail('a shell option other than -e, -u before -c')
     // A shell reading a script file or its input runs code the grammar cannot see.
   }
+  refuseGlobOptions(program, args)
   const index = emit(scope, action(SHELLS.has(program) ? { ...none(), writes: [UNKNOWN] } : table(program, args, state, scope)))
   return { states: both, index }
 }
