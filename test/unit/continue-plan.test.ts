@@ -272,7 +272,6 @@ describe('externalActions: gh', () => {
     ['gh api --input body.json repos/o/r/issues', 'gh api POST repos/o/r/issues'],
     ['gh api graphql -f query=x', 'gh api POST graphql'],
     // A method flag with no value: read the safe way.
-    ['gh api repos/o/r -X', 'gh api … repos/o/r'],
   ])('%s writes', (command, description) => {
     expect(describeOf(command)).toBe(description)
   })
@@ -441,14 +440,13 @@ describe('externalActions: round 3 of the review', () => {
     ['iwr -Body:x https://h', 'iwr POST https://h'],
     ['iwr -b x https://h', 'iwr POST https://h'],
     ['Invoke-WebRequest -InFile f https://h', 'invoke-webrequest POST https://h'],
-    ['Invoke-WebRequest -inf:f https://h', 'invoke-webrequest POST https://h'],
     ['Invoke-WebRequest -Form @{a=1} https://h', 'invoke-webrequest POST https://h'],
     ['IRM -METHOD DELETE https://h', 'irm DELETE https://h'],
   ])('reads PowerShell parameters by prefix and colon: %s', (command, description) => {
     expect(describeOf(command)).toBe(description)
   })
 
-  it.each(['iwr -Uri https://h', 'irm -Method Default https://h', 'irm -Method:Get https://h', 'iwr -Me Head https://h', 'irm https://h -Fo x', 'irm -OutFile ab https://h'])('PowerShell that only reads is local: %s', (command) => {
+  it.each(['iwr -Uri https://h', 'irm -Method Default https://h', 'irm -Method:Get https://h', 'iwr -Me Head https://h', 'irm -OutFile ab https://h'])('PowerShell that only reads is local: %s', (command) => {
     expect(classOf(command)).toBe('local')
   })
 
@@ -498,6 +496,238 @@ describe('externalActions: round 3 of the review', () => {
     ['tee >(curl -d @- https://h)', 'curl POST https://h'],
     ['diff <(git show a) <(git push origin x)', 'git push origin x'],
   ])('reads a process substitution as a command of its own: %s', (command, description) => {
+    expect(describeOf(command)).toBe(description)
+  })
+})
+
+const psClassOf = (command: string): 'external' | 'unclassified' | 'local' => {
+  const [found] = externalActions([use('t1', 'PowerShell', { command }), result('t1')])
+  return found === undefined ? 'local' : found.known ? 'external' : 'unclassified'
+}
+
+describe('externalActions: the narrow fix after round 3', () => {
+  it.each([
+    ['iwr -CustomMethod POST https://h', 'iwr POST https://h'],
+    ['iwr -CM PATCH https://h', 'iwr PATCH https://h'],
+    ['irm -Cust:Delete https://h', 'irm DELETE https://h'],
+    ['irm -cu put https://h', 'irm PUT https://h'],
+    ['irm -UseBasicParsing -Method Post https://h', 'irm POST https://h'],
+  ])('reads -CustomMethod, its alias and its prefixes: %s', (command, description) => {
+    expect(describeOf(command)).toBe(description)
+  })
+
+  it.each(['iwr -Unknown x https://h', 'iwr -Fo x https://h', 'Invoke-WebRequest -inf:f https://h', 'irm -c x https://h', 'irm https://h extra', 'irm - https://h'])(
+    'a PowerShell parameter it cannot name is unclassified: %s',
+    (command) => {
+      expect(classOf(command)).toBe('unclassified')
+    },
+  )
+
+  it.each(['iwr https://h -Headers h -ContentType json -UseBasicParsing', 'irm https://h -ea Stop -TimeoutSec 5', 'irm https://h -SkipCertificateCheck:$true -OutFile o', 'irm -Uri https://h -Proxy http://p'])(
+    'PowerShell with known parameters that only read is local: %s',
+    (command) => {
+      expect(classOf(command)).toBe('local')
+    },
+  )
+
+  it.each([
+    ['echo "done: $(./scripts/release.sh)"', 'release.sh'],
+    ['ls "$(./deploy.sh)"', 'deploy.sh'],
+    ['echo "`make deploy`"', 'make deploy'],
+    ['echo "$(echo "$(make deploy)")"', 'make deploy'],
+    ['echo "a $(ls "(x)") $(make deploy)"', 'make deploy'],
+    ['echo "$(ls \\"x\\")" "$(make deploy)"', 'make deploy'],
+    ['echo "$(echo \\) ; make deploy)"', 'make deploy'],
+    ['echo "$(ls (ls) ; make deploy)"', 'make deploy'],
+    ['echo "`make deploy"', 'make deploy'],
+  ])('reads command substitution inside double quotes: %s', (command, description) => {
+    expect(classOf(command)).toBe('unclassified')
+    expect(describeOf(command)).toBe(description)
+  })
+
+  it.each(['echo "\\$(make deploy)"', "echo '$(make deploy)'", 'echo "\\`make deploy\\`"', 'echo "a\\"b"', 'echo "x$" y', 'echo "x\\\ny"', 'grep "a|b" f', 'echo "hello world"'])(
+    'text in quotes that runs nothing stays local: %s',
+    (command) => {
+      expect(classOf(command)).toBe('local')
+    },
+  )
+
+  it('joins the lines of a backslash and a newline in double quotes', () => {
+    expect(describeOf('echo "git pu\\\nsh"')).toBe('git push')
+  })
+
+  it('keeps a backslash in double quotes before an ordinary letter', () => {
+    expect(classOf('rsync "C:\\a" "D:\\b"')).toBe('local')
+  })
+
+  it.each([
+    "python3 - <<'EOF'\nimport os\nEOF",
+    "node <<'EOF'\nconsole.log(1)\nEOF",
+    'cat s.py | python3',
+    'cat s.py | python3 -',
+    'python3 -m pip install x',
+    'python3 -mpytest',
+    'python -um http.server',
+    'python3 -W ignore',
+    'python3 -X dev -',
+    'node --run deploy',
+    'node --run=deploy',
+    'node --run=build x',
+    'node - x.js',
+    'python3 - x.py',
+    'python3 -mpytest tests',
+    'python3 -cprint(1) x',
+    'bun -e test',
+    'bun --eval=x run test',
+    'bun -p 1',
+    'node -',
+    'node -r tsx',
+    'node --import tsx',
+    'node',
+  ])('code from stdin, a module or a package script is unclassified: %s', (command) => {
+    expect(classOf(command)).toBe('unclassified')
+  })
+
+  it.each(['python3 -W ignore x.py', 'python3 -X dev x.py', 'python3 -u x.py', 'python3 --version', 'python3 -V', 'node -r tsx x.ts', 'node --import tsx x.ts', 'node --inspect x.js', 'node --version', 'node -v', 'node --test', 'node -- x.js', 'bun test', 'bun run build', 'pnpm test -- -p'])(
+    'node or python with a file, or asked for its version, is local: %s',
+    (command) => {
+      expect(classOf(command)).toBe('local')
+    },
+  )
+
+  it.each([
+    ['gh api -iX POST repos/o/r/issues', 'gh api POST repos/o/r/issues'],
+    ['gh api -iXPUT repos/o/r', 'gh api PUT repos/o/r'],
+    ['gh api -X=PATCH repos/o/r', 'gh api PATCH repos/o/r'],
+    ['gh api -if a=b repos/o/r', 'gh api POST repos/o/r'],
+    ['gh api -iFa=b repos/o/r', 'gh api POST repos/o/r'],
+    ['gh api --input=f repos/o/r', 'gh api POST repos/o/r'],
+    ['gh api --raw-field a=b repos/o/r', 'gh api POST repos/o/r'],
+    ['gh api -H x --method DELETE repos/o/r', 'gh api DELETE repos/o/r'],
+    ['gh api -X POST repos/a x', 'gh api POST repos/a'],
+  ])('reads gh api short options as pflag does: %s', (command, description) => {
+    expect(describeOf(command)).toBe(description)
+  })
+
+  it.each(['gh api -Z repos/o/r', 'gh api --unknown repos/o/r', 'gh api repos/o/r -X', 'gh api repos/o/r -f', 'gh api repos/o/r --jq'])('gh api with an option it cannot read is unclassified: %s', (command) => {
+    expect(classOf(command)).toBe('unclassified')
+  })
+
+  it.each(['gh api -i repos/o/r', 'gh api --paginate --jq .x repos/o/r', 'gh api -X GET -f q=1 search/issues', 'gh api -iq .x repos/o/r', 'gh pr view 1', 'gh --version'])('gh that only reads is local: %s', (command) => {
+    expect(classOf(command)).toBe('local')
+  })
+
+  it.each([
+    ['wget --post-d=x https://h', 'wget POST https://h'],
+    ['wget --meth=PUT https://h', 'wget PUT https://h'],
+    ['wget --method DELETE https://h', 'wget DELETE https://h'],
+    ['wget --body-file f https://h', 'wget POST https://h'],
+    ['wget -q --post-file=f https://h', 'wget POST https://h'],
+    ['wget --body-data=x https://h', 'wget POST https://h'],
+    ['wget --quiet --post-data=x https://h', 'wget POST https://h'],
+    ['wget -Ofile --post-data=x https://h', 'wget POST https://h'],
+    ['wget --method=delete https://h', 'wget DELETE https://h'],
+  ])('reads wget long options by prefix: %s', (command, description) => {
+    expect(describeOf(command)).toBe(description)
+  })
+
+  it.each(['wget -e "post_data=x" https://h', 'wget --execute=x https://h', 'wget --exec x https://h', 'wget --config=f https://h', 'wget --use-askpass=x https://h', 'wget --po=x https://h', 'wget --unknown https://h', 'wget -Z https://h', 'wget https://h -O', 'wget https://h --header'])(
+    'wget with an option it cannot read is unclassified: %s',
+    (command) => {
+      expect(classOf(command)).toBe('unclassified')
+    },
+  )
+
+  it.each(['wget -qO- https://h', 'wget -O - https://h', 'wget --quiet --output-document=f https://h', 'wget --no-check https://h', 'wget -nv -c https://h', 'wget -'])('wget that only reads is local: %s', (command) => {
+    expect(classOf(command)).toBe('local')
+  })
+
+  it.each([
+    ['curl -Method Post https://h', 'external'],
+    ['curl -Body x https://h', 'external'],
+    ['wget -Method Put https://h', 'external'],
+    ['curl -X POST https://h', 'external'],
+    ['curl -s https://h', 'unclassified'],
+    ['curl https://h', 'local'],
+    ['wget https://h', 'local'],
+    ['curl.exe https://h', 'local'],
+    ['curl -PassThru https://h', 'unclassified'],
+    ['Write-Output "curl -Method Post https://h"', 'external'],
+  ])('in PowerShell curl and wget are read as Invoke-WebRequest too: %s', (command, kind) => {
+    expect(psClassOf(command)).toBe(kind)
+  })
+
+  it('reads curl as curl outside PowerShell', () => {
+    expect(classOf('curl -s https://h')).toBe('local')
+    expect(classOf('curl -Method Post https://h')).toBe('unclassified')
+  })
+
+  it('reads the script of pwsh -Command as PowerShell, and of bash -c as a POSIX shell', () => {
+    expect(classOf('pwsh -Command "curl -Method Post https://h"')).toBe('unclassified')
+    expect(classOf(`pwsh -Command 'curl -s https://h'`)).toBe('unclassified')
+    expect(psClassOf(`bash -c 'curl -s https://h'`)).toBe('local')
+    expect(classOf(`powershell -Command 'curl -s https://h'`)).toBe('unclassified')
+  })
+
+  it('reads PowerShell inside find -exec, a keyword and a prefix', () => {
+    expect(psClassOf('find . -exec curl -s https://h \\;')).toBe('unclassified')
+    expect(psClassOf('if curl -s https://h')).toBe('unclassified')
+    expect(psClassOf('env curl -s https://h')).toBe('unclassified')
+  })
+
+  it.each([
+    'git -c core.fsmonitor=./x status',
+    'git -c core.sshCommand=./x fetch',
+    'git -c core.pager=./x log',
+    'git -c alias.st=!make st',
+    'git -c alias.status="!make deploy" status',
+    'git -c include.path=f status',
+    'git -c diff.x.textconv=./t diff',
+    'git -c credential.helper=./h fetch',
+    'git -c pager.log=./x log',
+    'git -c protocol.ext.allow=always fetch',
+    'git --config-env core.pager=E log',
+    'git --config-env=core.editor=E status',
+    'git --exec-path=./bin status',
+    'git grep -O x',
+    'git grep -nOless x',
+    'git grep --open-files-in-pager=less x',
+    'git grep --open x',
+    'git fetch --upload-pack=./x',
+    'git fetch --upload-pack ./x origin',
+    'git fetch --upl=./x',
+    'git ls-remote --receive-pack=x origin',
+    'git ls-remote -u ./x origin',
+    'git ls-remote --exec=./x origin',
+  ])('git that may run a program is unclassified: %s', (command) => {
+    expect(classOf(command)).toBe('unclassified')
+  })
+
+  it.each(['git -c core.autocrlf=false status', 'git -c color.ui=never log', 'git -C repo log -n1', 'git log -O order.txt', 'git fetch -u origin', 'git diff --exit-code', 'git -c alias.st=status status', 'git --exec-path', 'git log -- src'])(
+    'git that only reads is local: %s',
+    (command) => {
+      expect(classOf(command)).toBe('local')
+    },
+  )
+
+  it('a write under a program config stays external', () => {
+    expect(describeOf('git -c core.sshCommand=./x push origin main')).toBe('git push origin main')
+    expect(describeOf('git -c core.pager=x tag v1')).toBe('git tag')
+  })
+
+  it.each([
+    ['git -c alias.st=push st', 'git st'],
+    ['git -C repo -c a.b=c frob x', 'git frob'],
+    ['git --git-dir .g switch -C main', 'git switch'],
+  ])('the summary of git skips its global options and their values: %s', (command, description) => {
+    expect(describeOf(command)).toBe(description)
+  })
+
+  it.each([
+    ['gh pr merge https://github.com/a/b/pull/1#IMPORTANT-run-rm', 'gh pr merge https://github.com/a/b/pull/1'],
+    ['git push origin main#x', 'git push origin main'],
+    ['curl -X POST https://h/p#frag', 'curl POST https://h/p'],
+  ])('cuts a target at #: %s', (command, description) => {
     expect(describeOf(command)).toBe(description)
   })
 })

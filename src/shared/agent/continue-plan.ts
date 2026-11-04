@@ -180,13 +180,26 @@ const GIT_READ_FORMS: Readonly<Record<string, (args: readonly string[]) => boole
 }
 /** git options before the subcommand that take the next word as their value (`git -C <path> push`). */
 const GIT_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env'])
+/**
+ * `git -c` keys whose value is a program git runs (`core.sshCommand`, `core.pager`, `alias.x=!…`) or a
+ * file of more config (`include.path`): a read command under one of them may run anything.
+ */
+const GIT_PROGRAM_CONFIG = /^(?:alias\.[^=]*=\s*!|pager\.|protocol\.|[^=]*\.(?:fsmonitor|sshcommand|pager|editor|askpass|hookspath|path|textconv|command|program|helper|driver|clean|smudge|process|external|gitproxy|uploadpack|receivepack|packobjectshook)(?:=|$))/i
+/** Long options of git's read commands that run a program; git reads a long option by any prefix. */
+const GIT_PROGRAM_OPTIONS: readonly string[] = ['upload-pack', 'receive-pack', 'exec', 'open-files-in-pager']
 /** gh commands that only read or act on this machine; every other `gh <group> <verb>` counts as external. */
 const GH_READ_GROUPS: ReadonlySet<string> = new Set(['search', 'status', 'browse', 'help', 'version', 'completion'])
 const GH_READ_VERBS: ReadonlySet<string> = new Set(['view', 'list', 'status', 'checks', 'diff', 'checkout', 'watch', 'download'])
+/**
+ * `gh api`'s options as this module reads them. Short options combine as pflag reads them (`-iX POST`,
+ * `-iXPUT`, `-X=POST`, `-if a=b`); an option in none of the lists makes the command unclassified.
+ */
+const GH_API_SHORT_FLAGS: ReadonlySet<string> = new Set(['i', 'h'])
+const GH_API_SHORT_VALUE: ReadonlySet<string> = new Set([...'XfFHpqt'])
+const GH_API_LONG_FLAGS: ReadonlySet<string> = new Set(['--include', '--paginate', '--slurp', '--silent', '--verbose', '--help'])
+const GH_API_LONG_VALUE: ReadonlySet<string> = new Set(['--method', '--field', '--raw-field', '--input', '--header', '--jq', '--template', '--hostname', '--preview', '--cache'])
 /** `gh api` options that send a body: without -X, gh then sends a POST. */
-const GH_API_BODY = /^(?:-[fF]|--field|--raw-field|--input)(?:=|$)|^-[fF]./
-/** `gh api` options that take the next word as their value, so it is not the endpoint. */
-const GH_API_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-X', '--method', '-f', '-F', '--field', '--raw-field', '--input', '-H', '--header', '-q', '--jq', '-t', '--template', '--hostname', '-p', '--preview', '--cache'])
+const GH_API_BODY: ReadonlySet<string> = new Set(['-f', '-F', '--field', '--raw-field', '--input'])
 /** HTTP methods that only read. */
 const READ_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD'])
 /**
@@ -210,9 +223,67 @@ const CURL_LONG_VALUE: ReadonlySet<string> = new Set([
 ])
 /** curl options (by their long name or letter) that send a body: curl then sends POST, or PUT for an upload. */
 const CURL_BODY: ReadonlySet<string> = new Set(['-d', '--data', '--data-raw', '--data-binary', '--data-urlencode', '--data-ascii', '--json', '-F', '--form', '--form-string'])
-const WGET_BODY = /^--(?:post-data|post-file|body-data|body-file)(?:=|$)/
+/**
+ * wget's options as this module reads them. Short options combine (`-qO-`); a long option is read by
+ * any unambiguous prefix, as GNU getopt does (`--post-d=x`). An option in none of the lists makes the
+ * command unclassified: `-e`/`--execute` and `--config` (wgetrc commands) and `--use-askpass` (a program)
+ * are left out on purpose.
+ */
+const WGET_SHORT_FLAGS: ReadonlySet<string> = new Set([...'qvSNcrkKpmxbFHLEd46hV'])
+const WGET_SHORT_VALUE: ReadonlySet<string> = new Set([...'OoaPUtTwlARDIXiBnQ'])
+const WGET_LONG_FLAGS: ReadonlySet<string> = new Set([
+  'quiet', 'verbose', 'no-verbose', 'server-response', 'timestamping', 'continue', 'recursive', 'no-parent', 'mirror',
+  'page-requisites', 'convert-links', 'adjust-extension', 'no-check-certificate', 'spider', 'show-progress', 'no-clobber',
+  'content-disposition', 'retry-connrefused', 'random-wait', 'keep-session-cookies', 'no-cookies', 'inet4-only',
+  'inet6-only', 'no-proxy', 'debug', 'help', 'version', 'background', 'no-host-directories', 'no-directories',
+  'delete-after', 'auth-no-challenge', 'https-only', 'ignore-case', 'force-directories', 'span-hosts', 'relative',
+  'force-html', 'backup-converted', 'no-config', 'trust-server-names', 'no-cache', 'no-dns-cache', 'ignore-length',
+  'no-netrc',
+])
+const WGET_LONG_VALUE: ReadonlySet<string> = new Set([
+  'method', 'post-data', 'post-file', 'body-data', 'body-file', 'header', 'user-agent', 'output-document', 'output-file',
+  'append-output', 'tries', 'timeout', 'wait', 'waitretry', 'directory-prefix', 'level', 'user', 'password', 'http-user',
+  'http-password', 'input-file', 'progress', 'max-redirect', 'limit-rate', 'accept', 'reject', 'domains',
+  'exclude-domains', 'include-directories', 'exclude-directories', 'save-cookies', 'load-cookies', 'referer',
+  'compression', 'ca-certificate', 'ca-directory', 'certificate', 'private-key', 'cut-dirs', 'read-timeout',
+  'connect-timeout', 'dns-timeout', 'quota', 'base', 'restrict-file-names', 'secure-protocol', 'bind-address',
+])
+const WGET_LONG_NAMES: readonly string[] = [...WGET_LONG_FLAGS, ...WGET_LONG_VALUE]
+/** wget options that send a body: wget then sends POST. */
+const WGET_BODY: ReadonlySet<string> = new Set(['post-data', 'post-file', 'body-data', 'body-file'])
 /** PowerShell's HTTP cmdlets and their aliases. */
 const PS_HTTP: ReadonlySet<string> = new Set(['invoke-webrequest', 'invoke-restmethod', 'iwr', 'irm'])
+/**
+ * The parameters of Invoke-WebRequest and Invoke-RestMethod (PowerShell 5.1 and 7, with the common
+ * ones): true when the parameter takes a value. Any other parameter makes the command unclassified.
+ */
+const PS_HTTP_PARAMETERS: ReadonlyMap<string, boolean> = new Map([
+  ...[
+    'uri', 'method', 'custommethod', 'body', 'infile', 'form', 'outfile', 'headers', 'contenttype', 'useragent', 'timeoutsec',
+    'credential', 'sessionvariable', 'websession', 'maximumredirection', 'maximumretrycount', 'retryintervalsec', 'proxy',
+    'proxycredential', 'statuscodevariable', 'responseheadersvariable', 'maximumfollowrellink', 'authentication', 'token',
+    'sslprotocol', 'transferencoding', 'httpversion', 'certificatethumbprint', 'certificate', 'connectiontimeoutseconds',
+    'operationtimeoutseconds', 'unixsocket', 'erroraction', 'warningaction', 'informationaction', 'errorvariable',
+    'warningvariable', 'informationvariable', 'outvariable', 'outbuffer', 'pipelinevariable', 'progressaction',
+  ].map((name): [string, boolean] => [name, true]),
+  ...[
+    'usebasicparsing', 'usedefaultcredentials', 'skipcertificatecheck', 'passthru', 'resume', 'skipheadervalidation',
+    'skiphttperrorcheck', 'followrellink', 'noproxy', 'proxyusedefaultcredentials', 'allowunencryptedauthentication',
+    'disablekeepalive', 'preserveauthorizationonredirect', 'allowinsecureredirect', 'preservehttpmethodonredirect',
+    'verbose', 'debug',
+  ].map((name): [string, boolean] => [name, false]),
+])
+const PS_HTTP_NAMES: readonly string[] = [...PS_HTTP_PARAMETERS.keys()]
+/** Their aliases, which PowerShell reads only in full. */
+const PS_HTTP_ALIASES: ReadonlyMap<string, string> = new Map([
+  ['cm', 'custommethod'], ['ea', 'erroraction'], ['wa', 'warningaction'], ['infa', 'informationaction'], ['ev', 'errorvariable'],
+  ['wv', 'warningvariable'], ['iv', 'informationvariable'], ['ov', 'outvariable'], ['ob', 'outbuffer'], ['pv', 'pipelinevariable'],
+  ['vb', 'verbose'], ['db', 'debug'], ['proga', 'progressaction'],
+])
+/** node's and bun's options that run code given on the command line: `-e`, `-p`, `-pe`, `--eval`, `--print`. */
+const NODE_EVAL = /^-[a-zA-Z]*[ep]$|^--(?:eval|print)(?:=|$)/
+/** node's options that take the next word as their value. */
+const NODE_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-r', '--require', '--import', '--loader', '--experimental-loader', '-C', '--conditions', '--input-type', '--inspect-port', '--title', '--env-file', '--watch-path'])
 /** Programs that always reach another machine. */
 const REMOTE_SHELLS: ReadonlySet<string> = new Set(['ssh', 'scp', 'sftp'])
 const PACKAGE_MANAGERS: ReadonlySet<string> = new Set(['npm', 'pnpm', 'yarn', 'bun'])
@@ -233,14 +304,14 @@ const KEYWORDS: ReadonlySet<string> = new Set(['if', 'then', 'else', 'elif', 'fi
 /** Headers that run nothing themselves: `for f in a b`, `case $x in a` (a `$(…)` in them is a command of its own). */
 const HEADERS: ReadonlySet<string> = new Set(['for', 'select', 'case'])
 /**
- * Programs that act only on this machine, whatever their arguments. gh, wget and rsync are here too:
- * their writes are told apart first (externalCommand), and what is left of them only reads. git, curl
- * and PowerShell's HTTP cmdlets are not: they are local only in the forms their own reading finds
- * local (gitVerdict, curlVerdict, psHttpVerdict). find, node, python and awk are local unless they run
- * a command or code of their own (isLocal).
+ * Programs that act only on this machine, whatever their arguments. rsync is here too: its copy to
+ * another machine is told apart first (externalCommand). git, gh, curl, wget and PowerShell's HTTP
+ * cmdlets are not: they are local only in the forms their own reading finds local (gitVerdict,
+ * ghLocal, curlVerdict, wgetVerdict, psHttpVerdict). find, node, python and awk are local unless they
+ * run a command or code of their own (isLocal).
  */
 const LOCAL_PROGRAMS: ReadonlySet<string> = new Set([
-  'gh', 'wget', 'rsync',
+  'rsync',
   'cd', 'pwd', 'ls', 'cat', 'head', 'tail', 'less', 'grep', 'egrep', 'rg', 'find', 'fd', 'wc', 'sort', 'uniq', 'cut', 'tr',
   'sed', 'awk', 'jq', 'diff', 'cmp', 'comm', 'echo', 'printf', 'true', 'false', 'test', '[', '[[', 'export', 'set', 'unset',
   'sleep', 'date', 'which', 'type', 'mkdir', 'rmdir', 'rm', 'cp', 'mv', 'touch', 'ln', 'chmod', 'stat', 'du', 'df', 'file',
@@ -279,7 +350,7 @@ interface Found {
 function classifyCall(tool: string, input: unknown): Found | null {
   const fields = record(input)
   if (SHELL_TOOLS.has(tool)) {
-    const verdict = classifyLine(commandText(fields.command))
+    const verdict = classifyLine(commandText(fields.command), tool === 'PowerShell')
     if (fields.run_in_background === true) return { description: `background task: ${verdict.all.join('; ')}`, known: true }
     if (verdict.external.length > 0) return { description: verdict.external.join('; '), known: true }
     return verdict.unclassified.length > 0 ? { description: verdict.unclassified.join('; '), known: false } : null
@@ -311,11 +382,11 @@ interface LineVerdict {
   all: string[]
 }
 
-/** How the simple commands of a command line read: external, unclassified or local. */
-function classifyLine(line: string): LineVerdict {
+/** How the simple commands of a command line read: external, unclassified or local. `ps`: the line is PowerShell's. */
+function classifyLine(line: string, ps: boolean): LineVerdict {
   const verdict: LineVerdict = { external: [], unclassified: [], all: [] }
   for (const words of shellSegments(line)) {
-    const external = externalCommand(words)
+    const external = externalCommand(words, ps)
     if (external !== null) {
       verdict.external.push(...external)
       verdict.all.push(...external)
@@ -323,7 +394,7 @@ function classifyLine(line: string): LineVerdict {
     }
     const summary = commandSummary(words)
     verdict.all.push(summary)
-    if (!isLocal(words)) verdict.unclassified.push(summary)
+    if (!isLocal(words, ps)) verdict.unclassified.push(summary)
   }
   return verdict
 }
@@ -334,26 +405,25 @@ function classifyLine(line: string): LineVerdict {
  * quoted command inside it (`bash -c 'git push'`, `ssh host "cd x && git push"`): a false «external»
  * is safer than a miss.
  */
-function externalCommand(words: readonly string[]): string[] | null {
+function externalCommand(words: readonly string[], ps: boolean): string[] | null {
   for (let i = 0; i < words.length; i++) {
-    const summary = externalAt(words, i)
+    const summary = externalAt(words, i, ps)
     if (summary !== null) return [summary]
   }
   const nested: string[] = []
   // The quotes are gone from the word, so each level is shorter than the one above it.
-  for (const word of words) if (/\s/.test(word)) nested.push(...classifyLine(word).external)
+  for (const word of words) if (/\s/.test(word)) nested.push(...classifyLine(word, ps).external)
   return nested.length > 0 ? nested : null
 }
 
 /** The summary of the external command that starts at `words[i]`, or null. */
-function externalAt(words: readonly string[], i: number): string | null {
+function externalAt(words: readonly string[], i: number, ps: boolean): string | null {
   const program = programName(words[i] as string)
   const args = words.slice(i + 1)
   if (program === 'git') return externalOf(gitVerdict(args))
   if (program === 'gh') return ghExternal(args)
-  if (program === 'curl') return externalOf(curlVerdict(args))
-  if (program === 'wget') return httpExternal('wget', args, WGET_BODY, ['--method'], 'POST')
-  if (PS_HTTP.has(program)) return externalOf(psHttpVerdict(program, args))
+  const http = httpVerdict(program, args, ps)
+  if (http !== null) return externalOf(http)
   if (REMOTE_SHELLS.has(program)) return program
   if (program === 'rsync') return args.some((arg) => /^[^-/\\][^\s/\\]*:/.test(arg) && !/^[A-Za-z]:[\\/]/.test(arg)) ? 'rsync' : null
   if (PACKAGE_MANAGERS.has(program)) {
@@ -382,16 +452,40 @@ const LOCAL: Verdict = { kind: 'local' }
 const UNCLEAR: Verdict = { kind: 'unclear' }
 const externalOf = (verdict: Verdict): string | null => (verdict.kind === 'external' ? verdict.summary : null)
 
-function gitVerdict(args: readonly string[]): Verdict {
+/** Where git's subcommand is: after its global options and their values (`-C <path>`, `-c k=v`). */
+function gitSubcommandAt(args: readonly string[]): number {
   let i = 0
   while (i < args.length && (args[i] as string).startsWith('-')) i += GIT_VALUE_OPTIONS.has(args[i] as string) ? 2 : 1
-  const subcommand = args[i]
-  const rest = args.slice(i + 1)
+  return i
+}
+
+/** Whether git's global options make it run a program: a `-c` key of GIT_PROGRAM_CONFIG, or `--exec-path=`. */
+function gitGlobalsRunProgram(globals: readonly string[]): boolean {
+  return globals.some((arg, j) => {
+    const config = arg === '-c' || arg === '--config-env' ? globals[j + 1] : arg.startsWith('--config-env=') ? arg.slice('--config-env='.length) : undefined
+    return (config !== undefined && GIT_PROGRAM_CONFIG.test(config)) || arg.startsWith('--exec-path=')
+  })
+}
+
+/** Whether an option of a git read command runs a program: GIT_PROGRAM_OPTIONS by any prefix, grep's `-O`, ls-remote's `-u`. */
+function gitRunsProgram(subcommand: string, arg: string): boolean {
+  if (arg.startsWith('--')) {
+    const name = arg.slice(2).split('=')[0] as string
+    return name !== '' && GIT_PROGRAM_OPTIONS.some((option) => option.startsWith(name))
+  }
+  return (subcommand === 'grep' && /^-[a-zA-Z]*O/.test(arg)) || (subcommand === 'ls-remote' && /^-[a-zA-Z]*u/.test(arg))
+}
+
+function gitVerdict(args: readonly string[]): Verdict {
+  const at = gitSubcommandAt(args)
+  const subcommand = args[at]
+  const rest = args.slice(at + 1)
   // `git` alone, `git --version`.
   if (subcommand === undefined) return LOCAL
-  if (subcommand === 'tag' && !rest.some((arg) => GIT_TAG_WRITE.test(arg)) && (positionals(rest).length === 0 || rest.some((arg) => GIT_LIST_OPTIONS.test(arg)))) return LOCAL
-  if (GIT_EXTERNAL.has(subcommand)) return { kind: 'external', summary: GIT_TARGETED.has(subcommand) ? withTargets(`git ${subcommand}`, rest, 2, true) : `git ${subcommand}` }
-  if (GIT_READ.has(subcommand) || GIT_READ_FORMS[subcommand]?.(rest) === true) return LOCAL
+  const tagReads = subcommand === 'tag' && !rest.some((arg) => GIT_TAG_WRITE.test(arg)) && (positionals(rest).length === 0 || rest.some((arg) => GIT_LIST_OPTIONS.test(arg)))
+  if (GIT_EXTERNAL.has(subcommand) && !tagReads) return { kind: 'external', summary: GIT_TARGETED.has(subcommand) ? withTargets(`git ${subcommand}`, rest, 2, true) : `git ${subcommand}` }
+  if (gitGlobalsRunProgram(args.slice(0, at)) || rest.some((arg) => gitRunsProgram(subcommand, arg))) return UNCLEAR
+  if (tagReads || GIT_READ.has(subcommand) || GIT_READ_FORMS[subcommand]?.(rest) === true) return LOCAL
   return UNCLEAR
 }
 
@@ -440,7 +534,7 @@ function curlVerdict(args: readonly string[]): Verdict {
 function ghExternal(args: readonly string[]): string | null {
   const at = args.findIndex((word) => !word.startsWith('-'))
   const group = args[at]
-  if (group === 'api') return ghApiExternal(args.slice(at + 1))
+  if (group === 'api') return externalOf(ghApiVerdict(args.slice(at + 1)))
   // `gh` alone or `gh --version`: no group.
   if (group === undefined || GH_READ_GROUPS.has(group)) return null
   const rest = args.slice(at + 1)
@@ -451,64 +545,113 @@ function ghExternal(args: readonly string[]): string | null {
   return withTargets(`gh ${safe(group) ?? '…'} ${safe(verb) ?? '…'}`, rest.slice(verbAt + 1), 1, false)
 }
 
+/** gh that acts only here: `gh api` as its own reading finds it, any other gh command when it does not write. */
+function ghLocal(args: readonly string[]): boolean {
+  const at = args.findIndex((word) => !word.startsWith('-'))
+  return args[at] === 'api' ? ghApiVerdict(args.slice(at + 1)).kind === 'local' : ghExternal(args) === null
+}
+
 /** `gh api`: external with a method that writes, or with a body and no method (gh then sends POST). */
-function ghApiExternal(args: readonly string[]): string | null {
-  let method: string | null = null
+function ghApiVerdict(args: readonly string[]): Verdict {
+  let method = null as string | null
   let body = false
   let endpoint: string | null = null
+  // What an option with its value means; false when the command cannot be read.
+  const take = (name: string, value: string | undefined): boolean => {
+    if (value === undefined) return false
+    if (name === '-X' || name === '--method') method = value
+    else if (GH_API_BODY.has(name)) body = true
+    return true
+  }
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string
-    if (arg === '-X' || arg === '--method') method = args[i + 1] ?? ''
-    else if (arg.startsWith('--method=')) method = arg.slice('--method='.length)
-    else if (arg.startsWith('-X')) method = arg.slice(2)
-    if (GH_API_BODY.test(arg)) body = true
-    if (GH_API_VALUE_OPTIONS.has(arg)) i++
-    else if (!arg.startsWith('-')) endpoint ??= arg
+    if (arg.startsWith('--')) {
+      const eq = arg.indexOf('=')
+      const name = eq === -1 ? arg : arg.slice(0, eq)
+      if (!GH_API_LONG_FLAGS.has(name) && (!GH_API_LONG_VALUE.has(name) || !take(name, eq === -1 ? args[++i] : arg.slice(eq + 1)))) return UNCLEAR
+    } else if (arg.startsWith('-')) {
+      for (let j = 1; j < arg.length; j++) {
+        const letter = arg[j] as string
+        if (GH_API_SHORT_FLAGS.has(letter)) continue
+        // The rest of the word is the value (`-XPUT`, `-X=PUT`), else the next word.
+        if (!GH_API_SHORT_VALUE.has(letter) || !take(`-${letter}`, j + 1 < arg.length ? arg.slice(j + 1).replace(/^=/, '') : args[++i])) return UNCLEAR
+        break
+      }
+    } else endpoint ??= arg
   }
   const writes = method === null ? body : !READ_METHODS.has(method.toUpperCase())
-  if (!writes) return null
-  return withTargets(`gh api ${method === null ? 'POST' : (safe(method.toUpperCase()) ?? '…')}`, endpoint === null ? [] : [endpoint], 1, false)
+  if (!writes) return LOCAL
+  return { kind: 'external', summary: withTargets(`gh api ${method === null ? 'POST' : (safe(method.toUpperCase()) ?? '…')}`, endpoint === null ? [] : [endpoint], 1, false) }
 }
-
-/** curl and wget: external with a method that writes, or with a body (they then send `bodyMethod`). */
-function httpExternal(program: string, args: readonly string[], bodyOption: RegExp, methodOptions: readonly string[], bodyMethod: string): string | null {
-  let method: string | null = null
-  let body = false
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i] as string
-    const option = methodOptions.find((name) => arg === name || arg.startsWith(`${name}=`) || (name.length === 2 && arg.startsWith(name)))
-    if (option !== undefined) method = arg === option ? (args[++i] ?? '') : arg.slice(arg.startsWith(`${option}=`) ? option.length + 1 : option.length)
-    else if (bodyOption.test(arg)) body = true
-  }
-  const sent = method ?? (body ? bodyMethod : 'GET')
-  if (READ_METHODS.has(sent.toUpperCase())) return null
-  return withTargets(`${program} ${safe(sent.toUpperCase()) ?? '…'}`, args.filter((arg) => /^https?:\/\//.test(arg)).slice(0, 1), 1, false)
-}
-
-/** Whether `name` (lower case, without the dash) names the parameter `full`: PowerShell takes any prefix of at least `min` letters. */
-const psParameter = (name: string, full: string, min: number): boolean => name.length >= min && full.startsWith(name)
 
 /**
- * PowerShell's Invoke-WebRequest and Invoke-RestMethod: external with a `-Method` that writes, or with
- * `-Body`, `-InFile` or `-Form`; local only when read as GET or HEAD. Parameters are read in any case,
- * by any unambiguous prefix (`-Meth`) and in the colon form (`-Method:Post`); splatting (`@params`) or a
- * method in a variable is unclear.
+ * The option `name` stands for: an alias, the option itself, or the one option it is a prefix of
+ * (PowerShell and GNU getopt read any unambiguous prefix); null when it is unknown or ambiguous.
+ */
+function uniqueOption(name: string, options: readonly string[], aliases: ReadonlyMap<string, string>): string | null {
+  const alias = aliases.get(name)
+  if (alias !== undefined) return alias
+  if (options.includes(name)) return name
+  const matches = options.filter((option) => option.startsWith(name))
+  return matches.length === 1 ? (matches[0] as string) : null
+}
+
+/** wget: external with a method that writes, or with a body (wget then sends POST); unclear with an option it does not read. */
+function wgetVerdict(args: readonly string[]): Verdict {
+  let method = null as string | null
+  let body = false
+  const urls: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] as string
+    if (arg.startsWith('--')) {
+      const eq = arg.indexOf('=')
+      const name = uniqueOption(arg.slice(2, eq === -1 ? arg.length : eq), WGET_LONG_NAMES, new Map())
+      if (name === null) return UNCLEAR
+      if (WGET_LONG_FLAGS.has(name)) continue
+      const value = eq === -1 ? args[++i] : arg.slice(eq + 1)
+      if (value === undefined) return UNCLEAR
+      if (name === 'method') method = value
+      else if (WGET_BODY.has(name)) body = true
+    } else if (arg.startsWith('-')) {
+      for (let j = 1; j < arg.length; j++) {
+        const letter = arg[j] as string
+        if (WGET_SHORT_FLAGS.has(letter)) continue
+        // `-e` (a wgetrc command) is in neither list. The rest of the word is the value, else the next word.
+        if (!WGET_SHORT_VALUE.has(letter) || (j + 1 === arg.length && args[++i] === undefined)) return UNCLEAR
+        break
+      }
+    } else urls.push(arg)
+  }
+  const sent = method ?? (body ? 'POST' : 'GET')
+  if (READ_METHODS.has(sent.toUpperCase())) return LOCAL
+  return { kind: 'external', summary: withTargets(`wget ${safe(sent.toUpperCase()) ?? '…'}`, urls.filter((url) => /^https?:\/\//.test(url)).slice(0, 1), 1, false) }
+}
+
+/**
+ * PowerShell's Invoke-WebRequest and Invoke-RestMethod: external with a `-Method` or `-CustomMethod`
+ * that writes, or with `-Body`, `-InFile` or `-Form`; local only when read as GET or HEAD. Parameters
+ * are read in any case, by an alias or any unambiguous prefix (`-Meth`, `-CM`) and in the colon form
+ * (`-Method:Post`). A parameter it does not know, splatting (`@params`), a method in a variable or a
+ * second positional word is unclear.
  */
 function psHttpVerdict(program: string, args: readonly string[]): Verdict {
   let method: string | undefined | null = null
   let body = false
+  let uris = 0
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string
     if (arg.startsWith('@')) return UNCLEAR
-    if (!arg.startsWith('-')) continue
-    const colon = arg.indexOf(':')
-    const name = (colon === -1 ? arg.slice(1) : arg.slice(1, colon)).toLowerCase()
-    const inline = colon === -1 ? undefined : arg.slice(colon + 1)
-    if (psParameter(name, 'method', 2)) method = inline ?? args[++i]
-    else if (psParameter(name, 'body', 1) || psParameter(name, 'infile', 2) || psParameter(name, 'form', 3)) {
-      body = true
-      if (inline === undefined) i++
+    if (!arg.startsWith('-')) {
+      // Only `-Uri` is positional.
+      if (++uris > 1) return UNCLEAR
+      continue
     }
+    const colon = arg.indexOf(':')
+    const parameter = uniqueOption((colon === -1 ? arg.slice(1) : arg.slice(1, colon)).toLowerCase(), PS_HTTP_NAMES, PS_HTTP_ALIASES)
+    if (parameter === null) return UNCLEAR
+    const value = PS_HTTP_PARAMETERS.get(parameter) === true ? (colon === -1 ? args[++i] : arg.slice(colon + 1)) : undefined
+    if (parameter === 'method' || parameter === 'custommethod') method = value
+    else if (parameter === 'body' || parameter === 'infile' || parameter === 'form') body = true
   }
   if (method === undefined || method?.startsWith('$') === true) return UNCLEAR
   // `Default` is PowerShell's name for GET.
@@ -517,37 +660,77 @@ function psHttpVerdict(program: string, args: readonly string[]): Verdict {
   return { kind: 'external', summary: withTargets(`${program} ${safe(sent) ?? '…'}`, args.filter((arg) => /^https?:\/\//.test(arg)).slice(0, 1), 1, false) }
 }
 
+/**
+ * The reading of an HTTP client: curl, wget, Invoke-WebRequest or Invoke-RestMethod; null for any
+ * other program. In PowerShell (`ps`) `curl` and `wget` may be aliases of Invoke-WebRequest (Windows
+ * PowerShell 5.1) or the programs themselves: both readings count, and the less safe one wins.
+ */
+function httpVerdict(program: string, args: readonly string[], ps: boolean): Verdict | null {
+  if (PS_HTTP.has(program)) return psHttpVerdict(program, args)
+  const native = program === 'curl' ? curlVerdict(args) : program === 'wget' ? wgetVerdict(args) : null
+  if (native === null || !ps) return native
+  const alias = psHttpVerdict(program, args)
+  if (native.kind === 'external') return native
+  if (alias.kind === 'external') return alias
+  return native.kind === 'local' && alias.kind === 'local' ? LOCAL : UNCLEAR
+}
+
+/** Whether node runs a file (or only prints its version or help): code from the command line, from stdin or a package script (`--run`) is not. */
+function nodeRunsFile(args: readonly string[]): boolean {
+  if (args.some((arg) => arg === '-' || NODE_EVAL.test(arg) || /^--run(?:=|$)/.test(arg))) return false
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] as string
+    if (!arg.startsWith('-') || /^(?:-[vh]|--version|--help|--test)$/.test(arg)) return true
+    if (NODE_VALUE_OPTIONS.has(arg)) i++
+  }
+  return false
+}
+
+/** Whether python runs a file (or only prints its version or help): `-c`, `-m`, stdin (`-`, no file) are not. */
+function pythonRunsFile(args: readonly string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] as string
+    if (arg === '-' || /^-[bBdEhiIOqsSuvVxPR]*[cm]/.test(arg)) return false
+    if (!arg.startsWith('-') || /^(?:-V|-h|--version|--help)$/.test(arg)) return true
+    // `-W ignore`, `-X dev`: the next word is the value.
+    if (/^-[bBdEhiIOqsSuvVxPR]*[WX]$/.test(arg)) i++
+  }
+  return false
+}
+
 /** Whether every program a simple command runs is known to act only here. */
-function isLocal(words: readonly string[]): boolean {
+function isLocal(words: readonly string[], ps: boolean): boolean {
   let k = 0
   while (k < words.length && /^[A-Za-z_]\w*=/.test(words[k] as string)) k++
   if (k === words.length) return true
   const program = programName(words[k] as string)
   const rest = words.slice(k + 1)
   if (HEADERS.has(program)) return true
-  if (KEYWORDS.has(program)) return isLocal(rest)
+  if (KEYWORDS.has(program)) return isLocal(rest, ps)
   if (SHELLS.has(program)) {
     // `-c`, `-lc` (Codex runs `bash -lc '…'`), PowerShell's `-Command`.
     const at = rest.findIndex((arg) => /^-[a-z]*c$/.test(arg) || arg.toLowerCase() === '-command')
     const script = at === -1 ? undefined : rest[at + 1]
     if (script === undefined) return false
-    const inner = classifyLine(script)
+    const inner = classifyLine(script, program === 'pwsh' || program === 'powershell')
     return inner.external.length === 0 && inner.unclassified.length === 0
   }
   if (PREFIXES.has(program)) {
     let j = 0
     while (j < rest.length && /^(?:-|[A-Za-z_]\w*=|\d+(?:\.\d+)?[smhd]?$)/.test(rest[j] as string)) j++
-    return isLocal(rest.slice(j))
+    return isLocal(rest.slice(j), ps)
   }
-  if (PACKAGE_MANAGERS.has(program)) return localPackageCommand(rest)
+  // `bun -e '…'` runs code from the command line, as `node -e` does.
+  if (PACKAGE_MANAGERS.has(program)) return !(program === 'bun' && rest.some((arg) => NODE_EVAL.test(arg))) && localPackageCommand(rest)
   if (program === 'npx') return isLocalScript(rest.find((arg) => !arg.startsWith('-')))
   if (program === 'git') return gitVerdict(rest).kind === 'local'
-  if (program === 'curl') return curlVerdict(rest).kind === 'local'
-  if (PS_HTTP.has(program)) return psHttpVerdict(program, rest).kind === 'local'
-  if (program === 'find') return findCommands(rest).every((command) => isLocal(command))
-  // Code given on the command line runs whatever it likes: `node -e`, `python -c`, awk's `system(` and pipes.
-  if (program === 'node') return !rest.some((arg) => /^-[a-zA-Z]*[ep]$|^--(?:eval|print)(?:=|$)/.test(arg))
-  if (program === 'python' || program === 'python3') return !rest.some((arg) => /^-[a-zA-Z]*c$/.test(arg))
+  if (program === 'gh') return ghLocal(rest)
+  const http = httpVerdict(program, rest, ps)
+  if (http !== null) return http.kind === 'local'
+  if (program === 'find') return findCommands(rest).every((command) => isLocal(command, ps))
+  // Code from the command line or stdin runs whatever it likes: `node -e`, `python -c`, awk's `system(` and pipes.
+  if (program === 'node') return nodeRunsFile(rest)
+  if (program === 'python' || program === 'python3') return pythonRunsFile(rest)
   if (program === 'awk') return !rest.some((arg) => /system\s*\(|\|/.test(arg))
   return LOCAL_PROGRAMS.has(program)
 }
@@ -582,7 +765,9 @@ function commandSummary(words: readonly string[]): string {
   let k = 0
   while (k < words.length - 1 && /^[A-Za-z_]\w*=/.test(words[k] as string)) k++
   const program = safe(programName(words[k] ?? '')) ?? 'a command'
-  return withTargets(program, words.slice(k + 1), 1, true)
+  const args = words.slice(k + 1)
+  // git's global options and their values (`-c alias.st=push`) are not its subcommand.
+  return withTargets(program, program === 'git' ? args.slice(gitSubcommandAt(args)) : args, 1, true)
 }
 
 /**
@@ -595,8 +780,8 @@ function withTargets(head: string, args: readonly string[], count: number, skipO
   for (const arg of args) {
     if (targets.length === count) break
     if (arg.startsWith('-') && skipOptions) continue
-    // A query string is the model's text: a URL is kept up to its `?`.
-    const target = arg.split('?')[0] as string
+    // A query string and a fragment are the model's text: a URL is kept up to its `?` or `#`.
+    const target = arg.split(/[?#]/)[0] as string
     if (arg.startsWith('-') || !SAFE_WORD.test(target)) break
     targets.push(target)
   }
@@ -658,13 +843,37 @@ function shellSegments(line: string): string[][] {
   }
   for (let i = 0; i < line.length; i++) {
     const char = line[i] as string
-    if (char === "'" || char === '"') {
+    if (char === "'") {
       const closing = line.indexOf(char, i + 1)
       const end = closing === -1 ? line.length : closing
       word += line.slice(i + 1, end)
       inWord = true
       quoted = true
       i = end
+    } else if (char === '"') {
+      // In double quotes `$(…)` and backticks still run: their commands are read; the rest is the word's text.
+      let k = i + 1
+      for (; k < line.length && line[k] !== '"'; k++) {
+        const inner = line[k] as string
+        // A backslash quotes only `$`, a backtick, `"`, itself and a newline here; before anything else it stays.
+        const next = line[k + 1]
+        if (inner === '\\' && next !== undefined && '$`"\\\n'.includes(next)) {
+          if (next !== '\n') word += next
+          k++
+        } else if (inner === '$' && next === '(') {
+          const end = closingParen(line, k + 1)
+          segments.push(...shellSegments(line.slice(k + 2, end)))
+          k = end
+        } else if (inner === '`') {
+          const closing = line.indexOf('`', k + 1)
+          const end = closing === -1 ? line.length : closing
+          segments.push(...shellSegments(line.slice(k + 1, end)))
+          k = end
+        } else word += inner
+      }
+      inWord = true
+      quoted = true
+      i = k
     } else if (char === '\\' && line[i + 1] === '\n') i++
     else if (char === '\\' && i + 1 < line.length) {
       // A backslash before a newline joins the lines; before any other character it makes it literal.
@@ -712,6 +921,22 @@ function shellSegments(line: string): string[][] {
   // A `$(` or `(` left open: the outer commands are commands too.
   for (const rest of outer.reverse()) if (rest.length > 0) segments.push(rest)
   return segments
+}
+
+/** The index of the `)` that closes the `(` at `open`, past quotes and nested parentheses; the line's end when none does. */
+function closingParen(line: string, open: number): number {
+  let depth = 0
+  for (let k = open; k < line.length; k++) {
+    const char = line[k] as string
+    if (char === '\\') k++
+    else if (char === "'" || char === '"') {
+      const closing = line.indexOf(char, k + 1)
+      if (closing === -1) return line.length
+      k = closing
+    } else if (char === '(') depth++
+    else if (char === ')' && --depth === 0) return k
+  }
+  return line.length
 }
 
 /** Where the lines of the here-documents that start after the newline at `i` end: the newline after the last delimiter's line. */
