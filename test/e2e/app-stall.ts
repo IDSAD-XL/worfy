@@ -36,9 +36,17 @@ function machineTop(): Promise<string> {
 }
 
 // A diagnosis of a just-started app that does not answer (worfy-polish ticket 47): on the GitHub
-// Windows runner the page's first evaluate in canvasReady once took 9–20 s. This records, in main,
-// how late its own event loop ran, when the window reported itself unresponsive, and what each
-// process of the app spent on the CPU, so the log says which process was stuck.
+// Windows runner the page's first evaluate in canvasReady took 9–20 s in the failing runs. This
+// records, in main, how late its own event loop ran, when the window reported itself
+// unresponsive, what each process of the app spent on the CPU, the events of main's file watches,
+// the longest tasks of each main thread (a Chromium trace) and, on Windows, the busiest processes
+// of the machine, so the log says which process was stuck and on what.
+//
+// Off unless WORFY_E2E_STALL_PROBE=1: CI does not set it. The probe itself costs time (a trace of
+// every task, pings of main every 250 ms), so a run with it is a diagnosis run, not a verdict.
+
+/** Whether the probe is on for this run. */
+export const STALL_PROBE = process.env.WORFY_E2E_STALL_PROBE === '1'
 
 /** What main recorded since the probe was installed. */
 export interface StallRecord {
@@ -215,9 +223,11 @@ export async function watchCall<T>(app: ElectronApplication, label: string, call
   } finally {
     done = true
     const took = Date.now() - started
-    if (took > slowMs) {
+    const cpuAfter = cpuTimes()
+    // Reported after the wait that made the call (reportStalls): the report asks main several
+    // things and stops a trace, which took the rest of canvasReady's budget when it ran here.
+    if (took > slowMs) pendingReports.push(async () => {
       await pinger
-      const cpuAfter = cpuTimes()
       const machineBusy = Math.round((100 * (cpuAfter.busy - cpuBefore.busy)) / Math.max(1, cpuAfter.total - cpuBefore.total))
       const record = await app.evaluate(() => (globalThis as unknown as { __worfyStall?: StallRecord }).__worfyStall).catch(() => undefined)
       const rel = (at: number): string => `${((at - started) / 1000).toFixed(1)}s`
@@ -239,6 +249,13 @@ export async function watchCall<T>(app: ElectronApplication, label: string, call
       for (const line of await longTasks(app)) lines.push(`[stall] ${line}`)
       for (const [stack, count] of stacks) lines.push(`[stall] main stack (${count} pings):\n${stack}`)
       console.log(lines.join('\n'))
-    }
+    })
   }
+}
+
+const pendingReports: Array<() => Promise<void>> = []
+
+/** Prints the reports of the slow calls watchCall saw since the last call of this. */
+export async function reportStalls(): Promise<void> {
+  for (const report of pendingReports.splice(0)) await report()
 }
