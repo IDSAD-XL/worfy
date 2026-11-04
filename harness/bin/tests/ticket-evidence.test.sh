@@ -329,6 +329,7 @@ if ln -s "$EVD/02-drag.webm" "$EVD/02-link.webm" 2>/dev/null && [ -L "$EVD/02-li
     refuse02 "a contact sheet that is a symbolic link" "a contact sheet is a file, not a symbolic link: ../evidence/02-lsheet.sheet.png" \
         --ref '`../evidence/02-lsheet.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
 else
+    rm -f "$EVD/02-link.webm" # Git Bash without symbolic links copies the target instead
     echo "skip symbolic link cases: no symbolic links here"
 fi
 mkclip "$EVD/02-UP.WEBM"; cp "$EVD/01-canvas.png" "$EVD/02-UP.sheet.png"

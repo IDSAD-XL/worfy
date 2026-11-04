@@ -473,6 +473,8 @@ mkclip "$E2/16-badsheet.webm"; printf 'x' >"$E2/16-badsheet.sheet.png"
 links=0
 if ln -s "$T/clips-any/a-segfile.webm" "$E2/17-link.webm" 2>/dev/null && [ -L "$E2/17-link.webm" ]; then
     ln -s "/Us""ers/$NAME/Movies/x.webm" "$E2/18-home.webm"; links=1
+else
+    rm -f "$E2/17-link.webm" # Git Bash without symbolic links copies the target instead
 fi
 g2 add -A && g2 commit -q -m feature
 (cd "$R2" && node "$CHECK" --changed) >"$T/out-clips2.txt" 2>&1; rc=$?
