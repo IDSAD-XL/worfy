@@ -34,11 +34,16 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
 ## Готово, когда
 
 - [ ] Unit test компонента: три положения, клик пишет через IPC, read-only на Linked machine, нет у обычной Session.
+  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · f87861a3b3ed5bbbb48e5bfe53ef451ab0f11195
 - [ ] Contract test настройки: нет файла — `off`; мусор — `off`; запись одного Project-а не трогает другие и
       `autoContinue`.
+  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · f87861a3b3ed5bbbb48e5bfe53ef451ab0f11195
 - [ ] Contract test: канал не принимает запись с Linked machine.
+  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · f87861a3b3ed5bbbb48e5bfe53ef451ab0f11195
 - [ ] Ответ про перечитывание `app-settings.json` — в «Итог».
+  - evidence: commit pass · Auto-approval switch: Off / Shadow / On per Project in the Orchestrator bar · - - · f87861a3b3ed5bbbb48e5bfe53ef451ab0f11195
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f87861a3b3ed5bbbb48e5bfe53ef451ab0f11195
 
 ## Тесты
 
