@@ -16,18 +16,25 @@ vendor/<target>/bin/codex`). Отдельно Codex у пользователя 
 (`CODEX_HOME` не переопределяется), так что `/hooks`, запущенный из него, одобряет то же доверие — но пользователь
 не знает его пути.
 
-Ещё одно, найдено при приёмке и не разобрано: владелец запустил встроенный binary по полному пути, и
-интерактивный Codex сразу напечатал «Error: No such file or directory (os error 2)». При этом `codex app-server`,
-который запускает worfy (`launch.ts`), работает, хотя тоже не получает дополнительного PATH. Рядом с binary
-лежат `vendor/<target>/codex-path/rg` и `vendor/<target>/codex-resources/`. npm-launcher Codex, вероятно, кладёт
-`codex-path` в PATH перед запуском — это не подтверждено. Сначала найти причину (лог с `RUST_LOG=debug`,
-отдельный `CODEX_HOME` во временной папке, никогда не `~/.codex`), потом выбирать решение.
+Ещё два факта с приёмки на Mac (Stable `b09dfab0`):
+
+- Первый запуск встроенного binary по полному пути сразу упал: «Error: No such file or directory (os error 2)».
+  После `cd ~` тот же binary без правки PATH запустился и показал «Hooks need review — 13 hooks are new or
+  changed» для `hooks.json` Harness в `~/.codex/plugins/cache/…`. Значит, дело не в PATH (`codex-path/rg`).
+  Вероятная причина — текущая папка shell-а, которой уже нет (например, удалённый worktree); не подтверждено.
+- Codex пишет «clamping SessionEnd hook timeout to 3s» для обоих hook-ов `SessionEnd` Harness
+  (`harness/hooks/hooks.json`: `session-end.mjs` — 10 s, `bin/worktree-lock release` — 5 s). На Codex они
+  получают 3 s.
 
 ## Что делаем
 
-0. Найти, какого файла не хватает интерактивному Codex при запуске встроенного binary напрямую, и запускать его
-   так, как это делает launcher (PATH, cwd, env). Если в протоколе app-server есть метод доверия hook-ам —
-   рассмотреть одобрение прямо из worfy по нажатию пользователя, без terminal.
+0. Проверить причину «os error 2»: запуск из несуществующей текущей папки (test с временной папкой, которую
+   удаляют до запуска; отдельный `CODEX_HOME` во временной папке, никогда не `~/.codex`). Кнопка или команда
+   диалога запускает Codex в домашней папке пользователя. Если в протоколе app-server есть метод доверия
+   hook-ам — рассмотреть одобрение прямо из worfy по нажатию пользователя, без terminal.
+0a. Hook-и `SessionEnd` на Codex: успевают ли `session-end.mjs` и `worktree-lock release` за 3 s (замер); если
+    нет — что теряется, и как это исправить (быстрее, фоном, или отдельный timeout для Codex в установке
+    Harness). Записать в «Итог».
 1. Шаг 1 диалога показывает путь встроенного binary этой сборки (тот же, что находит `binary.ts`) с кнопкой Copy;
    на Windows — в кавычках для PowerShell (`& "C:\…\codex.exe"`). Если в PATH есть свой `codex` — можно упомянуть
    и его, но команда по умолчанию — встроенная.
