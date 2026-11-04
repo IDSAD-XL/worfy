@@ -24,6 +24,7 @@ import {
   SHEET_CAPTION,
   SHEET_GAP,
   SHEET_MAX_SIDE,
+  sheetCell,
   sheetLayout,
   ticketEvidenceCommand,
 } from './evidence-capture'
@@ -214,6 +215,19 @@ test.describe('where the files go and what the helpers print', () => {
     expect(() => sheetLayout(61, { width: 2560, height: 1600 })).toThrow(/61 frames of 2560 × 1600 px do not fit on one contact sheet of at most 16384 px a side: shorten the scenario/)
   })
 
+  test('a cell of the contact sheet is as wide and as tall as the largest frame, whichever frame that is', () => {
+    const sized = (width: number, height: number): Buffer => {
+      const each = Buffer.from(png())
+      each.writeUInt32BE(width, 16)
+      each.writeUInt32BE(height, 20)
+      return each
+    }
+    // Windows fits the new window into the screen first: the frame of second 0 is smaller than the rest.
+    expect(sheetCell([{ second: 0, png: sized(1264, 735) }, { second: 1, png: sized(1280, 800) }])).toEqual({ width: 1280, height: 800 })
+    expect(sheetCell([{ second: 0, png: sized(1300, 700) }, { second: 1, png: sized(1280, 800) }])).toEqual({ width: 1300, height: 800 })
+    expect(() => sheetCell([])).toThrow('no frame was taken')
+  })
+
   test('the ffmpeg of Playwright: where Playwright looks for it, and the install command when it is not there', () => {
     const revision = ffmpegRevision()
     const core = playwrightCore()
@@ -370,6 +384,13 @@ test('captureScreenshot: a PNG of the window in each theme, of a part of it, and
     const sheet = await contactSheet(launched.app, Array.from({ length: 61 }, (_, second) => ({ second, png: frame })), sheetDir)
     const minute = sheetLayout(61, pngSize(frame))
     expect(pngSize(sheet)).toEqual({ width: minute.width, height: minute.height })
+    // Frames of two sizes: the cells take the larger one, whichever comes first.
+    const small = await card.screenshot({ scale: 'css' })
+    const mixedDir = join(scratch, 'mixed')
+    mkdirSync(mixedDir)
+    const mixed = await contactSheet(launched.app, [{ second: 0, png: small }, { second: 1, png: frame }], mixedDir)
+    const two = sheetLayout(2, pngSize(frame))
+    expect(pngSize(mixed)).toEqual({ width: two.width, height: two.height })
 
     const only = await captureScreenshot(card, 'card', { themes: ['dark'] })
     expect(only).toEqual([test.info().outputPath('card-dark.png')])

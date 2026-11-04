@@ -189,7 +189,7 @@ export interface Clip {
   frames: number
   /** How long the scenario ran. */
   seconds: number
-  /** The size of each frame on the sheet: the window's, in CSS pixels. */
+  /** The size of a cell of the sheet: the largest frame (sheetCell), in CSS pixels of the window. */
   frame: { width: number; height: number }
 }
 
@@ -243,46 +243,72 @@ export function sheetLayout(frames: number, frame: { width: number; height: numb
 }
 
 /**
- * The contact sheet of `frames`: a grid of them at their own size (sheetLayout), each with its second
- * under it. Drawn by the app itself in a window it never shows (offscreen rendering, one pixel per CSS
- * pixel) and taken with `webContents.capturePage()`, so no image library is needed; the frames are
- * files in `dir` the page loads.
+ * The size of a cell of the contact sheet: the largest frame's width and height. The frames of one
+ * clip may differ: the frame of second 0 is taken before the scenario sizes the window, and Windows
+ * fits a new window into the screen first.
+ */
+export function sheetCell(frames: Frame[]): { width: number; height: number } {
+  if (frames.length === 0) throw new Error('recordClip: no frame was taken for the contact sheet')
+  const sizes = frames.map((each) => pngSize(each.png))
+  return { width: Math.max(...sizes.map((size) => size.width)), height: Math.max(...sizes.map((size) => size.height)) }
+}
+
+/**
+ * The contact sheet of `frames`: a grid of cells (sheetCell, sheetLayout), each frame at its own size in
+ * the top left of its cell with its second under it. The app draws it on a canvas in a window it never
+ * shows and gives back the canvas as a PNG, so no image library is needed and the sheet is not bound
+ * to the screen: a window, even an offscreen one, is cut to the screen on Windows. The frames are files
+ * in `dir` the page loads.
  */
 export async function contactSheet(app: ElectronApplication, frames: Frame[], dir: string): Promise<Buffer> {
-  const first = frames[0]
-  // unreachable: the frame of second 0 is always taken (underLimit).
-  if (first === undefined) throw new Error('recordClip: no frame was taken for the contact sheet')
-  const frame = pngSize(first.png)
-  const size = sheetLayout(frames.length, frame)
+  const cell = sheetCell(frames)
+  const size = sheetLayout(frames.length, cell)
   const cells = frames.map((each, index) => {
     const name = `frame-${index}.png`
     writeFileSync(join(dir, name), each.png)
-    return `<figure><img src="${name}" width="${frame.width}" height="${frame.height}"><figcaption>${each.second} s</figcaption></figure>`
+    return {
+      src: name,
+      second: each.second,
+      x: SHEET_GAP + (index % size.columns) * (cell.width + SHEET_GAP),
+      y: SHEET_GAP + Math.floor(index / size.columns) * (cell.height + SHEET_CAPTION + SHEET_GAP),
+    }
   })
   const page = join(dir, 'sheet.html')
-  writeFileSync(
-    page,
-    `<!doctype html><meta charset="utf-8"><style>
-html, body { margin: 0; background: #fff; }
-body { display: grid; grid-template-columns: repeat(${size.columns}, ${frame.width}px); gap: ${SHEET_GAP}px; padding: ${SHEET_GAP}px; }
-figure { margin: 0; }
-img { display: block; outline: 1px solid #999; }
-figcaption { height: ${SHEET_CAPTION}px; font: 14px/${SHEET_CAPTION}px monospace; color: #000; text-align: center; }
-</style>${cells.join('')}`,
-  )
+  writeFileSync(page, '<!doctype html><meta charset="utf-8"><title>contact sheet</title>')
+  const draw = `(async () => {
+    const sheet = ${JSON.stringify({ width: size.width, height: size.height, cell, caption: SHEET_CAPTION, cells })}
+    const canvas = document.createElement('canvas')
+    canvas.width = sheet.width
+    canvas.height = sheet.height
+    const pen = canvas.getContext('2d')
+    pen.fillStyle = '#fff'
+    pen.fillRect(0, 0, sheet.width, sheet.height)
+    pen.font = '14px monospace'
+    pen.textAlign = 'center'
+    pen.textBaseline = 'middle'
+    for (const each of sheet.cells) {
+      const image = new Image()
+      image.src = each.src
+      await image.decode()
+      pen.drawImage(image, each.x, each.y)
+      pen.strokeStyle = '#999'
+      pen.strokeRect(each.x - 0.5, each.y - 0.5, image.naturalWidth + 1, image.naturalHeight + 1)
+      pen.fillStyle = '#000'
+      pen.fillText(each.second + ' s', each.x + sheet.cell.width / 2, each.y + sheet.cell.height + sheet.caption / 2)
+    }
+    return canvas.toDataURL('image/png').slice('data:image/png;base64,'.length)
+  })()`
   const base64 = await app.evaluate(
-    async ({ BrowserWindow }, { page, width, height }) => {
-      const window = new BrowserWindow({ show: false, width, height, useContentSize: true, enableLargerThanScreen: true, webPreferences: { offscreen: { deviceScaleFactor: 1 } } })
+    async ({ BrowserWindow }, { page, draw }) => {
+      const window = new BrowserWindow({ show: false, width: 200, height: 200 })
       try {
         await window.loadFile(page)
-        await window.webContents.executeJavaScript('Promise.all([...document.images].map((image) => image.decode()))')
-        const image = await window.webContents.capturePage({ x: 0, y: 0, width, height })
-        return image.toPNG().toString('base64')
+        return (await window.webContents.executeJavaScript(draw)) as string
       } finally {
         window.destroy()
       }
     },
-    { page, width: size.width, height: size.height },
+    { page, draw },
   )
   const png = Buffer.from(base64, 'base64')
   if (png.length === 0) throw new Error('recordClip: the app drew an empty contact sheet')
@@ -447,6 +473,5 @@ async function underLimit(
   mkdirSync(sheetDir, { recursive: true })
   const sheet = await contactSheet(launched.app, frames, sheetDir)
   // Asked while the app runs: Playwright knows the path from the start of the recording.
-  // frames[0] is there: contactSheet refused an empty list.
-  return { video: await video.path(), sheet, frames: frames.length, seconds: took, frame: pngSize((frames[0] as Frame).png) }
+  return { video: await video.path(), sheet, frames: frames.length, seconds: took, frame: sheetCell(frames) }
 }
