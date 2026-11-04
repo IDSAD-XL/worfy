@@ -49,3 +49,19 @@ With `F workflow.ci` `batch` the merge does not wait for CI: the PR merges on it
 `mergeable` is `MERGEABLE`. A single ticket outside a wave is a wave of one: after its merge, the
 batch CI run on the main branch of skill `/worfy:epic-wave`, section 4, "Batch CI on the main
 branch" — dispatch, wait, and the same rule for a red run.
+
+**The Evidence lines of the verdict and the CI.** The review verdict and the green final CI check are
+written under the items of the ticket's section `F tickets.done_section` at the close, not on the
+branch: a line on the branch after CI would make a new head and one more CI run.
+- `review` — under each item whose claims the review checked (the `item` of the report's claims):
+  `pass` for `VERIFIED`, `fail` for `REJECTED`, `ref` `PR #<N>`.
+- `ci-check` — under each item the final CI check proves (an item that names CI, or a test that only
+  CI runs): `ref` is the URL of that check's run on the PR head,
+  `gh pr checks <N> --json name,link --jq '.[] | select(.name == "<CI check>") | .link'`.
+
+Full mode: these lines go into the state file of `land` as `prs[].evidence` (skill
+`/worfy:epic-wave`, section 4, "Merge with land"), and `land` writes them in its documents PR before
+`ticket done`. Silent mode (no documents PR): after the verdict and the CI, before `ticket done`, the orchestrator writes them itself:
+`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN> <item> review pass --ref "PR #<N>" --sha <head>` and
+`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN> <item> ci-check pass --ref "<run URL>" --platform ci --sha <head>`,
+each with `; echo "EXIT=$?"`; `ticket` puts them into the ticket file in the Workflow folder.

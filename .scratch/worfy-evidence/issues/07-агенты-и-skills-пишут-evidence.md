@@ -1,7 +1,7 @@
 # 07 — Агенты и skills пишут Evidence
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T02:34Z
 Blocked by: 01, 02, 04
 Source: [spec.md](../spec.md), «Модель» («Кто пишет какие строки»), «Где privacy check бежит», п. 4, «Риски», п. 3, 5, «Вопросы владельцу», Q2, Q6
 
