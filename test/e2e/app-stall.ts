@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { readFileSync, rmSync } from 'node:fs'
 import { cpus } from 'node:os'
 import type { ElectronApplication } from '@playwright/test'
 
@@ -14,14 +15,15 @@ function cpuTimes(): { busy: number; total: number } {
   return { busy, total }
 }
 
-// Windows only: the 10 processes of the whole machine that used the most CPU over 2 s, the
-// machine's free memory and the disk's busy time, from one Windows PowerShell run.
+// Windows only: the 10 processes of the whole machine that used the most CPU over 2 s, with the
+// services a svchost runs, and the machine's free memory, from one Windows PowerShell run.
 const TOP_SCRIPT = [
   '$a = @{}; Get-Process | ForEach-Object { $a[$_.Id] = $_.TotalProcessorTime.TotalMilliseconds }',
-  "$disk = (Get-Counter '\\PhysicalDisk(_Total)\\% Disk Time' -SampleInterval 2 -MaxSamples 1).CounterSamples[0].CookedValue",
+  'Start-Sleep -Seconds 2',
   '$rows = Get-Process | ForEach-Object { $before = $a[$_.Id]; if ($null -eq $before) { $before = 0 }; [pscustomobject]@{ Name = $_.ProcessName; Id = $_.Id; Ms = [int]($_.TotalProcessorTime.TotalMilliseconds - $before) } }',
   '$free = [int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)',
-  "'free ' + $free + ' MB, disk ' + [int]$disk + '%, top: ' + (($rows | Sort-Object Ms -Descending | Select-Object -First 10 | ForEach-Object { $_.Name + ':' + $_.Id + ':' + $_.Ms + 'ms' }) -join ' ')",
+  '$services = @{}; Get-CimInstance Win32_Service | Where-Object { $_.ProcessId -gt 0 } | ForEach-Object { $services[[int]$_.ProcessId] = @($services[[int]$_.ProcessId]) + $_.Name }',
+  "'free ' + $free + ' MB, top: ' + (($rows | Sort-Object Ms -Descending | Select-Object -First 10 | ForEach-Object { $_.Name + ':' + $_.Id + ':' + $_.Ms + 'ms' + $(if ($services[$_.Id]) { '[' + (($services[$_.Id] | Where-Object { $_ }) -join ',') + ']' } else { '' }) }) -join ' ')",
 ].join('; ')
 
 function machineTop(): Promise<string> {
@@ -82,6 +84,54 @@ export async function installWatchCounter(app: ElectronApplication): Promise<voi
     }
     fs.watch = counted as typeof fs.watch
     process.getBuiltinModule('node:module').syncBuiltinESMExports()
+  })
+}
+
+/**
+ * Starts Chromium's trace of the app (category toplevel: every task each thread runs, with the
+ * place in the source that posted it), so a stall can name the task that held main's UI thread.
+ */
+export async function startAppTrace(app: ElectronApplication): Promise<void> {
+  await app.evaluate(async ({ contentTracing }) => {
+    await contentTracing.startRecording({ included_categories: ['toplevel', 'ipc', 'electron'], recording_mode: 'record-continuously' })
+  })
+}
+
+interface TraceEvent {
+  ph: string
+  name: string
+  pid: number
+  tid: number
+  ts: number
+  dur?: number
+  args?: Record<string, unknown>
+}
+
+/** Stops the app's trace and names the longest tasks of each process's main thread in it, from `sinceMs` (Date.now()) on. */
+async function longTasks(app: ElectronApplication): Promise<string[]> {
+  const file = await app.evaluate(async ({ contentTracing }) => contentTracing.stopRecording()).catch((error: unknown) => `failed: ${String(error)}`)
+  if (file.startsWith('failed:')) return [`trace ${file}`]
+  let events: TraceEvent[]
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { traceEvents?: TraceEvent[] } | TraceEvent[]
+    events = Array.isArray(parsed) ? parsed : (parsed.traceEvents ?? [])
+  } catch (error) {
+    return [`trace unreadable: ${String(error)}`]
+  } finally {
+    rmSync(file, { force: true })
+  }
+  const threads = new Map<string, string>()
+  for (const event of events) if (event.ph === 'M' && event.name === 'thread_name') threads.set(`${event.pid}:${event.tid}`, String(event.args?.name))
+  const last = Math.max(0, ...events.map((event) => event.ts + (event.dur ?? 0)))
+  const long = events
+    .filter((event) => event.ph === 'X' && (event.dur ?? 0) > 300_000)
+    .filter((event) => /CrBrowserMain|CrRendererMain|CrGpuMain/.test(threads.get(`${event.pid}:${event.tid}`) ?? ''))
+    .sort((a, b) => (b.dur ?? 0) - (a.dur ?? 0))
+    .slice(0, 12)
+  return long.map((event) => {
+    const where = event.args?.src_func ? ` ${String(event.args.src_file)}:${String(event.args.src_func)}` : ''
+    const data = event.args && !event.args.src_func ? ` ${JSON.stringify(event.args).slice(0, 200)}` : ''
+    return `task ${Math.round((event.dur ?? 0) / 1000)} ms, ended ${((last - event.ts - (event.dur ?? 0)) / 1e6).toFixed(1)} s before the trace stopped, ${threads.get(`${event.pid}:${event.tid}`)} pid ${event.pid}: ${event.name}${where}${data}`
   })
 }
 
@@ -186,6 +236,7 @@ export async function watchCall<T>(app: ElectronApplication, label: string, call
         .sort((a, b) => b.during - a.during)
         .slice(0, 5)
       lines.push(`[stall] fs.watch: ${Object.keys(watches ?? {}).length} paths; busiest during the call: ${busiest.map(({ path, entry, during }) => `${path} (opened ${entry.opened}, ${during} events now, ${entry.events} in all, ${entry.names.join(' ')})`).join(' | ') || 'none'}`)
+      for (const line of await longTasks(app)) lines.push(`[stall] ${line}`)
       for (const [stack, count] of stacks) lines.push(`[stall] main stack (${count} pings):\n${stack}`)
       console.log(lines.join('\n'))
     }
