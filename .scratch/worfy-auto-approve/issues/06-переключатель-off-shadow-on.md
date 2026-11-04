@@ -34,17 +34,11 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
 ## Готово, когда
 
 - [ ] Unit test компонента: три положения, клик пишет через IPC, read-only на Linked machine, нет у обычной Session.
-  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · ae80d126d4e5fab558bc7808cb26072e1d36e833
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/auto-approve.spec.ts test/e2e/eco-mode.spec.ts test/e2e/session-controls.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · ae80d126d4e5fab558bc7808cb26072e1d36e833
 - [ ] Contract test настройки: нет файла — `off`; мусор — `off`; запись одного Project-а не трогает другие и
       `autoContinue`.
-  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · ae80d126d4e5fab558bc7808cb26072e1d36e833
 - [ ] Contract test: канал не принимает запись с Linked machine.
-  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · ae80d126d4e5fab558bc7808cb26072e1d36e833
 - [ ] Ответ про перечитывание `app-settings.json` — в «Итог».
-  - evidence: commit pass · Auto-approval stays off while a debugging port or the inspector is open · - - · ae80d126d4e5fab558bc7808cb26072e1d36e833
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · ae80d126d4e5fab558bc7808cb26072e1d36e833
 
 ## Тесты
 
@@ -96,7 +90,11 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
   передаёт его Chromium-у через `app.commandLine`). Тогда `autoApprovalMode()` отвечает Off, `autoApproval.set`
   отказывает в Shadow и On, `autoApproval.read` отвечает `{mode: 'off', saved, blocked: <причина>}`, переключатель
   показывает Off, недоступен, tooltip называет причину и сохранённый режим. Цена: Stable владельца, запущенный с CDP
-  9351, и любой e2e под Playwright всегда видят Auto-approval Off.
+  9351, и любой e2e под Playwright всегда видят Auto-approval Off. Адрес inspector-а спрашивается при каждом запросе
+  (contract test с mock-ом `node:inspector`, открытым после загрузки модуля). Пока порт открыт, переключатель
+  недоступен целиком, Off из UI тоже не выбрать; IPC Off принимает. **Известный предел — Ticket 12 (Electron fuses).**
+  В собранном worfy fuse `EnableNodeCliInspectArguments` включён: `kill -USR1`, запись On через inspector и
+  `inspector.close()` проверка не ловит. Ticket 04 и 11 ждут Ticket 12.
 - **Id Project-а.** Шаблон хеша, которым кончается id, — один, `src/shared/projects/project-id.ts`; им пользуются
   `projectId()` (`src/main/projects/store.ts`) и схема ключа `autoApproval`. Свои копии шаблона ещё в
   `src/shared/images.ts:56` и `src/shared/browser/partition.ts:12` — вне этого Ticket-а.

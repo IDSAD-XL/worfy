@@ -37,6 +37,10 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [{ isDestroyed: () => false, webContents: { send: (channel: string, payload: unknown) => electron.sent.push({ channel, payload }) } }] },
 }))
 
+// The Node inspector of main: closed until a test opens it, after main's modules have loaded.
+const inspector = vi.hoisted(() => ({ address: undefined as string | undefined }))
+vi.mock('node:inspector', async (importOriginal) => ({ ...(await importOriginal<typeof import('node:inspector')>()), url: () => inspector.address }))
+
 const ALPHA = 'alpha-0000000a'
 const BETA = 'beta-0000000b'
 const STRANGER = 'gamma-0000000c'
@@ -372,5 +376,18 @@ describe('the debugging port check', () => {
     electron.switches = ['remote-debugging-pipe']
     expect(running()).toMatch(/debugging pipe/u)
     electron.switches = []
+  })
+
+  it('the check of the running app asks for the inspector each time: one opened after start (SIGUSR1) blocks it, one closed again does not', async () => {
+    const { debugAccess: running } = await import('../../src/main/settings/store')
+    expect(running()).toBeNull()
+    inspector.address = 'ws://127.0.0.1:9229/0000'
+    try {
+      expect(running()).toMatch(/Node inspector/u)
+      expect(autoApprovalMode(ALPHA)).toBe('off')
+    } finally {
+      inspector.address = undefined
+    }
+    expect(running()).toBeNull()
   })
 })
