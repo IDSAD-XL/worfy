@@ -1,7 +1,8 @@
 # 10 — Вид `video` в строке Evidence и privacy check клипов
 
 Type: task
-Status: claimed 2026-11-04T13:26Z
+Status: done 2026-11-04T18:18Z
+PR: #1369
 Blocked by: —
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 6, «Модель» («Строка Evidence», «Клип и contact sheet»), «Privacy check» («Клипы»), «Вопросы владельцу», Qv1, Qv2, Qv3; слово владельца 2026-11-04 («worfy должен уметь делать скриншоты и даже записывать видео как доказательство, если задача того требует»)
 
