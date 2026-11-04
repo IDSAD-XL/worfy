@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { codexHooksCommand, type HarnessHooksTrust, type HarnessStatus } from '../../shared/ipc/harness'
 import { invoke } from '../ipc'
@@ -90,6 +90,9 @@ export interface CodexHooksStepProps {
 export default function CodexHooksStep({ onClose, onStatus }: CodexHooksStepProps) {
   const [check, setCheck] = useState<Check>({ kind: 'idle' })
   const checking = check.kind === 'checking'
+  // Whether a check runs, for the Escape listener: set where the check starts and ends, so a key pressed
+  // right after the answer is drawn sees it even before React re-runs the listener's effect.
+  const checkingNow = useRef(false)
   const [binary, setBinary] = useState<Binary>({ kind: 'asking' })
   const [copied, setCopied] = useState(false)
 
@@ -112,15 +115,17 @@ export default function CodexHooksStep({ onClose, onStatus }: CodexHooksStepProp
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !checking) onClose()
+      if (event.key === 'Escape' && !checkingNow.current) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [checking, onClose])
+  }, [onClose])
 
   const checkAgain = (): void => {
+    checkingNow.current = true
     setCheck({ kind: 'checking' })
     void invoke('harness.codexHooks').then((answer) => {
+      checkingNow.current = false
       if (!answer.ok) {
         setCheck({ kind: 'failed', error: answer.error })
         return
