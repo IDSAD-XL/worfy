@@ -1,7 +1,8 @@
 # 01 — Строка Evidence и команда `ticket evidence`
 
 Type: task
-Status: open
+Status: done 2026-11-04T01:18Z
+PR: #1319
 Blocked by: —
 Source: [spec.md](../spec.md), «Модель» («Строка Evidence», «Состояние пункта»), «Решено без владельца», п. 1–3, 7, «Вопросы владельцу», Q1; случай worfy-windows 16 (`.scratch/worfy-windows/issues/16-приёмка-worfy-windows.md:184`)
 
