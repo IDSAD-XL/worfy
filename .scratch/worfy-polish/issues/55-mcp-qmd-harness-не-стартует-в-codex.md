@@ -62,14 +62,14 @@ MCP server объявлен в `harness/.mcp.json`: `"command": "node", "args": 
   в `PATH` самого Codex; на Windows — через `which` с `PATHEXT` (`program_resolver.rs`).
 
 **Исправление (п. 2).** Перед каждым `codex plugin add worfy@worfy-harness` worfy пишет в свою копию Harness
-(`<harnessHome>/plugin`; решено без владельца, подтвердить) файл `.codex-plugin/plugin.json`: манифест Claude Code плюс `mcpServers` из `.mcp.json`, где
+(`<harnessHome>/plugin`; решено без владельца, подтверждено владельцем 2026-11-04) файл `.codex-plugin/plugin.json`: манифест Claude Code плюс `mcpServers` из `.mcp.json`, где
 `${CLAUDE_PLUGIN_ROOT}` заменён полным путём копии (`codexPluginManifest`, `writeManifest` в
-`src/main/harness/codex-install.ts`; на Windows путь нормализуется с обратными слэшами). `cwd` не задаётся (решено без владельца, подтвердить), поэтому
+`src/main/harness/codex-install.ts`; на Windows путь нормализуется с обратными слэшами). `cwd` не задаётся (решено без владельца, подтверждено владельцем 2026-11-04), поэтому
 `qmd-mcp` по-прежнему стартует в папке Session и читает Profile Project-а (язык документов). Так же агенты Codex уже
 получают путь копии вместо переменной (`codex-agents.ts`). `harness/` не меняется: Claude Code читает
 `.claude-plugin/` и `.mcp.json` как раньше. Ошибка записи — ошибка шага `plugin add`, и `codex plugin add` не запускается.
 
-Решено без владельца, подтвердить: манифест пишется при установке, а не лежит в `harness/` статично. Статичный файл с
+Решено без владельца, подтверждено владельцем 2026-11-04: манифест пишется при установке, а не лежит в `harness/` статично. Статичный файл с
 относительным `cwd: "."` тоже нашёл бы `bin/qmd-mcp`, но server стартовал бы в папке плагина, и `qmd-mcp` не видел бы
 Profile Project-а (русская модель расширения запроса не выбиралась бы).
 

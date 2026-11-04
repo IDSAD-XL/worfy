@@ -82,14 +82,14 @@ Ticket без раздела со следом может быть в Wave: он
 клике на Ship ticket или Run wave worfy читает workflow заново и принимает то же решение ещё раз, поэтому Ticket, который тем
 временем взяли в терминале, не запускается дважды. Запущенный агент сам меняет статус командой `ticket claim`.
 
-**Пусто и ошибка.** Project без Epic-ов показывает панель «No epics yet». «Plan first epic» открывает Orchestrator-а и ничего
-ему не отправляет. Frame без Ticket-ов пишет «No tickets in this epic.» Когда workflow нельзя прочитать, на Canvas нет frame-ов,
+**Пусто и ошибка.** Project без Epic-ов показывает надпись «Plan your first epic →» над Minimap, справа внизу Canvas
+(в том же углу, когда Minimap скрыт). Нажатие открывает Orchestrator-а и ничего ему не отправляет. Frame без Ticket-ов пишет «No tickets in this epic.» Когда workflow нельзя прочитать, на Canvas нет frame-ов,
 а секция Epics показывает причину.
 
 #### On a Linked machine
 
 Epic-и и Ticket-ы читаются на Machine Project-а, только для Project-ов из её списка. На экране только для чтения Ship ticket, Run
-wave, сворачивание frame и «Plan first epic» неактивны и объясняют почему. С правом записи действия выполняются на Machine
+wave, сворачивание frame и «Plan your first epic» неактивны и объясняют почему. С правом записи действия выполняются на Machine
 Project-а. Focus mode тоже читает файл там, а «Open in editor» показывает toast «File is on <Machine>».
 
 ### How it works

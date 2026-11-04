@@ -81,7 +81,7 @@ Windows. Диалог (`src/renderer/harness/CodexHooksStep.tsx`) показыв
 `hooks/list`); TUI Codex одобряет их записью `hooks.state.<key>.trusted_hash` через `config/batchWrite`
 (`codex-rs/tui/src/hooks_rpc.rs:64`). Одобрение из worfy этим путём не делал: это запись в `~/.codex/config.toml` в
 обход экрана, где пользователь видит, что одобряет, а куда пишется `trusted_content_hash` для plugin-hook-ов, не
-выяснено — решено без владельца, подтвердить; возможный отдельный ticket.
+выяснено — решено без владельца, подтверждено владельцем 2026-11-04; возможный отдельный ticket.
 
 **П. 0a, SessionEnd за 3 s.** Codex даёт SessionEnd 1 s по умолчанию и не больше 3 s
 (`codex-rs/hooks/src/events/session_end.rs:20,23`), после срока убивает группу процессов hook-а. Замер на Mac
@@ -89,14 +89,14 @@ Windows. Диалог (`src/renderer/harness/CodexHooksStep.tsx`) показыв
 `bin/profile` зарегистрированного проекта через обёртку, которая уводит запись `pending-retro.log` во временную
 папку): `session-end.mjs` 154–294 ms (с лишним запуском node обёртки), с незарегистрированным проектом 120–180 ms,
 голый `bin/profile --json` 133 ms; `worktree-lock release` 70–111 ms. Оба укладываются в 3 s с запасом в 10 раз, ничего
-не теряется; правка hook-ов не нужна — решено без владельца, подтвердить. Зависший `bin/profile` session-end.mjs уже обрезает на 2 s под Codex
+не теряется; правка hook-ов не нужна — решено без владельца, подтверждено владельцем 2026-11-04. Зависший `bin/profile` session-end.mjs уже обрезает на 2 s под Codex
 (worfy-multi-vendor 36, test «ends inside the 3 s of Codex» в `test/contract/harness-codex-hooks.test.ts`).
 Предупреждение «clamping … to 3s» остаётся: `timeout` в `hooks.json` общий с Claude Code.
 
-**П. 2, «Open in Terminal» не делал** — решено без владельца, подтвердить. Одна команда для копирования работает в
+**П. 2, «Open in Terminal» не делал** — решено без владельца, подтверждено владельцем 2026-11-04. Одна команда для копирования работает в
 любом terminal-е обеих систем; кнопка потребовала бы разного кода для Terminal.app (AppleScript и разрешение
 Automation), Windows Terminal или conhost, или Terminal Node на холсте, у которого может не быть открытого Project.
-Свой `codex` из PATH диалог не упоминает: worfy его не ищет и не знает, читает ли он тот же `CODEX_HOME` — решено без владельца, подтвердить. На Linux команда та же, что на Mac (`cd ~ && '<путь>'`) — тоже подтвердить.
+Свой `codex` из PATH диалог не упоминает: worfy его не ищет и не знает, читает ли он тот же `CODEX_HOME` — решено без владельца, подтверждено владельцем 2026-11-04. На Linux команда та же, что на Mac (`cd ~ && '<путь>'`) — тоже подтверждено владельцем 2026-11-04.
 
 **Попутно.** В gate fast под полной нагрузкой упал unit test «a check that fails says so; Escape closes the step»: Escape
 приходил раньше, чем React перевешивал listener после ответа. Listener теперь читает ref, который ставится там, где
