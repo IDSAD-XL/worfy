@@ -12,6 +12,7 @@ import { useProjects, useReadOnly } from '../projects/useProjects'
 import { StatusChip } from '../theme/primitives'
 import { showToast } from '../toast/toasts'
 import { formatCost, permissionLabel, STATE_CHIPS } from './format'
+import { codexDefaultEffort, headerEffort, headerModel, useCodexModels } from './header-facts'
 import { promptHistory } from './history'
 import { ExternalSessionPanel } from './ExternalSessionPanel'
 import { dropRefusal, useChatDrop } from './chat-drop'
@@ -206,7 +207,8 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // A model picked since the last system/init shows at once, as the picker shows it; the next
   // init names the model it runs (store.ts, modelPick; worfy-week ticket 12). Claude Code's
   // default model is «default» until then: only init says which model it stands for.
-  const model = modelPick !== null ? (modelPick.model ?? 'default') : (facts.model ?? view?.model ?? null)
+  // An empty name reads as unknown («—»), as none does (worfy-polish 52).
+  const model = headerModel(modelPick, facts.model, view?.model ?? null)
   const heading = orchestrator !== undefined || nodeSession === undefined ? 'Orchestrator' : 'Session'
   // The Vendor whose agent runs a Session Node (worfy-multi-vendor ticket 24): its view's, else the one
   // its Node saved, Claude Code for a Node saved without one; null for the Orchestrator.
@@ -214,6 +216,10 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const vendor = orchestrator !== undefined || savedNode?.kind === 'orchestrator' ? null : (nodeSession?.vendor ?? (typeof savedVendor === 'string' ? savedVendor : UNNAMED_VENDOR))
   // «orch» is the Orchestrator's alone (worfy-daily ticket 24); any other Session answers by its Vendor's name, «claude» or «codex».
   const assistantLabel = vendor === null ? 'orch' : vendorLabel(vendor, 'agent')
+  // A Codex Session with no level picked shows its model's default level (header-facts.ts; worfy-polish 52).
+  const runningModel = headerModel(null, facts.model, view?.model ?? null)
+  const codexModels = useCodexModels(sessionId, vendor, runningModel)
+  const effort = headerEffort(settings?.effort ?? null, vendor, codexDefaultEffort(codexModels, modelPick, runningModel))
   // The transcript shows the message when main gives it to Claude Code (a `prompt` event): at
   // once, or after the running turn when it waits in the queue.
   const send = async ({ text, attachments }: OutgoingMessage): Promise<string | null> => {
@@ -275,10 +281,14 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
             {model ?? '—'}
           </span>
         </span>
-        <span className="w-session__fact" title="The level worfy asked for: Claude Code does not report the level it applies">
+        <span className="w-session__fact" title={effort.title}>
           <span className="w-session__fact-label">Effort</span>
-          <span className="w-mono w-session__fact-value" data-testid="session-effort">
-            {settings?.effort ?? '—'}
+          <span
+            className={`w-mono w-session__fact-value${effort.isDefault ? ' w-session__fact-value--default' : ''}`}
+            data-testid="session-effort"
+            data-default={effort.isDefault ? 'true' : undefined}
+          >
+            {effort.text}
           </span>
         </span>
         <span className="w-session__fact">

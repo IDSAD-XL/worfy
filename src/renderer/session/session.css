@@ -109,6 +109,12 @@
   font-weight: 600;
 }
 
+/* A level the Vendor runs by default, not one picked (a Codex Session at Default effort; worfy-polish 52). */
+.w-session__fact-value--default {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
 .w-session__cost {
   font-size: var(--text-13);
   font-weight: 600;

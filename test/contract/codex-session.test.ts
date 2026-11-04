@@ -472,10 +472,11 @@ describe('a Codex Session: model, effort and preset', () => {
     ])
     expect(capabilities.effortLevels).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh'])
     expect(await session.handle.models()).toEqual([
-      { value: null, displayName: 'Default (GPT-5.5 Codex)', efforts: ['low', 'medium', 'high', 'xhigh'] },
-      { value: 'gpt-5.5-codex', displayName: 'GPT-5.5 Codex', efforts: ['low', 'medium', 'high', 'xhigh'] },
+      // Each row names the level its model runs at while none is picked, for the Session header (worfy-polish 52).
+      { value: null, displayName: 'Default (GPT-5.5 Codex)', efforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'medium' },
+      { value: 'gpt-5.5-codex', displayName: 'GPT-5.5 Codex', efforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'medium' },
       // Codex's own `minimal` since the pickers read the capabilities (worfy-multi-vendor ticket 25).
-      { value: 'gpt-5.4', displayName: 'GPT-5.4', efforts: ['minimal', 'low', 'medium', 'high'] },
+      { value: 'gpt-5.4', displayName: 'GPT-5.4', efforts: ['minimal', 'low', 'medium', 'high'], defaultEffort: 'low' },
     ])
     expect(at.requests('model/list').map((request) => request.params)).toEqual([{}, { cursor: 'page-2' }])
 
@@ -513,6 +514,16 @@ describe('a Codex Session: model, effort and preset', () => {
       ['gpt-5.4', 'read-only'],
       ['gpt-5.5-codex', 'auto'],
     ])
+  })
+
+  it('a thread that names no model: the turn\'s init names the default model of model/list, and turn/start names no model (worfy-polish 52)', async () => {
+    const at = fake('default-model')
+    const session = await live(at)
+    await session.handle.send(message('One'))
+    await session.until(isResult, 'the result')
+    expect(at.logged().flatMap((logged) => (logged.id === undefined || logged.method === undefined ? [] : [logged.method]))).toEqual(['initialize', 'thread/start', 'model/list', 'turn/start'])
+    expect(at.requests('turn/start').map((request) => request.params)).toEqual([{ threadId: 'thr_fake_1', input: [text('One')] }])
+    expect(session.events.filter((event) => event.type === 'init').map((event) => event.type === 'init' && event.model)).toEqual(['gpt-5.5-codex'])
   })
 
   it('a model/list Codex refuses gives no models and the static capabilities, and is asked again next time', async () => {

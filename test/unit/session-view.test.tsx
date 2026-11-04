@@ -872,16 +872,16 @@ describe('SessionPanel', () => {
   // worfy-multi-vendor ticket 24: the agent's messages carry the name of the Session's Vendor, the
   // header and the rail its VendorBadge; the Orchestrator stays «orch» with no badge.
   describe('the Vendor of a Session Node', () => {
-    async function mountNode(vendor: 'claude' | 'codex') {
+    async function mountNode(vendor: 'claude' | 'codex', model = 'gpt-5.5') {
       answers['orchestrator.view'] = () => ({ view: null })
       const guard = renderGuard()
       const { SessionPanel } = await import('../../src/renderer/session/SessionView')
       const { railBlocks } = await import('../../src/renderer/session/rail/index')
       const nodeSessions = await import('../../src/renderer/session/node-sessions')
       guard()
-      nodeSessions.acceptSessionNodeView({ projectId: 'alpha', nodeId: 'node-1', vendor, sessionId: 'thr-1', sdkSessionId: null, state: 'idle', error: null, cwd: '/p', model: 'gpt-5.5', version: 1 })
+      nodeSessions.acceptSessionNodeView({ projectId: 'alpha', nodeId: 'node-1', vendor, sessionId: 'thr-1', sdkSessionId: null, state: 'idle', error: null, cwd: '/p', model, version: 1 })
       render(<SessionPanel projectId="alpha" projectName="alpha" nodeId="node-1" blocks={railBlocks.filter((block) => block.id === 'VendorRail')} />)
-      await screen.findByText('gpt-5.5')
+      await vi.waitFor(() => expect(screen.getByTestId('session-model').textContent).toBe(model === '' ? '—' : model))
     }
 
     it('a Codex Session: its answers are labelled «codex», the header and the rail show the Codex badge', async () => {
@@ -894,6 +894,64 @@ describe('SessionPanel', () => {
       expect(screen.getByTestId('session-vendor').textContent).toBe('Codex')
       expect(screen.getByTestId('session-vendor').dataset.vendor).toBe('codex')
       expect(within(screen.getByTestId('session-rail')).getByTestId('vendor-rail-badge').textContent).toBe('Codex')
+    })
+
+    // worfy-polish 52: the header of a Codex Session showed Model with no value and Effort «—» at Default.
+    it('a Codex Session header: the model init names, «—» for an empty one; at Default effort the model\'s default level, marked so', async () => {
+      const init = (model: string): AgentEvent => ({ type: 'init', sdkSessionId: 'thr-1', model, permissionMode: 'full-access', apiKeySource: 'none', cwd: '/p', claudeCodeVersion: '0.166.0', slashCommands: [] })
+      answers['agent.models'] = () => ({
+        models: [
+          { value: null, displayName: 'Default (GPT-5.5)', efforts: ['low', 'medium', 'high'], defaultEffort: 'medium' },
+          { value: 'gpt-5.5', displayName: 'GPT-5.5', efforts: ['low', 'medium', 'high'], defaultEffort: 'medium' },
+          { value: 'gpt-5.4', displayName: 'GPT-5.4', efforts: ['low', 'high'], defaultEffort: 'low' },
+        ],
+      })
+      // A view and an init with an empty model name: unknown, as none is — and the effort is Codex's default model's.
+      await mountNode('codex', '')
+      const model = () => screen.getByTestId('session-model').textContent
+      const effort = () => screen.getByTestId('session-effort')
+      // The default level shows muted and marked (data-default), with no mark in its text, which would take the model's room.
+      const shown = () => `${effort().textContent ?? ''}, ${effort().dataset['default'] === 'true' ? 'default' : 'picked'}`
+      expect(model()).toBe('—')
+      emit('thr-1', { type: 'settings', settings: { model: null, effort: null, permissionMode: 'bypassPermissions' } })
+      await vi.waitFor(() => expect(shown()).toBe('medium, default'))
+      expect(effort().parentElement?.title).toMatch(/Codex runs the model's default level/)
+      expect(effort().parentElement?.title).not.toMatch(/Claude Code/)
+      emit('thr-1', init(''))
+      expect(model()).toBe('—')
+      expect(shown()).toBe('medium, default')
+      emit('thr-1', init('gpt-5.4'))
+      expect(model()).toBe('gpt-5.4')
+      await vi.waitFor(() => expect(shown()).toBe('low, default'))
+      // A level picked: that level, no default mark.
+      emit('thr-1', { type: 'settings', settings: { model: 'gpt-5.4', effort: 'high', permissionMode: 'bypassPermissions' } })
+      expect(model()).toBe('gpt-5.4')
+      expect(shown()).toBe('high, picked')
+      expect(effort().parentElement?.title).toBe('The level worfy asked Codex for')
+      // Default picked again: «default» until the next init names the model, whose default level shows.
+      emit('thr-1', { type: 'settings', settings: { model: null, effort: null, permissionMode: 'bypassPermissions' } })
+      expect(model()).toBe('default')
+      expect(shown()).toBe('medium, default')
+      emit('thr-1', init('gpt-5.5'))
+      expect(model()).toBe('gpt-5.5')
+      expect(shown()).toBe('medium, default')
+    })
+
+    it('a Codex Session whose model/list names no default level: Effort «—» at Default', async () => {
+      answers['agent.models'] = () => ({ models: [] })
+      await mountNode('codex')
+      emit('thr-1', { type: 'settings', settings: { model: null, effort: null, permissionMode: 'bypassPermissions' } })
+      await vi.waitFor(() => expect(asked.some((each) => each.channel === 'agent.models')).toBe(true))
+      expect(screen.getByTestId('session-effort').textContent).toBe('—')
+    })
+
+    it('a Claude Code Session: Effort «—» at Default even when a model row names a default level, with the Claude Code tooltip', async () => {
+      answers['agent.models'] = () => ({ models: [{ value: null, displayName: 'Default', efforts: ['high'], defaultEffort: 'high' }] })
+      await mountNode('claude')
+      emit('thr-1', { type: 'settings', settings: { model: null, effort: null, permissionMode: 'bypassPermissions' } })
+      await vi.waitFor(() => expect(asked.some((each) => each.channel === 'agent.models')).toBe(true))
+      expect(screen.getByTestId('session-effort').textContent).toBe('—')
+      expect(screen.getByTestId('session-effort').parentElement?.title).toBe('The level worfy asked for: Claude Code does not report the level it applies')
     })
 
     it('a Claude Code Session: «claude», and the badge says Claude Code', async () => {

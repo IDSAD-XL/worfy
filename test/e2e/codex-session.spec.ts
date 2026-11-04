@@ -131,3 +131,47 @@ test('a Codex Session: its presets, its slash menu and its approval with four an
     await launched.close()
   }
 })
+
+// worfy-polish 52: a thread that names no model (thread/start answers an empty one) on Default model and
+// effort. The header names the model the turn runs on, Codex's default of `model/list`, and the
+// effort that model runs at, marked as the default; the tooltip speaks of Codex, not Claude Code.
+// The fake plays test/fixtures/codex-scripts/default-model.jsonl.
+test('a Codex Session on Default: the header names the default model and its default effort', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPT: 'turn', CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: 'default-model', WORFY_CODEX_LOG: codexLog } })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: SIZE })
+    await window.getByTestId('sidebar-new-session').click()
+    await window.getByRole('menu', { name: 'New session on' }).locator('[data-testid="new-session-vendor-option"][data-vendor="codex"]').click()
+    const live = window.locator('[data-testid="session-node"][data-live="true"]')
+    await expect(live).toHaveCount(1)
+    await expect(live.getByTestId('session-node-status')).toHaveText('idle')
+    await live.getByTestId('session-node-title').dblclick()
+    const view = window.getByTestId('session-view')
+    await expect(view.getByTestId('session-vendor')).toHaveText('Codex')
+    const effort = view.getByTestId('session-effort')
+    await expect(effort).toHaveText('medium')
+    await expect(effort).toHaveAttribute('data-default', 'true')
+    await expect(effort.locator('..')).toHaveAttribute('title', /Codex runs the model's default level/)
+
+    const field = view.getByTestId('message-input').getByRole('textbox')
+    await field.fill('hi')
+    await field.press('Enter')
+    await expect(view.getByTestId('session-model')).toHaveText('gpt-5.5-codex')
+    await expect(effort).toHaveText('medium')
+    await expect(effort).toHaveAttribute('data-default', 'true')
+    expect(sent().filter((message) => message.method === 'turn/start').map((message) => message.params?.['model'])).toEqual([undefined])
+    await screenshots(window, 'codex-default-header', view.locator('.w-session__header'))
+
+    // At the default window, 1280 px (src/shared/window/bounds.ts), the model's name gives way but keeps
+    // some room: a mark such as « (default)» in the effort's text took all of it, and the cell read empty.
+    await launched.app.evaluate(({ BrowserWindow }) => {
+      const [win] = BrowserWindow.getAllWindows()
+      win?.setContentSize(1280, win.getContentSize()[1] ?? 800)
+    })
+    await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(1280)
+    await expect.poll(() => view.getByTestId('session-model').evaluate((element) => element.clientWidth)).toBeGreaterThan(20)
+  } finally {
+    await launched.close()
+  }
+})
