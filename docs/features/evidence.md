@@ -99,7 +99,7 @@ orchestrator's (tickets outside the repository)`.
 **On the Canvas.** A Ticket card shows the chip `Evidence n/m`: green when every item is verified, red when an item failed,
 neutral otherwise, with the three counts in its tooltip. In Focus mode the Evidence matrix above the Ticket's text shows a
 row per item with its state and its lines, and each link opens its source: the SHA its commit and `PR #N` its pull request
-on the page of the Project's `origin`, a URL as it is, a path in the system's default program. A Ticket without checkbox
+on the page of the Project's `origin`, an `https://` URL as it is (an `http://` one stays plain text), a path in the system's default program. A Ticket without checkbox
 items in its done section has neither. The chip opens nothing. The card, the chip's place and the matrix row by row are on
 [Workflow](workflow.md#ticket-and-epic-on-the-canvas); screenshots and clips in the matrix are under
 [Screenshots and clips](#screenshots-and-clips).
@@ -169,12 +169,12 @@ Old files are not checked: only what the branch adds.
 
 | Rule | What | Not a finding |
 |---|---|---|
-| `home-path` | The user name in a home folder path: `/Users/<name>/`, `/home/<name>/`, `C:\Users\<name>\` (any number of `\`, or `/`), the same path as Git Bash (`/c/…`) and WSL (`/mnt/c/…`) write it | The names `test`, `someone`, `user`, `you`, `runner`, `runneradmin`, `RUNNER~1`, `Shared`; any `<…>`; an ellipsis; a variable (`$USER`, `%USERNAME%`); `~` and `%USERPROFILE%` |
-| `host` | A name ending in `.local` or `.ts.net` (Tailscale MagicDNS), `DESKTOP-` and seven letters or digits, names with `-MacBook`, `s-Mac` or ending in `-PC`, and the short host name of the machine that runs the check | `localhost`; a host with an `example` label |
+| `home-path` | The user name in a home folder path: `/Users/<name>/`, `/home/<name>/`, `C:\Users\<name>\` (any number of `\`, or `/`), the same path as Git Bash (`/c/…`) and WSL (`/mnt/c/…`) write it | The names `test`, `someone`, `user`, `you`, `runner`, `runneradmin`, `RUNNER~1`, `Shared`; any `<…>`; an ellipsis; a variable (`$USER`, `%USERNAME%`); a name that starts with a dot (`/home/.cache`); `~` and `%USERPROFILE%` |
+| `host` | A name ending in `.local` (in lower case only) or `.ts.net` (Tailscale MagicDNS, in any case), `DESKTOP-` and seven letters or digits, names with `-MacBook`, `s-Mac` or ending in `-PC`, and the short host name of the machine that runs the check | `localhost`; a host with an `example` label |
 | `tailscale-ip` | An IPv4 address of the Tailscale network, 100.64.0.0/10 | That network written as CIDR |
-| `uuid` | A UUID of any version | A UUID of one repeated digit, `00000000-0000-0000-0000-000000000000` |
-| `email` | An email address | `noreply@…`, addresses at `users.noreply.github.com`, `git@github.com`, any address at `example.*`, a file name with `@` |
-| `token` | GitHub tokens, `sk-` keys (Anthropic ones too), AWS access keys, Slack tokens, a JWT, the first line of a PEM private key, the value after `Bearer` | |
+| `uuid` | A UUID of any version | A UUID of one repeated digit, `00000000-0000-0000-0000-000000000000`, and one whose digits but the version and variant digits are one repeated digit, `44444444-4444-4444-8444-444444444444` |
+| `email` | An email address | `noreply@…`, `no-reply@…`, addresses at `users.noreply.github.com`, `git@github.com`, any address at `example.*`, a file name with `@` |
+| `token` | GitHub tokens, `sk-` keys that hold a digit (Anthropic ones too; without a digit it is read as a name such as a branch `sk-learn-…`), AWS access keys, Slack tokens, a JWT, the first line of a PEM private key, the value after `Bearer` | |
 | `deny` | A word of the personal list `<Harness home>/user/privacy.json`, `{"deny": ["…"]}`, anywhere, in any case | |
 
 There is no allow list in the repository: a false finding is fixed by writing the value in a stand-in form (`~`,
@@ -211,19 +211,21 @@ push until the check exits 0.
 
 #### What it cannot catch
 
-`evidence-check --help` gives the same list.
+`evidence-check --help` lists the first six items. The page adds what the code also misses: a `.local` name in upper case,
+XML entities and percent-encoding, a path split in UTF-16, a bare zlib stream, and the last item.
 
 - Text on the pixels of a screenshot or a clip: Machine names in the sidebar, a Project title, terminal output in the
   picture. Only a person and the `scrub:` note catch them.
 - The frames of a clip between the seconds of its contact sheet: what showed for less than a second may be on no frame of
   the sheet. That is why an agent may check only clips of the fixture build, which holds no data of the machine.
 - A host or user name in an unpredictable form, such as a short form or another spelling, that is not in the personal list.
+  A `.local` name in upper case (`BOX.LOCAL`) is such a form: that rule is case-sensitive.
 - The name of the other machine (the PC on the Mac and back) until it is in the personal list: the host name is known only
   for the machine the check runs on, and on CI for none.
 - A secret broken by a line break, base64, and other encodings than UTF-8 and UTF-16. Among them: a path written with XML
   entities (`&#47;` for `/`) or percent-encoding (`%2F`), which the rules do not decode; a path split between two
   elements of a clip in UTF-16 (only the UTF-8 readings are joined); and metadata compressed inside a clip as a bare zlib
-  stream, which is neither unpacked nor reported (only gzip, zip, xz, zstd, 7z, bzip2 and QuickTime `cmov` are found).
+  stream, which is neither unpacked nor reported (only a webm `ContentCompression` element, QuickTime `cmov` and the bytes of gzip, zip, xz, zstd, 7z and bzip2 are found).
 - Files outside the Tickets root, the git history (what is pushed stays reachable by its SHA), the text of PRs and
   comments on GitHub.
 - On a push to `main` or a run by hand, the CI job checks only the last commit (`HEAD^1..HEAD`): the earlier commits of a
