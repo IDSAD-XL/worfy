@@ -60,6 +60,7 @@
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
 import { DEFAULT_START_WINDOW, RUN_MODES, type RunMode, type StartWindow } from '../autopilot/run-mode'
+import { PROJECT_ID_HASH_LENGTH, PROJECT_ID_HASH_SUFFIX } from '../projects/project-id'
 
 /** The languages of the worfy Guide (ADR-0090): English, the main one, and Russian. */
 export const GUIDE_LANGUAGES = ['en', 'ru'] as const
@@ -240,9 +241,13 @@ export type AutoApprovalMode = z.output<typeof autoApprovalModeSchema>
 
 /**
  * A Project id as a key of `autoApproval`: `<folder name>-<8 hex>` (projectId() of
- * src/main/projects/store.ts). The hash at the end also keeps keys such as `__proto__` out.
+ * src/main/projects/store.ts, by the one pattern of src/shared/projects/project-id.ts). The hash at the
+ * end also keeps keys such as `__proto__` out.
  */
-export const autoApprovalProjectIdSchema = z.string().max(300).regex(/^.+-[0-9a-f]{8}$/su, 'a Project id ends with its path hash')
+export const autoApprovalProjectIdSchema = z
+  .string()
+  .max(300)
+  .refine((id) => PROJECT_ID_HASH_SUFFIX.test(id) && id.length > PROJECT_ID_HASH_LENGTH + 1, 'a Project id ends with its path hash')
 
 /** The modes of the Projects that are not Off, by Project id. */
 export const autoApprovalSchema = z.record(autoApprovalProjectIdSchema, autoApprovalModeSchema)

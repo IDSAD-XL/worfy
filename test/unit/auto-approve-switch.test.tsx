@@ -8,6 +8,7 @@
 // test/contract/auto-approve-setting.test.ts.
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AutoApprovalState } from '../../src/shared/ipc/auto-approve'
 import type { AutoApprovalMode } from '../../src/shared/settings/app-settings'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
@@ -24,19 +25,30 @@ const SESSION = 'orch-session'
 
 interface FakeMain {
   calls: { channel: string; input: unknown }[]
-  /** What each autoApproval.read answers, in turn (the last one again once they run out); a string — main threw with it. */
-  reads: (AutoApprovalMode | string)[]
-  /** What autoApproval.set answers; a string — main threw with it; undefined — the mode it was given. */
-  set: AutoApprovalMode | string | undefined
+  /** What each autoApproval.read answers, in turn (the last one again once they run out): a mode (saved and in force), a whole state, or a string — main threw with it. */
+  reads: Answer[]
+  /** What autoApproval.set answers, as a read does; undefined — the mode it was given. */
+  set: Answer | undefined
   /** Holds the answer of autoApproval.set until called. */
   hold: (() => void) | null
 }
 
 let main: FakeMain
 
-function preload(reads: (AutoApprovalMode | string)[], set?: AutoApprovalMode | string, options: { hold?: boolean } = {}): FakeMain {
+type Answer = AutoApprovalMode | AutoApprovalState | string
+
+const MODES: readonly string[] = ['off', 'shadow', 'on']
+
+function preload(reads: Answer[], set?: Answer, options: { hold?: boolean } = {}): FakeMain {
   const fake: FakeMain = { calls: [], reads, set, hold: null }
-  const answer = (value: unknown) => Promise.resolve(typeof value === 'string' && !['off', 'shadow', 'on'].includes(value) ? ({ ok: false, error: value } as never) : ({ ok: true, value: { mode: value } } as never))
+  const answer = (value: Answer | undefined) =>
+    Promise.resolve(
+      typeof value === 'object'
+        ? ({ ok: true, value } as never)
+        : MODES.includes(value ?? '')
+          ? ({ ok: true, value: { mode: value, saved: value, blocked: null } } as never)
+          : ({ ok: false, error: value } as never),
+    )
   const bridge: WorfyBridge = {
     invoke: (channel, input) => {
       fake.calls.push({ channel, input })
@@ -271,5 +283,71 @@ describe('the Auto-approval switch', () => {
     await openMenu()
     expect(menu()).toBeNull()
     expect(calls()).toEqual([])
+  })
+  it('shows the mode main answers, not the one asked for', async () => {
+    main = preload(['off'], { mode: 'shadow', saved: 'shadow', blocked: null })
+    await mount()
+    await choose('On')
+    expect(calls().slice(1)).toEqual([{ channel: 'autoApproval.set', input: { projectId: PROJECT, mode: 'on' } }])
+    expect(shownMode()).toBe('shadow')
+  })
+
+  it('the knob carries a mark of its own for each position', async () => {
+    const icon = () => trigger().querySelector('[data-testid="auto-approval-icon"]')?.getAttribute('data-icon')
+    main = preload(['off'])
+    await mount()
+    expect(icon()).toBe('off')
+    await choose('Shadow')
+    expect(icon()).toBe('shadow')
+    await choose('On')
+    expect(icon()).toBe('on')
+  })
+
+  it('Esc in the menu goes no further: a dialog or the focus mode under the bar does not close on it', async () => {
+    main = preload(['off'])
+    await mount()
+    const heard: string[] = []
+    const listener = (event: KeyboardEvent) => heard.push(event.key)
+    document.addEventListener('keydown', listener)
+    try {
+      await openMenu()
+      await act(async () => {
+        fireEvent.keyDown(position('Off'), { key: 'Escape' })
+      })
+      expect(menu()).toBeNull()
+      expect(heard).toEqual([])
+    } finally {
+      document.removeEventListener('keydown', listener)
+    }
+  })
+
+  it('Tab and the window losing focus close the menu, writing nothing', async () => {
+    main = preload(['off'])
+    await mount()
+    await openMenu()
+    await act(async () => {
+      fireEvent.keyDown(position('Off'), { key: 'Tab' })
+    })
+    expect(menu()).toBeNull()
+    await openMenu()
+    expect(menu()).not.toBeNull()
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    expect(menu()).toBeNull()
+    expect(calls()).toHaveLength(1)
+  })
+
+  it('a debugging port open: Off in force, unavailable, the tooltip says why and what was saved; no menu, nothing written', async () => {
+    const reason = 'worfy runs with a debugging port open (--remote-debugging-port)'
+    main = preload([{ mode: 'off', saved: 'on', blocked: reason }])
+    await mount()
+    expect(shownMode()).toBe('off')
+    expect(trigger().getAttribute('data-saved')).toBe('on')
+    expect(trigger().getAttribute('aria-disabled')).toBe('true')
+    expect(trigger().title).toBe(`Auto-approval is off: ${reason}, so any program on this Machine could turn it on. The saved mode, On, applies once worfy starts without it.`)
+    await openMenu()
+    expect(menu()).toBeNull()
+    expect(calls().map((call) => call.channel)).toEqual(['autoApproval.read'])
   })
 })

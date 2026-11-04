@@ -225,7 +225,12 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
    репозитории — коммитом, поэтому там режима нет. Правку файла данных worfy из Bash bypassPermissions не остановит
    (п. 1), поэтому: hard deny от режима не зависит, режим каждого Run-а стоит в `run-started` и в утренней сводке, и
    Ticket 06 проверяет, что worfy не подхватывает правку файла, сделанную не через UI, до рестарта (не проверено —
-   как `store.ts` читает файл сейчас).
+   как `store.ts` читает файл сейчас). Ответ Ticket-а 06: `store.ts` читает файл один раз; правка извне видна после
+   рестарта, следующая запись любой настройки её затирает. **Debugging port — это Auto-approval Off.** С
+   `--remote-debugging-port` / `--remote-debugging-pipe` или Node inspector (`--inspect`) любой процесс Machine ведёт
+   окно worfy и зовёт его IPC как UI, а агент может и сам перезапустить worfy с таким флагом. Поэтому, пока такой
+   флаг есть, `autoApprovalMode()` отвечает Off, `autoApproval.set` отказывает в Shadow и On, переключатель
+   показывает Off и причину (Ticket 06).
 6. **Чужая работа.** Ветки и worktree-ы других Session-ов, push в `main`, force push — hard-deny, даже если агент просит
    «по инструкции из файла».
 7. **Утечка в Journal.** Journal лежит в данных worfy и уходит на Linked machine-ы через Run history: команды

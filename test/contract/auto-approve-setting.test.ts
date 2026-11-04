@@ -4,7 +4,9 @@
 // WORFY_DATA_DIR. No entry — Off; anything outside the schema — Off; a write of one Project leaves
 // every other Project and every other setting as it was. Both channels are `local`: a Linked machine
 // reaches neither, so a mode is never written from another Machine. The store reads the file once:
-// an edit of the file made outside worfy shows only after a restart (spec, "security", item 5).
+// an edit of the file made outside worfy shows only after a restart (spec, "security", item 5). While
+// worfy runs with a debugging port or the Node inspector open, any local process can call the
+// window's IPC: then Shadow and On are refused and the mode in force is Off.
 import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,10 +14,11 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type ModuleLoader } from '../../src/main/ipc/index'
 import { createLinkIpc, LinkPeer } from '../../src/main/link/ipc-adapter'
-import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
+import { projectId } from '../../src/main/projects/store'
+import { APP_SETTINGS_FILE, AppSettingsStore, autoApprovalMode, debugAccessOf } from '../../src/main/settings/store'
 import { autoApprovalRead, autoApprovalSet } from '../../src/shared/ipc/auto-approve'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { appSettingsSchema, autoApprovalOf, DEFAULT_APP_SETTINGS, type AppSettings } from '../../src/shared/settings/app-settings'
+import { appSettingsSchema, autoApprovalOf, autoApprovalProjectIdSchema, DEFAULT_APP_SETTINGS, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 const env = await vi.hoisted(async () => {
@@ -28,8 +31,9 @@ const env = await vi.hoisted(async () => {
   return { scratch }
 })
 
-const electron = vi.hoisted(() => ({ sent: [] as { channel: string; payload: unknown }[] }))
+const electron = vi.hoisted(() => ({ sent: [] as { channel: string; payload: unknown }[], switches: [] as string[] }))
 vi.mock('electron', () => ({
+  app: { commandLine: { hasSwitch: (name: string) => electron.switches.includes(name) } },
   BrowserWindow: { getAllWindows: () => [{ isDestroyed: () => false, webContents: { send: (channel: string, payload: unknown) => electron.sent.push({ channel, payload }) } }] },
 }))
 
@@ -56,6 +60,7 @@ afterAll(() => {
 
 beforeEach(() => {
   electron.sent.length = 0
+  debug.reason = null
 })
 
 /** Everything but the Auto-approval modes and the revision. */
@@ -109,14 +114,17 @@ describe('autoApproval in app-settings.json', () => {
   it('a write of one Project leaves the other Projects and every other setting as they were', () => {
     const file = freshFile()
     const store = new AppSettingsStore(file)
-    store.set({ interfaceScale: 1.2, sidebar: { collapsed: { MachinesSection: true } }, autopilotBudget: { enabled: true }, guideLanguage: 'ru' })
-    store.setAutoApproval(BETA, 'shadow')
+    // Every field off its default, so a write that resets one to the default shows.
+    store.set({ interfaceScale: 1.2, sidebar: { collapsed: { MachinesSection: true }, visible: { focus: false } }, autoCompactWindow: { orchestrator: 300_000, other: null }, memoryIndicator: false, autoUpdate: false, sessionArchive: { after: '3d' }, browserSleep: { maxLive: 5 }, autopilotBudget: { enabled: true }, autopilotRun: { mode: 'fastest' }, guideLanguage: 'ru' })
+    // Taken before the first write of a mode: every write of a mode is checked, the first one too.
     const before = store.get()
+    const shadow = store.setAutoApproval(BETA, 'shadow')
+    expect(rest(shadow)).toStrictEqual(rest(before))
     const after = store.setAutoApproval(ALPHA, 'on')
     expect(after.autoApproval).toStrictEqual({ [ALPHA]: 'on', [BETA]: 'shadow' })
     // Every other field — worfy-retry's `autoContinue` too, once the state has it — is unchanged.
     expect(rest(after)).toStrictEqual(rest(before))
-    expect(after.revision).toBe(before.revision + 1)
+    expect(after.revision).toBe(before.revision + 2)
     expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual(after)
     expect(new AppSettingsStore(file).get()).toStrictEqual(after)
 
@@ -171,6 +179,16 @@ describe('autoApproval in app-settings.json', () => {
     expect(existsSync(file)).toBe(false)
   })
 
+  it('every id projectId() makes is a key the setting keeps: a change of the id format cannot turn the modes Off unseen', () => {
+    for (const root of ['/tmp/demo', '/tmp/demo folder', 'C:/work/Проект', '/', '/tmp/__proto__']) {
+      const id = projectId(root)
+      expect(autoApprovalProjectIdSchema.safeParse(id).success, id).toBe(true)
+      const store = new AppSettingsStore(freshFile())
+      store.setAutoApproval(id, 'shadow')
+      expect(store.autoApproval(id), id).toBe('shadow')
+    }
+  })
+
   it('the schema of the state refuses a mode outside the three', () => {
     expect(appSettingsSchema.safeParse({ ...DEFAULT_APP_SETTINGS, autoApproval: { [ALPHA]: 'on' } }).success).toBe(true)
     expect(appSettingsSchema.safeParse({ ...DEFAULT_APP_SETTINGS, autoApproval: { [ALPHA]: 'always' } }).success).toBe(false)
@@ -200,9 +218,14 @@ const dataFile = join(env.scratch, 'data', APP_SETTINGS_FILE)
 
 const projects = () => [{ id: ALPHA }, { id: BETA }]
 
+/** What the stand-in for the debugging port check answers: null — no port open. */
+const debug = { reason: null as string | null }
+const debugAccess = () => debug.reason
+const PORT_OPEN = 'worfy runs with a debugging port open (--remote-debugging-port)'
+
 async function handlerModule() {
   const { autoApprovalHandlers } = await import('../../src/main/ipc/auto-approve')
-  return autoApprovalHandlers({ projects })
+  return autoApprovalHandlers({ projects, debugAccess })
 }
 
 const loadModule: ModuleLoader = async () => handlerModule()
@@ -222,10 +245,10 @@ async function windowCaller(): Promise<(channel: string, input?: unknown) => Pro
 describe('autoApproval channels', () => {
   it('read answers Off for a Project with no entry; set writes app-settings.json of the data folder and answers the mode', async () => {
     const call = await windowCaller()
-    expect(await call('autoApproval.read', { projectId: ALPHA })).toEqual({ ok: true, value: { mode: 'off' } })
-    expect(await call('autoApproval.set', { projectId: ALPHA, mode: 'shadow' })).toEqual({ ok: true, value: { mode: 'shadow' } })
-    expect(await call('autoApproval.read', { projectId: ALPHA })).toEqual({ ok: true, value: { mode: 'shadow' } })
-    expect(await call('autoApproval.read', { projectId: BETA })).toEqual({ ok: true, value: { mode: 'off' } })
+    expect(await call('autoApproval.read', { projectId: ALPHA })).toEqual({ ok: true, value: { mode: 'off', saved: 'off', blocked: null } })
+    expect(await call('autoApproval.set', { projectId: ALPHA, mode: 'shadow' })).toEqual({ ok: true, value: { mode: 'shadow', saved: 'shadow', blocked: null } })
+    expect(await call('autoApproval.read', { projectId: ALPHA })).toEqual({ ok: true, value: { mode: 'shadow', saved: 'shadow', blocked: null } })
+    expect(await call('autoApproval.read', { projectId: BETA })).toEqual({ ok: true, value: { mode: 'off', saved: 'off', blocked: null } })
     expect(JSON.parse(readFileSync(dataFile, 'utf8')).autoApproval).toStrictEqual({ [ALPHA]: 'shadow' })
     // Every window hears the new state, as with any change of the settings.
     expect(electron.sent.filter((sent) => sent.channel === `${IPC_CHANNEL_PREFIX}appSettings.changed`).length).toBeGreaterThan(0)
@@ -233,12 +256,37 @@ describe('autoApproval channels', () => {
 
   it('autoApprovalMode(projectId) — for the driver of a Run — answers what the switch wrote', async () => {
     const call = await windowCaller()
-    const { autoApprovalMode } = await import('../../src/main/settings/store')
     await call('autoApproval.set', { projectId: BETA, mode: 'on' })
-    expect(autoApprovalMode(BETA)).toBe('on')
+    expect(autoApprovalMode(BETA, debugAccess)).toBe('on')
     await call('autoApproval.set', { projectId: BETA, mode: 'off' })
-    expect(autoApprovalMode(BETA)).toBe('off')
-    expect(autoApprovalMode(STRANGER)).toBe('off')
+    expect(autoApprovalMode(BETA, debugAccess)).toBe('off')
+    expect(autoApprovalMode(STRANGER, debugAccess)).toBe('off')
+  })
+
+  it('a debugging port open: Shadow and On are refused and nothing is written, Off goes through; the read says Off in force and why, the saved mode stays', async () => {
+    const call = await windowCaller()
+    await call('autoApproval.set', { projectId: ALPHA, mode: 'shadow' })
+    debug.reason = PORT_OPEN
+    const before = readFileSync(dataFile, 'utf8')
+    for (const mode of ['on', 'shadow'] as const) {
+      expect(await call('autoApproval.set', { projectId: BETA, mode })).toMatchObject({ ok: false, error: expect.stringContaining(`Auto-approval stays off: ${PORT_OPEN}`) })
+    }
+    expect(await call('autoApproval.set', { projectId: ALPHA, mode: 'on' })).toMatchObject({ ok: false })
+    expect(readFileSync(dataFile, 'utf8')).toBe(before)
+    expect(await call('autoApproval.read', { projectId: ALPHA })).toEqual({ ok: true, value: { mode: 'off', saved: 'shadow', blocked: PORT_OPEN } })
+    // Off stays possible: it only takes approval away.
+    expect(await call('autoApproval.set', { projectId: ALPHA, mode: 'off' })).toEqual({ ok: true, value: { mode: 'off', saved: 'off', blocked: PORT_OPEN } })
+    expect(JSON.parse(readFileSync(dataFile, 'utf8')).autoApproval).toBeUndefined()
+  })
+
+  it('autoApprovalMode(projectId) is Off while a debugging port is open, whatever was saved; the saved mode is back once it is closed', async () => {
+    const call = await windowCaller()
+    await call('autoApproval.set', { projectId: BETA, mode: 'on' })
+    debug.reason = PORT_OPEN
+    expect(autoApprovalMode(BETA, debugAccess)).toBe('off')
+    debug.reason = null
+    expect(autoApprovalMode(BETA, debugAccess)).toBe('on')
+    await call('autoApproval.set', { projectId: BETA, mode: 'off' })
   })
 
   it('a Project that is not one of this Machine: refused, nothing written', async () => {
@@ -277,9 +325,52 @@ describe('autoApproval and a Linked machine', () => {
     expect(await adapter.call(peer, 'autoApproval.set', { projectId: ALPHA, mode: 'on' }, 'Beta')).toEqual({ ok: false, error: 'autoApproval.set: not open to Linked machines' })
     expect(await adapter.call(peer, 'autoApproval.read', { projectId: ALPHA }, 'Beta')).toEqual({ ok: false, error: 'autoApproval.read: not open to Linked machines' })
     expect(existsSync(dataFile) ? readFileSync(dataFile, 'utf8') : null).toBe(before)
-    const { autoApprovalMode } = await import('../../src/main/settings/store')
-    expect(autoApprovalMode(ALPHA)).not.toBe('on')
+    expect(autoApprovalMode(ALPHA, debugAccess)).not.toBe('on')
     expect(await adapter.call(peer, 'sample.echo', { text: 'hi' }, 'Beta')).toEqual({ ok: true, value: { echoed: 'hi' } })
     expect(sample.echoCalls).toEqual(['hi'])
+  })
+})
+
+describe('the debugging port check', () => {
+  it('a debugging port or pipe on the command line, in any spelling Chromium takes, blocks Auto-approval', () => {
+    for (const argv of [
+      ['/app/worfy', '--remote-debugging-port=9351'],
+      ['/app/worfy', '--remote-debugging-port', '9351'],
+      ['/app/worfy', '-remote-debugging-port=0'],
+      ['/app/worfy', '--remote-debugging-pipe'],
+      ['C:\\worfy.exe', '/REMOTE-DEBUGGING-PORT=9222'],
+      ['/app/worfy', '--Remote-Debugging-Port=1'],
+    ]) {
+      expect(debugAccessOf(argv, undefined), argv.join(' ')).toMatch(/debugging (port|pipe)/u)
+    }
+  })
+
+  it("a port Chromium has though the command line of main no longer shows it (a loader can rewrite process.argv, as Playwright's does) blocks it", () => {
+    const has = (names: readonly string[]) => (name: string) => names.includes(name)
+    expect(debugAccessOf(['/app/worfy'], undefined, has(['remote-debugging-port']))).toMatch(/debugging port/u)
+    expect(debugAccessOf(['/app/worfy'], undefined, has(['remote-debugging-pipe']))).toMatch(/debugging pipe/u)
+    expect(debugAccessOf(['/app/worfy'], undefined, has(['disable-gpu']))).toBeNull()
+  })
+
+  it('the Node inspector of main open — by a flag or opened later — blocks it too', () => {
+    expect(debugAccessOf(['/app/worfy'], 'ws://127.0.0.1:9229/0000')).toMatch(/Node inspector/u)
+    expect(debugAccessOf(['/app/worfy', '--inspect=0'], undefined)).toMatch(/Node inspector/u)
+    expect(debugAccessOf(['/app/worfy', '--inspect-brk'], undefined)).toMatch(/Node inspector/u)
+  })
+
+  it('a plain start blocks nothing; a word that only contains the switch is no switch', () => {
+    expect(debugAccessOf(['/app/worfy'], undefined)).toBeNull()
+    expect(debugAccessOf(['/app/worfy', '--no-sandbox', '/tmp/remote-debugging-port-notes'], undefined)).toBeNull()
+  })
+
+  it('the check of the running app asks Chromium for both switches', async () => {
+    const { debugAccess: running } = await import('../../src/main/settings/store')
+    electron.switches = []
+    expect(running()).toBeNull()
+    electron.switches = ['remote-debugging-port']
+    expect(running()).toMatch(/debugging port/u)
+    electron.switches = ['remote-debugging-pipe']
+    expect(running()).toMatch(/debugging pipe/u)
+    electron.switches = []
   })
 })

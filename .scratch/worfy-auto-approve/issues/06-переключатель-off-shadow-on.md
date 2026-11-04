@@ -34,20 +34,11 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
 ## Готово, когда
 
 - [ ] Unit test компонента: три положения, клик пишет через IPC, read-only на Linked machine, нет у обычной Session.
-  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · f87861a3b3ed5bbbb48e5bfe53ef451ab0f11195
-  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts test/unit/eco-mode-switch.test.tsx test/contract/app-settings.test.ts` exit 0 · mac - · 02bf7c28477e89b90edc8adb90d619afac22f165
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/auto-approve.spec.ts test/e2e/eco-mode.spec.ts test/e2e/session-controls.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · 02bf7c28477e89b90edc8adb90d619afac22f165
 - [ ] Contract test настройки: нет файла — `off`; мусор — `off`; запись одного Project-а не трогает другие и
       `autoContinue`.
-  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · f87861a3b3ed5bbbb48e5bfe53ef451ab0f11195
-  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts test/unit/eco-mode-switch.test.tsx test/contract/app-settings.test.ts` exit 0 · mac - · 02bf7c28477e89b90edc8adb90d619afac22f165
 - [ ] Contract test: канал не принимает запись с Linked machine.
-  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · f87861a3b3ed5bbbb48e5bfe53ef451ab0f11195
-  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts test/unit/eco-mode-switch.test.tsx test/contract/app-settings.test.ts` exit 0 · mac - · 02bf7c28477e89b90edc8adb90d619afac22f165
 - [ ] Ответ про перечитывание `app-settings.json` — в «Итог».
-  - evidence: commit pass · Auto-approval switch: Off / Shadow / On per Project in the Orchestrator bar · - - · f87861a3b3ed5bbbb48e5bfe53ef451ab0f11195
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · f87861a3b3ed5bbbb48e5bfe53ef451ab0f11195
 
 ## Тесты
 
@@ -92,10 +83,25 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
   читает файл заново, и правка, если её не затёрли, действует. Проверяют contract test
   `test/contract/auto-approve-setting.test.ts` («an edit of the file made outside worfy…») и e2e
   `test/e2e/auto-approve.spec.ts`.
+- **Debugging port — это Off (round 2 review).** Пока worfy запущен с `--remote-debugging-port` /
+  `--remote-debugging-pipe` или Node inspector (`--inspect`, `node:inspector` открыт), любой процесс Machine ведёт окно
+  worfy через CDP и зовёт IPC как UI. `debugAccess()` в `src/main/settings/store.ts` смотрит `process.argv`, адрес
+  inspector-а и `app.commandLine.hasSwitch` (loader Playwright-а убирает `--remote-debugging-port` из `process.argv` и
+  передаёт его Chromium-у через `app.commandLine`). Тогда `autoApprovalMode()` отвечает Off, `autoApproval.set`
+  отказывает в Shadow и On, `autoApproval.read` отвечает `{mode: 'off', saved, blocked: <причина>}`, переключатель
+  показывает Off, недоступен, tooltip называет причину и сохранённый режим. Цена: Stable владельца, запущенный с CDP
+  9351, и любой e2e под Playwright всегда видят Auto-approval Off.
+- **Id Project-а.** Шаблон хеша, которым кончается id, — один, `src/shared/projects/project-id.ts`; им пользуются
+  `projectId()` (`src/main/projects/store.ts`) и схема ключа `autoApproval`. Свои копии шаблона ещё в
+  `src/shared/images.ts:56` и `src/shared/browser/partition.ts:12` — вне этого Ticket-а.
 - **ADR-0005** — раздел `## Amendments` о поле `autoApproval`. Страница `docs/features/sessions.md` — абзац о
   переключателе и строка в карте кода; что делает каждый режим в Run-е, допишет Ticket 10.
 - **Test-ы.** Unit `test/unit/auto-approve-switch.test.tsx`, contract `test/contract/auto-approve-setting.test.ts`,
-  e2e `test/e2e/auto-approve.spec.ts` (Off по умолчанию, запись по клику, правка извне — только после рестарта).
+  e2e `test/e2e/auto-approve.spec.ts`. Playwright всегда открывает debugging port, поэтому e2e проверяет состояние
+  «заблокировано»: Off, причина в tooltip, menu не открывается, файл не пишется; сохранённый извне On виден в tooltip
+  после рестарта, правка извне до рестарта не видна. Запись по клику покрыта unit test-ом и contract test-ом handler-а.
+  Mutation testing round 2: 14 mutant-ов убиты; mutant «устаревший ответ read не отбрасывается» эквивалентен —
+  компонент пересоздаётся по `key={projectId}`, старый ответ некуда показать.
   Поля `autoContinue` в `main` ещё нет: contract test сравнивает после записи режима все остальные поля состояния,
   так что `autoContinue` worfy-retry 02 попадёт под проверку без правки test-а.
 - **Остаётся владельцу (Ticket 11):** посмотреть переключатель вживую, в том числе в окне Linked machine — e2e с двумя

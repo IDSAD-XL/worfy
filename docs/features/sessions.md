@@ -165,10 +165,15 @@ answers.
   set to `eco`, and `agents`, which is Sonnet with effort medium for each agent role. Off removes both fields, and the
   models the roles had before are not restored. It applies from the next Ticket.
 - Auto-approval, right of Eco mode, shows the Project's mode by where its knob stands: Off, Shadow or On. A click opens
-  a menu of the three, each with a tooltip; choosing one sets it. It is Off for a Project until set. The mode is kept per Project in worfy's own settings on this Machine (`app-settings.json` in
-  worfy's data folder), not in the Profile, and only the switch writes it. worfy reads that file once at start: an edit
-  of it made outside worfy shows after the next start, and the next change from the switch replaces it. For now the
-  mode is only stored: an unattended Run still refuses every permission request.
+  a menu of the three, each with a tooltip; choosing one sets it. It is Off for a Project until set. The mode is kept per
+  Project in worfy's own settings on this Machine (`app-settings.json` in worfy's data folder), not in the Profile, and
+  only the switch writes it. worfy reads that file once at start: an edit of it made outside worfy shows after the next
+  start, and the next change of any setting of the Machine writes worfy's own state back over it.
+- While worfy runs with a debugging port or pipe (`--remote-debugging-port`, `--remote-debugging-pipe`) or the Node
+  inspector (`--inspect`) open, Auto-approval is Off whatever is saved: any program on the Machine could script worfy's
+  window then. The switch shows Off, is unavailable, and its tooltip names the reason and the saved mode, which applies
+  again after a start without them. Only Off can be set meanwhile.
+- For now the mode is only stored: an unattended Run still refuses every permission request.
 - Autopilot runs this Session unattended. On Codex a run is refused, with the reason, while the Harness's hooks are not
   approved in Codex's `/hooks`; see [Autopilot, During a run](autopilot.md#during-a-run). While it does, the permission
   mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission

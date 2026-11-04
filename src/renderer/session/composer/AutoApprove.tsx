@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
+import type { AutoApprovalState } from '../../../shared/ipc/auto-approve'
 import { failureReason } from '../../../shared/ipc/channels'
 import { AUTO_APPROVAL_MODES, type AutoApprovalMode } from '../../../shared/settings/app-settings'
 import { useOrchestratorViews } from '../../canvas/nodes/orchestrator-view'
@@ -13,7 +14,9 @@ import type { ComposerItemProps } from './index'
 // src/main/ipc/auto-approve.ts); a click opens a menu of the three positions, and choosing another
 // one writes it (`autoApproval.set`). The mode is this Machine's setting, not the Profile's (spec of
 // the Epic, "decided without the owner", item 3): the switch never goes through the Harness. A window
-// that shows a Linked machine reads and writes nothing and says where the mode is set.
+// that shows a Linked machine reads and writes nothing and says where the mode is set. While worfy
+// runs with a debugging port open, main keeps the mode Off and refuses Shadow and On (any local process
+// could script this window then): the switch shows Off, unavailable, with why and the saved mode.
 //
 // The look is Eco mode's (EcoMode.tsx, class `w-eco`) with a modifier of its own, `w-eco--three`
 // (session.css): the same frame and as narrow, a track whose knob stands in one of three places. The
@@ -45,7 +48,13 @@ const DETAILS: Readonly<Record<AutoApprovalMode, string>> = { off: 'Refuse every
 export const AUTO_APPROVAL_ELSEWHERE = 'Auto-approval is set in worfy on the Machine of the Project'
 
 /** What the switch knows of the mode: undefined while it is read. */
-type Shown = { mode: AutoApprovalMode } | { error: string } | undefined
+type Shown = { state: AutoApprovalState } | { error: string } | undefined
+
+/** The tooltip while main keeps the mode Off: why, and what applies once the reason is gone. */
+function blockedTitle(blocked: string, saved: AutoApprovalMode): string {
+  const why = `Auto-approval is off: ${blocked}, so any program on this Machine could turn it on.`
+  return saved === 'off' ? why : `${why} The saved mode, ${LABELS[saved]}, applies once worfy starts without it.`
+}
 
 const TOAST_KEY = 'auto-approval'
 /** The gap between the button and its menu. */
@@ -89,21 +98,24 @@ function AutoApprovalSwitch({ projectId }: { projectId: string }) {
     let active = true
     void invoke('autoApproval.read', { projectId }).then((result) => {
       if (!active) return
-      setShown(result.ok ? { mode: result.value.mode } : { error: readableReason(failureReason('autoApproval.read', result.error)) })
+      setShown(result.ok ? { state: result.value } : { error: readableReason(failureReason('autoApproval.read', result.error)) })
     })
     return () => {
       active = false
     }
   }, [projectId, generation, elsewhere])
 
-  const current = writing ?? (shown !== undefined && 'mode' in shown ? shown.mode : null)
+  const state = shown !== undefined && 'state' in shown ? shown.state : null
+  const current = writing ?? state?.mode ?? null
   const unavailable = elsewhere
     ? AUTO_APPROVAL_ELSEWHERE
     : shown === undefined
       ? 'Reading the Auto-approval mode…'
       : 'error' in shown
         ? `Auto-approval is not available: ${shown.error}`
-        : null
+        : shown.state.blocked !== null
+          ? blockedTitle(shown.state.blocked, shown.state.saved)
+          : null
 
   const close = useCallback((focus: boolean) => {
     setMenu(null)
@@ -112,12 +124,12 @@ function AutoApprovalSwitch({ projectId }: { projectId: string }) {
 
   const choose = async (mode: AutoApprovalMode): Promise<void> => {
     close(true)
-    if (shown === undefined || !('mode' in shown) || shown.mode === mode || writing !== null) return
+    if (state === null || state.mode === mode || writing !== null) return
     setWriting(mode)
     const result = await invoke('autoApproval.set', { projectId, mode })
     setWriting(null)
     if (result.ok) {
-      setShown({ mode: result.value.mode })
+      setShown({ state: result.value })
       return
     }
     showToast({ kind: 'error', key: TOAST_KEY, projectId, text: `Auto-approval was not set to ${LABELS[mode]}: ${readableReason(failureReason('autoApproval.set', result.error))}`, testId: 'auto-approval-toast' })
@@ -199,6 +211,7 @@ function AutoApprovalSwitch({ projectId }: { projectId: string }) {
         title={unavailable ?? (current === null ? undefined : TITLES[current])}
         data-testid="auto-approval"
         data-mode={elsewhere ? undefined : (current ?? undefined)}
+        data-saved={elsewhere ? undefined : state?.saved}
         data-read-only={elsewhere ? '' : undefined}
         onClick={() => {
           if (unavailable !== null || writing !== null) return

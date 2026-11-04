@@ -31,6 +31,8 @@
 // state; the IPC module (src/main/ipc/app-settings.ts) passes it on to every window, and the modules
 // of main that act on a setting (the window's zoom) listen here too.
 import { EventEmitter } from 'node:events'
+import { url as inspectorUrl } from 'node:inspector'
+import { app } from 'electron'
 import { join } from 'node:path'
 import { z } from 'zod'
 import {
@@ -398,11 +400,40 @@ export function appSettingsStore(): AppSettingsStore {
   return shared
 }
 
+/** A Chromium switch that opens the DevTools protocol to other processes: `-`, `--` or `/` before it, any case. */
+const DEBUGGING_SWITCH = /^(?:--?|\/)remote-debugging-(port|pipe)(?:=|$)/iu
+/** A Node flag that opens the inspector of main. */
+const INSPECT_FLAG = /^--inspect(?:-brk)?(?:=|$)/u
+
 /**
- * The Auto-approval mode of Project `projectId` on this Machine, for the driver of an unattended Run
- * (worfy-auto-approve ticket 04): what the switch of the Orchestrator last wrote, Off without an
- * entry. Read from the store's memory, not from the file (see the head of this file).
+ * Why Auto-approval cannot be trusted in this run of worfy, or null. With a debugging port (or pipe)
+ * open, any process of this Machine — an agent's shell command in an unattended Run among them — can
+ * run script in worfy's window and call its IPC as the window does, the switch's `autoApproval.set`
+ * included; with the Node inspector of main open, it can run code in main itself. `argv` is the
+ * command line of main, `inspector` the address of its inspector (undefined while closed): the
+ * inspector can also be opened after start. `hasSwitch` asks Chromium's own command line: code that
+ * runs before worfy's (a loader given with `-r`, as Playwright's) can take a switch out of
+ * process.argv, not out of Chromium's.
  */
-export function autoApprovalMode(projectId: string): AutoApprovalMode {
-  return appSettingsStore().autoApproval(projectId)
+export function debugAccessOf(argv: readonly string[], inspector: string | undefined, hasSwitch: (name: string) => boolean = () => false): string | null {
+  const switched = (['port', 'pipe'] as const).find((kind) => hasSwitch(`remote-debugging-${kind}`))
+  const debugging = switched ?? argv.map((arg) => DEBUGGING_SWITCH.exec(arg)?.[1]?.toLowerCase()).find((kind) => kind !== undefined)
+  if (debugging !== undefined) return `worfy runs with a debugging ${debugging} open (--remote-debugging-${debugging})`
+  if (inspector !== undefined || argv.some((arg) => INSPECT_FLAG.test(arg))) return 'worfy runs with the Node inspector open (--inspect)'
+  return null
+}
+
+/** debugAccessOf() of this run of worfy: its command line, Chromium's switches and its inspector now. */
+export function debugAccess(): string | null {
+  return debugAccessOf(process.argv, inspectorUrl(), (name) => app.commandLine.hasSwitch(name))
+}
+
+/**
+ * The Auto-approval mode in force for Project `projectId` on this Machine, for the driver of an
+ * unattended Run (worfy-auto-approve ticket 04): what the switch of the Orchestrator last wrote, Off
+ * without an entry — and Off whatever was written while debugAccess() names a reason. Read from the
+ * store's memory, not from the file (see the head of this file).
+ */
+export function autoApprovalMode(projectId: string, debug: () => string | null = debugAccess): AutoApprovalMode {
+  return debug() === null ? appSettingsStore().autoApproval(projectId) : 'off'
 }
