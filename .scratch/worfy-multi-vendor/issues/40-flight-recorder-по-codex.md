@@ -1,7 +1,8 @@
 # 40 — Flight Recorder по Run-ам Codex
 
 Type: task
-Status: open
+Status: done 2026-11-04T03:35Z
+PR: #1328
 Blocked by: 34, 37
 Source: [spec.md](../spec.md), «Цель и что видит пользователь» (второй выпуск); решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); spec Epic-а `worfy-flight-recorder` ([spec.md](../../worfy-flight-recorder/spec.md), «Источники»)
 
