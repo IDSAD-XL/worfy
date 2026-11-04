@@ -320,6 +320,7 @@ describe('outside the grammar: judged false', () => {
     ['a glob in a long option', 'rm --f*', 'a glob in an option'],
     ['a short option without its value', 'head -n', 'an option without its value'],
     ['an option without its value at the end', 'mkdir -m', 'an option without its value'],
+    ['a long option without its value', 'curl --output', 'an option without its value'],
     ['curl -o named from a URL glob', "curl -o 'f#1' https://example.invalid/x", 'a curl output named from a URL glob'],
     ['a git option denied in every subcommand', 'git commit -m x --receive-pack=y', 'a git option that reads a file or runs a program'],
     ['a git option longer than a denied one', 'git commit -m x --templatex', 'a git option that reads a file or runs a program'],
@@ -621,8 +622,8 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
     expect(actions('printf %s "a\\`b"')[0]?.args).toEqual(['%s', 'a`b'])
     expect(brief('$EMPTY x')).toEqual([{ program: 'x', cwd: '/tmp/demo', writes: [UNKNOWN] }])
     expect(brief('curl -d @a --data-raw @b -w @fmt https://example.invalid')).toEqual([{ program: 'curl', cwd: '/tmp/demo', reads: ['/tmp/demo/a', '/tmp/demo/fmt'], network: true }])
-    expect(brief('curl --data-urlencode n@f --data-urlencode a=b@c --data-urlencode @g -b jar -b a=b https://example.invalid')).toEqual([
-      { program: 'curl', cwd: '/tmp/demo', reads: ['/tmp/demo/f', '/tmp/demo/g', '/tmp/demo/jar'], network: true },
+    expect(brief('curl --data-urlencode n@f --data-urlencode a=b@c --data-urlencode @g --data-urlencode m@h=i -b jar -b a=b https://example.invalid')).toEqual([
+      { program: 'curl', cwd: '/tmp/demo', reads: ['/tmp/demo/f', '/tmp/demo/g', '/tmp/demo/h=i', '/tmp/demo/jar'], network: true },
     ])
     expect(brief('wget --input-file=list -O f https://example.invalid; wget -i - -O f https://example.invalid')).toEqual([
       { program: 'wget', cwd: '/tmp/demo', writes: ['/tmp/demo/f'], reads: ['/tmp/demo/list'], network: true },
