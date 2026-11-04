@@ -454,7 +454,8 @@ async function headAndTail(
   }
 }
 
-const oneLine = (text: string): string => {
+/** A Session's title as the lists show it: on one line, at most MAX_TITLE characters, a cut one ending in «…». Codex's titles too (vendors/codex/history.ts). */
+export const oneLineTitle = (text: string): string => {
   const line = collapse(text)
   return line.length > MAX_TITLE ? `${line.slice(0, MAX_TITLE - 1)}…` : line
 }
@@ -536,7 +537,7 @@ async function historyEntry(path: string, sessionId: string): Promise<ReadEntry 
     firstPrompt(head)
   const entry = dropUndefined<HistoryRecord>({
     sessionId,
-    title: title === undefined ? undefined : oneLine(title),
+    title: title === undefined ? undefined : oneLineTitle(title),
     firstAt: firstString(head, 'timestamp'),
     lastAt: lastString(tail, undefined, 'timestamp') ?? lastString(head, undefined, 'timestamp'),
     cwd: firstString(head, 'cwd') ?? (await startCwd(path)),

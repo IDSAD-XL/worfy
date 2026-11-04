@@ -22,7 +22,7 @@
 import { existsSync } from 'node:fs'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { TranscriptEntry } from '../../../shared/transcript/parse'
-import { isInsidePath } from '../../claude-home/registry'
+import { isInsidePath, oneLineTitle } from '../../claude-home/registry'
 import type { HistoryPart, HistorySession } from '../history'
 import { appCodexStarter, CODEX_ASK_TIMEOUT_MS, codexHomeOf, withCodex, type StartCodex } from './account'
 import { CodexItems } from './items'
@@ -57,12 +57,16 @@ function originOf(thread: Thread): HistorySession['origin'] {
   return thread.originator === WORFY_ORIGINATOR ? 'worfy' : 'external'
 }
 
-/** The name a thread shows: its own, else its first message; null when it has neither. */
+/**
+ * The name a thread shows: its own, else its first message; null when it has neither. On one line
+ * and cut to the length of a Claude Session's title (oneLineTitle): Codex's preview is the whole
+ * first message, which would stretch every list that shows it (worfy-polish ticket 51).
+ */
 function titleOf(thread: Thread): string | null {
   const name = typeof thread.name === 'string' ? thread.name.trim() : ''
-  if (name !== '') return name
+  if (name !== '') return oneLineTitle(name)
   const preview = typeof thread.preview === 'string' ? thread.preview.trim() : ''
-  return preview === '' ? null : preview
+  return preview === '' ? null : oneLineTitle(preview)
 }
 
 /**

@@ -155,3 +155,71 @@ test('the Session picker switches the Session view, a sidebar row opens its Sess
     await launched.close()
   }
 })
+
+// worfy-polish ticket 51: a Session with a title of several sentences made the list as wide as the
+// window, starting at its left edge over the Projects list, and its row ran past the right edge.
+test('a long Session title keeps the picker\'s list under its button and inside the window, the row cut with «…» and its text as a tooltip', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' } })
+  try {
+    const { window } = launched
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    const long =
+      'Create the folder /tmp/acceptance if it does not exist. Then run ls -la /tmp/acceptance and tell me what is there. After that create the file notes.md in it with one line: "acceptance, step 2". Do not touch anything else.'
+    terminalSession(FIRST, long, 'Fix the flaky test')
+    terminalSession(SECOND, 'release-notes', 'Write the release notes')
+    await expect(window.locator('[data-testid="session-node"]')).toHaveCount(2, { timeout: ms(10_000) })
+
+    const sessionView = window.locator('.w-shell__view[data-view="session"]')
+    await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Session' }).click()
+    await expect(sessionView).toBeVisible()
+    const picker = sessionView.getByTestId('session-picker')
+    await picker.click()
+    const list = window.getByTestId('session-picker-list')
+    await expect(list.getByRole('option')).toHaveCount(3)
+
+    const button = await picker.boundingBox()
+    const box = await list.boundingBox()
+    const width = await window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)
+    if (button === null || box === null) throw new Error('the picker or its list is not on screen')
+    // Under the button, from its left edge, no wider than 480 px: not across the window from its left edge.
+    expect(box.y).toBeGreaterThanOrEqual(button.y + button.height)
+    expect(Math.abs(box.x - button.x)).toBeLessThanOrEqual(1)
+    expect(box.width).toBeLessThanOrEqual(480)
+    expect(box.x + box.width).toBeLessThanOrEqual(width - 8)
+
+    // The long row is one line cut with «…», its full text in the tooltip; a short one has none.
+    const label = list.getByRole('option').filter({ hasText: 'Create the folder' }).locator('.w-select-option__label')
+    await expect(label).toHaveAttribute('title', long)
+    const cut = await label.evaluate((node) => {
+      // The e2e typecheck has no DOM library: the few page types used here.
+      type Element = { scrollWidth: number; clientWidth: number }
+      const page = globalThis as unknown as { getComputedStyle(element: Element): { textOverflow: string; whiteSpace: string } }
+      const element = node as unknown as Element
+      const style = page.getComputedStyle(element)
+      return { overflow: style.textOverflow, wraps: style.whiteSpace, cut: element.scrollWidth > element.clientWidth }
+    })
+    expect(cut).toEqual({ overflow: 'ellipsis', wraps: 'nowrap', cut: true })
+    await expect(list.getByRole('option').filter({ hasText: 'release-notes' }).locator('.w-select-option__label')).not.toHaveAttribute('title', /./)
+
+    // The header and the open list, in both themes.
+    const view = await sessionView.boundingBox()
+    if (view === null) throw new Error('the Session view is not on screen')
+    const clip = { x: view.x, y: view.y, width: Math.min(view.width, 1000), height: 260 }
+    try {
+      for (const scheme of ['light', 'dark'] as const) {
+        await window.emulateMedia({ colorScheme: scheme })
+        const path = test.info().outputPath(`session-picker-long-${scheme}.png`)
+        await window.screenshot({ path, clip, animations: 'disabled', style: VIBRANCY_BACKDROP })
+        if (EVIDENCE_DIR !== undefined) {
+          mkdirSync(EVIDENCE_DIR, { recursive: true })
+          copyFileSync(path, join(EVIDENCE_DIR, `51-session-picker-long-${scheme}.png`))
+        }
+      }
+    } finally {
+      await window.emulateMedia({ colorScheme: null })
+    }
+  } finally {
+    await launched.close()
+  }
+})
