@@ -1,7 +1,7 @@
 # 06 — Переключатель Off / Shadow / On
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T13:27Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «Решено без владельца», п. 3; «Безопасность», п. 5; «Соседний Epic worfy-retry»; Q1
 
@@ -52,3 +52,36 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
 - `src/renderer/session/composer/AutoApprove.tsx` (новый), `src/renderer/session/session.css`
 - `docs/adr/0005-worfy-own-state-inventory.md`
 - `test/unit/auto-approve-switch.test.tsx`, `test/contract/auto-approve-setting.test.ts` (новые)
+
+## Итог
+
+Сделано в PR (ветка `worfy-auto-approve/06`) — всё из «Что делаем».
+
+- **Настройка.** Поле `autoApproval` в `app-settings.json` (`src/shared/settings/app-settings.ts`): запись по id
+  Project-а, значения `shadow` / `on`; Off — это отсутствие записи. При чтении файла (`src/main/settings/store.ts`)
+  запись с режимом вне трёх, ключ не в форме id Project-а (`<папка>-<8 hex>`, так отсекается и `__proto__`) или поле
+  не-объект отбрасываются — читается Off, остальной файл цел. Пишет режим только `AppSettingsStore.setAutoApproval()`;
+  в patch `appSettings.set` поля нет. Функция для Ticket-а 04 — `autoApprovalMode(projectId)` в
+  `src/main/settings/store.ts` (не в `src/main/ipc/auto-approve.ts`: модуль handler-ов исполняется при импорте).
+- **IPC.** `autoApproval.read` / `autoApproval.set` (`src/shared/ipc/auto-approve.ts`, `src/main/ipc/auto-approve.ts`),
+  оба `local`; id не из Project-ов этой Machine — отказ, ничего не пишется.
+- **Переключатель.** `src/renderer/session/composer/AutoApprove.tsx`, `order = 17`, только у Orchestrator-а: группа из
+  трёх кнопок Off / Shadow / On с `aria-pressed`, tooltip на каждой; рамка и подпись — от `w-eco` (подпись прячется
+  вместе с подписью Eco mode, когда строке мало места), три положения — модификатор `w-eco--three` и элементы
+  `w-eco__positions` / `w-eco__position` в `session.css`; правила `w-eco` не менялись. Место для Auto-continue
+  worfy-retry 02 — `order = 16`, между ними. В окне Linked machine — read-only, tooltip «Auto-approval is set in worfy
+  on the Machine of the Project», ничего не читается и не пишется.
+- **Ответ на п. 4 («Безопасность», п. 5 spec).** `store.ts` читает `app-settings.json` один раз, при первом
+  обращении, и дальше отвечает из памяти. Правка файла извне (рукой или командой агента) запущенным worfy не видна;
+  следующая запись из UI (любая настройка) кладёт в файл состояние из памяти и правку затирает; после рестарта worfy
+  читает файл заново, и правка, если её не затёрли, действует. Проверяют contract test
+  `test/contract/auto-approve-setting.test.ts` («an edit of the file made outside worfy…») и e2e
+  `test/e2e/auto-approve.spec.ts`.
+- **ADR-0005** — раздел `## Amendments` о поле `autoApproval`. Страница `docs/features/sessions.md` — абзац о
+  переключателе и строка в карте кода; что делает каждый режим в Run-е, допишет Ticket 10.
+- **Test-ы.** Unit `test/unit/auto-approve-switch.test.tsx`, contract `test/contract/auto-approve-setting.test.ts`,
+  e2e `test/e2e/auto-approve.spec.ts` (Off по умолчанию, запись по клику, правка извне — только после рестарта).
+  Поля `autoContinue` в `main` ещё нет: contract test сравнивает после записи режима все остальные поля состояния,
+  так что `autoContinue` worfy-retry 02 попадёт под проверку без правки test-а.
+- **Остаётся владельцу (Ticket 11):** посмотреть переключатель вживую, в том числе в окне Linked machine — e2e с двумя
+  Machine-ами для него нет, read-only покрыт unit test-ом.

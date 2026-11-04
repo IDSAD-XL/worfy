@@ -51,6 +51,12 @@
 //   ADR-0090): set by the switch in the Guide's header; absent while the person has not chosen, and
 //   the Guide follows the system language (src/renderer/guide/language.ts). The rest of the window
 //   stays English;
+// - `autoApproval` — the Auto-approval mode of each Project, by Project id (worfy-auto-approve ticket
+//   06): `shadow` or `on`; a Project with no entry is `off`. Set only by the switch under the
+//   Orchestrator's input field, through the `autoApproval` IPC domain (src/shared/ipc/auto-approve.ts),
+//   never by `appSettings.set`: the patch has no such field. It lives here and not in the Profile, which
+//   an agent can rewrite with a plain command (spec of the Epic, "security", item 5). Main reads it
+//   with autoApprovalMode() of src/main/settings/store.ts;
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
 import { DEFAULT_START_WINDOW, RUN_MODES, type RunMode, type StartWindow } from '../autopilot/run-mode'
@@ -227,6 +233,20 @@ export interface AutopilotRunSettings {
   window: StartWindow
 }
 
+/** The positions of the Auto-approval switch (Q1 of the worfy-auto-approve spec): Off, Shadow, On. */
+export const AUTO_APPROVAL_MODES = ['off', 'shadow', 'on'] as const
+export const autoApprovalModeSchema = z.enum(AUTO_APPROVAL_MODES)
+export type AutoApprovalMode = z.output<typeof autoApprovalModeSchema>
+
+/**
+ * A Project id as a key of `autoApproval`: `<folder name>-<8 hex>` (projectId() of
+ * src/main/projects/store.ts). The hash at the end also keeps keys such as `__proto__` out.
+ */
+export const autoApprovalProjectIdSchema = z.string().max(300).regex(/^.+-[0-9a-f]{8}$/su, 'a Project id ends with its path hash')
+
+/** The modes of the Projects that are not Off, by Project id. */
+export const autoApprovalSchema = z.record(autoApprovalProjectIdSchema, autoApprovalModeSchema)
+
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),
   sidebar: z.object({
@@ -260,6 +280,8 @@ export const appSettingsSchema = z.object({
   autopilotRun: autopilotRunChoiceSchema.refine(startWindowValid, START_WINDOW_SAME_HOURS).optional(),
   /** The language the person chose in the Guide; absent while none is (the system's language then). */
   guideLanguage: guideLanguageSchema.optional(),
+  /** The Auto-approval mode by Project id; absent while every Project is Off (see autoApprovalOf). */
+  autoApproval: autoApprovalSchema.optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
@@ -328,6 +350,12 @@ export function defaultAppSettings(): AppSettings {
 /** Whether "Update automatically" is on: on unless set off. */
 export function autoUpdateOf(settings: Pick<AppSettings, 'autoUpdate'>): boolean {
   return settings.autoUpdate ?? true
+}
+
+/** The Auto-approval mode of Project `projectId`: its entry, else Off. */
+export function autoApprovalOf(settings: Pick<AppSettings, 'autoApproval'>, projectId: string): AutoApprovalMode {
+  const modes = settings.autoApproval
+  return modes !== undefined && Object.hasOwn(modes, projectId) ? (modes[projectId] ?? 'off') : 'off'
 }
 
 /** The archive settings in force: each field the person chose, else its default. */

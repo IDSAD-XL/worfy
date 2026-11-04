@@ -16,7 +16,16 @@
 // not chosen, and a change that would make them meet is refused. `autoUpdate` ("Update automatically",
 // worfy-update ticket 03) is on in a file written before it existed, as `memoryIndicator` is.
 // `guideLanguage` (worfy-guide ticket 03) is absent until the person picks EN or RU in the Guide; a
-// language this version does not know reads as not chosen.
+// language this version does not know reads as not chosen. `autoApproval` (worfy-auto-approve ticket
+// 06) holds the Auto-approval mode of each Project that is not Off; an entry with a mode outside Off /
+// Shadow / On or a key that is no Project id is dropped (reads as Off), and so is the whole field when
+// it is not a record. Only setAutoApproval() writes it — the `autoApproval` IPC domain, `local`, the
+// switch of the Orchestrator — never set(): the patch has no such field.
+//
+// The file is read once, on first use; the store then answers from memory and every write puts the
+// whole state back. An edit of the file made outside worfy (by hand, or by an agent's shell command)
+// is therefore not seen until worfy starts again, and the next write of the running app replaces it
+// (spec of worfy-auto-approve, "security", item 5).
 //
 // One file for the Machine: every window shares it. The store announces `changed` with each new
 // state; the IPC module (src/main/ipc/app-settings.ts) passes it on to every window, and the modules
@@ -46,11 +55,34 @@ import {
   type AppSettings,
   type AutoCompactRole,
   type AppSettingsPatch,
+  autoApprovalModeSchema,
+  autoApprovalOf,
+  autoApprovalProjectIdSchema,
+  type AutoApprovalMode,
 } from '../../shared/settings/app-settings'
 import { readJsonFile, writeJsonFile, type ReadOptions } from '../storage/json-file'
 import { dataRoot } from '../storage/paths'
 
 export const APP_SETTINGS_FILE = 'app-settings.json'
+
+/**
+ * The Auto-approval modes worth keeping from `entries`: a Project id with Shadow or On; Off is no
+ * entry. A key that is no Project id — `__proto__` among them — is dropped. Nothing left: undefined.
+ */
+function modesOf(entries: Readonly<Record<string, unknown>>): Record<string, Exclude<AutoApprovalMode, 'off'>> | undefined {
+  const kept: Record<string, Exclude<AutoApprovalMode, 'off'>> = {}
+  for (const [projectId, mode] of Object.entries(entries)) {
+    if (!autoApprovalProjectIdSchema.safeParse(projectId).success) continue
+    if (mode === 'shadow' || mode === 'on') kept[projectId] = mode
+  }
+  return Object.keys(kept).length === 0 ? undefined : kept
+}
+
+/** The modes field of a state: present only while a Project is not Off. */
+function modesChoice(modes: AppSettings['autoApproval']): Pick<AppSettings, 'autoApproval'> {
+  const kept = modes === undefined ? undefined : modesOf(modes)
+  return kept === undefined ? {} : { autoApproval: kept }
+}
 
 /**
  * app-settings.json as it is read: lenient where the state schema is strict. A missing field takes
@@ -104,6 +136,12 @@ const appSettingsFileSchema = z.object({
     .optional()
     .catch(undefined),
   guideLanguage: guideLanguageSchema.optional().catch(undefined),
+  // Each entry on its own: one that is not a Project id with Shadow or On is dropped, so it reads as Off.
+  autoApproval: z
+    .record(z.string(), z.unknown())
+    .transform(modesOf)
+    .optional()
+    .catch(undefined),
   revision: z.number().int().nonnegative().default(0),
 })
 
@@ -199,6 +237,7 @@ function copy(settings: AppSettings): AppSettings {
     ...budgetChoice(settings.autopilotBudget),
     ...runChoice(settings.autopilotRun),
     ...(settings.guideLanguage === undefined ? {} : { guideLanguage: settings.guideLanguage }),
+    ...modesChoice(settings.autoApproval),
     revision: settings.revision,
   }
 }
@@ -229,6 +268,8 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     ...budgetChoice(current.autopilotBudget, patch.autopilotBudget),
     ...runChoice(current.autopilotRun, patch.autopilotRun),
     ...guideLanguageAfter(current.guideLanguage, patch.guideLanguage),
+    // Never from the patch: setAutoApproval() is the one way to change a mode.
+    ...modesChoice(current.autoApproval),
     revision: current.revision,
   }
 }
@@ -238,8 +279,14 @@ function sameRecord(a: Readonly<Record<string, boolean>>, b: Readonly<Record<str
   return keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && a[key] === b[key])
 }
 
+function sameModes(a: AppSettings['autoApproval'], b: AppSettings['autoApproval']): boolean {
+  const keys = Object.keys(a ?? {})
+  return keys.length === Object.keys(b ?? {}).length && keys.every((key) => autoApprovalOf({ autoApproval: a }, key) === autoApprovalOf({ autoApproval: b }, key))
+}
+
 function same(a: AppSettings, b: AppSettings): boolean {
   return (
+    sameModes(a.autoApproval, b.autoApproval) &&
     a.interfaceScale === b.interfaceScale &&
     a.sidebar.visible.normal === b.sidebar.visible.normal &&
     a.sidebar.visible.focus === b.sidebar.visible.focus &&
@@ -308,8 +355,34 @@ export class AppSettingsStore extends EventEmitter<{ changed: [AppSettings] }> {
     const current = this.current()
     const merged = merge(current, patch)
     if (!startWindowValid(merged.autopilotRun)) throw new Error(START_WINDOW_SAME_HOURS)
-    if (same(merged, current)) return this.get()
-    const next: AppSettings = { ...merged, revision: current.revision + 1 }
+    return this.write(current, merged)
+  }
+
+  /** The Auto-approval mode of Project `projectId`, as the store holds it: Off without an entry. */
+  autoApproval(projectId: string): AutoApprovalMode {
+    return autoApprovalOf(this.current(), projectId)
+  }
+
+  /**
+   * Sets the Auto-approval mode of Project `projectId` and leaves everything else as it is: the
+   * other Projects' modes and every other setting. Off removes the entry. Writes and announces as
+   * set() does; a mode already in force writes nothing. A mode outside the three or an id that is
+   * no Project id throws and changes nothing.
+   */
+  setAutoApproval(projectId: string, mode: AutoApprovalMode): AppSettings {
+    const id = autoApprovalProjectIdSchema.parse(projectId)
+    const chosen = autoApprovalModeSchema.parse(mode)
+    const current = this.current()
+    const others = Object.entries(current.autoApproval ?? {}).filter(([key]) => key !== id)
+    const modes = Object.fromEntries(chosen === 'off' ? others : [...others, [id, chosen]])
+    return this.write(current, { ...copy(current), autoApproval: modes })
+  }
+
+  /** Writes `merged` over `current` unless it changes nothing; answers the state after it. */
+  private write(current: AppSettings, merged: AppSettings): AppSettings {
+    const tidy = copy(merged)
+    if (same(tidy, current)) return this.get()
+    const next: AppSettings = { ...tidy, revision: current.revision + 1 }
     writeJsonFile(this.file, appSettingsSchema, next)
     this.value = next
     this.emit('changed', this.get())
@@ -323,4 +396,13 @@ let shared: AppSettingsStore | undefined
 export function appSettingsStore(): AppSettingsStore {
   shared ??= new AppSettingsStore(join(dataRoot(), APP_SETTINGS_FILE))
   return shared
+}
+
+/**
+ * The Auto-approval mode of Project `projectId` on this Machine, for the driver of an unattended Run
+ * (worfy-auto-approve ticket 04): what the switch of the Orchestrator last wrote, Off without an
+ * entry. Read from the store's memory, not from the file (see the head of this file).
+ */
+export function autoApprovalMode(projectId: string): AutoApprovalMode {
+  return appSettingsStore().autoApproval(projectId)
 }

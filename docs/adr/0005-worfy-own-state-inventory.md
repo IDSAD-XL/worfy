@@ -9,3 +9,13 @@ worfy ничего не пишет в репозитории Project-ов — н
 ## Considered Options
 
 - Кнопка «вынести Card в репозиторий» (`<repo>/.worfy/cards/`). Отвергнуто владельцем: worfy не оставляет следов в репозиториях.
+
+## Amendments
+
+- 2026-11-04 — в `app-settings.json` папки данных worfy (`WORFY_DATA_DIR`) появилось поле `autoApproval`: режим
+  Auto-approval (Off / Shadow / On) по id Project-а, нет записи — Off (worfy-auto-approve, Ticket 06). Режим —
+  настройка Machine, а не Profile и не файл репозитория: Profile и репозиторий агент меняет обычной командой, а режим
+  решает, отвечает ли worfy на запросы разрешения агента. Пишет его только переключатель под полем ввода
+  Orchestrator-а через IPC `autoApproval.set` (канал `local`, с Linked machine не доступен). `app-settings.json`
+  читается один раз при первом обращении; правка файла извне видна только после рестарта worfy, а следующая запись
+  из UI её заменяет.
