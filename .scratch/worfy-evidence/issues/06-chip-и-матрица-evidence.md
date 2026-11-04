@@ -39,16 +39,19 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 - [ ] Unit test `evidence-matrix`: три состояния, причина «needs windows stable, got windows installed», ссылки каждого вида ведут
       туда, куда сказано в п. 3 (снимок — `shell.openInEditor` с путём от папки Ticket-а); `repoUrl` null — SHA и PR текстом;
       Ticket без раздела — матрицы нет.
+  - evidence: test-run pass · `pnpm test test/unit/evidence-matrix.test.tsx` exit 0 · mac dev · 1c0d13bb2
 - [ ] e2e (`WORFY_AGENT=fake`, fixture-проект): карточка с «Evidence 1/3»; двойной click — focus mode с матрицей; click по `PR #N`
       зовёт `shell.openExternal` с адресом PR (stub); после записи `ticket evidence` в файл chip становится «Evidence 2/3» без
       перезапуска.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/ticket-evidence.spec.ts` exit 0 · mac dev · 1c0d13bb2
 - [ ] e2e spec — строка в `scripts/e2e-specs.table.json`.
 - [ ] Самая широкая карточка с пятью chips: подписи не обрезаны, карточка не налезает на соседнюю (e2e меряет высоту).
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/ticket-evidence.spec.ts` exit 0 · mac dev · 1c0d13bb2
 - [ ] Снимки в светлой и тёмной теме в `.scratch/worfy-evidence/evidence/06/`: chip трёх цветов и матрица; в строке Evidence — `scrub:`.
-  - evidence: screenshot pass · `../evidence/06/evidence-chips-light.png` · mac dev · 6934b911015eecd943fa48356179b5651195c495 · scrub: 2026-11-04
-  - evidence: screenshot pass · `../evidence/06/evidence-chips-dark.png` · mac dev · 6934b911015eecd943fa48356179b5651195c495 · scrub: 2026-11-04
-  - evidence: screenshot pass · `../evidence/06/evidence-matrix-light.png` · mac dev · 6934b911015eecd943fa48356179b5651195c495 · scrub: 2026-11-04
-  - evidence: screenshot pass · `../evidence/06/evidence-matrix-dark.png` · mac dev · 6934b911015eecd943fa48356179b5651195c495 · scrub: 2026-11-04
+  - evidence: screenshot pass · `../evidence/06/evidence-chips-light.png` · mac dev · 1c0d13bb2 · scrub: 2026-11-04
+  - evidence: screenshot pass · `../evidence/06/evidence-chips-dark.png` · mac dev · 1c0d13bb2 · scrub: 2026-11-04
+  - evidence: screenshot pass · `../evidence/06/evidence-matrix-light.png` · mac dev · 1c0d13bb2 · scrub: 2026-11-04
+  - evidence: screenshot pass · `../evidence/06/evidence-matrix-dark.png` · mac dev · 1c0d13bb2 · scrub: 2026-11-04
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (e2e по таблице).
 
 ## Тесты
