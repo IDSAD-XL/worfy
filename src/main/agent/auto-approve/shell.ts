@@ -968,7 +968,7 @@ function git(args: Expanded[], cwd: string, scope: Scope): Effects {
     }
     for (const arg of rest) {
       const v = arg.value
-      if (v === '--' || v === '-') continue
+      if (v === '--') continue
       const name = longName(v)
       if (name !== undefined) {
         if (deniedLong(name, GIT_READ_DENIED)) fail('a git option that writes a file or runs a program')

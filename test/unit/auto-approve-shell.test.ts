@@ -357,6 +357,7 @@ describe('outside the grammar: judged false', () => {
     ['git config --system by a prefix', 'git config --sys --get x', 'a git config outside the repository'],
     ['git config --file', 'git config --file=/tmp/x --get a.b', 'a git config outside the repository'],
     ['git config -f', 'git config -f x --get a.b', 'a git config outside the repository'],
+    ['git config --blob', 'git config --blob=HEAD:x --get a.b', 'a git config outside the repository'],
   ]
   const contexts: Record<string, AnalyzeContext> = {
     'a working folder on Windows that is not absolute': { ...windows, cwd: 'work' },
@@ -630,6 +631,10 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
     expect(git('git commit -m x; git commit -C HEAD; git commit --amend --no-edit; git commit --message=x; git tag v1; git tag -a v1 -m x; git pull --rebase; git pull --rebase=merges; git rebase main')).toEqual(
       ['commit', 'commit', 'commit', 'commit', 'tag', 'tag', 'pull', 'pull', 'rebase'].map((subcommand) => ({ subcommand })),
     )
+  })
+
+  it('a git worktree subcommand outside the table writes anything', () => {
+    expect(brief('git worktree frobnicate x')).toEqual([{ program: 'git', cwd: '/tmp/demo', writes: [UNKNOWN] }])
   })
 
   it('git worktree move deletes its source and writes its destination', () => {
