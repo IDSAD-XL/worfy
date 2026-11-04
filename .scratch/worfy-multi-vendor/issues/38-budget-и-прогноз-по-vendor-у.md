@@ -1,7 +1,8 @@
 # 38 — Budget, прогноз и остановка по Limits Vendor-а
 
 Type: task
-Status: claimed 2026-11-04T04:58Z
+Status: done 2026-11-04T07:01Z
+PR: #1336
 Blocked by: 37
 Source: [spec.md](../spec.md), «Решено без владельца», п. 4, «Риски», п. 5 и 6; решение 09 ([09-limits-и-autopilot-по-vendor.md](09-limits-и-autopilot-по-vendor.md)); Ticket 03 ([03-codex-limits.md](03-codex-limits.md), «Когда лимит кончился», «Хватит ли данных»); [ADR-0093](../../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md)
 
