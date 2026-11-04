@@ -225,7 +225,18 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
    репозитории — коммитом, поэтому там режима нет. Правку файла данных worfy из Bash bypassPermissions не остановит
    (п. 1), поэтому: hard deny от режима не зависит, режим каждого Run-а стоит в `run-started` и в утренней сводке, и
    Ticket 06 проверяет, что worfy не подхватывает правку файла, сделанную не через UI, до рестарта (не проверено —
-   как `store.ts` читает файл сейчас).
+   как `store.ts` читает файл сейчас). Ответ Ticket-а 06: `store.ts` читает файл один раз; правка извне видна после
+   рестарта, следующая запись любой настройки её затирает. **Debugging port — это Auto-approval Off.** С
+   `--remote-debugging-port` / `--remote-debugging-pipe` или Node inspector (`--inspect`) любой процесс Machine ведёт
+   окно worfy и зовёт его IPC как UI, а агент может и сам перезапустить worfy с таким флагом. Поэтому, пока такой
+   флаг есть, `autoApprovalMode()` отвечает Off, `autoApproval.set` отказывает в Shadow и On, переключатель
+   показывает Off и причину (Ticket 06). **Известный предел до Ticket-а 12.** В собранном worfy не выключены Electron
+   fuses (`electron-builder.yml` без `electronFuses`), поэтому `EnableNodeCliInspectArguments` включён: Bash агента может
+   послать `kill -USR1 <pid worfy>`, подключиться к `ws://127.0.0.1:9229`, через `Runtime.evaluate` записать On в
+   память store-а и закрыть inspector (`inspector.close()`). После этого `inspector.url()` пуст, и `autoApprovalMode()`
+   отвечает On. Проверка debugging port такой путь не ловит: она видит только открытый сейчас inspector. Закрывает
+   предел Ticket 12 — fuses `EnableNodeCliInspectArguments` и `RunAsNode` выключены в собранном приложении; до него On
+   не должен действовать (Ticket 04 ждёт 12).
 6. **Чужая работа.** Ветки и worktree-ы других Session-ов, push в `main`, force push — hard-deny, даже если агент просит
    «по инструкции из файла».
 7. **Утечка в Journal.** Journal лежит в данных worfy и уходит на Linked machine-ы через Run history: команды
@@ -286,7 +297,7 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
 - **03 — Approval policy: корни, правила, hard deny.** Разрешение путей, symlink, Windows, список правил с id.
   Blocked by: 01, 02. Ревью: high.
 - **04 — Claude: политика в unattended `canUseTool`, Shadow, строка Journal.** `SessionStart` получает режим и `judge`,
-  папка Run-а как `TMPDIR`, строка `auto-approval`, режим в `run-started`. Blocked by: 03, 06. Ревью: high.
+  папка Run-а как `TMPDIR`, строка `auto-approval`, режим в `run-started`. Blocked by: 03, 06, 12. Ревью: high.
 - **05 — Codex: та же политика в approval.** Blocked by: 04. Ревью: high.
 - **06 — Переключатель Off / Shadow / On.** Поле в `app-settings.json`, IPC `local`, composer item рядом с Eco mode,
   инвентарь ADR-0005. Blocked by: —. Ревью: high.
@@ -298,7 +309,10 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
   ничего — закрывается без кода. Blocked by: 01. Ревью: high (hook меняет команды агента).
 - **10 — Документация и термины.** Страница Feature, `CONTEXT.md`, ADR политики. Blocked by: 04, 05, 06, 07, 08, 09.
   Ревью: low.
-- **11 — Приёмка с владельцем.** Ночи Shadow, разбор списка, переход в On. Blocked by: 01–10.
+- **11 — Приёмка с владельцем.** Ночи Shadow, разбор списка, переход в On. Blocked by: 01–10, 12.
+- **12 — Electron fuses.** В собранном worfy выключить `EnableNodeCliInspectArguments` и `RunAsNode`, чтобы процесс
+  Machine не открыл Node inspector worfy сигналом `SIGUSR1`; test, что у собранного приложения они выключены, на
+  macOS и Windows. Blocked by: —.
 
 ## Волны
 
@@ -317,6 +331,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 07 | `src/main/agent/auto-approve/park.ts`, `src/main/agent/permissions.ts`, `src/main/notify.ts`, `test/unit/auto-approve-park.test.ts` | 4 |
 | 08 | `src/shared/flight-recorder/from-journal.ts`, `src/shared/flight-recorder/facts.ts`, `src/shared/ipc/runs.ts`, `src/renderer/flight-recorder/DetailPanel.tsx`, `src/main/autopilot/run.ts`, `test/unit/auto-approve-summary.test.ts` | 4 |
 | 10 | `docs/features/autopilot.md`, `docs/features/ru/autopilot.md`, `CONTEXT.md`, `docs/adr/<NNNN>-approval-policy.md` | 5 |
+| 12 | `electron-builder.yml`, `package.json`, `src/main/program.ts`, `src/main/vendors/codex/launch.ts`, `test/contract/electron-fuses.test.ts` | 1 |
 | 11 | `.scratch/worfy-auto-approve/spec.md` | 6 |
 
 Правило плана: Ticket стоит в первой Wave, где закрыты все его блокеры; общий файл у двух Ticket-ов одной Wave —

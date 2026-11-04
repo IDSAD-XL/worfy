@@ -15,6 +15,7 @@ import { claudeHome, dataRoot } from '../storage/paths'
 import { readResolvedProfile } from '../workflow/profile'
 import { realpathOrSelf } from './real-path'
 import { ensureProjectSettings } from './settings'
+import { PROJECT_ID_HASH_LENGTH, PROJECT_ID_HASH_SUFFIX } from '../../shared/projects/project-id'
 
 const storedProjectSchema = z.object({
   id: z.string().min(1),
@@ -73,10 +74,10 @@ export function harnessWorkspaceOf(env: HarnessScriptEnvSource): WorkspaceOf {
   }
 }
 
-/** Hex characters of the path hash that ends every Project id. */
-const ID_HASH_LENGTH = 8
+/** Hex characters of the path hash that ends every Project id, and that hash at the end of an id (src/shared/projects/project-id.ts). */
+const ID_HASH_LENGTH = PROJECT_ID_HASH_LENGTH
 const ID_HASH_PATTERN = new RegExp(`^[0-9a-f]{${ID_HASH_LENGTH}}$`)
-const ID_HASH_SUFFIX = new RegExp(`-([0-9a-f]{${ID_HASH_LENGTH}})$`)
+const ID_HASH_SUFFIX = PROJECT_ID_HASH_SUFFIX
 
 /**
  * `<folder name>-<sha256(path)[0:8]>`: the Project's id and the name of its data folder. `path` is the

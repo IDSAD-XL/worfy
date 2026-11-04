@@ -1661,3 +1661,85 @@
     transition: none;
   }
 }
+
+/* Input field: the Auto-approval switch of the Orchestrator (composer/AutoApprove.tsx,
+   worfy-auto-approve ticket 06), right of Eco mode. The button is Eco mode's (`w-eco`, so the same
+   frame, hover, focus and unavailable look) with the modifier `w-eco--three`: its track is a third
+   longer and the knob stands in one of three places — left for Off (an empty ring), the middle for
+   Shadow (a half-filled ring), right for On (a tick, on the green of "ready", as Eco mode when on).
+   Its caption is its own class and goes when Eco mode's goes (the rule below copies Eco mode's).
+   A click opens the menu of the three positions over the button, drawn into the page's body like the
+   list of a Select (theme/select.css). */
+.w-auto-approval__label {
+  color: var(--text-muted);
+}
+.w-composer__bar:has(.w-pickers[data-probe~='eco']) .w-auto-approval__label,
+.w-composer__bar:has(.w-pickers:not([data-probe])[data-eco-caption='off']) .w-auto-approval__label {
+  display: none;
+}
+.w-eco--three .w-eco__track {
+  width: 34px;
+}
+.w-eco--three[data-mode='shadow'] .w-eco__knob {
+  transform: translateX(10px);
+  color: var(--text);
+}
+.w-eco--three[data-mode='on'] .w-eco__track {
+  border-color: var(--ready-dot);
+  background: var(--ready-bg);
+}
+.w-eco--three[data-mode='on'] .w-eco__knob {
+  transform: translateX(20px);
+  color: var(--ready-text);
+}
+.w-eco--three[aria-expanded='true'] {
+  border-color: var(--text-muted);
+}
+.w-auto-approval__menu {
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: var(--space-1);
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+  color: var(--text);
+  font-size: var(--text-13);
+}
+.w-auto-approval__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--row-height);
+  padding: 0 var(--space-2) 0 var(--space-2);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.w-auto-approval__option:hover,
+.w-auto-approval__option:focus-visible {
+  background: var(--selected);
+  outline: none;
+}
+.w-auto-approval__option[aria-checked='true'] .w-auto-approval__option-label {
+  font-weight: 600;
+}
+.w-auto-approval__option[data-mode='on'][aria-checked='true'] .w-auto-approval__option-label {
+  color: var(--ready-text);
+}
+.w-auto-approval__option-label {
+  flex: 1;
+}
+.w-auto-approval__option-detail {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}

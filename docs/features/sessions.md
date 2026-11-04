@@ -164,6 +164,16 @@ answers.
 - Eco mode, a switch under the Orchestrator's input field, writes two fields of the Project's Profile: `workflow.agents`
   set to `eco`, and `agents`, which is Sonnet with effort medium for each agent role. Off removes both fields, and the
   models the roles had before are not restored. It applies from the next Ticket.
+- Auto-approval, right of Eco mode, shows the Project's mode by where its knob stands: Off, Shadow or On. A click opens
+  a menu of the three, each with a tooltip; choosing one sets it. It is Off for a Project until set. The mode is kept per
+  Project in worfy's own settings on this Machine (`app-settings.json` in worfy's data folder), not in the Profile, and
+  only the switch writes it. worfy reads that file once at start: an edit of it made outside worfy shows after the next
+  start, and the next change of any setting of the Machine writes worfy's own state back over it.
+- While worfy runs with a debugging port or pipe (`--remote-debugging-port`, `--remote-debugging-pipe`) or the Node
+  inspector (`--inspect`) open, Auto-approval is Off whatever is saved: any program on the Machine could script worfy's
+  window then. The switch shows Off, is unavailable, and its tooltip names the reason and the saved mode, which applies
+  again after a start without them. The saved mode cannot be changed from the switch meanwhile.
+- For now the mode is only stored: an unattended Run still refuses every permission request.
 - Autopilot runs this Session unattended. On Codex a run is refused, with the reason, while the Harness's hooks are not
   approved in Codex's `/hooks`; see [Autopilot, During a run](autopilot.md#during-a-run). While it does, the permission
   mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission
@@ -181,6 +191,7 @@ Session sends at most one notification in 10 seconds. A click opens that Session
 - With read-only access, the input field, the pickers and the answers on the cards are inactive, with a tooltip that says
   why. The Session view does not open an Orchestrator there: it shows "No Orchestrator yet" when there is none.
 - Eco mode says "Eco mode is set in worfy on the Machine of the Project".
+- Auto-approval is read-only and says "Auto-approval is set in worfy on the Machine of the Project".
 - A notification also goes to the connected Linked machines. Each Machine applies its own focus rule and its own 10 seconds.
 
 #### Windows
@@ -251,6 +262,7 @@ for a process also asks the system.
 | Cards | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Items under the input field, found by glob | `src/renderer/session/composer/` |
 | Eco mode | `src/main/ipc/eco-mode.ts`, `src/shared/ipc/eco-mode.ts`, `src/shared/agent/plan-preset.ts`, `src/renderer/session/composer/EcoMode.tsx` |
+| Auto-approval switch | `src/main/ipc/auto-approve.ts`, `src/shared/ipc/auto-approve.ts`, `src/main/settings/store.ts`, `src/renderer/session/composer/AutoApprove.tsx` |
 | Nodes | `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/overlays/SessionNodes.tsx` |
 | Autocompact settings | `src/renderer/settings/SessionsSection.tsx`, `src/shared/settings/app-settings.ts` |
 | Notifications | `src/main/notify.ts`, `src/renderer/session/notification-target.ts` |
