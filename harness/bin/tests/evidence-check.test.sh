@@ -6,7 +6,7 @@
 # Every value the rules must find is put together here from pieces ("/Us""ers/"…), so this file holds
 # none of them whole and passes the check itself. The names are stand-ins (jdoe, example hosts), never
 # a real user, host or account. The texts go to node through files, not through argv: Git Bash on
-# Windows rewrites an argument that looks like a POSIX path (/c/Users/…) before node sees it.
+# Windows rewrites an argument that looks like a POSIX path (/c/…) before node sees it.
 # HARNESS_HOME is a temporary folder (the personal deny list lives there); the real home is checked
 # to be unchanged at the end.
 set -u
@@ -98,11 +98,11 @@ expect_rule "windows home path in JSON" "{\"cwd\":\"$WIN_JSON\"}" home-path
 expect_rule "windows home path with /" "at $WIN_FWD" home-path
 expect_rule "git bash home path" "at $GITBASH_PATH" home-path
 expect_rule "home path at the end of text" "/Us""ers/$NAME" home-path
-expect_none "stand-in /Users/test/" "/Us""ers/test/proj"
+expect_none "stand-in test (macOS)" "/Us""ers/test/proj"
 expect_none "stand-in C:\\Users\\runneradmin\\" 'C:\Us''ers\runneradmin\work'
 expect_none "stand-in C:\\Users\\RUNNER~1\\" 'C:\Us''ers\RUNNER~1\AppData'
-expect_none "stand-in /Users/Shared/ and /home/runner/" "/Us""ers/Shared/x /ho""me/runner/work"
-expect_none "stand-in /Users/<name>/" "/Us""ers/<name>/x"
+expect_none "stand-ins Shared (macOS) and runner (Linux)" "/Us""ers/Shared/x /ho""me/runner/work"
+expect_none "stand-in <name> (macOS)" "/Us""ers/<name>/x"
 expect_none "~/.claude and %USERPROFILE%" '~/.claude/x %USERPROFILE%\.claude'
 expect_none "a URL with /home/ in it" "https://exam""ple.com/home/page/"
 expect_none "a home folder of a stand-in place" "<tmp>/ho""me/cwd …/ho""me/.gitconfig"

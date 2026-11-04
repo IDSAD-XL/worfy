@@ -1,6 +1,6 @@
 // The privacy rules of the Harness: what in a text is personal data that must not reach a public
-// repository or a public log. bin/evidence-check runs them over what a branch adds; worfy-failures
-// masks the records of red tests with them. One module, so the two never disagree on a rule.
+// repository or a public log. bin/evidence-check runs them over what a branch adds; the records of
+// red tests are masked with them too. One module, so the two never disagree on a rule.
 //
 // API (CommonJS; no git and no walking of folders: the caller reads the files it checks, and the one
 // file this module reads itself is the personal list of personal()):
@@ -10,9 +10,10 @@
 //       repeated. The value itself is not in the result:
 //       the caller takes it as text.slice(index, index + length) and prints it only through mask().
 //       `rule` is one of:
-//         home-path     the user name in a home folder path: /Users/<name>/, /home/<name>/,
-//                       C:\Users\<name>\ (any number of \, or /), /c/Users/<name>/ (Git Bash),
-//                       /mnt/c/Users/<name>/ (WSL). The finding is the name, not the whole path.
+//         home-path     the user name in a home folder path: the folder Users at the root (macOS),
+//                       /home/<name>/ (Linux), C:\Users\<name>\ (any number of \, or / in their
+//                       place) and the same path as Git Bash (/c/…) and WSL (/mnt/c/…) write it.
+//                       The finding is the name, not the whole path.
 //         host          a machine name: *.local, *.ts.net (Tailscale MagicDNS), DESKTOP- and seven
 //                       letters or digits, *-MacBook*, *s-Mac*, *-PC, and options.hostname (its
 //                       first label, matched case-insensitively as a whole word).
@@ -57,10 +58,10 @@ const STAND_IN_NAMES = new Set(["test", "someone", "user", "you", "runner", "run
 // characters a path cannot hold. `<` is left out, so a <…> stand-in never matches.
 const NAME = String.raw`[^\s\\/"'\x60<>|:*?,;()\[\]{}=&]+`
 const RULES = [
-    // /Users/<name>, /home/<name>, /c/Users/<name>, /mnt/c/Users/<name>; not inside a URL or a longer path,
-    // nor after a stand-in (<tmp>/home/…, …/home/…).
+    // Users or home at the root, after /c or /mnt/c; not inside a URL or a longer path, nor after a
+    // stand-in (<tmp>/home/…, …/home/…).
     { rule: "home-path", re: new RegExp(String.raw`(?<![\w.~>…*-])(?:/mnt)?(?:/[A-Za-z])?/(?:Users|home)/(${NAME})`, "g"), group: 1 },
-    // C:\Users\<name>, C:\\Users\\<name> (JSON), C:/Users/<name>.
+    // C:\Users\<name>, C:\\Users\\<name> (JSON), and with / in place of \.
     { rule: "home-path", re: new RegExp(String.raw`(?<![A-Za-z])[A-Za-z]:(?:\\+|/)Users(?:\\+|/)(${NAME})`, "gi"), group: 1 },
     // *.local — not .env.local, ~/.local, settings.local.json or localhost.
     { rule: "host", re: /(?<![\w.-])[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+)*\.local(?![\w-]|\.[A-Za-z0-9])/g },

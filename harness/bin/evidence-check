@@ -25,8 +25,8 @@
 // (normalized paths; case-insensitive on Windows). The same file name elsewhere does not count. Without
 // one: the finding "image needs a human check (no scrub: note)". The line is parsed here with one
 // expression (SCREENSHOT_LINE), not with harness/lib/evidence.cjs, so this check stands on its own;
-// shortcut: a line inside a code fence counts as a note too, redo when evidence.cjs is wired in
-// (worfy-evidence 03/04) and its parser can say which lines are code.
+// shortcut: a line inside a code fence counts as a note too, redo when this check is wired to
+// evidence.cjs and its parser can say which lines are code.
 "use strict"
 
 const { spawnSync } = require("node:child_process")
@@ -73,7 +73,7 @@ What the check does not catch:
 
 const TEXT_EXT = new Set([".md", ".json", ".jsonl", ".txt", ".log", ".cpuprofile"])
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"])
-// shortcut: the scrub: note is parsed here, not by evidence.cjs (spec decision 5); redo when 03/04 wire the two.
+// shortcut: the scrub: note is parsed here, not by evidence.cjs; redo when this check is wired to evidence.cjs.
 const SCREENSHOT_LINE = /^\s*[-*]\s+evidence:\s+screenshot\s+(.*)$/
 const SCRUB_FIELD = /^scrub:\s*\d{4}-\d{2}-\d{2}$/
 

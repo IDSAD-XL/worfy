@@ -3,9 +3,10 @@
 Read by harness/bin/tests/evidence-check.test.sh: `evidence-check` on this file exits 0. Each line is a
 form a ticket may use instead of a real value (harness/lib/privacy.cjs, "Stand-ins").
 
-- Home folders: /Users/test/project, /Users/someone/x, /home/user/x, /home/you/x, /home/runner/work,
-  C:\Users\runneradmin\work, C:\Users\RUNNER~1\AppData\Local\Temp, C:/Users/Shared/x, /Users/Shared/x,
-  /Users/<name>/project, C:\Users\<name>\AppData, /c/Users/<name>/x, /Users/$USER/x, C:\Users\%USERNAME%\x, C:\Users\…
+- Home folders: /home/test/project, /home/someone/x, /home/user/x, /home/you/x, /home/runner/work,
+  C:\Users\runneradmin\work, C:\Users\RUNNER~1\AppData\Local\Temp, C:\Users\Shared\x, /home/<name>/project,
+  C:\Users\<name>\AppData, /home/$USER/x, C:\Users\%USERNAME%\x, C:\Users\…
+  (the macOS and Git Bash forms are checked in the test itself: no file of the plugin names them whole)
 - Home folders without a name: ~/.claude/worfy-harness, %USERPROFILE%\.claude, %LOCALAPPDATA%\worfy-stable, <home>/x
 - Hosts: localhost, http://localhost:5173, 127.0.0.1, <host>.local, <host>.ts.net, .env.local, ~/.local/share,
   .claude/settings.local.json, https://example.com/home/page/, pc.example.ts.net, <tmp>/home/.gitconfig
