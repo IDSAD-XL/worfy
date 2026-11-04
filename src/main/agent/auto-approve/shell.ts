@@ -872,9 +872,10 @@ function deniedLong(name: string, denied: string[]): boolean {
 
 const GIT_BRANCH_LIST = ['-a', '-r', '-l', '-v', '-vv', '--all', '--remotes', '--list', '--show-current', '--no-color']
 const GIT_BRANCH_DELETE: OptionSpec = { flags: 'dDfr', long: { delete: 'flag', force: 'flag', remotes: 'flag' }, anywhere: true }
-// The long options of git branch judged here, exactly as written: git takes any unambiguous prefix
-// (`--del` is --delete, `--mov` is --move), so any other long option is refused.
-const GIT_BRANCH_LONG = new Set(['--all', '--remotes', '--list', '--show-current', '--no-color', '--delete', '--force'])
+// The long options of git branch judged beside a listing (GIT_BRANCH_LIST, read above), exactly as
+// written: git takes any unambiguous prefix (`--del` is --delete, `--mov` is --move), so any other
+// long option is refused.
+const GIT_BRANCH_LONG = new Set(['--delete', '--force', '--remotes'])
 
 /** The name of a long option word (`--name` or `--name=value`), or undefined for any other word and for `--`. */
 function longName(value: string): string | undefined {

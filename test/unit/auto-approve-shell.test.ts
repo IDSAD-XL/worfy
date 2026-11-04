@@ -344,6 +344,8 @@ describe('outside the grammar: judged false', () => {
     ['an m inside the value of another commit option', 'git commit -unormal', 'a git command that starts an editor or gpg'],
     ['git pull --rebase=interactive by a prefix', 'git pull --reb=i', 'a git command that starts an editor or gpg'],
     ['a -- right after an option, before a glob', 'cat -n -- *', 'a glob that may expand into an option'],
+    ['git commit -c beside a message', 'git commit -m x -c HEAD', 'a git command that starts an editor or gpg'],
+    ['a long git branch option outside a listing', 'git branch --no-color x', 'an option the table does not know'],
   ]
   const contexts: Record<string, AnalyzeContext> = {
     'a working folder on Windows that is not absolute': { ...windows, cwd: 'work' },
@@ -581,6 +583,8 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
     expect(brief('git push sibdir main')).toEqual([{ program: 'git', cwd: '/tmp/demo', writes: [REPOSITORY, '/tmp/demo/sibdir'], network: true }])
     expect(actions("git push '..\\other' main", windows)[0]?.git).toMatchObject({ push: { remote: '..\\other', localPath: 'C:\\work\\..\\other' } })
     expect(actions('git push https://example.invalid/r main; git push host:r main').map((action) => action.writes)).toEqual([[REPOSITORY], [REPOSITORY]])
+    expect(actions('git push C:/r main', windows)[0]?.writes).toEqual([REPOSITORY, 'C:\\r'])
+    expect(git('git branch -d --remotes origin/x')).toEqual([{ subcommand: 'branch', branchDelete: { branches: ['origin/x'], force: false } }])
   })
 
   it('git push to a local path writes that path', () => {
