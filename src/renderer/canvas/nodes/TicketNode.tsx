@@ -14,6 +14,7 @@ import { useProjectRepos } from '../badges/use-checks'
 import { ticketTitle } from '../epic-layout'
 import type { TicketNodeData } from '../sources/epics'
 import { blockersLine, blockersString, pad, type TICKET_MIN_HEIGHT, type TICKET_WIDTH } from '../ticket-card'
+import { TicketEvidence } from './EvidenceMatrix'
 import type { CanvasNodeProps } from './index'
 import { TicketBody } from './TicketBody'
 import { useTicketText } from './ticket-text'
@@ -24,7 +25,8 @@ import '../epic-frame.css'
 // it, and the two slots for badges (ticket 17) and actions (ticket 23). A double click on the card
 // opens focus mode on this Ticket (requestFocus of focus/focus-state.ts). In a tile of focus mode
 // (focus/focus-tile.ts) the Ticket shows its whole file as markdown under the same header
-// (TicketBody.tsx) and the title uncut, and "Open in editor" in the header opens the file — at the
+// (TicketBody.tsx) — the Evidence matrix above it (EvidenceMatrix.tsx, worfy-evidence ticket 06) — and
+// the title uncut, and "Open in editor" in the header opens the file — at the
 // path main found — in the default editor through `shell.openInEditor`; in a window on a Linked
 // machine that button shows the toast "File is on <Machine>" instead (worfy-link ticket 12,
 // worfy-ui ticket 16). The card on the Canvas reads no file. The Node comes from sources/epics.ts. In a
@@ -196,6 +198,7 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
           ) : null}
         </div>
       ) : null}
+      {inFocus ? <TicketEvidence projectId={projectId} root={root} ticket={ticket} read={read} /> : null}
       {inFocus ? <TicketBody projectId={projectId} read={read} /> : null}
       <Handle type="source" position={Position.Right} isConnectable={false} className="w-ticket__handle" />
     </article>

@@ -11,7 +11,8 @@
 // lines as the browser draws. What the card shows from main's snapshots rather than from the
 // Ticket — the Stage's name, the checks chips, "Open PR" — gets room for its widest form.
 //
-// Every number here mirrors a rule of epic-frame.css, stepper.css or checks-badges.css; change both.
+// Every number here mirrors a rule of epic-frame.css, stepper.css, checks-badges.css or badges/evidence.css;
+// change both.
 import { DEFAULT_PIPELINE, stageLabel } from '../../shared/workflow/pipeline'
 import type { Ticket, TicketState } from '../../shared/workflow/types'
 
@@ -53,6 +54,14 @@ const REASON_PAD_X = 6
  * this room.
  */
 export const SLOTS_HEIGHT = 2 * 16 + 2 + 4 + 20
+/**
+ * A Ticket with checkbox items in its done section draws the chip «Evidence n/m» (badges/Evidence.tsx); it
+ * comes from the Ticket, so only such a card gets the room: one more line of chips (16 px, 2 px above it).
+ * In `.w-ticket__badges` the checks chips then take whole lines and the Evidence chip starts the next one
+ * (epic-frame.css), so the five chips of the widest card — a gate, a PR, CI, a verdict and Evidence — are
+ * three lines at most.
+ */
+export const EVIDENCE_LINE = 16 + 2
 
 export interface Font {
   size: number
@@ -286,16 +295,18 @@ export interface CardInput {
   meta: BlockersText
   /** The names of the Project's Stages, in order; the default Pipeline's while unknown. */
   stages?: readonly string[] | undefined
+  /** The done section has checkbox items: the card draws the Evidence chip. */
+  evidence?: boolean | undefined
 }
 
-/** The card's height for `card`: border, padding, the top row, the title, the reason or blockers line, the slots. */
+/** The card's height for `card`: border, padding, the top row, the title, the reason or blockers line, the slots (with the Evidence line). */
 export function cardHeight(card: CardInput): number {
   const title = TITLE_LINE * lines(card.title, { size: 13, weight: 600 }, CONTENT_WIDTH)
   const line =
     card.reason !== null
       ? 2 * REASON_PAD_Y + REASON_LINE * Math.max(1, lines(card.reason, { size: 12 }, CONTENT_WIDTH - 2 * REASON_PAD_X))
       : META_LINE * Math.max(1, textLines(metaRuns(card.meta), CONTENT_WIDTH))
-  return 2 * BORDER + 2 * PADDING_Y + topHeight(card) + CARD_GAP + title + CARD_GAP + line + CARD_GAP + SLOTS_HEIGHT
+  return 2 * BORDER + 2 * PADDING_Y + topHeight(card) + CARD_GAP + title + CARD_GAP + line + CARD_GAP + SLOTS_HEIGHT + (card.evidence ? EVIDENCE_LINE : 0)
 }
 
 // ── the blockers line ────────────────────────────────────────────────────────
