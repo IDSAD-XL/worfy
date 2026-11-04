@@ -1,7 +1,8 @@
 # 58 — Updater отказывает, пока встроенный `codex` открыт в terminal-е
 
 Type: bug
-Status: open
+Status: done 2026-11-04T17:07Z
+PR: #1378
 Blocked by:
 Source: приёмка worfy-multi-vendor 32, 2026-11-04 (владелец: «да» на ticket); перезапуск Stable ждал 3 минуты процесс
 `codex` владельца из terminal-а
