@@ -117,11 +117,19 @@ background task, and no Autopilot run is going, a stopped run that still waits f
 Orchestrator included. Terminals do not count: worfy closes their processes on quit anyway. "Restart when idle" restarts
 by itself once all is quiet. A turn that starts meanwhile makes it wait longer, and quitting worfy drops it.
 
-Then worfy quits, and a separate process does the swap. It waits for worfy to quit, two minutes at most, moves the copy
-that ran aside as `worfy-stable.previous`, puts the build in its place and starts it. The press is the consent to the
-Harness of the new copy too (see below). When the swap is refused, for example because a process of the old copy still
-runs at its place after the wait, nothing is changed: the old copy starts again and shows "worfy was not updated to
-<version>: <reason>". The restart needs the system's `node`; without it the press is refused with "node was not found: a
+Right before the restart worfy asks GitHub's comparison again whether the build is ahead of the commit that runs now: the
+copy that runs may have changed since the build began. A build that is that commit, behind it, diverged from it or
+unknown to GitHub is not installed. It is set aside (the toast "ready" goes, and `state.json` keeps the reason as
+`discarded`), and the press answers "<version> was not installed: <reason>". When the comparison cannot be made (no
+network), the press is refused and the build stays ready.
+
+Then worfy quits, and a separate process does the swap. It waits for worfy to quit, two minutes at most, then up to two
+minutes more for every other process of the copy, such as the Claude Code of a Session that is still quitting. It moves
+the copy that ran aside as `worfy-stable.previous`, puts the build in its place and starts it. The press is the consent
+to the Harness of the new copy too (see below). When the swap is refused, for example because a process of the old copy
+still runs at its place after the wait, nothing is changed: the old copy starts again and shows "worfy was not updated
+to <version>: <reason>". For a process that did not quit the reason starts with what to do ("quit it, then try
+again") and names its pid and program. The restart needs the system's `node`; without it the press is refused with "node was not found: a
 restart into an Update needs it (Settings → Health)".
 
 **Harness after Update.** At the first start of the new copy, worfy installs that copy's Harness when the installed one

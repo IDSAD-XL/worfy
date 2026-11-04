@@ -377,6 +377,52 @@ export function waitForExit(pid, alive, { now = Date.now, sleep = pause, limit =
 }
 
 /**
+ * Waits until no process of the copy runs (worfy-polish ticket 53): the Claude Code of a Session, a
+ * child of worfy, may still be quitting when worfy itself (--wait-pid) is gone. `look` answers the
+ * processes of the copy that run (the lines of runningCopies). Answers [] once there are none, else
+ * those that still run after `limit`. It looks at once, then every `every` ms, as waitForExit does.
+ */
+export function waitForCopyToQuit(look, { now = Date.now, sleep = pause, limit = WAIT_LIMIT_MS, every = WAIT_EVERY_MS } = {}) {
+  const deadline = now() + limit
+  for (;;) {
+    const running = look()
+    if (running.length === 0) return []
+    const left = deadline - now()
+    if (left <= 0) return running
+    sleep(Math.min(every, left))
+  }
+}
+
+/** How long a process of the copy is named in a refusal at most: the whole line goes to stderr. */
+const SHOWN_COMMAND = 60
+
+/**
+ * A line of runningCopies as `pid <pid> (<program> <flags>)`: the name of the program without its
+ * folder, which is the copy's, and the command cut to SHOWN_COMMAND characters.
+ */
+export function describeProcess(line) {
+  const match = /^\s*(\d+)\s+(.*)$/.exec(line)
+  if (match === null) return line.trim()
+  const [, pid, command] = match
+  // The program ends where the first flag begins; its path may hold spaces ("worfy Helper (Renderer)").
+  const flags = command.search(/ -/)
+  const program = flags === -1 ? command : command.slice(0, flags)
+  const name = program.slice(Math.max(program.lastIndexOf('/'), program.lastIndexOf('\\')) + 1)
+  const shown = `${name}${flags === -1 ? '' : command.slice(flags)}`
+  return `pid ${pid} (${shown.length > SHOWN_COMMAND ? `${shown.slice(0, SHOWN_COMMAND - 1)}…` : shown})`
+}
+
+/**
+ * The refusal when processes of the copy still run `limit` ms after worfy quit. What to do comes
+ * first: a toast shows three lines of it (worfy-polish ticket 53). Two processes are named, the rest counted.
+ */
+export function copyStillRuns(running, limit = WAIT_LIMIT_MS) {
+  const named = running.slice(0, 2).map(describeProcess).join(', ')
+  const more = running.length > 2 ? ` and ${running.length - 2} more` : ''
+  return `the stable copy still ran ${limit / 1000} s after worfy quit: quit it, then try again. Nothing was changed. Still running: ${named}${more}`
+}
+
+/**
  * The command that starts what is at the target (--relaunch): `open <target>` on macOS, the worfy.exe
  * of the target on Windows; null elsewhere. WORFY_STABLE_LAUNCH=<program> gives `<program> <target>`
  * on any system.
@@ -916,8 +962,10 @@ function changeCopy(options, { platform = process.platform, env = process.env, h
     }
   }
 
-  const refuseIfRunning = () => {
-    const running = runningCopies(platform, [...spellings], listing(platform), platform === 'win32' ? onDisk : undefined)
+  // `wait`: worfy has quit (--wait-pid), and its children get WAIT_LIMIT_MS to quit too (worfy-polish ticket 53).
+  const refuseIfRunning = (wait = false) => {
+    const look = () => runningCopies(platform, [...spellings], listing(platform), platform === 'win32' ? onDisk : undefined)
+    const running = wait ? waitForCopyToQuit(look, { now, sleep }) : look()
     if (running.length === 0) {
       if (!waited && !outcome.notes.some((each) => each.startsWith(`process ${options.waitPid} `))) {
         outcome.notes.push(`process ${options.waitPid} still ran after ${WAIT_LIMIT_MS / 1000} s, but no copy at ${logical} runs: it is taken for another program with that number`)
@@ -926,12 +974,14 @@ function changeCopy(options, { platform = process.platform, env = process.env, h
     }
     process.stderr.write(`${running.join('\n')}\n`)
     if (!waited) fail(`process ${options.waitPid} is still running after ${WAIT_LIMIT_MS / 1000} s: nothing was changed`)
+    if (wait) fail(copyStillRuns(running))
     fail(`the stable copy at ${logical} is running. Quit it (stop Autopilot first, or wait for the gap between waves), then run this again.`)
   }
 
   // Before the build, so a refusal costs nothing; again before the copy, since the copy may have
-  // been started while the build ran.
-  refuseIfRunning()
+  // been started while the build ran. Only the first one waits: a copy started during the build was
+  // started by someone.
+  refuseIfRunning(options.waitPid !== undefined && waited)
 
   // The build to install; a rollback has none, the copy it puts back lies next to the target.
   const prepare = () => {

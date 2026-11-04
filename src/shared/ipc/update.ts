@@ -93,6 +93,11 @@ export const updateStateSchema = z.object({
     .object({ ok: z.boolean(), action: z.string(), version: z.string(), reason: z.string().optional(), at: z.iso.datetime().optional() })
     .nullable()
     .default(null),
+  /**
+   * The last ready build set aside right before its install (worfy-polish ticket 53): it was not ahead
+   * of the commit that ran then (`running`). `reason` says why. Absent when none was.
+   */
+  discarded: z.object({ sha, version: z.string(), running: z.string(), reason: z.string(), at: z.iso.datetime() }).optional(),
   /** The Harness of the new copy was not installed after the restart (ticket 05). */
   harnessAfterUpdate: z.literal('failed').nullable().default(null),
 })

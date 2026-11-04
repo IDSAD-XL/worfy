@@ -53,11 +53,23 @@ interface Result {
   reason?: string
   notes: string[]
 }
-const { installStable, previousPaths, WAIT_LIMIT_MS, WAIT_EVERY_MS } = (await import(pathToFileURL(join(REPO, 'scripts', 'install-stable.mjs')).href)) as {
+interface WaitClock {
+  now?: () => number
+  sleep?: (ms: number) => void
+  limit?: number
+  every?: number
+}
+const { installStable, previousPaths, WAIT_LIMIT_MS, WAIT_EVERY_MS, waitForCopyToQuit, describeProcess, copyStillRuns, runningCopies } = (await import(
+  pathToFileURL(join(REPO, 'scripts', 'install-stable.mjs')).href
+)) as {
   installStable: (argv: string[], options: Options) => string
   previousPaths: (platform: string, target: string) => { copy: string; metadata: string }
   WAIT_LIMIT_MS: number
   WAIT_EVERY_MS: number
+  waitForCopyToQuit: (look: () => string[], clock?: WaitClock) => string[]
+  describeProcess: (line: string) => string
+  copyStillRuns: (running: string[], limit?: number) => string
+  runningCopies: (platform: string, targets: string[], listing: string, spell?: (path: string) => string) => string[]
 }
 
 /** The places of the real Stable copy and of worfy's data on this machine. */
@@ -353,6 +365,121 @@ describe('a wait for the running worfy to quit (--wait-pid)', () => {
     expect(out).toContain(`install-stable: installed ${target}`)
     expect(existsSync(join(target, WINDOWS ? 'worfy.exe' : join('Contents', 'Info.plist')))).toBe(true)
   }, ms(15_000))
+})
+
+// worfy-polish ticket 53: worfy (--wait-pid) quits before the Claude Code of its Sessions, which lies
+// inside the copy (app.asar.unpacked). The helper gives the processes of the copy the same limit to quit.
+describe('a wait for the processes of the copy after worfy quit (worfy-polish ticket 53)', () => {
+  useStandInBuild()
+  beforeEach(() => {
+    started.length = 0
+    marks.length = 0
+  })
+
+  /** A clock that moves only when the script sleeps, and the pauses it was asked for. */
+  const fakeTime = () => {
+    const state = { clock: 0, sleeps: [] as number[] }
+    return { state, now: () => state.clock, sleep: (wait: number) => void (state.sleeps.push(wait), (state.clock += wait)) }
+  }
+  const CHILD = 4243
+  /** The list of processes with the Claude Code of a Session inside the copy at `target`, as `ps` or PowerShell prints it. */
+  const sessionChildAt = (target: string) => (platform: string): string =>
+    platform === 'win32'
+      ? JSON.stringify([{ ProcessId: CHILD, Name: 'claude.exe', ExecutablePath: join(target, 'resources', 'app.asar.unpacked', 'node_modules', '@anthropic-ai', 'claude-agent-sdk-win32-x64', 'claude.exe') }])
+      : `${CHILD} ${target}/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude --resume=s1\n`
+  /** The child as the refusal names it. */
+  const childNamed = PLATFORM === 'win32' ? `pid ${CHILD} (claude.exe)` : `pid ${CHILD} (claude --resume=s1)`
+  /** A listing in which the child runs until `quitsAt` on the clock of `time`. */
+  const childUntil = (target: string, time: ReturnType<typeof fakeTime>, quitsAt: number) => (platform: string): string =>
+    time.state.clock < quitsAt ? sessionChildAt(target)(platform) : platform === 'win32' ? '[]' : ''
+  const gone = (): boolean => false
+
+  it('a process of the copy that quits a few seconds after --wait-pid gives no refusal: the roll back goes on', () => {
+    const time = fakeTime()
+    const target = targetIn('apps', 'worfy-stable')
+    const result = join(dir, 'result.json')
+    copyAt(target, 'current')
+    copyAt(previousPaths(PLATFORM, target).copy, 'previous')
+    install(['--rollback', target, '--wait-pid', '4242', '--result', result], { now: time.now, sleep: time.sleep, alive: gone, listing: childUntil(target, time, 3_000) })
+    expect(which(target)).toBe('previous')
+    expect(read(result)).toMatchObject({ ok: true, action: 'rollback' })
+    // It looked every 500 ms until the child was gone, and no longer.
+    expect(time.state.sleeps).toEqual(Array.from({ length: 3_000 / WAIT_EVERY_MS }, () => WAIT_EVERY_MS))
+  })
+
+  it.runIf(PLATFORM !== 'linux')('an install waits the same way for a Session child that quits late', { timeout: ms(15_000) }, () => {
+    const time = fakeTime()
+    const target = targetIn('apps', 'worfy-stable')
+    copyAt(target, 'current')
+    const out = install([target, '--wait-pid', '4242', '--keep-previous'], { now: time.now, sleep: time.sleep, alive: gone, listing: childUntil(target, time, 5_000) })
+    expect(out).toContain(`install-stable: installed ${target}`)
+    expect(which(previousPaths(PLATFORM, target).copy)).toBe('current')
+  })
+
+  it('a process of the copy that does not quit by the limit gives a refusal that names its pid, and touches nothing', () => {
+    const time = fakeTime()
+    const target = targetIn('apps', 'worfy-stable')
+    const result = join(dir, 'result.json')
+    copyAt(target, 'current')
+    copyAt(previousPaths(PLATFORM, target).copy, 'previous')
+    const before = readdirSync(join(dir, 'apps')).sort()
+    const reason = `the stable copy still ran 120 s after worfy quit: quit it, then try again. Nothing was changed. Still running: ${childNamed}`
+    expect(() => install(['--rollback', target, '--wait-pid', '4242', '--result', result], { now: time.now, sleep: time.sleep, alive: gone, listing: sessionChildAt(target) })).toThrow(reason)
+    expect(read(result)).toMatchObject({ ok: false, reason })
+    expect(time.state.sleeps.reduce((sum, each) => sum + each, 0)).toBe(WAIT_LIMIT_MS)
+    expect(readdirSync(join(dir, 'apps')).sort()).toEqual(before)
+    expect(which(target)).toBe('current')
+  })
+
+  it('without --wait-pid a running copy is refused at once, as before', () => {
+    const time = fakeTime()
+    const target = targetIn('apps', 'worfy-stable')
+    copyAt(target, 'current')
+    copyAt(previousPaths(PLATFORM, target).copy, 'previous')
+    expect(() => install(['--rollback', target], { now: time.now, sleep: time.sleep, listing: sessionChildAt(target) })).toThrow(`the stable copy at ${target} is running`)
+    expect(time.state.sleeps).toEqual([])
+  })
+})
+
+describe('the functions of the wait for the copy (worfy-polish ticket 53), on either system', () => {
+  const WIN_TARGET = 'C:\\Users\\dev\\AppData\\Local\\worfy-stable'
+  const MAC_TARGET = '/Users/dev/Applications/worfy-stable.app'
+  const winListing = (processes: { ProcessId: number; Name: string; ExecutablePath?: string }[]): string => JSON.stringify(processes)
+  const claudeExe = { ProcessId: 812, Name: 'claude.exe', ExecutablePath: `${WIN_TARGET}\\resources\\app.asar.unpacked\\node_modules\\@anthropic-ai\\claude-agent-sdk-win32-x64\\claude.exe` }
+
+  it('waitForCopyToQuit answers [] once a Windows listing has no process of the copy, looking every 500 ms', () => {
+    const state = { clock: 0, sleeps: [] as number[] }
+    const look = (): string[] => runningCopies('win32', [WIN_TARGET], winListing(state.clock < 2_000 ? [claudeExe] : [{ ProcessId: 9, Name: 'explorer.exe', ExecutablePath: 'C:\\Windows\\explorer.exe' }]))
+    expect(waitForCopyToQuit(look, { now: () => state.clock, sleep: (wait) => void (state.sleeps.push(wait), (state.clock += wait)) })).toEqual([])
+    expect(state.sleeps).toEqual([500, 500, 500, 500])
+  })
+
+  it('waitForCopyToQuit answers what still runs at the limit, and waits no longer', () => {
+    const state = { clock: 0, sleeps: [] as number[] }
+    const look = (): string[] => runningCopies('win32', [WIN_TARGET], winListing([claudeExe]))
+    expect(waitForCopyToQuit(look, { now: () => state.clock, sleep: (wait) => void (state.sleeps.push(wait), (state.clock += wait)), limit: 1_200 })).toEqual([`812 ${claudeExe.ExecutablePath}`])
+    expect(state.sleeps).toEqual([500, 500, 200])
+  })
+
+  it('describeProcess names the pid and the program without the folder of the copy, on macOS and on Windows', () => {
+    const [mac] = runningCopies('darwin', [MAC_TARGET], `  4321 ${MAC_TARGET}/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude --resume=abc\n`)
+    expect(describeProcess(mac!)).toBe('pid 4321 (claude --resume=abc)')
+    const [helper] = runningCopies('darwin', [MAC_TARGET], `  77 ${MAC_TARGET}/Contents/Frameworks/worfy Helper (Renderer).app/Contents/MacOS/worfy Helper (Renderer) --type=renderer\n`)
+    expect(describeProcess(helper!)).toBe('pid 77 (worfy Helper (Renderer) --type=renderer)')
+    const [win] = runningCopies('win32', [WIN_TARGET], winListing([claudeExe]))
+    expect(describeProcess(win!)).toBe('pid 812 (claude.exe)')
+    const [unknown] = runningCopies('win32', [WIN_TARGET], winListing([{ ProcessId: 90, Name: 'worfy.exe' }]))
+    expect(describeProcess(unknown!)).toMatch(/^pid 90 \(worfy\.exe \(Windows does not say where it runs from.{0,10}…\)$/u)
+    expect(describeProcess(`5 /x/claude --resume=${'a'.repeat(100)}`)).toBe(`pid 5 (claude --resume=${'a'.repeat(43)}…)`)
+  })
+
+  it('copyStillRuns says what to do first, names two processes and counts the rest', () => {
+    const lines = ['1 /a/claude --resume=x', '2 /a/claude --resume=y', '3 /a/claude --resume=z']
+    const reason = copyStillRuns(lines)
+    expect(reason).toBe('the stable copy still ran 120 s after worfy quit: quit it, then try again. Nothing was changed. Still running: pid 1 (claude --resume=x), pid 2 (claude --resume=y) and 1 more')
+    // A toast shows three lines (src/renderer/toast/toast.css): what to do stays in the first ones.
+    expect(reason.indexOf('then try again')).toBeLessThan(80)
+  })
 })
 
 describe.runIf(PLATFORM !== 'linux')('an install that keeps the copy it replaces (--keep-previous)', { timeout: ms(15_000) }, () => {
