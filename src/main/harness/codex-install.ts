@@ -19,8 +19,9 @@
 //
 // The agents: worfy-implementer, worfy-reviewer, worfy-scout as TOML files in <CODEX_HOME>/agents/
 // only (codex-agents.ts). Codex turns the hooks of a plugin off after every install or update until
-// the user approves them in Codex (`/hooks`); the status says so (`hooksToApprove`), and ticket 39
-// adds the step itself.
+// the user approves them in Codex (`/hooks`); the status says so (`hooksToApprove`), and the toolbar
+// shows the step "Approve the Harness hooks in Codex" (ticket 39), whose "Check again" asks Codex
+// (codex-hooks-trust.ts) and clears it once they are approved (hooksApproved).
 //
 // Codex counts as there when this build has its binary and CODEX_HOME exists (Codex ran and signed
 // in on this machine): without either nothing here runs, and nothing is written. worfy writes only
@@ -196,6 +197,14 @@ export class CodexHarness {
 
   constructor(private readonly options: CodexInstallerOptions) {}
 
+  /**
+   * A check found the hooks approved in Codex (codex-hooks-trust.ts, ticket 39): the status no longer
+   * asks to approve them, until the next install or update turns them off again.
+   */
+  hooksApproved(): void {
+    this.hooksToApprove = false
+  }
+
   /** Whether Codex is there to install into: the binary, and CODEX_HOME (Codex ran on this machine). */
   present(): boolean {
     return this.options.codex !== undefined && existsSync(this.options.codexHome)
@@ -336,7 +345,7 @@ export class CodexHarness {
       else await this.codex(args, 'plugin add')
     }
     if (plan.commands.length > 0) {
-      // Codex turns the plugin's hooks off until they are approved again (ticket 39 adds the step).
+      // Codex turns the plugin's hooks off until they are approved again: the toolbar shows the step (ticket 39).
       this.hooksToApprove = true
       await this.record(plan.to)
     }

@@ -15,11 +15,18 @@
 // The same installer installs the Harness into Codex too (worfy-multi-vendor ticket 35,
 // src/main/harness/codex-install.ts), with the Codex binary this build pins, or WORFY_CODEX_CLI when
 // set (a stand-in in tests); under WORFY_CODEX=fake or absent and under vitest there is none.
+//
+// After an install or update in Codex the toolbar shows the step "Approve the Harness hooks in Codex"
+// (worfy-multi-vendor ticket 39). Its "Check again" is `harness.codexHooks`: Codex's `hooks/list`
+// (src/main/harness/codex-hooks-trust.ts) through the Codex driver's app-server, the fake under
+// WORFY_CODEX=fake. Once the hooks are approved the Codex part no longer has hooks to approve, and every
+// window gets the status as `harness.changed`, as after an install.
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
-import { harnessChanged, harnessInstall, harnessState } from '../../shared/ipc/harness'
+import { harnessChanged, harnessCodexHooks, harnessInstall, harnessState, type HarnessHooksTrust, type HarnessStatus } from '../../shared/ipc/harness'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessDir } from '../harness/bundled'
+import { codexHarnessHooks } from '../harness/codex-hooks-trust'
 import { CodexHarness, codexInstallBinary } from '../harness/codex-install'
 import { claudeCommandEnv, confirmationText, HarnessInstaller, installOffered, type InstallPlan } from '../harness/install'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
@@ -71,6 +78,8 @@ class AnnouncingInstaller extends HarnessInstaller {
 }
 
 let installer: HarnessInstaller | null = null
+/** The Codex part of the app's installer; null when this build installs nothing into Codex. */
+let codexHarness: CodexHarness | null = null
 
 /**
  * The app's one installer: the toolbar and the first-run screen (ticket 19) share it, so two installs
@@ -83,6 +92,17 @@ export function appInstaller(): HarnessInstaller {
   const bundledDir = bundledHarnessDir()
   const home = harnessHome(env)
   const codex = codexInstallBinary(env, runtime)
+  codexHarness =
+    codex === undefined
+      ? null
+      : new CodexHarness({
+          bundledDir,
+          pluginDir: join(home, 'plugin'),
+          codex,
+          env,
+          codexHome: codexHomeOf(env),
+          recordFile: join(dataRoot(env), 'harness-codex.json'),
+        })
   installer = new AnnouncingInstaller({
     bundledDir,
     harnessHome: home,
@@ -90,18 +110,7 @@ export function appInstaller(): HarnessInstaller {
     env: claudeCommandEnv(env),
     canInstall: installOffered({ packaged: app.isPackaged, env }),
     claudeHome: claudeHome(env),
-    ...(codex === undefined
-      ? {}
-      : {
-          codex: new CodexHarness({
-            bundledDir,
-            pluginDir: join(home, 'plugin'),
-            codex,
-            env,
-            codexHome: codexHomeOf(env),
-            recordFile: join(dataRoot(env), 'harness-codex.json'),
-          }),
-        }),
+    ...(codexHarness === null ? {} : { codex: codexHarness }),
   })
   return installer
 }
@@ -123,7 +132,22 @@ async function confirmInstall(owner: BrowserWindow | null, plan: InstallPlan): P
   return response === 0
 }
 
+/**
+ * "Check again" of the step "Approve the Harness hooks in Codex": asks Codex whether the hooks of the
+ * Harness are approved. Once they are, the status asks no more, and every window hears it.
+ */
+async function checkCodexHooks(): Promise<{ trust: HarnessHooksTrust; status: HarnessStatus }> {
+  const states = appInstaller()
+  const trust = await codexHarnessHooks.trust()
+  const approved = trust === 'approved' && codexHarness !== null
+  if (approved) codexHarness?.hooksApproved()
+  const status = await states.status()
+  if (approved) toEveryWindow((client) => emit(client, harnessChanged, status))
+  return { trust, status }
+}
+
 export default [
   defineHandler(harnessState, () => appInstaller().status()),
+  defineHandler(harnessCodexHooks, () => checkCodexHooks()),
   defineHandler(harnessInstall, (_input, { event }) => appInstaller().install((plan) => confirmInstall(BrowserWindow.fromWebContents(event.sender), plan))),
 ] satisfies HandlerModule

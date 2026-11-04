@@ -109,9 +109,15 @@ While a run goes on:
 - The Orchestrator is **unattended**. It runs in the `bypassPermissions` mode, whatever mode the Node saved; on a Codex
   Orchestrator that is the "Full access" preset (sandbox `danger-full-access`, approvals `never`). A change of its
   permission mode is refused. When the run ends, the Node gets its own settings back. The run drives the Orchestrator's
-  Session and reads its events the same way on either Vendor, but a run on a Codex Orchestrator is refused for now, with
-  the reason: worfy cannot yet check that Codex runs the Harness's hooks, and without them the gate and the guards of the
-  workflow do not hold (worfy-multi-vendor ticket 39 adds that check).
+  Session and reads its events the same way on either Vendor. Codex turns the Harness's hooks off after every install or
+  update of the Harness until you approve them, and without them the gate and the guards of the workflow do not hold. So
+  before each start of a run on a Codex Orchestrator worfy asks Codex (`hooks/list`) whether the hooks of the plugin
+  `worfy` are approved. While they are not, or Codex does not say, the run is refused with "The Harness hooks are not
+  approved in Codex. Approve them in /hooks and start again." To approve them, open Codex in a terminal (`codex`), type
+  `/hooks` and approve the hooks of the plugin `worfy`. After an install or update in Codex the toolbar shows the step
+  "Approve the Harness hooks in Codex" with these instructions and a "Check again" button; until a check finds them
+  approved, the Harness item says "Codex: approve hooks", and a click opens the step again. A run on Claude Code is not
+  checked.
 - A permission request, a question with answer options and a Card's `session.ask` are refused at once, because no one is
   there to answer. An approval Codex still asks for gets `decline`. Each refusal goes to the journal. When Claude Code gave a reason for a permission request, the model
   gets that reason so it can change the command.
@@ -343,6 +349,8 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | `src/shared/actions/render-template.ts` | `runWaveState`: the verdict and the text, shared with the button. |
 | `src/shared/workflow/waves.ts` | `readyWave`: the ready Wave and the Tickets left out. |
 | `src/main/agent/orchestrator.ts` | `setUnattended`, `giveBackNow`, `newUnattendedSession`, and the refusals for a turn, tasks or a queue. |
+| `src/main/harness/codex-hooks-trust.ts` | Whether the Harness hooks are approved in Codex (`hooks/list`), and the refusal of a Codex run while they are not. |
+| `src/renderer/harness/CodexHooksStep.tsx` | The step "Approve the Harness hooks in Codex" with "Check again". |
 | `src/main/agent/session-settings.ts` | The launch of a Session and the forced permission mode. |
 | `src/main/agent/permissions.ts` | `unattendedCanUseTool`: the refusal of every request. |
 | `src/main/agent/session.ts` | `halt` for Force stop, `refuseDialog`. |

@@ -206,6 +206,60 @@ export function approvePluginHooks(codexHome) {
   return handlers.map((handler) => handler.key)
 }
 
+/**
+ * The trust status `hooks/list` gives a hook (HookTrustStatus of the protocol), as Codex reads it from
+ * config.toml: no trusted_hash is "untrusted"; one that matches the declaration and the folder now is
+ * "trusted"; any other is "modified" (an approval the hook or its plugin has changed since).
+ */
+function trustStatusOf(handler, fingerprint) {
+  if (typeof handler.state.trusted_hash !== 'string') return 'untrusted'
+  return trusted(handler, fingerprint) ? 'trusted' : 'modified'
+}
+
+/**
+ * The answer of `hooks/list` (HooksListResponse, worfy-multi-vendor ticket 39): for each folder of `cwds`
+ * (the fake's own folder when none is given) the hooks of the plugins installed in `codexHome`, each with
+ * its trust status, the way /hooks of Codex lists them for approval; no hooks without a `codexHome`.
+ * shortcut: lists plugin hooks only, not those of config.toml, hooks.json of CODEX_HOME or a project's
+ * .codex/; list them when a test needs hooks from there.
+ */
+export function hooksList(codexHome, cwds) {
+  const { handlers, warnings } = codexHome === undefined ? { handlers: [], warnings: [] } : loadHooks(codexHome, { all: true })
+  const fingerprints = new Map()
+  const fingerprint = (root) => {
+    if (!fingerprints.has(root)) {
+      try {
+        fingerprints.set(root, pluginFingerprint(root))
+      } catch (error) {
+        fingerprints.set(root, `unreadable: ${error.message}`)
+      }
+    }
+    return fingerprints.get(root)
+  }
+  const hooks = handlers.map((handler) => ({
+    key: handler.key,
+    eventName: camel(handler.event),
+    handlerType: 'command',
+    command: commandOf(handler.declared),
+    async: handler.declared.async === true,
+    matcher: NO_MATCHER.has(handler.event) ? null : handler.matcher,
+    timeoutSec: timeoutSec(handler.event, handler.declared.timeout),
+    statusMessage: typeof handler.declared.statusMessage === 'string' ? handler.declared.statusMessage : null,
+    additionalContextLimit: typeof handler.declared.additionalContextLimit === 'number' ? handler.declared.additionalContextLimit : null,
+    sourcePath: handler.sourcePath,
+    source: 'plugin',
+    pluginId: handler.pluginId,
+    environmentId: null,
+    displayOrder: handler.displayOrder,
+    enabled: handler.state.enabled !== false,
+    isManaged: false,
+    currentHash: declarationHash(handler),
+    trustStatus: trustStatusOf(handler, fingerprint(handler.pluginRoot)),
+  }))
+  const folders = Array.isArray(cwds) && cwds.length > 0 ? cwds : [process.cwd()]
+  return { data: folders.map((cwd) => ({ cwd, hooks, warnings, errors: [] })) }
+}
+
 // --- Discovery ----------------------------------------------------------------------------------------
 
 /** The plugins installed in `codexHome`: plugins/cache/<marketplace>/<plugin>/<version>/, id <plugin>@<marketplace>. */

@@ -8,6 +8,8 @@
 //   through its Session (RunSession), the same for every Vendor, and run-started names the Vendor
 //   the Orchestrator's view gives. A start is refused while that Vendor lacks the `harness`
 //   capability (Orchestrators.unattendedRefusal): the workflow's guarantees are not proven there.
+//   On Codex it is also refused while the Harness's hooks are not approved in /hooks, or Codex does
+//   not say (the driver's check, worfy-multi-vendor ticket 39), with the driver's reason.
 // - Every Wave after the run's first starts a new SDK session of the Orchestrator (worfy-throughput
 //   ticket 52; Orchestrators.newUnattendedSession), so its context does not grow from Wave to Wave:
 //   its first prompt asks for `wave-brief <epic>`, then has the Wave's text (launch.ts,
@@ -259,8 +261,9 @@ export interface AutopilotDeps {
     newUnattendedSession(projectId: string): Promise<OrchestratorView | null>
     /**
      * Why the run may not take the Project's Orchestrator, or null: the Vendor it runs on lacks the
-     * Harness's guarantees (Orchestrators.unattendedRefusal, worfy-multi-vendor ticket 37). Absent:
-     * nothing is refused for it.
+     * Harness's guarantees, or (Codex) the Harness's hooks are not approved there now
+     * (Orchestrators.unattendedRefusal, worfy-multi-vendor tickets 37 and 39). Absent: nothing is
+     * refused for it.
      */
     unattendedRefusal?(projectId: string): Promise<string | null>
   }

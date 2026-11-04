@@ -235,6 +235,15 @@
         "test/e2e/toast-placement.spec.ts"
       ],
       "why": "The Evidence matrix of a Ticket (worfy-evidence ticket 06): TicketNode.tsx draws it only in a tile of focus mode, so only a spec that opens a Ticket in focus mode runs it. ticket-evidence.spec.ts shows the matrix and opens its links; the others open a Ticket in focus mode. Left out: badges/Evidence.tsx and badges/evidence.css — the chip is on every Ticket card whose done section has checkbox items, those of test/fixtures/worfy-mvp-epic and of any Project an e2e test opens — and TicketNode.tsx, which every Canvas with an Epic draws."
+    },
+    {
+      "paths": [
+        "src/renderer/harness/CodexHooksStep.tsx"
+      ],
+      "specs": [
+        "test/e2e/codex-hooks-step.spec.ts"
+      ],
+      "why": "The step \"Approve the Harness hooks in Codex\" (worfy-multi-vendor ticket 39): it draws only after an install into Codex leaves the Harness hooks to approve, which needs a codex stand-in (WORFY_CODEX_CLI) and a CODEX_HOME, and codex-hooks-step.spec.ts is the only spec that installs into Codex. Left out: HarnessStatus.tsx, which every window's toolbar draws, and src/main/harness/codex-hooks-trust.ts, which the Codex driver every launch loads imports."
     }
   ]
 }

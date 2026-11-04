@@ -80,6 +80,7 @@ export function sharedOrchestrators(): Orchestrators {
       vendor: (projectId) => readProjectSettings(projectStore().dataDir(projectStore().get(projectId).id)).defaultVendor,
       transcript: (projectRoot, sdkSessionId, vendor) => transcripts[vendor](projectRoot, sdkSessionId),
       capabilities: (vendor) => vendorDriver(vendor).capabilities(),
+      harnessHooks: (vendor) => vendorDriver(vendor).harnessHooks,
       broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),
       publish: (view) => toEveryWindow((target) => emit(target, orchestratorChanged, view)),
     })

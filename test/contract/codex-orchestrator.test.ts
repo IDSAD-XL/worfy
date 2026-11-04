@@ -10,10 +10,15 @@
 //     the Full access asked for is checked in what worfy sent;
 //   - the attended one it is given back as: `resume`.
 // The Claude Sessions of the Vendor switch run on the fake agent (test/fixtures/agent-scripts).
+// Whether Codex runs the Harness's hooks (worfy-multi-vendor ticket 39) is the Codex driver's real check:
+// `hooks/list` of a fake app-server of its own, over a CODEX_HOME with the Harness of this repository
+// installed, approved or not by approvePluginHooks as a user's /hooks approves it. Those processes run
+// with CODEX_HOME of their own and log elsewhere: the Sessions' processes never see the Harness, so no
+// hook of it runs.
 // The fake runs under scriptNode() (test/script-node.ts) through the spawn stand-in of the session
 // part, as in codex-session.test.ts; the real Codex never starts.
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -26,12 +31,15 @@ import { UNATTENDED_MODE_MESSAGE, unattendedPresetMessage } from '../../src/main
 import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { Autopilot } from '../../src/main/autopilot/run'
 import { LayoutStore } from '../../src/main/layout/store'
+import { CODEX_HOOKS_REFUSAL, codexHarnessHooksPart } from '../../src/main/harness/codex-hooks-trust'
 import { claudeSessions } from '../../src/main/vendors/claude/session'
+import { codexAskStarter } from '../../src/main/vendors/codex/account'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { CODEX_CAPABILITIES, codexCapabilities } from '../../src/main/vendors/codex/capabilities'
 import { codexCommands } from '../../src/main/vendors/codex/commands'
 import { UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
 import { codexSessions } from '../../src/main/vendors/codex/session'
+import type { HarnessHooksPart } from '../../src/main/vendors/harness-hooks'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../src/shared/agent/settings'
@@ -40,6 +48,7 @@ import { ORCHESTRATOR_HEIGHT, ORCHESTRATOR_KIND, ORCHESTRATOR_WIDTH, readOrchest
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { CLAUDE_CAPABILITIES, type Capabilities } from '../../src/shared/vendors/capabilities'
 import type { VendorId } from '../../src/shared/vendors/vendor'
+import { approvePluginHooks } from '../fixtures/codex-app-server/hook-runner.mjs'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
@@ -128,10 +137,10 @@ interface HarnessOptions {
   /** The saved picks, by Node id; one map passed to two harnesses is one store across a restart. */
   picks?: Map<string, SessionSettings>
   /**
-   * The Codex capabilities with `harness` on. Only for the Wave scenario: ticket 39 replaces this with
-   * the real check that Codex runs the Harness's hooks; without it the real capabilities refuse the run.
+   * The Harness's hooks are approved in the CODEX_HOME the check asks (approvePluginHooks); by default
+   * the Harness is installed there and its hooks wait for the approval, as after an install.
    */
-  harnessOn?: boolean
+  hooksApproved?: boolean
   /** Every Codex start fails with this, before any process (no binary, nobody signed in). */
   codexFails?: string
   /** WORFY_CODEX_HOME of the fake: a resume works only for a thread one of its processes started. */
@@ -143,6 +152,20 @@ interface HarnessOptions {
  * each Vendor's real capabilities, an Autopilot and its launcher. Each Codex process logs what worfy
  * sent into a file of its own.
  */
+let harnesses = 0
+
+/**
+ * `home` as a CODEX_HOME with the Harness of this repository installed the way Codex keeps a plugin of a
+ * local marketplace (hook-runner.mjs, installedPlugins): its manifest and hooks.json, no approval yet.
+ */
+function codexHomeWithHarness(home: string): string {
+  const plugin = join(home, 'plugins', 'cache', 'worfy-harness', 'worfy', 'local')
+  mkdirSync(join(plugin, 'hooks'), { recursive: true })
+  cpSync(join(REPO, 'harness', '.claude-plugin'), join(plugin, '.claude-plugin'), { recursive: true })
+  cpSync(join(REPO, 'harness', 'hooks', 'hooks.json'), join(plugin, 'hooks', 'hooks.json'))
+  return home
+}
+
 function harness(options: HarnessOptions) {
   const env = { WORFY_DATA_DIR: join(scratch, 'data-root') }
   const logs: string[] = []
@@ -188,7 +211,34 @@ function harness(options: HarnessOptions) {
   const layout = new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 })
   const transcripts: [string, VendorId | undefined][] = []
   const picks = options.picks ?? new Map<string, SessionSettings>()
-  const capabilities: Record<VendorId, Capabilities> = { claude: CLAUDE_CAPABILITIES, codex: options.harnessOn === true ? { ...CODEX_CAPABILITIES, harness: true, unsupported: {} } : CODEX_CAPABILITIES }
+  const capabilities: Record<VendorId, Capabilities> = { claude: CLAUDE_CAPABILITIES, codex: CODEX_CAPABILITIES }
+  // The Codex driver's check over its own CODEX_HOME; the Vendors that ask it are counted.
+  const hooksHome = codexHomeWithHarness(join(scratch, `hooks-home-${String(++harnesses)}`))
+  if (options.hooksApproved === true) approvePluginHooks(hooksHome)
+  const hooksLog = join(scratch, `hooks-${String(harnesses)}.log`)
+  const askDir = join(scratch, 'ask')
+  mkdirSync(askDir, { recursive: true })
+  const codexHooks = codexHarnessHooksPart({
+    start: codexAskStarter({
+      runtime: RUNTIME,
+      appPath: REPO,
+      cwd: askDir,
+      clientVersion: '9.9.9',
+      env: { ...process.env, CODEX_HOME: hooksHome, WORFY_CODEX_SCRIPT: 'turn', WORFY_CODEX_LOG: hooksLog },
+      spawnProcess: (_file: string, args: readonly string[], spawnOptions: SpawnOptions): ChildProcess => {
+        const child = spawn(scriptNode(), [...args], spawnOptions)
+        children.push(child)
+        return child
+      },
+      log: () => undefined,
+    }),
+  })
+  const hookChecks: VendorId[] = []
+  // As the drivers have it: Claude Code's has no such part (vendor-driver-types.test.ts), Codex's checks.
+  const hookParts: Record<VendorId, HarnessHooksPart | undefined> = {
+    claude: undefined,
+    codex: { refusal: codexHooks.refusal, trust: (cwd) => (hookChecks.push('codex'), codexHooks.trust(cwd)) },
+  }
   const orchestrators = new Orchestrators({
     layout,
     projectPath: () => repo,
@@ -203,6 +253,7 @@ function harness(options: HarnessOptions) {
       return Promise.resolve({ model: null, statusBlock: null })
     },
     capabilities: (vendor) => Promise.resolve(capabilities[vendor]),
+    harnessHooks: (vendor) => hookParts[vendor],
     broadcast: () => undefined,
     publish: () => undefined,
   })
@@ -250,13 +301,22 @@ function harness(options: HarnessOptions) {
   const request = (n: number, method: string) => logged(n).find((each) => each.method === method)
   const node = () => layout.get(PROJECT).layout.nodes.find((each) => each.kind === ORCHESTRATOR_KIND)
   const data = () => readOrchestratorData(node()?.data ?? {})
-  return { registry, orchestrators, autopilot, layout, journal, logs, logged, request, node, data, observed, transcripts, picks, claudeMessages }
+  /** What worfy asked the app-servers of the hooks check, each request with its params. */
+  const hooksAsked = (): Logged[] =>
+    existsSync(hooksLog)
+      ? readFileSync(hooksLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as Logged).filter((each) => each.method === 'hooks/list')
+      : []
+  return { registry, orchestrators, autopilot, layout, journal, logs, logged, request, node, data, observed, transcripts, picks, claudeMessages, hooksHome, hookChecks, hooksAsked }
 }
 
 describe('Autopilot on a Codex Orchestrator (worfy-multi-vendor ticket 37)', () => {
   it('drives the Wave through the Codex SessionHandle: Full access, the approval declined and journalled as refused-dialog, run-started names codex, and the Orchestrator goes back attended on the same thread', async () => {
-    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'autopilot-wave', 'resume'], harnessOn: true })
+    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'autopilot-wave', 'resume'], hooksApproved: true })
     await h.autopilot.start(PROJECT, EPIC)
+    // The start asked Codex whether the Harness's hooks are approved, for the Project's folder.
+    expect(h.hookChecks.length).toBeGreaterThan(0)
+    expect(h.hookChecks.every((vendor) => vendor === 'codex')).toBe(true)
+    expect(h.hooksAsked()[0]?.params).toEqual({ cwds: [repo] })
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave', wave: 1 })
 
@@ -331,24 +391,47 @@ describe('Autopilot on a Codex Orchestrator (worfy-multi-vendor ticket 37)', () 
     expect(h.logs).toHaveLength(1)
   })
 
-  it("refuses a Run on Codex while its `harness` capability is off, with the capability's reason, before any Codex process starts", async () => {
+  it('refuses a Run on Codex while the Harness hooks wait for their approval in /hooks, with the reason, before any Session process starts (ticket 39)', async () => {
     const h = harness({ vendor: () => 'codex', scripts: ['turn'] })
-    const reason = CODEX_CAPABILITIES.unsupported.harness!
-    expect(reason).toContain("worfy cannot yet check that Codex runs the Harness's hooks")
+    expect(CODEX_CAPABILITIES.harness).toBe(true)
+    const reason = 'The Harness hooks are not approved in Codex. Approve them in /hooks and start again.'
+    expect(CODEX_HOOKS_REFUSAL).toBe(reason)
     await expect(h.autopilot.startCheck(PROJECT, EPIC)).resolves.toBe(reason)
     await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(reason)
     // The Orchestrator refuses the unattended start itself too, for any other caller.
     await expect(h.orchestrators.setUnattended(PROJECT, true)).rejects.toThrow(reason)
+    // No Session process, so no thread/start; only the checks' own app-servers, each asked hooks/list.
     expect(h.logs).toEqual([])
     expect(h.node()).toBeUndefined()
-    // An open Orchestrator is asked by the Vendor it runs on, not by the Project's setting now.
+    expect(h.hooksAsked().length).toBe(h.hookChecks.length)
+    expect(h.hooksAsked().every((each) => JSON.stringify(each.params) === JSON.stringify({ cwds: [repo] }))).toBe(true)
+    // Approved in /hooks: the same Run starts.
+    approvePluginHooks(h.hooksHome)
+    await expect(h.autopilot.startCheck(PROJECT, EPIC)).resolves.toBeNull()
+  })
+
+  it('refuses again once the Harness changes after the approval (an update), and when Codex lists no hook of the Harness', async () => {
+    const h = harness({ vendor: () => 'codex', scripts: ['turn'], hooksApproved: true })
+    await expect(h.orchestrators.unattendedRefusal(PROJECT)).resolves.toBeNull()
+    // Another version of the plugin folder: Codex's approval was of the old folder's hash ("modified").
+    appendFileSync(join(h.hooksHome, 'plugins', 'cache', 'worfy-harness', 'worfy', 'local', '.claude-plugin', 'plugin.json'), '\n')
+    await expect(h.orchestrators.unattendedRefusal(PROJECT)).resolves.toBe(CODEX_HOOKS_REFUSAL)
+    // No Harness in Codex at all: whether its hooks run is unknown, and unknown is not approved.
+    removeTestTree(join(h.hooksHome, 'plugins'))
+    await expect(h.orchestrators.unattendedRefusal(PROJECT)).resolves.toBe(CODEX_HOOKS_REFUSAL)
+  })
+
+  it('checks no hooks for Claude Code, and asks an open Orchestrator by the Vendor it runs on, not by the Project setting now', async () => {
     const open = harness({ vendor: () => 'claude', scripts: ['turn'] })
+    await expect(open.orchestrators.unattendedRefusal(PROJECT)).resolves.toBeNull()
+    expect(open.hookChecks).toEqual([])
+    expect(open.hooksAsked()).toEqual([])
     let vendor: VendorId = 'codex'
     const moved = harness({ vendor: () => vendor, scripts: ['turn'] })
     await moved.orchestrators.open(PROJECT)
     vendor = 'claude'
-    await expect(moved.orchestrators.unattendedRefusal(PROJECT)).resolves.toBe(reason)
-    await expect(open.orchestrators.unattendedRefusal(PROJECT)).resolves.toBeNull()
+    await expect(moved.orchestrators.unattendedRefusal(PROJECT)).resolves.toBe(CODEX_HOOKS_REFUSAL)
+    expect(moved.hookChecks).toEqual(['codex'])
   })
 
   it('keeps the permission setting across a Vendor switch by its equivalent: bypassPermissions on Claude Code, Full access on Codex, bypassPermissions again', async () => {

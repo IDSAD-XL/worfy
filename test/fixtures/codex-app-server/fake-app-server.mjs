@@ -43,6 +43,11 @@
 // What worfy sends while the fake waits for something else: a request gets a JSON-RPC error that names
 // the step the fake waits for; a notification or an answer is only reported on stderr. After the last
 // step every request gets an error. The fake exits when worfy closes its stdin.
+// One exception (ticket 39): a `hooks/list` the script does not expect is answered at any point, also
+// after the last step, from the plugins installed in CODEX_HOME (hook-runner.mjs, hooksList) — each hook
+// "untrusted", "trusted" or "modified" by config.toml, so approvePluginHooks of a test approves them as
+// /hooks would. worfy's check whether the Harness hooks are approved starts an app-server of its own on
+// whatever script the test set, and asks only that after the handshake.
 //
 // WORFY_CODEX_LOG: every message worfy sends — requests, notifications, answers — is appended to that
 // file, one JSON line each. WORFY_CODEX_HOME: the threads of the fake. The thread of a `thread/start`
@@ -57,7 +62,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeF
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
-import { hookInput, loadHooks, runHooks } from './hook-runner.mjs'
+import { hookInput, hooksList, loadHooks, runHooks } from './hook-runner.mjs'
 
 const STEP_KEYS = { expect: ['expect', 'result', 'error'], notify: ['notify', 'params'], request: ['request', 'params'] }
 /** The keys that make a notify step an act of the agent, the notification each goes with, and its other keys. */
@@ -156,6 +161,10 @@ async function nextMessage() {
 
 /** Answers or reports a message that is not the one `waitingFor` describes. */
 function unexpected(message, waitingFor) {
+  if (isRequest(message) && message.method === 'hooks/list') {
+    send({ id: message.id, result: hooksList(codexHome, message.params?.cwds) })
+    return
+  }
   const what = isRequest(message) || isNotification(message) ? message.method : `an answer to ${JSON.stringify(message.id)}`
   const text = `fake app-server: waits for ${waitingFor}, got ${what}`
   process.stderr.write(`${text}\n`)

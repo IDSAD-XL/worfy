@@ -69,14 +69,24 @@ export const codexHarnessStateSchema = z.discriminatedUnion('kind', [
 ])
 export type CodexHarnessState = z.infer<typeof codexHarnessStateSchema>
 
+/**
+ * Whether a Vendor runs the hooks of the Harness now (worfy-multi-vendor ticket 39): Codex keeps a
+ * plugin's hooks off after each install or update until the user approves them in Codex (`/hooks`).
+ * `unknown`: worfy could not tell — the Vendor did not answer, its answer is one worfy does not know,
+ * or it lists no hook of the Harness — and that never counts as approved.
+ */
+export const harnessHooksTrustSchema = z.enum(['approved', 'not-approved', 'unknown'])
+export type HarnessHooksTrust = z.infer<typeof harnessHooksTrustSchema>
+
 /** The Harness in Codex, next to the one in Claude Code; the same Install installs both. */
 export const codexHarnessSchema = z.object({
   state: codexHarnessStateSchema,
   /** <CODEX_HOME>/agents, where the agents worfy-implementer, worfy-reviewer and worfy-scout go. */
   agentsDir: z.string(),
   /**
-   * This run installed or updated the plugin in Codex: Codex keeps its hooks off until the user
-   * approves them in Codex (`/hooks`; the step itself is worfy-multi-vendor ticket 39).
+   * This run installed or updated the plugin in Codex, and no check since found its hooks approved:
+   * Codex keeps them off until the user approves them in Codex (`/hooks`). The toolbar then shows the
+   * step "Approve the Harness hooks in Codex" (worfy-multi-vendor ticket 39).
    */
   hooksToApprove: z.boolean(),
   /**
@@ -136,8 +146,16 @@ export const harnessInstall = invokeChannel(
  */
 export const harnessChanged = eventChannel('harness.changed', harnessStatusSchema, 'local')
 
+/**
+ * "Check again" of the step "Approve the Harness hooks in Codex": asks Codex (`hooks/list`) whether
+ * the hooks of the Harness are approved now. Once they are, the status no longer has hooks to approve,
+ * and every window gets it as `harness.changed`. Writes nothing.
+ */
+export const harnessCodexHooks = invokeChannel('harness.codexHooks', z.void(), z.object({ trust: harnessHooksTrustSchema, status: harnessStatusSchema }), 'local')
+
 declare module './channels' {
   interface IpcContract {
+    'harness.codexHooks': typeof harnessCodexHooks
     'harness.state': typeof harnessState
     'harness.install': typeof harnessInstall
     'harness.changed': typeof harnessChanged

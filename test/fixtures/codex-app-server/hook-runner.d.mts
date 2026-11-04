@@ -57,6 +57,8 @@ export declare function pluginFingerprint(root: string): string
 export declare function declarationHash(handler: Pick<HookHandler, 'event' | 'matcher' | 'declared'>): string
 export declare function readCodexConfig(codexHome: string): { hooks: Map<string, Record<string, unknown>>; plugins: Map<string, Record<string, unknown>> }
 export declare function approvePluginHooks(codexHome: string): string[]
+/** The answer of `hooks/list` (HooksListResponse) for the plugins installed in `codexHome`. */
+export declare function hooksList(codexHome: string | undefined, cwds?: readonly string[]): { data: { cwd: string; hooks: Record<string, unknown>[]; warnings: string[]; errors: { path: string; message: string }[] }[] }
 export declare function installedPlugins(codexHome: string): { id: string; root: string; data: string }[]
 export declare function loadHooks(codexHome: string, options?: { all?: boolean }): { handlers: HookHandler[]; warnings: string[] }
 export declare function hookInput(event: string, fields: HookFields): Record<string, unknown>

@@ -56,11 +56,16 @@ describe('the capabilities of Codex', () => {
     expect(CODEX_CAPABILITIES.unsupported.subagents).toBeUndefined()
   })
 
-  it('lacks MCP in the app\'s process, hooks and the Harness, each with a reason', () => {
-    for (const flag of ['inProcessMcp', 'hooks', 'harness', 'oneShotToolFree', 'commandsComplete'] as const) {
+  it('lacks MCP in the app\'s process, hooks and the rest, each with a reason', () => {
+    for (const flag of ['inProcessMcp', 'hooks', 'oneShotToolFree', 'commandsComplete'] as const) {
       expect(CODEX_CAPABILITIES[flag]).toBe(false)
       expect(CODEX_CAPABILITIES.unsupported[flag]).toMatch(/\w/)
     }
+  })
+
+  it('has the Harness (ticket 39), with no reason it is missing: whether its hooks are approved is the driver\'s check before each Run', () => {
+    expect(CODEX_CAPABILITIES.harness).toBe(true)
+    expect(CODEX_CAPABILITIES.unsupported.harness).toBeUndefined()
   })
 
   it('knows no models or effort levels until the running version tells them', () => {
