@@ -92,6 +92,6 @@ Windows. Диалог (`src/renderer/harness/CodexHooksStep.tsx`) показыв
 Automation), Windows Terminal или conhost, или Terminal Node на холсте, у которого может не быть открытого Project.
 Свой `codex` из PATH диалог не упоминает: worfy его не ищет и не знает, читает ли он тот же `CODEX_HOME`.
 
-**Попутно.** В e2e под полной нагрузкой gate упал test «a check that fails says so; Escape closes the step»: Escape
+**Попутно.** В gate fast под полной нагрузкой упал unit test «a check that fails says so; Escape closes the step»: Escape
 приходил раньше, чем React перевешивал listener после ответа. Listener теперь читает ref, который ставится там, где
 проверка начинается и кончается.
