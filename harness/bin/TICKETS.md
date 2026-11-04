@@ -87,10 +87,13 @@ for one release. `lib/evidence.cjs` holds the grammar and the state rules; `bin/
 - A `video` is a clip, `.scratch/<epic>/evidence/<NN>-<what>.webm` (or `.mp4`), its path in backticks in `ref`:
   no longer than 60 s, no bigger than 8 MB (8 × 1024 × 1024 bytes), without sound. Next to it lies its contact
   sheet `<NN>-<what>.sheet.png`: one PNG, a frame for every second, which is what is checked by eye before
-  `scrub:`; the clip is watched when the sheet raises a question. `bin/evidence-check` reads the metadata of the
-  container (webm and mp4) and finds a clip with a track of sound, over 8 MB, over 60 s or with no duration in its
-  header; a clip a branch adds needs a `video` line with `scrub:` (a `screenshot` line does not mark it) and its
-  sheet added by the same branch. The video line covers the sheet.
+  `scrub:`; the clip is watched when the sheet raises a question. `bin/evidence-check` reads every element and box
+  of the container but the frames (webm and mkv; mp4, mov and m4v — all five are clips to it) and finds text in
+  them, a track of sound, a clip over 8 MB, over 60 s, with no duration in its header, or one whose container does
+  not read to its end; a clip a branch adds needs a `video` line with `scrub:` (a `screenshot` line does not mark
+  it) and its sheet, a PNG, added by the same branch. The video line covers the sheet (the names compared in lower
+  case). A symbolic link is checked as its text, the way git publishes it; one that points outside the
+  repository is a finding.
 - `- needs: <platform> [<copy>]` — optional, the item's requirement, written by the ticket's author.
 
 Every checkbox item of the section, at any depth, gets a number in file order from 1; an Evidence or needs line
@@ -113,8 +116,10 @@ copy; `not-verified` — the rest, with the reason: `no evidence`, `review only`
     needs --scrub <date>: check the pixels by eye first";
   - exit 2 — a `video` without `--scrub <date>`, always: "a video needs --scrub <date>: check every frame of
     its contact sheet first"; a `video` whose `--ref` has no path in backticks, whose first path is not a
-    `.webm` or `.mp4` file (from the ticket's folder), or whose clip has no `<name>.sheet.png` next to it
-    ("no contact sheet next to the clip: <path>"). These are checked in Silent mode too and with `-n`;
+    `.webm` or `.mp4` file (from the ticket's folder; `.mov`, `.m4v`, `.mkv` are refused — convert them) in
+    `<epic>/evidence/` of the tickets root, whose clip or sheet is a symbolic link, or whose clip has no
+    `<name>.sheet.png` that is a PNG next to it ("no contact sheet next to the clip: <path>", "the contact sheet
+    is not a PNG: <path>"). These are checked in Silent mode too and with `-n`;
   - exit 1 — the privacy check (`bin/evidence-check`) found something in a file that a path in backticks
     of `--ref` leads to (taken from the ticket's folder), or in the contact sheet of a `video`; its output,
     values masked, goes to stderr. Also

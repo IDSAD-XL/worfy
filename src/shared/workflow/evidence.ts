@@ -25,6 +25,8 @@ const NO_MACHINE: readonly string[] = ['commit', 'review']
 const COPY_REQUIRED: readonly string[] = ['screenshot', 'video', 'owner-check']
 /** The kinds that prove a manual item: something a person has seen. A test run of an agent does not. */
 const MANUAL_PROOF: readonly string[] = ['owner-check', 'screenshot', 'video']
+/** The files a video line names: clips of the kinds a test helper records (the Harness reads .mov, .m4v, .mkv too). */
+export const VIDEO_EXTENSIONS = ['.webm', '.mp4'] as const
 const SEP = ' · '
 const SHA = /^[0-9a-f]{7,40}$/i
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -42,6 +44,11 @@ export type EvidenceFields = Omit<EvidenceLine, 'line'>
 type RawFields = Omit<EvidenceFields, 'verdict'> & { verdict: string }
 
 const has = (list: readonly string[], value: string): boolean => list.includes(value)
+
+/** The contact sheet of a clip: the clip's path with its extension replaced by `.sheet.png`, next to it. */
+export function contactSheetOf(clip: string): string {
+  return `${clip.replace(/\.[^./\\]*$/, '')}.sheet.png`
+}
 
 /** Why `fields` is not an Evidence line; null when it is one. */
 export function evidenceProblem(f: RawFields): string | null {

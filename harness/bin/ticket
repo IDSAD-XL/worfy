@@ -75,7 +75,7 @@ import { git as GIT, harnessHome } from "../hooks/eval-env.cjs"
 // Code blocks: the rule epic-status, the reader of the header, skips them by.
 import { codeLines } from "../lib/code-fence.cjs"
 // The Evidence lines of the "done" section: their grammar and the state of an item.
-import { COPY_REQUIRED, NO_MACHINE, evidenceProblem, formatEvidence, itemState, parseDoneSection } from "../lib/evidence.cjs"
+import { COPY_REQUIRED, NO_MACHINE, VIDEO_EXTENSIONS, contactSheetOf, evidenceProblem, formatEvidence, itemState, parseDoneSection } from "../lib/evidence.cjs"
 
 const die = (msg) => {
     process.stderr.write(msg + "\n")
@@ -248,7 +248,7 @@ function evidenceUsage() {
     // A screenshot with a path to its file: a person looked at the pixels first: an image without that note is a finding of evidence-check.
     if (kind === "screenshot" && /`[^`]+`/.test(evArgs.ref) && evArgs.scrub === null)
         evUsage("a screenshot needs --scrub <date>: check the pixels by eye first")
-    // A video always: a person or an agent checked every frame of its contact sheet (worfy-evidence, answer Qv1).
+    // A video always: nothing short of looking at every frame of its contact sheet says the clip shows no more than it should.
     if (kind === "video" && evArgs.scrub === null) evUsage("a video needs --scrub <date>: check every frame of its contact sheet first")
     return { item: Number(item), fields }
 }
@@ -600,7 +600,7 @@ if (dryRun) {
 }
 writeTicket(target, doc)
 // done only warns about the items no Evidence line proves: done follows the merge (land), and a refusal there
-// would leave a merged ticket open (worfy-evidence, answer Q1).
+// would leave a merged ticket open.
 if (cmd === "done") {
     const items = doneItems(lines)
     if (items.length) {
@@ -679,7 +679,9 @@ function checkRefFiles(ref, more = []) {
 }
 
 // The clip of a video line and its contact sheet: the first path in backticks of the ref, from the folder of the
-// ticket file, is a .webm or .mp4 file, and <its name without the extension>.sheet.png lies next to it (TICKETS.md,
+// ticket file, is a .webm or .mp4 file (lib/evidence.cjs, VIDEO_EXTENSIONS) in the evidence folder of the epic,
+// <epic>/evidence/ of the tickets root, and its contact sheet (contactSheetOf: <its name without the extension>.sheet.png)
+// is a PNG next to it; neither is a symbolic link, which git would publish as the path it points to (TICKETS.md,
 // "Evidence"). Refusals are exit 2, in Silent mode too: nothing is published there, but the clip and the sheet are
 // still what a person looks at. Returns the path of the sheet, which the privacy check reads with the clip.
 function clipSheet(ref) {
@@ -687,19 +689,42 @@ function clipSheet(ref) {
     if (!m) evUsage("a video ref is the path of its clip in backticks, from the ticket's folder: `../evidence/<NN>-<what>.webm`")
     const clip = m[1]
     const ext = path.extname(clip).toLowerCase()
-    if (ext !== ".webm" && ext !== ".mp4") evUsage(`a video is a .webm or .mp4 file, got ${clip}`)
-    const isFile = (p) => {
+    if (!VIDEO_EXTENSIONS.includes(ext)) evUsage(`a video is a ${VIDEO_EXTENSIONS.join(" or ")} file, got ${clip} (convert .mov, .m4v or .mkv to one of them)`)
+    const kind = (p) => {
         try {
-            return fs.statSync(p).isFile()
+            const st = fs.lstatSync(p)
+            return st.isSymbolicLink() ? "link" : st.isFile() ? "file" : "other"
         } catch {
-            return false
+            return "none"
         }
     }
     const abs = path.resolve(path.dirname(target), clip)
-    if (!isFile(abs)) evUsage(`no clip at ${clip}`)
-    const sheet = `${clip.slice(0, clip.length - ext.length)}.sheet.png`
+    const clipKind = kind(abs)
+    if (clipKind === "none" || clipKind === "other") evUsage(`no clip at ${clip}`)
+    if (clipKind === "link") evUsage(`a clip is a file, not a symbolic link: ${clip}`)
+    const realOf = (p) => {
+        try {
+            return fs.realpathSync.native(p)
+        } catch {
+            return path.resolve(p)
+        }
+    }
+    const evidenceDir = realOf(path.join(scratch, epic, "evidence"))
+    const from = path.relative(evidenceDir, realOf(path.dirname(abs)))
+    if (from.startsWith("..") || path.isAbsolute(from)) evUsage(`a clip lies in the evidence folder of its epic (${epic}/evidence/), got ${clip}`)
+    const sheet = contactSheetOf(clip)
     const sheetAbs = path.resolve(path.dirname(target), sheet)
-    if (!isFile(sheetAbs)) evUsage(`no contact sheet next to the clip: ${sheet}`)
+    const sheetKind = kind(sheetAbs)
+    if (sheetKind === "link") evUsage(`a contact sheet is a file, not a symbolic link: ${sheet}`)
+    if (sheetKind !== "file") evUsage(`no contact sheet next to the clip: ${sheet}`)
+    const head = Buffer.alloc(8)
+    const fd = fs.openSync(sheetAbs, "r")
+    try {
+        fs.readSync(fd, head, 0, 8, 0)
+    } finally {
+        fs.closeSync(fd)
+    }
+    if (!head.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) evUsage(`the contact sheet is not a PNG: ${sheet}`)
     return sheetAbs
 }
 

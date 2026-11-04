@@ -355,15 +355,79 @@ for want in "w-title.webm:Title: home-path: jd…(4)" "w-tag.webm:TagString: hom
     "w-audio.webm:-: video: video has an audio track" "m-audio.mp4:-: video: video has an audio track" \
     "w-big.webm:-: video: video over 8 MB" "m-big.mp4:-: video: video over 8 MB" "w-61.webm:-: video: video over 60 s" "w-scale.webm:-: video: video over 60 s" \
     "m-61.mp4:-: video: video over 60 s" "w-nodur.webm:-: video: video duration unknown" "m-nodur.mp4:-: video: video duration unknown" \
-    "broken.webm:-: video: video duration unknown"; do
+    "broken.webm:-: video: video duration unknown" "broken.webm:-: video: video container not fully parsed"; do
     grep -qF -- "$want" "$T/out-clips.txt" && ok "clip finding: $want" || bad "clip: missing '$want' (exit $rc): $(head -c 1500 "$T/out-clips.txt")"
 done
 for clean in clean.webm lavf.webm w-8mb.webm w-60.webm clean.mp4 m-lavf.mp4; do
     grep -qF "$clean:" "$T/out-clips.txt" && bad "clip $clean reported: $(grep -F "$clean:" "$T/out-clips.txt")" || ok "clip $clean -> no finding"
 done
 grep -q 'needs a human check\|contact sheet' "$T/out-clips.txt" && bad "an explicit clip asked for a scrub: note or a sheet" || ok "explicit clips need no scrub: note and no sheet"
-[ "$rc" -eq 1 ] && [ "$(tail -n 1 "$T/out-clips.txt")" = "evidence-check: 19 findings" ] && ok "clips: exit 1, 19 findings" || bad "clips: exit $rc, last: $(tail -n 1 "$T/out-clips.txt")"
+[ "$rc" -eq 1 ] && [ "$(tail -n 1 "$T/out-clips.txt")" = "evidence-check: 20 findings" ] && ok "clips: exit 1, 20 findings" || bad "clips: exit $rc, last: $(tail -n 1 "$T/out-clips.txt")"
 l="$(leaks "$T/out-clips.txt")"; [ -z "$l" ] && ok "clips: no value printed whole" || bad "clips leak: $l"
+
+# Text in any element or box outside the frames is read, not only in the named ones; a container the reader cannot
+# read to its end is a finding of its own (and what is left is still read as text); .mov, .m4v and .mkv are clips.
+W="$T/clips-any"; mkdir -p "$W"
+HP="$MAC_PATH/rec"
+mkclip "$W/a-segfile.webm" "{\"info\":[[\"7384\",\"$HP.webm\"]]}"
+mkclip "$W/a-prevfile.webm" "{\"info\":[[\"3c83ab\",\"$HP.webm\"]]}"
+mkclip "$W/a-nextfile.webm" "{\"info\":[[\"3e83bb\",\"$HP.webm\"]]}"
+mkclip "$W/a-codecname.webm" "{\"track\":[[\"258688\",\"$HP\"]]}"
+mkclip "$W/a-filedata.webm" "{\"fileData\":\"cwd $HP\"}"
+mkclip "$W/a-target.webm" "{\"targetType\":\"$HP\"}"
+mkclip "$W/a-void.webm" "{\"segment\":[[\"ec\",\"cwd $HP\"]]}"
+mkclip "$W/a-unlisted.webm" "{\"segment\":[[\"5a5a\",\"cwd $HP\"]]}"
+mkclip "$W/a-writing.webm" "{\"writingApp\":\"$HP\"}"
+mkclip "$W/a-tagname.webm" "{\"tagName\":\"$HP\",\"tagString\":\"ok\"}"
+mkclip "$W/a-filedesc.webm" "{\"fileDescription\":\"$HP\"}"
+mkclip "$W/a-chapter.webm" "{\"chapString\":\"$HP\"}"
+mkclip "$W/a-garbage.webm" "{\"segment\":[{\"raw\":\"00000000\"},{\"tags\":\"cwd $HP\"}]}"
+mkclip "$W/a-cues.webm" "{\"segment\":[{\"unknown\":\"1c53bb6b\"},{\"tags\":\"cwd $HP\"}]}"
+mkclip "$W/a-deep.webm" "{\"deepTag\":40,\"tagString\":\"$HP\"}"
+mkclip "$W/a-trunc.webm" '{"segment":[{"raw":"ec0100000000001000"}]}'
+mkclip "$W/a-type2.webm" '{"audio":"type"}'
+mkclip "$W/a-codec.webm" '{"audio":"codec"}'
+mkclip "$W/a-element.webm" '{"audio":"element"}'
+mkclip "$W/a-info2.webm" '{"duration":5,"secondInfo":61}'
+mkclip "$W/a-info2b.webm" '{"duration":61,"secondInfo":5}'
+mkclip "$W/b-free.mp4" "{\"format\":\"mp4\",\"top\":[{\"type\":\"free\",\"text\":\"old moov $HP\"}]}"
+mkclip "$W/b-skip.mp4" "{\"format\":\"mp4\",\"top\":[{\"type\":\"skip\",\"text\":\"$HP\"}]}"
+mkclip "$W/b-dref.mp4" "{\"format\":\"mp4\",\"minf\":[{\"type\":\"dinf\",\"children\":[{\"type\":\"dref\",\"full\":true,\"hex\":\"00000001\",\"children\":[{\"type\":\"url \",\"full\":true,\"text\":\"file://$HP.mov\"}]}]}]}"
+mkclip "$W/b-minfudta.mp4" "{\"format\":\"mp4\",\"minf\":[{\"type\":\"udta\",\"children\":[{\"type\":\"name\",\"text\":\"$HP\"}]}]}"
+mkclip "$W/b-moofuuid.mp4" "{\"format\":\"mp4\",\"top\":[{\"type\":\"moof\",\"children\":[{\"type\":\"traf\",\"children\":[{\"type\":\"uuid\",\"hex\":\"01010101010101010101010101010101\",\"text\":\"$HP\"}]}]}]}"
+mkclip "$W/b-ilst2.mp4" "{\"format\":\"mp4\",\"too\":\"Lavf61.1.100\",\"ilst\":[{\"type\":\"zzzz\",\"text\":\"$HP\"}]}"
+mkclip "$W/b-broken.mp4" "{\"format\":\"mp4\",\"top\":[{\"raw\":\"000000046a756e6b\"}],\"xmp\":\"<x>cwd $HP</x>\"}"
+mkclip "$W/b-hdlrname.mp4" "{\"format\":\"mp4\",\"hdlrName\":\"$HP\"}"
+mkclip "$W/b-keys.mp4" "{\"format\":\"mp4\",\"meta\":[{\"type\":\"keys\",\"text\":\"$HP\"}]}"
+mkclip "$W/b-udtaxmp.mp4" "{\"format\":\"mp4\",\"udta\":[{\"type\":\"XMP_\",\"text\":\"by $EMAIL\"}]}"
+mkclip "$W/b-twomoov.mp4" '{"format":"mp4","duration":600,"secondMoov":5}'
+mkclip "$W/b-frag.mp4" '{"format":"mp4","duration":1,"mehd":600}'
+mkclip "$W/b-frag-ok.mp4" '{"format":"mp4","duration":0,"mehd":5}'
+mkclip "$W/b-short.mp4" '{"format":"mp4","audio":"short"}'
+mkclip "$W/b-stsd.mp4" '{"format":"mp4","audio":"stsd"}'
+mkclip "$W/c-clip.mov" '{"format":"mp4","audio":true}'
+mkclip "$W/c-clip.m4v" '{"format":"mp4","duration":61}'
+mkclip "$W/c-clip.mkv" "{\"title\":\"$HP\"}"
+(cd "$W" && node "$CHECK" -- *.webm *.mp4 c-clip.mov c-clip.m4v c-clip.mkv) >"$T/out-any.txt" 2>&1; rc=$?
+for want in "a-segfile.webm:SegmentFilename: home-path: jd…(4)" "a-prevfile.webm:PrevFilename: home-path" "a-nextfile.webm:NextFilename: home-path" \
+    "a-codecname.webm:CodecName: home-path" "a-filedata.webm:FileData: home-path" "a-target.webm:TargetType: home-path" "a-void.webm:Void: home-path" \
+    "a-unlisted.webm:0x5a5a: home-path" "a-writing.webm:WritingApp: home-path" "a-tagname.webm:TagName: home-path" "a-filedesc.webm:FileDescription: home-path" \
+    "a-chapter.webm:ChapString: home-path" "a-garbage.webm:-: video: video container not fully parsed" "a-garbage.webm:unparsed: home-path" \
+    "a-cues.webm:-: video: video container not fully parsed" "a-cues.webm:unparsed: home-path" "a-deep.webm:-: video: video container not fully parsed" \
+    "a-deep.webm:unparsed: home-path" "a-trunc.webm:-: video: video container not fully parsed" \
+    "a-type2.webm:-: video: video has an audio track" "a-codec.webm:-: video: video has an audio track" "a-element.webm:-: video: video has an audio track" \
+    "a-info2.webm:-: video: video over 60 s" "a-info2b.webm:-: video: video over 60 s" \
+    "b-free.mp4:free: home-path" "b-skip.mp4:skip: home-path" "b-dref.mp4:url: home-path" "b-minfudta.mp4:name: home-path" "b-moofuuid.mp4:uuid: home-path" \
+    "b-ilst2.mp4:©too: home-path" "b-broken.mp4:-: video: video container not fully parsed" "b-broken.mp4:unparsed: home-path" "b-hdlrname.mp4:hdlr: home-path" \
+    "b-keys.mp4:keys: home-path" "b-udtaxmp.mp4:XMP_: email" "b-twomoov.mp4:-: video: video over 60 s" "b-frag.mp4:-: video: video over 60 s" \
+    "b-short.mp4:-: video: video has an audio track" "b-stsd.mp4:-: video: video has an audio track" \
+    "c-clip.mov:-: video: video has an audio track" "c-clip.m4v:-: video: video over 60 s" "c-clip.mkv:Title: home-path"; do
+    grep -qF -- "$want" "$T/out-any.txt" && ok "clip text and structure: $want" || bad "clip: missing '$want' (exit $rc): $(head -c 2500 "$T/out-any.txt")"
+done
+grep -qF "b-frag-ok.mp4" "$T/out-any.txt" && bad "a fragmented mp4 of 5 s reported: $(grep -F b-frag-ok "$T/out-any.txt")" || ok "fragmented mp4: mvhd 0 and mehd 5 s -> no finding"
+grep -qF "b-ilst2.mp4:©too: home-path" "$T/out-any.txt" && ! grep -qF "b-ilst2.mp4:©too: host" "$T/out-any.txt" && ok "an ilst item: the Lavf encoder in data is no finding" || true
+l="$(leaks "$T/out-any.txt")"; [ -z "$l" ] && ok "clip text: no value printed whole" || bad "clip text leak: $l"
+[ "$rc" -eq 1 ] && ok "clip text and structure -> exit 1" || bad "clip text: exit $rc"
 
 # --changed: the scrub: note of a clip is an added "- evidence: video … · scrub:" line whose ref leads to it, and its
 # contact sheet <name>.sheet.png is added by the same branch.
@@ -373,6 +437,7 @@ g2 init -q -b main
 printf '# 01\n' >"$R2/.scratch/ep/issues/01-a.md"
 mkclip "$E2/01-old.webm"
 mkimg png-plain "$E2/08-oldsheet.sheet.png"
+mkimg png-plain "$E2/14-modsheet.sheet.png"
 g2 add -A && g2 commit -q -m base
 g2 update-ref refs/remotes/origin/main HEAD
 g2 checkout -q -b feature
@@ -386,30 +451,60 @@ note() { printf -- '- evidence: %s pass · `../evidence/%s` · mac dev · abc123
     note video 06-dirtysheet.webm
     note video 07-noscrub.webm ''
     note video 08-oldsheet.webm
+    note screenshot 10-screen.mov
+    note video 12-image.png
+    note video 13-plain.webm
+    note video 14-modsheet.webm
+    note video 15-UP.WEBM
+    note video 16-badsheet.webm
 } >"$R2/.scratch/ep/issues/02-b.md"
 for c in 02-marked 03-noline 04-shot 05-nosheet 06-dirtysheet 07-noscrub 08-oldsheet; do mkclip "$E2/$c.webm"; done
 mkclip "$E2/09-marked.mp4" '{"format":"mp4"}'
 for c in 02-marked 03-noline 04-shot 07-noscrub 09-marked; do mkimg png-plain "$E2/$c.sheet.png"; done
 mkimg png-text "$E2/06-dirtysheet.sheet.png" "cwd $MAC_PATH"
 mkclip "$E2/01-old.webm" '{"duration":7}'
+mkclip "$E2/10-screen.mov" '{"format":"mp4"}'; mkimg png-plain "$E2/10-screen.sheet.png"
+mkimg png-plain "$E2/12-image.png"
+mkclip "$E2/13-plain.webm"; mkimg png-plain "$E2/13-plain.png"
+mkclip "$E2/14-modsheet.webm"; mkimg png-plain2 "$E2/14-modsheet.sheet.png"
+mkclip "$E2/15-UP.WEBM"; mkimg png-plain "$E2/15-UP.sheet.png"
+mkclip "$E2/16-badsheet.webm"; printf 'x' >"$E2/16-badsheet.sheet.png"
+# Symbolic links: git publishes the link text, not the target. The target here holds a home path in its Title.
+links=0
+if ln -s "$T/clips-any/a-segfile.webm" "$E2/17-link.webm" 2>/dev/null && [ -L "$E2/17-link.webm" ]; then
+    ln -s "/Us""ers/$NAME/Movies/x.webm" "$E2/18-home.webm"; links=1
+fi
 g2 add -A && g2 commit -q -m feature
 (cd "$R2" && node "$CHECK" --changed) >"$T/out-clips2.txt" 2>&1; rc=$?
 P=".scratch/ep/evidence"
 for want in "$P/03-noline.webm:-: scrub: video needs a human check (no scrub: note)" "$P/03-noline.sheet.png:-: scrub: image needs a human check" \
     "$P/04-shot.webm:-: scrub: video needs a human check (no scrub: note)" "$P/05-nosheet.webm:-: scrub: video needs a contact sheet" \
     "$P/06-dirtysheet.sheet.png:tEXt: home-path: jd…(4)" "$P/07-noscrub.webm:-: scrub: video needs a human check (no scrub: note)" \
-    "$P/08-oldsheet.webm:-: scrub: video needs a contact sheet"; do
+    "$P/08-oldsheet.webm:-: scrub: video needs a contact sheet" "$P/10-screen.mov:-: scrub: video needs a human check (no scrub: note)" \
+    "$P/12-image.png:-: scrub: image needs a human check" "$P/13-plain.webm:-: scrub: video needs a contact sheet" "$P/13-plain.png:-: scrub: image needs a human check" \
+    "$P/14-modsheet.webm:-: scrub: video needs a contact sheet" "$P/16-badsheet.sheet.png:-: sheet: contact sheet is not a PNG"; do
     grep -qF -- "$want" "$T/out-clips2.txt" && ok "--changed clip: $want" || bad "--changed clip misses '$want' (exit $rc): $(head -c 1500 "$T/out-clips2.txt")"
 done
-for clean in 02-marked.webm 02-marked.sheet.png 09-marked.mp4 09-marked.sheet.png 01-old.webm 04-shot.sheet.png 06-dirtysheet.webm: 07-noscrub.sheet.png; do
+if [ "$links" -eq 1 ]; then
+    for want in "$P/17-link.webm:-: link: symbolic link points outside the repository" "$P/18-home.webm:link: home-path: jd…(4)" \
+        "$P/18-home.webm:-: link: symbolic link points outside the repository"; do
+        grep -qF -- "$want" "$T/out-clips2.txt" && ok "--changed link: $want" || bad "--changed link misses '$want': $(head -c 2500 "$T/out-clips2.txt")"
+    done
+    grep -qF "$P/17-link.webm:SegmentFilename" "$T/out-clips2.txt" && bad "--changed read the target of a link" || ok "--changed: a link is read as its text, not its target"
+else
+    echo "skip symbolic link cases: no symbolic links here"
+fi
+for clean in 02-marked.webm 02-marked.sheet.png 09-marked.mp4 09-marked.sheet.png 01-old.webm 04-shot.sheet.png 06-dirtysheet.webm: 07-noscrub.sheet.png \
+    15-UP.WEBM 15-UP.sheet.png 16-badsheet.webm 10-screen.sheet.png; do
     case "$clean" in
-        04-shot.sheet.png|07-noscrub.sheet.png) # a sheet of a clip that has no video note of its own: an image without a note
+        04-shot.sheet.png|07-noscrub.sheet.png|10-screen.sheet.png) # a sheet of a clip that has no video note of its own: an image without a note
             grep -qF "$P/$clean:-: scrub: image needs a human check" "$T/out-clips2.txt" && ok "--changed: $clean is not covered by a clip without a video note" \
                 || bad "--changed: $clean should need its own note: $(head -c 1500 "$T/out-clips2.txt")" ;;
         *) grep -qF "$P/$clean" "$T/out-clips2.txt" && bad "--changed reported $clean: $(grep -F "$P/$clean" "$T/out-clips2.txt")" || ok "--changed: $clean -> no finding" ;;
     esac
 done
-[ "$rc" -eq 1 ] && [ "$(tail -n 1 "$T/out-clips2.txt")" = "evidence-check: 9 findings" ] && ok "--changed clips: exit 1, 9 findings" || bad "--changed clips: exit $rc, last: $(tail -n 1 "$T/out-clips2.txt")"
+want_n=$((16 + 3 * links))
+[ "$rc" -eq 1 ] && [ "$(tail -n 1 "$T/out-clips2.txt")" = "evidence-check: $want_n findings" ] && ok "--changed clips: exit 1, $want_n findings" || bad "--changed clips: exit $rc, last: $(tail -n 1 "$T/out-clips2.txt")"
 l="$(leaks "$T/out-clips2.txt")"; [ -z "$l" ] && ok "--changed clips: no value printed whole" || bad "--changed clips leak: $l"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"

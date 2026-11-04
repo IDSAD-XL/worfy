@@ -4,13 +4,30 @@
 // that looks like a path) says what the container holds:
 //   format       "webm" (default) or "mp4"
 //   duration     seconds; null — no duration in the header (webm: no Duration element; mp4: mvhd duration of all ones)
-//   audio        true — a second track of sound (webm TrackType 2, mp4 hdlr "soun")
 //   size         the size of the whole file in bytes: the rest is padding (webm Void element, mp4 mdat)
-//   webm: title, muxingApp, writingApp, trackName, tagName, tagString, attachment (a file name),
-//         liveCluster (true — a Cluster of unknown size before the Tags, as a live recording writes it),
-//         timecodeScale (default 1000000)
-//   mp4:  too (the ©too item of udta/meta/ilst), nam (a QuickTime ©nam text atom right in udta), xmp (the text
-//         of a top-level uuid box with the XMP id)
+//   webm:
+//     title, muxingApp, writingApp, trackName, tagName, tagString, targetType, attachment (a file name),
+//     fileDescription, fileData, chapString — text elements; timecodeScale (default 1000000)
+//     audio        true — a second track of sound (TrackType 2 and an A_ codec); "type" — TrackType 2 only;
+//                  "codec" — an A_ codec only; "element" — an Audio element only
+//     liveCluster  true — a Cluster of unknown size before the Tags, as a live recording writes it
+//     secondInfo   seconds — a second Info element with that Duration
+//     deepTag      n — the SimpleTag of tagString nested n SimpleTags deep
+//     info, track  [[<id hex>, <text>], …] — more elements in Info, in the video TrackEntry
+//     segment      more items at the end of the Segment: [<id hex>, <text>] — an element; {"raw": <hex>} — bytes;
+//                  {"unknown": <id hex>} — the header of an element of unknown size; {"tags": <text>} — a Tags
+//                  element whose TagString is the text
+//   mp4:
+//     too (the ©too item of udta/meta/ilst), nam (a QuickTime ©nam text atom right in udta), xmp (the text of a
+//     top-level uuid box with the XMP id), hdlrName (the name of the video track's handler)
+//     audio        true — a second track whose hdlr is "soun"; "stsd" — a second track whose hdlr is "vide" but
+//                  whose sample entry is mp4a; "short" — a hdlr "soun" of 12 bytes, with no name
+//     mehd         seconds — a fragmented file: mvex/mehd with that duration, and a moof
+//     secondMoov   seconds — a second moov with that duration
+//     minf, moov, udta, meta, ilst, top — more boxes in the video track's minf, in moov, in moov/udta, in
+//                  udta/meta, in the ©too item of ilst, and at the top level before mdat. A box is
+//                  {"type": <4 chars>, "text": <text>, "hex": <hex>, "full": true, "children": [<box>, …]}
+//                  (all but type optional); {"raw": <hex>} — bytes as they are
 "use strict"
 const fs = require("fs")
 
@@ -18,6 +35,7 @@ const [out, specFile] = process.argv.slice(2)
 const spec = specFile ? JSON.parse(fs.readFileSync(specFile, "utf8")) : {}
 const duration = spec.duration === undefined ? 5 : spec.duration
 const str = (s) => Buffer.from(String(s), "utf8")
+const join = (parts) => Buffer.concat(parts.filter(Boolean).map((p) => (Buffer.isBuffer(p) ? p : str(p))))
 
 function webm() {
     // An element: its ID (hex, with the marker bits), an 8-byte size (0x01 and 7 bytes), the payload.
@@ -28,7 +46,7 @@ function webm() {
         return b
     }
     const el = (id, ...parts) => {
-        const payload = Buffer.concat(parts.filter(Boolean).map((p) => (Buffer.isBuffer(p) ? p : str(p))))
+        const payload = join(parts)
         return Buffer.concat([Buffer.from(id, "hex"), size8(payload.length), payload])
     }
     const unknown = (id) => Buffer.concat([Buffer.from(id, "hex"), Buffer.from([0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff])])
@@ -44,28 +62,58 @@ function webm() {
         b.writeDoubleBE(x)
         return b
     }
+    const pairs = (list) => (list || []).map(([id, text]) => el(id, text))
+    const tagsOf = (text, name, deep = 0, target) => {
+        let simple = el("67c8", el("45a3", name || "COMMENT"), el("4487", text))
+        for (let i = 0; i < deep; i++) simple = el("67c8", el("45a3", `LEVEL${i}`), el("4487", "v"), simple)
+        return el("1254c367", el("7373", el("63c0", target !== undefined && el("63ca", target)), simple))
+    }
     const scale = spec.timecodeScale || 1000000
     const header = el("1a45dfa3", el("4286", uint(1)), el("42f7", uint(1)), el("4282", "webm"), el("4287", uint(4)), el("4285", uint(2)))
-    const info = el(
-        "1549a966",
-        el("2ad7b1", uint(scale)),
-        duration !== null && el("4489", f64((duration * 1e9) / scale)),
-        el("4d80", spec.muxingApp || "Lavf61.1.100"),
-        el("5741", spec.writingApp || "Lavf61.1.100"),
-        spec.title !== undefined && el("7ba9", spec.title),
-    )
+    const info = (seconds, extra) =>
+        el(
+            "1549a966",
+            el("2ad7b1", uint(scale)),
+            seconds !== null && el("4489", f64((seconds * 1e9) / scale)),
+            el("4d80", spec.muxingApp || "Lavf61.1.100"),
+            el("5741", spec.writingApp || "Lavf61.1.100"),
+            spec.title !== undefined && el("7ba9", spec.title),
+            ...pairs(extra),
+        )
+    const audio = spec.audio
+    const audioTrack =
+        audio &&
+        el(
+            "ae",
+            el("d7", uint(2)),
+            el("83", uint(audio === "codec" || audio === "element" ? 1 : 2)),
+            el("86", audio === "type" || audio === "element" ? "V_VP8" : "A_OPUS"),
+            audio === "element" && el("e1", el("b5", f64(48000)), el("9f", uint(1))),
+        )
     const tracks = el(
         "1654ae6b",
-        el("ae", el("d7", uint(1)), el("83", uint(1)), el("86", "V_VP8"), spec.trackName !== undefined && el("536e", spec.trackName)),
-        spec.audio && el("ae", el("d7", uint(2)), el("83", uint(2)), el("86", "A_OPUS")),
+        el("ae", el("d7", uint(1)), el("83", uint(1)), el("86", "V_VP8"), spec.trackName !== undefined && el("536e", spec.trackName), ...pairs(spec.track)),
+        audioTrack,
     )
-    const tags =
-        spec.tagString !== undefined &&
-        el("1254c367", el("7373", el("63c0", Buffer.alloc(0)), el("67c8", el("45a3", spec.tagName || "COMMENT"), el("4487", spec.tagString))))
-    const attachments = spec.attachment !== undefined && el("1941a469", el("61a7", el("466e", spec.attachment), el("4660", "text/plain"), el("465c", "x")))
+    const tags = (spec.tagString !== undefined || spec.targetType !== undefined) && tagsOf(spec.tagString ?? "ok", spec.tagName, spec.deepTag || 0, spec.targetType)
+    const attachments =
+        (spec.attachment !== undefined || spec.fileDescription !== undefined || spec.fileData !== undefined) &&
+        el(
+            "1941a469",
+            el("61a7", el("466e", spec.attachment || "notes.txt"), spec.fileDescription !== undefined && el("467e", spec.fileDescription), el("4660", "text/plain"), el("465c", spec.fileData ?? "x")),
+        )
+    const chapters = spec.chapString !== undefined && el("1043a770", el("45b9", el("b6", el("73c4", uint(1)), el("91", uint(0)), el("80", el("85", spec.chapString), el("437c", "eng")))))
     const block = el("a3", Buffer.from([0x81, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00]))
     const cluster = spec.liveCluster ? Buffer.concat([unknown("1f43b675"), el("e7", uint(0)), block]) : el("1f43b675", el("e7", uint(0)), block)
-    const body = spec.liveCluster ? [info, tracks, cluster, tags, attachments] : [info, tracks, tags, attachments, cluster]
+    const extra = (spec.segment || []).map((item) => {
+        if (Array.isArray(item)) return el(item[0], item[1])
+        if (item.raw !== undefined) return Buffer.from(item.raw, "hex")
+        if (item.unknown !== undefined) return unknown(item.unknown)
+        if (item.tags !== undefined) return tagsOf(item.tags)
+        throw new Error(`unknown segment item ${JSON.stringify(item)}`)
+    })
+    const infos = [info(duration, spec.info), spec.secondInfo !== undefined && info(spec.secondInfo)]
+    const body = spec.liveCluster ? [...infos, tracks, cluster, tags, attachments, chapters, ...extra] : [...infos, tracks, tags, attachments, chapters, cluster, ...extra]
     let segment = el("18538067", ...body)
     if (spec.size) {
         // A Void element pads the segment to the size asked for: its header is 9 bytes, and the segment's grows by none.
@@ -88,21 +136,40 @@ function mp4() {
         return b
     }
     const box = (type, ...parts) => {
-        const payload = Buffer.concat(parts.filter(Boolean).map((p) => (Buffer.isBuffer(p) ? p : str(p))))
+        const payload = join(parts)
         return Buffer.concat([u32(8 + payload.length), Buffer.from(type, "latin1"), payload])
     }
     const full = (type, ...parts) => box(type, u32(0), ...parts)
+    // A box of the spec: {type, text, hex, full, children} or {raw}.
+    const described = (d) => {
+        if (d.raw !== undefined) return Buffer.from(d.raw, "hex")
+        const parts = [d.hex !== undefined && Buffer.from(d.hex, "hex"), d.text, ...(d.children || []).map(described)]
+        return d.full ? full(d.type, ...parts) : box(d.type, ...parts)
+    }
+    const many = (list) => (list || []).map(described)
     const ftyp = box("ftyp", "isom", u32(512), "isomiso2avc1mp41")
-    const mvhd = full("mvhd", u32(0), u32(0), u32(1000), u32(duration === null ? 0xffffffff : Math.round(duration * 1000)), u32(0x00010000), u16(0x0100), Buffer.alloc(10), Buffer.alloc(36), Buffer.alloc(24), u32(3))
-    const trak = (handler, name) =>
-        box("trak", full("tkhd", Buffer.alloc(80)), box("mdia", full("mdhd", Buffer.alloc(20)), full("hdlr", u32(0), handler, Buffer.alloc(12), name, Buffer.from([0]))))
-    const ilst = spec.too !== undefined && box("ilst", box("©too", box("data", u32(1), u32(0), spec.too)))
-    const meta = ilst && full("meta", full("hdlr", u32(0), "mdir", "appl", Buffer.alloc(8), Buffer.from([0])), ilst)
+    const mvhd = (seconds) =>
+        full("mvhd", u32(0), u32(0), u32(1000), u32(seconds === null ? 0xffffffff : Math.round(seconds * 1000)), u32(0x00010000), u16(0x0100), Buffer.alloc(10), Buffer.alloc(36), Buffer.alloc(24), u32(3))
+    const hdlr = (handler, name) => full("hdlr", u32(0), handler, Buffer.alloc(12), name, Buffer.from([0]))
+    const trak = (handlerBox, minf) => box("trak", full("tkhd", Buffer.alloc(80)), box("mdia", full("mdhd", Buffer.alloc(20)), handlerBox, minf.length && box("minf", ...minf)))
+    const mp4a = box("mp4a", Buffer.alloc(6), u16(1), Buffer.alloc(8), u16(2), u16(16), Buffer.alloc(4), u32(48000 * 65536))
+    const audio = spec.audio
+    const audioTrak =
+        audio === "stsd"
+            ? trak(hdlr("vide", "VideoHandler"), [box("stbl", full("stsd", u32(1), mp4a))])
+            : audio === "short"
+              ? trak(full("hdlr", u32(0), "soun"), [])
+              : audio && trak(hdlr("soun", "SoundHandler"), [])
+    const ilst = spec.too !== undefined && box("ilst", box("©too", box("data", u32(1), u32(0), spec.too), ...many(spec.ilst)))
+    const meta = (ilst || spec.meta) && full("meta", full("hdlr", u32(0), "mdir", "appl", Buffer.alloc(8), Buffer.from([0])), ...many(spec.meta), ilst)
     const nam = spec.nam !== undefined && box("©nam", u16(Buffer.byteLength(spec.nam)), u16(0), spec.nam)
-    const udta = (meta || nam) && box("udta", meta, nam)
-    const moov = box("moov", mvhd, trak("vide", "VideoHandler"), spec.audio && trak("soun", "SoundHandler"), udta)
+    const udta = (meta || nam || spec.udta) && box("udta", meta, nam, ...many(spec.udta))
+    const mvex = spec.mehd !== undefined && box("mvex", full("mehd", u32(Math.round(spec.mehd * 1000))), full("trex", Buffer.alloc(20)))
+    const moov = box("moov", mvhd(duration), trak(hdlr("vide", spec.hdlrName || "VideoHandler"), many(spec.minf)), audioTrak, mvex, udta, ...many(spec.moov))
+    const second = spec.secondMoov !== undefined && box("moov", mvhd(spec.secondMoov), trak(hdlr("vide", "VideoHandler"), []))
+    const moof = spec.mehd !== undefined && box("moof", full("mfhd", u32(1)))
     const xmp = spec.xmp !== undefined && box("uuid", Buffer.from("be7acfcb97a942e89c71999491e3afac", "hex"), spec.xmp)
-    const head = Buffer.concat([ftyp, moov, xmp || Buffer.alloc(0)])
+    const head = join([ftyp, moov, second, moof, ...many(spec.top), xmp])
     const pad = spec.size ? spec.size - head.length - 8 : 16
     if (pad < 0) throw new Error(`size ${spec.size} is below the clip itself`)
     return Buffer.concat([head, box("mdat", Buffer.alloc(pad))])

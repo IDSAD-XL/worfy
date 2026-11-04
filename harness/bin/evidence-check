@@ -16,15 +16,17 @@
 // through privacy.findings with the host name of this machine and the personal deny list
 // (<Harness home>/user/privacy.json). An image (.png, .jpg, .jpeg, .webp, .gif) — the text of its
 // metadata: PNG tEXt, iTXt, zTXt (inflated with node:zlib) and eXIf; JPEG APP1 (Exif, XMP) and COM;
-// WebP EXIF and "XMP "; GIF comments. Pixels are not read. A clip (.webm, .mp4) — the text of its
-// container: webm (Matroska, EBML elements) Info Title, MuxingApp, WritingApp, the Name of a track,
-// Tags SimpleTag TagName and TagString, Attachments FileName and FileDescription, chapter ChapString;
-// mp4 (ISO BMFF boxes) moov/udta (©… atoms and the rest of user data), meta/ilst items, keys, the
-// name of hdlr, uuid boxes (XMP). Frames are not read. A clip also gives a finding for a track of
-// sound (webm TrackType 2 or an A_ codec, mp4 hdlr "soun": Playwright records none, so it is the
-// microphone of the machine), for a size over 8 MB (8 × 1024 × 1024 bytes), for a duration over 60 s
-// (webm Info Duration × TimecodeScale, mp4 mvhd duration / timescale or mvex/mehd) and for no duration
-// in its header (the limit could not be held otherwise).
+// WebP EXIF and "XMP "; GIF comments. Pixels are not read. A clip (.webm, .mkv — Matroska, EBML
+// elements; .mp4, .mov, .m4v — ISO BMFF boxes) — the text of every element and box outside the
+// frames (webm SimpleBlock and Block, mp4 mdat), each under its name (Title, TagString, ©too, …) or
+// its ID or type. Frames are not read. A clip also gives a finding for a container the reader could
+// not read to its end ("video container not fully parsed"; the rest is still read as text), for a
+// track of sound (webm TrackType 2, an A_ codec or an Audio element; mp4 hdlr "soun" or a sample entry
+// of sound in stsd: a test recording has none, so sound is the microphone of the machine), for a size
+// over 8 MB (8 × 1024 × 1024 bytes), for a duration over 60 s (the longest of: webm Info Duration ×
+// TimecodeScale; mp4 mvhd duration and mvex/mehd, over the timescale) and for no duration in its
+// header (the limit could not be held otherwise). A symbolic link is read as its text, the way git
+// publishes it, and one that points outside the repository is a finding.
 //
 // The scrub: note. An image or other binary file the branch adds (--changed: A or untracked) must
 // have a line, also added by the branch to a Markdown file of the tickets root, of the form
@@ -35,10 +37,12 @@
 // by such a line of the kind video ("- evidence: video … · scrub: <date>"; a screenshot line does not
 // mark a clip), and needs its contact sheet <name>.sheet.png, added by the same branch, next to it:
 // "video needs a human check (no scrub: note)", "video needs a contact sheet". The note of a clip
-// covers its sheet; the metadata of the sheet is checked like that of any image. The lines are parsed
-// here with one expression (EVIDENCE_NOTE), not with harness/lib/evidence.cjs, so this check stands on
-// its own; shortcut: a line inside a code fence counts as a note too, redo when this check is wired to
-// evidence.cjs and its parser can say which lines are code.
+// covers its sheet (names compared in lower case); the metadata of the sheet is checked like that of
+// any image, and a sheet that is not a PNG is a finding. The clips a video line names and the name of
+// a contact sheet come from harness/lib/evidence.cjs, the one place of those rules. The note lines are
+// parsed here with one expression (EVIDENCE_NOTE), not with the parser of evidence.cjs; shortcut: a
+// line inside a code fence counts as a note too, redo when this check reads notes with evidence.cjs
+// and its parser can say which lines are code.
 "use strict"
 
 const { spawnSync } = require("node:child_process")
@@ -48,14 +52,16 @@ const path = require("node:path")
 const zlib = require("node:zlib")
 const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
 const privacy = require("../lib/privacy.cjs")
+const { VIDEO_EXTENSIONS, contactSheetOf } = require("../lib/evidence.cjs")
 
 const USAGE = `usage: evidence-check [--changed] [--base <ref>] [--root <tickets root>] [<file>…]
 
 The privacy check of what a branch adds to the tickets root: home folder paths with a user name, host
 names, Tailscale addresses, UUIDs, email addresses, tokens and the words of the personal list
 <Harness home>/user/privacy.json, in text, in file paths, in the metadata of images and in the
-container of clips (.webm, .mp4). A clip with a track of sound, over 8 MB, over 60 s or with no
-duration in its header is a finding too.
+container of clips (.webm, .mkv, .mp4, .mov, .m4v: every element and box but the frames). A clip
+with a track of sound, over 8 MB, over 60 s, with no duration in its header or with a container that
+does not read to its end is a finding too. A symbolic link is checked as its text.
 
   --changed       the files of the tickets root that differ from the base (added or modified, staged
                   or not) and the untracked ones; of a modified text file only the added lines
@@ -95,8 +101,13 @@ What the check does not catch:
 
 const TEXT_EXT = new Set([".md", ".json", ".jsonl", ".txt", ".log", ".cpuprofile"])
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"])
-const VIDEO_EXT = new Set([".webm", ".mp4"])
-// The limits of a clip (worfy-evidence, answer Qv2).
+// The clips: the files a video line names (lib/evidence.cjs) and the other containers of the same two formats,
+// read as clips too so that no screenshot line marks them: QuickTime .mov (a screen recording of macOS, at
+// times with the microphone), .m4v and Matroska .mkv.
+const VIDEO_EXT = new Set([...VIDEO_EXTENSIONS, ".mov", ".m4v", ".mkv"])
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+// The limits of a clip: small enough to keep in the git history, short enough to check frame by frame
+// on its contact sheet.
 const VIDEO_MAX_BYTES = 8 * 1024 * 1024
 const VIDEO_MAX_SECONDS = 60
 const SHEET = ".sheet.png"
@@ -307,40 +318,86 @@ function main() {
         return []
     }
 
-    // --- the container of clips: { texts: [element or atom, text], audio, seconds } --------------------------
-    // Read by hand, without a dependency: the headers of the container, never the frames.
+    // --- the container of clips: { texts: [element or box, text], audio, seconds, incomplete } -----------------
+    // Read by hand, without a dependency. Every byte outside the frames is read as text: the elements and boxes
+    // whose meaning is known give their names to the line of a finding, any other one is read under its own name
+    // (an element by its ID, a box by its type), so text cannot pass in an element this reader does not know.
+    // The frames (webm SimpleBlock and Block, mp4 mdat) are not read. A reader that stops before the end — an
+    // unreadable element, a broken size, an element of unknown size where none may be, nesting deeper than
+    // CLIP_DEPTH — marks the clip incomplete (a finding), and reads the rest of that part as text all the same.
+    const CLIP_DEPTH = 32
+    // Control characters split the text into runs; the rules see the printable runs joined by spaces.
+    const rawText = (buf, from, to) => utf8(buf.subarray(from, to)).replace(/[\x00-\x08\x0b-\x1f\x7f�]+/g, " ")
     // webm — Matroska, EBML: an element is an ID (1–4 bytes, its marker bit kept) and a size (a variable-length
-    // integer of 1–8 bytes; all value bits set — unknown size). The children of an element of unknown size (a live
-    // recording's Segment or Cluster) are read as if they were its siblings: the elements after it are still found.
+    // integer of 1–8 bytes; all value bits set — unknown size). Only a Segment or a Cluster may have an unknown size
+    // (a live recording): its children are read as if they were its siblings.
     const EBML_MASTER = new Set([
+        0x1a45dfa3, // EBML header
         0x18538067, // Segment
+        0x114d9b74, // SeekHead
+        0x4dbb, // Seek
         0x1549a966, // Info
+        0x6924, // ChapterTranslate
         0x1654ae6b, // Tracks
         0xae, // TrackEntry
-        0x1254c367, // Tags
-        0x7373, // Tag
-        0x67c8, // SimpleTag
+        0xe0, // Video
+        0xe1, // Audio
+        0x55b0, // Colour
+        0x6d80, // ContentEncodings
+        0x6240, // ContentEncoding
+        0x1f43b675, // Cluster
+        0xa0, // BlockGroup
+        0x75a1, // BlockAdditions
+        0xa6, // BlockMore
+        0x1c53bb6b, // Cues
+        0xbb, // CuePoint
+        0xb7, // CueTrackPositions
         0x1941a469, // Attachments
         0x61a7, // AttachedFile
         0x1043a770, // Chapters
         0x45b9, // EditionEntry
         0xb6, // ChapterAtom
+        0x8f, // ChapterTrack
         0x80, // ChapterDisplay
+        0x1254c367, // Tags
+        0x7373, // Tag
+        0x63c0, // Targets
+        0x67c8, // SimpleTag
     ])
-    const EBML_TEXT = new Map([
+    const EBML_LIVE = new Set([0x18538067, 0x1f43b675]) // Segment, Cluster: the masters a live recording leaves open
+    const EBML_FRAMES = new Set([0xa3, 0xa1]) // SimpleBlock, Block
+    const EBML_NAMES = new Map([
+        [0x4282, "DocType"],
         [0x7ba9, "Title"],
         [0x4d80, "MuxingApp"],
         [0x5741, "WritingApp"],
+        [0x7384, "SegmentFilename"],
+        [0x3c83ab, "PrevFilename"],
+        [0x3e83bb, "NextFilename"],
         [0x536e, "Name"],
+        [0x86, "CodecID"],
+        [0x258688, "CodecName"],
+        [0x63a2, "CodecPrivate"],
+        [0x22b59c, "Language"],
         [0x45a3, "TagName"],
         [0x4487, "TagString"],
+        [0x4485, "TagBinary"],
+        [0x447a, "TagLanguage"],
+        [0x63ca, "TargetType"],
         [0x466e, "FileName"],
         [0x467e, "FileDescription"],
+        [0x4660, "FileMimeType"],
+        [0x465c, "FileData"],
         [0x85, "ChapString"],
+        [0x437c, "ChapLanguage"],
+        [0xec, "Void"],
     ])
-    const CLUSTER = 0x1f43b675
     function webmFacts(buf) {
-        const facts = { texts: [], audio: false, seconds: null }
+        const facts = { texts: [], audio: false, seconds: null, incomplete: false }
+        const rest = (from, to) => {
+            facts.incomplete = true
+            if (from < to) facts.texts.push(["unparsed", rawText(buf, from, to)])
+        }
         const vint = (at, maxLen, keepMarker) => {
             if (at >= buf.length) return null
             const first = buf[at]
@@ -361,163 +418,196 @@ function main() {
             return n
         }
         const float = (from, to) => (to - from === 4 ? buf.readFloatBE(from) : to - from === 8 ? buf.readDoubleBE(from) : NaN)
-        const durations = [] // [Duration, TimecodeScale] of each Info
+        const infos = [] // {duration, scale} of each Info
         function walk(from, to, depth, ctx) {
             let at = from
             while (at < to) {
                 const id = vint(at, 4, true)
-                if (!id) return
-                const size = vint(at + id.len, 8, false)
-                if (!size) return
+                const size = id && vint(at + id.len, 8, false)
+                if (!id || !size) return rest(at, to)
                 const start = at + id.len + size.len
                 if (size.unknown) {
-                    if (!EBML_MASTER.has(id.value) && id.value !== CLUSTER) return // nothing to skip by
+                    if (!EBML_LIVE.has(id.value)) return rest(at, to)
                     at = start // its children follow as siblings
                     continue
                 }
+                if (start + size.value > to) facts.incomplete = true // runs past its parent or the end of the file
                 const end = Math.min(to, start + size.value)
-                if (EBML_MASTER.has(id.value) && depth < 12) {
-                    if (id.value === 0x1549a966) {
+                if (EBML_MASTER.has(id.value)) {
+                    if (depth >= CLIP_DEPTH) rest(start, end)
+                    else if (id.value === 0x1549a966) {
                         const info = { duration: null, scale: 1000000 }
                         walk(start, end, depth + 1, { info })
-                        durations.push(info)
+                        infos.push(info)
                     } else if (id.value === 0xae) {
-                        const track = { type: null, codec: "" }
+                        const track = { type: null, codec: "", audio: false }
                         walk(start, end, depth + 1, { track })
-                        if (track.type === 2 || track.codec.startsWith("A_")) facts.audio = true
-                    } else walk(start, end, depth + 1, {})
-                } else if (EBML_TEXT.has(id.value)) facts.texts.push([EBML_TEXT.get(id.value), utf8(buf.subarray(start, end))])
-                else if (id.value === 0x4489 && ctx.info) ctx.info.duration = float(start, end)
-                else if (id.value === 0x2ad7b1 && ctx.info) ctx.info.scale = uint(start, end)
-                else if (id.value === 0x83 && ctx.track) ctx.track.type = uint(start, end)
-                else if (id.value === 0x86 && ctx.track) ctx.track.codec = buf.toString("latin1", start, end)
-                at = start + size.value
+                        if (track.type === 2 || track.codec.startsWith("A_") || track.audio) facts.audio = true
+                    } else {
+                        if (id.value === 0xe1 && ctx.track) ctx.track.audio = true
+                        walk(start, end, depth + 1, ctx)
+                    }
+                } else if (!EBML_FRAMES.has(id.value)) {
+                    facts.texts.push([EBML_NAMES.get(id.value) ?? `0x${id.value.toString(16)}`, rawText(buf, start, end)])
+                    if (id.value === 0x4489 && ctx.info) ctx.info.duration = float(start, end)
+                    else if (id.value === 0x2ad7b1 && ctx.info) ctx.info.scale = uint(start, end)
+                    else if (id.value === 0x83 && ctx.track) ctx.track.type = uint(start, end)
+                    else if (id.value === 0x86 && ctx.track) ctx.track.codec = buf.toString("latin1", start, end)
+                }
+                at = end
             }
         }
         walk(0, buf.length, 0, {})
-        for (const { duration, scale } of durations) {
+        for (const { duration, scale } of infos) {
             const seconds = (duration * scale) / 1e9
             if (Number.isFinite(seconds) && seconds > 0) facts.seconds = Math.max(facts.seconds ?? 0, seconds)
         }
         return facts
     }
-    // mp4 — ISO BMFF: a box is a size (4 bytes; 1 — an 8-byte size follows; 0 — to the end) and a type of four
-    // characters; a "uuid" box has 16 more bytes of its own type.
+    // mp4, mov, m4v — ISO BMFF (QuickTime): a box is a size (4 bytes; 1 — an 8-byte size follows; 0 — to the end of
+    // its parent) and a type of four characters; a "uuid" box has 16 more bytes of its own type. The boxes of
+    // MP4_CONTAINERS hold only boxes; meta, ilst, dref and stsd hold boxes after a header of their own; every other
+    // box is read as text, except mdat.
+    const MP4_CONTAINERS = new Set(["moov", "trak", "mdia", "minf", "stbl", "dinf", "edts", "udta", "mvex", "moof", "traf", "mfra", "sinf", "schi", "tref", "meco", "strk", "strd", "ipro", "wave", "tapt", "clip", "matt", "imap", "rmra", "rmda"])
+    // The sample entries of sound (stsd): a track of sound whatever its handler says.
+    const MP4_AUDIO = new Set(["mp4a", "Opus", "ac-3", "ec-3", "ac-4", "alac", "fLaC", ".mp3", "mp3 ", "samr", "sawb", "sawp", "sowt", "twos", "lpcm", "ipcm", "fpcm", "raw ", "in24", "in32", "fl32", "fl64", "ulaw", "alaw", "ima4", "MAC3", "MAC6", "QDM2", "QDMC", "Qclp", "agsm", "dtsc", "dtsh", "dtsl", "dtse", "mha1", "mhm1", "enca"])
     const XMP_UUID = "be7acfcb97a942e89c71999491e3afac"
     function mp4Facts(buf) {
-        const facts = { texts: [], audio: false, seconds: null }
-        const printable = (type) => (/^[\x20-\x7e\xa9]{4}$/.test(type) ? type : null)
-        const raw = (from, to) => utf8(buf.subarray(from, to)).replace(/[\x00-\x08\x0b-\x1f]+/g, " ")
+        const facts = { texts: [], audio: false, seconds: null, incomplete: false }
+        const name = (type, fallback) => (/^[\x20-\x7e\xa9]{4}$/.test(type) ? type.trim() : fallback)
+        const text = (label, from, to) => {
+            if (from < to) facts.texts.push([label, rawText(buf, from, to)])
+        }
+        const rest = (from, to) => {
+            facts.incomplete = true
+            text("unparsed", from, to)
+        }
+        // The boxes between from and to; a broken size stops the list: what is left is read as text.
         function boxes(from, to) {
             const list = []
             let at = from
-            while (at + 8 <= to) {
+            while (at < to) {
+                if (at + 8 > to) {
+                    rest(at, to)
+                    break
+                }
                 let size = buf.readUInt32BE(at)
                 const type = buf.toString("latin1", at + 4, at + 8)
                 let start = at + 8
                 if (size === 1) {
-                    if (at + 16 > to) break
+                    if (at + 16 > to) {
+                        rest(at, to)
+                        break
+                    }
                     size = Number(buf.readBigUInt64BE(at + 8))
                     start = at + 16
                 } else if (size === 0) size = to - at
-                if (size < start - at) break
-                const end = Math.min(to, at + size)
+                if (size < start - at || at + size > to) {
+                    rest(at, to)
+                    break
+                }
+                const end = at + size
                 let usertype = null
-                if (type === "uuid" && start + 16 <= end) {
+                if (type === "uuid") {
+                    if (start + 16 > end) {
+                        rest(at, end)
+                        at = end
+                        continue
+                    }
                     usertype = buf.toString("hex", start, start + 16)
                     start += 16
                 }
                 list.push({ type, start, end, usertype })
-                at += size
+                at = end
             }
             return list
         }
-        let mvhd = null
-        let mehd = null
-        function hdlr(b, inMdia) {
-            if (b.start + 24 > b.end) return
-            if (inMdia && buf.toString("latin1", b.start + 8, b.start + 12) === "soun") facts.audio = true
-            const name = raw(b.start + 24, b.end).trim()
-            if (name) facts.texts.push(["hdlr", name])
-        }
-        function meta(b) {
-            // ISO meta is a full box (4 bytes of version and flags before its children); the QuickTime one is not.
-            const quicktime = b.start + 8 <= b.end && buf.toString("latin1", b.start + 4, b.start + 8) === "hdlr"
-            for (const c of boxes(b.start + (quicktime ? 0 : 4), b.end)) {
-                if (c.type === "hdlr") hdlr(c, false)
-                else if (c.type === "ilst") {
-                    for (const item of boxes(c.start, c.end)) {
-                        const name = printable(item.type) ?? "ilst"
-                        const parts = boxes(item.start, item.end)
-                        const known = parts.filter((p) => p.type === "data" || p.type === "mean" || p.type === "name")
-                        if (!known.length) facts.texts.push([name, raw(item.start, item.end)])
-                        for (const p of known) facts.texts.push([name, raw(p.start + (p.type === "data" ? 8 : 4), p.end)])
+        const moovs = [] // {scale, duration, fragment} of each moov
+        function walk(from, to, depth, moov) {
+            if (depth >= CLIP_DEPTH) return rest(from, to)
+            for (const b of boxes(from, to)) {
+                const t = b.type
+                if (t === "mdat") continue // the frames
+                if (t === "moov") {
+                    const m = { scale: 0, duration: 0, fragment: 0 }
+                    walk(b.start, b.end, depth + 1, m)
+                    moovs.push(m)
+                } else if (MP4_CONTAINERS.has(t)) walk(b.start, b.end, depth + 1, moov)
+                else if (t === "meta") {
+                    // ISO meta is a full box (4 bytes of version and flags before its children); the QuickTime one is not.
+                    const quicktime = b.start + 8 <= b.end && buf.toString("latin1", b.start + 4, b.start + 8) === "hdlr"
+                    walk(b.start + (quicktime ? 0 : 4), b.end, depth + 1, moov)
+                } else if (t === "ilst") {
+                    // An item (its type: ©too, a key index, ----) holds data, mean and name boxes, or others.
+                    for (const item of boxes(b.start, b.end)) {
+                        const label = name(item.type, "ilst")
+                        for (const c of boxes(item.start, item.end)) {
+                            const skip = c.type === "data" ? 8 : c.type === "mean" || c.type === "name" ? 4 : 0
+                            text(label, Math.min(c.end, c.start + skip), c.end)
+                        }
                     }
-                } else facts.texts.push([printable(c.type) ?? "meta", raw(c.start, c.end)]) // keys, xml, and the rest
+                } else if (t === "dref" || t === "stsd") {
+                    // A full box and an entry count, then the entries: dref — url, urn, alis; stsd — sample entries.
+                    if (b.start + 8 > b.end) rest(b.start, b.end)
+                    else
+                        for (const e of boxes(b.start + 8, b.end)) {
+                            if (t === "stsd" && MP4_AUDIO.has(e.type)) facts.audio = true
+                            text(name(e.type, t), e.start, e.end)
+                        }
+                } else if (t === "hdlr") {
+                    if (b.start + 12 <= b.end && buf.toString("latin1", b.start + 8, b.start + 12) === "soun") facts.audio = true
+                    text("hdlr", b.start + 8, b.end)
+                } else if (t === "mvhd" && moov) {
+                    const v1 = buf[b.start] === 1
+                    const at = b.start + (v1 ? 20 : 12)
+                    if (at + (v1 ? 12 : 8) <= b.end) {
+                        moov.scale = buf.readUInt32BE(at)
+                        const d = v1 ? buf.readBigUInt64BE(at + 4) : BigInt(buf.readUInt32BE(at + 4))
+                        // All ones: the duration is not known.
+                        moov.duration = d === (v1 ? 0xffffffffffffffffn : 0xffffffffn) ? 0 : Number(d)
+                    } else facts.incomplete = true
+                } else if (t === "mehd" && moov) {
+                    const v1 = buf[b.start] === 1
+                    if (b.start + (v1 ? 12 : 8) <= b.end) moov.fragment = v1 ? Number(buf.readBigUInt64BE(b.start + 4)) : buf.readUInt32BE(b.start + 4)
+                    else facts.incomplete = true
+                } else text(t === "uuid" ? (b.usertype === XMP_UUID ? "XMP" : "uuid") : name(t, "box"), b.start, b.end)
             }
         }
-        function udta(b) {
-            for (const c of boxes(b.start, b.end)) {
-                if (c.type === "meta") meta(c)
-                else if (c.type.startsWith("\xa9")) {
-                    // QuickTime text: entries of a 2-byte length, a 2-byte language and the text.
-                    let at = c.start
-                    const texts = []
-                    while (at + 4 <= c.end) {
-                        const len = buf.readUInt16BE(at)
-                        if (at + 4 + len > c.end) break
-                        texts.push(utf8(buf.subarray(at + 4, at + 4 + len)))
-                        at += 4 + len
-                    }
-                    facts.texts.push([c.type, at === c.end && texts.length ? texts.join(" ") : raw(c.start, c.end)])
-                } else facts.texts.push([printable(c.type) ?? "udta", raw(c.start, c.end)])
-            }
-        }
-        function walk(list, depth, inMdia) {
-            for (const b of list) {
-                if (b.type === "uuid") facts.texts.push([b.usertype === XMP_UUID ? "XMP" : "uuid", raw(b.start, b.end)])
-                else if (b.type === "mvhd") mvhd = b
-                else if (b.type === "mehd") mehd = b
-                else if (b.type === "hdlr") hdlr(b, inMdia)
-                else if (b.type === "udta") udta(b)
-                else if (b.type === "meta") meta(b)
-                else if (depth < 8 && (b.type === "moov" || b.type === "trak" || b.type === "mdia" || b.type === "mvex"))
-                    walk(boxes(b.start, b.end), depth + 1, b.type === "mdia")
-            }
-        }
-        walk(boxes(0, buf.length), 0, false)
-        if (mvhd && mvhd.start + 4 <= mvhd.end) {
-            const v1 = buf[mvhd.start] === 1
-            const at = mvhd.start + (v1 ? 20 : 12)
-            if (at + (v1 ? 12 : 8) <= mvhd.end) {
-                const scale = buf.readUInt32BE(at)
-                let duration = v1 ? Number(buf.readBigUInt64BE(at + 4)) : buf.readUInt32BE(at + 4)
-                const unknown = v1 ? duration >= 2 ** 64 - 1 : duration === 0xffffffff
-                if ((duration === 0 || unknown) && mehd && mehd.start + 4 <= mehd.end) {
-                    const m1 = buf[mehd.start] === 1
-                    if (mehd.start + (m1 ? 12 : 8) <= mehd.end) duration = m1 ? Number(buf.readBigUInt64BE(mehd.start + 4)) : buf.readUInt32BE(mehd.start + 4)
-                    else duration = 0
-                } else if (unknown) duration = 0
-                if (scale > 0 && duration > 0) facts.seconds = duration / scale
-            }
+        walk(0, buf.length, 0, null)
+        // The longest of the durations: of every moov, its mvhd and its mehd (a fragmented file), in its timescale.
+        for (const m of moovs) {
+            const seconds = m.scale > 0 ? Math.max(m.duration, m.fragment) / m.scale : 0
+            if (Number.isFinite(seconds) && seconds > 0) facts.seconds = Math.max(facts.seconds ?? 0, seconds)
         }
         return facts
     }
-    function clipFacts(file, buf) {
-        const ext = path.extname(file).toLowerCase()
+    // The reader goes by the first bytes: an EBML header is webm or mkv, anything else is read as ISO BMFF.
+    function clipFacts(buf) {
         try {
-            return ext === ".mp4" ? mp4Facts(buf) : webmFacts(buf)
+            return buf.length >= 4 && buf.readUInt32BE(0) === 0x1a45dfa3 ? webmFacts(buf) : mp4Facts(buf)
         } catch {
-            return { texts: [], audio: false, seconds: null } // a broken clip: its duration is unknown, a finding
+            return { texts: [], audio: false, seconds: null, incomplete: true } // a reader error: the clip is a finding
         }
     }
 
     // --- one file -------------------------------------------------------------------------------------
     // file: the path as printed; abs: where it is; lines: the added [line, text] pairs, or null for the whole
     // file; pathChecked: whether the path itself is checked; needsNote: an added binary file.
-    function checkFile({ file, abs, lines, pathChecked, needsNote }) {
+    function checkFile({ file, abs, lines, pathChecked, needsNote, link, repo }) {
         count0++
         if (pathChecked) for (const f of privacy.findings(file, options)) report(file, "path", f.rule, privacy.mask(file.slice(f.index, f.index + f.length)))
+        if (link) {
+            // git publishes a symbolic link as its text, never its target: the text is what is checked.
+            let to = ""
+            try {
+                to = fs.readlinkSync(abs)
+            } catch (e) {
+                die(2, `cannot read the link ${privacy.maskText(file, options)}: ${e.code || e.message}`)
+            }
+            checkText(file, to, "link")
+            if (repo && !inside(repo, path.resolve(path.dirname(abs), to))) report(file, "-", "link", "symbolic link points outside the repository")
+            return
+        }
         let buf
         try {
             buf = fs.readFileSync(abs)
@@ -528,20 +618,22 @@ function main() {
             const ext = path.extname(file).toLowerCase()
             const key = sameCase(path.resolve(abs))
             if (VIDEO_EXT.has(ext)) {
-                const clip = clipFacts(file, buf)
+                const clip = clipFacts(buf)
                 for (const [element, text] of clip.texts) checkText(file, text.replace(/\r?\n/g, " "), element)
+                if (clip.incomplete) report(file, "-", "video", "video container not fully parsed")
                 if (clip.audio) report(file, "-", "video", "video has an audio track")
                 if (buf.length > VIDEO_MAX_BYTES) report(file, "-", "video", "video over 8 MB")
                 if (clip.seconds === null) report(file, "-", "video", "video duration unknown")
                 else if (clip.seconds > VIDEO_MAX_SECONDS) report(file, "-", "video", "video over 60 s")
                 if (needsNote) {
                     if (!notes.video.has(key)) report(file, "-", "scrub", "video needs a human check (no scrub: note)")
-                    if (!added.has(sameCase(sheetOf(path.resolve(abs))))) report(file, "-", "scrub", "video needs a contact sheet")
+                    if (!added.has(lower(contactSheetOf(abs)))) report(file, "-", "scrub", "video needs a contact sheet")
                 }
                 return
             }
             for (const [chunk, text] of imageText(file, buf)) checkText(file, text.replace(/\r?\n/g, " "), chunk)
-            if (needsNote && !notes.screenshot.has(key) && !sheetMarked(path.resolve(abs))) {
+            if (lower(abs).endsWith(SHEET) && !buf.subarray(0, 8).equals(PNG_SIGNATURE)) report(file, "-", "sheet", "contact sheet is not a PNG")
+            if (needsNote && !notes.screenshot.has(key) && !notes.sheets.has(lower(abs))) {
                 const what = IMAGE_EXT.has(ext) ? "image" : "binary file"
                 report(file, "-", "scrub", `${what} needs a human check (no scrub: note)`)
             }
@@ -550,8 +642,9 @@ function main() {
         const text = buf.toString("utf8")
         checkLines(file, lines ?? splitLines(text))
     }
-    // The files the scrub: notes added by the branch lead to, normalized, by the kind of the note.
-    const notes = { screenshot: new Set(), video: new Set() }
+    // The files the scrub: notes added by the branch lead to, normalized, by the kind of the note; and the contact
+    // sheets of the clips of the video notes, which those notes cover (lower case: CLIP.WEBM has CLIP.sheet.png).
+    const notes = { screenshot: new Set(), video: new Set(), sheets: new Set() }
     function collectNotes(ticketAbs, lines) {
         for (const [, text] of lines) {
             const m = EVIDENCE_NOTE.exec(text)
@@ -559,18 +652,14 @@ function main() {
             const fields = m[2].split(" · ").map((f) => f.trim())
             if (!fields.slice(1).some((f) => SCRUB_FIELD.test(f))) continue
             const ref = /`([^`]+)`/.exec(fields[1] ?? "")
-            if (ref) notes[m[1]].add(sameCase(path.resolve(path.dirname(ticketAbs), ref[1])))
+            if (!ref) continue
+            const abs = path.resolve(path.dirname(ticketAbs), ref[1])
+            notes[m[1]].add(sameCase(abs))
+            if (m[1] === "video") notes.sheets.add(lower(contactSheetOf(abs)))
         }
     }
-    // The contact sheet of a clip: <the clip's name without its extension>.sheet.png, next to it.
-    const sheetOf = (clipAbs) => clipAbs.slice(0, clipAbs.length - path.extname(clipAbs).length) + SHEET
-    // A sheet is covered by the video note of its clip, of either extension.
-    function sheetMarked(abs) {
-        if (!abs.toLowerCase().endsWith(SHEET)) return false
-        const base = abs.slice(0, abs.length - SHEET.length)
-        return [...VIDEO_EXT].some((ext) => notes.video.has(sameCase(base + ext)))
-    }
-    const added = new Set() // the files the branch adds (--changed: A or untracked), normalized
+    const lower = (p) => path.resolve(p).toLowerCase()
+    const added = new Set() // the files (not links) the branch adds (--changed: A or untracked), in lower case
 
     // --- --changed: the files of the tickets root the branch adds or changes ---------------------------
     const jobs = []
@@ -647,7 +736,17 @@ function main() {
             for (const [st, rel] of entries) {
                 if (st !== "A" && st !== "M" && st !== "T") continue
                 const abs = path.join(top, rel)
-                if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) continue
+                let stat
+                try {
+                    stat = fs.lstatSync(abs)
+                } catch {
+                    continue // deleted in the working tree
+                }
+                if (stat.isSymbolicLink()) {
+                    jobs.push({ file: rel, abs, lines: null, changed: true, pathChecked: st === "A", needsNote: false, link: true, repo: top })
+                    continue
+                }
+                if (!stat.isFile()) continue
                 let lines = null
                 if (st !== "A") {
                     const d = git(["diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", baseSha, "--", `:(top,literal)${rel}`], top)
@@ -655,7 +754,7 @@ function main() {
                     lines = addedLines(d.out)
                 }
                 jobs.push({ file: rel, abs, lines, changed: true, pathChecked: st === "A", needsNote: st === "A" })
-                if (st === "A") added.add(sameCase(path.resolve(abs)))
+                if (st === "A") added.add(lower(abs))
             }
         }
     }
@@ -681,9 +780,16 @@ function main() {
     for (const f of files) {
         const abs = path.resolve(process.cwd(), f)
         if (jobs.some((j) => sameCase(real(j.abs)) === sameCase(real(abs)))) continue // named twice, or also found by --changed
-        if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) die(2, `no such file: ${privacy.maskText(f, options)}`)
-        const realAbs = real(abs)
-        jobs.push({ file: f, abs, lines: null, pathChecked: fileTop !== null && inside(fileTop, realAbs), pathFrom: fileTop, needsNote: false })
+        let stat = null
+        try {
+            stat = fs.lstatSync(abs)
+        } catch {
+            /* no such file */
+        }
+        const link = stat !== null && stat.isSymbolicLink()
+        if (stat === null || (!link && !stat.isFile())) die(2, `no such file: ${privacy.maskText(f, options)}`)
+        const realAbs = link ? path.join(real(path.dirname(abs)), path.basename(abs)) : real(abs)
+        jobs.push({ file: f, abs, lines: null, pathChecked: fileTop !== null && inside(fileTop, realAbs), pathFrom: fileTop, needsNote: false, link, repo: fileTop })
     }
     if (nothingToCheck && files.length === 0) {
         process.stdout.write("evidence-check: nothing to check (tickets root is outside the repository)\n")
@@ -692,7 +798,7 @@ function main() {
 
     // The notes first (any line the branch added to a ticket of the tickets root may hold one), then every file.
     for (const job of jobs) {
-        if (!job.changed || path.extname(job.abs).toLowerCase() !== ".md") continue
+        if (!job.changed || job.link || path.extname(job.abs).toLowerCase() !== ".md") continue
         let lines = job.lines
         if (lines === null) {
             try {

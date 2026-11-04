@@ -311,10 +311,29 @@ refuse02 "no copy" "video names the copy of the app it checked" --ref '`../evide
 refuse02 "ref without a path in backticks" "a video ref is the path of its clip in backticks" \
     --ref 'https://example.com/clip' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
 refuse02 "no such clip" "no clip at ../evidence/02-none.webm" --ref '`../evidence/02-none.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
-refuse02 "a .mov clip" "a video is a .webm or .mp4 file, got ../evidence/02-drag.mov" \
+refuse02 "a .mov clip" "a video is a .webm or .mp4 file, got ../evidence/02-drag.mov (convert .mov, .m4v or .mkv to one of them)" \
     --ref '`../evidence/02-drag.mov`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
 refuse02 "no contact sheet next to the clip" "no contact sheet next to the clip: ../evidence/02-alone.sheet.png" \
     --ref '`../evidence/02-alone.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+mkdir -p "$T/ru/.scratch/demo/clips"; mkclip "$T/ru/.scratch/demo/clips/02-away.webm"; cp "$EVD/01-canvas.png" "$T/ru/.scratch/demo/clips/02-away.sheet.png"
+refuse02 "a clip outside <epic>/evidence/" "a clip lies in the evidence folder of its epic (demo/evidence/), got ../clips/02-away.webm" \
+    --ref '`../clips/02-away.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+mkclip "$EVD/02-badsheet.webm"; printf 'x' >"$EVD/02-badsheet.sheet.png"
+refuse02 "a contact sheet that is not a PNG" "the contact sheet is not a PNG: ../evidence/02-badsheet.sheet.png" \
+    --ref '`../evidence/02-badsheet.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+if ln -s "$EVD/02-drag.webm" "$EVD/02-link.webm" 2>/dev/null && [ -L "$EVD/02-link.webm" ]; then
+    cp "$EVD/01-canvas.png" "$EVD/02-link.sheet.png"
+    refuse02 "a clip that is a symbolic link" "a clip is a file, not a symbolic link: ../evidence/02-link.webm" \
+        --ref '`../evidence/02-link.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+    mkclip "$EVD/02-lsheet.webm"; ln -s "$EVD/01-canvas.png" "$EVD/02-lsheet.sheet.png"
+    refuse02 "a contact sheet that is a symbolic link" "a contact sheet is a file, not a symbolic link: ../evidence/02-lsheet.sheet.png" \
+        --ref '`../evidence/02-lsheet.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+else
+    echo "skip symbolic link cases: no symbolic links here"
+fi
+mkclip "$EVD/02-UP.WEBM"; cp "$EVD/01-canvas.png" "$EVD/02-UP.sheet.png"
+tk "$T/ru" evidence demo 02 4 video pass --ref '`../evidence/02-UP.WEBM`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05 -n
+[ "$rc" -eq 0 ] && has "video pass · \`../evidence/02-UP.WEBM\`" && ok "an upper-case .WEBM with its <name>.sheet.png: accepted" || bad "upper-case clip: exit $rc $(cat "$T/err")"
 refuse02 "-n does not skip the checks" "no contact sheet next to the clip" \
     --ref '`../evidence/02-alone.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05 -n
 tk "$T/ru" evidence demo 02 4 video pass --ref '`../evidence/02-drag.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05

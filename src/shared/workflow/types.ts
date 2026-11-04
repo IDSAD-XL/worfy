@@ -81,7 +81,7 @@ export type ManualCheck = z.infer<typeof manualCheckSchema>
 
 /** One `- evidence: <kind> <verdict> · <ref> · <platform> <copy> · <sha>[ · scrub: <date>]` line of an item. */
 export const evidenceLineSchema = z.object({
-  /** `commit`, `test-run`, `ci-check`, `gate`, `review`, `screenshot` or `owner-check`. */
+  /** `commit`, `test-run`, `ci-check`, `gate`, `review`, `screenshot`, `video` or `owner-check`. */
   kind: z.string(),
   verdict: z.enum(['pass', 'fail']),
   /** A command with its exit code, `PR #N`, a URL, or a path in backticks relative to the Ticket file. */
@@ -109,7 +109,7 @@ export const evidenceItemSchema = z.object({
   /** The item's text after the checkbox, continuation lines joined with a space. */
   text: z.string(),
   checked: z.boolean(),
-  /** A `(<manual mark>)` item: only `owner-check` and `screenshot` prove it. */
+  /** A `(<manual mark>)` item: only `owner-check`, `screenshot` and `video` prove it. */
   manual: z.boolean(),
   needs: evidenceNeedsSchema.nullable(),
   evidence: z.array(evidenceLineSchema),

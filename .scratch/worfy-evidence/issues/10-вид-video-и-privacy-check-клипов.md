@@ -105,3 +105,9 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 - `test/contract/evidence-rules-agree.test.ts`
 
 Только читать: `harness/lib/privacy.cjs` (`findings`, `mask`), `harness/bin/tests/fixtures/evidence-check/`.
+
+## Итог
+
+Известный предел (не меняется в этом Ticket-е): в GitHub Actions база `--changed` — `HEAD^1`. На PR это первый
+родитель merge-коммита PR, и diff верный. На push в `main` или на ручном run-е проверяется только последний коммит:
+push из нескольких коммитов оставляет ранние без проверки. Предел описан в шапке `.github/workflows/ci.yml`.
