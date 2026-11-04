@@ -49,6 +49,42 @@ export interface StallRecord {
   metrics: Array<{ at: number; processes: string }>
 }
 
+/** Events of each fs.watch main opened after installWatchCounter, by the path it watches. */
+interface WatchCounts {
+  [path: string]: { opened: number; events: number; bySecond: Record<string, number>; names: string[] }
+}
+
+/**
+ * Counts the events of every fs.watch main opens from now on, by watched path and by second (the
+ * stall's main stack was inside FSWatcher's onchange). The module's watch is replaced, and the
+ * bindings of `import { watch } from 'node:fs'` follow it (syncBuiltinESMExports).
+ */
+export async function installWatchCounter(app: ElectronApplication): Promise<void> {
+  await app.evaluate(() => {
+    const holder = globalThis as unknown as { __worfyWatches?: WatchCounts }
+    if (holder.__worfyWatches) return
+    const counts: WatchCounts = {}
+    holder.__worfyWatches = counts
+    const fs = process.getBuiltinModule('node:fs')
+    const original = fs.watch
+    const counted = function (this: unknown, ...args: Parameters<typeof fs.watch>) {
+      const watcher = original.apply(this, args) as ReturnType<typeof fs.watch>
+      const key = String(args[0])
+      const entry = (counts[key] ??= { opened: 0, events: 0, bySecond: {}, names: [] })
+      entry.opened += 1
+      watcher.on('change', (event: string, name: unknown) => {
+        entry.events += 1
+        const second = String(Math.floor(Date.now() / 1000))
+        entry.bySecond[second] = (entry.bySecond[second] ?? 0) + 1
+        if (entry.names.length < 6) entry.names.push(`${event}:${String(name)}`)
+      })
+      return watcher
+    }
+    fs.watch = counted as typeof fs.watch
+    process.getBuiltinModule('node:module').syncBuiltinESMExports()
+  })
+}
+
 /** Installs the probe in main; answers how long main took to run it. */
 export async function installStallProbe(app: ElectronApplication): Promise<number> {
   const started = Date.now()
@@ -143,6 +179,13 @@ export async function watchCall<T>(app: ElectronApplication, label: string, call
         `[stall] window events: ${(record?.events ?? []).map((event) => `${rel(event.at)} ${event.what}`).join('; ') || 'none'}`,
         ...(record?.metrics ?? []).filter((each) => each.at >= started - 2000).map((each) => `[stall] cpu ${rel(each.at)} ${each.processes}`),
       ]
+      const watches = await app.evaluate(() => (globalThis as unknown as { __worfyWatches?: WatchCounts }).__worfyWatches).catch(() => undefined)
+      const from = Math.floor(started / 1000) - 1
+      const busiest = Object.entries(watches ?? {})
+        .map(([path, entry]) => ({ path, entry, during: Object.entries(entry.bySecond).filter(([second]) => Number(second) >= from).reduce((sum, [, n]) => sum + n, 0) }))
+        .sort((a, b) => b.during - a.during)
+        .slice(0, 5)
+      lines.push(`[stall] fs.watch: ${Object.keys(watches ?? {}).length} paths; busiest during the call: ${busiest.map(({ path, entry, during }) => `${path} (opened ${entry.opened}, ${during} events now, ${entry.events} in all, ${entry.names.join(' ')})`).join(' | ') || 'none'}`)
       for (const [stack, count] of stacks) lines.push(`[stall] main stack (${count} pings):\n${stack}`)
       console.log(lines.join('\n'))
     }

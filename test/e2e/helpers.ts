@@ -11,7 +11,7 @@ import { checkTargets, listProblems, overlaps, passOf, passProblems, translateOf
 import { endApp, exited, killThenClean } from './end-app'
 import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
 import { launchEnv } from './launch-env'
-import { installStallProbe, watchCall } from './app-stall'
+import { installStallProbe, installWatchCounter, watchCall } from './app-stall'
 import { PROCESSES_TIMEOUT_MS, processTreeScript, quitDiagnosisText, quitLogLines, SAMPLE_SECONDS, SAMPLE_TIMEOUT_MS, type QuitFindings } from './quit-diagnosis'
 import type { StepResult } from './start-diagnosis'
 import { currentTest, recordOutput, startDiagnostics, startTestClock } from './start-diagnostics-run'
@@ -305,6 +305,8 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   // app answers; a kill waits for the answer only briefly, since a hung app may never give it.
   const appPid: Promise<number | undefined> = app.evaluate(() => process.pid).catch(() => undefined)
   const kill = async (): Promise<void> => endApp(child, await Promise.race([appPid, timeout(PID_TIMEOUT_MS).then(() => undefined)]))
+  // Diagnosis of worfy-polish 47 (app-stall.ts): counts main's file watch events from the start.
+  await installWatchCounter(app).catch(() => undefined)
   const tracing = currentTest() !== undefined && (await app.context().tracing.start({ snapshots: true, screenshots: false }).then(() => true, () => false))
   const windowDeadline = Date.now() + FIRST_WINDOW_TIMEOUT_MS
   const windowLeft = (): number => Math.max(1, windowDeadline - Date.now())
