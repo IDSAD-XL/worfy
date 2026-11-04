@@ -352,7 +352,7 @@ export function ghOverride(processEnv: Env): CheckDeps['gh'] {
   return command ? { command, env: processEnv } : undefined
 }
 
-/** Runs gh, or the program deps.gh names in its place: a `.mjs` one under worfy's own Node (programStart). */
+/** Runs gh, or the program deps.gh names in its place: a `.mjs` one under the Node of scriptRunner (programStart). */
 function runGh(args: readonly string[], deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<ToolRun> {
   const start = programStart(deps.gh?.command, 'gh')
   // The override gets worfy's own variables under the login shell's: the shell's PATH, HOME and

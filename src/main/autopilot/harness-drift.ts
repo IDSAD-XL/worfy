@@ -64,7 +64,7 @@ const firstLine = (text: string): string => text.trim().split('\n')[0] ?? ''
 
 /**
  * Runs a read-only git command in `root`; answers its stdout, or the first line of its error.
- * `override` is the git a test passes; a `.mjs` one starts as a script of worfy's own Node.
+ * `override` is the git a test passes; a `.mjs` one starts under the Node of scriptRunner (src/main/program.ts).
  */
 function gitIn(override: string | undefined, root: string, args: string[]): Promise<{ ok: true; out: string } | { ok: false; error: string }> {
   const start = programStart(override, 'git')

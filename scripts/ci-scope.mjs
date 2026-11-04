@@ -72,7 +72,9 @@ function isDocument(path) {
 //   e2e tests (ciPackaging); windows-tests.yml and any other workflow package nothing;
 // - the files the @packaged tests read that no other job checks: their spec files (packaged.spec.ts,
 //   and terminal.spec.ts with its test of node-pty from app.asar.unpacked), the helpers that find
-//   the packaged app, scripts/install-stable.mjs, which they install, and the Playwright config.
+//   the packaged app, scripts/install-stable.mjs, which they install, the fuse helper
+//   (test/e2e/fuses.ts) and scripts/check-fuses.mjs, which `pnpm test:package` runs last, and the
+//   Playwright config.
 // A change of src/main, harness/ or anything else that matters only in the packaged app is not on
 // this list: the push to main packages the app whatever it changed, and catches it there.
 const BUILD_FILES = new Set([
@@ -86,10 +88,12 @@ const BUILD_FILES = new Set([
   'scripts/statusline-bridge.sh',
   'scripts/statusline-bridge.mjs',
   'scripts/install-stable.mjs',
+  'scripts/check-fuses.mjs',
   'playwright.config.ts',
   'test/e2e/packaged.spec.ts',
   'test/e2e/terminal.spec.ts',
   'test/e2e/helpers.ts',
+  'test/e2e/fuses.ts',
   // Only when it changes what packages the app or runs the e2e tests: pullRequest drops it otherwise.
   '.github/workflows/ci.yml',
 ])

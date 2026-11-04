@@ -2,11 +2,12 @@ import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_pr
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
 import { launchApp, type LaunchedApp, type ListedProcess, NO_WINDOW_RESTORE, packagedBuild, packagedExecutable as executableOf, packagedResources as resourcesOf, processesWith, repoRoot } from './helpers'
+import { bundleDifferences, enableInspector, fuseProblems, fuseStates, inspectableCopy, refuseUnlessScratch } from './fuses'
 import { DIRECT_START_PROFILE, directStartEnv } from './launch-env'
 import { WINDOWS } from './terminal-shell'
 import { profileVars, windowsProfileEnv } from '../windows-profile'
@@ -319,21 +320,107 @@ function epicStatusHome(dir: string): string {
   return home
 }
 
+/** The line main prints once its first window is on screen (src/main/window-show.ts). */
+const WINDOW_SHOWN = /^\[worfy\] the window was shown/m
+/** The line the Node inspector prints when it opens. */
+const INSPECTOR_OPEN = /Debugger listening on ws:\/\//
+
+/** A process this test started, with its stdout and stderr together. */
+interface Started {
+  child: ChildProcess
+  output: () => string
+  /** Resolves once the output matches `pattern`, or rejects when the process ends first or the time is up. */
+  waitFor: (pattern: RegExp, timeoutMs: number) => Promise<void>
+  /** Resolves with the exit code and signal once the process has ended. */
+  exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
+  /** Ends this process, the one the test started (its pid only), and the data folders of the start. */
+  stop: () => Promise<void>
+}
+
+/**
+ * Starts `executable` with `args` and nothing else (a worfy start passes NO_WINDOW_RESTORE itself;
+ * Node in run-as-Node mode would refuse it as an option of its own) without Playwright, isolated as
+ * every direct start is (directStartEnv), with `env` on top and data and Claude folders of its own.
+ */
+async function startDirect(executable: string, args: string[], env: Record<string, string> = {}): Promise<Started> {
+  const dataDir = await mkdtemp(join(tmpdir(), 'worfy-fuse-data-'))
+  const claudeHome = await mkdtemp(join(tmpdir(), 'worfy-fuse-claude-'))
+  const child = spawn(executable, args, { env: directStartEnv({ dataDir, claudeHome, env }), stdio: ['ignore', 'pipe', 'pipe'] })
+  let output = ''
+  const seen = new Set<() => void>()
+  const read = (chunk: Buffer): void => {
+    output += chunk.toString('utf8')
+    for (const check of seen) check()
+  }
+  child.stdout?.on('data', read)
+  child.stderr?.on('data', read)
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done) => child.once('exit', (code, signal) => done({ code, signal })))
+  const waitFor = (pattern: RegExp, timeoutMs: number): Promise<void> =>
+    new Promise((done, fail) => {
+      const timer = setTimeout(() => finish(new Error(`no line matching ${pattern} within ${timeoutMs} ms; the output: ${output}`)), timeoutMs)
+      const check = (): void => {
+        if (pattern.test(output)) finish()
+      }
+      const finish = (error?: Error): void => {
+        clearTimeout(timer)
+        seen.delete(check)
+        if (error) fail(error)
+        else done()
+      }
+      seen.add(check)
+      void exited.then(({ code, signal }) => finish(pattern.test(output) ? undefined : new Error(`the process ended (code ${code}, signal ${signal}) before a line matching ${pattern}; the output: ${output}`)))
+      check()
+    })
+  const stop = async (): Promise<void> => {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGTERM')
+      await exitWithin(child, ms(20_000))
+    }
+    await removeDir(dataDir)
+    await removeDir(claudeHome)
+  }
+  return { child, output: () => output, waitFor, exited, stop }
+}
+
+/**
+ * Asks the main process of `started` to open its Node inspector, as a Bash command of an agent
+ * could: SIGUSR1 (`kill -USR1 <pid>`) off Windows; on Windows, where there are no signals,
+ * process._debugProcess, Node's own way to the same handler. Answers the error it threw, if any:
+ * on Windows it throws when the process has no such handler.
+ */
+function askForInspector(started: Started): string | null {
+  const pid = started.child.pid
+  if (pid === undefined) throw new Error('the start has no pid')
+  try {
+    if (WINDOWS) (process as unknown as { _debugProcess(pid: number): void })._debugProcess(pid)
+    else process.kill(pid, 'SIGUSR1')
+    return null
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
 test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () => {
   let installDir: string
   let stableApp: string
+  /**
+   * The copy the tests below launch with Playwright: stableApp with EnableNodeCliInspectArguments
+   * turned back on, in a folder of its own under installDir (test/e2e/fuses.ts says why).
+   */
+  let inspectable: string
 
   test.beforeAll(async () => {
     installDir = await mkdtemp(join(tmpdir(), 'worfy-stable-'))
     const fromEnv = process.env.WORFY_PACKAGED_APP
     if (fromEnv) {
       stableApp = fromEnv
-      return
+    } else {
+      stableApp = join(installDir, STABLE)
+      const result = install(stableApp)
+      expect(result.stderr).toBe('')
+      expect(result.status).toBe(0)
     }
-    stableApp = join(installDir, STABLE)
-    const result = install(stableApp)
-    expect(result.stderr).toBe('')
-    expect(result.status).toBe(0)
+    inspectable = await inspectableCopy(stableApp, join(installDir, 'inspectable'))
   })
 
   test.afterAll(async () => {
@@ -383,8 +470,88 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     }
   })
 
+  // worfy-auto-approve ticket 12: Electron fuses of electron-builder.yml.
+  test('the copy has the fuses RunAsNode and EnableNodeCliInspectArguments off', async () => {
+    const states = await fuseStates(stableApp)
+    expect(states).toMatchObject({ RunAsNode: 'disabled', EnableNodeCliInspectArguments: 'disabled' })
+    expect(fuseProblems(states)).toEqual([])
+  })
+
+  test('the copy the Playwright tests launch differs from it by EnableNodeCliInspectArguments only', async () => {
+    const shipped = await fuseStates(stableApp)
+    const driven = await fuseStates(inspectable)
+    expect(shipped.EnableNodeCliInspectArguments).toBe('disabled')
+    expect(driven).toEqual({ ...shipped, EnableNodeCliInspectArguments: 'enabled' })
+    // File by file: the file with the fuses, and on macOS the ad-hoc signature @electron/fuses
+    // writes again (the main executable and _CodeSignature/ of the bundle), are all that changed.
+    const changed = bundleDifferences(stableApp, inspectable)
+    if (WINDOWS) {
+      expect(changed).toEqual(['worfy.exe'])
+    } else {
+      expect(changed).toContain('Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework')
+      expect(changed.filter((path) => !/(^|\/)_CodeSignature\/|(^|\/)MacOS\/[^/]+$|^Contents\/Frameworks\/Electron Framework\.framework\/Versions\/A\/Electron Framework$/.test(path))).toEqual([])
+    }
+  })
+
+  test(`${WINDOWS ? 'process._debugProcess' : 'kill -USR1'} opens no Node inspector in the copy`, async () => {
+    // The copy as it ships: main has no handler for the request. Off Windows SIGUSR1 then ends the
+    // process (its default action); on Windows the request fails or is not heard. Either way no
+    // inspector line comes. Off Windows the end of the process is the condition waited for, raced
+    // with the inspector line, so a copy with the fuse left on fails at once instead of hanging; on
+    // Windows nothing ends, so the wait for a line that must not come is bounded.
+    const shipped = await startDirect(executableOf(stableApp), NO_WINDOW_RESTORE)
+    try {
+      await shipped.waitFor(WINDOW_SHOWN, ms(30_000))
+      const refused = askForInspector(shipped)
+      if (WINDOWS) {
+        await expect(shipped.waitFor(INSPECTOR_OPEN, ms(5_000))).rejects.toThrow(/no line matching/)
+      } else {
+        const opened = shipped.waitFor(INSPECTOR_OPEN, ms(20_000)).then(() => 'the inspector opened' as const)
+        expect(await Promise.race([shipped.exited, opened])).toEqual({ code: null, signal: 'SIGUSR1' })
+        expect(refused).toBeNull()
+      }
+      expect(shipped.output()).not.toMatch(INSPECTOR_OPEN)
+    } finally {
+      await shipped.stop()
+    }
+  })
+
+  test(`the same request opens the inspector of the copy with the fuse on: it reaches main, and only the fuse stops it`, async () => {
+    // --inspect-port=0: the inspector takes a free port, so a 9229 taken by another program on the
+    // machine cannot fail the test.
+    const driven = await startDirect(executableOf(inspectable), ['--inspect-port=0', ...NO_WINDOW_RESTORE])
+    try {
+      await driven.waitFor(WINDOW_SHOWN, ms(30_000))
+      expect(askForInspector(driven)).toBeNull()
+      await driven.waitFor(INSPECTOR_OPEN, ms(20_000))
+      expect(driven.output()).not.toMatch(/Debugger listening on ws:\/\/127\.0\.0\.1:9229\//)
+    } finally {
+      await driven.stop()
+    }
+  })
+
+  test('ELECTRON_RUN_AS_NODE=1 starts the copy as worfy, not as a Node that runs the script it is given', async () => {
+    const script = ['-e', 'process.stdout.write("ran as Node")']
+    const copy = await startDirect(executableOf(stableApp), [...script, ...NO_WINDOW_RESTORE], { ELECTRON_RUN_AS_NODE: '1' })
+    try {
+      await copy.waitFor(WINDOW_SHOWN, ms(60_000))
+      expect(copy.output()).not.toContain('ran as Node')
+    } finally {
+      await copy.stop()
+    }
+    // The stock Electron of node_modules, whose fuses are untouched, runs it: the variable reached
+    // the process, and only the fuse stopped it above.
+    const stock = await startDirect(join(repoRoot, 'node_modules', 'electron', 'dist', WINDOWS ? 'electron.exe' : join('Electron.app', 'Contents', 'MacOS', 'Electron')), script, { ELECTRON_RUN_AS_NODE: '1' })
+    try {
+      expect(await stock.exited).toEqual({ code: 0, signal: null })
+      expect(stock.output()).toContain('ran as Node')
+    } finally {
+      await stock.stop()
+    }
+  })
+
   test('the copy starts and shows a window titled worfy', async () => {
-    const launched = await launchApp({ executablePath: executableOf(stableApp) })
+    const launched = await launchApp({ executablePath: executableOf(inspectable) })
     try {
       expect(await launched.app.evaluate(({ app }) => app.isPackaged)).toBe(true)
       await expect(launched.window).toHaveTitle('worfy')
@@ -398,7 +565,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   // (ticket worfy-daily/16): nothing listens on port 1, so a copy that took the variable would
   // show an empty window. It loads its own bundle and trusts IPC from it.
   test('the copy ignores ELECTRON_RENDERER_URL and loads out/renderer/index.html from its bundle', async () => {
-    const launched = await launchApp({ executablePath: executableOf(stableApp), env: { ELECTRON_RENDERER_URL: 'http://127.0.0.1:1' } })
+    const launched = await launchApp({ executablePath: executableOf(inspectable), env: { ELECTRON_RENDERER_URL: 'http://127.0.0.1:1' } })
     try {
       expect(await launched.app.evaluate(() => process.env.ELECTRON_RENDERER_URL)).toBe('http://127.0.0.1:1')
       const url = new URL(launched.window.url())
@@ -412,7 +579,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   })
 
   test('node-pty loads from the copy and runs a command', async () => {
-    const launched = await launchApp({ executablePath: executableOf(stableApp) })
+    const launched = await launchApp({ executablePath: executableOf(inspectable) })
     try {
       // On Windows: cmd.exe's echo through ConPTY, and the binary node-pty ships for win32 in
       // prebuilds/ (scripts/postinstall.mjs rebuilds nothing there). With an empty environment
@@ -459,7 +626,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   })
 
   test('the Claude Code binary of the Agent SDK sits unpacked where the copy runs it', async () => {
-    const launched = await launchApp({ executablePath: executableOf(stableApp) })
+    const launched = await launchApp({ executablePath: executableOf(inspectable) })
     try {
       // The path src/main/agent/options.ts builds in the packaged app (ADR-0008); the unit test
       // test/unit/agent-executable.test.ts pins options.ts to this same layout.
@@ -486,7 +653,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     try {
       // An empty WORFY_DATA_DIR is ignored, so the app picks its own folder under the temporary
       // HOME (on Windows: under the temporary APPDATA, %APPDATA%\worfy).
-      const launched = await launchApp({ executablePath: executableOf(stableApp), env: { ...dataHomeEnv(home), WORFY_DATA_DIR: '' } })
+      const launched = await launchApp({ executablePath: executableOf(inspectable), env: { ...dataHomeEnv(home), WORFY_DATA_DIR: '' } })
       try {
         expect(await userData(launched)).toBe(defaultDataDir(home, 'worfy'))
       } finally {
@@ -498,13 +665,13 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
   })
 
   test('a second start of the copy over the same data folder quits and brings the first one\'s window back', async () => {
-    const first = await launchApp({ executablePath: executableOf(stableApp) })
+    const first = await launchApp({ executablePath: executableOf(inspectable) })
     try {
-      await expectSecondStartRestoresWindow(first, executableOf(stableApp), [])
+      await expectSecondStartRestoresWindow(first, executableOf(inspectable), [])
       if (QUITS_WITH_LAST_WINDOW) {
         test.info().annotations.push({ type: 'skip', description: 'second half (a second start opens a window in a copy that has none) skipped: off macOS the app quits when its last window closes (window-all-closed, src/main/index.ts)' })
       } else {
-        await expectSecondStartOpensWindow(first, executableOf(stableApp), [])
+        await expectSecondStartOpensWindow(first, executableOf(inspectable), [])
       }
     } finally {
       await first.close()
@@ -530,7 +697,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     const inArchive = asarPaths(join(resources, 'app.asar'))
     expect(inArchive).toContain('out/main/index.js')
     expect(inArchive.filter((path) => path.startsWith('out/harness'))).toEqual([])
-    const launched = await launchApp({ executablePath: executableOf(stableApp) })
+    const launched = await launchApp({ executablePath: executableOf(inspectable) })
     try {
       // The build version, or the same numbered (worfy-update ticket 14) when the copy was built from a
       // checkout with its whole history; a copy given by WORFY_PACKAGED_APP may come from another one.
@@ -625,7 +792,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
           activeId: ids.behind,
         }),
       )
-      const launched = await launchApp({ executablePath: executableOf(stableApp), env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: epicStatusHome(dir) } })
+      const launched = await launchApp({ executablePath: executableOf(inspectable), env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: epicStatusHome(dir) } })
       try {
         const { window } = launched
         await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
@@ -746,6 +913,9 @@ test.describe('scripts/install-stable.mjs', { tag: '@packaged' }, () => {
     expect(install(target).status).toBe(0)
     const before = readFileSync(join(dir, 'worfy-stable.json'), 'utf8')
 
+    // The running copy must be the target itself, so its inspector fuse goes back on in place: the
+    // target is this test's own install in a temporary folder (test/e2e/fuses.ts says why).
+    await enableInspector(target)
     const launched = await launchApp({ executablePath: executableOf(target) })
     try {
       const refused = install(target)
@@ -759,6 +929,41 @@ test.describe('scripts/install-stable.mjs', { tag: '@packaged' }, () => {
     }
     // Once the copy has quit, the same command goes through.
     expect(install(target).status).toBe(0)
+  })
+})
+
+// The fuse helper writes only into a copy a test made in a temporary folder (test/e2e/fuses.ts).
+// Each refusal comes before any file is read or written, so no build is needed.
+test.describe('the fuse helper of the packaged tests', () => {
+  test('refuses dist/, a folder outside the temporary folder, and a folder inside the app it copies', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'worfy-fuse-helper-'))
+    // Outside the temporary folder whatever the checkout: a folder of the home folder that is never
+    // made (a checkout may itself live under the temporary folder, and then its out/ is inside it).
+    const outside = join(homedir(), '.worfy-fuse-helper-never-made')
+    try {
+      // dist/ is refused by one rule or the other: outside the temporary folder, or dist/ itself.
+      await expect(enableInspector(join(repoRoot, 'dist', WINDOWS ? 'win-unpacked' : join('mac-arm64', 'worfy.app')))).rejects.toThrow(/writes into a temporary folder only|does not write into dist\//)
+      await expect(enableInspector(join(outside, 'worfy.app'))).rejects.toThrow(/writes into a temporary folder only/)
+      await expect(inspectableCopy(join(dir, 'worfy.app'), outside)).rejects.toThrow(/writes into a temporary folder only/)
+      await expect(inspectableCopy(join(dir, 'worfy.app'), join(dir, 'worfy.app', 'inner'))).rejects.toThrow(/does not write into dist\/ or into the app it copies/)
+      mkdirSync(join(dir, 'copies', 'worfy.app'), { recursive: true })
+      await expect(inspectableCopy(join(dir, 'worfy.app'), join(dir, 'copies'))).rejects.toThrow(/is there already/)
+      // Nothing was made by the refusals.
+      expect(existsSync(outside)).toBe(false)
+      expect(existsSync(join(dir, 'worfy.app'))).toBe(false)
+    } finally {
+      await removeDir(dir)
+    }
+  })
+
+  test('refuses the dist/ folder it is given even inside the temporary folder: a checkout may live there', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'worfy-fuse-helper-'))
+    try {
+      expect(() => refuseUnlessScratch(join(dir, 'dist', 'mac-arm64', 'worfy.app'), undefined, join(dir, 'dist'))).toThrow(/does not write into dist\/ or into the app it copies/)
+      expect(() => refuseUnlessScratch(join(dir, 'elsewhere', 'worfy.app'), undefined, join(dir, 'dist'))).not.toThrow()
+    } finally {
+      await removeDir(dir)
+    }
   })
 })
 

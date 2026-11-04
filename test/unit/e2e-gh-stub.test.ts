@@ -167,8 +167,9 @@ describe('every e2e start of the app gets the gh stub', () => {
     // The list of known tools names starts that are still there.
     const programs = e2e.flatMap(processStarts).map((start) => `${start.file}: ${start.program}`)
     for (const tool of KNOWN_TOOLS) expect(programs, tool).toContain(tool)
-    // And the app starts of today are seen: two in window.spec.ts, two in packaged.spec.ts.
-    expect(e2e.flatMap(processStarts).filter((start) => start.directStartEnv).map((start) => start.file)).toEqual(['test/e2e/packaged.spec.ts', 'test/e2e/packaged.spec.ts', 'test/e2e/window.spec.ts', 'test/e2e/window.spec.ts'])
+    // And the app starts of today are seen: two in window.spec.ts, three in packaged.spec.ts (the
+    // third is startDirect of the fuse tests, worfy-auto-approve ticket 12).
+    expect(e2e.flatMap(processStarts).filter((start) => start.directStartEnv).map((start) => start.file)).toEqual(['test/e2e/packaged.spec.ts', 'test/e2e/packaged.spec.ts', 'test/e2e/packaged.spec.ts', 'test/e2e/window.spec.ts', 'test/e2e/window.spec.ts'])
   })
 
   it('the detector of app starts: a hand-built env, require(\'electron\'), execFile, fork and spawnSync are each caught', () => {

@@ -444,7 +444,7 @@ const withCodexPart = (status: HarnessStatus, codex: CodexHarnessStatus | null |
 
 /** A command-line program the installer runs: its binary, its name on a command line and in a message, and its environment. */
 export interface Tool {
-  /** The file to run; undefined when the build has none. A `.mjs` (a stand-in in tests) runs under worfy's own Node. */
+  /** The file to run; undefined when the build has none. A `.mjs` (a stand-in in tests) runs under the Node of scriptRunner (src/main/program.ts). */
   binary: string | undefined
   /** As a command line names it: `claude`, `codex`. */
   command: string
@@ -462,7 +462,7 @@ export function runTool(tool: Tool, args: string[], timeout = COMMAND_TIMEOUT_MS
   const { binary, command, product, env } = tool
   const line = `${command} ${args.join(' ')}`
   if (binary === undefined) return Promise.reject(new Error(`${line}: no ${product} binary in this build`))
-  // A `.mjs` (a stand-in in tests, WORFY_CLAUDE) runs under worfy's own Node (src/main/program.ts);
+  // A `.mjs` (a stand-in in tests, WORFY_CLAUDE) runs under the Node of scriptRunner (src/main/program.ts);
   // the system cannot say it is missing, Node would.
   const start = programStart(binary, binary)
   const [script] = start.args

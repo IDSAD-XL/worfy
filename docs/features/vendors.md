@@ -223,8 +223,9 @@ sends them to every window. The renderer asks `agent.capabilities` for the Sessi
 permission card and the slash menu from them.
 
 **The fake Codex.** Tests never start the real Codex, never sign in and never read the developer's `~/.codex`. Under
-`WORFY_CODEX=fake` the driver starts `test/fixtures/codex-app-server/fake-app-server.mjs` under worfy's own executable
-instead of the binary. The fake plays a script of `test/fixtures/codex-scripts/` step by step: `WORFY_CODEX_SCRIPT` names
+`WORFY_CODEX=fake` the driver starts `test/fixtures/codex-app-server/fake-app-server.mjs` instead of the binary: under
+worfy's own executable in a development run, under `node` of the PATH in the packaged app, whose RunAsNode fuse is off
+(`scriptRunner` of `src/main/program.ts`). The fake plays a script of `test/fixtures/codex-scripts/` step by step: `WORFY_CODEX_SCRIPT` names
 it (`turn` by default), `WORFY_CODEX_LOG` is the file where the fake writes worfy's requests, and `WORFY_CODEX_HOME` keeps
 its threads. The fake also runs the hooks of a plugin installed in its `CODEX_HOME` by the rules of the pinned Codex
 (`test/fixtures/codex-app-server/hook-runner.mjs`): a hook runs only once it is approved with the right hashes,

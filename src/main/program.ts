@@ -7,9 +7,8 @@
 // macOS and Linux a `#!/bin/sh` wrapper next to it can be started as a program; Windows cannot
 // start a script as a program. So an override that ends in `.mjs` is started as a Node script, and
 // every start of a stand-in goes through this file:
-// - programStart, for a child process: under worfy's own Node — the file is the one worfy runs
-//   from, the script is its first argument, and ELECTRON_RUN_AS_NODE=1 is added for that child.
-//   The same on every system.
+// - programStart, for a child process: under the Node of scriptRunner, with the script as its
+//   first argument. The same on every system.
 // - programStartInPty, for a pseudo-terminal ("Sign in with gh", src/main/github/accounts.ts): the
 //   same off Windows; on Windows under node.exe of the terminal's Path, because worfy's own
 //   executable is a GUI program there and in a pseudo-terminal it prints nothing and reads nothing.
@@ -20,9 +19,10 @@
 // The installer gets WORFY_CLAUDE or the SDK's own binary as one path and passes it as the override:
 // the SDK's binary is `claude` or `claude.exe`, never a `.mjs`, so it starts as it is too.
 //
-// It relies on Electron's run-as-Node mode, which a build can switch off with the RunAsNode fuse.
-// This repository configures no fuses (electron-builder.yml has no electronFuses, and nothing
-// flips them after packaging), so the mode is on in `pnpm dev` and in the packaged app.
+// worfy's own executable is a Node only in Electron's run-as-Node mode, and the packaged worfy has
+// it switched off: electron-builder.yml turns the RunAsNode fuse off (worfy-auto-approve ticket 12),
+// so ELECTRON_RUN_AS_NODE=1 would start a second worfy there, not a Node. scriptRunner tells the two
+// apart.
 
 import { posix, resolve, win32 } from 'node:path'
 import { isWindowsAbsolutePath } from '../shared/paths'
@@ -58,9 +58,35 @@ export interface ProgramStart {
   env: Record<string, string>
 }
 
+/** The program that runs a `.mjs` script, and the variables to add for it. */
+export interface ScriptRunner {
+  file: string
+  env: Record<string, string>
+}
+
+/**
+ * What runs a `.mjs` stand-in, for the file worfy runs from (`execPath`):
+ * - the stock Electron of node_modules (`electron`, `electron.exe`): `pnpm dev`, the e2e runs of
+ *   out/ and vitest. Its fuses are Electron's own, so it is a Node itself with ELECTRON_RUN_AS_NODE=1.
+ * - any other file (worfy.app's `worfy`, `worfy.exe`): the packaged app, whose RunAsNode fuse is
+ *   off. `node` by name, which the child's own PATH resolves as it resolves `gh`: no node there, and
+ *   the start fails as a missing program does.
+ * The rule of Electron's app.isPackaged, by the file name; this file is loaded by tests outside
+ * Electron, so it does not ask `app`. The name is the part after the last `/` or `\\`, and both
+ * names count on every system: `execPath` is a file of the machine worfy runs on, while a caller's
+ * platform may be another one it stands for (a test of "Sign in with gh" off Windows, run on a
+ * Windows host), and a file named `electron.exe` off Windows, or `electron` on Windows, is never a
+ * packaged worfy.
+ */
+export function scriptRunner(execPath: string = process.execPath): ScriptRunner {
+  const name = (execPath.split(/[\\/]/).pop() ?? '').toLowerCase()
+  const stock = name === 'electron' || name === 'electron.exe'
+  return stock ? { file: execPath, env: { ELECTRON_RUN_AS_NODE: '1' } } : { file: 'node', env: {} }
+}
+
 /**
  * What to start for `usual` when `override` may name another program in its place. `execPath` is
- * the file worfy itself runs from.
+ * the file worfy itself runs from: a `.mjs` override runs under scriptRunner of it.
  *
  * A relative `.mjs` is resolved against worfy's own folder (stubScript). A path absolute in either
  * form — POSIX or Windows — stays as it is.
@@ -69,7 +95,8 @@ export function programStart(override: string | undefined, usual: string, execPa
   if (override === undefined) return { file: usual, args: [], env: {} }
   const script = stubScript(override)
   if (script === null) return { file: override, args: [], env: {} }
-  return { file: execPath, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } }
+  const runner = scriptRunner(execPath)
+  return { file: runner.file, args: [script], env: runner.env }
 }
 
 /**

@@ -1,6 +1,6 @@
 // How a Codex app-server process starts (worfy-multi-vendor ticket 18): the binary this build pins
 // (binary.ts, ticket 17) with `app-server`, or, under WORFY_CODEX=fake, the fake app-server
-// test/fixtures/codex-app-server/fake-app-server.mjs under worfy's own executable — so tests and e2e
+// test/fixtures/codex-app-server/fake-app-server.mjs under the Node of scriptRunner — so tests and e2e
 // runs never start the real Codex and never sign in. The fake's variables pass through the environment:
 // WORFY_CODEX_SCRIPT (the script, "turn" by default), WORFY_CODEX_SCRIPTS (their folder; the fixtures
 // folder by default), WORFY_CODEX_LOG (where the fake writes worfy's messages) and WORFY_CODEX_HOME (the
@@ -10,11 +10,13 @@
 // can show that build without ever reaching the real binary.
 //
 // The process starts without a shell, on every system: the program is a full path, and the fake is a
-// script under worfy's executable in run-as-Node mode (as programStart does for a `.mjs` stand-in,
-// src/main/program.ts), since Windows cannot start a script as a program.
+// script under the Node of scriptRunner (src/main/program.ts, as programStart does for a `.mjs`
+// stand-in), since Windows cannot start a script as a program: worfy's executable in run-as-Node mode
+// where it is the stock Electron, `node` of the PATH in the packaged app, whose RunAsNode fuse is off.
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { scriptRunner } from '../../program'
 import { codexExecutablePath, type CodexPackageResolver, type CodexRuntime } from './binary'
 
 /** The fake app-server, from the app's root folder (app.getAppPath()). */
@@ -38,13 +40,15 @@ export interface CodexLaunchOptions {
   appPath: string
   /** The environment of the child; process.env by default. */
   env?: NodeJS.ProcessEnv
+  /** The file worfy runs from, for the Node of the fake (scriptRunner); process.execPath by default. */
+  execPath?: string
   /** Finds the platform package of @openai/codex; binary.ts's own by default (tests pass a stand-in). */
   resolvePackage?: CodexPackageResolver
 }
 
 /**
- * The start of a Codex app-server. Under WORFY_CODEX=fake: process.execPath with the fake and
- * ELECTRON_RUN_AS_NODE=1. Otherwise the pinned binary with `app-server`; under vitest (VITEST in `env`
+ * The start of a Codex app-server. Under WORFY_CODEX=fake: the fake under scriptRunner of
+ * `execPath` (process.execPath by default). Otherwise the pinned binary with `app-server`; under vitest (VITEST in `env`
  * or in process.env) that throws, so no test reaches the real Codex even when a test file sets no
  * WORFY_CODEX or passes an `env` of its own. Throws as well when this
  * platform has no Codex package installed.
@@ -52,10 +56,11 @@ export interface CodexLaunchOptions {
 export function codexLaunch(options: CodexLaunchOptions): CodexLaunch {
   const env = options.env ?? process.env
   if (env.WORFY_CODEX === 'fake') {
+    const runner = scriptRunner(options.execPath)
     return {
-      file: process.execPath,
+      file: runner.file,
       args: [join(options.appPath, FAKE_APP_SERVER)],
-      env: { ...env, ELECTRON_RUN_AS_NODE: '1', WORFY_CODEX_SCRIPTS: env.WORFY_CODEX_SCRIPTS || join(options.appPath, FAKE_SCRIPTS) },
+      env: { ...env, ...runner.env, WORFY_CODEX_SCRIPTS: env.WORFY_CODEX_SCRIPTS || join(options.appPath, FAKE_SCRIPTS) },
     }
   }
   if (env.WORFY_CODEX === CODEX_ABSENT) throw noCodex(options.runtime)

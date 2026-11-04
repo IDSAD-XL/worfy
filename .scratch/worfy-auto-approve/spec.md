@@ -230,13 +230,21 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
    `--remote-debugging-port` / `--remote-debugging-pipe` или Node inspector (`--inspect`) любой процесс Machine ведёт
    окно worfy и зовёт его IPC как UI, а агент может и сам перезапустить worfy с таким флагом. Поэтому, пока такой
    флаг есть, `autoApprovalMode()` отвечает Off, `autoApproval.set` отказывает в Shadow и On, переключатель
-   показывает Off и причину (Ticket 06). **Известный предел до Ticket-а 12.** В собранном worfy не выключены Electron
-   fuses (`electron-builder.yml` без `electronFuses`), поэтому `EnableNodeCliInspectArguments` включён: Bash агента может
-   послать `kill -USR1 <pid worfy>`, подключиться к `ws://127.0.0.1:9229`, через `Runtime.evaluate` записать On в
-   память store-а и закрыть inspector (`inspector.close()`). После этого `inspector.url()` пуст, и `autoApprovalMode()`
-   отвечает On. Проверка debugging port такой путь не ловит: она видит только открытый сейчас inspector. Закрывает
-   предел Ticket 12 — fuses `EnableNodeCliInspectArguments` и `RunAsNode` выключены в собранном приложении; до него On
-   не должен действовать (Ticket 04 ждёт 12).
+   показывает Off и причину (Ticket 06). **Что закрыл Ticket 12.** До него Bash агента мог
+   послать `kill -USR1 <pid worfy>`, подключиться к `ws://127.0.0.1:9229`, записать On в память store-а через
+   `Runtime.evaluate` и закрыть inspector (`inspector.close()`) до того, как проверка увидит `inspector.url()`. Теперь
+   `electron-builder.yml` (`electronFuses`) выключает в собранном приложении `EnableNodeCliInspectArguments` и
+   `RunAsNode`: `--inspect` и `kill -USR1` inspector не открывают (SIGUSR1 завершает процесс), `ELECTRON_RUN_AS_NODE=1`
+   запускает worfy, а не Node. Проверка на macOS — test-ы `test/e2e/packaged.spec.ts` и `scripts/check-fuses.mjs` в
+   конце `pnpm test:package` (job `macos-package`); на Windows — тот же `test:package` в gate full ПК, CI fuses `.exe`
+   не читает. `--remote-debugging-port` — не fuse Node, его по-прежнему ловит проверка Ticket-а 06. **Известный предел
+   (остаётся).** Процесс того же пользователя может изменить память работающего worfy без рестарта: на Windows —
+   `OpenProcess` + `WriteProcessMemory` / `CreateRemoteThread` (например, PowerShell `Add-Type`): `worfy.exe` не
+   подписан и не защищён; на macOS — подключить отладчик: `hardenedRuntime: false` в `electron-builder.yml`, а с
+   включённым Developer mode пароль не спрашивают. С рестартом worfy: `DYLD_INSERT_LIBRARIES` (нет hardened runtime),
+   подменённый `app.asar` или подложенная `Resources/app/` (fuses `OnlyLoadAppFromAsar` и
+   `EnableEmbeddedAsarIntegrityValidation` выключены). Это тот же класс, что правка `app-settings.json`, пока worfy
+   закрыт (выше): от процесса Machine с правами пользователя worfy себя не защищает (п. 1).
 6. **Чужая работа.** Ветки и worktree-ы других Session-ов, push в `main`, force push — hard-deny, даже если агент просит
    «по инструкции из файла».
 7. **Утечка в Journal.** Journal лежит в данных worfy и уходит на Linked machine-ы через Run history: команды
