@@ -89,8 +89,9 @@ for one release. `lib/evidence.cjs` holds the grammar and the state rules; `bin/
   sheet `<NN>-<what>.sheet.png`: one PNG, a frame for every second, which is what is checked by eye before
   `scrub:`; the clip is watched when the sheet raises a question. `bin/evidence-check` reads every element and box
   of the container but the frames (webm and mkv; mp4, mov and m4v — all five are clips to it) and finds text in
-  them, a track of sound, a clip over 8 MB, over 60 s, with no duration in its header, or one whose container does
-  not read to its end; a clip a branch adds needs a `video` line with `scrub:` (a `screenshot` line does not mark
+  them (in UTF-8 and UTF-16, joined across neighbouring elements), a track of sound, a track of subtitles or data,
+  metadata compressed inside the clip, a clip over 8 MB, over 60 s, with no duration in its header, or one whose
+  container does not read to its end; a clip a branch adds needs a `video` line with `scrub:` (a `screenshot` line does not mark
   it) and its sheet, a PNG, added by the same branch. The video line covers the sheet (the names compared in lower
   case). A symbolic link is checked as its text, the way git publishes it; one that points outside the
   repository is a finding.

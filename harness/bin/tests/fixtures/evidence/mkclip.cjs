@@ -10,6 +10,8 @@
 //     fileDescription, fileData, chapString — text elements; timecodeScale (default 1000000)
 //     audio        true — a second track of sound (TrackType 2 and an A_ codec); "type" — TrackType 2 only;
 //                  "codec" — an A_ codec only; "element" — an Audio element only
+//     extraTrack   {"type": <TrackType>, "codec": <CodecID>} — one more track (0x11 and S_TEXT/UTF8: subtitles)
+//     compressed   true — a ContentEncodings element in the video track whose ContentCompression is zlib
 //     liveCluster  true — a Cluster of unknown size before the Tags, as a live recording writes it
 //     secondInfo   seconds — a second Info element with that Duration
 //     deepTag      n — the SimpleTag of tagString nested n SimpleTags deep
@@ -24,18 +26,30 @@
 //                  whose sample entry is mp4a; "short" — a hdlr "soun" of 12 bytes, with no name
 //     mehd         seconds — a fragmented file: mvex/mehd with that duration, and a moof
 //     secondMoov   seconds — a second moov with that duration
+//     trak         [<handler>, …] — more tracks with those hdlr handler types ("text", "meta", "tmcd", …)
 //     minf, moov, udta, meta, ilst, top — more boxes in the video track's minf, in moov, in moov/udta, in
 //                  udta/meta, in the ©too item of ilst, and at the top level before mdat. A box is
 //                  {"type": <4 chars>, "text": <text>, "hex": <hex>, "full": true, "children": [<box>, …]}
 //                  (all but type optional); {"raw": <hex>} — bytes as they are
+// Any text above may be {"text": <text>, "utf16": "le" | "be", "bom": true, "gzip": true, "deflate": true}: its
+// bytes in UTF-16 (after a byte order mark), or compressed with gzip or zlib.
 "use strict"
 const fs = require("fs")
+const zlib = require("zlib")
 
 const [out, specFile] = process.argv.slice(2)
 const spec = specFile ? JSON.parse(fs.readFileSync(specFile, "utf8")) : {}
 const duration = spec.duration === undefined ? 5 : spec.duration
 const str = (s) => Buffer.from(String(s), "utf8")
-const join = (parts) => Buffer.concat(parts.filter(Boolean).map((p) => (Buffer.isBuffer(p) ? p : str(p))))
+const encoded = (v) => {
+    let b = v.utf16 ? Buffer.from(String(v.text), "utf16le") : str(v.text)
+    if (v.utf16 === "be") b.swap16()
+    if (v.bom) b = Buffer.concat([Buffer.from(v.utf16 === "be" ? [0xfe, 0xff] : [0xff, 0xfe]), b])
+    if (v.gzip) b = zlib.gzipSync(b)
+    if (v.deflate) b = zlib.deflateSync(b)
+    return b
+}
+const join = (parts) => Buffer.concat(parts.filter(Boolean).map((p) => (Buffer.isBuffer(p) ? p : typeof p === "object" ? encoded(p) : str(p))))
 
 function webm() {
     // An element: its ID (hex, with the marker bits), an 8-byte size (0x01 and 7 bytes), the payload.
@@ -90,10 +104,13 @@ function webm() {
             el("86", audio === "type" || audio === "element" ? "V_VP8" : "A_OPUS"),
             audio === "element" && el("e1", el("b5", f64(48000)), el("9f", uint(1))),
         )
+    const encodings = spec.compressed && el("6d80", el("6240", el("5031", uint(0)), el("5032", uint(2)), el("5034", el("4254", uint(0)))))
+    const extraTrack = spec.extraTrack && el("ae", el("d7", uint(3)), el("83", uint(spec.extraTrack.type)), el("86", spec.extraTrack.codec))
     const tracks = el(
         "1654ae6b",
-        el("ae", el("d7", uint(1)), el("83", uint(1)), el("86", "V_VP8"), spec.trackName !== undefined && el("536e", spec.trackName), ...pairs(spec.track)),
+        el("ae", el("d7", uint(1)), el("83", uint(1)), el("86", "V_VP8"), spec.trackName !== undefined && el("536e", spec.trackName), encodings, ...pairs(spec.track)),
         audioTrack,
+        extraTrack,
     )
     const tags = (spec.tagString !== undefined || spec.targetType !== undefined) && tagsOf(spec.tagString ?? "ok", spec.tagName, spec.deepTag || 0, spec.targetType)
     const attachments =
@@ -165,7 +182,8 @@ function mp4() {
     const nam = spec.nam !== undefined && box("©nam", u16(Buffer.byteLength(spec.nam)), u16(0), spec.nam)
     const udta = (meta || nam || spec.udta) && box("udta", meta, nam, ...many(spec.udta))
     const mvex = spec.mehd !== undefined && box("mvex", full("mehd", u32(Math.round(spec.mehd * 1000))), full("trex", Buffer.alloc(20)))
-    const moov = box("moov", mvhd(duration), trak(hdlr("vide", spec.hdlrName || "VideoHandler"), many(spec.minf)), audioTrak, mvex, udta, ...many(spec.moov))
+    const more = (spec.trak || []).map((handler) => trak(hdlr(handler, "Handler"), []))
+    const moov = box("moov", mvhd(duration), trak(hdlr("vide", spec.hdlrName || "VideoHandler"), many(spec.minf)), audioTrak, ...more, mvex, udta, ...many(spec.moov))
     const second = spec.secondMoov !== undefined && box("moov", mvhd(spec.secondMoov), trak(hdlr("vide", "VideoHandler"), []))
     const moof = spec.mehd !== undefined && box("moof", full("mfhd", u32(1)))
     const xmp = spec.xmp !== undefined && box("uuid", Buffer.from("be7acfcb97a942e89c71999491e3afac", "hex"), spec.xmp)

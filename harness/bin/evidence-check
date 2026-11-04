@@ -19,10 +19,17 @@
 // WebP EXIF and "XMP "; GIF comments. Pixels are not read. A clip (.webm, .mkv — Matroska, EBML
 // elements; .mp4, .mov, .m4v — ISO BMFF boxes) — the text of every element and box outside the
 // frames (webm SimpleBlock and Block, mp4 mdat), each under its name (Title, TagString, ©too, …) or
-// its ID or type. Frames are not read. A clip also gives a finding for a container the reader could
+// its ID or type. Frames are not read. The metadata of images and clips is read as bytes: as UTF-8 and,
+// with zero bytes in it, as UTF-16 too; a path right after a letter or a > counts there (in a ticket it
+// does not: a stand-in such as <tmp>/home/…), and neighbouring elements and boxes are also read joined
+// (a path split between two of them). A clip also gives a finding for a container the reader could
 // not read to its end ("video container not fully parsed"; the rest is still read as text), for a
 // track of sound (webm TrackType 2, an A_ codec or an Audio element; mp4 hdlr "soun" or a sample entry
-// of sound in stsd: a test recording has none, so sound is the microphone of the machine), for a size
+// of sound in stsd: a test recording has none, so sound is the microphone of the machine), for a track
+// of subtitles or data (webm TrackType other than 1 and 2 or a codec other than V_ and A_; mp4 a track
+// hdlr other than vide, soun and tmcd, or a sample entry of text: their text is in the frames), for
+// metadata compressed inside the clip (webm ContentCompression, QuickTime cmov, an element or box that
+// starts with the bytes of gzip, zip, xz, zstd, 7z or bzip2: it is not unpacked), for a size
 // over 8 MB (8 × 1024 × 1024 bytes), for a duration over 60 s (the longest of: webm Info Duration ×
 // TimecodeScale; mp4 mvhd duration and mvex/mehd, over the timescale) and for no duration in its
 // header (the limit could not be held otherwise). A symbolic link is read as its text, the way git
@@ -59,9 +66,10 @@ const USAGE = `usage: evidence-check [--changed] [--base <ref>] [--root <tickets
 The privacy check of what a branch adds to the tickets root: home folder paths with a user name, host
 names, Tailscale addresses, UUIDs, email addresses, tokens and the words of the personal list
 <Harness home>/user/privacy.json, in text, in file paths, in the metadata of images and in the
-container of clips (.webm, .mkv, .mp4, .mov, .m4v: every element and box but the frames). A clip
-with a track of sound, over 8 MB, over 60 s, with no duration in its header or with a container that
-does not read to its end is a finding too. A symbolic link is checked as its text.
+container of clips (.webm, .mkv, .mp4, .mov, .m4v: every element and box but the frames), as UTF-8
+and UTF-16. A clip with a track of sound, a track of subtitles or data, metadata compressed inside
+it, over 8 MB, over 60 s, with no duration in its header or with a container that does not read to
+its end is a finding too. A symbolic link is checked as its text.
 
   --changed       the files of the tickets root that differ from the base (added or modified, staged
                   or not) and the untracked ones; of a modified text file only the added lines
@@ -94,7 +102,8 @@ What the check does not catch:
     personal list;
   - the name of the other machine (the PC on the Mac and back) until it is in the personal list:
     the host name is known only for the machine the check runs on, and on CI for none;
-  - a secret broken by a line break, base64 and other encodings;
+  - a secret broken by a line break, base64 and encodings other than UTF-8 and UTF-16 (metadata
+    compressed inside a clip is a finding, its text is not read);
   - files outside the tickets root, the git history (what is pushed stays reachable by its SHA), the
     text of PRs and comments on GitHub.
 `
@@ -215,10 +224,67 @@ function main() {
         return buf.subarray(0, 8192).includes(0)
     }
 
-    // --- metadata of images: [chunk name, text] -----------------------------------------------------
+    // --- text of binary data: the metadata of images and clips --------------------------------------------------
+    // The rules are written for the text of tickets, where a path right after a letter, a dot or a > is part of a
+    // longer word or follows a stand-in (<tmp>/home/…). In bytes it is a path all the same: after a length byte that
+    // is a letter (an alias record), after the end of an XML tag (XMP). So the bytes of each element, box or chunk
+    // are read as UTF-8 and, when they hold a zero byte (UTF-16 text: after a byte order mark, ilst data of type 2),
+    // also as UTF-16 from their first and from their second byte (little and big endian). In each reading control
+    // characters become spaces and a space goes before each home folder (Users or home at the root, C:\Users\). The
+    // UTF-8 readings of all of them are also read joined, in their order, so that a path split between two
+    // neighbouring elements or boxes is found: a finding there that no single reading gave is reported under the
+    // names of the pieces it spans (Title+SegmentFilename).
+    const SPACE = Buffer.from(" ")
     function utf8(b) {
         return Buffer.from(b).toString("utf8")
     }
+    const BINARY_BREAK = /[\x00-\x08\x0a-\x1f\x7f\ufffd]+/g
+    const HOME_ROOT = /(?=\/(?:users|home)\/|[a-z]:(?:\\+|\/)users(?:\\+|\/))/gi
+    const HOME_AT = /^(?:\/(?:users|home)\/|[a-z]:(?:\\+|\/)users(?:\\+|\/))/i
+    function readings(bytes) {
+        const list = [utf8(bytes)]
+        if (bytes.includes(0)) list.push(bytes.toString("utf16le"), bytes.subarray(1).toString("utf16le"))
+        return list.map((s) => s.replace(BINARY_BREAK, " ").replace(HOME_ROOT, " "))
+    }
+    // entries: [element, box or chunk name, its bytes], in the order of the file. In the joined text each reading
+    // goes without the spaces at its ends (a size or a language code before the text of an atom is such spaces),
+    // except the one before a home folder.
+    function checkBinary(file, entries) {
+        const own = [] // the findings of the UTF-8 readings, where they lie in the joined text
+        const parts = [] // {label, from, to} of each reading in the joined text
+        let joined = ""
+        for (const [label, bytes] of entries) {
+            const seen = new Set()
+            readings(bytes).forEach((text, i) => {
+                let start = text.length - text.trimStart().length
+                const end = text.trimEnd().length
+                if (start > 0 && HOME_AT.test(text.slice(start))) start--
+                const shift = joined.length - start // from a place in this reading to its place in the joined text
+                for (const f of privacy.findings(text, options)) {
+                    const value = privacy.mask(text.slice(f.index, f.index + f.length))
+                    const key = `${f.rule} ${value}`
+                    if (i > 0 && seen.has(key)) continue // the same value in another reading of the same bytes
+                    seen.add(key)
+                    report(file, label, f.rule, value)
+                    if (i === 0) own.push({ rule: f.rule, from: shift + f.index, to: shift + f.index + f.length })
+                }
+                if (i === 0 && start < end) {
+                    parts.push({ label, from: joined.length, to: joined.length + end - start })
+                    joined += text.slice(start, end)
+                }
+            })
+        }
+        for (const f of privacy.findings(joined, options)) {
+            const from = f.index
+            const to = f.index + f.length
+            if (own.some((o) => o.rule === f.rule && o.from < to && o.to > from)) continue
+            // The pieces it spans, and the one right before it: a home folder ends one piece, its user name starts the next.
+            const names = parts.filter((p) => p.from < to && p.to >= from).map((p) => p.label)
+            report(file, names.join("+"), f.rule, privacy.mask(joined.slice(from, to)))
+        }
+    }
+
+    // --- metadata of images: [chunk name, bytes] ----------------------------------------------------------
     function pngText(buf) {
         const texts = []
         let at = 8
@@ -228,20 +294,20 @@ function main() {
             const data = buf.subarray(at + 8, Math.min(buf.length, at + 8 + len))
             at += 12 + len
             try {
-                if (type === "tEXt") texts.push([type, data.toString("latin1").replace("\0", " ")])
+                if (type === "tEXt" || type === "eXIf") texts.push([type, data])
                 else if (type === "zTXt") {
                     const z = data.indexOf(0)
-                    texts.push([type, `${data.toString("latin1", 0, z)} ${utf8(zlib.inflateSync(data.subarray(z + 2)))}`])
+                    texts.push([type, Buffer.concat([data.subarray(0, z), SPACE, zlib.inflateSync(data.subarray(z + 2))])])
                 } else if (type === "iTXt") {
                     const k = data.indexOf(0)
                     const compressed = data[k + 1] === 1
                     const lang = data.indexOf(0, k + 3)
                     const translated = data.indexOf(0, lang + 1)
                     const body = data.subarray(translated + 1)
-                    texts.push([type, `${utf8(data.subarray(0, k))} ${utf8(data.subarray(k + 3, translated))} ${utf8(compressed ? zlib.inflateSync(body) : body)}`])
-                } else if (type === "eXIf") texts.push([type, utf8(data)])
+                    texts.push([type, Buffer.concat([data.subarray(0, k), SPACE, data.subarray(k + 3, translated), SPACE, compressed ? zlib.inflateSync(body) : body])])
+                }
             } catch {
-                texts.push([type, utf8(data)]) // a chunk that does not inflate: its raw bytes are still read
+                texts.push([type, data]) // a chunk that does not inflate: its raw bytes are still read
             }
             if (type === "IEND") break
         }
@@ -259,8 +325,8 @@ function main() {
             if (marker === 0xd9 || marker === 0xda) break // end of image, start of the compressed data
             const len = buf.readUInt16BE(at + 2)
             const data = buf.subarray(at + 4, Math.min(buf.length, at + 2 + len))
-            if (marker === 0xe1) texts.push(["APP1", utf8(data)])
-            else if (marker === 0xfe) texts.push(["COM", utf8(data)])
+            if (marker === 0xe1) texts.push(["APP1", data])
+            else if (marker === 0xfe) texts.push(["COM", data])
             at += 2 + len
         }
         return texts
@@ -272,7 +338,7 @@ function main() {
             const fourcc = buf.toString("latin1", at, at + 4)
             const len = buf.readUInt32LE(at + 4)
             const data = buf.subarray(at + 8, Math.min(buf.length, at + 8 + len))
-            if (fourcc === "EXIF" || fourcc === "XMP ") texts.push([fourcc, utf8(data)])
+            if (fourcc === "EXIF" || fourcc === "XMP ") texts.push([fourcc, data])
             at += 8 + len + (len % 2)
         }
         return texts
@@ -294,7 +360,7 @@ function main() {
             const b = buf[at]
             if (b === 0x21) {
                 const [data, next] = subBlocks(at + 2)
-                if (buf[at + 1] === 0xfe) texts.push(["comment", utf8(data)])
+                if (buf[at + 1] === 0xfe) texts.push(["comment", data])
                 at = next
             } else if (b === 0x2c) {
                 const packed = buf[at + 9]
@@ -326,8 +392,6 @@ function main() {
     // unreadable element, a broken size, an element of unknown size where none may be, nesting deeper than
     // CLIP_DEPTH — marks the clip incomplete (a finding), and reads the rest of that part as text all the same.
     const CLIP_DEPTH = 32
-    // Control characters split the text into runs; the rules see the printable runs joined by spaces.
-    const rawText = (buf, from, to) => utf8(buf.subarray(from, to)).replace(/[\x00-\x08\x0b-\x1f\x7f�]+/g, " ")
     // webm — Matroska, EBML: an element is an ID (1–4 bytes, its marker bit kept) and a size (a variable-length
     // integer of 1–8 bytes; all value bits set — unknown size). Only a Segment or a Cluster may have an unknown size
     // (a live recording): its children are read as if they were its siblings.
@@ -345,6 +409,7 @@ function main() {
         0x55b0, // Colour
         0x6d80, // ContentEncodings
         0x6240, // ContentEncoding
+        0x5034, // ContentCompression
         0x1f43b675, // Cluster
         0xa0, // BlockGroup
         0x75a1, // BlockAdditions
@@ -393,10 +458,10 @@ function main() {
         [0xec, "Void"],
     ])
     function webmFacts(buf) {
-        const facts = { texts: [], audio: false, seconds: null, incomplete: false }
+        const facts = { texts: [], audio: false, other: false, compressed: false, seconds: null, incomplete: false }
         const rest = (from, to) => {
             facts.incomplete = true
-            if (from < to) facts.texts.push(["unparsed", rawText(buf, from, to)])
+            if (from < to) facts.texts.push(["unparsed", buf.subarray(from, to)])
         }
         const vint = (at, maxLen, keepMarker) => {
             if (at >= buf.length) return null
@@ -443,12 +508,15 @@ function main() {
                         const track = { type: null, codec: "", audio: false }
                         walk(start, end, depth + 1, { track })
                         if (track.type === 2 || track.codec.startsWith("A_") || track.audio) facts.audio = true
+                        // Subtitles, buttons, data: their text is in frames, which are not read.
+                        if ((track.type !== null && track.type !== 1 && track.type !== 2) || (track.codec && !/^[VA]_/.test(track.codec))) facts.other = true
                     } else {
+                        if (id.value === 0x5034) facts.compressed = true
                         if (id.value === 0xe1 && ctx.track) ctx.track.audio = true
                         walk(start, end, depth + 1, ctx)
                     }
                 } else if (!EBML_FRAMES.has(id.value)) {
-                    facts.texts.push([EBML_NAMES.get(id.value) ?? `0x${id.value.toString(16)}`, rawText(buf, start, end)])
+                    facts.texts.push([EBML_NAMES.get(id.value) ?? `0x${id.value.toString(16)}`, buf.subarray(start, end)])
                     if (id.value === 0x4489 && ctx.info) ctx.info.duration = float(start, end)
                     else if (id.value === 0x2ad7b1 && ctx.info) ctx.info.scale = uint(start, end)
                     else if (id.value === 0x83 && ctx.track) ctx.track.type = uint(start, end)
@@ -471,12 +539,16 @@ function main() {
     const MP4_CONTAINERS = new Set(["moov", "trak", "mdia", "minf", "stbl", "dinf", "edts", "udta", "mvex", "moof", "traf", "mfra", "sinf", "schi", "tref", "meco", "strk", "strd", "ipro", "wave", "tapt", "clip", "matt", "imap", "rmra", "rmda"])
     // The sample entries of sound (stsd): a track of sound whatever its handler says.
     const MP4_AUDIO = new Set(["mp4a", "Opus", "ac-3", "ec-3", "ac-4", "alac", "fLaC", ".mp3", "mp3 ", "samr", "sawb", "sawp", "sowt", "twos", "lpcm", "ipcm", "fpcm", "raw ", "in24", "in32", "fl32", "fl64", "ulaw", "alaw", "ima4", "MAC3", "MAC6", "QDM2", "QDMC", "Qclp", "agsm", "dtsc", "dtsh", "dtsl", "dtse", "mha1", "mhm1", "enca"])
+    // The handlers of a track whose samples hold no text: picture, sound, a timecode (a frame number).
+    const MP4_TRACKS = new Set(["vide", "soun", "tmcd"])
+    // The sample entries of text and timed metadata (stsd): a track of text whatever its handler says.
+    const MP4_TEXT = new Set(["tx3g", "text", "wvtt", "stpp", "sbtt", "stxt", "c608", "c708", "mett", "metx", "mebx", "urim", "dfxp"])
     const XMP_UUID = "be7acfcb97a942e89c71999491e3afac"
     function mp4Facts(buf) {
-        const facts = { texts: [], audio: false, seconds: null, incomplete: false }
+        const facts = { texts: [], audio: false, other: false, compressed: false, seconds: null, incomplete: false }
         const name = (type, fallback) => (/^[\x20-\x7e\xa9]{4}$/.test(type) ? type.trim() : fallback)
         const text = (label, from, to) => {
-            if (from < to) facts.texts.push([label, rawText(buf, from, to)])
+            if (from < to) facts.texts.push([label, buf.subarray(from, to)])
         }
         const rest = (from, to) => {
             facts.incomplete = true
@@ -522,21 +594,34 @@ function main() {
             }
             return list
         }
+        // A QuickTime text atom of udta (©nam, ©cmt, …): items of a 2-byte size, a 2-byte language and the text.
+        // null — the bytes are not such items.
+        const textItems = (from, to) => {
+            const items = []
+            let at = from
+            while (at + 4 <= to) {
+                const n = buf.readUInt16BE(at)
+                if (at + 4 + n > to) return null
+                items.push([at + 4, at + 4 + n])
+                at += 4 + n
+            }
+            return at === to && items.length > 0 ? items : null
+        }
         const moovs = [] // {scale, duration, fragment} of each moov
-        function walk(from, to, depth, moov) {
+        function walk(from, to, depth, moov, parent) {
             if (depth >= CLIP_DEPTH) return rest(from, to)
             for (const b of boxes(from, to)) {
                 const t = b.type
                 if (t === "mdat") continue // the frames
                 if (t === "moov") {
                     const m = { scale: 0, duration: 0, fragment: 0 }
-                    walk(b.start, b.end, depth + 1, m)
+                    walk(b.start, b.end, depth + 1, m, t)
                     moovs.push(m)
-                } else if (MP4_CONTAINERS.has(t)) walk(b.start, b.end, depth + 1, moov)
+                } else if (MP4_CONTAINERS.has(t)) walk(b.start, b.end, depth + 1, moov, t)
                 else if (t === "meta") {
                     // ISO meta is a full box (4 bytes of version and flags before its children); the QuickTime one is not.
                     const quicktime = b.start + 8 <= b.end && buf.toString("latin1", b.start + 4, b.start + 8) === "hdlr"
-                    walk(b.start + (quicktime ? 0 : 4), b.end, depth + 1, moov)
+                    walk(b.start + (quicktime ? 0 : 4), b.end, depth + 1, moov, t)
                 } else if (t === "ilst") {
                     // An item (its type: ©too, a key index, ----) holds data, mean and name boxes, or others.
                     for (const item of boxes(b.start, b.end)) {
@@ -552,10 +637,15 @@ function main() {
                     else
                         for (const e of boxes(b.start + 8, b.end)) {
                             if (t === "stsd" && MP4_AUDIO.has(e.type)) facts.audio = true
+                            if (t === "stsd" && MP4_TEXT.has(e.type)) facts.other = true
                             text(name(e.type, t), e.start, e.end)
                         }
                 } else if (t === "hdlr") {
-                    if (b.start + 12 <= b.end && buf.toString("latin1", b.start + 8, b.start + 12) === "soun") facts.audio = true
+                    const handler = b.start + 12 <= b.end ? buf.toString("latin1", b.start + 8, b.start + 12) : ""
+                    if (handler === "soun") facts.audio = true
+                    // The handler of a track (in mdia; the hdlr of a meta box names its keys, not a track): text, subtitles,
+                    // timed metadata keep their text in mdat, which is not read.
+                    if (parent === "mdia" && !MP4_TRACKS.has(handler)) facts.other = true
                     text("hdlr", b.start + 8, b.end)
                 } else if (t === "mvhd" && moov) {
                     const v1 = buf[b.start] === 1
@@ -570,10 +660,17 @@ function main() {
                     const v1 = buf[b.start] === 1
                     if (b.start + (v1 ? 12 : 8) <= b.end) moov.fragment = v1 ? Number(buf.readBigUInt64BE(b.start + 4)) : buf.readUInt32BE(b.start + 4)
                     else facts.incomplete = true
-                } else text(t === "uuid" ? (b.usertype === XMP_UUID ? "XMP" : "uuid") : name(t, "box"), b.start, b.end)
+                } else if (t === "cmov") {
+                    facts.compressed = true // a QuickTime moov compressed with zlib: what it holds is not read
+                    text("cmov", b.start, b.end)
+                } else {
+                    const items = t.startsWith("\xa9") ? textItems(b.start, b.end) : null
+                    if (items) for (const [f, e] of items) text(name(t, "box"), f, e)
+                    else text(t === "uuid" ? (b.usertype === XMP_UUID ? "XMP" : "uuid") : name(t, "box"), b.start, b.end)
+                }
             }
         }
-        walk(0, buf.length, 0, null)
+        walk(0, buf.length, 0, null, null)
         // The longest of the durations: of every moov, its mvhd and its mehd (a fragmented file), in its timescale.
         for (const m of moovs) {
             const seconds = m.scale > 0 ? Math.max(m.duration, m.fragment) / m.scale : 0
@@ -581,12 +678,17 @@ function main() {
         }
         return facts
     }
+    // The first bytes of a compressed file or archive (gzip, zip, xz, zstd, 7z, bzip2): an element or box that starts
+    // with one holds text that is not read.
+    const PACKED = /^(?:\x1f\x8b\x08|PK\x03\x04|\xfd7zXZ\x00|\x28\xb5\x2f\xfd|7z\xbc\xaf\x27\x1c|BZh[1-9]1AY&SY)/
     // The reader goes by the first bytes: an EBML header is webm or mkv, anything else is read as ISO BMFF.
     function clipFacts(buf) {
         try {
-            return buf.length >= 4 && buf.readUInt32BE(0) === 0x1a45dfa3 ? webmFacts(buf) : mp4Facts(buf)
+            const facts = buf.length >= 4 && buf.readUInt32BE(0) === 0x1a45dfa3 ? webmFacts(buf) : mp4Facts(buf)
+            if (facts.texts.some(([, bytes]) => PACKED.test(bytes.toString("latin1", 0, 10)))) facts.compressed = true
+            return facts
         } catch {
-            return { texts: [], audio: false, seconds: null, incomplete: true } // a reader error: the clip is a finding
+            return { texts: [], audio: false, other: false, compressed: false, seconds: null, incomplete: true } // a reader error: the clip is a finding
         }
     }
 
@@ -619,9 +721,11 @@ function main() {
             const key = sameCase(path.resolve(abs))
             if (VIDEO_EXT.has(ext)) {
                 const clip = clipFacts(buf)
-                for (const [element, text] of clip.texts) checkText(file, text.replace(/\r?\n/g, " "), element)
+                checkBinary(file, clip.texts)
                 if (clip.incomplete) report(file, "-", "video", "video container not fully parsed")
                 if (clip.audio) report(file, "-", "video", "video has an audio track")
+                if (clip.other) report(file, "-", "video", "video has a subtitle or data track")
+                if (clip.compressed) report(file, "-", "video", "video has compressed metadata (not checked)")
                 if (buf.length > VIDEO_MAX_BYTES) report(file, "-", "video", "video over 8 MB")
                 if (clip.seconds === null) report(file, "-", "video", "video duration unknown")
                 else if (clip.seconds > VIDEO_MAX_SECONDS) report(file, "-", "video", "video over 60 s")
@@ -631,7 +735,7 @@ function main() {
                 }
                 return
             }
-            for (const [chunk, text] of imageText(file, buf)) checkText(file, text.replace(/\r?\n/g, " "), chunk)
+            checkBinary(file, imageText(file, buf))
             if (lower(abs).endsWith(SHEET) && !buf.subarray(0, 8).equals(PNG_SIGNATURE)) report(file, "-", "sheet", "contact sheet is not a PNG")
             if (needsNote && !notes.screenshot.has(key) && !notes.sheets.has(lower(abs))) {
                 const what = IMAGE_EXT.has(ext) ? "image" : "binary file"

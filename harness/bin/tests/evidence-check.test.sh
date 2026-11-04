@@ -429,6 +429,61 @@ grep -qF "b-ilst2.mp4:©too: home-path" "$T/out-any.txt" && ! grep -qF "b-ilst2.
 l="$(leaks "$T/out-any.txt")"; [ -z "$l" ] && ok "clip text: no value printed whole" || bad "clip text leak: $l"
 [ "$rc" -eq 1 ] && ok "clip text and structure -> exit 1" || bad "clip text: exit $rc"
 
+# Text of binary data is read the way it is stored, not the way a ticket writes it: a path right after a > (inside XML
+# tags) or right after a letter (the length byte of an alias record) is a path; UTF-16 text (a byte order mark, ilst
+# data of type 2) is read as UTF-16; a path split between two neighbouring elements or boxes is read joined. A track
+# of subtitles or data, and metadata compressed inside the clip, are findings: their text is not read.
+X="$T/clips-r3"; mkdir -p "$X"
+U="/Us""ers/"
+mkclip "$X/r-gt.webm" "{\"tagString\":\"<stRef:filePath>$HP</stRef:filePath>\"}"
+mkclip "$X/r-xmpgt.mp4" "{\"format\":\"mp4\",\"xmp\":\"<x:xmpmeta><stRef:filePath>$HP.mov</stRef:filePath></x:xmpmeta>\"}"
+mkclip "$X/r-attr.mp4" "{\"format\":\"mp4\",\"xmp\":\"<rdf:Description stRef:filePath='$HP.mov'/>\"}"
+mkclip "$X/r-u16tag.webm" "{\"tagString\":{\"text\":\"$HP\",\"utf16\":\"le\",\"bom\":true}}"
+mkclip "$X/r-u16ilst.mp4" "{\"format\":\"mp4\",\"too\":\"Lavf61.1.100\",\"ilst\":[{\"type\":\"zzzz\",\"children\":[{\"type\":\"data\",\"hex\":\"0000000200000000\",\"text\":{\"text\":\"$HP\",\"utf16\":\"be\"}}]}]}"
+mkclip "$X/r-u16udta.mp4" "{\"format\":\"mp4\",\"udta\":[{\"type\":\"©nam\",\"hex\":\"$(printf '%04x' $((2 + 2 * ${#HP})))55c4\",\"text\":{\"text\":\"$HP\",\"utf16\":\"be\",\"bom\":true}}]}"
+mkclip "$X/r-u16name.mp4" "{\"format\":\"mp4\",\"udta\":[{\"type\":\"name\",\"text\":{\"text\":\"$HP\",\"utf16\":\"be\",\"bom\":true}}]}"
+mkclip "$X/r-letter.mp4" "{\"format\":\"mp4\",\"top\":[{\"type\":\"free\",\"text\":\"A$HP\"}]}"
+mkclip "$X/r-alis.mp4" "{\"format\":\"mp4\",\"minf\":[{\"type\":\"dinf\",\"children\":[{\"type\":\"dref\",\"full\":true,\"hex\":\"00000001\",\"children\":[{\"type\":\"alis\",\"full\":true,\"hex\":\"000000000000000000000012\",\"text\":\"C$HP.mov\"}]}]}]}"
+mkclip "$X/r-letter.webm" "{\"segment\":[[\"5a5a\",\"x$HP\"]]}"
+mkclip "$X/r-winletter.webm" "{\"segment\":[[\"5a5a\",\"A$WIN_JSON\\\\x\"]]}"
+mkclip "$X/r-split.webm" "{\"info\":[[\"7ba9\",\"$U\"],[\"7384\",\"$NAME/x\"]]}"
+mkclip "$X/r-split.mp4" "{\"format\":\"mp4\",\"udta\":[{\"type\":\"©nam\",\"hex\":\"000755c4\",\"text\":\"$U\"},{\"type\":\"©cmt\",\"hex\":\"$(printf '%04x' $((${#NAME} + 2)))55c4\",\"text\":\"$NAME/x\"}]}"
+# The size of the second atom is wrong: its bytes are read whole, the size and the language code as spaces.
+mkclip "$X/r-split2.mp4" "{\"format\":\"mp4\",\"udta\":[{\"type\":\"©nam\",\"hex\":\"00070000\",\"text\":\"$U\"},{\"type\":\"©cmt\",\"hex\":\"00040000\",\"text\":\"$NAME/x\"}]}"
+mkclip "$X/r-sub.webm" '{"extraTrack":{"type":17,"codec":"S_TEXT/UTF8"}}'
+mkclip "$X/r-subtype.webm" '{"extraTrack":{"type":17,"codec":"V_VP8"}}'
+mkclip "$X/r-subcodec.webm" '{"extraTrack":{"type":1,"codec":"D_WEBVTT/SUBTITLES"}}'
+mkclip "$X/r-text.mp4" '{"format":"mp4","trak":["text"]}'
+mkclip "$X/r-meta.mp4" '{"format":"mp4","trak":["meta"]}'
+mkclip "$X/r-sbtl.mp4" '{"format":"mp4","trak":["sbtl"]}'
+mkclip "$X/r-tx3g.mp4" '{"format":"mp4","minf":[{"type":"stbl","children":[{"type":"stsd","full":true,"hex":"00000001","children":[{"type":"tx3g","hex":"000000000001"}]}]}]}'
+mkclip "$X/r-tmcd.mp4" '{"format":"mp4","trak":["tmcd"]}'
+mkclip "$X/r-zlib.webm" '{"compressed":true}'
+mkclip "$X/r-gzip.webm" "{\"fileData\":{\"text\":\"cwd $HP\",\"gzip\":true}}"
+mkclip "$X/r-cmov.mp4" "{\"format\":\"mp4\",\"moov\":[{\"type\":\"cmov\",\"children\":[{\"type\":\"dcom\",\"text\":\"zlib\"},{\"type\":\"cmvd\",\"hex\":\"00000040\",\"text\":{\"text\":\"moov $HP\",\"deflate\":true}}]}]}"
+mkimg png-text "$X/r-gt.png" "<stRef:filePath>$HP</stRef:filePath>"
+mkimg jpeg-exif "$X/r-gt.jpg" "<x:xmpmeta><stRef:filePath>$HP</stRef:filePath></x:xmpmeta>"
+mkimg jpeg-com "$X/r-letter.jpeg" "A$HP"
+(cd "$X" && node "$CHECK" -- *.webm *.mp4 r-gt.png r-gt.jpg r-letter.jpeg) >"$T/out-r3.txt" 2>&1; rc=$?
+for want in "r-gt.webm:TagString: home-path: jd…(4)" "r-xmpgt.mp4:XMP: home-path: jd…(4)" "r-attr.mp4:XMP: home-path: jd…(4)" \
+    "r-u16tag.webm:TagString: home-path: jd…(4)" "r-u16ilst.mp4:©too: home-path: jd…(4)" "r-u16udta.mp4:©nam: home-path: jd…(4)" \
+    "r-u16name.mp4:name: home-path: jd…(4)" "r-letter.mp4:free: home-path: jd…(4)" "r-alis.mp4:alis: home-path: jd…(4)" \
+    "r-letter.webm:0x5a5a: home-path: jd…(4)" "r-winletter.webm:0x5a5a: home-path: jd…(4)" \
+    "r-split.webm:Title+SegmentFilename: home-path: jd…(4)" "r-split.mp4:©nam+©cmt: home-path: jd…(4)" "r-split2.mp4:©nam+©cmt: home-path: jd…(4)" \
+    "r-sub.webm:-: video: video has a subtitle or data track" "r-subcodec.webm:-: video: video has a subtitle or data track" \
+    "r-subtype.webm:-: video: video has a subtitle or data track" \
+    "r-text.mp4:-: video: video has a subtitle or data track" "r-meta.mp4:-: video: video has a subtitle or data track" \
+    "r-sbtl.mp4:-: video: video has a subtitle or data track" "r-tx3g.mp4:-: video: video has a subtitle or data track" \
+    "r-zlib.webm:-: video: video has compressed metadata (not checked)" "r-gzip.webm:-: video: video has compressed metadata (not checked)" \
+    "r-cmov.mp4:-: video: video has compressed metadata (not checked)" \
+    "r-gt.png:tEXt: home-path: jd…(4)" "r-gt.jpg:APP1: home-path: jd…(4)" "r-letter.jpeg:COM: home-path: jd…(4)"; do
+    grep -qF -- "$want" "$T/out-r3.txt" && ok "binary text as stored: $want" || bad "binary text: missing '$want' (exit $rc): $(head -c 2500 "$T/out-r3.txt")"
+done
+grep -qF "r-tmcd.mp4" "$T/out-r3.txt" && bad "a timecode track reported: $(grep -F r-tmcd "$T/out-r3.txt")" || ok "an mp4 timecode track (tmcd) -> no finding"
+[ "$(grep -c 'r-split.webm:' "$T/out-r3.txt")" -eq 1 ] && ok "a split path -> one finding, not one per piece" || bad "split path: $(grep -F r-split.webm "$T/out-r3.txt")"
+l="$(leaks "$T/out-r3.txt")"; [ -z "$l" ] && ok "binary text: no value printed whole" || bad "binary text leak: $l"
+[ "$rc" -eq 1 ] && ok "binary text as stored -> exit 1" || bad "binary text: exit $rc"
+
 # --changed: the scrub: note of a clip is an added "- evidence: video … · scrub:" line whose ref leads to it, and its
 # contact sheet <name>.sheet.png is added by the same branch.
 R2="$T/repo2"; E2="$R2/.scratch/ep/evidence"; mkdir -p "$R2/.scratch/ep/issues" "$E2"
