@@ -12,9 +12,14 @@
 // not on the reserve. Only a fresh 7-day number (BUDGET_FRESH_MS) with a reset time ahead gives a K.
 // The 5-hour window plays no part here (the spec's narrow reading of Q3, "Not decided", point 14).
 // The recommendation is words only: the Run is still led by the daily budget of ticket 41.
+//
+// A Run on a Vendor other than Claude (worfy-multi-vendor ticket 38, decision 09): the longest window
+// of that Vendor stands for the 7-day one (budget-window.ts), and since such a Vendor gives whole
+// percents only, the forecast line says its range is wide (WIDE_RANGE_TEXT).
 // Everything here is pure.
-import type { LimitsState, LimitWindowState } from '../agent/limits'
+import type { LimitsState } from '../agent/limits'
 import { BUDGET_FRESH_MS } from './budget'
+import { budgetWindows, listsWindows, type BudgetWindowNow, type VendorLimits } from './budget-window'
 import { FORECAST_MIN_SAMPLES, type EpicForecast } from './forecast'
 import { duration, usedNowText, type WeekNow } from './limits-estimate'
 import { toMs } from './resume-at'
@@ -22,18 +27,21 @@ import { hourText, RUN_MODE_LABELS, type RunMode, type StartWindow } from './run
 import { shareRangeText, shareUnits } from './share-percent'
 import type { WaveDuration } from './wave-duration'
 
-/** The 7-day window when its number is fresh at `now`. */
-function freshWeek(limits: LimitsState, now: number): (LimitWindowState & { utilization: number }) | null {
-  const week = limits.windows.seven_day
-  if (week === undefined || week.utilization === null || now - week.receivedAt > BUDGET_FRESH_MS) return null
+/** The 7-day window (another Vendor's longest, `vendor`) when its number is fresh at `now`. */
+function freshWeek(limits: LimitsState, now: number, vendor: VendorLimits | undefined): (BudgetWindowNow & { utilization: number }) | null {
+  const week = budgetWindows(limits, vendor).week
+  if (week === null || week.utilization === null || now - week.receivedAt > BUDGET_FRESH_MS) return null
   return { ...week, utilization: week.utilization }
 }
 
 /** The 7-day window as the "Used now" tail reads it: null unless its number is fresh. */
-function weekNow(limits: LimitsState, now: number): WeekNow | null {
-  const week = freshWeek(limits, now)
+function weekNow(limits: LimitsState, now: number, vendor: VendorLimits | undefined): WeekNow | null {
+  const week = freshWeek(limits, now, vendor)
   return week === null ? null : { utilization: week.utilization, resetsAt: week.resetsAt === null ? null : toMs(week.resetsAt) / 1000 }
 }
+
+/** The sentence of a forecast of a Vendor that gives whole percents only (decision 09). */
+export const WIDE_RANGE_TEXT = 'The range is wide: this Vendor reports its Limits in whole percents only'
 
 export interface FitInput {
   forecast: EpicForecast
@@ -41,6 +49,8 @@ export interface FitInput {
   now: number
   /** The reserve of the week, 0..1, when the budget acts in the Run; null when it does not. */
   reserve: number | null
+  /** The windows of the Run's Vendor when it is not Claude (budget-window.ts); absent: Claude's `limits`. */
+  vendor?: VendorLimits
 }
 
 /**
@@ -48,8 +58,8 @@ export interface FitInput {
  * (1 − reserve − used, or 1 − used with no reserve); 0 when not even the first Wave fits. Null
  * without a fresh 7-day number with a reset time ahead, without a range, or with no Wave left.
  */
-export function fitBeforeReset({ forecast, limits, now, reserve }: FitInput): number | null {
-  const week = freshWeek(limits, now)
+export function fitBeforeReset({ forecast, limits, now, reserve, vendor }: FitInput): number | null {
+  const week = freshWeek(limits, now, vendor)
   if (week === null || week.resetsAt === null || toMs(week.resetsAt) <= now) return null
   if (forecast.cumulativeHigh === null || forecast.waves === 0) return null
   // In whole millionths (shareUnits): 1 − 0.15 − 0.45 is 0.39999999999999997 in floating point, and a
@@ -64,22 +74,25 @@ export interface ForecastLineInput {
   forecast: EpicForecast
   limits: LimitsState
   now: number
+  /** The windows of the Run's Vendor when it is not Claude (budget-window.ts); absent: Claude's `limits`. */
+  vendor?: VendorLimits
 }
 
 /**
  * The forecast line, in place of the Wave line of ticket 40: "This Epic: 4 Waves, 11 Tickets left,
  * usually 18–31% of the week. Used now: 41%, resets in 2 d 5 h"; with too few samples it says so,
  * with Tickets without a Wave it says how many are not counted, with no Wave left it says that alone.
+ * A Run on a Vendor other than Claude says WIDE_RANGE_TEXT after its range.
  */
-export function forecastLine({ forecast, limits, now }: ForecastLineInput): string {
+export function forecastLine({ forecast, limits, now, vendor }: ForecastLineInput): string {
   const uncounted = forecast.uncounted === 0 ? [] : [forecast.uncounted === 1 ? '1 Ticket without a Wave is not counted' : `${forecast.uncounted} Tickets without a Wave are not counted`]
   if (forecast.waves === 0) return ['This Epic: no Wave left to forecast', ...uncounted].join('. ')
   const left = `This Epic: ${count(forecast.waves, 'Wave')}, ${count(forecast.tickets, 'Ticket')} left`
   const sentences =
     forecast.range === null
       ? [left, ...uncounted, `Not enough data for a forecast: fewer than ${FORECAST_MIN_SAMPLES} past Waves with fresh Limits`]
-      : [`${left}, usually ${shareRangeText(forecast.range)} of the week`, ...uncounted]
-  return [...sentences, usedNowText(weekNow(limits, now), now)].join('. ')
+      : [`${left}, usually ${shareRangeText(forecast.range)} of the week`, ...(listsWindows(vendor?.vendor) ? [WIDE_RANGE_TEXT] : []), ...uncounted]
+  return [...sentences, usedNowText(weekNow(limits, now, vendor), now)].join('. ')
 }
 
 /**
@@ -125,6 +138,8 @@ export interface DialogLinesInput {
   /** The reserve of the week from Settings, 0..1: Budget-aware applies it whatever the budget switch says. */
   reserve: number
   window: StartWindow
+  /** The windows of the Run's Vendor when it is not Claude (budget-window.ts); absent: Claude's `limits`. */
+  vendor?: VendorLimits
 }
 
 /**
@@ -132,11 +147,11 @@ export interface DialogLinesInput {
  * (the person chooses it in the same dialog): `Forecast:`, `Budget-aware:` (the recommendation),
  * `Fastest:` (the warning) and the Start window line. A line with nothing to say is left out.
  */
-export function dialogLines({ forecast, wave, limits, now, reserve, window }: DialogLinesInput): string[] {
-  const recommendation = recommendationLine(fitBeforeReset({ forecast, limits, now, reserve }), forecast.waves)
-  const warning = warningLine(fitBeforeReset({ forecast, limits, now, reserve: null }), forecast.waves)
+export function dialogLines({ forecast, wave, limits, now, reserve, window, vendor }: DialogLinesInput): string[] {
+  const recommendation = recommendationLine(fitBeforeReset({ forecast, limits, now, reserve, vendor }), forecast.waves)
+  const warning = warningLine(fitBeforeReset({ forecast, limits, now, reserve: null, vendor }), forecast.waves)
   return [
-    `Forecast: ${forecastLine({ forecast, limits, now })}`,
+    `Forecast: ${forecastLine({ forecast, limits, now, vendor })}`,
     recommendation === null ? null : `Budget-aware: ${recommendation}`,
     warning === null ? null : `Fastest: ${warning}`,
     windowLine(window, wave),

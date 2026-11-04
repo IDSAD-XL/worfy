@@ -24,12 +24,14 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
+import { observeSessionLimits } from '../../src/main/agent/limits'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, STATIC_CLAUDE_PARTS } from '../../src/main/agent/session'
 import { hasExited } from '../../src/main/agent/session/process'
 import { UNATTENDED_MODE_MESSAGE, unattendedPresetMessage } from '../../src/main/agent/session-settings'
 import { openRun, readRun } from '../../src/main/autopilot/journal'
-import { Autopilot } from '../../src/main/autopilot/run'
+import type { LimitsWaitDeps } from '../../src/main/autopilot/limits-wait'
+import { Autopilot, type AutopilotDeps } from '../../src/main/autopilot/run'
 import { LayoutStore } from '../../src/main/layout/store'
 import { CODEX_HOOKS_REFUSAL, codexHarnessHooksPart } from '../../src/main/vendors/codex/harness-hooks'
 import { claudeSessions } from '../../src/main/vendors/claude/session'
@@ -42,8 +44,10 @@ import { codexSessions } from '../../src/main/vendors/codex/session'
 import type { HarnessHooksPart } from '../../src/main/vendors/harness-hooks'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import type { AgentEvent } from '../../src/shared/agent/events'
+import type { LimitWindow } from '../../src/shared/agent/limits'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../src/shared/agent/settings'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
+import { RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
 import { ORCHESTRATOR_HEIGHT, ORCHESTRATOR_KIND, ORCHESTRATOR_WIDTH, readOrchestratorData } from '../../src/shared/ipc/orchestrator'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { CLAUDE_CAPABILITIES, type Capabilities } from '../../src/shared/vendors/capabilities'
@@ -67,6 +71,8 @@ const PROJECT = 'demo-00000037'
 const EPIC = 'demo'
 /** What the default Run wave template sends for the Epic's one Wave (ADR-0033). */
 const WAVE_1 = '/epic-wave Ticket-ы 01 эпика demo'
+/** The "Process gate queue" template on a machine with `serve` (worfy-windows ticket 17). */
+const GATE_QUEUE = '/worfy:gate-queue'
 /** The thread of the run's unattended Session (test/fixtures/codex-scripts/autopilot-wave.jsonl). */
 const WAVE_THREAD = 'thr_fake_wave'
 /** The attended Orchestrator's picks: Auto on Codex, so the run's Full access is its own. */
@@ -156,6 +162,22 @@ interface HarnessOptions {
   codexFails?: string
   /** WORFY_CODEX_HOME of the fake: a resume works only for a thread one of its processes started. */
   codexHome?: string
+  /**
+   * The run follows the Limits (worfy-multi-vendor ticket 38): the Session's Limits status, Codex's windows
+   * from the Sessions' `limits` events, and this clock, the fake's (its turns run at 1793000000); the
+   * wait's timer never fires.
+   */
+  limitsClock?: number
+  /** Codex's windows known before the run (the app's poll). */
+  codexWindows?: LimitWindow[]
+  /** What each read of Codex's windows anew answers, in order (the last again after); none: no such read. */
+  reads?: LimitWindow[][]
+  /** How many of the run's wait timers fire at once; the rest never do (default none). */
+  fires?: number
+  /** The budget of the Limits (Settings → Autopilot) and the past runs' journals. */
+  budget?: AutopilotDeps['budget']
+  /** The text of "Process gate queue" on a machine with `serve`, and what happens when it is read (worfy-multi-vendor ticket 38). */
+  gateQueue?: { text: string; onRead?: () => void }
 }
 
 /**
@@ -281,7 +303,52 @@ function harness(options: HarnessOptions) {
     pollMs: 5,
     waitMs: 200,
   })
+  if (options.gateQueue !== undefined) {
+    const queue = options.gateQueue
+    launcher.autopilotGateQueue = () => {
+      queue.onRead?.()
+      return Promise.resolve(queue.text)
+    }
+  }
+  // Codex's windows as the Sessions' `limits` events tell them (the app keeps them in its LimitsTracker).
+  let codexWindows: readonly LimitWindow[] | null = options.codexWindows ?? null
+  const reads = options.reads === undefined ? undefined : [...options.reads]
+  let readCount = 0
+  let fires = options.fires ?? 0
+  registry.observe((_sessionId, event) => {
+    if (event.type === 'limits' && event.vendor === 'codex') codexWindows = event.windows
+  })
+  const clock = options.limitsClock
+  const limits: LimitsWaitDeps | undefined =
+    clock === undefined
+      ? undefined
+      : {
+          state: () => ({ windows: {} }),
+          windows: (vendor) => (vendor === 'codex' ? codexWindows : null),
+          observeSession: (isSession, listener) => observeSessionLimits((sink) => registry.observe(sink), isSession, listener),
+          send: (sessionId, text) => void registry.get(sessionId).send(text),
+          now: () => clock,
+          schedule: (_at, fire) => {
+            if (fires > 0) {
+              fires -= 1
+              setTimeout(fire, 0)
+            }
+            return () => undefined
+          },
+          ...(reads === undefined
+            ? {}
+            : {
+                readWindows: (vendor: string) => {
+                  readCount += 1
+                  if (vendor !== 'codex') return Promise.resolve(null)
+                  codexWindows = reads.length > 1 ? reads.shift()! : reads[0]!
+                  return Promise.resolve(codexWindows)
+                },
+              }),
+        }
   const autopilot = new Autopilot({
+    ...(limits === undefined ? {} : { limits }),
+    ...(options.budget === undefined ? {} : { budget: options.budget }),
     projectRoot: () => repo,
     selfRefusal: () => Promise.resolve(null),
     workflow,
@@ -317,7 +384,7 @@ function harness(options: HarnessOptions) {
     existsSync(hooksLog)
       ? readFileSync(hooksLog, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as Logged).filter((each) => each.method === 'hooks/list')
       : []
-  return { registry, orchestrators, autopilot, layout, journal, logs, logged, request, node, data, observed, transcripts, picks, claudeMessages, hooksHome, hookChecks, hooksAsked }
+  return { registry, orchestrators, autopilot, layout, journal, logs, logged, request, node, data, observed, transcripts, picks, claudeMessages, hooksHome, hookChecks, hooksAsked, reads: () => readCount }
 }
 
 describe('Autopilot on a Codex Orchestrator (worfy-multi-vendor ticket 37)', () => {
@@ -566,5 +633,117 @@ describe('Autopilot on a Codex Orchestrator (worfy-multi-vendor ticket 37)', () 
     expect(h.data()).not.toHaveProperty('vendor')
     expect(warn.mock.calls.some(([message]) => String(message).includes('could not read the Vendor'))).toBe(true)
     warn.mockRestore()
+  })
+})
+
+describe('the Limits of a Run on Codex and the gate queue\'s turn (worfy-multi-vendor ticket 38)', () => {
+  /** The clock of the fake's scripts: their turns run at 1793000000 (Unix seconds). */
+  const CLOCK = 1_793_000_000_000
+  /** Codex Plus as limits-two-windows sends it: a 5-hour `primary` and a weekly `secondary`, read at CLOCK. */
+  const plus = (five: number, week: number): LimitWindow[] => [
+    { vendor: 'codex', id: 'primary', label: '5h', usedPercent: five, windowMinutes: 300, resetsAt: 1_793_003_600, state: five >= 100 ? 'reached' : 'ok', receivedAt: CLOCK, source: 'read' },
+    { vendor: 'codex', id: 'secondary', label: 'weekly', usedPercent: week, windowMinutes: 10080, resetsAt: 1_793_400_000, state: 'ok', receivedAt: CLOCK, source: 'read' },
+  ]
+  const USAGE_LIMIT = "You've hit your usage limit. Try again later."
+
+  it('usage-limit-window: the Wave\'s turn refused with the 5-hour window used up waits until its resetsAt, and does not stop', async () => {
+    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-window', 'resume'], hooksApproved: true, limitsClock: CLOCK })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'waiting', 'the wait for the Limits')
+    const resumesAt = 1_793_003_600_000 + RESUME_MARGIN_MS
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'waiting', resumesAt, reason: null })
+    const events = await h.journal()
+    expect(events.find((event) => event.kind === 'limits-hit')).toEqual(expect.objectContaining({ window: 'primary', resetsAt: new Date(1_793_003_600_000).toISOString() }))
+    expect(events.find((event) => event.kind === 'limits-hit')).not.toHaveProperty('reason')
+    expect(events.find((event) => event.kind === 'waiting-until')).toMatchObject({ until: new Date(resumesAt).toISOString() })
+    expect(events.some((event) => event.kind === 'run-stopped')).toBe(false)
+  })
+
+  it('after the wait Codex\'s windows are read again: one still used up is waited for once more, then the Orchestrator goes on; the Wave\'s line carries the {windows}', async () => {
+    const h = harness({
+      vendor: () => 'codex',
+      scripts: ['turn', 'usage-limit-window', 'resume'],
+      hooksApproved: true,
+      limitsClock: CLOCK,
+      fires: 2,
+      reads: [plus(12, 40), plus(100, 64), plus(30, 64)],
+    })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(async () => (await h.journal()).some((event) => event.kind === 'resumed'), 'the continuation')
+    const events = await h.journal()
+    expect(h.reads()).toBe(3)
+    const kinds = events.map((event) => event.kind)
+    const from = kinds.indexOf('limits-hit')
+    expect(kinds.slice(from, from + 4)).toEqual(['limits-hit', 'waiting-until', 'waiting-until', 'resumed'])
+    expect(events.filter((event) => event.kind === 'waiting-until')).toMatchObject([
+      { until: new Date(1_793_003_600_000 + RESUME_MARGIN_MS).toISOString() },
+      { until: new Date(1_793_003_600_000 + RESUME_MARGIN_MS).toISOString() },
+    ])
+    const started = events.find((event) => event.kind === 'wave-started')
+    expect(started?.kind === 'wave-started' ? started.limits : null).toEqual({
+      windows: [
+        expect.objectContaining({ vendor: 'codex', id: 'primary', usedPercent: 12, windowMinutes: 300 }),
+        expect.objectContaining({ vendor: 'codex', id: 'secondary', usedPercent: 40, windowMinutes: 10080 }),
+      ],
+    })
+  })
+
+  it('the budget of a Run on Codex reads Codex\'s windows: the 5-hour window used up holds Wave 1 until its reset; the forecast\'s week is the weekly window', async () => {
+    const h = harness({
+      vendor: () => 'codex',
+      scripts: ['turn', 'turn', 'resume'],
+      hooksApproved: true,
+      limitsClock: CLOCK,
+      codexWindows: plus(100, 41),
+      budget: { settings: () => ({ enabled: true, reserve: 0.15 }), runs: () => Promise.resolve([]) },
+    })
+    await h.autopilot.start(PROJECT, EPIC, { mode: 'budget-aware' })
+    await until(() => h.autopilot.state(PROJECT).status === 'waiting', 'the budget\'s wait')
+    const events = await h.journal()
+    expect(events.find((event) => event.kind === 'forecast')).toMatchObject({ week: { utilization: 0.41, resetsAt: new Date(1_793_400_000_000).toISOString() } })
+    expect(events.find((event) => event.kind === 'budget-stop')).toMatchObject({ cause: 'five-hour', until: new Date(1_793_003_600_000 + RESUME_MARGIN_MS).toISOString() })
+    expect(events.some((event) => event.kind === 'wave-started')).toBe(false)
+  })
+
+  it('usage-limit-quota: refused with no window used up, the Run stops at once with vendor-quota and the error text, without a wait', async () => {
+    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-quota', 'resume'], hooksApproved: true, limitsClock: CLOCK })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'vendor-quota', message: USAGE_LIMIT, resumesAt: null })
+    const events = await h.journal()
+    expect(events.find((event) => event.kind === 'limits-hit')).toMatchObject({ window: null, resetsAt: null, reason: 'quota', message: USAGE_LIMIT })
+    expect(events.some((event) => event.kind === 'waiting-until')).toBe(false)
+    expect(events.find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'vendor-quota' })
+  })
+
+  it('the gate queue\'s turn asks the Vendor first: hooks turned off by then send no gate queue, and the Run stops with session-error and the reason', async () => {
+    // Ticket 01 waits on a Ticket the Epic does not have: no Wave is ready, so the run turns to the gate queue.
+    writeTicket('open', 1, [9])
+    const plugin = (): string => join(h.hooksHome, 'plugins', 'cache', 'worfy-harness', 'worfy', 'local', '.claude-plugin', 'plugin.json')
+    // The Harness is updated while the template is read: Codex's approval was of the old folder's hash.
+    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'turn', 'resume'], hooksApproved: true, gateQueue: { text: GATE_QUEUE, onRead: () => appendFileSync(plugin(), '\n') } })
+    await h.autopilot.start(PROJECT, EPIC)
+    const atStart = h.hooksAsked().length
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'session-error', message: CODEX_HOOKS_REFUSAL, wave: 0 })
+    expect(h.hooksAsked().length).toBe(atStart + 1)
+    const events = await h.journal()
+    expect(events.some((event) => event.kind === 'gate-queue')).toBe(false)
+    expect(events.filter((event) => event.kind === 'session-error')).toMatchObject([{ message: CODEX_HOOKS_REFUSAL }])
+    expect(events.find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'session-error' })
+    expect(h.observed.some((event) => event.type === 'prompt' && event.text === GATE_QUEUE)).toBe(false)
+  })
+
+  it('with the hooks still approved the gate queue goes as before, after the same check', async () => {
+    writeTicket('open', 1, [9])
+    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'turn', 'resume'], hooksApproved: true, gateQueue: { text: GATE_QUEUE } })
+    await h.autopilot.start(PROJECT, EPIC)
+    const atStart = h.hooksAsked().length
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave' })
+    expect(h.hooksAsked().length).toBe(atStart + 1)
+    const kinds = (await h.journal()).map((event) => event.kind)
+    expect(kinds.filter((kind) => kind === 'gate-queue' || kind === 'gate-queue-finished' || kind === 'run-stopped')).toEqual(['gate-queue', 'gate-queue-finished', 'run-stopped'])
+    expect(h.observed.some((event) => event.type === 'prompt' && event.text === GATE_QUEUE)).toBe(true)
   })
 })

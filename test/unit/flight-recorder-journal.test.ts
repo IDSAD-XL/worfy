@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { journalFacts, STOP_OUTCOMES, type JournalFacts } from '../../src/shared/flight-recorder/from-journal'
+import { parseJournal, walkRun } from '../../src/shared/flight-recorder/journal-walk.mjs'
 import { summarize } from '../../src/shared/flight-recorder/summary'
 import { buildTimeline, type RunFacts, type StageEventFact, type WorkFact } from '../../src/shared/flight-recorder/spans'
 import { AUTOPILOT_STOP_REASONS } from '../../src/shared/autopilot/cycle'
@@ -79,6 +80,29 @@ describe('from-journal: the Waits', () => {
     const timeline = buildTimeline(runFacts(facts))
     const wait = timeline.spans.find((item) => item.kind === 'wait')
     expect(wait).toMatchObject({ waitCause: 'limits', start: Date.parse(T('10:10')), end: Date.parse(T('11:00')), reason: `limits: five_hour, until ${T('11:00')}`, links: { tickets: ['e/01'] } })
+  })
+
+  it('a Run on Codex: the Wave lines\' {windows} limits read alike, and a limits-hit of a quota opens no Wait; the Run fails with vendor-quota (worfy-multi-vendor ticket 38)', () => {
+    const windows = { windows: [{ vendor: 'codex', id: 'primary', label: '5h', usedPercent: 30, windowMinutes: 300, resetsAt: T('15:00'), receivedAt: T('10:01'), state: 'ok', source: 'read' }] }
+    const quota = read(
+      started({ vendor: 'codex' }),
+      wave('10:01', 1, ['01'], { limits: windows }),
+      line('10:10', 'limits-hit', { window: null, resetsAt: null, reason: 'quota', message: "You've hit your usage limit." }),
+      stopped('10:10', 'vendor-quota'),
+    )
+    expect(quota.waits).toEqual([])
+    expect(quota.run.outcome).toBe('failed')
+    expect(quota.waves).toHaveLength(1)
+    expect(walkRun(parseJournal([started(), line('10:10', 'limits-hit', { window: null, resetsAt: null, reason: 'quota' }), stopped('10:10', 'vendor-quota')].join('\n')).events).waits).toEqual([])
+    // The same Run with the Claude shape and a hit of a window: the Wave as before, and the Wait.
+    const window = read(
+      started(),
+      wave('10:01', 1, ['01'], { limits: { five_hour: null, seven_day: { utilization: 0.3, receivedAt: T('10:01'), resetsAt: T('15:00') } } }),
+      line('10:10', 'limits-hit', { window: null, resetsAt: null }),
+      stopped('10:10', 'limits-timeout'),
+    )
+    expect(window.waves).toEqual(quota.waves)
+    expect(window.waits).toHaveLength(1)
   })
 
   it('turns budget-stop … resumed before a Wave into a Wait `limits-budget` that stands for the next Wave', () => {
@@ -617,6 +641,7 @@ describe('from-journal: the frame of the Run', () => {
       'send-failed': 'failed',
       'workflow-error': 'failed',
       'limits-timeout': 'failed',
+      'vendor-quota': 'failed',
       'background-stalled': 'failed',
       'window-too-short': 'failed',
     })

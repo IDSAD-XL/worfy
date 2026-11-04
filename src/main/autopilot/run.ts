@@ -55,7 +55,11 @@
 // - keep-awake (power.ts) is held from the start to the end of the run.
 // - A turn of the Wave refused by the Limits does not end it (worfy-daily ticket 05): the run goes
 //   `waiting` until the Limits reset, then sends the Orchestrator on (limits-wait.ts). Past the
-//   wait's limit it stops with `limits-timeout`.
+//   wait's limit it stops with `limits-timeout`. On a Vendor other than Claude (Codex,
+//   worfy-multi-vendor ticket 38) a refusal without a window that resets (`limit_reached` with
+//   `reason: 'quota'`) stops the run at once with `vendor-quota` and the turn's error text; after a
+//   wait for a window the run reads the Vendor's windows again and waits once more while one is
+//   still used up.
 // - Every step goes to the run journal (src/main/autopilot/journal.ts): Waves with the text sent and
 //   the Tickets left out for not being open, errors, refused dialogs of the unattended Session, the
 //   reason the run stopped with the Orchestrator's last answer in the Wave (ADR-0033), and every
@@ -137,6 +141,13 @@
 //   `wave-started` and `wave-finished` are kept as written; `run-stopped` carries `actual`, the
 //   growth of the 7-day share over the run's Waves by the rule of the samples (waveGrowth), once any
 //   Wave has finished, on a Force stop and a quit too.
+// - The Limits of the run's Vendor (worfy-multi-vendor ticket 38, src/shared/autopilot/budget-window.ts):
+//   on Claude, as above; on another Vendor the Wave lines carry that Vendor's windows ({windows}, read
+//   anew before a line when older than FRESH_USAGE_MS, deps.limits.readWindows), and the budget, the
+//   estimate, the forecast and `actual` read its longest window and the journals' numbers of runs on
+//   the same Vendor.
+// - The gate queue's turn is asked of the Vendor first, as every Wave after the first is (waveRefused):
+//   refused, the run stops with `session-error` and the reason, and no gate-queue goes.
 //
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
 import { realpath } from 'node:fs/promises'
@@ -147,13 +158,14 @@ import { ticketNumber } from '../../shared/actions/render-template'
 import { messageText } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
-import { clipLastText, journalLimits, journalReason, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
+import { budgetWindows, listsWindows, STORED_LIMITS_VENDOR, type VendorLimits } from '../../shared/autopilot/budget-window'
+import { clipLastText, journalLimits, journalReason, journalVendorLimits, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
 import { BUDGET_FRESH_MS, budgetDecision, budgetStopText, type AutopilotBudget, type BudgetCause, type BudgetDecision } from '../../shared/autopilot/budget'
 import { epicForecast, remainingWaves } from '../../shared/autopilot/forecast'
 import { fitBeforeReset } from '../../shared/autopilot/forecast-lines'
 import type { JournalEvent } from '../../shared/autopilot/journal'
 import { waveEstimate, waveGrowth, waveSamples, type WaveLine } from '../../shared/autopilot/limits-estimate'
-import { toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
+import { stillUsedUp, toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
 import { DEFAULT_START_WINDOW, unknownDurationText, windowDecision, windowNeverFitsText, windowWaitText, type RunMode, type WindowWait, type WindowWaitReason } from '../../shared/autopilot/run-mode'
 import { waveDurationP90 } from '../../shared/autopilot/wave-duration'
 import {
@@ -562,6 +574,8 @@ class Run {
   awake: { start(): void; stop(): void } | null = null
   /** The run's wait for the Limits; null when the app gave no Limits (AutopilotDeps.limits). */
   limits: LimitsWait | null = null
+  /** The Vendor of the run's Orchestrator, as run-started names it (worfy-multi-vendor ticket 37); Claude without one. */
+  vendor: string = STORED_LIMITS_VENDOR
   message: string | null = null
   private chain: Promise<void> = Promise.resolve()
   readonly cleanups: (() => Promise<void> | void)[] = []
@@ -865,6 +879,7 @@ export class Autopilot {
       try {
         if (view === null || view.sessionId === null) throw new Error('The Orchestrator has no Session')
         run.session = this.deps.registry.get(view.sessionId)
+        run.vendor = view.vendor ?? STORED_LIMITS_VENDOR
         run.journal = await this.deps.journal({
           project: projectId,
           epic,
@@ -1106,7 +1121,7 @@ export class Autopilot {
           if (!run.endsWave(turn) && !interrupted) return
           // The answer of a turn of the Wave, for run-stopped (ADR-0033).
           if (run.endsWave(turn) && event.text !== null && event.text.trim() !== '') run.lastText = clipLastText(event.text)
-          if (hit !== null && !interrupted) return this.limitsHit(run, hit)
+          if (hit !== null && !interrupted) return this.limitsHit(run, hit, message)
           // A turn of the Wave that was not refused ends any wait (a person's turn during it, too).
           // A wait it ends gets its `resumed`, so the journal shows where the wait stopped and
           // the Wave's duration does not count the rest of the Wave as waiting (wave-duration.ts).
@@ -1261,6 +1276,17 @@ export class Autopilot {
     const text = await gateQueue.call(this.deps.waves, run.projectId)
     // A Stop, a Force stop or the quit before the step, or while the role and the template were read.
     if (text === null || run.stopRequested || run.rushed || this.quitting || run.session === null) return false
+    // The turn goes to the Orchestrator unattended, as a Wave does: the Vendor is asked first
+    // (worfy-multi-vendor ticket 39). Refused: `session-error` with the reason, and the run stops with it.
+    const refusal = await this.vendorRefusal(run)
+    if (refusal === 'rushed' || run.stopRequested) return false
+    if (refusal !== null) {
+      run.message = refusal
+      await this.write(run, { kind: 'session-error', session: run.session?.id ?? null, message: refusal })
+      run.cycle = { ...run.cycle, phase: 'stopped', reason: 'session-error' }
+      await this.end(run, 'session-error')
+      return true
+    }
     const saved = { reason: effect.reason, tickets: effect.tickets, lastText: run.lastText }
     run.cycle = { ...run.cycle, phase: 'turn', tickets: [], reason: null, inWork: [] }
     run.gateQueue = saved
@@ -1398,18 +1424,28 @@ export class Autopilot {
    * does not wait for the answer: true, and their stop step ends the run.
    */
   private async waveRefused(run: Run): Promise<boolean> {
+    const refusal = await this.vendorRefusal(run)
+    if (refusal === 'rushed') return true
+    if (refusal === null) return false
+    run.message = refusal
+    await this.feed(run, { type: 'session-error', message: refusal })
+    return true
+  }
+
+  /**
+   * Why the Vendor of the Orchestrator refuses an unattended turn now (Orchestrators.unattendedRefusal),
+   * or null; a check that throws refuses with its error. `rushed`: a Force stop or the quit came first,
+   * and the answer is not waited for.
+   */
+  private async vendorRefusal(run: Run): Promise<string | null | 'rushed'> {
     const check = this.deps.orchestrators.unattendedRefusal
-    if (check === undefined) return false
+    if (check === undefined) return null
     const asked = check.call(this.deps.orchestrators, run.projectId).then(
       (refusal) => ({ refusal }),
       (error: unknown) => ({ refusal: `Cannot check the Orchestrator's Vendor: ${messageOf(error)}` }),
     )
     const answer = await Promise.race([asked, run.rushing.then(() => null)])
-    if (answer === null) return true
-    if (answer.refusal === null) return false
-    run.message = answer.refusal
-    await this.feed(run, { type: 'session-error', message: answer.refusal })
-    return true
+    return answer === null ? 'rushed' : answer.refusal
   }
 
   /**
@@ -1457,6 +1493,7 @@ export class Autopilot {
    */
   private async freshLimits(run: Run, cutShort?: Promise<void>): Promise<JournalLimits | undefined> {
     if (this.deps.limits === undefined) return undefined
+    if (listsWindows(run.vendor)) return this.freshVendorLimits(run, cutShort)
     if (this.deps.usage !== undefined && !run.rushed) {
       try {
         await Promise.race([this.deps.usage.refresh(FRESH_USAGE_MS), run.rushing, ...(cutShort === undefined ? [] : [cutShort])])
@@ -1465,6 +1502,33 @@ export class Autopilot {
       }
     }
     return journalLimits(this.deps.limits.state())
+  }
+
+  /**
+   * freshLimits on a Vendor other than Claude (worfy-multi-vendor ticket 38): its windows are read
+   * anew first (deps.limits.readWindows) when none is known or the oldest is older than
+   * FRESH_USAGE_MS, cut short as the usage's ask is; a failed read is logged and the line takes what
+   * there is.
+   */
+  private async freshVendorLimits(run: Run, cutShort?: Promise<void>): Promise<JournalLimits | undefined> {
+    const wait = run.limits
+    if (wait === null) return undefined
+    const known = wait.windowsOf(run.vendor)
+    const stale = known.length === 0 || known.some((window) => wait.clock() - window.receivedAt > FRESH_USAGE_MS)
+    if (stale && !run.rushed) {
+      try {
+        await Promise.race([wait.readWindows(run.vendor), run.rushing, ...(cutShort === undefined ? [] : [cutShort])])
+      } catch (error) {
+        console.warn(`[autopilot] ${run.projectId}: could not read the Limits of ${run.vendor} before a Wave's line`, error)
+      }
+    }
+    return journalVendorLimits(run.vendor, wait.windowsOf(run.vendor))
+  }
+
+  /** The windows of the run's Vendor when it is not Claude, for the budget and the forecast (budget-window.ts); undefined on Claude. */
+  private vendorLimits(run: Run): VendorLimits | undefined {
+    if (!listsWindows(run.vendor)) return undefined
+    return { vendor: run.vendor, windows: run.limits?.windowsOf(run.vendor) ?? this.deps.limits?.windows?.(run.vendor) ?? [] }
   }
 
   /** The Run mode a start that names none goes in: the default of Settings → Autopilot (AutopilotDeps.runSettings). */
@@ -1525,9 +1589,10 @@ export class Autopilot {
     const settings = deps.settings()
     const budget = always ? { ...settings, enabled: true } : settings
     if (!budget.enabled) return { kind: 'go' }
-    const estimate = waveEstimate(runs)
+    const estimate = waveEstimate(runs, run.vendor)
     const tickets = estimate === null ? 0 : readyWave(await this.freshTickets(run), run.epic, run.cycle.named).ready.length
-    return budgetDecision({ budget, now: this.now(), limits: limits.state(), runs, estimate, tickets })
+    const vendor = this.vendorLimits(run)
+    return budgetDecision({ budget, now: this.now(), limits: limits.state(), runs, estimate, tickets, ...(vendor === undefined ? {} : { vendor }) })
   }
 
   /** The budget stops the next Wave (ticket 41): `budget-stop` and `waiting-until` go to the journal, and the run waits (waitAtBoundary). */
@@ -1619,14 +1684,16 @@ export class Autopilot {
       }
       const now = this.now()
       const limits = this.deps.limits?.state() ?? { windows: {} }
-      const forecast = epicForecast({ samples: waveSamples(runs), waves: remainingWaves(tickets, run.epic, run.cycle.named) })
+      const vendor = this.vendorLimits(run)
+      const forecast = epicForecast({ samples: waveSamples(runs, run.vendor), waves: remainingWaves(tickets, run.epic, run.cycle.named) })
       const duration = waveDurationP90(runs)
       const settings = budget.settings()
       // The budget acts in Budget-aware whatever its switch says, in Start window only with it on
       // (boundaryCheck); only then has the Run a recommendation, and `fit` its K (the spec: null without one).
       const budgetActs = run.mode === 'budget-aware' || (run.mode === 'start-window' && settings.enabled)
-      const week = limits.windows.seven_day
-      const fresh = week !== undefined && week.utilization !== null && now - week.receivedAt <= BUDGET_FRESH_MS
+      // The 7-day window on Claude; the longest window of another Vendor (budget-window.ts).
+      const week = budgetWindows(limits, vendor).week
+      const fresh = week !== null && week.utilization !== null && now - week.receivedAt <= BUDGET_FRESH_MS
       await this.write(run, {
         kind: 'forecast',
         mode: run.mode,
@@ -1636,7 +1703,7 @@ export class Autopilot {
         samples: forecast.samples,
         low: forecast.range === null ? null : millionths(forecast.range.low),
         high: forecast.range === null ? null : millionths(forecast.range.high),
-        fit: budgetActs ? fitBeforeReset({ forecast, limits, now, reserve: settings.reserve }) : null,
+        fit: budgetActs ? fitBeforeReset({ forecast, limits, now, reserve: settings.reserve, ...(vendor === undefined ? {} : { vendor }) }) : null,
         week: fresh ? { utilization: week.utilization!, resetsAt: week.resetsAt === null ? null : new Date(toMs(week.resetsAt)).toISOString() } : null,
         durationP90Ms: duration.p90 === null ? null : Math.round(duration.p90),
         durationSamples: duration.samples,
@@ -1657,7 +1724,7 @@ export class Autopilot {
     const started = run.waveStart?.wave === finished.wave ? run.waveStart : null
     run.waveStart = null
     run.actual.waves += 1
-    const growth = started === null ? null : waveGrowth(started, finished)
+    const growth = started === null ? null : waveGrowth(started, finished, run.vendor)
     if (growth === null) return
     run.actual.counted += 1
     run.actual.share += growth
@@ -1665,21 +1732,55 @@ export class Autopilot {
 
   /**
    * The Limits refused a turn of the Wave: the run waits until they reset (resume-at.ts) and then
-   * sends the Orchestrator on, or stops with `limits-timeout` when the wait would be too long.
+   * sends the Orchestrator on, or stops with `limits-timeout` when the wait would be too long. A
+   * refusal by a quota (Codex, nothing resets) stops it at once with `vendor-quota` and the turn's
+   * error text `message` (worfy-multi-vendor ticket 38).
    */
-  private async limitsHit(run: Run, hit: LimitsHit): Promise<void> {
+  private async limitsHit(run: Run, hit: LimitsHit, message: string | null): Promise<void> {
     const wait = run.limits
     if (wait === null || (run.cycle.phase !== 'turn' && run.cycle.phase !== 'settling')) return
-    await this.write(run, { kind: 'limits-hit', window: hit.window, resetsAt: hit.resetsAt === null ? null : new Date(toMs(hit.resetsAt)).toISOString() })
+    const said = message === null || message.trim() === '' ? null : clipLastText(message)
+    await this.write(run, {
+      kind: 'limits-hit',
+      window: hit.window,
+      resetsAt: hit.resetsAt === null ? null : new Date(toMs(hit.resetsAt)).toISOString(),
+      ...(hit.quota === true ? { reason: 'quota' as const, ...(said === null ? {} : { message: said }) } : {}),
+    })
     const plan = wait.plan(hit)
+    if (plan.kind === 'quota') {
+      run.message = said ?? `${run.vendor} refused the turn by its Limits, and nothing resets`
+      await this.feed(run, { type: 'stop', reason: 'vendor-quota' })
+      return
+    }
     if (plan.kind === 'give-up') {
       run.message = plan.reason
       await this.feed(run, { type: 'stop', reason: 'limits-timeout' })
       return
     }
-    await this.write(run, { kind: 'waiting-until', until: new Date(plan.at).toISOString() })
-    const id = wait.wait(plan.at, () => void run.enqueue(() => this.resume(run, id)))
+    await this.waitForLimits(run, wait, plan.at)
+  }
+
+  /** The run sleeps until `at` (`waiting-until`), then resumes (resume). */
+  private async waitForLimits(run: Run, wait: LimitsWait, at: number): Promise<void> {
+    await this.write(run, { kind: 'waiting-until', until: new Date(at).toISOString() })
+    const id = wait.wait(at, () => void run.enqueue(() => this.resume(run, id)))
     this.publish(run.projectId)
+  }
+
+  /**
+   * After a wait on a Vendor other than Claude: its windows read anew (deps.limits.readWindows). A
+   * window still used up with its reset ahead gives the time to wait until once more; null goes on —
+   * no window used up, no such read, or a read that failed (the turn then shows whether it is refused).
+   */
+  private async stillRefused(run: Run, wait: LimitsWait): Promise<LimitsHit | null> {
+    if (!listsWindows(run.vendor)) return null
+    try {
+      const windows = await wait.readWindows(run.vendor)
+      return windows === null ? null : stillUsedUp(windows, wait.clock())
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not read the Limits of ${run.vendor} after the wait; the Orchestrator goes on`, error)
+      return null
+    }
   }
 
   /**
@@ -1689,6 +1790,24 @@ export class Autopilot {
   private async resume(run: Run, id: number): Promise<void> {
     const wait = run.limits
     if (wait === null || !wait.isCurrent(id) || run.cycle.phase === 'stopped' || run.session === null) return
+    // On another Vendor, the windows are read again first: still used up, the run waits once more.
+    const again = await this.stillRefused(run, wait)
+    // Read anew after the read: a stop may have come meanwhile.
+    const phase = run.cycle.phase as CycleState['phase']
+    if (!wait.isCurrent(id) || phase === 'stopped' || run.session === null) return
+    if (again !== null) {
+      const plan = wait.plan(again)
+      if (plan.kind === 'give-up') {
+        wait.cancel()
+        run.message = plan.reason
+        await this.feed(run, { type: 'stop', reason: 'limits-timeout' })
+        return
+      }
+      if (plan.kind === 'at') {
+        await this.waitForLimits(run, wait, plan.at)
+        return
+      }
+    }
     // A graceful Stop during the wait goes with the continuation, in one message (worfy-week ticket 18).
     // Also when Stop was clicked but its step still waits behind this one: the Session would hold
     // STOP_TEXT behind the continuation's turn, which then runs without it.

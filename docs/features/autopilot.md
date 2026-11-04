@@ -111,7 +111,7 @@ While a run goes on:
   permission mode is refused. When the run ends, the Node gets its own settings back. The run drives the Orchestrator's
   Session and reads its events the same way on either Vendor. Codex turns the Harness's hooks off after every install or
   update of the Harness until you approve them, and without them the gate and the guards of the workflow do not hold. So
-  before each start of a run on a Codex Orchestrator, and again before each later Wave, worfy asks Codex (`hooks/list`)
+  before each start of a run on a Codex Orchestrator, and again before each later Wave and before the gate queue's turn, worfy asks Codex (`hooks/list`)
   whether the hooks of the plugin `worfy` are approved: every hook its `hooks.json` declares on an event Codex runs
   must be listed, enabled and approved. While they are not, or Codex does not say, the run is refused with "The Harness
   hooks are not approved in Codex. Approve them in /hooks and start again."; before a later Wave no new Session
@@ -167,6 +167,11 @@ When the Limits refuse a turn of the Wave, the Wave does not end. The run waits 
 2 minutes. If no reset time is known, it tries again every 30 minutes. If the wait would pass 24 hours from the first
 refusal, the run stops with `limits-timeout`.
 
+On a Codex Orchestrator the refusal is Codex's `usageLimitExceeded`. When a Codex window is used up and has a reset time,
+the run waits for that reset, as above. When the time comes, worfy reads the Codex windows again: while one is still used
+up, the run waits once more. When no window is used up, Codex has nothing to reset: the plan does not include Codex, or a
+quota ran out. The run then stops at once with `vendor-quota`, and the tooltip shows Codex's error text.
+
 When the time comes, the Orchestrator gets one message: continue from where it stopped, and first add an entry about the
 pause to HANDOFF. worfy does not write that entry itself.
 
@@ -177,6 +182,12 @@ never inside one, the mode decides whether the next Wave starts now or waits: fo
 the Start window. A refusal by the Limits inside a Wave remains the hard limit in every mode.
 [Run planning](run-planning.md#run-mode-and-epic-forecast) describes the modes, the Start window, the budget and the Epic
 forecast.
+
+A run on a Codex Orchestrator weighs the budget by the Codex windows. The longest window takes the place of the 7-day
+window. Every shorter window takes the place of the 5-hour one: while it is full, the next Wave waits for its reset. The
+estimate of a Wave and the forecast in the journal take their samples only from earlier runs on Codex. Codex reports
+whole percents only, so the estimate needs 5 such Waves, not 3. The tooltip and the start dialog still show the forecast
+by Claude's 7-day window.
 
 #### Stopping
 
@@ -230,10 +241,11 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn. |
 | `background-stalled` | Background tasks gave no event for an hour. |
 | `limits-timeout` | The wait for the Limits would pass 24 hours. |
+| `vendor-quota` | Codex refused a turn by its Limits, and no window is used up, so nothing will reset. `message` has Codex's error text. |
 | `window-too-short` | The Run mode is Start window, and the next Wave usually takes longer than the whole window. The tooltip names the Wave, its usual duration and the window. |
 | `interrupted` | A turn of the Wave was interrupted, or a person's turn was, leaving the Wave held in the queue. |
 | `turn-error` | A turn of the Wave ended with an error that is not a refusal by the Limits. |
-| `session-error` | The Orchestrator's Session failed, or, before a later Wave, Codex no longer runs the Harness's hooks. |
+| `session-error` | The Orchestrator's Session failed, or, before a later Wave or the gate queue's turn, Codex no longer runs the Harness's hooks. |
 | `session-closed` | The Orchestrator's Session closed. |
 | `send-failed` | "Run wave" could not be sent. |
 | `workflow-error` | The workflow could not be read when the run had to judge the Wave. |
@@ -407,12 +419,12 @@ it cannot read.
 | `run-started` | The run began. Has `origin`, and `override` or `unasked` when they apply. `by` says who started it: `button`, `command` or `tool`. `tickets` names the Tickets of a run over named Tickets. `mode` is the Run mode: `fastest`, `budget-aware` or `start-window`. `vendor` is the Vendor of the Orchestrator, `claude` or `codex`; a line without it is a run on Claude Code. |
 | `harness-behind` | The Harness in `main` is newer: after `run-started`, and before a `wave-started` when the count changed. |
 | `forecast` | The Epic forecast at the start, once, after `run-started` and `harness-behind`, before the first `wave-started`: the Run mode, the Waves and Tickets left, the samples, `low` and `high` (p10 and p90 of the share of the week, `null` under 5 samples), `fit` (how many Waves fit before the 7-day reset with the reserve; only when the Run has a recommendation, in Budget-aware or in Start window with the budget on, else `null`), `week` (the 7-day number at the start), the p90 of a Wave's duration with its sample count, and `window` in Start window. Journals that cannot be read give `samples: 0`; the run goes on. |
-| `wave-started`, `wave-finished` | A Wave went or ended. `wave-started` has the text sent, the skipped Tickets and `session`, the id of the Orchestrator's SDK session the Wave went to (its transcript's name). Both may have `limits`. |
+| `wave-started`, `wave-finished` | A Wave went or ended. `wave-started` has the text sent, the skipped Tickets and `session`, the id of the Orchestrator's SDK session the Wave went to (its transcript's name). Both may have `limits`: `{five_hour, seven_day}` in a run on Claude Code, `{windows}` with the Codex windows in a run on Codex. |
 | `ticket-status` | The `Status:` of a Ticket of the run's Epic changed during the run, seen on a change the workflow watch reports or in a last read right before `run-stopped` (not on a Force stop). A Ticket whose file appeared during the run gets the status it was first seen with. Has `state` (`claimed`, `blocked`, `done`, `open`), and `statusAt`, `reason` and `waits` when the Ticket has those lines ([ADR-0092](../adr/0092-run-history.md)). |
 | `narrow-round` | A state of the narrow fix round on a Wave Ticket's PR, once per Ticket and outcome. |
 | `start-window` | The Start window held the next Wave back: `reason` is `outside` or `wave-too-long`. `waiting-until` follows. |
 | `budget-stop` | The budget stopped the next Wave. `waiting-until` follows. |
-| `limits-hit` | The Limits refused a turn. |
+| `limits-hit` | The Limits refused a turn. A Codex refusal with no window used up has `reason: "quota"` and `message`, and `run-stopped` with `vendor-quota` follows. |
 | `waiting-until`, `resumed` | A wait began or ended. |
 | `session-error` | A Session failed. |
 | `refused-dialog` | An unattended Session refused a request. Has the Subagent and the reason when given, and never the command. The home folder is written as `~`. |

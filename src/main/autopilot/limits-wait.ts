@@ -16,7 +16,12 @@
 // error of another kind into a refusal. The timer goes by the
 // wall clock, not by a single setTimeout: a Mac that slept anyway would otherwise continue late by
 // the time it slept.
-import type { LimitsState } from '../../shared/agent/limits'
+//
+// A run on a Vendor other than Claude (Codex, worfy-multi-vendor ticket 38): a refusal without a
+// window that resets (`limit_reached` with `reason: 'quota'`) is a hit with `quota`, and the run
+// stops with `vendor-quota` rather than wait (resume-at.ts). When a wait for a window is over, the
+// run reads the Vendor's windows again (readWindows) before it sends the Orchestrator on.
+import type { LimitsState, LimitWindow } from '../../shared/agent/limits'
 import { isLimitsMessage, resumeAt, type LimitsHit, type ResumePlan } from '../../shared/autopilot/resume-at'
 import type { SessionLimitsStatus } from '../agent/limits'
 
@@ -56,6 +61,17 @@ export function wallTimer(now: () => number = Date.now): (at: number, fire: () =
 export interface LimitsWaitDeps {
   /** The Limits state of limits.json (LimitsTracker.snapshot). */
   state(): LimitsState
+  /**
+   * The windows of a Vendor other than Claude as last read (LimitsTracker.windowsOf); null when
+   * unknown. Absent: a run on such a Vendor reads no windows, and its budget and lines have none.
+   */
+  windows?(vendor: string): readonly LimitWindow[] | null
+  /**
+   * Reads the windows of a Vendor other than Claude anew (its driver's account/rateLimits/read) and
+   * records them; resolves with them, null when the Vendor has no such read. Rejects when the read
+   * fails. Absent: nothing is read anew.
+   */
+  readWindows?(vendor: string): Promise<readonly LimitWindow[] | null>
   /** Reports each change of the Limits status of the Session `isSession` accepts (observeSessionLimits); answers the unsubscribe. */
   observeSession(isSession: (sessionId: string) => boolean, listener: (status: SessionLimitsStatus) => void): () => void
   /** Sends a message to the Session (Session.send); throws when the Session is gone. */
@@ -115,10 +131,12 @@ export class LimitsWait {
    * The refusal a turn's end means, or null. A turn that ended with an error (not interrupted) is
    * refused when the Session was told `rejected` during the turn, or when its error text is about
    * the Limits; in the second case a `rejected` known from before still gives the window and time.
+   * A refusal by a quota (status `quota`) says so in the hit.
    */
   hitOf(end: TurnEnd): LimitsHit | null {
     if (!end.isError || end.interrupted) return null
-    const rejected = this.status?.status === 'rejected' ? { window: this.status.window, resetsAt: this.status.resetsAt } : null
+    const status = this.status
+    const rejected = status?.status === 'rejected' ? { window: status.window, resetsAt: status.resetsAt, ...(status.quota === true ? { quota: true as const } : {}) } : null
     if (rejected !== null && this.fresh) return rejected
     if (isLimitsMessage(end.message)) return rejected ?? { window: null, resetsAt: null }
     return null
@@ -168,6 +186,21 @@ export class LimitsWait {
     this.cancelTimer?.()
     this.cancelTimer = null
     this.untilValue = null
+  }
+
+  /** The windows of `vendor` as last read; [] when unknown or without the dep (LimitsWaitDeps.windows). */
+  windowsOf(vendor: string): readonly LimitWindow[] {
+    return this.deps.windows?.(vendor) ?? []
+  }
+
+  /** Reads the windows of `vendor` anew (LimitsWaitDeps.readWindows); null without the dep or such a read. */
+  async readWindows(vendor: string): Promise<readonly LimitWindow[] | null> {
+    return this.deps.readWindows === undefined ? null : this.deps.readWindows(vendor)
+  }
+
+  /** The clock of the wait, in milliseconds. */
+  clock(): number {
+    return this.now()
   }
 
   /** Sends the message to the Session. */

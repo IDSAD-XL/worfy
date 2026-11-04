@@ -33,6 +33,7 @@ import {
   type AutopilotState,
 } from '../../shared/ipc/autopilot'
 import { autopilotRunOf } from '../../shared/settings/app-settings'
+import { isVendorId, UNNAMED_VENDOR } from '../../shared/vendors/vendor'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import { appLimits, observeSessionLimits } from '../agent/limits'
@@ -52,6 +53,7 @@ import { appLinkService, onAppLinkStart, type LinkService } from '../link/servic
 import { projectStore } from '../projects/store'
 import { appSettingsStore } from '../settings/store'
 import { claudeHome } from '../storage/paths'
+import { vendorDriver } from '../vendors/registry'
 import { readWorkflow } from '../workflow/reader'
 import type { WorkflowHub } from '../workflow/watch'
 import { sharedLauncher } from './actions'
@@ -191,6 +193,14 @@ export function sharedAutopilot(): Autopilot {
     runSettings: () => autopilotRunOf(appSettingsStore().get()),
     limits: {
       state: () => appLimits().snapshot(),
+      // A run on another Vendor than Claude reads that Vendor's windows (worfy-multi-vendor ticket 38).
+      windows: (vendor) => appLimits().windowsOf(vendor),
+      readWindows: async (vendor) => {
+        if (!isVendorId(vendor) || vendor === UNNAMED_VENDOR) return null
+        const windows = await vendorDriver(vendor).limits.read()
+        appLimits().setWindows(vendor, windows)
+        return windows
+      },
       observeSession: (isSession, listener) => observeSessionLimits((sink) => sharedRegistry().observe(sink), isSession, listener),
       send: (sessionId, text) => {
         sharedRegistry().get(sessionId).send(text)
