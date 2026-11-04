@@ -42,9 +42,12 @@ Playwright не может завершиться.
 - [ ] Новый e2e test: снимок кадра, который никогда не завершается, после уничтожения окна, и `app.close()`, который
       не завершается, — ошибка «a frame of the contact sheet failed» за секунды, процесс приложения завершён, файлов
       нет. До правки — красный (висит до timeout-а).
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/evidence-capture.spec.ts -g "never comes back"` exit 0 · mac dev · bfc0a7dc6649aa6c6ec85cb3eb49d3920f8f574c
 - [ ] Test 503 проходит за секунды; весь `test/e2e/evidence-capture.spec.ts` проходит 3 раза подряд без ошибки
       teardown-а; время до и после — в «Итог».
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/evidence-capture.spec.ts --retries=0` exit 0, three runs in a row · mac dev · bfc0a7dc6649aa6c6ec85cb3eb49d3920f8f574c
 - [ ] `pnpm lint`, `pnpm typecheck`, unit и contract test-ы затронутых модулей, gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · bfc0a7dc6649aa6c6ec85cb3eb49d3920f8f574c
 - [ ] `ci-ok` PR-а зелёный, `macos-e2e (1/2)` — зелёный.
 
 ## Итог
