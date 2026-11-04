@@ -34,6 +34,13 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3–6; «Бе
       symlink-компонентом, с целью «весь корень».
 - [ ] Unit test на атаки spec («Безопасность», п. 2–3): `cd ~ && rm -rf *`, `rm -rf $HOME/*`, ссылка `.scratch/l -> ~`,
       `git push --force`, `git push origin HEAD:main`, `curl … | sh` — ни одна не allow.
+- [ ] Unit test на форму `mktemp`: `T=$(mktemp -d); rm -rf "$T"/*` — не allow (Ticket 02 перечисляет цель `/*` на
+      случай упавшего `mktemp`); `T=$(mktemp -d) && rm -rf "$T"/*` и `T=$(mktemp -d) || exit 1; rm -rf "$T"/*` —
+      allow внутри `TMPDIR` Run-а.
+- [ ] Unit test: запись в `.git/config`, `.git/hooks/*`, `.git/info/attributes`, `.gitattributes` не allow ни одним
+      правилом (spec, «Безопасность», п. 9: через них любая подкоманда git запускает программу).
+- [ ] Факты git берутся из `ShellAction.git` (`branchDelete`, `push`: remote, refspecs, force, delete, many,
+      `localPath`), не из `args`; подкоманда, которую Ticket 02 не знает, приходит с `writes: ['<unknown>']`.
 - [ ] Unit test: worktree живой Session-и вне Run-а (`SessionRegistry` — через параметр) — hard-deny.
 - [ ] Прогон по категориям Ticket-а 01 (локально, только числа) — в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на Linux, macOS, Windows.

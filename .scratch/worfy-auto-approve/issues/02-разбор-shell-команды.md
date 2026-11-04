@@ -37,7 +37,9 @@ Source: [spec.md](../spec.md), «Как работает», п. 2; «Безоп�
 
 - [ ] Unit test таблицей: каждая конструкция вне грамматики даёт `judged: false`; каждый пример из spec
       (`cd <tmp> && rm -rf *`, `rm -rf "$M/$d"`, `T=$(mktemp -d); rm -rf "$T"/*`, многострочный `zsh -c` с `rm`)
-      разобран с верными путями.
+      разобран с верными путями. Форма с `;` перечисляет и цель `/*` (на случай упавшего `mktemp`), поэтому
+      одобрять её нельзя; без `/*` разобраны `T=$(mktemp -d) && rm -rf "$T"/*` и `… || exit 1; rm -rf "$T"/*`
+      (spec, «Проблема»; Ticket 03).
   - evidence: test-run pass · `pnpm vitest run --project node test/unit/auto-approve-shell.test.ts` exit 0 · mac - · ad5417fe2ccb75ffcfc74ce2df4f93d1892502f1
 - [ ] Differential test: для набора команд без побочных эффектов (`printf '%s\0'` вместо программы) слова, которые
       даёт `analyze`, совпадают со словами настоящего `sh` (и `bash` на Windows через Git Bash); расхождение — test
@@ -59,3 +61,41 @@ Source: [spec.md](../spec.md), «Как работает», п. 2; «Безоп�
 - `src/main/agent/auto-approve/shell.ts` (новый)
 - `test/unit/auto-approve-shell.test.ts` (новый)
 - `test/contract/auto-approve-shell-sh.test.ts` (новый)
+
+## Итог
+
+Решено без владельца (round 1 и round 2 ревью PR #1372):
+
+1. **`stdinFrom`** — номер действия, чей вывод идёт этому на вход через `|`; так политика видит `curl … | sh`, не
+   читая `args`. Во вложенном `-c`-скрипте номер считается в общем списке действий.
+2. **`/dev/null` не запись.** Перенаправление в `/dev/null` в `writes` не попадает; `/dev/tcp/…` и `/dev/udp/…` —
+   `judged: false` (bash открывает сеть).
+3. **git:** `git config` с записью, подкоманда, которую таблица не знает, и alias — `writes: ['<unknown>']`;
+   `git config --get` и `--list` — чтение. Факты для Ticket-а 03 — в `ShellAction.git`: `branchDelete` (ветки,
+   force) и `push` (remote, refspecs, force, delete, many, `localPath`); push в локальный путь пишет этот путь.
+   Переименование и копия ветки, commit без сообщения, `commit -c`, `tag -s` / `-u` / `-a` без `-m`,
+   `pull --rebase=interactive`, `rebase --continue` — `judged: false`: они запускают editor или gpg.
+4. **`set`:** без действия только `-e`, `-u`, `+e`, `+u` и `-o` / `+o` с `errexit`, `nounset`, `pipefail`.
+   `set -x` и `-o xtrace` — `judged: false`: trace раскрывает `PS4`, а там может быть подстановка команды. Опции
+   `sh -c` — тоже только `-e`, `-u`; любая другая форма с `c` (`bash -l -c`) — `judged: false`.
+5. **Присваивания.** Присваивание перед программой — всегда `judged: false`. Отдельное присваивание — только имени,
+   которому shell не даёт смысла: список имён bash, sh и zsh (`PATH`, `PS4`, `GLOBIGNORE`, `EXECIGNORE`,
+   `POSIXLY_CORRECT`, zsh `path` / `cdpath` / `fpath`, `_`…) и префиксы (`BASH_`, `ZSH_`, `PS<цифра>`, `GIT_`,
+   `LD_`, `DYLD_`, `LC_`…); и не переменной из окружения.
+6. **Glob, который может стать опцией.** Glob до `--` у программы таблицы — `judged: false` (`git grep -e x *` при
+   файле `-O…`). Исключения — `rm`, `rmdir`, `echo` (у них нет опции, которая называет путь) и операнды `printf`
+   после формата; `curl`, `test` и `[` конец опций по `--` не признают.
+7. **`ln` — `judged: false` целиком** (ссылка — обход корней), как и `-l`, `-s`, `--link`, `--symbolic-link` у `cp` и
+   `-b` / `--backup` у `cp`, `mv`: таблица их не знает. `test -v`, `[ -v`, `-R` — `judged: false`: имя переменной
+   с индексом выполняет подстановку.
+8. **`exit`** с перенаправлением, с двумя операндами или с не-числом — `judged: false`: такой `exit` может не выйти,
+   и shell идёт дальше. Команды после настоящего `exit` в список не попадают.
+9. **Продолжение строки** (`\` + newline) — только между словами; внутри слова (`$NA\<newline>ME`) —
+   `judged: false`. Числовой glob zsh (`<1-9>`, `<->`), `chdir`, ссылка на `OLDPWD` — `judged: false`.
+10. **Windows:** `HOME`, `TMPDIR`, `TMP`, `TEMP` вида `C:\…` скрипт видит как `/c/…` — так их отдаёт MSYS Git Bash;
+    поэтому `rm -rf ~/x/*` на Windows и на Linux даёт одно действие. Ticket платформенный: пути Windows.
+11. **Маркер новой временной папки** — `<new-temp-folder-N>`; модуль экспортирует `newTempFolderName(n)` и
+    `isNewTempFolder(component)`, политика узнаёт папку по ним, не по строке.
+12. **macOS в CI.** Contract test требует zsh на macOS (`process.platform === 'darwin'`); этот darwin guard
+    включает файл в CI job `macos-tests` (`scripts/ci-scope.mjs`, `DARWIN_GUARD`). Без него pull request запускал
+    файл только на Linux и Windows.
