@@ -16,7 +16,9 @@ import './select.css'
  *
  * The list is drawn into document.body with `position: fixed`, above every dialog and the focus
  * mode: a parent's overflow does not cut it. It opens under the button, or over it when there is
- * more room there, and is placed again whenever its options change. A press outside, a scroll of
+ * more room there, and is placed again whenever its options change. It is no wider than 480 px and
+ * than the window less its margins, starts at the button's left edge and moves left only as far as
+ * the window's right edge makes it; a longer option ends in «…» and shows its text as a tooltip. A press outside, a scroll of
  * anything that holds the button, a resize, the window losing focus and the Select becoming
  * disabled close it; a scroll next to the button (a transcript that follows its last row) does not.
  */
@@ -70,6 +72,8 @@ const LIST_GAP = 4
 const WINDOW_MARGIN = 8
 /** The tallest the list grows before it scrolls. */
 const LIST_MAX_HEIGHT = 320
+/** The widest the list grows; a longer option ends in «…» (worfy-polish ticket 51). A button wider than this still gets a list as wide as itself. */
+const LIST_MAX_WIDTH = 480
 /** Typed letters are one search while they come closer than this. */
 const TYPEAHEAD_RESET_MS = 500
 
@@ -273,10 +277,22 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
     const height = Math.min(natural, room)
     list.style.maxHeight = `${room}px`
     list.style.minWidth = `${Math.round(rect.width)}px`
+    // No wider than the window less its margins, and than LIST_MAX_WIDTH: without a limit a long
+    // option made the list as wide as the window, which then started at its left edge (ticket 51).
+    list.style.maxWidth = `${Math.max(0, Math.min(LIST_MAX_WIDTH, window.innerWidth - 2 * WINDOW_MARGIN))}px`
+    // Measured from the left margin: a fixed box is no wider than the room right of its `left`,
+    // so the place of the last opening would narrow it.
+    list.style.left = `${WINDOW_MARGIN}px`
     list.style.top = `${Math.round(down ? rect.bottom + LIST_GAP : rect.top - LIST_GAP - height)}px`
     const left = Math.min(rect.left, window.innerWidth - WINDOW_MARGIN - list.offsetWidth)
     list.style.left = `${Math.round(Math.max(WINDOW_MARGIN, left))}px`
     list.dataset['placement'] = down ? 'below' : 'above'
+    // A label cut to «…» shows its full text as a tooltip, unless its option has a tooltip of its own.
+    for (const label of list.querySelectorAll<HTMLElement>('.w-select-option__label')) {
+      const own = label.parentElement?.hasAttribute('title') === true
+      if (!own && label.scrollWidth > label.clientWidth) label.title = label.textContent ?? ''
+      else label.removeAttribute('title')
+    }
   })
 
   // The option under the cursor stays in sight in a long list.

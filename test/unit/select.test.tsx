@@ -507,3 +507,83 @@ describe('Select: where the list opens', () => {
     expect(list().style.top).toBe('438px')
   })
 })
+
+describe('Select: a long option (worfy-polish ticket 51)', () => {
+  const LONG = 'Create the folder /tmp/acc if it does not exist. Then run ls -la /tmp/acc and tell me what is there. After that create the file notes.md with one line.'
+  const LONG_OPTIONS: SelectOption[] = [
+    { value: 'orchestrator', label: 'Orchestrator' },
+    { value: 'long', label: LONG, detail: 'idle' },
+    { value: 'explained', label: `${LONG} (explained)`, title: 'Its own tooltip' },
+  ]
+  /**
+   * A window `viewport` px wide with the button at `left`; the list is as wide as its widest row
+   * would make it (`natural`) within its max-width, and a label is cut when it is longer than
+   * `fits` characters.
+   */
+  function geometry({ viewport, left, natural, fits }: { viewport: number; left: number; natural: number; fits: number }): void {
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(800)
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(viewport)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const rect = this.getAttribute('role') === 'combobox' ? { top: 40, bottom: 64, left, right: left + 200, width: 200, height: 24 } : { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }
+      return { ...rect, x: rect.left, y: rect.top, toJSON: () => rect }
+    })
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute('role') !== 'listbox') return 0
+      const max = Number.parseFloat(this.style.maxWidth)
+      return Number.isNaN(max) ? natural : Math.min(natural, max)
+    })
+    const isLabel = (element: Element): boolean => element.classList.contains('w-select-option__label')
+    vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(function (this: Element) {
+      return isLabel(this) ? (this.textContent ?? '').length : 0
+    })
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+      return isLabel(this) ? Math.min(fits, (this.textContent ?? '').length) : 0
+    })
+  }
+  const list = (): HTMLElement => screen.getByRole('listbox')
+  const label = (value: string): HTMLElement | null => list().querySelector(`[data-value="${value}"] .w-select-option__label`)
+  const open = (): void => {
+    render(<Select aria-label="Session" data-testid="picker" value="orchestrator" options={LONG_OPTIONS} onChange={() => {}} />)
+    fireEvent.click(button())
+  }
+
+  it('keeps the list to 480 px in a wide window, under its button', () => {
+    geometry({ viewport: 1400, left: 600, natural: 1400, fits: 60 })
+    open()
+    expect(list().style.maxWidth).toBe('480px')
+    expect(list().style.left).toBe('600px')
+  })
+
+  it('keeps the list inside a narrow window: no wider than it less the margins, moved in only as far as it must', () => {
+    geometry({ viewport: 400, left: 150, natural: 1400, fits: 30 })
+    open()
+    // 400 − 2 × 8.
+    expect(list().style.maxWidth).toBe('384px')
+    // As wide as it may be, it starts at the left margin: 400 − 8 − 384.
+    expect(list().style.left).toBe('8px')
+  })
+
+  it('moves a list that would run past the right edge back inside, not to the window\'s left edge', () => {
+    geometry({ viewport: 1000, left: 800, natural: 1400, fits: 60 })
+    open()
+    // 1000 − 8 − 480.
+    expect(list().style.left).toBe('512px')
+  })
+
+  it('gives a cut label its full text as a tooltip; a label that fits and an option with its own tooltip get none', () => {
+    geometry({ viewport: 1400, left: 600, natural: 1400, fits: 60 })
+    open()
+    expect(label('long')?.getAttribute('title')).toBe(LONG)
+    expect(label('orchestrator')?.hasAttribute('title')).toBe(false)
+    expect(label('explained')?.hasAttribute('title')).toBe(false)
+    expect(list().querySelector('[data-value="explained"]')?.getAttribute('title')).toBe('Its own tooltip')
+  })
+
+  it('leaves short options as they were: no tooltip, the list as wide as its rows', () => {
+    geometry({ viewport: 1400, left: 600, natural: 160, fits: 60 })
+    render(<Harness />)
+    fireEvent.click(button())
+    expect([...list().querySelectorAll('.w-select-option__label')].some((each) => each.hasAttribute('title'))).toBe(false)
+    expect(list().style.left).toBe('600px')
+  })
+})

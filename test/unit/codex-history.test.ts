@@ -95,6 +95,20 @@ describe('the past Sessions of a Project, from thread/list', () => {
       { id: 'unknown', cwd: '/p', title: null, updatedAt: 1793000060000, origin: null },
     ])
   })
+
+  it('cuts a long first message as a Claude Session\'s title is cut: one line, at most 200 characters, «…» at the end (worfy-polish 51)', () => {
+    const sentence = 'Create the folder /tmp/acc if it does not exist and tell me what is there.'
+    const preview = `${sentence}\n\n${sentence} ${sentence} ${sentence}`
+    const [long, named] = codexHistorySessions(
+      [thread({ id: 'long', cwd: '/p', preview }), thread({ id: 'named', cwd: '/p', name: ' Two\nlines ', preview })],
+      '/p',
+      'linux',
+    )
+    expect(long?.title).toHaveLength(200)
+    expect(long?.title).toBe(`${[sentence, sentence, sentence].join(' ')}`.slice(0, 199) + '…')
+    expect(long?.title).not.toContain('\n')
+    expect(named?.title).toBe('Two lines')
+  })
 })
 
 describe('a thread of thread/read as transcript entries', () => {
