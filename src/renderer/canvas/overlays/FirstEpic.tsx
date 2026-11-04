@@ -1,22 +1,32 @@
-// The panel in the middle of the Canvas of a Project without Epics (worfy-harness ticket 24): a
-// Project that was just connected has an empty Canvas, and the panel says what to do next. "Plan
-// first epic" opens the Project's Orchestrator (`orchestrator.open`) and sends it nothing: the person
-// names the first goal. The panel shows only when the workflow was read without an error and has no
-// Epic; the first Epic takes it away. On a read-only screen (worfy-link ticket 25) the button is
-// inactive and the line under it says why.
+// The label "Plan your first epic →" at the bottom right of the Canvas of a Project without Epics
+// (worfy-harness ticket 24; worfy-polish 56 made it a label next to the minimap instead of a panel
+// in the middle of the Canvas): a Project that was just connected has an empty Canvas, and the
+// label says what to do next. A click opens the Project's Orchestrator (`orchestrator.open`) and
+// sends it nothing: the person names the first goal. The label shows only when the workflow was
+// read without an error and has no Epic; the first Epic takes it away. While the Orchestrator opens
+// it is inactive, a failure is said under it; on a read-only screen (worfy-link ticket 25) it is
+// inactive and its tooltip says why.
 //
-// Colours and sizes are the tokens of tokens.css (docs/design/F-SPEC.md): the surface with its
-// border and the node shadow (none in dark), secondary text, the primary action button.
-import { useState, type CSSProperties } from 'react'
+// It sits above the minimap (MiniMapOverlay.tsx, its size in minimap-view.ts), or in its corner while the minimap is hidden,
+// and holds its box in that corner (pinning.ts, holdCorner), so a pinned Node keeps out of it too.
+// Colours are the tokens of tokens.css (docs/design/F-SPEC.md), in first-epic.css: no surface,
+// border or shadow, only text.
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { invoke } from '../../ipc'
 import { openSession } from '../../session/navigation'
-import { PrimaryButton } from '../../theme/primitives'
 import { useWorkflow, type WorkflowEntry } from '../../workflow/useWorkflow'
+import { holdCorner } from '../pinning'
+import { useElementSize } from '../use-element-size'
+import { MINIMAP_BOX, PANEL_MARGIN, useMinimapShown } from './minimap-view'
+import './first-epic.css'
 
 export const order = 45
 
-/** Whether the panel shows: the workflow was read, without an error, and has no Epic. */
+/** The space between the label and the minimap under it (--space-2). */
+const MINIMAP_GAP = 8
+
+/** Whether the label shows: the workflow was read, without an error, and has no Epic. */
 function noEpicsYet(entry: WorkflowEntry): boolean {
   const { model, error } = entry
   return error === undefined && model !== undefined && model.error === null && model.epics.length === 0
@@ -25,62 +35,45 @@ function noEpicsYet(entry: WorkflowEntry): boolean {
 const styles = {
   layer: {
     position: 'absolute',
-    inset: 0,
+    right: PANEL_MARGIN,
     zIndex: 5,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    pointerEvents: 'none',
+    maxWidth: MINIMAP_BOX.width,
+    textAlign: 'right',
   },
-  panel: {
-    width: 320,
-    maxWidth: 'calc(100% - 32px)',
-    boxSizing: 'border-box',
-    padding: 'var(--space-4)',
-    borderRadius: 'var(--radius-popover)',
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    boxShadow: 'var(--shadow-node)',
-    color: 'var(--text)',
-    textAlign: 'center',
-    pointerEvents: 'auto',
-  },
-  title: { margin: '0 0 var(--space-1)', fontSize: 'var(--text-15)', fontWeight: 600 },
-  text: { margin: '0 0 var(--space-3)', fontSize: 'var(--text-13)', lineHeight: '18px', color: 'var(--text-secondary)' },
-  error: { margin: 'var(--space-2) 0 0', fontSize: 'var(--text-12)', color: 'var(--blocked-text)', overflowWrap: 'anywhere' },
+  error: { margin: '2px 0 0', fontSize: 'var(--text-12)', color: 'var(--blocked-text)', overflowWrap: 'anywhere' },
 } satisfies Record<string, CSSProperties>
 
-export interface FirstEpicPanelProps {
+export interface FirstEpicLabelProps {
   onPlan: () => void
   busy?: boolean
   error?: string | null
-  /** The read-only hint (worfy-link ticket 25): the button is inactive and the hint shows under it. */
+  /** The read-only hint (worfy-link ticket 25): the label is inactive and the hint is its tooltip. */
   readOnly?: string | null
 }
 
-/** The panel itself, without the Project and the workflow behind it. */
-export function FirstEpicPanel({ onPlan, busy = false, error = null, readOnly = null }: FirstEpicPanelProps) {
+/** The label itself, without the Project and the workflow behind it. */
+export function FirstEpicLabel({ onPlan, busy = false, error = null, readOnly = null }: FirstEpicLabelProps) {
+  const minimapShown = useMinimapShown()
+  const bottom = minimapShown ? PANEL_MARGIN + MINIMAP_BOX.height + MINIMAP_GAP : PANEL_MARGIN
+  const [size, setSize] = useState<{ width: number; height: number }>()
+  const measure = useElementSize<HTMLDivElement>(useCallback((next: { width: number; height: number }) => setSize(next), []))
+  // The label's box at the bottom right: the margin to the Canvas's edges, and as much again to a pinned Node.
+  const width = size === undefined ? undefined : PANEL_MARGIN + size.width + PANEL_MARGIN
+  const height = size === undefined ? undefined : bottom + size.height + PANEL_MARGIN
+  useEffect(() => {
+    holdCorner('first-epic', width === undefined || height === undefined ? undefined : { width, height })
+    return () => holdCorner('first-epic', undefined)
+  }, [width, height])
   return (
-    <div style={styles.layer} className="nodrag nopan nowheel">
-      <section style={styles.panel} role="region" aria-labelledby="first-epic-title" data-testid="first-epic">
-        <h2 id="first-epic-title" style={styles.title}>
-          No epics yet
-        </h2>
-        <p style={styles.text}>Tell the Orchestrator what you want to build, and it plans the first epic with you.</p>
-        <PrimaryButton onClick={onPlan} disabled={busy || readOnly !== null}>
-          Plan first epic
-        </PrimaryButton>
-        {readOnly !== null ? (
-          <p className="w-read-only-note" style={{ marginTop: 'var(--space-2)' }} data-testid="first-epic-read-only">
-            {readOnly}
-          </p>
-        ) : null}
-        {error ? (
-          <p role="alert" style={styles.error}>
-            {error}
-          </p>
-        ) : null}
-      </section>
+    <div ref={measure} style={{ ...styles.layer, bottom }} className="nodrag nopan nowheel" data-testid="first-epic" title={readOnly ?? undefined}>
+      <button type="button" className="w-first-epic-label" onClick={onPlan} disabled={busy || readOnly !== null}>
+        Plan your first epic →
+      </button>
+      {error ? (
+        <p role="alert" style={styles.error}>
+          {error}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -102,5 +95,5 @@ export default function FirstEpic() {
     else setError({ projectId: project.id, text: result.error })
   }
 
-  return <FirstEpicPanel onPlan={() => void plan()} busy={busy} error={error?.projectId === project.id ? error.text : null} readOnly={readOnly} />
+  return <FirstEpicLabel onPlan={() => void plan()} busy={busy} error={error?.projectId === project.id ? error.text : null} readOnly={readOnly} />
 }

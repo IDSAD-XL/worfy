@@ -1,0 +1,19 @@
+/* The first-Epic label (FirstEpic.tsx): text only, no surface, border or shadow. Values come from tokens.css. */
+.w-first-epic-label {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-12);
+  line-height: 16px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.w-first-epic-label:hover:not(:disabled),
+.w-first-epic-label:focus-visible {
+  color: var(--accent);
+}
+.w-first-epic-label:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}

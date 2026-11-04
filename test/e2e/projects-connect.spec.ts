@@ -66,7 +66,7 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-test('Add project connects a new repository: Silent by default, the draft, the form, Connect, then "No epics yet"', async () => {
+test('Add project connects a new repository: Silent by default, the draft, the form, Connect, then the first-epic label', async () => {
   const shop = makeRepo(join(scratch, 'shop'))
   const agentLog = join(scratch, 'agent.jsonl')
 
@@ -144,11 +144,29 @@ test('Add project connects a new repository: Silent by default, the draft, the f
     await expect(row.getByRole('button')).toHaveAttribute('aria-current', 'true')
     expect(existsSync(join(harnessHome, 'projects', 'shop', 'profile.json'))).toBe(true)
     expect(existsSync(join(harnessHome, 'projects', 'shop', 'workflow', '.git'))).toBe(true)
-    const panel = window.getByTestId('first-epic')
-    await expect(panel).toBeVisible({ timeout: ms(20_000) })
-    await expect(panel).toContainText('No epics yet')
-    await shoot(launched, window.locator('.react-flow'), 'first-epic')
-    await panel.getByRole('button', { name: 'Plan first epic' }).click()
+    // A text label above the minimap, without a surface, border or shadow (worfy-polish 56).
+    const label = window.getByTestId('first-epic')
+    await expect(label).toBeVisible({ timeout: ms(20_000) })
+    const plan = label.getByRole('button', { name: 'Plan your first epic →' })
+    for (const part of [label, plan]) {
+      const look = await part.evaluate((element) => {
+        const { getComputedStyle } = globalThis as unknown as {
+          getComputedStyle: (of: object) => { backgroundColor: string; borderTopWidth: string; boxShadow: string }
+        }
+        const style = getComputedStyle(element)
+        return { background: style.backgroundColor, border: style.borderTopWidth, shadow: style.boxShadow }
+      })
+      expect(look).toEqual({ background: 'rgba(0, 0, 0, 0)', border: '0px', shadow: 'none' })
+    }
+    const labelBox = await label.boundingBox()
+    const minimapBox = await window.locator('.react-flow__minimap').boundingBox()
+    expect(labelBox && minimapBox).toBeTruthy()
+    if (labelBox && minimapBox) {
+      expect(labelBox.y + labelBox.height).toBeLessThanOrEqual(minimapBox.y)
+      expect(Math.abs(labelBox.x + labelBox.width - (minimapBox.x + minimapBox.width))).toBeLessThanOrEqual(1)
+    }
+    await shoot(launched, window.locator('.react-flow'), 'first-epic', '56')
+    await plan.click()
     await expect(window.getByTestId('session-view')).toBeVisible()
     // The Orchestrator was sent nothing: the person names the first goal.
     const sent = readFileSync(agentLog, 'utf8')
