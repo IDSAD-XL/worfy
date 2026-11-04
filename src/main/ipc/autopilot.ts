@@ -22,6 +22,7 @@ import { execFile } from 'node:child_process'
 import { app } from 'electron'
 import type { LimitsState } from '../../shared/agent/limits'
 import { budgetFromSettings } from '../../shared/autopilot/budget'
+import { vendorLimitsOf, type VendorLimits } from '../../shared/autopilot/budget-window'
 import { estimateAnswer } from '../../shared/autopilot/limits-estimate'
 import {
   autopilotChanged,
@@ -63,9 +64,24 @@ import { workflowHub } from './workflow'
 export interface EstimateSources {
   runs(projectId: string): ReturnType<typeof readRecentRuns>
   limits(): LimitsState
+  /**
+   * The Vendor of the Project's Orchestrator and its windows when it is not Claude (worfy-multi-vendor
+   * ticket 38, appVendorLimits); absent or undefined: Claude.
+   */
+  vendor?(projectId: string): VendorLimits | undefined
 }
 
-const appEstimateSources: EstimateSources = { runs: (projectId) => readRecentRuns(projectId), limits: () => appLimits().snapshot() }
+/**
+ * The Vendor the Project's Orchestrator runs on (Orchestrators.runsOn) with that Vendor's windows as
+ * last read, when it is not Claude; undefined on Claude. What the forecast of the Autopilot button and
+ * of the autopilot_start dialog reads.
+ */
+export function appVendorLimits(projectId: string): VendorLimits | undefined {
+  const vendor = sharedOrchestrators().runsOn(projectId)
+  return vendorLimitsOf(vendor, appLimits().windowsOf(vendor))
+}
+
+const appEstimateSources: EstimateSources = { runs: (projectId) => readRecentRuns(projectId), limits: () => appLimits().snapshot(), vendor: appVendorLimits }
 
 /** The handlers over an Autopilot; tests pass their own. */
 export function autopilotHandlers(
@@ -89,7 +105,7 @@ export function autopilotHandlers(
       void current.refreshHarness?.(projectId)?.catch((error: unknown) => console.warn(`[autopilot] ${projectId}: could not compare the Harness with main`, error))
       return current.state(projectId)
     }),
-    defineHandler(autopilotEstimate, async ({ projectId }) => estimateAnswer(await sources.runs(projectId), sources.limits())),
+    defineHandler(autopilotEstimate, async ({ projectId }) => estimateAnswer(await sources.runs(projectId), sources.limits(), sources.vendor?.(projectId))),
   ]
 }
 
@@ -181,7 +197,7 @@ export function sharedAutopilot(): Autopilot {
     },
     onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),
     // Before a Wave's line in the journal: one usage ask when the number is older than 5 minutes.
-    usage: { refresh: (olderThanMs) => refreshAppUsage(olderThanMs) },
+    usage: { refresh: (olderThanMs, vendor) => refreshAppUsage(olderThanMs, vendor) },
     // Read before each Wave: a change in Settings counts from the next Wave of a run that goes on.
     budget: {
       settings: () => budgetFromSettings(appSettingsStore().get()),
@@ -191,6 +207,8 @@ export function sharedAutopilot(): Autopilot {
     runSettings: () => autopilotRunOf(appSettingsStore().get()),
     limits: {
       state: () => appLimits().snapshot(),
+      // A run on another Vendor than Claude reads that Vendor's windows (worfy-multi-vendor ticket 38).
+      windows: (vendor) => appLimits().windowsOf(vendor),
       observeSession: (isSession, listener) => observeSessionLimits((sink) => sharedRegistry().observe(sink), isSession, listener),
       send: (sessionId, text) => {
         sharedRegistry().get(sessionId).send(text)

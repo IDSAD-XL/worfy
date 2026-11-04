@@ -1122,6 +1122,30 @@ describe('the autopilot channels', () => {
     return { invoke, calls }
   }
 
+  it("autopilot.estimate on a Project whose Orchestrator runs on Codex answers Codex's name and its weekly window as sevenDay; on Claude no Vendor (worfy-multi-vendor ticket 38)", async () => {
+    const asked: string[] = []
+    const window = (id: string, minutes: number, used: number) => ({ vendor: 'codex', id, label: id, usedPercent: used, windowMinutes: minutes, resetsAt: 1_793_400_000, state: 'ok' as const, receivedAt: 1_793_000_000_000, source: 'read' })
+    const claudeWeek = { utilization: 0.9, resetsAt: 1_793_500_000, status: null, receivedAt: 1_793_000_000_000, source: 'usage' as const }
+    const sources = {
+      runs: () => Promise.resolve([]),
+      limits: () => ({ windows: { seven_day: claudeWeek } }),
+      vendor: (projectId: string) => {
+        asked.push(projectId)
+        return projectId === 'on-codex' ? { vendor: 'codex', windows: [window('primary', 300, 12), window('secondary', 10080, 40)] } : undefined
+      },
+    }
+    const invoke = await ipcOver({ './autopilot.ts': async () => autopilotHandlers(() => ({}) as never, sources) })
+    expect(await invoke('autopilot.estimate', { projectId: 'on-codex' })).toEqual({
+      ok: true,
+      value: { estimate: null, sevenDay: { utilization: 0.4, resetsAt: 1_793_400_000, receivedAt: 1_793_000_000_000 }, samples: [], durations: { p90: null, samples: 0 }, vendor: 'codex' },
+    })
+    expect(await invoke('autopilot.estimate', { projectId: 'on-claude' })).toEqual({
+      ok: true,
+      value: { estimate: null, sevenDay: { utilization: 0.9, resetsAt: 1_793_500_000, receivedAt: 1_793_000_000_000 }, samples: [], durations: { p90: null, samples: 0 } },
+    })
+    expect(asked).toEqual(['on-codex', 'on-claude'])
+  })
+
   it('autopilot.start passes only the Project and the Epic, and answers only the contract keys', async () => {
     const { invoke, calls } = await register()
     expect(await invoke('autopilot.start', { projectId: 'p', epic: 'e', force: true })).toEqual({ ok: true, value: state() })

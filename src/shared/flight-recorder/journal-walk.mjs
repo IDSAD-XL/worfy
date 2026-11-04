@@ -85,7 +85,8 @@ export function parseJournal(text) {
  * One Run from the events of its Journal file. A Wave runs from wave-started to wave-finished; a Wave the Run
  * stopped inside, or one a later wave-started replaced, has no end. A Limits wait starts at limits-hit or
  * waiting-until and ends at resumed or at the stop of the Run; it holds the Tickets of the Wave open when it
- * started, and has no end when the Journal ends while the Run waits. A stop is a session-error or the
+ * started, and has no end when the Journal ends while the Run waits. A limits-hit of a quota (`reason: 'quota'`)
+ * starts none. A stop is a session-error or the
  * run-stopped, with the Tickets of the Wave open at that moment.
  */
 export function walkRun(events) {
@@ -109,6 +110,8 @@ export function walkRun(events) {
         break
       case 'limits-hit':
       case 'waiting-until':
+        // A refusal by a quota (worfy-multi-vendor ticket 38) waits for nothing: run-stopped `vendor-quota` follows.
+        if (event.kind === 'limits-hit' && event.reason === 'quota') break
         if (wait === null) {
           wait = { epic, cause: event.kind, start: at, end: null, tickets: wave?.epic === epic ? wave.tickets : [] }
           run.waits.push(wait)

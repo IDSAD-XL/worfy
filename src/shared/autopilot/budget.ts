@@ -19,12 +19,17 @@
 //   is first, so it goes on at night by itself.
 // - Nothing known of the 7-day window, no reset time, or a number older than BUDGET_FRESH_MS: no
 //   stop. The refusal of the Limits inside a Wave (resume-at.ts) stays the hard limit.
+// - A run on a Vendor other than Claude (worfy-multi-vendor ticket 38, budget-window.ts) reads that
+//   Vendor's windows instead: its longest window stands for the 7-day one, every other window for the
+//   5-hour one (a full one stops the Wave with `five-hour` until its reset), and the journals' numbers
+//   are those of runs on the same Vendor.
 //
 // shortcut: the day starts with the first number of today the journals hold, so what the owner used
 // by hand before the first Wave of the day is not counted as today's; redo when the usage is
 // sampled at midnight on its own.
-import { SAME_WINDOW_RESET_GAP_S, type LimitsState, type LimitWindowState } from '../agent/limits'
+import { SAME_WINDOW_RESET_GAP_S, type LimitsState } from '../agent/limits'
 import { autopilotBudgetOf, type AppSettings } from '../settings/app-settings'
+import { budgetWindows, journalBudgetWindow, STORED_LIMITS_VENDOR, type BudgetWindowNow, type VendorLimits } from './budget-window'
 import type { BUDGET_CAUSES, JournalEvent } from './journal'
 import type { WaveEstimate } from './limits-estimate'
 import { RESUME_MARGIN_MS, toMs } from './resume-at'
@@ -92,14 +97,17 @@ export interface BudgetReading {
   resetsAt: number | null
 }
 
-/** The 7-day numbers of the Wave lines of the runs, in no particular order. */
-export function weekReadings(runs: readonly (readonly JournalEvent[])[]): BudgetReading[] {
+/**
+ * The 7-day numbers of the Wave lines of the runs, in no particular order; for a run on another
+ * Vendor (`vendor`), the numbers of that Vendor's longest window (journalBudgetWindow).
+ */
+export function weekReadings(runs: readonly (readonly JournalEvent[])[], vendor: string = STORED_LIMITS_VENDOR): BudgetReading[] {
   const out: BudgetReading[] = []
   for (const events of runs) {
     for (const event of events) {
       if (event.kind !== 'wave-started' && event.kind !== 'wave-finished') continue
-      const week = event.limits?.seven_day
-      if (week === null || week === undefined || week.utilization === null) continue
+      const week = journalBudgetWindow(event.limits, vendor)
+      if (week === null || week.utilization === null) continue
       out.push({ at: Date.parse(week.receivedAt), utilization: week.utilization, resetsAt: week.resetsAt === null ? null : Date.parse(week.resetsAt) })
     }
   }
@@ -160,26 +168,38 @@ export interface BudgetInput {
   estimate: WaveEstimate | null
   /** The Tickets of the Wave about to go. */
   tickets: number
+  /**
+   * The windows of the run's Vendor when it is not Claude (budget-window.ts, worfy-multi-vendor
+   * ticket 38): they decide instead of `limits`, and `runs` count only that Vendor's numbers.
+   * Absent: Claude's `limits`.
+   */
+  vendor?: VendorLimits
 }
 
 /** A window's number when it is fresh at `now`. */
-const fresh = (window: LimitWindowState | undefined, now: number): LimitWindowState | null =>
-  window === undefined || now - window.receivedAt > BUDGET_FRESH_MS ? null : window
+const fresh = (window: BudgetWindowNow | null, now: number): BudgetWindowNow | null => (window === null || now - window.receivedAt > BUDGET_FRESH_MS ? null : window)
+
+/** A time window that is full at `now` (share at FIVE_HOUR_FULL or refusing) with its reset still ahead. */
+const fullUntil = (window: BudgetWindowNow, now: number): boolean =>
+  window.resetsAt !== null && toMs(window.resetsAt) > now && ((window.utilization !== null && window.utilization >= FIVE_HOUR_FULL) || window.reached)
 
 /** Whether the next Wave starts, and if not, why and until when. */
-export function budgetDecision({ budget, now, limits, runs, estimate, tickets }: BudgetInput): BudgetDecision {
+export function budgetDecision({ budget, now, limits, runs, estimate, tickets, vendor }: BudgetInput): BudgetDecision {
   if (!budget.enabled) return { kind: 'go' }
-  const week = fresh(limits.windows.seven_day, now)
+  const windows = budgetWindows(limits, vendor)
+  const week = fresh(windows.week, now)
   if (week === null || week.utilization === null || week.resetsAt === null || toMs(week.resetsAt) <= now) return { kind: 'go' }
   const sevenDayResetsAt = toMs(week.resetsAt)
-  const day = budgetDay({ reserve: budget.reserve, now, week: { at: week.receivedAt, utilization: week.utilization, resetsAt: sevenDayResetsAt }, readings: weekReadings(runs) })
+  const day = budgetDay({ reserve: budget.reserve, now, week: { at: week.receivedAt, utilization: week.utilization, resetsAt: sevenDayResetsAt }, readings: weekReadings(runs, vendor?.vendor) })
   const need = estimate === null ? 0 : estimate.perTicket * Math.max(1, tickets)
-  const five = fresh(limits.windows.five_hour, now)
-  const fiveHourResetsAt = five === null || five.resetsAt === null ? null : toMs(five.resetsAt)
+  // The full time windows (Claude's 5-hour one; another Vendor's shorter ones): the Wave waits for the last of them to reset.
+  const full = windows.short.flatMap((window) => {
+    const known = fresh(window, now)
+    return known !== null && fullUntil(known, now) ? [toMs(known.resetsAt!)] : []
+  })
   const stop = (cause: BudgetCause, until: number): BudgetDecision => ({ kind: 'stop', cause, share: day.share, used: day.used, need, until })
-  if (day.remaining <= 0 || (day.remaining < need && day.used > 0)) return stop('daily-share', budgetResumeAt({ now, dayLeft: false, fiveHourResetsAt, sevenDayResetsAt }))
-  const fiveFull = five !== null && fiveHourResetsAt !== null && fiveHourResetsAt > now && ((five.utilization !== null && five.utilization >= FIVE_HOUR_FULL) || five.status === 'rejected')
-  if (fiveFull) return stop('five-hour', budgetResumeAt({ now, dayLeft: true, fiveHourResetsAt, sevenDayResetsAt }))
+  if (day.remaining <= 0 || (day.remaining < need && day.used > 0)) return stop('daily-share', budgetResumeAt({ now, dayLeft: false, fiveHourResetsAt: null, sevenDayResetsAt }))
+  if (full.length > 0) return stop('five-hour', budgetResumeAt({ now, dayLeft: true, fiveHourResetsAt: Math.max(...full), sevenDayResetsAt }))
   return { kind: 'go' }
 }
 

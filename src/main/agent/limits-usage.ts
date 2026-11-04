@@ -16,6 +16,9 @@
 // app quits without a Codex process or a request left waiting. Claude's ask is not changed by it.
 import { LIMIT_WINDOWS, limitUpdatesFromUsage, type LimitUpdate, type LimitWindow, type LimitsState } from '../../shared/agent/limits'
 
+/** The Vendor whose Limits are the usage ask's; refreshIfOlder polls any other one. */
+const CLAUDE_VENDOR = 'claude'
+
 /** How often the usage is asked, and how fresh the data must be for an ask to be skipped. */
 export const USAGE_REFRESH_MS = 1_800_000
 
@@ -31,6 +34,8 @@ export interface LimitsStore {
   record(updates: readonly LimitUpdate[]): void
   /** Replaces the windows of a Vendor other than Claude; null forgets them. */
   setWindows(vendor: string, windows: readonly LimitWindow[] | null): void
+  /** The windows of a Vendor other than Claude as last read (LimitsTracker.windowsOf); without it refreshIfOlder always polls. */
+  windowsOf?(vendor: string): readonly LimitWindow[] | null
 }
 
 /**
@@ -71,8 +76,8 @@ export class LimitsRefresher {
   private readonly quit = new AbortController()
   /** Whether the line for "no rate limits" or for a failure was logged since the last answer. */
   private logged = { unavailable: false, failed: false }
-  /** The Vendors whose poll runs now: a tick does not start a second one. */
-  private readonly polling = new Set<string>()
+  /** The poll of each Vendor that runs now: a tick does not start a second one, and refreshIfOlder waits for it. */
+  private readonly polling = new Map<string, Promise<void>>()
   /** The Vendors whose last poll failed and was logged: the next failure is not logged again. */
   private readonly vendorFailed = new Set<string>()
 
@@ -117,11 +122,30 @@ export class LimitsRefresher {
    * already running is waited for instead. Autopilot calls it before each Wave's line in its journal
    * (worfy-throughput ticket 40), so the line carries a number at most that old.
    */
-  async refreshIfOlder(maxAgeMs: number): Promise<void> {
+  async refreshIfOlder(maxAgeMs: number, vendor?: string): Promise<void> {
+    if (vendor !== undefined && vendor !== CLAUDE_VENDOR) return this.refreshVendorIfOlder(vendor, maxAgeMs)
     if (this.running !== null) return this.running
     // A number exactly `maxAgeMs` old is not older than that: fresh within one millisecond more.
     if (this.options.read === undefined || this.stopped || this.fresh(false, maxAgeMs + 1)) return
     await this.ask()
+  }
+
+  /**
+   * refreshIfOlder for a Vendor other than Claude (worfy-multi-vendor ticket 38: Autopilot's run on
+   * that Vendor): one poll of it when none of its windows is known or one is older than `maxAgeMs`
+   * (exactly that old is fresh, as for Claude); `maxAgeMs` 0 or less polls whatever is known (the read
+   * after a wait for its Limits). A poll already running is waited for. A Vendor the refresher does
+   * not poll resolves at once.
+   */
+  private async refreshVendorIfOlder(vendor: string, maxAgeMs: number): Promise<void> {
+    const source = (this.options.vendors ?? []).find((each) => each.vendor === vendor)
+    if (source === undefined || this.stopped) return
+    const running = this.polling.get(vendor)
+    if (running !== undefined) return running
+    const known = this.options.limits.windowsOf?.(vendor) ?? null
+    const since = this.now() - maxAgeMs - 1
+    if (maxAgeMs > 0 && known !== null && known.length > 0 && known.every((window) => window.receivedAt > since)) return
+    await this.pollVendor(source)
   }
 
   /**
@@ -132,9 +156,16 @@ export class LimitsRefresher {
     await Promise.all((this.options.vendors ?? []).map((source) => this.pollVendor(source)))
   }
 
-  private async pollVendor({ vendor, poll }: VendorLimitsPoll): Promise<void> {
-    if (this.stopped || this.polling.has(vendor)) return
-    this.polling.add(vendor)
+  private pollVendor(source: VendorLimitsPoll): Promise<void> {
+    if (this.stopped) return Promise.resolve()
+    const running = this.polling.get(source.vendor)
+    if (running !== undefined) return running
+    const polled = this.pollOnce(source).finally(() => this.polling.delete(source.vendor))
+    this.polling.set(source.vendor, polled)
+    return polled
+  }
+
+  private async pollOnce({ vendor, poll }: VendorLimitsPoll): Promise<void> {
     try {
       const windows = await poll(this.quit.signal)
       if (this.stopped) return
@@ -144,8 +175,6 @@ export class LimitsRefresher {
       if (this.stopped || this.vendorFailed.has(vendor)) return
       this.vendorFailed.add(vendor)
       this.log(`[limits] the Limits of ${vendor} could not be read: they keep what was read last`, error)
-    } finally {
-      this.polling.delete(vendor)
     }
   }
 
@@ -198,8 +227,8 @@ let appRefresher: LimitsRefresher | null = null
  * The app's refresher's refreshIfOlder: one usage ask when a window is older than `maxAgeMs`.
  * Resolves at once while no refresher runs (the fake agent, vitest, before the start).
  */
-export function refreshAppUsage(maxAgeMs: number): Promise<void> {
-  return appRefresher === null ? Promise.resolve() : appRefresher.refreshIfOlder(maxAgeMs)
+export function refreshAppUsage(maxAgeMs: number, vendor?: string): Promise<void> {
+  return appRefresher === null ? Promise.resolve() : appRefresher.refreshIfOlder(maxAgeMs, vendor)
 }
 
 /**

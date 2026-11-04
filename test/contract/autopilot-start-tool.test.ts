@@ -37,6 +37,9 @@ const app = vi.hoisted(() => ({
   runs: [] as unknown[][] | null,
   runReads: [] as string[],
   limits: { windows: {} } as unknown,
+  /** The Vendor the Project's Orchestrator runs on (Orchestrators.runsOn) and each Vendor's windows (LimitsTracker.windowsOf). */
+  vendor: 'claude',
+  vendorWindows: {} as Record<string, unknown[]>,
   /** The app settings main reads: the default Run mode and the budget (Settings → Autopilot). */
   settings: {} as unknown,
 }))
@@ -55,7 +58,9 @@ vi.mock('../../src/main/agent/app-registry', () => ({
     },
   }),
 }))
-vi.mock('../../src/main/agent/app-orchestrators', () => ({ sharedOrchestrators: () => ({ awaitsGiveBack: (sessionId: string) => app.givingBack.has(sessionId) }) }))
+vi.mock('../../src/main/agent/app-orchestrators', () => ({
+  sharedOrchestrators: () => ({ awaitsGiveBack: (sessionId: string) => app.givingBack.has(sessionId), runsOn: () => app.vendor }),
+}))
 vi.mock('../../src/main/ipc/autopilot', () => ({ sharedChatStarts: () => app.chat }))
 vi.mock('../../src/main/workflow/reader', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -71,7 +76,7 @@ vi.mock('../../src/main/autopilot/journal', async (importOriginal) => ({
     return app.runs === null ? Promise.reject(new Error('the journals cannot be read')) : Promise.resolve(app.runs)
   },
 }))
-vi.mock('../../src/main/agent/limits', async (importOriginal) => ({ ...(await importOriginal<object>()), appLimits: () => ({ snapshot: () => app.limits }) }))
+vi.mock('../../src/main/agent/limits', async (importOriginal) => ({ ...(await importOriginal<object>()), appLimits: () => ({ snapshot: () => app.limits, windowsOf: (vendor: string) => app.vendorWindows[vendor] ?? null }) }))
 vi.mock('../../src/main/settings/store', async (importOriginal) => ({ ...(await importOriginal<object>()), appSettingsStore: () => ({ get: () => app.settings }) }))
 vi.mock('../../src/main/projects/store', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -127,6 +132,24 @@ function pastRuns(waves: number): JournalEvent[][] {
   return [events]
 }
 
+/**
+ * A past run on Codex with `waves` Waves (worfy-multi-vendor ticket 38): each Wave uses 5 % of Plus's
+ * weekly `secondary` window, its lines carry the {windows} shape.
+ */
+function pastCodexRuns(waves: number): JournalEvent[][] {
+  const iso = (ms: number): string => new Date(ms).toISOString()
+  const common = (ms: number) => ({ at: iso(ms), run: '2026-11-01T09-00-00-000Z-c0d3c0', project: PROJECT, epic: EPIC })
+  const window = (id: string, minutes: number, used: number, ms: number) => ({ vendor: 'codex', id, label: id, usedPercent: used, windowMinutes: minutes, resetsAt: iso(RESETS), receivedAt: iso(ms), state: 'ok', source: 'read' })
+  const plus = (week: number, ms: number) => ({ windows: [window('primary', 300, 10, ms), window('secondary', 10080, week, ms)] })
+  const events = [{ ...common(NOW - 30 * HOUR), kind: 'run-started' } as JournalEvent]
+  for (let wave = 1; wave <= waves; wave += 1) {
+    const start = NOW - 24 * HOUR + (wave - 1) * 2 * HOUR
+    events.push({ ...common(start), kind: 'wave-started', wave, tickets: ['01'], limits: plus(20 + (wave - 1) * 5, start) } as JournalEvent)
+    events.push({ ...common(start + HOUR), kind: 'wave-finished', wave, tickets: ['01'], limits: plus(20 + wave * 5, start + HOUR) } as JournalEvent)
+  }
+  return [events]
+}
+
 /** The lines the forecast adds to the dialog's `detail`: those between its first paragraph and its last. */
 const forecastOf = (detail: string | undefined): string[] => (detail ?? '').split('\n\n').slice(1, -1).join('\n').split('\n').filter(Boolean)
 
@@ -170,6 +193,8 @@ beforeEach(async () => {
   app.runs = []
   app.runReads = []
   app.limits = { windows: {} }
+  app.vendor = 'claude'
+  app.vendorWindows = {}
   app.settings = {}
   app.showMessageBox = () => Promise.reject(new Error('no message box in this test'))
   vi.resetModules()
@@ -705,6 +730,31 @@ describe("autopilot_start: the app's wiring (appDeps().autopilotStart, appAutopi
     expect(forecastOf(options.detail)).toEqual([
       'Forecast: This Epic: 1 Wave, 3 Tickets left, usually about 30% of the week. Used now: 60%, resets in 2 d 0 h.',
       'Budget-aware: 1 Wave fits before the reset without the reserve.',
+      'Start window 21:00–05:00: a Wave usually takes up to 1 h 0 min.',
+    ])
+    box.answer(CANCEL)
+    expect(textOf(await call)).toBe(confirm.CANCELED_MESSAGE)
+  })
+
+  it("on a Project whose Orchestrator runs on Codex the forecast reads Codex's Waves and its weekly window, not Claude's (worfy-multi-vendor ticket 38)", async () => {
+    const { box, starter } = appWorld()
+    app.windows = [localWindow('main')]
+    app.settings = { autopilotRun: { mode: 'start-window', windowFrom: 21, windowTo: 5 }, autopilotBudget: { reservePercent: 5 } }
+    // Claude's Waves use 10 % of its week each, Codex's 5 % of Plus's weekly window: the forecast takes Codex's.
+    app.runs = [...pastRuns(5), ...pastCodexRuns(5)]
+    app.vendor = 'codex'
+    const now = Date.now()
+    const window = (id: string, minutes: number, used: number) => ({ vendor: 'codex', id, label: id, usedPercent: used, windowMinutes: minutes, resetsAt: Math.floor(now / 1000) + 48 * 3600 + 600, receivedAt: now, state: 'ok', source: 'read' })
+    app.vendorWindows = { codex: [window('primary', 300, 10), window('secondary', 10080, 92)] }
+    // Claude's week alone would fit the Wave: 60 % used, 35 % free.
+    app.limits = { windows: { seven_day: { utilization: 0.6, resetsAt: Math.floor(now / 1000) + 48 * 3600 + 600, status: null, receivedAt: now, source: 'usage' } } }
+    const call = (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(box.shown).toHaveLength(1))
+    expect(forecastOf(box.shown[0]!.options.detail)).toEqual([
+      // 5 % per Ticket over 3 Tickets; with Claude's samples it would say 30 % and "Used now: 60%".
+      'Forecast: This Epic: 1 Wave, 3 Tickets left, usually about 15% of the week. The range is wide: this Vendor reports its Limits in whole percents only. Used now: 92%, resets in 2 d 0 h.',
+      'Budget-aware: Recommended: no Wave now, 1 after the reset.',
+      'Fastest: No Wave fits before the reset: then the run waits for the Limits.',
       'Start window 21:00–05:00: a Wave usually takes up to 1 h 0 min.',
     ])
     box.answer(CANCEL)

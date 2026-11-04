@@ -5,8 +5,14 @@
 // is older than ESTIMATE_FRESH_MS, or whose window reset inside it, gives no sample. Fewer than
 // ESTIMATE_MIN_WAVES samples give no estimate. The Autopilot button's hint says it with the share
 // used now (waveEstimateLine). No prices. Everything here is pure.
+//
+// A run on a Vendor other than Claude (worfy-multi-vendor ticket 38, budget-window.ts): the samples
+// are the growth of that Vendor's longest window over the Waves of runs on the same Vendor, the
+// window the same at both ends; such a Vendor gives whole percents only, so its estimate needs
+// VENDOR_ESTIMATE_MIN_WAVES Waves.
 import { SAME_WINDOW_RESET_GAP_S, type LimitsState } from '../agent/limits'
-import type { JournalEvent, JournalLimits } from './journal'
+import { budgetWindows, journalBudgetWindow, listsWindows, STORED_LIMITS_VENDOR, VENDOR_ESTIMATE_MIN_WAVES, type JournalBudgetWindow, type VendorLimits } from './budget-window'
+import type { JournalEvent } from './journal'
 import { waveDurationP90, type WaveDuration } from './wave-duration'
 
 /** How many of the last Waves the median takes. */
@@ -23,14 +29,13 @@ export interface WaveEstimate {
   waves: number
 }
 
-type Window = NonNullable<JournalLimits['seven_day']>
 /** A wave-started or wave-finished line of a run's journal. */
 export type WaveLine = Extract<JournalEvent, { kind: 'wave-started' | 'wave-finished' }>
 
-/** The 7-day window of a line, when its number is fresh at the line's time. */
-function freshWeek(line: WaveLine): (Window & { utilization: number }) | null {
-  const week = line.limits?.seven_day
-  if (week === null || week === undefined || week.utilization === null) return null
+/** The budget window of a line for the run's Vendor (journalBudgetWindow), when its number is fresh at the line's time. */
+function freshWeek(line: WaveLine, vendor: string): (JournalBudgetWindow & { utilization: number }) | null {
+  const week = journalBudgetWindow(line.limits, vendor)
+  if (week === null || week.utilization === null) return null
   if (Date.parse(line.at) - Date.parse(week.receivedAt) > ESTIMATE_FRESH_MS) return null
   return { ...week, utilization: week.utilization }
 }
@@ -39,13 +44,14 @@ function freshWeek(line: WaveLine): (Window & { utilization: number }) | null {
  * The growth of the 7-day share over one Wave (its sample times its Tickets), or null when the
  * Wave gives no sample: an old number at either end, no Tickets, or a reset inside the Wave — the
  * reset times of the two ends further apart than one window's rounding (SAME_WINDOW_RESET_GAP_S),
- * the start's reset time at or before the end, or a share that fell.
+ * the start's reset time at or before the end, or a share that fell. For a run on another Vendor
+ * (`vendor`), the growth of its longest window, which must be the same window at both ends.
  */
-export function waveGrowth(started: WaveLine, finished: WaveLine): number | null {
-  const from = freshWeek(started)
-  const to = freshWeek(finished)
+export function waveGrowth(started: WaveLine, finished: WaveLine, vendor: string = STORED_LIMITS_VENDOR): number | null {
+  const from = freshWeek(started, vendor)
+  const to = freshWeek(finished, vendor)
   if (from === null || to === null || started.tickets.length === 0) return null
-  if (to.utilization < from.utilization) return null
+  if (from.id !== to.id || to.utilization < from.utilization) return null
   if (from.resetsAt !== null) {
     const resets = Date.parse(from.resetsAt)
     if (resets <= Date.parse(finished.at)) return null
@@ -55,8 +61,8 @@ export function waveGrowth(started: WaveLine, finished: WaveLine): number | null
 }
 
 /** The growth per Ticket of one Wave, or null when it gives no sample (waveGrowth). */
-function sample(started: WaveLine, finished: WaveLine): number | null {
-  const growth = waveGrowth(started, finished)
+function sample(started: WaveLine, finished: WaveLine, vendor: string): number | null {
+  const growth = waveGrowth(started, finished, vendor)
   return growth === null ? null : growth / started.tickets.length
 }
 
@@ -69,9 +75,10 @@ function median(values: readonly number[]): number {
 /**
  * The per-Ticket samples of the last ESTIMATE_WAVES Waves that give one, oldest first, from the
  * events of each past run (one list per journal file). The Epic forecast draws from them
- * (forecast.ts, worfy-resource-planner ticket 01).
+ * (forecast.ts, worfy-resource-planner ticket 01). `vendor`: the Vendor of the run they are for
+ * (Claude when absent); only Waves whose lines carry that Vendor's windows give a sample.
  */
-export function waveSamples(runs: readonly (readonly JournalEvent[])[]): number[] {
+export function waveSamples(runs: readonly (readonly JournalEvent[])[], vendor: string = STORED_LIMITS_VENDOR): number[] {
   const samples: { at: number; perTicket: number }[] = []
   for (const events of runs) {
     const started = new Map<number, WaveLine>()
@@ -80,7 +87,7 @@ export function waveSamples(runs: readonly (readonly JournalEvent[])[]): number[
       else if (event.kind === 'wave-finished') {
         const start = started.get(event.wave)
         started.delete(event.wave)
-        const perTicket = start === undefined ? null : sample(start, event)
+        const perTicket = start === undefined ? null : sample(start, event, vendor)
         if (perTicket !== null) samples.push({ at: Date.parse(event.at), perTicket })
       }
     }
@@ -91,10 +98,18 @@ export function waveSamples(runs: readonly (readonly JournalEvent[])[]): number[
     .map((each) => each.perTicket)
 }
 
-/** The estimate from the events of each past run (one list per journal file), or null when too few Waves count. */
-export function waveEstimate(runs: readonly (readonly JournalEvent[])[]): WaveEstimate | null {
-  const last = waveSamples(runs)
-  if (last.length < ESTIMATE_MIN_WAVES) return null
+/** How many counted Waves the estimate of a run on `vendor` needs: ESTIMATE_MIN_WAVES for Claude, VENDOR_ESTIMATE_MIN_WAVES for a Vendor of whole percents. */
+export function estimateMinWaves(vendor: string = STORED_LIMITS_VENDOR): number {
+  return listsWindows(vendor) ? VENDOR_ESTIMATE_MIN_WAVES : ESTIMATE_MIN_WAVES
+}
+
+/**
+ * The estimate from the events of each past run (one list per journal file), or null when too few
+ * Waves count (estimateMinWaves); for a run on `vendor`, from that Vendor's samples (waveSamples).
+ */
+export function waveEstimate(runs: readonly (readonly JournalEvent[])[], vendor: string = STORED_LIMITS_VENDOR): WaveEstimate | null {
+  const last = waveSamples(runs, vendor)
+  if (last.length < estimateMinWaves(vendor)) return null
   return { perTicket: median(last), waves: last.length }
 }
 
@@ -117,6 +132,12 @@ export interface EstimateAnswer {
   samples: number[]
   /** The p90 of the Wave duration and its number of samples (waveDurationP90). */
   durations: WaveDuration
+  /**
+   * The Vendor of the Project's Orchestrator when it is not Claude (worfy-multi-vendor ticket 38): the
+   * estimate, the samples and `sevenDay` (its longest window) are that Vendor's, and the hint reads
+   * its live windows. Absent: Claude.
+   */
+  vendor?: string
 }
 
 /**
@@ -125,13 +146,15 @@ export interface EstimateAnswer {
  * for the Epic forecast of the Autopilot button (worfy-resource-planner ticket 06) the per-Ticket
  * samples and the Wave duration of the same runs.
  */
-export function estimateAnswer(runs: readonly (readonly JournalEvent[])[], limits: LimitsState): EstimateAnswer {
-  const week = limits.windows.seven_day
+export function estimateAnswer(runs: readonly (readonly JournalEvent[])[], limits: LimitsState, vendor?: VendorLimits): EstimateAnswer {
+  const own = vendor !== undefined && listsWindows(vendor.vendor) ? vendor : undefined
+  const week = budgetWindows(limits, own).week
   return {
-    estimate: waveEstimate(runs),
-    sevenDay: week === undefined ? null : { utilization: week.utilization, resetsAt: week.resetsAt, receivedAt: week.receivedAt },
-    samples: waveSamples(runs),
+    estimate: waveEstimate(runs, own?.vendor),
+    sevenDay: week === null ? null : { utilization: week.utilization, resetsAt: week.resetsAt, receivedAt: week.receivedAt },
+    samples: waveSamples(runs, own?.vendor),
     durations: waveDurationP90(runs),
+    ...(own === undefined ? {} : { vendor: own.vendor }),
   }
 }
 

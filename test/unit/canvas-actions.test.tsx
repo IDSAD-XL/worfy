@@ -5,7 +5,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { launchedHint } from '../../src/shared/actions/render-template'
-import type { LimitsState } from '../../src/shared/agent/limits'
+import type { LimitsState, LimitWindow } from '../../src/shared/agent/limits'
 import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
 import { autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
@@ -53,6 +53,8 @@ let estimateAnswer: unknown
 let appSettings: AppSettings | null
 /** Claude's part of what limits.open answers: the live Limits of the toolbar (useLimits). */
 let limitsState: LimitsState
+/** The other Vendors' part of what limits.open answers (worfy-multi-vendor ticket 38). */
+let vendorsState: Record<string, LimitWindow[]>
 
 beforeEach(() => {
   vi.resetModules()
@@ -64,6 +66,7 @@ beforeEach(() => {
   estimateAnswer = null
   appSettings = null
   limitsState = { windows: {} }
+  vendorsState = {}
   listeners = new Map()
   // 07 done; 08 open, blocked by 07 (done) → ready; 09 open; 10 open, blocked by 09 (open); 11 claimed.
   tickets = [ticket(7, 'done'), ticket(8, 'open', [7]), ticket(9, 'open'), ticket(10, 'open', [9]), ticket(11, 'work')]
@@ -102,7 +105,7 @@ beforeEach(() => {
           if (estimateAnswer !== null) return Promise.resolve({ ok: true, value: estimateAnswer })
           return Promise.resolve({ ok: true, value: { closed: true } })
         case 'limits.open':
-          return Promise.resolve({ ok: true, value: { claude: limitsState, vendors: {} } })
+          return Promise.resolve({ ok: true, value: { claude: limitsState, vendors: vendorsState } })
         case 'appSettings.get':
           if (appSettings !== null) return Promise.resolve({ ok: true, value: appSettings })
           return Promise.resolve({ ok: true, value: { closed: true } })
@@ -407,6 +410,31 @@ describe('the Epic forecast in the hint of Autopilot (worfy-resource-planner tic
     act(() => listeners.get('limits.changed')?.({ claude: live(0.9), vendors: {} }))
     await vi.waitFor(() => expect(autopilot.getAttribute('title')).toBe(`${BUDGET_AWARE}. Used now: 90%, resets in 2 d 5 h. Recommended: no Wave now, all 2 after the reset`))
     expect(calls.filter((call) => call.channel === 'autopilot.estimate')).toHaveLength(1)
+  })
+
+  it("on a Project whose Orchestrator runs on Codex (the estimate names it) the hint reads Codex's live weekly window, not Claude's, and follows limits.changed (worfy-multi-vendor ticket 38)", async () => {
+    appSettings = settings({ autopilotRun: { mode: 'budget-aware' } })
+    estimateAnswer = { ...answer(), vendor: 'codex' }
+    // Claude's week at 10 % would fit both Waves; Codex's weekly window at 80 % fits one.
+    limitsState = live(0.1)
+    const codex = (week: number) => [
+      { vendor: 'codex', id: 'primary', label: '5h', usedPercent: 10, windowMinutes: 300, resetsAt: resetsAt() - 2 * 86_400, state: 'ok' as const, receivedAt: Date.now(), source: 'read' },
+      { vendor: 'codex', id: 'secondary', label: 'weekly', usedPercent: week, windowMinutes: 10_080, resetsAt: resetsAt(), state: 'ok' as const, receivedAt: Date.now(), source: 'read' },
+    ]
+    vendorsState = { codex: codex(80) }
+    const wide = 'The range is wide: this Vendor reports its Limits in whole percents only'
+    const autopilot = await hint()
+    await vi.waitFor(() =>
+      expect(autopilot.getAttribute('title')).toBe(
+        `${BASE}. Mode: Budget-aware (Settings → Autopilot). This Epic: 2 Waves, 3 Tickets left, usually about 6% of the week. ${wide}. 1 Ticket without a Wave is not counted. ${RECOMMENDED}`,
+      ),
+    )
+    act(() => listeners.get('limits.changed')?.({ claude: live(0.1), vendors: { codex: codex(90) } }))
+    await vi.waitFor(() =>
+      expect(autopilot.getAttribute('title')).toBe(
+        `${BASE}. Mode: Budget-aware (Settings → Autopilot). This Epic: 2 Waves, 3 Tickets left, usually about 6% of the week. ${wide}. 1 Ticket without a Wave is not counted. Used now: 90%, resets in 2 d 5 h. Recommended: no Wave now, all 2 after the reset`,
+      ),
+    )
   })
 
   it('a stale number in Fastest gives no warning either', async () => {

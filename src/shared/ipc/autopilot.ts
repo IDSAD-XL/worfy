@@ -192,6 +192,12 @@ export const autopilotEstimateAnswerSchema = z.object({
   sevenDay: z.object({ utilization: z.number().nonnegative().nullable(), resetsAt: z.number().nullable(), receivedAt: z.number() }).nullable(),
   samples: z.array(z.number().nonnegative()).max(ESTIMATE_WAVES),
   durations: z.object({ p90: z.number().nonnegative().nullable(), samples: z.number().int().nonnegative().max(DURATION_WAVES) }),
+  /**
+   * The Vendor of the Project's Orchestrator when it is not Claude (worfy-multi-vendor ticket 38): the
+   * estimate, `sevenDay` (its longest window) and `samples` are that Vendor's, and the hint reads its
+   * live windows from limits.open. Absent: Claude, as in every answer of a build from before it.
+   */
+  vendor: z.string().min(1).optional(),
 })
 export type AutopilotEstimateAnswer = z.infer<typeof autopilotEstimateAnswerSchema>
 export const autopilotEstimate = invokeChannel('autopilot.estimate', z.object({ projectId }), autopilotEstimateAnswerSchema, 'project', 'read')

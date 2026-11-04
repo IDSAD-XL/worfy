@@ -13,7 +13,9 @@
 //   `limits-budget` from budget-stop to resumed, `start-window` from start-window to resumed (the Run
 //   mode Start window, worfy-resource-planner ticket 08; its waiting-until is that Wait's, not a
 //   Wait `limits`), `background-tasks` from a background-tasks line with live tasks to the next one
-//   with none, `gate-queue` from gate-queue to gate-queue-finished. A Limits, Start window or
+//   with none, `gate-queue` from gate-queue to gate-queue-finished. A limits-hit of a quota
+//   (`reason: 'quota'`, worfy-multi-vendor ticket 38) opens no Wait: the Run stops at once. The
+//   `limits` of the Wave lines is not read here, so both its shapes (journal.ts) read alike. A Limits, Start window or
 //   background-tasks Wait still open at run-stopped ends there; a gate-queue has its own
 //   end, so one without it (a Journal of before ticket 11) is left open, last seen at run-stopped
 //   (which follows the gate queue's turn), and the model cuts it off there.
@@ -136,6 +138,7 @@ export const STOP_OUTCOMES: Readonly<Record<AutopilotStopReason, SpanOutcome>> =
   'send-failed': 'failed',
   'workflow-error': 'failed',
   'limits-timeout': 'failed',
+  'vendor-quota': 'failed',
   'background-stalled': 'failed',
   'window-too-short': 'failed',
 }
@@ -302,6 +305,8 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
     for (const wait of [limits, tasks, gate]) if (wait !== null) wait.lastSeen = at
     switch (event.kind) {
       case 'limits-hit':
+        // A refusal by a quota (worfy-multi-vendor ticket 38) is no Wait: nothing resets, and run-stopped `vendor-quota` follows.
+        if (event.reason === 'quota') break
         limits ??= open('limits', at, text(event.window) === undefined ? [] : [event.window as string])
         break
       case 'budget-stop':

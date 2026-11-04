@@ -659,3 +659,92 @@ describe('usageOptions', () => {
     expect(usageOptions({ env: {}, cwd: '/d', executable: '/app/claude' }).pathToClaudeCodeExecutable).toBe('/app/claude')
   })
 })
+
+describe("LimitsRefresher.refreshIfOlder with a Vendor (Autopilot's run on Codex, worfy-multi-vendor ticket 38)", () => {
+  /** The store with Codex's windows as last read, as LimitsTracker.windowsOf answers them. */
+  class VendorStore extends Store {
+    windows = new Map<string, readonly LimitWindow[]>()
+    windowsOf(vendor: string): readonly LimitWindow[] | null {
+      return this.windows.get(vendor) ?? null
+    }
+    override setWindows(vendor: string, windows: readonly LimitWindow[] | null): void {
+      super.setWindows(vendor, windows)
+      if (windows === null) this.windows.delete(vendor)
+      else this.windows.set(vendor, windows)
+    }
+  }
+  const codex = (receivedAt: number): LimitWindow[] => [
+    { vendor: 'codex', id: 'primary', label: '5h', usedPercent: 12, windowMinutes: 300, resetsAt: 1793003600, state: 'ok', receivedAt, source: 'read' },
+    { vendor: 'codex', id: 'secondary', label: 'weekly', usedPercent: 40, windowMinutes: 10080, resetsAt: 1793400000, state: 'ok', receivedAt, source: 'read' },
+  ]
+  let store: VendorStore
+  let read: ReturnType<typeof vi.fn<(signal: AbortSignal) => Promise<unknown>>>
+  let poll: ReturnType<typeof vi.fn<VendorLimitsPoll['poll']>>
+  let clock: number
+  let refresher: LimitsRefresher
+
+  beforeEach(() => {
+    clock = START
+    store = new VendorStore()
+    read = vi.fn<(signal: AbortSignal) => Promise<unknown>>(() => Promise.resolve(answer(10, 40)))
+    poll = vi.fn<VendorLimitsPoll['poll']>(() => Promise.resolve(codex(clock)))
+    refresher = new LimitsRefresher({ limits: store, read, log: () => undefined, now: () => clock, vendors: [{ vendor: 'codex', poll }] })
+  })
+
+  afterEach(() => refresher.stop())
+
+  it("polls that Vendor, not Claude's usage, when none of its windows is known or one is older than the age; a fresh one polls nothing", async () => {
+    await refresher.refreshIfOlder(5 * MINUTE, 'codex')
+    expect(poll).toHaveBeenCalledTimes(1)
+    expect(read).not.toHaveBeenCalled()
+    expect(store.vendorWindows).toEqual([['codex', codex(START)]])
+    // Exactly 5 minutes old is fresh, one millisecond more is not.
+    clock = START + 5 * MINUTE
+    await refresher.refreshIfOlder(5 * MINUTE, 'codex')
+    expect(poll).toHaveBeenCalledTimes(1)
+    clock += 1
+    await refresher.refreshIfOlder(5 * MINUTE, 'codex')
+    expect(poll).toHaveBeenCalledTimes(2)
+    // Claude's ask is the one without a Vendor, or with Claude's name.
+    await refresher.refreshIfOlder(5 * MINUTE, 'claude')
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+
+  it('an age of 0 polls whatever is known (the read after a wait for the Limits); a poll running is waited for, not doubled', async () => {
+    store.setWindows('codex', codex(START))
+    let finish!: (windows: LimitWindow[]) => void
+    poll.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    const first = refresher.refreshIfOlder(0, 'codex')
+    const second = refresher.refreshIfOlder(0, 'codex')
+    let done = false
+    void second.then(() => (done = true))
+    await settle()
+    expect(poll).toHaveBeenCalledTimes(1)
+    expect(done).toBe(false)
+    finish(codex(START + MINUTE))
+    await Promise.all([first, second])
+    expect(store.windowsOf('codex')).toEqual(codex(START + MINUTE))
+  })
+
+  it('a poll running is waited for even when the windows known are fresh: the answer is the one being read', async () => {
+    store.setWindows('codex', codex(START))
+    let finish!: (windows: LimitWindow[]) => void
+    poll.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    const forced = refresher.refreshIfOlder(0, 'codex')
+    let done = false
+    const fresh = refresher.refreshIfOlder(5 * MINUTE, 'codex').then(() => (done = true))
+    await settle()
+    expect(done).toBe(false)
+    finish(codex(START + MINUTE))
+    await Promise.all([forced, fresh])
+    expect(poll).toHaveBeenCalledTimes(1)
+  })
+
+  it('a Vendor the refresher does not poll, or a stopped refresher, resolves at once and polls nothing', async () => {
+    await refresher.refreshIfOlder(0, 'gemini')
+    refresher.stop()
+    await refresher.refreshIfOlder(0, 'codex')
+    expect(poll).not.toHaveBeenCalled()
+    expect(read).not.toHaveBeenCalled()
+  })
+})

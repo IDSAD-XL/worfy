@@ -144,12 +144,20 @@
 //                  limits?
 //
 //   limits? of wave-started and wave-finished: the share of the Limits windows when the line
-//   was written (worfy-throughput ticket 40), {"five_hour": <window>, "seven_day": <window>}, a
-//   window null when worfy knew nothing of it; <window> is {utilization, receivedAt, resetsAt}:
-//   utilization the used share 0..1 (above 1 when over) or null, receivedAt the ISO time worfy got
-//   the number, resetsAt the ISO time the window resets or null. Before both lines worfy asks the
-//   usage once when the number is older than 5 minutes. A limits value outside this shape is
-//   dropped and the line read without it. Lines written before ticket 40 have no limits
+//   was written (worfy-throughput ticket 40), in the shape of the Vendor of the run (run-started
+//   vendor). A run on Claude: {"five_hour": <window>, "seven_day": <window>}, a window null when
+//   worfy knew nothing of it; <window> is {utilization, receivedAt, resetsAt}: utilization the
+//   used share 0..1 (above 1 when over) or null, receivedAt the ISO time worfy got the number,
+//   resetsAt the ISO time the window resets or null. A run on another Vendor (Codex,
+//   worfy-multi-vendor ticket 38): {"windows": [<limit window>, …]}, every window of that Vendor
+//   worfy knew of; <limit window> is {vendor, provider?, id, label, usedPercent, windowMinutes,
+//   resetsAt, receivedAt, state, source}, a LimitWindow of src/shared/agent/limits.ts with its
+//   times as ISO: usedPercent 0..100 and more or null, windowMinutes the window's length or null,
+//   resetsAt an ISO time or null, receivedAt an ISO time, state `ok`, `warning`, `reached` or
+//   null. No line when nothing is known of any window. Before both lines worfy asks the usage
+//   (Claude) or reads the Vendor's windows again once when the number is older than 5 minutes. A
+//   limits value outside both shapes is dropped and the line read without it. Lines written before
+//   ticket 40 have no limits, and lines before ticket 38 only the first shape
 //   start-window   reason, until,    the next Wave did not start for the Start window of the Run
 //                  text,             mode `start-window` (worfy-resource-planner ticket 05,
 //                  durationP90Ms?    ADR-0093): checked before each Wave, never inside one, and
@@ -174,8 +182,17 @@
 //                                    the reason in words. waiting-until with the same time follows,
 //                                    and resumed when the time comes. Journals written before
 //                                    ticket 41 have none
-//   limits-hit     window, resetsAt  a Session was refused by the Limits; window: `five_hour`,
-//                                    `seven_day`, … or null; resetsAt: ISO time or null
+//   limits-hit     window, resetsAt, a Session was refused by the Limits; window: `five_hour`,
+//                  reason?,          `seven_day`, `primary`, … or null; resetsAt: ISO time or null;
+//                  message?          reason: `quota` when the Vendor refused without a window that
+//                                    resets (Codex `usageLimitExceeded` with no window used up:
+//                                    the plan does not include Codex, or a quota ran out;
+//                                    worfy-multi-vendor ticket 38), absent for a window that
+//                                    resets; message: with `quota`, the first 1000 characters of
+//                                    the turn's error text. run-stopped `vendor-quota` follows a
+//                                    `quota` hit at once, with no wait. A reason of another value
+//                                    reads as none, the line stays. Lines written before ticket 38
+//                                    have neither field
 //   waiting-until  until             the run sleeps until this ISO time
 //   resumed                          the run continues after a wait
 //   session-error  session, message  a Session failed; session: its id or null
@@ -272,7 +289,7 @@
 //
 // Everything here is pure; src/main/autopilot/journal.ts reads and writes the files.
 import { z } from 'zod'
-import type { LimitWindowId, LimitsState } from '../agent/limits'
+import { limitStateSchema, type LimitWindow, type LimitWindowId, type LimitsState } from '../agent/limits'
 import { vendorIdSchema } from '../vendors/vendor'
 import { RUN_MODES, WINDOW_WAIT_REASONS } from './run-mode'
 
@@ -306,6 +323,9 @@ export type JournalEventKind = (typeof JOURNAL_EVENT_KINDS)[number]
 /** Who wrote a `human-input` line. */
 export const HUMAN_INPUT_SOURCES = ['worfy', 'observer'] as const
 export type HumanInputSource = (typeof HUMAN_INPUT_SOURCES)[number]
+
+/** What a `limits-hit` line says of a refusal without a window that resets (worfy-multi-vendor ticket 38). */
+export const LIMITS_HIT_REASONS = ['quota'] as const
 
 /** What a `budget-stop` line says stopped the run (src/shared/autopilot/budget.ts, BudgetCause). */
 export const BUDGET_CAUSES = ['daily-share', 'five-hour'] as const
@@ -352,8 +372,27 @@ const skipped = z.array(z.object({ num: text, state: z.enum(['blocked', 'none'])
 const session = z.string().min(1).nullable()
 const tasks = z.array(z.object({ id: text, type: z.string().nullable(), description: z.string().nullable() }))
 const limitsWindow = z.object({ utilization: z.number().nonnegative().nullable(), receivedAt: isoTime, resetsAt: isoTime.nullable() }).nullable()
-/** The `limits` field of wave-started and wave-finished: the share of each window when the line was written. */
-export const journalLimitsSchema = z.object({ five_hour: limitsWindow, seven_day: limitsWindow })
+/** The `limits` of a Wave's line of a run on Claude: the share of each of its two windows when the line was written. */
+export const claudeJournalLimitsSchema = z.object({ five_hour: limitsWindow, seven_day: limitsWindow })
+/** One window of the `limits` of a run on another Vendor: a LimitWindow, its times as ISO. */
+const journalLimitWindowSchema = z.object({
+  vendor: z.string().min(1),
+  provider: z.string().optional(),
+  id: z.string().min(1),
+  label: z.string(),
+  usedPercent: z.number().nonnegative().nullable(),
+  windowMinutes: z.number().positive().nullable(),
+  resetsAt: isoTime.nullable(),
+  receivedAt: isoTime,
+  state: limitStateSchema.nullable(),
+  source: z.string(),
+})
+export type JournalLimitWindow = z.output<typeof journalLimitWindowSchema>
+/** The `limits` of a Wave's line of a run on a Vendor other than Claude (worfy-multi-vendor ticket 38): every window of that Vendor. */
+export const vendorJournalLimitsSchema = z.object({ windows: z.array(journalLimitWindowSchema).min(1) })
+export type VendorJournalLimits = z.output<typeof vendorJournalLimitsSchema>
+/** The `limits` field of wave-started and wave-finished: the share of the windows when the line was written, in the shape of the run's Vendor. */
+export const journalLimitsSchema = z.union([claudeJournalLimitsSchema, vendorJournalLimitsSchema])
 export type JournalLimits = z.output<typeof journalLimitsSchema>
 // A value outside the shape reads as no value: the Wave's line itself is not lost for it.
 const limits = journalLimitsSchema.optional().catch(undefined)
@@ -402,7 +441,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('wave-finished', { ...wave, limits }),
   event('start-window', { reason: z.enum(WINDOW_WAIT_REASONS), until: isoTime, text, durationP90Ms: z.number().int().nonnegative().optional() }),
   event('budget-stop', { cause: z.enum(BUDGET_CAUSES), share: z.number().nonnegative(), used: z.number().nonnegative(), need: z.number().nonnegative(), until: isoTime, text }),
-  event('limits-hit', { window: z.string().min(1).nullable(), resetsAt: isoTime.nullable() }),
+  event('limits-hit', { window: z.string().min(1).nullable(), resetsAt: isoTime.nullable(), reason: z.enum(LIMITS_HIT_REASONS).optional().catch(undefined), message: z.string().max(LAST_TEXT_MAX).optional() }),
   event('waiting-until', { until: isoTime }),
   event('resumed', {}),
   event('session-error', { session, message: z.string() }),
@@ -476,13 +515,54 @@ export function journalReason(reason: string, home: string): string {
  * is known of either window, so the line goes without the field.
  */
 export function journalLimits(state: LimitsState): JournalLimits | undefined {
-  const window = (id: LimitWindowId): JournalLimits[LimitWindowId] => {
+  const window = (id: LimitWindowId): z.output<typeof claudeJournalLimitsSchema>[LimitWindowId] => {
     const known = state.windows[id]
     if (known === undefined) return null
     return { utilization: known.utilization, receivedAt: new Date(known.receivedAt).toISOString(), resetsAt: known.resetsAt === null ? null : new Date(known.resetsAt * 1000).toISOString() }
   }
   const out = { five_hour: window('five_hour'), seven_day: window('seven_day') }
   return out.five_hour === null && out.seven_day === null ? undefined : out
+}
+
+/**
+ * The `limits` field of a run on a Vendor other than Claude (worfy-multi-vendor ticket 38): the
+ * windows of `vendor` among `windows` (LimitsTracker.windowsOf), their times as ISO; undefined when
+ * there is none, so the line goes without the field.
+ */
+export function journalVendorLimits(vendor: string, windows: readonly LimitWindow[]): VendorJournalLimits | undefined {
+  // A value the format refuses would cost the Wave's whole line (formatJournalLine throws): a number
+  // out of range is written as unknown, a window without an id or a time is left out. A time is
+  // written only when it is a date of years 0–9999 (isoTime): `new Date(1e13 * 1000).toISOString()`
+  // throws, and a year of six digits is outside the format.
+  const known = (value: number | null, positive: boolean): number | null => (value !== null && Number.isFinite(value) && (positive ? value > 0 : value >= 0) ? value : null)
+  const isoOf = (ms: number | null): string | null => {
+    if (ms === null || !Number.isFinite(ms)) return null
+    const date = new Date(ms)
+    const year = date.getUTCFullYear()
+    return Number.isNaN(date.getTime()) || year < 0 || year > 9999 ? null : date.toISOString()
+  }
+  const own = windows.flatMap((window) => {
+    const receivedAt = isoOf(window.receivedAt)
+    return window.vendor === vendor && window.id !== '' && receivedAt !== null ? [{ window, receivedAt }] : []
+  })
+  if (own.length === 0 || vendor === '') return undefined
+  return {
+    windows: own.map(({ window, receivedAt }) => {
+      const resetsAt = known(window.resetsAt, false)
+      return {
+        vendor: window.vendor,
+        ...(window.provider === undefined ? {} : { provider: window.provider }),
+        id: window.id,
+        label: window.label,
+        usedPercent: known(window.usedPercent, false),
+        windowMinutes: known(window.windowMinutes, true),
+        resetsAt: resetsAt === null ? null : isoOf(resetsAt * 1000),
+        receivedAt,
+        state: window.state,
+        source: window.source,
+      }
+    }),
+  }
 }
 
 /** The fields every line shares; the writer fills them in. */

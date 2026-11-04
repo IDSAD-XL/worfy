@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { create } from 'zustand'
 import type { LimitsState } from '../../../shared/agent/limits'
+import { vendorLimitsOf, type VendorLimits } from '../../../shared/autopilot/budget-window'
 import { epicForecast, remainingWaves, type EpicForecast } from '../../../shared/autopilot/forecast'
 import { fitBeforeReset, forecastLine, modeLine, recommendationLine, warningLine, windowLine } from '../../../shared/autopilot/forecast-lines'
 import type { RunMode, StartWindow } from '../../../shared/autopilot/run-mode'
@@ -312,16 +313,19 @@ interface HintSettings {
 /**
  * The end of the Autopilot button's hint: the mode line, then with an answer of main the forecast
  * line over the live `limits` and, for the mode, the recommendation (the budget acts), the Fastest warning (it does not) and
- * the Start window line. A line with nothing to say is left out.
+ * the Start window line. A line with nothing to say is left out. `vendor`: the live windows of the
+ * Vendor the answer names (a Project whose Orchestrator is not Claude, worfy-multi-vendor ticket 38);
+ * the lines then read its longest window instead of Claude's 7-day one.
  */
-function forecastHint(answer: AutopilotEstimateAnswer | null, forecast: EpicForecast | null, limits: LimitsState, settings: HintSettings, now: number): string[] {
+function forecastHint(answer: AutopilotEstimateAnswer | null, forecast: EpicForecast | null, limits: LimitsState, settings: HintSettings, now: number, vendor?: VendorLimits): string[] {
   const lines = [modeLine(settings.mode)]
   if (answer === null || forecast === null) return lines
-  lines.push(forecastLine({ forecast, limits, now }))
+  const own = vendor === undefined ? {} : { vendor }
+  lines.push(forecastLine({ forecast, limits, now, ...own }))
   const budgetActs = settings.mode === 'budget-aware' || (settings.mode === 'start-window' && settings.budgetOn)
   const advice = budgetActs
-    ? recommendationLine(fitBeforeReset({ forecast, limits, now, reserve: settings.reserve }), forecast.waves)
-    : warningLine(fitBeforeReset({ forecast, limits, now, reserve: null }), forecast.waves)
+    ? recommendationLine(fitBeforeReset({ forecast, limits, now, reserve: settings.reserve, ...own }), forecast.waves)
+    : warningLine(fitBeforeReset({ forecast, limits, now, reserve: null, ...own }), forecast.waves)
   if (advice !== null) lines.push(advice)
   if (settings.mode === 'start-window') lines.push(windowLine(settings.window, answer.durations))
   return lines
@@ -386,9 +390,13 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   // Before main's first state the Project counts as without a run: that state asks again only when it is a run.
   const estimate = useWaveEstimate(projectId, state?.status ?? 'stopped')
   const now = useNow()
-  // The Limits as the toolbar shows them, kept current by limits.changed.
-  // Claude's windows: the forecast is of a Run on Claude (worfy-multi-vendor ticket 38 adds Codex's).
-  const limits = useLimits().claude
+  // The Limits as the toolbar shows them, kept current by limits.changed: Claude's, and the windows of
+  // the Vendor the estimate names when the Project's Orchestrator runs on another one (ticket 38).
+  const view = useLimits()
+  const limits = view.claude
+  const vendorId = estimate?.vendor
+  const vendorWindows = vendorId === undefined ? undefined : view.vendors[vendorId]
+  const vendor = useMemo(() => (vendorId === undefined ? undefined : vendorLimitsOf(vendorId, vendorWindows)), [vendorId, vendorWindows])
   // Each field alone: a selector that builds an object would give a new one on every read.
   const mode = useAppSettings((settings) => autopilotRunOf(settings).mode)
   const windowFrom = useAppSettings((settings) => autopilotRunOf(settings).window.from)
@@ -399,8 +407,8 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   // The bootstrap of FORECAST_DRAWS draws: once per change of the samples or the Tickets, not on every redraw.
   const forecast = useMemo(() => (samples === null ? null : epicForecast({ samples, waves: remainingWaves(tickets, epic.epic) })), [samples, tickets, epic.epic])
   const hint = useMemo(
-    () => (wave.enabled ? forecastHint(estimate, forecast, limits, { mode, window: { from: windowFrom, to: windowTo }, budgetOn, reserve: reservePercent / 100 }, now) : null),
-    [wave.enabled, estimate, forecast, limits, mode, windowFrom, windowTo, budgetOn, reservePercent, now],
+    () => (wave.enabled ? forecastHint(estimate, forecast, limits, { mode, window: { from: windowFrom, to: windowTo }, budgetOn, reserve: reservePercent / 100 }, now, vendor) : null),
+    [wave.enabled, estimate, forecast, limits, mode, windowFrom, windowTo, budgetOn, reservePercent, now, vendor],
   )
   // Nothing to start, stop or say: the button is not drawn, and "⋯" only for an Epic with past Runs.
   const hidden = !hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined

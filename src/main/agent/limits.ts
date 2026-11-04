@@ -280,6 +280,11 @@ export interface SessionLimitsStatus {
   window: string | null
   /** The window's reset time as reported (Unix seconds); null when not reported. */
   resetsAt: number | null
+  /**
+   * A `limit_reached` with `reason: 'quota'` (Codex, worfy-multi-vendor ticket 38): refused without a
+   * window that resets, so waiting does not help. Absent otherwise, as for every refusal of Claude.
+   */
+  quota?: true
 }
 
 /**
@@ -288,7 +293,8 @@ export interface SessionLimitsStatus {
  * Session's id changes once Claude Code names it, so the test is the caller's). A `limit_reached`
  * event is `rejected` for its window and reset time; a `limits` event is the status it carries, as
  * the Vendor worded it, with the window and reset time of that status (not of a window), and
- * nothing when it carries none. An event that repeats the last status, window and reset time is not
+ * nothing when it carries none; a `limit_reached` of a quota says so (`quota`). An event that repeats
+ * the last status, window, reset time and quota is not
  * reported again: so a refusal, which comes as `limits` and then as `limit_reached` with the same
  * window and time, is reported once. Answers the unsubscribe.
  */
@@ -302,14 +308,14 @@ export function observeSessionLimits(
     if ((event.type !== 'limits' && event.type !== 'limit_reached') || !isSession(sessionId)) return
     const next = sessionLimitsStatusOf(event)
     if (next === null) return
-    if (last !== null && last.status === next.status && last.window === next.window && last.resetsAt === next.resetsAt) return
+    if (last !== null && last.status === next.status && last.window === next.window && last.resetsAt === next.resetsAt && last.quota === next.quota) return
     last = next
     listener(next)
   })
 }
 
 function sessionLimitsStatusOf(event: Extract<AgentEvent, { type: 'limits' | 'limit_reached' }>): SessionLimitsStatus | null {
-  if (event.type === 'limit_reached') return { status: limitStatusOf('reached'), window: event.windowId, resetsAt: event.resetsAt }
+  if (event.type === 'limit_reached') return { status: limitStatusOf('reached'), window: event.windowId, resetsAt: event.resetsAt, ...(event.reason === 'quota' ? { quota: true as const } : {}) }
   const told = event.status
   return told === null ? null : { status: told.text, window: told.windowId, resetsAt: told.resetsAt }
 }

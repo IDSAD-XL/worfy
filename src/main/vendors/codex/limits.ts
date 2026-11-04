@@ -130,18 +130,23 @@ export interface CodexLimitReachedEvent extends CodexRateLimits {
  * The `limit_reached` event of a turn's `error` notification; null for any error but
  * `usageLimitExceeded`. Before the decision the windows are read again on the Session's app-server
  * (`ask`): the answer is fresher than `known`, the windows of the Session's last `limits` event, which
- * stay the basis when the read fails. `ordinaryUsageAllowed` is passed on for the caller that decides
- * whether to wait.
+ * stay the basis when the read fails. When the read fails and the Session knows no window either,
+ * nothing tells a quota from a window: the refusal is a `window` one with no window and no reset time
+ * (worfy-multi-vendor ticket 38), so Autopilot waits and tries again rather than stop on a read that
+ * failed once. `ordinaryUsageAllowed` is passed on for the caller that decides whether to wait.
  */
 export async function codexLimitReachedEvent(ask: Pick<CodexAsk, 'request'>, error: ErrorNotification, known: readonly LimitWindow[], now: () => number = Date.now): Promise<CodexLimitReachedEvent | null> {
   if (error.error.codexErrorInfo !== 'usageLimitExceeded') return null
   let limits: CodexRateLimits = { windows: [...known], ordinaryUsageAllowed: null }
+  let unknown = false
   try {
     limits = await readCodexRateLimits(ask, true, now)
   } catch (failure) {
+    unknown = known.length === 0
     console.debug('[codex] reading the Limits after a refusal failed: the last windows of the Session decide', failure)
   }
-  return { ...limits, event: { type: 'limit_reached', vendor: CODEX_VENDOR, ...codexLimitReached(limits.windows) } }
+  const reached: CodexLimitReached = unknown ? { windowId: null, resetsAt: null, reason: 'window' } : codexLimitReached(limits.windows)
+  return { ...limits, event: { type: 'limit_reached', vendor: CODEX_VENDOR, ...reached } }
 }
 
 /** The limits part of the Codex driver, with the background poll of LimitsRefresher. */

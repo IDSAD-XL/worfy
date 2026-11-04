@@ -285,6 +285,8 @@ function harness(options: HarnessOptions = {}) {
   const timers: Timer[] = []
   const states: AutopilotState[] = []
   const power: string[] = []
+  /** Every usage.refresh the run made: the age asked and the Vendor named. */
+  const refreshes: { olderThanMs: number; vendor: string | undefined }[] = []
   const refresher = options.usage === undefined ? null : new LimitsRefresher({ limits: tracker, read: options.usage, now: () => clock, log: () => undefined })
   const autopilot = new Autopilot({
     projectRoot: () => repo,
@@ -297,7 +299,16 @@ function harness(options: HarnessOptions = {}) {
     orchestrators,
     registry,
     waves: launcher,
-    ...(refresher === null ? {} : { usage: { refresh: (olderThanMs: number) => refresher.refreshIfOlder(olderThanMs) } }),
+    ...(refresher === null
+      ? {}
+      : {
+          usage: {
+            refresh: (olderThanMs: number, vendor?: string) => {
+              refreshes.push({ olderThanMs, vendor })
+              return refresher.refreshIfOlder(olderThanMs, vendor)
+            },
+          },
+        }),
     ...(options.budget === undefined ? {} : { budget: { settings: budgetSettings(options.budget), runs: (projectId: string) => readRecentRuns(projectId, { env }) } }),
     ...(options.runSettings !== undefined
       ? { runSettings: options.runSettings }
@@ -348,7 +359,7 @@ function harness(options: HarnessOptions = {}) {
     }
     return out
   }
-  return { autopilot, registry, orchestrators, tracker, timers, live, states, power, journal, kinds, messages, state, releases, processes, setMarks, launcher, watchers }
+  return { autopilot, registry, orchestrators, tracker, timers, live, states, power, journal, kinds, messages, state, releases, processes, setMarks, launcher, watchers, refreshes }
 }
 
 const iso = (ms: number): string => new Date(ms).toISOString()
@@ -473,6 +484,21 @@ describe('Autopilot and the Limits on the fake agent', () => {
     expect(h.messages()).toEqual([WAVE_1, `${continueText(START_MS, timer.at)}\n\n${STOP_TEXT}`])
     expect(h.state()).toMatchObject({ reason: 'user-stop', wave: 1 })
     expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'resumed', 'run-stopping', 'ticket-status', 'ticket-status', 'run-stopped'])
+  })
+
+  it("a run on Claude does not read the windows anew after the wait (that is another Vendor's, worfy-multi-vendor ticket 38): no usage ask of age 0, the continuation goes", async () => {
+    const answer = { rate_limits: { five_hour: { utilization: 20, resets_at: iso(RESET_MS) }, seven_day: { utilization: 40, resets_at: '2026-10-09T09:00:00.000Z' } } }
+    const h = harness({ usage: () => Promise.resolve(answer) })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the wait for the Limits')
+    const before = h.refreshes.length
+    const timer = h.live()[0]!
+    clock = timer.at
+    timer.fire()
+    await until(() => h.messages().length >= 2, 'the continuation')
+    expect(h.messages()[1]!.startsWith(CONTINUE_TEXT)).toBe(true)
+    expect(h.refreshes.slice(before).filter((each) => each.olderThanMs <= 0)).toEqual([])
+    expect(h.refreshes.every((each) => each.vendor === undefined || each.vendor === 'claude')).toBe(true)
   })
 
   it('Force stop during the wait cancels the timer: no continuation goes out (worfy-week tickets 17, 18)', async () => {

@@ -249,7 +249,8 @@ reset. Where the budget acts, the free share is 1 − reserve − used now; wher
 such a run stops on the Limits and not on the reserve. The recommendation reads K with the reserve, the Fastest warning
 without it. Shares are compared in whole millionths, so a binary rounding error does not drop a Wave that fits exactly.
 
-**The budget.** All of it is computed from the 7-day window:
+**The budget.** All of it is computed from the 7-day window. In a run on a Codex Orchestrator the longest Codex window
+takes its place, and only earlier Waves on Codex count ([Autopilot](autopilot.md#the-run-mode-the-start-window-and-the-budget)):
 
 - Today's share = (1 − reserve − the 7-day share at the start of the day) / the days until the 7-day reset, today
   included.
