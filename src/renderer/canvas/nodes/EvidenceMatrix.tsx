@@ -7,6 +7,8 @@ import { classifyLink } from '../../markdown/links'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { showRevealed } from '../../toast/revealed'
 import { useWorkflow } from '../../workflow/useWorkflow'
+import { evidencePathOf, previewKindOf } from './evidence-files'
+import { EvidencePreview } from './EvidencePreview'
 import { linkFolderOf, type TicketText } from './ticket-text'
 import '../badges/evidence.css'
 
@@ -20,7 +22,9 @@ import '../badges/evidence.css'
 // an https:// URL as it is — all with `shell.openExternal`; without the repository's page (`repoUrl` null)
 // the SHA and the PR are text. A path in backticks (a screenshot, a text file) resolves from the Ticket file's
 // folder and opens in the system's default program with `shell.openInEditor`; on a Linked machine it shows
-// "File is on <Machine>" instead, as the Ticket's own links do. worfy checks no link against its source: it
+// "File is on <Machine>" instead, as the Ticket's own links do. Under a `screenshot` or `video` line whose file
+// lies in `<epic>/evidence/` the matrix shows it too (EvidencePreview.tsx, worfy-evidence ticket 12): a thumbnail
+// that opens over the window, a clip that plays in place; not in a window on a Linked machine. worfy checks no link against its source: it
 // does not ask whether a CI run is green (spec of the Epic, decided without the owner, item 6). A Ticket
 // without checkbox items has no matrix.
 
@@ -91,6 +95,8 @@ function Link({ href, title, onOpen, testId, children }: { href: string; title: 
 
 export interface EvidenceMatrixProps {
   projectId: string
+  /** The Ticket's epic: the ref of a screenshot or a clip resolves from `<epic>/issues/` to the file below the Tickets root. */
+  epic: string
   items: readonly EvidenceItem[]
   /** The page of the Project's repository (`https://github.com/<owner>/<repo>`); null without one. */
   repoUrl: string | null
@@ -98,7 +104,7 @@ export interface EvidenceMatrixProps {
   baseDir: string | undefined
 }
 
-export function EvidenceMatrix({ projectId, items, repoUrl, baseDir }: EvidenceMatrixProps) {
+export function EvidenceMatrix({ projectId, epic, items, repoUrl, baseDir }: EvidenceMatrixProps) {
   const file = useFileElsewhere()
   if (!items.length) return null
   const { verified, total } = evidenceSummary(items)
@@ -150,6 +156,16 @@ export function EvidenceMatrix({ projectId, items, repoUrl, baseDir }: EvidenceM
         return <span>{target.label}</span>
     }
   }
+  /** The thumbnail or the clip under a screenshot or video line whose file main serves; none on a Linked machine. */
+  const preview = (line: EvidenceLine) => {
+    if (file.elsewhere) return null
+    const target = refTarget(line.ref, repoUrl, baseDir)
+    if (target.kind !== 'file') return null
+    const kind = previewKindOf(line.kind, target.path)
+    const evidencePath = evidencePathOf(epic, target.label)
+    if (kind === null || evidencePath === null) return null
+    return <EvidencePreview key={evidencePath} projectId={projectId} kind={kind} evidencePath={evidencePath} path={target.path} label={target.label} onOpen={openFile} />
+  }
 
   return (
     <section className="w-evidence" data-testid="evidence-matrix" aria-label="Evidence">
@@ -179,6 +195,7 @@ export function EvidenceMatrix({ projectId, items, repoUrl, baseDir }: EvidenceM
                       {' · '}
                       {ref(line)}
                       {line.scrub === null ? null : ` · scrub: ${line.scrub}`}
+                      {preview(line)}
                     </li>
                   ))}
                   {item.errors.map((error) => (
@@ -198,5 +215,5 @@ export function EvidenceMatrix({ projectId, items, repoUrl, baseDir }: EvidenceM
 /** The matrix of a focused Ticket: its items, the repository's page from the workflow model, the folder of its file. */
 export function TicketEvidence({ projectId, root, ticket, read }: { projectId: string; root: string; ticket: Ticket; read: TicketText }) {
   const { model } = useWorkflow(root)
-  return <EvidenceMatrix projectId={projectId} items={ticket.evidence ?? []} repoUrl={model?.repoUrl ?? null} baseDir={linkFolderOf(read)} />
+  return <EvidenceMatrix projectId={projectId} epic={ticket.epic} items={ticket.evidence ?? []} repoUrl={model?.repoUrl ?? null} baseDir={linkFolderOf(read)} />
 }

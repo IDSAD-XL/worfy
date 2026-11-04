@@ -303,22 +303,24 @@ describe('resolveImageFile and a link that leads to a share (Windows rules)', ()
 })
 
 describe('the schemes of the app', () => {
-  it('get their privileges in one call: worfy-card and worfy-image, standard and secure', async () => {
+  it('get their privileges in one call: worfy-card and worfy-image, standard and secure, worfy-image streamed for a <video>', async () => {
     const { registerAppSchemes } = await import('../../src/main/schemes')
     registerAppSchemes()
     expect(electron.registered).toEqual([
       [
         { scheme: 'worfy-card', privileges: { standard: true, secure: true } },
-        { scheme: 'worfy-image', privileges: { standard: true, secure: true } },
+        { scheme: 'worfy-image', privileges: { standard: true, secure: true, stream: true } },
       ],
     ])
   })
 
-  it('the window loads images from worfy-image: and itself only', async () => {
+  it('the window loads images from worfy-image: and itself only, media from worfy-image: only', async () => {
     const { readFileSync } = await import('node:fs')
     const html = readFileSync(join(import.meta.dirname, '..', '..', 'src', 'renderer', 'index.html'), 'utf8')
     const csp = /http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html)?.[1] ?? ''
     expect(csp.split('; ')).toContain("img-src 'self' worfy-image:")
     expect(csp).not.toMatch(/img-src[^;]*(data:|blob:|https?:)/)
+    // A clip of the Evidence matrix (worfy-evidence ticket 12): without media-src a <video> loads nothing.
+    expect(csp.split('; ')).toContain('media-src worfy-image:')
   })
 })

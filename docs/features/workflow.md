@@ -46,7 +46,10 @@ verified`, then a row per item with its number, the start of its text and its st
 verdict, platform and copy, the short SHA, the ref. The SHA opens `<repository>/commit/<sha>` and `PR #N` opens
 `<repository>/pull/<N>` on the page of the Project's `origin`, an https URL opens as it is, all in the browser; without an
 `origin` page the SHA and the PR are text. A path in backticks resolves from the Ticket file's folder and opens in the
-system's default program. The text and the matrix follow edits of the file. "Open in editor" opens the file. A file over 1 MB is not read. When a read
+system's default program. A `screenshot` line whose file lies in `<epic>/evidence/` shows a thumbnail under it; a click
+opens the image over the window, with "Open in default app". A `video` line's clip (webm or mp4) plays in place, muted,
+with its controls, and "Contact sheet" opens the sheet next to it over the window. A file that does not load says "File
+not found" or "File over 8 MB" (worfy serves Evidence files up to 8 MB). A window on a Linked machine shows no preview. The text and the matrix follow edits of the file. "Open in editor" opens the file. A file over 1 MB is not read. When a read
 fails, "The Ticket file could not be read" shows with the reason, and the text read earlier stays.
 
 **The Epic frame.** Its header has the Epic's name, the H1 of its `spec.md`, a progress bar of 12 segments, the count
@@ -151,7 +154,7 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
 | The renderer's shared copy | `src/renderer/workflow/useWorkflow.ts` |
 | Frames and cards as Nodes; columns; card height | `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/ticket-card.ts` |
 | The views | `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/nodes/EpicFrameNode.tsx` |
-| Evidence: the items' states, the chip, the matrix | `src/shared/workflow/evidence.ts`, `src/renderer/canvas/badges/Evidence.tsx`, `src/renderer/canvas/nodes/EvidenceMatrix.tsx`, `src/renderer/canvas/badges/evidence.css` |
+| Evidence: the items' states, the chip, the matrix, its screenshots and clips | `src/shared/workflow/evidence.ts`, `src/renderer/canvas/badges/Evidence.tsx`, `src/renderer/canvas/nodes/EvidenceMatrix.tsx`, `src/renderer/canvas/nodes/EvidencePreview.tsx`, `src/main/images/stores.ts`, `src/renderer/canvas/badges/evidence.css` |
 | The arrows | `src/renderer/canvas/edges/blocking.ts` |
 | Sidebar, palette, first-epic label | `src/renderer/shell/sidebar/EpicsSection.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/overlays/FirstEpic.tsx` |
 | The buttons | `src/renderer/canvas/actions/TicketActions.tsx`, `src/renderer/canvas/actions/EpicActions.tsx`, `src/renderer/canvas/actions/OpenPr.tsx`, `src/renderer/canvas/actions/gates.ts` |

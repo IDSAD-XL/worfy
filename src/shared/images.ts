@@ -17,6 +17,13 @@
 //   `<Project data folder>/images/`, named `<32 hex>.<ext>` (src/main/layout/images.ts). The project
 //   label is the hash that ends the Project's id, as in worfy-card:// (projectIdHash,
 //   src/main/projects/store.ts): the rest of an id may hold what a host cannot carry.
+// - `evidence-<project label>` — the Evidence files of a Project's Tickets (worfy-evidence ticket 12):
+//   screenshots and clips in `<epic>/evidence/` of its Tickets root (the Workflow folder's in Silent
+//   mode), up to 8 MB. Its file name is a path below the Tickets root in one segment
+//   (`<epic>%2Fevidence%2F<file>`); main serves only `<epic>/evidence/…` there, clips too, and only
+//   to this Machine's window (src/main/images/stores.ts). A `-`, not a `.`, before the label: the window
+//   (Chromium) reads a host whose last part is all digits as an IPv4 address and refuses the URL, and a
+//   project label of 8 hex digits is all digits now and then (`evidence.00000006`).
 // A new store is a new store name and a new entry of the store locator in src/main/index.ts.
 import { imageFileName, type ImageMediaType } from './agent/attachments'
 import { MACHINE_LABEL_PATTERN } from './cards/bridge'
@@ -68,4 +75,32 @@ export function canvasImagesStore(projectId: string): string | null {
 export function canvasImageUrl(projectId: string, file: string, machineLabel: string | null): string | null {
   const store = canvasImagesStore(projectId)
   return store === null ? null : `${IMAGE_SCHEME}://${imageHost({ store, machineLabel })}/${encodeURIComponent(file)}`
+}
+
+/** The first part of the store name of a Project's Evidence files: `evidence-<project label>`. */
+export const EVIDENCE_IMAGES_STORE = 'evidence'
+
+/** The largest Evidence file served: the limit of a clip in the privacy check (harness/bin/evidence-check, Qv2 of the Epic). */
+export const EVIDENCE_FILE_LIMIT_BYTES = 8 * 1024 * 1024
+
+/** One part of a path: not empty, not `.` or `..`, no separator, no `:` (a drive or a stream on Windows), no NUL. */
+const PART = String.raw`(?!\.{1,2}(?:/|$))[^/\\:\0]+`
+
+/** The names of the Evidence store: `<epic>/evidence/<file>`, or a file in a folder below it, relative to the Tickets root. */
+export const EVIDENCE_FILE_PATTERN = new RegExp(`^${PART}/evidence/(?:${PART}/)*${PART}$`)
+
+/** The store name of a Project's Evidence files; null for a Project id without a project label. */
+export function evidenceImagesStore(projectId: string): string | null {
+  const label = projectLabelOf(projectId)
+  return label === null ? null : `${EVIDENCE_IMAGES_STORE}-${label}`
+}
+
+/**
+ * The address of an Evidence file, `relPath` relative to the Project's Tickets root with `/` between
+ * its parts (`<epic>/evidence/<file>`), in one segment; `machineLabel` names the Linked machine whose
+ * Project it is, null for this Machine. Null for a Project id without a project label.
+ */
+export function evidenceFileUrl(projectId: string, relPath: string, machineLabel: string | null): string | null {
+  const store = evidenceImagesStore(projectId)
+  return store === null ? null : `${IMAGE_SCHEME}://${imageHost({ store, machineLabel })}/${encodeURIComponent(relPath)}`
 }

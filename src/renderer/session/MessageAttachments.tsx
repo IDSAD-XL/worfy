@@ -4,7 +4,7 @@
 // name. No path is shown anywhere. The image comes from main's copy of it by worfy-image://
 // (src/shared/images.ts); an image with no copy — none was made, or it is gone — shows as a chip
 // with its name instead of a broken picture.
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { IMAGE_EXTENSIONS, type MessageAttachment } from '../../shared/agent/attachments'
 import { machineLabel } from '../../shared/cards/bridge'
@@ -68,8 +68,12 @@ function ImageChip({ image }: { image: ImageAttachment }) {
   )
 }
 
-/** The image at full size over the window; Escape, a click on it or Close shut it, and the focus goes back. */
-function ImageOverlay({ src, name, onClose }: { src: string; name: string; onClose: () => void }) {
+/**
+ * The image at full size over the window; Escape, a click on it or Close shut it, and the focus goes back.
+ * `actions`, buttons under the image, are the Evidence matrix's (src/renderer/canvas/nodes/EvidencePreview.tsx);
+ * a message's image has none.
+ */
+export function ImageOverlay({ src, name, onClose, actions }: { src: string; name: string; onClose: () => void; actions?: ReactNode }) {
   const dialog = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -88,6 +92,7 @@ function ImageOverlay({ src, name, onClose }: { src: string; name: string; onClo
   return createPortal(
     <div ref={dialog} className="w-image-overlay" role="dialog" aria-modal="true" aria-label={name} tabIndex={-1} data-testid="image-overlay" onKeyDown={onKeyDown} onClick={onClose}>
       <img className="w-image-overlay__image" src={src} alt={name} data-testid="image-overlay-image" />
+      {actions}
       <button type="button" className="w-image-overlay__close" aria-label="Close" data-testid="image-overlay-close" onClick={onClose}>
         ×
       </button>

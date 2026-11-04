@@ -3,7 +3,7 @@
 import { imagesFile, imagesStatus } from '../../shared/ipc/images'
 import { createImageHandler, imageStatus, readImageFileChunk } from '../images/protocol'
 import { appLinkedImageSource } from '../images/remote'
-import { appImageStore } from '../images/stores'
+import { appImageStore, appSharedImageStore } from '../images/stores'
 import { defineHandler, type HandlerModule } from './index'
 
 /** The protocol's own handler, as installImageProtocol serves it: the status is what the window got. */
@@ -12,6 +12,7 @@ const handler = createImageHandler(appImageStore, {}, appLinkedImageSource)
 export default [
   // An image of this Machine for a Linked machine that shows it (worfy-canvas ticket 24): found as
   // this Machine's own protocol finds it, by store name and file name; a path never comes over the link.
-  defineHandler(imagesFile, ({ store, name, offset, length }) => readImageFileChunk(appImageStore(store), name, offset, length)),
+  // Only the shared stores: a Project's Evidence files (worfy-evidence ticket 12) never leave this Machine.
+  defineHandler(imagesFile, ({ store, name, offset, length }) => readImageFileChunk(appSharedImageStore(store), name, offset, length)),
   defineHandler(imagesStatus, ({ url }) => imageStatus(handler, url)),
 ] satisfies HandlerModule
