@@ -174,8 +174,10 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     // before the split: the whole suite in one job would otherwise run the four files side by side.
     expect(job('macos-tests')).toContain('          HARNESS_SCRIPTS_PART: 1/1')
     // The shard's spec files come from scripts/e2e-shard.mjs (split by measured time), not --shard.
+    // Playwright's ffmpeg: the clips of test/e2e/evidence-capture.ts (worfy-evidence ticket 11).
     expect(runs('macos-e2e')).toEqual([
       'pnpm install --frozen-lockfile',
+      'pnpm exec playwright install ffmpeg',
       'osascript -l JavaScript scripts/ci-display.js',
       'node scripts/e2e-shard.mjs "$SHARD" $E2E_FILES',
       'pnpm test:e2e $FILES',
@@ -189,7 +191,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     const windows = job('windows')
     expect(value(windows, 'uses')).toBe('./.github/workflows/windows-tests.yml')
     expect(under(windows, '    with:')).toEqual(['      mode: full', '      shard: ${{ matrix.shard }}', '      tests-base: ${{ needs.changes.outputs.tests-base }}'])
-    expect(runs('windows-e2e')).toEqual(['pnpm install --frozen-lockfile', '$files = @(-split $env:E2E_FILES | Where-Object { $_ }); pnpm test:e2e "--shard=$env:SHARD" @files'])
+    expect(runs('windows-e2e')).toEqual(['pnpm install --frozen-lockfile', 'pnpm exec playwright install ffmpeg', '$files = @(-split $env:E2E_FILES | Where-Object { $_ }); pnpm test:e2e "--shard=$env:SHARD" @files'])
   })
 
   it('runs the Windows e2e tests under PowerShell: Git Bash would enable the backup and restore privileges for every process it starts', () => {

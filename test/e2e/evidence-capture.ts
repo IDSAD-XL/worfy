@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
@@ -232,7 +233,9 @@ figcaption { height: ${SHEET_CAPTION}px; font: 13px/${SHEET_CAPTION}px monospace
  * of its main window as `<NN>-<what>.webm`, with its contact sheet `<NN>-<what>.sheet.png` next to it:
  * a screenshot of the main window every second while the scenario runs. A scenario longer than 60 s
  * (or `limits.seconds`), a clip over 8 MB (or `limits.bytes`), a scenario that fails and a file the
- * privacy check rejects are errors, and then no file is kept.
+ * privacy check rejects are errors, and then no file is kept. The clip also holds the app's start and
+ * quit, a few seconds more than the scenario: one that comes out over 60 s is a finding of the privacy
+ * check, so a scenario near the limit fails there.
  */
 export async function recordClip(what: string, scenario: (launched: LaunchedApp) => Promise<void>, options: ClipOptions = {}): Promise<Clip> {
   checkWhat(what)
@@ -265,7 +268,8 @@ export async function recordClip(what: string, scenario: (launched: LaunchedApp)
     announce(run, clip, 'video')
     return { clip, sheet, frames: recorded.frames, seconds: recorded.seconds }
   } finally {
-    rmSync(work, { recursive: true, force: true })
+    // Electron helper processes may still hold the clip for a moment after the app exits.
+    await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 }
 
