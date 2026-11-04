@@ -1,7 +1,7 @@
 # 04 — Повтор поодиночке: `gate-failures rerun`
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T23:32Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 2, «Модель» (файл повтора, классы), «Windows» (замок e2e — всегда при `workflow.e2e_lock`), «Решено без владельца» (`rerun` запускает только свои записи), «Вопросы владельцу», Q2 (рекомендация А), «Риски», п. 2 и 3; [ADR-0086](../../../docs/adr/0086-pc-gate-full-once-per-wave.md), пункт 3
 
@@ -77,3 +77,43 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 
 Только читать: `harness/hooks/gate-failures.mjs` (Ticket 01), `harness/hooks/gate-paths.mjs` (`worktreeTag`),
 `harness/bin/profile`, `harness/bin/tests/wave-gate-lock.test.sh`.
+
+## Итог
+
+Сделано в ветке `worfy-failures/04`.
+
+- `harness/lib/gate-failures/rerun.mjs` — подкоманда `gate-failures rerun [--run <id> | --last] [--file <path>] [--limit N]
+  [--dry-run]`. Run по умолчанию — самый новый красный run этого worktree (по `tag`). Отказ с exit 3 и строкой причины:
+  run из `imported/` или с чужим `computer.id` («not a run of this computer»), HEAD не равен `head` («HEAD is not the SHA of
+  the run»), грязное дерево («the worktree is not clean»), нечего повторять. До старта печатает список и оценку по `ms`
+  записей; `--dry-run` на этом кончает. Каждый test — по одному, в корне worktree, без shell, `node` → `process.execPath`,
+  без `GATE_FAILURES_FILE`; первая строка ошибки — после `scrub`. Файл повтора пишется после последнего test-а; сигнал
+  завершает идущий test, снимает замок и пишет успевшее с `interrupted: true`, exit 128 + номер сигнала.
+- `harness/lib/e2e-lock.cjs` — из `harness/bin/wave-gate` вынесены `lock` / `unlock`, `noteChild`, захват замка мёртвого
+  держателя, `holderAlive` (он нужен и pid-файлу `wave-gate`), `screenLocked` / `screenWait` / `screenWatch` и снятие
+  замков по сигналу (`onStopSignals`). Тексты, тайминги и переменные `WAVE_GATE_*` прежние; `wave-gate` берёт всё оттуда.
+- Test-ы: `test/contract/gate-failures-rerun.test.ts` (9), fixture — `test/fixtures/gate-failures/rerun/` (run с тремя
+  записями и stub-test). Временные git-репозиторий, Harness home, состояние gate и папка замка; настоящий
+  `/tmp/worfy-e2e.lock` не берётся. Test-ы SIGTERM и заблокированного экрана на Windows пропускаются: там `kill` от другого
+  процесса завершает node без обработчика, а stub `ioreg` — shell-скрипт.
+- Первый падающий запуск: все 9 красные — подкоманды `rerun` ещё не было (unknown subcommand, файла повтора нет).
+- Страницы `docs/features` не правились: раздел «Failure records» — Ticket 08.
+
+Решено без владельца, подтвердить:
+
+1. Test без `rerun` попадает в `results` файла повтора с `exit: null`, `ms: null` и `error: "cannot rerun: the record has no
+   rerun argv"`: формат Ticket-а 01 это допускает, и отчёт (Ticket 05) видит такой test как «без повтора».
+2. Exit 3, а не 0, когда красных нет, но хоть один test нельзя было повторить: «все зелёные поодиночке» тогда не доказано.
+3. Записи шагов без test-а (lint, typecheck) печатаются строкой «step without tests, not rerun» и в файл не идут.
+4. Playwright-повторы идут последними, все под одним замком; остальные — в порядке записей. В `holder.json` замка —
+  `{ "what": "rerun", "run": <id> }` и обычные `pid`, `host`, `started`, `since`, `child`.
+5. Поле `interrupted` есть в каждом файле повтора: `false` или `true`.
+6. Строка ошибки угадывается по тексту: первая строка с `Error`, `assert` или `expected`, иначе с `fail`, `✗`, `×`, иначе
+   первая непустая (stderr раньше stdout). Помечено `shortcut:` — взять строку у reporter-а проекта, когда он будет
+   писать записи и при повторе.
+7. Тайминги замка и опроса экрана — те же переменные `WAVE_GATE_LOCK_POLL_S`, `WAVE_GATE_LOCK_STALE_S`,
+   `WAVE_GATE_HEARTBEAT_S`, `WAVE_GATE_SCREEN_POLL_S`, что у `wave-gate`.
+8. Profile читается только если есть e2e-повторы; exit 3 и 4 у `profile` — замка нет, другой код — отказ с exit 3.
+9. `--limit N` считает только test-ы с argv; остальные печатаются как «left out by --limit».
+10. В `e2e-lock.cjs` пустой `catch` разрешён комментарием-настройкой eslint в самом файле, как правило для `harness/**/*.mjs`
+   в `eslint.config`: `wave-gate` без расширения lint не проверял, а `.cjs` правило не покрывает.
