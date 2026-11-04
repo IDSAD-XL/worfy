@@ -68,18 +68,19 @@ want=(
     "1. failed — Failed item."
     "2. not-verified review only — Reviewed only."
     "3. not-verified needs windows stable, got windows installed — (вручную) Canvas on the PC."
-    "4. not-verified manual item needs owner-check or screenshot — (вручную) Manual item with a test run only."
+    "4. not-verified manual item needs owner-check, screenshot or video — (вручную) Manual item with a test run only."
     "5. verified — (вручную, owner) Manual item the owner checked."
     "6. not-verified no evidence — Parent item."
     "7. verified — Nested child item."
     "8. not-verified unreadable evidence line — Item with a broken line."
     "9. verified — Verified item."
     "10. verified — Needs met."
+    "11. verified — (вручную) Drag of a card."
 )
 missing=""
 for w in "${want[@]}"; do has "$w" || missing="$missing [$w]"; done
-if [ "$rc" -eq 0 ] && [ -z "$missing" ] && [ "$(tail -n 1 "$T/out")" = "evidence: 4 of 10 verified" ]; then
-    ok "states: last fail -> failed, review only, needs mismatch, manual needs owner-check, nested item numbered by file order"
+if [ "$rc" -eq 0 ] && [ -z "$missing" ] && [ "$(tail -n 1 "$T/out")" = "evidence: 5 of 11 verified" ]; then
+    ok "states: last fail -> failed, review only, needs mismatch, manual needs owner-check, a video proves a manual item, nested item numbered by file order"
 else bad "states: exit $rc, missing:$missing"; cat "$T/out"; fi
 has "- evidence: test-run pass · \`bash t.sh\` exit 0 · linux - · 7777777" && has "line 25: verdict is pass or fail" \
     && ok "matrix prints the lines under each item, and the reason of an unreadable line" || { bad "matrix lines under items"; cat "$T/out"; }
@@ -175,7 +176,7 @@ grep -qF -- "· ci - · $head" "$T/out" && ok "under GitHub Actions the platform
 
 # --- 7. ticket done warns about the items without evidence; exit code and Status as before -------------------------------
 tk "$T/ru" done demo 02
-if [ "$rc" -eq 0 ] && grep -q '^Status: done 20' "$RU/02-states.md" && grep -qF "evidence: 4 of 10 verified" "$T/err" \
+if [ "$rc" -eq 0 ] && grep -q '^Status: done 20' "$RU/02-states.md" && grep -qF "evidence: 5 of 11 verified" "$T/err" \
    && grep -qF "1. failed — Failed item." "$T/err" && grep -qF "6. not-verified no evidence — Parent item." "$T/err" && ! grep -qF "7. verified" "$T/err"; then
     ok "ticket done: Status written, exit 0, stderr names the count and each unverified or failed item"
 else bad "done warning: exit $rc"; cat "$T/err"; fi
@@ -285,6 +286,100 @@ refuse "--ref followed by -n" "--ref needs a value, got the flag -n" 1 test-run 
 refuse "--copy followed by a flag" "--copy needs a value, got the flag --scrub" 1 screenshot pass --ref x --platform mac --copy --scrub 2026-11-04 --sha "$SHA1"
 refuse "--scrub followed by a flag" "--scrub needs a value, got the flag --sha" 1 screenshot pass --ref x --platform mac --copy dev --scrub --sha "$SHA1"
 refuse "--ref at the end" "--ref needs a value" 1 test-run pass --platform mac --sha "$SHA1" --ref
+
+# --- 12. a video: --scrub always, a .webm or .mp4 file in the ref, a contact sheet next to it -------------------------------
+# The clips are tiny synthetic files built by fixtures/evidence/mkclip.cjs (no frames, nothing recorded from a screen).
+MKCLIP="$FX/mkclip.cjs"
+mkclip() { if [ -n "${2:-}" ]; then printf '%s' "$2" >"$T/clip.json"; node "$MKCLIP" "$1" "$T/clip.json"; else node "$MKCLIP" "$1"; fi; }
+mkclip "$EVD/02-drag.webm"
+cp "$EVD/01-canvas.png" "$EVD/02-drag.sheet.png"
+mkclip "$EVD/02-mp4.mp4" '{"format":"mp4"}'
+cp "$EVD/01-canvas.png" "$EVD/02-mp4.sheet.png"
+mkclip "$EVD/02-alone.webm"
+printf 'not a clip\n' >"$EVD/02-drag.mov"
+STATES="$RU/02-states.md"
+refuse02() { # refuse02 <what> <grep text> <args…>: a video line into item 4 of 02-states.md is refused, the file is not touched
+    local what="$1" text="$2"; shift 2
+    tk "$T/ru" evidence demo 02 4 video pass "$@"
+    if [ "$rc" -eq 2 ] && grep -qF -- "$text" "$T/err" && cmp -s "$STATES" "$FX/ru/02-states.md"; then ok "video refused: $what"
+    else bad "video refusal $what: exit $rc, stderr: $(cat "$T/err")"; fresh; fi
+}
+refuse02 "no --scrub" "a video needs --scrub <date>: check every frame of its contact sheet first" \
+    --ref '`../evidence/02-drag.webm`' --platform mac --copy dev --sha "$SHA1"
+refuse02 "no --scrub, ref without a path" "a video needs --scrub <date>" --ref 'https://example.com/clip' --platform mac --copy dev --sha "$SHA1"
+refuse02 "no copy" "video names the copy of the app it checked" --ref '`../evidence/02-drag.webm`' --platform mac --sha "$SHA1" --scrub 2026-11-05
+refuse02 "ref without a path in backticks" "a video ref is the path of its clip in backticks" \
+    --ref 'https://example.com/clip' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+refuse02 "no such clip" "no clip at ../evidence/02-none.webm" --ref '`../evidence/02-none.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+refuse02 "a .mov clip" "a video is a .webm or .mp4 file, got ../evidence/02-drag.mov (convert .mov, .m4v or .mkv to one of them)" \
+    --ref '`../evidence/02-drag.mov`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+refuse02 "no contact sheet next to the clip" "no contact sheet next to the clip: ../evidence/02-alone.sheet.png" \
+    --ref '`../evidence/02-alone.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+mkdir -p "$T/ru/.scratch/demo/clips"; mkclip "$T/ru/.scratch/demo/clips/02-away.webm"; cp "$EVD/01-canvas.png" "$T/ru/.scratch/demo/clips/02-away.sheet.png"
+refuse02 "a clip outside <epic>/evidence/" "a clip lies in the evidence folder of its epic (demo/evidence/), got ../clips/02-away.webm" \
+    --ref '`../clips/02-away.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+mkclip "$EVD/02-badsheet.webm"; printf 'x' >"$EVD/02-badsheet.sheet.png"
+refuse02 "a contact sheet that is not a PNG" "the contact sheet is not a PNG: ../evidence/02-badsheet.sheet.png" \
+    --ref '`../evidence/02-badsheet.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+if ln -s "$EVD/02-drag.webm" "$EVD/02-link.webm" 2>/dev/null && [ -L "$EVD/02-link.webm" ]; then
+    cp "$EVD/01-canvas.png" "$EVD/02-link.sheet.png"
+    refuse02 "a clip that is a symbolic link" "a clip is a file, not a symbolic link: ../evidence/02-link.webm" \
+        --ref '`../evidence/02-link.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+    mkclip "$EVD/02-lsheet.webm"; ln -s "$EVD/01-canvas.png" "$EVD/02-lsheet.sheet.png"
+    refuse02 "a contact sheet that is a symbolic link" "a contact sheet is a file, not a symbolic link: ../evidence/02-lsheet.sheet.png" \
+        --ref '`../evidence/02-lsheet.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+else
+    rm -f "$EVD/02-link.webm" # Git Bash without symbolic links copies the target instead
+    echo "skip symbolic link cases: no symbolic links here"
+fi
+mkclip "$EVD/02-UP.WEBM"; cp "$EVD/01-canvas.png" "$EVD/02-UP.sheet.png"
+tk "$T/ru" evidence demo 02 4 video pass --ref '`../evidence/02-UP.WEBM`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05 -n
+[ "$rc" -eq 0 ] && has "video pass · \`../evidence/02-UP.WEBM\`" && ok "an upper-case .WEBM with its <name>.sheet.png: accepted" || bad "upper-case clip: exit $rc $(cat "$T/err")"
+refuse02 "-n does not skip the checks" "no contact sheet next to the clip" \
+    --ref '`../evidence/02-alone.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05 -n
+tk "$T/ru" evidence demo 02 4 video pass --ref '`../evidence/02-drag.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+[ "$rc" -eq 0 ] && grep -qF -- "  - evidence: video pass · \`../evidence/02-drag.webm\` · mac dev · $SHA1 · scrub: 2026-11-05" "$STATES" \
+    && ok "a webm with its contact sheet and --scrub: the line is written" || bad "video write: exit $rc $(cat "$T/err")"
+tk "$T/ru" evidence demo 02
+has "4. verified — (вручную) Manual item with a test run only." && has "   - evidence: video pass · \`../evidence/02-drag.webm\` · mac dev · $SHA1 · scrub: 2026-11-05" \
+    && [ "$(tail -n 1 "$T/out")" = "evidence: 6 of 11 verified" ] && ok "the matrix shows the video line, and the manual item it proves is verified" \
+    || { bad "matrix after the video line"; cat "$T/out"; }
+fresh
+tk "$T/ru" evidence demo 02 4 video pass --ref '`../evidence/02-mp4.mp4`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+[ "$rc" -eq 0 ] && grep -qF -- "video pass · \`../evidence/02-mp4.mp4\`" "$STATES" && ok "an mp4 with its contact sheet: the line is written" || bad "mp4 write: exit $rc $(cat "$T/err")"
+fresh
+# The privacy check of the clip and of its contact sheet (bin/evidence-check): a finding in either — exit 1, nothing written.
+printf '{"title":"%s/clip"}' "$leak" >"$T/clip.json"; node "$MKCLIP" "$EVD/02-dirty.webm" "$T/clip.json"
+cp "$EVD/01-canvas.png" "$EVD/02-dirty.sheet.png"
+tk "$T/ru" evidence demo 02 4 video pass --ref '`../evidence/02-dirty.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+[ "$rc" -eq 1 ] && cmp -s "$STATES" "$FX/ru/02-states.md" && grep -qF "02-dirty.webm:Title: home-path" "$T/err" && ! grep -qF "martazen" "$T/err" \
+    && ok "a clip with a home path in its Title: exit 1, nothing written, the value masked" || { bad "dirty clip: exit $rc $(cat "$T/err")"; fresh; }
+mkclip "$EVD/02-sheet.webm"
+# The sheet: the 1x1 PNG with a tEXt chunk after IHDR (8 + 25 bytes) whose text holds the home path.
+printf 'cwd %s' "$leak" >"$T/sheet.txt"
+node -e '
+const fs = require("fs")
+const [out, textFile, pngFile] = process.argv.slice(1)
+const png = fs.readFileSync(pngFile), text = fs.readFileSync(textFile)
+const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(n >>> 0); return b }
+const data = Buffer.concat([Buffer.from("Comment\0"), text])
+fs.writeFileSync(out, Buffer.concat([png.subarray(0, 33), u32(data.length), Buffer.from("tEXt"), data, u32(0), png.subarray(33)]))
+' "$EVD/02-sheet.sheet.png" "$T/sheet.txt" "$EVD/01-canvas.png"
+tk "$T/ru" evidence demo 02 4 video pass --ref '`../evidence/02-sheet.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+[ "$rc" -eq 1 ] && cmp -s "$STATES" "$FX/ru/02-states.md" && grep -qF "02-sheet.sheet.png:tEXt: home-path" "$T/err" \
+    && ok "a contact sheet with a home path in tEXt: exit 1, nothing written" || { bad "dirty sheet: exit $rc $(cat "$T/err")"; fresh; }
+# Silent mode: nothing is published, but the clip and its sheet are still looked at: the same refusals.
+mkdir -p "$T/sil-wf/.scratch/demo/evidence"; cp "$FX/ru/02-states.md" "$T/sil-wf/.scratch/demo/issues/02-states.md"
+mkclip "$T/sil-wf/.scratch/demo/evidence/02-alone.webm"
+tk "$T/sil" evidence demo 02 4 video pass --ref '`../evidence/02-alone.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+[ "$rc" -eq 2 ] && grep -qF "no contact sheet next to the clip" "$T/err" && cmp -s "$T/sil-wf/.scratch/demo/issues/02-states.md" "$FX/ru/02-states.md" \
+    && ok "Silent mode: a clip without its contact sheet is refused too" || bad "silent video: exit $rc $(cat "$T/err")"
+tk "$T/sil" evidence demo 02 4 video pass --ref '`../evidence/02-alone.webm`' --platform mac --copy dev --sha "$SHA1"
+[ "$rc" -eq 2 ] && grep -qF "a video needs --scrub" "$T/err" && ok "Silent mode: a video without --scrub is refused" || bad "silent no scrub: exit $rc $(cat "$T/err")"
+cp "$EVD/01-canvas.png" "$T/sil-wf/.scratch/demo/evidence/02-alone.sheet.png"
+tk "$T/sil" evidence demo 02 4 video pass --ref '`../evidence/02-alone.webm`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-05
+[ "$rc" -eq 0 ] && grep -qF -- "video pass · \`../evidence/02-alone.webm\`" "$T/sil-wf/.scratch/demo/issues/02-states.md" \
+    && ok "Silent mode: a clip with its sheet and --scrub is written" || bad "silent video write: exit $rc $(cat "$T/err")"
 
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }

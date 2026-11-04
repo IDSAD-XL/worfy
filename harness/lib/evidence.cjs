@@ -22,16 +22,19 @@
 
 const { codeLines } = require("./code-fence.cjs")
 
-const KINDS = ["commit", "test-run", "ci-check", "gate", "review", "screenshot", "owner-check"]
+const KINDS = ["commit", "test-run", "ci-check", "gate", "review", "screenshot", "video", "owner-check"]
 const VERDICTS = ["pass", "fail"]
 const PLATFORMS = ["mac", "windows", "linux", "ci"]
 const COPIES = ["stable", "installed", "dev", "ci"]
 // The kinds that name no machine and no copy of the app: their platform and copy are always "-".
 const NO_MACHINE = ["commit", "review"]
 // The kinds that check the app itself: their copy is named.
-const COPY_REQUIRED = ["screenshot", "owner-check"]
+const COPY_REQUIRED = ["screenshot", "video", "owner-check"]
 // The kinds that prove a manual item: something a person has seen. A test run of an agent does not.
-const MANUAL_PROOF = ["owner-check", "screenshot"]
+const MANUAL_PROOF = ["owner-check", "screenshot", "video"]
+// The files a video line names: clips of the kinds a test helper records. Other containers (.mov, .m4v, .mkv)
+// are read by bin/evidence-check as clips too, but a video line does not name them.
+const VIDEO_EXTENSIONS = [".webm", ".mp4"]
 const SEP = " · "
 const SHA = /^[0-9a-f]{7,40}$/i
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -93,6 +96,11 @@ function evidenceProblem(f) {
     if (f.scrub !== undefined && f.scrub !== null && !(typeof f.scrub === "string" && DATE.test(f.scrub)))
         return `scrub is a date YYYY-MM-DD, got "${f.scrub}"`
     return null
+}
+
+/** The contact sheet of a clip: the clip's path with its extension replaced by ".sheet.png", next to it. */
+function contactSheetOf(clip) {
+    return `${String(clip).replace(/\.[^./\\]*$/, "")}.sheet.png`
 }
 
 /** The text of an Evidence line after `- evidence: `, or {error}. */
@@ -215,10 +223,10 @@ function parseDoneSection(markdown, { doneSection, manualMark } = {}) {
  * The state of an item: { state: "verified" } | { state: "not-verified", reason } | { state: "failed" }.
  *   failed       — the last Evidence line of the item says fail;
  *   verified     — not failed, no unreadable line, and a pass line of a proving kind (any but review; for a
- *                  manual item only owner-check and screenshot) that matches `needs` by platform (and copy, if
+ *                  manual item only owner-check, screenshot and video) that matches `needs` by platform (and copy, if
  *                  named);
  *   not-verified — the rest; reasons: "no evidence", "review only", "unreadable evidence line",
- *                  "manual item needs owner-check or screenshot", "needs <p> <c>, got <p> <c>".
+ *                  "manual item needs owner-check, screenshot or video", "needs <p> <c>, got <p> <c>".
  */
 function itemState(item) {
     const ev = item.evidence
@@ -229,7 +237,7 @@ function itemState(item) {
     const proofs = passed.filter((e) => e.kind !== "review" && (!item.manual || MANUAL_PROOF.includes(e.kind)))
     if (!proofs.length) {
         if (passed.length && passed.every((e) => e.kind === "review")) return { state: "not-verified", reason: "review only" }
-        if (item.manual) return { state: "not-verified", reason: "manual item needs owner-check or screenshot" }
+        if (item.manual) return { state: "not-verified", reason: "manual item needs owner-check, screenshot or video" }
         return { state: "not-verified", reason: "no evidence" }
     }
     if (item.needs) {
@@ -249,6 +257,8 @@ module.exports = {
     COPIES,
     NO_MACHINE,
     COPY_REQUIRED,
+    VIDEO_EXTENSIONS,
+    contactSheetOf,
     DEFAULTS,
     OLD_HEADINGS,
     evidenceProblem,

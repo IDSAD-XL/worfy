@@ -28,3 +28,5 @@ Blocked by: —
 - [ ] Needs met.
   - needs: windows
   - evidence: test-run pass · `pnpm test` exit 0 · windows dev · aaaaaaa
+- [ ] (вручную) Drag of a card.
+  - evidence: video pass · `../evidence/02-card-drag.webm` · mac dev · bbbbbbb · scrub: 2026-11-05

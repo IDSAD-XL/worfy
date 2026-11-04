@@ -1,7 +1,7 @@
 # 10 — Вид `video` в строке Evidence и privacy check клипов
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T13:26Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 6, «Модель» («Строка Evidence», «Клип и contact sheet»), «Privacy check» («Клипы»), «Вопросы владельцу», Qv1, Qv2, Qv3; слово владельца 2026-11-04 («worfy должен уметь делать скриншоты и даже записывать видео как доказательство, если задача того требует»)
 
@@ -64,15 +64,22 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 
 - [ ] Shell test `ticket-evidence`: `video` без `--scrub` — exit 2; без файла или с `.mov` — exit 2; без `.sheet.png` рядом — exit 2;
       с клипом, sheet и `--scrub` — строка записана, `ticket evidence <epic> <NN>` её показывает, ручной пункт с ней — `verified`.
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-evidence.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] Unit test `evidence` и contract test `evidence-rules-agree`: `video` в обеих копиях, причина «manual item needs owner-check,
       screenshot or video» одинакова.
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/evidence.test.ts test/contract/evidence-rules-agree.test.ts` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] Shell test `evidence-check`: webm и mp4 собраны в test-е из байтов (элементы EBML и атомы), значения — из кусков; путь домашней
       папки в `Title`, в `TagString` и в `©too` — находка с именем элемента; `WritingApp` вида `Lavf…` — не находка.
+  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] Клип с дорожкой аудио — находка; клип 8 MB + 1 байт — находка; `Duration` 61 с — находка; клип без `Duration` — находка.
+  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] Добавленный клип без строки `video … · scrub:` — находка; со строкой `screenshot … · scrub:` на него — тоже находка; с
       добавленной строкой `video` и sheet — чисто; без sheet — `video needs a contact sheet`; изменённый клип без отметки — не находка.
+  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] Sheet с путём домашней папки в `tEXt` — находка, хотя клип отмечен.
+  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] В выводе нет полного значения ни одной находки; fixture-ы и этот Ticket проходят `evidence-check` (exit 0).
+  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] `bash harness/bin/tests/ticket-evidence.test.sh`, `bash harness/bin/tests/evidence-check.test.sh`,
       `pnpm test test/unit/evidence.test.ts test/contract/evidence-rules-agree.test.ts` — exit 0; Windows verdict до merge
       (платформенный); ревью `high`.
@@ -98,3 +105,9 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 - `test/contract/evidence-rules-agree.test.ts`
 
 Только читать: `harness/lib/privacy.cjs` (`findings`, `mask`), `harness/bin/tests/fixtures/evidence-check/`.
+
+## Итог
+
+Известный предел (не меняется в этом Ticket-е): в GitHub Actions база `--changed` — `HEAD^1`. На PR это первый
+родитель merge-коммита PR, и diff верный. На push в `main` или на ручном run-е проверяется только последний коммит:
+push из нескольких коммитов оставляет ранние без проверки. Предел описан в шапке `.github/workflows/ci.yml`.

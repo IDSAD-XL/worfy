@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { COPIES, evidenceItems, KINDS, parseEvidenceLine, PLATFORMS, VERDICTS } from '../../src/shared/workflow/evidence'
+import { contactSheetOf, COPIES, evidenceItems, KINDS, parseEvidenceLine, PLATFORMS, VERDICTS, VIDEO_EXTENSIONS } from '../../src/shared/workflow/evidence'
 
 interface HarnessItem {
   index: number
@@ -25,6 +25,8 @@ interface HarnessEvidenceRules {
   VERDICTS: string[]
   PLATFORMS: string[]
   COPIES: string[]
+  VIDEO_EXTENSIONS: string[]
+  contactSheetOf: (clip: string) => string
   parseEvidenceLine: (text: string) => { fields: Record<string, unknown> } | { error: string }
   parseDoneSection: (markdown: string, headings?: { doneSection?: string; manualMark?: string }) => HarnessItem[]
   itemState: (item: HarnessItem) => { state: string; reason?: string }
@@ -77,6 +79,24 @@ describe('the Evidence rules of the Harness and of worfy agree', () => {
     expect([...VERDICTS]).toEqual(harness.VERDICTS)
     expect([...PLATFORMS]).toEqual(harness.PLATFORMS)
     expect([...COPIES]).toEqual(harness.COPIES)
+  })
+
+  it('both know the kind video, and give a manual item without a proof the same reason', () => {
+    expect(KINDS).toContain('video')
+    expect(harness.KINDS).toContain('video')
+    const markdown = ['## Done when', '', '- [ ] (manual) The card moves.', '  - evidence: test-run pass · `pnpm test` exit 0 · mac dev · abcdef1', ''].join('\n')
+    const reason = 'manual item needs owner-check, screenshot or video'
+    expect(evidenceItems(markdown).map((item) => item.reason)).toEqual([reason])
+    expect(harnessItems(markdown)).toMatchObject([{ reason }])
+  })
+
+  it('name the same clips and the same contact sheet of a clip', () => {
+    expect([...VIDEO_EXTENSIONS]).toEqual(harness.VIDEO_EXTENSIONS)
+    for (const clip of ['../evidence/11-drag.webm', '../evidence/11-UP.WEBM', 'x.mp4', '..\\evidence\\a.b.webm', 'no-extension', '../ev.d/clip']) {
+      expect(contactSheetOf(clip), clip).toBe(harness.contactSheetOf(clip))
+    }
+    expect(contactSheetOf('../evidence/11-UP.WEBM')).toBe('../evidence/11-UP.sheet.png')
+    expect(contactSheetOf('../ev.d/clip')).toBe('../ev.d/clip.sheet.png')
   })
 
   it('the shared fixtures are there: the grammar cases and Tickets in both languages', () => {

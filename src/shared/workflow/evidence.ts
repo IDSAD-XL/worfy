@@ -15,16 +15,18 @@
 import { accepted, DEFAULT_DOC_HEADINGS, escapeRegExp, OLD_DOC_HEADINGS, sectionHeadings, type DocHeadings } from './doc-headings'
 import type { EvidenceItem, EvidenceLine, EvidenceNeeds } from './types'
 
-export const KINDS = ['commit', 'test-run', 'ci-check', 'gate', 'review', 'screenshot', 'owner-check'] as const
+export const KINDS = ['commit', 'test-run', 'ci-check', 'gate', 'review', 'screenshot', 'video', 'owner-check'] as const
 export const VERDICTS = ['pass', 'fail'] as const
 export const PLATFORMS = ['mac', 'windows', 'linux', 'ci'] as const
 export const COPIES = ['stable', 'installed', 'dev', 'ci'] as const
 /** The kinds that name no machine and no copy of the app: their platform and copy are always `-`. */
 const NO_MACHINE: readonly string[] = ['commit', 'review']
 /** The kinds that check the app itself: their copy is named. */
-const COPY_REQUIRED: readonly string[] = ['screenshot', 'owner-check']
+const COPY_REQUIRED: readonly string[] = ['screenshot', 'video', 'owner-check']
 /** The kinds that prove a manual item: something a person has seen. A test run of an agent does not. */
-const MANUAL_PROOF: readonly string[] = ['owner-check', 'screenshot']
+const MANUAL_PROOF: readonly string[] = ['owner-check', 'screenshot', 'video']
+/** The files a video line names: clips of the kinds a test helper records (the Harness reads .mov, .m4v, .mkv too). */
+export const VIDEO_EXTENSIONS = ['.webm', '.mp4'] as const
 const SEP = ' · '
 const SHA = /^[0-9a-f]{7,40}$/i
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -42,6 +44,11 @@ export type EvidenceFields = Omit<EvidenceLine, 'line'>
 type RawFields = Omit<EvidenceFields, 'verdict'> & { verdict: string }
 
 const has = (list: readonly string[], value: string): boolean => list.includes(value)
+
+/** The contact sheet of a clip: the clip's path with its extension replaced by `.sheet.png`, next to it. */
+export function contactSheetOf(clip: string): string {
+  return `${clip.replace(/\.[^./\\]*$/, '')}.sheet.png`
+}
 
 /** Why `fields` is not an Evidence line; null when it is one. */
 export function evidenceProblem(f: RawFields): string | null {
@@ -122,9 +129,9 @@ type ReadItem = Omit<EvidenceItem, 'state' | 'reason'>
  * The state of an item and, when it is not verified, why:
  *   failed       — the last Evidence line of the item says fail;
  *   verified     — not failed, no unreadable line, and a pass line of a proving kind (any but review; for a manual
- *                  item only owner-check and screenshot) that matches `needs` by platform (and copy, if named);
+ *                  item only owner-check, screenshot and video) that matches `needs` by platform (and copy, if named);
  *   not-verified — the rest: "no evidence", "review only", "unreadable evidence line",
- *                  "manual item needs owner-check or screenshot", "needs <p> <c>, got <p> <c>".
+ *                  "manual item needs owner-check, screenshot or video", "needs <p> <c>, got <p> <c>".
  */
 export function itemState(item: ReadItem): Pick<EvidenceItem, 'state' | 'reason'> {
   const lines = item.evidence
@@ -135,7 +142,7 @@ export function itemState(item: ReadItem): Pick<EvidenceItem, 'state' | 'reason'
   const proofs = passed.filter((line) => line.kind !== 'review' && (!item.manual || has(MANUAL_PROOF, line.kind)))
   if (!proofs.length) {
     if (passed.length && passed.every((line) => line.kind === 'review')) return { state: 'not-verified', reason: 'review only' }
-    if (item.manual) return { state: 'not-verified', reason: 'manual item needs owner-check or screenshot' }
+    if (item.manual) return { state: 'not-verified', reason: 'manual item needs owner-check, screenshot or video' }
     return { state: 'not-verified', reason: 'no evidence' }
   }
   if (item.needs) {
