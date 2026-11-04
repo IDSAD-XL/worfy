@@ -10,10 +10,13 @@
 `resume`, — отказ app-server-а при каждом старте после смены. Модель Claude, отданная Codex, — та же ошибка.
 
 **Решение.** В `data` Node-а `orchestrator` — необязательное поле `vendor`, Vendor той Session, чей id лежит в
-`sessionId`. Main пишет его, когда новая Session идёт на другом Vendor-е, чем записанный (`forgetSession`,
-`src/main/agent/orchestrator.ts`); Node без поля — Session Claude Code, как до этого ADR, так что Node-ы, которые
-Vendor не меняли, остаются `{sessionId, costUsd}`. При старте Orchestrator-а Vendor Project-а сравнивается с `vendor` Node-а: при расхождении
-сохранённая Session не возобновляется, начинается новая, модель и effort Node-а сбрасываются в Default.
+`sessionId`. Main пишет его при первом `init` новой Session на другом Vendor-е, чем записанный (`apply`, ветка
+`init`, `src/main/agent/orchestrator.ts`), вместе с её `sessionId` и `costUsd: 0`. До этого Node держит прежние
+`sessionId`, `costUsd` и `vendor` (`leaveSession`), так что старт, не дошедший до `init`, оставляет прежнюю Session
+возобновляемой. Node без поля — Session Claude Code, как до этого ADR, так что Node-ы, которые Vendor не меняли,
+остаются `{sessionId, costUsd}`. При старте Orchestrator-а Vendor Project-а сравнивается с `vendor` Node-а: при
+расхождении сохранённая Session не возобновляется, начинается новая; модель и effort Node-а сбрасываются в Default,
+режим разрешений переводится в равный режим нового Vendor-а.
 
 **Что не меняется.** Остальное правило ADR-0010 в силе: состояние Session (модель, блок статуса, ход) в Layout не
 пишется, оно приходит из транскрипта и событий. `vendor` — не состояние Session, а ключ к её `sessionId`.
@@ -22,10 +25,10 @@ Vendor не меняли, остаются `{sessionId, costUsd}`. При ста
 - Схема `data` Node-а и view Orchestrator-а (`src/shared/ipc/orchestrator.ts`) получают необязательное `vendor`;
   test схемы (`test/contract/orchestrator.test.ts`) называет ключ.
 - Смена Vendor-а теряет выбранные модель и effort Node-а; обратная смена их не возвращает.
-- Старая сборка, открывшая Layout с `vendor`, его не знает и возобновит id как Session Claude Code: откат worfy
-  после смены Vendor-а Orchestrator-а на Codex стоит одного отказанного `resume`, затем новая Session.
-- `patchData` сливает `data` (`src/main/layout/store.ts:257`), поэтому старая сборка оставляет `vendor: 'codex'` рядом с
-  id Claude Code, который сама записала; после обновления это стоит одного отказанного `resume`, затем новая Session.
+- Старая сборка `vendor` не знает: она возобновит id как Session Claude Code, а `patchData` сливает `data`
+  (`src/main/layout/store.ts:257`), так что рядом с записанным ею id Claude Code остаётся `vendor: 'codex'`. Откат
+  worfy и обратное обновление после смены Vendor-а Orchestrator-а на Codex стоят по одному отказанному `resume`,
+  затем новая Session.
 
 ## Considered Options
 
