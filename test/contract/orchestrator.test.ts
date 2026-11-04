@@ -286,8 +286,13 @@ describe('Orchestrator Session', () => {
     expect(second.data()).toStrictEqual({ sessionId: sdkId, costUsd: 0.025 })
   })
 
-  it('the Node data declares only the session id and the cost (ADR-0010); other keys are not read back', () => {
-    expect(Object.keys(orchestratorDataSchema.shape).sort()).toEqual(['costUsd', 'sessionId'])
+  it('reads the Vendor of the saved session; a Vendor this build does not run is dropped, the session id and the cost stay (worfy-multi-vendor ticket 37)', () => {
+    expect(readOrchestratorData({ sessionId: 'thr-1', costUsd: 1, vendor: 'codex' })).toStrictEqual({ sessionId: 'thr-1', costUsd: 1, vendor: 'codex' })
+    expect(readOrchestratorData({ sessionId: 'sdk-1', costUsd: 1, vendor: 'gemini' })).toStrictEqual({ sessionId: 'sdk-1', costUsd: 1 })
+  })
+
+  it('the Node data declares only the session id, its Vendor and the cost (ADR-0010; the Vendor: worfy-multi-vendor ticket 37); other keys are not read back', () => {
+    expect(Object.keys(orchestratorDataSchema.shape).sort()).toEqual(['costUsd', 'sessionId', 'vendor'])
     expect(readOrchestratorData({ sessionId: 'sdk-1', costUsd: 1, settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' }, extra: true })).toStrictEqual({
       sessionId: 'sdk-1',
       costUsd: 1,

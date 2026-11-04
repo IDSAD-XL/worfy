@@ -32,6 +32,14 @@
 // old one has exited (Session.exited: SIGKILL past the limit), so two processes never continue one
 // SDK session. The new Session is live at once, `starting`, and holds what is sent to it meanwhile;
 // setUnattended and giveBackNow answer once its process has started.
+//
+// The Orchestrator runs on the Project's defaultVendor (worfy-multi-vendor ticket 37), read when it
+// starts — when it opens, and at "New conversation" — and kept for every relaunch, so Autopilot's
+// unattended Session and the give-back continue the same Vendor's session. The Node's data names
+// the Vendor of the saved session; when the Project's Vendor is another one, the Orchestrator starts
+// a new session on it rather than resuming one its agent does not know, and the Node's picked model
+// and effort, which were that other Vendor's, go back to "Default". Autopilot drives the
+// Orchestrator of either Vendor the same way, through its Session.
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import { findStatusBlock } from '../../shared/agent/status-block'
@@ -44,6 +52,7 @@ import {
   type OrchestratorView,
 } from '../../shared/ipc/orchestrator'
 import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
+import { UNNAMED_VENDOR, type VendorId } from '../../shared/vendors/vendor'
 import { placeNewNode } from '../layout/place'
 import type { TranscriptFacts } from './orchestrator-transcript'
 import { closeRefusal } from './resume'
@@ -51,10 +60,11 @@ import { EXIT_WAIT_MS, type EventSink, type Session, type SessionRegistry } from
 import { ATTENDED, type SessionLaunch } from './session-settings'
 
 /**
- * What Claude Code answers when asked to resume a session it has no transcript for (it removes
- * transcripts older than `cleanupPeriodDays`, 30 by default).
+ * What the agent answers when asked to resume a session it has no transcript for: Claude Code (it
+ * removes transcripts older than `cleanupPeriodDays`, 30 by default), and Codex's app-server for a
+ * thread it has no rollout of (test/fixtures/codex-messages/resume.jsonl).
  */
-const NO_CONVERSATION = /No conversation found with session ID/i
+const NO_CONVERSATION = /No conversation found with session ID|no rollout found for thread id/i
 
 /**
  * Where a new Orchestrator Node goes: the top-left corner of the Canvas when no Node there takes
@@ -108,10 +118,15 @@ export interface OrchestratorDeps {
     write(projectId: string, nodeId: string, settings: SessionSettings): void
   }
   /**
-   * The model and the last status block of a saved SDK session, read from its transcript under
-   * the Claude home; null when the Project has no transcript of that session.
+   * The Project's Vendor (its settings' `defaultVendor`, worfy-multi-vendor ticket 37), asked when the
+   * Orchestrator starts. Absent, undefined or throwing: Claude Code.
    */
-  transcript(projectRoot: string, sdkSessionId: string): Promise<TranscriptFacts | null>
+  vendor?(projectId: string): VendorId | undefined
+  /**
+   * The model and the last status block of a saved session of `vendor`, read from its transcript
+   * (Claude Code's under the Claude home); null when the Project has no transcript of that session.
+   */
+  transcript(projectRoot: string, sdkSessionId: string, vendor: VendorId): Promise<TranscriptFacts | null>
   /** Gets every event of every Orchestrator, e.g. to send it to the windows. */
   broadcast: EventSink
   /** Gets every new view, e.g. to send it to the windows. */
@@ -158,6 +173,10 @@ interface Entry {
   cost: CostCounter
   /** The session id last written to the Node's data. */
   savedSessionId: string | null
+  /** The Vendor the Node's data names for that session (absent there: Claude Code). */
+  savedVendor: VendorId
+  /** Whose agent runs the Orchestrator's Sessions: the Project's Vendor as it was at the Orchestrator's start. */
+  vendor: VendorId
   /** The settings last saved for the Node (or the defaults); every Session of the Orchestrator starts with them. */
   settings: SessionSettings
   /** How the current Session runs: unattended while Autopilot has the Orchestrator. */
@@ -237,6 +256,8 @@ export class Orchestrators {
       old.current = false
       old.session?.close()
     }
+    // A new session is a start of the Orchestrator: it runs on the Project's Vendor as it is now.
+    this.takeVendor(entry, this.vendorOf(projectId))
     this.forgetSession(entry)
     this.launch(entry, undefined, { model: null, statusBlock: null })
     const view = this.views.get(entry.nodeId)
@@ -377,11 +398,15 @@ export class Orchestrators {
       run: null,
       cost: new CostCounter(saved.costUsd ?? 0),
       savedSessionId: saved.sessionId ?? null,
+      savedVendor: saved.vendor ?? UNNAMED_VENDOR,
+      vendor: UNNAMED_VENDOR,
       settings: this.savedSettings(projectId, node.id, firstSettings),
       launch: ATTENDED,
       wanted: null,
       grace: null,
     }
+    // A session of another Vendor than the Project's is not resumed: its agent does not know it.
+    if (this.takeVendor(entry, this.vendorOf(projectId))) this.forgetSession(entry)
     entry.ready = this.start(entry)
     return entry
   }
@@ -409,13 +434,38 @@ export class Orchestrators {
     return firstSettings
   }
 
+  /** The Project's Vendor for its Orchestrator; Claude Code when it names none or cannot be read. */
+  private vendorOf(projectId: string): VendorId {
+    try {
+      return this.deps.vendor?.(projectId) ?? UNNAMED_VENDOR
+    } catch (error) {
+      console.warn(`[orchestrator] could not read the Vendor of ${projectId}; starting on ${UNNAMED_VENDOR}`, error)
+      return UNNAMED_VENDOR
+    }
+  }
+
+  /**
+   * The Orchestrator's next Session runs on `vendor`. Answers whether that is another Vendor than the
+   * saved session's: the Node's picked model and effort were that Vendor's, so they go back to the
+   * Vendor's default ("Default"), saved; the permission mode stays (each Vendor reads it as its own).
+   */
+  private takeVendor(entry: Entry, vendor: VendorId): boolean {
+    entry.vendor = vendor
+    if (vendor === entry.savedVendor) return false
+    if (entry.settings.model !== null || entry.settings.effort !== null) {
+      entry.settings = { ...entry.settings, model: null, effort: null }
+      this.saveSettings(entry, entry.settings)
+    }
+    return true
+  }
+
   /** Reads the saved session's transcript, then starts the Session: resumed, or new when it is gone. */
   private async start(entry: Entry): Promise<void> {
     let resume = entry.savedSessionId ?? undefined
     let facts: TranscriptFacts = { model: null, statusBlock: null }
     if (resume !== undefined) {
       try {
-        const found = await this.deps.transcript(entry.path, resume)
+        const found = await this.deps.transcript(entry.path, resume, entry.vendor)
         if (found === null) {
           // Claude Code would refuse the resume, and every message after it.
           if (!entry.cancelled) this.forgetSession(entry)
@@ -443,6 +493,7 @@ export class Orchestrators {
       sessionId: null,
       state: 'starting',
       error: null,
+      vendor: entry.vendor,
       model: facts.model,
       costUsd: entry.cost.total,
       statusBlock: facts.statusBlock,
@@ -450,7 +501,7 @@ export class Orchestrators {
     try {
       // Marked as the Orchestrator for its autocompact window; the launch kept in the entry stays as it is.
       const launch = { ...entry.launch, orchestrator: true }
-      run.session = this.deps.registry.start(entry.path, resume, (sessionId, event) => this.onEvent(entry, run, sessionId, event), entry.settings, launch, after)
+      run.session = this.deps.registry.start(entry.path, resume, (sessionId, event) => this.onEvent(entry, run, sessionId, event), entry.settings, launch, after, entry.vendor)
     } catch (error) {
       // E.g. the session is already live in another Session; the next open tries again.
       run.current = false
@@ -620,11 +671,16 @@ export class Orchestrators {
     entry.grace = null
   }
 
-  /** A new session: no id to resume, and its cost starts from zero. */
+  /**
+   * A new session: no id to resume, and its cost starts from zero. Its Vendor is the Orchestrator's,
+   * written to the Node's data when the data named another one.
+   */
   private forgetSession(entry: Entry): void {
     entry.savedSessionId = null
     entry.cost = new CostCounter(0)
-    this.patch(entry, { sessionId: null, costUsd: 0 })
+    const vendor = entry.vendor === entry.savedVendor ? {} : { vendor: entry.vendor }
+    entry.savedVendor = entry.vendor
+    this.patch(entry, { sessionId: null, costUsd: 0, ...vendor })
   }
 
   private current(entry: Entry): Omit<OrchestratorView, 'version'> {
@@ -688,6 +744,7 @@ function sameView(a: Omit<OrchestratorView, 'version'>, b: Omit<OrchestratorView
     a.sessionId === b.sessionId &&
     a.state === b.state &&
     a.error === b.error &&
+    a.vendor === b.vendor &&
     a.model === b.model &&
     a.costUsd === b.costUsd &&
     a.statusBlock === b.statusBlock

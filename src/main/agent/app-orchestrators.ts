@@ -8,6 +8,9 @@
 // and of Session Nodes too, ADR-0053 point 4), an Orchestrator belongs to the app rather than to a
 // window: its events and views go to every client of the app, and closing a window does not stop
 // it. It stops when the app quits, with every other Session.
+//
+// Each Orchestrator runs on its Project's `defaultVendor` (worfy-multi-vendor ticket 37), read from the
+// Project's settings when it starts; a Project that names none runs it on Claude Code.
 import { app } from 'electron'
 import type { SessionSettings } from '../../shared/agent/settings'
 import { agentEvent } from '../../shared/ipc/agent'
@@ -17,6 +20,7 @@ import { ClaudeHomeRegistry } from '../claude-home/registry'
 import { emit } from '../ipc/index'
 import { layoutStore } from '../layout/store'
 import { projectHolds } from '../projects/holds'
+import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { sharedRegistry } from './app-registry'
@@ -55,7 +59,13 @@ export function sharedOrchestrators(): Orchestrators {
       // Asked through get(), like the Layout: a Project removed from the list is refused, so a
       // late write does not create its data folder again.
       settings: new SessionSettingsStore((projectId) => projectStore().dataDir(projectStore().get(projectId).id)),
-      transcript: async (projectRoot, sdkSessionId) => {
+      vendor: (projectId) => readProjectSettings(projectStore().dataDir(projectStore().get(projectId).id)).defaultVendor,
+      transcript: async (projectRoot, sdkSessionId, vendor) => {
+        // shortcut: only Claude Code's transcript is read; a Codex thread's Node shows no model or
+        // status block until its first answer after a start, and a thread that is gone is found by
+        // the resume itself (orchestrator.ts, NO_CONVERSATION). Redo when the Node must show them
+        // at once: read the thread through the Codex driver's history part (one app-server process).
+        if (vendor !== 'claude') return { model: null, statusBlock: null }
         // A caller of this Machine: a saved Session whose cwd is unknown is still found (RegistryRoot).
         const path = await claude.transcriptPath({ path: projectRoot, local: true }, sdkSessionId)
         return path === null ? null : readTranscriptFacts(path)

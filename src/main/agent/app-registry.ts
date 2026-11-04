@@ -1,7 +1,7 @@
 // The app's Session registry. Each Session runs on its Vendor's driver (worfy-multi-vendor ticket 23):
 // Claude Code's (src/main/vendors/claude/session.ts, the fake agent under WORFY_AGENT=fake) or
 // Codex's (src/main/vendors/codex/session.ts, the fake app-server under WORFY_CODEX=fake). The
-// Orchestrator's Sessions are Claude Code's in the first release (spec decision 5).
+// Orchestrator's Sessions run on the Project's defaultVendor (app-orchestrators.ts, ticket 37).
 //
 // The driver never imports this module (test/contract/vendor-imports.test.ts): what the fake agent
 // needs from the registry — whether a Session runs unattended — is wired here, where the registry

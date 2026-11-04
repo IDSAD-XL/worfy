@@ -3,7 +3,10 @@
 //
 // - The Project's Orchestrator runs as an unattended Session for the time of the run (ADR-0022):
 //   it is started again with the unattended launch, continuing its SDK session, and given back
-//   attended when the run ends, continuing the SDK session of the run's last Wave.
+//   attended when the run ends, continuing the SDK session of the run's last Wave. The Orchestrator
+//   runs on the Project's defaultVendor (worfy-multi-vendor ticket 37): the run drives it only
+//   through its Session (RunSession), the same for every Vendor, and run-started names the Vendor
+//   the Orchestrator's view gives.
 // - Every Wave after the run's first starts a new SDK session of the Orchestrator (worfy-throughput
 //   ticket 52; Orchestrators.newUnattendedSession), so its context does not grow from Wave to Wave:
 //   its first prompt asks for `wave-brief <epic>`, then has the Wave's text (launch.ts,
@@ -860,6 +863,8 @@ export class Autopilot {
           by: run.by,
           ...(run.cycle.named === undefined ? {} : { tickets: run.cycle.named.map(ticketNumber) }),
           mode: run.mode,
+          // Whose agent runs the Waves, as the Orchestrator's view names it (worfy-multi-vendor ticket 37).
+          ...(view.vendor === undefined ? {} : { vendor: view.vendor }),
         })
         await this.journalHarness(run)
         await this.journalForecast(run, model.tickets)

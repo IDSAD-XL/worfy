@@ -157,6 +157,33 @@ test('a pick of Codex runs a Codex Session: its Node, the Session view and the a
   }
 })
 
+test('Project settings: "Default vendor" says the Orchestrator runs on it from its next start (worfy-multi-vendor ticket 37)', async () => {
+  mkdirSync(codexHome)
+  const launched = await launchApp({
+    env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPT: 'turn', CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: 'account-plus', WORFY_CODEX_SCRIPTS: join(repoRoot, 'test', 'fixtures', 'codex-scripts') },
+  })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: SIZE })
+    await window.getByTestId('project-row').filter({ hasText: 'alpha' }).click({ button: 'right' })
+    await window.getByRole('menuitem', { name: 'Project settings…' }).click()
+    const dialog = window.getByRole('dialog', { name: 'Project settings' })
+    await dialog.getByTestId('project-settings-vendor').click()
+    await window.getByRole('option', { name: 'Codex', exact: true }).click()
+    await expect(dialog).toContainText('The Orchestrator runs on it from its next start: New conversation, or the next start of worfy.')
+    // The dialog alone: the sidebar behind it shows the launch's temporary folders.
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await dialog.screenshot({ path: test.info().outputPath(`orchestrator-vendor-${scheme}.png`) })
+    }
+    await window.emulateMedia({ colorScheme: null })
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toHaveCount(0)
+  } finally {
+    await launched.close()
+  }
+})
+
 test('not signed in to Codex: Codex stays in the picker, inactive, with the tooltip that says where to sign in', async () => {
   // No CODEX_HOME: Codex was never signed in to, and nothing of it starts.
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_AGENT_SCRIPT: 'turn', CODEX_HOME: codexHome } })

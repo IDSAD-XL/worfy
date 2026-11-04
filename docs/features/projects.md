@@ -217,7 +217,8 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   the dialog also has the [Terminal shell](terminal.md). "Default vendor" (`defaultVendor` in the settings) is the Vendor
   "New session" lists first and a [Session](sessions.md) started without a pick runs on: None (Claude Code), Claude Code or
   Codex. "None" clears a saved one, and Claude Code is then the default. A value this build does not know reads as absent.
-  "Ship ticket" runs on Claude Code whatever is chosen. A Linked machine on a build without the field saves without it, and
+  The Project's [Orchestrator](sessions.md) runs on it from its next start: "New conversation", or the next start of
+  worfy. "Ship ticket" runs on Claude Code whatever is chosen. A Linked machine on a build without the field saves without it, and
   the saved value stays.
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.

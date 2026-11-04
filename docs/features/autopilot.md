@@ -106,10 +106,12 @@ The line above the button shows the state of the run:
 
 While a run goes on:
 
-- The Orchestrator is **unattended**. It runs in the `bypassPermissions` mode, whatever mode the Node saved. A change of
-  its permission mode is refused. When the run ends, the Node gets its own settings back.
+- The Orchestrator is **unattended**. It runs in the `bypassPermissions` mode, whatever mode the Node saved; on a Codex
+  Orchestrator that is the "Full access" preset (sandbox `danger-full-access`, approvals `never`). A change of its
+  permission mode is refused. When the run ends, the Node gets its own settings back. The run works the same on either
+  Vendor of the Orchestrator: it drives the Orchestrator's Session and reads its events.
 - A permission request, a question with answer options and a Card's `session.ask` are refused at once, because no one is
-  there to answer. Each refusal goes to the journal. When Claude Code gave a reason for a permission request, the model
+  there to answer. An approval Codex still asks for gets `decline`. Each refusal goes to the journal. When Claude Code gave a reason for a permission request, the model
   gets that reason so it can change the command.
 - "Run wave" and "Process gate queue" by hand and "New conversation" of the Orchestrator are refused.
 - A person can still write to the Orchestrator. What a person does on its Session through worfy goes to the journal as
@@ -390,7 +392,7 @@ it cannot read.
 
 | Kind | Written when |
 |---|---|
-| `run-started` | The run began. Has `origin`, and `override` or `unasked` when they apply. `by` says who started it: `button`, `command` or `tool`. `tickets` names the Tickets of a run over named Tickets. `mode` is the Run mode: `fastest`, `budget-aware` or `start-window`. |
+| `run-started` | The run began. Has `origin`, and `override` or `unasked` when they apply. `by` says who started it: `button`, `command` or `tool`. `tickets` names the Tickets of a run over named Tickets. `mode` is the Run mode: `fastest`, `budget-aware` or `start-window`. `vendor` is the Vendor of the Orchestrator, `claude` or `codex`; a line without it is a run on Claude Code. |
 | `harness-behind` | The Harness in `main` is newer: after `run-started`, and before a `wave-started` when the count changed. |
 | `forecast` | The Epic forecast at the start, once, after `run-started` and `harness-behind`, before the first `wave-started`: the Run mode, the Waves and Tickets left, the samples, `low` and `high` (p10 and p90 of the share of the week, `null` under 5 samples), `fit` (how many Waves fit before the 7-day reset with the reserve; only when the Run has a recommendation, in Budget-aware or in Start window with the budget on, else `null`), `week` (the 7-day number at the start), the p90 of a Wave's duration with its sample count, and `window` in Start window. Journals that cannot be read give `samples: 0`; the run goes on. |
 | `wave-started`, `wave-finished` | A Wave went or ended. `wave-started` has the text sent, the skipped Tickets and `session`, the id of the Orchestrator's SDK session the Wave went to (its transcript's name). Both may have `limits`. |

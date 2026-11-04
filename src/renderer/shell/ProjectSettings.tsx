@@ -98,7 +98,8 @@ const VENDOR_OPTIONS: readonly { value: VendorChoice; label: string }[] = [
  * or a new Terminal Node. Elsewhere there is no such field, and a saved choice is kept as it is.
  *
  * "Default vendor" (worfy-multi-vendor ticket 24): the Vendor "New session" lists first and a Session
- * started without a pick runs on. "None" clears it, and Claude Code is then the default.
+ * started without a pick runs on, and the Vendor of the Project's Orchestrator from its next start
+ * (ticket 37). "None" clears it, and Claude Code is then the default.
  */
 export function ProjectSettings({ project, machine, onClose }: ProjectSettingsProps) {
   // The calls go to the Project's Machine.
@@ -259,7 +260,10 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
             </label>
             {/* Named by the label above; Esc on its open list closes the list alone, not this window. */}
             <Select<VendorChoice> id={vendorId} style={styles.input} value={vendor} options={VENDOR_OPTIONS} onChange={setVendor} data-testid="project-settings-vendor" />
-            <span style={styles.hint}>Listed first in New session. Ship ticket runs on {vendorLabel(SHIP_TICKET_VENDOR)} whatever is chosen here.</span>
+            <span style={styles.hint}>
+              Listed first in New session. The Orchestrator runs on it from its next start: New conversation, or the next start of worfy. Ship ticket runs on {vendorLabel(SHIP_TICKET_VENDOR)}{' '}
+              whatever is chosen here.
+            </span>
           </div>
         ) : null}
 

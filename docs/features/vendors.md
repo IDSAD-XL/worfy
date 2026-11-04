@@ -20,8 +20,9 @@ inactive, and its tooltip gives the reason, `Sign in to Codex in Settings → Ve
 Vendor; Esc or a click outside closes the list. Each time the list opens, main checks the sign-in of every Vendor it has not
 yet found signed in. A Linked machine on a build without the list starts the Session on its Project's default Vendor at
 once. "New session" in the Command palette uses the default Vendor too. The default Vendor is "Default vendor" in
-[Project settings](projects.md), and Claude Code while none is chosen. The Orchestrator and a Session that "Ship ticket"
-starts always run on Claude Code. One Project holds Sessions of both Vendors side by side.
+[Project settings](projects.md), and Claude Code while none is chosen. The Project's Orchestrator runs on it too, from its
+next start ("New conversation", or the next start of worfy), and so does Autopilot, which drives the Orchestrator. A
+Session that "Ship ticket" starts always runs on Claude Code. One Project holds Sessions of both Vendors side by side.
 
 **Signing in to a Vendor.** Settings → Vendors has one row per Vendor this build runs, Claude Code marked `required` and
 Codex `optional`. A signed-in row shows `Signed in: <email> · <plan>`, as the first-run sign-in check does. A Vendor nobody

@@ -3,8 +3,8 @@
 // src/main/ipc/orchestrator.ts (ADR-0006).
 //
 // The Node's `data` in the Layout keeps only what nothing else records (ADR-0010): the SDK session
-// id the Session resumes after a restart and the cost summed over the Claude Code processes that
-// ran it. The model, effort and permission mode the user picked (ticket 19) are kept outside the
+// id the Session resumes after a restart, the Vendor of that session (worfy-multi-vendor ticket 37)
+// and the cost summed over the processes that ran it. The model, effort and permission mode the user picked (ticket 19) are kept outside the
 // Layout, in src/main/agent/session-settings.ts.
 // The rest of what the Node shows is not stored by worfy (ADR 0002, ADR 0005): the model and the
 // last status block are read from the Session's transcript when the Orchestrator opens and then
@@ -13,6 +13,7 @@
 // `agent.event`, and the `agent.*` channels take its Session id like any other.
 import { z } from 'zod'
 import { sessionState } from '../agent/events'
+import { vendorIdSchema } from '../vendors/vendor'
 import { eventChannel, invokeChannel } from './channels'
 
 /** The `kind` of the Orchestrator's Node in the Layout. */
@@ -30,6 +31,11 @@ export const orchestratorDataSchema = z.object({
   sessionId: z.string().min(1).nullable().optional(),
   /** What the Session has cost so far, over every Claude Code process that ran it, in USD. */
   costUsd: z.number().nonnegative().optional(),
+  /**
+   * The Vendor whose session `sessionId` is (worfy-multi-vendor ticket 37); absent — Claude Code, as
+   * in every Node saved before that ticket.
+   */
+  vendor: vendorIdSchema.optional(),
 })
 export type OrchestratorData = z.output<typeof orchestratorDataSchema>
 
@@ -63,6 +69,11 @@ export const orchestratorViewSchema = z.object({
   state: sessionState,
   /** Why the Session is in `error`. */
   error: z.string().nullable(),
+  /**
+   * Whose agent runs the Session (worfy-multi-vendor ticket 37): the Project's defaultVendor as it was
+   * at the Orchestrator's start. Absent in a view of a build before that ticket: Claude Code.
+   */
+  vendor: vendorIdSchema.optional(),
   /** The model of the Orchestrator's last answer: from the transcript, then from system/init. */
   model: z.string().nullable(),
   /** What the Session has cost so far, in USD. */
