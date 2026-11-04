@@ -23,18 +23,26 @@ Source: [spec.md](../spec.md), «Как работает» → «Повтор п
    `auto-continue-quota.jsonl` (`usageLimitExceeded`, квота без сброса).
 3. Если `httpStatusCode` из `codexErrorInfo` нужен для вида ошибки (500 против 503) и теряется — передать его в
    `terminalReason` в `items.ts`; иначе `src/` не правится.
-4. **`responseTooManyFailedAttempts` с `httpStatusCode` 429**: Codex уже исчерпал свои повторы по rate limit. Такой
-   ход читается как `other` — повтора Auto-continue нет; это не временный обрыв потока. Сегодня `turnFailureKind`
-   (`src/shared/agent/turn-failure.ts:45`) даёт для любого `responseTooManyFailedAttempts` `transient` `stream`:
-   `httpStatusCode` до него не доходит. Нужны код в `terminalReason` (п. 3) и отдельный случай 429 в классификаторе;
-   `turn-failure.ts` и его unit test тогда входят в «Где в коде» этого Ticket-а. Contract test — ход `failed` с
-   `responseTooManyFailedAttempts` и `httpStatusCode` 429 → `retry-refused` `not-transient`, продолжение не ушло.
+4. **`responseTooManyFailedAttempts` с `httpStatusCode` 429 — `other`** (решение Orchestrator-а 2026-11-04, PR #1387):
+   Codex уже исчерпал свои повторы по rate limit, и повтор Auto-continue его не лечит; Claude `API Error: 429` уже
+   `other`. В worfy-retry 03 это не сделано: `httpStatusCode` до `turnFailureKind` не доходит. `errorKind`
+   (`src/main/vendors/codex/items.ts:74-78`) берёт из `codexErrorInfo` только ключ, а `TurnEndInput`
+   (`src/shared/agent/turn-failure.ts`) кода не имеет. Поэтому сегодня любой `responseTooManyFailedAttempts` — `transient`
+   `stream` (`turn-failure.ts:45`). Здесь: передать код в `terminalReason` (например, `responseTooManyFailedAttempts:429`)
+   и в `turnFailureKind` читать 429 как `other`, остальные коды — как сейчас.
+5. **Subagent-ы Codex не видны `externalActions`** (`src/shared/agent/continue-plan.ts`, worfy-retry 03): элемент
+   `collabAgentToolCall` (запуск Subagent-а Codex) в `toolUse` (`src/main/vendors/codex/items.ts:101-111`) не становится
+   событием `tool_use`, поэтому ход Codex, который запустил Subagent, читается так, будто внешнего действия не было.
+   Здесь: отобразить `collabAgentToolCall` в `tool_use` (и его конец — в `tool_result`) с именем, которое
+   `continue-plan.ts` читает как внешнее (любое имя не из `LOCAL_TOOLS` — внешнее; `Agent` даст строку `Agent (…)`).
 
 ## Готово, когда
 
 - [ ] Contract test: Codex, `serverOverloaded`, затем удачный — `turn-retry`, `resumed`, одно продолжение.
 - [ ] Contract test: `willRetry: true` — worfy ничего не шлёт, `turn-retry` нет.
 - [ ] Contract test: квота без сброса — остановка с причиной, ожидания нет.
+- [ ] Unit test: `responseTooManyFailedAttempts` с `httpStatusCode` 429 → `other`; без кода и с 5xx — как сейчас.
+- [ ] Contract test: ход Codex с `collabAgentToolCall` без результата, затем `serverOverloaded` → `retry-refused` `in-flight`.
 - [ ] Новые скрипты проходят проверку схемы `codex-fake.test.ts`.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
@@ -48,7 +56,8 @@ Source: [spec.md](../spec.md), «Как работает» → «Повтор п
 
 - `test/contract/codex-auto-continue.test.ts` (новый)
 - `test/fixtures/codex-scripts/auto-continue-*.jsonl` (новые)
-- `src/main/vendors/codex/items.ts` (только если нужен `httpStatusCode`)
+- `src/main/vendors/codex/items.ts` (`httpStatusCode` в `terminalReason`, `collabAgentToolCall` в `tool_use`)
+- `src/shared/agent/turn-failure.ts`, `test/unit/turn-failure.test.ts` (429 → `other`)
 
 Только читать: `src/main/vendors/codex/session.ts`, `src/main/vendors/codex/limits.ts`,
 `test/fixtures/codex-app-server/fake-app-server.mjs`, `test/contract/codex-orchestrator.test.ts`.

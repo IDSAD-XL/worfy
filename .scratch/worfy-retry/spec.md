@@ -335,6 +335,9 @@ Ticket с большим номером уходит дальше (`filesOverlap
    `responseStreamDisconnected`, `responseTooManyFailedAttempts`; (б) то же плюс 429 без события Limits и неизвестные
    ошибки. **Рекомендую (а):** неизвестная ошибка, повторённая 5 раз, — 5 лишних запросов и шум; 429 на подписке —
    почти всегда Limits, и путь B его ловит.
+   _Дополнение 2026-11-04 (решение Orchestrator-а, PR #1387):_ Codex `responseTooManyFailedAttempts` с
+   `httpStatusCode` 429 — не временная ошибка (`other`): Codex уже исчерпал свои повторы по rate limit, как и Claude
+   `API Error: 429`. Делает Ticket 08: сегодня код до `turnFailureKind` не доходит.
 5. **Q5. Только Run Autopilot-а или и ручные ходы Orchestrator-а.** (а) Оба: переключатель стоит в чате Orchestrator-а,
    а ночная работа часто идёт без Run-а — Orchestrator ведёт Wave-ы сам с фоновыми агентами; (б) только Run.
    **Рекомендую (а):** с правилом — сообщение человека снимает ожидание, а пока Run владеет Session, ручной модуль молчит.

@@ -9,15 +9,24 @@
 // The rule for external actions (spec, Q9 (a)) is safe by default:
 // - The turn is never sent again: the retry is a new message that asks the model to continue, and
 //   it names what the turn already did outside the Session, so the model checks before it repeats.
-// - An external action that has a `tool_use` but no `tool_result` (the turn broke off while a push
-//   or a merge was running) may or may not have happened: no retry (`in-flight`).
-// - What counts as external is a list of what changes something; a tool this module does not know
-//   is read the safe way: an MCP tool of another server counts as external, a worfy MCP tool must
-//   be classified here before it builds (WORFY_CANVAS_TOOLS, WORFY_BROWSER_TOOLS).
+// - An action that has a `tool_use` but no `tool_result` (the turn broke off while a push or a merge
+//   was running) may or may not have happened: no retry (`in-flight`).
+// - Local is what this module knows to be local; everything else may reach outside. A tool not in
+//   LOCAL_TOOLS is external; an MCP tool of a server other than worfy's is external; a worfy MCP tool
+//   must be classified here before it builds (WORFY_CANVAS_TOOLS, WORFY_BROWSER_TOOLS). A shell command
+//   is external when it writes through git, gh, an HTTP client, ssh or a package registry, local when
+//   every part of it is a known local program, and unclassified otherwise: an unclassified command
+//   without a result refuses the retry like an external one, and with a result it keeps the text from
+//   saying that nothing reached outside.
 // Only the turn's own calls count (`parentToolUseId` null). A call inside a Subagent belongs to the
 // Subagent: when the Agent call itself has its result, the Subagent goes on (or ended) on its own,
 // and continuing the Orchestrator's turn does not repeat it; when it has none, the Agent call is the
 // action in flight.
+//
+// The text names an action by worfy's own summary — program, subcommand and a short target such as
+// a branch or a PR number — never by text the model wrote (a commit message, an Agent's description):
+// the continuation is a message in the user's place, and the model's own words must not come back
+// to it as instructions.
 import { BROWSER_SERVER_NAME, type BrowserToolName } from '../browser/tools'
 import { CANVAS_SERVER_NAME, type CanvasToolName } from '../canvas/tools'
 import type { AgentEvent } from './events'
@@ -46,15 +55,17 @@ export function retryDelay(attempt: number, random: number): number {
   return Math.round(base * (1 - JITTER + 2 * JITTER * random))
 }
 
-/** One action of a turn that changed, or may have changed, something outside the Session. */
+/** One call of a turn that changed, or may have changed, something outside the Session. */
 export interface ExternalAction {
   toolUseId: string
   /** The tool's name: `Bash`, `Agent`, `mcp__worfy-canvas__create_card`, … */
   tool: string
-  /** A short line for the continuation text and the transcript: the command, the Agent's description. */
+  /** worfy's own short summary of the call: `git push origin main`, `gh pr merge 12`, `Agent`. */
   description: string
   /** The call has its `tool_result`: it ran (successfully or not). False: it may or may not have run. */
   done: boolean
+  /** True: the call is known to reach outside. False: a shell command worfy could not classify; it may. */
+  known: boolean
 }
 
 /** Tools that run a command line: Claude Code's Bash and PowerShell (on Windows), Codex's `commandExecution`. */
@@ -63,6 +74,37 @@ const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell', 'command
 const AGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task', 'Workflow'])
 /** A message to another agent. */
 const SEND_TOOL = 'SendMessage'
+/**
+ * Tools that act only on this machine or only read: files, search, the task list, reading the web,
+ * questions to the person. Every tool not here (and not a shell, an Agent or an MCP tool) is external.
+ */
+const LOCAL_TOOLS: ReadonlySet<string> = new Set([
+  'Read',
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+  'NotebookRead',
+  'Glob',
+  'Grep',
+  'LS',
+  'TodoWrite',
+  'TaskCreate',
+  'TaskUpdate',
+  'TaskGet',
+  'TaskList',
+  'TaskOutput',
+  'BashOutput',
+  'WebFetch',
+  'WebSearch',
+  'ToolSearch',
+  'Skill',
+  'AskUserQuestion',
+  'EnterPlanMode',
+  'ExitPlanMode',
+  // Codex's file edit.
+  'fileChange',
+])
 
 /** Which tools of worfy's canvas MCP server change something (src/main/mcp/canvas-server.ts). */
 const WORFY_CANVAS_TOOLS: Record<CanvasToolName, boolean> = {
@@ -98,6 +140,8 @@ const WORFY_MCP_TOOLS: ReadonlyMap<string, Readonly<Record<string, boolean>>> = 
  * push, merge, rebase, reset, tag) and the ones that make a commit or a merge the same way.
  */
 const GIT_EXTERNAL: ReadonlySet<string> = new Set(['commit', 'push', 'merge', 'rebase', 'reset', 'tag', 'pull', 'cherry-pick', 'revert', 'am'])
+/** git subcommands whose summary keeps their targets (a remote, a branch, a commit); the others carry a message. */
+const GIT_TARGETED: ReadonlySet<string> = new Set(['push', 'merge', 'rebase', 'reset', 'pull', 'cherry-pick', 'revert'])
 /** git options before the subcommand that take the next word as their value (`git -C <path> push`). */
 const GIT_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env'])
 /** gh commands that only read or act on this machine; every other `gh <group> <verb>` counts as external. */
@@ -105,13 +149,55 @@ const GH_READ_GROUPS: ReadonlySet<string> = new Set(['search', 'status', 'browse
 const GH_READ_VERBS: ReadonlySet<string> = new Set(['view', 'list', 'status', 'checks', 'diff', 'checkout', 'watch', 'download'])
 /** `gh api` options that send a body: without -X, gh then sends a POST. */
 const GH_API_BODY = /^(?:-[fF]|--field|--raw-field|--input)(?:=|$)|^-[fF]./
+/** `gh api` options that take the next word as their value, so it is not the endpoint. */
+const GH_API_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-X', '--method', '-f', '-F', '--field', '--raw-field', '--input', '-H', '--header', '-q', '--jq', '-t', '--template', '--hostname', '-p', '--preview', '--cache'])
 /** HTTP methods that only read. */
 const READ_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD'])
+/** curl options that send a body (curl then sends POST, or PUT for an upload). */
+const CURL_BODY = /^(?:-d|--data(?:-raw|-binary|-urlencode|-ascii)?|--json|-F|--form(?:-string)?|-T|--upload-file)(?:=|$)|^-[dFT]./
+const WGET_BODY = /^--(?:post-data|post-file|body-data|body-file)(?:=|$)/
+/** PowerShell's HTTP cmdlets and their aliases. */
+const PS_HTTP: ReadonlySet<string> = new Set(['invoke-webrequest', 'invoke-restmethod', 'iwr', 'irm'])
+/** Programs that always reach another machine. */
+const REMOTE_SHELLS: ReadonlySet<string> = new Set(['ssh', 'scp', 'sftp'])
+const PACKAGE_MANAGERS: ReadonlySet<string> = new Set(['npm', 'pnpm', 'yarn', 'bun'])
+/** Package manager commands that change a registry. */
+const PM_EXTERNAL: ReadonlySet<string> = new Set(['publish', 'unpublish', 'deprecate', 'dist-tag', 'owner'])
+/** Package manager commands that act only here (`install` reads the registry and writes node_modules). */
+const PM_LOCAL: ReadonlySet<string> = new Set(['install', 'i', 'ci', 'list', 'ls', 'why', 'outdated'])
+/** Package manager commands that run a script or a tool named by the next word. */
+const PM_RUNNERS: ReadonlySet<string> = new Set(['run', 'exec', 'dlx', 'x'])
+/** Scripts and tools of a package that only check or build here; `test:e2e` counts by its part before the colon. */
+const LOCAL_SCRIPTS: ReadonlySet<string> = new Set(['test', 't', 'lint', 'typecheck', 'build', 'format', 'check', 'vitest', 'tsc', 'eslint', 'prettier', 'playwright'])
+/** Shells whose `-c` (PowerShell: `-Command`) string is a command line of its own. */
+const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'dash', 'pwsh', 'powershell'])
+/** Programs that run the command after their own options: `env A=1 cmd`, `timeout 10 cmd`, `nohup cmd`. */
+const PREFIXES: ReadonlySet<string> = new Set(['env', 'time', 'nice', 'nohup', 'command', 'builtin', 'timeout'])
+/** Shell keywords: the command after them is the one that runs; a loop header alone runs nothing. */
+const KEYWORDS: ReadonlySet<string> = new Set(['if', 'then', 'else', 'elif', 'fi', 'while', 'until', 'do', 'done', 'esac', '!', '{', '}'])
+/** Headers that run nothing themselves: `for f in a b`, `case $x in a` (a `$(…)` in them is a command of its own). */
+const HEADERS: ReadonlySet<string> = new Set(['for', 'select', 'case'])
+/**
+ * Programs that act only on this machine. git, gh and the HTTP clients are here too: their writes
+ * are told apart first (externalCommand), so what is left of them only reads.
+ */
+const LOCAL_PROGRAMS: ReadonlySet<string> = new Set([
+  'git', 'gh', 'curl', 'wget', 'rsync', ...PS_HTTP,
+  'cd', 'pwd', 'ls', 'cat', 'head', 'tail', 'less', 'grep', 'egrep', 'rg', 'find', 'fd', 'wc', 'sort', 'uniq', 'cut', 'tr',
+  'sed', 'awk', 'jq', 'diff', 'cmp', 'comm', 'echo', 'printf', 'true', 'false', 'test', '[', '[[', 'export', 'set', 'unset',
+  'sleep', 'date', 'which', 'type', 'mkdir', 'rmdir', 'rm', 'cp', 'mv', 'touch', 'ln', 'chmod', 'stat', 'du', 'df', 'file',
+  'basename', 'dirname', 'realpath', 'readlink', 'tee', 'tar', 'zip', 'unzip', 'gzip', 'gunzip', 'shasum', 'ps', 'pgrep',
+  'uname', 'whoami', 'seq', 'wait', 'exit', 'node', 'python', 'python3', 'tsc', 'vitest', 'eslint', 'prettier',
+  'get-content', 'get-childitem', 'select-string', 'set-location', 'write-output', 'write-host', 'test-path', 'get-item',
+  'select-object', 'where-object', 'foreach-object', 'sort-object', 'measure-object', 'out-null',
+])
 
-/** Longest description kept of an action. */
+/** A target word kept in a summary: a branch, a remote, a PR number, an endpoint — one short word, no prose. */
+const SAFE_WORD = /^[\w./#:@+?&=%~-]{1,80}$/
+/** Longest summary kept of an action. */
 const DESCRIPTION_MAX = 160
 
-/** The external actions of a turn, given its events, in the order they were called. */
+/** The external and unclassified calls of a turn, given its events, in the order they were called. */
 export function externalActions(events: readonly AgentEvent[]): ExternalAction[] {
   const results = new Set<string>()
   for (const event of events) if (event.type === 'tool_result') results.add(event.toolUseId)
@@ -120,146 +206,370 @@ export function externalActions(events: readonly AgentEvent[]): ExternalAction[]
   for (const event of events) {
     if (event.type !== 'tool_use' || event.parentToolUseId !== null || seen.has(event.id)) continue
     seen.add(event.id)
-    const description = externalDescription(event.name, event.input)
-    if (description !== null) actions.push({ toolUseId: event.id, tool: event.name, description: shorten(description), done: results.has(event.id) })
+    const found = classifyCall(event.name, event.input)
+    if (found !== null) actions.push({ toolUseId: event.id, tool: event.name, description: shorten(found.description), done: results.has(event.id), known: found.known })
   }
   return actions
 }
 
-/** What the call did outside the Session, as a short line, or null when it was not external. */
-function externalDescription(tool: string, input: unknown): string | null {
+interface Found {
+  description: string
+  known: boolean
+}
+
+/** What the call may have done outside the Session, or null when it is local. */
+function classifyCall(tool: string, input: unknown): Found | null {
   const fields = record(input)
   if (SHELL_TOOLS.has(tool)) {
-    const command = commandText(fields.command)
-    if (fields.run_in_background === true) return `background task: ${command}`
-    const found = externalCommands(command)
-    return found.length === 0 ? null : found.join('; ')
+    const verdict = classifyLine(commandText(fields.command))
+    if (fields.run_in_background === true) return { description: `background task: ${verdict.all.join('; ')}`, known: true }
+    if (verdict.external.length > 0) return { description: verdict.external.join('; '), known: true }
+    return verdict.unclassified.length > 0 ? { description: verdict.unclassified.join('; '), known: false } : null
   }
   if (AGENT_TOOLS.has(tool)) {
-    const what = text(fields.description) ?? text(fields.subagent_type) ?? text(fields.name)
-    return what === null ? tool : `${tool}: ${what}`
+    const kind = safe(fields.subagent_type) ?? safe(fields.name)
+    return { description: kind === null ? tool : `${tool} (${kind})`, known: true }
   }
   if (tool === SEND_TOOL) {
-    const to = text(fields.to)
-    return to === null ? 'message to another agent' : `message to ${to}`
+    const to = safe(fields.to)
+    return { description: to === null ? 'SendMessage' : `SendMessage to ${to}`, known: true }
   }
   const mcp = /^mcp__(.+?)__(.+)$/.exec(tool)
   if (mcp !== null) {
     const known = WORFY_MCP_TOOLS.get(mcp[1] as string)
     // An MCP tool worfy does not know may change anything: read the safe way.
-    if (known === undefined || known[mcp[2] as string] !== false) return tool
+    return known !== undefined && known[mcp[2] as string] === false ? null : { description: safe(tool) ?? 'an MCP tool', known: true }
+  }
+  if (LOCAL_TOOLS.has(tool)) return null
+  return { description: safe(tool) ?? 'a tool', known: true }
+}
+
+interface LineVerdict {
+  /** Summaries of the simple commands that write outside. */
+  external: string[]
+  /** Summaries of the simple commands that are neither known local nor known external. */
+  unclassified: string[]
+  /** Summaries of every simple command. */
+  all: string[]
+}
+
+/** How the simple commands of a command line read: external, unclassified or local. */
+function classifyLine(line: string): LineVerdict {
+  const verdict: LineVerdict = { external: [], unclassified: [], all: [] }
+  for (const words of shellSegments(line)) {
+    const external = externalCommand(words)
+    if (external !== null) {
+      verdict.external.push(...external)
+      verdict.all.push(...external)
+      continue
+    }
+    const summary = commandSummary(words)
+    verdict.all.push(summary)
+    if (!isLocal(words)) verdict.unclassified.push(summary)
+  }
+  return verdict
+}
+
+/**
+ * The summaries of what a simple command writes outside, or null when it writes nothing known. A
+ * program anywhere in the command counts (`xargs git push`, `find … -exec curl -d …`), and so does a
+ * quoted command inside it (`bash -c 'git push'`, `ssh host "cd x && git push"`): a false «external»
+ * is safer than a miss.
+ */
+function externalCommand(words: readonly string[]): string[] | null {
+  for (let i = 0; i < words.length; i++) {
+    const summary = externalAt(words, i)
+    if (summary !== null) return [summary]
+  }
+  const nested: string[] = []
+  // The quotes are gone from the word, so each level is shorter than the one above it.
+  for (const word of words) if (/\s/.test(word)) nested.push(...classifyLine(word).external)
+  return nested.length > 0 ? nested : null
+}
+
+/** The summary of the external command that starts at `words[i]`, or null. */
+function externalAt(words: readonly string[], i: number): string | null {
+  const program = programName(words[i] as string)
+  const args = words.slice(i + 1)
+  if (program === 'git') return gitExternal(args)
+  if (program === 'gh') return ghExternal(args)
+  if (program === 'curl') return httpExternal('curl', args, CURL_BODY, ['-X', '--request'], args.some((arg) => /^(?:-T|--upload-file)(?:=|$)|^-T./.test(arg)) ? 'PUT' : 'POST')
+  if (program === 'wget') return httpExternal('wget', args, WGET_BODY, ['--method'], 'POST')
+  if (PS_HTTP.has(program)) return psHttpExternal(program, args)
+  if (REMOTE_SHELLS.has(program)) return program
+  if (program === 'rsync') return args.some((arg) => /^[^-/\\][^\s/\\]*:/.test(arg) && !/^[A-Za-z]:[\\/]/.test(arg)) ? 'rsync' : null
+  if (PACKAGE_MANAGERS.has(program)) {
+    // `yarn npm publish` (Yarn 2 and later) as well as `npm publish`.
+    const subs = args.filter((arg) => !arg.startsWith('-')).slice(0, 2)
+    const [first, second] = subs
+    if (first !== undefined && PM_EXTERNAL.has(first)) return `${program} ${first}`
+    return first === 'npm' && second !== undefined && PM_EXTERNAL.has(second) ? `${program} npm ${second}` : null
+  }
+  if (program === 'docker' || program === 'podman') {
+    const sub = args.find((arg) => !arg.startsWith('-'))
+    return sub === 'push' ? withTargets(`${program} push`, args.slice(args.indexOf(sub) + 1), 1, false) : null
   }
   return null
 }
 
-/**
- * The simple commands of a command line that run git or gh in a way that changes something (see
- * GIT_EXTERNAL, GH_*), each as one line; empty when there is none.
- */
-function externalCommands(command: string): string[] {
-  const found: string[] = []
-  for (const words of shellSegments(command)) {
-    let external = false
-    for (let i = 0; i < words.length && !external; i++) {
-      const program = programName(words[i] as string)
-      external = (program === 'git' && gitExternal(words, i + 1)) || (program === 'gh' && ghExternal(words, i + 1))
-    }
-    if (external) found.push(words.map((word) => (/\s/.test(word) ? `"${word}"` : word)).join(' '))
-    // A quoted command inside the command: `bash -c 'git push'`, `ssh host "cd x && git push"`.
-    // The quotes are gone from the word, so each level is shorter than the one above it.
-    else for (const word of words) if (/\s/.test(word)) found.push(...externalCommands(word))
-  }
-  return found
-}
-
-/** `git`, `/usr/bin/git`, `git.exe` → `git`. */
+/** `git`, `/usr/bin/git`, `git.exe`, `Invoke-WebRequest` → `git`, …, `invoke-webrequest`. */
 function programName(word: string): string {
   const name = word.split(/[\\/]/).pop() ?? word
   return name.toLowerCase().replace(/\.exe$/, '')
 }
 
-function gitExternal(words: readonly string[], from: number): boolean {
-  let i = from
-  while (i < words.length && (words[i] as string).startsWith('-')) i += GIT_VALUE_OPTIONS.has(words[i] as string) ? 2 : 1
-  const subcommand = words[i]
-  return subcommand !== undefined && GIT_EXTERNAL.has(subcommand)
+function gitExternal(args: readonly string[]): string | null {
+  let i = 0
+  while (i < args.length && (args[i] as string).startsWith('-')) i += GIT_VALUE_OPTIONS.has(args[i] as string) ? 2 : 1
+  const subcommand = args[i]
+  if (subcommand === undefined || !GIT_EXTERNAL.has(subcommand)) return null
+  return GIT_TARGETED.has(subcommand) ? withTargets(`git ${subcommand}`, args.slice(i + 1), 2, true) : `git ${subcommand}`
 }
 
-function ghExternal(words: readonly string[], from: number): boolean {
-  const rest = words.slice(from)
-  const at = rest.findIndex((word) => !word.startsWith('-'))
-  const group = rest[at]
-  if (group === 'api') return ghApiExternal(rest.slice(at + 1))
+function ghExternal(args: readonly string[]): string | null {
+  const at = args.findIndex((word) => !word.startsWith('-'))
+  const group = args[at]
+  if (group === 'api') return ghApiExternal(args.slice(at + 1))
   // `gh` alone or `gh --version`: no group.
-  if (group === undefined || GH_READ_GROUPS.has(group)) return false
-  const verb = rest.slice(at + 1).find((word) => !word.startsWith('-'))
+  if (group === undefined || GH_READ_GROUPS.has(group)) return null
+  const rest = args.slice(at + 1)
+  const verbAt = rest.findIndex((word) => !word.startsWith('-'))
+  const verb = rest[verbAt]
   // `gh pr` alone prints help.
-  return verb !== undefined && !GH_READ_VERBS.has(verb)
+  if (verb === undefined || GH_READ_VERBS.has(verb)) return null
+  return withTargets(`gh ${safe(group) ?? '…'} ${safe(verb) ?? '…'}`, rest.slice(verbAt + 1), 1, false)
 }
 
 /** `gh api`: external with a method that writes, or with a body and no method (gh then sends POST). */
-function ghApiExternal(args: readonly string[]): boolean {
+function ghApiExternal(args: readonly string[]): string | null {
+  let method: string | null = null
+  let body = false
+  let endpoint: string | null = null
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] as string
+    if (arg === '-X' || arg === '--method') method = args[i + 1] ?? ''
+    else if (arg.startsWith('--method=')) method = arg.slice('--method='.length)
+    else if (arg.startsWith('-X')) method = arg.slice(2)
+    if (GH_API_BODY.test(arg)) body = true
+    if (GH_API_VALUE_OPTIONS.has(arg)) i++
+    else if (!arg.startsWith('-')) endpoint ??= arg
+  }
+  const writes = method === null ? body : !READ_METHODS.has(method.toUpperCase())
+  if (!writes) return null
+  return withTargets(`gh api ${method === null ? 'POST' : (safe(method.toUpperCase()) ?? '…')}`, endpoint === null ? [] : [endpoint], 1, false)
+}
+
+/** curl and wget: external with a method that writes, or with a body (they then send `bodyMethod`). */
+function httpExternal(program: string, args: readonly string[], bodyOption: RegExp, methodOptions: readonly string[], bodyMethod: string): string | null {
   let method: string | null = null
   let body = false
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string
-    if (arg === '-X' || arg === '--method') method = args[++i] ?? ''
-    else if (arg.startsWith('--method=')) method = arg.slice('--method='.length)
-    else if (arg.startsWith('-X')) method = arg.slice(2)
-    else if (GH_API_BODY.test(arg)) body = true
+    const option = methodOptions.find((name) => arg === name || arg.startsWith(`${name}=`) || (name.length === 2 && arg.startsWith(name)))
+    if (option !== undefined) method = arg === option ? (args[++i] ?? '') : arg.slice(arg.startsWith(`${option}=`) ? option.length + 1 : option.length)
+    else if (bodyOption.test(arg)) body = true
   }
-  return method === null ? body : !READ_METHODS.has(method.toUpperCase())
+  const sent = method ?? (body ? bodyMethod : 'GET')
+  if (READ_METHODS.has(sent.toUpperCase())) return null
+  return withTargets(`${program} ${safe(sent.toUpperCase()) ?? '…'}`, args.filter((arg) => /^https?:\/\//.test(arg)).slice(0, 1), 1, false)
+}
+
+/** PowerShell's Invoke-WebRequest and Invoke-RestMethod: external with `-Method` that writes, or with `-Body`. */
+function psHttpExternal(program: string, args: readonly string[]): string | null {
+  const at = args.findIndex((arg) => arg.toLowerCase() === '-method')
+  const method = at === -1 ? (args.some((arg) => arg.toLowerCase() === '-body') ? 'POST' : 'GET') : (args[at + 1] ?? '')
+  if (READ_METHODS.has(method.toUpperCase())) return null
+  return withTargets(`${program} ${safe(method.toUpperCase()) ?? '…'}`, args.filter((arg) => /^https?:\/\//.test(arg)).slice(0, 1), 1, false)
+}
+
+/** Whether every program a simple command runs is known to act only here. */
+function isLocal(words: readonly string[]): boolean {
+  let k = 0
+  while (k < words.length && /^[A-Za-z_]\w*=/.test(words[k] as string)) k++
+  if (k === words.length) return true
+  const program = programName(words[k] as string)
+  const rest = words.slice(k + 1)
+  if (HEADERS.has(program)) return true
+  if (KEYWORDS.has(program)) return isLocal(rest)
+  if (SHELLS.has(program)) {
+    // `-c`, `-lc` (Codex runs `bash -lc '…'`), PowerShell's `-Command`.
+    const at = rest.findIndex((arg) => /^-[a-z]*c$/.test(arg) || arg.toLowerCase() === '-command')
+    const script = at === -1 ? undefined : rest[at + 1]
+    if (script === undefined) return false
+    const inner = classifyLine(script)
+    return inner.external.length === 0 && inner.unclassified.length === 0
+  }
+  if (PREFIXES.has(program)) {
+    let j = 0
+    while (j < rest.length && /^(?:-|[A-Za-z_]\w*=|\d+(?:\.\d+)?[smhd]?$)/.test(rest[j] as string)) j++
+    return isLocal(rest.slice(j))
+  }
+  if (PACKAGE_MANAGERS.has(program)) return localPackageCommand(rest)
+  if (program === 'npx') return isLocalScript(rest.find((arg) => !arg.startsWith('-')))
+  return LOCAL_PROGRAMS.has(program)
+}
+
+function localPackageCommand(args: readonly string[]): boolean {
+  const at = args.findIndex((arg) => !arg.startsWith('-'))
+  const sub = args[at]
+  if (sub === undefined) return false
+  if (PM_LOCAL.has(sub)) return true
+  if (PM_RUNNERS.has(sub)) return isLocalScript(args.slice(at + 1).find((arg) => !arg.startsWith('-')))
+  return isLocalScript(sub)
+}
+
+function isLocalScript(name: string | undefined): boolean {
+  return name !== undefined && LOCAL_SCRIPTS.has(name.split(':')[0] as string)
+}
+
+/** A simple command in a few words: its program and its first argument, when that is a short word. */
+function commandSummary(words: readonly string[]): string {
+  let k = 0
+  while (k < words.length - 1 && /^[A-Za-z_]\w*=/.test(words[k] as string)) k++
+  const program = safe(programName(words[k] ?? '')) ?? 'a command'
+  return withTargets(program, words.slice(k + 1), 1, true)
+}
+
+/**
+ * `head` and up to `count` of the first arguments, while they are short words. `skipOptions`: options
+ * between them are passed over (git's options take no value); otherwise the first option ends the
+ * targets, so the value of `-t <title>` is never taken for one.
+ */
+function withTargets(head: string, args: readonly string[], count: number, skipOptions: boolean): string {
+  const targets: string[] = []
+  for (const arg of args) {
+    if (targets.length === count) break
+    if (arg.startsWith('-') && skipOptions) continue
+    if (arg.startsWith('-') || !SAFE_WORD.test(arg)) break
+    targets.push(arg)
+  }
+  return [head, ...targets].join(' ')
+}
+
+/** A short word of the model's input (an Agent type, a recipient), or null when it is anything else. */
+function safe(value: unknown): string | null {
+  return typeof value === 'string' && SAFE_WORD.test(value) ? value : null
 }
 
 /**
  * The simple commands of a command line, each as its words with quotes removed. Splits at `;`,
- * `&`, `|`, newlines, parentheses (so `$(` too) and backticks, so a command after `&&` or inside `$(…)` is
- * read as its own. Not a shell: enough to find a program and its arguments.
+ * `&`, `|` and newlines; a part in `$(…)`, `(…)` or backticks is a command of its own, and the command
+ * around it goes on after it. A redirection (`>file`, `2>&1`, `<<EOF`) ends a word, and its target is not a word.
+ * Not a shell: enough to find a program and its arguments.
  */
 function shellSegments(line: string): string[][] {
   const segments: string[][] = []
   let words: string[] = []
   let word = ''
   let inWord = false
+  /** The word was quoted, wholly or in part. */
+  let quoted = false
+  let target = false
+  /** The next target is the delimiter of a here-document (`<<EOF`). */
+  let delimiterNext = false
+  /** Delimiters of quoted here-documents (`<<'EOF'`) whose lines start after the next newline. */
+  const heredocs: string[] = []
   const endWord = (): void => {
-    if (inWord) words.push(word)
+    if (inWord && !target) words.push(word)
+    if (inWord && target) {
+      // Only a quoted delimiter keeps the shell from expanding `$(…)` in the lines: those are read as commands.
+      if (delimiterNext && quoted) heredocs.push(word)
+      target = false
+      delimiterNext = false
+    }
     word = ''
     inWord = false
+    quoted = false
   }
   const endSegment = (): void => {
     endWord()
+    target = false
     if (words.length > 0) segments.push(words)
     words = []
+  }
+  // The outer command's words while a `$(…)`, `(…)` or backtick part is read; the outer command goes on after it.
+  const outer: string[][] = []
+  let inBackticks = false
+  const open = (): void => {
+    endWord()
+    outer.push(words)
+    words = []
+  }
+  const close = (): void => {
+    endSegment()
+    words = outer.pop() ?? []
   }
   for (let i = 0; i < line.length; i++) {
     const char = line[i] as string
     if (char === "'" || char === '"') {
-      const close = line.indexOf(char, i + 1)
-      const end = close === -1 ? line.length : close
+      const closing = line.indexOf(char, i + 1)
+      const end = closing === -1 ? line.length : closing
       word += line.slice(i + 1, end)
       inWord = true
+      quoted = true
       i = end
-    } else if (char === '\\' && i + 1 < line.length) {
+    } else if (char === '\\' && line[i + 1] === '\n') i++
+    else if (char === '\\' && i + 1 < line.length) {
+      // A backslash before a newline joins the lines; before any other character it makes it literal.
       word += line[++i]
       inWord = true
+      quoted = true
+    } else if (char === '>' || char === '<' || (char === '&' && line[i + 1] === '>')) {
+      // A file descriptor right before the operator (`2>`) is part of it.
+      if (inWord && /^\d+$/.test(word)) {
+        word = ''
+        inWord = false
+      } else endWord()
+      // `&>`: the `>` is read on the next step, as an operator of its own.
+      const from = i
+      while (line[i + 1] === line[i] || line[i + 1] === '|') i++
+      // `<<` and `<<-` start a here-document; `<<<` is a string.
+      delimiterNext = char === '<' && i - from === 1
+      if (delimiterNext && line[i + 1] === '-') i++
+      if (line[i + 1] === '&') {
+        // `>&2`, `2>&1`: a descriptor, not a file.
+        i++
+        while (/[\d-]/.test(line[i + 1] ?? '')) i++
+      } else target = true
     } else if (char === ' ' || char === '\t') endWord()
-    // `(` also splits `$(…)`: the `$` before it is a word of its own, which runs nothing.
-    else if (';&|\n\r()`'.includes(char)) endSegment()
+    else if (char === '(') open()
+    else if (char === ')') close()
+    else if (char === '`') {
+      if (inBackticks) close()
+      else open()
+      inBackticks = !inBackticks
+    } else if (char === '\n') {
+      endSegment()
+      i = afterHeredocs(line, i, heredocs.splice(0))
+    } else if (';&|\r'.includes(char)) endSegment()
     else {
       word += char
       inWord = true
     }
   }
   endSegment()
+  // A `$(` or `(` left open: the outer commands are commands too.
+  for (const rest of outer.reverse()) if (rest.length > 0) segments.push(rest)
   return segments
+}
+
+/** Where the lines of the here-documents that start after the newline at `i` end: the newline after the last delimiter's line. */
+function afterHeredocs(line: string, i: number, delimiters: readonly string[]): number {
+  let at = i
+  for (const delimiter of delimiters) {
+    while (at < line.length) {
+      const next = line.indexOf('\n', at + 1)
+      const end = next === -1 ? line.length : next
+      const text = line.slice(at + 1, end).replace(/\r$/, '').replace(/^\t+/, '')
+      at = end
+      if (text === delimiter) break
+    }
+  }
+  return at
 }
 
 function record(input: unknown): Record<string, unknown> {
   return input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {}
-}
-
-function text(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 }
 
 /** A command as one line: a string, or the argv array some Vendors give. */
@@ -269,15 +579,14 @@ function commandText(value: unknown): string {
 }
 
 function shorten(description: string): string {
-  const line = description.replace(/\s+/g, ' ').trim()
-  return line.length > DESCRIPTION_MAX ? `${line.slice(0, DESCRIPTION_MAX - 1)}…` : line
+  return description.length > DESCRIPTION_MAX ? `${description.slice(0, DESCRIPTION_MAX - 1)}…` : description
 }
 
 export type RefusedReason = 'not-transient' | 'in-flight' | 'cap'
 
 export type RetryDecision =
   | { kind: 'retry'; attempt: number; of: number; delayMs: number }
-  /** `inFlight`: the external actions without a result, for the line «not retried: … may or may not have run». */
+  /** `inFlight`: the calls without a result, for the line «not retried: … may or may not have run». */
   | { kind: 'refused'; reason: RefusedReason; inFlight: ExternalAction[] }
 
 export interface RetryInput {
@@ -291,8 +600,8 @@ export interface RetryInput {
 
 /**
  * Whether to continue after the failed turn, and after what pause. Refused, in this order: a failure
- * that is not temporary; an external action without a result (it may or may not have run, so the
- * human looks first, whatever the count); the retries used up.
+ * that is not temporary; an external or unclassified call without a result (it may or may not have
+ * run, so the human looks first, whatever the count); the retries used up.
  */
 export function retryDecision({ failure, attempt, actions, random }: RetryInput): RetryDecision {
   if (failure.kind !== 'transient') return { kind: 'refused', reason: 'not-transient', inFlight: [] }
@@ -314,27 +623,32 @@ const ERROR_WORDS: Record<TransientError, string> = {
   stream: 'the response stream broke off',
 }
 
+const NO_ACTION_SENTENCE = 'worfy saw no action of that turn that changes something outside this Session.'
+const CHECK_SENTENCE =
+  'Before you repeat any action that changes something outside this Session (commit, push, PR, merge, an Agent), check whether it already happened — git log, gh pr view, the task list — and do not do it twice.'
+
 export interface RetryTextInput {
   attempt: number
   of: number
   error: TransientError
-  /** The turn's external actions; only those that ran (done) are named. */
+  /** The turn's calls from externalActions; only those that ran (done) are named. */
   actions: readonly ExternalAction[]
 }
 
 /**
  * The message the Orchestrator gets instead of its original one (spec, the section on the retry after an API
  * error, item 3). It never carries the turn's original text, a person's message or the Wave command: the Session
- * keeps the turn's history, and the model continues from it.
+ * keeps the turn's history, and the model continues from it. The actions are worfy's summaries, not the
+ * model's words (see the top of this file).
  */
 export function retryText({ attempt, of, error, actions }: RetryTextInput): string {
-  const ran = actions.filter((action) => action.done)
-  const lines = [
-    `The previous turn ended with a temporary API error (${ERROR_WORDS[error]}) before it finished (retry ${attempt} of ${of}). Continue from where you stopped.`,
-    ran.length === 0
-      ? 'worfy saw no action of that turn that changes something outside this Session.'
-      : `These actions of that turn already ran:\n${ran.map((action) => `- ${action.description}`).join('\n')}`,
-    'Before you repeat any action that changes something outside this Session (commit, push, PR, merge, an Agent), check whether it already happened — git log, gh pr view, the task list — and do not do it twice.',
-  ]
+  const ran = actions.filter((action) => action.done && action.known)
+  const unclear = actions.filter((action) => action.done && !action.known)
+  const list = (items: readonly ExternalAction[]): string => items.map((action) => `- ${action.description}`).join('\n')
+  const lines = [`The previous turn ended with a temporary API error (${ERROR_WORDS[error]}) before it finished (retry ${attempt} of ${of}). Continue from where you stopped.`]
+  if (ran.length > 0) lines.push(`These actions of that turn already ran (worfy's summary of the calls):\n${list(ran)}`)
+  if (unclear.length > 0) lines.push(`worfy could not tell whether these commands of that turn changed something outside this Session:\n${list(unclear)}`)
+  if (ran.length === 0 && unclear.length === 0) lines.push(NO_ACTION_SENTENCE)
+  lines.push(CHECK_SENTENCE)
   return lines.join('\n')
 }
