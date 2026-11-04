@@ -1,7 +1,7 @@
 # 02 — Разбор shell-команды
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T13:27Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает», п. 2; «Безопасность», п. 4; «Решено без владельца», п. 2
 
