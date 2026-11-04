@@ -1,7 +1,8 @@
 # 06 — Chip «Evidence n/m» на карточке и матрица в focus mode
 
 Type: task
-Status: claimed 2026-11-04T02:50Z
+Status: done 2026-11-04T03:51Z
+PR: #1331
 Blocked by: 05
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 4, «Что есть сейчас» (слоты карточки, focus mode), «Решено без владельца», п. 6
 
