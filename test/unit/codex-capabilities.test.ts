@@ -164,15 +164,19 @@ describe('the models of model/list', () => {
   it('a model without effort levels takes none', () => {
     const bare = { ...model('c', []), supportedReasoningEfforts: undefined } as unknown as Model
     expect(capabilitiesWithModels([bare]).models).toEqual([{ id: 'c', label: 'C', effortLevels: [] }])
-    expect(codexModelOptions([bare])).toEqual([{ value: 'c', displayName: 'C', efforts: [] }])
+    expect(codexModelOptions([bare])).toEqual([{ value: 'c', displayName: 'C', efforts: [], defaultEffort: 'medium' }])
+    // A model whose default level Codex does not name: the row names none (worfy-polish 52).
+    const unnamed = { ...model('d', ['low']), defaultReasoningEffort: undefined } as unknown as Model
+    expect(codexModelOptions([unnamed])).toEqual([{ value: 'd', displayName: 'D', efforts: ['low'] }])
   })
 
   it('gives the picker "Default" for Codex\'s default model first, then each model, with the levels a Session\'s settings take', () => {
     // Codex's own levels (none, minimal) since the pickers read the capabilities (ticket 25); one worfy has no name for is left out.
     expect(codexModelOptions(models)).toEqual([
-      { value: null, displayName: 'Default (A)', efforts: ['xhigh', 'minimal', 'none'] },
-      { value: 'b', displayName: 'B', efforts: ['high', 'low'] },
-      { value: 'a', displayName: 'A', efforts: ['xhigh', 'minimal', 'none'] },
+      // Each with the level it runs at while none is picked, for the Session header (worfy-polish 52).
+      { value: null, displayName: 'Default (A)', efforts: ['xhigh', 'minimal', 'none'], defaultEffort: 'xhigh' },
+      { value: 'b', displayName: 'B', efforts: ['high', 'low'], defaultEffort: 'high' },
+      { value: 'a', displayName: 'A', efforts: ['xhigh', 'minimal', 'none'], defaultEffort: 'xhigh' },
     ])
     expect(codexModelOptions(models.filter((each) => !each.isDefault))[0]?.value).toBe('b')
   })

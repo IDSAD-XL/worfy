@@ -56,8 +56,9 @@ thinking shows as the summary Codex gives of it.
 **Model, effort and permissions of a Codex Session.** The three pickers under the input field offer what Codex offers.
 
 - Model: the models the running Codex lists, first "Default (<model>)", the model Codex marks as its default. A change holds
-  from the next turn on.
-- Effort: the levels the picked model lists, lowest first.
+  from the next turn on. On "Default" the header names the model Codex marks as its default once a turn starts.
+- Effort: the levels the picked model lists, lowest first. With no level picked the header shows the model's default level
+  from Codex's list, in muted text, with a tooltip that says so.
 - Permissions: three presets in Codex's words, with the description as the tooltip of each row.
 
 | Preset | Description |

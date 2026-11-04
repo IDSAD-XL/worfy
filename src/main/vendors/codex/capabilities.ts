@@ -162,14 +162,17 @@ export function capabilitiesWithModels(models: readonly Model[]): Capabilities {
 /** The levels of a model the picker offers: those a Session's settings take (a level worfy has no name for is left out). */
 const pickerEfforts = (model: Model): string[] => effortsOf(model).filter(isEffortSetting)
 
+/** The level `model` runs at while none is picked, for the Session header (worfy-polish 52); none when Codex names none. */
+const defaultEffortOf = (model: Model): { defaultEffort?: string } => (typeof model.defaultReasoningEffort === 'string' && model.defaultReasoningEffort !== '' ? { defaultEffort: model.defaultReasoningEffort } : {})
+
 /**
  * The model picker's rows of `model/list`: "Default" (value null) for the model Codex marks as its
- * default, then each model it does not hide.
+ * default, then each model it does not hide; each with the level it runs at while none is picked.
  */
 export function codexModelOptions(models: readonly Model[]): ModelOption[] {
   const fallback = models.find((model) => model.isDefault)
-  const rows = shownModels(models).map((model) => ({ value: model.model, displayName: model.displayName, efforts: pickerEfforts(model) }))
-  return fallback === undefined ? rows : [{ value: null, displayName: `Default (${fallback.displayName})`, efforts: pickerEfforts(fallback) }, ...rows]
+  const rows = shownModels(models).map((model) => ({ value: model.model, displayName: model.displayName, efforts: pickerEfforts(model), ...defaultEffortOf(model) }))
+  return fallback === undefined ? rows : [{ value: null, displayName: `Default (${fallback.displayName})`, efforts: pickerEfforts(fallback), ...defaultEffortOf(fallback) }, ...rows]
 }
 
 /** What a live Codex Session tells of the running version: the models of its `model/list`. */

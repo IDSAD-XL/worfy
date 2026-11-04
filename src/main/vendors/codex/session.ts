@@ -524,6 +524,9 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
         told.model = wanted.model
       }
     }
+    // A thread that did not name its model (thread/start answered an empty one) runs on Codex's default:
+    // the turn's `init` names that model of `model/list`, so the header shows what the Session runs on.
+    if (model === '') model = (await this.listed()).find((each) => each.isDefault)?.model ?? ''
     if (wanted.effort !== told.effort) {
       const effort = wanted.effort ?? (await this.listed()).find((each) => each.model === model)?.defaultReasoningEffort
       if (effort !== undefined) {

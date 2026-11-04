@@ -81,6 +81,8 @@ export const modelOptionSchema = z.object({
   displayName: z.string(),
   /** The effort levels the model takes, of the Vendor's `effortLevels`; empty when it takes none. */
   efforts: z.array(z.string().min(1)),
+  /** The level the model runs at while no effort is picked; only where the Vendor names it (Codex's `model/list`). */
+  defaultEffort: z.string().min(1).optional(),
 })
 export type ModelOption = z.output<typeof modelOptionSchema>
 
