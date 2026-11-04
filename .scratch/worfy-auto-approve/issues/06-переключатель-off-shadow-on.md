@@ -34,11 +34,17 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
 ## Готово, когда
 
 - [ ] Unit test компонента: три положения, клик пишет через IPC, read-only на Linked machine, нет у обычной Session.
+  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · ae80d126d4e5fab558bc7808cb26072e1d36e833
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/auto-approve.spec.ts test/e2e/eco-mode.spec.ts test/e2e/session-controls.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · ae80d126d4e5fab558bc7808cb26072e1d36e833
 - [ ] Contract test настройки: нет файла — `off`; мусор — `off`; запись одного Project-а не трогает другие и
       `autoContinue`.
+  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · ae80d126d4e5fab558bc7808cb26072e1d36e833
 - [ ] Contract test: канал не принимает запись с Linked machine.
+  - evidence: test-run pass · `pnpm test test/unit/auto-approve-switch.test.tsx test/contract/auto-approve-setting.test.ts` exit 0 · mac - · ae80d126d4e5fab558bc7808cb26072e1d36e833
 - [ ] Ответ про перечитывание `app-settings.json` — в «Итог».
+  - evidence: commit pass · Auto-approval stays off while a debugging port or the inspector is open · - - · ae80d126d4e5fab558bc7808cb26072e1d36e833
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ae80d126d4e5fab558bc7808cb26072e1d36e833
 
 ## Тесты
 
