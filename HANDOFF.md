@@ -20,7 +20,7 @@
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): закрыт, 16/16, принят владельцем 2026-11-02 (Mac). `worfy-guide`: закрыт, 21/21.
 - `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): закрыт, 28/28, принят владельцем 2026-11-01; Windows-часть 25 не проводилась.
 - `worfy-resource-planner`: закрыт, 12/12, принят владельцем 2026-11-01.
-- `worfy-multi-vendor`: 38/45, Wave 14 влита (45); дальше 37. Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–36, 41, 44, 45 (п. 1 — `additionalContextLimit`); `high` 19–21; запуски Codex (33). Должен: gate full ПК на `594ea0c7`.
+- `worfy-multi-vendor`: 41/45, Wave 16 влита (39, 40), 37 влит; дальше 38, потом 42, 43. Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–37, 39–41, 44, 45 (п. 1 — `additionalContextLimit`), ADR-0095; `high` 19–21; запуски Codex (33). Должен: gate full ПК на `2f0664b1`.
 - Новые Epic-и 2026-11-04: `worfy-evidence` в работе (Q1–Q7 подтвердить), `worfy-failures` и `worfy-faults` — черновики.
 
 ## Ждёт владельца
