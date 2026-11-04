@@ -73,7 +73,7 @@ export function parseArgs(args) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) return { error: '--rule-date takes YYYY-MM-DD' }
         options.ruleDate = value
       } else options[arg.slice(2)] = value
-    } else return { error: `unknown option: ${arg}` }
+    } else return { error: /^--[a-z][a-z-]*$/.test(arg) ? `unknown option: ${arg}` : 'unexpected argument (not shown)' }
   }
   return options
 }
@@ -82,11 +82,14 @@ export function parseArgs(args) {
 export function defaultJournals(env, home, platform) {
   if (env.WORFY_DATA_DIR) return join(env.WORFY_DATA_DIR, 'autopilot')
   if (platform === 'win32') {
-    const appData = env.APPDATA !== undefined && /^[A-Za-z]:[\\/]/.test(env.APPDATA) ? env.APPDATA : win32.join(home, 'AppData', 'Roaming')
+    const appData = env.APPDATA !== undefined && isWindowsAbsolute(env.APPDATA) ? env.APPDATA : win32.join(home, 'AppData', 'Roaming')
     return win32.join(appData, 'worfy', 'autopilot')
   }
   return join(home, 'Library', 'Application Support', 'worfy', 'autopilot')
 }
+
+/** A drive or UNC path, as isWindowsAbsolutePath (src/shared/paths.ts) reads it. */
+const isWindowsAbsolute = (path) => !path.includes('\0') && (/^[A-Za-z]:[\\/]/.test(path) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(path))
 
 /** The transcript folder of Claude Code. */
 export function defaultTranscripts(env, home) {
@@ -124,10 +127,11 @@ export async function refusalCensus(args, deps = defaultDeps()) {
   const journals = isFolder(journalsDir) ? journalCensus(journalsDir, ruleAt) : { found: false }
   const transcripts = isFolder(transcriptsDir) ? transcriptCensus(transcriptsDir, ruleAt, options, deps.home) : { found: false }
   if (!journals.found && !transcripts.found) {
-    deps.err('refusal-census: found neither the Journal folder nor the transcript folder (see --help)')
+    deps.err('refusal-census: could read neither the Journal folder nor the transcript folder (see --help)')
     return 1
   }
   const report = { rule: options.ruleDate, journals, transcripts }
+  if (!journals.found && journals.unreadable) deps.err('refusal-census: the Journal folder could not be read; the report has the transcripts only')
   deps.out(options.json ? `${JSON.stringify(report, null, 2)}\n` : text(report))
   return 0
 }
@@ -149,7 +153,14 @@ function journalCensus(dir, ruleAt) {
     byReason: {},
     runsWithRefusal: { beforeRule: 0, afterRule: 0 },
   }
-  for (const name of readdirSync(dir).sort()) {
+  let names
+  try {
+    names = readdirSync(dir).sort()
+  } catch {
+    // Not named: the folder is under the home folder. The transcripts are still counted.
+    return { found: false, unreadable: true }
+  }
+  for (const name of names) {
     if (!name.endsWith('.jsonl')) continue
     let raw
     try {
@@ -203,6 +214,8 @@ function transcriptCensus(dir, ruleAt, options, home) {
     found: true,
     files: 0,
     filesWithRefusal: 0,
+    unreadableFolders: 0,
+    unreadableFiles: 0,
     unreadableLines: 0,
     refusals: 0,
     days: 0,
@@ -220,14 +233,17 @@ function transcriptCensus(dir, ruleAt, options, home) {
     result.draftByCategory = {}
     result.draftWhy = {}
   }
-  const seen = new Set()
+  // One refusal per tool_use_id across all files: a resumed or copied transcript repeats the line.
+  // Of two copies the one whose tool_use is known wins (the Subagent file holds the call).
+  const refusals = new Map()
   const needle = Buffer.from(REFUSAL_TEXT)
-  for (const file of jsonlFiles(dir)) {
+  for (const file of jsonlFiles(dir, result)) {
     result.files++
     let buffer
     try {
       buffer = readFileSync(file)
     } catch {
+      result.unreadableFiles++
       continue
     }
     if (!buffer.includes(needle)) continue
@@ -243,41 +259,49 @@ function transcriptCensus(dir, ruleAt, options, home) {
     let found = false
     lines.forEach((line, index) => {
       for (const block of blocks(line)) {
-        if (block?.type !== 'tool_result') continue
+        // A refusal is an error result that starts with the text; a normal result may quote it.
+        if (block?.type !== 'tool_result' || block.is_error !== true) continue
         const body = resultText(block.content)
         if (!body.startsWith(REFUSAL_TEXT)) continue
-        const key = typeof block.tool_use_id === 'string' ? block.tool_use_id : `${file}:${index}`
-        if (seen.has(key)) continue
-        seen.add(key)
         found = true
+        const key = typeof block.tool_use_id === 'string' ? block.tool_use_id : `${file}:${index}`
         const use = uses.get(block.tool_use_id)
-        const tool = typeof use?.name === 'string' ? use.name : null
-        const input = use?.input ?? null
-        const category = classify(tool, input)
-        result.refusals++
-        result.byCategory[category]++
-        // A Subagent's line carries its agentId; its transcript lies in <session>/subagents/.
-        if (typeof line.agentId === 'string' || /[\\/]subagents[\\/]/.test(file)) result.byCategoryFromSubagent[category]++
-        add(result.byReason, reasonOf(body))
-        const at = typeof line.timestamp === 'string' ? Date.parse(line.timestamp) : Number.NaN
-        if (!Number.isNaN(at)) {
-          add(result.byDay, new Date(at).toISOString().slice(0, 10))
-          if (at < ruleAt) result.beforeRule++
-          else {
-            result.afterRule++
-            result.byCategoryAfterRule[category]++
-          }
-        }
-        if (options.patterns) add((result.patterns[category] ??= {}), pattern(tool, input))
-        if (options.draft) {
-          const { outcome, why } = draftVerdict({ tool, input, cwd: typeof line.cwd === 'string' ? line.cwd : null }, home)
-          result.draft[outcome]++
-          add((result.draftByCategory[category] ??= {}), outcome)
-          add(result.draftWhy, `${outcome}: ${why}`)
-        }
+        const known = refusals.get(key)
+        if (known !== undefined && (known.tool !== null || use === undefined)) continue
+        refusals.set(key, {
+          tool: typeof use?.name === 'string' ? use.name : null,
+          input: use?.input ?? null,
+          body,
+          at: typeof line.timestamp === 'string' ? Date.parse(line.timestamp) : Number.NaN,
+          cwd: typeof line.cwd === 'string' ? line.cwd : null,
+          // A Subagent's line carries its agentId; its transcript lies in <session>/subagents/.
+          subagent: typeof line.agentId === 'string' || /[\\/]subagents[\\/]/.test(file),
+        })
       }
     })
     if (found) result.filesWithRefusal++
+  }
+  for (const { tool, input, body, at, cwd, subagent } of refusals.values()) {
+    const category = classify(tool, input)
+    result.refusals++
+    result.byCategory[category]++
+    if (subagent) result.byCategoryFromSubagent[category]++
+    add(result.byReason, reasonOf(body))
+    if (!Number.isNaN(at)) {
+      add(result.byDay, new Date(at).toISOString().slice(0, 10))
+      if (at < ruleAt) result.beforeRule++
+      else {
+        result.afterRule++
+        result.byCategoryAfterRule[category]++
+      }
+    }
+    if (options.patterns) add((result.patterns[category] ??= {}), pattern(tool, input))
+    if (options.draft) {
+      const { outcome, why } = draftVerdict({ tool, input, cwd }, home)
+      result.draft[outcome]++
+      add((result.draftByCategory[category] ??= {}), outcome)
+      add(result.draftWhy, `${outcome}: ${why}`)
+    }
   }
   result.days = Object.keys(result.byDay).length
   result.byDay = Object.fromEntries(Object.entries(result.byDay).sort(([a], [b]) => a.localeCompare(b)))
@@ -301,16 +325,17 @@ function reasonOf(body) {
   return cleanReason(tail < 0 ? rest : rest.slice(0, tail))
 }
 
-function* jsonlFiles(dir) {
+function* jsonlFiles(dir, result) {
   let names
   try {
     names = readdirSync(dir, { withFileTypes: true })
   } catch {
+    result.unreadableFolders++
     return
   }
   for (const entry of names.sort((a, b) => a.name.localeCompare(b.name))) {
     const path = join(dir, entry.name)
-    if (entry.isDirectory()) yield* jsonlFiles(path)
+    if (entry.isDirectory()) yield* jsonlFiles(path, result)
     else if (entry.isFile() && entry.name.endsWith('.jsonl')) yield path
   }
 }
@@ -318,7 +343,10 @@ function* jsonlFiles(dir) {
 // ---------------------------------------------------------------------------------------------------
 // Cleaning: what of a reason, a tool name or a command may be printed.
 
-/** Claude Code's reason with code, quoted text, paths, variables and ids replaced; at most 120 units. */
+/**
+ * Claude Code's reason with code, quoted text, paths (absolute, relative, file and host names),
+ * variables and ids replaced; at most 120 units.
+ */
 export function cleanReason(reason) {
   const cleaned = reason
     .replace(/`[^`]*`/g, '<code>')
@@ -326,6 +354,9 @@ export function cleanReason(reason) {
     .replace(/(^|[\s(=:,])(?:[A-Za-z]:[\\/]|~|\.{1,2}[\\/]|[\\/])\S*/g, '$1<path>')
     .replace(/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/g, '<var>')
     .replace(/\b(?=[0-9a-f-]*\d)[0-9a-f]{8,}(?:-[0-9a-f]+)*\b/gi, '<id>')
+    // What is left of a relative path, a file name or a host name: a word with a slash, a
+    // backslash or a dot between letters or digits.
+    .replace(/[^\s<>]*(?:[\\/]|[A-Za-z0-9]\.[A-Za-z0-9])[^\s<>]*/g, '<path>')
     .replace(/\s+/g, ' ')
     .trim()
   return clip(cleaned, 120)
@@ -882,7 +913,7 @@ function text(report) {
     for (const [key, value] of entries) lines.push(`    ${key.padEnd(width)}  ${value}`)
   }
   const { journals: j, transcripts: t } = report
-  if (!j.found) lines.push('journals: folder not found')
+  if (!j.found) lines.push(j.unreadable ? 'journals: folder unreadable' : 'journals: folder not found')
   else {
     lines.push(`journals: ${j.runs} runs (${j.runsBeforeRule} before the rule, ${j.runsAfterRule} after), ${j.refusedLines} refused-dialog lines, ${j.unreadableLines} unreadable lines`)
     lines.push(`  runs with a refusal: ${j.runsWithRefusal.beforeRule} before the rule, ${j.runsWithRefusal.afterRule} after; lines with a reason: ${j.withReason}`)
@@ -893,7 +924,7 @@ function text(report) {
   lines.push('')
   if (!t.found) lines.push('transcripts: folder not found')
   else {
-    lines.push(`transcripts: ${t.files} read, ${t.filesWithRefusal} with a refusal, ${t.unreadableLines} unreadable lines`)
+    lines.push(`transcripts: ${t.files} read, ${t.filesWithRefusal} with a refusal, ${t.unreadableLines} unreadable lines, ${t.unreadableFiles} unreadable files, ${t.unreadableFolders} unreadable folders`)
     lines.push(`  refusals: ${t.refusals} on ${t.days} days (${t.beforeRule} before the rule, ${t.afterRule} after)`)
     table('by category', t.byCategory)
     table('by category, after the rule', t.byCategoryAfterRule)
@@ -941,4 +972,12 @@ function runAsScript() {
   }
 }
 
-if (runAsScript()) process.exitCode = await refusalCensus(process.argv.slice(2))
+if (runAsScript()) {
+  try {
+    process.exitCode = await refusalCensus(process.argv.slice(2))
+  } catch (error) {
+    // The message of a file system error names the path: only its code is printed.
+    process.stderr.write(`refusal-census: failed (${typeof error?.code === 'string' ? error.code : 'unexpected error'})\n`)
+    process.exitCode = 1
+  }
+}
