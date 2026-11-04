@@ -1,7 +1,8 @@
 # 37 — Orchestrator и Autopilot на Codex
 
 Type: task
-Status: open
+Status: done 2026-11-04T02:25Z
+PR: #1318
 Blocked by: 33, 35, 45
 Source: [spec.md](../spec.md), «Цель и что видит пользователь» (второй выпуск), «Решено без владельца», п. 5; решение 07 ([07-что-получает-codex.md](07-что-получает-codex.md)); решение 09 ([09-limits-и-autopilot-по-vendor.md](09-limits-и-autopilot-по-vendor.md))
 
