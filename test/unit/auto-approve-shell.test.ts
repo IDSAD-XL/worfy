@@ -293,7 +293,7 @@ describe('outside the grammar: judged false', () => {
     ['git worktree remove with two paths', 'git worktree remove a b', 'a git worktree remove without one path'],
     ['git worktree move with one path', 'git worktree move a', 'a git worktree move without two paths'],
     ['git worktree add without a path', 'git worktree add', 'a git worktree add without a path'],
-    ['git clean with an unquoted glob', 'git clean -fd -- *.log', 'a git pathspec with a glob or magic'],
+    ['git clean with an unquoted glob', 'git clean -fd -e keep -- *.log', 'a git pathspec with a glob or magic'],
     ['git rebase -x', 'git rebase -x true main', 'a git option that reads a file or runs a program'],
     ['git with GIT_WORK_TREE', 'git status', 'a GIT_ variable that moves the repository'],
     ['git commit --output', 'git commit -m x --output=y', 'a git option that reads a file or runs a program'],
@@ -330,6 +330,20 @@ describe('outside the grammar: judged false', () => {
     ['a command that expands to nothing', '$EMPTY', 'a command without a program after expansion'],
     ['exit inside a pipeline', 'echo | exit', 'an exit inside a pipeline'],
     ['[ does not end options at --', '[ -- * ]', 'a glob that may expand into an option'],
+    ['a -- that is the value of git grep -e, before -O', "git grep -e -- '-Otouch demo'", 'a git option that writes a file or runs a program'],
+    ['a -- that is the value of git grep -e, before --open-files-in-pager', "git grep -e -- '--open-files-in-pager=touch demo'", 'a git option that writes a file or runs a program'],
+    ['a -- that is the message of git commit, before -e', 'git commit -m -- -e', 'a git option that reads a file or runs a program'],
+    ['a -- that is the message of git tag, before --sign', 'git tag -m -- --sign v9', 'a git command that starts an editor or gpg'],
+    ['git branch --delete by a prefix', 'git branch --del --force feat', 'an option the table does not know'],
+    ['git branch --move by a prefix', 'git branch --mov a b', 'an option the table does not know'],
+    ['a -- that is the value of git push -o, before a glob', 'git push -o -- ./inner *', 'a glob that may expand into an option'],
+    ['git tag --sign by a prefix', 'git tag --sig v1', 'a git command that starts an editor or gpg'],
+    ['git tag --annotate by a prefix without a message', 'git tag --ann v1', 'a git command that starts an editor or gpg'],
+    ['git commit --continue by a prefix', 'git commit -m x --cont', 'a git command that starts an editor or gpg'],
+    ['a git commit whose -m comes after --', 'git commit -- -m x', 'a git command that starts an editor or gpg'],
+    ['an m inside the value of another commit option', 'git commit -unormal', 'a git command that starts an editor or gpg'],
+    ['git pull --rebase=interactive by a prefix', 'git pull --reb=i', 'a git command that starts an editor or gpg'],
+    ['a -- right after an option, before a glob', 'cat -n -- *', 'a glob that may expand into an option'],
   ]
   const contexts: Record<string, AnalyzeContext> = {
     'a working folder on Windows that is not absolute': { ...windows, cwd: 'work' },
@@ -462,7 +476,7 @@ describe('the table', () => {
       { program: 'git', cwd: '/tmp/demo', writes: [REPOSITORY, '/tmp/demo/../w2'] },
       { program: 'git', cwd: '/tmp/demo', writes: [REPOSITORY] },
       { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY] },
-      { program: 'git', cwd: '/tmp/demo', writes: [REPOSITORY], network: true },
+      { program: 'git', cwd: '/tmp/demo', writes: [REPOSITORY, '/tmp/demo/origin'], network: true },
     ])
     expect(actions('git push --force-with-lease=x -u origin +x')[0]?.args).toEqual(['push', '--force-with-lease=x', '-u', 'origin', '+x'])
   })
@@ -541,7 +555,7 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
   it('git push: the remote, the refspecs, force, delete and pushes of many refs', () => {
     const push = (remote: string | null, refspecs: string[], flags: { force?: boolean; delete?: boolean; many?: boolean } = {}) => ({
       subcommand: 'push',
-      push: { remote, localPath: null, refspecs, force: flags.force ?? false, delete: flags.delete ?? false, many: flags.many ?? false },
+      push: { remote, localPath: remote === null ? null : `/tmp/demo/${remote}`, refspecs, force: flags.force ?? false, delete: flags.delete ?? false, many: flags.many ?? false },
     })
     expect(git('git push; git push origin; git push -f origin main; git push origin :old; git push origin +main; git push --delete origin a b; git push --all origin; git push --mirror x; git push --tags; git push origin main:refs/heads/x; git push --force-with-lease origin main; git push --prune origin')).toEqual([
       push(null, []),
@@ -557,6 +571,16 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
       push('origin', ['main'], { force: true }),
       push('origin', [], { delete: true }),
     ])
+  })
+
+  it('git commands with a message, and -- after a value, stay judged', () => {
+    expect(git('git commit -am x; git commit -m x -- file; git commit -m --; git tag -a v1 -m x; git commit -qm x')).toEqual(['commit', 'commit', 'commit', 'tag', 'commit'].map((subcommand) => ({ subcommand })))
+  })
+
+  it('git push to a bare word may write a folder of that name; Windows paths with \\ are paths', () => {
+    expect(brief('git push sibdir main')).toEqual([{ program: 'git', cwd: '/tmp/demo', writes: [REPOSITORY, '/tmp/demo/sibdir'], network: true }])
+    expect(actions("git push '..\\other' main", windows)[0]?.git).toMatchObject({ push: { remote: '..\\other', localPath: 'C:\\work\\..\\other' } })
+    expect(actions('git push https://example.invalid/r main; git push host:r main').map((action) => action.writes)).toEqual([[REPOSITORY], [REPOSITORY]])
   })
 
   it('git push to a local path writes that path', () => {

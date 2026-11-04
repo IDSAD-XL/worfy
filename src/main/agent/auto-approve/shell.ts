@@ -92,7 +92,12 @@ export interface GitFacts {
 export interface GitPush {
   /** The remote as written (a name, a URL or a path); null for the upstream of the current branch. */
   remote: string | null
-  /** The remote when it is a repository on this disk, as an absolute path; it is in `writes` too. */
+  /**
+   * The folder git writes when the remote word names one on disk, as an absolute path; it is in
+   * `writes` too. A bare word (`origin`, `sibdir`) gets one as well: git takes a configured remote of
+   * that name first and a folder in the working folder otherwise, and the config is not seen here.
+   * Null for a URL, an scp-like `host:path` and the upstream of the current branch.
+   */
   localPath: string | null
   /** The refspecs as written (`main`, `HEAD:main`, `+x`, `:old`). */
   refspecs: string[]
@@ -841,7 +846,8 @@ const GIT_ENV = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
 const GIT_READ = new Set(['status', 'log', 'diff', 'show', 'rev-parse', 'ls-files', 'ls-tree', 'cat-file', 'merge-base', 'describe', 'blame', 'shortlog', 'rev-list', 'name-rev', 'for-each-ref', 'show-ref', 'grep', 'check-ignore'])
 // Options of the read subcommands that write a file or run a program: --output, --ext-diff,
 // --textconv, grep's -O / --open-files-in-pager. Git takes any unambiguous prefix of a long option,
-// so a prefix of these is refused too.
+// so a prefix of these is refused too. Every word is checked, after `--` too: which options take a
+// value is not known here, so a `--` may be the value of one (`git grep -e -- -Oprogram`).
 const GIT_READ_DENIED = ['output', 'ext-diff', 'textconv', 'open-files-in-pager']
 // Subcommands that change the repository and nothing outside it, with the options that read a file
 // or run a program (an editor, a merge strategy, a command per commit, a template) denied, short
@@ -866,27 +872,53 @@ function deniedLong(name: string, denied: string[]): boolean {
 
 const GIT_BRANCH_LIST = ['-a', '-r', '-l', '-v', '-vv', '--all', '--remotes', '--list', '--show-current', '--no-color']
 const GIT_BRANCH_DELETE: OptionSpec = { flags: 'dDfr', long: { delete: 'flag', force: 'flag', remotes: 'flag' }, anywhere: true }
+// The long options of git branch judged here, exactly as written: git takes any unambiguous prefix
+// (`--del` is --delete, `--mov` is --move), so any other long option is refused.
+const GIT_BRANCH_LONG = new Set(['--all', '--remotes', '--list', '--show-current', '--no-color', '--delete', '--force'])
+
+/** The name of a long option word (`--name` or `--name=value`), or undefined for any other word and for `--`. */
+function longName(value: string): string | undefined {
+  if (!value.startsWith('--') || value === '--') return undefined
+  return value.slice(2).split('=')[0] ?? ''
+}
+
 // What may start an editor or gpg in the local subcommands, beyond GIT_LOCAL_DENIED_*: a commit
 // without a message of its own, `commit -c`, an annotated tag without one, a signed tag, an
-// interactive rebase through pull, and `--continue`, which commits.
+// interactive rebase through pull, and `--continue`, which commits. What starts one is looked for in
+// every word, by any prefix of a long option; what says a message is given counts only exactly and
+// only before the first `--`, so an option or a `--` that is the value of another (`commit -m -- -e`,
+// `tag -m -- --sign`) is never taken for the end of the options.
 function gitLaunches(sub: string, rest: Expanded[]): boolean {
-  const end = rest.findIndex((arg) => arg.value === '--')
-  const words = (end < 0 ? rest : rest.slice(0, end)).map((arg) => arg.value)
-  const short = (letter: string): boolean => words.some((v) => /^-[A-Za-z]+$/.test(v) && v.includes(letter))
-  const long = (name: string): boolean => words.some((v) => v === `--${name}` || v.startsWith(`--${name}=`))
-  if (words.includes('--continue')) return true
-  if (sub === 'commit') return short('c') || !(short('m') || short('C') || long('message') || long('reuse-message') || long('no-edit'))
-  if (sub === 'tag') return short('u') || long('local-user') || long('sign') || ((short('a') || long('annotate')) && !(short('m') || long('message')))
-  if (sub === 'pull') return words.some((v) => /^--rebase=i/.test(v))
+  const all = rest.map((arg) => arg.value)
+  const end = all.indexOf('--')
+  const before = end < 0 ? all : all.slice(0, end)
+  // Any short word that holds the letter, a value glued to it too (`-mcool` holds c): a launch.
+  const short = (words: string[], letter: string): boolean => words.some((v) => /^-[A-Za-z]/.test(v) && !v.startsWith('--') && v.includes(letter))
+  // A message only as -m or -C itself, after flags that take no value (`-am`), never inside a value (`-unormal`).
+  const given = (letter: string): boolean => before.some((v) => new RegExp(`^-[afnoqv]*${letter}`).test(v))
+  const exact = (name: string): boolean => before.some((v) => v === `--${name}` || v.startsWith(`--${name}=`))
+  const long = (names: string[]): boolean => all.some((v) => {
+    const name = longName(v)
+    return name !== undefined && deniedLong(name, names)
+  })
+  if (long(['continue'])) return true
+  const message = given('m') || exact('message')
+  if (sub === 'commit') return short(all, 'c') || !(message || given('C') || exact('reuse-message') || exact('no-edit'))
+  if (sub === 'tag') return short(all, 'u') || long(['local-user', 'sign']) || ((short(all, 'a') || long(['annotate'])) && !message)
+  if (sub === 'pull') return all.some((v) => longName(v) !== undefined && deniedLong(longName(v) ?? '', ['rebase']) && /=i/.test(v))
   return false
 }
 
-/** Whether a git remote names a repository on this disk rather than a remote name or a URL. */
+/**
+ * The folder a git remote word may name on this disk: a path (`../other`, `/abs`, `..\\other`,
+ * `C:\\x`), a `file://` URL, or a bare word, which git reads as a folder when no remote of that name
+ * is configured. Undefined for a URL and an scp-like `host:path`.
+ */
 function localRemote(remote: string): string | undefined {
   if (remote.startsWith('file://')) return remote.slice('file://'.length)
-  if (/^(\/|\.\.?(\/|$)|[A-Za-z]:[\\/])/.test(remote)) return remote
-  if (remote.includes('/') && !remote.includes(':')) return remote
-  return undefined
+  if (/^[A-Za-z]:[\\/]/.test(remote)) return remote
+  if (remote.includes(':')) return undefined
+  return remote
 }
 
 function git(args: Expanded[], cwd: string, scope: Scope): Effects {
@@ -914,8 +946,8 @@ function git(args: Expanded[], cwd: string, scope: Scope): Effects {
   if (GIT_READ.has(sub)) {
     for (const arg of rest) {
       const v = arg.value
-      if (v === '--') break
-      if (v.startsWith('--') && deniedLong(v.slice(2).split('=')[0] ?? '', GIT_READ_DENIED)) fail('a git option that writes a file or runs a program')
+      const name = longName(v)
+      if (name !== undefined && deniedLong(name, GIT_READ_DENIED)) fail('a git option that writes a file or runs a program')
       if (sub === 'grep' && /^-[^-]*O/.test(v)) fail('a git option that writes a file or runs a program')
     }
     return { ...base(), reads: [REPOSITORY] }
@@ -929,6 +961,7 @@ function git(args: Expanded[], cwd: string, scope: Scope): Effects {
     if (rest.every((arg) => GIT_BRANCH_LIST.includes(arg.value))) return { ...base(), reads: [REPOSITORY] }
     const values = rest.map((arg) => arg.value)
     if (values.some((v) => /^-[A-Za-z]*[mMcC]/.test(v) || /^--(move|copy)$/.test(v))) fail('a git branch rename or copy')
+    if (values.some((v) => longName(v) !== undefined && !GIT_BRANCH_LONG.has(v))) fail('an option the table does not know')
     if (values.some((v) => /^-[A-Za-z]*[dD]/.test(v) || v === '--delete')) {
       const parsed = options(rest, GIT_BRANCH_DELETE)
       const force = parsed.options.some((option) => option.name === 'D' || option.name === 'f' || option.name === 'force')
@@ -985,11 +1018,13 @@ function git(args: Expanded[], cwd: string, scope: Scope): Effects {
     return repository({ network: true, writes: localPath === null ? [REPOSITORY] : [REPOSITORY, localPath] })
   }
   if (GIT_LOCAL.has(sub)) {
+    // Every word, after `--` too, as for the read subcommands.
     for (const arg of rest) {
       const v = arg.value
-      if (v === '--') break
-      if (v.startsWith('--')) {
-        if (deniedLong(v.slice(2).split('=')[0] ?? '', GIT_LOCAL_DENIED_LONG)) fail('a git option that reads a file or runs a program')
+      const name = longName(v)
+      if (v === '--') continue
+      if (name !== undefined) {
+        if (deniedLong(name, GIT_LOCAL_DENIED_LONG)) fail('a git option that reads a file or runs a program')
       } else if (v.startsWith('-') && [...v.slice(1)].some((ch) => GIT_LOCAL_DENIED_SHORT.includes(ch))) fail('a git option that reads a file or runs a program')
     }
     if (gitLaunches(sub, rest)) fail('a git command that starts an editor or gpg')
@@ -1106,6 +1141,17 @@ const GLOB_OPTION_HARMLESS = new Set(['rm', 'rmdir', 'echo'])
 const NO_END_OF_OPTIONS = new Set(['test', '[', 'curl'])
 
 /**
+ * Whether the word at `n` is a `--` that ends the options: not one of NO_END_OF_OPTIONS, and not
+ * right after an option word, whose value it may be (`git push -o -- *`).
+ */
+function endsOptions(program: string, args: Expanded[], n: number): boolean {
+  const word = args[n] as Expanded
+  if (word.value !== '--' || word.globAt >= 0 || NO_END_OF_OPTIONS.has(program)) return false
+  const before = args[n - 1]
+  return before === undefined || !before.value.startsWith('-')
+}
+
+/**
  * Refuses a glob that may expand into an option (a file named `-Oprogram` turns `git grep -e x *`
  * into a run of a program; `--target-directory=…` moves cp's writes): before `--`, a word of a table
  * program that starts with a glob. printf reads options only before its format.
@@ -1115,7 +1161,7 @@ function refuseGlobOptions(program: string, args: Expanded[]): void {
   let ended = false
   args.forEach((word, n) => {
     if (ended) return
-    if (word.value === '--' && word.globAt < 0 && !NO_END_OF_OPTIONS.has(program)) ended = true
+    if (endsOptions(program, args, n)) ended = true
     else if (word.leadingGlob && !(program === 'printf' && n > 0)) fail('a glob that may expand into an option')
   })
 }
