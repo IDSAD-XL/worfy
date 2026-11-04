@@ -106,8 +106,10 @@ manual item only `owner-check` or `screenshot`) that matches `needs`, if there i
     needs --scrub <date>: check the pixels by eye first";
   - exit 1 — the privacy check (`bin/evidence-check`) found something in a file that a path in backticks
     of `--ref` leads to (taken from the ticket's folder); its output, values masked, goes to stderr. Also
-    with `-n`. The repository is the one that holds the tickets root, whatever the working directory; a
-    tickets root outside any git work tree (Silent mode) is not checked, and the line is written.
+    with `-n`. The repository is the one that holds the tickets root, whatever the working directory.
+    Not checked, and the line is written: a project in Silent mode by its profile (`_resolved.mode`,
+    read from the working directory; its Workflow folder may be a git work tree of its own), and,
+    when no profile can be read, a tickets root outside any git work tree.
 - `ticket done` prints `evidence: N of M verified` and each unverified or failed item to stderr; its exit
   code stays 0.
 

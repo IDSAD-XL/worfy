@@ -291,6 +291,20 @@ mkdir -p "$T/workflow/.scratch"
 (cd "$C" && node "$CHECK" --changed --root "$T/workflow/.scratch") >"$T/out-silent.txt" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && grep -qx 'evidence-check: nothing to check (tickets root is outside the repository)' "$T/out-silent.txt" \
     && ok "tickets root outside the repository -> exit 0, nothing to check" || bad "silent: exit $rc: $(cat "$T/out-silent.txt")"
+# Silent mode by the profile: the Workflow folder is a fresh git init (project-connect), and still nothing to check.
+SR="$T/sil"; SW="$T/sil-wf"; mkdir -p "$SW/.scratch/ep/issues" "$T/sil-profiles/sil"
+git -C "$T" init -q -b main sil; git -C "$SW" init -q 2>/dev/null || git init -q "$SW"
+printf 'id %s\n' "$UUID" >"$SW/.scratch/ep/issues/01.md"
+printf '{"repos":[{"key":"sil","match":"%s","profile":"sil","pm":"npm","root":{},"workspace":{}}]}\n' "$SR" >"$T/sil-config.json"
+printf '{"schema":2,"name":"sil","mode":"silent","workflow":{"folder":"%s"},"tickets":{"root":".scratch/"}}\n' "$SW" >"$T/sil-profiles/sil/profile.json"
+: >"$T/sil-profiles/sil/rules.md"
+for how in "--root $SW/.scratch" ""; do
+    # shellcheck disable=SC2086 # $how is one option and its value, or nothing
+    (cd "$SR" && CLAUDE_GATE_CONFIG="$T/sil-config.json" CLAUDE_PROFILES_DIR="$T/sil-profiles" node "$CHECK" --changed $how) >"$T/out-silent2.txt" 2>&1; rc=$?
+    [ "$rc" -eq 0 ] && grep -qx 'evidence-check: nothing to check (tickets root is outside the repository)' "$T/out-silent2.txt" \
+        && ok "Silent mode by the profile, Workflow folder in git, ${how:-tickets root from ticket root} -> nothing to check" \
+        || bad "silent profile ${how:-no --root}: exit $rc: $(head -c 400 "$T/out-silent2.txt")"
+done
 # With --root the repository is the one that holds the tickets root, not the one of the working directory.
 (cd "$T" && node "$CHECK" --changed --root "$R/.scratch" --base HEAD) >"$T/out-root-nogit.txt" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -qF ".scratch/ep/issues/04-staged.md:1: email: " "$T/out-root-nogit.txt" \

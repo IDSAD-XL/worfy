@@ -48,7 +48,8 @@ names, Tailscale addresses, UUIDs, email addresses, tokens and the words of the 
   --base <ref>    the base; default: HEAD^1 in GitHub Actions (GITHUB_ACTIONS=true), otherwise
                   git merge-base HEAD <worktree.base of the profile, origin/main without one>
   --root <dir>    the tickets root; default: \`ticket root\`. The repository is the one that holds
-                  it, whatever the working directory; a root outside git has nothing to check
+                  it, whatever the working directory; a root outside git, or a project in Silent
+                  mode by its profile, has nothing to check
   <file>…         files checked whole
 
 An image or other binary file the branch adds needs a line "- evidence: screenshot … · scrub: <date>"
@@ -324,6 +325,18 @@ function main() {
     // The repository: with --root, the one that holds the tickets root (run from outside git or from another
     // worktree, the check still reads the right tree); a root that is not in a git work tree has nothing to
     // publish. A root that does not exist, and no --root, — the repository of the working directory.
+    // Silent mode by the project's profile (read from the working directory): its workflow files are not published,
+    // and its Workflow folder may be a git work tree of its own (project-connect runs git init in it). No profile (not
+    // registered, no registry, as on CI): the git rule below decides.
+    function silentByProfile() {
+        const p = script(process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile"), ["-C", process.cwd(), "--json"], process.cwd())
+        if (p.status !== 0) return false
+        try {
+            return JSON.parse(p.stdout)?._resolved?.mode === "silent"
+        } catch {
+            return false
+        }
+    }
     let rootGiven = null
     let rootIsDir = false
     let rootInGit = false
@@ -350,7 +363,7 @@ function main() {
             if (r.status !== 0) die(2, `\`ticket root\` failed (exit ${r.status}): ${r.stderr.trim().split("\n")[0]}`)
             root = real(r.stdout.trim())
         }
-        if (!top || (!rootInGit && !inside(top, root))) nothingToCheck = true
+        if (silentByProfile() || !top || (!rootInGit && !inside(top, root))) nothingToCheck = true
         else {
             let base = baseArg
             if (base === null && process.env.GITHUB_ACTIONS === "true") base = "HEAD^1"

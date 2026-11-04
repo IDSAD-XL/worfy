@@ -620,11 +620,25 @@ function matrixLine(it, st) {
 
 // The privacy check of the files the ref names, before the line is written: each path in backticks, taken from the
 // folder of the ticket file, that leads to a file goes to bin/evidence-check next to this script. Findings — its
-// output to stderr (values masked), exit 1, no line. The repository is the one that holds the tickets root (git -C
-// <tickets root>), not the one of the working directory: run from outside git or from another worktree with --root,
-// the check still runs. A tickets root outside any git work tree (Silent mode: the Workflow folder) publishes
-// nothing, so nothing is checked.
+// output to stderr (values masked), exit 1, no line. Nothing is checked in Silent mode: the workflow files are not
+// published. The mode is the project's profile (read from the working directory, also with --root); the Workflow
+// folder may be a git work tree of its own (project-connect runs git init in it), so git cannot tell. Without a
+// profile (not registered, no registry, as on CI): a tickets root outside any git work tree is not checked. The
+// repository is the one that holds the tickets root (git -C <tickets root>), not the one of the working directory:
+// run from outside git or from another worktree with --root, the check still runs.
+function silentByProfile() {
+    let p = prof
+    if (p === null) {
+        try {
+            p = JSON.parse(execScriptSync(PROFILE, ["-C", process.cwd(), "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }))
+        } catch {
+            return false // no profile: the git rule decides
+        }
+    }
+    return p?._resolved?.mode === "silent"
+}
 function checkRefFiles(ref) {
+    if (silentByProfile()) return
     const real = (p) => {
         try {
             return fs.realpathSync.native(p)

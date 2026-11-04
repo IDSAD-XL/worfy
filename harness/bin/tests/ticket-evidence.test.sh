@@ -32,7 +32,8 @@ for r in ru en acc; do git init -q -b main "$T/$r" && git -C "$T/$r" commit -q -
 cat >"$CLAUDE_GATE_CONFIG" <<EOF
 {"repos":[
  {"key":"en","match":"$T/en","profile":"en","pm":"npm","root":{},"workspace":{}},
- {"key":"acc","match":"$T/acc","profile":"acc","pm":"npm","root":{},"workspace":{}}
+ {"key":"acc","match":"$T/acc","profile":"acc","pm":"npm","root":{},"workspace":{}},
+ {"key":"sil","match":"$T/sil","profile":"sil","pm":"npm","root":{},"workspace":{}}
 ]}
 EOF
 printf '{"schema":1,"name":"en","tickets":{"root":".scratch/","done_section":"## Done when","manual_mark":"manual"}}\n' >"$CLAUDE_PROFILES_DIR/en/profile.json"
@@ -254,6 +255,30 @@ tk "$T/ru" evidence demo 01 1 screenshot pass --ref 'https://example.com/run/1' 
 [ "$rc" -eq 0 ] && grep -qF -- "- evidence: screenshot pass · https://example.com/run/1 · mac dev · $SHA1" "$RU/01-three-items.md" \
     && ok "a screenshot with no path in the ref and no --scrub: the line is written" || bad "screenshot without a path: exit $rc $(cat "$T/err")"
 fresh
+
+# Silent mode by the profile: the Workflow folder is a git work tree of its own (project-connect runs git init in
+# it, no commits), and still nothing there is published, so the file is not checked.
+git init -q -b main "$T/sil" && git -C "$T/sil" commit -q --allow-empty -m init
+mkdir -p "$CLAUDE_PROFILES_DIR/sil" "$T/sil-wf/.scratch/demo/issues" "$T/sil-wf/.scratch/demo/evidence"; git init -q "$T/sil-wf"
+printf '{"schema":2,"name":"sil","mode":"silent","workflow":{"folder":"%s"},"tickets":{"root":".scratch/"}}\n' "$T/sil-wf" >"$CLAUDE_PROFILES_DIR/sil/profile.json"
+: >"$CLAUDE_PROFILES_DIR/sil/rules.md"
+cp "$EVD/01-dirty.txt" "$T/sil-wf/.scratch/demo/evidence/01-dirty.txt"
+SIL="$T/sil-wf/.scratch/demo/issues/01-three-items.md"
+cp "$FX/ru/01-three-items.md" "$SIL"
+tk "$T/sil" evidence demo 01 1 test-run pass --ref '`../evidence/01-dirty.txt` exit 0' --platform mac --sha "$SHA1"
+[ "$rc" -eq 0 ] && grep -qF -- "- evidence: test-run pass · \`../evidence/01-dirty.txt\` exit 0 · mac - · $SHA1" "$SIL" \
+    && ok "Silent mode by the profile, Workflow folder a fresh git init: the file is not checked, the line is written" || bad "silent profile: exit $rc $(cat "$T/err")"
+cp "$FX/ru/01-three-items.md" "$SIL"
+tk "$T/sil" evidence demo 01 1 test-run pass --ref '`../evidence/01-dirty.txt` exit 0' --platform mac --sha "$SHA1" --root "$T/sil-wf/.scratch"
+[ "$rc" -eq 0 ] && grep -qF -- "- evidence: test-run pass · \`../evidence/01-dirty.txt\` exit 0 · mac - · $SHA1" "$SIL" \
+    && ok "Silent mode by the profile with --root on the Workflow folder: the line is written" || bad "silent profile --root: exit $rc $(cat "$T/err")"
+# Full mode with a profile: the check runs as before.
+mkdir -p "$T/en/.scratch/demo/evidence"; cp "$EVD/01-dirty.txt" "$T/en/.scratch/demo/evidence/01-dirty.txt"
+cp "$T/en/.scratch/demo/issues/01-english.md" "$T/en-before.md"
+tk "$T/en" evidence demo 01 1 test-run pass --ref '`../evidence/01-dirty.txt` exit 0' --platform mac --sha "$SHA1"
+[ "$rc" -eq 1 ] && cmp -s "$T/en/.scratch/demo/issues/01-english.md" "$T/en-before.md" && grep -qF "home-path" "$T/err" \
+    && ok "Full mode by the profile: the file is checked, exit 1" || bad "full profile: exit $rc $(cat "$T/err")"
+cp "$T/en-before.md" "$T/en/.scratch/demo/issues/01-english.md"
 
 # --- 11. a line flag followed by another flag does not take it as its value ---------------------------------------------
 refuse "--ref followed by -n" "--ref needs a value, got the flag -n" 1 test-run pass --ref -n --platform mac --sha "$SHA1"
