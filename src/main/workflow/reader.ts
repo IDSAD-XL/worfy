@@ -3,13 +3,15 @@
 // The only reader of the Ticket format is `epic-status --json` of the Harness found on the machine
 // (src/main/harness/locate.ts: the plugin's bin/ or `<claude home>/bin`). worfy adds the
 // things that script does not carry: the files listed under each Ticket's trail section, the
-// Ticket's manual checks of its "done" section (shared/workflow/manual-checks.ts) — both under the
+// Ticket's manual checks and Evidence items of its "done" section (shared/workflow/manual-checks.ts,
+// shared/workflow/evidence.ts) — all under the
 // headings the Project's Profile names (shared/workflow/doc-headings.ts) — and the Epic's title (the H1 of spec.md), all read from the Tickets root the Harness
 // names (src/main/workflow/folder.ts: `<root>/.scratch` in Full mode, the Workflow folder in Silent
 // mode). In Full mode a Ticket claimed in a worktree branch is shown with the branch's status:
 // `epic-status --json --ref <branch>` reads that branch. A branch never undoes blocked or done of
 // the checkout, and its open is its base's (ADR-0033). In Silent mode the status lives in the
-// Workflow folder only (ADR-0042): no branch is read.
+// Workflow folder only (ADR-0042): no branch is read. The model also carries the page of the
+// Project's repository, from the `origin` remote of its root (`repoUrl`).
 //
 // Nothing here writes: processes are run with the Project as cwd, files are only read.
 import { execFile } from 'node:child_process'
@@ -17,7 +19,9 @@ import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { join, resolve } from 'node:path'
 import { accepted, DEFAULT_DOC_HEADINGS, docHeadings, OLD_DOC_HEADINGS, sectionHeadings, type DocHeadings } from '../../shared/workflow/doc-headings'
+import { evidenceItems } from '../../shared/workflow/evidence'
 import { manualChecks } from '../../shared/workflow/manual-checks'
+import { repoPageUrl } from '../flight-recorder/github'
 import { versionOf } from '../docs/watch'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLocation } from '../harness/locate'
@@ -330,9 +334,11 @@ export async function enrichSnapshot(
       const markdown = path ? await read(path) : null
       const section = markdown === null ? { listed: false, files: [] } : codeSection(markdown, headings.trailSection)
       const checks = markdown === null ? [] : manualChecks(markdown, headings)
+      // From the same text as the manual checks: the file is read once.
+      const evidence = markdown === null ? [] : evidenceItems(markdown, headings)
       // The version makes an edit of the text alone a change of the Ticket, so the focused Ticket reads it again.
       const version = markdown === null ? {} : { version: versionOf(markdown) }
-      return { ...ticket, files: section.files, filesListed: section.listed, fromBranch: null, manualChecks: checks, ...version }
+      return { ...ticket, files: section.files, filesListed: section.listed, fromBranch: null, manualChecks: checks, evidence, ...version }
     }),
   )
 
@@ -358,10 +364,32 @@ export async function readCheckout(root: string, run: EpicStatusRunner, ticketsR
   const isDir = await stat(root).then((s) => s.isDirectory()).catch(() => false)
   if (!isDir) return { root, epics: [], tickets: [], error: { code: 'failed', message: `Project folder not found: ${root}` } }
   try {
-    return await enrichSnapshot(root, parseEpicStatus(await run(root, null)), ticketsRoot, headings ? { headings } : {})
+    const [stdout, repoUrl] = await Promise.all([run(root, null), repoUrlOf(root)])
+    return { ...(await enrichSnapshot(root, parseEpicStatus(stdout), ticketsRoot, headings ? { headings } : {})), repoUrl }
   } catch (error) {
     return { root, epics: [], tickets: [], error: errorOf(error) }
   }
+}
+
+/** How long the `origin` of a Project root is taken as read: the watcher reads the checkout on every save. */
+export const REPO_URL_TTL_MS = 5 * 60_000
+const repoUrls = new Map<string, { at: number; url: Promise<string | null> }>()
+
+/**
+ * The page of the repository of a Project root: `git remote get-url origin` there through `repoPageUrl`, as the
+ * Run history reads it (src/main/flight-recorder/service.ts); null without git, outside a repository, without
+ * `origin`, or for an `origin` that is no repository page (a folder). One run of git per root and REPO_URL_TTL_MS:
+ * a save of a Ticket file costs no more processes than before, and the first read after that time asks again.
+ */
+export function repoUrlOf(root: string, now: number = Date.now()): Promise<string | null> {
+  const cached = repoUrls.get(root)
+  if (cached !== undefined && now - cached.at < REPO_URL_TTL_MS) return cached.url
+  const url = git(root, ['remote', 'get-url', 'origin']).then(
+    (stdout) => repoPageUrl(stdout.trim()),
+    () => null,
+  )
+  repoUrls.set(root, { at: now, url })
+  return url
 }
 
 function git(cwd: string, args: string[]): Promise<string> {

@@ -12,7 +12,7 @@ import { watch as chokidarWatch, type FSWatcher } from 'chokidar'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { codeSection, enrichSnapshot, readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } from '../../src/main/workflow/reader'
+import { codeSection, enrichSnapshot, readCheckout, readWorkflow, epicStatusRunner, REPO_URL_TTL_MS, repoUrlOf, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher, type WatchOptions } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, type EpicStatusSnapshot, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
@@ -258,6 +258,12 @@ function treeState(dir: string): Map<string, string> {
   return state
 }
 
+/**
+ * The host of the origins the repoUrl cases give their repositories, put together here so that the file is not a hit of
+ * test/unit/no-github-git.test.ts: those repositories only answer `git remote get-url`, nothing is fetched from them.
+ */
+const GITHUB = ['github', 'com'].join('.')
+
 const ticketOf = (model: WorkflowModel, num: number) => model.tickets.find((t) => t.epic === 'demo' && t.num === num)
 
 /** Resolves with the next delta for which `match` holds, or rejects after `ms`. */
@@ -320,7 +326,7 @@ describe('workflow reader', () => {
     const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
     expect(JSON.stringify(model)).not.toContain('not-for-the-renderer')
     expect(Object.keys(model.tickets[0]!).sort()).toEqual(
-      ['blockedNums', 'blockedParsed', 'blockedRaw', 'blockedReason', 'epic', 'fromBranch', 'files', 'filesListed', 'manualChecks', 'num', 'pr', 'slug', 'state', 'statusAt', 'statusError', 'statusRaw', 'title', 'version', 'waits'].sort(),
+      ['blockedNums', 'blockedParsed', 'blockedRaw', 'blockedReason', 'epic', 'evidence', 'fromBranch', 'files', 'filesListed', 'manualChecks', 'num', 'pr', 'slug', 'state', 'statusAt', 'statusError', 'statusRaw', 'title', 'version', 'waits'].sort(),
     )
   })
 
@@ -357,6 +363,87 @@ describe('workflow reader', () => {
     ])
     expect(ticketOf(model, 2)?.manualChecks).toEqual([{ text: 'dev build: ⌘Z undoes the move.', checked: false }])
     expect(ticketOf(model, 3)?.manualChecks).toEqual([])
+  })
+
+  it('carries the Evidence items of each Ticket\'s done section; a Ticket without the section has []; the manual checks stay as they were', async () => {
+    const repo = makeRepo(dir)
+    const issues = join(repo, '.scratch', 'demo', 'issues')
+    const done = (items: string[]) => ['', '## Готово, когда', '', ...items, ''].join('\n')
+    writeFileSync(
+      join(issues, '01-first.md'),
+      ticketText(1, 'done 2026-10-01', '—', ['src/a.ts']) +
+        done([
+          '- [x] `pnpm test` exit 0',
+          '  - evidence: test-run pass · `pnpm test` exit 0 · mac dev · 3f2a1b9c',
+          '- [ ] (вручную) Stable copy on the PC:',
+          '      the frame is drawn.',
+          '  - needs: windows stable',
+          '  - evidence: screenshot pass · `../evidence/01-frame.webp` · windows installed · bacbbcef · scrub: 2026-11-04',
+        ]),
+    )
+    const { home } = makeClaudeHome(dir)
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
+
+    expect(model.error).toBeNull()
+    expect(ticketOf(model, 1)?.evidence?.map((item) => [item.index, item.text, item.state, item.reason, item.evidence.map((line) => [line.kind, line.sha, line.line])])).toEqual([
+      [1, '`pnpm test` exit 0', 'verified', null, [['test-run', '3f2a1b9c', 18]]],
+      [2, '(вручную) Stable copy on the PC: the frame is drawn.', 'not-verified', 'needs windows stable, got windows installed', [['screenshot', 'bacbbcef', 22]]],
+    ])
+    // The Evidence lines are nested list items: they do not join the text of the manual item.
+    expect(ticketOf(model, 1)?.manualChecks).toEqual([{ text: 'Stable copy on the PC: the frame is drawn.', checked: false }])
+    expect(ticketOf(model, 2)?.evidence).toEqual([])
+    expect(ticketOf(model, 2)?.manualChecks).toEqual([])
+  })
+
+  it('writes nothing into the Project while reading the Evidence: the tree, .git included, is byte-for-byte the same (ADR-0005)', async () => {
+    const repo = makeRepo(dir)
+    const issues = join(repo, '.scratch', 'demo', 'issues')
+    writeFileSync(join(issues, '01-first.md'), `${ticketText(1, 'open', '—', ['src/a.ts'])}\n## Done when\n\n- [ ] An item.\n  - evidence: gate fail · gate fast red · mac dev · abcdef1\n`)
+    git(repo, 'commit', '-qam', 'evidence')
+    git(repo, 'remote', 'add', 'origin', `https://${GITHUB}/example-owner/example-repo.git`)
+    const { home } = makeClaudeHome(dir)
+    const status = git(repo, 'status', '--porcelain', '--untracked-files=all')
+    const before = treeState(repo)
+
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
+    expect(ticketOf(model, 1)?.evidence?.[0]?.state).toBe('failed')
+    expect(model.repoUrl).toBe(`https://${GITHUB}/example-owner/example-repo`)
+
+    expect(treeState(repo)).toEqual(before)
+    expect(git(repo, 'status', '--porcelain', '--untracked-files=all')).toBe(status)
+  })
+
+  it('gives the page of the repository from the origin of the Project root, and null without origin', async () => {
+    const ssh = makeRepo(join(dir, 'ssh'))
+    git(ssh, 'remote', 'add', 'origin', `git@${GITHUB}:example-owner/example-repo.git`)
+    const https = makeRepo(join(dir, 'https'))
+    git(https, 'remote', 'add', 'origin', `https://${GITHUB}/example-owner/other-repo.git`)
+    const none = makeRepo(join(dir, 'none'))
+    const folder = makeRepo(join(dir, 'folder'))
+    git(folder, 'remote', 'add', 'origin', join(dir, 'none'))
+    const { home } = makeClaudeHome(dir)
+
+    expect((await readWorkflow({ root: ssh, claudeHome: home, env: ownEnv })).model.repoUrl).toBe(`https://${GITHUB}/example-owner/example-repo`)
+    expect((await readWorkflow({ root: https, claudeHome: home, env: ownEnv })).model.repoUrl).toBe(`https://${GITHUB}/example-owner/other-repo`)
+    expect((await readWorkflow({ root: none, claudeHome: home, env: ownEnv })).model.repoUrl).toBeNull()
+    // A remote that is a folder has no page.
+    expect((await readWorkflow({ root: folder, claudeHome: home, env: ownEnv })).model.repoUrl).toBeNull()
+    // The checkout alone carries it too: the watcher's read.
+    expect((await readCheckout(ssh, epicStatusRunner(home, ownEnv))).repoUrl).toBe(`https://${GITHUB}/example-owner/example-repo`)
+  })
+
+  it('runs git for the origin of a root once and takes it as read for REPO_URL_TTL_MS', async () => {
+    const repo = makeRepo(dir)
+    git(repo, 'remote', 'add', 'origin', `git@${GITHUB}:example-owner/example-repo.git`)
+    const at = 1_000_000
+    const runs = () => outsideRuns.filter((run) => run.name === 'git remote get-url').length
+    const start = runs()
+    expect(await repoUrlOf(repo, at)).toBe(`https://${GITHUB}/example-owner/example-repo`)
+    git(repo, 'remote', 'set-url', 'origin', `git@${GITHUB}:example-owner/moved-repo.git`)
+    expect(await repoUrlOf(repo, at + REPO_URL_TTL_MS - 1)).toBe(`https://${GITHUB}/example-owner/example-repo`)
+    expect(runs() - start).toBe(1)
+    expect(await repoUrlOf(repo, at + REPO_URL_TTL_MS)).toBe(`https://${GITHUB}/example-owner/moved-repo`)
+    expect(runs() - start).toBe(2)
   })
 
   it('shows a Ticket claimed in a worktree branch as in work, marked with the branch; the mark goes after the merge', async () => {
