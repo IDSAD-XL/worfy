@@ -147,7 +147,8 @@ got="$(jq -c 'keys' "$T/report.json" 2>&1)"
 [ "$got" = "$want" ] && ok "implementer: JSON report example parses with jq and has the eleven keys" \
     || bad "implementer: JSON report example: got [$got] want [$want]"
 got="$(jq -c '[(.commands[0] | keys), (.claims[0] | keys)]' "$T/report.json" 2>&1)"
-[ "$got" = '[["cmd","exit_code"],["evidence","text"]]' ] && ok "implementer: commands[] and claims[] keep their keys" \
+# claims[].item: the number of the "done" section item the claim proves (its Evidence line).
+[ "$got" = '[["cmd","exit_code"],["evidence","item","text"]]' ] && ok "implementer: commands[] and claims[] keep their keys, claims[] with item" \
     || bad "implementer: commands[]/claims[] keys: [$got]"
 # Browser checks: the field sign_in_needed holds entries in exactly two forms, the ones the
 # worfy-browser server and its instructions name (worfy checks its side in its own tests); the wave
@@ -645,6 +646,12 @@ not_verified first :: Read `not_verified` first: it names what the implementer d
 every file:line in claims :: - **Every `file:line` in `claims`.** Re-read the line and check that it shows what the claim says.
 every exit_code in commands :: - **Every `exit_code` in `commands`.** Run the command yourself and compare your exit code with the reported one.
 a refutation of the strongest sentence :: - **The strongest sentence of the report.** Look for its refutation: the test it cites passed before the change too, or the command it cites never ran the changed code.
+the Evidence lines are claims :: - **The Evidence lines.** The lines `- evidence:` the branch adds under the items of the ticket's section `tickets.done_section` are claims too.
+where they are, by mode :: In Full mode they are in the PR diff; in Silent mode they are in the ticket file in the Workflow folder, under the tickets root `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" root` prints, and the diff has none.
+how to list them :: `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN>` prints them under their items.
+what to check in each :: For each line: its `ref` exists (run the command it names and compare the exit code, open the file it names), its `sha` is in the branch (`git merge-base --is-ancestor <sha> <branch>` exits 0), and it matches the item's `needs` line, if there is one.
+a line that does not hold :: A line that does not hold is an unconfirmed claim.
+the reviewer writes none :: You write no Evidence lines yourself.
 the verdict is the first line :: **The verdict is the first line of the answer:** `VERIFIED` when every claim held, `REJECTED: <the unconfirmed claims>` when at least one did not.
 gate exit 3 or 127 is REJECTED: gate 3 :: If you run the project's gate, as the brief or the calling skill asks, and it exits 3 or 127 — a broken environment, not broken code — the verdict is `REJECTED: gate 3 — <the gate's reason line>`, as the calling skill requires, whatever the claims show.
 gate exit 3 under a temporary HOME without HARNESS_HOME does not count :: An exit 3 under a temporary HOME without `HARNESS_HOME` (above) does not count: run the gate again by the recipe first.
@@ -758,6 +765,114 @@ LENSES_ROW='the project'"'"'s review lenses; the orchestrator gives each reviewe
 if [ ! -f "$README" ]; then bad "profiles/README.md not found at $README"
 elif grep -F -- '| `review.lenses` | strings |' "$README" | grep -qF -- "$LENSES_ROW"; then ok "profiles/README.md: the row of review.lenses points at the lens descriptions"
 else bad "profiles/README.md: the row of review.lenses has no '$LENSES_ROW'"; fi
+
+# --- 14. Evidence lines: who writes which, and the privacy check before a push by hand ----------
+# An Evidence line is a nested list item under an item of the ticket's "done" section (bin/TICKETS.md,
+# "Evidence"). The implementer writes test-run, gate and commit lines with `ticket evidence` before
+# its PR and numbers its claims; the reviewer checks the lines, writes none and knows where they are
+# in Silent mode; the orchestrator gives land the review and ci-check lines in prs[].evidence (Full
+# mode) or writes them itself in the Workflow folder (Silent mode, no documents PR); the owner's word
+# and a checked screenshot are owner-check and screenshot lines; a documents PR pushed by hand passes
+# evidence-check --changed first. The section heading comes from the profile: no agent or skill
+# spells out the Russian one.
+SK="$ROOT/skills"
+FINISH="$SK/ship-ticket/implementer-finish.md" REPORT="$SK/ship-ticket/implementer-report.md"
+GUI="$SK/ship-ticket/step-6-manual-gui-checks.md" MERGE="$SK/ship-ticket/step-9-merge.md"
+CLOSE="$SK/ship-ticket/step-11-close.md" EWS="$SK/epic-wave/SKILL.md"
+ev() { if flat_has "$1" "$3"; then ok "$2: '$3'"; else bad "$2: no '$3'"; fi; } # $1 = file, $2 = label, $3 = literal text
+# The definition itself names the command: the step file is read only at step 6.
+grep -F 'skills/ship-ticket/implementer-finish.md` at this step' "$ROOT/agents/implementer.md" | grep -qF '`ticket evidence`' \
+    && ok "implementer.md: the finish pointer names ticket evidence" || bad "implementer.md: the finish pointer does not name ticket evidence"
+IM="$AGENTS/implementer.md"
+for p in 'Evidence lines first, before the PR' \
+    '"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN>` prints them with their numbers' \
+    '"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN> <item> <kind> pass --ref '"'"'<ref>'"'"'; echo "EXIT=$?"' \
+    'The quotes around `<ref>` are single: in double quotes the shell runs what stands in backticks.' \
+    '`test-run` — a test command' '`gate` — the gate of step 5' '`commit` — the item is the change itself' \
+    '`--sha` defaults to `HEAD`, so commit the change before step 5, or pass `--sha <that commit>`.' \
+    'names no host, no user name in a path, no email and no token' \
+    'A manual item (`tickets.manual_mark`) gets no line from you.' \
+    'An item no check of yours proved gets no line and goes into `not_verified`.' \
+    'the lines go into the PR diff and the review.' \
+    'In Silent mode `ticket` writes them into the ticket file in the Workflow folder, and the branch gets nothing.'; do
+    ev "$IM" "implementer, the Evidence lines" "$p"
+done
+for p in 'each claim that proves an item carries its number in `item`' \
+    '`item` — the number of the item of `tickets.done_section` the claim proves' '`null` for a claim that proves no item'; do
+    ev "$IM" "implementer, the report" "$p"
+done
+RV="$AGENTS/reviewer.md"
+for p in 'in Silent mode they are in the ticket file in the Workflow folder' '`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" root` prints' \
+    'You write no Evidence lines yourself.'; do
+    ev "$RV" "reviewer, the Evidence lines" "$p"
+done
+for p in '`prs[].evidence`' '`pass` for `VERIFIED`, `fail` for `REJECTED`' '`ref` `PR #<N>`' '`ci-check`' \
+    'a line on the branch after CI would make a new head and one more CI run' \
+    'Silent mode (no documents PR): after the verdict and the CI, before `ticket done`, the orchestrator writes them itself' \
+    '"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN> <item> review pass --ref "PR #<N>" --sha <head>' \
+    'ci-check pass --ref "<run URL>" --platform ci --sha <head>' 'into the ticket file in the Workflow folder'; do
+    ev "$MERGE" "ship-ticket step 9" "$p"
+done
+for p in '`prs[].evidence`' '{"item": <n>, "kind": "review", "verdict": "pass", "ref": "PR #<N>"}' \
+    '{"item": <n>, "kind": "ci-check", "verdict": "pass", "ref": "<URL of the final check'"'"'s run on the head>"}' \
+    'In Silent mode `land` opens no documents PR (`ticket done` is the orchestrator'"'"'s, in the Workflow folder), and the Evidence lines are the orchestrator'"'"'s too' \
+    '"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN> <item> review pass --ref "PR #<N>" --sha <head>' \
+    'into the ticket files in the Workflow folder'; do
+    ev "$EWS" "epic-wave, Merge with land" "$p"
+done
+# The recipe that adds prs[].evidence to a state file of land: its line of the skill, run on a fixture
+# state file with the placeholders filled in, leaves the entries in the shape land checks.
+RECIPE_EV="$(grep -F "node -e 'const fs = require(\"fs\"), [file, n, ...add]" "$EWS" | head -n 1 | sed 's/^`//; s/`$//')"
+if [ -z "$RECIPE_EV" ]; then bad "epic-wave: no recipe that adds prs[].evidence to the state file"
+else
+    printf '%s\n' '{"tickets_root": ".scratch", "prs": [{"number": 7, "epic": "demo", "ticket": "02", "head": "abc1234", "checks": []}]}' >"$T/land-state.json"
+    run_ev="${RECIPE_EV//<state file>/$T/land-state.json}"; run_ev="${run_ev//<N>/7}"; run_ev="${run_ev//<n>/1}"; run_ev="${run_ev//<run URL>/https://example.com/run/1}"
+    out="$(bash -c "$run_ev" 2>&1)"
+    got="$(jq -c '.prs[0].evidence' "$T/land-state.json" 2>&1)"
+    [ "$out" = "EXIT=0" ] && [ "$got" = '[{"item":1,"kind":"review","verdict":"pass","ref":"PR #7"},{"item":1,"kind":"ci-check","verdict":"pass","ref":"https://example.com/run/1","platform":"ci"}]' ] \
+        && ok "epic-wave: the prs[].evidence recipe adds a review and a ci-check entry to the PR" \
+        || bad "epic-wave: the prs[].evidence recipe: [$out] [$got]"
+    out="$(bash -c "${run_ev// 7 / 8 }" 2>&1)"
+    [[ "$out" == *'no PR #8 in '* && "$out" == *'EXIT=1' ]] && ok "epic-wave: the prs[].evidence recipe refuses a PR the state file lacks" \
+        || bad "epic-wave: the prs[].evidence recipe on a missing PR: [$out]"
+fi
+ev "$IM" "implementer, the Evidence lines" '`EXIT=1` — an argument error (an unknown flag, or a flag without its value), and nothing was written either.'
+for p in 'owner-check pass --ref "<date>: <the owner'"'"'s word>" --copy <copy>' \
+    'screenshot pass --ref '"'"'`<path relative to the ticket file>`'"'"' --copy <copy> --scrub <YYYY-MM-DD>' \
+    'once a person has checked its pixels' '`--scrub` is the date of that check, and a screenshot line needs it' \
+    'A screenshot no person has checked yet gets no line and is not committed'; do
+    ev "$GUI" "ship-ticket step 6, manual items" "$p"
+done
+EC_RUN='node "${CLAUDE_PLUGIN_ROOT}/bin/evidence-check" --changed; echo "EXIT=$?"'
+for f in "$CLOSE" "$EWS"; do
+    for p in 'Before the push of a documents PR the session makes by hand' "$EC_RUN" \
+        '`EXIT=1` — fix each finding' 'and do not push until it is 0' '`EXIT=2` — the check did not run: no push'; do
+        ev "$f" "$(basename "$(dirname "$f")")/$(basename "$f"), documents PR by hand" "$p"
+    done
+done
+# The heading of the "done" section is `tickets.done_section` of the profile; the Russian one is
+# spelled here by its code points, so this file stays without Cyrillic.
+for f in "$ROOT/agents/implementer.md" "$ROOT/agents/reviewer.md" "$FINISH" "$REPORT" "$GUI" "$MERGE" "$CLOSE" "$EWS"; do
+    hit="$(perl -CSD -ne 'print "$.: $_" if /\x{0413}\x{043E}\x{0442}\x{043E}\x{0432}\x{043E}, \x{043A}\x{043E}\x{0433}\x{0434}\x{0430}/' "$f")"
+    [ -z "$hit" ] && ok "$(basename "$f"): no section heading spelled out in Russian" || bad "$(basename "$f"): the Russian section heading: $hit"
+done
+# The pointers of these texts lead somewhere: a file of this plugin's skills by path, a step of
+# ship-ticket, a section of epic-wave. A skill of another plugin (skills/<name>/ without the plugin
+# root) is not this check's business.
+for f in "$ROOT/agents/implementer.md" "$ROOT/agents/reviewer.md" "$FINISH" "$REPORT" "$GUI" "$MERGE" "$CLOSE" "$EWS"; do
+    n="$(basename "$(dirname "$f")")/$(basename "$f")"; miss=""
+    for p in $(grep -oE '\$\{CLAUDE_PLUGIN_ROOT\}/skills/[a-z-]+/[A-Za-z0-9._-]+\.md' "$f" | sed 's|^${CLAUDE_PLUGIN_ROOT}/||' | sort -u); do
+        [ -f "$ROOT/$p" ] || miss="$miss $p"
+    done
+    for s in $(tr '\n' ' ' <"$f" | grep -oE '`/worfy:ship-ticket`, step [0-9]+' | grep -oE '[0-9]+$' | sort -u); do
+        grep -qE "^## $s\. " "$SK/ship-ticket/SKILL.md" || miss="$miss ship-ticket-step-$s"
+    done
+    for s in $(tr '\n' ' ' <"$f" | grep -oE '`/worfy:epic-wave`, section [0-9]+' | grep -oE '[0-9]+$' | sort -u); do
+        grep -qE "^## $s\. " "$EWS" || miss="$miss epic-wave-section-$s"
+    done
+    [ -z "$miss" ] && ok "$n: every skill file, ship-ticket step and epic-wave section it names exists" \
+        || bad "$n: names what is not there:$miss"
+done
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

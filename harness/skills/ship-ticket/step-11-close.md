@@ -118,3 +118,11 @@ they are committed there locally (`/worfy:epic-wave`, section 4, item 4), withou
 
 `F docs.handoff.check` checks the form — run it before push, if the profile sets it; what exactly
 it requires — `rules.md`. Do not touch ADRs: they are immutable.
+
+Before the push of a documents PR the session makes by hand (not the one `land` makes: `land` runs the
+same check itself), run the privacy check of the tickets root in its tree:
+`node "${CLAUDE_PLUGIN_ROOT}/bin/evidence-check" --changed; echo "EXIT=$?"`. `EXIT=0` — push.
+`EXIT=1` — fix each finding (a placeholder in place of the value: `~`, `<host>`, `<uuid>`; a new
+screenshot gets its `scrub:` line once a person has checked it) and do not push until it is 0.
+`EXIT=2` — the check did not run: no push, and the report says so. In Silent mode the tickets root is
+outside the repository, and the check finds nothing to check.

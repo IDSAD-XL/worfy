@@ -9,6 +9,8 @@ the brief, if there was one. Things noticed outside the ticket do not go there �
 profile in exactly one of the two forms of `implementer-browser-checks.md`; `[]` when every
 check ran or the ticket has none. The orchestrator copies each entry into the wave report.
 Which tests now cover the change — separate claims in `claims`, with the path to the test.
+`item` — the number of the item of `tickets.done_section` the claim proves, as `ticket evidence`
+prints it, the item you wrote its Evidence line under (step 6); `null` for a claim that proves no item.
 Every claim in `claims` will be re-checked by a separate agent: a claim without evidence is
 rejected, and the ticket comes back for rework.
 

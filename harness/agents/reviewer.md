@@ -226,6 +226,15 @@ to check, not a fact. Read `not_verified` first: it names what the implementer d
   reported one.
 - **The strongest sentence of the report.** Look for its refutation: the test it cites passed
   before the change too, or the command it cites never ran the changed code.
+- **The Evidence lines.** The lines `- evidence:` the branch adds under the items of the ticket's
+  section `tickets.done_section` are claims too. In Full mode they are in the PR diff; in Silent mode
+  they are in the ticket file in the Workflow folder, under the tickets root
+  `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" root` prints, and the diff has none.
+  `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN>` prints them under their items. For each
+  line: its `ref` exists (run the command it names and compare the exit code, open the file it names),
+  its `sha` is in the branch (`git merge-base --is-ancestor <sha> <branch>` exits 0), and it matches the
+  item's `needs` line, if there is one. A line that does not hold is an unconfirmed claim. You write
+  no Evidence lines yourself.
 
 **The verdict is the first line of the answer:** `VERIFIED` when every claim held,
 `REJECTED: <the unconfirmed claims>` when at least one did not. If you run the project's gate, as

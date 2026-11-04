@@ -34,3 +34,19 @@ verify the process path:
 `powershell -NoProfile -Command "(Get-Process -Id <pid>).Path"` (the pid of every copy:
 `powershell -NoProfile -Command "Get-Process <name> | Select-Object Id,Path"`). Where the installer
 puts the app and where the stable copy lives on Windows — the project's glossary (`F docs.context`).
+
+**Evidence of a manual item.** A manual item (`F tickets.manual_mark`) is proved only by a person:
+the owner's word or a screenshot a person has checked. An agent's own look is no such proof. `ticket`
+is the script of `F tickets.status_tool`; its line goes under the item of `F tickets.done_section`.
+- The owner's word: the orchestrator writes
+  `ticket evidence <epic> <NN> <item> owner-check pass --ref "<date>: <the owner's word>" --copy <copy>; echo "EXIT=$?"`,
+  where `<copy>` is the copy of the app the owner looked at (`stable`, `installed` or `dev`). Add
+  `--platform <mac|windows|linux>` when the owner looked on another machine; a host name never goes
+  into the line.
+- A screenshot: whoever took it writes
+  `ticket evidence <epic> <NN> <item> screenshot pass --ref '`<path relative to the ticket file>`' --copy <copy> --scrub <YYYY-MM-DD>; echo "EXIT=$?"`
+  once a person has checked its pixels: no Machine, host or user names and no terminal text that must
+  not be public. `--scrub` is the date of that check, and a screenshot line needs it: without it the
+  privacy check (`evidence-check`) reports the new screenshot as one that needs a human check.
+- A screenshot no person has checked yet gets no line and is not committed: name it in the report,
+  for the person who checks it.

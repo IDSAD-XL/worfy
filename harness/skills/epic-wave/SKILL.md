@@ -1170,8 +1170,24 @@ NODE
 echo "EXIT=$?"
 ```
 
+**The Evidence lines of the close** (skill `/worfy:ship-ticket`, step 9). Before `land` runs, give
+each PR of the state file its `evidence`, the field `prs[].evidence`: an entry
+`{"item": <n>, "kind": "review", "verdict": "pass", "ref": "PR #<N>"}` for each item whose claims the
+verdict covered (`"fail"` for `REJECTED`), and an entry
+`{"item": <n>, "kind": "ci-check", "verdict": "pass", "ref": "<URL of the final check's run on the head>"}`
+for each item the final CI check proves. Their `sha` is the PR's `<head>`, and a `ci-check` line gets
+the platform `ci`. `land` writes them with `ticket evidence` in its documents PR, before `ticket done`.
+Add them to the state file, once per PR, before the first `land` run (each argument after `<N>` is one entry):
+
+`node -e 'const fs = require("fs"), [file, n, ...add] = process.argv.slice(1); const st = JSON.parse(fs.readFileSync(file, "utf8")); const pr = st.prs.find((p) => p.number === Number(n)); if (!pr) { console.error("no PR #" + n + " in " + file); process.exit(1) } pr.evidence = [...(pr.evidence || []), ...add.map((a) => JSON.parse(a))]; fs.writeFileSync(file, JSON.stringify(st, null, 2) + "\n")' <state file> <N> '{"item": <n>, "kind": "review", "verdict": "pass", "ref": "PR #<N>"}' '{"item": <n>, "kind": "ci-check", "verdict": "pass", "ref": "<run URL>", "platform": "ci"}'; echo "EXIT=$?"`
+
+`EXIT=1` with `no PR #<N>` — that PR is not in the state file. A second run adds the entries again.
+
 In Silent mode `land` opens no documents PR (`ticket done` is the orchestrator's, in the Workflow
-folder). Then, with `run_in_background: true`:
+folder), and the Evidence lines are the orchestrator's too: after the verdict and the CI, before
+`ticket done`, `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN> <item> review pass --ref "PR #<N>" --sha <head>`
+and `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN> <item> ci-check pass --ref "<run URL>" --platform ci --sha <head>`
+write them into the ticket files in the Workflow folder. Then, with `run_in_background: true`:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/land" <state file> --watch; echo "EXIT=$?"
@@ -1564,6 +1580,13 @@ echo "EXIT=$rc"
    description, lessons that generalize go where `F lessons` says (with `local-green` the story
    goes into the documents commit message). Run `F docs.handoff.check`, if the profile sets it,
    before push. No `docs.handoff` — "the project has no state file".
+   Before the push of a documents PR the session makes by hand (not the one `land` makes: `land` runs the
+   same check itself), run the privacy check of the tickets root in its tree:
+   `node "${CLAUDE_PLUGIN_ROOT}/bin/evidence-check" --changed; echo "EXIT=$?"`. `EXIT=0` — push.
+   `EXIT=1` — fix each finding (a placeholder in place of the value: `~`, `<host>`, `<uuid>`; a new
+   screenshot gets its `scrub:` line once a person has checked it) and do not push until it is 0.
+   `EXIT=2` — the check did not run: no push, and the report says so. In Silent mode the tickets root is
+   outside the repository, and the check finds nothing to check.
    In Silent mode `ticket` has already written the statuses into the Workflow folder, and the state
    file, the result sections and the lessons are files there too: the repository gets no documents
    PR and no documents commit. When the Workflow folder is a git repository of its own, the wave ends
