@@ -26,6 +26,7 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 | [Focus mode](focus-mode.md) | Focus mode |
 | [Projects](projects.md) | Full mode and Silent mode, the switch between them, viewing ADRs and HANDOFF |
 | [Workflow](workflow.md) | Ticket and Epic on the Canvas, Pipeline, Binding |
+| [Evidence](evidence.md) | Evidence, privacy check, screenshots and clips |
 | [Sessions](sessions.md) | Session, Subagent |
 | [Vendors](vendors.md) | Vendor: Claude Code and Codex, the driver of each |
 | [Transcripts and usage](transcripts-and-usage.md) | Transcript, Claude home, Memory, Limits |

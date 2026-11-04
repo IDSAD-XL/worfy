@@ -32,7 +32,8 @@ Evidence lines (`- evidence: …` under an item, written by `ticket evidence` of
 when every item is verified, red when an item failed, neutral otherwise; its tooltip reads `3 verified, 1 not verified,
 1 failed`. A Ticket without such items has no chip. Only a card with the chip is one line of chips taller (18 pixels): the
 checks chips take their lines, and the Evidence chip starts the next one. worfy does not check a link against its source,
-for example whether a CI run is green.
+for example whether a CI run is green. The grammar of the lines, who writes them, the privacy check and the pictures are on
+[Evidence](evidence.md).
 
 **Status.** It comes from the `Status:` line of the file. No Status line, or an old form of the header, reads as `no
 status`. In Full mode the status of a Ticket's worktree branch goes over the checkout's, so a Ticket claimed in its

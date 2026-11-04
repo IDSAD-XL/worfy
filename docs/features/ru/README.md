@@ -28,6 +28,7 @@ Epic-ам и Ticket-ам.
 | [Focus mode](focus-mode.md) | Focus mode |
 | [Projects](projects.md) | Full mode и Silent mode, переключатель, просмотр ADR и HANDOFF |
 | [Workflow](workflow.md) | Ticket и Epic на Canvas, Pipeline, Binding |
+| [Evidence](evidence.md) | Evidence, privacy check, снимки и клипы |
 | [Sessions](sessions.md) | Session, Subagent |
 | [Vendors](vendors.md) | Vendor: Claude Code и Codex, driver каждого |
 | [Transcripts и usage](transcripts-and-usage.md) | Transcript, Claude home, Memory, Limits |

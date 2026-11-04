@@ -1,6 +1,6 @@
 # Workflow
 
-> Перевод [английской версии](../workflow.md), commit `same-pr`.
+> Перевод [английской версии](../workflow.md), commit `74d5ad8d`.
 
 Три близких Feature. **Ticket и Epic на Canvas** показывают работу Project-а так, как её записывают файлы Ticket-ов.
 **Pipeline** говорит, на каком Stage стоит каждый Ticket. **Binding** связывает каждого агента с Ticket-ом или Epic-ом, над
@@ -26,6 +26,9 @@
 
 На карточке ничего не обрезается. Текст переносится, и карточка растёт в высоту, начиная со 138 пикселей при ширине 240. Её
 tooltip показывает строку Status с причиной и `(in <branch>)` для статуса, который пришёл из ветки worktree.
+
+**Evidence.** Строки Evidence под пунктами раздела «готово», их состояния, chip `Evidence n/m` и матрица в Focus mode,
+privacy check и снимки с клипами описаны на странице [Evidence](evidence.md).
 
 **Статус.** Он берётся из строки `Status:` файла. Без строки Status или при старой форме шапки читается `no status`. В Full
 mode статус ветки worktree Ticket-а идёт поверх статуса из checkout, поэтому Ticket, который взяли в его worktree, сразу
