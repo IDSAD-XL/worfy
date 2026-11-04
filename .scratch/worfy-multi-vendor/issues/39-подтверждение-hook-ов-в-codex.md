@@ -1,7 +1,8 @@
 # 39 — Подтверждение hook-ов Harness в Codex
 
 Type: task
-Status: open
+Status: done 2026-11-04T04:52Z
+PR: #1330
 Blocked by: 35, 37
 Source: [spec.md](../spec.md), «Риски», п. 3; решение 08 ([08-harness-для-codex.md](08-harness-для-codex.md)); [ADR-0094](../../../docs/adr/0094-vendor-seam.md), риск 3; Ticket 04 ([04-codex-расширения-для-harness.md](04-codex-расширения-для-harness.md), «Hook trust»)
 
