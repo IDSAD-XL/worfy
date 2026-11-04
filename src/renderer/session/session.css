@@ -1663,58 +1663,83 @@
 }
 
 /* Input field: the Auto-approval switch of the Orchestrator (composer/AutoApprove.tsx,
-   worfy-auto-approve ticket 06), right of Eco mode. The frame and the caption are Eco mode's
-   (`w-eco`, `w-eco__label`, so the caption goes with Eco mode's when the bar is short of room); the
-   modifier `w-eco--three` puts a small segmented control of three positions — Off, Shadow, On — where
-   Eco mode has its track. The pressed position carries the thumb of the segmented control
-   (theme/primitives.css); On also takes the green of "ready", as Eco mode does when on. An
-   unavailable switch (another Machine, a mode that could not be read) loses its fill by the rule of
-   `w-eco[aria-disabled]` and dims its positions. */
-.w-eco--three {
-  padding: 0 2px 0 6px;
+   worfy-auto-approve ticket 06), right of Eco mode. The button is Eco mode's (`w-eco`, so the same
+   frame, hover, focus and unavailable look) with the modifier `w-eco--three`: its track is a third
+   longer and the knob stands in one of three places — left for Off (an empty ring), the middle for
+   Shadow (a half-filled ring), right for On (a tick, on the green of "ready", as Eco mode when on).
+   Its caption is its own class and goes when Eco mode's goes (the rule below copies Eco mode's).
+   A click opens the menu of the three positions over the button, drawn into the page's body like the
+   list of a Select (theme/select.css). */
+.w-auto-approval__label {
+  color: var(--text-muted);
 }
-.w-eco__positions {
-  display: inline-flex;
-  flex: none;
-  gap: 1px;
-  padding: 1px;
-  border-radius: calc(var(--radius-button) - 1px);
-  background: var(--segment-track);
+.w-composer__bar:has(.w-pickers[data-probe~='eco']) .w-auto-approval__label,
+.w-composer__bar:has(.w-pickers:not([data-probe])[data-eco-caption='off']) .w-auto-approval__label {
+  display: none;
 }
-.w-eco__position {
-  height: 18px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: calc(var(--radius-button) - 2px);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--text-11);
-  font-weight: 500;
-  line-height: 18px;
-  cursor: pointer;
+.w-eco--three .w-eco__track {
+  width: 34px;
 }
-.w-eco__position[aria-pressed='true'] {
-  background: var(--segment-thumb);
+.w-eco--three[data-mode='shadow'] .w-eco__knob {
+  transform: translateX(10px);
   color: var(--text);
-  font-weight: 600;
-  box-shadow: var(--shadow-control);
 }
-.w-eco__position[data-mode='on'][aria-pressed='true'] {
+.w-eco--three[data-mode='on'] .w-eco__track {
+  border-color: var(--ready-dot);
   background: var(--ready-bg);
+}
+.w-eco--three[data-mode='on'] .w-eco__knob {
+  transform: translateX(20px);
   color: var(--ready-text);
 }
-.w-eco__position:hover:not([aria-pressed='true'], [aria-disabled='true']) {
+.w-eco--three[aria-expanded='true'] {
+  border-color: var(--text-muted);
+}
+.w-auto-approval__menu {
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: var(--space-1);
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
   color: var(--text);
+  font-size: var(--text-13);
 }
-.w-eco__position:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 0;
+.w-auto-approval__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--row-height);
+  padding: 0 var(--space-2) 0 var(--space-2);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
 }
-.w-eco__position[aria-disabled='true'] {
-  cursor: default;
-  opacity: 0.6;
+.w-auto-approval__option:hover,
+.w-auto-approval__option:focus-visible {
+  background: var(--selected);
+  outline: none;
 }
-.w-eco--three[aria-busy='true'] .w-eco__position {
-  cursor: progress;
+.w-auto-approval__option[aria-checked='true'] .w-auto-approval__option-label {
+  font-weight: 600;
+}
+.w-auto-approval__option[data-mode='on'][aria-checked='true'] .w-auto-approval__option-label {
+  color: var(--ready-text);
+}
+.w-auto-approval__option-label {
+  flex: 1;
+}
+.w-auto-approval__option-detail {
+  color: var(--text-muted);
+  font-size: var(--text-12);
 }

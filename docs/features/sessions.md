@@ -164,8 +164,8 @@ answers.
 - Eco mode, a switch under the Orchestrator's input field, writes two fields of the Project's Profile: `workflow.agents`
   set to `eco`, and `agents`, which is Sonnet with effort medium for each agent role. Off removes both fields, and the
   models the roles had before are not restored. It applies from the next Ticket.
-- Auto-approval, right of Eco mode, has three positions: Off, Shadow and On, each with a tooltip. It is Off for a
-  Project until set. The mode is kept per Project in worfy's own settings on this Machine (`app-settings.json` in
+- Auto-approval, right of Eco mode, shows the Project's mode by where its knob stands: Off, Shadow or On. A click opens
+  a menu of the three, each with a tooltip; choosing one sets it. It is Off for a Project until set. The mode is kept per Project in worfy's own settings on this Machine (`app-settings.json` in
   worfy's data folder), not in the Profile, and only the switch writes it. worfy reads that file once at start: an edit
   of it made outside worfy shows after the next start, and the next change from the switch replaces it. For now the
   mode is only stored: an unattended Run still refuses every permission request.

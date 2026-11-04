@@ -70,12 +70,18 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
   `src/main/settings/store.ts` (не в `src/main/ipc/auto-approve.ts`: модуль handler-ов исполняется при импорте).
 - **IPC.** `autoApproval.read` / `autoApproval.set` (`src/shared/ipc/auto-approve.ts`, `src/main/ipc/auto-approve.ts`),
   оба `local`; id не из Project-ов этой Machine — отказ, ничего не пишется.
-- **Переключатель.** `src/renderer/session/composer/AutoApprove.tsx`, `order = 17`, только у Orchestrator-а: группа из
-  трёх кнопок Off / Shadow / On с `aria-pressed`, tooltip на каждой; рамка и подпись — от `w-eco` (подпись прячется
-  вместе с подписью Eco mode, когда строке мало места), три положения — модификатор `w-eco--three` и элементы
-  `w-eco__positions` / `w-eco__position` в `session.css`; правила `w-eco` не менялись. Место для Auto-continue
-  worfy-retry 02 — `order = 16`, между ними. В окне Linked machine — read-only, tooltip «Auto-approval is set in worfy
-  on the Machine of the Project», ничего не читается и не пишется.
+- **Переключатель.** `src/renderer/session/composer/AutoApprove.tsx`, `order = 17`, только у Orchestrator-а: кнопка
+  вида Eco mode (`w-eco` + модификатор `w-eco--three`, правила `w-eco` не менялись) с дорожкой, где knob стоит в одном
+  из трёх мест — Off (пустое кольцо), Shadow (половина), On (галочка на зелёном); tooltip кнопки — текущего режима.
+  Клик открывает menu из трёх положений (`menuitemradio`, tooltip и строка пояснения у каждого), выбор пишет режим.
+  Подпись «Auto-approval» — свой класс `w-auto-approval__label`, прячется вместе с подписью Eco mode. В окне Linked
+  machine — read-only, tooltip «Auto-approval is set in worfy on the Machine of the Project», menu не открывается,
+  ничего не читается и не пишется.
+- **Почему menu, а не три кнопки рядом (решено без владельца).** Первая версия — три кнопки Off / Shadow / On в строку
+  (125 px) — уронила в CI e2e `session-controls.spec.ts` и `context-meter.spec.ts`: в окне 1280×800 с sidebar строка
+  controls — 674 px, до Ticket-а в ней было занято 592 px, и Send уходил на свою строку. Кнопка с menu — 46 px, после неё
+  свободно около 30 px. Auto-continue worfy-retry 02 (`order = 16`) размером с Eco mode (36 px + 8 px gap) в 1280×800 уже
+  не поместится рядом без переноса Send: этому Ticket-у понадобится либо меньший элемент, либо пересмотр правила e2e.
 - **Ответ на п. 4 («Безопасность», п. 5 spec).** `store.ts` читает `app-settings.json` один раз, при первом
   обращении, и дальше отвечает из памяти. Правка файла извне (рукой или командой агента) запущенным worfy не видна;
   следующая запись из UI (любая настройка) кладёт в файл состояние из памяти и правку затирает; после рестарта worfy
