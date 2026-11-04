@@ -1,0 +1,25 @@
+{
+  "about": "Evidence lines (the text after '- evidence: ') and how they read: fields, or an error. The Harness reader (harness/lib/evidence.cjs) and the worfy app's copy of the grammar must agree on every case.",
+  "cases": [
+    { "text": "test-run pass · `pnpm test` exit 0 · mac dev · 3f2a1b9c", "fields": { "kind": "test-run", "verdict": "pass", "ref": "`pnpm test` exit 0", "platform": "mac", "copy": "dev", "sha": "3f2a1b9c", "scrub": null } },
+    { "text": "review pass · PR #1190 · - - · 3f2a1b9c", "fields": { "kind": "review", "verdict": "pass", "ref": "PR #1190", "platform": "-", "copy": "-", "sha": "3f2a1b9c", "scrub": null } },
+    { "text": "commit pass · feat: the parser · - - · 0123456789abcdef0123456789abcdef01234567", "fields": { "kind": "commit", "verdict": "pass", "ref": "feat: the parser", "platform": "-", "copy": "-", "sha": "0123456789abcdef0123456789abcdef01234567", "scrub": null } },
+    { "text": "screenshot pass · `../evidence/16-canvas.webp` · windows installed · bacbbcef · scrub: 2026-11-04", "fields": { "kind": "screenshot", "verdict": "pass", "ref": "`../evidence/16-canvas.webp`", "platform": "windows", "copy": "installed", "sha": "bacbbcef", "scrub": "2026-11-04" } },
+    { "text": "gate fail · gate fast red · linux - · abcdef1", "fields": { "kind": "gate", "verdict": "fail", "ref": "gate fast red", "platform": "linux", "copy": "-", "sha": "abcdef1", "scrub": null } },
+    { "text": "ci-check pass · ci-ok on PR #12 · ci ci · 9999999", "fields": { "kind": "ci-check", "verdict": "pass", "ref": "ci-ok on PR #12", "platform": "ci", "copy": "ci", "sha": "9999999", "scrub": null } },
+    { "text": "review VERIFIED · PR #12 · - - · abcdef1", "error": true },
+    { "text": "lint pass · `pnpm lint` exit 0 · mac dev · abcdef1", "error": true },
+    { "text": "review pass · PR #12 · mac - · abcdef1", "error": true },
+    { "text": "test-run pass · `pnpm test` exit 0 · - - · abcdef1", "error": true },
+    { "text": "test-run pass · `pnpm test` exit 0 · bsd dev · abcdef1", "error": true },
+    { "text": "test-run pass · `pnpm test` exit 0 · mac prod · abcdef1", "error": true },
+    { "text": "screenshot pass · `a.webp` · mac - · abcdef1", "error": true },
+    { "text": "owner-check pass · owner said yes · mac - · abcdef1", "error": true },
+    { "text": "test-run pass · `pnpm test` exit 0 · mac dev · abc12", "error": true },
+    { "text": "test-run pass · `pnpm test` exit 0 · mac dev · xyz1234", "error": true },
+    { "text": "test-run pass · `pnpm test` exit 0 · mac dev", "error": true },
+    { "text": "test-run pass · `pnpm test` exit 0 · mac dev · abcdef1 · scrub: today", "error": true },
+    { "text": "test-run pass ·  · mac dev · abcdef1", "error": true },
+    { "text": "test-run · `pnpm test` exit 0 · mac dev · abcdef1", "error": true }
+  ]
+}

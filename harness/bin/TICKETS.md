@@ -58,6 +58,50 @@ take them from one rule, `lib/code-fence.cjs`. A file without an H1 has an empty
 instead. worfy reads the H1 of `spec.md` by the same rule; both readers are tested on the files of
 `bin/tests/fixtures/ticket-title`.
 
+**Evidence**
+What proves an item of the ticket's "done" section and where it was checked: a nested list item under the
+item, one fact per line. The section is the heading `tickets.done_section` of the profile (`## Done when`
+without one), the manual mark `tickets.manual_mark` (`manual`); the old Russian heading and mark are read too,
+for one release. `lib/evidence.cjs` holds the grammar and the state rules; `bin/ticket` is the only writer.
+
+```text
+- [x] Unit test of the chat command
+  - evidence: test-run pass · `pnpm test test/unit/chat.test.ts` exit 0 · mac dev · 3f2a1b9c
+  - evidence: review pass · PR #1190 · - - · 3f2a1b9c
+- [ ] (manual) The canvas on the PC
+  - needs: windows stable
+  - evidence: screenshot pass · `../evidence/16-canvas.webp` · windows installed · bacbbcef · scrub: 2026-11-04
+```
+
+- `- evidence: <kind> <verdict> · <ref> · <platform> <copy> · <sha>[ · scrub: <YYYY-MM-DD>]`, the fields split
+  by ` · `.
+- `kind`: `commit`, `test-run`, `ci-check`, `gate`, `review`, `screenshot`, `owner-check`. `verdict`: `pass` or
+  `fail`, for every kind; a reviewer's `VERIFIED` is written `pass`, `REJECTED` — `fail`.
+- `ref`: free text without ` · ` and on one line: a command with its exit code, `PR #N`, a URL, a path in
+  backticks relative to the ticket file.
+- `platform`: `mac`, `windows`, `linux`, `ci` — the platform, never a host name. `copy`: `stable`, `installed`,
+  `dev`, `ci`, or `-` when no app was run. `commit` and `review` always have `- -`; `screenshot` and
+  `owner-check` name the copy.
+- `sha`: 7 to 40 hex digits, the commit the fact is bound to. `scrub: <date>`: a person checked the pixels of a
+  screenshot.
+- `- needs: <platform> [<copy>]` — optional, the item's requirement, written by the ticket's author.
+
+Every checkbox item of the section, at any depth, gets a number in file order from 1; an Evidence or needs line
+belongs to the nearest checkbox item above it. Code blocks are not read. The state of an item:
+`failed` — its last Evidence line says `fail`; `verified` — a `pass` line of any kind but `review` (for a
+manual item only `owner-check` or `screenshot`) that matches `needs`, if there is one, by platform and copy;
+`not-verified` — the rest, with the reason: `no evidence`, `review only`, `needs <p> <c>, got <p> <c>`,
+`manual item needs owner-check or screenshot`, `unreadable evidence line`.
+
+- `ticket evidence <epic> <NN>` prints the matrix: `<n>. <state> <reason?> — <text>` per item, its lines
+  under it, and last `evidence: N of M verified` (M counts the items without lines). Exit 0.
+- `ticket evidence <epic> <NN> <item> <kind> <pass|fail> --ref "<text>" [--platform P] [--copy C] [--sha S]
+  [--scrub YYYY-MM-DD] [-n]` writes one line after the last line of item `<item>`. The platform defaults to
+  this system's (`ci` under GitHub Actions), the sha to `git rev-parse HEAD`, the copy to `-`. A line the
+  grammar refuses, or an item outside the section, is exit 2 and nothing is written; `-n` prints the line only.
+- `ticket done` prints `evidence: N of M verified` and each unverified or failed item to stderr; its exit
+  code stays 0.
+
 **Old header**
 Any other Status line: `**Status:**`, a tail after the word (`done — 2026-08-27, [PR #N](…)`,
 `blocked — <reason>`), a second Status line in the footer. `epic-status` gives it `state: none` and

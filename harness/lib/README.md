@@ -8,6 +8,7 @@ the plugin, where `lib/` lies next to `bin/` and `hooks/`.
   `bin/profile` prints and `hooks/session-start.mjs` mixes in with their English forms for one release.
 - `code-fence.cjs` — the code blocks of a ticket file: `bin/ticket`, the writer of the header, and
   `bin/epic-status`, its reader, skip the same lines as code (`bin/TICKETS.md`, "Header").
+- `evidence.cjs` — the Evidence lines of a ticket's "done" section, their grammar and the state of an item, read and written by `bin/ticket` (`bin/TICKETS.md`, "Evidence").
 - `qmd-common.cjs` — what `bin/qmd-mcp`, `bin/qmd-refresh`, `bin/qmd-sync-main` and `bin/qmd-collections`
   share: the folders of qmd, the node qmd runs on, which qmd to start, the lock of an index update and the
   update itself. `node qmd-common.cjs --update-job` is that update as a background process.
