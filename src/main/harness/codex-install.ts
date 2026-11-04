@@ -23,10 +23,18 @@
 // shows the step "Approve the Harness hooks in Codex" (ticket 39), whose "Check again" asks Codex
 // (src/main/vendors/codex/harness-hooks.ts) and clears it once they are approved (hooksApproved).
 //
+// The MCP servers: Codex 0.166.0 reads Claude Code's .mcp.json of a plugin but fills in no
+// ${CLAUDE_PLUGIN_ROOT} there (worfy-polish ticket 55), so `node ${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp` would
+// start node on a path that is not there. Before each `codex plugin add` of the Harness, worfy writes
+// <pluginDir>/.codex-plugin/plugin.json, the manifest Codex reads before .claude-plugin/plugin.json:
+// Claude Code's manifest with `mcpServers` of .mcp.json, the variable replaced by pluginDir as in the
+// agents (codexPluginManifest). Without a `cwd` the server still starts in the session's folder, where
+// qmd-mcp reads the Project's profile. Claude Code does not read .codex-plugin/ and keeps .mcp.json.
+//
 // Codex counts as there when this build has its binary and CODEX_HOME exists (Codex ran and signed
 // in on this machine): without either nothing here runs, and nothing is written. worfy writes only
-// the agent files and its own record in its data folder (ADR-0005); the plugins and Codex's config
-// are written by `codex plugin`.
+// the agent files, the Codex manifest in its own Harness copy and its own record in its data folder
+// (ADR-0005); the plugins and Codex's config are written by `codex plugin`.
 //
 // The version: the one `codex plugin list --json` names for worfy@worfy-harness. A plugin of a local
 // marketplace may be listed without a version of its own (`local`); then the version worfy recorded
@@ -37,7 +45,7 @@
 // Codex that hangs makes its own part an error rather than holding the rest.
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, posix, win32 } from 'node:path'
 import type { CodexHarness as CodexHarnessStatus, CodexHarnessState, CodexHarnessStep } from '../../shared/ipc/harness'
 import { codexExecutablePath, type CodexPackageResolver, type CodexRuntime } from '../vendors/codex/binary'
 import { CODEX_ABSENT } from '../vendors/codex/launch'
@@ -182,6 +190,27 @@ function manifestVersion(dir: string): string | null {
   } catch {
     return null
   }
+}
+
+const PLUGIN_ROOT = '${CLAUDE_PLUGIN_ROOT}'
+
+/**
+ * The Codex manifest of the Harness copy at `pluginDir` (.codex-plugin/plugin.json): Claude Code's
+ * manifest `claudeManifest` with `mcpServers` of the plugin's .mcp.json `mcp`, every
+ * `${CLAUDE_PLUGIN_ROOT}` in their strings replaced by `pluginDir`. A string that starts with it is a
+ * path, normalised for `platform` (backslashes on Windows). Without servers, the manifest as it is.
+ */
+export function codexPluginManifest(claudeManifest: Record<string, unknown>, mcp: unknown, pluginDir: string, platform: NodeJS.Platform = process.platform): Record<string, unknown> {
+  const servers = record(record(mcp)?.mcpServers)
+  if (servers === null) return { ...claudeManifest }
+  const normalize = platform === 'win32' ? win32.normalize : posix.normalize
+  const fill = (value: unknown): unknown => {
+    if (typeof value === 'string') return value.startsWith(PLUGIN_ROOT) ? normalize(value.split(PLUGIN_ROOT).join(pluginDir)) : value.split(PLUGIN_ROOT).join(pluginDir)
+    if (Array.isArray(value)) return value.map(fill)
+    const object = record(value)
+    return object === null ? value : Object.fromEntries(Object.entries(object).map(([key, each]) => [key, fill(each)]))
+  }
+  return { ...claudeManifest, mcpServers: fill(servers) }
 }
 
 /** The state the status reports, and the agents a file of the user's own keeps out (codexAgentsDrift's `skipped`). */
@@ -346,7 +375,10 @@ export class CodexHarness {
     }
     for (const args of plan.commands) {
       if (args[1] === 'marketplace') await this.addMarketplace(args, 'marketplace add')
-      else await this.codex(args, 'plugin add')
+      else {
+        await this.writeManifest()
+        await this.codex(args, 'plugin add')
+      }
     }
     if (plan.commands.length > 0) {
       // Codex turns the plugin's hooks off until they are approved again: the toolbar shows the step (ticket 39).
@@ -361,6 +393,21 @@ export class CodexHarness {
       })
     } catch (error) {
       throw new CodexStepError('agents', `writing the Codex agents to ${plan.agentsDir} failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  /** Writes <pluginDir>/.codex-plugin/plugin.json (codexPluginManifest), which `codex plugin add` then copies with the rest. */
+  private async writeManifest(): Promise<void> {
+    const { pluginDir } = this.options
+    const file = join(pluginDir, '.codex-plugin', 'plugin.json')
+    try {
+      const claudeManifest = record(JSON.parse(readFileSync(join(pluginDir, '.claude-plugin', 'plugin.json'), 'utf8'))) ?? {}
+      const mcpFile = join(pluginDir, '.mcp.json')
+      const mcp: unknown = existsSync(mcpFile) ? JSON.parse(readFileSync(mcpFile, 'utf8')) : null
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, `${JSON.stringify(codexPluginManifest(claudeManifest, mcp, pluginDir, this.options.platform), null, 2)}\n`)
+    } catch (error) {
+      throw new CodexStepError('plugin add', `writing the Codex manifest ${file} failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
