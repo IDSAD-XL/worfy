@@ -263,9 +263,9 @@ if [ "$rc" -eq "$rc_warn" ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "[gate]
 else
     bad "control: rc=$rc, with warnings rc=$rc_warn (out: ${out:0:400})"
 fi
-# Without the warning lines and the log line, which names a folder of its own run.
-# The timing line and the log path differ from run to run by themselves.
-strip() { printf '%s\n' "$1" | grep -vF "$WARN" | grep -v '^--- full output ' | grep -v '^\[gate\] time '; }
+# Without the warning lines, the log line and the line of the failure records, which name files of
+# their own run. The timing line and the log path differ from run to run by themselves.
+strip() { printf '%s\n' "$1" | grep -vF "$WARN" | grep -v '^--- full output ' | grep -v '^--- failure records: ' | grep -v '^\[gate\] time '; }
 lines 1100 "$C/grow.ts"
 gate "$C" fast GATE_SCOPE=all
 out_c_warn="$out" rc_c_warn=$rc json_c_warn="$(verdict_json "$C")"
