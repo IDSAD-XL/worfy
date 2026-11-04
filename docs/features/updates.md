@@ -129,7 +129,9 @@ the copy that ran aside as `worfy-stable.previous`, puts the build in its place 
 to the Harness of the new copy too (see below). When the swap is refused, for example because a process of the old copy
 still runs at its place after the wait, nothing is changed: the old copy starts again and shows "worfy was not updated
 to <version>: <reason>". For a process that did not quit the reason starts with what to do ("quit it, then try
-again") and names its pid and program. The restart needs the system's `node`; without it the press is refused with "node was not found: a
+again") and names its pid and program. A process of the copy that worfy did not start, such as the bundled Codex
+run in a terminal, is not waited for: the swap is refused at once with "Codex is open in a terminal (pid N): close
+it, then press Restart now again". worfy tells its own processes by their parents. The restart needs the system's `node`; without it the press is refused with "node was not found: a
 restart into an Update needs it (Settings → Health)".
 
 **Harness after Update.** At the first start of the new copy, worfy installs that copy's Harness when the installed one
