@@ -1,7 +1,8 @@
 # 51 — Список пикера Session шире окна при длинном названии
 
 Type: bug
-Status: open
+Status: done 2026-11-04T09:08Z
+PR: #1347
 Blocked by:
 Source: владелец 2026-11-04, приёмка worfy-multi-vendor 32 на Mac Stable `460fb561`, снимок пикера Session
 
