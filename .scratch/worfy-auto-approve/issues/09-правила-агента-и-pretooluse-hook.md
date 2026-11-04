@@ -1,7 +1,8 @@
 # 09 — Правила агента и PreToolUse hook по данным 01
 
 Type: task
-Status: claimed 2026-11-04T14:48Z
+Status: done 2026-11-04T15:39Z
+PR: #1374
 Blocked by: 01
 Source: [spec.md](../spec.md), «Данные прошлых ночей»; Q8; Ticket 01, п. 3
 
