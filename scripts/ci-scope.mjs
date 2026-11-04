@@ -125,6 +125,7 @@ const APP_FILES = new Set([
   'test/big-transcript.ts',
   'test/quarantine.ts',
   'test/flaky.ts',
+  'test/failure-records.ts',
   'test/time-scale.ts',
   'test/claude-home-legacy.ts',
   'test/update-stub.ts',

@@ -1,7 +1,7 @@
 # 03 — Reporter-ы vitest и Playwright пишут записи
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T23:30Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Источники и что меняется в них» (worfy: reporter-ы; повтор поодиночке), «Модель» (запись о падении), «Windows» (argv без shell); [ADR-0083](../../../docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md) (повторы только в CI)
 

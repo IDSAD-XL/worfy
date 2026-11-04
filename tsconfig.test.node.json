@@ -57,6 +57,8 @@
     "test/timings-reporter.ts",
     "test/flaky.ts",
     "test/flaky-reporter.ts",
+    "test/failure-records.ts",
+    "test/failures-reporter.ts",
     "test/time-scale.ts",
     "test/timeout-literals.ts",
     "test/zsh.ts",
