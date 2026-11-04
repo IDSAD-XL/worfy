@@ -44,10 +44,13 @@ Source: [spec.md](../spec.md), «Безопасность», п. 5 (извест
 ## Готово, когда
 
 - [x] В «Итог» — список мест, где собранный worfy полагался на run-as-Node или inspector, и что с каждым сделано.
+  - evidence: commit pass · Turn off the RunAsNode and Node inspector fuses in the packaged app · - - · 97309f78714972fe2445aeb1aa2cf83c0938a128
 - [ ] В собранном приложении (macOS и Windows) `EnableNodeCliInspectArguments` и `RunAsNode` выключены; test это
       проверяет в CI.
 - [x] `kill -USR1 <pid>` собранного worfy не открывает inspector (ручная проверка или e2e собранного приложения).
+  - evidence: test-run pass · `pnpm test:package`: 21 passed, check-fuses both disabled (packaged.spec.ts kill -USR1 test) · mac - · 97309f78714972fe2445aeb1aa2cf83c0938a128
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный, вердикт Windows зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 97309f78714972fe2445aeb1aa2cf83c0938a128
 
 ## Где в коде
 
