@@ -44,13 +44,15 @@ Source: [spec.md](../spec.md), «Безопасность», п. 5 (извест
 ## Готово, когда
 
 - [x] В «Итог» — список мест, где собранный worfy полагался на run-as-Node или inspector, и что с каждым сделано.
-  - evidence: commit pass · Turn off the RunAsNode and Node inspector fuses in the packaged app · - - · 97309f78714972fe2445aeb1aa2cf83c0938a128
+  - evidence: commit pass · Turn off the RunAsNode and Node inspector fuses in the packaged app; inventory in the closing section · - - · 0b3dfbdc44f26629ec070e0933ac53a8fc4b5b77
 - [ ] В собранном приложении (macOS и Windows) `EnableNodeCliInspectArguments` и `RunAsNode` выключены; test это
       проверяет в CI.
+  - evidence: ci-check pass · macos-package (pnpm test:package, then check-fuses.mjs) pass on PR 1381; Windows .exe fuses wait for the PC gate full · mac - · 0b3dfbdc44f26629ec070e0933ac53a8fc4b5b77
 - [x] `kill -USR1 <pid>` собранного worfy не открывает inspector (ручная проверка или e2e собранного приложения).
-  - evidence: test-run pass · `pnpm test:package`: 21 passed, check-fuses both disabled (packaged.spec.ts kill -USR1 test) · mac - · 97309f78714972fe2445aeb1aa2cf83c0938a128
+  - evidence: ci-check pass · macos-package runs packaged.spec.ts: kill -USR1 opens no Node inspector, the copy with the fuse on does · mac - · 0b3dfbdc44f26629ec070e0933ac53a8fc4b5b77
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный, вердикт Windows зелёный.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · 97309f78714972fe2445aeb1aa2cf83c0938a128
+  - evidence: gate pass · gate fast exit 0, green lint typecheck test · mac - · 0b3dfbdc44f26629ec070e0933ac53a8fc4b5b77
+  - evidence: ci-check pass · ci-ok pass; windows full-suite 1/3, 2/3, 3/3 (3/3 after one rerun of a known flaky eval test) and harness-scripts pass on PR 1381 · windows - · 0b3dfbdc44f26629ec070e0933ac53a8fc4b5b77
 
 ## Где в коде
 
