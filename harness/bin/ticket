@@ -31,6 +31,16 @@
 //                                       and nothing on GitHub (see "mark" below). Usage errors — exit 2.
 //   ticket mark --contexts              print the contexts of the marks (review, check/*, deploy), one per line:
 //                                       CI checks filter them out
+//   ticket evidence <epic> <NN>         the Evidence matrix of the "done" section (TICKETS.md, "Evidence"): one line
+//                                       `<n>. <state> <reason?> — <text>` per checkbox item, its Evidence lines under
+//                                       it, last `evidence: N of M verified`; exit 0
+//   ticket evidence <epic> <NN> <item> <kind> <pass|fail> --ref "<text>" [--platform P] [--copy C] [--sha S]
+//                [--scrub YYYY-MM-DD] [-n]
+//                                       writes `- evidence: …` after the last line of item <item> (from 1); the
+//                                       platform defaults to this system's (ci under GitHub Actions), the sha to
+//                                       git HEAD, the copy to "-". A line the grammar refuses — exit 2, nothing written.
+//   ticket done also prints `evidence: N of M verified` and each unverified or failed item to stderr; its exit
+//   code does not change.
 //
 // Tickets root (the directory holding <epic>/issues/): --root <dir>, otherwise
 // the tickets.root field of the project's profile (bin/profile next to this script), otherwise, as before,
@@ -57,6 +67,8 @@ import { createRequire } from "node:module"
 import { git as GIT, harnessHome } from "../hooks/eval-env.cjs"
 // Code blocks: the rule epic-status, the reader of the header, skips them by.
 import { codeLines } from "../lib/code-fence.cjs"
+// The Evidence lines of the "done" section: their grammar and the state of an item.
+import { COPY_REQUIRED, NO_MACHINE, evidenceProblem, formatEvidence, itemState, parseDoneSection } from "../lib/evidence.cjs"
 
 const die = (msg) => {
     process.stderr.write(msg + "\n")
@@ -68,6 +80,8 @@ const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N] [
        ticket root [--root <dir>]
        ticket mark <epic> <NN> <review|check/<name>> <pending|success|failure|skipped> --sha <full sha> [--root <dir>]
        ticket mark --contexts
+       ticket evidence <epic> <NN> [--root <dir>]
+       ticket evidence <epic> <NN> <item> <kind> <pass|fail> --ref "<text>" [--platform P] [--copy C] [--sha S] [--scrub YYYY-MM-DD] [-n] [--root <dir>]
        ticket claim checkout-flow 05 --branch fix/lot-withdraw-button
        ticket done disputes/03 --pr 42
        ticket block disputes 04 "waits for the API keys" --waits owner`
@@ -91,6 +105,9 @@ let waitsArg = null
 let epicArg = null
 let shaArg = null
 let contextsArg = false
+// The fields of an Evidence line (ticket evidence); "-" is a value here, so these take the next argument as it is.
+const evArgs = { ref: null, platform: null, copy: null, scrub: null }
+const EV_FLAGS = { "--ref": "ref", "--platform": "platform", "--copy": "copy", "--scrub": "scrub" }
 const positional = []
 const valueOf = (flag, v) => {
     if (v === undefined || v === "" || v.startsWith("-")) die(`${flag} needs a value`)
@@ -122,12 +139,17 @@ for (let i = 0; i < argv.length; i++) {
     else if (a === "--sha") shaArg = argv[++i] ?? ""
     else if (a.startsWith("--sha=")) shaArg = a.slice(6)
     else if (a === "--contexts") contextsArg = true
+    else if (EV_FLAGS[a]) {
+        const v = argv[++i]
+        if (v === undefined) die(`${a} needs a value`)
+        evArgs[EV_FLAGS[a]] = v
+    } else if (EV_FLAGS[a.split("=")[0]] && a.includes("=")) evArgs[EV_FLAGS[a.split("=")[0]]] = a.slice(a.indexOf("=") + 1)
     else if (a.startsWith("-")) die(`unknown flag: ${a}\n${USAGE}`)
     else positional.push(a)
 }
 
 const [cmd, ...where] = positional
-if (!cmd || !["done", "claim", "open", "block", "show", "migrate", "root", "mark"].includes(cmd)) die(USAGE)
+if (!cmd || !["done", "claim", "open", "block", "show", "migrate", "root", "mark", "evidence"].includes(cmd)) die(USAGE)
 if (waitsArg !== null) {
     // One line of the header: no line breaks, no surrounding spaces.
     waitsArg = waitsArg.trim()
@@ -135,7 +157,10 @@ if (waitsArg !== null) {
     if (cmd !== "block") die(`--waits goes only with block, not with ${cmd}`)
 }
 if (epicArg !== null && cmd !== "migrate") die(`--epic goes only with migrate, not with ${cmd}`)
-if ((shaArg !== null || contextsArg) && cmd !== "mark") die(`--sha and --contexts go only with mark, not with ${cmd}`)
+if ((contextsArg && cmd !== "mark") || (shaArg !== null && cmd !== "mark" && cmd !== "evidence"))
+    die(`--sha and --contexts go only with mark (--sha also with evidence), not with ${cmd}`)
+if (Object.values(evArgs).some((v) => v !== null) && cmd !== "evidence")
+    die(`--ref, --platform, --copy and --scrub go only with evidence, not with ${cmd}`)
 // --- mark: the arguments ------------------------------------------------------
 // The contexts of the marks on GitHub. The agents' kinds are review and check/<name>; deploy is set by the
 // project's deploy script (worfy: scripts/install-stable.mjs). CI checks leave all three out: they are not CI.
@@ -165,6 +190,52 @@ function markUsage() {
     return { kind, verdict, sha: shaArg }
 }
 const markArgs = cmd === "mark" ? markUsage() : null
+
+// --- evidence: the arguments --------------------------------------------------
+// Two forms: <epic> <NN> prints the matrix; <epic> <NN> <item> <kind> <verdict> writes one line. A refusal of the
+// line is exit 2, like a usage error of mark: the caller (an agent, land) passed a wrong fact.
+const evUsage = (msg) => {
+    process.stderr.write(`ticket evidence: ${msg}\n${USAGE}\n`)
+    process.exit(2)
+}
+function evidenceUsage() {
+    const rest = where[0]?.includes("/") ? [...where[0].split("/"), ...where.slice(1)] : [...where]
+    if (rest.length !== 2 && rest.length !== 5)
+        evUsage(`expected <epic> <NN>, or <epic> <NN> <item> <kind> <verdict>; got ${rest.length} argument(s): ${rest.join(" ")}`)
+    const [epic, num, item, kind, verdict] = rest
+    where.splice(0, where.length, epic, num)
+    if (rest.length === 2) {
+        if (Object.values(evArgs).some((v) => v !== null) || shaArg !== null || dryRun) evUsage("the matrix takes no line flags: give <item> <kind> <verdict> to write a line")
+        return null
+    }
+    if (!/^\d+$/.test(item)) evUsage(`item is a number of a checkbox item of the section, from 1; got "${item}"`)
+    if (evArgs.ref === null) evUsage("--ref \"<text>\" is required: the command with its exit code, PR #N, a URL or a path")
+    const noMachine = NO_MACHINE.includes(kind)
+    let platform = evArgs.platform
+    if (platform === null && !noMachine) {
+        platform = process.env.GITHUB_ACTIONS === "true" ? "ci" : { darwin: "mac", win32: "windows", linux: "linux" }[process.platform]
+        if (!platform) evUsage(`no platform for ${process.platform}: give --platform`)
+    }
+    if (COPY_REQUIRED.includes(kind) && evArgs.copy === null) evUsage(`${kind} names the copy of the app it checked: give --copy`)
+    let sha = shaArg
+    if (sha === null) {
+        sha = git(["rev-parse", "HEAD"])
+        if (!sha) evUsage("no git HEAD here to bind the line to: give --sha")
+    }
+    const fields = {
+        kind,
+        verdict,
+        ref: evArgs.ref,
+        platform: platform ?? "-",
+        copy: evArgs.copy ?? "-",
+        sha,
+        scrub: evArgs.scrub,
+    }
+    const problem = evidenceProblem(fields)
+    if (problem !== null) evUsage(problem)
+    return { item: Number(item), fields }
+}
+const evLine = cmd === "evidence" ? evidenceUsage() : null
 
 // --- tickets root -----------------------------------------------------------
 // The profile is always asked, not only outside git: a project of several repositories may keep its tickets
@@ -409,6 +480,7 @@ const { lines } = doc
 const sh = shape(lines)
 
 if (cmd === "mark") mark()
+if (cmd === "evidence") evidence()
 
 if (cmd === "show") {
     if (sh.first === -1) die(`${matches[0]}: no Status line`)
@@ -510,7 +582,61 @@ if (dryRun) {
     process.exit(0)
 }
 writeTicket(target, doc)
+// done only warns about the items no Evidence line proves: done follows the merge (land), and a refusal there
+// would leave a merged ticket open (worfy-evidence, answer Q1).
+if (cmd === "done") {
+    const items = doneItems(lines)
+    if (items.length) {
+        const states = items.map((it) => ({ it, st: itemState(it) }))
+        process.stderr.write(`evidence: ${states.filter((s) => s.st.state === "verified").length} of ${items.length} verified\n`)
+        for (const { it, st } of states) if (st.state !== "verified") process.stderr.write(`  ${matrixLine(it, st)}\n`)
+    }
+}
 process.exit(0)
+
+// --- evidence -------------------------------------------------------------------
+// The headings of the "done" section: the profile's tickets.done_section and tickets.manual_mark; without a
+// profile (--root, a directory outside the registry) lib/evidence.cjs takes `## Done when` and `manual`. It reads
+// the old Russian headings in both cases.
+function doneItems(ls) {
+    return parseDoneSection(ls.join("\n"), { doneSection: prof?.tickets?.done_section, manualMark: prof?.tickets?.manual_mark })
+}
+
+function matrixLine(it, st) {
+    return `${it.index}. ${st.state}${st.reason ? ` ${st.reason}` : ""} — ${it.text}`
+}
+
+function evidence() {
+    const items = doneItems(lines)
+    if (evLine === null) {
+        console.log(rel(target))
+        if (!items.length) console.log(`  (no checkbox items in the "${prof?.tickets?.done_section || "## Done when"}" section)`)
+        let verified = 0
+        for (const it of items) {
+            const st = itemState(it)
+            if (st.state === "verified") verified++
+            console.log(matrixLine(it, st))
+            if (it.needs) console.log(`   - needs: ${it.needs.platform}${it.needs.copy ? ` ${it.needs.copy}` : ""}`)
+            for (const e of it.evidence) console.log(`   ${formatEvidence(e)}`)
+            for (const why of it.errors) console.log(`   ! ${why}`)
+        }
+        console.log(`evidence: ${verified} of ${items.length} verified`)
+        process.exit(0)
+    }
+    const it = items.find((x) => x.index === evLine.item)
+    if (!it) evUsage(`no item ${evLine.item} in the "done" section of ${rel(target)}: it has ${items.length} checkbox item(s)`)
+    const line = it.indent + formatEvidence(evLine.fields)
+    // it.end is 1-based: the new line takes the index right after it.
+    lines.splice(it.end, 0, line)
+    console.log(`${rel(target)}:${it.end + 1}${viaLink ? `  (via link ${rel(file)})` : ""}`)
+    console.log(`  + ${line}`)
+    if (dryRun) {
+        console.log("  (-n: file not touched)")
+        process.exit(0)
+    }
+    writeTicket(target, doc)
+    process.exit(0)
+}
 
 // --- migrate ------------------------------------------------------------------
 // A one-time move of every ticket of the tickets root (in Silent mode — of the Workflow folder) into the
