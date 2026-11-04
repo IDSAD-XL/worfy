@@ -41,10 +41,13 @@ Windows-часть `install-stable` проверяется на ПК.
 ## Готово, когда
 
 - [ ] Unit test restart-а: готовая сборка, чей sha — предок работающего commit-а, не ставится; причина в state.
+  - evidence: test-run pass · `pnpm test test/contract/update-restart.test.ts` exit 0 · mac - · ef81729e50c8813dabc797f7e03bb9c785ed7111
 - [ ] Unit test `install-stable`: дочерний процесс копии, который выходит через несколько секунд после
       `--wait-pid`, не даёт отказа; процесс, который не выходит до предела, — даёт отказ с его pid.
+  - evidence: test-run pass · `pnpm test test/unit/install-stable-update.test.ts` exit 0 · mac - · ef81729e50c8813dabc797f7e03bb9c785ed7111
 - [ ] Все unit и contract test-ы `src/main/update/` и `scripts/install-stable.mjs`, `pnpm typecheck`,
       `pnpm lint` — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ef81729e50c8813dabc797f7e03bb9c785ed7111
 
 ## Итог
 
