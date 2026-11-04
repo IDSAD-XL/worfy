@@ -1,0 +1,440 @@
+#!/usr/bin/env node
+// evidence-check — the privacy check of what a branch adds to the tickets root, before it reaches the
+// public repository. The rules and the masking are harness/lib/privacy.cjs.
+//
+//   evidence-check [--changed] [--base <ref>] [--root <tickets root>] [<file>…]
+//
+// See USAGE below for the options, the output and the exit codes, and what the check does not catch.
+//
+// What is read:
+//   --changed  the files of the tickets root that differ from the base in the working tree — added (A)
+//              or modified (M) in the branch, staged or not — and the untracked files there
+//              (git ls-files --others --exclude-standard). A modified text file — only its added
+//              lines (git diff -U0); an added or untracked file — whole, and its path too.
+//   <file>…    each file whole, and its path when it lies inside the git repository.
+// Text is a file of a known text type or one without NUL in its first 8 KiB; every line is run
+// through privacy.findings with the host name of this machine and the personal deny list
+// (<Harness home>/user/privacy.json). An image (.png, .jpg, .jpeg, .webp, .gif) — the text of its
+// metadata: PNG tEXt, iTXt, zTXt (inflated with node:zlib) and eXIf; JPEG APP1 (Exif, XMP) and COM;
+// WebP EXIF and "XMP "; GIF comments. Pixels are not read.
+//
+// The scrub: note. An image or other binary file the branch adds (--changed: A or untracked) must
+// have a line, also added by the branch to a Markdown file of the tickets root, of the form
+//   - evidence: screenshot <verdict> · <ref> · … · scrub: <YYYY-MM-DD>
+// whose path in backticks in <ref>, resolved from the folder of that ticket file, is this very file
+// (normalized paths; case-insensitive on Windows). The same file name elsewhere does not count. Without
+// one: the finding "image needs a human check (no scrub: note)". The line is parsed here with one
+// expression (SCREENSHOT_LINE), not with harness/lib/evidence.cjs, so this check stands on its own;
+// shortcut: a line inside a code fence counts as a note too, redo when this check is wired to
+// evidence.cjs and its parser can say which lines are code.
+"use strict"
+
+const { spawnSync } = require("node:child_process")
+const fs = require("node:fs")
+const os = require("node:os")
+const path = require("node:path")
+const zlib = require("node:zlib")
+const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
+const privacy = require("../lib/privacy.cjs")
+
+const USAGE = `usage: evidence-check [--changed] [--base <ref>] [--root <tickets root>] [<file>…]
+
+The privacy check of what a branch adds to the tickets root: home folder paths with a user name, host
+names, Tailscale addresses, UUIDs, email addresses, tokens and the words of the personal list
+<Harness home>/user/privacy.json, in text, in file paths and in the metadata of images.
+
+  --changed       the files of the tickets root that differ from the base (added or modified, staged
+                  or not) and the untracked ones; of a modified text file only the added lines
+  --base <ref>    the base; default: HEAD^1 in GitHub Actions (GITHUB_ACTIONS=true), otherwise
+                  git merge-base HEAD <worktree.base of the profile, origin/main without one>
+  --root <dir>    the tickets root; default: \`ticket root\`
+  <file>…         files checked whole
+
+An image or other binary file the branch adds needs a line "- evidence: screenshot … · scrub: <date>"
+added by the branch to a ticket, whose path in backticks leads to that file: a person looked at the
+pixels. Without it: "image needs a human check (no scrub: note)".
+
+Output: <file>:<line>: <rule>: <masked value> — the value as its first two characters, "…" and its
+length; for an image <line> is the metadata chunk, for a file path it is "path".
+Exit 0 — "evidence-check: ok (N files)" (or nothing to check: the tickets root is outside the
+repository); 1 — findings, the last line "evidence-check: N findings"; 2 — the check could not run.
+
+What the check does not catch:
+  - text on the pixels of a screenshot: Machine names in the sidebar, a Project title, terminal
+    output in the picture — only a person and the scrub: note;
+  - a host or user name in an unpredictable form (a short form, another spelling) that is not in the
+    personal list;
+  - the name of the other machine (the PC on the Mac and back) until it is in the personal list:
+    the host name is known only for the machine the check runs on, and on CI for none;
+  - a secret broken by a line break, base64 and other encodings;
+  - files outside the tickets root, the git history (what is pushed stays reachable by its SHA), the
+    text of PRs and comments on GitHub.
+`
+
+const TEXT_EXT = new Set([".md", ".json", ".jsonl", ".txt", ".log", ".cpuprofile"])
+const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"])
+// shortcut: the scrub: note is parsed here, not by evidence.cjs; redo when this check is wired to evidence.cjs.
+const SCREENSHOT_LINE = /^\s*[-*]\s+evidence:\s+screenshot\s+(.*)$/
+const SCRUB_FIELD = /^scrub:\s*\d{4}-\d{2}-\d{2}$/
+
+// The exit code, thrown up to the end of the script: process.exit() could cut the output short on a
+// Windows pipe, where writes to stdout are asynchronous.
+class Exit {
+    constructor(code) {
+        this.code = code
+    }
+}
+function die(code, message) {
+    process.stderr.write(`evidence-check: ${message}\n`)
+    throw new Exit(code)
+}
+
+function main() {
+    // --- arguments ----------------------------------------------------------------------------------
+    let changed = false
+    let baseArg = null
+    let rootArg = null
+    const files = []
+    const argv = process.argv.slice(2)
+    for (let i = 0; i < argv.length; i++) {
+        const a = argv[i]
+        if (a === "--help" || a === "-h") {
+            process.stdout.write(USAGE)
+            return 0
+        } else if (a === "--changed") changed = true
+        else if (a === "--base" || a === "--root") {
+            const v = argv[++i]
+            if (v === undefined || v === "") die(2, `${a} needs a value\n${USAGE}`)
+            if (a === "--base") baseArg = v
+            else rootArg = v
+        } else if (a.startsWith("--base=")) baseArg = a.slice(7)
+        else if (a.startsWith("--root=")) rootArg = a.slice(7)
+        else if (a === "--") files.push(...argv.slice(i + 1)), (i = argv.length)
+        else if (a.startsWith("-")) die(2, `unknown option ${a}\n${USAGE}`)
+        else files.push(a)
+    }
+    if (!changed && files.length === 0) die(2, `nothing to check: give --changed or files\n${USAGE}`)
+
+    // --- helpers ------------------------------------------------------------------------------------
+    function run(cmd, args, cwd) {
+        return spawnSync(cmd, args, { cwd, encoding: "buffer", maxBuffer: 1 << 30, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })
+    }
+    function git(args, cwd) {
+        const r = run(GIT, ["-c", "core.quotePath=false", ...args], cwd)
+        if (r.error) die(2, `git could not start: ${r.error.message}`)
+        return { ok: r.status === 0, out: r.stdout.toString("utf8"), err: r.stderr.toString("utf8").trim() }
+    }
+    // A sibling script runs with the node running this one: Windows does not start an extensionless file
+    // by its #! line. A test stand-in with another #! line runs by it.
+    function script(file, args, cwd) {
+        let head = ""
+        try {
+            head = fs.readFileSync(file, "latin1").split("\n")[0]
+        } catch {
+            return { status: 127, stdout: "", stderr: `${file}: No such file or directory` }
+        }
+        const r =
+            head.startsWith("#!") && !/\bnode\b/.test(head)
+                ? spawnSync(file, args, { cwd, encoding: "utf8", windowsHide: true })
+                : spawnSync(process.execPath, [file, ...args], { cwd, encoding: "utf8", windowsHide: true })
+        return { status: r.error ? 126 : r.status, stdout: r.stdout || "", stderr: r.stderr || (r.error ? r.error.message : "") }
+    }
+    const BIN = path.dirname(fs.realpathSync(__filename))
+    function real(p) {
+        try {
+            return fs.realpathSync.native(p)
+        } catch {
+            return path.resolve(p)
+        }
+    }
+    const sameCase = (p) => (process.platform === "win32" ? p.toLowerCase() : p)
+    function inside(parent, child) {
+        const rel = path.relative(sameCase(parent), sameCase(child))
+        return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))
+    }
+
+    const options = { hostname: os.hostname(), deny: privacy.personal(harnessHome()).deny }
+    const out = []
+    let count = 0 // findings
+    let count0 = 0 // files checked
+    function report(file, line, rule, text) {
+        out.push(`${privacy.maskText(file, options)}:${line}: ${rule}: ${text}`)
+        count++
+    }
+    function checkText(file, text, line) {
+        for (const f of privacy.findings(text, options)) report(file, line, f.rule, privacy.mask(text.slice(f.index, f.index + f.length)))
+    }
+    function checkLines(file, lines) {
+        for (const [n, text] of lines) checkText(file, text, n)
+    }
+    const splitLines = (text) => text.split("\n").map((l, i) => [i + 1, l.replace(/\r$/, "")])
+
+    function isBinary(file, buf) {
+        const ext = path.extname(file).toLowerCase()
+        if (TEXT_EXT.has(ext)) return false
+        if (IMAGE_EXT.has(ext)) return true
+        return buf.subarray(0, 8192).includes(0)
+    }
+
+    // --- metadata of images: [chunk name, text] -----------------------------------------------------
+    function utf8(b) {
+        return Buffer.from(b).toString("utf8")
+    }
+    function pngText(buf) {
+        const texts = []
+        let at = 8
+        while (at + 12 <= buf.length) {
+            const len = buf.readUInt32BE(at)
+            const type = buf.toString("latin1", at + 4, at + 8)
+            const data = buf.subarray(at + 8, Math.min(buf.length, at + 8 + len))
+            at += 12 + len
+            try {
+                if (type === "tEXt") texts.push([type, data.toString("latin1").replace("\0", " ")])
+                else if (type === "zTXt") {
+                    const z = data.indexOf(0)
+                    texts.push([type, `${data.toString("latin1", 0, z)} ${utf8(zlib.inflateSync(data.subarray(z + 2)))}`])
+                } else if (type === "iTXt") {
+                    const k = data.indexOf(0)
+                    const compressed = data[k + 1] === 1
+                    const lang = data.indexOf(0, k + 3)
+                    const translated = data.indexOf(0, lang + 1)
+                    const body = data.subarray(translated + 1)
+                    texts.push([type, `${utf8(data.subarray(0, k))} ${utf8(data.subarray(k + 3, translated))} ${utf8(compressed ? zlib.inflateSync(body) : body)}`])
+                } else if (type === "eXIf") texts.push([type, utf8(data)])
+            } catch {
+                texts.push([type, utf8(data)]) // a chunk that does not inflate: its raw bytes are still read
+            }
+            if (type === "IEND") break
+        }
+        return texts
+    }
+    function jpegText(buf) {
+        const texts = []
+        let at = 2
+        while (at + 4 <= buf.length && buf[at] === 0xff) {
+            const marker = buf[at + 1]
+            if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+                at += 2
+                continue
+            }
+            if (marker === 0xd9 || marker === 0xda) break // end of image, start of the compressed data
+            const len = buf.readUInt16BE(at + 2)
+            const data = buf.subarray(at + 4, Math.min(buf.length, at + 2 + len))
+            if (marker === 0xe1) texts.push(["APP1", utf8(data)])
+            else if (marker === 0xfe) texts.push(["COM", utf8(data)])
+            at += 2 + len
+        }
+        return texts
+    }
+    function webpText(buf) {
+        const texts = []
+        let at = 12
+        while (at + 8 <= buf.length) {
+            const fourcc = buf.toString("latin1", at, at + 4)
+            const len = buf.readUInt32LE(at + 4)
+            const data = buf.subarray(at + 8, Math.min(buf.length, at + 8 + len))
+            if (fourcc === "EXIF" || fourcc === "XMP ") texts.push([fourcc, utf8(data)])
+            at += 8 + len + (len % 2)
+        }
+        return texts
+    }
+    function gifText(buf) {
+        const texts = []
+        const subBlocks = (from) => {
+            const parts = []
+            let at = from
+            while (at < buf.length && buf[at] !== 0) {
+                parts.push(buf.subarray(at + 1, at + 1 + buf[at]))
+                at += 1 + buf[at]
+            }
+            return [Buffer.concat(parts), at + 1]
+        }
+        let at = 13
+        if (buf[10] & 0x80) at += 3 * (1 << ((buf[10] & 7) + 1))
+        while (at < buf.length) {
+            const b = buf[at]
+            if (b === 0x21) {
+                const [data, next] = subBlocks(at + 2)
+                if (buf[at + 1] === 0xfe) texts.push(["comment", utf8(data)])
+                at = next
+            } else if (b === 0x2c) {
+                const packed = buf[at + 9]
+                at += 10
+                if (packed & 0x80) at += 3 * (1 << ((packed & 7) + 1))
+                at = subBlocks(at + 1)[1] // the LZW code size, then the image data
+            } else break // 0x3b, the trailer, or bytes this reader does not know
+        }
+        return texts
+    }
+    function imageText(file, buf) {
+        const ext = path.extname(file).toLowerCase()
+        try {
+            if (ext === ".png") return pngText(buf)
+            if (ext === ".jpg" || ext === ".jpeg") return jpegText(buf)
+            if (ext === ".webp") return webpText(buf)
+            if (ext === ".gif") return gifText(buf)
+        } catch {
+            /* a broken image: what was read so far is checked */
+        }
+        return []
+    }
+
+    // --- one file -------------------------------------------------------------------------------------
+    // file: the path as printed; abs: where it is; lines: the added [line, text] pairs, or null for the whole
+    // file; pathChecked: whether the path itself is checked; needsNote: an added binary file.
+    function checkFile({ file, abs, lines, pathChecked, needsNote }) {
+        count0++
+        if (pathChecked) for (const f of privacy.findings(file, options)) report(file, "path", f.rule, privacy.mask(file.slice(f.index, f.index + f.length)))
+        let buf
+        try {
+            buf = fs.readFileSync(abs)
+        } catch (e) {
+            die(2, `cannot read ${privacy.maskText(file, options)}: ${e.code || e.message}`)
+        }
+        if (isBinary(file, buf)) {
+            for (const [chunk, text] of imageText(file, buf)) checkText(file, text.replace(/\r?\n/g, " "), chunk)
+            if (needsNote && !notes.has(sameCase(path.resolve(abs)))) {
+                const what = IMAGE_EXT.has(path.extname(file).toLowerCase()) ? "image" : "binary file"
+                report(file, "-", "scrub", `${what} needs a human check (no scrub: note)`)
+            }
+            return
+        }
+        const text = buf.toString("utf8")
+        checkLines(file, lines ?? splitLines(text))
+    }
+    const notes = new Set() // the files the scrub: notes added by the branch lead to, normalized
+    function collectNotes(ticketAbs, lines) {
+        for (const [, text] of lines) {
+            const m = SCREENSHOT_LINE.exec(text)
+            if (!m) continue
+            const fields = m[1].split(" · ").map((f) => f.trim())
+            if (!fields.slice(1).some((f) => SCRUB_FIELD.test(f))) continue
+            const ref = /`([^`]+)`/.exec(fields[1] ?? "")
+            if (ref) notes.add(sameCase(path.resolve(path.dirname(ticketAbs), ref[1])))
+        }
+    }
+
+    // --- --changed: the files of the tickets root the branch adds or changes ---------------------------
+    const jobs = []
+    let top = null
+    {
+        const t = git(["rev-parse", "--show-toplevel"], process.cwd())
+        if (t.ok) top = real(t.out.replace(/\r?\n$/, ""))
+    }
+    let nothingToCheck = false
+    if (changed) {
+        if (!top) die(2, "--changed needs a git repository")
+        let root
+        if (rootArg !== null) root = path.resolve(process.cwd(), rootArg)
+        else {
+            const r = script(process.env.CLAUDE_TICKET_BIN || path.join(BIN, "ticket"), ["root"], process.cwd())
+            if (r.status !== 0) die(2, `\`ticket root\` failed (exit ${r.status}): ${r.stderr.trim().split("\n")[0]}`)
+            root = r.stdout.trim()
+        }
+        root = real(root)
+        if (!inside(top, root)) nothingToCheck = true
+        else {
+            let base = baseArg
+            if (base === null && process.env.GITHUB_ACTIONS === "true") base = "HEAD^1"
+            if (base === null) {
+                const p = script(process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile"), ["-C", top, "--field", "worktree.base"], top)
+                const field = p.status === 0 ? p.stdout.trim() : ""
+                const ref = field && field !== "null" ? field : "origin/main"
+                const mb = git(["merge-base", "HEAD", ref], top)
+                if (!mb.ok) die(2, `no base: git merge-base HEAD ${ref} failed (${mb.err.split("\n")[0]}); give --base <ref>`)
+                base = mb.out.trim()
+            }
+            const verified = git(["rev-parse", "--verify", "--quiet", "--end-of-options", `${base}^{commit}`], top)
+            if (!verified.ok) die(2, `no base: ${base} is not a commit here`)
+            const baseSha = verified.out.trim()
+            const spec = path.relative(top, root).split(path.sep).join("/")
+            const pathspec = spec === "" ? "." : `:(top,literal)${spec}`
+            const status = git(["diff", "--name-status", "-z", "--no-renames", baseSha, "--", pathspec], top)
+            if (!status.ok) die(2, `git diff failed: ${status.err.split("\n")[0]}`)
+            const parts = status.out.split("\0")
+            const entries = []
+            for (let i = 0; i + 1 < parts.length; i += 2) entries.push([parts[i], parts[i + 1]])
+            const untracked = git(["ls-files", "-z", "--others", "--exclude-standard", "--", pathspec], top)
+            if (!untracked.ok) die(2, `git ls-files failed: ${untracked.err.split("\n")[0]}`)
+            for (const p of untracked.out.split("\0")) if (p) entries.push(["A", p])
+            for (const [st, rel] of entries) {
+                if (st !== "A" && st !== "M" && st !== "T") continue
+                const abs = path.join(top, rel)
+                if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) continue
+                let lines = null
+                if (st !== "A") {
+                    const d = git(["diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", baseSha, "--", `:(top,literal)${rel}`], top)
+                    if (!d.ok) die(2, `git diff failed: ${d.err.split("\n")[0]}`)
+                    lines = addedLines(d.out)
+                }
+                jobs.push({ file: rel, abs, lines, changed: true, pathChecked: st === "A", needsNote: st === "A" })
+            }
+        }
+    }
+    // The added lines of a -U0 diff of one file, as [line in the new file, text].
+    function addedLines(diff) {
+        const lines = []
+        let next = 0
+        let inHunk = false
+        for (const raw of diff.split("\n")) {
+            const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw)
+            if (h) {
+                next = Number(h[1])
+                inHunk = true
+            } else if (inHunk && raw.startsWith("+")) lines.push([next++, raw.slice(1).replace(/\r$/, "")])
+            else if (inHunk && raw.startsWith("diff --git")) inHunk = false
+        }
+        return lines
+    }
+
+    // --- explicit files: whole ---------------------------------------------------------------------------
+    for (const f of files) {
+        const abs = path.resolve(process.cwd(), f)
+        if (jobs.some((j) => sameCase(real(j.abs)) === sameCase(real(abs)))) continue // named twice, or also found by --changed
+        if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) die(2, `no such file: ${privacy.maskText(f, options)}`)
+        const realAbs = real(abs)
+        jobs.push({ file: f, abs, lines: null, pathChecked: top !== null && inside(top, realAbs), pathFrom: top, needsNote: false })
+    }
+    if (nothingToCheck && files.length === 0) {
+        process.stdout.write("evidence-check: nothing to check (tickets root is outside the repository)\n")
+        return 0
+    }
+
+    // The notes first (any line the branch added to a ticket of the tickets root may hold one), then every file.
+    for (const job of jobs) {
+        if (!job.changed || path.extname(job.abs).toLowerCase() !== ".md") continue
+        let lines = job.lines
+        if (lines === null) {
+            try {
+                lines = splitLines(fs.readFileSync(job.abs, "utf8"))
+            } catch {
+                continue
+            }
+        }
+        collectNotes(real(job.abs), lines)
+    }
+    for (const job of jobs) {
+        // The path of an explicit file is checked as it lies in the repository, not as typed (an absolute
+        // path holds the home folder of whoever runs the check).
+        if (job.pathFrom !== undefined && job.pathChecked) {
+            const rel = path.relative(job.pathFrom, real(job.abs)).split(path.sep).join("/")
+            for (const f of privacy.findings(rel, options)) report(job.file, "path", f.rule, privacy.mask(rel.slice(f.index, f.index + f.length)))
+            job.pathChecked = false
+        }
+        checkFile(job)
+    }
+    for (const line of out) process.stdout.write(`${line}\n`)
+    if (count > 0) {
+        process.stdout.write(`evidence-check: ${count} findings\n`)
+        return 1
+    }
+    process.stdout.write(`evidence-check: ok (${count0} files)\n`)
+    return 0
+}
+
+try {
+    process.exitCode = main()
+} catch (e) {
+    if (!(e instanceof Exit)) throw e
+    process.exitCode = e.code
+}
