@@ -133,40 +133,92 @@ export function metadataPath(platform, target) {
   return platform === 'win32' ? `${target}.json` : `${target.replace(/\.app$/, '')}.json`
 }
 
+/** A pid as a number, or null when the list does not give one. */
+const pidOf = (value) => (typeof value === 'number' && Number.isInteger(value) ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : null)
+
 /**
- * The lines of a process list that show the copy running.
+ * The processes of the copy that run, each as { pid, line, outside }: `line` is `<pid> <command>` (the
+ * line runningCopies answers), `outside` says the process was started outside worfy (worfy-polish
+ * ticket 58), see below.
  *
- * macOS: `listing` is the output of `ps -axo pid=,command=`; a line counts when its command lies
- * inside one of `targets` (the path as written and its real path: a process started through a
+ * macOS: `listing` is the output of `ps -axo pid=,ppid=,command=` (a list without the ppid column,
+ * `pid command`, reads too: the parent of each is then unknown). A process counts when its command
+ * lies inside one of `targets` (the path as written and its real path: a process started through a
  * symlinked folder shows the path it was started by).
  * Windows: `listing` is the JSON PowerShell prints for `Get-CimInstance Win32_Process` with
- * ProcessId, Name and ExecutablePath. A process counts when its executable lies inside one of
- * `targets`, in any case of the letters, as Windows shows it or as `spell` gives it: Windows shows
- * the path a program was started by, so one started through a `subst` drive or an 8.3 short name
- * shows that spelling, and `spell` (onDisk) brings it to the spelling of the disk. So does a
- * worfy.exe whose path Windows does not give (the program of another user, or an elevated one): it
+ * ProcessId, ParentProcessId, Name and ExecutablePath. A process counts when its executable lies
+ * inside one of `targets`, in any case of the letters, as Windows shows it or as `spell` gives it:
+ * Windows shows the path a program was started by, so one started through a `subst` drive or an 8.3
+ * short name shows that spelling, and `spell` (onDisk) brings it to the spelling of the disk. So does
+ * a worfy.exe whose path Windows does not give (the program of another user, or an elevated one): it
  * may be the copy.
+ *
+ * Started outside worfy is a process of the copy whose chain of parents does not lead to worfy: the
+ * bundled `codex` a user started in a terminal (its parent is a shell). A process is worfy's own when
+ * it, or one of its ancestors, is worfy (`worfy`, the pid of --wait-pid), is in `own` (the pids taken
+ * for worfy's own while worfy still ran), or is the main program of the copy. When worfy has quit,
+ * its children lose their parent: macOS gives them to launchd (ppid 1), Windows keeps the pid of the
+ * parent that is gone. So the topmost process of the copy in the chain decides: a parent that is not
+ * there, pid 0 or 1, or an unknown one makes it worfy's own (it is waited for, as before); a parent
+ * that runs and is none of the above makes it one started outside worfy.
  */
-export function runningCopies(platform, targets, listing, spell = (path) => path) {
+export function copyProcesses(platform, targets, listing, { spell = (path) => path, own = new Set(), worfy } = {}) {
+  const processes = []
   if (platform !== 'win32') {
     const needles = targets.map((target) => `${target}/Contents/`)
-    return listing.split('\n').filter((line) => needles.some((needle) => line.includes(needle)))
-  }
-  const text = listing.trim()
-  if (text === '') return []
-  const parsed = JSON.parse(text)
-  const prefixes = targets.map((target) => `${target.toLowerCase()}\\`)
-  const inside = (path) => prefixes.some((prefix) => path.toLowerCase().startsWith(prefix))
-  const lines = []
-  for (const each of Array.isArray(parsed) ? parsed : [parsed]) {
-    const path = each?.ExecutablePath
-    if (typeof path === 'string') {
-      if (inside(path) || inside(spell(path))) lines.push(`${each.ProcessId} ${path}`)
-    } else if (typeof each?.Name === 'string' && each.Name.toLowerCase() === `${APP}.exe`) {
-      lines.push(`${each.ProcessId} ${each.Name} (Windows does not say where it runs from: another user's, or an elevated one)`)
+    const mains = targets.map((target) => `${target}/Contents/MacOS/${APP}`)
+    for (const line of listing.split('\n')) {
+      if (line.trim() === '') continue
+      const match = /^\s*(\d+)\s+(?:(\d+)\s+)?(\S.*)$/.exec(line)
+      const command = match === null ? line : match[3]
+      processes.push({
+        pid: match === null ? null : Number(match[1]),
+        ppid: match?.[2] === undefined ? null : Number(match[2]),
+        line: match === null ? line : `${match[1]} ${command}`,
+        inside: needles.some((needle) => command.includes(needle)),
+        main: mains.some((main) => command === main || command.startsWith(`${main} `)),
+      })
+    }
+  } else {
+    const text = listing.trim()
+    const parsed = text === '' ? [] : JSON.parse(text)
+    const prefixes = targets.map((target) => `${target.toLowerCase()}\\`)
+    const inside = (path) => prefixes.some((prefix) => path.toLowerCase().startsWith(prefix))
+    const mains = targets.map((target) => `${target.toLowerCase()}\\${APP}.exe`)
+    const main = (path) => mains.includes(path.toLowerCase())
+    for (const each of Array.isArray(parsed) ? parsed : [parsed]) {
+      const path = each?.ExecutablePath
+      const known = { pid: pidOf(each?.ProcessId), ppid: pidOf(each?.ParentProcessId) }
+      if (typeof path === 'string') {
+        processes.push({ ...known, line: `${each.ProcessId} ${path}`, inside: inside(path) || inside(spell(path)), main: main(path) || main(spell(path)) })
+      } else if (typeof each?.Name === 'string' && each.Name.toLowerCase() === `${APP}.exe`) {
+        processes.push({ ...known, line: `${each.ProcessId} ${each.Name} (Windows does not say where it runs from: another user's, or an elevated one)`, inside: true, main: true })
+      } else {
+        processes.push({ ...known, line: '', inside: false, main: false })
+      }
     }
   }
-  return lines
+  const byPid = new Map(processes.filter((each) => each.pid !== null).map((each) => [each.pid, each]))
+  const parentOf = (each) => (each.ppid === null || each.ppid <= 1 ? undefined : byPid.get(each.ppid))
+  const worfys = (pid) => pid !== null && (pid === worfy || own.has(pid))
+  const outside = (start) => {
+    let top = start
+    // A bounded walk: Windows gives pids out again, so a chain of parents may loop.
+    for (let at = start, steps = 0; at !== undefined && steps <= processes.length; at = parentOf(at), steps++) {
+      if (worfys(at.pid)) return false
+      if (at.inside) {
+        if (at.main) return false
+        top = at
+      }
+    }
+    return parentOf(top) !== undefined
+  }
+  return processes.filter((each) => each.inside).map((each) => ({ pid: each.pid, line: each.line, outside: outside(each) }))
+}
+
+/** The lines of a process list that show the copy running (copyProcesses). */
+export function runningCopies(platform, targets, listing, spell = (path) => path) {
+  return copyProcesses(platform, targets, listing, { spell }).map((each) => each.line)
 }
 
 /**
@@ -401,15 +453,22 @@ const SHOWN_COMMAND = 60
  * folder, which is the copy's, and the command cut to SHOWN_COMMAND characters.
  */
 export function describeProcess(line) {
+  const named = programOf(line)
+  if (named === null) return line.trim()
+  const { pid, shown } = named
+  return `pid ${pid} (${shown.length > SHOWN_COMMAND ? `${shown.slice(0, SHOWN_COMMAND - 1)}…` : shown})`
+}
+
+/** The pid of a line of runningCopies, the name of its program without the folder, and that name with the flags; null for a line without a pid. */
+function programOf(line) {
   const match = /^\s*(\d+)\s+(.*)$/.exec(line)
-  if (match === null) return line.trim()
+  if (match === null) return null
   const [, pid, command] = match
   // The program ends where the first flag begins; its path may hold spaces ("worfy Helper (Renderer)").
   const flags = command.search(/ -/)
   const program = flags === -1 ? command : command.slice(0, flags)
   const name = program.slice(Math.max(program.lastIndexOf('/'), program.lastIndexOf('\\')) + 1)
-  const shown = `${name}${flags === -1 ? '' : command.slice(flags)}`
-  return `pid ${pid} (${shown.length > SHOWN_COMMAND ? `${shown.slice(0, SHOWN_COMMAND - 1)}…` : shown})`
+  return { pid, name, shown: `${name}${flags === -1 ? '' : command.slice(flags)}` }
 }
 
 /**
@@ -420,6 +479,25 @@ export function copyStillRuns(running, limit = WAIT_LIMIT_MS) {
   const named = running.slice(0, 2).map(describeProcess).join(', ')
   const more = running.length > 2 ? ` and ${running.length - 2} more` : ''
   return `the stable copy still ran ${limit / 1000} s after worfy quit: quit it, then try again. Nothing was changed. Still running: ${named}${more}`
+}
+
+/** True for a line of runningCopies whose program is the bundled Codex (`codex`, `codex resume`, codex.exe). */
+const isCodex = (line) => /^codex(\.exe)?( |$)/i.test(programOf(line)?.name ?? '')
+
+/**
+ * The refusal when processes of the copy were started outside worfy (copyProcesses; worfy-polish
+ * ticket 58): mostly the bundled Codex a user runs in a terminal, as the dialog of the Codex hooks
+ * tells them to. It is refused at once, not waited for: it quits only when the user closes it, and
+ * the copy is not replaced under it (Windows keeps the files of a running program busy; macOS lets the
+ * folder go, but that Codex runs its own binary again, from a path the swap changes). `retry` is what
+ * to do again ("press Restart now again"). What to do comes first, as in copyStillRuns.
+ */
+export function startedOutside(outside, retry) {
+  const pids = (lines) => `pid${lines.length > 1 ? 's' : ''} ${lines.map((line) => programOf(line)?.pid ?? line.trim()).join(', ')}`
+  if (outside.every(isCodex)) return `Codex is open in a terminal (${pids(outside)}): close it, then ${retry}. Nothing was changed.`
+  const named = outside.slice(0, 2).map(describeProcess).join(', ')
+  const more = outside.length > 2 ? ` and ${outside.length - 2} more` : ''
+  return `a program of the stable copy runs outside worfy, in a terminal perhaps: close it, then ${retry}. Nothing was changed. Running: ${named}${more}`
 }
 
 /**
@@ -506,10 +584,10 @@ export function markDeploy({ repo, commit, dirty, prebuilt, env }, exec = spawnS
 }
 
 function processListing(platform) {
-  if (platform !== 'win32') return run('ps', ['-axo', 'pid=,command='])
+  if (platform !== 'win32') return run('ps', ['-axo', 'pid=,ppid=,command='])
   // Windows PowerShell prints in the console code page unless told otherwise: a path with letters
   // outside it would not match.
-  const script = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Select-Object ProcessId, Name, ExecutablePath | ConvertTo-Json -Compress'
+  const script = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath | ConvertTo-Json -Compress'
   const listing = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { maxBuffer: 64 * 1024 * 1024, timeout: LISTING_TIMEOUT_MS })
   // Some process always runs: an empty answer, or one that is not a list, says nothing about the copy.
   if (listing.trim() === '') fail('PowerShell printed no list of processes: whether the copy is running is not known')
@@ -914,9 +992,21 @@ function changeCopy(options, { platform = process.platform, env = process.env, h
   const rules = rulesOf(platform)
   const target = checkTarget(platform, options.target ?? defaultTarget(platform, env, home), env, home)
   known.target = rules.resolve(target)
-  // The running worfy holds the files of the copy: nothing is looked at or changed before it has quit.
-  // When it still runs at the limit, the list of processes decides (refuseIfRunning): Windows gives a
-  // number out again, so the process may be another program by now, and no copy runs.
+  // The list of processes while worfy still runs (worfy-polish ticket 58): what descends from it then
+  // is its own, also once it has quit and its children have lost their parent (copyProcesses). Read
+  // before the wait; what it shows is read once the target's spellings are known (`own` below). A
+  // list that cannot be read here leaves `own` empty: the chain of parents decides alone.
+  let early = null
+  if (options.waitPid !== undefined) {
+    try {
+      early = listing(platform)
+    } catch {
+      early = null
+    }
+  }
+  // The running worfy holds the files of the copy: nothing of the copy is looked at or changed before
+  // it has quit. When it still runs at the limit, the list of processes decides (refuseIfRunning):
+  // Windows gives a number out again, so the process may be another program by now, and no copy runs.
   const waited = options.waitPid === undefined || waitForExit(options.waitPid, alive, { now, sleep })
   const prior = previousPaths(platform, known.target)
   known.previous = prior.copy
@@ -962,9 +1052,23 @@ function changeCopy(options, { platform = process.platform, env = process.env, h
     }
   }
 
+  const spell = platform === 'win32' ? onDisk : undefined
+  const own = new Set(early === null ? [] : copyProcesses(platform, [...spellings], early, { spell, worfy: options.waitPid }).filter((each) => !each.outside).map((each) => each.pid))
+  const retry = options.waitPid === undefined ? 'run this again' : options.rollback ? 'press Roll back again' : 'press Restart now again'
+
   // `wait`: worfy has quit (--wait-pid), and its children get WAIT_LIMIT_MS to quit too (worfy-polish ticket 53).
+  // A process of the copy started outside worfy is not waited for: it is refused at once, by name (ticket 58).
   const refuseIfRunning = (wait = false) => {
-    const look = () => runningCopies(platform, [...spellings], listing(platform), platform === 'win32' ? onDisk : undefined)
+    const look = () => {
+      const found = copyProcesses(platform, [...spellings], listing(platform), { spell, own, worfy: options.waitPid })
+      const lines = found.map((each) => each.line)
+      const outside = found.filter((each) => each.outside).map((each) => each.line)
+      if (outside.length > 0) {
+        process.stderr.write(`${lines.join('\n')}\n`)
+        fail(startedOutside(outside, retry))
+      }
+      return lines
+    }
     const running = wait ? waitForCopyToQuit(look, { now, sleep }) : look()
     if (running.length === 0) {
       if (!waited && !outcome.notes.some((each) => each.startsWith(`process ${options.waitPid} `))) {

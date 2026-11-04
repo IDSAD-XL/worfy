@@ -59,7 +59,12 @@ interface WaitClock {
   limit?: number
   every?: number
 }
-const { installStable, previousPaths, WAIT_LIMIT_MS, WAIT_EVERY_MS, waitForCopyToQuit, describeProcess, copyStillRuns, runningCopies } = (await import(
+interface CopyProcess {
+  pid: number | null
+  line: string
+  outside: boolean
+}
+const { installStable, previousPaths, WAIT_LIMIT_MS, WAIT_EVERY_MS, waitForCopyToQuit, describeProcess, copyStillRuns, runningCopies, copyProcesses, startedOutside } = (await import(
   pathToFileURL(join(REPO, 'scripts', 'install-stable.mjs')).href
 )) as {
   installStable: (argv: string[], options: Options) => string
@@ -70,6 +75,8 @@ const { installStable, previousPaths, WAIT_LIMIT_MS, WAIT_EVERY_MS, waitForCopyT
   describeProcess: (line: string) => string
   copyStillRuns: (running: string[], limit?: number) => string
   runningCopies: (platform: string, targets: string[], listing: string, spell?: (path: string) => string) => string[]
+  copyProcesses: (platform: string, targets: string[], listing: string, options?: { spell?: (path: string) => string; own?: Set<number>; worfy?: number }) => CopyProcess[]
+  startedOutside: (outside: string[], retry: string) => string
 }
 
 /** The places of the real Stable copy and of worfy's data on this machine. */
@@ -555,5 +562,214 @@ describe.runIf(PLATFORM !== 'linux')('an install that keeps the copy it replaces
     install([target])
     install([target, '--keep-previous', '--result', result])
     expect(read(result)).toEqual({ ok: true, action: 'install', commit: head(), previous: previousPaths(PLATFORM, target).copy, notes: [`the earlier copy is kept at ${previousPaths(PLATFORM, target).copy}`] })
+  })
+})
+
+// worfy-polish ticket 58: the bundled Codex a user starts in a terminal (the dialog of worfy-polish 54
+// gives its path inside the copy) is a process of the copy, but not worfy's. It is not waited for: the
+// refusal comes at once and names it. worfy's own processes (Session children, the codex app-server
+// worfy started) are waited for as in ticket 53, also once worfy has quit and they lost their parent.
+describe('processes of the copy started outside worfy (worfy-polish ticket 58)', () => {
+  const MAC = '/Users/dev/Applications/worfy-stable.app'
+  const WIN = 'C:\\Users\\dev\\AppData\\Local\\worfy-stable'
+  const macCodex = `${MAC}/Contents/Resources/app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex`
+  const winCodex = `${WIN}\\resources\\app.asar.unpacked\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe`
+  const macClaude = `${MAC}/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude`
+  /** `ps -axo pid=,ppid=,command=` of the given rows. */
+  const ps = (rows: [number, number, string][]): string => `${rows.map(([pid, ppid, command]) => `${String(pid).padStart(5)} ${String(ppid).padStart(5)} ${command}`).join('\n')}\n`
+  const outsideOf = (found: CopyProcess[]): (number | null)[] => found.filter((each) => each.outside).map((each) => each.pid)
+  const ownOf = (found: CopyProcess[]): (number | null)[] => found.filter((each) => !each.outside).map((each) => each.pid)
+
+  it('macOS: a codex whose parent is a shell of a terminal is outside; the children of worfy are its own, before and after it quit', () => {
+    const terminal: [number, number, string][] = [
+      [300, 1, '/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal'],
+      [301, 300, 'login -pf dev'],
+      [302, 301, '-zsh'],
+      [303, 302, macCodex],
+      // An MCP server the terminal Codex started, from the Harness inside the copy: outside too.
+      [304, 303, `/usr/local/bin/node ${MAC}/Contents/Resources/harness/bin/qmd-mcp`],
+    ]
+    const worfy: [number, number, string][] = [
+      [500, 1, `${MAC}/Contents/MacOS/worfy`],
+      [501, 500, `${MAC}/Contents/Frameworks/worfy Helper (Renderer).app/Contents/MacOS/worfy Helper (Renderer) --type=renderer`],
+      [502, 500, `${macClaude} --resume=s1`],
+      [503, 500, `${macCodex} app-server`],
+      // A tool of the Session runs a script of the copy through a shell: the shell is not of the copy.
+      [504, 502, '/bin/bash -c node'],
+      [505, 504, `/usr/local/bin/node ${MAC}/Contents/Resources/harness/bin/ticket`],
+      // A Terminal card of worfy: its shell is a child of worfy.
+      [506, 500, '/bin/zsh -l'],
+      [507, 506, macCodex],
+    ]
+    const running = copyProcesses('darwin', [MAC], ps([...terminal, ...worfy]), { worfy: 500 })
+    expect(outsideOf(running)).toEqual([303, 304])
+    expect(ownOf(running)).toEqual([500, 501, 502, 503, 505, 507])
+    // worfy has quit: launchd took over its children (ppid 1). They are waited for, the terminal Codex is not.
+    const after: [number, number, string][] = [
+      [502, 1, `${macClaude} --resume=s1`],
+      [503, 1, `${macCodex} app-server`],
+      [504, 502, '/bin/bash -c node'],
+      [505, 504, `/usr/local/bin/node ${MAC}/Contents/Resources/harness/bin/ticket`],
+    ]
+    expect(outsideOf(copyProcesses('darwin', [MAC], ps([...terminal, ...after]), { worfy: 500 }))).toEqual([303, 304])
+    expect(ownOf(copyProcesses('darwin', [MAC], ps([...terminal, ...after]), { worfy: 500 }))).toEqual([502, 503, 505])
+    // The shell of the Terminal card outlives worfy for a moment: its Codex was taken for worfy's own while worfy ran.
+    const card: [number, number, string][] = [[506, 1, '/bin/zsh -l'], [507, 506, macCodex]]
+    expect(outsideOf(copyProcesses('darwin', [MAC], ps(card), { worfy: 500 }))).toEqual([507])
+    expect(outsideOf(copyProcesses('darwin', [MAC], ps(card), { worfy: 500, own: new Set([507]) }))).toEqual([])
+  })
+
+  it('macOS: the main program of the copy is worfy itself however it was started, and a list without parents is taken for worfy\'s', () => {
+    const fromShell = ps([[700, 1, '-zsh'], [701, 700, `${MAC}/Contents/MacOS/worfy`], [702, 701, `${macClaude} --resume=s2`]])
+    expect(outsideOf(copyProcesses('darwin', [MAC], fromShell))).toEqual([])
+    // `ps -axo pid=,command=`, as before ticket 58: the parent of each is unknown.
+    const noParents = `  303 ${macCodex}\n  502 ${macClaude} --resume=s1\n`
+    expect(copyProcesses('darwin', [MAC], noParents)).toEqual([
+      { pid: 303, line: `303 ${macCodex}`, outside: false },
+      { pid: 502, line: `502 ${macClaude} --resume=s1`, outside: false },
+    ])
+    // The lines runningCopies answers keep the form `pid command`: describeProcess reads them.
+    const [line] = runningCopies('darwin', [MAC], ps([[302, 1, '-zsh'], [303, 302, `${macCodex} resume`]]))
+    expect(describeProcess(line!)).toBe('pid 303 (codex resume)')
+  })
+
+  it('Windows: a codex.exe whose parent is a shell is outside; a child whose parent is gone, or is worfy, is its own', () => {
+    const listing = JSON.stringify([
+      { ProcessId: 4, ParentProcessId: 0, Name: 'System', ExecutablePath: null },
+      { ProcessId: 900, ParentProcessId: 880, Name: 'explorer.exe', ExecutablePath: 'C:\\Windows\\explorer.exe' },
+      { ProcessId: 910, ParentProcessId: 900, Name: 'WindowsTerminal.exe', ExecutablePath: 'C:\\Program Files\\WindowsApps\\WindowsTerminal.exe' },
+      { ProcessId: 911, ParentProcessId: 910, Name: 'powershell.exe', ExecutablePath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+      { ProcessId: 912, ParentProcessId: 911, Name: 'codex.exe', ExecutablePath: winCodex },
+      // worfy (pid 1200) has quit: Windows keeps the pid of the parent that is gone.
+      { ProcessId: 1201, ParentProcessId: 1200, Name: 'claude.exe', ExecutablePath: `${WIN}\\resources\\app.asar.unpacked\\node_modules\\@anthropic-ai\\claude-agent-sdk-win32-x64\\claude.exe` },
+      { ProcessId: 1202, ParentProcessId: 1200, Name: 'codex.exe', ExecutablePath: winCodex },
+      // A worfy.exe started from Explorer is worfy itself, and its children are its own.
+      { ProcessId: 1300, ParentProcessId: 900, Name: 'worfy.exe', ExecutablePath: `${WIN}\\worfy.exe` },
+      { ProcessId: 1301, ParentProcessId: 1300, Name: 'codex.exe', ExecutablePath: winCodex },
+      // Windows does not say where it runs from: taken for worfy.
+      { ProcessId: 1400, ParentProcessId: 911, Name: 'worfy.exe', ExecutablePath: null },
+    ])
+    const running = copyProcesses('win32', [WIN], listing, { worfy: 1200 })
+    expect(outsideOf(running)).toEqual([912])
+    expect(ownOf(running)).toEqual([1201, 1202, 1300, 1301, 1400])
+    expect(running.find((each) => each.pid === 912)?.line).toBe(`912 ${winCodex}`)
+    // While worfy still ran its codex app-server was a child of its pid, whatever the rest of the list.
+    const before = JSON.stringify([{ ProcessId: 1200, ParentProcessId: 900, Name: 'worfy.exe', ExecutablePath: `${WIN}\\worfy.exe` }, { ProcessId: 1202, ParentProcessId: 1200, Name: 'codex.exe', ExecutablePath: winCodex }])
+    expect(outsideOf(copyProcesses('win32', [WIN], before, { worfy: 1200 }))).toEqual([])
+    // A list without ParentProcessId (as before ticket 58): nothing is taken for outside.
+    expect(outsideOf(copyProcesses('win32', [WIN], JSON.stringify([{ ProcessId: 912, Name: 'codex.exe', ExecutablePath: winCodex }])))).toEqual([])
+  })
+
+  it('Windows: a loop of parents (pids given out again) ends the walk', () => {
+    const listing = JSON.stringify([
+      { ProcessId: 20, ParentProcessId: 21, Name: 'cmd.exe', ExecutablePath: 'C:\\Windows\\System32\\cmd.exe' },
+      { ProcessId: 21, ParentProcessId: 20, Name: 'codex.exe', ExecutablePath: winCodex },
+    ])
+    expect(outsideOf(copyProcesses('win32', [WIN], listing))).toEqual([21])
+  })
+
+  it('startedOutside names the terminal Codex by pid and says what to do first', () => {
+    const reason = startedOutside([`303 ${macCodex}`], 'press Restart now again')
+    expect(reason).toBe('Codex is open in a terminal (pid 303): close it, then press Restart now again. Nothing was changed.')
+    // A toast shows three lines (src/renderer/toast/toast.css) after "worfy was not updated to <version>: ": the advice fits.
+    expect(reason.indexOf('Restart now again') + 'Restart now again'.length).toBeLessThan(90)
+    expect(startedOutside([`912 ${winCodex}`, `913 ${winCodex}`], 'press Roll back again')).toBe('Codex is open in a terminal (pids 912, 913): close it, then press Roll back again. Nothing was changed.')
+    expect(startedOutside([`303 ${macCodex}`, `502 ${macClaude} --resume=s1`], 'run this again')).toBe(
+      'a program of the stable copy runs outside worfy, in a terminal perhaps: close it, then run this again. Nothing was changed. Running: pid 303 (codex), pid 502 (claude --resume=s1)',
+    )
+  })
+
+  describe('in a run of the script', () => {
+    useStandInBuild()
+    beforeEach(() => {
+      started.length = 0
+      marks.length = 0
+    })
+    const fakeTime = () => {
+      const state = { clock: 0, sleeps: [] as number[] }
+      return { state, now: () => state.clock, sleep: (wait: number) => void (state.sleeps.push(wait), (state.clock += wait)) }
+    }
+    const WORFY = 4242
+    interface Row {
+      pid: number
+      ppid: number
+      program: string
+      args?: string
+    }
+    /** The list of processes as `ps` or PowerShell prints it; `program` lies in the copy at `target` unless it is absolute. */
+    const listingOf = (target: string, rows: Row[]) => (platform: string): string => {
+      const path = (program: string): string => (program.startsWith('/') || /^[A-Z]:\\/u.test(program) ? program : join(target, ...program.split('/')))
+      if (platform === 'win32') return JSON.stringify(rows.map((row) => ({ ProcessId: row.pid, ParentProcessId: row.ppid, Name: row.program.split('/').pop(), ExecutablePath: path(row.program) })))
+      return rows.map((row) => `${row.pid} ${row.ppid} ${path(row.program)}${row.args === undefined ? '' : ` ${row.args}`}`).join('\n')
+    }
+    const codexIn = PLATFORM === 'win32' ? 'resources/app.asar.unpacked/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe' : 'Contents/Resources/app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex'
+    const shell = PLATFORM === 'win32' ? 'C:\\Windows\\System32\\cmd.exe' : '/bin/zsh'
+    const main = PLATFORM === 'win32' ? 'worfy.exe' : 'Contents/MacOS/worfy'
+    const gone = (): boolean => false
+
+    it('a codex of the copy started in a terminal gives a refusal at once, with its pid and what to do, and touches nothing', () => {
+      const time = fakeTime()
+      const target = targetIn('apps', 'worfy-stable')
+      const result = join(dir, 'result.json')
+      copyAt(target, 'current')
+      copyAt(previousPaths(PLATFORM, target).copy, 'previous')
+      const before = readdirSync(join(dir, 'apps')).sort()
+      const listing = listingOf(target, [
+        { pid: 600, ppid: 1, program: shell },
+        { pid: 601, ppid: 600, program: codexIn },
+      ])
+      const reason = 'Codex is open in a terminal (pid 601): close it, then press Roll back again. Nothing was changed.'
+      expect(() => install(['--rollback', target, '--wait-pid', String(WORFY), '--result', result], { now: time.now, sleep: time.sleep, alive: gone, listing })).toThrow(reason)
+      expect(read(result)).toMatchObject({ ok: false, reason })
+      // At once: no wait for the copy to quit.
+      expect(time.state.sleeps).toEqual([])
+      expect(readdirSync(join(dir, 'apps')).sort()).toEqual(before)
+      expect(which(target)).toBe('current')
+    })
+
+    it('the codex app-server worfy started, which quits a few seconds after worfy, is waited for: the roll back goes on', () => {
+      const time = fakeTime()
+      const target = targetIn('apps', 'worfy-stable')
+      copyAt(target, 'current')
+      copyAt(previousPaths(PLATFORM, target).copy, 'previous')
+      // While worfy runs the app-server is its child; once worfy is gone the app-server has lost its parent.
+      let looks = 0
+      const listing = (platform: string): string => {
+        looks += 1
+        if (looks === 1) return listingOf(target, [{ pid: WORFY, ppid: 1, program: main }, { pid: 610, ppid: WORFY, program: codexIn, args: 'app-server' }])(platform)
+        if (time.state.clock < 3_000) return listingOf(target, [{ pid: 610, ppid: 1, program: codexIn, args: 'app-server' }])(platform)
+        return listingOf(target, [])(platform)
+      }
+      install(['--rollback', target, '--wait-pid', String(WORFY)], { now: time.now, sleep: time.sleep, alive: gone, listing })
+      expect(which(target)).toBe('previous')
+      expect(time.state.sleeps).toEqual(Array.from({ length: 3_000 / WAIT_EVERY_MS }, () => WAIT_EVERY_MS))
+    })
+
+    it('a codex in a Terminal card of worfy, whose shell outlives worfy for a moment, is waited for, not refused', () => {
+      const time = fakeTime()
+      const target = targetIn('apps', 'worfy-stable')
+      copyAt(target, 'current')
+      copyAt(previousPaths(PLATFORM, target).copy, 'previous')
+      let looks = 0
+      const listing = (platform: string): string => {
+        looks += 1
+        // The first list is read while worfy still runs: the shell of the card is its child.
+        if (looks === 1) return listingOf(target, [{ pid: WORFY, ppid: 1, program: main }, { pid: 620, ppid: WORFY, program: shell }, { pid: 621, ppid: 620, program: codexIn }])(platform)
+        if (time.state.clock < 1_000) return listingOf(target, [{ pid: 620, ppid: 1, program: shell }, { pid: 621, ppid: 620, program: codexIn }])(platform)
+        return listingOf(target, [])(platform)
+      }
+      install(['--rollback', target, '--wait-pid', String(WORFY)], { now: time.now, sleep: time.sleep, alive: gone, listing })
+      expect(which(target)).toBe('previous')
+      expect(time.state.sleeps).toEqual([WAIT_EVERY_MS, WAIT_EVERY_MS])
+    })
+
+    it('without --wait-pid a terminal codex is refused at once by name too', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      copyAt(target, 'current')
+      copyAt(previousPaths(PLATFORM, target).copy, 'previous')
+      const listing = listingOf(target, [{ pid: 600, ppid: 1, program: shell }, { pid: 601, ppid: 600, program: codexIn }])
+      expect(() => install(['--rollback', target], { listing })).toThrow('Codex is open in a terminal (pid 601): close it, then run this again. Nothing was changed.')
+      expect(which(target)).toBe('current')
+    })
   })
 })
