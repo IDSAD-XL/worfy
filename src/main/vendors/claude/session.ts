@@ -45,6 +45,7 @@ import { isSelectableModel, PERMISSION_MODES, type EffortChoice, type ModelOptio
 import { contextUsageOf, isCompactBoundary, sdkMessageToEvents } from '../../../shared/vendors/claude/events'
 import type { PermissionAsker, RefusalDetails, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import { claudeSignedIn } from './account'
+import { claudeSettings } from './options'
 import { queryFactoryFromEnv } from './query'
 
 /** What the model reads when the user pressed "Deny". */
@@ -397,6 +398,7 @@ export function claudeSessions(factory: QueryFactory, given: Partial<UserDefault
   return {
     start: (opts) => open(opts, undefined, opts.sessionId),
     resume: (id, opts) => open(opts, id, undefined),
+    settingsFor: claudeSettings,
   }
 }
 

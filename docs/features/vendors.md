@@ -21,7 +21,8 @@ Vendor; Esc or a click outside closes the list. Each time the list opens, main c
 yet found signed in. A Linked machine on a build without the list starts the Session on its Project's default Vendor at
 once. "New session" in the Command palette uses the default Vendor too. The default Vendor is "Default vendor" in
 [Project settings](projects.md), and Claude Code while none is chosen. The Project's Orchestrator runs on it too, from its
-next start ("New conversation", or the next start of worfy), and so does Autopilot, which drives the Orchestrator. A
+next start ("New conversation", or the next start of worfy), and so does Autopilot, which drives the Orchestrator; a run
+on a Codex Orchestrator is refused until worfy can check that Codex runs the Harness's hooks. A
 Session that "Ship ticket" starts always runs on Claude Code. One Project holds Sessions of both Vendors side by side.
 
 **Signing in to a Vendor.** Settings → Vendors has one row per Vendor this build runs, Claude Code marked `required` and

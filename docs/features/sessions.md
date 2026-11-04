@@ -156,12 +156,16 @@ answers.
 - It runs on the Project's "Default vendor" ([Project settings](projects.md)), Claude Code while none is chosen. A change
   of it applies from the Orchestrator's next start: "New conversation", or the next start of worfy. A saved Session of
   the other Vendor is not resumed then: a new one starts on the new Vendor, with that Vendor's default model and effort,
-  and the old one stays in the history. A Codex Orchestrator shows its model and status block from its first answer
-  after a start, not from its transcript.
+  and the old one stays in the history. The permission mode moves to its equivalent on the new Vendor: Bypass
+  permissions and Full access, Accept edits and Auto, Ask before tools and Read only (Plan only becomes Read only). The
+  Node keeps the old Session until the new one has started: when that start fails, a change back to the old Vendor
+  resumes the old Session. A Codex Orchestrator shows its model and status block from its first answer after a start,
+  not from its transcript.
 - Eco mode, a switch under the Orchestrator's input field, writes two fields of the Project's Profile: `workflow.agents`
   set to `eco`, and `agents`, which is Sonnet with effort medium for each agent role. Off removes both fields, and the
   models the roles had before are not restored. It applies from the next Ticket.
-- Autopilot runs this Session unattended, on either Vendor. See [Autopilot](autopilot.md). While it does, the permission
+- Autopilot runs this Session unattended. On Codex a run is refused for now, with the reason: worfy cannot yet check
+  that Codex runs the Harness's hooks. See [Autopilot](autopilot.md). While it does, the permission
   mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission
   requests and questions are refused at once.
 

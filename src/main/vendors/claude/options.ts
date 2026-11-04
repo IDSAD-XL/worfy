@@ -453,6 +453,26 @@ export function sessionHarnessPlugin(harness: HarnessKind, bundledDir: () => str
 }
 
 /**
+ * The Claude Code mode that stands for each permission preset another Vendor's Sessions save (Codex's,
+ * src/main/vendors/codex/capabilities.ts, which maps the other way): an Orchestrator moved to Claude
+ * Code keeps how much it may do without asking (worfy-multi-vendor ticket 37).
+ */
+const MODE_OF_OTHER_PRESET: Readonly<Record<string, PermissionModeChoice>> = {
+  'full-access': 'bypassPermissions',
+  auto: 'acceptEdits',
+  'read-only': 'default',
+}
+
+/**
+ * A Session's settings in Claude Code's terms (SessionPart.settingsFor): another Vendor's permission
+ * preset becomes the Claude Code mode that stands for it; anything else stays as it is.
+ */
+export function claudeSettings(settings: SessionSettings): SessionSettings {
+  const mode = MODE_OF_OTHER_PRESET[settings.permissionMode]
+  return mode === undefined ? settings : { ...settings, permissionMode: mode }
+}
+
+/**
  * The permission mode Claude Code starts in: the Session's setting when it is one of Claude Code's
  * modes. A setting of another Vendor's preset (a saved pick the Session never refused) starts in
  * `default`, which asks before each tool.

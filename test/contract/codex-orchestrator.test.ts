@@ -22,12 +22,13 @@ import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, STATIC_CLAUDE_PARTS } from '../../src/main/agent/session'
 import { hasExited } from '../../src/main/agent/session/process'
+import { UNATTENDED_MODE_MESSAGE, unattendedPresetMessage } from '../../src/main/agent/session-settings'
 import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { Autopilot } from '../../src/main/autopilot/run'
 import { LayoutStore } from '../../src/main/layout/store'
 import { claudeSessions } from '../../src/main/vendors/claude/session'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
-import { codexCapabilities } from '../../src/main/vendors/codex/capabilities'
+import { CODEX_CAPABILITIES, codexCapabilities } from '../../src/main/vendors/codex/capabilities'
 import { codexCommands } from '../../src/main/vendors/codex/commands'
 import { UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
 import { codexSessions } from '../../src/main/vendors/codex/session'
@@ -37,6 +38,7 @@ import { DEFAULT_SETTINGS, type SessionSettings } from '../../src/shared/agent/s
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { ORCHESTRATOR_HEIGHT, ORCHESTRATOR_KIND, ORCHESTRATOR_WIDTH, readOrchestratorData } from '../../src/shared/ipc/orchestrator'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
+import { CLAUDE_CAPABILITIES, type Capabilities } from '../../src/shared/vendors/capabilities'
 import type { VendorId } from '../../src/shared/vendors/vendor'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
@@ -116,15 +118,36 @@ interface Logged {
   result?: unknown
 }
 
+interface HarnessOptions {
+  /** The Project's defaultVendor, asked at each start of the Orchestrator. */
+  vendor: () => VendorId | undefined
+  /** The Codex script of each app-server process in start order, the last for every later one. */
+  scripts: string[]
+  /** The Node's picks when none are saved (default ATTENDED_PICKS). */
+  settings?: SessionSettings
+  /** The saved picks, by Node id; one map passed to two harnesses is one store across a restart. */
+  picks?: Map<string, SessionSettings>
+  /**
+   * The Codex capabilities with `harness` on. Only for the Wave scenario: ticket 39 replaces this with
+   * the real check that Codex runs the Harness's hooks; without it the real capabilities refuse the run.
+   */
+  harnessOn?: boolean
+  /** Every Codex start fails with this, before any process (no binary, nobody signed in). */
+  codexFails?: string
+  /** WORFY_CODEX_HOME of the fake: a resume works only for a thread one of its processes started. */
+  codexHome?: string
+}
+
 /**
- * The app's parts over the fakes: the Orchestrators of `vendor()` (the Project's defaultVendor), an
- * Autopilot and its launcher. `scripts`: the Codex script of each app-server process in start order,
- * the last for every later one; each process logs what worfy sent into a file of its own.
+ * The app's parts over the fakes: the Orchestrators of `vendor()` (the Project's defaultVendor), with
+ * each Vendor's real capabilities, an Autopilot and its launcher. Each Codex process logs what worfy
+ * sent into a file of its own.
  */
-function harness(options: { vendor: () => VendorId | undefined; scripts: string[]; settings?: SessionSettings }) {
+function harness(options: HarnessOptions) {
   const env = { WORFY_DATA_DIR: join(scratch, 'data-root') }
   const logs: string[] = []
   const codex = codexSessions(() => {
+    if (options.codexFails !== undefined) return Promise.reject(new Error(options.codexFails))
     const index = logs.length
     const log = join(scratch, `codex-${index + 1}.log`)
     logs.push(log)
@@ -132,7 +155,12 @@ function harness(options: { vendor: () => VendorId | undefined; scripts: string[
       runtime: RUNTIME,
       appPath: REPO,
       clientVersion: '9.9.9',
-      env: { ...process.env, WORFY_CODEX_SCRIPT: options.scripts[Math.min(index, options.scripts.length - 1)]!, WORFY_CODEX_LOG: log },
+      env: {
+        ...process.env,
+        WORFY_CODEX_SCRIPT: options.scripts[Math.min(index, options.scripts.length - 1)]!,
+        WORFY_CODEX_LOG: log,
+        ...(options.codexHome === undefined ? {} : { WORFY_CODEX_HOME: options.codexHome }),
+      },
       spawnProcess: (_file: string, args: readonly string[], spawnOptions: SpawnOptions): ChildProcess => {
         const child = spawn(scriptNode(), [...args], spawnOptions)
         children.push(child)
@@ -159,7 +187,8 @@ function harness(options: { vendor: () => VendorId | undefined; scripts: string[
   })
   const layout = new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 })
   const transcripts: [string, VendorId | undefined][] = []
-  const picks = new Map<string, SessionSettings>()
+  const picks = options.picks ?? new Map<string, SessionSettings>()
+  const capabilities: Record<VendorId, Capabilities> = { claude: CLAUDE_CAPABILITIES, codex: options.harnessOn === true ? { ...CODEX_CAPABILITIES, harness: true, unsupported: {} } : CODEX_CAPABILITIES }
   const orchestrators = new Orchestrators({
     layout,
     projectPath: () => repo,
@@ -173,6 +202,7 @@ function harness(options: { vendor: () => VendorId | undefined; scripts: string[
       transcripts.push([sessionId, vendor])
       return Promise.resolve({ model: null, statusBlock: null })
     },
+    capabilities: (vendor) => Promise.resolve(capabilities[vendor]),
     broadcast: () => undefined,
     publish: () => undefined,
   })
@@ -225,7 +255,7 @@ function harness(options: { vendor: () => VendorId | undefined; scripts: string[
 
 describe('Autopilot on a Codex Orchestrator (worfy-multi-vendor ticket 37)', () => {
   it('drives the Wave through the Codex SessionHandle: Full access, the approval declined and journalled as refused-dialog, run-started names codex, and the Orchestrator goes back attended on the same thread', async () => {
-    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'autopilot-wave', 'resume'] })
+    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'autopilot-wave', 'resume'], harnessOn: true })
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave', wave: 1 })
@@ -264,13 +294,16 @@ describe('Autopilot on a Codex Orchestrator (worfy-multi-vendor ticket 37)', () 
     // Claude Code's model goes, with its effort: the Codex thread starts on Codex's default model.
     expect(seed.request(1, 'thread/start')?.params).not.toHaveProperty('model')
     expect([...seed.picks.values()]).toMatchObject([{ model: null, effort: null }])
-    // The Claude Code session is not asked for: it is not the Codex thread's.
+    // The Claude Code session is not asked for: it is not the Codex thread's. The Node keeps it until the thread is there.
     expect(seed.transcripts).toEqual([])
-    expect(seed.data()).toEqual({ sessionId: null, costUsd: 0, vendor: 'codex' })
+    expect(seed.data()).toEqual({ sessionId: 'claude-sdk-1', costUsd: 2 })
 
-    // The thread is the Node's once Codex names it (at its first turn); the next start resumes it.
+    // The thread is the Node's once Codex names it (at its first turn), with its Vendor and its cost from
+    // zero; the next start resumes it.
     seed.registry.get(view.sessionId!).send('Say hello')
     await until(() => seed.data().sessionId === 'thr_fake_1', 'the thread id in the Node')
+    expect(seed.data()).toEqual({ sessionId: 'thr_fake_1', costUsd: 0, vendor: 'codex' })
+    seed.layout.flushAll()
     seed.registry.closeAll()
     const next = harness({ vendor: () => 'codex', scripts: ['resume'] })
     await next.orchestrators.open(PROJECT)
@@ -291,10 +324,89 @@ describe('Autopilot on a Codex Orchestrator (worfy-multi-vendor ticket 37)', () 
     expect(h.logs).toHaveLength(1)
     const fresh = await h.orchestrators.newConversation(PROJECT)
     expect(fresh.vendor).toBe('claude')
-    expect(h.data()).toEqual({ sessionId: null, costUsd: 0, vendor: 'claude' })
+    // The Codex Session never had a turn, so the Node never named it: Claude Code's new session is a plain one.
+    expect(h.data()).toEqual({ sessionId: null, costUsd: 0 })
     h.registry.get(fresh.sessionId!).send(WAVE_1)
     await until(() => h.claudeMessages.length === 1, 'the message to Claude Code')
     expect(h.logs).toHaveLength(1)
+  })
+
+  it("refuses a Run on Codex while its `harness` capability is off, with the capability's reason, before any Codex process starts", async () => {
+    const h = harness({ vendor: () => 'codex', scripts: ['turn'] })
+    const reason = CODEX_CAPABILITIES.unsupported.harness!
+    expect(reason).toContain("worfy cannot yet check that Codex runs the Harness's hooks")
+    await expect(h.autopilot.startCheck(PROJECT, EPIC)).resolves.toBe(reason)
+    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(reason)
+    // The Orchestrator refuses the unattended start itself too, for any other caller.
+    await expect(h.orchestrators.setUnattended(PROJECT, true)).rejects.toThrow(reason)
+    expect(h.logs).toEqual([])
+    expect(h.node()).toBeUndefined()
+    // An open Orchestrator is asked by the Vendor it runs on, not by the Project's setting now.
+    const open = harness({ vendor: () => 'claude', scripts: ['turn'] })
+    let vendor: VendorId = 'codex'
+    const moved = harness({ vendor: () => vendor, scripts: ['turn'] })
+    await moved.orchestrators.open(PROJECT)
+    vendor = 'claude'
+    await expect(moved.orchestrators.unattendedRefusal(PROJECT)).resolves.toBe(reason)
+    await expect(open.orchestrators.unattendedRefusal(PROJECT)).resolves.toBeNull()
+  })
+
+  it('keeps the permission setting across a Vendor switch by its equivalent: bypassPermissions on Claude Code, Full access on Codex, bypassPermissions again', async () => {
+    const picks = new Map<string, SessionSettings>()
+    const settings: SessionSettings = { ...DEFAULT_SETTINGS, permissionMode: 'bypassPermissions' }
+    const codex = harness({ vendor: () => 'codex', scripts: ['turn'], picks, settings })
+    const onCodex = await codex.orchestrators.open(PROJECT)
+    await until(() => codex.request(1, 'thread/start') !== undefined, 'the Codex thread')
+    expect(codex.request(1, 'thread/start')?.params).toMatchObject({ approvalPolicy: 'never', sandbox: 'danger-full-access' })
+    await until(() => [...picks.values()][0]?.permissionMode === 'full-access', "Codex's own id saved")
+    expect(codex.registry.get(onCodex.sessionId!).controls().settings.permissionMode).toBe('full-access')
+    codex.registry.closeAll()
+
+    const claude = harness({ vendor: () => 'claude', scripts: ['turn'], picks, settings })
+    const onClaude = await claude.orchestrators.open(PROJECT)
+    expect(claude.registry.get(onClaude.sessionId!).controls().settings.permissionMode).toBe('bypassPermissions')
+    await until(() => [...picks.values()][0]?.permissionMode === 'bypassPermissions', "Claude Code's own mode saved")
+  })
+
+  it('a start that fails on the new Vendor leaves the Node on its old session: back on Claude Code, the Orchestrator resumes it', async () => {
+    const failing = harness({ vendor: () => 'codex', scripts: ['turn'], codexFails: 'The Codex binary of this build is missing' })
+    failing.layout.apply(PROJECT, { op: 'create', node: { kind: ORCHESTRATOR_KIND, x: 40, y: 40, w: ORCHESTRATOR_WIDTH, h: ORCHESTRATOR_HEIGHT, locked: true, data: { sessionId: 'claude-sdk-1', costUsd: 2 } } })
+    const view = await failing.orchestrators.open(PROJECT)
+    await until(() => failing.orchestrators.view(view.nodeId)?.state === 'error', 'the failed start')
+    expect(failing.orchestrators.view(view.nodeId)?.error).toContain('The Codex binary of this build is missing')
+    expect(failing.data()).toEqual({ sessionId: 'claude-sdk-1', costUsd: 2 })
+    // The restart: the Layout as saved, as the app saves it when it quits.
+    failing.layout.flushAll()
+    failing.registry.closeAll()
+
+    const back = harness({ vendor: () => 'claude', scripts: ['turn'] })
+    const resumed = await back.orchestrators.open(PROJECT)
+    expect(back.transcripts).toEqual([['claude-sdk-1', 'claude']])
+    expect(back.registry.get(resumed.sessionId!).sdkId).toBe('claude-sdk-1')
+    expect(resumed).toMatchObject({ vendor: 'claude', costUsd: 2 })
+  })
+
+  it("a Codex Node whose thread is gone starts a new thread: Codex's 'no rollout found' is a session that cannot be resumed", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const h = harness({ vendor: () => 'codex', scripts: ['resume', 'turn'], codexHome: join(scratch, 'codex-threads') })
+    h.layout.apply(PROJECT, { op: 'create', node: { kind: ORCHESTRATOR_KIND, x: 40, y: 40, w: ORCHESTRATOR_WIDTH, h: ORCHESTRATOR_HEIGHT, locked: true, data: { sessionId: 'thr_gone', costUsd: 1, vendor: 'codex' } } })
+    await h.orchestrators.open(PROJECT)
+    await until(() => h.request(2, 'thread/start') !== undefined, 'the new thread')
+    expect(h.request(1, 'thread/resume')?.params).toMatchObject({ threadId: 'thr_gone' })
+    expect(h.data()).toEqual({ sessionId: null, costUsd: 0, vendor: 'codex' })
+    expect(warn.mock.calls.some(([message]) => String(message).includes('thr_gone cannot be resumed'))).toBe(true)
+    warn.mockRestore()
+  })
+
+  it("an unattended Codex Session takes a pick of its own Full access, and refuses another in its own words, not Claude Code's", async () => {
+    const h = harness({ vendor: () => 'codex', scripts: ['turn'] })
+    const session = h.registry.start(repo, undefined, () => undefined, DEFAULT_SETTINGS, { unattended: true }, undefined, 'codex')
+    await until(() => h.request(1, 'thread/start') !== undefined, 'the Codex thread')
+    await expect(session.configure({ permissionMode: 'full-access' })).resolves.toMatchObject({ permissionMode: 'full-access' })
+    const refusal = session.configure({ permissionMode: 'auto' })
+    await expect(refusal).rejects.toThrow(unattendedPresetMessage('full-access'))
+    await expect(refusal).rejects.not.toThrow(/Claude|bypassPermissions/)
+    expect(UNATTENDED_MODE_MESSAGE).toContain('bypassPermissions')
   })
 
   it('settings that cannot be read start the Orchestrator on Claude Code, and the Node keeps no Vendor', async () => {

@@ -24,6 +24,8 @@ Vendor не меняли, остаются `{sessionId, costUsd}`. При ста
 - Смена Vendor-а теряет выбранные модель и effort Node-а; обратная смена их не возвращает.
 - Старая сборка, открывшая Layout с `vendor`, его не знает и возобновит id как Session Claude Code: откат worfy
   после смены Vendor-а Orchestrator-а на Codex стоит одного отказанного `resume`, затем новая Session.
+- `patchData` сливает `data` (`src/main/layout/store.ts:257`), поэтому старая сборка оставляет `vendor: 'codex'` рядом с
+  id Claude Code, который сама записала; после обновления это стоит одного отказанного `resume`, затем новая Session.
 
 ## Considered Options
 

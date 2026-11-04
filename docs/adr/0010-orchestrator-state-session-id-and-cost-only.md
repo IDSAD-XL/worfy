@@ -29,3 +29,7 @@ Layout с `patchData` (MCP-инструменты Ticket-а 24) может пе�
 - Только события `agent.event` в renderer, без хранения: после перезапуска до первого хода Node
   пуст, а `sessionId` для `resume` всё равно надо где-то хранить.
 - В `data` только `sessionId` и `costUsd`, модель и блок — из транскрипта (выбрано).
+
+## Amendments
+
+- **2026-11-04, ADR-0095** (`worfy-multi-vendor` 37). `data` Node-а `orchestrator` может нести необязательное `vendor` — Vendor Session, чей id лежит в `sessionId`; остальное решение в силе.

@@ -108,8 +108,10 @@ While a run goes on:
 
 - The Orchestrator is **unattended**. It runs in the `bypassPermissions` mode, whatever mode the Node saved; on a Codex
   Orchestrator that is the "Full access" preset (sandbox `danger-full-access`, approvals `never`). A change of its
-  permission mode is refused. When the run ends, the Node gets its own settings back. The run works the same on either
-  Vendor of the Orchestrator: it drives the Orchestrator's Session and reads its events.
+  permission mode is refused. When the run ends, the Node gets its own settings back. The run drives the Orchestrator's
+  Session and reads its events the same way on either Vendor, but a run on a Codex Orchestrator is refused for now, with
+  the reason: worfy cannot yet check that Codex runs the Harness's hooks, and without them the gate and the guards of the
+  workflow do not hold (worfy-multi-vendor ticket 39 adds that check).
 - A permission request, a question with answer options and a Card's `session.ask` are refused at once, because no one is
   there to answer. An approval Codex still asks for gets `decline`. Each refusal goes to the journal. When Claude Code gave a reason for a permission request, the model
   gets that reason so it can change the command.

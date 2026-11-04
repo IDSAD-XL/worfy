@@ -36,10 +36,15 @@
 // The Orchestrator runs on the Project's defaultVendor (worfy-multi-vendor ticket 37), read when it
 // starts — when it opens, and at "New conversation" — and kept for every relaunch, so Autopilot's
 // unattended Session and the give-back continue the same Vendor's session. The Node's data names
-// the Vendor of the saved session; when the Project's Vendor is another one, the Orchestrator starts
-// a new session on it rather than resuming one its agent does not know, and the Node's picked model
-// and effort, which were that other Vendor's, go back to "Default". Autopilot drives the
-// Orchestrator of either Vendor the same way, through its Session.
+// the Vendor of the saved session (ADR-0095); when the Project's Vendor is another one, the
+// Orchestrator starts a new session on it rather than resuming one its agent does not know. The
+// Node's data keeps the old session, its Vendor and its cost until the new session's first init, so
+// a start that fails on the new Vendor (nobody signed in, no binary) leaves the old one resumable.
+// The Node's picked model and effort, which were the other Vendor's, go back to "Default"; the
+// permission setting stays, and the new Vendor's driver reads it as its own nearest one
+// (SessionPart.settingsFor). Autopilot drives the Orchestrator of either Vendor the same way,
+// through its Session, but only on a Vendor whose `harness` capability holds: the guarantees of the
+// workflow (gate, guards, read-only reviewers) are proven there (unattendedRefusal).
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import { findStatusBlock } from '../../shared/agent/status-block'
@@ -52,7 +57,8 @@ import {
   type OrchestratorView,
 } from '../../shared/ipc/orchestrator'
 import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
-import { UNNAMED_VENDOR, type VendorId } from '../../shared/vendors/vendor'
+import type { Capabilities } from '../../shared/vendors/capabilities'
+import { UNNAMED_VENDOR, vendorLabel, type VendorId } from '../../shared/vendors/vendor'
 import { placeNewNode } from '../layout/place'
 import type { TranscriptFacts } from './orchestrator-transcript'
 import { closeRefusal } from './resume'
@@ -127,6 +133,11 @@ export interface OrchestratorDeps {
    * (Claude Code's under the Claude home); null when the Project has no transcript of that session.
    */
   transcript(projectRoot: string, sdkSessionId: string, vendor: VendorId): Promise<TranscriptFacts | null>
+  /**
+   * What `vendor` can do (its driver's capabilities): Autopilot takes the Orchestrator only on a
+   * Vendor whose `harness` holds (unattendedRefusal). Absent: no Vendor is refused.
+   */
+  capabilities?(vendor: VendorId): Promise<Pick<Capabilities, 'harness' | 'unsupported'>>
   /** Gets every event of every Orchestrator, e.g. to send it to the windows. */
   broadcast: EventSink
   /** Gets every new view, e.g. to send it to the windows. */
@@ -256,9 +267,10 @@ export class Orchestrators {
       old.current = false
       old.session?.close()
     }
-    // A new session is a start of the Orchestrator: it runs on the Project's Vendor as it is now.
-    this.takeVendor(entry, this.vendorOf(projectId))
-    this.forgetSession(entry)
+    // A new session is a start of the Orchestrator: it runs on the Project's Vendor as it is now. On
+    // another Vendor the Node keeps the old session until the new one's first init.
+    if (this.takeVendor(entry, this.vendorOf(projectId))) this.leaveSession(entry)
+    else this.forgetSession(entry)
     this.launch(entry, undefined, { model: null, statusBlock: null })
     const view = this.views.get(entry.nodeId)
     if (view === undefined) throw new Error(`the Orchestrator of ${projectId} has no view`)
@@ -290,6 +302,9 @@ export class Orchestrators {
       }
       return this.views.get(entry.nodeId) ?? null
     }
+    // Before anything starts: a Vendor without the Harness's guarantees opens no Session for a run.
+    const refusal = await this.unattendedRefusal(projectId)
+    if (refusal !== null) throw new Error(refusal)
     await this.open(projectId)
     const entry = this.entries.get(projectId)
     if (entry === undefined) throw new Error(`the Orchestrator of ${projectId} was stopped`)
@@ -351,6 +366,27 @@ export class Orchestrators {
     return this.views.get(entry.nodeId) ?? null
   }
 
+  /**
+   * Why Autopilot may not take the Project's Orchestrator, or null: the Vendor its Session runs on —
+   * the open Orchestrator's, else the Project's — lacks the `harness` capability, so the workflow's
+   * guarantees are not proven there (worfy-multi-vendor ticket 37; ticket 39 adds the check that
+   * turns it on for Codex). The reason is the capability's own; capabilities that cannot be read
+   * refuse too. Without deps.capabilities, null.
+   */
+  async unattendedRefusal(projectId: string): Promise<string | null> {
+    if (this.deps.capabilities === undefined) return null
+    const vendor = this.entries.get(projectId)?.vendor ?? this.vendorOf(projectId)
+    let capabilities: Pick<Capabilities, 'harness' | 'unsupported'>
+    try {
+      capabilities = await this.deps.capabilities(vendor)
+    } catch (error) {
+      console.warn(`[orchestrator] could not read what ${vendor} can do`, error)
+      return `Autopilot did not start: worfy could not read what ${vendorLabel(vendor)} can do.`
+    }
+    if (capabilities.harness) return null
+    return capabilities.unsupported.harness ?? `Autopilot does not run on ${vendorLabel(vendor)}: the Harness's guarantees are not proven there.`
+  }
+
   /** Whether the Project's Orchestrator runs unattended now. */
   isUnattended(projectId: string): boolean {
     return this.entries.get(projectId)?.launch.unattended ?? false
@@ -406,7 +442,7 @@ export class Orchestrators {
       grace: null,
     }
     // A session of another Vendor than the Project's is not resumed: its agent does not know it.
-    if (this.takeVendor(entry, this.vendorOf(projectId))) this.forgetSession(entry)
+    if (this.takeVendor(entry, this.vendorOf(projectId))) this.leaveSession(entry)
     entry.ready = this.start(entry)
     return entry
   }
@@ -447,7 +483,9 @@ export class Orchestrators {
   /**
    * The Orchestrator's next Session runs on `vendor`. Answers whether that is another Vendor than the
    * saved session's: the Node's picked model and effort were that Vendor's, so they go back to the
-   * Vendor's default ("Default"), saved; the permission mode stays (each Vendor reads it as its own).
+   * Vendor's default ("Default"), saved. The permission setting stays as saved: the new Vendor's
+   * driver turns it into its own nearest one at the start (SessionPart.settingsFor: Claude Code's
+   * bypassPermissions is Codex's full-access, and back), and the start's `settings` event saves that.
    */
   private takeVendor(entry: Entry, vendor: VendorId): boolean {
     entry.vendor = vendor
@@ -525,13 +563,17 @@ export class Orchestrators {
     switch (event.type) {
       case 'init':
         next.model = event.model
-        if (run.fresh && !run.initSeen) {
-          // The new SDK session is the Node's from now on, its cost from zero (newUnattendedSession).
+        if ((run.fresh && !run.initSeen) || entry.vendor !== entry.savedVendor) {
+          // The new session is the Node's from now on, its cost from zero: a new SDK session
+          // (newUnattendedSession), or the first session on the Project's new Vendor (leaveSession),
+          // whose Vendor the Node then names.
           run.initSeen = true
+          const vendor = entry.vendor === entry.savedVendor ? {} : { vendor: entry.vendor }
           entry.savedSessionId = event.sdkSessionId
+          entry.savedVendor = entry.vendor
           entry.cost = new CostCounter(0)
           next.costUsd = 0
-          this.patch(entry, { sessionId: event.sdkSessionId, costUsd: 0 })
+          this.patch(entry, { sessionId: event.sdkSessionId, costUsd: 0, ...vendor })
           break
         }
         run.initSeen = true
@@ -568,6 +610,8 @@ export class Orchestrators {
         break
       case 'result':
         next.costUsd = entry.cost.result(event.costUsd)
+        // A result follows its Session's init on both Vendors (Claude Code's system init, Codex's
+        // turn/started), so the Node already names the new Vendor's session here (leaveSession).
         this.patch(entry, { costUsd: next.costUsd })
         break
       case 'text': {
@@ -669,6 +713,16 @@ export class Orchestrators {
   private cancelGrace(entry: Entry): void {
     if (entry.grace !== null) clearTimeout(entry.grace)
     entry.grace = null
+  }
+
+  /**
+   * The Orchestrator moves to another Vendor (takeVendor): its next Session is a new one, its cost from
+   * zero, but the Node's data keeps the old session, Vendor and cost until the new session's first
+   * init (apply). A start that fails on the new Vendor leaves the old session resumable.
+   */
+  private leaveSession(entry: Entry): void {
+    entry.savedSessionId = null
+    entry.cost = new CostCounter(0)
   }
 
   /**
