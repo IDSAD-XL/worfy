@@ -64,22 +64,22 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 
 - [ ] Shell test `ticket-evidence`: `video` без `--scrub` — exit 2; без файла или с `.mov` — exit 2; без `.sheet.png` рядом — exit 2;
       с клипом, sheet и `--scrub` — строка записана, `ticket evidence <epic> <NN>` её показывает, ручной пункт с ней — `verified`.
-  - evidence: test-run pass · `bash harness/bin/tests/ticket-evidence.test.sh` exit 0 · mac - · f8ba020b659a60dbbef5c5b04e5e6d2fc15f2f2e
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-evidence.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] Unit test `evidence` и contract test `evidence-rules-agree`: `video` в обеих копиях, причина «manual item needs owner-check,
       screenshot or video» одинакова.
-  - evidence: test-run pass · `pnpm exec vitest run test/unit/evidence.test.ts test/contract/evidence-rules-agree.test.ts` exit 0 · mac - · f8ba020b659a60dbbef5c5b04e5e6d2fc15f2f2e
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/evidence.test.ts test/contract/evidence-rules-agree.test.ts` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] Shell test `evidence-check`: webm и mp4 собраны в test-е из байтов (элементы EBML и атомы), значения — из кусков; путь домашней
       папки в `Title`, в `TagString` и в `©too` — находка с именем элемента; `WritingApp` вида `Lavf…` — не находка.
-  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · f8ba020b659a60dbbef5c5b04e5e6d2fc15f2f2e
+  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] Клип с дорожкой аудио — находка; клип 8 MB + 1 байт — находка; `Duration` 61 с — находка; клип без `Duration` — находка.
-  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · f8ba020b659a60dbbef5c5b04e5e6d2fc15f2f2e
+  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] Добавленный клип без строки `video … · scrub:` — находка; со строкой `screenshot … · scrub:` на него — тоже находка; с
       добавленной строкой `video` и sheet — чисто; без sheet — `video needs a contact sheet`; изменённый клип без отметки — не находка.
-  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · f8ba020b659a60dbbef5c5b04e5e6d2fc15f2f2e
+  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] Sheet с путём домашней папки в `tEXt` — находка, хотя клип отмечен.
-  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · f8ba020b659a60dbbef5c5b04e5e6d2fc15f2f2e
+  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] В выводе нет полного значения ни одной находки; fixture-ы и этот Ticket проходят `evidence-check` (exit 0).
-  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · f8ba020b659a60dbbef5c5b04e5e6d2fc15f2f2e
+  - evidence: test-run pass · `bash harness/bin/tests/evidence-check.test.sh` exit 0 · mac - · b96b87f0578d5ddd2dad50bfb3859682fe291c39
 - [ ] `bash harness/bin/tests/ticket-evidence.test.sh`, `bash harness/bin/tests/evidence-check.test.sh`,
       `pnpm test test/unit/evidence.test.ts test/contract/evidence-rules-agree.test.ts` — exit 0; Windows verdict до merge
       (платформенный); ревью `high`.
