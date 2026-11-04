@@ -1,7 +1,8 @@
 # 56 — Первый Epic: небольшая надпись у Minimap вместо панели посреди Canvas
 
 Type: change
-Status: open
+Status: done 2026-11-04T13:01Z
+PR: #1363
 Blocked by:
 Source: владелец 2026-11-04 в чате Orchestrator-а: «убираем табличку plan your first epic. делаем небольшую надпись
 возле карты без подложки»; уточнено: возле Minimap, надпись кликабельная
