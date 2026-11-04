@@ -138,12 +138,10 @@ test('a Codex Session: its presets, its slash menu and its approval with four an
     expect(promptBox && userLabel && answerBody).toBeTruthy()
     expect(promptBox?.x ?? 0).toBeGreaterThan(answerBody?.x ?? 0)
     expect(userLabel?.x ?? 0).toBeGreaterThanOrEqual((promptBox?.x ?? 0) + (promptBox?.width ?? 0))
-    const accent = await answer.locator('.w-tr__who--assistant').evaluate((label) => getComputedStyle(label).color)
-    const sides = await prompt.locator('.w-tr__prompt').evaluate((element) => {
-      const style = getComputedStyle(element)
-      return { right: style.borderRightWidth, rightColor: style.borderRightColor, left: style.borderLeftWidth }
-    })
-    expect(sides).toEqual({ right: '3px', rightColor: accent, left: '1px' })
+    const accent = await answer.locator('.w-tr__who--assistant').evaluate((label) => (globalThis as unknown as { getComputedStyle(element: object): { color: string } }).getComputedStyle(label).color)
+    await expect(prompt.locator('.w-tr__prompt')).toHaveCSS('border-right-width', '3px')
+    await expect(prompt.locator('.w-tr__prompt')).toHaveCSS('border-right-color', accent)
+    await expect(prompt.locator('.w-tr__prompt')).toHaveCSS('border-left-width', '1px')
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
       await view.getByTestId('transcript').screenshot({ path: test.info().outputPath(`57-codex-session-${scheme}.png`) })

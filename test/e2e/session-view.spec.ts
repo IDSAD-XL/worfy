@@ -100,12 +100,10 @@ async function expectUserRowOnTheRight(prompt: Locator, answer: Locator): Promis
   if (!promptBox || !userLabel || !answerBody) return
   expect(promptBox.x).toBeGreaterThan(answerBody.x)
   expect(userLabel.x).toBeGreaterThanOrEqual(promptBox.x + promptBox.width)
-  const accent = await answer.locator('.w-tr__who--assistant').evaluate((label) => getComputedStyle(label).color)
-  const sides = await box.evaluate((element) => {
-    const style = getComputedStyle(element)
-    return { right: style.borderRightWidth, rightColor: style.borderRightColor, left: style.borderLeftWidth }
-  })
-  expect(sides).toEqual({ right: '3px', rightColor: accent, left: '1px' })
+  const accent = await answer.locator('.w-tr__who--assistant').evaluate((label) => (globalThis as unknown as { getComputedStyle(element: object): { color: string } }).getComputedStyle(label).color)
+  await expect(box).toHaveCSS('border-right-width', '3px')
+  await expect(box).toHaveCSS('border-right-color', accent)
+  await expect(box).toHaveCSS('border-left-width', '1px')
 }
 
 /** The window's clock: the one the transcript stamps a live row with and tells today by. */
