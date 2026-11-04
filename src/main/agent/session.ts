@@ -423,7 +423,9 @@ export class Session {
    */
   configure(change: SettingsChange): Promise<SessionSettings> {
     this.assertOpen()
-    const refusal = settingsChangeRefusal(this.launch, change)
+    // The setting an unattended Session runs in, in its Vendor's own terms (launchSettings, settingsFor).
+    const forced = this.sessions.settingsFor?.({ ...DEFAULT_SETTINGS, permissionMode: 'bypassPermissions' }).permissionMode
+    const refusal = settingsChangeRefusal(this.launch, change, forced)
     if (refusal !== null) return Promise.reject(new Error(refusal))
     if (typeof change.model === 'string' && !isSelectableModel(change.model)) {
       return Promise.reject(new Error(`${change.model}: a Session runs on sonnet or a larger model`))

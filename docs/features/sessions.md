@@ -26,8 +26,7 @@ Vendor. "New session" refuses a Vendor this build does not run, or one nobody is
 Node appears; the reason of one nobody is signed in to is `Sign in to Codex in Settings → Vendors`. Claude Code is not
 asked again, because the first-run check already requires its sign-in. A sign-in check that fails or takes more than 15
 seconds refuses nothing, and the Session then shows the Vendor's own error. A Node whose Vendor this build does not know
-keeps it and refuses to start. The Orchestrator is always Claude Code, and so is a Session that "Ship ticket" starts,
-whatever the Project's default Vendor: the Harness's skills run under Claude Code only.
+keeps it and refuses to start. The Orchestrator runs on the Project's default Vendor (see **Orchestrator** below). A Session that "Ship ticket" starts is always Claude Code, whatever the Project's default Vendor.
 
 **Picking the Vendor and signing in.** "New session" in the sidebar opens the list "New session on", Settings → Vendors holds
 each Vendor's sign-in, and a badge shows each Session's Vendor: all three are on [Vendors](vendors.md).
@@ -154,11 +153,21 @@ answers.
 - "New conversation" is refused in `busy` and while Autopilot runs. The old conversation stays in the history, and the
   cost starts from zero.
 - When the Orchestrator opens, its saved Session is resumed. With the transcript gone, a new Session starts.
+- It runs on the Project's "Default vendor" ([Project settings](projects.md)), Claude Code while none is chosen. A change
+  of it applies from the Orchestrator's next start: "New conversation", or the next start of worfy. A saved Session of
+  the other Vendor is not resumed then: a new one starts on the new Vendor, with that Vendor's default model and effort,
+  and the old one stays in the history. The permission mode moves to its equivalent on the new Vendor: Bypass
+  permissions and Full access, Accept edits and Auto, Ask before tools and Read only (Plan only becomes Read only). The
+  Node keeps the old Session until the new one has started: when that start fails, a change back to the old Vendor
+  resumes the old Session. A Codex Orchestrator shows its model and status block from its first answer after a start,
+  not from its transcript.
 - Eco mode, a switch under the Orchestrator's input field, writes two fields of the Project's Profile: `workflow.agents`
   set to `eco`, and `agents`, which is Sonnet with effort medium for each agent role. Off removes both fields, and the
   models the roles had before are not restored. It applies from the next Ticket.
-- Autopilot runs this Session unattended. See [Autopilot](autopilot.md). While it does, the permission mode is forced to
-  Bypass permissions and not saved, a mode change is refused, and permission requests and questions are refused at once.
+- Autopilot runs this Session unattended. On Codex a run is refused for now, with the reason: worfy cannot yet check
+  that Codex runs the Harness's hooks. See [Autopilot](autopilot.md). While it does, the permission
+  mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission
+  requests and questions are refused at once.
 
 **Notifications.** A system notification goes out when a Session finishes a turn, asks a permission or asks a question while
 no worfy window has focus. A Session from a terminal or Claude desktop notifies when its status goes from busy to idle. One
@@ -189,8 +198,9 @@ Session sends at most one notification in 10 seconds. A click opens that Session
   [ADR-0005](../adr/0005-worfy-own-state-inventory.md)).
 - **An id arrives late.** A new Session passes its own uuid to Claude Code. A resumed one keeps a temporary `pending-` id until
   `system/init`, and then a `renamed` event moves everything to the real id. Channels accept both.
-- **The Orchestrator's Node keeps only the Session id and the cost.** Everything else comes from the transcript and the live
-  events ([ADR-0010](../adr/0010-orchestrator-state-session-id-and-cost-only.md)).
+- **The Orchestrator's Node keeps only the Session id, its Vendor and the cost.** Everything else comes from the transcript
+  and the live events ([ADR-0010](../adr/0010-orchestrator-state-session-id-and-cost-only.md)). A Node without the Vendor
+  is a Claude Code session.
 - **Tools and skills are limited by the Profile.** A Session in a Project gets only the MCP servers on its Profile's list, or
   the default list when it has none. The list goes to Claude Code as a policy tier, so a Subagent gets the same set
   ([ADR-0021](../adr/0021-mcp-servers-allowlist-in-profile.md)). `worfy-canvas` is passed only when the list names it, and

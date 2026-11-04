@@ -93,7 +93,7 @@ export class SessionRegistry {
    * one transcript, and both Sessions would send events under one id. `launch` is attended unless
    * Autopilot starts the Session unattended (session-settings.ts). With `after`, the Session is live
    * at once but starts its agent's process only once `after` settles (Session.start). `vendor` names
-   * whose agent runs the Session: Claude Code unless said (the Orchestrator's, in the first release);
+   * whose agent runs the Session: Claude Code unless said;
    * a Vendor the registry runs no Sessions of throws, and nothing starts.
    */
   start(cwd: string, resume: string | undefined, sink: EventSink, settings?: SessionSettings, launch?: SessionLaunch, after?: Promise<void>, vendor: VendorId = 'claude'): Session {

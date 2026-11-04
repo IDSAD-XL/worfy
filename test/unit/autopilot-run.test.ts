@@ -17,6 +17,7 @@ import { journalEventSchema, type JournalEvent, type JournalEventFields } from '
 import { autopilotStateSchema, type AutopilotState, type HarnessBehind } from '../../src/shared/ipc/autopilot'
 import type { PullRequest } from '../../src/shared/ipc/checks'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
+import { VENDOR_IDS } from '../../src/shared/vendors/vendor'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { readyWave } from '../../src/shared/workflow/waves'
 
@@ -2439,6 +2440,18 @@ describe('who started the run, its named Tickets and the Session each Wave went 
     const tool = opening()
     await tool.s.autopilot.start(PROJECT, EPIC, { by: 'tool' })
     expect(tool.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'tool', mode: 'fastest' }])
+  })
+
+  it("run-started names the Vendor of the Orchestrator's view, of either Vendor, and none for a view that names none (worfy-multi-vendor ticket 37)", async () => {
+    for (const vendor of VENDOR_IDS) {
+      const named = opening()
+      named.s.deps.orchestrators.setUnattended = () => Promise.resolve({ sessionId: SESSION, vendor } as OrchestratorView)
+      await named.s.autopilot.start(PROJECT, EPIC)
+      expect(named.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button', mode: 'fastest', vendor }])
+    }
+    const unnamed = opening()
+    await unnamed.s.autopilot.start(PROJECT, EPIC)
+    expect(unnamed.opened).toEqual([{ project: PROJECT, epic: EPIC, by: 'button', mode: 'fastest' }])
   })
 
   it("run-started carries the Run mode: the start's, else the default of Settings at the start, else Budget-aware only with the budget on (worfy-resource-planner ticket 05)", async () => {

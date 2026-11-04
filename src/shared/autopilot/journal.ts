@@ -43,6 +43,10 @@
 //                                    `fastest`, `budget-aware` or `start-window`; a `mode` of
 //                                    another value reads as none, the line stays. Lines written
 //                                    before ticket 05 have none
+//                  vendor?           the Vendor of the Orchestrator that runs the Waves
+//                                    (worfy-multi-vendor ticket 37): `claude` or `codex`; absent —
+//                                    `claude`, as in every line written before that ticket. A
+//                                    `vendor` this build does not know reads as none, the line stays
 //   harness-behind harness, main,    the Harness in worfy's main has changes in harness/ that the
 //                  commits           running build's Harness has not (worfy-harness ticket 21,
 //                                    ADR-0047): the Stable copy is due `pnpm install:stable` once
@@ -269,6 +273,7 @@
 // Everything here is pure; src/main/autopilot/journal.ts reads and writes the files.
 import { z } from 'zod'
 import type { LimitWindowId, LimitsState } from '../agent/limits'
+import { vendorIdSchema } from '../vendors/vendor'
 import { RUN_MODES, WINDOW_WAIT_REASONS } from './run-mode'
 
 /** Every kind of event, in the order a run usually meets them. */
@@ -375,7 +380,7 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
   z.object({ ...common, kind: z.literal(kind), ...fields })
 
 export const journalEventSchema = z.discriminatedUnion('kind', [
-  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional(), mode: z.enum(RUN_MODES).optional().catch(undefined) }),
+  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional(), mode: z.enum(RUN_MODES).optional().catch(undefined), vendor: vendorIdSchema.optional().catch(undefined) }),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
   event('forecast', {
     mode: z.enum(RUN_MODES).optional().catch(undefined),

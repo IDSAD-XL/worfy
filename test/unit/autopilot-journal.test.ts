@@ -133,6 +133,14 @@ describe('parseJournal', () => {
     expect(parseJournal(line({ ...started, mode: 3 }))).toEqual({ events: [started], skipped: 0 })
   })
 
+  // The Orchestrator's Vendor (worfy-multi-vendor ticket 37): a line without it is a run on Claude Code.
+  it('reads run-started with the Vendor of the Orchestrator; a Vendor this build does not know reads as none, and the line stays', () => {
+    const vendors = (['claude', 'codex'] as const).map((vendor): JournalEvent => ({ ...started, by: 'button', vendor }))
+    expect(parseJournal(vendors.map(line).join(''))).toEqual({ events: vendors, skipped: 0 })
+    expect(parseJournal(line({ ...started, vendor: 'gemini' }))).toEqual({ events: [started], skipped: 0 })
+    expect(parseJournal(line({ ...started, vendor: 7 }))).toEqual({ events: [started], skipped: 0 })
+  })
+
   // The Epic forecast and the actual share (worfy-resource-planner ticket 07, ADR-0093).
   it('reads forecast with and without the range, K, the week and the duration, and with the Start window; skips one outside the format', () => {
     const unknown: JournalEvent = { ...forecast, mode: 'fastest', samples: 0, low: null, high: null, fit: null, week: null, durationP90Ms: null, durationSamples: 0 }

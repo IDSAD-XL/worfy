@@ -130,7 +130,9 @@ export const CODEX_CAPABILITIES: Capabilities = {
     inProcessMcp: 'Codex runs in a process of its own: worfy reaches it over HTTP, not inside the app.',
     oneShotToolFree: 'One-off requests (the Project profile draft, Terminal AI) run on Claude Code only.',
     commandsComplete: 'The slash menu lists Codex skills and the commands the app server runs; the other Codex commands work only in its own terminal.',
-    harness: 'The Harness is not installed in Codex yet.',
+    // What Autopilot's refusal of a Codex Orchestrator says (Orchestrators.unattendedRefusal). Ticket 39
+    // turns `harness` on once worfy can check that Codex runs the Harness's hooks.
+    harness: "Autopilot does not run on Codex yet: worfy cannot yet check that Codex runs the Harness's hooks, and without them the gate and the guards of the workflow do not hold.",
   },
 }
 

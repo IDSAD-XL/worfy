@@ -3,7 +3,11 @@
 //
 // - The Project's Orchestrator runs as an unattended Session for the time of the run (ADR-0022):
 //   it is started again with the unattended launch, continuing its SDK session, and given back
-//   attended when the run ends, continuing the SDK session of the run's last Wave.
+//   attended when the run ends, continuing the SDK session of the run's last Wave. The Orchestrator
+//   runs on the Project's defaultVendor (worfy-multi-vendor ticket 37): the run drives it only
+//   through its Session (RunSession), the same for every Vendor, and run-started names the Vendor
+//   the Orchestrator's view gives. A start is refused while that Vendor lacks the `harness`
+//   capability (Orchestrators.unattendedRefusal): the workflow's guarantees are not proven there.
 // - Every Wave after the run's first starts a new SDK session of the Orchestrator (worfy-throughput
 //   ticket 52; Orchestrators.newUnattendedSession), so its context does not grow from Wave to Wave:
 //   its first prompt asks for `wave-brief <epic>`, then has the Wave's text (launch.ts,
@@ -253,6 +257,12 @@ export interface AutopilotDeps {
      * not free for it, and nothing changed (Orchestrators.newUnattendedSession).
      */
     newUnattendedSession(projectId: string): Promise<OrchestratorView | null>
+    /**
+     * Why the run may not take the Project's Orchestrator, or null: the Vendor it runs on lacks the
+     * Harness's guarantees (Orchestrators.unattendedRefusal, worfy-multi-vendor ticket 37). Absent:
+     * nothing is refused for it.
+     */
+    unattendedRefusal?(projectId: string): Promise<string | null>
   }
   registry: {
     get(sessionId: string): RunSession
@@ -860,6 +870,8 @@ export class Autopilot {
           by: run.by,
           ...(run.cycle.named === undefined ? {} : { tickets: run.cycle.named.map(ticketNumber) }),
           mode: run.mode,
+          // Whose agent runs the Waves, as the Orchestrator's view names it (worfy-multi-vendor ticket 37).
+          ...(view.vendor === undefined ? {} : { vendor: view.vendor }),
         })
         await this.journalHarness(run)
         await this.journalForecast(run, model.tickets)
@@ -895,12 +907,13 @@ export class Autopilot {
 
   /**
    * The checks of a start that need no Orchestrator and no Linked machine: worfy's own repository in
-   * a development build, the "Run wave" template, the workflow, the Epic and the named Tickets.
+   * a development build, the "Run wave" template, the Vendor of the Orchestrator (its `harness`
+   * capability), the workflow, the Epic and the named Tickets.
    * Throws the refusal; answers the root and the model read.
    */
   private async ownChecks(projectId: string, epic: string, tickets: readonly number[] | undefined): Promise<{ root: string; model: WorkflowModel }> {
     const root = this.deps.projectRoot(projectId)
-    const refusal = (await this.deps.selfRefusal(root)) ?? this.deps.waves.autopilotRefusal(projectId)
+    const refusal = (await this.deps.selfRefusal(root)) ?? this.deps.waves.autopilotRefusal(projectId) ?? (await this.deps.orchestrators.unattendedRefusal?.(projectId)) ?? null
     if (refusal !== null) throw new Error(refusal)
     const model = await this.deps.workflow(root)
     if (model.error !== null) throw new Error(`Cannot read the workflow: ${model.error.message}`)

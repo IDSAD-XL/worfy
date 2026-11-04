@@ -155,6 +155,7 @@ export function sharedAutopilot(): Autopilot {
       setUnattended: (projectId, unattended) => sharedOrchestrators().setUnattended(projectId, unattended),
       giveBackNow: (projectId) => sharedOrchestrators().giveBackNow(projectId),
       newUnattendedSession: (projectId) => sharedOrchestrators().newUnattendedSession(projectId),
+      unattendedRefusal: (projectId) => sharedOrchestrators().unattendedRefusal(projectId),
     },
     registry: {
       get: (sessionId) => sharedRegistry().get(sessionId),

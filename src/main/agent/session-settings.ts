@@ -48,10 +48,22 @@ export function launchSettings(settings: SessionSettings, launch: SessionLaunch)
   return launch.unattended ? { ...settings, permissionMode: 'bypassPermissions' } : { ...settings }
 }
 
-/** Why a settings change is refused for this launch, or null when it may be applied. A refused change is refused whole. */
-export function settingsChangeRefusal(launch: SessionLaunch, change: SettingsChange): string | null {
-  if (!launch.unattended || change.permissionMode === undefined || change.permissionMode === 'bypassPermissions') return null
-  return UNATTENDED_MODE_MESSAGE
+/**
+ * What a change of the permission setting of an unattended Session of another Vendor answers: the
+ * setting it runs in, by that Vendor's own id (Codex: `full-access`, worfy-multi-vendor ticket 37).
+ */
+export const unattendedPresetMessage = (forced: string): string =>
+  `This Session runs unattended (Autopilot), so its permission setting stays ${forced}: in any other setting the agent would ask before it acts, and no one is there to answer.`
+
+/**
+ * Why a settings change is refused for this launch, or null when it may be applied. A refused change
+ * is refused whole. `forced`: the permission setting the Vendor runs an unattended Session in, by its
+ * own id (SessionPart.settingsFor of bypassPermissions); a pick of it, or of bypassPermissions, is no
+ * change. Claude Code's refusal names bypassPermissions, another Vendor's its own setting.
+ */
+export function settingsChangeRefusal(launch: SessionLaunch, change: SettingsChange, forced = 'bypassPermissions'): string | null {
+  if (!launch.unattended || change.permissionMode === undefined || change.permissionMode === 'bypassPermissions' || change.permissionMode === forced) return null
+  return forced === 'bypassPermissions' ? UNATTENDED_MODE_MESSAGE : unattendedPresetMessage(forced)
 }
 
 const nodeId = z.string().min(1)

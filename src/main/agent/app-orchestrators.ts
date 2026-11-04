@@ -8,20 +8,26 @@
 // and of Session Nodes too, ADR-0053 point 4), an Orchestrator belongs to the app rather than to a
 // window: its events and views go to every client of the app, and closing a window does not stop
 // it. It stops when the app quits, with every other Session.
+//
+// Each Orchestrator runs on its Project's `defaultVendor` (worfy-multi-vendor ticket 37), read from the
+// Project's settings when it starts; a Project that names none runs it on Claude Code.
 import { app } from 'electron'
 import type { SessionSettings } from '../../shared/agent/settings'
 import { agentEvent } from '../../shared/ipc/agent'
 import { orchestratorChanged, type OrchestratorView } from '../../shared/ipc/orchestrator'
+import type { VendorId } from '../../shared/vendors/vendor'
 import { toEveryWindow } from '../broadcast'
 import { ClaudeHomeRegistry } from '../claude-home/registry'
 import { emit } from '../ipc/index'
 import { layoutStore } from '../layout/store'
 import { projectHolds } from '../projects/holds'
+import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
+import { vendorDriver } from '../vendors/registry'
 import { sharedRegistry } from './app-registry'
 import { Orchestrators } from './orchestrator'
-import { readTranscriptFacts } from './orchestrator-transcript'
+import { readTranscriptFacts, type TranscriptFacts } from './orchestrator-transcript'
 import { SessionSettingsStore } from './session-settings'
 
 /** Projects whose Orchestrator may not be opened for now, with how many holds each has. */
@@ -44,10 +50,26 @@ class AppOrchestrators extends Orchestrators {
 
 let shared: Orchestrators | null = null
 
+/** What a Node shows before its Session says anything, when the transcript is not read. */
+const NO_FACTS: TranscriptFacts = { model: null, statusBlock: null }
+
 /** The app's Orchestrators, made on first use. */
 export function sharedOrchestrators(): Orchestrators {
   if (shared === null) {
     const claude = new ClaudeHomeRegistry({ home: claudeHome() })
+    /** Each Vendor's reader of what a saved session's transcript tells the Node (TranscriptFacts). */
+    const transcripts: Record<VendorId, (projectRoot: string, sessionId: string) => Promise<TranscriptFacts | null>> = {
+      claude: async (projectRoot, sessionId) => {
+        // A caller of this Machine: a saved Session whose cwd is unknown is still found (RegistryRoot).
+        const path = await claude.transcriptPath({ path: projectRoot, local: true }, sessionId)
+        return path === null ? null : readTranscriptFacts(path)
+      },
+      // shortcut: a Codex thread's transcript is not read; its Node shows no model or status block
+      // until its first answer after a start, and a thread that is gone is found by the resume itself
+      // (orchestrator.ts, NO_CONVERSATION). Redo when the Node must show them at once: read the tail
+      // of the thread through the Codex driver (thread/read reads the whole thread).
+      codex: () => Promise.resolve(NO_FACTS),
+    }
     shared = new AppOrchestrators({
       layout: layoutStore(),
       projectPath: (projectId) => projectStore().get(projectId).path,
@@ -55,11 +77,9 @@ export function sharedOrchestrators(): Orchestrators {
       // Asked through get(), like the Layout: a Project removed from the list is refused, so a
       // late write does not create its data folder again.
       settings: new SessionSettingsStore((projectId) => projectStore().dataDir(projectStore().get(projectId).id)),
-      transcript: async (projectRoot, sdkSessionId) => {
-        // A caller of this Machine: a saved Session whose cwd is unknown is still found (RegistryRoot).
-        const path = await claude.transcriptPath({ path: projectRoot, local: true }, sdkSessionId)
-        return path === null ? null : readTranscriptFacts(path)
-      },
+      vendor: (projectId) => readProjectSettings(projectStore().dataDir(projectStore().get(projectId).id)).defaultVendor,
+      transcript: (projectRoot, sdkSessionId, vendor) => transcripts[vendor](projectRoot, sdkSessionId),
+      capabilities: (vendor) => vendorDriver(vendor).capabilities(),
       broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),
       publish: (view) => toEveryWindow((target) => emit(target, orchestratorChanged, view)),
     })
