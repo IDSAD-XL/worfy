@@ -535,6 +535,28 @@ test('recordClip: a frame that never comes back once the window is gone is the s
   expect(filesOf('frame-hangs')).toEqual([])
 })
 
+test('recordClip: a frame that never comes back from a window that is still there is the same error at the frame bound, and the app quits', async () => {
+  test.skip(EVIDENCE_RUN, 'a WORFY_EVIDENCE run records only the clips of the Ticket')
+  const seen: { child?: ChildProcess } = {}
+  const started = Date.now()
+  await expect(
+    recordClip('frame-stuck', async (launched) => {
+      // Main says the window is alive, and the frames (CSS pixels) never come back: only the helper's own
+      // bound ends the wait. The screenshot of the failure attachment (no scale) is left as it is.
+      const screenshot = launched.window.screenshot.bind(launched.window)
+      launched.window.screenshot = (options) => (options?.scale === 'css' ? new Promise<Buffer>(() => undefined) : screenshot(options))
+      seen.child = launched.app.process()
+      await new Promise((done) => setTimeout(done, 1_000))
+    }),
+  ).rejects.toThrow(/a frame of the contact sheet failed: Error: the screenshot did not finish within/)
+  // The frame bound (6 s) and a quit, both times the scale: not the test's timeout.
+  expect(Date.now() - started).toBeLessThan(ms(15_000))
+  const { child } = seen
+  if (child === undefined) throw new Error('the scenario never ran')
+  expect(child.exitCode !== null || child.signalCode !== null, 'the app process has ended').toBe(true)
+  expect(filesOf('frame-stuck')).toEqual([])
+})
+
 test('recordClip: a scenario over the limit is an error, and no clip is kept', async () => {
   test.skip(EVIDENCE_RUN, 'a WORFY_EVIDENCE run records only the clips of the Ticket')
   await expect(

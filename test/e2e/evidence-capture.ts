@@ -51,6 +51,11 @@ const WINDOW_ASK_MS = ms(2_000)
 const SHEET_TIMEOUT_MS = ms(30_000)
 /** How long Playwright may take to name the file of the clip; it knows it from the start of the recording. */
 const VIDEO_PATH_TIMEOUT_MS = ms(10_000)
+/**
+ * How long the scenario may run on once recordClip gave up on it (a failed frame, or the limit) and the app
+ * is closed: its calls to the app then fail at once, but its own waits do not.
+ */
+const SCENARIO_SETTLE_MS = ms(2_000)
 
 export type Theme = 'light' | 'dark'
 
@@ -429,15 +434,21 @@ export async function recordClip(what: string, scenario: (launched: LaunchedApp)
     const launched = await launchApp({ ...options.launch, recordVideo: { dir: videoDir, size: options.size ?? CLIP_SIZE } })
     let recorded: Recorded
     let windowGone = false
+    const playing: ScenarioRun = {}
     try {
-      recorded = await underLimit(launched, scenario, limits.seconds, work)
+      recorded = await underLimit(launched, scenario, limits.seconds, work, playing)
     } catch (error) {
-      windowGone = error instanceof FrameFailed || launched.window.isClosed()
+      // Only a window that is destroyed or closed: a live one that was slow to give a frame keeps the
+      // diagnosis and the failure of a quit that hangs.
+      windowGone = (error instanceof FrameFailed && error.windowGone) || launched.window.isClosed()
       throw error
     } finally {
       // The clip is complete only once the app has closed. With the window gone Playwright may still wait
       // on it, so the app is killed after a short quit: an app left running hangs the worker's teardown.
       await launched.close({ windowGone })
+      // A scenario given up on runs on: its calls to the closed app fail, its own waits do not. It gets
+      // SCENARIO_SETTLE_MS to end; one that waits longer still runs into whatever the worker does next.
+      if (playing.played !== undefined) await bounded(playing.played, SCENARIO_SETTLE_MS, 'the scenario').catch(() => undefined)
     }
     const bytes = statSync(recorded.video).size
     if (bytes > limits.bytes) {
@@ -453,8 +464,23 @@ export async function recordClip(what: string, scenario: (launched: LaunchedApp)
   }
 }
 
-/** A frame of the contact sheet that was not taken: the window is gone, or it does not answer. */
-class FrameFailed extends Error {}
+/** The recorded window is closed or destroyed: no frame can come from it any more. */
+class WindowGone extends Error {}
+
+/** A frame of the contact sheet that was not taken; `windowGone` when it failed because the window is gone. */
+class FrameFailed extends Error {
+  constructor(
+    message: string,
+    readonly windowGone: boolean,
+  ) {
+    super(message)
+  }
+}
+
+/** The scenario of a recording, once it has started: recordClip waits for it briefly after the app is closed. */
+interface ScenarioRun {
+  played?: Promise<unknown>
+}
 
 /** The id of the BrowserWindow in main that shows `page`, or undefined when main does not say in time. */
 async function windowIdOf(app: ElectronApplication, page: Page): Promise<number | undefined> {
@@ -475,8 +501,8 @@ async function windowDestroyed(app: ElectronApplication, id: number | undefined)
     const window = BrowserWindow.fromId(id)
     return window === null || window.isDestroyed()
   }, id)
-  ask.catch(() => undefined)
-  return Promise.race([ask.catch(() => true), sleep(WINDOW_ASK_MS).then(() => false)])
+  // A rejection of the bound is only its timer: the answer itself never rejects.
+  return bounded(ask.then((destroyed) => destroyed, () => true), WINDOW_ASK_MS, 'asking main for the window').catch(() => false)
 }
 
 /**
@@ -486,16 +512,16 @@ async function windowDestroyed(app: ElectronApplication, id: number | undefined)
  */
 async function takeFrame(launched: LaunchedApp, windowId: number | undefined): Promise<Buffer> {
   const page = launched.window
-  if (page.isClosed()) throw new Error('the window was closed')
+  if (page.isClosed()) throw new WindowGone('the window was closed')
   let over = false
   let onClose = (): void => undefined
   const gone = new Promise<never>((_, fail) => {
-    onClose = () => fail(new Error('the window was closed'))
+    onClose = () => fail(new WindowGone('the window was closed'))
     page.once('close', onClose)
     void (async () => {
       while (!over) {
         await sleep(WINDOW_POLL_MS)
-        if (!over && (await windowDestroyed(launched.app, windowId))) return fail(new Error('the window was destroyed'))
+        if (!over && (await windowDestroyed(launched.app, windowId))) return fail(new WindowGone('the window was destroyed'))
       }
     })()
   })
@@ -521,6 +547,7 @@ async function underLimit(
   scenario: (launched: LaunchedApp) => Promise<void>,
   seconds: number,
   work: string,
+  run: ScenarioRun,
 ): Promise<Recorded> {
   const video = launched.window.video()
   if (video === null) throw new Error('recordClip: the window records no clip')
@@ -543,12 +570,14 @@ async function underLimit(
     }
   })()
   const played = scenario(launched).then(() => 'done' as const)
+  run.played = played
   // The scenario still runs on after the limit; it fails once the app is closed, and that is not news.
   played.catch(() => undefined)
   let limit: NodeJS.Timeout | undefined
   try {
     const over = new Promise<'over'>((done) => (limit = setTimeout(() => done('over'), seconds * 1000)))
-    // A frame that failed ends the wait: without the window the scenario has nothing left to record.
+    // A frame that failed ends the wait: no clip is kept anyway. The scenario runs on (recordClip waits for
+    // it briefly once the app is closed).
     const outcome = await Promise.race([played, over, framing.then(() => 'frame' as const)])
     if (outcome === 'over') throw new Error(`recordClip: the scenario ran longer than ${seconds} s, the limit of a clip: no clip is kept; shorten the scenario`)
   } finally {
@@ -557,7 +586,7 @@ async function underLimit(
     await framing
   }
   const took = (Date.now() - start) / 1000
-  if (frameError !== undefined) throw new FrameFailed(`recordClip: a frame of the contact sheet failed: ${String(frameError)}`)
+  if (frameError !== undefined) throw new FrameFailed(`recordClip: a frame of the contact sheet failed: ${String(frameError)}`, frameError instanceof WindowGone)
   const sheetDir = join(work, 'sheet')
   mkdirSync(sheetDir, { recursive: true })
   const sheet = await contactSheet(launched.app, frames, sheetDir)
