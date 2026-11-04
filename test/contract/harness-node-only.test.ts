@@ -1,6 +1,6 @@
 // The Harness scripts are Node on every system; bash is for tests only (worfy-windows ticket 16, item 3
 // of the epic's done list; ADR-0055). Over harness/bin and harness/hooks, outside their tests folders:
-// every file is Node (.mjs, .cjs, .js), data (.json) or text (.md), or starts with `#!/usr/bin/env node`;
+// every file is Node (.mjs, .cjs, .js), data (.json), text (.md) or declarations (.d.mts), or starts with `#!/usr/bin/env node`;
 // the hooks run through node, the qmd server starts with node, the Limits bridge is Node and Windows
 // starts it with node, and git keeps these files LF in the working tree, which on a Windows clone with
 // core.autocrlf catches what .gitattributes left out.
@@ -21,8 +21,12 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /** The folders of Harness scripts: what hooks.json, skills and agents start. */
 const SCRIPT_DIRS = ['harness/bin', 'harness/hooks']
-/** Files that are Node by their extension, or not scripts at all. */
-const NOT_A_SCRIPT = /\.(mjs|cjs|js|json|md)$/
+/**
+ * Files that are Node by their extension, or not scripts at all. A .d.mts file is the TypeScript
+ * declarations of the .mjs module next to it (hooks/gate-failures.d.mts), for the tests that import
+ * the module; nothing runs it.
+ */
+const NOT_A_SCRIPT = /\.(mjs|cjs|js|json|md)$|\.d\.mts$/
 const NODE_SHEBANG = '#!/usr/bin/env node'
 const SHELL_SHEBANG = /^#!.*\b(bash|zsh|sh)\b/
 

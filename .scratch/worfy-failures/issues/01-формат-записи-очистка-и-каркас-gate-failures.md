@@ -1,7 +1,7 @@
 # 01 — Формат записи, очистка и каркас `gate-failures`
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T18:47Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Модель» (файл run-а, запись о падении, файл повтора, компьютер, очистка текста, срок хранения), «Решено без владельца» (CLI с подкомандами, модуль рядом с `gate-log.mjs`, `.d.mts`, очистка поверх `privacy.cjs`), «Импортированные записи», «Риски», п. 4 и 7; [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md), [ADR-0074](../../../docs/adr/0074-harness-neutral-by-language-and-project.md)
 
@@ -85,3 +85,43 @@ Source: [spec.md](../spec.md), «Модель» (файл run-а, запись �
 (`runLogDir`, `pruneLogs`, `writeScriptLog`), `harness/hooks/gate.mjs:44-61` (поля verdict-файла), `test/flaky.ts:24-31`
 (имя test-а через « > »), `test/quarantine.ts:88-102`, `harness/lib/privacy.cjs` (`worfy-evidence` 02),
 `test/fixtures/codex-app-server/hook-runner.d.mts` (форма объявлений).
+
+## Итог
+
+Сделано в ветке `worfy-failures/01`.
+
+- `harness/hooks/gate-failures.mjs` (+ `gate-failures.d.mts`): проверка и разбор файла run-а и файла повтора версии 1
+  (`parseRunFile`, `parseRerunFile`, `parseRecordFile`, причина — одна строка), `testId`, `firstLine`, `scrub`, `scrubRecord`,
+  `findLeaks`, `byTest`, `readComputer` / `ensureComputer` / `setComputerName`, `writeRunFile`, `writeImported`, `importedDir`,
+  `listRuns`, `pruneFailures`. Из зависимостей — только `../lib/privacy.cjs` и модули Node.
+- `harness/bin/gate-failures` находит подкоманду в `harness/lib/gate-failures/<sub>.mjs`; подкоманды `list` (`--json`, `--days N`)
+  и `machine` (`--json`, `--name <имя>`). Неизвестная подкоманда и вызов без подкоманды — usage и exit 2.
+- Test-ы: `test/unit/gate-failures-format.test.ts` (31) и `test/contract/gate-failures-cli.test.ts` (6), каждый вызов CLI — с
+  `HARNESS_HOME` и `CLAUDE_GATE_STATE` во временной папке.
+- Первый падающий test был красным только потому, что модуля ещё не было (ошибка импорта), а не на проверке `scrub` по отдельности.
+- Страницы `docs/features` не правились: список bin Harness ни одна страница не ведёт, раздел «Failure records» — Ticket 08.
+
+Решено без владельца, подтвердить:
+
+1. `findLeaks` — тонкая обёртка над `findings` из `privacy.cjs`: функции с именем `findLeaks` там нет, экспорт — `{ findings, mask,
+   maskText, personal }`.
+2. В файле повтора есть поле `at` (spec его не называл): срок хранения считается по `at` внутри файла, и `<stamp>` в имени файла
+   повтора — это `at` с `-` вместо `:`.
+3. `pruneFailures` не удаляет битый файл и файл другой версии: его возраст не прочитать, а более новый Harness может его читать.
+   `list` называет такие файлы на stderr (в `--json` — массив `skipped`).
+4. `scrub` заменяет на `<user>` имя в любом пути домашней папки, не только в своём (`/home/<имя>`, `C:\Users\<имя>`, в том числе
+   `RUNNER~1` и заглушки вроде `runner`); имя пользователя как отдельное слово — только если `privacy.cjs` считает его личным
+   (не `test`, `runner`, `user`) и в нём не меньше 3 знаков. Hostname — целиком и первой меткой, без учёта регистра.
+5. `scrubRecord` заново собирает `test` из очищенных `file` и `name`: иначе id сохранил бы то, что из них убрано.
+6. `machine --name` отказывает (exit 2) в имени, равном hostname или имени пользователя, и в имени, где `privacy.cjs` что-то находит;
+   имя — от 1 до 40 латинских букв, цифр, пробелов, точек, дефисов и подчёркиваний.
+7. `machine.json` создаётся через временный файл и hard link, только если файла ещё нет: два gate-а в один момент кончают с одним
+   `id`. Битый `machine.json` заменяется новым (с новым `id`).
+8. `--help` перечисляет только модули с экспортом `run`, с их строкой `summary`: общий модуль (`transfer-common.mjs` Ticket-а 06)
+   подкомандой не считается.
+9. `list` только читает, ничего не удаляет; `--json` печатает объект `{ runs, skipped }`, у run-а — `records`, `tests`, `steps`,
+   `reruns` (число файлов повтора этого run-а), `imported`, `dirty`, `file`. Порядок — от нового к старому.
+10. `listRuns` возвращает и файлы повтора (`reruns`) — для отчёта Ticket-а 05.
+11. Проверка записи строже таблицы spec-а: id run-а — `<tag>/<run>` без `--`; `error` — одна строка не длиннее 200 знаков;
+    `outcome` — один из четырёх исходов verdict-файла; если `runner`, `file` и `name` заданы, `test` обязан быть равен
+    `testId(runner, file, name)`.

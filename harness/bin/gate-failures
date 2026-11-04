@@ -1,0 +1,78 @@
+#!/usr/bin/env node
+// gate-failures — the failure records of the gate: which tests failed in which runs, on which computer.
+//
+//   gate-failures <subcommand> [args]
+//   gate-failures --help          the subcommands found next to this script
+//
+// Each subcommand is a module of its own, ../lib/gate-failures/<subcommand>.mjs, that exports
+// run(argv, io) and, for --help, a one-line `summary`; the name is lower-case letters and dashes. A new
+// subcommand is a new module there, and this file does not change. The format of the records, their
+// scrubbing and their files are in ../hooks/gate-failures.mjs.
+//
+// io, as a module gets it: { stdout, stderr, env, cwd } — the streams to write to, the environment and
+// the current folder. run returns the exit code, or a promise of it.
+//
+// Exit codes: those of the subcommand; 2 — an unknown subcommand or no subcommand (with the usage).
+// Node only, no shell utility: the same code runs on macOS, Linux and Windows.
+
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
+
+const SUBCOMMAND = /^[a-z][a-z-]*$/
+const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib", "gate-failures")
+
+async function load(name) {
+    const file = path.join(DIR, `${name}.mjs`)
+    if (!SUBCOMMAND.test(name) || !fs.existsSync(file)) return null
+    const mod = await import(pathToFileURL(file).href)
+    return typeof mod.run === "function" ? mod : null
+}
+
+// The subcommands next to this script: the modules of DIR that export run (a module of shared code,
+// such as one that two subcommands import, exports none and is not listed).
+async function subcommands() {
+    let names = []
+    try {
+        names = fs
+            .readdirSync(DIR)
+            .filter((f) => f.endsWith(".mjs"))
+            .map((f) => f.slice(0, -4))
+            .filter((n) => SUBCOMMAND.test(n))
+            .sort()
+    } catch {}
+    const found = []
+    for (const name of names) {
+        const mod = await load(name)
+        if (mod) found.push({ name, summary: typeof mod.summary === "string" ? mod.summary : "" })
+    }
+    return found
+}
+
+async function usage() {
+    const lines = ["usage: gate-failures <subcommand> [args]", "", "subcommands:"]
+    const found = await subcommands()
+    const width = Math.max(0, ...found.map((s) => s.name.length))
+    for (const s of found) lines.push(`  ${s.name.padEnd(width)}  ${s.summary}`.trimEnd())
+    if (found.length === 0) lines.push("  (none found)")
+    lines.push("", "gate-failures <subcommand> --help for its arguments")
+    return `${lines.join("\n")}\n`
+}
+
+// The exit code is set, not forced with process.exit: a pipe gets the whole output first.
+async function main([sub, ...rest]) {
+    if (sub === "--help" || sub === "-h" || sub === "help") {
+        process.stdout.write(await usage())
+        return 0
+    }
+    const mod = sub === undefined ? null : await load(sub)
+    if (!mod) {
+        if (sub !== undefined) process.stderr.write(`gate-failures: unknown subcommand ${JSON.stringify(sub)}\n`)
+        process.stderr.write(await usage())
+        return 2
+    }
+    const code = await mod.run(rest, { stdout: process.stdout, stderr: process.stderr, env: process.env, cwd: process.cwd() })
+    return Number.isInteger(code) ? code : 1
+}
+
+process.exitCode = await main(process.argv.slice(2))
