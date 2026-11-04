@@ -11,6 +11,7 @@ import { checkTargets, listProblems, overlaps, passOf, passProblems, translateOf
 import { endApp, exited, killThenClean } from './end-app'
 import { SHOW_POLL_MS, waitForFirstWindowShown } from './first-window-shown'
 import { launchEnv } from './launch-env'
+import { installStallProbe, watchCall } from './app-stall'
 import { PROCESSES_TIMEOUT_MS, processTreeScript, quitDiagnosisText, quitLogLines, SAMPLE_SECONDS, SAMPLE_TIMEOUT_MS, type QuitFindings } from './quit-diagnosis'
 import type { StepResult } from './start-diagnosis'
 import { currentTest, recordOutput, startDiagnostics, startTestClock } from './start-diagnostics-run'
@@ -528,6 +529,8 @@ export async function canvasReady(launched: { window: Page; app?: ElectronApplic
   if (app && size === 'smallest') {
     await smallestWindow({ app, window }, left())
   } else if (app && size !== undefined && size !== 'smallest') {
+    const installMs = await installStallProbe(app)
+    if (installMs > 2000) console.log(`[stall] main took ${installMs} ms to install the probe`)
     // The content size, as innerWidth measures it: on Windows setSize would count the frame too (14 px
     // narrower inside); on macOS the window has no frame of its own (titleBarStyle hiddenInset), so the two agree.
     // Every e2e spec sizes the window this way, except the steps at the smallest window: worfy's
@@ -535,7 +538,7 @@ export async function canvasReady(launched: { window: Page; app?: ElectronApplic
     await expect
       .poll(
         async () => {
-          const width = await window.evaluate(() => (globalThis as unknown as PageDom).innerWidth)
+          const width = await watchCall(app, 'innerWidth', () => window.evaluate(() => (globalThis as unknown as PageDom).innerWidth))
           if (width !== size.width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted.width, wanted.height), size)
           return width
         },
