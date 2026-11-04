@@ -8,6 +8,7 @@ import type { ElectronApplication } from '@playwright/test'
 /** What main recorded since the probe was installed. */
 export interface StallRecord {
   since: number
+  display: string
   gaps: Array<{ at: number; ms: number }>
   events: Array<{ at: number; what: string }>
   metrics: Array<{ at: number; processes: string }>
@@ -16,10 +17,12 @@ export interface StallRecord {
 /** Installs the probe in main; answers how long main took to run it. */
 export async function installStallProbe(app: ElectronApplication): Promise<number> {
   const started = Date.now()
-  await app.evaluate(({ app: electronApp, BrowserWindow }) => {
+  await app.evaluate(({ app: electronApp, BrowserWindow, screen }) => {
     const holder = globalThis as unknown as { __worfyStall?: StallRecord }
     if (holder.__worfyStall) return
-    const record: StallRecord = { since: Date.now(), gaps: [], events: [], metrics: [] }
+    const primary = screen.getPrimaryDisplay()
+    const display = `${primary.size.width}x${primary.size.height}, work area ${primary.workAreaSize.width}x${primary.workAreaSize.height}, scale ${primary.scaleFactor}`
+    const record: StallRecord = { since: Date.now(), display, gaps: [], events: [], metrics: [] }
     holder.__worfyStall = record
     let last = Date.now()
     const loop = setInterval(() => {
@@ -75,6 +78,7 @@ export async function watchCall<T>(app: ElectronApplication, label: string, call
       const rel = (at: number): string => `${((at - started) / 1000).toFixed(1)}s`
       const lines = [
         `[stall] ${label} answered after ${took} ms; main pings: ${pings.length}, max ${Math.max(0, ...pings)} ms, ${pings.join(',')}`,
+        `[stall] display ${record?.display ?? 'unknown'}`,
         `[stall] main loop gaps: ${(record?.gaps ?? []).map((gap) => `${rel(gap.at)}+${gap.ms}`).join(' ') || 'none'}`,
         `[stall] window events: ${(record?.events ?? []).map((event) => `${rel(event.at)} ${event.what}`).join('; ') || 'none'}`,
         ...(record?.metrics ?? []).filter((each) => each.at >= started - 2000).map((each) => `[stall] cpu ${rel(each.at)} ${each.processes}`),
