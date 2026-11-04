@@ -14,6 +14,7 @@ The quotes around `<ref>` are single: in double quotes the shell runs what stand
 - A line is bound to the commit the checks ran on: `--sha` defaults to `HEAD`, so commit the change before step 5, or pass `--sha <that commit>`.
   The platform defaults to this system's; add `--copy dev` when the check ran a dev build of the app.
 - `--ref` is one line without ` · `, and it names no host, no user name in a path, no email and no token.
+- A picture as Evidence: an item about how something looks gets a screenshot of the app's window in both themes (`screenshot`), an item about motion a clip with its contact sheet (`video`), any other item none, since a test with its exit code proves it. Which build, and when `scrub:` goes on the line: the manual GUI checks of `/worfy:ship-ticket`, step 6.
 - Only `pass`: a red check is your work (step 5), not a line. A manual item (`tickets.manual_mark`) gets no line from you.
   An item no check of yours proved gets no line and goes into `not_verified`.
 - `EXIT=2` — the line was refused (its grammar or the item number), and nothing was written: fix the arguments.

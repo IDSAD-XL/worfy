@@ -151,6 +151,13 @@ export interface LaunchOptions {
    * built out/ bundle. The isolation below applies to it the same way.
    */
   executablePath?: string
+  /**
+   * Records a clip (webm, VP8) of every window of the app into `dir` (Playwright's `recordVideo` of
+   * `_electron.launch`); a window's clip is complete once the app is closed. Needs Playwright's own
+   * ffmpeg (`playwright install ffmpeg`). Without it nothing is recorded. The clips worth keeping
+   * are made by recordClip (evidence-capture.ts).
+   */
+  recordVideo?: { dir: string; size?: { width: number; height: number } }
 }
 
 /** Electron helper processes may still hold files in a directory for a moment after the app exits. */
@@ -265,7 +272,7 @@ async function diagnoseQuit(pid: number | undefined, output: string): Promise<vo
  * environment (launchEnv, launch-env.ts) covers the packaged-app tests too.
  */
 export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedApp> {
-  const { executablePath } = options
+  const { executablePath, recordVideo } = options
   if (executablePath === undefined && !existsSync(mainEntry)) {
     throw new Error(`The app is not built: ${mainEntry} is missing. Run \`pnpm test:e2e\`, which builds first.`)
   }
@@ -288,11 +295,12 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     // Unpackaged, the app is started by its directory, as `electron .` and the packaged .app start
     // it: Electron then reads package.json (`main` points at out/main/index.js), and the app's name
     // and version are worfy's own, not Electron's.
-    app = await _electron.launch(
-      executablePath === undefined
+    app = await _electron.launch({
+      ...(executablePath === undefined
         ? { args: [repoRoot, ...NO_WINDOW_RESTORE, ...ENGLISH_LOCALE], cwd: repoRoot, env }
-        : { executablePath, args: [...NO_WINDOW_RESTORE, ...ENGLISH_LOCALE], env },
-    )
+        : { executablePath, args: [...NO_WINDOW_RESTORE, ...ENGLISH_LOCALE], env }),
+      ...(recordVideo === undefined ? {} : { recordVideo }),
+    })
   } catch (error) {
     await cleanDirs()
     throw error

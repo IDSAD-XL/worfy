@@ -843,6 +843,25 @@ for p in 'owner-check pass --ref "<date>: <the owner'"'"'s word>" --copy <copy>'
     'A screenshot no person has checked yet gets no line and is not committed'; do
     ev "$GUI" "ship-ticket step 6, manual items" "$p"
 done
+# When an item needs a picture: three cases (how it looks — a screenshot in both themes; motion — a clip
+# with its contact sheet; anything else — none, a test proves it), pictures only from a fixture build
+# through the e2e runner, and scrub: only after every frame of the sheet is checked. The implementer's
+# Evidence lines (implementer-finish.md, read at its step 6) carry the same rule in one line, with the
+# pointer to the step file.
+for p in '**When an item needs a picture.**' 'it is about **how something looks**' \
+    'a screenshot of the app'"'"'s window in both themes (light and dark), Evidence kind `screenshot`' \
+    'it is about **motion** — an animation, a drag, a sequence over several screens, timing' \
+    'a clip with its contact sheet next to it (one frame a second, the second under each frame), Evidence kind `video`' \
+    '**anything else** gets no picture: a test with its exit code proves it.' \
+    'A picture comes only from your own build with fixture data' 'taken through the project'"'"'s e2e test runner' \
+    'never from an installed or stable copy of the app' \
+    '`scrub:` goes on its line only after every frame of the contact sheet has been checked (for a screenshot, the screenshot itself)' \
+    'For a clip of such a fixture build that check may be the agent'"'"'s own'; do
+    ev "$GUI" "ship-ticket step 6, when a picture" "$p"
+done
+ev "$IM" "implementer, the Evidence lines, when a picture" \
+    'an item about how something looks gets a screenshot of the app'"'"'s window in both themes (`screenshot`), an item about motion a clip with its contact sheet (`video`), any other item none, since a test with its exit code proves it'
+ev "$IM" "implementer, the Evidence lines, when a picture" 'Which build, and when `scrub:` goes on the line: the manual GUI checks of `/worfy:ship-ticket`, step 6.'
 EC_RUN='node "${CLAUDE_PLUGIN_ROOT}/bin/evidence-check" --changed; echo "EXIT=$?"'
 for f in "$CLOSE" "$EWS"; do
     for p in 'Before the push of a documents PR the session makes by hand' "$EC_RUN" \

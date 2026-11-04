@@ -285,6 +285,10 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Playwright's own ffmpeg: recordVideo writes the clips of test/e2e/evidence-capture.ts with it, and
+      # without it evidence-capture.spec.ts fails (worfy-evidence ticket 11). Only ffmpeg, no browser.
+      - name: Install the ffmpeg of Playwright
+        run: pnpm exec playwright install ffmpeg
       # The display of the runner bounds the windows the e2e tests open: a window is never taller than
       # the screen. Its size is in the log for a test that fails on the size of its window.
       # system_profiler lists no display on the runner's virtual machine; AppKit gives the size.
@@ -396,6 +400,9 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Playwright's own ffmpeg, for the clips of test/e2e/evidence-capture.ts, as in macos-e2e.
+      - name: Install the ffmpeg of Playwright
+        run: pnpm exec playwright install ffmpeg
       # Under PowerShell, not Git Bash. The runner's user is an administrator, and its token holds the
       # backup and restore privileges, disabled. Git Bash (its MSYS2 runtime) enables both when it
       # starts; every process it starts inherits them — pnpm, Playwright, the app under test — and

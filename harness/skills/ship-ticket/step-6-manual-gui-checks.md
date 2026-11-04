@@ -35,6 +35,22 @@ verify the process path:
 `powershell -NoProfile -Command "Get-Process <name> | Select-Object Id,Path"`). Where the installer
 puts the app and where the stable copy lives on Windows — the project's glossary (`F docs.context`).
 
+**When an item needs a picture.** Decide by what the item of `F tickets.done_section` says:
+- it is about **how something looks** — layout, color, a label, the state of a control, a theme: a
+  screenshot of the app's window in both themes (light and dark), Evidence kind `screenshot`;
+- it is about **motion** — an animation, a drag, a sequence over several screens, timing (something
+  appears after N seconds, stays, goes away): a clip with its contact sheet next to it (one frame a
+  second, the second under each frame), Evidence kind `video`;
+- **anything else** gets no picture: a test with its exit code proves it. A picture "just in case" is
+  one more file whose pixels someone must check by hand.
+
+A picture comes only from your own build with fixture data (a temporary project, a fake agent, no
+data of this machine), taken through the project's e2e test runner; never from an installed or stable
+copy of the app. `scrub:` goes on its line only after every frame of the contact sheet has been
+checked (for a screenshot, the screenshot itself): no Machine, host or user names and no terminal text
+that must not be public. For a clip of such a fixture build that check may be the agent's own; a
+screenshot, and a clip of anything else, waits for a person, as below.
+
 **Evidence of a manual item.** A manual item (`F tickets.manual_mark`) is proved only by a person:
 the owner's word or a screenshot a person has checked. An agent's own look is no such proof. `ticket`
 is the script of `F tickets.status_tool`; its line goes under the item of `F tickets.done_section`.
