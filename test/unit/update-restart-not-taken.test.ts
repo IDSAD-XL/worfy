@@ -59,7 +59,7 @@ function restartedInto(): void {
 
 /** worfy starts as the copy `running` names: Restarts.settle of the service's start. */
 function startAs(running: { commit: string; version: string }): UpdateState {
-  new Restarts({ dir, stateFile: () => stateFile, target: () => target, pid: 4242, env: () => Promise.resolve({}), running: () => running, idle: quiet, quit: () => undefined }).settle()
+  new Restarts({ dir, stateFile: () => stateFile, target: () => target, pid: 4242, env: () => Promise.resolve({}), running: () => running, idle: quiet, client: github, quit: () => undefined }).settle()
   return readUpdateState(stateFile)
 }
 

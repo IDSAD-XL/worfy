@@ -70,6 +70,15 @@ const shellEnv = (): Record<string, string> => ({
   ...(WINDOWS ? { PATHEXT: '.COM;.EXE;.BAT;.CMD', SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' } : {}),
 })
 
+/** GitHub's comparison that finds the build ahead of the running commit, and notes what it was asked. */
+let compared: string[] = []
+const aheadClient: Pick<UpdateGitHub, 'compare'> = {
+  compare: (base, head) => {
+    compared.push(`${base}...${head}`)
+    return Promise.resolve({ ok: true, value: { status: 'ahead', files: ['src/main/x.ts'], commits: [] } })
+  },
+}
+
 /** A spawn that notes what it was asked and answers a started child. */
 const fakeSpawn: SpawnDetached = (file, args, options) => {
   calls.push('spawn')
@@ -89,6 +98,7 @@ function restarts(idle: IdleSignal, overrides: Partial<ConstructorParameters<typ
       env: () => Promise.resolve(shellEnv()),
       running: () => ({ commit: RUNNING_SHA, version: '0.5.0+aaaaaaa' }),
       idle,
+      client: aheadClient,
       quit,
       spawn: fakeSpawn,
       now: () => new Date('2026-10-31T10:00:00.000Z'),
@@ -129,6 +139,7 @@ beforeEach(() => {
   writeFileSync(helperScript(dir), '// stands in for scripts/install-stable.mjs; never run by these tests\n')
   calls = []
   spawned = []
+  compared = []
 })
 
 afterEach(() => {
@@ -444,6 +455,97 @@ describe('Restart when idle', () => {
     expect(spawned).toEqual([])
     expect(quit).not.toHaveBeenCalled()
     expect(await subject.restart('idle')).toEqual({ outcome: 'refused', reason: 'worfy is quitting' })
+  })
+})
+
+describe('a ready build that is not ahead of the copy that runs now (worfy-polish ticket 53)', () => {
+  /** A comparison that answers `status`, or null (GitHub does not know a commit), or a failed read. */
+  const answering = (answer: 'ahead' | 'behind' | 'diverged' | 'identical' | null | 'offline'): Pick<UpdateGitHub, 'compare'> => ({
+    compare: (base, head) => {
+      compared.push(`${base}...${head}`)
+      if (answer === 'offline') return Promise.resolve({ ok: false, reason: 'offline' })
+      return Promise.resolve({ ok: true, value: answer === null ? null : { status: answer, files: ['src/main/x.ts'], commits: [] } })
+    },
+  })
+
+  it('asks GitHub whether the build is ahead of the running commit before the helper starts', async () => {
+    readyBuild()
+    const { restarts: subject } = restarts(new FakeIdle(true))
+    expect(await subject.restart('now')).toEqual({ outcome: 'quitting' })
+    expect(compared).toEqual([`${RUNNING_SHA}...${BUILT_SHA}`])
+  })
+
+  it('a build whose commit is an ancestor of the running one is not installed: set aside, its reason in state.json', async () => {
+    readyBuild()
+    changeUpdateState((state) => ({ ...state, available: { sha: BUILT_SHA, version: '0.6.0+bbbbbbb', quiet: false } }), stateFile)
+    const onChange = vi.fn()
+    const { restarts: subject, quit } = restarts(new FakeIdle(true), { client: answering('behind'), onChange })
+
+    const answer = await subject.restart('now')
+
+    const reason = '0.6.0+bbbbbbb was not installed: it is older than the copy that runs'
+    expect(answer).toEqual({ outcome: 'refused', reason })
+    expect(spawned).toEqual([])
+    expect(quit).not.toHaveBeenCalled()
+    expect(existsSync(restartFile(dir))).toBe(false)
+    const state = readUpdateState(stateFile)
+    // The build is idle, so the "ready" toast goes (toasts.ts, drawReady); the Available update of that commit goes too.
+    expect(state.build).toEqual({ phase: 'idle' })
+    expect(state.available).toBeNull()
+    expect(state.discarded).toEqual({ sha: BUILT_SHA, version: '0.6.0+bbbbbbb', running: RUNNING_SHA, reason, at: '2026-10-31T10:00:00.000Z' })
+    expect(onChange).toHaveBeenCalled()
+  })
+
+  it.each([
+    ['diverged', 'it has diverged from the copy that runs'],
+    ['identical', 'it is the same as the copy that runs'],
+    [null, 'GitHub does not know it or the commit that runs'],
+  ] as const)('a comparison that answers %s sets the build aside too', async (status, why) => {
+    readyBuild()
+    const { restarts: subject } = restarts(new FakeIdle(true), { client: answering(status) })
+    expect(await subject.restart('now')).toEqual({ outcome: 'refused', reason: `0.6.0+bbbbbbb was not installed: ${why}` })
+    expect(spawned).toEqual([])
+    expect(readUpdateState(stateFile).build.phase).toBe('idle')
+  })
+
+  it('a build of the running commit is set aside without asking GitHub', async () => {
+    readyBuild()
+    const { restarts: subject } = restarts(new FakeIdle(true), { running: () => ({ commit: BUILT_SHA.slice(0, 7), version: '0.6.0+bbbbbbb' }) })
+    expect(await subject.restart('now')).toEqual({ outcome: 'refused', reason: '0.6.0+bbbbbbb was not installed: it is the commit that runs' })
+    expect(compared).toEqual([])
+    expect(spawned).toEqual([])
+  })
+
+  it('a comparison that could not be made refuses and keeps the build for the next press', async () => {
+    readyBuild()
+    const { restarts: subject } = restarts(new FakeIdle(true), { client: answering('offline') })
+    expect(await subject.restart('now')).toEqual({ outcome: 'refused', reason: 'whether 0.6.0+bbbbbbb is newer than the copy that runs is not known (offline)' })
+    expect(spawned).toEqual([])
+    const state = readUpdateState(stateFile)
+    expect(state.build.phase).toBe('ready')
+    expect(state.discarded).toBeUndefined()
+  })
+
+  it('"Restart when idle" asks the same question: an older build is set aside and the wish dropped', async () => {
+    readyBuild()
+    const idle = new FakeIdle(false)
+    const { restarts: subject } = restarts(idle, { client: answering('behind') })
+    expect(await subject.restart('idle')).toEqual({ outcome: 'waiting' })
+    idle.set(true)
+    await vi.waitFor(() => expect(subject.pending).toBe(false))
+    expect(spawned).toEqual([])
+    expect(readUpdateState(stateFile).discarded?.reason).toBe('0.6.0+bbbbbbb was not installed: it is older than the copy that runs')
+  })
+
+  it('another build that becomes ready while the comparison runs is not installed unchecked', async () => {
+    readyBuild()
+    const held = deferred<Awaited<ReturnType<UpdateGitHub['compare']>>>()
+    const { restarts: subject } = restarts(new FakeIdle(true), { client: { compare: () => held.promise } })
+    const answer = subject.restart('now')
+    changeUpdateState((state) => ({ ...state, build: { ...state.build, sha: PREVIOUS_SHA, version: '0.7.0+ccccccc' } }), stateFile)
+    held.resolve({ ok: true, value: { status: 'ahead', files: ['src/main/x.ts'], commits: [] } })
+    expect(await answer).toEqual({ outcome: 'refused', reason: 'another Update became ready while this one was checked: press Restart now again' })
+    expect(spawned).toEqual([])
   })
 })
 

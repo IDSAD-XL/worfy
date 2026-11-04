@@ -321,11 +321,12 @@ export function appUpdate(): UpdateService {
   if (shared === undefined) {
     let running: UpdateRunning | undefined
     const idle = appIdleWatch()
+    // Only WORFY_UPDATE_API is passed: the client never sees GH_TOKEN or GITHUB_TOKEN.
+    const client = updateGitHub({ env: { WORFY_UPDATE_API: process.env.WORFY_UPDATE_API } })
     shared = new UpdateService({
       enabled: updateEnabled({ packaged: app.isPackaged, execPath: process.execPath, env: process.env }),
       running: () => (running ??= appRunning()),
-      // Only WORFY_UPDATE_API is passed: the client never sees GH_TOKEN or GITHUB_TOKEN.
-      client: updateGitHub({ env: { WORFY_UPDATE_API: process.env.WORFY_UPDATE_API } }),
+      client,
       stateFile: () => updateStateFile(),
       broadcast,
       // The configured repository and build only: never a value of GitHub's answer.
@@ -352,6 +353,7 @@ export function appUpdate(): UpdateService {
         env: async () => (await agentEnv()).env,
         running: () => (running ??= appRunning()),
         idle,
+        client,
         quit: () => appUpdate().restartBegan(() => app.quit()),
         onChange: () => broadcast(appUpdate().snapshot()),
       }),

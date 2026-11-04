@@ -26,12 +26,15 @@ import { toolStart } from '../first-run/checks'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { removeFile } from '../storage/remove'
 import { missingTools, withoutTokens } from './build'
+import type { UpdateGitHub } from './github'
 import type { IdleSignal } from './idle'
 import { changeUpdateState, readUpdateState } from './state'
 
 type Env = Readonly<Record<string, string | undefined>>
 
 const BUSY: RestartAnswer = { outcome: 'refused', reason: 'a Session is working or Autopilot runs', busy: true }
+/** How a build that is not ahead of the running commit stands to it (aheadOfRunning). */
+const NOT_AHEAD = { behind: 'it is older than', identical: 'it is the same as', diverged: 'it has diverged from' } as const
 const QUITTING: RestartAnswer = { outcome: 'refused', reason: 'worfy is quitting' }
 
 /**
@@ -222,6 +225,11 @@ export interface RestartsOptions {
    */
   running: () => { commit: string; version: string; number?: number | undefined }
   idle: IdleSignal
+  /**
+   * GitHub's comparison, as the check asks it (src/main/update/check.ts): right before an install the
+   * ready build must still be ahead of the copy that runs now (worfy-polish ticket 53).
+   */
+  client: Pick<UpdateGitHub, 'compare'>
   /** Quits worfy (app.quit). */
   quit: () => void
   spawn?: SpawnDetached
@@ -315,7 +323,54 @@ export class Restarts {
     if ('outcome' in first) return first
     const env = await this.options.env()
     if (generation !== this.generation) return { outcome: 'cancelled' }
-    return this.launch(env)
+    const ahead = await this.aheadOfRunning(first.record)
+    if (ahead !== null) return ahead
+    if (generation !== this.generation) return { outcome: 'cancelled' }
+    return this.launch(env, 'install', first.record.sha)
+  }
+
+  /**
+   * Null when the build is ahead of the commit that runs now, else the refusal. The copy that runs may
+   * have changed since the build began (the Stable copy replaced from outside, then started), so the
+   * question of the check is asked again (worfy-polish ticket 53): a build that is the running commit,
+   * behind it, diverged from it or unknown to GitHub is set aside (discardBuild). A comparison that
+   * could not be made keeps the build for the next press.
+   */
+  private async aheadOfRunning(record: Plan['record']): Promise<RestartAnswer | null> {
+    const running = record.from.sha.toLowerCase()
+    if (!/^[0-9a-f]{7,40}$/u.test(running)) return this.discardBuild(record, 'the commit this copy runs is not known')
+    if (sameCommit(running, record.sha)) return this.discardBuild(record, 'it is the commit that runs')
+    let comparison: Awaited<ReturnType<UpdateGitHub['compare']>>
+    try {
+      comparison = await this.options.client.compare(running, record.sha)
+    } catch (error) {
+      comparison = { ok: false, reason: message(error) }
+    }
+    if (!comparison.ok) return { outcome: 'refused', reason: `whether ${record.version} is newer than the copy that runs is not known (${comparison.reason})` }
+    if (comparison.value === null) return this.discardBuild(record, 'GitHub does not know it or the commit that runs')
+    if (comparison.value.status !== 'ahead') return this.discardBuild(record, `${NOT_AHEAD[comparison.value.status]} the copy that runs`)
+    return null
+  }
+
+  /**
+   * Sets the ready build aside (worfy-polish ticket 53): the build goes idle, so its "ready" toast goes,
+   * an Available update of the same commit goes too, and `discarded` keeps the reason in state.json.
+   */
+  private discardBuild(record: Plan['record'], why: string): RestartAnswer {
+    const reason = `${record.version} was not installed: ${why}`
+    const at = (this.options.now ?? (() => new Date()))().toISOString()
+    try {
+      changeUpdateState((state) => ({
+        ...state,
+        build: state.build.sha !== undefined && sameCommit(state.build.sha, record.sha) ? { phase: 'idle' } : state.build,
+        available: state.available !== null && sameCommit(state.available.sha, record.sha) ? null : state.available,
+        discarded: { sha: record.sha, version: record.version, running: record.from.sha, reason, at },
+      }), this.options.stateFile())
+    } catch (error) {
+      console.warn('[update] the build that is not ahead could not be set aside', error)
+    }
+    this.options.onChange?.()
+    return { outcome: 'refused', reason }
   }
 
   private async rollbackAfter(confirm: (version: string) => Promise<boolean>): Promise<RestartAnswer> {
@@ -330,10 +385,12 @@ export class Restarts {
    * Starts the helper and quits, all in one synchronous run: whatever changed while the caller
    * waited (a Session began a turn, the build went, worfy began to quit) is looked at again first.
    */
-  private launch(env: Env, action: 'install' | 'rollback' = 'install'): RestartAnswer {
+  private launch(env: Env, action: 'install' | 'rollback' = 'install', checked?: string): RestartAnswer {
     if (this.quittingNow) return QUITTING
     const plan = this.plan(action, true)
     if ('outcome' in plan) return plan
+    // Another build became ready while the one checked was compared: that one was not checked.
+    if (checked !== undefined && plan.record.sha !== checked) return { outcome: 'refused', reason: 'another Update became ready while this one was checked: press Restart now again' }
     const { dir } = this.options
     const platform = this.options.platform ?? process.platform
     const args = [

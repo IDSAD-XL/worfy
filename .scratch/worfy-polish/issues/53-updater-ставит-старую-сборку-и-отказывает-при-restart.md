@@ -41,7 +41,37 @@ Windows-часть `install-stable` проверяется на ПК.
 ## Готово, когда
 
 - [ ] Unit test restart-а: готовая сборка, чей sha — предок работающего commit-а, не ставится; причина в state.
+  - evidence: test-run pass · `pnpm test test/contract/update-restart.test.ts` exit 0 · mac - · ef81729e50c8813dabc797f7e03bb9c785ed7111
 - [ ] Unit test `install-stable`: дочерний процесс копии, который выходит через несколько секунд после
       `--wait-pid`, не даёт отказа; процесс, который не выходит до предела, — даёт отказ с его pid.
+  - evidence: test-run pass · `pnpm test test/unit/install-stable-update.test.ts` exit 0 · mac - · ef81729e50c8813dabc797f7e03bb9c785ed7111
 - [ ] Все unit и contract test-ы `src/main/update/` и `scripts/install-stable.mjs`, `pnpm typecheck`,
       `pnpm lint` — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ef81729e50c8813dabc797f7e03bb9c785ed7111
+
+## Итог
+
+- **A.** Перед установкой готовой сборки (`Restart now` и `Restart when idle`) `Restarts.installNow` снова спрашивает
+  GitHub compare «сборка впереди commit-а, который работает сейчас?» (`src/main/update/restart.ts`, `aheadOfRunning`).
+  Сборку, которая равна работающему commit-у, старее, разошлась с ним или неизвестна GitHub, updater не ставит:
+  `build` → `idle` (тост «ready» уходит), `available` того же commit-а → `null`, в `state.json` — поле `discarded`
+  с причиной (`src/shared/ipc/update.ts`). Test-ы — `test/contract/update-restart.test.ts`, блок «worfy-polish ticket 53».
+- **B.** `scripts/install-stable.mjs`: после выхода `--wait-pid` helper ждёт до `WAIT_LIMIT_MS` (120 s), пока не
+  выйдут все процессы копии (`waitForCopyToQuit`), и только потом отказывает; отказ называет pid и программу
+  (`describeProcess`, `copyStillRuns`). Test-ы — `test/unit/install-stable-update.test.ts`, включая Windows-листинг
+  PowerShell, поданный в `runningCopies('win32', …)`.
+- **Тост.** Причина отказа начинается с того, что делать: «the stable copy still ran 120 s after worfy quit: quit
+  it, then try again. Nothing was changed. Still running: pid … (claude --resume=…)» — первые три строки тоста
+  вмещают совет целиком.
+
+Решено без владельца, подтвердить:
+- Если сравнение с GitHub не удалось (нет сети), restart отказывает, а сборка остаётся готовой: ставить вслепую
+  нельзя, отбрасывать без ответа — тоже.
+- Если commit работающей копии неизвестен, сборка отбрасывается: проверка обновлений в таком случае тоже ничего
+  не находит.
+- Папку отброшенной сборки (`update/repo/dist`) updater не удаляет: забывает её только `state.json`, следующая сборка
+  её перезапишет.
+- Ожидание процессов копии — только с `--wait-pid` (restart и roll back из worfy). Ручной `pnpm install:stable` без
+  него отказывает сразу, как раньше. Вторая проверка (после сборки) не ждёт.
+- Тост не стал длиннее трёх строк: вместо правки общего компонента переставлены слова в причине.
+- Windows-часть helper-а проверена unit test-ами с поданным листингом; запуск на ПК — после Wave.
