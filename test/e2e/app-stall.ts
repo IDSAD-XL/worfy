@@ -41,6 +41,8 @@ function machineTop(): Promise<string> {
 /** What main recorded since the probe was installed. */
 export interface StallRecord {
   since: number
+  /** When main's event loop last ran its 100 ms timer. */
+  lastTick: number
   display: string
   gaps: Array<{ at: number; ms: number }>
   events: Array<{ at: number; what: string }>
@@ -55,13 +57,14 @@ export async function installStallProbe(app: ElectronApplication): Promise<numbe
     if (holder.__worfyStall) return
     const primary = screen.getPrimaryDisplay()
     const display = `${primary.size.width}x${primary.size.height}, work area ${primary.workAreaSize.width}x${primary.workAreaSize.height}, scale ${primary.scaleFactor}`
-    const record: StallRecord = { since: Date.now(), display, gaps: [], events: [], metrics: [] }
+    const record: StallRecord = { since: Date.now(), lastTick: Date.now(), display, gaps: [], events: [], metrics: [] }
     holder.__worfyStall = record
     let last = Date.now()
     const loop = setInterval(() => {
       const now = Date.now()
       if (now - last > 400) record.gaps.push({ at: now, ms: now - last })
       last = now
+      record.lastTick = now
     }, 100)
     const metrics = setInterval(() => {
       const processes = electronApp
@@ -88,19 +91,36 @@ export async function installStallProbe(app: ElectronApplication): Promise<numbe
  * Runs `call` (a page evaluate) while pinging main every 250 ms; when the call took longer than
  * `slowMs`, prints what main answered and recorded meanwhile. Returns the call's value.
  */
-export async function watchCall<T>(app: ElectronApplication, label: string, call: () => Promise<T>, slowMs = 2000): Promise<T> {
+export async function watchCall<T>(app: ElectronApplication, label: string, call: () => Promise<T>, slowMs = 1500): Promise<T> {
   const started = Date.now()
   const cpuBefore = cpuTimes()
   let done = false
   const pings: number[] = []
+  // Main's JavaScript stack, taken by a ping that came while main's event loop was held up: the
+  // inspector runs an evaluate between two statements of running code, so the stack is that code's.
+  const stacks = new Map<string, number>()
   let top: Promise<string> | undefined
   const pinger = (async () => {
     while (!done) {
       // While the call still hangs: what the whole machine does.
       if (top === undefined && Date.now() - started > 3000) top = machineTop()
       const at = Date.now()
-      await app.evaluate(() => 0).catch(() => undefined)
+      const stack = await app
+        .evaluate(() => {
+          const record = (globalThis as unknown as { __worfyStall?: StallRecord }).__worfyStall
+          if (!record || Date.now() - record.lastTick < 300) return undefined
+          const limit = Error.stackTraceLimit
+          Error.stackTraceLimit = 60
+          const text = new Error(`main held up ${Date.now() - record.lastTick} ms`).stack
+          Error.stackTraceLimit = limit
+          return text
+        })
+        .catch(() => undefined)
       pings.push(Date.now() - at)
+      if (stack) {
+        const key = stack.split('\n').slice(1).join('\n')
+        stacks.set(key, (stacks.get(key) ?? 0) + 1)
+      }
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
   })()
@@ -123,6 +143,7 @@ export async function watchCall<T>(app: ElectronApplication, label: string, call
         `[stall] window events: ${(record?.events ?? []).map((event) => `${rel(event.at)} ${event.what}`).join('; ') || 'none'}`,
         ...(record?.metrics ?? []).filter((each) => each.at >= started - 2000).map((each) => `[stall] cpu ${rel(each.at)} ${each.processes}`),
       ]
+      for (const [stack, count] of stacks) lines.push(`[stall] main stack (${count} pings):\n${stack}`)
       console.log(lines.join('\n'))
     }
   }
