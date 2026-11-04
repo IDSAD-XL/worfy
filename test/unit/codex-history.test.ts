@@ -213,3 +213,82 @@ describe('the slash menu of a Codex Session', () => {
     expect(input[2]).toEqual({ type: 'skill', name: 'triage', path: '/s/triage/SKILL.md' })
   })
 })
+
+// worfy-multi-vendor ticket 40: the items about Subagents become the `subagent` events a Claude
+// transcript gives for its agents, each at its own time, so the Flight Recorder reads a Codex Run's agents.
+describe('the Subagents of a thread of thread/read as transcript entries', () => {
+  const ms = (seconds: number): number => (1793000000 + seconds) * 1000
+  const iso = (seconds: number): string => new Date(ms(seconds)).toISOString()
+  const timed = (seconds: number, end = seconds) => ({ startedAtMs: ms(seconds), completedAtMs: ms(end) })
+  const collab = (id: string, tool: string, receivers: string[], seconds: number, end: number, fields: Record<string, unknown> = {}) => ({
+    type: 'collabAgentToolCall',
+    id,
+    tool,
+    status: 'completed',
+    senderThreadId: 'thr_o',
+    receiverThreadIds: receivers,
+    prompt: null,
+    model: null,
+    reasoningEffort: null,
+    agentsStates: {},
+    ...timed(seconds, end),
+    ...fields,
+  })
+  const event = (phase: 'started' | 'finished', taskId: string, toolUseId: string, fields: Record<string, unknown> = {}) => ({
+    type: 'subagent',
+    phase,
+    taskId,
+    toolUseId,
+    description: null,
+    subagentType: null,
+    status: null,
+    summary: null,
+    ...fields,
+  })
+
+  it('gives spawn_agent, send_message, followup_task and subAgentActivity as started, a wait\'s ended states as finished, with their answers, each at its own time', () => {
+    const read = thread({
+      id: 'thr_o',
+      cwd: '/p',
+      turns: [
+        {
+          id: 'turn_1',
+          rootTurnId: null,
+          itemsView: 'full',
+          status: 'completed',
+          error: null,
+          startedAt: 1793000000,
+          completedAt: 1793000100,
+          durationMs: 100000,
+          items: [
+            { type: 'userMessage', id: 'u1', clientId: null, content: [{ type: 'text', text: 'Run the wave', text_elements: [] }], ...timed(1) },
+            collab('spawn_1', 'spawnAgent', ['thr_a'], 2, 3, { prompt: 'Implement 40', agentsStates: { thr_a: { status: 'pendingInit', message: null } } }),
+            { type: 'subAgentActivity', model: 'gpt-5.5-codex', reasoningEffort: 'low', id: 'act_1', kind: 'started', agentThreadId: 'thr_a', agentPath: '/root/impl_40', ...timed(3) },
+            collab('spawn_2', 'spawnAgent', ['thr_x'], 4, 5, { status: 'failed' }),
+            collab('wait_1', 'wait', [], 6, 20, { agentsStates: { thr_a: { status: 'completed', message: 'PR 140' }, thr_b: { status: 'running', message: null } } }),
+            collab('msg_1', 'sendMessage', ['thr_a'], 21, 22),
+            collab('fol_1', 'followupTask', ['thr_a'], 23, 24),
+            { type: 'subAgentActivity', model: null, reasoningEffort: null, id: 'act_2', kind: 'interrupted', agentThreadId: 'thr_a', agentPath: '/root/impl_40', ...timed(30) },
+            collab('int_1', 'interruptAgent', ['thr_b'], 31, 32),
+            collab('close_1', 'closeAgent', ['thr_b'], 33, 34, { agentsStates: { thr_b: { status: 'errored', message: 'boom' } } }),
+            collab('list_1', 'listAgents', [], 35, 36),
+            { type: 'agentMessage', id: 'm1', text: 'Done.', ...timed(40, 41) },
+          ],
+        },
+      ] as unknown as Thread['turns'],
+    })
+    expect(codexTranscript(read)).toEqual([
+      { uuid: 'u1', timestamp: iso(1), sidechain: false, event: { type: 'notice', kind: 'user', text: 'Run the wave' } },
+      { uuid: 'spawn_1', timestamp: iso(2), sidechain: false, event: event('started', 'thr_a', 'spawn_1') },
+      { uuid: 'act_1', timestamp: iso(3), sidechain: false, event: event('started', 'thr_a', 'act_1', { description: 'impl_40' }) },
+      { uuid: 'spawn_2', timestamp: iso(5), sidechain: false, event: event('finished', 'thr_x', 'spawn_2', { status: 'failed' }) },
+      { uuid: 'wait_1', timestamp: iso(20), sidechain: false, event: event('finished', 'thr_a', 'wait_1', { status: 'completed', result: 'PR 140' }) },
+      { uuid: 'msg_1', timestamp: iso(21), sidechain: false, event: event('started', 'thr_a', 'msg_1') },
+      { uuid: 'fol_1', timestamp: iso(23), sidechain: false, event: event('started', 'thr_a', 'fol_1') },
+      { uuid: 'act_2', timestamp: iso(30), sidechain: false, event: event('finished', 'thr_a', 'act_2', { description: 'impl_40', status: 'stopped' }) },
+      { uuid: 'int_1', timestamp: iso(32), sidechain: false, event: event('finished', 'thr_b', 'int_1', { status: 'stopped' }) },
+      { uuid: 'close_1', timestamp: iso(34), sidechain: false, event: event('finished', 'thr_b', 'close_1', { status: 'failed', result: 'boom' }) },
+      { uuid: 'm1', timestamp: iso(41), sidechain: false, event: { type: 'text', text: 'Done.', messageId: 'm1', parentToolUseId: null, synthetic: false } },
+    ])
+  })
+})

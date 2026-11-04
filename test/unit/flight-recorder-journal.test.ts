@@ -520,6 +520,18 @@ describe('from-journal: the frame of the Run', () => {
     expect('actual' in few).toBe(false)
   })
 
+  // worfy-multi-vendor ticket 40: the Vendor of the Orchestrator picks the reader of the transcripts.
+  it('gives the Vendor of run-started; none for a Journal that names none or a Vendor this build does not know', () => {
+    const rest = [wave('10:01', 1, ['01']), finished('11:00', 1, ['01']), stopped('11:00', 'tickets-done')]
+    expect(read(started({ vendor: 'codex' }), ...rest).vendor).toBe('codex')
+    expect(read(started({ vendor: 'claude' }), ...rest).vendor).toBe('claude')
+    for (const journal of [read(started(), ...rest), read(started({ vendor: 'gemini' }), ...rest), read(started({ vendor: 7 }), ...rest)]) {
+      expect('vendor' in journal).toBe(false)
+      expect(journal.skipped).toBe(0)
+      expect(journal.tickets).toEqual(['e/01'])
+    }
+  })
+
   it('has no mode, forecast or actual in a Journal of before the Epic, and reads the rest as before', () => {
     const lines = [started(), wave('10:01', 1, ['01']), finished('11:00', 1, ['01']), stopped('11:00', 'tickets-done')]
     const journal = read(...lines)

@@ -511,7 +511,7 @@ export class FlightRecorder {
     if (!tailed) state.lines?.clear()
     state.lines?.begin()
     const transcripts = await readRunTranscripts(
-      { epic: journal.epic, root, startedAt: journal.run.startedAt, stoppedAt: end, waves: journal.waves },
+      { epic: journal.epic, root, startedAt: journal.run.startedAt, stoppedAt: end, waves: journal.waves, vendor: journal.vendor },
       tailed && state.lines !== null ? { env: this.env, readLines: state.lines.read, parses: state.lines.parses } : { env: this.env, readLines: streamLines },
     )
     state.lines?.settle()

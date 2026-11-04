@@ -42,9 +42,13 @@
 //   share (`run-stopped.actual`) of worfy-resource-planner tickets 05 and 07, for the head of the Run.
 //   A value of another shape (the rules of src/shared/autopilot/journal.ts) reads as none, and its
 //   line stays: a Journal of before that Epic has none of them.
+// - The Vendor of the Orchestrator (`run-started.vendor`, worfy-multi-vendor ticket 37): the reader of
+//   the transcripts reads a Run of another Vendor than Claude through that Vendor's driver (ticket 40).
+//   None, or a Vendor this build does not know, reads as none: Claude.
 import type { AutopilotStopReason } from '../autopilot/cycle'
 import { RUN_STARTED_BY } from '../autopilot/journal'
 import { RUN_MODES, type RunMode } from '../autopilot/run-mode'
+import { isVendorId, type VendorId } from '../vendors/vendor'
 import type { OrchestratorMarkFact, RetryCauseFact, RunFact, SpanOutcome, StageEventFact, WaitCause, WaitFact, WaveFact } from './facts'
 import { parseJournal, walkRun, type JournalEvent } from './journal-walk.mjs'
 
@@ -93,6 +97,8 @@ export interface JournalFacts {
   named?: string[]
   /** run-started `mode`: the Run mode. */
   mode?: RunMode
+  /** run-started `vendor`: the Vendor of the Orchestrator (worfy-multi-vendor ticket 37); none — Claude. */
+  vendor?: VendorId
   /** The Epic forecast at the Run's start (`forecast`), the part Run history shows. */
   forecast?: JournalForecast
   /** run-stopped `actual`: the share of the week the Run's Waves took. */
@@ -382,6 +388,8 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
   if (named !== undefined) facts.named = named.map(key)
   const mode = (RUN_MODES as readonly unknown[]).includes(runStarted?.mode) ? (runStarted?.mode as RunMode) : undefined
   if (mode !== undefined) facts.mode = mode
+  // A Vendor this build does not know reads as none, as the Journal's schema reads it.
+  if (typeof runStarted?.vendor === 'string' && isVendorId(runStarted.vendor)) facts.vendor = runStarted.vendor
   const forecast = forecastOf(events.find((event) => event.kind === 'forecast'))
   if (forecast !== null) facts.forecast = forecast
   const actual = actualOf(stopIndex === -1 ? undefined : events[stopIndex]?.actual)

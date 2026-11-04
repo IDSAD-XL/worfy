@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { agentIdsIn, SubagentParse, TranscriptParse, transcriptFacts, wavePromptTimes, type SubagentLines } from '../../src/shared/flight-recorder/from-transcript'
 import { agentSubkind, buildTimeline, type RunFacts, type WorkFact } from '../../src/shared/flight-recorder/spans'
+import type { TranscriptEntry } from '../../src/shared/transcript/parse'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
 
 const SESSION = 'orch-1'
@@ -480,5 +481,68 @@ describe('a transcript parsed in parts (worfy-flight-recorder ticket 27)', () =>
     const parse = new TranscriptParse().append(lines.slice(0, 1)).append(lines.slice(1, 3)).append(lines.slice(3))
     expect([...parse.agentIdsIn(inside)]).toEqual([...agentIdsIn(lines, inside)])
     expect([...parse.agentIdsIn(inside)]).toEqual(['a5', 'a7'])
+  })
+})
+
+// worfy-multi-vendor ticket 40: a Run of another Vendor is read by its driver's history as worfy's
+// transcript entries; the same facts come from its `subagent` events and its messages.
+describe('the facts of a Vendor\'s transcript entries (appendEntries)', () => {
+  type Entry = TranscriptEntry
+  const entry = (at: string, event: Entry['event']): Entry => ({ timestamp: at, sidechain: false, event })
+  const user = (at: string, text: string): Entry => entry(at, { type: 'notice', kind: 'user', text })
+  const answer = (at: string, text = 'ok'): Entry => entry(at, { type: 'text', text, messageId: `m-${at}`, parentToolUseId: null, synthetic: false })
+  const subagent = (at: string, phase: 'started' | 'finished', taskId: string, fields: { description?: string; status?: string; result?: string } = {}): Entry =>
+    entry(at, { type: 'subagent', phase, taskId, toolUseId: `call-${at}`, description: fields.description ?? null, subagentType: null, status: fields.status ?? null, summary: null, ...(fields.result === undefined ? {} : { result: fields.result }) })
+
+  it('a message to a Subagent that still works adds no span; one to a Subagent that ended starts the next; failed and stopped end it so', () => {
+    const parse = new TranscriptParse().appendEntries([
+      user(T('10:00'), '/worfy:epic-wave tickets 03, 04, 05 of epic e'),
+      subagent(T('10:01'), 'started', 'a', { description: 'impl_03' }),
+      subagent(T('10:01', '30'), 'started', 'b', { description: 'impl-04' }),
+      subagent(T('10:02'), 'started', 'c', { description: 'verify_05' }),
+      // send_message to `a` while it works: nothing new.
+      subagent(T('10:03'), 'started', 'a', { description: 'impl_03' }),
+      subagent(T('10:10'), 'finished', 'a', { status: 'completed', result: '{"pr": 31}' }),
+      subagent(T('10:11'), 'finished', 'b', { status: 'failed' }),
+      subagent(T('10:12'), 'finished', 'c', { status: 'completed', result: 'REJECTED: no test' }),
+      // A finish of an agent the transcript never started is not an agent of this Run.
+      subagent(T('10:13'), 'finished', 'stranger', { status: 'completed' }),
+      answer(T('10:14')),
+      // followup_task to `a` after it ended: the second span.
+      subagent(T('10:20'), 'started', 'a'),
+      subagent(T('10:25'), 'finished', 'a', { status: 'stopped' }),
+      answer(T('10:26')),
+    ])
+    const facts = parse.facts({ session: 'thr', epic: 'e', tickets: ['e/03', 'e/04', 'e/05'] })
+    expect(facts.work.map(({ id, name, ticket, start, end, outcome, pr, verdict }) => ({ id, name, ticket, start, end, outcome, pr, verdict }))).toEqual([
+      { id: 'a#1', name: 'impl_03', ticket: 'e/03', start: T('10:01'), end: T('10:10'), outcome: undefined, pr: 31, verdict: undefined },
+      { id: 'b#1', name: 'impl-04', ticket: 'e/04', start: T('10:01', '30'), end: T('10:11'), outcome: 'failed', pr: undefined, verdict: undefined },
+      { id: 'c#1', name: 'verify_05', ticket: 'e/05', start: T('10:02'), end: T('10:12'), outcome: 'rejected', pr: undefined, verdict: 'REJECTED' },
+      { id: 'a#2', name: 'impl_03', ticket: 'e/03', start: T('10:20'), end: T('10:25'), outcome: 'stopped', pr: undefined, verdict: undefined },
+    ])
+    expect(facts.turns.map(({ start, end, tickets }) => ({ start, end, tickets }))).toEqual([{ start: T('10:00'), end: T('10:26'), tickets: ['e/03', 'e/04', 'e/05'] }])
+    expect([...parse.agentIdsIn(() => true)]).toEqual(['a', 'b', 'c'])
+    // The second span of `a` starts at 10:20: a window from then on needs its transcript too.
+    expect([...parse.agentIdsIn((at) => at >= T('10:15'))]).toEqual(['a'])
+  })
+
+  it('the Subagent\'s own transcript gives its prompt (for its Ticket) and, without a result, its report; a turn ends at its latest answer', () => {
+    const parse = new TranscriptParse().appendEntries([
+      user(T('11:00'), 'go'),
+      subagent(T('11:01'), 'started', 'w', { description: 'worker' }),
+      answer(T('11:30')),
+      // An item that ended earlier, listed later (a wait): the turn still ends at its latest answer.
+      answer(T('11:20')),
+      subagent(T('11:15'), 'finished', 'w', { status: 'completed' }),
+    ])
+    const own = new SubagentParse().appendEntries([user(T('11:01'), 'Implement .scratch/e/issues/07-x.md'), answer(T('11:14'), '{"pr": 70, "worktree": "/wt/07"}'), answer(T('11:16'), 'after the end')])
+    expect(own.prompt).toBe('Implement .scratch/e/issues/07-x.md')
+    const facts = parse.facts({ session: 'thr', epic: 'e', tickets: ['e/07'], subagents: new Map([['w', { meta: null, parse: own }]]) })
+    expect(facts.work).toEqual([
+      { id: 'w#1', kind: 'agent', name: 'worker', ticket: 'e/07', start: T('11:01'), end: T('11:15'), startSource: 'transcript', endSource: 'transcript', session: 'thr', agent: 'w', worktree: '/wt/07', pr: 70 },
+    ])
+    expect(facts.turns.map(({ start, end }) => ({ start, end }))).toEqual([{ start: T('11:00'), end: T('11:30') }])
+    // A Claude Subagent file has no prompt of its own: its Ticket comes from the Agent call, as before.
+    expect(new SubagentParse().append([]).prompt).toBeNull()
   })
 })

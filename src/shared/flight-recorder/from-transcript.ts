@@ -26,9 +26,16 @@
 // A live Run is parsed a part at a time (worfy-flight-recorder ticket 27): TranscriptParse keeps
 // what the lines so far say and takes only the lines appended since, SubagentParse the same for a
 // Subagent's file; `transcriptFacts` is the same parse fed all the lines at once.
+//
+// A Run of another Vendor (worfy-multi-vendor ticket 40) is read by its driver's history as worfy's
+// transcript entries, not as lines (`appendEntries` of both parses): a turn starts at a message of the
+// user and ends at the agent's last answer, tool call or thinking; an agent's span starts at a
+// `subagent` event `started` (spawn_agent; send_message or followup_task to an agent that has ended
+// starts the next span) and ends at its `finished`; the agent's prompt is the first message of its own
+// transcript, its report the result of `finished`, else its own last answer. The facts are the same.
 import type { SpanOutcome, TurnFact, WorkFact } from './facts'
 import { agentSubkind } from './spans'
-import { parseTranscriptRecord } from '../transcript/parse'
+import { parseTranscriptRecord, type TranscriptEntry } from '../transcript/parse'
 import { AGENT_TOOLS, readSubagentMeta, summaryLine } from '../transcript/subagents'
 
 type Iso = string
@@ -63,7 +70,8 @@ const SEND_TOOL = 'SendMessage'
 const STILL_RUNNING = new Set(['async_launched', 'running'])
 const FAILED = new Set(['failed', 'error'])
 const STOPPED = new Set(['killed', 'stopped', 'cancelled'])
-const AGENT_NAME_TICKET = /^(?:impl|implementer|verify|verifier|review|reviewer)-0*(\d{1,5})(?!\d)/iu
+/** `impl-40`; `impl_40` too, as a Codex agent path may name it (worfy-multi-vendor ticket 40). */
+const AGENT_NAME_TICKET = /^(?:impl|implementer|verify|verifier|review|reviewer)[-_]0*(\d{1,5})(?!\d)/iu
 const DESCRIPTION_TICKET = /\bticket\s+0*(\d{1,5})\b/iu
 const WAVE_TICKETS = /\btickets?\s+(\d{1,5}(?:\s*,\s*\d{1,5})*)\s+of\s+epic\s+([A-Za-z0-9._-]+)/iu
 const AGENT_MESSAGE = /<agent-message from="([^"]{1,200})">/u
@@ -165,6 +173,11 @@ class AgentCalls {
     }
   }
 
+  /** A Subagent started or set working again at `at`, as a Vendor's history entry says (TranscriptParse.appendEntries). */
+  add(at: Iso, id: string): void {
+    this.started.push({ at, id })
+  }
+
   idsIn(inside: (at: Iso) => boolean): Set<string> {
     const ids = new Set<string>()
     for (const { at, id } of this.started) if (inside(at)) ids.add(id)
@@ -251,6 +264,11 @@ const ms = (iso: Iso): number => Date.parse(iso)
  */
 export class SubagentParse {
   readonly records: OwnRecord[] = []
+  /**
+   * The first message the Subagent got, from a transcript a Vendor's driver read (appendEntries); null
+   * from a Claude file, whose prompt is in the Agent call of the Orchestrator's transcript.
+   */
+  prompt: string | null = null
 
   /** Takes the lines that follow those taken so far, in file order. */
   append(lines: readonly string[]): this {
@@ -264,6 +282,16 @@ export class SubagentParse {
         if (texts.length > 0) text = texts.join('\n')
       }
       this.records.push({ at, ms: ms(at), cwd: str(record.cwd), text })
+    }
+    return this
+  }
+
+  /** Takes the entries of a Vendor's transcript (history.read) that follow those taken so far, in order. */
+  appendEntries(entries: readonly TranscriptEntry[]): this {
+    for (const { timestamp: at, sidechain, event } of entries) {
+      if (sidechain || at === undefined || !Number.isFinite(ms(at))) continue
+      if (event.type === 'notice' && event.kind === 'user') this.prompt ??= event.text.slice(0, PROMPT_MAX)
+      this.records.push({ at, ms: ms(at), cwd: undefined, text: event.type === 'text' ? event.text : null })
     }
     return this
   }
@@ -358,13 +386,7 @@ export class TranscriptParse {
     // A turn begins with a prompt: typed, a delivered report, another agent's message.
     if (raw.isMeta !== true && raw.isCompactSummary !== true) {
       const text = userText(raw)
-      if (text !== null) {
-        this.turns.push({ start: at, end: null, touches: [] })
-        const wave = WAVE_TICKETS.exec(text)
-        if (wave !== null) this.touch({ kind: 'wave', epic: wave[2]!, numbers: wave[1]!.split(',').map((digits) => digits.trim()) })
-        const from = AGENT_MESSAGE.exec(text)?.[1]
-        if (from !== undefined) this.touch({ kind: 'from', name: from, count: this.agents.length, ids: this.ids })
-      }
+      if (text !== null) this.startTurn(text, at)
     }
     if (raw.type === 'assistant' && this.turns.length > 0) this.turns.at(-1)!.end = at
 
@@ -438,6 +460,71 @@ export class TranscriptParse {
     }
   }
 
+  /** A turn that starts at the prompt `text`, with the Tickets the prompt names. */
+  private startTurn(text: string, at: Iso): void {
+    this.turns.push({ start: at, end: null, touches: [] })
+    const wave = WAVE_TICKETS.exec(text)
+    if (wave !== null) this.touch({ kind: 'wave', epic: wave[2]!, numbers: wave[1]!.split(',').map((digits) => digits.trim()) })
+    const from = AGENT_MESSAGE.exec(text)?.[1]
+    if (from !== undefined) this.touch({ kind: 'from', name: from, count: this.agents.length, ids: this.ids })
+  }
+
+  /**
+   * Takes the entries of an Orchestrator transcript a Vendor's driver read (history.read; worfy-multi-vendor
+   * ticket 40) that follow those taken so far, in order. The facts are asked for as after `append`.
+   */
+  appendEntries(entries: readonly TranscriptEntry[]): this {
+    for (const entry of entries) this.takeEntry(entry)
+    return this
+  }
+
+  private takeEntry({ timestamp: at, sidechain, event }: TranscriptEntry): void {
+    if (sidechain || at === undefined || !Number.isFinite(ms(at))) return
+    if (event.type === 'notice' && event.kind === 'user') return this.startTurn(event.text, at)
+    if (event.type === 'text' || event.type === 'thinking' || event.type === 'tool_use') {
+      // The items of a turn may end out of their order (a wait ends after the calls made meanwhile): the latest is its end.
+      const turn = this.turns.at(-1)
+      if (turn !== undefined && (turn.end === null || ms(at) > ms(turn.end))) turn.end = at
+      return
+    }
+    if (event.type !== 'subagent') return
+    const known = this.byAgentId.get(event.taskId)
+    if (event.phase === 'started') {
+      if (known === undefined) {
+        const agent: Agent = {
+          index: this.agents.length,
+          callId: event.toolUseId ?? event.taskId,
+          agentId: event.taskId,
+          idAt: ++this.ids,
+          name: event.description,
+          type: event.subagentType,
+          description: null,
+          prompt: null,
+          stretches: [{ round: 1, start: at, end: null, report: null, cwd: undefined }],
+        }
+        this.agents.push(agent)
+        this.byAgentId.set(event.taskId, agent)
+        this.agentCalls.add(at, event.taskId)
+        this.touch({ kind: 'agent', agent, ids: this.ids })
+        return
+      }
+      this.touch({ kind: 'agent', agent: known, ids: this.ids })
+      known.name ??= event.description
+      const last = known.stretches.at(-1)!
+      // A message to an agent that still works starts nothing: only one that has ended works again.
+      if (last.end === null) return
+      known.stretches.push({ round: last.round + 1, start: at, end: null, report: null, cwd: undefined })
+      this.agentCalls.add(at, event.taskId)
+      return
+    }
+    if (known === undefined) return
+    this.touch({ kind: 'agent', agent: known, ids: this.ids })
+    const stretch = known.stretches.findLast((item) => item.end === null)
+    if (stretch === undefined) return
+    const outcome = outcomeOf(event.status)
+    Object.assign(stretch, { end: at, outcome, reason: outcome === undefined ? undefined : (event.summary ?? undefined), report: event.result ?? null })
+  }
+
   /** The facts of the lines taken so far, for this Run and the Subagents' files as they are now. Changes nothing of the parse. */
   facts(input: ParseInput): TranscriptFacts {
     const tickets = input.tickets ?? []
@@ -467,7 +554,8 @@ export class TranscriptParse {
     const branchOrIssue = new RegExp(`(?:\\.scratch/${escape(input.epic)}/issues/|\\b${escape(input.epic)}/)0*(\\d{1,5})(?!\\d)`, 'u')
     const ticketOf = memo((agent, agentId) => {
       const meta = metaOf(agentId)
-      const prompt = agent.prompt ?? ''
+      // A Vendor's Subagent has its prompt in its own transcript (SubagentParse.prompt).
+      const prompt = agent.prompt ?? (agentId === null ? null : subagents.get(agentId)?.parse.prompt) ?? ''
       return (
         ticketOfName(agent.name ?? meta?.name ?? null) ??
         ticketByNumber(DESCRIPTION_TICKET.exec(agent.description ?? meta?.description ?? '')?.[1], input.epic, tickets) ??
