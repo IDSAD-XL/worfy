@@ -273,3 +273,38 @@ a pid's start time`.
   обновления, `toHaveText("Harness <версия>")`, не укладывается в 15 с, ошибка `element(s) not found`. Старый stub: 1 и 15
   из 120 в двух сериях, новый: 11 из 120. Шаги установки там занимают по 4–6 с. Только с нагрузкой на CPU (4 worker-а, 8
   процессов) новый stub 60 из 60 зелёные.
+
+### Часть 7. 2026-11-04, ветка `fix/e2e-windows-window-width` (PR #1375): «the window is N px wide» — не размер экрана, а приложение не отвечает
+
+Касается `card-drag.spec.ts:179/196/213/232`, `session-question.spec.ts:147`, `vendor-picker.spec.ts:72`,
+`browser-webview-guard.spec.ts:158`: все падали в `canvasReady` (`test/e2e/helpers.ts`) с `the window is 1600 px wide`
+или `… 1400 px wide`. Причина эпизода не установлена; гипотеза «экран runner-а меньше окна» опровергнута.
+
+- **Экран не держит окно.** Экран Windows runner-а — 1024 × 768, рабочая область 1024 × 720, масштаб 1 (замер
+  `screen.getPrimaryDisplay()` в run-ах 41854514599, 41857508829, 41860357961, 41868122584). При этом в тех же job-ах
+  около сотни запусков с окном 1600 × 1000 и 1400 × 900 зелёные, а снимок Playwright после упавшего test-а — 1600 × 1000.
+  Electron: `enableLargerThanScreen` — «Only relevant for macOS, as other OSes allow larger-than-screen windows by
+  default» (https://www.electronjs.org/docs/latest/api/structures/base-window-options). `Received: 1264` — это начальное
+  окно 1280 × 800 (`DEFAULT_SIZE`, `src/shared/window/bounds.ts:16`) минус рамка 16 px: размер ещё ни разу не задан.
+- **Что на самом деле.** Trace-ы 12 упавших попыток (run-ы 41840970500, 41848977670, 41836397033, 41463951333;
+  разбор `app-trace` внутри `trace.zip`): в 11 первый `window.evaluate(() => innerWidth)` в `canvasReady` отвечает через
+  9–20 s (1264), снимок окна после — ещё 2–13 s; в двенадцатой (`Received: 1264`) первый ответ — 1.7 s, второй, уже
+  1600, — 6.8 s, после конца ожидания. Опрос ждёт ответа страницы, и только потом зовёт `setContentSize`,
+  поэтому за 10 s размер не задаётся. Ошибка называла ширину окна, хотя не отвечала страница.
+- **Эпизоды машины, а не test-а.** Сбои идут подряд в одном окне времени: run 41463951333 — пять запусков приложения
+  подряд красные с 14:48:00 до 14:49:45 (`card-drag` 179/196/213 и их retry), до и после всё зелёное; в остальных
+  случаях красными были test и его немедленный retry. Частота: 3 из 131 job-ов `windows-e2e` в 60 последних run-ах CI.
+- **Probe (`test/e2e/app-stall.ts`, четыре run-а CI на PR #1375).** Длинного эпизода в них не было; короткие (1.6–7.9 s)
+  есть почти в каждом run-е. В них: цикл событий main стоит по 0.7–2 s подряд, а первый JavaScript main после остановки —
+  обработчик `fs.watch` (`FSWatcher._handle.onchange`), то есть main стоял в native-коде, не в своём JavaScript; потока
+  событий `fs.watch` нет (56–118 событий за вызов, от профиля Chromium в папке данных). CPU машины занят на 32–59 % из
+  4 ядер, свободно 12 ГБ памяти; в единственном замере за 2 s один `svchost` взял 2.4 s CPU (какой службы — не узнали).
+  Задачу Chromium, которая держит поток main, probe не поймал: длинного эпизода не было, а в одном run-е отчёт probe сам
+  съел время ожидания (исправлено: отчёт печатается после ожидания).
+- **Что изменено.** `canvasReady` при таком сбое теперь говорит правду: к ошибке добавляется строка «The page answered
+  innerWidth only after up to N ms…: the app was not answering, so the window kept its start size (worfy-polish 47)»
+  (проверено локально: страница занята 12 s → эта строка). Probe остаётся в репозитории, но включается только
+  `WORFY_E2E_STALL_PROBE=1`; CI его не ставит. Timeout-ы не тронуты, записи quarantine `card-drag-*` остаются: причина
+  эпизода не устранена.
+- **Дальше.** Run диагностики с `WORFY_E2E_STALL_PROBE=1` в job `windows-e2e` до первого длинного эпизода: отчёт назовёт
+  задачи потоков main (Chromium trace, категория `toplevel`) и службы занятого `svchost`.
