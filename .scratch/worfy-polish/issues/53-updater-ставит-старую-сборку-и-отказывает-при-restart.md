@@ -1,7 +1,8 @@
 # 53 — Updater ставит сборку старее работающей и отказывает в установке на «Restart now»
 
 Type: bug
-Status: open
+Status: done 2026-11-04T10:53Z
+PR: #1355
 Blocked by:
 Source: владелец 2026-11-04 («опять»), приёмка worfy-multi-vendor 32 на Mac Stable; журналы updater-а в
 `~/Library/Application Support/worfy/update/` (`state.json`, `restart.json`, `restart.log`)
