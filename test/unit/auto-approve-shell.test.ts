@@ -312,8 +312,28 @@ describe('outside the grammar: judged false', () => {
     ['a UNC path on Windows', "rm '\\\\server\\share'", 'a UNC path'],
     ['a stray control operator', 'echo a & & echo b', 'a background & or an &> redirection'],
     ['a pipe ending the command', 'echo a |', 'a missing command'],
+    ['a >& to a word after fd 2', 'echo a 2>&x', 'a >& to a file'],
+    ['a { inside a word', 'printf %s a{b', 'a brace expansion or a group'],
+    ['an unclosed command substitution', 'rm $(x', 'a command substitution'],
+    ['a working folder on Windows that is not absolute', 'rm x', 'a working folder that is not absolute'],
+    ['a glob in a short option', 'rm -*', 'a glob in an option'],
+    ['a glob in a long option', 'rm --f*', 'a glob in an option'],
+    ['a short option without its value', 'head -n', 'an option without its value'],
+    ['an option without its value at the end', 'mkdir -m', 'an option without its value'],
+    ['curl -o named from a URL glob', "curl -o 'f#1' https://example.invalid/x", 'a curl output named from a URL glob'],
+    ['a git option denied in every subcommand', 'git commit -m x --receive-pack=y', 'a git option that reads a file or runs a program'],
+    ['a git option longer than a denied one', 'git commit -m x --templatex', 'a git option that reads a file or runs a program'],
+    ['git -C with an empty folder', 'git -C "" status', 'an option without its value'],
+    ['a relative TMPDIR', 'T=$(mktemp -d)', 'a TMPDIR that is not absolute'],
+    ['a relative TMPDIR on Windows', 'T=$(mktemp -d)', 'a TMPDIR that is not absolute'],
+    ['a command that expands to nothing', '$EMPTY', 'a command without a program after expansion'],
+    ['exit inside a pipeline', 'echo | exit', 'an exit inside a pipeline'],
+    ['[ does not end options at --', '[ -- * ]', 'a glob that may expand into an option'],
   ]
   const contexts: Record<string, AnalyzeContext> = {
+    'a working folder on Windows that is not absolute': { ...windows, cwd: 'work' },
+    'a relative TMPDIR': { ...posix, env: { ...posix.env, TMPDIR: 'tmp' } },
+    'a relative TMPDIR on Windows': { ...windows, env: { TMPDIR: 'tmp' } },
     'IFS in the environment': { ...posix, env: { ...posix.env, IFS: ' ' } },
     'a relative cd with CDPATH': { ...posix, env: { ...posix.env, CDPATH: '/tmp' } },
     'a glob character in HOME': { ...posix, env: { ...posix.env, HOME: '/home/de*mo' } },
@@ -595,6 +615,24 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
   it('exit with no operand or a number ends the command', () => {
     expect(brief('exit 0; rm x')).toEqual([{ program: 'exit', cwd: '/tmp/demo' }])
     expect(brief('exit; rm x')).toEqual([{ program: 'exit', cwd: '/tmp/demo' }])
+  })
+
+  it('the reads and forms the mutation run found untested', () => {
+    expect(actions('printf %s "a\\`b"')[0]?.args).toEqual(['%s', 'a`b'])
+    expect(brief('$EMPTY x')).toEqual([{ program: 'x', cwd: '/tmp/demo', writes: [UNKNOWN] }])
+    expect(brief('curl -d @a --data-raw @b -w @fmt https://example.invalid')).toEqual([{ program: 'curl', cwd: '/tmp/demo', reads: ['/tmp/demo/a', '/tmp/demo/fmt'], network: true }])
+    expect(brief('curl --data-urlencode n@f --data-urlencode a=b@c --data-urlencode @g -b jar -b a=b https://example.invalid')).toEqual([
+      { program: 'curl', cwd: '/tmp/demo', reads: ['/tmp/demo/f', '/tmp/demo/g', '/tmp/demo/jar'], network: true },
+    ])
+    expect(brief('wget --input-file=list -O f https://example.invalid; wget -i - -O f https://example.invalid')).toEqual([
+      { program: 'wget', cwd: '/tmp/demo', writes: ['/tmp/demo/f'], reads: ['/tmp/demo/list'], network: true },
+      { program: 'wget', cwd: '/tmp/demo', writes: ['/tmp/demo/f'], network: true },
+    ])
+    expect(brief('git config --list; set -o errexit; set +o nounset')).toEqual([
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY] },
+      { program: 'set', cwd: '/tmp/demo' },
+      { program: 'set', cwd: '/tmp/demo' },
+    ])
   })
 
   it('exactly as many actions as the limit is judged', () => {

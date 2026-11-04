@@ -1016,7 +1016,6 @@ function mktemp(args: Expanded[], state: State, scope: Scope): string {
 
 /** The folder `mktemp -d` creates, as the shell would hold it. */
 function newTempFolder(state: State, scope: Scope): string {
-  if (state.assigned.has('TMPDIR')) fail('an assignment to an exported variable')
   const tmp = scope.context.env['TMPDIR']
   if (tmp === undefined || tmp === '') fail('mktemp without TMPDIR')
   const base = scope.win ? shellForm(windowsAbsolute(tmp) ?? fail('a TMPDIR that is not absolute'), true) : tmp.startsWith('/') ? tmp : fail('a TMPDIR that is not absolute')
@@ -1325,6 +1324,6 @@ function command(cmd: Command, state: State, scope: Scope, stdinFrom: number | n
     // A shell reading a script file or its input runs code the grammar cannot see.
   }
   refuseGlobOptions(program, args)
-  const index = emit(scope, action(SHELLS.has(program) ? { ...none(), writes: [UNKNOWN] } : table(program, args, state, scope)))
+  const index = emit(scope, action(table(program, args, state, scope)))
   return { states: both, index }
 }
