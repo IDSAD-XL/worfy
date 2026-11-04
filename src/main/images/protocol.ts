@@ -21,10 +21,18 @@
 // store's limit. Everything else is a 404. The answers carry nosniff, no-store and a CSP that allows nothing, so an
 // answer opened as a page runs nothing.
 //
-// The window's CSP opens `img-src` to this scheme and 'self' only (src/renderer/index.html).
-// The scheme is standard and secure, like worfy-card:// (src/main/cards/protocol.ts): its URL has a
-// host, and a page on file:// or on the dev server loads it as an image.
-import { readFile, realpath, stat } from 'node:fs/promises'
+// The Evidence store (worfy-evidence ticket 12, src/main/images/stores.ts) is the one that differs, by
+// two marks of its own: `nested` — its names are paths of several parts below its folder, `/` between
+// them, each part checked, no symlink on any step; `media` — it serves the clips too (webm, mp4,
+// EVIDENCE_CONTENT_TYPES), answers a `Range` with 206 and Content-Range so a <video> can seek, and tells
+// a file over its limit with a 413, which the window shows as «File over 8 MB». The other stores'
+// answers do not change.
+//
+// The window's CSP opens `img-src` and `media-src` to this scheme ('self' too for images) only
+// (src/renderer/index.html). The scheme is standard and secure, like worfy-card://
+// (src/main/cards/protocol.ts): its URL has a host, and a page on file:// or on the dev server loads it
+// as an image; `stream` lets a <video> read it in ranges.
+import { lstat, open, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { protocol, type CustomScheme } from 'electron'
 import { FILE_COPY_LIMIT_BYTES, IMAGE_EXTENSIONS, IMAGE_FILE_NAME_PATTERN } from '../../shared/agent/attachments'
@@ -37,6 +45,9 @@ import { appLinkedImageSource } from './remote'
 /** The extensions served, and their content types: those of the stored images. Any other name is a 404. */
 export const IMAGE_CONTENT_TYPES: Readonly<Record<string, string>> = Object.fromEntries(Object.entries(IMAGE_EXTENSIONS).map(([type, ext]) => [`.${ext}`, type]))
 
+/** The extensions the Evidence store serves (`media`): the images', and the clips a test helper records. */
+export const EVIDENCE_CONTENT_TYPES: Readonly<Record<string, string>> = { ...IMAGE_CONTENT_TYPES, '.jpeg': 'image/jpeg', '.webm': 'video/webm', '.mp4': 'video/mp4' }
+
 /** The largest sent image served: the largest file worfy copies into its data folder. */
 export const ATTACHMENT_IMAGE_LIMIT_BYTES = FILE_COPY_LIMIT_BYTES
 
@@ -48,20 +59,27 @@ export const IMAGE_HEADERS: Readonly<Record<string, string>> = {
 }
 
 /** The privileges the scheme gets before the app is ready (src/main/schemes.ts). */
-export const IMAGE_SCHEME_PRIVILEGES: CustomScheme = { scheme: IMAGE_SCHEME, privileges: { standard: true, secure: true } }
+export const IMAGE_SCHEME_PRIVILEGES: CustomScheme = { scheme: IMAGE_SCHEME, privileges: { standard: true, secure: true, stream: true } }
 
 /** One store: its folder, the only names it serves, and the largest file it serves. */
 export interface ImageStore {
   dir: string
   names: RegExp
   limit: number
+  /** A name is a path of several parts below `dir`, `/` between them; without it a name is one file name. */
+  nested?: true
+  /** Clips too (EVIDENCE_CONTENT_TYPES), a `Range` answered with 206, a file over the limit a 413. */
+  media?: true
 }
+
+/** The extensions a store serves, with their content types. */
+const typesOf = (store: Pick<ImageStore, 'media'>): Readonly<Record<string, string>> => (store.media ? EVIDENCE_CONTENT_TYPES : IMAGE_CONTENT_TYPES)
 
 /** The store of the images sent in messages, in `dir` (attachmentImagesDir). */
 export const attachmentImageStore = (dir: string): ImageStore => ({ dir, names: IMAGE_FILE_NAME_PATTERN, limit: ATTACHMENT_IMAGE_LIMIT_BYTES })
 
 /** The store of this Machine a store name (src/shared/images.ts) names, or null for a name that names none. */
-export type ImageStoreLocator = (store: string) => ImageStore | null
+export type ImageStoreLocator = (store: string) => ImageStore | null | Promise<ImageStore | null>
 
 /** What a worfy-image:// URL names: a host, and one file name, decoded. */
 export interface ImageAddress {
@@ -97,6 +115,10 @@ export interface ImageFileOptions {
   fileSize?: (path: string) => Promise<number | null>
   /** Reads the file served; rejects when it cannot. */
   read?: (path: string) => Promise<Uint8Array>
+  /** Opens a file of a `media` store for reading (fs.open); rejects when it cannot. */
+  open?: (path: string) => Promise<MediaFile>
+  /** lstat of a path: the file the name leads to now, by device and inode. */
+  lstat?: (path: string) => Promise<FileIdentity>
 }
 
 const fileSizeOf = async (path: string): Promise<number | null> => {
@@ -104,33 +126,53 @@ const fileSizeOf = async (path: string): Promise<number | null> => {
   return info.isFile() ? info.size : null
 }
 
+/** What findImageFile found: the file and its size, or why there is none to serve. */
+export type FoundImageFile = { path: string; size: number } | 'missing' | 'too-large'
+
+/** The parts of a name in a store: one, or for a `nested` store its parts between `/`; null for a part that is empty, `.` or `..`. */
+function partsOf(store: Pick<ImageStore, 'nested'>, name: string): string[] | null {
+  if (name.includes('\\')) return null
+  if (!store.nested) return name.includes('/') ? null : [name]
+  const parts = name.split('/')
+  // The store's pattern refuses these already; what is served never depends on the pattern alone.
+  return parts.some((part) => part === '' || part === '.' || part === '..') ? null : parts
+}
+
 /**
- * The file a name stands for in a store, or null when there is none to serve: the name does not
- * match the store's pattern or has an extension not in IMAGE_CONTENT_TYPES; the store's folder is a
- * symlink, or a symlink leads to the file; the file is missing, a folder, or over the store's
- * limit. On Windows the links on the way are read before any realpath, as for a
- * Card (resolveCardFile): realpath of a link to `\\host\share\…` would contact that host.
+ * The file a name stands for in a store, or why there is none to serve. `missing`: the name does not
+ * match the store's pattern, has an empty, `.` or `..` part, or an extension the store does not serve
+ * (typesOf); the store's folder is a symlink, or a symlink leads to the file on any step below it; the
+ * file is missing or a folder. `too-large`: the file is over the store's limit. On Windows the links on
+ * the way are read before any realpath, as for a Card (resolveCardFile): realpath of a link to
+ * `\\host\share\…` would contact that host.
  */
-export async function resolveImageFile(store: ImageStore, name: string, options: ImageFileOptions = {}): Promise<string | null> {
+export async function findImageFile(store: ImageStore, name: string, options: ImageFileOptions = {}): Promise<FoundImageFile> {
   const paths = options.paths ?? nativePath
   const real = options.real ?? realpath
   const fileSize = options.fileSize ?? fileSizeOf
-  if (!store.names.test(name) || name.includes('/') || name.includes('\\')) return null
-  if (IMAGE_CONTENT_TYPES[paths.extname(name).toLowerCase()] === undefined) return null
+  const parts = store.names.test(name) ? partsOf(store, name) : null
+  if (parts === null) return 'missing'
+  if (typesOf(store)[paths.extname(name).toLowerCase()] === undefined) return 'missing'
   try {
-    if (await leadsToRemote(paths.join(store.dir, name), [paths.dirname(store.dir)], { paths, ...(options.links ? { links: options.links } : {}) })) return null
+    if (await leadsToRemote(paths.join(store.dir, ...parts), [paths.dirname(store.dir)], { paths, ...(options.links ? { links: options.links } : {}) })) return 'missing'
     // The store's own folder is not a link: its real path is its parent's real path and its name.
     const realDir = await real(store.dir)
-    if (realDir !== paths.join(await real(paths.dirname(store.dir)), paths.basename(store.dir))) return null
-    const candidate = paths.join(realDir, name)
-    // Nor is the file: what is served is the file of that name in that folder.
-    if ((await real(candidate)) !== candidate) return null
+    if (realDir !== paths.join(await real(paths.dirname(store.dir)), paths.basename(store.dir))) return 'missing'
+    const candidate = paths.join(realDir, ...parts)
+    // Nor is the file, nor a folder on the way to it: what is served is the file of that path in that folder.
+    if ((await real(candidate)) !== candidate) return 'missing'
     const size = await fileSize(candidate)
-    if (size === null || size > store.limit) return null
-    return candidate
+    if (size === null) return 'missing'
+    return size > store.limit ? 'too-large' : { path: candidate, size }
   } catch {
-    return null
+    return 'missing'
   }
+}
+
+/** The file a name stands for in a store, or null when there is none to serve (findImageFile), a file over the limit included. */
+export async function resolveImageFile(store: ImageStore, name: string, options: ImageFileOptions = {}): Promise<string | null> {
+  const found = await findImageFile(store, name, options)
+  return typeof found === 'string' ? null : found.path
 }
 
 /**
@@ -160,7 +202,8 @@ export interface LinkedImageRequest {
 /** The second source of images: the stored images of Linked machines (src/main/images/remote.ts). */
 export type LinkedImageSource = (request: LinkedImageRequest) => Promise<LinkedFile>
 
-type ImageRequest = Pick<Request, 'url' | 'method'>
+/** What the handler reads of a request: the URL, the method and, for a `media` store, the `Range` header. */
+type ImageRequest = Pick<Request, 'url' | 'method'> & { headers?: Pick<Headers, 'get'> }
 
 const plain = (status: number, text: string): Response => new Response(text, { status, headers: { ...IMAGE_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' } })
 
@@ -173,6 +216,91 @@ function imageResponse(method: string, extension: string, body: Uint8Array): Res
   const headers = { ...IMAGE_HEADERS, 'Content-Type': IMAGE_CONTENT_TYPES[extension] ?? 'application/octet-stream' }
   if (method === 'HEAD') return new Response(null, { status: 200, headers })
   return new Response(new Uint8Array(body), { status: 200, headers })
+}
+
+/** One range of bytes of a file, both ends included. */
+export interface ByteRange {
+  start: number
+  end: number
+}
+
+const RANGE = /^bytes=(\d*)-(\d*)$/
+
+/**
+ * The bytes a `Range` header asks of a file of `size` bytes (RFC 9110, 14.1.2): `bytes=a-b`, `bytes=a-`,
+ * or the last n, `bytes=-n`; an end past the file stops at its last byte. `unsatisfiable` — the range
+ * starts at or past the end, or asks for the last 0 bytes: a 416. null — no header, or one this handler
+ * does not read (another unit, several ranges, an end before the start): the whole file, a 200.
+ */
+export function byteRange(header: string | null | undefined, size: number): ByteRange | 'unsatisfiable' | null {
+  const match = header == null ? null : RANGE.exec(header.trim())
+  if (match === null) return null
+  const [, first = '', last = ''] = match
+  if (first === '' && last === '') return null
+  if (first === '') {
+    const suffix = Number(last)
+    return suffix === 0 || size === 0 ? 'unsatisfiable' : { start: Math.max(0, size - suffix), end: size - 1 }
+  }
+  const start = Number(first)
+  if (last !== '' && Number(last) < start) return null
+  if (start >= size) return 'unsatisfiable'
+  return { start, end: last === '' ? size - 1 : Math.min(Number(last), size - 1) }
+}
+
+/** What tells one file from another: its device and inode (fs.Stats). */
+export interface FileIdentity {
+  dev: number
+  ino: number
+}
+
+/** An open file of a `media` store: the part of fs/promises' FileHandle the handler uses. */
+export interface MediaFile {
+  stat(): Promise<FileIdentity & { size: number }>
+  read(buffer: Uint8Array, offset: number, length: number, position: number): Promise<{ bytesRead: number }>
+  close(): Promise<void>
+}
+
+const tooLargeMedia = (limit: number): Response => plain(413, `An Evidence file is served up to ${limit} bytes`)
+
+/**
+ * The answer of a `media` store for the file findImageFile checked: the whole file with Accept-Ranges, or the
+ * range asked for with 206 and Content-Range. The file is opened once, and that descriptor is what is served:
+ * its device and inode must be those of the path now (lstat) — a link or another file put at the path since
+ * the check is a 404 — its size is the descriptor's, checked against the limit again, and only the bytes of
+ * the range are read from it. A file that ends before them (cut since) is a 404.
+ */
+async function mediaResponse(method: string, extension: string, file: string, limit: number, header: string | null | undefined, options: ImageFileOptions): Promise<Response> {
+  let handle: MediaFile
+  try {
+    handle = await (options.open ?? ((path: string) => open(path, 'r')))(file)
+  } catch {
+    return notFound()
+  }
+  try {
+    const [opened, named] = await Promise.all([handle.stat(), (options.lstat ?? lstat)(file)])
+    if (opened.dev !== named.dev || opened.ino !== named.ino) return notFound()
+    const size = opened.size
+    if (size > limit) return tooLargeMedia(limit)
+    const headers = { ...IMAGE_HEADERS, 'Content-Type': EVIDENCE_CONTENT_TYPES[extension] ?? 'application/octet-stream', 'Accept-Ranges': 'bytes' }
+    const range = byteRange(header, size)
+    if (range === 'unsatisfiable') return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': `bytes */${size}` } })
+    const status = range === null ? 200 : 206
+    const span = range ?? { start: 0, end: size - 1 }
+    const length = Math.max(0, span.end - span.start + 1)
+    const rangeHeaders = { ...headers, 'Content-Length': String(length), ...(range === null ? {} : { 'Content-Range': `bytes ${span.start}-${span.end}/${size}` }) }
+    if (method === 'HEAD') return new Response(null, { status, headers: rangeHeaders })
+    const body = new Uint8Array(length)
+    for (let done = 0; done < length; ) {
+      const { bytesRead } = await handle.read(body, done, length - done, span.start + done)
+      if (bytesRead === 0) return notFound()
+      done += bytesRead
+    }
+    return new Response(body, { status, headers: rangeHeaders })
+  } catch {
+    return notFound()
+  } finally {
+    await handle.close().catch(() => undefined)
+  }
 }
 
 /** An image of a Linked machine: its bytes from the second source, checked again on this side. */
@@ -212,11 +340,20 @@ export function createImageHandler(locate: ImageStoreLocator, options: ImageFile
     const host = parseImageHost(address.host)
     // An image of a Linked machine is in that Machine's data folder: it comes over the link.
     if (host.machineLabel !== null) return linkedResponse(request.method, { machineLabel: host.machineLabel, store: host.store, name: address.name }, linked)
-    const store = locate(host.store)
+    let store: ImageStore | null
+    try {
+      store = await locate(host.store)
+    } catch {
+      return notFound()
+    }
     if (store === null) return notFound()
-    const file = await resolveImageFile(store, address.name, options)
-    if (file === null) return notFound()
+    const found = await findImageFile(store, address.name, options)
+    // Only a `media` store tells a file over its limit; for the others it is not there, as before.
+    if (found === 'too-large' && store.media) return tooLargeMedia(store.limit)
+    if (typeof found === 'string') return notFound()
+    const file = found.path
     const extension = nativePath.extname(file).toLowerCase()
+    if (store.media) return mediaResponse(request.method, extension, file, store.limit, request.headers?.get('range'), options)
     if (request.method === 'HEAD') return imageResponse('HEAD', extension, new Uint8Array())
     let body: Uint8Array
     try {

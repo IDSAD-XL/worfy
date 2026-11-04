@@ -219,11 +219,11 @@ describe('app.version in src/main/index.ts', () => {
 })
 
 describe('Card and image protocol wiring in src/main/index.ts', () => {
-  it('registers worfy-card:// and worfy-image:// in one call as standard, secure schemes and serves both before the first window', () => {
+  it('registers worfy-card:// and worfy-image:// in one call as standard, secure schemes (worfy-image streamed) and serves both before the first window', () => {
     expect(startup.schemes).toEqual([
       [
         { scheme: 'worfy-card', privileges: { standard: true, secure: true } },
-        { scheme: 'worfy-image', privileges: { standard: true, secure: true } },
+        { scheme: 'worfy-image', privileges: { standard: true, secure: true, stream: true } },
       ],
     ])
     expect(startup.served).toEqual(['worfy-card', 'worfy-image'])

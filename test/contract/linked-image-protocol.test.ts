@@ -99,7 +99,7 @@ const expectImageHeaders = (response: Response, what: string) => {
 
 describe('an image of a Linked machine comes over the link', () => {
   it('a Canvas image of M, at the address the window builds, with its type and the headers', async () => {
-    expect(canvasOfM(FILE)).toBe(`${IMAGE_SCHEME}://canvas.0a1b2c3d.${M_LABEL}/${FILE}`)
+    expect(canvasOfM(FILE)).toBe(`${IMAGE_SCHEME}://canvas-0a1b2c3d.${M_LABEL}/${FILE}`)
     const response = await get(canvasOfM(FILE))
     expect(response.status).toBe(200)
     expect(Buffer.from(await response.arrayBuffer())).toEqual(PNG)

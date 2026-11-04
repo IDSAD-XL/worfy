@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +7,7 @@ import { expect, test, type ElectronApplication, type Locator, type Page } from 
 import { catScript } from '../harness-node'
 import { canvasReady, expectSettledWithoutOverlaps, launchApp, repoRoot, ticketCardCuts } from './helpers'
 import { ms } from '../time-scale'
+import { canvasImageUrl, evidenceFileUrl } from '../../src/shared/images'
 
 // The Evidence of a Ticket in the built app (worfy-evidence ticket 06). The cards carry the chip «Evidence n/m» —
 // neutral, green, red — and the widest card, with a gate, a PR, CI, a verdict and Evidence, keeps every chip
@@ -16,6 +17,13 @@ import { ms } from '../time-scale'
 // writes into the file turns the chip into «Evidence 2/3» without a restart. A fixture Project in a
 // temporary folder, the fake agent (launch-env.ts), `gh` the stand-in over a prs.json; the screenshots
 // of the chips and the matrix in both themes go to the test's output.
+//
+// The second test (worfy-evidence ticket 12): a screenshot line's thumbnail in the matrix opens the image over the
+// window, and a video line's clip — the fixture of test/fixtures/evidence-clip/, drawn from a pattern, no sound —
+// plays in place from worfy-image://evidence-<project label>/ and seeks to its middle, which needs the protocol's
+// 206 answers to a Range. Its Project's label is digits only (`00000006`): a Canvas image of it loads too, and
+// the window's own URL parser takes the addresses of both stores, which it would refuse as `canvas.00000006`
+// or `evidence.00000006` (an IPv4 address to Chromium).
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -24,6 +32,7 @@ const EPIC = 'demo'
 const ORIGIN = 'https://github.com/example/demo.git'
 const PAGE = 'https://github.com/example/demo'
 const TICKET_SCRIPT = join(repoRoot, 'harness', 'bin', 'ticket')
+const CLIP_FIXTURE = join(repoRoot, 'test', 'fixtures', 'evidence-clip')
 
 let scratch: string
 
@@ -243,6 +252,108 @@ test('the Evidence chip on the cards, the matrix in focus mode, its PR link thro
     await window.keyboard.press('Escape')
     await expect(window.getByTestId('focus-mode')).toHaveCount(0)
     await expect(chip(7)).toHaveText('Evidence 2/3')
+  } finally {
+    await launched.close()
+  }
+})
+
+test('the matrix shows a screenshot over the window and plays a clip in place, seeking to its middle', async () => {
+  const repo = join(scratch, 'demo')
+  const issues = join(repo, '.scratch', EPIC, 'issues')
+  const evidence = join(repo, '.scratch', EPIC, 'evidence')
+  mkdirSync(issues, { recursive: true })
+  mkdirSync(evidence)
+  writeFileSync(join(repo, '.scratch', EPIC, 'spec.md'), '# Demo\n')
+  copyFileSync(join(CLIP_FIXTURE, 'clip.webm'), join(evidence, '12-clip.webm'))
+  copyFileSync(join(CLIP_FIXTURE, 'clip.sheet.png'), join(evidence, '12-clip.sheet.png'))
+  copyFileSync(join(CLIP_FIXTURE, 'clip.sheet.png'), join(evidence, '12-shot.png'))
+  writeFileSync(
+    join(issues, '12-ticket-12.md'),
+    ticketFile(12, 'open', [
+      ['- [ ] (manual) The matrix shows the screenshot', `${line('screenshot', 'pass', '`../evidence/12-shot.png`', 'mac dev')} · scrub: 2026-11-04`],
+      ['- [ ] (manual) The clip plays', `${line('video', 'pass', '`../evidence/12-clip.webm`', 'mac dev')} · scrub: 2026-11-04`],
+    ]),
+  )
+
+  const claudeHome = join(scratch, 'claude-home')
+  mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+  writeFileSync(join(claudeHome, 'settings.json'), '{}\n')
+  const answer = join(claudeHome, 'epic-status.json')
+  writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: EPIC, hasSpec: true, hasMap: false }], tickets: [ticketJson(12, 'open', 'open')] }))
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
+  chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
+  const dataDir = join(scratch, 'data')
+  mkdirSync(join(dataDir, PROJECT), { recursive: true })
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: repo }], activeId: PROJECT }))
+  // A Canvas image of the same Project, whose label is digits only.
+  const picture = `${'a'.repeat(32)}.png`
+  mkdirSync(join(dataDir, PROJECT, 'images'))
+  copyFileSync(join(CLIP_FIXTURE, 'clip.sheet.png'), join(dataDir, PROJECT, 'images', picture))
+  const imageNode = { id: 'pic', kind: 'image', x: 40, y: 40, w: 320, h: 55, hidden: false, locked: false, pinned: false, tags: [], data: { file: picture, width: 640, height: 110, mime: 'image/png' } }
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [imageNode], viewport: { x: 40, y: 40, zoom: 1 } }))
+  const harnessHome = join(scratch, 'no-harness-home')
+
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: harnessHome, HARNESS_HOME: harnessHome } })
+  try {
+    const { window } = launched
+    const card = window.locator(`.react-flow__node [data-testid="ticket-node"][data-epic="${EPIC}"][data-ticket="12"]`)
+    await canvasReady(launched, { visible: [card], size: { width: 1600, height: 1000 } })
+
+    // The label 00000006 as the window parses it: the address of each store is a URL, the old spelling is not.
+    const parsed = await window.evaluate(
+      (urls) => urls.map((url) => URL.canParse(url)),
+      [canvasImageUrl(PROJECT, picture, null)!, evidenceFileUrl(PROJECT, 'demo/evidence/12-shot.png', null)!, `worfy-image://canvas.00000006/${picture}`, 'worfy-image://evidence.00000006/x.png'],
+    )
+    expect(parsed).toEqual([true, true, false, false])
+    const canvasPicture = window.locator('[data-testid="image-node"][data-node-id="pic"]').getByRole('img', { name: 'Image' })
+    await expect(canvasPicture).toHaveAttribute('src', `worfy-image://canvas-00000006/${picture}`)
+    await expect(canvasPicture).toHaveJSProperty('naturalWidth', 640)
+
+    await card.dblclick()
+    const tile = window.getByTestId('focus-mode').getByTestId('focus-tile')
+    const matrix = tile.getByTestId('evidence-matrix')
+    await expect(matrix.getByRole('heading')).toHaveText('Evidence · 2 of 2 verified')
+
+    // The screenshot: a thumbnail that loaded, and the image over the window on a click.
+    const thumb = matrix.getByTestId('evidence-thumb').locator('img')
+    await expect.poll(() => thumb.evaluate((img) => (img as unknown as { naturalWidth: number }).naturalWidth)).toBeGreaterThan(0)
+    await matrix.getByTestId('evidence-thumb').click()
+    const overlay = window.getByTestId('image-overlay-image')
+    await expect.poll(() => overlay.evaluate((img) => (img as unknown as { naturalWidth: number }).naturalWidth)).toBe(640)
+    await expect(window.getByTestId('image-overlay').getByRole('button', { name: 'Open in default app' })).toBeVisible()
+    await window.keyboard.press('Escape')
+    await expect(window.getByTestId('image-overlay')).toHaveCount(0)
+    await expect(window.getByTestId('focus-mode')).toHaveCount(1)
+
+    // The clip: its metadata and a first frame load, it plays, and it seeks to its middle.
+    const video = matrix.getByTestId('evidence-video')
+    type Media = { readyState: number; currentTime: number; duration: number; paused: boolean; play(): Promise<void>; pause(): void; addEventListener(type: string, listener: () => void, options: { once: boolean }): void }
+    await expect.poll(() => video.evaluate((node) => (node as unknown as Media).readyState), { timeout: ms(10_000) }).toBeGreaterThanOrEqual(2)
+    const duration = await video.evaluate((node) => (node as unknown as Media).duration)
+    expect(duration, 'the fixture clip is 4 s long').toBeGreaterThan(3.5)
+    expect(duration).toBeLessThan(4.5)
+    await video.evaluate((node) => (node as unknown as Media).play())
+    await expect.poll(() => video.evaluate((node) => (node as unknown as Media).currentTime), { timeout: ms(10_000) }).toBeGreaterThan(0.3)
+    const middle = await video.evaluate(
+      (node, to) =>
+        new Promise<number>((resolve) => {
+          const media = node as unknown as Media & { currentTime: number }
+          media.pause()
+          media.addEventListener('seeked', () => resolve(media.currentTime), { once: true })
+          media.currentTime = to
+        }),
+      duration / 2,
+    )
+    expect(Math.abs(middle - duration / 2), 'the clip seeks to its middle').toBeLessThan(0.25)
+    await expect.poll(() => video.evaluate((node) => (node as unknown as Media).readyState)).toBeGreaterThanOrEqual(2)
+
+    // The contact sheet over the window.
+    await matrix.getByRole('link', { name: 'Contact sheet' }).click()
+    await expect.poll(() => overlay.evaluate((img) => (img as unknown as { naturalWidth: number }).naturalWidth)).toBe(640)
+    await window.keyboard.press('Escape')
+    await expect(window.getByTestId('image-overlay')).toHaveCount(0)
+
+    await bothThemes(window, matrix, 'evidence-preview')
   } finally {
     await launched.close()
   }

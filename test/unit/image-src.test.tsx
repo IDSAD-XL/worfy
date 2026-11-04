@@ -17,14 +17,14 @@ beforeEach(() => {
 
 describe('imageSrc', () => {
   it("this Machine's window: the Project's Canvas store without a machine label", () => {
-    expect(imageSrc('alpha-0a1b2c3d', FILE)).toBe(`worfy-image://canvas.0a1b2c3d/${FILE}`)
+    expect(imageSrc('alpha-0a1b2c3d', FILE)).toBe(`worfy-image://canvas-0a1b2c3d/${FILE}`)
   })
 
   it("a Linked machine's window: the address names that Machine", () => {
     window.machine = '01234567-89ab-cdef-0123-456789ABCDEF'
     const label = machineLabel('01234567-89ab-cdef-0123-456789ABCDEF')
     expect(label).toMatch(/^[0-9a-f]{32}$/)
-    expect(imageSrc('alpha-0a1b2c3d', FILE)).toBe(`worfy-image://canvas.0a1b2c3d.${label}/${FILE}`)
+    expect(imageSrc('alpha-0a1b2c3d', FILE)).toBe(`worfy-image://canvas-0a1b2c3d.${label}/${FILE}`)
   })
 
   it('no address for a Machine without a label, nor for a Project id without one', () => {

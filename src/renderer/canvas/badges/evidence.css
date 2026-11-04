@@ -97,3 +97,70 @@
 .w-evidence__error {
   color: var(--blocked-text);
 }
+
+/* ── a screenshot or a clip under its line (nodes/EvidencePreview.tsx) ──── */
+.w-evidence__preview {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 4px 0 6px;
+  font-family: var(--font-ui);
+}
+.w-evidence__thumb {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.w-evidence__thumb img {
+  display: block;
+  max-width: 160px;
+  max-height: 90px;
+  object-fit: contain;
+}
+.w-evidence__thumb:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.w-evidence__video {
+  display: block;
+  width: 320px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: #000000;
+}
+.w-evidence__overlay-failed {
+  align-self: flex-end;
+  font-family: var(--font-mono);
+}
+.w-evidence__preview--failed {
+  align-items: baseline;
+  gap: 0;
+  font-family: inherit;
+}
+/* «Open in default app» over the window, under the picture. */
+.w-evidence-overlay__open {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+.w-evidence-overlay__open:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+.w-evidence-overlay__open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

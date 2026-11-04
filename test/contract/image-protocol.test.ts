@@ -247,7 +247,14 @@ describe('worfy-image:// serves nothing else', () => {
     // A last part that is no machine label is part of the store's name.
     expect(parseImageHost('canvas.0a1b2c3d')).toEqual({ store: 'canvas.0a1b2c3d', machineLabel: null })
     expect(parseImageHost(MACHINE)).toEqual({ store: MACHINE, machineLabel: null })
-    for (const host of ['attachments', `attachments.${MACHINE}`, `canvas.0a1b2c3d.${MACHINE}`]) expect(imageHost(parseImageHost(host))).toBe(host)
+    for (const host of ['attachments', `attachments.${MACHINE}`, `canvas-0a1b2c3d.${MACHINE}`, 'canvas-0a1b2c3d']) expect(imageHost(parseImageHost(host))).toBe(host)
+    // The Canvas store is spelled canvas-<label> in a host (worfy-evidence ticket 12); the older canvas.<label> still reads as the same store.
+    expect(parseImageHost('canvas-0a1b2c3d')).toEqual({ store: 'canvas.0a1b2c3d', machineLabel: null })
+    expect(parseImageHost(`canvas-0a1b2c3d.${MACHINE}`)).toEqual({ store: 'canvas.0a1b2c3d', machineLabel: MACHINE })
+    expect(imageHost(parseImageHost('canvas.0a1b2c3d'))).toBe('canvas-0a1b2c3d')
+    // Only a Canvas store is respelled: another name with a dash is a store of that name.
+    expect(parseImageHost('evidence-0a1b2c3d')).toEqual({ store: 'evidence-0a1b2c3d', machineLabel: null })
+    expect(parseImageHost('canvas-0a1b2c3')).toEqual({ store: 'canvas-0a1b2c3', machineLabel: null })
   })
 })
 
@@ -303,22 +310,24 @@ describe('resolveImageFile and a link that leads to a share (Windows rules)', ()
 })
 
 describe('the schemes of the app', () => {
-  it('get their privileges in one call: worfy-card and worfy-image, standard and secure', async () => {
+  it('get their privileges in one call: worfy-card and worfy-image, standard and secure, worfy-image streamed for a <video>', async () => {
     const { registerAppSchemes } = await import('../../src/main/schemes')
     registerAppSchemes()
     expect(electron.registered).toEqual([
       [
         { scheme: 'worfy-card', privileges: { standard: true, secure: true } },
-        { scheme: 'worfy-image', privileges: { standard: true, secure: true } },
+        { scheme: 'worfy-image', privileges: { standard: true, secure: true, stream: true } },
       ],
     ])
   })
 
-  it('the window loads images from worfy-image: and itself only', async () => {
+  it('the window loads images from worfy-image: and itself only, media from worfy-image: only', async () => {
     const { readFileSync } = await import('node:fs')
     const html = readFileSync(join(import.meta.dirname, '..', '..', 'src', 'renderer', 'index.html'), 'utf8')
     const csp = /http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html)?.[1] ?? ''
     expect(csp.split('; ')).toContain("img-src 'self' worfy-image:")
     expect(csp).not.toMatch(/img-src[^;]*(data:|blob:|https?:)/)
+    // A clip of the Evidence matrix (worfy-evidence ticket 12): without media-src a <video> loads nothing.
+    expect(csp.split('; ')).toContain('media-src worfy-image:')
   })
 })

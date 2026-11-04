@@ -16,7 +16,19 @@
 // - `canvas.<project label>` — the images on a Project's Canvas (worfy-canvas ticket 23),
 //   `<Project data folder>/images/`, named `<32 hex>.<ext>` (src/main/layout/images.ts). The project
 //   label is the hash that ends the Project's id, as in worfy-card:// (projectIdHash,
-//   src/main/projects/store.ts): the rest of an id may hold what a host cannot carry.
+//   src/main/projects/store.ts): the rest of an id may hold what a host cannot carry. A URL spells this
+//   store `canvas-<project label>` (imageHost; worfy-evidence ticket 12): the window (Chromium) reads a
+//   host whose last part is all digits as an IPv4 address and refuses the URL, and a project label of 8
+//   hex digits is all digits for about 2 % of Projects (`canvas.00000006` is not a URL there). The
+//   store's name stays `canvas.<project label>` everywhere else — in main, and over the link to a Linked
+//   machine, whose worfy may be older — and parseImageHost reads both spellings.
+// - `evidence-<project label>` — the Evidence files of a Project's Tickets (worfy-evidence ticket 12):
+//   screenshots and clips in `<epic>/evidence/` of its Tickets root (the Workflow folder's in Silent
+//   mode), up to 8 MB. Its file name is a path below the Tickets root in one segment
+//   (`<epic>%2Fevidence%2F<file>`); main serves only `<epic>/evidence/…` there, clips too, and only
+//   to this Machine's window (src/main/images/stores.ts). A `-`, not a `.`, before the label: the window
+//   (Chromium) reads a host whose last part is all digits as an IPv4 address and refuses the URL, and a
+//   project label of 8 hex digits is all digits now and then (`evidence.00000006`).
 // A new store is a new store name and a new entry of the store locator in src/main/index.ts.
 import { imageFileName, type ImageMediaType } from './agent/attachments'
 import { MACHINE_LABEL_PATTERN } from './cards/bridge'
@@ -32,14 +44,30 @@ export interface ImageHost {
   machineLabel: string | null
 }
 
-/** The host of `store`: the store itself on this Machine, `<store>.<machine label>` on a Linked machine. */
-export const imageHost = ({ store, machineLabel }: ImageHost): string => (machineLabel === null ? store : `${store}.${machineLabel}`)
+/** The store name of a Project's Canvas images, `canvas.<project label>`, and its spelling in a URL host, `canvas-<project label>`. */
+const CANVAS_STORE_NAME = /^canvas\.([0-9a-f]{8})$/
+const CANVAS_STORE_HOST = /^canvas-([0-9a-f]{8})$/
 
-/** Splits a host: a last part that is a machine label names the Linked machine, the rest is the store. */
+/**
+ * The host of `store`: the store itself on this Machine, `<store>.<machine label>` on a Linked machine.
+ * `canvas.<project label>` is spelled `canvas-<project label>`, so a project label is never the last part of
+ * the host (the top of this file).
+ */
+export function imageHost({ store, machineLabel }: ImageHost): string {
+  const spelled = store.replace(CANVAS_STORE_NAME, 'canvas-$1')
+  return machineLabel === null ? spelled : `${spelled}.${machineLabel}`
+}
+
+/**
+ * Splits a host: a last part that is a machine label names the Linked machine, the rest is the store. The
+ * store comes back by its name: `canvas-<project label>` and the older `canvas.<project label>` are both the
+ * store `canvas.<project label>`.
+ */
 export function parseImageHost(host: string): ImageHost {
   const at = host.lastIndexOf('.')
   const last = host.slice(at + 1)
-  return at > 0 && MACHINE_LABEL_PATTERN.test(last) ? { store: host.slice(0, at), machineLabel: last } : { store: host, machineLabel: null }
+  const split = at > 0 && MACHINE_LABEL_PATTERN.test(last) ? { store: host.slice(0, at), machineLabel: last } : { store: host, machineLabel: null }
+  return { ...split, store: split.store.replace(CANVAS_STORE_HOST, 'canvas.$1') }
 }
 
 /** The address of the copy of a sent image; `machineLabel` names the Linked machine that keeps it, null for this one. */
@@ -68,4 +96,32 @@ export function canvasImagesStore(projectId: string): string | null {
 export function canvasImageUrl(projectId: string, file: string, machineLabel: string | null): string | null {
   const store = canvasImagesStore(projectId)
   return store === null ? null : `${IMAGE_SCHEME}://${imageHost({ store, machineLabel })}/${encodeURIComponent(file)}`
+}
+
+/** The first part of the store name of a Project's Evidence files: `evidence-<project label>`. */
+export const EVIDENCE_IMAGES_STORE = 'evidence'
+
+/** The largest Evidence file served: the limit of a clip in the privacy check (harness/bin/evidence-check, Qv2 of the Epic). */
+export const EVIDENCE_FILE_LIMIT_BYTES = 8 * 1024 * 1024
+
+/** One part of a path: not empty, not `.` or `..`, no separator, no `:` (a drive or a stream on Windows), no NUL. */
+const PART = String.raw`(?!\.{1,2}(?:/|$))[^/\\:\0]+`
+
+/** The names of the Evidence store: `<epic>/evidence/<file>`, or a file in a folder below it, relative to the Tickets root. */
+export const EVIDENCE_FILE_PATTERN = new RegExp(`^${PART}/evidence/(?:${PART}/)*${PART}$`)
+
+/** The store name of a Project's Evidence files; null for a Project id without a project label. */
+export function evidenceImagesStore(projectId: string): string | null {
+  const label = projectLabelOf(projectId)
+  return label === null ? null : `${EVIDENCE_IMAGES_STORE}-${label}`
+}
+
+/**
+ * The address of an Evidence file, `relPath` relative to the Project's Tickets root with `/` between
+ * its parts (`<epic>/evidence/<file>`), in one segment; `machineLabel` names the Linked machine whose
+ * Project it is, null for this Machine. Null for a Project id without a project label.
+ */
+export function evidenceFileUrl(projectId: string, relPath: string, machineLabel: string | null): string | null {
+  const store = evidenceImagesStore(projectId)
+  return store === null ? null : `${IMAGE_SCHEME}://${imageHost({ store, machineLabel })}/${encodeURIComponent(relPath)}`
 }

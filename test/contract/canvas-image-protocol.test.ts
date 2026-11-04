@@ -1,6 +1,6 @@
 // The Canvas images store of the worfy-image:// protocol (worfy-canvas ticket 23): the handler of
 // src/main/images/protocol.ts with the store of src/main/layout/images.ts, over two Projects'
-// data folders in a temporary folder. worfy-image://canvas.<project label>/<file> serves a file of
+// data folders in a temporary folder. worfy-image://canvas-<project label>/<file> serves a file of
 // that Project's images folder whose name main could have chosen, up to 20 MB; everything else is
 // a 404 — another folder, another Project's file, a name outside the pattern, an svg, a Linked
 // machine's address.
@@ -46,15 +46,30 @@ afterEach(() => {
   removeTestTree(scratch)
 })
 
-describe('worfy-image://canvas.<project label>/', () => {
+describe('worfy-image://canvas-<project label>/', () => {
   it('serves a Project image by the address canvasImageUrl builds, as a png', async () => {
     const url = canvasImageUrl(ALPHA, FILE, null)
-    expect(url).toBe(`worfy-image://canvas.0a1b2c3d/${FILE}`)
+    expect(url).toBe(`worfy-image://canvas-0a1b2c3d/${FILE}`)
     const response = await handle({ url: url!, method: 'GET' })
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Type')).toBe('image/png')
     expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
     expect(Buffer.from(await response.arrayBuffer())).toEqual(PNG)
+  })
+
+  it('builds an address the window can load for a label of digits only, and still serves the older canvas.<label> spelling', async () => {
+    const DIGITS = 'digits-00000006'
+    mkdirSync(imagesDirOf(dataDirOf(DIGITS)), { recursive: true })
+    writeFileSync(join(imagesDirOf(dataDirOf(DIGITS)), FILE), PNG)
+    const digits = createImageHandler((store) => canvasImageStore(store, { ids: () => [ALPHA, DIGITS], dataDirOf }))
+    const url = canvasImageUrl(DIGITS, FILE, null)!
+    expect(url).toBe(`worfy-image://canvas-00000006/${FILE}`)
+    // The window reads worfy-image: as a standard scheme, its host as http's: a last part of digits only is an IPv4 address there.
+    expect(URL.canParse(url.replace(/^worfy-image:/, 'http:'))).toBe(true)
+    expect(URL.canParse(`http://canvas.00000006/${FILE}`)).toBe(false)
+    expect(URL.canParse(canvasImageUrl(DIGITS, FILE, MACHINE)!.replace(/^worfy-image:/, 'http:'))).toBe(true)
+    expect((await digits({ url, method: 'GET' })).status).toBe(200)
+    expect((await handle({ url: `worfy-image://canvas.0a1b2c3d/${FILE}`, method: 'GET' })).status).toBe(200)
   })
 
   it('names the project label the way main does, also for an id with capitals and spaces', () => {

@@ -12,6 +12,7 @@ import { evidenceItems } from '../../src/shared/workflow/evidence'
 import type { EvidenceItem, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import Evidence from '../../src/renderer/canvas/badges/Evidence'
 import { EvidenceMatrix } from '../../src/renderer/canvas/nodes/EvidenceMatrix'
+import { evidencePathOf, previewKindOf } from '../../src/renderer/canvas/nodes/evidence-files'
 import type { CanvasFlowNode, CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import TicketNode from '../../src/renderer/canvas/nodes/TicketNode'
 import { buildEpicNodes, ticketNodeId } from '../../src/renderer/canvas/sources/epics'
@@ -22,11 +23,12 @@ import { applyWorkflowDelta } from '../../src/renderer/workflow/useWorkflow'
 
 type Result = { ok: true; value: unknown } | { ok: false; error: string }
 
-const ipc = vi.hoisted(() => ({ machine: null as string | null, text: '' }))
+const ipc = vi.hoisted(() => ({ machine: null as string | null, text: '', status: 'missing' }))
 const invoke = vi.hoisted(() =>
   vi.fn<(channel: string, input?: unknown) => Promise<Result>>((channel) => {
     if (channel === 'shell.openExternal') return Promise.resolve({ ok: true, value: { url: 'opened' } })
     if (channel === 'shell.openInEditor') return Promise.resolve({ ok: true, value: { path: 'opened', outcome: 'opened' } })
+    if (channel === 'images.status') return Promise.resolve({ ok: true, value: ipc.status })
     if (channel === 'tickets.read') return Promise.resolve({ ok: true, value: { path: `/w/${RELATIVE}`, relative: RELATIVE, text: ipc.text } })
     return Promise.resolve({ ok: false, error: 'not in this test' })
   }),
@@ -73,6 +75,7 @@ const calls = (channel: string) => invoke.mock.calls.filter(([name]) => name ===
 
 beforeEach(() => {
   ipc.machine = null
+  ipc.status = 'missing'
   ipc.text = DONE
   invoke.mockClear()
   resetToasts()
@@ -121,7 +124,7 @@ describe('the chip «Evidence n/m»', () => {
 
 describe('the Evidence matrix', () => {
   it('shows each item with its state: Verified, Not verified with the reason, Failed', () => {
-    render(<EvidenceMatrix projectId={PROJECT} items={items()} repoUrl={REPO} baseDir={FOLDER} />)
+    render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={items()} repoUrl={REPO} baseDir={FOLDER} />)
     const matrix = screen.getByTestId('evidence-matrix')
     expect(within(matrix).getByRole('heading').textContent).toBe('Evidence · 1 of 3 verified')
     const rows = within(matrix).getAllByTestId('evidence-item')
@@ -141,7 +144,7 @@ describe('the Evidence matrix', () => {
   })
 
   it('opens the commit and the PR on the repository page, a URL as it is, all with shell.openExternal', async () => {
-    render(<EvidenceMatrix projectId={PROJECT} items={items()} repoUrl={`${REPO}/`} baseDir={FOLDER} />)
+    render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={items()} repoUrl={`${REPO}/`} baseDir={FOLDER} />)
     const first = screen.getAllByTestId('evidence-item')[0]!
     fireEvent.click(within(first).getAllByRole('link', { name: '3f2a1b9' })[0]!)
     fireEvent.click(within(first).getByRole('link', { name: 'PR #1330' }))
@@ -155,21 +158,21 @@ describe('the Evidence matrix', () => {
   })
 
   it('opens a screenshot from the Ticket file’s folder with shell.openInEditor; on a Linked machine shows where the file is', async () => {
-    const { unmount } = render(<EvidenceMatrix projectId={PROJECT} items={items()} repoUrl={REPO} baseDir={FOLDER} />)
+    const { unmount } = render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={items()} repoUrl={REPO} baseDir={FOLDER} />)
     fireEvent.click(screen.getByRole('link', { name: '../evidence/06-chip-light.png' }))
     await waitFor(() => expect(calls('shell.openInEditor')).toEqual([{ projectId: PROJECT, path: '.scratch/demo/evidence/06-chip-light.png' }]))
     expect(calls('shell.openExternal')).toEqual([])
     unmount()
 
     ipc.machine = 'machine-m'
-    render(<EvidenceMatrix projectId={PROJECT} items={items()} repoUrl={REPO} baseDir={FOLDER} />)
+    render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={items()} repoUrl={REPO} baseDir={FOLDER} />)
     fireEvent.click(screen.getByRole('link', { name: '../evidence/06-chip-light.png' }))
     expect(toasts.getState().toasts.map((toast) => toast.text)).toEqual(['File is on Mini'])
     expect(calls('shell.openInEditor')).toHaveLength(1)
   })
 
   it('without the repository page the SHA and the PR are text; a URL still opens', () => {
-    render(<EvidenceMatrix projectId={PROJECT} items={items()} repoUrl={null} baseDir={FOLDER} />)
+    render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={items()} repoUrl={null} baseDir={FOLDER} />)
     const first = screen.getAllByTestId('evidence-item')[0]!
     expect(within(first).queryAllByRole('link')).toEqual([])
     expect(within(first).getAllByText('3f2a1b9')).toHaveLength(2)
@@ -182,7 +185,7 @@ describe('the Evidence matrix', () => {
     const lines = refs.map((ref) => `  - evidence: test-run pass · ${ref} · mac dev · bacbbcef`)
     const many = evidenceItems(['## Done when', '', '- [ ] Every kind of ref', ...lines, ''].join('\n'))
     const seen = (repoUrl: string | null, baseDir: string | undefined) => {
-      const { unmount } = render(<EvidenceMatrix projectId={PROJECT} items={many} repoUrl={repoUrl} baseDir={baseDir} />)
+      const { unmount } = render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={many} repoUrl={repoUrl} baseDir={baseDir} />)
       const out = screen.getAllByTestId('evidence-line').map((line) => {
         const link = line.querySelector('[data-testid="evidence-ref"]')
         return link === null ? `text ${line.textContent!.split(' · ').at(-1)}` : `link ${link.textContent} -> ${link.getAttribute('href')}`
@@ -203,8 +206,133 @@ describe('the Evidence matrix', () => {
   })
 
   it('draws nothing for a Ticket without checkbox items', () => {
-    const { container } = render(<EvidenceMatrix projectId={PROJECT} items={[]} repoUrl={REPO} baseDir={FOLDER} />)
+    const { container } = render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={[]} repoUrl={REPO} baseDir={FOLDER} />)
     expect(container.innerHTML).toBe('')
+  })
+})
+
+// ── the screenshot and the clip (worfy-evidence ticket 12) ───────────────
+
+/** A screenshot and a clip in `<epic>/evidence/`, and lines that get no preview. */
+const MEDIA = [
+  '## Done when',
+  '',
+  '- [ ] (manual) The matrix shows the screenshot',
+  '  - evidence: screenshot pass · `../evidence/12-shot.png` · mac dev · bacbbcef · scrub: 2026-11-04',
+  '- [ ] (manual) The clip plays',
+  '  - evidence: video pass · `../evidence/12-clip.webm` · mac dev · bacbbcef · scrub: 2026-11-04',
+  '',
+].join('\n')
+
+const media = () => evidenceItems(MEDIA)
+const STORE = 'worfy-image://evidence-00000006'
+const shotRow = () => screen.getAllByTestId('evidence-item')[0]!
+const clipRow = () => screen.getAllByTestId('evidence-item')[1]!
+
+describe('the screenshot and the clip in the matrix', () => {
+  it('a screenshot line shows a thumbnail from the evidence store; a click opens it over the window, with Open in default app', async () => {
+    render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={media()} repoUrl={REPO} baseDir={FOLDER} />)
+    const thumb = within(shotRow()).getByTestId('evidence-thumb')
+    expect(thumb.querySelector('img')?.getAttribute('src')).toBe(`${STORE}/demo%2Fevidence%2F12-shot.png`)
+    expect(within(shotRow()).queryByTestId('evidence-video')).toBeNull()
+    fireEvent.click(thumb)
+    const overlay = screen.getByTestId('image-overlay')
+    expect(within(overlay).getByTestId('image-overlay-image').getAttribute('src')).toBe(`${STORE}/demo%2Fevidence%2F12-shot.png`)
+    fireEvent.click(within(overlay).getByRole('button', { name: 'Open in default app' }))
+    // The path it opened with before: from the Ticket file's folder, relative to the Project root.
+    await waitFor(() => expect(calls('shell.openInEditor')).toEqual([{ projectId: PROJECT, path: '.scratch/demo/evidence/12-shot.png' }]))
+    expect(screen.queryByTestId('image-overlay')).toBeNull()
+  })
+
+  it('a video line plays its clip in place, muted, with controls; Contact sheet opens the sheet over the window', async () => {
+    render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={media()} repoUrl={REPO} baseDir={FOLDER} />)
+    const video = within(clipRow()).getByTestId('evidence-video') as HTMLVideoElement
+    expect([video.getAttribute('src'), video.muted, video.hasAttribute('controls'), video.getAttribute('preload')]).toEqual([`${STORE}/demo%2Fevidence%2F12-clip.webm`, true, true, 'metadata'])
+    expect(within(clipRow()).queryByTestId('evidence-thumb')).toBeNull()
+    fireEvent.click(within(clipRow()).getByRole('link', { name: 'Contact sheet' }))
+    const overlay = screen.getByTestId('image-overlay')
+    expect(within(overlay).getByTestId('image-overlay-image').getAttribute('src')).toBe(`${STORE}/demo%2Fevidence%2F12-clip.sheet.png`)
+    fireEvent.click(within(overlay).getByRole('button', { name: 'Open in default app' }))
+    await waitFor(() => expect(calls('shell.openInEditor')).toEqual([{ projectId: PROJECT, path: '.scratch/demo/evidence/12-clip.sheet.png' }]))
+    // The clip's ref still opens the clip itself in the system's program.
+    fireEvent.click(within(clipRow()).getByRole('link', { name: '../evidence/12-clip.webm' }))
+    await waitFor(() => expect(calls('shell.openInEditor')).toHaveLength(2))
+    expect(calls('shell.openInEditor')[1]).toEqual({ projectId: PROJECT, path: '.scratch/demo/evidence/12-clip.webm' })
+  })
+
+  it('a contact sheet that does not load closes the overlay and says why next to the clip, with a link to open it', async () => {
+    ipc.status = 'missing'
+    render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={media()} repoUrl={REPO} baseDir={FOLDER} />)
+    fireEvent.click(within(clipRow()).getByRole('link', { name: 'Contact sheet' }))
+    fireEvent.error(screen.getByTestId('image-overlay-image'))
+    expect(screen.queryByTestId('image-overlay')).toBeNull()
+    await waitFor(() => expect(within(clipRow()).getByTestId('evidence-overlay-reason').textContent).toBe('File not found'))
+    expect(calls('images.status')).toEqual([{ url: `${STORE}/demo%2Fevidence%2F12-clip.sheet.png` }])
+    // The clip itself still plays.
+    expect(within(clipRow()).getByTestId('evidence-video')).toBeTruthy()
+    fireEvent.click(within(within(clipRow()).getByTestId('evidence-overlay-failed')).getByRole('link', { name: 'Open in default app' }))
+    await waitFor(() => expect(calls('shell.openInEditor')).toEqual([{ projectId: PROJECT, path: '.scratch/demo/evidence/12-clip.sheet.png' }]))
+  })
+
+  it('on a Linked machine draws neither the thumbnail nor the <video>: the ref tells where the file is', () => {
+    ipc.machine = 'machine-m'
+    render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={media()} repoUrl={REPO} baseDir={FOLDER} />)
+    expect(screen.queryByTestId('evidence-preview')).toBeNull()
+    expect(document.querySelector('video')).toBeNull()
+    expect(document.querySelector('img')).toBeNull()
+    fireEvent.click(screen.getByRole('link', { name: '../evidence/12-clip.webm' }))
+    expect(toasts.getState().toasts.map((toast) => toast.text)).toEqual(['File is on Mini'])
+    expect(calls('shell.openInEditor')).toEqual([])
+  })
+
+  it.each([
+    ['too-large', 'File over 8 MB'],
+    ['missing', 'File not found'],
+    ['ok', 'File cannot be shown'],
+  ])('a file that does not load (%s) says «%s», with a link to open it in the system’s program', async (status, reason) => {
+    ipc.status = status
+    render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={media()} repoUrl={REPO} baseDir={FOLDER} />)
+    fireEvent.error(within(clipRow()).getByTestId('evidence-video'))
+    await waitFor(() => expect(within(clipRow()).getByTestId('evidence-preview-reason').textContent).toBe(reason))
+    expect(calls('images.status')).toEqual([{ url: `${STORE}/demo%2Fevidence%2F12-clip.webm` }])
+    expect(within(clipRow()).queryByTestId('evidence-video')).toBeNull()
+    fireEvent.click(within(clipRow()).getByRole('link', { name: 'Open in default app' }))
+    await waitFor(() => expect(calls('shell.openInEditor')).toEqual([{ projectId: PROJECT, path: '.scratch/demo/evidence/12-clip.webm' }]))
+    // The screenshot fails the same way, on its own.
+    fireEvent.error(within(shotRow()).getByTestId('evidence-thumb').querySelector('img')!)
+    await waitFor(() => expect(within(shotRow()).getByTestId('evidence-preview-reason').textContent).toBe(reason))
+  })
+
+  it('draws no preview for a line that is not a screenshot or a clip of evidence/, nor before the Ticket file is read', () => {
+    const lines = [
+      '  - evidence: screenshot pass · `../evidence/notes.txt` · mac dev · bacbbcef · scrub: 2026-11-04',
+      '  - evidence: screenshot pass · `notes/12-shot.png` · mac dev · bacbbcef · scrub: 2026-11-04',
+      '  - evidence: video pass · `../evidence/12-shot.png` · mac dev · bacbbcef · scrub: 2026-11-04',
+      '  - evidence: test-run pass · `../evidence/12-shot.png` · mac dev · bacbbcef',
+      '  - evidence: screenshot pass · https://example.com/12-shot.png · mac dev · bacbbcef',
+    ]
+    const none = evidenceItems(['## Done when', '', '- [ ] No preview', ...lines, ''].join('\n'))
+    const { unmount } = render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={none} repoUrl={REPO} baseDir={FOLDER} />)
+    expect(screen.getAllByTestId('evidence-line')).toHaveLength(5)
+    expect(screen.queryByTestId('evidence-preview')).toBeNull()
+    unmount()
+    render(<EvidenceMatrix projectId={PROJECT} epic="demo" items={media()} repoUrl={REPO} baseDir={undefined} />)
+    expect(screen.queryByTestId('evidence-preview')).toBeNull()
+  })
+
+  it('resolves a ref from <epic>/issues/ to the file below the Tickets root, only into an evidence/ folder', () => {
+    expect(evidencePathOf('demo', '../evidence/12-shot.png')).toBe('demo/evidence/12-shot.png')
+    expect(evidencePathOf('demo', './../evidence/./sub/12-clip.webm')).toBe('demo/evidence/sub/12-clip.webm')
+    expect(evidencePathOf('demo', '../../other/evidence/x.png')).toBe('other/evidence/x.png')
+    for (const ref of ['../../../x.png', '../../../demo/evidence/x.png', '/../evidence/x.png', '../evidence/a\\b.png', '../evidence/c:x.png', '../../../../evidence/x.png', '/abs/evidence/x.png', '..\\evidence\\x.png', 'C:/demo/evidence/x.png', '../evidence', '../notes/x.png', 'x.png', '../../evidence/x.png']) {
+      expect(evidencePathOf('demo', ref), ref).toBeNull()
+    }
+  })
+
+  it('previews a screenshot of an image type and a clip of webm or mp4 only', () => {
+    expect(['shot.png', 'shot.JPG', 'shot.jpeg', 'shot.gif', 'shot.webp'].map((file) => previewKindOf('screenshot', file))).toEqual(Array(5).fill('screenshot'))
+    expect(['clip.webm', 'clip.MP4'].map((file) => previewKindOf('video', file))).toEqual(['video', 'video'])
+    expect([previewKindOf('screenshot', 'clip.webm'), previewKindOf('video', 'shot.png'), previewKindOf('video', 'clip.mov'), previewKindOf('test-run', 'shot.png'), previewKindOf('screenshot', 'notes.txt')]).toEqual([null, null, null, null, null])
   })
 })
 
