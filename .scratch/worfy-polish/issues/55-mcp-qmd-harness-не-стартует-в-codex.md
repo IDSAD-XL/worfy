@@ -1,7 +1,8 @@
 # 55 — MCP server qmd из Harness не стартует в Codex
 
 Type: bug
-Status: open
+Status: done 2026-11-04T10:47Z
+PR: #1357
 Blocked by:
 Source: владелец 2026-11-04, приёмка worfy-multi-vendor 32 шаг 5 на Mac Stable `b09dfab0`: встроенный Codex 0.166.0 в
 terminal-е, в папке Project-а, Harness `0.3.0+b09dfab09` установлен в Codex и его hook-и одобрены
