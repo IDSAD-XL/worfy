@@ -30,8 +30,10 @@ worfy-polish 53) считает любой процесс с путём внут
 
 - [ ] Unit test `install-stable`: `codex` из копии с чужим родителем — отказ сразу с его pid и советом (или пропуск —
       по решению п. 1); дочерний процесс копии — ожидание, как в worfy-polish 53. win32 — с поданным листингом.
+  - evidence: test-run pass · `pnpm test test/unit/install-stable-update.test.ts` exit 0 · mac - · 39b8c63fe0f5c554c783238bcc972d7276101e1c
 - [ ] Все unit и contract test-ы `src/main/update/` и `scripts/install-stable.mjs`, `pnpm typecheck`, `pnpm lint` —
       exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 39b8c63fe0f5c554c783238bcc972d7276101e1c
 
 ## Итог
 
