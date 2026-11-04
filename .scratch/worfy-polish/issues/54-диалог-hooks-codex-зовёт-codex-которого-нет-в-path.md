@@ -49,9 +49,14 @@ vendor/<target>/bin/codex`). Отдельно Codex у пользователя 
 
 - [ ] Unit test `CodexHooksStep`: шаг 1 показывает путь из main-процесса, Copy кладёт его в буфер; Windows-вид
       в кавычках.
+  - evidence: test-run pass · `pnpm test test/unit/codex-hooks-step.test.tsx` exit 0 · mac - · 0ab086ae9ea45ed565ee20fd34b5ab87c0443ace
+  - evidence: screenshot pass · `../evidence/54/54-codex-hooks-step-command-light.png` · mac dev · 0ab086ae9ea45ed565ee20fd34b5ab87c0443ace · scrub: 2026-11-04
+  - evidence: screenshot pass · `../evidence/54/54-codex-hooks-step-command-dark.png` · mac dev · 0ab086ae9ea45ed565ee20fd34b5ab87c0443ace · scrub: 2026-11-04
 - [ ] Contract test IPC, который отдаёт путь встроенного binary (или его отсутствие — тогда понятный текст).
+  - evidence: test-run pass · `pnpm test test/contract/harness-codex-binary.test.ts` exit 0 · mac - · 0ab086ae9ea45ed565ee20fd34b5ab87c0443ace
 - [ ] Все unit и contract test-ы `src/renderer/harness/` и `src/main/vendors/codex/`, `pnpm typecheck`,
       `pnpm lint` — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0ab086ae9ea45ed565ee20fd34b5ab87c0443ace
 
 ## Итог
 
