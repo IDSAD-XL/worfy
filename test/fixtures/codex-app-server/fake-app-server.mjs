@@ -47,7 +47,8 @@
 // after the last step, from the plugins installed in CODEX_HOME (hook-runner.mjs, hooksList) — each hook
 // "untrusted", "trusted" or "modified" by config.toml, so approvePluginHooks of a test approves them as
 // /hooks would. worfy's check whether the Harness hooks are approved starts an app-server of its own on
-// whatever script the test set, and asks only that after the handshake.
+// whatever script the test set, and asks only that after the handshake. WORFY_CODEX_HOOKS_SILENT=1: such a
+// `hooks/list` gets no answer at all, as from a Codex that hangs (the check's timeout).
 //
 // WORFY_CODEX_LOG: every message worfy sends — requests, notifications, answers — is appended to that
 // file, one JSON line each. WORFY_CODEX_HOME: the threads of the fake. The thread of a `thread/start`
@@ -162,6 +163,7 @@ async function nextMessage() {
 /** Answers or reports a message that is not the one `waitingFor` describes. */
 function unexpected(message, waitingFor) {
   if (isRequest(message) && message.method === 'hooks/list') {
+    if (process.env.WORFY_CODEX_HOOKS_SILENT === '1') return
     send({ id: message.id, result: hooksList(codexHome, message.params?.cwds) })
     return
   }

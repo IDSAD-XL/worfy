@@ -18,20 +18,20 @@
 //
 // After an install or update in Codex the toolbar shows the step "Approve the Harness hooks in Codex"
 // (worfy-multi-vendor ticket 39). Its "Check again" is `harness.codexHooks`: Codex's `hooks/list`
-// (src/main/harness/codex-hooks-trust.ts) through the Codex driver's app-server, the fake under
-// WORFY_CODEX=fake. Once the hooks are approved the Codex part no longer has hooks to approve, and every
+// through the `harnessHooks` part of the Codex driver (src/main/vendors/codex/harness-hooks.ts), the fake
+// under WORFY_CODEX=fake. Once the hooks are approved the Codex part no longer has hooks to approve, and every
 // window gets the status as `harness.changed`, as after an install.
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
 import { harnessChanged, harnessCodexHooks, harnessInstall, harnessState, type HarnessHooksTrust, type HarnessStatus } from '../../shared/ipc/harness'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessDir } from '../harness/bundled'
-import { codexHarnessHooks } from '../harness/codex-hooks-trust'
 import { CodexHarness, codexInstallBinary } from '../harness/codex-install'
 import { claudeCommandEnv, confirmationText, HarnessInstaller, installOffered, type InstallPlan } from '../harness/install'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { bundledClaudeBinary } from '../vendors/claude/options'
 import { codexHomeOf } from '../vendors/codex/account'
+import { vendorDriver } from '../vendors/registry'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 type InstallResult = Awaited<ReturnType<HarnessInstaller['install']>>
@@ -138,7 +138,8 @@ async function confirmInstall(owner: BrowserWindow | null, plan: InstallPlan): P
  */
 async function checkCodexHooks(): Promise<{ trust: HarnessHooksTrust; status: HarnessStatus }> {
   const states = appInstaller()
-  const trust = await codexHarnessHooks.trust()
+  // A driver without the part cannot tell: unknown, never approved.
+  const trust: HarnessHooksTrust = (await vendorDriver('codex').harnessHooks?.trust()) ?? 'unknown'
   const approved = trust === 'approved' && codexHarness !== null
   if (approved) codexHarness?.hooksApproved()
   const status = await states.status()

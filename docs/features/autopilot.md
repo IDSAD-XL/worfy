@@ -111,13 +111,15 @@ While a run goes on:
   permission mode is refused. When the run ends, the Node gets its own settings back. The run drives the Orchestrator's
   Session and reads its events the same way on either Vendor. Codex turns the Harness's hooks off after every install or
   update of the Harness until you approve them, and without them the gate and the guards of the workflow do not hold. So
-  before each start of a run on a Codex Orchestrator worfy asks Codex (`hooks/list`) whether the hooks of the plugin
-  `worfy` are approved. While they are not, or Codex does not say, the run is refused with "The Harness hooks are not
-  approved in Codex. Approve them in /hooks and start again." To approve them, open Codex in a terminal (`codex`), type
-  `/hooks` and approve the hooks of the plugin `worfy`. After an install or update in Codex the toolbar shows the step
-  "Approve the Harness hooks in Codex" with these instructions and a "Check again" button; until a check finds them
-  approved, the Harness item says "Codex: approve hooks", and a click opens the step again. A run on Claude Code is not
-  checked.
+  before each start of a run on a Codex Orchestrator, and again before each later Wave, worfy asks Codex (`hooks/list`)
+  whether the hooks of the plugin `worfy` are approved: every hook its `hooks.json` declares on an event Codex runs
+  must be listed, enabled and approved. While they are not, or Codex does not say, the run is refused with "The Harness
+  hooks are not approved in Codex. Approve them in /hooks and start again."; before a later Wave no new Session
+  starts, and the run stops with that reason in the journal (`session-error`). To approve them, open Codex in a
+  terminal (`codex`), type `/hooks` and approve the hooks of the plugin `worfy`. After an install or update in Codex the
+  toolbar shows the step "Approve the Harness hooks in Codex" with these instructions and a "Check again" button, in the
+  windows open at that moment (a window opened later does not pop it up). Until a check finds them approved, the
+  Harness item says "Codex: approve hooks", and a click opens the step again. A run on Claude Code is not checked.
 - A permission request, a question with answer options and a Card's `session.ask` are refused at once, because no one is
   there to answer. An approval Codex still asks for gets `decline`. Each refusal goes to the journal. When Claude Code gave a reason for a permission request, the model
   gets that reason so it can change the command.
@@ -231,7 +233,7 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `window-too-short` | The Run mode is Start window, and the next Wave usually takes longer than the whole window. The tooltip names the Wave, its usual duration and the window. |
 | `interrupted` | A turn of the Wave was interrupted, or a person's turn was, leaving the Wave held in the queue. |
 | `turn-error` | A turn of the Wave ended with an error that is not a refusal by the Limits. |
-| `session-error` | The Orchestrator's Session failed. |
+| `session-error` | The Orchestrator's Session failed, or, before a later Wave, Codex no longer runs the Harness's hooks. |
 | `session-closed` | The Orchestrator's Session closed. |
 | `send-failed` | "Run wave" could not be sent. |
 | `workflow-error` | The workflow could not be read when the run had to judge the Wave. |
@@ -349,7 +351,7 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | `src/shared/actions/render-template.ts` | `runWaveState`: the verdict and the text, shared with the button. |
 | `src/shared/workflow/waves.ts` | `readyWave`: the ready Wave and the Tickets left out. |
 | `src/main/agent/orchestrator.ts` | `setUnattended`, `giveBackNow`, `newUnattendedSession`, and the refusals for a turn, tasks or a queue. |
-| `src/main/harness/codex-hooks-trust.ts` | Whether the Harness hooks are approved in Codex (`hooks/list`), and the refusal of a Codex run while they are not. |
+| `src/main/vendors/codex/harness-hooks.ts` | Whether the Harness hooks are approved in Codex (`hooks/list`), and the refusal of a Codex run while they are not. |
 | `src/renderer/harness/CodexHooksStep.tsx` | The step "Approve the Harness hooks in Codex" with "Check again". |
 | `src/main/agent/session-settings.ts` | The launch of a Session and the forced permission mode. |
 | `src/main/agent/permissions.ts` | `unattendedCanUseTool`: the refusal of every request. |

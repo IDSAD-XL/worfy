@@ -238,12 +238,16 @@
     },
     {
       "paths": [
-        "src/renderer/harness/CodexHooksStep.tsx"
+        "src/renderer/harness/CodexHooksStep.tsx",
+        "src/main/vendors/codex/harness-hooks.ts",
+        "src/main/ipc/harness.ts",
+        "src/shared/ipc/harness.ts",
+        "src/main/harness/codex-install.ts"
       ],
       "specs": [
         "test/e2e/codex-hooks-step.spec.ts"
       ],
-      "why": "The step \"Approve the Harness hooks in Codex\" (worfy-multi-vendor ticket 39): it draws only after an install into Codex leaves the Harness hooks to approve, which needs a codex stand-in (WORFY_CODEX_CLI) and a CODEX_HOME, and codex-hooks-step.spec.ts is the only spec that installs into Codex. Left out: HarnessStatus.tsx, which every window's toolbar draws, and src/main/harness/codex-hooks-trust.ts, which the Codex driver every launch loads imports."
+      "why": "The step \"Approve the Harness hooks in Codex\" (worfy-multi-vendor ticket 39): it draws only after an install into Codex leaves the Harness hooks to approve, which needs a codex stand-in (WORFY_CODEX_CLI) and a CODEX_HOME, and codex-hooks-step.spec.ts is the only spec that installs into Codex. The check (harness-hooks.ts), its channel (harness.codexHooks in the ipc and shared harness files) and the install into Codex that sets the hooks to approve (codex-install.ts) run there end to end. Left out: HarnessStatus.tsx, which every window's toolbar draws."
     }
   ]
 }

@@ -9,7 +9,8 @@
 //   the Orchestrator's view gives. A start is refused while that Vendor lacks the `harness`
 //   capability (Orchestrators.unattendedRefusal): the workflow's guarantees are not proven there.
 //   On Codex it is also refused while the Harness's hooks are not approved in /hooks, or Codex does
-//   not say (the driver's check, worfy-multi-vendor ticket 39), with the driver's reason.
+//   not say (the driver's check, worfy-multi-vendor ticket 39), with the driver's reason; the check
+//   runs again before every later Wave, and a refusal there stops the run before a Session starts.
 // - Every Wave after the run's first starts a new SDK session of the Orchestrator (worfy-throughput
 //   ticket 52; Orchestrators.newUnattendedSession), so its context does not grow from Wave to Wave:
 //   its first prompt asks for `wave-brief <epic>`, then has the Wave's text (launch.ts,
@@ -1339,6 +1340,14 @@ export class Autopilot {
       await this.budgetWait(run, boundary.decision)
       return
     }
+    // Before every Wave after the run's first the Vendor is asked again (worfy-multi-vendor ticket 39):
+    // an update of the Harness since the start turns Codex's hooks off. Refused: no Session starts, and
+    // the run stops with the reason (waveRefused). A Stop clicked meanwhile ends the run as above.
+    if (run.cycle.wave > 0 && (await this.waveRefused(run))) return
+    if (run.stopRequested) {
+      await this.feed(run, { type: 'stop', reason: 'user-stop' })
+      return
+    }
     // Every Wave after the run's first goes to a new SDK session (worfy-throughput ticket 52).
     const fresh = run.cycle.wave > 0 && !run.turnMayCome && this.deps.harness() !== 'legacy' ? await this.newSession(run) : 'same'
     if (fresh === 'gone') return
@@ -1379,6 +1388,28 @@ export class Autopilot {
     // the Wave goes out stopping, ahead of any step queued behind this one.
     if (run.stopRequested && !run.cycle.stopping) await this.feed(run, { type: 'graceful-stop', tickets: await this.freshTickets(run) })
     await this.feed(run, { type: 'wave-sent', tickets: sent.tickets })
+  }
+
+  /**
+   * Whether the Vendor of the Orchestrator refuses the next Wave now (Orchestrators.unattendedRefusal,
+   * worfy-multi-vendor ticket 39): Codex while the Harness's hooks are not approved in /hooks, or Codex
+   * does not say. Refused: the run stops with `session-error` and the reason, which the journal keeps,
+   * before any Session starts; answers true. A check that throws refuses too. A Force stop or the quit
+   * does not wait for the answer: true, and their stop step ends the run.
+   */
+  private async waveRefused(run: Run): Promise<boolean> {
+    const check = this.deps.orchestrators.unattendedRefusal
+    if (check === undefined) return false
+    const asked = check.call(this.deps.orchestrators, run.projectId).then(
+      (refusal) => ({ refusal }),
+      (error: unknown) => ({ refusal: `Cannot check the Orchestrator's Vendor: ${messageOf(error)}` }),
+    )
+    const answer = await Promise.race([asked, run.rushing.then(() => null)])
+    if (answer === null) return true
+    if (answer.refusal === null) return false
+    run.message = answer.refusal
+    await this.feed(run, { type: 'session-error', message: answer.refusal })
+    return true
   }
 
   /**

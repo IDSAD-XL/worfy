@@ -2,12 +2,12 @@
 // wire them (20: session; 21: account, limits; 22: history, commands; 33: mcp), each part answers
 // that it is not wired yet. A ticket that changes a part changes its file, not this one. The
 // interface shows no Codex before ticket 24. Whether Codex runs the Harness's hooks (ticket 39) is
-// read by src/main/harness/codex-hooks-trust.ts, next to the install of the Harness into Codex.
-import { codexHarnessHooks } from '../../harness/codex-hooks-trust'
+// read by harness-hooks.ts.
 import type { VendorDriver } from '../driver'
 import { codexAccount } from './account'
 import { codexCapabilities } from './capabilities'
 import { codexCommands } from './commands'
+import { codexHarnessHooks } from './harness-hooks'
 import { codexHistory } from './history'
 import { codexLimits } from './limits'
 import { codexMcp } from './mcp'

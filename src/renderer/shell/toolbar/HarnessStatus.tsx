@@ -339,11 +339,14 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
   }, [])
 
   // The step opens by itself when an install or update in Codex leaves hooks to approve, whichever
-  // window or screen ran it; once per such install, not on every status that still says so.
-  const hooksToApprove = status?.codex?.hooksToApprove === true
-  const hadHooksToApprove = useRef(hooksToApprove)
+  // window or screen ran it; once per such install, not on every status that still says so. Only a
+  // change seen by this window counts: the first status a window reads only seeds it, so a window
+  // opened while hooks wait does not open the step (its "Codex: approve hooks" still does).
+  const hooksToApprove = status === undefined ? undefined : status.codex?.hooksToApprove === true
+  const hadHooksToApprove = useRef<boolean | undefined>(undefined)
   useEffect(() => {
-    if (hooksToApprove && !hadHooksToApprove.current) setHooksStep(true)
+    if (hooksToApprove === undefined) return
+    if (hooksToApprove && hadHooksToApprove.current === false) setHooksStep(true)
     hadHooksToApprove.current = hooksToApprove
   }, [hooksToApprove])
 

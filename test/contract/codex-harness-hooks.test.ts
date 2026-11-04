@@ -1,4 +1,4 @@
-// Whether Codex runs the Harness's hooks (worfy-multi-vendor ticket 39; src/main/harness/codex-hooks-trust.ts):
+// Whether Codex runs the Harness's hooks (worfy-multi-vendor ticket 39; src/main/vendors/codex/harness-hooks.ts):
 // `hooks/list` of the app-server read for the hooks of the plugin worfy@worfy-harness. Read against the
 // live recordings of the pinned Codex (test/fixtures/codex-messages/hooks*.jsonl), against answers of the
 // protocol's shape that worfy may or may not know, and end to end against the fake app-server, whose
@@ -6,16 +6,25 @@
 // them with approvePluginHooks, as a user's /hooks would. The Run itself (refused, started, Claude Code
 // unchecked) is in codex-orchestrator.test.ts. The fake runs under scriptNode(); the real Codex never starts.
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
-import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs'
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hasExited } from '../../src/main/agent/session/process'
-import { CODEX_HOOKS_REFUSAL, codexHarnessHooks, codexHarnessHooksPart, harnessHooksTrustOf, readCodexHooksTrust } from '../../src/main/harness/codex-hooks-trust'
 import { HARNESS_PLUGIN_ID } from '../../src/main/harness/install'
 import { claudeDriver } from '../../src/main/vendors/claude'
 import { codexDriver } from '../../src/main/vendors/codex'
 import { codexAskStarter, type StartCodex } from '../../src/main/vendors/codex/account'
+import {
+  CODEX_HOOKS_REFUSAL,
+  codexHarnessHooks,
+  codexHarnessHooksPart,
+  declaredHooks,
+  HARNESS_PLUGIN,
+  harnessHooksTrustOf,
+  readCodexHooksTrust,
+  REQUIRED_FALLBACK,
+} from '../../src/main/vendors/codex/harness-hooks'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexSchemaCheck } from '../../src/main/vendors/codex/rpc'
 import { approvePluginHooks, hooksList, KNOWN_EVENTS } from '../fixtures/codex-app-server/hook-runner.mjs'
@@ -63,13 +72,13 @@ function installHarness(): string {
 }
 
 /** A starter of the fake app-server over CODEX_HOME, on `script`, logging what worfy sends. */
-function fakeStarter(script = 'turn'): StartCodex {
+function fakeStarter(script = 'turn', env: Record<string, string> = {}): StartCodex {
   return codexAskStarter({
     runtime: RUNTIME,
     appPath: REPO,
     cwd: join(scratch, 'ask'),
     clientVersion: '9.9.9',
-    env: { ...process.env, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: script, WORFY_CODEX_LOG: log },
+    env: { ...process.env, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: script, WORFY_CODEX_LOG: log, ...env },
     spawnProcess: (_file: string, args: readonly string[], options: SpawnOptions): ChildProcess => {
       const child = spawn(scriptNode(), [...args], options)
       children.push(child)
@@ -113,9 +122,51 @@ describe('reading hooks/list for the Harness (harnessHooksTrustOf)', () => {
     expect(harnessHooksTrustOf(asHarness((index) => ({ trustStatus: index === 2 ? 'untrusted' : 'trusted' })))).toBe('not-approved')
     expect(harnessHooksTrustOf(asHarness((index) => ({ trustStatus: index === 1 ? 'modified' : 'trusted' })))).toBe('not-approved')
     expect(harnessHooksTrustOf(asHarness((index) => ({ trustStatus: 'trusted', enabled: index !== 0 })))).toBe('not-approved')
-    // Hooks of another plugin do not count either way.
-    const mixed = asHarness((index) => (index === 0 ? { pluginId: 'other@market', trustStatus: 'untrusted' } : { trustStatus: 'trusted' }))
+    // Hooks of another plugin do not count either way (index 1 is the recording's PostToolUse, which the Harness does not need).
+    const mixed = asHarness((index) => (index === 1 ? { pluginId: 'other@market', trustStatus: 'untrusted' } : { trustStatus: 'trusted' }))
     expect(harnessHooksTrustOf(mixed)).toBe('approved')
+  })
+
+  it('approved needs every hook the Harness declares: a hook Codex does not list makes it unknown', () => {
+    const trusted = asHarness(() => ({ trustStatus: 'trusted' })) as { data: { hooks: { eventName: string }[] }[] }
+    const without = (event: string): unknown => ({ data: trusted.data.map((entry) => ({ ...entry, hooks: entry.hooks.filter((hook) => hook.eventName !== event) })) })
+    // The recording's hooks.json is not on this disk: the hooks every guarantee rests on are needed.
+    expect(Object.keys(REQUIRED_FALLBACK).sort()).toEqual(['preToolUse', 'stop', 'subagentStop'])
+    for (const event of Object.keys(REQUIRED_FALLBACK)) expect(harnessHooksTrustOf(without(event)), event).toBe('unknown')
+    expect(harnessHooksTrustOf(without('postToolUse'))).toBe('approved')
+    // What the Harness's hooks.json declares counts, handler by handler.
+    expect(harnessHooksTrustOf(trusted, () => ({ preToolUse: 1, sessionEnd: 1 }))).toBe('approved')
+    expect(harnessHooksTrustOf(trusted, () => ({ preToolUse: 2 }))).toBe('unknown')
+    expect(harnessHooksTrustOf(trusted, () => ({ interrupt: 1 }))).toBe('unknown')
+    const asked: string[] = []
+    harnessHooksTrustOf(trusted, (path) => (asked.push(path), {}))
+    expect(asked).toEqual(['/capture/codex-home/hooks.json'])
+    // A hooks.json that cannot be read falls back to the hooks the guarantees rest on.
+    expect(harnessHooksTrustOf(without('stop'), () => null)).toBe('unknown')
+  })
+
+  it("an error Codex reports for a file of the Harness's plugin folder is unknown; one elsewhere does not count", () => {
+    const trusted = asHarness(() => ({ trustStatus: 'trusted' })) as { data: Record<string, unknown>[] }
+    const withErrors = (...paths: string[]): unknown => ({ data: trusted.data.map((entry) => ({ ...entry, errors: paths.map((path) => ({ path, message: 'broken' })) })) })
+    // The recording's hooks sit at /capture/codex-home/hooks.json: their plugin folder is /capture.
+    expect(harnessHooksTrustOf(withErrors('/capture/codex-home/hooks.json'))).toBe('unknown')
+    expect(harnessHooksTrustOf(withErrors('/capture/codex-home/agents/x.toml'))).toBe('unknown')
+    expect(harnessHooksTrustOf(withErrors('/capture'))).toBe('unknown')
+    expect(harnessHooksTrustOf(withErrors('/elsewhere/hooks.json'))).toBe('approved')
+    expect(harnessHooksTrustOf(withErrors('/capture-other/hooks.json'))).toBe('approved')
+    expect(harnessHooksTrustOf({ data: trusted.data.map((entry) => ({ ...entry, errors: [{ message: 'no path' }] })) })).toBe('unknown')
+  })
+
+  it("the Harness's hooks.json declares its command hooks on the events Codex runs, by Codex's names", () => {
+    const declared = declaredHooks(readFileSync(join(REPO, 'harness', 'hooks', 'hooks.json'), 'utf8'))
+    expect(declared).toMatchObject({ preToolUse: expect.any(Number), stop: expect.any(Number), subagentStop: expect.any(Number) })
+    expect(Object.keys(declared!).every((event) => KNOWN_EVENTS.includes(`${event.charAt(0).toUpperCase()}${event.slice(1)}`))).toBe(true)
+    expect(declaredHooks(JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command' }, { type: 'prompt' }] }], TaskCompleted: [{ hooks: [{ type: 'command' }] }] } }))).toEqual({ stop: 1 })
+    for (const text of ['', 'not json', '[]', '{}', JSON.stringify({ hooks: { Stop: {} } }), JSON.stringify({ hooks: { Stop: [{}] } })]) expect(declaredHooks(text), text).toBeNull()
+  })
+
+  it('the id the driver lists the Harness under is the installer\'s', () => {
+    expect(HARNESS_PLUGIN).toBe(HARNESS_PLUGIN_ID)
   })
 
   it('an answer worfy does not know is unknown, never approved', () => {
@@ -171,6 +222,29 @@ describe('asking Codex (readCodexHooksTrust over the fake app-server)', () => {
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
+
+  it('a Codex that never answers hooks/list: unknown once the timeout passes', async () => {
+    installHarness()
+    approvePluginHooks(codexHome)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const started = Date.now()
+    await expect(readCodexHooksTrust('/projects/demo', { start: fakeStarter('turn', { WORFY_CODEX_HOOKS_SILENT: '1' }), timeoutMs: 300 })).resolves.toBe('unknown')
+    expect(Date.now() - started).toBeLessThan(10_000)
+    expect(sent().filter((each) => each.method === 'hooks/list')).toHaveLength(1)
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('the Harness of this repository, approved in the fake, is approved: every hook its hooks.json declares is listed', async () => {
+    const plugin = installHarness()
+    approvePluginHooks(codexHome)
+    const answer = hooksList(codexHome, ['/projects/demo'])
+    expect(answer.data[0]!.hooks.every((hook) => hook.sourcePath === join(plugin, 'hooks', 'hooks.json'))).toBe(true)
+    expect(harnessHooksTrustOf(answer)).toBe('approved')
+    // Codex leaves out a hook the hooks.json declares: not every guarantee holds.
+    const stop = answer.data[0]!.hooks.findIndex((hook) => hook.eventName === 'stop')
+    expect(harnessHooksTrustOf({ data: [{ ...answer.data[0]!, hooks: answer.data[0]!.hooks.filter((_, index) => index !== stop) }] })).toBe('unknown')
+  })
 })
 
 describe("the drivers' part", () => {
@@ -179,5 +253,26 @@ describe("the drivers' part", () => {
     expect(codexHarnessHooks.refusal).toBe('The Harness hooks are not approved in Codex. Approve them in /hooks and start again.')
     expect(codexHarnessHooksPart().refusal).toBe(CODEX_HOOKS_REFUSAL)
     expect(claudeDriver().harnessHooks).toBeUndefined()
+  })
+
+  it('the check is the Codex driver\'s: the Harness installer does not import it or the Codex protocol, it imports no Harness module, and the toolbar channel asks the driver', () => {
+    /** The repository files `file` names in an import, export or import() of any kind. */
+    const importsOf = (file: string): string[] =>
+      [...readFileSync(join(REPO, file), 'utf8').matchAll(/(?:\bfrom|\bimport\s*\(?)\s*['"](\.[^'"]+)['"]/g)].map((match) => relative(REPO, resolve(dirname(join(REPO, file)), match[1]!)).split(sep).join('/'))
+    const harnessFiles = readdirSync(join(REPO, 'src', 'main', 'harness'), { recursive: true, encoding: 'utf8' })
+      .filter((name) => name.endsWith('.ts'))
+      .map((name) => `src/main/harness/${name.split(sep).join('/')}`)
+    expect(harnessFiles.length).toBeGreaterThan(5)
+    for (const file of harnessFiles) {
+      for (const name of importsOf(file)) {
+        expect(name, `${file} imports ${name}`).not.toMatch(/^src\/main\/vendors\/codex\/(account|protocol\/|harness-hooks)/)
+      }
+    }
+    const part = 'src/main/vendors/codex/harness-hooks.ts'
+    expect(importsOf(part).length).toBeGreaterThan(3)
+    expect(importsOf(part).filter((name) => name.startsWith('src/main/harness/'))).toEqual([])
+    const channel = importsOf('src/main/ipc/harness.ts')
+    expect(channel).toContain('src/main/vendors/registry')
+    expect(channel.filter((name) => name.startsWith('src/main/vendors/codex/harness-hooks'))).toEqual([])
   })
 })

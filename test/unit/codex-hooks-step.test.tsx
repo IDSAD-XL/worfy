@@ -123,10 +123,19 @@ describe('the step from the toolbar Harness item', () => {
     expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
   })
 
-  it('a window that opens while hooks wait shows the step too; closed, a status that still asks does not reopen it, and "Codex: approve hooks" does', async () => {
+  it('a window that opens while hooks wait does not open the step; "Codex: approve hooks" does, and closed, a status that still asks does not reopen it', async () => {
     const main = fakeBridge({ 'harness.state': ok(withCodex(true)), 'harnessMigration.offer': ok({ offered: false }) })
     render(<HarnessStatus />)
-    await screen.findByTestId('codex-hooks-step')
+    await screen.findByTestId('harness-codex')
+    // The first status only seeds the window: a new window, a reload or another screen opens no dialog.
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 20))
+    })
+    expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
+    act(() => main.emit('harness.changed', withCodex(true)))
+    expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
+    fireEvent.click(screen.getByTestId('harness-codex'))
+    expect(screen.getByTestId('codex-hooks-step')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
     act(() => main.emit('harness.changed', withCodex(true)))

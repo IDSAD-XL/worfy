@@ -1,6 +1,6 @@
 // The Orchestrator and Autopilot on Codex (worfy-multi-vendor ticket 37) over the fake app-server
 // (WORFY_CODEX=fake, which test/setup-contract.ts sets): the real Session registry, Orchestrators,
-// launcher, run journal and cycle, over a copy of a one-Ticket Epic in a temporary folder. The
+// launcher, run journal and cycle, over a one-Ticket Epic in a temporary folder (two Tickets in one test). The
 // Orchestrator's Vendor is the Project's defaultVendor (the `vendor` dep); its Sessions run on the
 // Codex driver's session part, each process on its own script and log:
 //   - the attended Session the Orchestrator opens with: `turn` (it opens a thread and waits);
@@ -31,7 +31,7 @@ import { UNATTENDED_MODE_MESSAGE, unattendedPresetMessage } from '../../src/main
 import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { Autopilot } from '../../src/main/autopilot/run'
 import { LayoutStore } from '../../src/main/layout/store'
-import { CODEX_HOOKS_REFUSAL, codexHarnessHooksPart } from '../../src/main/harness/codex-hooks-trust'
+import { CODEX_HOOKS_REFUSAL, codexHarnessHooksPart } from '../../src/main/vendors/codex/harness-hooks'
 import { claudeSessions } from '../../src/main/vendors/claude/session'
 import { codexAskStarter } from '../../src/main/vendors/codex/account'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
@@ -99,17 +99,28 @@ afterEach(async () => {
   removeTestTree(scratch)
 })
 
-function writeTicket(status: string): void {
-  writeFileSync(join(repo, '.scratch', EPIC, 'issues', '01-ticket-1.md'), ['# 01 — Ticket 1', '', 'Type: task', `Status: ${status}`, 'Blocked by: —', ''].join('\n'))
+/** Ticket `num` of the Epic with `status`, blocked by the Tickets `blockedBy`. */
+function writeTicket(status: string, num = 1, blockedBy: readonly number[] = []): void {
+  const nn = String(num).padStart(2, '0')
+  const blocked = blockedBy.length === 0 ? '—' : blockedBy.map((each) => String(each).padStart(2, '0')).join(', ')
+  writeFileSync(join(repo, '.scratch', EPIC, 'issues', `${nn}-ticket-${String(num)}.md`), [`# ${nn} — Ticket ${String(num)}`, '', 'Type: task', `Status: ${status}`, `Blocked by: ${blocked}`, ''].join('\n'))
 }
 
-/** `epic-status --json` over the Epic's one Ticket, as the real script reads it. */
+/** `epic-status --json` over the Epic's Tickets, as the real script reads them. */
 const runner: EpicStatusRunner = (cwd) => {
-  const text = readFileSync(join(cwd, '.scratch', EPIC, 'issues', '01-ticket-1.md'), 'utf8')
-  const status = /^Status:\s*(.*)$/m.exec(text)?.[1] ?? null
-  const state = /^done\b/i.test(status ?? '') ? 'done' : 'open'
-  const ticket = { epic: EPIC, num: 1, slug: 'ticket-1', title: '01 — Ticket 1', statusRaw: status, state, blockedRaw: '—', blockedNums: [], blockedParsed: true }
-  return Promise.resolve(JSON.stringify({ ref: 'main', epics: [{ epic: EPIC, hasSpec: true, hasMap: false }], tickets: [ticket] }))
+  const issues = join(cwd, '.scratch', EPIC, 'issues')
+  const tickets = readdirSync(issues)
+    .sort()
+    .map((name) => {
+      const text = readFileSync(join(issues, name), 'utf8')
+      const status = /^Status:\s*(.*)$/m.exec(text)?.[1] ?? null
+      const state = /^done\b/i.test(status ?? '') ? 'done' : 'open'
+      const blockedRaw = /^Blocked by:\s*(.*)$/m.exec(text)?.[1] ?? '—'
+      const blockedNums = blockedRaw === '—' ? [] : blockedRaw.split(',').map((each) => Number(each.trim()))
+      const title = /^# (.*)$/m.exec(text)?.[1] ?? name
+      return { epic: EPIC, num: Number(name.slice(0, 2)), slug: name.slice(3, -3), title, statusRaw: status, state, blockedRaw, blockedNums, blockedParsed: true }
+    })
+  return Promise.resolve(JSON.stringify({ ref: 'main', epics: [{ epic: EPIC, hasSpec: true, hasMap: false }], tickets }))
 }
 
 async function until(condition: () => boolean | Promise<boolean>, what: string, limit = 10_000): Promise<void> {
@@ -419,6 +430,53 @@ describe('Autopilot on a Codex Orchestrator (worfy-multi-vendor ticket 37)', () 
     // No Harness in Codex at all: whether its hooks run is unknown, and unknown is not approved.
     removeTestTree(join(h.hooksHome, 'plugins'))
     await expect(h.orchestrators.unattendedRefusal(PROJECT)).resolves.toBe(CODEX_HOOKS_REFUSAL)
+  })
+
+  it('asks again before every later Wave: hooks turned off after Wave 1 start no Session for Wave 2, and the run stops with the reason (ticket 39)', async () => {
+    // Two Tickets, the second blocked by the first: Wave 2 is ready once Wave 1 has marked 01 done.
+    writeTicket('open', 2, [1])
+    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'autopilot-wave', 'resume'], hooksApproved: true })
+    // While Wave 1 runs the Harness is updated: Codex's approval was of the old folder's hash.
+    h.registry.observe((_sessionId, event) => {
+      if (event.type === 'prompt' && event.text === WAVE_1) appendFileSync(join(h.hooksHome, 'plugins', 'cache', 'worfy-harness', 'worfy', 'local', '.claude-plugin', 'plugin.json'), '\n')
+    })
+    await h.autopilot.start(PROJECT, EPIC)
+    const atStart = h.hooksAsked().length
+    expect(atStart).toBeGreaterThan(0)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'session-error', wave: 1 })
+    expect(h.hooksAsked().length).toBe(atStart + 1)
+
+    const events = await h.journal()
+    expect(events.filter((event) => event.kind === 'wave-started')).toMatchObject([{ wave: 1, tickets: ['01'] }])
+    expect(events.find((event) => event.kind === 'wave-finished')).toMatchObject({ wave: 1, tickets: ['01'] })
+    expect(events.filter((event) => event.kind === 'session-error')).toMatchObject([{ message: CODEX_HOOKS_REFUSAL }])
+    expect(events.find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'session-error' })
+    // 1: attended, 2: the run's Session of Wave 1, 3: given back attended (a resume). No new thread for Wave 2.
+    await until(() => h.request(3, 'thread/resume') !== undefined, 'the give-back')
+    expect(h.logs).toHaveLength(3)
+    expect(h.logged(2).filter((each) => each.method === 'turn/start')).toHaveLength(1)
+    expect(h.observed.filter((event) => event.type === 'prompt' && event.text !== WAVE_1)).toEqual([])
+  })
+
+  it('a check of the hooks that throws refuses the Run, as unknown does', async () => {
+    const h = harness({ vendor: () => 'codex', scripts: ['turn'], hooksApproved: true })
+    await expect(h.orchestrators.unattendedRefusal(PROJECT)).resolves.toBeNull()
+    const throwing: HarnessHooksPart = { refusal: CODEX_HOOKS_REFUSAL, trust: () => Promise.reject(new Error('the part broke')) }
+    const orchestrators = new Orchestrators({
+      layout: h.layout,
+      projectPath: () => repo,
+      registry: h.registry,
+      vendor: () => 'codex',
+      settings: { read: () => ATTENDED_PICKS, write: () => undefined },
+      transcript: () => Promise.resolve({ model: null, statusBlock: null }),
+      capabilities: () => Promise.resolve(CODEX_CAPABILITIES),
+      harnessHooks: () => throwing,
+      broadcast: () => undefined,
+      publish: () => undefined,
+    })
+    await expect(orchestrators.unattendedRefusal(PROJECT)).resolves.toBe(CODEX_HOOKS_REFUSAL)
+    await expect(orchestrators.setUnattended(PROJECT, true)).rejects.toThrow(CODEX_HOOKS_REFUSAL)
   })
 
   it('checks no hooks for Claude Code, and asks an open Orchestrator by the Vendor it runs on, not by the Project setting now', async () => {

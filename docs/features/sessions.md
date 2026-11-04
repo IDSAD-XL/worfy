@@ -164,8 +164,8 @@ answers.
 - Eco mode, a switch under the Orchestrator's input field, writes two fields of the Project's Profile: `workflow.agents`
   set to `eco`, and `agents`, which is Sonnet with effort medium for each agent role. Off removes both fields, and the
   models the roles had before are not restored. It applies from the next Ticket.
-- Autopilot runs this Session unattended. On Codex a run is refused for now, with the reason: worfy cannot yet check
-  that Codex runs the Harness's hooks. See [Autopilot](autopilot.md). While it does, the permission
+- Autopilot runs this Session unattended. On Codex a run is refused, with the reason, while the Harness's hooks are not
+  approved in Codex's `/hooks`; see [Autopilot, During a run](autopilot.md#during-a-run). While it does, the permission
   mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission
   requests and questions are refused at once.
 

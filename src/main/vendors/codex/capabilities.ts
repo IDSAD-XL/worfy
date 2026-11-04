@@ -107,8 +107,8 @@ export function codexSandboxPolicy(mode: SandboxMode): SandboxPolicy {
  * (`account/rateLimits/*`); the canvas tools come from worfy's MCP servers over HTTP (mcp.ts); its
  * Subagents get Nodes on the canvas from Codex's threads (subagents.ts, ticket 34). The Harness holds on
  * Codex (ticket 39): its guarantees rest on its hooks, which Codex runs once the user approved them in
- * /hooks, and the driver's `harnessHooks` part (src/main/harness/codex-hooks-trust.ts) checks that before
- * each Autopilot Run. Missing, each with the reason a tooltip shows: what worfy does not give Codex yet,
+ * /hooks, and the driver's `harnessHooks` part (harness-hooks.ts) checks that before each Autopilot Run
+ * and each Session of one. Missing, each with the reason a tooltip shows: what worfy does not give Codex yet,
  * and what Codex does not have.
  */
 export const CODEX_CAPABILITIES: Capabilities = {
