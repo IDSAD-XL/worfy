@@ -526,7 +526,9 @@ h1="$(head_of 1)"
 state "1:$h1"
 edit "s.prs[0].evidence=$EV2"
 LAND_TICKET= "$LAND" "$S" >"$W/out" 2>&1; rc=$?
-doc="$(git -C "$W/origin.git" show refs/pull/900/head:.scratch/e/issues/01-one.md 2>&1)"
+# the file at <ref>:<path> is read through node: Git Bash on Windows rewrites a `<ref>:<path>` argument of a shell
+# command as a path list (`:` to `;`, `/` to `\`), and git then finds no such revision
+doc="$(node -e 'process.stdout.write(require("child_process").execFileSync("git", ["-C", process.argv[1], "show", `${process.argv[2]}:${process.argv[3]}`], { encoding: "utf8" }))' "$W/origin.git" refs/pull/900/head .scratch/e/issues/01-one.md 2>&1)"
 want="$(printf -- '- [ ] the first\n  - evidence: review pass · PR #1 review · - - · %s\n- [ ] the second\n      on two lines\n  - evidence: ci-check pass · PR #1 ci-ok · ci - · %s' "$h1" "$h1")"
 [ "$rc" = 0 ] && [[ "$doc" == *"$want"* ]] && grep -q '^Status: done ' <<<"$doc" && grep -qx 'PR: #1' <<<"$doc" \
     && ok "evidence: review pass and ci-check pass -> two Evidence lines under their items in the documents PR, Status done, sha of prs[].head" || bad "evidence real: exit $rc: $(cat "$W/out") ticket: $doc"
