@@ -40,12 +40,19 @@ Source: [spec.md](../spec.md), «Модель» («Кто пишет какие 
 
 - [ ] Shell test `agents-text`: в тексте implementer-а и skills есть `ticket evidence`, `evidence-check --changed` и поле `prs[].evidence`;
       нет зашитого `Готово, когда`; `plugin-neutral.test.sh` зелёный (текст английский).
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · e044edbad9553fa3aa6f241cb6e33dc50eb82c83
+  - evidence: test-run pass · `bash harness/bin/tests/plugin-neutral.test.sh` exit 0 · mac - · e044edbad9553fa3aa6f241cb6e33dc50eb82c83
 - [ ] Shell test `skill-blocks` (или его соседи): ссылки на шаги skills ведут на существующие файлы.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · e044edbad9553fa3aa6f241cb6e33dc50eb82c83
+  - evidence: test-run pass · `bash harness/bin/tests/start-context.test.sh` exit 0 · mac - · e044edbad9553fa3aa6f241cb6e33dc50eb82c83
 - [ ] Shell test `agents-text`: текст Orchestrator-а называет путь Silent mode (`ticket evidence` в Workflow folder), текст ревьюера —
       где читать строки в Silent mode.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · e044edbad9553fa3aa6f241cb6e33dc50eb82c83
 - [ ] (вручную) Одна Wave другого Epic-а после merge: у Ticket-ов есть строки `test-run` от implementer-а и `review`/`ci-check` из `land`;
       новые снимки — со `scrub:`.
 - [ ] `bash harness/bin/tests/agents-text.test.sh`, `plugin-neutral.test.sh`, `skill-blocks.test.sh` — exit 0; CI PR зелёный.
+  - evidence: test-run pass · `bash harness/bin/tests/skill-blocks.test.sh` exit 0 · mac - · e044edbad9553fa3aa6f241cb6e33dc50eb82c83
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e044edbad9553fa3aa6f241cb6e33dc50eb82c83
 
 ## Тесты
 
