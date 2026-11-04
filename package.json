@@ -17,7 +17,7 @@
     "lint": "eslint . && node scripts/check-cyrillic.mjs && node scripts/check-handoff.mjs && node scripts/check-lessons.mjs && node scripts/check-feature-docs.mjs && node scripts/codex-protocol.mjs --check && node harness/bin/evidence-check --changed --root .scratch",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.node.json && tsc --noEmit -p tsconfig.test.web.json",
     "test": "node scripts/vitest-electron.mjs",
-    "test:e2e": "electron-vite build && playwright test --grep-invert @packaged",
+    "test:e2e": "playwright install ffmpeg && electron-vite build && playwright test --grep-invert @packaged",
     "test:package": "pnpm package && playwright test --grep @packaged --workers=1 --output test-results/package",
     "test:acceptance": "bash scripts/e3-sandbox.sh lock-run playwright test -c playwright.acceptance.config.ts",
     "install:stable": "node scripts/install-stable.mjs",

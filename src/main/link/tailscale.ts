@@ -29,9 +29,13 @@ export const MACOS_TAILSCALE_PATHS = ['/Applications/Tailscale.app/Contents/MacO
 /**
  * The Tailscale CLI, or null: the PATH of `env` first; then on macOS MACOS_TAILSCALE_PATHS, on
  * Windows `%ProgramFiles%\Tailscale\tailscale.exe`. Entries of the PATH that are not full paths are
- * skipped: they would be looked for in worfy's own working folder.
+ * skipped: they would be looked for in worfy's own working folder. `override` (WORFY_TAILSCALE of
+ * worfy's own environment, not the login shell's) names the CLI instead, and nothing else is looked
+ * for: the e2e tests point it at a file that is not there, so the app under test sees no tailnet
+ * names of the developer's machine.
  */
-export function findTailscale(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, exists: FileExists = fileOrAlias): string | null {
+export function findTailscale(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, exists: FileExists = fileOrAlias, override: string | undefined = process.env.WORFY_TAILSCALE): string | null {
+  if (override !== undefined && override !== '') return exists(override) ? override : null
   if (platform === 'win32') {
     const onPath = findOnPath('tailscale.exe', env, exists)
     if (onPath !== null) return onPath

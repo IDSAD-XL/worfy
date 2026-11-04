@@ -791,7 +791,7 @@ for p in 'Evidence lines first, before the PR' \
     '`test-run` — a test command' '`gate` — the gate of step 5' '`commit` — the item is the change itself' \
     '`--sha` defaults to `HEAD`, so commit the change before step 5, or pass `--sha <that commit>`.' \
     'names no host, no user name in a path, no email and no token' \
-    'A manual item (`tickets.manual_mark`) gets no line from you.' \
+    'A manual item (`tickets.manual_mark`) gets no line from you,' \
     'An item no check of yours proved gets no line and goes into `not_verified`.' \
     'the lines go into the PR diff and the review.' \
     'In Silent mode `ticket` writes them into the ticket file in the Workflow folder, and the branch gets nothing.'; do
@@ -856,9 +856,14 @@ for p in '**When an item needs a picture.**' 'it is about **how something looks*
     'A picture comes only from your own build with fixture data' 'taken through the project'"'"'s e2e test runner' \
     'never from an installed or stable copy of the app' \
     '`scrub:` goes on its line only after every frame of the contact sheet has been checked (for a screenshot, the screenshot itself)' \
-    'For a clip of such a fixture build that check may be the agent'"'"'s own'; do
+    'For a clip of such a fixture build that check may be the agent'"'"'s own' \
+    'The sheet covers the scenario only: the app'"'"'s start and quit at both ends of the clip are not on it' \
+    'An agent'"'"'s own look is no such proof, with one exception: a clip of the fixture build whose every contact sheet frame the agent itself has checked gets the agent'"'"'s `video` line with `scrub:`' \
+    'and the owner looks at such clips by sample.'; do
     ev "$GUI" "ship-ticket step 6, when a picture" "$p"
 done
+ev "$IM" "implementer, the Evidence lines, the exception for a fixture clip" \
+    'A manual item (`tickets.manual_mark`) gets no line from you, except the `video` line of a clip of the fixture build whose every contact sheet frame you have checked'
 ev "$IM" "implementer, the Evidence lines, when a picture" \
     'an item about how something looks gets a screenshot of the app'"'"'s window in both themes (`screenshot`), an item about motion a clip with its contact sheet (`video`), any other item none, since a test with its exit code proves it'
 ev "$IM" "implementer, the Evidence lines, when a picture" 'Which build, and when `scrub:` goes on the line: the manual GUI checks of `/worfy:ship-ticket`, step 6.'

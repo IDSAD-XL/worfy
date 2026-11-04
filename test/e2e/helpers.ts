@@ -154,8 +154,8 @@ export interface LaunchOptions {
   /**
    * Records a clip (webm, VP8) of every window of the app into `dir` (Playwright's `recordVideo` of
    * `_electron.launch`); a window's clip is complete once the app is closed. Needs Playwright's own
-   * ffmpeg (`playwright install ffmpeg`). Without it nothing is recorded. The clips worth keeping
-   * are made by recordClip (evidence-capture.ts).
+   * ffmpeg (`playwright install ffmpeg`, which `pnpm test:e2e` runs first): without it the launch
+   * throws. The clips worth keeping are made by recordClip (evidence-capture.ts).
    */
   recordVideo?: { dir: string; size?: { width: number; height: number } }
 }

@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join, relative, sep } from 'node:path'
+import { createRequire } from 'node:module'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { launchApp, repoRoot, type LaunchedApp, type LaunchOptions } from './helpers'
 import { ms } from '../time-scale'
@@ -11,12 +12,13 @@ import { ms } from '../time-scale'
 // ticket 11). Both come from Playwright of the fixture build only: `page.screenshot` of its window and
 // `recordVideo` of `_electron.launch`, never a capture of the screen through the OS.
 //
-// Where the files go: with WORFY_EVIDENCE=<epic>/<NN> into .scratch/<epic>/evidence/ of this worktree,
-// named <NN>-<what>…, and the `ticket evidence` command that records each of them is printed, with the
-// item number and the scrub date left for whoever checks the pixels; without the variable into the
-// output folder of the running test, so a run on CI leaves nothing in the repository. Every file
-// written passes harness/bin/evidence-check (its metadata, and for a clip its sound, size and
-// duration) before the helper returns; one that does not is removed.
+// Where the files go: with WORFY_EVIDENCE=<epic>/<NN> (or options.evidence) into .scratch/<epic>/evidence/
+// of this worktree (or options.root), named <NN>-<what>…, and the `ticket evidence` command that records
+// each of them is printed, with the item number and the scrub date left for whoever checks the pixels;
+// without it into the output folder of the running test, so a run on CI leaves nothing in the
+// repository. A file of that name git already tracks is refused: a rerun must not replace a checked
+// picture unseen. Every file written passes harness/bin/evidence-check (its metadata, and for a clip
+// its sound, size and duration) before the helper returns; on any error no file it wrote is left.
 
 /** The longest clip the privacy check accepts (harness/bin/evidence-check): a hard limit of the scenario. */
 export const CLIP_MAX_SECONDS = 60
@@ -24,13 +26,14 @@ export const CLIP_MAX_SECONDS = 60
 export const CLIP_MAX_BYTES = 8 * 1024 * 1024
 /** The size of a clip unless the caller gives one: the window size the e2e tests use. */
 export const CLIP_SIZE = { width: 1280, height: 800 }
-/** The width of one frame on the contact sheet; its height keeps the window's proportions. */
-export const SHEET_FRAME_WIDTH = 320
-/** Frames in a row of the contact sheet. */
-export const SHEET_COLUMNS = 4
+/**
+ * The longest side of a contact sheet: the largest surface Chromium draws a page on. Its frames are at
+ * their own size (1:1, the window's CSS pixels), so the text on them is as readable as in the window.
+ */
+export const SHEET_MAX_SIDE = 16384
 /** The room around and between the frames of the sheet, and the height of the caption under each. */
-const SHEET_GAP = 8
-const SHEET_CAPTION = 22
+export const SHEET_GAP = 8
+export const SHEET_CAPTION = 22
 /** One frame of the sheet per second of the scenario: real seconds of the clip, not a limit of the run. */
 const FRAME_EVERY_MS = 1000
 
@@ -39,6 +42,8 @@ export type Theme = 'light' | 'dark'
 /** Where the files of one run go, and the Ticket whose Evidence they are (null: the test's own output). */
 export interface EvidenceTarget {
   dir: string
+  /** The worktree that holds .scratch; the git repository a tracked file is looked up in. */
+  root: string
   /** `<NN>-` for a Ticket, empty for the test's output. */
   prefix: string
   ticket: { epic: string; nn: string; issues: string } | null
@@ -53,13 +58,33 @@ const WHAT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
  * mistyped variable never writes somewhere unexpected.
  */
 export function evidenceTarget(value: string | undefined, outputDir: () => string, root: string = repoRoot): EvidenceTarget {
-  if (value === undefined || value.trim() === '') return { dir: outputDir(), prefix: '', ticket: null }
+  if (value === undefined || value.trim() === '') return { dir: outputDir(), root, prefix: '', ticket: null }
   const match = WORFY_EVIDENCE.exec(value.trim())
   if (!match) throw new Error(`WORFY_EVIDENCE must be <epic>/<NN>, as worfy-evidence/11, got "${value}"`)
   const [, epic, nn] = match as unknown as [string, string, string]
   const epicDir = join(root, '.scratch', epic)
   if (!existsSync(epicDir)) throw new Error(`WORFY_EVIDENCE names Epic "${epic}", but there is no folder .scratch/${epic} in ${root}`)
-  return { dir: join(epicDir, 'evidence'), prefix: `${nn}-`, ticket: { epic, nn, issues: join(epicDir, 'issues') } }
+  return { dir: join(epicDir, 'evidence'), root, prefix: `${nn}-`, ticket: { epic, nn, issues: join(epicDir, 'issues') } }
+}
+
+/** Where the helpers write: the Ticket of `evidence` (WORFY_EVIDENCE by default) under `root` (this worktree). */
+export interface EvidenceOptions {
+  evidence?: string
+  root?: string
+}
+
+/**
+ * Refuses `files` of a Ticket that git already tracks under the target's root: a rerun would replace a
+ * picture someone checked, and the privacy check asks for a new scrub: note only for an added file.
+ * The test's own output, and a root outside git, are never refused.
+ */
+export function refuseTracked(target: EvidenceTarget, files: string[]): void {
+  if (target.ticket === null) return
+  const run = spawnSync('git', ['ls-files', '--', ...files], { cwd: target.root, encoding: 'utf8', timeout: ms(30_000) })
+  const tracked = run.status === 0 ? run.stdout.split('\n').filter((line) => line.trim() !== '') : []
+  if (tracked.length > 0) {
+    throw new Error(`already committed: ${tracked.join(', ')}; give the new picture another name (what), or remove the old one in git first`)
+  }
 }
 
 /** The stem of the files: lower-case words joined by dashes (`card-drag`), so a name is the same on every OS. */
@@ -87,12 +112,17 @@ export function ticketEvidenceCommand(target: EvidenceTarget, file: string, kind
 export function keepIfPrivate(files: string[]): void {
   const run = spawnSync(process.execPath, [join(repoRoot, 'harness', 'bin', 'evidence-check'), ...files], { cwd: repoRoot, encoding: 'utf8', timeout: ms(30_000) })
   if (run.status === 0) return
-  for (const file of files) rmSync(file, { force: true })
+  removeAll(files)
   throw new Error(`evidence-check failed (exit ${String(run.status)}) on ${files.join(', ')}, removed:\n${run.stdout}${run.stderr}${run.error ? String(run.error) : ''}`)
 }
 
-function targetOfRun(): EvidenceTarget {
-  return evidenceTarget(process.env.WORFY_EVIDENCE, () => test.info().outputDir)
+function targetOfRun(options: EvidenceOptions): EvidenceTarget {
+  return evidenceTarget(options.evidence ?? process.env.WORFY_EVIDENCE, () => test.info().outputDir, options.root ?? repoRoot)
+}
+
+/** Removes `files`, whatever they hold: on an error, no file the helpers wrote is left unchecked. */
+const removeAll = (files: string[]): void => {
+  for (const file of files) rmSync(file, { force: true })
 }
 
 function announce(target: EvidenceTarget, file: string, kind: 'screenshot' | 'video'): void {
@@ -107,11 +137,13 @@ const isPage = (target: Page | Locator): target is Page => 'mainFrame' in target
  * default), through `emulateMedia`; the scheme the page had before is restored afterwards. Files:
  * `<NN>-<what>-light.png`, `<NN>-<what>-dark.png`. Resolves with their paths.
  */
-export async function captureScreenshot(target: Page | Locator, what: string, options: { themes?: Theme[] } = {}): Promise<string[]> {
+export async function captureScreenshot(target: Page | Locator, what: string, options: EvidenceOptions & { themes?: Theme[] } = {}): Promise<string[]> {
   checkWhat(what)
   const themes = options.themes ?? ['light', 'dark']
   if (themes.length === 0) throw new Error('captureScreenshot: options.themes is empty')
-  const run = targetOfRun()
+  const run = targetOfRun(options)
+  const fileOf = (theme: Theme): string => join(run.dir, `${run.prefix}${what}-${theme}.png`)
+  refuseTracked(run, themes.map(fileOf))
   mkdirSync(run.dir, { recursive: true })
   const page = isPage(target) ? target : target.page()
   // The scheme the page has now, put back afterwards. Not emulateMedia({ colorScheme: null }): that is the
@@ -122,21 +154,26 @@ export async function captureScreenshot(target: Page | Locator, what: string, op
     : 'light'
   const files: string[] = []
   try {
-    for (const theme of themes) {
-      await page.emulateMedia({ colorScheme: theme })
-      const file = join(run.dir, `${run.prefix}${what}-${theme}.png`)
-      await target.screenshot({ path: file })
-      files.push(file)
+    try {
+      for (const theme of themes) {
+        await page.emulateMedia({ colorScheme: theme })
+        // Listed before it is written: a screenshot that fails half way is removed too.
+        files.push(fileOf(theme))
+        await target.screenshot({ path: fileOf(theme) })
+      }
+    } finally {
+      await page.emulateMedia({ colorScheme: before })
     }
-  } finally {
-    await page.emulateMedia({ colorScheme: before })
+    keepIfPrivate(files)
+  } catch (error) {
+    removeAll(files)
+    throw error
   }
-  keepIfPrivate(files)
   for (const file of files) announce(run, file, 'screenshot')
   return files
 }
 
-export interface ClipOptions {
+export interface ClipOptions extends EvidenceOptions {
   /** How the app starts; `executablePath` is refused: only the fixture build is recorded. */
   launch?: LaunchOptions
   /** The size of the clip; 1280 × 800 by default. */
@@ -148,13 +185,15 @@ export interface ClipOptions {
 export interface Clip {
   clip: string
   sheet: string
-  /** Frames on the contact sheet: one per second of the scenario, from second 0. */
+  /** Frames on the contact sheet: one per second of the scenario, from second 0 (the app's start and quit are not on it). */
   frames: number
   /** How long the scenario ran. */
   seconds: number
+  /** The size of each frame on the sheet: the window's, in CSS pixels. */
+  frame: { width: number; height: number }
 }
 
-interface Frame {
+export interface Frame {
   second: number
   png: Buffer
 }
@@ -175,43 +214,65 @@ export function pngSize(png: Buffer): { width: number; height: number } {
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) }
 }
 
-/** The size of a contact sheet of `frames` frames of `frame` proportions. */
-export function sheetSize(frames: number, frame: { width: number; height: number }): { width: number; height: number; cell: number } {
-  const cell = Math.round((SHEET_FRAME_WIDTH * frame.height) / frame.width)
-  const rows = Math.ceil(frames / SHEET_COLUMNS)
-  const columns = Math.min(frames, SHEET_COLUMNS)
-  return { width: SHEET_GAP + columns * (SHEET_FRAME_WIDTH + SHEET_GAP), height: SHEET_GAP + rows * (cell + SHEET_CAPTION + SHEET_GAP), cell }
+export interface SheetLayout {
+  columns: number
+  rows: number
+  width: number
+  height: number
 }
 
 /**
- * The contact sheet of `frames`: a grid of them, SHEET_FRAME_WIDTH wide, each with its second under it.
- * Drawn by the app itself in a window it never shows (offscreen rendering) and taken with
- * `webContents.capturePage()`, so no image library is needed; the frames are files in `dir` the page loads.
+ * The grid of a contact sheet of `frames` frames of `frame` size, each at its own size: about as many
+ * columns as rows make a sheet near square, and then more columns while it is taller than
+ * SHEET_MAX_SIDE. A grid that fits no way is an error that asks for a shorter clip.
  */
-async function contactSheet(app: ElectronApplication, frames: Frame[], dir: string): Promise<Buffer> {
+export function sheetLayout(frames: number, frame: { width: number; height: number }): SheetLayout {
+  const cellWidth = frame.width + SHEET_GAP
+  const cellHeight = frame.height + SHEET_CAPTION + SHEET_GAP
+  const square = Math.ceil(Math.sqrt((frames * cellHeight) / cellWidth))
+  for (let columns = Math.max(1, Math.min(frames, square)); columns <= frames; columns++) {
+    const rows = Math.ceil(frames / columns)
+    const width = SHEET_GAP + columns * cellWidth
+    const height = SHEET_GAP + rows * cellHeight
+    if (width > SHEET_MAX_SIDE) break
+    if (height <= SHEET_MAX_SIDE) return { columns, rows, width, height }
+  }
+  throw new Error(
+    `recordClip: ${frames} frames of ${frame.width} × ${frame.height} px do not fit on one contact sheet of at most ${SHEET_MAX_SIDE} px a side: shorten the scenario or give a smaller options.size`,
+  )
+}
+
+/**
+ * The contact sheet of `frames`: a grid of them at their own size (sheetLayout), each with its second
+ * under it. Drawn by the app itself in a window it never shows (offscreen rendering, one pixel per CSS
+ * pixel) and taken with `webContents.capturePage()`, so no image library is needed; the frames are
+ * files in `dir` the page loads.
+ */
+export async function contactSheet(app: ElectronApplication, frames: Frame[], dir: string): Promise<Buffer> {
   const first = frames[0]
   // unreachable: the frame of second 0 is always taken (underLimit).
   if (first === undefined) throw new Error('recordClip: no frame was taken for the contact sheet')
-  const size = sheetSize(frames.length, pngSize(first.png))
-  const cells = frames.map((frame) => {
-    const name = `frame-${frame.second}.png`
-    writeFileSync(join(dir, name), frame.png)
-    return `<figure><img src="${name}" width="${SHEET_FRAME_WIDTH}" height="${size.cell}"><figcaption>${frame.second} s</figcaption></figure>`
+  const frame = pngSize(first.png)
+  const size = sheetLayout(frames.length, frame)
+  const cells = frames.map((each, index) => {
+    const name = `frame-${index}.png`
+    writeFileSync(join(dir, name), each.png)
+    return `<figure><img src="${name}" width="${frame.width}" height="${frame.height}"><figcaption>${each.second} s</figcaption></figure>`
   })
   const page = join(dir, 'sheet.html')
   writeFileSync(
     page,
     `<!doctype html><meta charset="utf-8"><style>
 html, body { margin: 0; background: #fff; }
-body { display: grid; grid-template-columns: repeat(${SHEET_COLUMNS}, ${SHEET_FRAME_WIDTH}px); gap: ${SHEET_GAP}px; padding: ${SHEET_GAP}px; }
+body { display: grid; grid-template-columns: repeat(${size.columns}, ${frame.width}px); gap: ${SHEET_GAP}px; padding: ${SHEET_GAP}px; }
 figure { margin: 0; }
 img { display: block; outline: 1px solid #999; }
-figcaption { height: ${SHEET_CAPTION}px; font: 13px/${SHEET_CAPTION}px monospace; color: #000; text-align: center; }
+figcaption { height: ${SHEET_CAPTION}px; font: 14px/${SHEET_CAPTION}px monospace; color: #000; text-align: center; }
 </style>${cells.join('')}`,
   )
   const base64 = await app.evaluate(
     async ({ BrowserWindow }, { page, width, height }) => {
-      const window = new BrowserWindow({ show: false, width, height, useContentSize: true, enableLargerThanScreen: true, webPreferences: { offscreen: true } })
+      const window = new BrowserWindow({ show: false, width, height, useContentSize: true, enableLargerThanScreen: true, webPreferences: { offscreen: { deviceScaleFactor: 1 } } })
       try {
         await window.loadFile(page)
         await window.webContents.executeJavaScript('Promise.all([...document.images].map((image) => image.decode()))')
@@ -228,14 +289,72 @@ figcaption { height: ${SHEET_CAPTION}px; font: 13px/${SHEET_CAPTION}px monospace
   return png
 }
 
+/** The folder of playwright-core, the one @playwright/test runs on. */
+export const playwrightCore = (): string => {
+  const require = createRequire(import.meta.url)
+  return dirname(require.resolve('playwright-core/package.json', { paths: [dirname(require.resolve('@playwright/test'))] }))
+}
+
+/** The revision of ffmpeg this Playwright downloads (browsers.json of playwright-core). */
+export const ffmpegRevision = (): string => {
+  const browsers = JSON.parse(readFileSync(join(playwrightCore(), 'browsers.json'), 'utf8')) as { browsers: Array<{ name: string; revision: string }> }
+  const ffmpeg = browsers.browsers.find((each) => each.name === 'ffmpeg')
+  if (ffmpeg === undefined) throw new Error('playwright-core/browsers.json names no ffmpeg')
+  return ffmpeg.revision
+}
+
+/**
+ * The folder Playwright installs its ffmpeg into, as Playwright finds it: PLAYWRIGHT_BROWSERS_PATH
+ * (`0`: inside playwright-core), or ms-playwright in the cache folder of the system.
+ */
+export function playwrightFfmpegDir(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, home: string, core: string): string {
+  const browsers = env.PLAYWRIGHT_BROWSERS_PATH
+  const base =
+    browsers === '0'
+      ? join(core, '.local-browsers')
+      : browsers !== undefined && browsers !== ''
+        ? resolve(browsers)
+        : platform === 'win32'
+          ? join(env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'ms-playwright')
+          : platform === 'darwin'
+            ? join(home, 'Library', 'Caches', 'ms-playwright')
+            : join(env.XDG_CACHE_HOME || join(home, '.cache'), 'ms-playwright')
+  return join(base, `ffmpeg-${ffmpegRevision()}`)
+}
+
+/**
+ * Why recordVideo cannot record here, or null: without Playwright's own ffmpeg the launch does not fail,
+ * the window's screenshots hang instead (seen with Playwright 1.63), so this is asked before the launch.
+ */
+export function ffmpegProblem(dir: string): string | null {
+  if (existsSync(join(dir, 'INSTALLATION_COMPLETE'))) return null
+  return `recordClip: Playwright's ffmpeg, which recordVideo needs, is not installed (no ${dir}): run \`pnpm exec playwright install ffmpeg\` (pnpm test:e2e runs it first)`
+}
+
+
+/**
+ * Keeps the recorded `video` as `clip` and `sheet` (the PNG) next to it, once both pass the privacy
+ * check; on any error neither is left.
+ */
+export function saveClip(video: string, sheetPng: Buffer, clip: string, sheet: string): void {
+  try {
+    copyFileSync(video, clip)
+    writeFileSync(sheet, sheetPng)
+    keepIfPrivate([clip, sheet])
+  } catch (error) {
+    removeAll([clip, sheet])
+    throw error
+  }
+}
+
 /**
  * Starts the fixture build with `recordVideo`, runs `scenario` on it, closes the app and keeps the clip
  * of its main window as `<NN>-<what>.webm`, with its contact sheet `<NN>-<what>.sheet.png` next to it:
- * a screenshot of the main window every second while the scenario runs. A scenario longer than 60 s
+ * a screenshot of the main window every second while the scenario runs, at its own size. A scenario longer than 60 s
  * (or `limits.seconds`), a clip over 8 MB (or `limits.bytes`), a scenario that fails and a file the
  * privacy check rejects are errors, and then no file is kept. The clip also holds the app's start and
- * quit, a few seconds more than the scenario: one that comes out over 60 s is a finding of the privacy
- * check, so a scenario near the limit fails there.
+ * quit, a few seconds more than the scenario, and those are not on the sheet: one that comes out over
+ * 60 s is a finding of the privacy check, so a scenario near the limit fails there.
  */
 export async function recordClip(what: string, scenario: (launched: LaunchedApp) => Promise<void>, options: ClipOptions = {}): Promise<Clip> {
   checkWhat(what)
@@ -243,12 +362,17 @@ export async function recordClip(what: string, scenario: (launched: LaunchedApp)
     throw new Error('recordClip records only the fixture build (out/): a packaged, installed or stable copy shows the data of this machine')
   }
   const limits = limitsOf(options)
-  const run = targetOfRun()
+  const run = targetOfRun(options)
+  const clip = join(run.dir, `${run.prefix}${what}.webm`)
+  const sheet = join(run.dir, `${run.prefix}${what}.sheet.png`)
+  refuseTracked(run, [clip, sheet])
+  const problem = ffmpegProblem(playwrightFfmpegDir(process.env, process.platform, homedir(), playwrightCore()))
+  if (problem !== null) throw new Error(problem)
   const work = mkdtempSync(join(tmpdir(), 'worfy-clip-'))
   try {
     const videoDir = join(work, 'video')
     const launched = await launchApp({ ...options.launch, recordVideo: { dir: videoDir, size: options.size ?? CLIP_SIZE } })
-    let recorded: { video: string; sheet: Buffer; frames: number; seconds: number }
+    let recorded: Recorded
     try {
       recorded = await underLimit(launched, scenario, limits.seconds, work)
     } finally {
@@ -260,17 +384,21 @@ export async function recordClip(what: string, scenario: (launched: LaunchedApp)
       throw new Error(`recordClip: the clip is ${bytes} bytes, over the limit of ${limits.bytes} bytes: give a smaller options.size or a shorter scenario`)
     }
     mkdirSync(run.dir, { recursive: true })
-    const clip = join(run.dir, `${run.prefix}${what}.webm`)
-    const sheet = join(run.dir, `${run.prefix}${what}.sheet.png`)
-    copyFileSync(recorded.video, clip)
-    writeFileSync(sheet, recorded.sheet)
-    keepIfPrivate([clip, sheet])
+    saveClip(recorded.video, recorded.sheet, clip, sheet)
     announce(run, clip, 'video')
-    return { clip, sheet, frames: recorded.frames, seconds: recorded.seconds }
+    return { clip, sheet, frames: recorded.frames, seconds: recorded.seconds, frame: recorded.frame }
   } finally {
     // Electron helper processes may still hold the clip for a moment after the app exits.
     await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
+}
+
+interface Recorded {
+  video: string
+  sheet: Buffer
+  frames: number
+  seconds: number
+  frame: { width: number; height: number }
 }
 
 /** Runs `scenario` with a frame every second, within `seconds`; resolves with the clip's path and the sheet. */
@@ -279,7 +407,7 @@ async function underLimit(
   scenario: (launched: LaunchedApp) => Promise<void>,
   seconds: number,
   work: string,
-): Promise<{ video: string; sheet: Buffer; frames: number; seconds: number }> {
+): Promise<Recorded> {
   const video = launched.window.video()
   if (video === null) throw new Error('recordClip: the window records no clip')
   const frames: Frame[] = []
@@ -292,7 +420,8 @@ async function underLimit(
       await sleep(start + second * FRAME_EVERY_MS - Date.now())
       if (second > 0 && !running) return
       try {
-        frames.push({ second, png: await launched.window.screenshot({ timeout: ms(5_000) }) })
+        // CSS pixels: the frame at the window's own size, whatever the scale of the display.
+        frames.push({ second, png: await launched.window.screenshot({ scale: 'css', timeout: ms(5_000) }) })
       } catch (error) {
         frameError = error
         return
@@ -318,5 +447,6 @@ async function underLimit(
   mkdirSync(sheetDir, { recursive: true })
   const sheet = await contactSheet(launched.app, frames, sheetDir)
   // Asked while the app runs: Playwright knows the path from the start of the recording.
-  return { video: await video.path(), sheet, frames: frames.length, seconds: took }
+  // frames[0] is there: contactSheet refused an empty list.
+  return { video: await video.path(), sheet, frames: frames.length, seconds: took, frame: pngSize((frames[0] as Frame).png) }
 }

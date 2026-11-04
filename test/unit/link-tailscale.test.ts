@@ -4,11 +4,13 @@
 // starts a real `tailscale`: the runner and the file check are injected; the default runner is
 // tested against a shell script that stands in for it. The login shell's environment (agentEnv) is
 // a stub: no shell starts.
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { findTailscale, parseTailscaleStatus, readTailscalePeers, runTailscaleCli, TAILSCALE_TIMEOUT_MS } from '../../src/main/link/tailscale'
+import { directStartEnv, launchEnv } from '../e2e/launch-env'
+import { removeTestTree } from '../remove'
 
 const login = vi.hoisted(() => ({ agentEnv: vi.fn() }))
 vi.mock('../../src/main/agent/env', async (importOriginal) => ({
@@ -90,6 +92,36 @@ describe('findTailscale', () => {
     expect(findTailscale('win32', { Path: 'C:\\Windows', ProgramFiles: 'C:\\Program Files' }, only(installed))).toBe(installed)
     expect(findTailscale('win32', { Path: 'C:\\Windows', ProgramFiles: 'C:\\Program Files' }, only())).toBeNull()
     expect(findTailscale('win32', { Path: 'C:\\Windows' }, only(installed))).toBeNull()
+  })
+
+  it('takes WORFY_TAILSCALE alone when it is set: that file, or none at all', () => {
+    const app = '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
+    const stub = '/tmp/stub/tailscale'
+    const env = { PATH: '/usr/bin', Path: 'C:\\Windows', ProgramFiles: 'C:\\Program Files' }
+    const elsewhere = ['/usr/bin/tailscale', app, 'C:\\Windows\\tailscale.exe', 'C:\\Program Files\\Tailscale\\tailscale.exe']
+    for (const platform of ['darwin', 'win32', 'linux'] as const) {
+      expect(findTailscale(platform, env, only(stub, ...elsewhere), stub), platform).toBe(stub)
+      expect(findTailscale(platform, env, only(...elsewhere), '/nowhere/tailscale'), platform).toBeNull()
+    }
+    // Empty is unset.
+    expect(findTailscale('darwin', { PATH: '/bin' }, only(app), '')).toBe(app)
+  })
+
+  it('every e2e start of the app points WORFY_TAILSCALE at a file that is not there, so it finds no CLI', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'worfy-tailscale-e2e-env-'))
+    try {
+      const launched = await launchEnv({ dataDir: dir, claudeHome: dir, shellDir: dir, env: { SHELL: '/bin/sh' }, source: {} })
+      const direct = directStartEnv({ dataDir: dir, claudeHome: dir, source: {} })
+      for (const env of [launched, direct]) {
+        const cli = env.WORFY_TAILSCALE
+        expect(cli).toBeTruthy()
+        expect(existsSync(cli as string)).toBe(false)
+        // Every other place has a CLI here; the variable still finds none.
+        expect(findTailscale(process.platform, { PATH: '/usr/bin', Path: 'C:\\Windows' }, (path) => path !== cli, cli)).toBeNull()
+      }
+    } finally {
+      removeTestTree(dir)
+    }
   })
 })
 

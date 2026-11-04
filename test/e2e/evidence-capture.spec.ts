@@ -4,21 +4,30 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { crc32 } from 'node:zlib'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { catScript, loginProfileWithNode } from '../harness-node'
 import {
   CLIP_MAX_BYTES,
   CLIP_MAX_SECONDS,
   captureScreenshot,
   checkWhat,
+  contactSheet,
   evidenceTarget,
+  ffmpegProblem,
+  ffmpegRevision,
   keepIfPrivate,
+  playwrightCore,
+  playwrightFfmpegDir,
   pngSize,
   recordClip,
-  sheetSize,
+  saveClip,
+  SHEET_CAPTION,
+  SHEET_GAP,
+  SHEET_MAX_SIDE,
+  sheetLayout,
   ticketEvidenceCommand,
 } from './evidence-capture'
-import { canvasReady, launchApp, repoRoot, type LaunchOptions } from './helpers'
+import { canvasReady, innerSize, launchApp, repoRoot, type LaunchOptions } from './helpers'
 import { ms } from '../time-scale'
 
 // The Evidence helpers of e2e (worfy-evidence ticket 11): captureScreenshot gives a PNG per theme,
@@ -144,7 +153,7 @@ test.describe('where the files go and what the helpers print', () => {
     const output = join(scratch, 'out')
     for (const value of [undefined, '', '  ']) {
       const target = evidenceTarget(value, () => output, scratch)
-      expect(target).toEqual({ dir: output, prefix: '', ticket: null })
+      expect(target).toEqual({ dir: output, root: scratch, prefix: '', ticket: null })
       expect(ticketEvidenceCommand(target, join(output, 'x.png'), 'screenshot')).toBeNull()
     }
   })
@@ -191,9 +200,103 @@ test.describe('where the files go and what the helpers print', () => {
     expect(() => pngSize(Buffer.from('GIF89a and more bytes than a header'))).toThrow('not a PNG')
   })
 
-  test('the contact sheet: four frames a row, 320 px wide, in the proportions of the window', () => {
-    expect(sheetSize(1, { width: 1280, height: 800 })).toEqual({ width: 336, height: 238, cell: 200 })
-    expect(sheetSize(9, { width: 2560, height: 1600 })).toEqual({ width: 1320, height: 698, cell: 200 })
+  test('the contact sheet: frames at their own size, a grid near square, never over the largest side', () => {
+    const cell = { width: 1280 + SHEET_GAP, height: 800 + SHEET_CAPTION + SHEET_GAP }
+    expect(sheetLayout(1, { width: 1280, height: 800 })).toEqual({ columns: 1, rows: 1, width: SHEET_GAP + cell.width, height: SHEET_GAP + cell.height })
+    expect(sheetLayout(4, { width: 1280, height: 800 })).toEqual({ columns: 2, rows: 2, width: SHEET_GAP + 2 * cell.width, height: SHEET_GAP + 2 * cell.height })
+    // A full minute: 61 frames of the default window.
+    const minute = sheetLayout(61, { width: 1280, height: 800 })
+    expect(minute).toEqual({ columns: 7, rows: 9, width: SHEET_GAP + 7 * cell.width, height: SHEET_GAP + 9 * cell.height })
+    // 9 frames of 3100 × 5450: the near-square grid (4 columns, 3 rows) is taller than the largest side, 5 columns fit.
+    expect(Math.ceil(Math.sqrt((9 * (5450 + SHEET_CAPTION + SHEET_GAP)) / (3100 + SHEET_GAP)))).toBe(4)
+    expect(sheetLayout(9, { width: 3100, height: 5450 })).toEqual({ columns: 5, rows: 2, width: SHEET_GAP + 5 * (3100 + SHEET_GAP), height: SHEET_GAP + 2 * (5450 + SHEET_CAPTION + SHEET_GAP) })
+    expect(SHEET_GAP + 5 * (3100 + SHEET_GAP)).toBeLessThanOrEqual(SHEET_MAX_SIDE)
+    expect(() => sheetLayout(61, { width: 2560, height: 1600 })).toThrow(/61 frames of 2560 × 1600 px do not fit on one contact sheet of at most 16384 px a side: shorten the scenario/)
+  })
+
+  test('the ffmpeg of Playwright: where Playwright looks for it, and the install command when it is not there', () => {
+    const revision = ffmpegRevision()
+    const core = playwrightCore()
+    const home = join(scratch, 'home')
+    expect(playwrightFfmpegDir({ PLAYWRIGHT_BROWSERS_PATH: join(scratch, 'b') }, 'darwin', home, core)).toBe(join(scratch, 'b', `ffmpeg-${revision}`))
+    expect(playwrightFfmpegDir({ PLAYWRIGHT_BROWSERS_PATH: '0' }, 'linux', home, core)).toBe(join(core, '.local-browsers', `ffmpeg-${revision}`))
+    expect(playwrightFfmpegDir({}, 'darwin', home, core)).toBe(join(home, 'Library', 'Caches', 'ms-playwright', `ffmpeg-${revision}`))
+    expect(playwrightFfmpegDir({ LOCALAPPDATA: join(scratch, 'local') }, 'win32', home, core)).toBe(join(scratch, 'local', 'ms-playwright', `ffmpeg-${revision}`))
+    expect(playwrightFfmpegDir({}, 'win32', home, core)).toBe(join(home, 'AppData', 'Local', 'ms-playwright', `ffmpeg-${revision}`))
+    expect(playwrightFfmpegDir({ XDG_CACHE_HOME: join(scratch, 'xdg') }, 'linux', home, core)).toBe(join(scratch, 'xdg', 'ms-playwright', `ffmpeg-${revision}`))
+    expect(playwrightFfmpegDir({}, 'linux', home, core)).toBe(join(home, '.cache', 'ms-playwright', `ffmpeg-${revision}`))
+    const dir = join(scratch, 'b', `ffmpeg-${revision}`)
+    expect(ffmpegProblem(dir)).toMatch(/^recordClip: Playwright's ffmpeg, which recordVideo needs, is not installed .*: run `pnpm exec playwright install ffmpeg`/)
+    // A folder half downloaded is not an install either.
+    mkdirSync(dir, { recursive: true })
+    expect(ffmpegProblem(dir)).not.toBeNull()
+    writeFileSync(join(dir, 'INSTALLATION_COMPLETE'), '')
+    expect(ffmpegProblem(dir)).toBeNull()
+  })
+
+  test('saveClip: when the sheet cannot be written, the copied clip is removed too', () => {
+    const video = join(scratch, 'video.webm')
+    writeFileSync(video, 'not checked')
+    const clip = join(scratch, '11-x.webm')
+    // The folder of the sheet is a file: writing it fails after the clip is copied.
+    writeFileSync(join(scratch, 'blocker'), '')
+    expect(() => saveClip(video, png(), clip, join(scratch, 'blocker', '11-x.sheet.png'))).toThrow()
+    expect(existsSync(clip)).toBe(false)
+  })
+
+  test('captureScreenshot: <NN>-<what>-<theme>.png in .scratch/<epic>/evidence/ of the root given; a failing second theme leaves no file', async () => {
+    mkdirSync(join(scratch, '.scratch', 'demo'), { recursive: true })
+    const shots: string[] = []
+    const schemes: string[] = []
+    const fake = (failOn: number): Locator => {
+      const page = {
+        evaluate: async () => false,
+        emulateMedia: async ({ colorScheme }: { colorScheme: string }) => {
+          schemes.push(colorScheme)
+        },
+      }
+      return {
+        page: () => page as unknown as Page,
+        screenshot: async ({ path }: { path: string }) => {
+          shots.push(path)
+          writeFileSync(path, png())
+          if (shots.length === failOn) throw new Error('the window went away')
+        },
+      } as unknown as Locator
+    }
+    const evidence = join(scratch, '.scratch', 'demo', 'evidence')
+    const files = await captureScreenshot(fake(0), 'tile', { evidence: 'demo/11', root: scratch })
+    expect(files).toEqual([join(evidence, '11-tile-light.png'), join(evidence, '11-tile-dark.png')])
+    expect(files.every((file) => existsSync(file))).toBe(true)
+    // The scheme the page had (light here) is put back.
+    expect(schemes).toEqual(['light', 'dark', 'light'])
+
+    shots.length = 0
+    schemes.length = 0
+    await expect(captureScreenshot(fake(2), 'broken', { evidence: 'demo/11', root: scratch })).rejects.toThrow('the window went away')
+    expect(readdirSync(evidence).filter((name) => name.startsWith('11-broken'))).toEqual([])
+    expect(schemes).toEqual(['light', 'dark', 'light'])
+  })
+
+  test('a file of that name git already tracks is refused, before anything is written or started', async () => {
+    const root = join(scratch, 'tracked')
+    const evidence = join(root, '.scratch', 'demo', 'evidence')
+    mkdirSync(evidence, { recursive: true })
+    writeFileSync(join(evidence, '11-drag.webm'), 'clip')
+    writeFileSync(join(evidence, '11-tile-dark.png'), png())
+    git(root, 'init', '-q')
+    git(root, 'add', '-A')
+    git(root, 'commit', '-q', '-m', 'checked pictures')
+    let ran = false
+    await expect(
+      recordClip('drag', async () => {
+        ran = true
+      }, { evidence: 'demo/11', root }),
+    ).rejects.toThrow(/already committed: \.scratch\/demo\/evidence\/11-drag\.webm; give the new picture another name/)
+    expect(ran).toBe(false)
+    const untouched = { page: () => ({}) as Page, screenshot: async () => { ran = true } } as unknown as Locator
+    await expect(captureScreenshot(untouched, 'tile', { evidence: 'demo/11', root })).rejects.toThrow(/already committed: \.scratch\/demo\/evidence\/11-tile-dark\.png/)
+    expect(ran).toBe(false)
   })
 })
 
@@ -206,6 +309,17 @@ test.describe('recordClip refuses before it starts anything', () => {
       }, { launch: { executablePath: join(scratch, 'worfy') } }),
     ).rejects.toThrow(/records only the fixture build/)
     expect(ran).toBe(false)
+  })
+
+  test('no ffmpeg of Playwright: the install command, not a hang on the first frame', async () => {
+    const before = process.env.PLAYWRIGHT_BROWSERS_PATH
+    process.env.PLAYWRIGHT_BROWSERS_PATH = join(scratch, 'no-browsers')
+    try {
+      await expect(recordClip('x', async () => undefined)).rejects.toThrow(/Playwright's ffmpeg, which recordVideo needs, is not installed .*pnpm exec playwright install ffmpeg/)
+    } finally {
+      if (before === undefined) delete process.env.PLAYWRIGHT_BROWSERS_PATH
+      else process.env.PLAYWRIGHT_BROWSERS_PATH = before
+    }
   })
 
   test('limits above 60 s or 8 MB', async () => {
@@ -240,6 +354,23 @@ test('captureScreenshot: a PNG of the window in each theme, of a part of it, and
     await captureScreenshot(window, 'canvas-again', { themes: [own ? 'light' : 'dark'] })
     expect(await darkNow()).toBe(own)
 
+    // No Tailscale CLI for the app under test (launch-env.ts): no tailnet name can reach a picture.
+    const tailscale = await launched.app.evaluate(() => {
+      const cli = process.env.WORFY_TAILSCALE
+      const fs = process.getBuiltinModule('node:fs') as typeof import('node:fs')
+      return { cli, exists: cli === undefined ? null : fs.existsSync(cli) }
+    })
+    expect(tailscale.cli).toBeTruthy()
+    expect(tailscale.exists).toBe(false)
+
+    // A full minute of frames fits on one sheet the app draws, at the size sheetLayout gives.
+    const frame = await window.screenshot({ scale: 'css' })
+    const sheetDir = join(scratch, 'sheet')
+    mkdirSync(sheetDir)
+    const sheet = await contactSheet(launched.app, Array.from({ length: 61 }, (_, second) => ({ second, png: frame })), sheetDir)
+    const minute = sheetLayout(61, pngSize(frame))
+    expect(pngSize(sheet)).toEqual({ width: minute.width, height: minute.height })
+
     const only = await captureScreenshot(card, 'card', { themes: ['dark'] })
     expect(only).toEqual([test.info().outputPath('card-dark.png')])
     const box = await card.boundingBox()
@@ -257,12 +388,14 @@ test('recordClip: a Ticket in focus mode and a card dragged with its Epic frame 
   test.setTimeout(ms(180_000))
   const before = scratchStatus()
   let moved = { x: 0, y: 0 }
+  let inner = { width: 0, height: 0 }
   const recorded = await recordClip(
     'card-drag',
     async (launched) => {
       const { window } = launched
       const card = window.locator(CARD)
       await canvasReady(launched, { visible: [card], size: SIZE })
+      inner = await innerSize(window)
       await card.dblclick()
       await expect(window.getByTestId('focus-mode')).toBeVisible()
       await window.waitForTimeout(800)
@@ -304,9 +437,10 @@ test('recordClip: a Ticket in focus mode and a card dragged with its Epic frame 
   expect(clip.subarray(0, 4).toString('hex')).toBe('1a45dfa3')
   expect(statSync(recorded.clip).size).toBeLessThan(CLIP_MAX_BYTES)
   const sheet = readFileSync(recorded.sheet)
-  const size = pngSize(sheet)
-  expect(size.width).toBe(8 + Math.min(recorded.frames, 4) * (320 + 8))
-  expect(size.height).toBe(sheetSize(recorded.frames, { width: SIZE.width, height: SIZE.height }).height)
+  // Each frame at the window's own size (CSS pixels), not scaled down.
+  expect(recorded.frame).toEqual(inner)
+  const layout = sheetLayout(recorded.frames, inner)
+  expect(pngSize(sheet)).toEqual({ width: layout.width, height: layout.height })
 
   // The privacy check of a branch: the clip and its sheet in the tickets root of a repository need a
   // video line with scrub:, and with it they pass.
@@ -333,11 +467,15 @@ test('recordClip: a Ticket in focus mode and a card dragged with its Epic frame 
   if (!EVIDENCE_RUN) expect(scratchStatus()).toBe(before)
 })
 
-test('recordClip: a scenario that is over at once still has the frame of second 0 on its sheet', async () => {
+test('recordClip: a scenario that is over at once still has the frame of second 0 on its sheet, in .scratch/<epic>/evidence/ of the root given', async () => {
   test.skip(EVIDENCE_RUN, 'a WORFY_EVIDENCE run records only the clips of the Ticket')
-  const recorded = await recordClip('instant', async () => undefined)
+  mkdirSync(join(scratch, '.scratch', 'demo'), { recursive: true })
+  const recorded = await recordClip('instant', async () => undefined, { evidence: 'demo/11', root: scratch })
+  const evidence = join(scratch, '.scratch', 'demo', 'evidence')
+  expect(recorded.clip).toBe(join(evidence, '11-instant.webm'))
+  expect(recorded.sheet).toBe(join(evidence, '11-instant.sheet.png'))
   expect(recorded.frames).toBe(1)
-  expect(pngSize(readFileSync(recorded.sheet)).width).toBe(8 + 320 + 8)
+  expect(pngSize(readFileSync(recorded.sheet)).width).toBe(SHEET_GAP + recorded.frame.width + SHEET_GAP)
   expect(existsSync(recorded.clip)).toBe(true)
 })
 

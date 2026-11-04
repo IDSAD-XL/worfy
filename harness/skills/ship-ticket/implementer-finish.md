@@ -15,7 +15,8 @@ The quotes around `<ref>` are single: in double quotes the shell runs what stand
   The platform defaults to this system's; add `--copy dev` when the check ran a dev build of the app.
 - `--ref` is one line without ` · `, and it names no host, no user name in a path, no email and no token.
 - A picture as Evidence: an item about how something looks gets a screenshot of the app's window in both themes (`screenshot`), an item about motion a clip with its contact sheet (`video`), any other item none, since a test with its exit code proves it. Which build, and when `scrub:` goes on the line: the manual GUI checks of `/worfy:ship-ticket`, step 6.
-- Only `pass`: a red check is your work (step 5), not a line. A manual item (`tickets.manual_mark`) gets no line from you.
+- Only `pass`: a red check is your work (step 5), not a line. A manual item (`tickets.manual_mark`) gets no line from you,
+  except the `video` line of a clip of the fixture build whose every contact sheet frame you have checked (step 6 of `/worfy:ship-ticket`).
   An item no check of yours proved gets no line and goes into `not_verified`.
 - `EXIT=2` — the line was refused (its grammar or the item number), and nothing was written: fix the arguments.
   `EXIT=1` — an argument error (an unknown flag, or a flag without its value), and nothing was written either.
