@@ -458,16 +458,16 @@ merge.
 ## Готово, когда
 
 - [ ] SDK Claude импортирует только `src/main/vendors/claude/`; contract test строгий, без исключений (16).
-- [ ] Session Claude ведёт себя как до Epic-а: существующие test-ы прошли без правок ожиданий (11–16).
-- [ ] Session на Codex: выбор Vendor-а, очередь и steer, Interrupt, Resume, пикеры, presets, диалог подтверждения,
+- [x] Session Claude ведёт себя как до Epic-а: существующие test-ы прошли без правок ожиданий (11–16).
+- [x] Session на Codex: выбор Vendor-а, очередь и steer, Interrupt, Resume, пикеры, presets, диалог подтверждения,
       slash-меню (20–25).
-- [ ] Tool-ы worfy у Codex по HTTP: Canvas, Cards `worfy.ask`, Browser (33).
-- [ ] Session-ы Codex Project-а, начатые в worfy и в терминале, — Node-ы с транскриптом; поиск их находит (27, 28).
-- [ ] Limits — раздел на каждого Vendor-а со входом; термин в `CONTEXT.md` переопределён (11, 26).
+- [x] Tool-ы worfy у Codex по HTTP: Canvas, Cards `worfy.ask`, Browser (33).
+- [x] Session-ы Codex Project-а, начатые в worfy и в терминале, — Node-ы с транскриптом; поиск их находит (27, 28).
+- [x] Limits — раздел на каждого Vendor-а со входом; термин в `CONTEXT.md` переопределён (11, 26).
 - [ ] Onboarding предлагает Codex необязательно; без Codex ошибок нет (29).
 - [ ] Бинарник Codex закреплён, типы и схемы сгенерированы, compatibility suite с записями зелёный; test-ы не
       запускают настоящий Codex (17, 18, 30).
-- [ ] Приёмка первого выпуска владельцем на Mac Stable с настоящим входом в Codex на Plus (32).
+- [x] Приёмка первого выпуска владельцем на Mac Stable с настоящим входом в Codex на Plus (32).
 - [ ] Второй выпуск: Subagent-ы, Harness с теми же гарантиями workflow (parity suite зелёный), Autopilot с budget,
       Flight Recorder, Binding (34–41, 44, 45).
 - [ ] Финальная приёмка владельцем: Mac Stable на Plus — ночной Run на Orchestrator-е Codex и гарантии workflow;
