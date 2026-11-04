@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { readFileSync, rmSync } from 'node:fs'
 import { cpus } from 'node:os'
 import type { ElectronApplication } from '@playwright/test'
+import { ms } from '../time-scale'
 
 /** The machine's CPU time as os.cpus() counts it: busy and total, over every core. */
 function cpuTimes(): { busy: number; total: number } {
@@ -29,7 +30,7 @@ const TOP_SCRIPT = [
 function machineTop(): Promise<string> {
   if (process.platform !== 'win32') return Promise.resolve('not on Windows')
   return new Promise((resolve) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', TOP_SCRIPT], { encoding: 'utf8', timeout: 30_000, windowsHide: true }, (error, stdout, stderr) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', TOP_SCRIPT], { encoding: 'utf8', timeout: ms(30_000), windowsHide: true }, (error, stdout, stderr) => {
       resolve(error ? `failed: ${error.message} ${stderr.trim().slice(0, 200)}` : stdout.trim())
     })
   })
