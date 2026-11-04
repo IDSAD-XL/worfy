@@ -159,7 +159,8 @@ function rowTime(at: number, now: number): { date: string | null; clock: string;
 
 /**
  * A row with the label column on the left (who wrote it), as in the F mockups. `at` is shown under
- * the label when `time` is `shown`, only in the label's tooltip when it is `tooltip`.
+ * the label when `time` is `shown`, only in the label's tooltip when it is `tooltip`. The user's
+ * row (`labelKind` `user`) is drawn mirrored, at the right edge (worfy-polish ticket 57).
  */
 function Row({
   label,
@@ -181,7 +182,7 @@ function Row({
   // A time Date cannot hold (out of its range) is shown as none rather than thrown on.
   const when = at === null || !Number.isFinite(new Date(at).getTime()) ? null : rowTime(at, now)
   return (
-    <div className="w-tr__row" data-testid={testId} data-row={rowKey}>
+    <div className={`w-tr__row${labelKind === 'user' ? ' w-tr__row--user' : ''}`} data-testid={testId} data-row={rowKey}>
       <div className={`w-tr__who w-mono${labelKind ? ` w-tr__who--${labelKind}` : ''}`} title={when !== null && time === 'tooltip' ? when.full : undefined}>
         {label !== undefined ? <span className="w-tr__label">{label}</span> : null}
         {when !== null && time === 'shown' ? (

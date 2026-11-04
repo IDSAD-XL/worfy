@@ -10,7 +10,9 @@ worfy reads from Claude Code's own folder. **Memory** is the memory figure of wo
 
 **Rows.** A prompt, Claude's text as markdown (streaming while it arrives), folded thinking, tool calls in one line with a tick
 or an error, a Subagent, a hook that said something, a notice, a result and an error. A row shows its time: `HH:MM`, a date for
-another day (`Oct 4`), and a year for another year (`Dec 31 '25`). The full time is in the tooltip.
+another day (`Oct 4`), and a year for another year (`Dec 31 '25`). The full time is in the tooltip. The user's own messages (a
+prompt and a slash command) stand at the right edge, with "you" and the time to their right and the box's right side in the
+accent colour; every other row starts at the left.
 
 **A long Transcript.** It opens on the last 4 MB of the file, and "Load earlier" adds older windows in front. Up to 150 rows are
 all drawn. Past that, only the rows in sight and 1000 pixels around them are, at most 250. The renderer keeps the newest 5000

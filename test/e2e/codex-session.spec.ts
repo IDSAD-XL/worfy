@@ -127,6 +127,26 @@ test('a Codex Session: its presets, its slash menu and its approval with four an
     await expect(card.getByTestId('permission-resolution')).toHaveText('Allowed')
     await expect.poll(() => sent().some((message) => message.result?.['decision'] === 'accept')).toBe(true)
     await expect(view.getByTestId('transcript-text').last()).toContainText('Ran the tests.')
+
+    // worfy-polish 57: the user's message of a Codex Session is drawn like a Claude one — at the right,
+    // "you" right of the box, the box's right side 3 px of the accent; the answer stays at the left.
+    const prompt = view.getByTestId('transcript-prompt').last()
+    const answer = view.getByTestId('transcript-text').last()
+    const promptBox = await prompt.locator('.w-tr__prompt').boundingBox()
+    const userLabel = await prompt.locator('.w-tr__who').boundingBox()
+    const answerBody = await answer.locator('.w-tr__body').boundingBox()
+    expect(promptBox && userLabel && answerBody).toBeTruthy()
+    expect(promptBox?.x ?? 0).toBeGreaterThan(answerBody?.x ?? 0)
+    expect(userLabel?.x ?? 0).toBeGreaterThanOrEqual((promptBox?.x ?? 0) + (promptBox?.width ?? 0))
+    const accent = await answer.locator('.w-tr__who--assistant').evaluate((label) => (globalThis as unknown as { getComputedStyle(element: object): { color: string } }).getComputedStyle(label).color)
+    await expect(prompt.locator('.w-tr__prompt')).toHaveCSS('border-right-width', '3px')
+    await expect(prompt.locator('.w-tr__prompt')).toHaveCSS('border-right-color', accent)
+    await expect(prompt.locator('.w-tr__prompt')).toHaveCSS('border-left-width', '1px')
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await view.getByTestId('transcript').screenshot({ path: test.info().outputPath(`57-codex-session-${scheme}.png`) })
+    }
+    await window.emulateMedia({ colorScheme: null })
   } finally {
     await launched.close()
   }

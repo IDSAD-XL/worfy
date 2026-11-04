@@ -85,6 +85,27 @@ async function results(window: Page): Promise<number> {
   return recorded.filter((envelope) => envelope.event.type === 'result').length
 }
 
+/**
+ * The user's message at the right edge with an accent side, the answer at the left (worfy-polish
+ * ticket 57): the prompt's box starts right of where the answer's text starts, "you" stands right of
+ * the box, and the box's right side is 3 px of the accent (the colour of the answer's label) while
+ * its left side stays a 1 px border.
+ */
+async function expectUserRowOnTheRight(prompt: Locator, answer: Locator): Promise<void> {
+  const box = prompt.locator('.w-tr__prompt')
+  const promptBox = await box.boundingBox()
+  const userLabel = await prompt.locator('.w-tr__who').boundingBox()
+  const answerBody = await answer.locator('.w-tr__body').boundingBox()
+  expect(promptBox && userLabel && answerBody).toBeTruthy()
+  if (!promptBox || !userLabel || !answerBody) return
+  expect(promptBox.x).toBeGreaterThan(answerBody.x)
+  expect(userLabel.x).toBeGreaterThanOrEqual(promptBox.x + promptBox.width)
+  const accent = await answer.locator('.w-tr__who--assistant').evaluate((label) => (globalThis as unknown as { getComputedStyle(element: object): { color: string } }).getComputedStyle(label).color)
+  await expect(box).toHaveCSS('border-right-width', '3px')
+  await expect(box).toHaveCSS('border-right-color', accent)
+  await expect(box).toHaveCSS('border-left-width', '1px')
+}
+
 /** The window's clock: the one the transcript stamps a live row with and tells today by. */
 const windowNow = (window: Page): Promise<number> => window.evaluate(() => Date.now())
 
@@ -159,6 +180,13 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     await expect(answer.locator('.w-tr__who')).toHaveAttribute('title', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
     await expect(answer.locator('strong')).toHaveText('Wave 6')
     await expect(answer.locator('input[type="checkbox"]')).toHaveCount(2)
+    // The user's message at the right with an accent side, in both themes (worfy-polish ticket 57).
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await expectUserRowOnTheRight(firstPrompt, answer)
+      await view.getByTestId('transcript').screenshot({ path: test.info().outputPath(`57-claude-session-${scheme}.png`) })
+    }
+    await window.emulateMedia({ colorScheme: null })
     await expect(view.getByTestId('tool-call')).toHaveCount(1)
     await expect(view.getByTestId('tool-call')).toContainText('epic-status worfy-mvp --json')
     await expect(view.getByTestId('tool-ok')).toHaveCount(1)

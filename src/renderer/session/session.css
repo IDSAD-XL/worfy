@@ -460,6 +460,31 @@
   user-select: text;
 }
 
+/*
+ * The user's own message (worfy-polish ticket 57): the row is mirrored — the box at the right edge,
+ * as wide as its text up to 80 % of the row, with "you" and its time to the right of it — and the
+ * box's right side, the one at that edge, is the accent. Only the drawing order changes: the text
+ * keeps its place in the document, so selection and copying run as before.
+ */
+.w-tr__row--user {
+  flex-direction: row-reverse;
+}
+
+.w-tr__row--user .w-tr__who {
+  text-align: left;
+}
+
+.w-tr__row--user .w-tr__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.w-tr__row--user .w-tr__prompt {
+  max-width: 80%;
+  border-right: 3px solid var(--accent);
+}
+
 .w-tr__synthetic .w-md {
   color: var(--text-secondary);
 }
