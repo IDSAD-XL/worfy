@@ -164,6 +164,8 @@ describe('ci.yml: every pull request and every push to main, one check for the m
 
   it('runs the commands of gate full: lint, typecheck, test on three systems, test:e2e and test:package on macOS', () => {
     expect(runs('lint-typecheck')).toEqual(['pnpm install --frozen-lockfile', 'pnpm lint', 'pnpm typecheck'])
+    // pnpm lint ends with evidence-check --changed, whose base on GitHub Actions is HEAD^1: two commits.
+    expect(under(under(job('lint-typecheck'), '      - uses: actions/checkout@v7'), '        with:')).toEqual(['          fetch-depth: 2', '          persist-credentials: false'])
     expect(runs('linux-tests')).toContain('pnpm test "--shard=$SHARD" --sequence.shuffle.files')
     // The test files ci-scope.mjs names, none (every file) but on a pull request.
     expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test $FILES'])

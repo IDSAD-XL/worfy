@@ -211,6 +211,42 @@ NODE
 rc=$?
 [ "$rc" -eq 0 ] && ok "evidence.cjs reads every case of fixtures/evidence/grammar.json and writes the same line back" || { bad "grammar cases"; cat "$T/out"; }
 
+# --- 10. the privacy check of the files the ref names (bin/evidence-check), before the line is written ---------------------
+# The home path is put together here, so this file holds no whole one; the name is not a stand-in (privacy.cjs).
+EVD="$T/ru/.scratch/demo/evidence"; mkdir -p "$EVD"
+leak="/Use""rs/martazen/notes"
+printf 'gate fast green\nlog of %s/run.txt\n' "$leak" >"$EVD/01-dirty.txt"
+printf 'gate fast green\n' >"$EVD/01-clean.txt"
+# A 1x1 PNG without metadata chunks.
+node -e 'require("fs").writeFileSync(process.argv[1], Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"))' "$EVD/01-canvas.png"
+tk "$T/ru" evidence demo 01 1 test-run pass --ref '`../evidence/01-dirty.txt` exit 0' --platform mac --sha "$SHA1"
+if [ "$rc" -eq 1 ] && cmp -s "$RU/01-three-items.md" "$FX/ru/01-three-items.md" && grep -qF "home-path" "$T/err" && grep -qF "evidence-check: 1 findings" "$T/err" \
+   && ! grep -qF "martazen" "$T/err" && ! grep -qF "martazen" "$T/out"; then
+    ok "a ref on a file with a home path: exit 1, the ticket is not touched, stderr names the rule but not the value"
+else bad "dirty ref: exit $rc, stderr: $(cat "$T/err")"; fresh; fi
+tk "$T/ru" evidence demo 01 1 test-run pass --ref '`../evidence/01-clean.txt` exit 0' --platform mac --sha "$SHA1"
+[ "$rc" -eq 0 ] && grep -qF -- "- evidence: test-run pass · \`../evidence/01-clean.txt\` exit 0 · mac - · $SHA1" "$RU/01-three-items.md" \
+    && ok "a ref on a clean file: the line is written" || bad "clean ref: exit $rc $(cat "$T/err")"
+fresh
+refuse "screenshot with a path and no --scrub" "a screenshot needs --scrub <date>: check the pixels by eye first" \
+    1 screenshot pass --ref '`../evidence/01-canvas.png`' --platform mac --copy dev --sha "$SHA1"
+tk "$T/ru" evidence demo 01 1 screenshot pass --ref '`../evidence/01-canvas.png`' --platform mac --copy dev --sha "$SHA1" --scrub 2026-11-04
+[ "$rc" -eq 0 ] && grep -qF -- "- evidence: screenshot pass · \`../evidence/01-canvas.png\` · mac dev · $SHA1 · scrub: 2026-11-04" "$RU/01-three-items.md" \
+    && ok "a screenshot with --scrub and a PNG without metadata: the line is written" || bad "screenshot --scrub: exit $rc $(cat "$T/err")"
+fresh
+# Silent mode: a tickets root outside the repository publishes nothing, so its files are not checked.
+OUT="$T/outside/.scratch/demo"; mkdir -p "$OUT/issues" "$OUT/evidence"
+cp "$FX/ru/01-three-items.md" "$OUT/issues/01-three-items.md"; cp "$EVD/01-dirty.txt" "$OUT/evidence/01-dirty.txt"
+tk "$T/ru" evidence demo 01 1 test-run pass --ref '`../evidence/01-dirty.txt` exit 0' --platform mac --sha "$SHA1" --root "$T/outside/.scratch"
+[ "$rc" -eq 0 ] && grep -qF -- "- evidence: test-run pass · \`../evidence/01-dirty.txt\` exit 0 · mac - · $SHA1" "$OUT/issues/01-three-items.md" \
+    && ok "a tickets root outside the repository: the file is not checked, the line is written" || bad "outside root: exit $rc $(cat "$T/err")"
+
+# --- 11. a line flag followed by another flag does not take it as its value ---------------------------------------------
+refuse "--ref followed by -n" "--ref needs a value, got the flag -n" 1 test-run pass --ref -n --platform mac --sha "$SHA1"
+refuse "--copy followed by a flag" "--copy needs a value, got the flag --scrub" 1 screenshot pass --ref x --platform mac --copy --scrub 2026-11-04 --sha "$SHA1"
+refuse "--scrub followed by a flag" "--scrub needs a value, got the flag --sha" 1 screenshot pass --ref x --platform mac --copy dev --scrub --sha "$SHA1"
+refuse "--ref at the end" "--ref needs a value" 1 test-run pass --platform mac --sha "$SHA1" --ref
+
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }
 echo "passed $pass, failed $fail"
