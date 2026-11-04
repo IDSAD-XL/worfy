@@ -33,8 +33,10 @@ MCP server объявлен в `harness/.mcp.json`: `"command": "node", "args": 
 ## Готово, когда
 
 - [ ] Test установки Harness в Codex: MCP server qmd записан так, что Codex находит `bin/qmd-mcp` (по фактам п. 1).
+  - evidence: test-run pass · `pnpm test test/contract/harness-codex-install.test.ts test/unit/harness-codex-manifest.test.ts` exit 0 · mac - · 470098339d1bf45c43ce4f09f5ac02b4a9145f80
 - [ ] Владелец: в Codex (terminal и Session worfy) нет предупреждения про qmd, tool-ы qmd видны.
 - [ ] Все unit и contract test-ы `src/main/harness/`, `pnpm typecheck`, `pnpm lint` — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 470098339d1bf45c43ce4f09f5ac02b4a9145f80
 
 ## Итог
 
