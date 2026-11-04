@@ -31,7 +31,10 @@ export function onWorkflowStoreUpdate(listener: () => void): () => void {
 
 const EMPTY: WorkflowEntry = { model: undefined, error: undefined }
 
-/** Applies a delta to a model; objects that the delta does not name are kept as they are. */
+/**
+ * Applies a delta to a model; objects that the delta does not name are kept as they are, and so is the
+ * repository's page (`repoUrl`), which a delta does not carry.
+ */
 export function applyWorkflowDelta(model: WorkflowModel, delta: WorkflowDelta): WorkflowModel {
   const changedEpics = new Map(delta.epics.map((epic) => [epic.epic, epic]))
   const removedEpics = new Set(delta.removedEpics)
@@ -46,7 +49,9 @@ export function applyWorkflowDelta(model: WorkflowModel, delta: WorkflowDelta): 
     .map((ticket) => changedTickets.get(ticketKey(ticket)) ?? ticket)
   for (const ticket of delta.tickets) if (!known.has(ticketKey(ticket))) tickets.push(ticket)
 
-  return { root: model.root, epics, tickets, error: delta.error, branchErrors: delta.branchErrors }
+  // shortcut: a new `origin` of the root reaches the window with the next workflow.open, not with a delta
+  // (diffModels leaves repoUrl out), redo when the Evidence links must follow a remote changed while open.
+  return { root: model.root, epics, tickets, error: delta.error, branchErrors: delta.branchErrors, ...(model.repoUrl === undefined ? {} : { repoUrl: model.repoUrl }) }
 }
 
 function setEntry(root: string, entry: WorkflowEntry): void {

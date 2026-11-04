@@ -1,0 +1,99 @@
+/* The Evidence chip on a Ticket card (Evidence.tsx) and the Evidence matrix of a focused Ticket
+   (nodes/EvidenceMatrix.tsx), design F (docs/design/F-SPEC.md, "Ticket card: Evidence"). Colours are
+   the ready / working / blocked tokens, always with a word.
+
+   The chip is as compact as the checks chips (checks-badges.css): 16 px with its 1 px border, a line
+   of 14 px inside; ticket-card.ts gives it a line of 16 px (EVIDENCE_LINE), and epic-frame.css starts
+   that line after the checks chips. It is whole: never narrowed, never cut. */
+.w-evidence-chip {
+  display: inline-flex;
+  flex: none;
+}
+/* Its mark — the dot of ready, the icon of blocked — 3 px before the word. */
+.w-evidence-chip .w-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+  padding: 0 3px;
+  font-size: var(--text-11);
+  line-height: 14px;
+}
+
+/* ── the matrix in focus mode, above the Ticket's text ─────────────────── */
+.w-evidence {
+  flex: none;
+  max-height: 45%;
+  overflow: auto;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-12);
+  color: var(--text);
+  user-select: text;
+  cursor: text;
+}
+.w-evidence__title {
+  margin: 0 0 6px;
+  font-size: var(--text-13);
+  font-weight: 600;
+}
+.w-evidence__items,
+.w-evidence__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.w-evidence__item + .w-evidence__item {
+  margin-top: 6px;
+}
+.w-evidence__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.w-evidence__num {
+  flex: none;
+  min-width: 16px;
+  color: var(--text-secondary);
+}
+/* The start of the item's text on one line; the whole text is its tooltip and the Ticket's text below. */
+.w-evidence__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The state's chip carries the reason too, so it may wrap; it is never cut. */
+.w-evidence__state {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+}
+.w-evidence__state .w-chip {
+  height: auto;
+  min-height: 18px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.w-evidence__lines {
+  margin: 2px 0 0 22px;
+}
+.w-evidence__line {
+  font-size: var(--text-11);
+  line-height: 16px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.w-evidence__line a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.w-evidence__line a:hover {
+  text-decoration: underline;
+}
+.w-evidence__error {
+  color: var(--blocked-text);
+}

@@ -1,7 +1,7 @@
 # 06 — Chip «Evidence n/m» на карточке и матрица в focus mode
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T02:50Z
 Blocked by: 05
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 4, «Что есть сейчас» (слоты карточки, focus mode), «Решено без владельца», п. 6
 
@@ -45,6 +45,10 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 - [ ] e2e spec — строка в `scripts/e2e-specs.table.json`.
 - [ ] Самая широкая карточка с пятью chips: подписи не обрезаны, карточка не налезает на соседнюю (e2e меряет высоту).
 - [ ] Снимки в светлой и тёмной теме в `.scratch/worfy-evidence/evidence/06/`: chip трёх цветов и матрица; в строке Evidence — `scrub:`.
+  - evidence: screenshot pass · `../evidence/06/evidence-chips-light.png` · mac dev · 6934b911015eecd943fa48356179b5651195c495 · scrub: 2026-11-04
+  - evidence: screenshot pass · `../evidence/06/evidence-chips-dark.png` · mac dev · 6934b911015eecd943fa48356179b5651195c495 · scrub: 2026-11-04
+  - evidence: screenshot pass · `../evidence/06/evidence-matrix-light.png` · mac dev · 6934b911015eecd943fa48356179b5651195c495 · scrub: 2026-11-04
+  - evidence: screenshot pass · `../evidence/06/evidence-matrix-dark.png` · mac dev · 6934b911015eecd943fa48356179b5651195c495 · scrub: 2026-11-04
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (e2e по таблице).
 
 ## Тесты

@@ -112,7 +112,7 @@ export interface EpicLayout {
 
 /** What the layout reads of a Ticket: its blocking, and what its card shows, which sets the card's height. */
 export type LayoutTicket = Pick<Ticket, 'epic' | 'num' | 'title' | 'slug' | 'state' | 'blockedRaw' | 'blockedNums' | 'blockedParsed' | 'files' | 'filesListed'> &
-  Partial<Pick<Ticket, 'blockedReason' | 'waits' | 'repo'>>
+  Partial<Pick<Ticket, 'blockedReason' | 'waits' | 'repo' | 'evidence'>>
 
 export interface EpicLayoutInput {
   /** The Tickets of one Epic. */
@@ -234,7 +234,7 @@ export function epicColumns(tickets: readonly LayoutTicket[]): EpicColumns {
 /**
  * The height of each Ticket's card (ticket-card.ts): what the card shows — its title, the blocked
  * reason or the blockers line, the Ready chip, its repository, whom it waits for, the Stage names
- * it can show — and nothing measured on screen, so the same Tickets always get the same heights.
+ * it can show, the Evidence chip — and nothing measured on screen, so the same Tickets always get the same heights.
  */
 export function cardHeights(tickets: readonly LayoutTicket[], columns: EpicColumns, cards: CardContext = {}): Map<number, number> {
   const byNum = new Map(tickets.map((t) => [t.num, t]))
@@ -254,6 +254,7 @@ export function cardHeights(tickets: readonly LayoutTicket[], columns: EpicColum
       reason: reason || null,
       meta: blockersLine(t, columns.attention.get(t.num) ?? null, waitingOnOf(t, byNum)),
       stages: cards.stages,
+      evidence: (t.evidence?.length ?? 0) > 0,
     })
     heights.set(t.num, height)
   }

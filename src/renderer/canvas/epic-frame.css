@@ -359,6 +359,16 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+/* A Ticket with the Evidence chip (badges/Evidence.tsx): the checks chips take whole lines, at most
+   two, and the chip starts the line after them, 2 px below — the line ticket-card.ts gives only such
+   a card (EVIDENCE_LINE). */
+.w-ticket__badges:has(> .w-evidence-chip) {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.w-ticket__badges:has(> .w-evidence-chip) > .w-checks {
+  flex-basis: 100%;
+}
 .w-ticket__actions {
   flex: none;
   margin-left: auto;

@@ -221,6 +221,20 @@
         "test/e2e/codex-subagents.spec.ts"
       ],
       "why": "The Subagents of a Codex Session (worfy-multi-vendor ticket 34): main reads a tree from Codex only for a Codex thread the Project's list names, so only a spec with a Codex Session's Node on the Canvas runs it. codex-subagents.spec.ts shows the tree; codex-sessions-on-canvas.spec.ts draws such a Node, whose ask for the tree meets a script without one. Left out: src/main/ipc/claude-home.ts and src/renderer/claude-home/subagents.ts, which every Claude Session runs through."
+    },
+    {
+      "paths": [
+        "src/renderer/canvas/nodes/EvidenceMatrix.tsx"
+      ],
+      "specs": [
+        "test/e2e/binding.spec.ts",
+        "test/e2e/focus.spec.ts",
+        "test/e2e/linked-system-actions.spec.ts",
+        "test/e2e/ticket-evidence.spec.ts",
+        "test/e2e/ticket-focus.spec.ts",
+        "test/e2e/toast-placement.spec.ts"
+      ],
+      "why": "The Evidence matrix of a Ticket (worfy-evidence ticket 06): TicketNode.tsx draws it only in a tile of focus mode, so only a spec that opens a Ticket in focus mode runs it. ticket-evidence.spec.ts shows the matrix and opens its links; the others open a Ticket in focus mode. Left out: badges/Evidence.tsx and badges/evidence.css — the chip is on every Ticket card whose done section has checkbox items, those of test/fixtures/worfy-mvp-epic and of any Project an e2e test opens — and TicketNode.tsx, which every Canvas with an Epic draws."
     }
   ]
 }

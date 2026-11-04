@@ -11,6 +11,7 @@ import { FRAME_GAP, layoutEpic, MIN_FRAME_WIDTH, stackFrames, type EpicLayout, t
 import { layoutEpicElk } from '../../src/renderer/canvas/elk/layout'
 import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
 import { onThePlane } from '../../src/shared/layout/derived'
+import { evidenceItems } from '../../src/shared/workflow/evidence'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
 import { canvasReady, expectSettledWithoutOverlaps, flowPositionsInOnePass, launchApp, oneBoxEachInOnePass, parkPointer, repoRoot, settledBoxes, settledRead, ticketCardCuts, type LaunchedApp } from './helpers'
@@ -228,8 +229,10 @@ function fixtureTickets(): Ticket[] {
   return snapshot.tickets.map((t) => {
     const file = issues.find((name) => name === `${String(t.num).padStart(2, '0')}-${t.slug}.md`)
     if (!file) throw new Error(`no issue file for ${t.num}`)
-    const section = codeSection(readFileSync(join(FIXTURE, 'issues', file), 'utf8'))
-    return { ...t, files: section.files, filesListed: section.listed, fromBranch: null }
+    const text = readFileSync(join(FIXTURE, 'issues', file), 'utf8')
+    const section = codeSection(text)
+    // The done section's items, as the reader gives them: a card with items is one line taller (its Evidence chip).
+    return { ...t, files: section.files, filesListed: section.listed, fromBranch: null, evidence: evidenceItems(text) }
   })
 }
 
