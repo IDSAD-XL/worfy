@@ -1,0 +1,212 @@
+{
+  "version": 1,
+  "kind": "report",
+  "at": "2026-11-04T23:35:46Z",
+  "days": 60,
+  "computer": null,
+  "runs": {
+    "total": 3,
+    "dirty": 0,
+    "imported": 2,
+    "reruns": 2
+  },
+  "tests": [
+    {
+      "test": "vitest test/unit/shell-launcher.test.ts > shell launcher > starts Git Bash with a login shell",
+      "runner": "vitest",
+      "file": "test/unit/shell-launcher.test.ts",
+      "name": "shell launcher > starts Git Bash with a login shell",
+      "class": "red",
+      "counts": {
+        "red": 1,
+        "flaky": 0,
+        "unconfirmed": 0
+      },
+      "computers": [
+        "PC"
+      ],
+      "platforms": [
+        "win32"
+      ],
+      "lastHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "lastAt": "2026-11-02T09:00:00Z",
+      "lastError": "AssertionError: expected 'C:/Program Files/Git/bin/bash.exe' to be 'C:/Program Files/Git/usr/bin/bash.exe'",
+      "runs": [
+        {
+          "run": "7e6d5c4b/2026-11-02T09-00-00Z-301",
+          "at": "2026-11-02T09:00:00Z",
+          "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "computer": {
+            "id": "9f8e7d6c",
+            "name": "PC",
+            "platform": "win32"
+          },
+          "imported": true,
+          "class": "red"
+        }
+      ]
+    },
+    {
+      "test": "vitest test/unit/card-drag.test.ts > card drag > keeps the card under the pointer",
+      "runner": "vitest",
+      "file": "test/unit/card-drag.test.ts",
+      "name": "card drag > keeps the card under the pointer",
+      "class": "flaky",
+      "counts": {
+        "red": 0,
+        "flaky": 2,
+        "unconfirmed": 0
+      },
+      "computers": [
+        "mac",
+        "PC"
+      ],
+      "platforms": [
+        "darwin",
+        "win32"
+      ],
+      "lastHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "lastAt": "2026-11-02T09:00:00Z",
+      "lastError": "Error: Test timed out in 5000ms.",
+      "runs": [
+        {
+          "run": "7e6d5c4b/2026-11-02T09-00-00Z-301",
+          "at": "2026-11-02T09:00:00Z",
+          "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "computer": {
+            "id": "9f8e7d6c",
+            "name": "PC",
+            "platform": "win32"
+          },
+          "imported": true,
+          "class": "flaky"
+        },
+        {
+          "run": "1a2b3c4d/2026-11-01T10-00-00Z-11",
+          "at": "2026-11-01T10:00:00Z",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "computer": {
+            "id": "0a1b2c3d",
+            "name": "mac",
+            "platform": "darwin"
+          },
+          "imported": false,
+          "class": "flaky"
+        }
+      ]
+    },
+    {
+      "test": "playwright test/e2e/toolbar.spec.ts > toolbar > opens the Command palette",
+      "runner": "playwright",
+      "file": "test/e2e/toolbar.spec.ts",
+      "name": "toolbar > opens the Command palette",
+      "class": "unconfirmed",
+      "counts": {
+        "red": 0,
+        "flaky": 0,
+        "unconfirmed": 1
+      },
+      "computers": [
+        "PC"
+      ],
+      "platforms": [
+        "win32"
+      ],
+      "lastHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "lastAt": "2026-11-03T08:00:00Z",
+      "lastError": "Error: locator.click: Timeout 30000ms exceeded.",
+      "runs": [
+        {
+          "run": "7e6d5c4b/2026-11-03T08-00-00Z-302",
+          "at": "2026-11-03T08:00:00Z",
+          "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "computer": {
+            "id": "9f8e7d6c",
+            "name": "PC",
+            "platform": "win32"
+          },
+          "imported": true,
+          "class": "unconfirmed"
+        }
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "step": "demo/.:lint",
+      "count": 1,
+      "computers": [
+        "mac"
+      ],
+      "platforms": [
+        "darwin"
+      ],
+      "lastHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastAt": "2026-11-01T10:00:00Z",
+      "lastError": "<repo>/src/main/a.ts: 'x' is assigned a value but never used"
+    }
+  ],
+  "underLoad": [
+    {
+      "run": "1a2b3c4d/2026-11-01T10-00-00Z-11",
+      "at": "2026-11-01T10:00:00Z",
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "computer": {
+        "id": "0a1b2c3d",
+        "name": "mac",
+        "platform": "darwin"
+      },
+      "failed": 1,
+      "greenAlone": 1
+    }
+  ],
+  "candidates": [
+    {
+      "kind": "windows-exception",
+      "test": "vitest test/unit/shell-launcher.test.ts > shell launcher > starts Git Bash with a login shell",
+      "runner": "vitest",
+      "file": "test/unit/shell-launcher.test.ts",
+      "name": "shell launcher > starts Git Bash with a login shell",
+      "class": "red",
+      "platforms": [
+        "win32"
+      ],
+      "computers": [
+        "PC"
+      ],
+      "runs": [
+        "7e6d5c4b/2026-11-02T09-00-00Z-301"
+      ],
+      "heads": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ],
+      "lastError": "AssertionError: expected 'C:/Program Files/Git/bin/bash.exe' to be 'C:/Program Files/Git/usr/bin/bash.exe'"
+    },
+    {
+      "kind": "quarantine",
+      "test": "vitest test/unit/card-drag.test.ts > card drag > keeps the card under the pointer",
+      "runner": "vitest",
+      "file": "test/unit/card-drag.test.ts",
+      "name": "card drag > keeps the card under the pointer",
+      "class": "flaky",
+      "platforms": [
+        "darwin",
+        "win32"
+      ],
+      "computers": [
+        "mac",
+        "PC"
+      ],
+      "runs": [
+        "7e6d5c4b/2026-11-02T09-00-00Z-301",
+        "1a2b3c4d/2026-11-01T10-00-00Z-11"
+      ],
+      "heads": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "lastError": "Error: Test timed out in 5000ms."
+    }
+  ],
+  "skipped": []
+}

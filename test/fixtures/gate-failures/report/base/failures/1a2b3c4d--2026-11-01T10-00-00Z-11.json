@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "kind": "run",
+  "run": "1a2b3c4d/2026-11-01T10-00-00Z-11",
+  "at": "2026-11-01T10:00:00Z",
+  "key": "demo",
+  "profile": "full",
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "outcome": "red",
+  "computer": { "id": "0a1b2c3d", "name": "mac", "platform": "darwin" },
+  "dirty": false,
+  "failures": [
+    {
+      "step": "demo/.:test",
+      "runner": "vitest",
+      "file": "test/unit/card-drag.test.ts",
+      "line": 41,
+      "name": "card drag > keeps the card under the pointer",
+      "test": "vitest test/unit/card-drag.test.ts > card drag > keeps the card under the pointer",
+      "ms": 5012,
+      "error": "Error: Test timed out in 5000ms.",
+      "attempt": 1,
+      "rerun": ["node", "scripts/vitest-electron.mjs", "test/unit/card-drag.test.ts", "-t", "card drag > keeps the card under the pointer"]
+    },
+    {
+      "step": "demo/.:lint",
+      "runner": null,
+      "file": null,
+      "line": null,
+      "name": null,
+      "test": null,
+      "ms": 9000,
+      "error": "<repo>/src/main/a.ts: 'x' is assigned a value but never used",
+      "attempt": 1,
+      "rerun": null
+    }
+  ]
+}

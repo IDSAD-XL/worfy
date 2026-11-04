@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "kind": "rerun",
+  "of": "7e6d5c4b/2026-11-02T09-00-00Z-301",
+  "at": "2026-11-02T09:40:00Z",
+  "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "computer": {
+    "id": "9f8e7d6c",
+    "name": "PC",
+    "platform": "win32"
+  },
+  "results": [
+    {
+      "test": "vitest test/unit/card-drag.test.ts > card drag > keeps the card under the pointer",
+      "exit": 0,
+      "ms": 1900,
+      "error": null
+    },
+    {
+      "test": "vitest test/unit/shell-launcher.test.ts > shell launcher > starts Git Bash with a login shell",
+      "exit": 1,
+      "ms": 300,
+      "error": "AssertionError: expected 'C:/Program Files/Git/bin/bash.exe' to be 'C:/Program Files/Git/usr/bin/bash.exe'"
+    }
+  ]
+}

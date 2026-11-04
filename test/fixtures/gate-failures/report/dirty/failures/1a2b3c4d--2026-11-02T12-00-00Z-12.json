@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "kind": "run",
+  "run": "1a2b3c4d/2026-11-02T12-00-00Z-12",
+  "at": "2026-11-02T12:00:00Z",
+  "key": "demo",
+  "profile": "full",
+  "head": "cccccccccccccccccccccccccccccccccccccccc",
+  "outcome": "red",
+  "computer": {
+    "id": "0a1b2c3d",
+    "name": "mac",
+    "platform": "darwin"
+  },
+  "dirty": true,
+  "failures": [
+    {
+      "step": "demo/.:test",
+      "runner": "vitest",
+      "file": "test/unit/card-drag.test.ts",
+      "line": 41,
+      "name": "card drag > keeps the card under the pointer",
+      "test": "vitest test/unit/card-drag.test.ts > card drag > keeps the card under the pointer",
+      "ms": 5007,
+      "error": "Error: Test timed out in 5000ms.",
+      "attempt": 1,
+      "rerun": [
+        "node",
+        "scripts/vitest-electron.mjs",
+        "test/unit/card-drag.test.ts",
+        "-t",
+        "card drag > keeps the card under the pointer"
+      ]
+    }
+  ]
+}

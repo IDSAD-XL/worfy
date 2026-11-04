@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "kind": "run",
+  "run": "7e6d5c4b/2026-11-02T09-00-00Z-301",
+  "at": "2026-11-02T09:00:00Z",
+  "key": "demo",
+  "profile": "full",
+  "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "outcome": "red",
+  "computer": {
+    "id": "9f8e7d6c",
+    "name": "PC",
+    "platform": "win32"
+  },
+  "dirty": false,
+  "failures": [
+    {
+      "step": "demo/.:test",
+      "runner": "vitest",
+      "file": "test/unit/card-drag.test.ts",
+      "line": 41,
+      "name": "card drag > keeps the card under the pointer",
+      "test": "vitest test/unit/card-drag.test.ts > card drag > keeps the card under the pointer",
+      "ms": 5020,
+      "error": "Error: Test timed out in 5000ms.",
+      "attempt": 1,
+      "rerun": [
+        "node",
+        "scripts/vitest-electron.mjs",
+        "test/unit/card-drag.test.ts",
+        "-t",
+        "card drag > keeps the card under the pointer"
+      ]
+    },
+    {
+      "step": "demo/.:test",
+      "runner": "vitest",
+      "file": "test/unit/shell-launcher.test.ts",
+      "line": 88,
+      "name": "shell launcher > starts Git Bash with a login shell",
+      "test": "vitest test/unit/shell-launcher.test.ts > shell launcher > starts Git Bash with a login shell",
+      "ms": 310,
+      "error": "AssertionError: expected 'C:/Program Files/Git/bin/bash.exe' to be 'C:/Program Files/Git/usr/bin/bash.exe'",
+      "attempt": 1,
+      "rerun": [
+        "node",
+        "scripts/vitest-electron.mjs",
+        "test/unit/shell-launcher.test.ts",
+        "-t",
+        "shell launcher > starts Git Bash with a login shell"
+      ]
+    }
+  ]
+}
