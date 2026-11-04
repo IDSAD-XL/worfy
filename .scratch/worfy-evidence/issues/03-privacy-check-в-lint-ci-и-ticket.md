@@ -1,7 +1,8 @@
 # 03 — Privacy check в `pnpm lint`, CI и `ticket evidence`
 
 Type: task
-Status: claimed 2026-11-04T08:44Z
+Status: done 2026-11-04T10:15Z
+PR: #1350
 Blocked by: 01, 02, 07
 Source: [spec.md](../spec.md), «Где privacy check бежит», п. 1, 4, «Что есть сейчас» («Где privacy check мог бы бежать»), «Вопросы владельцу», Q2, Q5
 
