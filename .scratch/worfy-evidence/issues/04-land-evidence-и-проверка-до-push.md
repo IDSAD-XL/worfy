@@ -1,7 +1,7 @@
 # 04 — `land`: строки Evidence при закрытии и privacy check до push
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T01:39Z
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Модель» («Кто пишет какие строки»), «Где privacy check бежит», п. 3, «Вопросы владельцу», Q2, Q6
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Tests of harness/bin/land: the merge condition (the CI check of the head, no CI run in progress, the review
 # mark and its carry over a rebase, the Check marks a PR lists, the head the orchestrator verified), mergeable UNKNOWN asked again, BEHIND and DIRTY, the
-# main-branch lock, one documents PR per run with `ticket done` for every merged PR, a run broken off by a kill
-# and resumed, and --watch.
+# main-branch lock, one documents PR per run with `ticket done` for every merged PR, the Evidence lines of
+# prs[].evidence written by `ticket evidence` and the privacy check (evidence-check) before its push, a run broken
+# off by a kill and resumed, and --watch.
 # The world: a bare origin with PR refs (refs/pull/<N>/head), a clone of it as the orchestrator's checkout, and
 # node stubs for gh, ticket, the wait between tries (sleep) and the documents check. gh is
 # always the stub: no network, no real gh, no credential.
@@ -106,16 +107,31 @@ if (cmd === "pr view") {
 EOF
 # The shell's gh is the stub too: nothing in this file can reach a real gh.
 printf '#!/usr/bin/env bash\nexec node "%s" "$@"\n' "$STUBS/gh.mjs" >"$STUBS/gh"; chmod +x "$STUBS/gh"
-# ticket: `done <epic> <NN> --pr <N> --root <root>` writes <root>/<epic>/issues/<NN>.md and logs the call and its cwd;
-# with $GHD/ticket-fail it writes nothing and exits 1.
+# ticket: `done <epic> <NN> --pr <N> --root <root>` writes <root>/<epic>/issues/<NN>.md (with the text of $GHD/ticket-leak
+# appended when it is there) and logs the call and its cwd; with $GHD/ticket-fail it writes nothing and exits 1.
+# `evidence … --root <root>` writes nothing and logs its arguments before --root and the root relative to its cwd.
 cat >"$STUBS/ticket.mjs" <<'EOF'
 import fs from "node:fs"
 import path from "node:path"
-const a = process.argv.slice(2), root = a[a.indexOf("--root") + 1]
-fs.appendFileSync(path.join(process.env.GHD, "ticket.log"), `${a.slice(0, 5).join(" ")} root-in-cwd=${path.resolve(root).startsWith(process.cwd())}\n`)
-if (fs.existsSync(path.join(process.env.GHD, "ticket-fail"))) { process.stderr.write("ticket: no such ticket\n"); process.exit(1) }
+const a = process.argv.slice(2), root = a[a.indexOf("--root") + 1], D = process.env.GHD
+if (a[0] === "evidence") {
+    fs.appendFileSync(path.join(D, "ticket.log"), `${a.slice(0, a.indexOf("--root")).join(" ")} root=${path.relative(process.cwd(), root).split(path.sep).join("/")}\n`)
+    process.exit(0)
+}
+fs.appendFileSync(path.join(D, "ticket.log"), `${a.slice(0, 5).join(" ")} root-in-cwd=${path.resolve(root).startsWith(process.cwd())}\n`)
+if (fs.existsSync(path.join(D, "ticket-fail"))) { process.stderr.write("ticket: no such ticket\n"); process.exit(1) }
+const leak = path.join(D, "ticket-leak")
 fs.mkdirSync(path.join(root, a[1], "issues"), { recursive: true })
-fs.writeFileSync(path.join(root, a[1], "issues", `${a[2]}.md`), `Status: done\nPR: #${a[4]}\n`)
+fs.writeFileSync(path.join(root, a[1], "issues", `${a[2]}.md`), `Status: done\nPR: #${a[4]}\n${fs.existsSync(leak) ? fs.readFileSync(leak, "utf8") : ""}`)
+EOF
+# evidence-check (only where LAND_EVIDENCE_CHECK names it; elsewhere land runs the real one): logs its arguments with
+# the --root value relative to its cwd and the name of that cwd, exits 0.
+cat >"$STUBS/evidence-check.mjs" <<'EOF'
+import fs from "node:fs"
+import path from "node:path"
+const a = process.argv.slice(2), i = a.indexOf("--root")
+const args = a.map((x, j) => (j === i + 1 ? path.relative(process.cwd(), x).split(path.sep).join("/") : x))
+fs.appendFileSync(path.join(process.env.GHD, "evidence-check.log"), `${args.join(" ")} cwd=${path.basename(process.cwd())}\n`)
 EOF
 # sleep: logs the seconds, and kills land at the 201st wait; $GHD/unlock-on-sleep — removes $LAND_TEST_LOCK at the second wait; $GHD/runs-done-on-sleep —
 # removes every runs-<sha> file (the CI runs finish); every file in $GHD/on-sleep/ moves into $GHD at the first wait (a mark or
@@ -222,6 +238,8 @@ docs_head="$(git -C "$W/origin.git" rev-parse refs/pull/900/head)"
 ! grep -q '^workflow run\|^run rerun' "$GHD/log" && ok "green: no CI dispatch with workflow.ci pr" || bad "green: dispatched $(grep '^workflow' "$GHD/log")"
 [ -s "$W/state.log" ] && grep -q "took the main-branch lock" "$W/state.log" && ok "green: the full log is next to the state file" || bad "green: no log next to the state file"
 [ ! -e "$W/state.json.docs" ] && ! git -C "$W/repo" worktree list | grep -q 'state.json.docs' && ok "green: the documents worktree is removed" || bad "green: documents worktree left"
+! grep -q '^evidence ' "$GHD/ticket.log" && grep -q 'evidence-check --changed .* exit 0$' "$W/state.log" \
+    && ok "green: a state file without evidence -> no ticket evidence, the privacy check passes before the push" || bad "green: evidence $(grep -i evidence "$W/state.log")"
 # a second run on the same file merges nothing again
 : >"$GHD/log"
 "$LAND" "$S" >"$W/out2" 2>&1; rc=$?
@@ -478,7 +496,9 @@ node -e 'const fs=require("fs"),s=JSON.parse(fs.readFileSync(process.argv[1]));s
 # the input: a tickets root outside the repository or the repository itself (it would exclude the whole diff when two heads
 # are compared), the old scope rule and a PR without its checks are refused
 i=0
-for bad_input in 's.tickets_root="/abs/.scratch"' 's.tickets_root="../.scratch"' 's.tickets_root="."' 's.tickets_root="./"' 's.tickets_root="a/.."' 's.scope=null' 'delete s.prs[0].checks' 's.prs[0].checks=["two words"]'; do
+for bad_input in 's.tickets_root="/abs/.scratch"' 's.tickets_root="../.scratch"' 's.tickets_root="."' 's.tickets_root="./"' 's.tickets_root="a/.."' 's.scope=null' 'delete s.prs[0].checks' 's.prs[0].checks=["two words"]' \
+    's.prs[0].evidence={}' 's.prs[0].evidence=[{item:0,kind:"review",verdict:"pass",ref:"r",sha:"abc1234"}]' 's.prs[0].evidence=[{item:1,kind:"review",verdict:"pass",ref:""}]' \
+    's.prs[0].evidence=[{item:1,kind:"review",verdict:"pass",ref:"r"}]' 's.prs[0].evidence=[{item:1,kind:"review",verdict:"pass",ref:"r",sha:"abc1234"}];delete s.prs[0].ticket'; do
     i=$((i + 1)); new_world "input$i" 1
     state 1
     node -e "const fs=require('fs'),s=JSON.parse(fs.readFileSync(process.argv[1]));$bad_input;fs.writeFileSync(process.argv[1],JSON.stringify(s))" "$S"
@@ -490,6 +510,64 @@ state 1
 node -e 'const fs=require("fs"),s=JSON.parse(fs.readFileSync(process.argv[1]));s.tickets_root=null;fs.writeFileSync(process.argv[1],JSON.stringify(s))' "$S"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q '^pr create' "$GHD/log" && [ ! -e "$GHD/ticket.log" ] && ok "docs: tickets_root null -> merged, no documents PR, no ticket done" || bad "silent: exit $rc: $(cat "$W/out")"
+# --- Evidence lines: prs[].evidence goes into the documents PR through `ticket evidence`, before `ticket done` -----------
+# edit <js>: change the state file with a line of JavaScript on s
+edit() { node -e "const fs=require('fs'),s=JSON.parse(fs.readFileSync(process.argv[1]));$1;fs.writeFileSync(process.argv[1],JSON.stringify(s))" "$S"; }
+EV2='[{item:1,kind:"review",verdict:"pass",ref:"PR #1 review"},{item:2,kind:"ci-check",verdict:"pass",ref:"PR #1 ci-ok"}]'
+# the real ticket script: main has the ticket e/01 with two items in "## Done when"
+ticket_world() {
+    new_world "$1" 1
+    mkdir -p "$W/seed/.scratch/e/issues"
+    printf '# 01 — one\n\nStatus: open\n\n## Done when\n\n- [ ] the first\n- [ ] the second\n      on two lines\n\n## Where in the code\n\n- f1.txt\n' >"$W/seed/.scratch/e/issues/01-one.md"
+    git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m ticket && git -C "$W/seed" push -q origin main
+}
+ticket_world evreal
+h1="$(head_of 1)"
+state "1:$h1"
+edit "s.prs[0].evidence=$EV2"
+LAND_TICKET= "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+# the file at <ref>:<path> is read through node: Git Bash on Windows rewrites a `<ref>:<path>` argument of a shell
+# command as a path list (`:` to `;`, `/` to `\`), and git then finds no such revision
+doc="$(node -e 'process.stdout.write(require("child_process").execFileSync("git", ["-C", process.argv[1], "show", `${process.argv[2]}:${process.argv[3]}`], { encoding: "utf8" }))' "$W/origin.git" refs/pull/900/head .scratch/e/issues/01-one.md 2>&1)"
+want="$(printf -- '- [ ] the first\n  - evidence: review pass · PR #1 review · - - · %s\n- [ ] the second\n      on two lines\n  - evidence: ci-check pass · PR #1 ci-ok · ci - · %s' "$h1" "$h1")"
+[ "$rc" = 0 ] && [[ "$doc" == *"$want"* ]] && grep -q '^Status: done ' <<<"$doc" && grep -qx 'PR: #1' <<<"$doc" \
+    && ok "evidence: review pass and ci-check pass -> two Evidence lines under their items in the documents PR, Status done, sha of prs[].head" || bad "evidence real: exit $rc: $(cat "$W/out") ticket: $doc"
+# an item the section has not: the documents PR waits with the reason, nothing pushed
+ticket_world evbad
+state "1:$(head_of 1)"
+edit 's.prs[0].evidence=[{item:9,kind:"review",verdict:"pass",ref:"PR #1 review"}]'
+LAND_TICKET= "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q '^pr create' "$GHD/log" && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] \
+    && grep -q '^documents land-docs/.* waits: ticket evidence e 01 9 review failed (exit 2): .*no item 9' "$W/out" && [[ "$(q "$S" 's.docs[0].result.reason')" == *"no item 9"* ]] \
+    && ok "evidence: an item outside the section -> waits, no documents PR, the state file names the reason" || bad "evidence bad item: exit $rc: $(cat "$W/out") docs $(q "$S" 's.docs')"
+# both calls get the tickets root inside the documents worktree; the defaults of platform, copy and sha
+new_world evroot 1
+h1="$(head_of 1)"
+state "1:$h1"
+edit "s.tickets_root='work/tickets';s.prs[0].evidence=$EV2"
+LAND_EVIDENCE_CHECK="$STUBS/evidence-check.mjs" "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$GHD/ticket.log")" = "$(printf 'evidence e 01 1 review pass --ref PR #1 review --platform - --copy - --sha %s root=work/tickets\nevidence e 01 2 ci-check pass --ref PR #1 ci-ok --platform ci --copy - --sha %s root=work/tickets\ndone e 01 --pr 1 root-in-cwd=true' "$h1" "$h1")" ] \
+    && ok "evidence: ticket evidence before ticket done, --root <tree>/<tickets_root>, platform - and ci, copy -, sha prs[].head" || bad "evidence root: exit $rc: $(cat "$W/out") ticket $(cat "$GHD/ticket.log")"
+[ "$(cat "$GHD/evidence-check.log" 2>/dev/null)" = "--changed --root work/tickets --base refs/remotes/origin/main cwd=state.json.docs" ] \
+    && ok "evidence: evidence-check --changed --root <tree>/<tickets_root> --base <remote>/<branch> in the documents worktree" || bad "evidence-check call: $(cat "$GHD/evidence-check.log" 2>/dev/null)"
+# a finding in the documents worktree: nothing pushed, red, the value not in the output
+new_world evleak 1
+state 1
+leak="gh""p_$(printf 'Zq%.0s' $(seq 1 15))"
+printf 'token %s\n' "$leak" >"$GHD/ticket-leak"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 2 ] && tail -n 1 "$W/out" | grep -qx 'LAND=red' && [ "$(merged_of 1)" = 1 ] && ! grep -q '^pr create\|^pr list' "$GHD/log" \
+    && [ -z "$(git -C "$W/origin.git" for-each-ref 'refs/heads/land-docs/*')" ] && [ "$(q "$S" 's.docs[0].result.status + " " + s.docs[0].result.kind')" = "waits red" ] \
+    && grep -q '^documents land-docs/.* waits: evidence-check found 1 findings' "$W/out" \
+    && ok "evidence-check: a finding in the documents worktree -> no push, no documents PR, docs result red" || bad "evidence leak: exit $rc: $(cat "$W/out") docs $(q "$S" 's.docs')"
+! grep -qF "$leak" "$W/out" "$S" "$W/state.log" && ok "evidence-check: the full value is in neither the output, the state file nor the log" || bad "evidence leak: the value is printed"
+# Silent mode: no documents PR, so no ticket evidence; land says whose the lines are (no head needed then)
+new_world evsilent 1
+state 1
+edit "s.tickets_root=null;s.prs[0].evidence=$EV2"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$GHD/ticket.log" ] && grep -qx "evidence of #1 is the orchestrator's (tickets outside the repository)" "$W/out" \
+    && ok "evidence: tickets_root null -> no ticket evidence, the line 'evidence of #1 is the orchestrator's'" || bad "evidence silent: exit $rc: $(cat "$W/out")"
 new_world input 1
 state 1
 node -e 'const fs=require("fs"),s=JSON.parse(fs.readFileSync(process.argv[1]));s.ci="batch";fs.writeFileSync(process.argv[1],JSON.stringify(s))' "$S"

@@ -30,10 +30,17 @@
 // (wave-gate is that path).
 //
 // After the merges: one documents PR per run of land. In a worktree of its own (<state>.docs, a branch
-// land-docs/<time> from <remote>/<branch>) `ticket done <epic> <NN> --pr <N> --root <tree>/<tickets root>`
-// for every merged PR not yet in a documents PR, then docs_check, a commit, a push, `gh pr create`. That PR
-// merges on ci_check alone (documents get no agent review) under the same lock. A documents PR closed
-// without a merge does not cover its tickets: the same entry gets a new branch and a new PR.
+// land-docs/<time> from <remote>/<branch>), for every merged PR not yet in a documents PR: one
+// `ticket evidence <epic> <NN> <item> <kind> <verdict> --ref <ref> [--platform P] --copy C --sha S --root
+// <tree>/<tickets root>` per entry of prs[].evidence (the Evidence lines of the review verdict and the green CI
+// check, which the orchestrator knows before the merge: written into the branch after CI they would make a new
+// head and one more CI run), then `ticket done <epic> <NN> --pr <N> --root <tree>/<tickets root>`. Then
+// docs_check, `git add -A`, the privacy check `evidence-check --changed --root <tree>/<tickets root> --base
+// refs/remotes/<remote>/<branch>` (exit 1 — the findings, masked, go to the log; the documents wait red, nothing
+// is committed or pushed), a commit, a push, `gh pr create`. That PR merges on ci_check alone (documents get no
+// agent review) under the same lock. A documents PR closed without a merge does not cover its tickets: the same
+// entry gets a new branch and a new PR. With tickets_root null there is no documents PR: prs[].evidence is not
+// written, and land prints `evidence of #N is the orchestrator's (tickets outside the repository)`.
 //
 // The state file is the input and the record; every finished step is written to it at once, so a run
 // broken off (the session ended, a kill) goes on from there when it is run again on the same file: a PR
@@ -50,9 +57,13 @@
 //                 in the repository (Silent mode, a root outside it), no documents PR: `ticket done` is the
 //                 orchestrator's
 //   main_lock     optional absolute path of the main-branch lock
-//   prs           [{number, epic, ticket, head, checks}] in merge order; epic and ticket — the PR's ticket
+//   prs           [{number, epic, ticket, head, checks, evidence}] in merge order; epic and ticket — the PR's ticket
 //                 (without them no `ticket done`); head — optional, the head SHA the review verified; checks —
-//                 the Check marks the PR needs, ["windows"] or ["check/windows"] alike, [] for none
+//                 the Check marks the PR needs, ["windows"] or ["check/windows"] alike, [] for none; evidence —
+//                 optional, [{item, kind, verdict, ref, platform?, copy?, sha?}]: the Evidence lines `ticket
+//                 evidence` writes before `ticket done` (item — the checkbox item of the "done" section, from 1). The
+//                 defaults: sha — prs[].head (an entry without a sha needs it), platform — "-" for review and commit,
+//                 "ci" for ci-check, otherwise the one `ticket` takes, copy — "-"
 // land adds: prs[].result {status: merged|waits, sha | reason, kind, at}, docs [{branch, prs, pr, closed,
 // result}], runs [{started, ended, land}].
 //
@@ -65,10 +76,11 @@
 // --watch: passes every POLL_S seconds while a PR or the documents PR waits for CI (a run in progress, a
 // check not finished, mergeable UNKNOWN), at most WATCH_S seconds in all. Without it — one pass.
 //
-// Environment (tests set them; the defaults are the project's): LAND_GH, LAND_TICKET, LAND_SLEEP — an
-// executable used instead of `gh`, of bin/ticket next to this script and of the wait between tries (it gets
-// the seconds); a `.mjs` file runs with this node. LAND_POLL_S (300), LAND_WATCH_S (6600), LAND_RETRY_S (10),
-// LAND_LOCK_POLL_S (30), LAND_LOCK_STALE_S (5400: the 90 minutes after which the skills call the lock stuck).
+// Environment (tests set them; the defaults are the project's): LAND_GH, LAND_TICKET, LAND_EVIDENCE_CHECK,
+// LAND_SLEEP — an executable used instead of `gh`, of bin/ticket and bin/evidence-check next to this script and
+// of the wait between tries (it gets the seconds); a `.mjs` file runs with this node. LAND_POLL_S (300),
+// LAND_WATCH_S (6600), LAND_RETRY_S (10), LAND_LOCK_POLL_S (30), LAND_LOCK_STALE_S (5400: the 90 minutes after
+// which the skills call the lock stuck).
 // shortcut: two runs of land on one state file are not kept apart, redo with a pid file like wave-gate's once a second
 // run is ever started (each merge is still guarded by the lock and --match-head-commit; the file is not).
 "use strict"
@@ -77,6 +89,8 @@ const path = require("path")
 const { spawnSync } = require("child_process")
 // The git to start, with the variable of an eval run (EVAL_GIT).
 const { git: GIT } = require("../hooks/eval-env.cjs")
+// The Evidence kinds that name no machine: their platform is "-".
+const { NO_MACHINE } = require("../lib/evidence.cjs")
 
 const SHA = /^[0-9a-f]{40}$/
 const MERGEABLE_RETRIES = 6
@@ -193,6 +207,19 @@ function load(file) {
         // a missing list would merge without the Checks the project requires
         if (!Array.isArray(pr.checks) || !pr.checks.every((c) => typeof c === "string" && /^(check\/)?[^\s/]+$/.test(c)))
             fail(`${file}: PR #${pr.number}: "checks" must be a list of Check names ([] for none)`)
+        if (pr.evidence !== undefined && pr.evidence !== null) {
+            const word = (e, key) => typeof e[key] === "string" && e[key] !== ""
+            const maybe = (e, key) => e[key] === undefined || e[key] === null || word(e, key)
+            const entry = (e) =>
+                e && typeof e === "object" && Number.isInteger(e.item) && e.item > 0 && ["kind", "verdict", "ref"].every((k) => word(e, k)) && ["platform", "copy", "sha"].every((k) => maybe(e, k))
+            if (!Array.isArray(pr.evidence) || !pr.evidence.every(entry))
+                fail(`${file}: PR #${pr.number}: "evidence" must be a list of {item, kind, verdict, ref, platform?, copy?, sha?} (item from 1)`)
+            // with no documents PR (tickets_root null) the entries are the orchestrator's and need nothing more here
+            if (st.tickets_root !== null && pr.evidence.length) {
+                if (!pr.epic || !pr.ticket) fail(`${file}: PR #${pr.number}: "evidence" needs the PR's "epic" and "ticket"`)
+                if (!pr.head && !pr.evidence.every((e) => e.sha)) fail(`${file}: PR #${pr.number}: an "evidence" entry without a "sha" needs the PR's "head"`)
+            }
+        }
     }
     st.docs = Array.isArray(st.docs) ? st.docs : []
     st.runs = Array.isArray(st.runs) ? st.runs : []
@@ -415,6 +442,11 @@ function docsEntry(file, st, madeThisRun) {
     madeThisRun.done = true
     save(file, st)
 }
+// The arguments of `ticket evidence` for an entry of prs[].evidence (load has checked its shape).
+function evidenceArgs(p, e, root) {
+    const platform = e.platform || (NO_MACHINE.includes(e.kind) ? "-" : e.kind === "ci-check" ? "ci" : null)
+    return ["evidence", p.epic, p.ticket, String(e.item), e.kind, e.verdict, "--ref", e.ref, ...(platform ? ["--platform", platform] : []), "--copy", e.copy || "-", "--sha", e.sha || p.head, "--root", root]
+}
 function openDocsPr(file, st, d) {
     const remote = st.remote || "origin"
     const tree = `${file}.docs`
@@ -425,10 +457,17 @@ function openDocsPr(file, st, d) {
     git(["fetch", "-q", remote, `+refs/heads/${st.branch}:refs/remotes/${remote}/${st.branch}`], st.repo)
     git(["worktree", "add", "-q", "-B", d.branch, tree, `refs/remotes/${remote}/${st.branch}`], st.repo)
     try {
+        const ticket = program(process.env.LAND_TICKET, [process.execPath, [path.join(__dirname, "ticket")]])
         for (const n of d.prs) {
             const p = st.prs.find((x) => x.number === n)
+            for (const e of p.evidence || []) {
+                const args = evidenceArgs(p, e, path.join(tree, root))
+                const r = run(ticket, args, tree)
+                log(`ticket ${args.join(" ")} — exit ${r.code}`)
+                if (r.code !== 0) throw new Wait(`ticket evidence ${p.epic} ${p.ticket} ${e.item} ${e.kind} failed (exit ${r.code}): ${firstLine(r.err)}`)
+            }
             const args = ["done", p.epic, p.ticket, "--pr", String(n), "--root", path.join(tree, root)]
-            const r = run(program(process.env.LAND_TICKET, [process.execPath, [path.join(__dirname, "ticket")]]), args, tree)
+            const r = run(ticket, args, tree)
             log(`ticket ${args.join(" ")} — exit ${r.code}`)
             if (r.code !== 0) throw new Wait(`ticket done ${p.epic} ${p.ticket} failed (exit ${r.code}): ${firstLine(r.err)}`)
         }
@@ -443,6 +482,17 @@ function openDocsPr(file, st, d) {
             log(`documents of ${d.prs.map((n) => "#" + n).join(", ")}: nothing to commit`)
             return
         }
+        // the privacy check of what this commit adds to the tickets root, before anything leaves the machine
+        const ecArgs = ["--changed", "--root", path.join(tree, root), "--base", `refs/remotes/${remote}/${st.branch}`]
+        const ec = run(program(process.env.LAND_EVIDENCE_CHECK, [process.execPath, [path.join(__dirname, "evidence-check")]]), ecArgs, tree)
+        log(`evidence-check ${ecArgs.join(" ")} — exit ${ec.code}`)
+        // its findings are masked (two characters and the length), so the log may keep them
+        for (const l of `${ec.out}\n${ec.err}`.split("\n").filter((x) => x.trim())) log(`  ${l}`)
+        if (ec.code === 1) {
+            const m = /evidence-check: (\d+) findings?/.exec(ec.out)
+            throw new Wait(`evidence-check found ${m ? m[1] : "some"} findings in the documents, nothing pushed: the masked list is in ${path.basename(logFile)}`, "red")
+        }
+        if (ec.code !== 0) throw new Wait(`evidence-check could not run (exit ${ec.code}): ${firstLine(ec.err || ec.out)}`)
         const list = d.prs.map((n) => "#" + n).join(", ")
         git(["commit", "-q", "-m", `docs: mark the tickets of ${list} done`], tree)
         git(["push", "-q", "-f", remote, `HEAD:refs/heads/${d.branch}`], tree)
@@ -525,7 +575,12 @@ async function main() {
         await sleep(T.poll)
     }
     const lines = []
-    for (const pr of st.prs) lines.push(pr.result.status === "merged" ? `#${pr.number} merged ${pr.result.sha}` : `#${pr.number} waits: ${pr.result.reason}`)
+    for (const pr of st.prs) {
+        lines.push(pr.result.status === "merged" ? `#${pr.number} merged ${pr.result.sha}` : `#${pr.number} waits: ${pr.result.reason}`)
+        // no documents PR: the Evidence lines go into the tickets outside the repository by the orchestrator's hand
+        if (st.tickets_root === null && pr.result.status === "merged" && Array.isArray(pr.evidence) && pr.evidence.length)
+            lines.push(`evidence of #${pr.number} is the orchestrator's (tickets outside the repository)`)
+    }
     for (const d of st.docs) {
         if (!d.result || d.result.status === "empty") continue
         const name = d.pr ? `#${d.pr}` : `documents ${d.branch}`
