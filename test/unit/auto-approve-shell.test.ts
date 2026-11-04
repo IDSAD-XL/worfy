@@ -358,6 +358,18 @@ describe('outside the grammar: judged false', () => {
     ['git config --file', 'git config --file=/tmp/x --get a.b', 'a git config outside the repository'],
     ['git config -f', 'git config -f x --get a.b', 'a git config outside the repository'],
     ['git config --blob', 'git config --blob=HEAD:x --get a.b', 'a git config outside the repository'],
+    ['git diff with a .? glob that bash 3.2 expands to ..', 'git diff . .?', 'a glob in a path component that starts with a dot'],
+    ['git diff -- with a .? glob', 'git diff -- . .?', 'a glob in a path component that starts with a dot'],
+    ['git diff with a ./.? glob', 'git diff . ./.?', 'a glob in a path component that starts with a dot'],
+    ['git diff with a sub/.? glob', 'git diff . sub/.?', 'a glob in a path component that starts with a dot'],
+    ['ls with a .? glob', 'ls .?', 'a glob in a path component that starts with a dot'],
+    ['cat with a .? glob', 'cat .?', 'a glob in a path component that starts with a dot'],
+    ['cp -r with a .? glob', 'cp -r .? /tmp/t/x', 'a glob in a path component that starts with a dot'],
+    ['a .* glob', 'cat .*', 'a glob in a path component that starts with a dot'],
+    ['a ..? glob', 'cat ..?', 'a glob in a path component that starts with a dot'],
+    ['a .??* glob', 'rm -rf .??*', 'a glob in a path component that starts with a dot'],
+    ['a .? glob in a middle component', 'cat sub/.?/x', 'a glob before the last component of a path'],
+    ['a .[.] glob', 'cat .[.]', 'a [ glob'],
   ]
   const contexts: Record<string, AnalyzeContext> = {
     'a working folder on Windows that is not absolute': { ...windows, cwd: 'work' },

@@ -7,7 +7,7 @@
 // The commands run in an empty temporary folder, so a glob matches nothing: sh, dash and bash keep it
 // as written, as analyze() does; zsh stops on it (NOMATCH), so glob commands skip zsh.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -108,5 +108,26 @@ describe.each(shells)('%s', (name) => {
     const run = spawnSync(shell, ['-c', command], { cwd: folder, env, encoding: 'utf8' })
     expect(run.status, run.stderr).toBe(0)
     expect(expected(command)).toEqual(printed(run.stdout))
+  })
+})
+
+// Why a glob component that starts with a dot is refused: sh, dash and bash before 5.2 (macOS
+// /bin/bash 3.2) match `.?` to `..`, so `ls .?` lists the parent folder; zsh and bash 5.2 do not.
+// The fixture is a file in the test's own temporary folder, one level above the working folder.
+describe('a glob component that starts with a dot', () => {
+  it('is refused, and a real shell lists the parent folder for it', () => {
+    const inner = join(folder, 'dots', 'inner')
+    mkdirSync(inner, { recursive: true })
+    writeFileSync(join(folder, 'dots', 'parent-only.txt'), 'fixture\n')
+    expect(analyze('ls .?', { cwd: inner, env, platform: process.platform })).toMatchObject({ judged: false, why: 'a glob in a path component that starts with a dot' })
+    const candidates = ON_WINDOWS ? ['git-bash'] : ['sh', 'dash', 'bash', ...(process.platform === 'darwin' ? ['/bin/bash'] : [])]
+    const leaving = candidates.filter((name) => {
+      const shell = name.startsWith('/') ? name : program(name)
+      if (shell === null) return false
+      const run = spawnSync(shell, ['-c', 'ls .?'], { cwd: inner, env, encoding: 'utf8' })
+      return run.status === 0 && run.stdout.includes('parent-only.txt')
+    })
+    // macOS ships bash 3.2 as /bin/bash and as sh; on other machines the shells may skip `..`.
+    if (process.platform === 'darwin') expect(leaving).toContain('/bin/bash')
   })
 })
