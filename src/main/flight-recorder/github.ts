@@ -15,7 +15,6 @@
 //   of ticket 17) reads at once.
 import { GH_APP_FIELDS, GH_RUN_FIELDS } from '../../shared/flight-recorder/pr-facts.mjs'
 import type { GithubAnswer, GithubPr, GithubRun } from '../../shared/flight-recorder/from-github'
-import { parseRemote } from '../github/accounts'
 import { BASE_INTERVAL_MS } from '../github/prs'
 
 export const GITHUB_READ_INTERVAL_MS = BASE_INTERVAL_MS
@@ -29,30 +28,8 @@ export const PRS_PER_BRANCH = 10
 export const RUNS_PER_BRANCH = 50
 export const RUNS_PER_COMMIT = 20
 
-/**
- * The address of a repository's page from its remote URL (`git remote get-url origin` of the Project root,
- * the repository gh reads the PRs of): `https://<host>/<owner>/<repo>` for an https, ssh or scp-like remote
- * (`git@host:owner/repo.git`), without `.git`; null for a folder or any other form. The host is the
- * remote's own, so a GitHub Enterprise server gives its pages. The Run history screen opens
- * `<it>/pull/<N>` and `<it>/commit/<sha>` from it (worfy-flight-recorder ticket 19).
- */
-export function repoPageUrl(remote: string): string | null {
-  const repo = parseRemote(remote)
-  if (repo === null) return null
-  // Through a URL, never by concatenation: a credential left in the host (`a@token@host:owner/repo`) is
-  // dropped, not handed to the browser and the tooltip.
-  let page: URL
-  try {
-    page = new URL(`https://${repo.host}`)
-  } catch {
-    return null
-  }
-  page.username = ''
-  page.password = ''
-  page.port = ''
-  page.pathname = `/${repo.owner}/${repo.repo}`
-  return page.href
-}
+// repoPageUrl lives in src/main/github/remote.ts, beside parseRemote: the workflow reader takes it from there.
+export { repoPageUrl } from '../github/remote'
 
 /** A read: gh's answer, or the reason GitHub did not answer; `at` — when gh ran. */
 export type GithubRead = { answer: GithubAnswer; error: null; at: number } | { answer: null; error: string; at: number }

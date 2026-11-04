@@ -73,6 +73,56 @@ export const manualCheckSchema = z.object({
 })
 export type ManualCheck = z.infer<typeof manualCheckSchema>
 
+/*
+ * The Evidence of a Ticket (evidence.ts): what proves each item of its done section and where it was checked. Kind,
+ * platform and copy are plain strings here, not the catalogues of evidence.ts: a Linked machine's newer worfy may
+ * know a kind this one does not, and its model must still be read.
+ */
+
+/** One `- evidence: <kind> <verdict> · <ref> · <platform> <copy> · <sha>[ · scrub: <date>]` line of an item. */
+export const evidenceLineSchema = z.object({
+  /** `commit`, `test-run`, `ci-check`, `gate`, `review`, `screenshot` or `owner-check`. */
+  kind: z.string(),
+  verdict: z.enum(['pass', 'fail']),
+  /** A command with its exit code, `PR #N`, a URL, or a path in backticks relative to the Ticket file. */
+  ref: z.string(),
+  /** `mac`, `windows`, `linux`, `ci`; `-` for `commit` and `review`. A platform, never a host name. */
+  platform: z.string(),
+  /** The copy of the app: `stable`, `installed`, `dev`, `ci`, or `-` for none. */
+  copy: z.string(),
+  sha: z.string(),
+  /** The date a person checked the pixels of a screenshot; null without the field. */
+  scrub: z.string().nullable(),
+  /** The line in the Ticket file, from 1. */
+  line: z.number().int().positive(),
+})
+export type EvidenceLine = z.infer<typeof evidenceLineSchema>
+
+/** `- needs: <platform> [<copy>]`: where an item must be checked; copy null — any copy. */
+export const evidenceNeedsSchema = z.object({ platform: z.string(), copy: z.string().nullable() })
+export type EvidenceNeeds = z.infer<typeof evidenceNeedsSchema>
+
+/** One checkbox item of the done section with its Evidence lines and the state they give it. */
+export const evidenceItemSchema = z.object({
+  /** The item's number in file order, from 1, at any depth of the list. */
+  index: z.number().int().positive(),
+  /** The item's text after the checkbox, continuation lines joined with a space. */
+  text: z.string(),
+  checked: z.boolean(),
+  /** A `(<manual mark>)` item: only `owner-check` and `screenshot` prove it. */
+  manual: z.boolean(),
+  needs: evidenceNeedsSchema.nullable(),
+  evidence: z.array(evidenceLineSchema),
+  /** The lines under the item that do not read, as "line N: why". */
+  errors: z.array(z.string()),
+  /** The item's line in the Ticket file, from 1. */
+  line: z.number().int().positive(),
+  state: z.enum(['verified', 'not-verified', 'failed']),
+  /** Why the item is not verified (`no evidence`, `review only`, `needs windows stable, got windows installed`…); null otherwise. */
+  reason: z.string().nullable(),
+})
+export type EvidenceItem = z.infer<typeof evidenceItemSchema>
+
 export const ticketSchema = epicStatusTicketSchema.extend({
   /** Paths in backticks from the list items of the trail section, in file order. */
   files: z.array(z.string()),
@@ -88,6 +138,11 @@ export const ticketSchema = epicStatusTicketSchema.extend({
    * as none: a model from an older worfy (a Linked machine) and the Tickets built in tests stay valid.
    */
   manualChecks: z.array(manualCheckSchema).optional(),
+  /**
+   * Every checkbox item of the done section with its Evidence lines and state, in file order; [] without the
+   * section. Optional, and absent reads as no items, as `manualChecks` does.
+   */
+  evidence: z.array(evidenceItemSchema).optional(),
   /**
    * Changes whenever the text of the Ticket file changes (a hash of it), so an edit that changes
    * nothing else is still sent as a change of the Ticket and its open view reads the text again.
@@ -116,6 +171,12 @@ export const workflowModelSchema = z.object({
   /** Null when the read succeeded; otherwise the model is empty and this says why. */
   error: workflowErrorSchema.nullable(),
   branchErrors: z.array(branchErrorSchema),
+  /**
+   * The page of the Project's repository from the `origin` remote of its root (`https://github.com/<owner>/<repo>`),
+   * where links to a commit or a PR of an Evidence line go; null when the root has no such remote. Absent from a
+   * model whose read failed and from an older worfy (a Linked machine).
+   */
+  repoUrl: z.string().nullable().optional(),
 })
 export type WorkflowModel = z.infer<typeof workflowModelSchema>
 

@@ -21,45 +21,11 @@ import { programStartInPty, windowsProgramPath, type ProgramStart } from '../pro
 import type { GitRunner } from '../projects/store'
 import { spawnShellPty, TerminalRegistry, type SpawnPty } from '../terminal/pty'
 import { accountAuth, appGhOverride, type GhRunner } from './prs'
+import { parseRemote, type RemoteRepo } from './remote'
 
-/** A remote on a host: `owner/repo` there. */
-export interface RemoteRepo {
-  host: string
-  owner: string
-  repo: string
-}
-
-/**
- * The host, owner and repository of a remote URL — `https://host/owner/repo(.git)`,
- * `ssh://git@host(:port)/owner/repo`, `git@host:owner/repo` — or null for anything else (a path, a
- * nested group of another forge).
- */
-export function parseRemote(url: string): RemoteRepo | null {
-  const trimmed = url.trim()
-  let host: string
-  let path: string
-  const scp = /^(?:[^@/\s]+@)?([^:/\s]+):(?!\/)(.+)$/u.exec(trimmed)
-  if (/^[a-z+]+:\/\//iu.test(trimmed)) {
-    let parsed: URL
-    try {
-      parsed = new URL(trimmed)
-    } catch {
-      return null
-    }
-    if (!['https:', 'http:', 'ssh:', 'git:', 'git+ssh:', 'ssh+git:'].includes(parsed.protocol)) return null
-    host = parsed.hostname
-    path = parsed.pathname
-  } else if (scp !== null) {
-    host = scp[1] ?? ''
-    path = scp[2] ?? ''
-  } else return null
-  const parts = path
-    .replace(/^\/+|\/+$/gu, '')
-    .replace(/\.git$/u, '')
-    .split('/')
-  if (parts.length !== 2 || host === '' || parts.some((part) => part === '' || part === '.' || part === '..')) return null
-  return { host: host.toLowerCase(), owner: parts[0] ?? '', repo: parts[1] ?? '' }
-}
+// The parsing of a remote URL lives in ./remote.ts, a module with no imports, so readers outside the terminal
+// (src/main/workflow/reader.ts, which the e2e specs load outside vite) take it without pty.
+export { parseRemote, type RemoteRepo } from './remote'
 
 const hostAccountSchema = z.object({ login: z.string().min(1), host: z.string().min(1), active: z.boolean().catch(false), state: z.string().catch('') }).loose()
 const authStatusSchema = z.object({ hosts: z.record(z.string(), z.array(z.unknown()).catch([])) }).loose()
