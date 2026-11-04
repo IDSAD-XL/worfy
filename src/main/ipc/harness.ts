@@ -20,10 +20,12 @@
 // (worfy-multi-vendor ticket 39). Its "Check again" is `harness.codexHooks`: Codex's `hooks/list`
 // through the `harnessHooks` part of the Codex driver (src/main/vendors/codex/harness-hooks.ts), the fake
 // under WORFY_CODEX=fake. Once the hooks are approved the Codex part no longer has hooks to approve, and every
-// window gets the status as `harness.changed`, as after an install.
+// window gets the status as `harness.changed`, as after an install. Its step 1 names the Codex binary
+// to start for `/hooks` (`harness.codexBinary`, worfy-polish ticket 54): the one the installer uses,
+// as the user has no `codex` of their own on PATH.
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
-import { harnessChanged, harnessCodexHooks, harnessInstall, harnessState, type HarnessHooksTrust, type HarnessStatus } from '../../shared/ipc/harness'
+import { harnessChanged, harnessCodexBinary, harnessCodexHooks, harnessInstall, harnessState, type HarnessHooksTrust, type HarnessStatus } from '../../shared/ipc/harness'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessDir } from '../harness/bundled'
 import { CodexHarness, codexInstallBinary } from '../harness/codex-install'
@@ -77,6 +79,9 @@ class AnnouncingInstaller extends HarnessInstaller {
   }
 }
 
+/** The app as the path of its Codex binary depends on it. */
+const appRuntime = () => ({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch })
+
 let installer: HarnessInstaller | null = null
 /** The Codex part of the app's installer; null when this build installs nothing into Codex. */
 let codexHarness: CodexHarness | null = null
@@ -88,7 +93,7 @@ let codexHarness: CodexHarness | null = null
 export function appInstaller(): HarnessInstaller {
   if (installer !== null) return installer
   const env = process.env
-  const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }
+  const runtime = appRuntime()
   const bundledDir = bundledHarnessDir()
   const home = harnessHome(env)
   const codex = codexInstallBinary(env, runtime)
@@ -150,5 +155,6 @@ async function checkCodexHooks(): Promise<{ trust: HarnessHooksTrust; status: Ha
 export default [
   defineHandler(harnessState, () => appInstaller().status()),
   defineHandler(harnessCodexHooks, () => checkCodexHooks()),
+  defineHandler(harnessCodexBinary, () => ({ path: codexInstallBinary(process.env, appRuntime()) ?? null, windows: process.platform === 'win32' })),
   defineHandler(harnessInstall, (_input, { event }) => appInstaller().install((plan) => confirmInstall(BrowserWindow.fromWebContents(event.sender), plan))),
 ] satisfies HandlerModule

@@ -1,13 +1,15 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
-import type { HarnessHooksTrust, HarnessStatus as Status } from '../../src/shared/ipc/harness'
+import { codexHooksCommand, type HarnessHooksTrust, type HarnessStatus as Status } from '../../src/shared/ipc/harness'
 import CodexHooksStep from '../../src/renderer/harness/CodexHooksStep'
 import { HarnessStatus } from '../../src/renderer/shell/toolbar/HarnessStatus'
 
 // worfy-multi-vendor ticket 39: the step "Approve the Harness hooks in Codex". It says what to open in
 // Codex (/hooks), and "Check again" asks main (`harness.codexHooks`). The toolbar's Harness item opens it
 // when an install or update in Codex leaves hooks to approve, and on a click of "Codex: approve hooks".
+// worfy-polish ticket 54: step 1 names the Codex binary of this build, which main answers with
+// (`harness.codexBinary`), as a command that starts it from the home folder, with a Copy button.
 
 const globals = globalThis as { worfy?: WorfyBridge }
 
@@ -77,7 +79,7 @@ describe('CodexHooksStep', () => {
     expect(screen.getByTestId('codex-hooks-step-result').textContent).toBe(text)
     expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy()
     expect(onStatus).toHaveBeenCalledWith(status)
-    expect(main.calls).toEqual(['harness.codexHooks'])
+    expect(main.calls).toEqual(['harness.codexBinary', 'harness.codexHooks'])
   })
 
   it('Check again answered approved: says the Run can start, and Done closes the step', async () => {
@@ -100,6 +102,61 @@ describe('CodexHooksStep', () => {
     await vi.waitFor(() => expect(screen.getByTestId('codex-hooks-step-result').textContent).toBe('The check failed: main is gone'))
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+const MAC_BINARY = '/Applications/worfy.app/Contents/Resources/app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex'
+const WINDOWS_BINARY = 'C:\\Program Files\\worfy\\resources\\app.asar.unpacked\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe'
+
+describe('step 1: the Codex binary of this build (worfy-polish ticket 54)', () => {
+  afterEach(() => {
+    delete (navigator as { clipboard?: unknown }).clipboard
+  })
+
+  it('shows the command main answers with, from the home folder, and Copy puts it on the clipboard', async () => {
+    const written: string[] = []
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: (text: string) => (written.push(text), Promise.resolve()) }, configurable: true })
+    const main = fakeBridge({ 'harness.codexBinary': ok({ path: MAC_BINARY, windows: false }) })
+    render(<CodexHooksStep onClose={() => undefined} onStatus={() => undefined} />)
+    const command = await screen.findByTestId('codex-hooks-step-command')
+    expect(command.textContent).toBe(`cd ~ && '${MAC_BINARY}'`)
+    expect(screen.getByTestId('codex-hooks-step-steps').textContent).toContain('Terminal')
+    expect(screen.getByTestId('codex-hooks-step-steps').textContent).not.toContain('Open Codex in a terminal: codex')
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the command' }))
+    await vi.waitFor(() => expect(written).toEqual([`cd ~ && '${MAC_BINARY}'`]))
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Copy the command' }).textContent).toBe('Copied'))
+    expect(main.calls).toEqual(['harness.codexBinary'])
+  })
+
+  it('on Windows the command is for PowerShell, the path in double quotes', async () => {
+    fakeBridge({ 'harness.codexBinary': ok({ path: WINDOWS_BINARY, windows: true }) })
+    render(<CodexHooksStep onClose={() => undefined} onStatus={() => undefined} />)
+    const command = await screen.findByTestId('codex-hooks-step-command')
+    expect(command.textContent).toBe(`cd ~; & "${WINDOWS_BINARY}"`)
+    expect(screen.getByTestId('codex-hooks-step-steps').textContent).toContain('PowerShell')
+  })
+
+  it.each([
+    ['main finds no Codex binary in this build', ok({ path: null, windows: false })],
+    ['main cannot be asked', () => Promise.resolve({ ok: false, error: 'main is gone' })],
+  ])('%s: says so plainly, with no command and no Copy', async (_case, answer) => {
+    fakeBridge({ 'harness.codexBinary': answer })
+    render(<CodexHooksStep onClose={() => undefined} onStatus={() => undefined} />)
+    await vi.waitFor(() => expect(screen.getByTestId('codex-hooks-step-steps').textContent).toContain('worfy could not find the Codex of this build'))
+    expect(screen.queryByTestId('codex-hooks-step-command')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Copy the command' })).toBeNull()
+  })
+})
+
+describe('codexHooksCommand', () => {
+  it('quotes the path for a POSIX shell, a quote inside it too', () => {
+    expect(codexHooksCommand('/Applications/worfy.app/codex', false)).toBe("cd ~ && '/Applications/worfy.app/codex'")
+    expect(codexHooksCommand("/Users/me/Apps/it's worfy.app/codex", false)).toBe("cd ~ && '/Users/me/Apps/it'\\''s worfy.app/codex'")
+  })
+
+  it('quotes the path for PowerShell and escapes what PowerShell expands inside double quotes', () => {
+    expect(codexHooksCommand('C:\\Program Files\\worfy\\codex.exe', true)).toBe('cd ~; & "C:\\Program Files\\worfy\\codex.exe"')
+    expect(codexHooksCommand('C:\\Users\\a$b\\x`y\\codex.exe', true)).toBe('cd ~; & "C:\\Users\\a`$b\\x``y\\codex.exe"')
   })
 })
 

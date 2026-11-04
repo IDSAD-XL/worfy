@@ -167,8 +167,13 @@ The state waits for `codex plugin list --json` 10 s at most, and then the Codex 
 **Approving the hooks.** Codex trusts a plugin's hooks by the hash of the plugin folder, so after every install or
 update of the Harness its hooks are off in Codex until the user approves them. Without them the gate and the guards of
 the workflow do not run in Codex, and [Autopilot](autopilot.md#during-a-run) refuses a run on Codex. The dialog "Approve
-the Harness hooks in Codex" says what to do: open Codex in a terminal (`codex`), type `/hooks`, approve the hooks of the
-plugin `worfy`, come back and press "Check again". The check asks Codex and answers with one of three lines:
+the Harness hooks in Codex" says what to do: start the Codex of this build in a terminal, type `/hooks`, approve the hooks
+of the plugin `worfy`, come back and press "Check again". worfy runs only the Codex binary it carries, which is not on
+the user's PATH, so step 1 shows a command with that binary's full path and a "Copy" button: `cd ~ && '<path>'` on macOS
+and Linux, `cd ~; & "<path>"` in PowerShell on Windows. The path is the one the install into Codex used, so `/hooks`
+approves the same `CODEX_HOME`. The command starts Codex from the home folder because Codex started from a folder that
+no longer exists, such as a removed worktree, stops at once with "No such file or directory (os error 2)". When worfy
+finds no Codex binary of its own, step 1 says so instead. The check asks Codex and answers with one of three lines:
 
 - "Approved: Codex runs the Harness hooks, and a Codex Autopilot Run can start." The button becomes "Done", and
   "Codex: approve hooks" goes away in every window.
