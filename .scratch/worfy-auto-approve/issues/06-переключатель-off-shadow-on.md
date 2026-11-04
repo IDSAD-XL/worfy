@@ -1,7 +1,8 @@
 # 06 — Переключатель Off / Shadow / On
 
 Type: task
-Status: claimed 2026-11-04T13:27Z
+Status: done 2026-11-04T17:14Z
+PR: #1368
 Blocked by: —
 Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «Решено без владельца», п. 3; «Безопасность», п. 5; «Соседний Epic worfy-retry»; Q1
 
