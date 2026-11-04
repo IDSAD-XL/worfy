@@ -40,13 +40,22 @@ describe('turnFailureKind: Claude Code', () => {
     // The JSON type alone, when the text has no status.
     ['API Error: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', 'overloaded'],
     ['API Error: {"type":"error","error":{"type":"api_error","message":"Internal server error"}}', 'api-500'],
+    // A 5xx status with an overloaded body.
+    ['API Error: 503 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', 'overloaded'],
+    // A 5xx status keeps its own kind when the overloaded body is not on the first line.
+    ['API Error: 503 Service Unavailable\n{"type":"error","error":{"type":"overloaded_error"}}', 'api-503'],
+    // An error event inside the response stream: no status, the API's message alone (2.1.289).
+    ['API Error: Overloaded', 'overloaded'],
+    ['API Error: Internal server error', 'api-500'],
     ['API Error: Connection error.', 'connection'],
     ['API Error: Connection dropped (ECONNRESET)', 'connection'],
     ['API Error: Unable to connect to API. Check your internet connection', 'connection'],
-    ['API Error: Unable to connect to API (ECONNRESET)', 'connection'],
     ["API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", 'connection'],
     ['API Error: No internet route — check your connection or VPN (ENETUNREACH)', 'connection'],
     ['API Error: Connection to the API was lost (ECONNRESET). This is usually temporary — try again.', 'connection'],
+    ['API Error: Connection to the API was lost (StreamTruncated). This is usually temporary — try again.', 'connection'],
+    ['API Error: Connection to the API was lost (ENOTFOUND). This is usually temporary — try again.', 'connection'],
+    ['API Error: Connection to the API was lost', 'connection'],
     ['API Error: Connection lost while your computer was asleep', 'connection'],
     ['API Error: Connection closed before the response finished', 'stream'],
     ['Request timed out', 'timeout'],
@@ -74,6 +83,20 @@ describe('turnFailureKind: Claude Code', () => {
     'API Error: 501 Not Implemented',
     // A 4xx status wins over an api_error type in its JSON.
     'API Error: 400 {"type":"error","error":{"type":"api_error","message":"odd"}}',
+    'API Error: 400 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+    // The JSON type counts on the first line only.
+    'API Error: {"type":"error",\n"error":{"type":"api_error","message":"Internal server error"}}',
+    // A 529 on one model comes as a rate_limit error (Q4: not transient).
+    'Opus is experiencing high load, please use /model to switch to Sonnet',
+    'Opus is experiencing high load. Switch to Sonnet.',
+    // Claude Code's branch for connection codes it does not know: TLS and setup errors.
+    'API Error: Unable to connect to API (EPROTO)',
+    'API Error: Unable to connect to API (ERR_SSL_PACKET_LENGTH_TOO_LONG)',
+    'API Error: Unable to connect to API (ERR_INVALID_URL)',
+    // A refusal by the network's setup under the lost-connection text.
+    'API Error: Connection to the API was lost (ECONNREFUSED). This is usually temporary — try again.',
+    'API Error: Connection to the API was lost (ConnectionRefused). This is usually temporary — try again.',
+    'API Error: Connection to the API was lost (ERR_PROXY_TUNNEL). This is usually temporary — try again.',
     'API Error: Unable to connect to API: SSL certificate verification failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE)',
     'API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)',
     "API Error: Couldn't connect through your proxy (ERR_PROXY_TUNNEL)",
@@ -85,6 +108,12 @@ describe('turnFailureKind: Claude Code', () => {
     // Codes and words later in the text do not count: only the start of the text does.
     'Tool failed: API Error: 500 {"type":"error","error":{"type":"api_error"}}',
     'Error: the server said 503 and then Connection error.',
+    'API Error: Could not load bedrock credentials · Connection error.',
+    'API Error: The proxy said: Connection closed before the response finished',
+    // Whole words and whole messages only.
+    'API Error: Request timed outage',
+    'API Error: Overloaded with requests from your organization',
+    'API Error: Internal server error in the proxy',
     '',
   ])('%s → other', (text) => {
     expect(turnFailureKind(claude(text))).toEqual({ kind: 'other' })

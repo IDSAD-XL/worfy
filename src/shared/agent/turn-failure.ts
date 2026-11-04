@@ -65,18 +65,26 @@ const TYPE_TRANSIENT: ReadonlyMap<string, TransientError> = new Map([
 /** Fixed phrases right after `API Error: ` (Claude Code 2.1.289 and older). */
 const PHRASES: ReadonlyArray<readonly [RegExp, TransientError]> = [
   [/^Repeated 529 Overloaded errors\b/, 'overloaded'],
+  // An error event inside the response stream has no HTTP status: Claude Code gives the API's
+  // own message alone.
+  [/^Overloaded$/, 'overloaded'],
+  [/^Internal server error$/, 'api-500'],
   [/^Request timed out\b/, 'timeout'],
   [/^No response from API\b/, 'timeout'],
   [/^Connection closed before the response finished\b/, 'stream'],
   [/^Connection error\./, 'connection'],
   [/^Connection dropped \(/, 'connection'],
-  [/^Connection to the API was lost\b/, 'connection'],
   [/^Connection lost while your computer was asleep\b/, 'connection'],
-  // Not `Unable to connect to API: SSL …`: a certificate problem does not pass with time.
-  [/^Unable to connect to API(?:\.| \()/, 'connection'],
+  // Only the plain form: `Unable to connect to API (<code>)` is Claude Code's branch for codes it
+  // does not know (EPROTO, ERR_INVALID_URL, …), and `Unable to connect to API: SSL …` a certificate
+  // problem; neither passes with time.
+  [/^Unable to connect to API\./, 'connection'],
   [/^Can't reach the API server\b/, 'connection'],
   [/^No internet route\b/, 'connection'],
 ]
+
+/** `Connection to the API was lost (<code>)`: the codes that are a refusal by the network's setup, not a drop. */
+const LOST_REFUSED: ReadonlySet<string> = new Set(['ECONNREFUSED', 'ConnectionRefused', 'ERR_PROXY_TUNNEL'])
 
 function claudeFailure(error: string | null): TurnFailure {
   const text = (error ?? '').trim()
@@ -96,6 +104,8 @@ function claudeFailure(error: string | null): TurnFailure {
     const kind = type === null ? undefined : TYPE_TRANSIENT.get(type)
     return kind === undefined ? OTHER : transient(kind)
   }
+  const lost = /^Connection to the API was lost\b(?: \(([^)]*)\))?/.exec(rest)
+  if (lost !== null) return lost[1] !== undefined && LOST_REFUSED.has(lost[1]) ? OTHER : transient('connection')
   for (const [phrase, kind] of PHRASES) if (phrase.test(rest)) return transient(kind)
   return OTHER
 }
