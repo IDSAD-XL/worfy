@@ -148,8 +148,8 @@ or the dependency 600 s.
 **The agents.** Each one is made from the agent of the same name in the plugin: its `description`, its text as the
 developer instructions with the plugin folder in place of `${CLAUDE_PLUGIN_ROOT}`, and its `effort` as the reasoning
 effort. A Claude model name such as `inherit` or `sonnet` is not written, so the agent takes the model of the Session that
-starts it. Every file worfy writes starts with the line `# Written by worfy's Harness installer`. A `worfy-*.toml` file
-without it is the user's own: worfy neither rewrites nor removes it. When such a file has the name of an agent of this build,
+starts it. Every file worfy writes starts with a comment line that begins `# Written by worfy's Harness installer` and
+names the Harness version. A `worfy-*.toml` file without it is the user's own: worfy neither rewrites nor removes it. When such a file has the name of an agent of this build,
 that agent is not written, and the toolbar says so. A marked file of an agent this build does not have is removed.
 
 **On the toolbar.** The Codex part follows the Claude Code text after `·`, only while the Claude Code part is installed.
@@ -208,7 +208,8 @@ that Machine itself.
   while its `bin/epic-status` is in the Claude home, because its hooks are still in `settings.json`
   ([ADR-0049](../adr/0049-worfy-sessions-without-inline-plugin-on-legacy-harness.md)). That is why the move removes this
   file last.
-- **Reading writes nothing.** Without the plugin folder the state runs no command, and a dependency shows as unchecked.
+- **Reading writes nothing.** Without the plugin folder the Claude Code part of the state runs no command, and a
+  dependency shows as unchecked. The Codex part runs `codex plugin list --json` whenever Codex is on the Machine.
 - **Codex installs from the same folder.** The copy the Claude Code part keeps in the plugin folder is Codex's local
   marketplace too, so an update in Codex is `plugin add` again: the folder itself is already the new copy. A plugin of a
   local marketplace may be listed with the version `local`; the version worfy installed is then read from its own record,

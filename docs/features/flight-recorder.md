@@ -139,7 +139,8 @@ A click on a bar or a row opens the panel at the bottom, with three tabs:
 #### A live run
 
 The screen can be open while the run goes on. The timeline follows it: it is computed again at most every 5 seconds
-when the journal or a transcript has grown, and GitHub is asked at most once a minute. A line marks now, a span still
+when the journal or a transcript has grown (a run on Codex: see [A run on Codex](#how-it-works)), and GitHub is asked
+at most once a minute. A line marks now, a span still
 going stretches to it with the word `running`, and an agent whose transcript is not there yet says
 `transcript not found yet`. When the run stops on screen, the header and the list say so with the next change.
 
@@ -209,7 +210,7 @@ own thread is read too. An agent's span starts when it is spawned (`spawn_agent`
 done. A `send_message` or `followup_task` to an agent that has finished starts its next span (`#2`). A Codex agent may
 be named `impl_NN`; that names its Ticket the same way `impl-NN` does. A Wave whose thread Codex cannot read gives
 `transcript deleted`. A journal without `vendor` is a Claude run. Each read of a thread may start a Codex process, one
-thread at a time. The threads of a run on Codex are read whole at each recompute, because the Codex history cannot be
+thread at a time. The threads of a run on Codex are read whole at each recompute, because the Codex history is not yet
 read on from where the last read stopped. A thread that grows does not make a live run on Codex compute again; its
 journal growing and a new answer of GitHub do, as for any run.
 
@@ -237,7 +238,8 @@ in parallel. What happened after the run ended, such as a merge by hand the next
 
 **The live timeline.** While a window holds a live run open, main looks every 5 seconds whether the journal or a
 transcript it read has grown, and computes again only then. Transcripts are read on from where the last read stopped,
-and each file's parse takes only the new lines. GitHub keeps its answer for a minute, as the PR badges do. A run that
+and each file's parse takes only the new lines. The threads of a run on Codex are not: see "A run on Codex" under How it
+works. GitHub keeps its answer for a minute, as the PR badges do. A run that
 is over is read whole, once per computation, and kept nowhere.
 
 ### Implementation

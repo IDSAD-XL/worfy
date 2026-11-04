@@ -24,8 +24,8 @@ once. "New session" in the Command palette uses the default Vendor too. The defa
 Claude Code. One Project holds Sessions of both Vendors side by side.
 
 **The Orchestrator and Autopilot on Codex.** The Project's Orchestrator runs on the default Vendor too, read at its next
-start: "New conversation", or the next start of worfy. It keeps that Vendor while it runs, and so do the new Sessions
-Autopilot starts for its Waves. A saved Session of the other Vendor is not resumed: a new one starts, and the old one stays
+start: "New conversation", or the next start of worfy. It keeps that Vendor while it runs, and so does each new Session of
+the Orchestrator that Autopilot starts for a Wave. A saved Session of the other Vendor is not resumed: a new one starts, and the old one stays
 in the history ([Sessions, Orchestrator](sessions.md#behaviour)). Autopilot drives a Codex Orchestrator the way it drives a
 Claude Code one, unattended, in the preset Full access. It weighs the budget by the Codex windows, waits for a used-up
 Codex window to reset, and stops with `vendor-quota` when Codex refuses a turn while no window is used up. A run on Codex
@@ -96,9 +96,9 @@ preview and a status:
 
 | Status | When |
 | ------ | ---- |
-| `running` | Codex reports the agent started, busy or still starting |
-| `done` | Codex reports it completed or shut down |
-| `interrupted` | Codex reports it interrupted, or it was still running when the Session's last turn was interrupted |
+| `running` | Codex reports the agent started, working again after a message, running or still starting, or there is no report and its thread is active |
+| `done` | Codex reports it completed or shut down, or there is no report and its thread is not active |
+| `interrupted` | Codex reports it interrupted, or a Subagent the Session started itself was still running when the Session's last turn was interrupted |
 | `error` | Codex reports it errored or not found, its spawn failed, or its thread ended in a system error |
 
 The children Codex starts by itself (a review, a compaction, the memory consolidation, the guardian) are not shown, and
