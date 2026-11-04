@@ -41,14 +41,18 @@ Source: [spec.md](../spec.md), «Как работает», п. 2; «Безоп�
       одобрять её нельзя; без `/*` разобраны `T=$(mktemp -d) && rm -rf "$T"/*` и `… || exit 1; rm -rf "$T"/*`
       (spec, «Проблема»; Ticket 03).
   - evidence: test-run pass · `pnpm vitest run --project node test/unit/auto-approve-shell.test.ts` exit 0 · mac - · ad5417fe2ccb75ffcfc74ce2df4f93d1892502f1
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/auto-approve-shell.test.ts, 300 tests, exact reason of every refusal) · mac - · c39ef44b32932226e5746cfa0e348fe9db3a5801
 - [ ] Differential test: для набора команд без побочных эффектов (`printf '%s\0'` вместо программы) слова, которые
       даёт `analyze`, совпадают со словами настоящего `sh` (и `bash` на Windows через Git Bash); расхождение — test
       красный.
   - evidence: test-run pass · `pnpm vitest run --project contract test/contract/auto-approve-shell-sh.test.ts` exit 0 (sh, dash, bash, zsh on macOS) · mac - · ad5417fe2ccb75ffcfc74ce2df4f93d1892502f1
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/auto-approve-shell-sh.test.ts: sh, dash, bash, zsh on macOS) · mac - · c39ef44b32932226e5746cfa0e348fe9db3a5801
 - [ ] Windows: `\` в путях, форма `/c/Users/…`, регистр — тот же результат, что на macOS и Linux.
   - evidence: test-run pass · `pnpm vitest run --project node test/unit/auto-approve-shell.test.ts` exit 0 (describe Windows (Git Bash), platform win32) · mac - · ad5417fe2ccb75ffcfc74ce2df4f93d1892502f1
+  - evidence: test-run pass · `pnpm test` exit 0 (describe Windows (Git Bash), platform win32, rm -rf ~/x/* agrees with Linux) · mac - · c39ef44b32932226e5746cfa0e348fe9db3a5801
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на Linux, macOS, Windows.
   - evidence: gate pass · `gate fast` exit 0 · mac - · ad5417fe2ccb75ffcfc74ce2df4f93d1892502f1
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c39ef44b32932226e5746cfa0e348fe9db3a5801
 
 ## Тесты
 
