@@ -48,19 +48,28 @@ Source: [spec.md](../spec.md), «Модель» (файл run-а, запись �
 
 - [ ] Unit test: файл run-а с двумя записями test-ов и одной записью шага читается; без `version`, с `version: 2`,
       с `at` не датой — не читается, причина названа.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
 - [ ] Unit test: файл run-а без `dirty` не читается.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
 - [ ] Unit test очистки: `/Users/jdoe/x`, `C:\Users\jdoe\x`, `C:/Users/jdoe/x`, `/c/Users/jdoe/x`,
       `C:\Users\RUNNER~1\x`, hostname, UUID, email, `ghp_…`, `Bearer …` — заменены; после `scrub` `findLeaks` пуст; `scrubRecord` чистит
       `error`, `name` и `file`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
 - [ ] Unit test: `testId` не содержит строки файла; два файла с одинаковым id в разных run-ах — один test.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
 - [ ] Contract test: `machine.json` создаётся один раз, второй запуск даёт тот же `id`; в файле нет hostname и имени
       пользователя.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
 - [ ] Contract test: `gate-failures list --json` над временной папкой состояния (`CLAUDE_GATE_STATE`) с тремя
       файлами и одним в `imported/<id>/`; импортированный помечен `imported: true`; файл старше 60 дней удаляет
       `pruneFailures` в обеих папках, моложе — остаётся.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
 - [ ] Contract test: неизвестная подкоманда — exit 2 и usage; `--help` называет `list` и `machine`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
 - [ ] Ни один test не пишет в настоящую `~/.claude` (`HARNESS_HOME` во временной папке).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
 - [ ] `pnpm typecheck` принимает импорт `gate-failures.mjs` из test-ов (объявления `.d.mts`).
+  - evidence: test-run pass · `pnpm typecheck` exit 0 (step worfy/.:typecheck of gate fast) · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
 
 ## Тесты
@@ -100,6 +109,12 @@ Source: [spec.md](../spec.md), «Модель» (файл run-а, запись �
   `HARNESS_HOME` и `CLAUDE_GATE_STATE` во временной папке.
 - Первый падающий test был красным только потому, что модуля ещё не было (ошибка импорта), а не на проверке `scrub` по отдельности.
 - Страницы `docs/features` не правились: список bin Harness ни одна страница не ведёт, раздел «Failure records» — Ticket 08.
+- Вне «Где в коде»: `test/contract/harness-node-only.test.ts` отвергал любой файл `harness/hooks` кроме `.mjs`, `.cjs`,
+  `.js`, `.json`, `.md` и скриптов с `#!/usr/bin/env node`, то есть и `gate-failures.d.mts`, которого требует этот Ticket.
+  Правило дополнено: `.d.mts` — объявления типов, не скрипт.
+- Gate fast на Mac 2026-11-04 — exit 2: lint и typecheck зелёные, в `pnpm test` упали только два test-а
+  `test/contract/getting-started-state.test.ts` (`:320` и `:441`, timeout 45 с). Этот Ticket их не трогает. Test `:320` один
+  проходит за секунды. Файл целиком на базе `afb52f904`, без правок этого Ticket-а, не закончился и за 40 минут.
 
 Решено без владельца, подтвердить:
 
