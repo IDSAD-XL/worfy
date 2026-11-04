@@ -64,7 +64,7 @@ export function toolStart(name: string, args: readonly string[], env: Env, platf
   if (platform !== 'win32') return { file: name, args: [...args], shell: false }
   // A full path (a WORFY_GH override, or worfy's own executable that runs a `.mjs` one in runGh) is
   // that file, as "Sign in with gh" reads it (windowsProgramPath); only a bare name is looked for on
-  // the Path, and a relative path is refused.
+  // the Path (`node`, the runner of a `.mjs` one in the packaged app), and a relative path is refused.
   const path = windowsProgramPath(name, exists ?? fileOrAlias)
   if (path.kind === 'relative') return null
   const program = path.kind === 'full' ? (path.file === null ? null : { file: path.file, cmd: /\.(?:cmd|bat)$/i.test(path.file) }) : windowsProgram(name, env, exists)

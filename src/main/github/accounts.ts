@@ -174,8 +174,8 @@ export async function readGithubAccounts(repos: readonly FolderRepo[], deps: Acc
  * up in every Path entry. Throws, with what to do, when there is no such file.
  */
 export function signInCommand(gh: string, platform: NodeJS.Platform = process.platform, env: Readonly<Env> = {}, exists?: FileExists): { file: string; args: string[]; env?: Record<string, string> } {
-  // A `.mjs` stand-in (tests), started by its absolute path: off Windows under worfy's own Node, on
-  // Windows under node.exe of the Path of `env` (programStartInPty).
+  // A `.mjs` stand-in (tests), started by its absolute path: off Windows under the Node of
+  // scriptRunner (src/main/program.ts), on Windows under node.exe of the Path of `env` (programStartInPty).
   let start: ProgramStart
   try {
     start = programStartInPty(gh, 'gh', { platform, env, exists })

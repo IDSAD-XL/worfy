@@ -39,6 +39,13 @@ describe('codexLaunch under WORFY_CODEX=fake', () => {
     expect(launch).toEqual({ file: STOCK, args: [FAKE], env: { WORFY_CODEX: 'fake', ELECTRON_RUN_AS_NODE: '1', WORFY_CODEX_SCRIPTS: SCRIPTS } })
   })
 
+  it('reads the executable by the rules of the runtime\'s system: electron.exe is the stock Electron on Windows only', () => {
+    const exe = 'C:\\repo\\node_modules\\electron\\dist\\electron.exe'
+    const windows: CodexRuntime = { ...MAC, platform: 'win32', arch: 'x64' }
+    expect(codexLaunch({ runtime: windows, appPath: '/repo', env: { WORFY_CODEX: 'fake' }, execPath: exe }).file).toBe(exe)
+    expect(codexLaunch({ runtime: MAC, appPath: '/repo', env: { WORFY_CODEX: 'fake' }, execPath: exe }).file).toBe('node')
+  })
+
   it('runs it under node of the PATH in the packaged app, whose RunAsNode fuse is off (electron-builder.yml)', () => {
     const launch = codexLaunch({ runtime: MAC, appPath: '/repo', env: { WORFY_CODEX: 'fake' }, execPath: '/Applications/worfy.app/Contents/MacOS/worfy' })
     expect(launch).toEqual({ file: 'node', args: [FAKE], env: { WORFY_CODEX: 'fake', WORFY_CODEX_SCRIPTS: SCRIPTS } })

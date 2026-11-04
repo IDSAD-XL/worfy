@@ -103,6 +103,12 @@ runtime); `codesign --verify --deep --strict` копии — exit 0, `Identifier
 Windows: fuses лежат в самом `worfy.exe`; сборка не подписана (сертификата нет до E4), подписи ломать нечего.
 Packaged test-ы Windows — те же spec-и, тот же helper.
 
+**Windows не проверен в CI — прямо.** Ни один job CI не читает fuses `.exe`: `windows-e2e` идёт с
+`--grep-invert @packaged`, а `windows` — это `pnpm test` (там только contract test конфигурации и `check-fuses.mjs` на
+stand-in-ах). Ветка `process._debugProcess` test-а SIGUSR1 ни разу не запускалась. Проверка на Windows — gate full на ПК
+после Wave: `pnpm test:package` собирает `.exe`, гоняет packaged spec-и и последним шагом `check-fuses.mjs`. Пункт
+«Готово, когда» про Windows закрывает этот прогон на ПК, не CI.
+
 **Проверки.**
 - `test/contract/electron-fuses.test.ts` (все ОС, CI): `electronFuses` ровно с двумя выключенными fuses;
   `test:package` кончается `node scripts/check-fuses.mjs` после Playwright; `check-fuses.mjs` на stand-in бинарях
@@ -120,7 +126,17 @@ Packaged test-ы Windows — те же spec-и, тот же helper.
 - `.mjs` stand-in в собранном приложении — `node` из PATH ребёнка, а не `utilityProcess.fork`: stand-in-ам нужны
   stdin/stdout ребёнка (Codex app-server говорит JSON-RPC по stdio), а `utilityProcess` даёт stdin только через
   MessagePort.
-- Остальные fuses — по умолчанию Electron. Отдельно: `EnableNodeOptionsEnvironmentVariable` включён, поэтому
-  перезапуск worfy с `NODE_OPTIONS=--require <файл>` исполнит файл в main, а проверка Ticket-а 06 смотрит только
-  argv. Это тот же класс «агент сам перезапустил worfy с флагом»; в этом Ticket-е не тронуто — предлагаю отдельный
-  Ticket (проверить, не полагается ли на `NODE_OPTIONS` что-то в собранном приложении и в packaged test-ах).
+- Остальные fuses — по умолчанию Electron, каждый по своей причине (состояние — как его печатает `check-fuses.mjs`):
+  - `EnableNodeOptionsEnvironmentVariable` (вкл.): собранный Electron сам отбрасывает почти все `NODE_OPTIONS`.
+    Проверено одним запуском временной копии `dist/` с `NODE_OPTIONS=--require <файл, пишущий метку>`: окно открылось,
+    метки нет, в stderr — `Most NODE_OPTIONs are not supported in packaged apps`; stock Electron с тем же
+    `NODE_OPTIONS` метку пишет. Выключать нечего ради этой угрозы.
+  - `OnlyLoadAppFromAsar`, `EnableEmbeddedAsarIntegrityValidation` (выкл.): закрывают подменённый `app.asar` или
+    подложенную `Resources/app/`, а это запись в папку приложения — тот же класс, что правка `app-settings.json` при
+    закрытом worfy («Безопасность», п. 5, известный предел). Нужна проверка целостности asar в сборке и в копиях
+    `install-stable` — отдельная работа.
+  - `EnableCookieEncryption` (выкл.): шифрование cookie через Keychain / DPAPI меняет хранилище Browser profiles
+    без обратного пути; к угрозе Ticket-а не относится.
+  - `LoadBrowserProcessSpecificV8Snapshot` (выкл.): только скорость старта.
+  - `GrantFileProtocolExtraPrivileges` (вкл.): renderer грузится из `file://` (`out/renderer/index.html` в бандле);
+    выключение требует проверить загрузку renderer-а, к угрозе Ticket-а не относится.

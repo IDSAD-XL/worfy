@@ -32,9 +32,8 @@ const SENTINEL = 'dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX'
 const FUSES = ['RunAsNode', 'EnableCookieEncryption', 'EnableNodeOptionsEnvironmentVariable', 'EnableNodeCliInspectArguments', 'EnableEmbeddedAsarIntegrityValidation', 'OnlyLoadAppFromAsar', 'LoadBrowserProcessSpecificV8Snapshot', 'GrantFileProtocolExtraPrivileges'] as const
 type Fuse = (typeof FUSES)[number]
 
-/** Bytes shaped like an Electron binary whose fuses are those of `on`, all others off. */
-function binary(on: readonly Fuse[]): Buffer {
-  const wire = FUSES.map((fuse) => (on.includes(fuse) ? 0x31 : 0x30))
+/** Bytes shaped like an Electron binary whose fuses are those of `on`, all others off; or the bytes of `wire` as they are. */
+function binary(on: readonly Fuse[], wire: number[] = FUSES.map((fuse) => (on.includes(fuse) ? 0x31 : 0x30))): Buffer {
   return Buffer.concat([Buffer.from('\x7fELF stand-in code before the wire '), Buffer.from(SENTINEL), Buffer.from([1, wire.length, ...wire]), Buffer.from(' code after it')])
 }
 
@@ -49,10 +48,10 @@ const scratch = (): string => {
 }
 
 /** A Windows build folder with worfy.exe in it. */
-function windowsBuild(on: readonly Fuse[]): string {
+function windowsBuild(on: readonly Fuse[], wire?: number[]): string {
   const dir = join(scratch(), 'win-unpacked')
   mkdirSync(dir)
-  writeFileSync(join(dir, 'worfy.exe'), binary(on))
+  writeFileSync(join(dir, 'worfy.exe'), binary(on, wire))
   return dir
 }
 
@@ -77,10 +76,9 @@ describe('electronFuses in electron-builder.yml', () => {
 
 describe('pnpm test:package', () => {
   it('reads the fuses of the dist/ build last, after the Playwright tests that drive a copy of it', () => {
-    const steps = scripts['test:package']?.split(' && ')
-    expect(steps?.[0]).toBe('pnpm package')
-    expect(steps?.at(-2)).toMatch(/^playwright test --grep @packaged /)
-    expect(steps?.at(-1)).toBe('node scripts/check-fuses.mjs')
+    // The whole line: a `|| true` or a `;` in it would let the check pass after a red Playwright run,
+    // or run it on a build a failed packaging left behind.
+    expect(scripts['test:package']).toBe('pnpm package && playwright test --grep @packaged --workers=1 --output test-results/package && node scripts/check-fuses.mjs')
   })
 })
 
@@ -102,6 +100,22 @@ describe('scripts/check-fuses.mjs', () => {
     expect(run.status).toBe(1)
     expect(run.stderr).toContain(`check-fuses: ${on} is enabled, and must be disabled`)
     expect(run.stderr).not.toContain(off)
+  })
+
+  it('exits 1 for a fuse marked removed: only disabled is off', () => {
+    // The byte 'r' (FuseState.REMOVED): RunAsNode removed, every other fuse off.
+    const run = check(windowsBuild([], [0x72, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30]))
+    expect(run.stdout).toContain('  RunAsNode: removed\n')
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain('check-fuses: RunAsNode is removed, and must be disabled')
+    expect(run.stderr).not.toContain('EnableNodeCliInspectArguments')
+  })
+
+  it('exits 1 for a fuse wire too short to hold EnableNodeCliInspectArguments: a missing fuse is not off', () => {
+    const run = check(windowsBuild([], [0x30, 0x30, 0x30]))
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain('check-fuses: EnableNodeCliInspectArguments is missing, and must be disabled')
+    expect(run.stderr).not.toContain('RunAsNode')
   })
 
   it('reads a .app by its Electron Framework', () => {

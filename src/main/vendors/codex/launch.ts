@@ -1,6 +1,6 @@
 // How a Codex app-server process starts (worfy-multi-vendor ticket 18): the binary this build pins
 // (binary.ts, ticket 17) with `app-server`, or, under WORFY_CODEX=fake, the fake app-server
-// test/fixtures/codex-app-server/fake-app-server.mjs under worfy's own executable — so tests and e2e
+// test/fixtures/codex-app-server/fake-app-server.mjs under the Node of scriptRunner — so tests and e2e
 // runs never start the real Codex and never sign in. The fake's variables pass through the environment:
 // WORFY_CODEX_SCRIPT (the script, "turn" by default), WORFY_CODEX_SCRIPTS (their folder; the fixtures
 // folder by default), WORFY_CODEX_LOG (where the fake writes worfy's messages) and WORFY_CODEX_HOME (the
@@ -48,7 +48,7 @@ export interface CodexLaunchOptions {
 
 /**
  * The start of a Codex app-server. Under WORFY_CODEX=fake: the fake under scriptRunner of
- * `execPath` (process.execPath by default). Otherwise the pinned binary with `app-server`; under vitest (VITEST in `env`
+ * `execPath` (process.execPath by default), read by the rules of `runtime.platform`. Otherwise the pinned binary with `app-server`; under vitest (VITEST in `env`
  * or in process.env) that throws, so no test reaches the real Codex even when a test file sets no
  * WORFY_CODEX or passes an `env` of its own. Throws as well when this
  * platform has no Codex package installed.
@@ -56,7 +56,7 @@ export interface CodexLaunchOptions {
 export function codexLaunch(options: CodexLaunchOptions): CodexLaunch {
   const env = options.env ?? process.env
   if (env.WORFY_CODEX === 'fake') {
-    const runner = scriptRunner(options.execPath)
+    const runner = scriptRunner(options.execPath, options.runtime.platform)
     return {
       file: runner.file,
       args: [join(options.appPath, FAKE_APP_SERVER)],

@@ -2,7 +2,7 @@ import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_pr
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
@@ -493,29 +493,38 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
     }
   })
 
-  test(`${WINDOWS ? 'process._debugProcess' : 'kill -USR1'} opens no Node inspector in the copy, and does in the copy with the fuse on`, async () => {
+  test(`${WINDOWS ? 'process._debugProcess' : 'kill -USR1'} opens no Node inspector in the copy`, async () => {
     // The copy as it ships: main has no handler for the request. Off Windows SIGUSR1 then ends the
     // process (its default action); on Windows the request fails or is not heard. Either way no
-    // inspector line comes. Off Windows the end of the process is the condition waited for; on
+    // inspector line comes. Off Windows the end of the process is the condition waited for, raced
+    // with the inspector line, so a copy with the fuse left on fails at once instead of hanging; on
     // Windows nothing ends, so the wait for a line that must not come is bounded.
     const shipped = await startDirect(executableOf(stableApp), NO_WINDOW_RESTORE)
     try {
-      await shipped.waitFor(WINDOW_SHOWN, ms(60_000))
+      await shipped.waitFor(WINDOW_SHOWN, ms(30_000))
       const refused = askForInspector(shipped)
-      if (WINDOWS) await expect(shipped.waitFor(INSPECTOR_OPEN, ms(5_000))).rejects.toThrow(/no line matching/)
-      else expect(await shipped.exited).toEqual({ code: null, signal: 'SIGUSR1' })
+      if (WINDOWS) {
+        await expect(shipped.waitFor(INSPECTOR_OPEN, ms(5_000))).rejects.toThrow(/no line matching/)
+      } else {
+        const opened = shipped.waitFor(INSPECTOR_OPEN, ms(20_000)).then(() => 'the inspector opened' as const)
+        expect(await Promise.race([shipped.exited, opened])).toEqual({ code: null, signal: 'SIGUSR1' })
+        expect(refused).toBeNull()
+      }
       expect(shipped.output()).not.toMatch(INSPECTOR_OPEN)
-      if (!WINDOWS) expect(refused).toBeNull()
     } finally {
       await shipped.stop()
     }
-    // The same request opens the inspector of the copy whose fuse is on: the request reached main,
-    // and only the fuse stopped it above.
-    const driven = await startDirect(executableOf(inspectable), NO_WINDOW_RESTORE)
+  })
+
+  test(`the same request opens the inspector of the copy with the fuse on: it reaches main, and only the fuse stops it`, async () => {
+    // --inspect-port=0: the inspector takes a free port, so a 9229 taken by another program on the
+    // machine cannot fail the test.
+    const driven = await startDirect(executableOf(inspectable), ['--inspect-port=0', ...NO_WINDOW_RESTORE])
     try {
-      await driven.waitFor(WINDOW_SHOWN, ms(60_000))
+      await driven.waitFor(WINDOW_SHOWN, ms(30_000))
       expect(askForInspector(driven)).toBeNull()
       await driven.waitFor(INSPECTOR_OPEN, ms(20_000))
+      expect(driven.output()).not.toMatch(/Debugger listening on ws:\/\/127\.0\.0\.1:9229\//)
     } finally {
       await driven.stop()
     }
@@ -928,15 +937,19 @@ test.describe('scripts/install-stable.mjs', { tag: '@packaged' }, () => {
 test.describe('the fuse helper of the packaged tests', () => {
   test('refuses dist/, a folder outside the temporary folder, and a folder inside the app it copies', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'worfy-fuse-helper-'))
+    // Outside the temporary folder whatever the checkout: a folder of the home folder that is never
+    // made (a checkout may itself live under the temporary folder, and then its out/ is inside it).
+    const outside = join(homedir(), '.worfy-fuse-helper-never-made')
     try {
-      await expect(enableInspector(join(repoRoot, 'dist', WINDOWS ? 'win-unpacked' : join('mac-arm64', 'worfy.app')))).rejects.toThrow(/writes into a temporary folder only/)
-      await expect(enableInspector(join(repoRoot, 'out'))).rejects.toThrow(/writes into a temporary folder only/)
-      await expect(inspectableCopy(join(dir, 'worfy.app'), join(repoRoot, 'test-results', 'fuse-copy'))).rejects.toThrow(/writes into a temporary folder only/)
+      // dist/ is refused by one rule or the other: outside the temporary folder, or dist/ itself.
+      await expect(enableInspector(join(repoRoot, 'dist', WINDOWS ? 'win-unpacked' : join('mac-arm64', 'worfy.app')))).rejects.toThrow(/writes into a temporary folder only|does not write into dist\//)
+      await expect(enableInspector(join(outside, 'worfy.app'))).rejects.toThrow(/writes into a temporary folder only/)
+      await expect(inspectableCopy(join(dir, 'worfy.app'), outside)).rejects.toThrow(/writes into a temporary folder only/)
       await expect(inspectableCopy(join(dir, 'worfy.app'), join(dir, 'worfy.app', 'inner'))).rejects.toThrow(/does not write into dist\/ or into the app it copies/)
       mkdirSync(join(dir, 'copies', 'worfy.app'), { recursive: true })
       await expect(inspectableCopy(join(dir, 'worfy.app'), join(dir, 'copies'))).rejects.toThrow(/is there already/)
       // Nothing was made by the refusals.
-      expect(existsSync(join(repoRoot, 'test-results', 'fuse-copy'))).toBe(false)
+      expect(existsSync(outside)).toBe(false)
       expect(existsSync(join(dir, 'worfy.app'))).toBe(false)
     } finally {
       await removeDir(dir)

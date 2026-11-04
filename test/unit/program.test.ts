@@ -42,7 +42,8 @@ describe('scriptRunner', () => {
 
 describe('programStart', () => {
   it.each(['/repo/test/fixtures/gh/gh-stub.mjs', 'C:\\repo\\test\\fixtures\\gh\\gh-stub.mjs'])('an override that ends in .mjs runs as a script of worfy\'s own Node: %s', (script) => {
-    expect(programStart(script, 'gh', NODE)).toEqual({ file: NODE, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(programStart(script, 'gh', NODE, 'darwin')).toEqual({ file: NODE, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(programStart(script, 'gh', ELECTRON_EXE, 'win32')).toEqual({ file: ELECTRON_EXE, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } })
   })
 
   it('a relative .mjs override is resolved against worfy\'s own folder: the child runs in another one', () => {
@@ -51,6 +52,13 @@ describe('programStart', () => {
 
   it('the Node of a .mjs override is the one worfy itself runs in', () => {
     expect(programStart('/stub/gh.mjs', 'gh').file).toBe(process.execPath)
+  })
+
+  it('reads worfy\'s file by the rules of the system it is given, not of the one the test runs on', () => {
+    // electron.exe by its Windows path: the stock Electron on Windows; off Windows the whole string is
+    // one file name, not \`electron\`, so it counts as a packaged app.
+    expect(programStart('/stub/gh.mjs', 'gh', ELECTRON_EXE, 'win32').file).toBe(ELECTRON_EXE)
+    expect(programStart('/stub/gh.mjs', 'gh', ELECTRON_EXE, 'darwin').file).toBe('node')
   })
 
   it.each([
@@ -81,6 +89,13 @@ describe('programStartInPty', () => {
   it('off Windows is programStart: a .mjs override runs under worfy\'s own Node', () => {
     expect(programStartInPty('/repo/gh-stub.mjs', 'gh', { platform: 'darwin', execPath: NODE })).toEqual({ file: NODE, args: ['/repo/gh-stub.mjs'], env: { ELECTRON_RUN_AS_NODE: '1' } })
     expect(programStartInPty(join('test', 'gh-stub.mjs'), 'gh', { platform: 'linux', execPath: NODE }).args).toEqual([resolve('test', 'gh-stub.mjs')])
+  })
+
+  it('off Windows passes the system it is given on to programStart', () => {
+    // A Windows test host would read the macOS path by Windows rules (no electron.exe there) and
+    // answer node, had the platform not been passed on.
+    expect(programStartInPty('/repo/gh-stub.mjs', 'gh', { platform: 'darwin', execPath: NODE }).file).toBe(NODE)
+    expect(programStartInPty('/repo/gh-stub.mjs', 'gh', { platform: 'linux', execPath: ELECTRON_EXE }).file).toBe('node')
   })
 
   it('off Windows in the packaged app a .mjs override runs under node of the PATH', () => {

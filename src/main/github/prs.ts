@@ -90,7 +90,7 @@ function windowsOverride(override: string | undefined, platform: NodeJS.Platform
 
 /**
  * The default runner: gh as a child process, never through a shell. A `command` that is a `.mjs`
- * script (a stand-in in tests) runs under worfy's own Node (src/main/program.ts).
+ * script (a stand-in in tests) runs under the Node of scriptRunner (src/main/program.ts).
  */
 export function ghRunner(options: GhRunnerOptions = {}): GhRunner {
   const override = options.command ?? appGhOverride(options.processEnv)
@@ -100,7 +100,7 @@ export function ghRunner(options: GhRunnerOptions = {}): GhRunner {
     const program = windowsOverride(override, platform, options.exists ?? existsSync)
     const start = programStart(program, 'gh')
     const env = options.env ? await options.env() : process.env
-    // A script started under worfy's own Node: the system cannot say it is missing, Node would.
+    // A script started under the Node of scriptRunner: the system cannot say it is missing, Node would.
     const [script] = start.args
     if (script !== undefined && !existsSync(script)) throw new Error(`gh not found (${command})`)
     return new Promise((resolve, reject) => {

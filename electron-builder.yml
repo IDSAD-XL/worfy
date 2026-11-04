@@ -75,7 +75,8 @@ asarUnpack:
 #   before debugAccess() (src/main/settings/store.ts) looks. Playwright's _electron.launch needs
 #   that inspector, so the packaged e2e tests drive a copy with this fuse turned back on
 #   (test/e2e/fuses.ts); the tests of the fuses themselves read dist/ as it is built.
-# The other fuses keep Electron's defaults: no ticket has weighed them yet.
+# The other fuses keep Electron's defaults; the reason for each is in the closing section of
+# .scratch/worfy-auto-approve/issues/12-electron-fuses.md.
 electronFuses:
   runAsNode: false
   enableNodeCliInspectArguments: false
