@@ -164,6 +164,8 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
       case 'subagent': {
         const known = subagents.get(event.taskId)
         if (known) {
+          // A start that named no one (a Codex spawn_agent) is named by a later event of the same task.
+          known.description ??= event.description
           if (event.phase === 'finished') {
             known.status = event.status
             known.summary = event.summary

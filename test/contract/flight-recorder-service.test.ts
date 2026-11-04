@@ -15,9 +15,11 @@ import { projectDirName } from '../../src/main/claude-home/registry'
 import { readNewLines } from '../../src/main/claude-home/tail'
 import { FlightRecorder, RECOMPUTE_INTERVAL_MS, type FlightRecorderOptions, type RunProfile, type RunSubscriber } from '../../src/main/flight-recorder/service'
 import { accountAuth, ghRunner, PrTracker } from '../../src/main/github/prs'
+import type { HistoryPart } from '../../src/main/vendors/history'
 import { SubagentParse, TranscriptParse } from '../../src/shared/flight-recorder/from-transcript'
 import { formatJournalLine, makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
 import type { RunView } from '../../src/shared/ipc/runs'
+import type { TranscriptEntry } from '../../src/shared/transcript/parse'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
 import { writeBigTranscript } from '../big-transcript'
 import { shapedSession, writeShapedSession } from './flight-recorder-shaped-transcript'
@@ -920,3 +922,61 @@ describe('a Project whose Tickets end without a PR', () => {
   })
 })
 
+
+// worfy-multi-vendor ticket 40: the service hands `run-started.vendor` to the reader of the transcripts,
+// so a Run on Codex is read through the history of the Codex driver (a stand-in here), not the Claude home.
+describe('a Run on Codex', () => {
+  it('reads the Orchestrator\'s and the Subagent\'s threads through the Vendor\'s history, and nothing from the Claude home', async () => {
+    const data = await folder('data')
+    const home = await folder('claude-home')
+    const root = await folder('codex-root')
+    const at = (seconds: number): string => new Date(Date.UTC(2026, 10, 1, 10, 0, seconds)).toISOString()
+    const run = makeRunId(new Date(at(0)), 'c0de00')
+    const head = { run, project: 'p-codex', epic: 'e' }
+    await writeJournal(data, run, [
+      { ...head, at: at(0), kind: 'run-started', by: 'button', vendor: 'codex' },
+      { ...head, at: at(1), kind: 'wave-started', wave: 1, tickets: ['01'], session: 'thr_orch' },
+      { ...head, at: at(50), kind: 'wave-finished', wave: 1, tickets: ['01'] },
+      { ...head, at: at(51), kind: 'run-stopped', reason: 'tickets-done' },
+    ])
+    const entry = (seconds: number, event: TranscriptEntry['event']): TranscriptEntry => ({ timestamp: at(seconds), sidechain: false, event })
+    const threads: Record<string, TranscriptEntry[]> = {
+      thr_orch: [
+        entry(2, { type: 'notice', kind: 'user', text: '/worfy:epic-wave tickets 01 of epic e' }),
+        entry(3, { type: 'subagent', phase: 'started', taskId: 'thr_a', toolUseId: 'call_1', description: 'impl_01', subagentType: null, status: null, summary: null }),
+        entry(30, { type: 'subagent', phase: 'finished', taskId: 'thr_a', toolUseId: 'call_2', description: 'impl_01', subagentType: null, status: 'completed', summary: null }),
+        entry(31, { type: 'text', text: 'Done.', messageId: 'm1', parentToolUseId: null, synthetic: false }),
+      ],
+      thr_a: [entry(3, { type: 'notice', kind: 'user', text: 'Implement ticket 01' }), entry(29, { type: 'text', text: '{"pr": 11}', messageId: 'm2', parentToolUseId: null, synthetic: false })],
+    }
+    const asked: string[] = []
+    const reads: string[] = []
+    const history: HistoryPart = {
+      list: () => Promise.resolve([]),
+      read: async (id) => {
+        reads.push(id)
+        const found = threads[id]
+        if (found === undefined) throw new Error(`no thread ${id}`)
+        return found
+      },
+    }
+    const before = await readdir(home, { recursive: true })
+    const recorder = new FlightRecorder({
+      env: { WORFY_DATA_DIR: data, WORFY_CLAUDE_HOME: home },
+      harnessHome: await folder('harness'),
+      projectRoot: () => root,
+      profile: async () => profileOf({ mode: 'silent' }),
+      gh: async () => '[]',
+      running: () => false,
+      git: noGit,
+      history: (vendor) => (asked.push(vendor), history),
+    })
+    const view = await recorder.view('p-codex', run)
+    expect(asked).toEqual(['codex'])
+    expect(reads).toEqual(['thr_orch', 'thr_a'])
+    expect(await readdir(home, { recursive: true })).toEqual(before)
+    expect(view.timeline.spans.some((span) => span.lost === 'transcript-deleted')).toBe(false)
+    const agents = view.timeline.spans.filter((span) => span.kind === 'agent')
+    expect(agents.map((span) => [span.name, span.links.ticket ?? null])).toEqual([['impl_01', 'e/01']])
+  })
+})

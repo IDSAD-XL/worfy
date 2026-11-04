@@ -41,7 +41,8 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   через `vendorDriver(vendor).history` (`src/main/vendors/registry.ts`): `history.read(wave-started.session, root)` — thread
   Orchestrator-а, затем `history.read(<id Subagent-а>, root)` — thread каждого Subagent-а, чей span начался в Wave-ах Run-а,
   по одному (каждое чтение может запустить процесс Codex). Сравнения с именем Vendor-а вне `src/main/vendors/<id>/` нет.
-  Service (`src/main/flight-recorder/service.ts`) передаёт `vendor` журнала.
+  Service (`src/main/flight-recorder/service.ts`) передаёт `vendor` журнала (test — `test/contract/flight-recorder-service.test.ts`,
+  «a Run on Codex»).
 - Факты (`src/shared/flight-recorder/from-transcript.ts`): `TranscriptParse.appendEntries` и `SubagentParse.appendEntries`
   читают записи `TranscriptEntry`. Ход — от сообщения пользователя до самого позднего ответа, tool call или thinking. Span
   агента — от события `subagent` `started` до `finished`; `started` агенту, который уже закончил, — следующий span (`#2`),
@@ -51,7 +52,8 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   вместо `unknown`: `subAgentActivity` started/interacted → `started` (имя — последняя часть `agentPath`), completed →
   `finished completed`, interrupted → `finished stopped`; `collabAgentToolCall` `spawnAgent`, `sendMessage`, `followupTask`,
   `sendInput`, `resumeAgent` → `started`; `wait` и `closeAgent` → `finished` с состоянием и ответом из `agentsStates`;
-  `interruptAgent` → `finished stopped`; неудачный `spawnAgent` → `finished failed`. Каждая запись — со временем своего
+  `interruptAgent` → `finished stopped`; неудачный `spawnAgent` → `started` и `finished failed` с сообщением состояния
+  как причиной (без thread-а — под id вызова), так что во Flight Recorder это span с исходом failed. Каждая запись — со временем своего
   item-а (`startedAtMs` у сообщения пользователя и tool call, `completedAtMs` у остального), без него — со временем начала
   turn-а, как раньше.
 - Сценарий фейка `test/fixtures/codex-scripts/flight-recorder-run.jsonl`: thread Orchestrator-а (два хода, два Subagent-а,
@@ -72,3 +74,5 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
     транскрипт Claude: отдельной метки для «Codex не ответил» нет;
   - в истории Session Codex (Resume) item-ы про Subagent-ов теперь видны строками Subagent-ов, как у Claude, а не
     скрыты как `unknown`.
+    Строка Subagent-а, начатого `spawn_agent` без имени, получает имя из следующего события того же Subagent-а
+    (`src/renderer/session/fold.ts`), а не показывает id thread-а.

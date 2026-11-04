@@ -526,6 +526,19 @@ describe('the facts of a Vendor\'s transcript entries (appendEntries)', () => {
     expect([...parse.agentIdsIn((at) => at >= T('10:15'))]).toEqual(['a'])
   })
 
+  // A failed spawn_agent comes from the Codex history as a start and a failed end (codexTranscript).
+  it('a spawn that failed is a failed span with its error as the reason', () => {
+    const parse = new TranscriptParse().appendEntries([
+      user(T('12:00'), 'go'),
+      subagent(T('12:01'), 'started', 'x', { description: 'impl_09' }),
+      entry(T('12:02'), { type: 'subagent', phase: 'finished', taskId: 'x', toolUseId: 'spawn', description: null, subagentType: null, status: 'failed', summary: 'model not found' }),
+    ])
+    const facts = parse.facts({ session: 'thr', epic: 'e', tickets: ['e/09'] })
+    expect(facts.work.map(({ id, name, ticket, start, end, outcome, reason }) => ({ id, name, ticket, start, end, outcome, reason }))).toEqual([
+      { id: 'x#1', name: 'impl_09', ticket: 'e/09', start: T('12:01'), end: T('12:02'), outcome: 'failed', reason: 'model not found' },
+    ])
+  })
+
   it('the Subagent\'s own transcript gives its prompt (for its Ticket) and, without a result, its report; a turn ends at its latest answer', () => {
     const parse = new TranscriptParse().appendEntries([
       user(T('11:00'), 'go'),

@@ -99,6 +99,17 @@ describe('foldTranscript', () => {
     expect(items[1]).toMatchObject({ kind: 'subagent', run: { taskId: 'k2', status: null } })
   })
 
+  // worfy-multi-vendor ticket 40: a Codex spawn_agent starts the Subagent with no name; its subAgentActivity names it.
+  it('names a subagent started without a description by a later event of the same task, and keeps a name it has', () => {
+    const items = foldTranscript([
+      { type: 'subagent', phase: 'started', taskId: 'thr_a', toolUseId: 'spawn_1', description: null, subagentType: null, status: null, summary: null },
+      { type: 'subagent', phase: 'started', taskId: 'thr_a', toolUseId: 'act_1', description: 'impl_40', subagentType: null, status: null, summary: null },
+      { type: 'subagent', phase: 'finished', taskId: 'thr_a', toolUseId: 'act_2', description: 'other', subagentType: null, status: 'completed', summary: null },
+    ])
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ kind: 'subagent', run: { taskId: 'thr_a', description: 'impl_40', status: 'completed' } })
+  })
+
   it('marks an interrupted turn once, by its result, not by the "[Request interrupted by user]" message', () => {
     const items = foldTranscript([prompt('count'), delta('1 2 '), prompt('[Request interrupted by user]'), result({ isError: true, interrupted: true })])
     expect(items.map((item) => item.kind)).toEqual(['prompt', 'text', 'result'])

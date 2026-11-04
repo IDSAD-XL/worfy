@@ -109,7 +109,7 @@ const ENDED_AS: Readonly<Record<CollabAgentStatus, string | null>> = {
 /** The collab tools that set a Subagent working again (send_message, followup_task…). */
 const RESUMING_TOOLS: ReadonlySet<CollabAgentTool> = new Set(['sendMessage', 'followupTask', 'sendInput', 'resumeAgent'])
 
-const subagentEvent = (phase: SubagentEvent['phase'], taskId: string, toolUseId: string, fields: Partial<Pick<SubagentEvent, 'description' | 'status' | 'result'>> = {}): SubagentEvent => ({
+const subagentEvent = (phase: SubagentEvent['phase'], taskId: string, toolUseId: string, fields: Partial<Pick<SubagentEvent, 'description' | 'status' | 'summary' | 'result'>> = {}): SubagentEvent => ({
   type: 'subagent',
   phase,
   taskId,
@@ -117,7 +117,7 @@ const subagentEvent = (phase: SubagentEvent['phase'], taskId: string, toolUseId:
   description: fields.description ?? null,
   subagentType: null,
   status: fields.status ?? null,
-  summary: null,
+  summary: fields.summary ?? null,
   ...(fields.result === undefined ? {} : { result: fields.result }),
 })
 
@@ -126,7 +126,9 @@ const subagentEvent = (phase: SubagentEvent['phase'], taskId: string, toolUseId:
  * `subagent` events a Claude transcript gives for its agents: `started` when one is spawned or set
  * working again (send_message, followup_task), `finished` when it ends, each at its own time. A
  * `subAgentActivity` names the agent by the last part of its path; a `wait` or `closeAgent` gives the
- * states the Subagents ended in, with their answers. Null for an item of another type.
+ * states the Subagents ended in, with their answers. A spawn that failed is a start and a failed end,
+ * with the state's message as the reason; one that names no thread stands for its Subagent by the
+ * call's id, so the attempt still shows. Null for an item of another type.
  */
 function subagentEvents(item: ThreadItem): { at: number | null | undefined; event: SubagentEvent }[] | null {
   if (item.type === 'subAgentActivity') {
@@ -138,7 +140,14 @@ function subagentEvents(item: ThreadItem): { at: number | null | undefined; even
   if (item.type !== 'collabAgentToolCall') return null
   const started = item.startedAtMs
   const done = item.completedAtMs ?? item.startedAtMs
-  if (item.status === 'failed') return item.tool === 'spawnAgent' ? item.receiverThreadIds.map((agent) => ({ at: done, event: subagentEvent('finished', agent, item.id, { status: 'failed' }) })) : []
+  if (item.status === 'failed') {
+    if (item.tool !== 'spawnAgent') return []
+    const agents = item.receiverThreadIds.length > 0 ? item.receiverThreadIds : [item.id]
+    return agents.flatMap((agent) => [
+      { at: started, event: subagentEvent('started', agent, item.id) },
+      { at: done, event: subagentEvent('finished', agent, item.id, { status: 'failed', summary: item.agentsStates[agent]?.message ?? null }) },
+    ])
+  }
   if (item.tool === 'spawnAgent' || RESUMING_TOOLS.has(item.tool)) return item.receiverThreadIds.map((agent) => ({ at: started, event: subagentEvent('started', agent, item.id) }))
   if (item.tool === 'interruptAgent') return item.receiverThreadIds.map((agent) => ({ at: done, event: subagentEvent('finished', agent, item.id, { status: 'stopped' }) }))
   if (item.tool !== 'wait' && item.tool !== 'closeAgent') return []
