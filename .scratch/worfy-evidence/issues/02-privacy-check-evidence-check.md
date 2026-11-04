@@ -1,7 +1,8 @@
 # 02 — Privacy check `evidence-check` и модуль правил `privacy.cjs`
 
 Type: task
-Status: claimed 2026-11-04T00:40Z
+Status: done 2026-11-04T01:33Z
+PR: #1320
 Blocked by: —
 Source: [spec.md](../spec.md), «Privacy check» (весь раздел, включая «Чего privacy check не ловит»), «Решено без владельца», п. 4, 5, 10–12, 14, «Вопросы владельцу», Q3, Q4, Q5, Q7; случай docs PR #1306; worfy-failures 01 (берёт `harness/lib/privacy.cjs` для записей о красных test-ах)
 
