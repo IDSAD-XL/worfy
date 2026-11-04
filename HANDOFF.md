@@ -4,7 +4,7 @@
 
 - `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): 70/71; влиты 62, 64, 65 (#719), 66 (#949), 67 (#1011), 68 (#945), 69 (#1015), 70 (#778), 71 (#829), 52, 63 (#713); задачи 52 — у владельца; 31, 36, 47, 48, 50, 51 — шаг владельца.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
-- Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
+- Stable copy и plugin `worfy` на Mac и ПК — `0.3.0+bacbbcef` (2026-11-03). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` ([spec](.scratch/worfy-link/spec.md)): закрыт, 42/42, принят владельцем 2026-11-02; 31 (Tailscale) принят 2026-10-31; 41 (дубль сообщения, #1114) и 42 (поток строк смены сети, #1119) — проверка после Stable.
 - `worfy-windows` (ADR 0054–0057, 0062, 0063, 0069, 0071; прошлое — «Итог» 39, 60, 66, 67): 119/120; влиты 118–120; 15 и 118 вместе прошли зелёный gate full на ПК (`5557f744`). Осталась приёмка 16; красный только на Windows — fix или Windows exception (Q1/Q9).
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) — **добиваем, владелец 2026-10-23**: закрыт, 17/17, принят владельцем 2026-11-02 (17 — #1056, ветка git из файлов).
@@ -20,7 +20,8 @@
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): закрыт, 16/16, принят владельцем 2026-11-02 (Mac). `worfy-guide`: закрыт, 21/21.
 - `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): закрыт, 28/28, принят владельцем 2026-11-01; Windows-часть 25 не проводилась.
 - `worfy-resource-planner`: закрыт, 12/12, принят владельцем 2026-11-01.
-- `worfy-multi-vendor`: 37/45, Wave 13 влита (36 и polish 50); дальше 45. Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–36, 41, 44; `high` 19–21; запуски Codex (33). Должен: gate full ПК на `594ea0c7`.
+- `worfy-multi-vendor`: 38/45, Wave 14 влита (45); дальше 37. Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–36, 41, 44, 45 (п. 1 — `additionalContextLimit`); `high` 19–21; запуски Codex (33). Должен: gate full ПК на `594ea0c7`.
+- Новые Epic-и 2026-11-04: `worfy-evidence` в работе (Q1–Q7 подтвердить), `worfy-failures` и `worfy-faults` — черновики.
 
 ## Ждёт владельца
 
@@ -48,7 +49,7 @@
 - Пока не сделан пункт о реестре Gate и Profile, Gate `fast` и CI не проверяют PR, где изменён только `HANDOFF.md`: перед его push — `node scripts/check-handoff.mjs`. PR только в `harness/` гоняют Gate с `GATE_SCOPE=all`.
 - Gate `fast` с сужением по диффу не видит `scripts/` и `test/fixtures/` (`worfy-mvp` 01); условие merge — `ci-ok` (ADR-0083).
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
-- Ложный таймаут первого окна в e2e: заблокированный экран, сеанс macOS владельца в фоне, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают; на Mac владельца ещё и `defaults` для `com.github.Electron`) — [agents.md](docs/lessons/agents.md).
+- Ложный таймаут первого окна в e2e: причины — в [agents.md](docs/lessons/agents.md).
 - Замок e2e: в `rules.md` Profile владельца heartbeat ещё старый (без выхода при снятом замке); новая строка — в PR `worfy-harness` 49, вносит владелец.
 - Windows exception-ы `terminal-windows-close-no-console-host` и `workflow-branches-gone-worktree-then-repository` (`test/quarantine/`) до 2026-12-15 — решает Orchestrator.
 - Решение владельца не принято (`worfy-terminal-ai` 09, «Итог»): ответ Terminal AI появляется через ~0,6 s после готовности, потому что `attempt()` в `src/main/terminal-ai/assist.ts` ждёт выхода процесса `claude`, а не сообщения `result`.
