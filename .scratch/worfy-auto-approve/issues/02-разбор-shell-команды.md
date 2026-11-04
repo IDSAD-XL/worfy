@@ -55,12 +55,15 @@ Source: [spec.md](../spec.md), «Как работает», п. 2; «Безоп�
   - evidence: test-run pass · CI job windows (2/3) / full-suite, run 41885529847: test/contract/auto-approve-shell-sh.test.ts 21 tests on Git Bash, exit 0 · windows - · cefa08026e3e1010edee2c55589bb66df7f57348
   - evidence: test-run pass · CI job macos-tests, run 41885529847: test/contract/auto-approve-shell-sh.test.ts 87 tests, exit 0 · mac - · cefa08026e3e1010edee2c55589bb66df7f57348
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/auto-approve-shell-sh.test.ts: sh, dash, bash, zsh on macOS) · mac - · 84baf24dc3cd643ead747d114fefec40e1ccbdf3
+  - evidence: test-run pass · CI job windows (2/3) / full-suite, run 41904557261: test/contract/auto-approve-shell-sh.test.ts 21 tests on Git Bash, exit 0 · windows - · 05431806749d828296c02d5169e8dfe111899a0c
+  - evidence: test-run pass · CI job macos-tests, run 41904557261: test/contract/auto-approve-shell-sh.test.ts 87 tests, exit 0 · mac - · 05431806749d828296c02d5169e8dfe111899a0c
 - [ ] Windows: `\` в путях, форма `/c/Users/…`, регистр — тот же результат, что на macOS и Linux.
   - evidence: test-run pass · `pnpm vitest run --project node test/unit/auto-approve-shell.test.ts` exit 0 (describe Windows (Git Bash), platform win32) · mac - · ad5417fe2ccb75ffcfc74ce2df4f93d1892502f1
   - evidence: test-run pass · `pnpm test` exit 0 (describe Windows (Git Bash), platform win32, rm -rf ~/x/* agrees with Linux) · mac - · c39ef44b32932226e5746cfa0e348fe9db3a5801
   - evidence: test-run pass · `pnpm test` exit 0 (describe Windows (Git Bash), platform win32, git push to ..\other and C:/r) · mac - · f2d52af18989a8ea2a075f311944d640d90b1f7d
   - evidence: test-run pass · CI job windows (3/3) / full-suite, run 41885529847: test/unit/auto-approve-shell.test.ts 318 tests, exit 0 · windows - · cefa08026e3e1010edee2c55589bb66df7f57348
   - evidence: test-run pass · `pnpm test` exit 0 (describe Windows (Git Bash), platform win32, git config reads the user .gitconfig) · mac - · 84baf24dc3cd643ead747d114fefec40e1ccbdf3
+  - evidence: test-run pass · CI job windows (3/3) / full-suite, run 41904557261: test/unit/auto-approve-shell.test.ts 332 tests, exit 0 · windows - · 05431806749d828296c02d5169e8dfe111899a0c
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на Linux, macOS, Windows.
   - evidence: gate pass · `gate fast` exit 0 · mac - · ad5417fe2ccb75ffcfc74ce2df4f93d1892502f1
   - evidence: gate pass · `gate fast` exit 0 · mac - · c39ef44b32932226e5746cfa0e348fe9db3a5801
@@ -68,6 +71,7 @@ Source: [spec.md](../spec.md), «Как работает», п. 2; «Безоп�
   - evidence: gate pass · `gate fast` exit 0 · mac - · f2d52af18989a8ea2a075f311944d640d90b1f7d
   - evidence: gate pass · CI run 41885529847: ci-ok pass on Linux, macOS, Windows · linux - · cefa08026e3e1010edee2c55589bb66df7f57348
   - evidence: gate pass · `gate fast` exit 0 · mac - · 84baf24dc3cd643ead747d114fefec40e1ccbdf3
+  - evidence: gate pass · CI run 41904557261: ci-ok pass on Linux, macOS, Windows · linux - · 05431806749d828296c02d5169e8dfe111899a0c
 
 ## Тесты
 
