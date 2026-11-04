@@ -11,7 +11,7 @@
 // A pinned Node is shown inside the Canvas: when its saved place sticks out (the window is smaller
 // than when it was pinned), it is shown moved in, and unpinning puts it where it is shown. It is
 // also kept out of the minimap's corner while the minimap is shown (ticket worfy-daily/12), so it
-// never sits under it.
+// never sits under it, and out of the first-Epic label next to it (worfy-polish 56).
 //
 // React Flow still draws a pinned Node, as one more Node of the plane: for every viewport,
 // placePinned() moves it to the canvas point under its screen place and gives it its screen size
@@ -38,17 +38,38 @@ import { useElementSize } from './use-element-size'
 export const PINNED_Z_INDEX = 1000
 export const PINNED_CLASS = 'w-pinned'
 
-/** The box at the bottom right of the Canvas that a pinned Node keeps out of: the minimap with its margins. */
+/**
+ * The box at the bottom right of the Canvas that a pinned Node keeps out of: the minimap with its
+ * margins, and the first-Epic label next to it (overlays/FirstEpic.tsx).
+ */
 export interface CornerSize {
   width: number
   height: number
 }
 
-const useMinimapCorner = create<{ corner: CornerSize | undefined }>(() => ({ corner: undefined }))
+/** The boxes held at the bottom right, by holder; `corner` is the smallest box around them all. */
+const useMinimapCorner = create<{ boxes: Readonly<Record<string, CornerSize>>; corner: CornerSize | undefined }>(() => ({
+  boxes: {},
+  corner: undefined,
+}))
+
+/**
+ * Told by what sits at the bottom right of the Canvas: its box while it is shown, undefined once it
+ * is gone. The corner stays the same object while its size does not change.
+ */
+export function holdCorner(holder: string, box: CornerSize | undefined): void {
+  const { boxes, corner } = useMinimapCorner.getState()
+  if (boxes[holder] === box) return
+  const next = Object.fromEntries(Object.entries({ ...boxes, [holder]: box }).filter((entry): entry is [string, CornerSize] => entry[1] !== undefined))
+  const all = Object.values(next)
+  const around = all.length === 0 ? undefined : { width: Math.max(...all.map((one) => one.width)), height: Math.max(...all.map((one) => one.height)) }
+  const same = around?.width === corner?.width && around?.height === corner?.height
+  useMinimapCorner.setState({ boxes: next, corner: same ? corner : around })
+}
 
 /** Told by the minimap (overlays/MiniMapOverlay.tsx): its corner while it is shown, undefined while it is hidden. */
 export function setMinimapCorner(corner: CornerSize | undefined): void {
-  if (useMinimapCorner.getState().corner !== corner) useMinimapCorner.setState({ corner })
+  holdCorner('minimap', corner)
 }
 
 /** The screen point (relative to the Canvas) where a canvas point is drawn. */

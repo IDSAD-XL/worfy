@@ -93,14 +93,14 @@ A template with an unknown placeholder or one without a value does not render, a
 worfy reads the workflow again when Ship ticket or Run wave is clicked and takes the same decision again, so a Ticket
 claimed meanwhile in a terminal is not shipped twice. The launched agent changes the status itself, with `ticket claim`.
 
-**Empty and failed.** A Project without Epics shows the "No epics yet" panel. "Plan first epic" opens the Orchestrator and
-sends it nothing. A frame without Tickets says "No tickets in this epic." When the workflow cannot be read, the Canvas has
+**Empty and failed.** A Project without Epics shows the label "Plan your first epic →" above the Minimap, at the bottom
+right of the Canvas (in that corner while the Minimap is hidden). Clicking it opens the Orchestrator and sends it nothing. A frame without Tickets says "No tickets in this epic." When the workflow cannot be read, the Canvas has
 no frames and the Epics section shows the reason.
 
 #### On a Linked machine
 
 Epics and Tickets are read on the Project's Machine, for Projects of its list only. On a read-only screen Ship ticket, Run
-wave, collapsing a frame and "Plan first epic" are inactive and say why. With write access the actions run on the Project's
+wave, collapsing a frame and "Plan your first epic" are inactive and say why. With write access the actions run on the Project's
 Machine. Focus mode reads the file there too, and "Open in editor" shows the toast "File is on <Machine>".
 
 ### How it works
@@ -153,7 +153,7 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
 | The views | `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/nodes/EpicFrameNode.tsx` |
 | Evidence: the items' states, the chip, the matrix | `src/shared/workflow/evidence.ts`, `src/renderer/canvas/badges/Evidence.tsx`, `src/renderer/canvas/nodes/EvidenceMatrix.tsx`, `src/renderer/canvas/badges/evidence.css` |
 | The arrows | `src/renderer/canvas/edges/blocking.ts` |
-| Sidebar, palette, empty panel | `src/renderer/shell/sidebar/EpicsSection.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/overlays/FirstEpic.tsx` |
+| Sidebar, palette, first-epic label | `src/renderer/shell/sidebar/EpicsSection.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/overlays/FirstEpic.tsx` |
 | The buttons | `src/renderer/canvas/actions/TicketActions.tsx`, `src/renderer/canvas/actions/EpicActions.tsx`, `src/renderer/canvas/actions/OpenPr.tsx`, `src/renderer/canvas/actions/gates.ts` |
 | Whether an action can run; templates | `src/shared/actions/render-template.ts`, `src/shared/projects/action-templates.ts` |
 | Starting the work | `src/main/actions/launch.ts`, `src/main/ipc/actions.ts`, `src/shared/ipc/actions.ts` |
