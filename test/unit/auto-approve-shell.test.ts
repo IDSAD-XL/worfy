@@ -346,6 +346,17 @@ describe('outside the grammar: judged false', () => {
     ['a -- right after an option, before a glob', 'cat -n -- *', 'a glob that may expand into an option'],
     ['git commit -c beside a message', 'git commit -m x -c HEAD', 'a git command that starts an editor or gpg'],
     ['a long git branch option outside a listing', 'git branch --no-color x', 'an option the table does not know'],
+    ['git diff with a path outside the repository', 'git diff /dev/null ~/.ssh/id_rsa', 'a git read outside the repository'],
+    ['git diff --no-index', 'git diff --no-index ~/.ssh/id_rsa /dev/null', 'a git read outside the repository'],
+    ['git diff --no-index by a prefix', 'git diff --no-i a b', 'a git read outside the repository'],
+    ['git blame --contents outside the repository', 'git blame --contents=/home/demo/.ssh/id_rsa f', 'a git read outside the repository'],
+    ['git log with a path outside the repository', 'git log --pretty=x ~/.ssh', 'a git read outside the repository'],
+    ['git diff with a .. path', 'git diff HEAD ../secret', 'a git read outside the repository'],
+    ['a value glued to a short git option that may name a file', 'git diff -O/tmp/order', 'a git option whose value may name a file'],
+    ['git config --global', 'git config --get --global user.name', 'a git config outside the repository'],
+    ['git config --system by a prefix', 'git config --sys --get x', 'a git config outside the repository'],
+    ['git config --file', 'git config --file=/tmp/x --get a.b', 'a git config outside the repository'],
+    ['git config -f', 'git config -f x --get a.b', 'a git config outside the repository'],
   ]
   const contexts: Record<string, AnalyzeContext> = {
     'a working folder on Windows that is not absolute': { ...windows, cwd: 'work' },
@@ -486,10 +497,10 @@ describe('the table', () => {
   it('git reads, local changes, config, and an unknown subcommand or alias', () => {
     expect(brief('git status; git log --oneline HEAD~3; git commit -am msg; git fetch origin; git config --get user.name; git config core.pager x; git demo-alias')).toEqual([
       { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY] },
-      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY] },
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/tmp/demo/HEAD~3'] },
       { program: 'git', cwd: '/tmp/demo', writes: [REPOSITORY] },
       { program: 'git', cwd: '/tmp/demo', writes: [REPOSITORY], network: true },
-      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY] },
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/home/demo/.gitconfig', '/home/demo/.config/git/config'] },
       { program: 'git', cwd: '/tmp/demo', writes: [UNKNOWN] },
       { program: 'git', cwd: '/tmp/demo', writes: [UNKNOWN] },
     ])
@@ -587,6 +598,22 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
     expect(git('git branch -d --remotes origin/x')).toEqual([{ subcommand: 'branch', branchDelete: { branches: ['origin/x'], force: false } }])
   })
 
+  it('git read subcommands list the files their words may name; git config the user files it reads', () => {
+    expect(brief('git diff HEAD -- src/a.ts; git blame --contents=draft f; git show HEAD:../x')).toEqual([
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/tmp/demo/HEAD', '/tmp/demo/src/a.ts'] },
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/tmp/demo/draft', '/tmp/demo/f'] },
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/tmp/demo/HEAD:../x'] },
+    ])
+    expect(actions('git log main^ HEAD~3')[0]?.reads).toEqual([REPOSITORY, '/tmp/demo/main^', '/tmp/demo/HEAD~3'])
+    expect(analyze('git log HEAD~3/x', posix)).toEqual({ judged: false, why: 'a zsh extended glob character in a path' })
+    expect(brief('git config --local --get a.b; git config --get a.b', { ...posix, env: { ...posix.env, XDG_CONFIG_HOME: '/tmp/demo-xdg' } })).toEqual([
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY] },
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/home/demo/.gitconfig', '/tmp/demo-xdg/git/config'] },
+    ])
+    expect(actions('git config --get a.b', windows)[0]?.reads).toEqual([REPOSITORY, 'C:\\Users\\demo\\.gitconfig', 'C:\\Users\\demo\\.config\\git\\config'])
+    expect(analyze('git config --get a.b', { ...posix, env: {} })).toEqual({ judged: false, why: 'a git config read without HOME' })
+  })
+
   it('git push to a local path writes that path', () => {
     expect(brief('git push ../other main; git push file:///tmp/demo/r main; git push /abs/r; git push ./r; git push host:path main')).toEqual([
       { program: 'git', cwd: '/tmp/demo', writes: [REPOSITORY, '/tmp/demo/../other'], network: true },
@@ -658,7 +685,7 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
       { program: 'wget', cwd: '/tmp/demo', writes: ['/tmp/demo/f'], network: true },
     ])
     expect(brief('git config --list; set -o errexit; set +o nounset')).toEqual([
-      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY] },
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/home/demo/.gitconfig', '/home/demo/.config/git/config'] },
       { program: 'set', cwd: '/tmp/demo' },
       { program: 'set', cwd: '/tmp/demo' },
     ])
@@ -675,7 +702,7 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
       { program: 'rmdir', cwd: '/tmp/demo', deletes: ['/tmp/demo/*'] },
       { program: 'echo', cwd: '/tmp/demo' },
       { program: 'printf', cwd: '/tmp/demo' },
-      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY] },
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/tmp/demo/TODO', '/tmp/demo/*'] },
       { program: 'cat', cwd: '/tmp/demo', reads: ['/tmp/demo/*'] },
     ])
     expect(analyze('printf *', posix)).toEqual({ judged: false, why: 'a glob that may expand into an option' })

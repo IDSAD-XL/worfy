@@ -849,6 +849,19 @@ const GIT_READ = new Set(['status', 'log', 'diff', 'show', 'rev-parse', 'ls-file
 // so a prefix of these is refused too. Every word is checked, after `--` too: which options take a
 // value is not known here, so a `--` may be the value of one (`git grep -e -- -Oprogram`).
 const GIT_READ_DENIED = ['output', 'ext-diff', 'textconv', 'open-files-in-pager']
+// A read subcommand reads the files its words name, not only the repository: `git diff /dev/null x`
+// and `--no-index` print any file, `git blame --contents=x` reads x. Which word is a revision and
+// which a path is not known here, so every word that is no option, and every `--name=value` value,
+// is listed in `reads`; one that may leave the repository (absolute, `..`) is refused.
+const GIT_READ_OUTSIDE = ['no-index']
+// git config reads these besides the repository's own file; --global, --system, --file and --blob
+// name only another file, so they are refused.
+const GIT_CONFIG_OUTSIDE = ['global', 'system', 'file', 'blob']
+
+/** Whether a path a git word names may lie outside the repository: absolute, or with a `..` component. */
+function leavesRepository(value: string): boolean {
+  return /^([\\/]|[A-Za-z]:)/.test(value) || value.split(/[\\/]/).includes('..')
+}
 // Subcommands that change the repository and nothing outside it, with the options that read a file
 // or run a program (an editor, a merge strategy, a command per commit, a template) denied, short
 // ones in any cluster and long ones by any prefix.
@@ -945,18 +958,48 @@ function git(args: Expanded[], cwd: string, scope: Scope): Effects {
   const repository = (effects: Partial<Effects> = {}): Effects => ({ ...base(), writes: [REPOSITORY], ...effects })
   if (sub === undefined) return base()
   if (GIT_READ.has(sub)) {
+    const reads = [REPOSITORY]
+    const read = (word: Expanded): void => {
+      if (leavesRepository(word.value)) fail('a git read outside the repository')
+      // A revision such as HEAD~3 or main^ holds a zsh extended glob character; in one component it can
+      // only match files of this folder, so it is listed as written.
+      if (word.extendedGlob && word.globAt < 0 && !/[\\/]/.test(word.value)) reads.push(join(folder, word.value, scope.win))
+      else reads.push(pathOf(word, folder, scope))
+    }
     for (const arg of rest) {
       const v = arg.value
+      if (v === '--' || v === '-') continue
       const name = longName(v)
-      if (name !== undefined && deniedLong(name, GIT_READ_DENIED)) fail('a git option that writes a file or runs a program')
-      if (sub === 'grep' && /^-[^-]*O/.test(v)) fail('a git option that writes a file or runs a program')
+      if (name !== undefined) {
+        if (deniedLong(name, GIT_READ_DENIED)) fail('a git option that writes a file or runs a program')
+        if (deniedLong(name, GIT_READ_OUTSIDE)) fail('a git read outside the repository')
+        const eq = v.indexOf('=')
+        if (eq >= 0 && eq + 1 < v.length) read(slice(arg, eq + 1))
+      } else if (v.startsWith('-')) {
+        if (sub === 'grep' && /^-[^-]*O/.test(v)) fail('a git option that writes a file or runs a program')
+        // A value glued to a short option (`-O<orderfile>`) may name a file.
+        if (/[\\/~.]/.test(v)) fail('a git option whose value may name a file')
+      } else read(arg)
     }
-    return { ...base(), reads: [REPOSITORY] }
+    return { ...base(), reads }
   }
   if (sub === 'config') {
+    if (rest.some((arg) => {
+      const name = longName(arg.value)
+      return (name !== undefined && deniedLong(name, GIT_CONFIG_OUTSIDE)) || /^-[A-Za-z]*f/.test(arg.value)
+    })) fail('a git config outside the repository')
     const reading = rest.length > 0 && rest.every((arg) => ['--get', '--get-all', '--get-regexp', '--list', '-l', '--show-origin', '--local', '--global', '--worktree', '--null', '-z', '--name-only'].includes(arg.value) || !arg.value.startsWith('-')) && rest.some((arg) => ['--get', '--get-all', '--get-regexp', '--list', '-l'].includes(arg.value))
     // A setting can name a program git runs later (core.fsmonitor, core.pager, an alias).
-    return reading ? { ...base(), reads: [REPOSITORY] } : { ...base(), writes: [UNKNOWN] }
+    if (!reading) return { ...base(), writes: [UNKNOWN] }
+    // Without --local or --worktree git also reads the user's own config files.
+    if (rest.some((arg) => arg.value === '--local' || arg.value === '--worktree')) return { ...base(), reads: [REPOSITORY] }
+    const home = scope.context.env['HOME']
+    if (home === undefined || home === '') fail('a git config read without HOME')
+    const user = join(folder, home, scope.win)
+    const sep = scope.win ? '\\' : '/'
+    const xdg = scope.context.env['XDG_CONFIG_HOME']
+    const config = xdg === undefined || xdg === '' ? `${user}${sep}.config` : join(folder, xdg, scope.win)
+    return { ...base(), reads: [REPOSITORY, `${user}${sep}.gitconfig`, `${config}${sep}git${sep}config`] }
   }
   if (sub === 'branch') {
     if (rest.every((arg) => GIT_BRANCH_LIST.includes(arg.value))) return { ...base(), reads: [REPOSITORY] }
