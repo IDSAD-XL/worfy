@@ -176,7 +176,10 @@ interface HarnessOptions {
    * windows known, or with a window older than the age by the clock, as limits-usage.ts does.
    */
   reads?: LimitWindow[][]
-  /** Each read waits for this promise before it answers (a slow read during a Force stop). */
+  /**
+   * Each read records its windows at once, then waits for this promise before it resolves (a poll
+   * whose answer is in but whose call has not returned, during a Force stop or the quit).
+   */
   hold?: Promise<void>
   /** Each read fails (the app's poll gets no answer): the windows stay as they were. */
   readFails?: boolean
@@ -353,9 +356,12 @@ function harness(options: HarnessOptions) {
             const fresh = codexWindows !== null && codexWindows.length > 0 && olderThanMs > 0 && codexWindows.every((each) => each.receivedAt > (clock ?? Date.now()) - olderThanMs - 1)
             if (fresh) return
             readCount += 1
-            if (options.hold !== undefined) await options.hold
-            if (options.readFails === true || reads === undefined) throw new Error('no answer from Codex')
+            if (options.readFails === true || reads === undefined) {
+              if (options.hold !== undefined) await options.hold
+              throw new Error('no answer from Codex')
+            }
             codexWindows = reads.length > 1 ? reads.shift()! : reads[0]!
+            if (options.hold !== undefined) await options.hold
           },
         }
   const autopilot = new Autopilot({
@@ -805,29 +811,35 @@ describe('the Limits of a Run on Codex and the gate queue\'s turn (worfy-multi-v
     expect((await h.journal()).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'limits-timeout' })
   })
 
-  it('Force stop during the read of Codex\'s windows after a wait ends the run at once: no resumed, no new prompt to the Session', async () => {
-    let release!: () => void
-    const hold = new Promise<void>((resolve) => (release = resolve))
-    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-window', 'resume'], hooksApproved: true, limitsClock: CLOCK, fires: 1, codexWindows: plus(10, 10), reads: [plus(30, 40)], hold })
-    try {
-      await h.autopilot.start(PROJECT, EPIC)
-      await until(() => h.reads() === 1, 'the read after the wait')
-      const prompts = h.observed.filter((event) => event.type === 'prompt').length
-      let stopped = false
-      const stopping = h.autopilot.forceStop(PROJECT).then(() => (stopped = true))
-      await until(() => stopped, 'Force stop while the read is held')
-      release()
-      await stopping
-      await new Promise((resolve) => setTimeout(resolve, 200))
-      const kinds = (await h.journal()).map((event) => event.kind)
-      expect(kinds).not.toContain('resumed')
-      expect(kinds).toContain('run-stopped')
-      expect(h.observed.filter((event) => event.type === 'prompt').length).toBe(prompts)
-      expect(h.autopilot.state(PROJECT).status).toBe('stopped')
-    } finally {
-      release()
-    }
-  })
+  for (const [what, stop] of [
+    ['Force stop', (h: ReturnType<typeof harness>) => h.autopilot.forceStop(PROJECT)],
+    ['the quit', (h: ReturnType<typeof harness>) => h.autopilot.stopAll()],
+  ] as const) {
+    it(`${what} during the read of Codex's windows after a wait ends the run at once: no resumed, no new prompt to the Session, even with the windows read no longer used up`, async () => {
+      let release!: () => void
+      const hold = new Promise<void>((resolve) => (release = resolve))
+      // The read has the windows in (none used up, so the run would go on) but does not return until released.
+      const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-window', 'resume'], hooksApproved: true, limitsClock: CLOCK, fires: 1, codexWindows: plus(10, 10), reads: [plus(30, 40)], hold })
+      try {
+        await h.autopilot.start(PROJECT, EPIC)
+        await until(() => h.reads() === 1, 'the read after the wait')
+        const prompts = h.observed.filter((event) => event.type === 'prompt').length
+        let stopped = false
+        const stopping = stop(h).then(() => (stopped = true))
+        await until(() => stopped, `${what} while the read is held`)
+        release()
+        await stopping
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        const kinds = (await h.journal()).map((event) => event.kind)
+        expect(kinds).not.toContain('resumed')
+        expect(kinds).toContain('run-stopped')
+        expect(h.observed.filter((event) => event.type === 'prompt').length).toBe(prompts)
+        expect(h.autopilot.state(PROJECT).status).toBe('stopped')
+      } finally {
+        release()
+      }
+    })
+  }
 
   it('usage-limit-no-windows: a refusal with no window known and the read failing is a window with no reset, rechecked; not vendor-quota', async () => {
     const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-no-windows', 'resume'], hooksApproved: true, limitsClock: CLOCK })
