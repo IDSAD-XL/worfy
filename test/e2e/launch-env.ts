@@ -107,6 +107,9 @@ function isolation(dataDir: string, claudeHome: string, profileDir: string, plat
     // 127.0.0.1:<port> (launchLinkedPair in helpers.ts).
     WORFY_LINK_HOST: '127.0.0.1',
     WORFY_LINK_BONJOUR: '0',
+    // No Tailscale CLI (src/main/link/tailscale.ts, findTailscale): a file that is not there, so no
+    // tailnet or MagicDNS name of the developer's machine reaches a test, a screenshot or a clip.
+    WORFY_TAILSCALE: join(profileDir, 'no-tailscale'),
   }
 }
 
