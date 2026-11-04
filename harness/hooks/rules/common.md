@@ -94,7 +94,7 @@ the step breaks.
   (`bash <<'EOF'`). Put a multi-line script into a file in your own scratchpad subdirectory and run
   the file (`zsh -f <file>`).
 
-Without a human a question is refused too: do not call `AskUserQuestion`. Decide by the project's
-rules, recorded decisions and the brief, and say so in the report. A choice only the user can make
-(money, deleted data, an irreversible step, a direction nothing records) goes into the ticket as a
-question for the user; go on with work it does not block.
+In a session without a human a question is refused too: there, do not call `AskUserQuestion`.
+Decide by the project's rules, recorded decisions and the brief; say so in the report. A choice only
+the user can make (money, deleted data, an irreversible step, an unrecorded direction) goes into the
+ticket as a question; go on with work it does not block.
