@@ -9,10 +9,10 @@
 // the sandbox, so the sandbox shows only what worfy itself wrote. The real Codex never runs.
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative, sep } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CODEX_AGENT_MARK, codexAgentFiles, writeCodexAgents } from '../../src/main/harness/codex-agents'
-import { CodexHarness, codexInstallBinary, codexMarketplacesOf, codexPluginsOf, type CodexInstallerOptions } from '../../src/main/harness/codex-install'
+import { CodexHarness, codexInstallBinary, codexMarketplacesOf, codexPluginsOf, type CodexInstallerOptions, type CodexPlan } from '../../src/main/harness/codex-install'
 import { confirmationText, DEPENDENCY_MARKETPLACE_SOURCE, HARNESS_PLUGIN_ID, HarnessInstaller, type InstallPlan } from '../../src/main/harness/install'
 import { harnessHome } from '../../src/main/storage/paths'
 import { harnessStatusSchema, skippedAgentsText } from '../../src/shared/ipc/harness'
@@ -85,7 +85,8 @@ if ((process.env.STUB_CODEX_FAIL ?? '') !== '' && args.join(' ').startsWith(proc
 }
 const path = process.env.STUB_CODEX_STATE
 const state = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : { marketplaces: {}, plugins: {} }
-const manifest = (dir, file) => JSON.parse(readFileSync(join(dir, '.claude-plugin', file), 'utf8'))
+// Codex 0.166.0 reads a plugin's .codex-plugin/plugin.json before its .claude-plugin/plugin.json.
+const manifest = (dir, file) => JSON.parse(readFileSync(join(dir, file === 'plugin.json' && existsSync(join(dir, '.codex-plugin', file)) ? '.codex-plugin' : '.claude-plugin', file), 'utf8'))
 const command = args.slice(0, args[1] === 'marketplace' ? 3 : 2).join(' ')
 if (command === 'plugin marketplace list') {
   process.stdout.write(JSON.stringify({ marketplaces: Object.entries(state.marketplaces).map(([name, source]) => ({ name, root: source, marketplaceSource: { sourceType: isAbsolute(source) ? 'local' : 'git', source } })) }))
@@ -619,6 +620,90 @@ describe('a Codex that does not answer', () => {
     } finally {
       stopStandIn()
     }
+  })
+})
+
+/**
+ * The stdio MCP servers Codex 0.166.0 starts for the plugin at `root`, the way its source reads them
+ * (tag rust-v0.166.0 of github.com/openai/codex, worfy-polish ticket 55):
+ * - the manifest is the first of .codex-plugin/plugin.json, .claude-plugin/plugin.json
+ *   (codex-rs/exec-server-protocol/src/protocol.rs, DISCOVERABLE_PLUGIN_MANIFEST_PATHS);
+ * - its `mcpServers`, an object or the path of a file, else <root>/.mcp.json
+ *   (codex-rs/core-plugins/src/loader.rs, load_plugin_mcp_servers_from_manifest_with_format);
+ * - `{ mcpServers }` or a plain map of servers; no `${…}` in command or args is filled in, a relative
+ *   `cwd` is joined to the plugin root (codex-rs/codex-mcp/src/plugin_config.rs,
+ *   normalize_plugin_mcp_server_value), and without `cwd` the server starts in the session's folder
+ *   (codex-rs/rmcp-client/src/stdio_server_launcher.rs, fallback_cwd).
+ * `script` is the first argument as the started program sees it: resolved against that folder.
+ */
+function codexMcpServers(root: string, sessionCwd: string): Record<string, { command: string; args: string[]; cwd: string; script: string }> {
+  const manifestFile = ['.codex-plugin', '.claude-plugin'].map((dir) => join(root, dir, 'plugin.json')).find((file) => existsSync(file))
+  const manifest = manifestFile === undefined ? {} : (JSON.parse(readFileSync(manifestFile, 'utf8')) as { mcpServers?: unknown })
+  const file = typeof manifest.mcpServers === 'string' ? join(root, manifest.mcpServers) : join(root, '.mcp.json')
+  const declared = typeof manifest.mcpServers === 'object' && manifest.mcpServers !== null ? manifest.mcpServers : existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as unknown) : {}
+  const wrapped = (declared as { mcpServers?: unknown }).mcpServers
+  const servers = (typeof wrapped === 'object' && wrapped !== null ? wrapped : declared) as Record<string, { command: string; args?: string[]; cwd?: string }>
+  return Object.fromEntries(
+    Object.entries(servers).map(([name, server]) => {
+      const cwd = server.cwd === undefined ? sessionCwd : isAbsolute(server.cwd) ? server.cwd : join(root, server.cwd)
+      const args = server.args ?? []
+      return [name, { command: server.command, args, cwd, script: resolve(cwd, args[0] ?? '') }]
+    }),
+  )
+}
+
+describe('the qmd MCP server of the Harness in Codex', () => {
+  it('an install into Codex gives Codex a manifest whose qmd server starts bin/qmd-mcp of the copy in the session folder; Claude Code keeps .mcp.json', async () => {
+    const bundle = makeBundle('v1', V1)
+    const project = join(sb.root, 'project')
+    mkdirSync(project)
+
+    await installer(bundle).install(yes())
+
+    // Codex 0.166.0 does not fill in ${CLAUDE_PLUGIN_ROOT}: its manifest names the script by its full path.
+    const qmd = codexMcpServers(sb.pluginDir, project).qmd
+    expect(qmd).toEqual({ command: 'node', args: [join(sb.pluginDir, 'bin', 'qmd-mcp')], cwd: project, script: join(sb.pluginDir, 'bin', 'qmd-mcp') })
+    expect(existsSync(qmd?.script ?? '')).toBe(true)
+    // The rest of the manifest is Claude Code's, with the version of this build.
+    const codexManifest = JSON.parse(readFileSync(join(sb.pluginDir, '.codex-plugin', 'plugin.json'), 'utf8')) as Record<string, unknown>
+    const claudeManifest = JSON.parse(readFileSync(join(sb.pluginDir, '.claude-plugin', 'plugin.json'), 'utf8')) as Record<string, unknown>
+    expect(codexManifest).toEqual({ ...claudeManifest, mcpServers: { qmd: { command: 'node', args: [join(sb.pluginDir, 'bin', 'qmd-mcp')] } } })
+    expect(codexManifest.version).toBe(V1)
+
+    // Claude Code reads .claude-plugin and .mcp.json, which stay as harness/ has them; it fills in the variable.
+    expect(readFileSync(join(sb.pluginDir, '.mcp.json'), 'utf8')).toBe(readFileSync(join(REPO, 'harness', '.mcp.json'), 'utf8'))
+    const claudeQmd = (JSON.parse(readFileSync(join(sb.pluginDir, '.mcp.json'), 'utf8')) as { mcpServers: { qmd: { command: string; args: string[] } } }).mcpServers.qmd
+    expect(claudeQmd).toEqual({ command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp'] })
+    expect(existsSync((claudeQmd.args[0] ?? '').replace('${CLAUDE_PLUGIN_ROOT}', sb.pluginDir))).toBe(true)
+    // harness/ itself ships no Codex manifest: it is written for the copy Codex installs from.
+    expect(existsSync(join(REPO, 'harness', '.codex-plugin'))).toBe(false)
+  })
+
+  it('without the Codex manifest Codex 0.166.0 starts node on a path that is not there (the failure of ticket 55)', () => {
+    const bundle = makeBundle('v1', V1)
+    const project = join(sb.root, 'project')
+    mkdirSync(project)
+    const qmd = codexMcpServers(bundle, project).qmd
+    expect(qmd?.args).toEqual(['${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp'])
+    expect(existsSync(qmd?.script ?? '')).toBe(false)
+  })
+
+  it('an update writes the manifest again for the new copy; a failed write is an error of plugin add and runs no plugin add', async () => {
+    await installer(makeBundle('v1', V1)).install(yes())
+    const v2 = makeBundle('v2', V2)
+    await installer(v2).install(yes())
+    expect(JSON.parse(readFileSync(join(sb.pluginDir, '.codex-plugin', 'plugin.json'), 'utf8'))).toMatchObject({ version: V2 })
+    expect((await installer(v2).status()).codex?.state).toEqual({ kind: 'installed', version: V2 })
+
+    // A file where the manifest's folder goes: the write fails before Codex is asked to add the plugin.
+    const v3 = makeBundle('v3', '0.4.0+ccccccc')
+    await installer(v3, null).install(yes())
+    writeFileSync(join(sb.pluginDir, '.codex-plugin'), '')
+    clearCalls()
+    const status = (await codexHarness(v3).tryApply((await codexHarness(v3).plan()) as CodexPlan)) ?? null
+    expect(status?.step).toBe('plugin add')
+    expect(status?.message).toContain(join(sb.pluginDir, '.codex-plugin', 'plugin.json'))
+    expect(codexCalls().filter((line) => !line.endsWith('list --json'))).toEqual([])
   })
 })
 

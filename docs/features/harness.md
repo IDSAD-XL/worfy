@@ -136,7 +136,12 @@ of Codex. The commands run the Codex binary of this build, never the user's `cod
 1. The dependency, as a plugin of its own, because Codex has no dependencies between plugins: `codex plugin marketplace
    add anthropics/claude-plugins-official` when Codex does not know it, then `codex plugin add mattpocock-skills@claude-plugins-official`.
 2. On a first install `codex plugin marketplace add <plugin folder>`, when Codex does not know it, then `codex plugin add
-   worfy@worfy-harness`; with another version only the latter.
+   worfy@worfy-harness`; with another version only the latter. Right before `codex plugin add` worfy writes
+   `.codex-plugin/plugin.json` into the plugin folder: Codex reads it before `.claude-plugin/plugin.json`. It is Claude
+   Code's manifest plus the MCP servers of `.mcp.json` with the plugin folder in place of `${CLAUDE_PLUGIN_ROOT}`, because
+   Codex 0.166.0 does not fill that variable in for MCP servers. So the server `qmd` starts as `node <plugin
+   folder>/bin/qmd-mcp` in the Session's folder. Claude Code does not read `.codex-plugin/` and keeps using `.mcp.json`. When writing
+   the file fails, the step `plugin add` fails and `codex plugin add` does not run.
 3. The agents `worfy-implementer.toml`, `worfy-reviewer.toml` and `worfy-scout.toml` in `<CODEX_HOME>/agents`.
 
 The consent dialog names the Codex commands and agent files after the Claude Code part, or alone when Claude Code already
