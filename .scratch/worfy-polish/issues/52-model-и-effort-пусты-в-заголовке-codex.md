@@ -1,7 +1,8 @@
 # 52 — Model и Effort пусты в заголовке Session на Codex
 
 Type: bug
-Status: open
+Status: done 2026-11-04T10:12Z
+PR: #1352
 Blocked by:
 Source: владелец 2026-11-04, приёмка worfy-multi-vendor 32 на Mac Stable `460fb561`, снимок Session на Codex
 
