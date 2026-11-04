@@ -1221,9 +1221,11 @@ async function main() {
             if (above.length) report += `--- Playwright failures above the last 40 lines (from the full output):\n${above.join("\n")}\n`
             report += saved.has(name) ? `--- full output (${outLines.length} lines): ${path.join(logDir, name)}\n` : `--- full output: not saved, ${logDir} could not be written\n`
         }
-        report += await saveFailureRecords(failures, outputs, logDir)
         writeMarker(redMarker, `${utcNow()}\n`)
         writeVerdict("red", 2, "")
+        // After the verdict file: the records wait for their modules, and a signal meanwhile may
+        // only cut the output short (see `settle`), never leave a red run without its verdict.
+        report += await saveFailureRecords(failures, outputs, logDir)
         if (timing) complain(timing)
         complain("[gate] red (" + PROFILE + "):" + failedLabels + (ran ? " (passed:" + ran + ")" : ""))
         complain(`The quality gate did not pass (profile: ${PROFILE}, repository: ${KEY}).`)
