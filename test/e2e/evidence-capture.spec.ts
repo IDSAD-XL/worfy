@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync, type ChildProcess } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -509,6 +509,30 @@ test('recordClip: a frame of the sheet that cannot be taken is an error, and no 
     }),
   ).rejects.toThrow(/a frame of the contact sheet failed/)
   expect(filesOf('no-window')).toEqual([])
+})
+
+test('recordClip: a frame that never comes back once the window is gone is the same error within seconds, and the app is ended', async () => {
+  test.skip(EVIDENCE_RUN, 'a WORFY_EVIDENCE run records only the clips of the Ticket')
+  const seen: { child?: ChildProcess } = {}
+  const started = Date.now()
+  await expect(
+    recordClip('frame-hangs', async (launched) => {
+      // What macOS CI showed (worfy-polish ticket 60): the screenshot of a window destroyed meanwhile
+      // never settled, its own timeout notwithstanding, so Playwright had not seen the page close either:
+      // only main can tell. And a quit that never ends: the helper must kill the app.
+      launched.window.screenshot = () => new Promise<Buffer>(() => undefined)
+      Object.assign(launched.window, { once: () => launched.window })
+      launched.app.close = () => new Promise<void>(() => undefined)
+      seen.child = launched.app.process()
+      await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy())
+      await new Promise((done) => setTimeout(done, 2_000))
+    }),
+  ).rejects.toThrow(/a frame of the contact sheet failed: Error: the window was destroyed/)
+  expect(Date.now() - started).toBeLessThan(ms(20_000))
+  const { child } = seen
+  if (child === undefined) throw new Error('the scenario never ran')
+  expect(child.exitCode !== null || child.signalCode !== null, 'the app process has ended').toBe(true)
+  expect(filesOf('frame-hangs')).toEqual([])
 })
 
 test('recordClip: a scenario over the limit is an error, and no clip is kept', async () => {
