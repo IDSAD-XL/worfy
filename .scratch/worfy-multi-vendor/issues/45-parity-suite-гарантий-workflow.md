@@ -1,7 +1,8 @@
 # 45 — Parity suite: Codex держит гарантии workflow, которые у Claude есть сейчас
 
 Type: task
-Status: open
+Status: done 2026-11-04T00:14Z
+PR: #1313
 Blocked by: 35, 36, 44
 Source: [spec.md](../spec.md), «Гарантии workflow на Codex», «Решения владельца» (Q5 — parity suite на фейке app-server); [ADR-0094](../../../docs/adr/0094-vendor-seam.md), «Гарантии workflow на Codex»; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md) (платформенный PR)
 
