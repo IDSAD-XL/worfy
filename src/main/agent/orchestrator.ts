@@ -44,7 +44,9 @@
 // permission setting stays, and the new Vendor's driver reads it as its own nearest one
 // (SessionPart.settingsFor). Autopilot drives the Orchestrator of either Vendor the same way,
 // through its Session, but only on a Vendor whose `harness` capability holds: the guarantees of the
-// workflow (gate, guards, read-only reviewers) are proven there (unattendedRefusal).
+// workflow (gate, guards, read-only reviewers) are proven there (unattendedRefusal). A Vendor that
+// turns the Harness's hooks off until the user approves them (Codex, worfy-multi-vendor ticket 39)
+// is asked through its driver whether they are approved now, before each unattended start.
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import { findStatusBlock } from '../../shared/agent/status-block'
@@ -60,6 +62,7 @@ import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout
 import type { Capabilities } from '../../shared/vendors/capabilities'
 import { UNNAMED_VENDOR, vendorLabel, type VendorId } from '../../shared/vendors/vendor'
 import { placeNewNode } from '../layout/place'
+import type { HarnessHooksPart } from '../vendors/harness-hooks'
 import type { TranscriptFacts } from './orchestrator-transcript'
 import { closeRefusal } from './resume'
 import { EXIT_WAIT_MS, type EventSink, type Session, type SessionRegistry } from './session'
@@ -138,6 +141,11 @@ export interface OrchestratorDeps {
    * Vendor whose `harness` holds (unattendedRefusal). Absent: no Vendor is refused.
    */
   capabilities?(vendor: VendorId): Promise<Pick<Capabilities, 'harness' | 'unsupported'>>
+  /**
+   * The driver's check that `vendor` runs the Harness's hooks now (HarnessHooksPart, worfy-multi-vendor
+   * ticket 39); undefined for a Vendor that needs no approval of them. Absent: nothing is checked.
+   */
+  harnessHooks?(vendor: VendorId): HarnessHooksPart | undefined
   /** Gets every event of every Orchestrator, e.g. to send it to the windows. */
   broadcast: EventSink
   /** Gets every new view, e.g. to send it to the windows. */
@@ -367,11 +375,13 @@ export class Orchestrators {
   }
 
   /**
-   * Why Autopilot may not take the Project's Orchestrator, or null: the Vendor its Session runs on —
+   * Why Autopilot may not take the Project's Orchestrator, or null. The Vendor its Session runs on —
    * the open Orchestrator's, else the Project's — lacks the `harness` capability, so the workflow's
-   * guarantees are not proven there (worfy-multi-vendor ticket 37; ticket 39 adds the check that
-   * turns it on for Codex). The reason is the capability's own; capabilities that cannot be read
-   * refuse too. Without deps.capabilities, null.
+   * guarantees are not proven there (worfy-multi-vendor ticket 37): the reason is the capability's
+   * own, and capabilities that cannot be read refuse too. Or the Vendor's driver checks that it runs
+   * the Harness's hooks now (deps.harnessHooks, ticket 39: Codex until the user approves them in
+   * /hooks), and the check does not answer `approved`: the reason is the driver's. Without
+   * deps.capabilities, null.
    */
   async unattendedRefusal(projectId: string): Promise<string | null> {
     if (this.deps.capabilities === undefined) return null
@@ -383,8 +393,19 @@ export class Orchestrators {
       console.warn(`[orchestrator] could not read what ${vendor} can do`, error)
       return `Autopilot did not start: worfy could not read what ${vendorLabel(vendor)} can do.`
     }
-    if (capabilities.harness) return null
-    return capabilities.unsupported.harness ?? `Autopilot does not run on ${vendorLabel(vendor)}: the Harness's guarantees are not proven there.`
+    if (!capabilities.harness) return capabilities.unsupported.harness ?? `Autopilot does not run on ${vendorLabel(vendor)}: the Harness's guarantees are not proven there.`
+    const hooks = this.deps.harnessHooks?.(vendor)
+    if (hooks === undefined) return null
+    // A Project removed meanwhile has no folder to ask for: the check runs in the Vendor's own folder.
+    let root: string | undefined
+    try {
+      root = this.deps.projectPath(projectId)
+    } catch {
+      root = undefined
+    }
+    // trust() never throws by its contract; a part that does anyway refuses, as `unknown` does.
+    const trust = await hooks.trust(root).catch(() => 'unknown' as const)
+    return trust === 'approved' ? null : hooks.refusal
   }
 
   /** Whether the Project's Orchestrator runs unattended now. */

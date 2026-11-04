@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { skippedAgentsText, type HarnessStatus as Status } from '../../../shared/ipc/harness'
 import type { UpdateSnapshot } from '../../../shared/ipc/update'
+import CodexHooksStep from '../../harness/CodexHooksStep'
 import MigrationForm from '../../harness/MigrationForm'
 import AppMemory from '../../memory/AppMemory'
 import { invoke, subscribe } from '../../ipc'
@@ -18,6 +19,9 @@ import UpdateChip from '../../update/UpdateChip'
 // `harness.changed` and `harnessMigration.changed` (ticket 40): an install or a move started from the
 // first-run screen or from another window shows here without a reload. During its own install the
 // item stays on "Installing Harness…" until its own answer, whatever arrives meanwhile.
+// worfy-multi-vendor ticket 39: an install or update in Codex that leaves the Harness hooks to approve
+// opens the step "Approve the Harness hooks in Codex" (src/renderer/harness/CodexHooksStep.tsx), and
+// "Codex: approve hooks" on the line opens it again.
 
 // The app version (`app.version`) is the second line of this item, small and muted under the
 // Harness line (worfy-ui ticket 18): one column, so the toolbar's height stays the same.
@@ -98,6 +102,11 @@ export interface HarnessStatusViewProps {
   onInstall: () => void
   /** Opens the move form; the button shows only when given (main offers a move: harnessMigration.offer). */
   onMigrate?: (() => void) | undefined
+  /**
+   * Opens the step "Approve the Harness hooks in Codex" (worfy-multi-vendor ticket 39): with it, the
+   * Codex part's "Codex: approve hooks" is a button.
+   */
+  onApproveHooks?: (() => void) | undefined
   /** The app version, the second line; nothing until it arrives. */
   version?: string | undefined
   /** The build number of the app (`app.version`, worfy-update ticket 14): the line shows `v<major>.<minor>.<N>`. */
@@ -124,7 +133,7 @@ export function HarnessStatusView({ version, versionNumber, memory, update = nul
   )
 }
 
-function HarnessLine({ status, busy, failure, onInstall, onMigrate, harnessBehind = null }: Omit<HarnessStatusViewProps, 'version' | 'versionNumber' | 'update'>) {
+function HarnessLine({ status, busy, failure, onInstall, onMigrate, onApproveHooks, harnessBehind = null }: Omit<HarnessStatusViewProps, 'version' | 'versionNumber' | 'update'>) {
   if (failure !== undefined) {
     return (
       <span style={{ ...textStyle, color: 'var(--blocked-text)' }} title={failure} data-testid="harness-status">
@@ -191,7 +200,11 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate, harnessBehin
       <span style={{ ...textStyle, color: tone }} title={title} data-testid="harness-text">
         {text}
       </span>
-      {codex === null ? null : (
+      {codex === null ? null : codex.state === 'hooks' && onApproveHooks !== undefined ? (
+        <button type="button" style={{ ...textStyle, fontFamily: 'inherit', color: codex.tone, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline dotted' }} title={codex.title} onClick={onApproveHooks} data-testid="harness-codex" data-state={codex.state}>
+          · {codex.text}
+        </button>
+      ) : (
         <span style={{ ...textStyle, color: codex.tone }} title={codex.title} data-testid="harness-codex" data-state={codex.state}>
           · {codex.text}
         </span>
@@ -219,7 +232,7 @@ function codexPart(codex: NonNullable<Status['codex']>): CodexPart | null {
   const withSkipped = (title: string): string => (skipped === '' ? title : `${title}\n${skipped}`)
   switch (state.kind) {
     case 'installed':
-      // Codex turns the hooks of an updated plugin off until they are approved (worfy-multi-vendor ticket 39 adds the step).
+      // Codex turns the hooks of an updated plugin off until they are approved: the step says how (worfy-multi-vendor ticket 39).
       if (codex.hooksToApprove) return { state: 'hooks', text: 'Codex: approve hooks', title: withSkipped('Codex keeps the Harness hooks off after an install or update until you approve them in Codex (/hooks)'), tone: muted }
       return skipped === '' ? null : { state: 'skipped-agents', text: `Codex: ${String(skippedAgents.length)} ${skippedAgents.length === 1 ? 'agent' : 'agents'} not written`, title: skipped, tone: muted }
     case 'not-installed':
@@ -260,6 +273,7 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
   const [failure, setFailure] = useState<string>()
   const [migration, setMigration] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
+  const [hooksStep, setHooksStep] = useState(false)
   const [version, setVersion] = useState<{ version: string; number?: number | undefined }>()
   const update = useUpdate()
 
@@ -324,6 +338,18 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
     }
   }, [])
 
+  // The step opens by itself when an install or update in Codex leaves hooks to approve, whichever
+  // window or screen ran it; once per such install, not on every status that still says so. Only a
+  // change seen by this window counts: the first status a window reads only seeds it, so a window
+  // opened while hooks wait does not open the step (its "Codex: approve hooks" still does).
+  const hooksToApprove = status === undefined ? undefined : status.codex?.hooksToApprove === true
+  const hadHooksToApprove = useRef<boolean | undefined>(undefined)
+  useEffect(() => {
+    if (hooksToApprove === undefined) return
+    if (hooksToApprove && hadHooksToApprove.current === false) setHooksStep(true)
+    hadHooksToApprove.current = hooksToApprove
+  }, [hooksToApprove])
+
   const onInstall = (): void => {
     setBusy(true)
     void invoke('harness.install').then((result) => {
@@ -343,6 +369,7 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
         failure={failure}
         onInstall={onInstall}
         onMigrate={migration ? () => setFormOpen(true) : undefined}
+        onApproveHooks={() => setHooksStep(true)}
         version={version?.version}
         versionNumber={version?.number}
         memory={memory ? <AppMemory /> : undefined}
@@ -356,6 +383,15 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
             readOffer()
           }}
           onMoved={readOffer}
+        />
+      ) : null}
+      {hooksStep ? (
+        <CodexHooksStep
+          onClose={() => setHooksStep(false)}
+          onStatus={(next) => {
+            setFailure(undefined)
+            setStatus(next)
+          }}
         />
       ) : null}
     </>

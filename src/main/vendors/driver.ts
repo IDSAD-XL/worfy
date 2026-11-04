@@ -6,6 +6,7 @@ import type { Capabilities } from '../../shared/vendors/capabilities'
 import type { VendorId } from '../../shared/vendors/vendor'
 import type { AccountPart } from './account'
 import type { CommandsPart } from './commands'
+import type { HarnessHooksPart } from './harness-hooks'
 import type { HistoryPart } from './history'
 import type { LimitsPart } from './limits'
 import type { McpPart } from './mcp'
@@ -26,6 +27,11 @@ export interface VendorDriver {
   readonly commands: CommandsPart
   readonly mcp: McpPart
   readonly oneShot: OneShot
+  /**
+   * Whether the Vendor runs the Harness's hooks now (worfy-multi-vendor ticket 39); absent for a Vendor
+   * that runs a plugin's hooks without an approval (Claude Code).
+   */
+  readonly harnessHooks?: HarnessHooksPart
 }
 
 /** What a driver's part answers with until a ticket wires it to the Vendor. */

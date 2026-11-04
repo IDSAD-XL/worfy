@@ -1,7 +1,8 @@
 // The app's wiring of the Orchestrators (src/main/agent/app-orchestrators.ts, worfy-multi-vendor ticket
 // 37): the Vendor is the `defaultVendor` of the Project's settings.json in worfy's data folder, the
 // transcript of a saved Claude Code session is read from the Claude home, a Codex thread's is not, and
-// Autopilot's refusal comes from the Vendor's real capabilities. Only the Session registry stands in
+// Autopilot's refusal comes from the Vendor's real driver: its capabilities and, for Codex, its check of
+// the Harness hooks (ticket 39). Only the Session registry stands in
 // (its Sessions on the fakes: Claude Code's fake agent, the fake Codex app-server under scriptNode()),
 // so no Codex process starts through the app's own options (MCP servers, gh).
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
@@ -13,6 +14,7 @@ import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { SessionRegistry, STATIC_CLAUDE_PARTS } from '../../src/main/agent/session'
 import { hasExited } from '../../src/main/agent/session/process'
 import { projectDirName } from '../../src/main/claude-home/registry'
+import { CODEX_HOOKS_REFUSAL } from '../../src/main/vendors/codex/harness-hooks'
 import { claudeSessions } from '../../src/main/vendors/claude/session'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { CODEX_CAPABILITIES } from '../../src/main/vendors/codex/capabilities'
@@ -122,7 +124,10 @@ describe("the app's Orchestrators run on the Project's defaultVendor (worfy-mult
     const onCodex = await sharedOrchestrators().newConversation(PROJECT)
     expect(onCodex).toMatchObject({ vendor: 'codex', model: null })
     await vi.waitFor(() => expect(threadStarts()).toBe(1))
-    await expect(sharedOrchestrators().unattendedRefusal(PROJECT)).resolves.toBe(CODEX_CAPABILITIES.unsupported.harness)
+    // Codex has the Harness (ticket 39), and its driver asks whether the hooks are approved: no app-server
+    // starts through the app's own options here, so that is unknown, and unknown refuses.
+    expect(CODEX_CAPABILITIES.harness).toBe(true)
+    await expect(sharedOrchestrators().unattendedRefusal(PROJECT)).resolves.toBe(CODEX_HOOKS_REFUSAL)
   })
 
   it('opens on Codex when settings.json names it, without reading a transcript for the Codex thread', async () => {

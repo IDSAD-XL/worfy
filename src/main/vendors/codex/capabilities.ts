@@ -105,9 +105,11 @@ export function codexSandboxPolicy(mode: SandboxMode): SandboxPolicy {
  * Codex's capabilities in the first release. A message sent during a turn steers it (`turn/steer`);
  * a model change holds for the turns after it (`turn/start`); Limits come as windows
  * (`account/rateLimits/*`); the canvas tools come from worfy's MCP servers over HTTP (mcp.ts); its
- * Subagents get Nodes on the canvas from Codex's threads (subagents.ts, ticket 34). Missing, each with the
- * reason a tooltip shows: what worfy does not give Codex yet (hooks and the Harness come with the second
- * release), and what Codex does not have.
+ * Subagents get Nodes on the canvas from Codex's threads (subagents.ts, ticket 34). The Harness holds on
+ * Codex (ticket 39): its guarantees rest on its hooks, which Codex runs once the user approved them in
+ * /hooks, and the driver's `harnessHooks` part (harness-hooks.ts) checks that before each Autopilot Run
+ * and each Session of one. Missing, each with the reason a tooltip shows: what worfy does not give Codex yet,
+ * and what Codex does not have.
  */
 export const CODEX_CAPABILITIES: Capabilities = {
   subagents: true,
@@ -120,7 +122,7 @@ export const CODEX_CAPABILITIES: Capabilities = {
   modelSwitchStable: true,
   oneShotToolFree: false,
   commandsComplete: false,
-  harness: false,
+  harness: true,
   limitSource: 'windows',
   permissionPresets: CODEX_PERMISSION_PRESETS.map(({ id, label, description }) => ({ id, label, description })),
   effortLevels: [],
@@ -130,9 +132,6 @@ export const CODEX_CAPABILITIES: Capabilities = {
     inProcessMcp: 'Codex runs in a process of its own: worfy reaches it over HTTP, not inside the app.',
     oneShotToolFree: 'One-off requests (the Project profile draft, Terminal AI) run on Claude Code only.',
     commandsComplete: 'The slash menu lists Codex skills and the commands the app server runs; the other Codex commands work only in its own terminal.',
-    // What Autopilot's refusal of a Codex Orchestrator says (Orchestrators.unattendedRefusal). Ticket 39
-    // turns `harness` on once worfy can check that Codex runs the Harness's hooks.
-    harness: "Autopilot does not run on Codex yet: worfy cannot yet check that Codex runs the Harness's hooks, and without them the gate and the guards of the workflow do not hold.",
   },
 }
 
