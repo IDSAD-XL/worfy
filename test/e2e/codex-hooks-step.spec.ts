@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import { codexHooksCommand } from '../../src/shared/ipc/harness'
 import { approvePluginHooks } from '../fixtures/codex-app-server/hook-runner.mjs'
 import { launchApp, type LaunchedApp } from './helpers'
 
@@ -17,6 +18,8 @@ import { launchApp, type LaunchedApp } from './helpers'
 // into <CODEX_HOME>/plugins/cache/<marketplace>/<plugin>/local, where the fake finds installed plugins.
 // The consent dialog is replaced in main and answers Install. With WORFY_EVIDENCE_DIR set, the
 // screenshots of the step in both themes are copied there as 39-codex-hooks-step-<state>-<theme>.png.
+// worfy-polish ticket 54: step 1 shows the command that starts the Codex binary worfy installs with (here
+// the stand-in) from the home folder, with Copy; its screenshots are 54-codex-hooks-step-command-<theme>.png.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -106,15 +109,16 @@ async function answerInstall(launched: LaunchedApp): Promise<void> {
 }
 
 /** The window in both themes, kept with the test's output and copied to WORFY_EVIDENCE_DIR when it is set. */
-async function shoot(launched: LaunchedApp, name: string): Promise<void> {
+async function shoot(launched: LaunchedApp, name: string, ticket = '39'): Promise<void> {
   for (const scheme of ['light', 'dark'] as const) {
     await launched.window.emulateMedia({ colorScheme: scheme })
-    const file = test.info().outputPath(`39-codex-hooks-step-${name}-${scheme}.png`)
+    const base = `${ticket}-codex-hooks-step-${name}-${scheme}.png`
+    const file = test.info().outputPath(base)
     await launched.window.screenshot({ path: file })
     const dir = process.env.WORFY_EVIDENCE_DIR
     if (dir !== undefined && dir !== '') {
       mkdirSync(dir, { recursive: true })
-      copyFileSync(file, join(dir, `39-codex-hooks-step-${name}-${scheme}.png`))
+      copyFileSync(file, join(dir, base))
     }
   }
   await launched.window.emulateMedia({ colorScheme: null })
@@ -134,7 +138,11 @@ test('Install into Codex opens "Approve the Harness hooks in Codex"; Check again
     await expect(step).toBeVisible()
     await expect(item.getByTestId('harness-codex')).toHaveText('· Codex: approve hooks')
     await expect(step.getByTestId('codex-hooks-step-steps')).toContainText('/hooks')
+    // Step 1: the binary the install into Codex used, started from the home folder (worfy-polish ticket 54).
+    await expect(step.getByTestId('codex-hooks-step-command')).toHaveText(codexHooksCommand(env.WORFY_CODEX_CLI ?? '', process.platform === 'win32'))
+    await expect(step.getByRole('button', { name: 'Copy the command' })).toBeVisible()
     await shoot(launched, 'after-install')
+    await shoot(launched, 'command', '54')
 
     const result = step.getByTestId('codex-hooks-step-result')
     await step.getByRole('button', { name: 'Check again' }).click()

@@ -115,8 +115,9 @@ While a run goes on:
   whether the hooks of the plugin `worfy` are approved: every hook its `hooks.json` declares on an event Codex runs
   must be listed, enabled and approved. While they are not, or Codex does not say, the run is refused with "The Harness
   hooks are not approved in Codex. Approve them in /hooks and start again."; before a later Wave no new Session
-  starts, and the run stops with that reason in the journal (`session-error`). To approve them, open Codex in a
-  terminal (`codex`), type `/hooks` and approve the hooks of the plugin `worfy`. After an install or update in Codex the
+  starts, and the run stops with that reason in the journal (`session-error`). To approve them, start the Codex of
+  this build in a terminal, type `/hooks` and approve the hooks of the plugin `worfy`; the step below shows the command
+  to copy, as that Codex is not on PATH ([Harness, In Codex](harness.md#in-codex)). After an install or update in Codex the
   toolbar shows the step "Approve the Harness hooks in Codex" with these instructions and a "Check again" button, in the
   windows open at that moment (a window opened later does not pop it up). Until a check finds them approved, the
   Harness item says "Codex: approve hooks", and a click opens the step again. A run on Claude Code is not checked.

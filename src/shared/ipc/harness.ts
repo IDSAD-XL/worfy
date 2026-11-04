@@ -153,8 +153,28 @@ export const harnessChanged = eventChannel('harness.changed', harnessStatusSchem
  */
 export const harnessCodexHooks = invokeChannel('harness.codexHooks', z.void(), z.object({ trust: harnessHooksTrustSchema, status: harnessStatusSchema }), 'local')
 
+/**
+ * The Codex binary the step "Approve the Harness hooks in Codex" tells the user to start (worfy-polish
+ * ticket 54): the one worfy installs the Harness into Codex with, so its `/hooks` approves the same
+ * CODEX_HOME. worfy runs the Codex of its build, which is not on the user's PATH. `path` is null when
+ * this build has none; `windows` picks the PowerShell form of the command. Writes nothing.
+ */
+export const harnessCodexBinary = invokeChannel('harness.codexBinary', z.void(), z.object({ path: z.string().nullable(), windows: z.boolean() }), 'local')
+
+/**
+ * The command that starts `binary` from the user's home folder: a shell whose current folder no
+ * longer exists (a removed worktree) makes Codex stop with "No such file or directory (os error 2)"
+ * before it starts (worfy-polish ticket 54). macOS and Linux: `cd ~ && '<path>'`, a `'` in the path
+ * as `'\''`. Windows PowerShell: `cd ~; & "<path>"`, with `` ` ``, `$` and `"` escaped by a backtick.
+ */
+export function codexHooksCommand(binary: string, windows: boolean): string {
+  if (windows) return `cd ~; & "${binary.replace(/[`$"]/g, (char) => `\`${char}`)}"`
+  return `cd ~ && '${binary.replace(/'/g, `'\\''`)}'`
+}
+
 declare module './channels' {
   interface IpcContract {
+    'harness.codexBinary': typeof harnessCodexBinary
     'harness.codexHooks': typeof harnessCodexHooks
     'harness.state': typeof harnessState
     'harness.install': typeof harnessInstall

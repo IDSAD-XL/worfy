@@ -1,7 +1,7 @@
 # 54 — Диалог «Approve the Harness hooks in Codex» велит запустить `codex`, которого нет в PATH
 
 Type: bug
-Status: open
+Status: claimed 2026-11-04T09:54Z
 Blocked by:
 Source: владелец 2026-11-04 через Session-мост, приёмка worfy-multi-vendor 43 п. 1 (Install Harness into Codex)
 на Mac Stable `b09dfab0`; на ПК то же
