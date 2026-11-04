@@ -1,7 +1,8 @@
 # 46 — Разбор `codex plugin list --json` живой формы
 
 Type: bug
-Status: open
+Status: done 2026-11-04T09:02Z
+PR: #1345
 Blocked by:
 Source: приёмка Ticket-а 32 на Mac Stable `460fb561`, 2026-11-04: toolbar показывает «Codex error: plugin list»
 
