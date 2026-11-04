@@ -99,6 +99,15 @@ manual item only `owner-check` or `screenshot`) that matches `needs`, if there i
   [--scrub YYYY-MM-DD] [-n]` writes one line after the last line of item `<item>`. The platform defaults to
   this system's (`ci` under GitHub Actions), the sha to `git rev-parse HEAD`, the copy to `-`. A line the
   grammar refuses, or an item outside the section, is exit 2 and nothing is written; `-n` prints the line only.
+  More refusals, all with nothing written:
+  - exit 2 — `--ref`, `--platform`, `--copy` or `--scrub` with no value, or with a flag as its value (`-n`
+    or anything that starts with `--`; a plain `-` is a value);
+  - exit 2 — a `screenshot` whose `--ref` has a path in backticks and no `--scrub <date>`: "a screenshot
+    needs --scrub <date>: check the pixels by eye first";
+  - exit 1 — the privacy check (`bin/evidence-check`) found something in a file that a path in backticks
+    of `--ref` leads to (taken from the ticket's folder); its output, values masked, goes to stderr. Also
+    with `-n`. The repository is the one that holds the tickets root, whatever the working directory; a
+    tickets root outside any git work tree (Silent mode) is not checked, and the line is written.
 - `ticket done` prints `evidence: N of M verified` and each unverified or failed item to stderr; its exit
   code stays 0.
 

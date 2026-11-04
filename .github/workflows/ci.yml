@@ -15,6 +15,9 @@ name: CI
 #   (the root is given: the runner has no Harness registry for `ticket root` to read). Its base here
 #   is HEAD^1, the first parent of a pull request's merge commit or the previous commit on a push to
 #   main, so the job checks out two commits. It runs on every pull request, documents only too.
+#   Its limit: a push to main, or a run by hand, checks only the last commit (HEAD^1..HEAD), so a push
+#   of several commits leaves the earlier ones unchecked here. The pull request of each change was
+#   checked against its own base before the merge; a direct push of several commits is not.
 # - linux-tests: pnpm test on Linux in 4 shards (vitest --shard), files in a random order. A pull
 #   request runs only the unit and contract test files its diff touches (scripts/affected-tests.mjs,
 #   from the base ci-scope.mjs names, output tests-base): every shard computes the same list and

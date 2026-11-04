@@ -164,7 +164,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
 
   it('runs the commands of gate full: lint, typecheck, test on three systems, test:e2e and test:package on macOS', () => {
     expect(runs('lint-typecheck')).toEqual(['pnpm install --frozen-lockfile', 'pnpm lint', 'pnpm typecheck'])
-    // pnpm lint ends with evidence-check --changed, whose base on GitHub Actions is HEAD^1: two commits.
+    // lint-typecheck checks out two commits: the privacy check in pnpm lint diffs against HEAD^1 on GitHub Actions.
     expect(under(under(job('lint-typecheck'), '      - uses: actions/checkout@v7'), '        with:')).toEqual(['          fetch-depth: 2', '          persist-credentials: false'])
     expect(runs('linux-tests')).toContain('pnpm test "--shard=$SHARD" --sequence.shuffle.files')
     // The test files ci-scope.mjs names, none (every file) but on a pull request.
@@ -1610,5 +1610,13 @@ describe('ci.yml: the e2e jobs run the spec files and shards that scripts/ci-sco
     } finally {
       removeTestTree(dirname(output))
     }
+  })
+})
+
+describe('pnpm lint', () => {
+  // The job lint-typecheck runs pnpm lint on every pull request; the privacy check of the tickets root is its last step.
+  it('ends with the privacy check of what the change adds to the tickets root', () => {
+    const lint = (JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts: { lint: string } }).scripts.lint
+    expect(lint.endsWith(' && node harness/bin/evidence-check --changed --root .scratch'), lint).toBe(true)
   })
 })

@@ -618,9 +618,12 @@ function matrixLine(it, st) {
     return `${it.index}. ${st.state}${st.reason ? ` ${st.reason}` : ""} — ${it.text}`
 }
 
-// The privacy check of the files the ref names, before the line is written: each path in backticks, taken from the folder of the ticket file, that
-// leads to a file goes to bin/evidence-check next to this script. Findings — its output to stderr (values masked), exit 1, no line.
-// A tickets root outside the repository (Silent mode: the Workflow folder) publishes nothing, so nothing is checked.
+// The privacy check of the files the ref names, before the line is written: each path in backticks, taken from the
+// folder of the ticket file, that leads to a file goes to bin/evidence-check next to this script. Findings — its
+// output to stderr (values masked), exit 1, no line. The repository is the one that holds the tickets root (git -C
+// <tickets root>), not the one of the working directory: run from outside git or from another worktree with --root,
+// the check still runs. A tickets root outside any git work tree (Silent mode: the Workflow folder) publishes
+// nothing, so nothing is checked.
 function checkRefFiles(ref) {
     const real = (p) => {
         try {
@@ -629,15 +632,10 @@ function checkRefFiles(ref) {
             return path.resolve(p)
         }
     }
-    const top = git(["rev-parse", "--show-toplevel"])
+    const scratchReal = real(scratch)
+    const top = git(["-C", scratchReal, "rev-parse", "--show-toplevel"])
     if (!top) return
     const topReal = real(top)
-    const sameCase = (p) => (process.platform === "win32" ? p.toLowerCase() : p)
-    const inside = (parent, child) => {
-        const r = path.relative(sameCase(parent), sameCase(child))
-        return r === "" || (!r.startsWith("..") && !path.isAbsolute(r))
-    }
-    if (!inside(topReal, real(scratch))) return
     const files = []
     for (const m of ref.matchAll(/`([^`]+)`/g)) {
         const abs = path.resolve(path.dirname(target), m[1])
@@ -653,7 +651,7 @@ function checkRefFiles(ref) {
     if (!files.length) return
     const check = path.join(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url))), "evidence-check")
     try {
-        execScriptSync(check, ["--root", real(scratch), "--", ...files], { cwd: topReal, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+        execScriptSync(check, ["--root", scratchReal, "--", ...files], { cwd: topReal, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
     } catch (e) {
         process.stderr.write(String(e.stdout ?? "") + String(e.stderr ?? (e.stdout === undefined ? e.message : "")))
         die(`ticket evidence: the privacy check of the file in --ref failed (evidence-check exit ${e.status ?? e.code}): line not written`)

@@ -291,6 +291,13 @@ mkdir -p "$T/workflow/.scratch"
 (cd "$C" && node "$CHECK" --changed --root "$T/workflow/.scratch") >"$T/out-silent.txt" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && grep -qx 'evidence-check: nothing to check (tickets root is outside the repository)' "$T/out-silent.txt" \
     && ok "tickets root outside the repository -> exit 0, nothing to check" || bad "silent: exit $rc: $(cat "$T/out-silent.txt")"
+# With --root the repository is the one that holds the tickets root, not the one of the working directory.
+(cd "$T" && node "$CHECK" --changed --root "$R/.scratch" --base HEAD) >"$T/out-root-nogit.txt" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && grep -qF ".scratch/ep/issues/04-staged.md:1: email: " "$T/out-root-nogit.txt" \
+    && ok "--root in a repository, run from outside git -> that repository is checked" || bad "--root from outside git: exit $rc: $(head -c 600 "$T/out-root-nogit.txt")"
+(cd "$C" && node "$CHECK" --changed --root "$R/.scratch" --base HEAD) >"$T/out-root-other.txt" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && grep -qF ".scratch/ep/issues/04-staged.md:1: email: " "$T/out-root-other.txt" \
+    && ok "--root in a repository, run from another repository -> the root's repository is checked" || bad "--root from another repo: exit $rc: $(head -c 600 "$T/out-root-other.txt")"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || bad "the real home changed"

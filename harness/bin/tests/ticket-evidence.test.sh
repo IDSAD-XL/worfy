@@ -240,6 +240,20 @@ cp "$FX/ru/01-three-items.md" "$OUT/issues/01-three-items.md"; cp "$EVD/01-dirty
 tk "$T/ru" evidence demo 01 1 test-run pass --ref '`../evidence/01-dirty.txt` exit 0' --platform mac --sha "$SHA1" --root "$T/outside/.scratch"
 [ "$rc" -eq 0 ] && grep -qF -- "- evidence: test-run pass · \`../evidence/01-dirty.txt\` exit 0 · mac - · $SHA1" "$OUT/issues/01-three-items.md" \
     && ok "a tickets root outside the repository: the file is not checked, the line is written" || bad "outside root: exit $rc $(cat "$T/err")"
+# The repository is the one that holds the tickets root, not the one of the working directory.
+tk "$T" evidence demo 01 1 test-run pass --ref '`../evidence/01-dirty.txt` exit 0' --platform mac --sha "$SHA1" --root "$T/ru/.scratch"
+[ "$rc" -eq 1 ] && cmp -s "$RU/01-three-items.md" "$FX/ru/01-three-items.md" && grep -qF "home-path" "$T/err" \
+    && ok "run from outside git with --root in a repository: the file is checked, exit 1" || { bad "outside git: exit $rc $(cat "$T/err")"; fresh; }
+git -C "$T/ru" worktree add -q --detach "$T/ru-wt" 2>/dev/null
+tk "$T/ru-wt" evidence demo 01 1 test-run pass --ref '`../evidence/01-dirty.txt` exit 0' --platform mac --sha "$SHA1" --root "$T/ru/.scratch"
+[ "$rc" -eq 1 ] && cmp -s "$RU/01-three-items.md" "$FX/ru/01-three-items.md" && grep -qF "home-path" "$T/err" \
+    && ok "run from a second worktree with --root in the main checkout: the file is checked, exit 1" || { bad "second worktree: exit $rc $(cat "$T/err")"; fresh; }
+git -C "$T/ru" worktree remove --force "$T/ru-wt" 2>/dev/null
+# A screenshot whose ref has no path (a URL) needs no --scrub.
+tk "$T/ru" evidence demo 01 1 screenshot pass --ref 'https://example.com/run/1' --platform mac --copy dev --sha "$SHA1"
+[ "$rc" -eq 0 ] && grep -qF -- "- evidence: screenshot pass · https://example.com/run/1 · mac dev · $SHA1" "$RU/01-three-items.md" \
+    && ok "a screenshot with no path in the ref and no --scrub: the line is written" || bad "screenshot without a path: exit $rc $(cat "$T/err")"
+fresh
 
 # --- 11. a line flag followed by another flag does not take it as its value ---------------------------------------------
 refuse "--ref followed by -n" "--ref needs a value, got the flag -n" 1 test-run pass --ref -n --platform mac --sha "$SHA1"

@@ -47,7 +47,8 @@ names, Tailscale addresses, UUIDs, email addresses, tokens and the words of the 
                   or not) and the untracked ones; of a modified text file only the added lines
   --base <ref>    the base; default: HEAD^1 in GitHub Actions (GITHUB_ACTIONS=true), otherwise
                   git merge-base HEAD <worktree.base of the profile, origin/main without one>
-  --root <dir>    the tickets root; default: \`ticket root\`
+  --root <dir>    the tickets root; default: \`ticket root\`. The repository is the one that holds
+                  it, whatever the working directory; a root outside git has nothing to check
   <file>…         files checked whole
 
 An image or other binary file the branch adds needs a line "- evidence: screenshot … · scrub: <date>"
@@ -316,23 +317,40 @@ function main() {
 
     // --- --changed: the files of the tickets root the branch adds or changes ---------------------------
     const jobs = []
-    let top = null
-    {
-        const t = git(["rev-parse", "--show-toplevel"], process.cwd())
-        if (t.ok) top = real(t.out.replace(/\r?\n$/, ""))
+    const topOf = (dir) => {
+        const t = git(["rev-parse", "--show-toplevel"], dir)
+        return t.ok ? real(t.out.replace(/\r?\n$/, "")) : null
     }
+    // The repository: with --root, the one that holds the tickets root (run from outside git or from another
+    // worktree, the check still reads the right tree); a root that is not in a git work tree has nothing to
+    // publish. A root that does not exist, and no --root, — the repository of the working directory.
+    let rootGiven = null
+    let rootIsDir = false
+    let rootInGit = false
+    let top = null
+    if (rootArg !== null) {
+        rootGiven = real(path.resolve(process.cwd(), rootArg))
+        try {
+            rootIsDir = fs.statSync(rootGiven).isDirectory()
+        } catch {
+            /* no such directory */
+        }
+        if (rootIsDir) {
+            top = topOf(rootGiven)
+            rootInGit = top !== null
+        } else top = topOf(process.cwd())
+    } else top = topOf(process.cwd())
     let nothingToCheck = false
     if (changed) {
-        if (!top) die(2, "--changed needs a git repository")
+        if (!top && !rootIsDir) die(2, "--changed needs a git repository")
         let root
-        if (rootArg !== null) root = path.resolve(process.cwd(), rootArg)
+        if (rootGiven !== null) root = rootGiven
         else {
             const r = script(process.env.CLAUDE_TICKET_BIN || path.join(BIN, "ticket"), ["root"], process.cwd())
             if (r.status !== 0) die(2, `\`ticket root\` failed (exit ${r.status}): ${r.stderr.trim().split("\n")[0]}`)
-            root = r.stdout.trim()
+            root = real(r.stdout.trim())
         }
-        root = real(root)
-        if (!inside(top, root)) nothingToCheck = true
+        if (!top || (!rootInGit && !inside(top, root))) nothingToCheck = true
         else {
             let base = baseArg
             if (base === null && process.env.GITHUB_ACTIONS === "true") base = "HEAD^1"
@@ -388,12 +406,14 @@ function main() {
     }
 
     // --- explicit files: whole ---------------------------------------------------------------------------
+    // Their paths are checked as they lie in the repository: the tickets root's, else the working directory's.
+    const fileTop = top ?? (rootGiven !== null ? topOf(process.cwd()) : null)
     for (const f of files) {
         const abs = path.resolve(process.cwd(), f)
         if (jobs.some((j) => sameCase(real(j.abs)) === sameCase(real(abs)))) continue // named twice, or also found by --changed
         if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) die(2, `no such file: ${privacy.maskText(f, options)}`)
         const realAbs = real(abs)
-        jobs.push({ file: f, abs, lines: null, pathChecked: top !== null && inside(top, realAbs), pathFrom: top, needsNote: false })
+        jobs.push({ file: f, abs, lines: null, pathChecked: fileTop !== null && inside(fileTop, realAbs), pathFrom: fileTop, needsNote: false })
     }
     if (nothingToCheck && files.length === 0) {
         process.stdout.write("evidence-check: nothing to check (tickets root is outside the repository)\n")
