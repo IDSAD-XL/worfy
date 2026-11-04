@@ -602,8 +602,7 @@ function pathOf(word: Expanded, cwd: string, scope: Scope): string {
     // bash before 5.2 (macOS /bin/bash), sh and dash match `.?` to `..` and `.*` to `.` and `..`;
     // zsh and bash 5.2 do not. So the folder such a glob names depends on the shell.
     // On Windows a glob word with a \ is refused above, so `/` is the only separator left here.
-    const head = word.value.slice(0, word.globAt)
-    if (head.slice(head.lastIndexOf('/') + 1).startsWith('.')) fail('a glob in a path component that starts with a dot')
+    if (word.value.slice(word.value.lastIndexOf('/') + 1).startsWith('.')) fail('a glob in a path component that starts with a dot')
   }
   return join(cwd, word.value, scope.win)
 }

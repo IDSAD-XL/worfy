@@ -725,6 +725,13 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
     expect(analyze('printf *', posix)).toEqual({ judged: false, why: 'a glob that may expand into an option' })
   })
 
+  it('a glob component may hold a dot after its first character, and a folder before it may start with one', () => {
+    expect(brief('cat a.? b.*; ls sub/.config/x*')).toEqual([
+      { program: 'cat', cwd: '/tmp/demo', reads: ['/tmp/demo/a.?', '/tmp/demo/b.*'] },
+      { program: 'ls', cwd: '/tmp/demo', reads: ['/tmp/demo/sub/.config/x*'] },
+    ])
+  })
+
   it('test and [ without -v or -R', () => {
     expect(brief('test -n x; [ -f x ]')).toEqual([{ program: 'test', cwd: '/tmp/demo' }, { program: '[', cwd: '/tmp/demo' }])
   })

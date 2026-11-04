@@ -155,3 +155,10 @@ Source: [spec.md](../spec.md), «Как работает», п. 2; «Безоп�
     `$XDG_CONFIG_HOME/git/config` (или `~/.config/git/config`); без HOME — `judged: false`.
 19. **Mutation testing, round 4** (плюс 11 mutant-ов кода round 4 и имена `GIT_CONFIG_OUTSIDE`): 654 mutant-а —
     убито 620 (5 по зависанию test-а), 19 ушли вместе с кодом, выжили те же 15 эквивалентных, что в п. 13.
+20. **Round 5: glob в компоненте, который начинается с точки.** sh, dash и bash до 5.2 (на macOS `/bin/bash` 3.2)
+    сопоставляют `.?` с `..`, а `.*` — с `.` и `..`; zsh и bash 5.2 — нет. Значит, `git diff . .?`, `ls .?` или
+    `cp -r .? x` в одних shell-ах читают родительскую папку, а в `reads` стояло бы `<cwd>/.?`. Теперь glob в
+    последнем компоненте, который начинается с `.` (`.?`, `.*`, `..?`, `.??*`, `sub/.?`), — `judged: false`
+    для всех программ и для подкоманд чтения git. Glob в среднем компоненте (`sub/.?/x`) и `[` уже были
+    `judged: false`. Contract test показывает это на fixture-папке: на macOS `/bin/bash -c 'ls .?'` печатает
+    файл папки уровнем выше. Mutation testing этой проверки: 10 mutant-ов, убиты все.
