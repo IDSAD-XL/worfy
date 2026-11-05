@@ -37,9 +37,12 @@ Source: [spec.md](../spec.md), «Решено без владельца» (ра�
   - evidence: commit pass · docs: section "Failure records" on the Gate feature page (worfy-failures 08) · - - · f51519768
 - [ ] `node scripts/check-feature-docs.mjs` — exit 0 и строка `feature docs: ok (…)`.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0, feature docs: ok (26 pages, 1964 paths); on a copy before worfy-failures 01 exit 1 · mac - · f51519768
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0, feature docs: ok (26 pages, 1964 paths), round 2 · mac - · bfda0211bfd32eb6176b06e7f420ed2c6b266bb0
 - [ ] `pnpm lint` — exit 0; CI PR зелёный.
   - evidence: test-run pass · `pnpm lint` exit 0 (CI of the PR not yet read) · mac - · f51519768
   - evidence: gate pass · `gate fast` exit 0, GATE_SCOPE=all · mac - · f51519768
+  - evidence: test-run pass · `pnpm lint` exit 0, round 2 · mac - · bfda0211bfd32eb6176b06e7f420ed2c6b266bb0
+  - evidence: gate pass · `gate fast` exit 0, GATE_SCOPE=all, round 2 · mac - · bfda0211bfd32eb6176b06e7f420ed2c6b266bb0
 
 ## Тесты
 
