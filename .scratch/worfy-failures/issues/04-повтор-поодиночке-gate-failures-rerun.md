@@ -44,29 +44,39 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 - [ ] Contract test: run-fixture с тремя записями (один test зелёный поодиночке, один красный, один без `rerun`) —
       файл повтора с двумя результатами и «cannot rerun»; exit 2.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · 248f422260d543d4ea35d6e204d4fc2f0e94cc5c
+  - evidence: test-run pass · `pnpm test test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c70c77f400b0bb1f10097e6cb4ff18e7a4b17752
 - [ ] Contract test: все зелёные — exit 0.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · 248f422260d543d4ea35d6e204d4fc2f0e94cc5c
+  - evidence: test-run pass · `pnpm test test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c70c77f400b0bb1f10097e6cb4ff18e7a4b17752
 - [ ] Contract test: run из `imported/<id>/` и run с чужим `computer.id` — exit 3, stub-test не запущен (файл-след
       stub-а не появился).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · 248f422260d543d4ea35d6e204d4fc2f0e94cc5c
+  - evidence: test-run pass · `pnpm test test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c70c77f400b0bb1f10097e6cb4ff18e7a4b17752
 - [ ] Contract test: HEAD другой — exit 3 «HEAD is not the SHA of the run»; грязное дерево — exit 3; ни один test не
       запущен.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · 248f422260d543d4ea35d6e204d4fc2f0e94cc5c
+  - evidence: test-run pass · `pnpm test test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c70c77f400b0bb1f10097e6cb4ff18e7a4b17752
 - [ ] Contract test: `--dry-run` печатает список и оценку, ничего не запускает и не пишет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · 248f422260d543d4ea35d6e204d4fc2f0e94cc5c
+  - evidence: test-run pass · `pnpm test test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c70c77f400b0bb1f10097e6cb4ff18e7a4b17752
 - [ ] Contract test: повторы идут по одному (stub-test пишет время старта и конца — интервалы не пересекаются);
       после выхода нет живых дочерних процессов.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · 248f422260d543d4ea35d6e204d4fc2f0e94cc5c
+  - evidence: test-run pass · `pnpm test test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c70c77f400b0bb1f10097e6cb4ff18e7a4b17752
 - [ ] Contract test: при `workflow.e2e_lock` Playwright-повторы ждут чужой замок и снимают свой; vitest-повторы
       замка не берут; SIGTERM во время e2e-повтора снимает замок (папки замка после выхода нет).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · 248f422260d543d4ea35d6e204d4fc2f0e94cc5c
+  - evidence: test-run pass · `pnpm test test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c70c77f400b0bb1f10097e6cb4ff18e7a4b17752
 - [ ] Contract test: при заблокированном экране (stub `ioreg` в `PATH` отвечает `"IOConsoleLocked" = Yes`, потом
       `No`) повтор ждёт и стартует после разблокировки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · 248f422260d543d4ea35d6e204d4fc2f0e94cc5c
+  - evidence: test-run pass · `pnpm test test/contract/gate-failures-rerun.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c70c77f400b0bb1f10097e6cb4ff18e7a4b17752
 - [ ] Shell test-ы `wave-gate-lock*.test.sh`, `wave-gate-screen.test.sh`, `wave-gate.test.sh` зелёные после выноса.
   - evidence: test-run pass · `bash harness/bin/tests/wave-gate*.test.sh` (all six files) exit 0 · mac - · 248f422260d543d4ea35d6e204d4fc2f0e94cc5c
+  - evidence: test-run pass · the six shell tests harness/bin/tests/wave-gate*.test.sh, each exit 0 · mac - · c70c77f400b0bb1f10097e6cb4ff18e7a4b17752
 - [ ] Платформенный PR, если так скажет `scripts/windows-verdict-scope.mjs`.
   - evidence: test-run pass · `node scripts/windows-verdict-scope.mjs origin/main worfy-failures/04` exit 0, runner: not a platform PR · mac - · 248f422260d543d4ea35d6e204d4fc2f0e94cc5c
+  - evidence: test-run pass · `node scripts/windows-verdict-scope.mjs origin/main HEAD` exit 0, runner: not a platform PR · mac - · c70c77f400b0bb1f10097e6cb4ff18e7a4b17752
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
 
 ## Тесты
