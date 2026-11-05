@@ -84,15 +84,19 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-05»,
       `app-settings.json` той Machine), на вызывающей Machine ничего не записано.
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts full access, test/unit/modes-menu.test.tsx) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
   - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · 486677b1b4d134edcb1c30c9c0f329e8a7d02a37
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · bd82c0c23
 - [ ] Read only: меню открывается, три состояния видны, пункты недоступны с подсказкой Read only; запись отказана и
       на стороне Machine Project-а.
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts read-only, auto-approve-setting, auto-continue-setting) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
   - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · 486677b1b4d134edcb1c30c9c0f329e8a7d02a37
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · bd82c0c23
 - [ ] Смена на одной Machine видна в открытом меню другой без перезагрузки (Q18).
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts Q18 both ways) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
   - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · 486677b1b4d134edcb1c30c9c0f329e8a7d02a37
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · bd82c0c23
 - [ ] Пять contract test-ов из «Риски» зелёные.
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts risks 1-5) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
+  - evidence: test-run pass · `pnpm vitest run test/contract/modes-linked.test.ts` exit 0 (13 tests, debugging port on the Project Machine) · mac - · 87d54e9f2548e057a5bf24240db8ee9e6814faae
 - [ ] Списки `test/unit/link-access.test.ts` обновлены.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/link-access.test.ts) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
 - [ ] Страницы Feature EN и RU, раздел Linked machine.
@@ -100,6 +104,7 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-05»,
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
   - evidence: gate pass · `gate fast` exit 0 · mac - · 4bb48b4822db5ed345838ad3e944f5e644bc139a
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 87d54e9f2548e057a5bf24240db8ee9e6814faae
 
 ## Тесты
 
