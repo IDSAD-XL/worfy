@@ -23,3 +23,7 @@ worfy ничего не пишет в репозитории Project-ов — н
   режим действует снова после запуска без них. `app-settings.json` читается один раз при первом обращении; правка
   файла извне видна только после рестарта worfy, а следующая запись любой настройки Machine кладёт поверх неё
   состояние из памяти.
+- 2026-11-05 — в том же `app-settings.json` появилось поле `autoContinue`: `{<id Project-а>: true}` для Project-ов, где
+  worfy сам продолжает Run после ошибки API или Limits; нет записи или мусор в поле — Off (worfy-retry, Ticket 02).
+  Как и `autoApproval`, это настройка Machine: пишет её только пункт Auto-continue в меню Modes Orchestrator-а через
+  IPC `autoContinue.set` (каналы `local`, с Linked machine не доступны); Off удаляет запись Project-а.
