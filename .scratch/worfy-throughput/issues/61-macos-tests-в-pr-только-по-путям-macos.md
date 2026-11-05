@@ -51,13 +51,19 @@ PR трогает пути macOS; push в `main` по-прежнему гоня�
 ## Готово, когда
 
 - [ ] PR только с правкой приложения (например `src/renderer/App.tsx`) — без `macos-tests`; e2e как раньше.
+  - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
 - [ ] PR с macOS-only test-файлом — `macos-tests` с этим файлом в `macos-tests-files`.
+  - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
 - [ ] PR с исходником, в имени которого `darwin` (или `mac`, `macos`), — `macos-tests`.
+  - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
 - [ ] PR с модулем из таблицы `MACOS_PATHS` — `macos-tests`; каждый glob таблицы без `*` — существующий файл
       репозитория (contract test).
+  - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
 - [ ] Push в `main` — все job-ы; diff, который нельзя прочитать, — все job-ы (test-ы на оба случая).
+  - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
 - [ ] Test-ы `test/contract/ci-workflow.test.ts` (раздел `scripts/ci-scope.mjs`), `test/contract/ci-scope-e2e.test.ts`,
       `test/unit/affected-tests.test.ts` — exit 0; gate fast — `[gate] green (fast)`, exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
 
 ## Тесты
 
