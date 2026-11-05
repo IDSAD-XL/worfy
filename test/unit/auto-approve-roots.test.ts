@@ -2,12 +2,13 @@
 // symbolic links, globs and the Windows path forms. Links and globs are checked on a fixture folder on
 // disk (made under the system's temporary folder, removed after); the rest on made-up paths under
 // /tmp/demo, /home/demo and C:\work with a file system where nothing exists.
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { normalizePath, repositoryTop, resolveTarget, rootsOf, type FileSystem, type Roots, type RootsInput } from '../../src/main/agent/auto-approve/roots'
 import { newTempFolderName } from '../../src/main/agent/auto-approve/shell'
+import { removeTestTree } from '../remove'
 
 const nothing: FileSystem = { lstat: () => null, realpath: () => null, readdir: () => null }
 
@@ -205,7 +206,7 @@ describe('the machine\'s file system', () => {
     symlinkSync(join(top, 'd'), join(top, 'l'), process.platform === 'win32' ? 'junction' : 'dir')
   })
   afterAll(() => {
-    rmSync(top, { recursive: true, force: true })
+    removeTestTree(top)
   })
   it('tells files, folders, links and nothing apart', () => {
     const fs = rootsOf({ ...base, fs: undefined }).fs
@@ -263,7 +264,7 @@ describe('on disk: links and globs', () => {
     disk = rootsOf({ ...base, platform: process.platform, worktrees: [root], scratch: null, runTemp: null, scratchpad: null, home: join(top, 'home'), dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [], fs: undefined })
   })
   afterAll(() => {
-    rmSync(top, { recursive: true, force: true })
+    removeTestTree(top)
   })
   const at = (...parts: string[]): string => join(top, ...parts)
   // path.join folds `..`; the target must keep it, as shell.ts writes it.
