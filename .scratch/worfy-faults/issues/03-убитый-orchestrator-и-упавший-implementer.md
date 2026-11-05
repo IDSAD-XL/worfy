@@ -1,7 +1,8 @@
 # 03 — Умерший Claude Code Orchestrator-а и упавший implementer
 
 Type: task
-Status: claimed 2026-11-05T11:29Z
+Status: done 2026-11-05T12:19Z
+PR: #1439
 Blocked by: 02
 Source: [spec.md](../spec.md), «Сценарии» (строки «Claude Code Orchestrator-а умер во время фоновой записи», «Implementer упал …»), «Правила восстановления» (И1, И3, И4, таблица причин И4)
 
@@ -43,18 +44,25 @@ Source: [spec.md](../spec.md), «Сценарии» (строки «Claude Code 
 - [ ] Contract test: Claude Code умер при живых implementer-ах — `session-error`, `run-stopped` `session-error`;
       `checkRecovery` пустой; новый Run стартует, команда Wave одна.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-process.test.ts` exit 0 · mac - · eaef63df129abbf20cb57c3375bf94a0a55e06bc
+  - evidence: review pass · PR #1439 · - - · 0b9a65e9e0cc1e011d9988ed77710fda56d555d7
 - [ ] Contract test: implementer `failed`, 01 `claimed` — `wave-unfinished` после `settleMs`; одна команда Wave;
       `ticket-status` по одной строке на изменение; `checkRecovery` пустой.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-process.test.ts` exit 0 · mac - · eaef63df129abbf20cb57c3375bf94a0a55e06bc
+  - evidence: review pass · PR #1439 · - - · 0b9a65e9e0cc1e011d9988ed77710fda56d555d7
 - [ ] Contract test: implementer `failed`, 01 `open` — вторая Wave только с 01; `checkRecovery` пустой.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-process.test.ts` exit 0 · mac - · eaef63df129abbf20cb57c3375bf94a0a55e06bc
+  - evidence: review pass · PR #1439 · - - · 0b9a65e9e0cc1e011d9988ed77710fda56d555d7
 - [ ] После файла нет живых процессов stub-а (`stopAll()` в `afterEach`).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-process.test.ts` exit 0 · mac - · eaef63df129abbf20cb57c3375bf94a0a55e06bc
+  - evidence: review pass · PR #1439 · - - · 0b9a65e9e0cc1e011d9988ed77710fda56d555d7
 - [ ] Каждый test краснеет на испорченном ожидании — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-process.test.ts` on 4 spoiled-expectation mutants exit 1, each red in its test · mac - · eaef63df129abbf20cb57c3375bf94a0a55e06bc
+  - evidence: review pass · PR #1439 · - - · 0b9a65e9e0cc1e011d9988ed77710fda56d555d7
 - [ ] `src/` не изменён. `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · eaef63df129abbf20cb57c3375bf94a0a55e06bc
   - evidence: gate pass · `gate fast` exit 0 · mac - · eaef63df129abbf20cb57c3375bf94a0a55e06bc
+  - evidence: review pass · PR #1439 · - - · 0b9a65e9e0cc1e011d9988ed77710fda56d555d7
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42021853767/job/127235593613 · ci - · 0b9a65e9e0cc1e011d9988ed77710fda56d555d7
 
 ## Тесты
 
