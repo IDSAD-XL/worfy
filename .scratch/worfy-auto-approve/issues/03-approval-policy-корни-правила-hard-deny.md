@@ -357,3 +357,37 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
       убито, 2 эквивалентны — `.some` → `.every` по двум формам пути при проверке hooks (как в пункте 20) и
       `gitHooks: true` у file tool-а (правило `edit-inside-roots` разрешает каждый file tool внутри корней раньше, чем
       дойдёт до park с подсказкой).
+22. **Раунд 8 review (PR #1410): программы, названные в git config.** High нет; входы раунда 7 закрыты.
+    - **Программы config-а (medium).** `core.fsmonitor`, `textconv`, filters `clean` / `smudge` / `process`
+      запускаются и на «чистых» чтениях: `git show`, `log -p`, `blame`, `grep`, `ls-files`, `check-ignore`,
+      `cat-file --filters`. Пример review на настоящем git: `nbstripout --install` ставит `filter.nbstripout.clean` и
+      `diff.ipynb.textconv` = `"python3" -m nbstripout`; агент кладёт `nbstripout.py` в верх worktree-а (обычная запись
+      файла), и `git show` запускает его. Решение review: поле `hooksActive` не переименовывается, а получает более
+      широкий смысл — «hooks или программы config-а». Ticket 04 ставит `true` и при ключах `core.fsmonitor` (не
+      `true`/`false`), `filter.*.clean|smudge|process`, `diff.*.textconv|command`, `merge.*.driver`; от себя я
+      добавил `diff.external`, `gpg.program` и `gpg.*.program`.
+    - **Что остаётся allow при `hooksActive` не `false`.** `rev-parse`, `merge-base`, `for-each-ref`, `show-ref`,
+      `name-rev`, `branch` (список), `ls-tree`, `stash list`, `cat-file` только с `-p`, `-t`, `-s`, `-e`, а также
+      `log` и `rev-list` только с перечисленными опциями (`--oneline`, `--graph`, `--decorate`, `--all`, `-n`,
+      `--max-count`, `--author`, `--since`, `--grep`, `--format=`, `--pretty=`, `--date=` и т. п.; полный список —
+      `REVISION_FLAGS` / `REVISION_NEXT` / `REVISION_JOINED` в `policy.ts`). Для `log` ещё допускаются пути после
+      `--`. Решения мои, строже списка review: опции `log` и `rev-list` заданы allow-list-ом, а не списком
+      запрещённых. Ни одно слово команды не может содержать `%G` и `signature`: формат `%G?`,
+      `--show-signature`, `%(signature)` запускают `gpg.program`. Каждая оставленная форма проверена на настоящем
+      git 2.50: в репозитории были настроены hooks, `core.fsmonitor`, `textconv`, `clean` / `smudge`,
+      `diff.external`, `gpg.program`, `gc.auto` с 600 loose object-ами и подписанный HEAD, и ни одна программа не
+      запустилась (скрипт и вывод — в scratchpad исполнителя, `impl-aa03/r8git/`). `show`, `blame`, `grep`,
+      `ls-files`, `check-ignore`, `shortlog`, `stash show` и `describe` из allow ушли.
+    - **`log.showSignature`.** При `log.showSignature=true` в config-е владельца простой `git log` на подписанном
+      commit-е запустил `gpg.program` (проверено). Это закрывает Ticket 04: драйвер добавляет
+      `'log.showSignature'='false'` в `GIT_CONFIG_PARAMETERS` рядом с `safe.bareRepository`; с этой переменной тот же
+      `git log` ничего не запустил.
+    - **`hooksPath !== null` (low).** Заданный `core.hooksPath` считается hooks, даже если `hooksActive` — `false`.
+    - **Pseudo-ref (low).** Новая ветка не может называться как pseudo-ref: имя только из заглавных букв, `-` и `_`, в
+      котором есть `_` (`AUTO_MERGE`, `MERGE_AUTOSTASH`, `BISECT_EXPECTED_REV`, `NOTES_MERGE_REF`, `_`), а также
+      любое имя на `_HEAD`. На macOS и Windows регистр не учитывается. `FOO` и `release-1_2` остаются allow.
+    - Spec («Безопасность», п. 9) и Ticket 04 (`hooksActive`, `GIT_CONFIG_PARAMETERS`) поправлены, только текст.
+    - **Mutation testing после раунда 8.** Первый прогон по изменённым строкам `policy.ts`: 67 mutant-ов, убит 65,
+      выжили 2. Оба эквивалентны: `i < words.length` → `<=` (лишний проход по пустому слову делает `continue`) и
+      `eq < 0` → `<= 0` (у слова с `-` в начале `=` не стоит на месте 0). Скрипт теперь снимает и элементы списков
+      `const X = [...]`. Второй прогон, по спискам опций с test-ом на каждую опцию: 34 mutant-а, убиты все.

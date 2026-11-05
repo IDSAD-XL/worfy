@@ -1415,6 +1415,27 @@ describe('round 8: programs named in git config, pseudo-ref names, hooksPath', (
     for (const command of LEFT) expect(run(command, active).outcome, command).not.toBe('allow')
     for (const command of ['git show', 'git log -p', 'git ls-files', 'git cat-file --filters HEAD:src/a.ts']) expect(run(command, active), command).toMatchObject({ outcome: 'park', rule: 'git-hooks', hint: HINTS.gitHooks })
   })
+  it('each listed option of log and rev-list on its own, the valued ones in both spellings', () => {
+    const flags = ['--oneline', '--graph', '--decorate', '--no-decorate', '--all', '--reverse', '--first-parent', '--no-merges', '--merges', '--branches', '--tags', '--remotes',
+      '--abbrev-commit', '--date-order', '--topo-order', '--count', '--left-right']
+    const next = ['-n', '--max-count', '--skip', '--author', '--committer', '--since', '--until', '--after', '--before', '--grep']
+    for (const sub of ['log', 'rev-list']) {
+      for (const flag of flags) expect(outcome(`git ${sub} ${flag} HEAD`, active), `${sub} ${flag}`).toBe('allow')
+      for (const option of next) {
+        expect(outcome(`git ${sub} ${option} 3 HEAD`, active), `${sub} ${option} 3`).toBe('allow')
+        expect(outcome(`git ${sub} ${option}=3 HEAD`, active), `${sub} ${option}=3`).toBe('allow')
+        expect(outcome(`git ${sub} ${option} -p HEAD`, active), `${sub} ${option} -p`).toBe('park')
+      }
+      for (const option of ['--format', '--pretty', '--date']) {
+        expect(outcome(`git ${sub} ${option}=short HEAD`, active), `${sub} ${option}=short`).toBe('allow')
+        expect(outcome(`git ${sub} ${option} -p HEAD`, active), `${sub} ${option} -p`).toBe('park')
+      }
+      expect(outcome(`git ${sub} -p=3 HEAD`, active)).toBe('park')
+    }
+    expect(outcome('git rev-list HEAD -- src/a.ts', active)).toBe('park')
+    expect(outcome('git log HEAD -- src/a.ts', active)).toBe('allow')
+    expect(outcome('git log -n', active)).toBe('park')
+  })
   it('without them the reads are allowed as before', () => {
     for (const command of [...KEPT, 'git show', 'git log -p', 'git blame src/a.ts', 'git ls-files']) expect(run(command), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
   })
