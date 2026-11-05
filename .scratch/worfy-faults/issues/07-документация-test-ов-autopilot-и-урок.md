@@ -33,8 +33,11 @@ Epic добавляет только test-ы: поведение Autopilot не 
 ## Готово, когда
 
 - [ ] В `#### Tests` английской страницы — абзац и строки всех файлов набора; ссылки на файлы открываются.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 09b2482e277b3afad2be80d695cb171ddd209b05
 - [ ] Перевод в `docs/features/ru/autopilot.md` совпадает по смыслу.
+  - evidence: commit pass · docs: Autopilot fault scenarios in the Autopilot page and the lesson (worfy-faults 07) · - - · 09b2482e277b3afad2be80d695cb171ddd209b05
 - [ ] Урок в `docs/lessons/testing.md` с `Проверка:` на существующий test; `node scripts/check-lessons.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-lessons.mjs` exit 0 · mac - · 09b2482e277b3afad2be80d695cb171ddd209b05
 - [ ] `pnpm lint` — exit 0 (Cyrillic, ссылки); `ci-ok` на PR зелёный.
 
 ## Тесты
