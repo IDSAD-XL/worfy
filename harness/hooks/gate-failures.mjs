@@ -225,6 +225,23 @@ function folderPattern(dir) {
     return new RegExp(`${BEFORE_PATH}(?:${d}:|/${d}|/mnt/${d})[\\\\/]+${rest}${AFTER_PATH}`, "gi")
 }
 
+// The rest of a path after a folder folderPattern() found: separators and names up to the last separator and the
+// name after it. A folder name may hold a space ("a b"): words joined by spaces are taken only when a separator
+// follows them, so a word after the path is never taken — not the drive letter of the next path either
+// ("<repo>\x.ts to equal D:\a\y.ts"). A last name with a space ("c d.ts") is left where it is: it has no separator
+// to rewrite. The path ends at a quote, a colon (of :12:5), a closing bracket or punctuation, or at the end of the text.
+// shortcut: a word after the path that is itself followed by "\" with no space before it ("<repo>\x.ts vs a\b") is
+// read as a folder of the path and gets "/", redo when a record shows such a line.
+const NAME_CHAR = String.raw`[^\s\\/"'\x60:;,)\]}>]`
+const PATH_TAIL = String.raw`((?:[\\/]+${NAME_CHAR}+(?:(?: +${NAME_CHAR}+)+(?=[\\/]))?)*)`
+
+// `text` with the folder `re` (folderPattern) replaced by `stand` and the rest of each such path written as a
+// record writes paths, with "/": a run of "\" ("\\" in JSON) and "/" becomes one "/", a run of "/" alone stays.
+function replaceFolder(text, re, stand) {
+    const withTail = new RegExp(re.source + PATH_TAIL, re.flags)
+    return text.replace(withTail, (_, tail) => stand + tail.replace(/[\\/]*\\[\\/]*/g, "/"))
+}
+
 // The user name of any home folder path, whoever's it is: in the folder Users at the root (macOS),
 // /home/<name>, C:\Users\<name> (with "\", "\\" or "/"), the same after /c or /mnt/c, the 8.3 name
 // RUNNER~1 too. A name that starts with a dot is a file in a sandbox home (<tmp>/home/.gitconfig), not a user.
@@ -245,16 +262,17 @@ function personalName(name) {
 }
 
 // `text` without the personal data of the computer it came from. ctx: { repo, home, user, host, deny }
-// — the root of the worktree (→ <repo>), the home folder (→ ~), the user name (→ <user>), the host
+// — the root of the worktree (→ <repo>), the home folder (→ ~; the rest of a path under either is written with "/",
+// so a record reads the same on Windows: <repo>/test/x.test.ts:12:5), the user name (→ <user>), the host
 // name (→ <host>) and the words of the personal list of privacy.cjs; each may be missing. After that
 // the user name of any other home folder path becomes <user>, and the rest privacy.cjs finds
 // (UUIDs, email addresses, tokens, host names of known shapes) is masked by it.
 export function scrub(text, ctx = {}) {
     let out = String(text ?? "")
     const repo = ctx.repo ? folderPattern(ctx.repo) : null
-    if (repo) out = out.replace(repo, "<repo>")
+    if (repo) out = replaceFolder(out, repo, "<repo>")
     const home = ctx.home ? folderPattern(ctx.home) : null
-    if (home) out = out.replace(home, "~")
+    if (home) out = replaceFolder(out, home, "~")
     for (const re of HOME_NAMES) out = out.replace(re, "$1<user>")
     const host = typeof ctx.host === "string" ? ctx.host.trim() : ""
     if (host.length >= 3 && host.toLowerCase() !== "localhost") {
