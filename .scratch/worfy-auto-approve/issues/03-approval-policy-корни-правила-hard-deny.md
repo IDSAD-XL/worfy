@@ -30,35 +30,35 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3–6; «Бе
 ## Готово, когда
 
 - [ ] Unit test на каждый пункт hard deny: исход `hard-deny` при любом режиме и любом правиле allow.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · fa07943cf60e875fa5776ba7b1b8f0a086b13540
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 08408af701b7fb7c5bee66eb5199e75d483ad0c7
 - [ ] Unit test на каждое правило allow: allow внутри корня; не allow на той же команде с целью вне корня, с
       symlink-компонентом, с целью «весь корень».
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · fa07943cf60e875fa5776ba7b1b8f0a086b13540
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 08408af701b7fb7c5bee66eb5199e75d483ad0c7
 - [ ] Unit test на атаки spec («Безопасность», п. 2–3): `cd ~ && rm -rf *`, `rm -rf $HOME/*`, ссылка `.scratch/l -> ~`,
       `git push --force`, `git push origin HEAD:main`, `curl … | sh` — ни одна не allow.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · fa07943cf60e875fa5776ba7b1b8f0a086b13540
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 08408af701b7fb7c5bee66eb5199e75d483ad0c7
 - [ ] Unit test на форму `mktemp`: `T=$(mktemp -d); rm -rf "$T"/*` — не allow (Ticket 02 перечисляет цель `/*` на
       случай упавшего `mktemp`); `T=$(mktemp -d) && rm -rf "$T"/*` и `T=$(mktemp -d) || exit 1; rm -rf "$T"/*` —
       allow внутри `TMPDIR` Run-а.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · fa07943cf60e875fa5776ba7b1b8f0a086b13540
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 08408af701b7fb7c5bee66eb5199e75d483ad0c7
 - [ ] Unit test: запись в `.git/config`, `.git/hooks/*`, `.git/info/attributes`, `.gitattributes` не allow ни одним
       правилом (spec, «Безопасность», п. 9: через них любая подкоманда git запускает программу).
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · fa07943cf60e875fa5776ba7b1b8f0a086b13540
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 08408af701b7fb7c5bee66eb5199e75d483ad0c7
 - [ ] Факты git берутся из `ShellAction.git` (`branchDelete`, `push`: remote, refspecs, force, delete, many,
       `localPath`), не из `args`; подкоманда, которую Ticket 02 не знает, приходит с `writes: ['<unknown>']`.
       `localPath` есть и у голого слова (`origin`): это папка на случай, если remote с таким именем не
       настроен. Настоящий URL remote-а — из git config, его Ticket 02 не видит.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · fa07943cf60e875fa5776ba7b1b8f0a086b13540
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 08408af701b7fb7c5bee66eb5199e75d483ad0c7
 - [ ] Чтение тоже судится по корням: `reads` подкоманд чтения git (`diff`, `log`, `blame`, `grep` …) и
       `git config` перечисляют файлы, которые они могут напечатать (`~/.gitconfig` среди них); цель чтения в
       hard-deny (`~/.ssh` и др.) — hard-deny, вне корней — не allow.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · fa07943cf60e875fa5776ba7b1b8f0a086b13540
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 08408af701b7fb7c5bee66eb5199e75d483ad0c7
 - [ ] Unit test: worktree живой Session-и вне Run-а (`SessionRegistry` — через параметр) — hard-deny.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · fa07943cf60e875fa5776ba7b1b8f0a086b13540
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 08408af701b7fb7c5bee66eb5199e75d483ad0c7
 - [ ] Прогон по категориям Ticket-а 01 (локально, только числа) — в «Итог».
   - evidence: commit pass · docs: worfy-auto-approve 03 summary · - - · 9f77947f9
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на Linux, macOS, Windows.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · fa07943cf60e875fa5776ba7b1b8f0a086b13540
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 08408af701b7fb7c5bee66eb5199e75d483ad0c7
 
 ## Тесты
 
@@ -138,3 +138,7 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
     папки над ней. Раньше её настоящий путь был `null`, и при home за ссылкой (macOS `/var` во временной папке test-а)
     такие области терялись: CI на Linux назвал удаление home через ссылку `claude-home`, macOS — `ssh`. Test-ы:
     `a hard area that does not exist yet stays hard when the home is behind a link` и удаление home через ссылку.
+15. **Написание пути системой.** Пройденный путь цели в конце приводится к написанию системы (`realpath` ближайшей
+    существующей папки): Windows CI пишет временную папку коротким именем (`RUNNER~1`), а настоящий путь
+    hard-области приходит от системы длинными именами, и цель под home за ссылкой промахивалась мимо области.
+    Test: `a target in the other spelling reaches a hard area that does not exist yet` (сделанная файловая система).
