@@ -82,13 +82,20 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-05»,
 
 - [ ] Full access: каждый из трёх пунктов меняется из окна Linked machine; запись — на Machine Project-а (Profile или
       `app-settings.json` той Machine), на вызывающей Machine ничего не записано.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts full access, test/unit/modes-menu.test.tsx) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
 - [ ] Read only: меню открывается, три состояния видны, пункты недоступны с подсказкой Read only; запись отказана и
       на стороне Machine Project-а.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts read-only, auto-approve-setting, auto-continue-setting) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
 - [ ] Смена на одной Machine видна в открытом меню другой без перезагрузки (Q18).
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts Q18 both ways) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
 - [ ] Пять contract test-ов из «Риски» зелёные.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts risks 1-5) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
 - [ ] Списки `test/unit/link-access.test.ts` обновлены.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/link-access.test.ts) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
 - [ ] Страницы Feature EN и RU, раздел Linked machine.
+  - evidence: commit pass · Modes from a Linked machine: full access changes all three modes, read-only access sees them · - - · aaa6d8a29
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
 
 ## Тесты
 
@@ -142,6 +149,12 @@ Auto-continue на B, смена в окне B видна в открытом м
 записано; spec внесён в правило link таблицы `scripts/e2e-specs.table.json`. Mutation testing: 26 мутаций изменённых
 строк (пометки каналов, проверка debugging port в `linked.invoke`, события, `readOnlyNow` и подсказка Read only в трёх
 hook-ах, сброс догадки) — все убиты.
+
+`pnpm lint && pnpm typecheck && pnpm test` на 06aff8e25 — exit 0. Gate fast — exit 2 дважды: lint и typecheck
+зелёные, шаг test красный на test-ах, которых ветка не касается, и каждый раз на других:
+`test/contract/codex-parity.test.ts` (Stop hook фейкового Codex увидел красный gate), затем
+`test/contract/harness-scripts-4.test.ts` (`wave-gate-heartbeat.test.sh`: 1285 ms при лимите 1200) и
+`test/contract/terminal-ai-zle.test.ts`. Отдельно все три зелёные (exit 0). Gate fast зелёным не назван.
 
 ### Решено без владельца
 
