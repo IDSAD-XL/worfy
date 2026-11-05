@@ -113,7 +113,7 @@ describe('scrub', () => {
 
   it.each([
     ['/Users/jdoe/x', '~/x'],
-    ['C:\\Users\\jdoe\\x', '~\\x'],
+    ['C:\\Users\\jdoe\\x', '~/x'],
     ['C:/Users/jdoe/x', '~/x'],
     ['/c/Users/jdoe/x', '~/x'],
   ])('replaces the home folder in %s', (text, expected) => {
@@ -123,7 +123,62 @@ describe('scrub', () => {
 
   it('replaces the root of the repository before the home folder that holds it', () => {
     expect(scrub('at /Users/jdoe/work/repo/test/a.test.ts:3:1', CTX)).toBe('at <repo>/test/a.test.ts:3:1')
-    expect(scrub('at C:\\Users\\jdoe\\work\\repo\\test\\a.test.ts', { ...CTX, repo: 'C:\\Users\\jdoe\\work\\repo' })).toBe('at <repo>\\test\\a.test.ts')
+    expect(scrub('at C:\\Users\\jdoe\\work\\repo\\test\\a.test.ts', { ...CTX, repo: 'C:\\Users\\jdoe\\work\\repo' })).toBe('at <repo>/test/a.test.ts')
+  })
+
+  describe('a Windows path under the root or the home folder', () => {
+    const WIN = { repo: 'D:\\a\\worfy\\worfy', home: 'C:\\Users\\runneradmin', user: 'runneradmin', host: 'fv-az123' }
+
+    it.each([
+      ['with "\\"', 'D:\\a\\worfy\\worfy\\test\\x.test.ts:12:5'],
+      ['with "\\\\" as JSON writes it', 'D:\\\\a\\\\worfy\\\\worfy\\\\test\\\\x.test.ts:12:5'],
+      ['as Git Bash writes it', '/d/a/worfy/worfy/test/x.test.ts:12:5'],
+      ['as WSL writes it', '/mnt/d/a/worfy/worfy/test/x.test.ts:12:5'],
+      ['with the other case of the drive letter', 'd:\\a\\worfy\\worfy\\test\\x.test.ts:12:5'],
+      ['with "/" after a drive letter', 'D:/a/worfy/worfy/test/x.test.ts:12:5'],
+      ['with "\\" and "/" mixed', 'D:\\a\\worfy\\worfy\\test/x.test.ts:12:5'],
+    ])('writes the root %s as <repo> and the rest of the path with "/"', (_how, path) => {
+      expect(scrub(`AssertionError: failed at ${path}`, WIN)).toBe('AssertionError: failed at <repo>/test/x.test.ts:12:5')
+    })
+
+    it.each([
+      ['with "\\"', 'C:\\Users\\runneradmin\\AppData\\x.json'],
+      ['with "\\\\"', 'C:\\\\Users\\\\runneradmin\\\\AppData\\\\x.json'],
+      ['as Git Bash writes it', '/c/Users/runneradmin/AppData/x.json'],
+      ['with the other case of the drive letter', 'c:\\users\\RunnerAdmin\\AppData\\x.json'],
+    ])('writes the home folder %s as ~ and the rest of the path with "/"', (_how, path) => {
+      expect(scrub(`Error: cannot read ${path}`, WIN)).toBe('Error: cannot read ~/AppData/x.json')
+    })
+
+    it('takes a folder name with a space as a part of the path, up to the end of the path', () => {
+      expect(scrub('Error: at D:\\a\\worfy\\worfy\\test\\a b\\c d.test.ts:12:5', WIN)).toBe('Error: at <repo>/test/a b/c d.test.ts:12:5')
+      expect(scrub('Error: at C:\\Users\\runneradmin\\My Documents\\x.ts', WIN)).toBe('Error: at ~/My Documents/x.ts')
+    })
+
+    it('keeps the quotes, the parentheses and the line and column after the path', () => {
+      expect(scrub('Error: at fn (D:\\a\\worfy\\worfy\\src\\a.ts:12:5), then "D:\\a\\worfy\\worfy\\x y\\b.ts" and \'D:\\a\\worfy\\worfy\\c.ts\'', WIN)).toBe(
+        'Error: at fn (<repo>/src/a.ts:12:5), then "<repo>/x y/b.ts" and \'<repo>/c.ts\'',
+      )
+    })
+
+    it('stops at the end of the path: a "\\" of the words after it stays', () => {
+      expect(scrub('expected D:\\a\\worfy\\worfy\\x.ts to match \\d+', WIN)).toBe('expected <repo>/x.ts to match \\d+')
+    })
+
+    it('leaves a path outside the root and the home folder as it is', () => {
+      expect(scrub('Error: cannot read E:\\data\\x y\\z.json', WIN)).toBe('Error: cannot read E:\\data\\x y\\z.json')
+      expect(scrub('Error: cannot read D:\\a\\worfy\\other\\z.json', WIN)).toBe('Error: cannot read D:\\a\\worfy\\other\\z.json')
+    })
+
+    it('leaves a POSIX path under the root as it was, "//" included', () => {
+      const ctx = { repo: '/work/repo', home: '/home/runner' }
+      expect(scrub('failed in /work/repo/test/a b/x.test.ts:3 and /home/runner/x//y', ctx)).toBe('failed in <repo>/test/a b/x.test.ts:3 and ~/x//y')
+    })
+
+    it('writes a record of a run with "/" in its error', () => {
+      const record = scrubRecord(failure({ error: 'AssertionError: failed at D:\\a\\worfy\\worfy\\test\\a.test.ts:12:5' }), WIN)
+      expect(record.error).toBe('AssertionError: failed at <repo>/test/a.test.ts:12:5')
+    })
   })
 
   it('replaces the user name of any home folder path, the 8.3 name of the CI runner too', () => {
