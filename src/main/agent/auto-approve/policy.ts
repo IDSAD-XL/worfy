@@ -752,13 +752,10 @@ function gitFormAllowed(action: ShellAction, prepared: Prepared): boolean {
       const form = exactForm(words, { flags: ['--soft', '--mixed', '--hard'] })
       return form !== null && form.options.length <= 1 && form.operands.length <= 1
     }
-    case 'stash': {
-      // refs/stash is shared by every worktree: pop, apply, drop and clear take the owner's entries.
-      if (words.length === 0) return true
-      if (words[0] === 'list' || words[0] === 'show') return words.length === 1
-      const form = words[0] === 'push' ? exactForm(words.slice(1), { flags: ['-u'], valued: ['-m'] }) : null
-      return form !== null && form.operands.length === 0
-    }
+    case 'stash':
+      // refs/stash is shared by every worktree: pop, apply, drop and clear take the owner's entries, and a push
+      // shifts them (the owner's next `stash pop` takes the agent's). Work is set aside in a WIP commit.
+      return words.length === 1 && (words[0] === 'list' || words[0] === 'show')
     case 'branch':
       return words.length === 1 && !(words[0] ?? '-').startsWith('-')
     default:

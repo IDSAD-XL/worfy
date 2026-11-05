@@ -1096,7 +1096,7 @@ describe('round 5: git is allowed only in the forms of its allow-list', () => {
     'git merge --ff-only origin/main', 'git merge --no-ff --no-edit origin/x', 'git merge --abort',
     'git cherry-pick abc123', 'git cherry-pick abc123 def456', 'git cherry-pick --abort', 'git revert --abort',
     'git reset', 'git reset --hard origin/main', 'git reset --soft abc123',
-    'git stash', 'git stash push', 'git stash push -m wip -u', 'git stash list', 'git stash show',
+    'git stash list', 'git stash show',
     'git branch', 'git branch -a', 'git branch worfy-demo/03-b',
   ]
   it('allows each form in a worktree of the Wave', () => {
@@ -1173,5 +1173,10 @@ describe('round 5: git is allowed only in the forms of its allow-list', () => {
     expect(outcome('git checkout WORFY-DEMO/03')).toBe('park')
     expect(outcome('git checkout worfy-demo/03', posix({ checkouts: [{ path: REPO, branch: 'main' }, { path: WT, branch: null }] }))).toBe('park')
     expect(outcome('git checkout worfy-demo/03', posix({ checkouts: [{ path: REPO, branch: 'main' }] }))).toBe('park')
+  })
+  it('stash only lists and shows: refs/stash is shared with the owner, so work is set aside in a WIP commit', () => {
+    for (const command of ['git stash', 'git stash push', 'git stash push -m x', 'git stash push -m wip -u', 'git stash save x']) {
+      expect(run(command).outcome, command).toBe('park')
+    }
   })
 })

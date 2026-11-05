@@ -251,8 +251,9 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
     - `rebase <upstream>` (одним операндом, с `--autostash`), `rebase --abort`, `rebase --skip`;
     - `merge [--ff-only|--no-ff|--no-edit] <rev>`, `merge --abort`; `cherry-pick` и `revert` `<rev>…` или `--abort`;
       `reset [--soft|--mixed|--hard] [<rev>]` (без путей);
-    - `stash`, `stash push [-m <сообщение>] [-u]`, `stash list`, `stash show` — `pop`, `apply`, `drop`, `clear` нет:
-      `refs/stash` общий для всех worktree-ов;
+    - `stash list` и `stash show` — и только они. `refs/stash` общий для всех worktree-ов: `pop`, `apply`, `drop`,
+      `clear` забирают записи владельца, а `stash` / `stash push` сдвигают их, и следующий `stash pop` владельца
+      достаёт работу агента. Решение координатора после раунда 5: агент откладывает работу WIP-commit-ом;
     - `branch <новая>` (одним операндом, без опций).
     Всё прочее в git (`tag`, `branch -u/-m/-c/-f/-d`, `worktree add`, `clean`, `update-ref`, `notes`, `gc`, push,
     config…) — не allow. `--continue` в формы не входит: парсер Ticket-а 02 не пропускает его (он делает commit).
