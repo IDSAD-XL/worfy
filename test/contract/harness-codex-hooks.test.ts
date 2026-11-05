@@ -11,7 +11,7 @@
 // And under Claude Code nothing changes: its Stop input runs no gate, its SubagentStop does nothing.
 // Only the hooks of stop.mjs, guard.mjs, session-end.mjs and the lock release are run: the others
 // (qmd-refresh, the SessionStart ones) read the machine's own setup and are none of these guarantees.
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -160,6 +160,46 @@ describe('gate before the end of the work: Stop and SubagentStop on Codex', () =
     const verdicts = readdirNames(state).filter((name) => name.startsWith('verdict-'))
     expect(verdicts).toHaveLength(1)
     expect(JSON.parse(readFileSync(join(state, verdicts[0] as string), 'utf8'))).toMatchObject({ outcome: 'green', profile: 'fast', key: 'c' })
+  }, RUN_MS)
+
+  // Codex, or a busy machine, may write the input after the hook has started. stop.mjs once read its
+  // stdin with fs.readFileSync(0) after touching process.stdin, which holds a pipe in non-blocking mode:
+  // the read failed with EAGAIN, the hook took the input for empty, ran no gate and held or let the
+  // turn go by the marker of an earlier run (codex-parity.test.ts failed so under load). Here the input
+  // goes only once the hook has touched process.stdin (a preload says so on stderr), so a synchronous
+  // read meets an empty pipe every time.
+  it('read an input that arrives after the hook started: the gate runs and a red one holds the turn', async () => {
+    const { dir, work, state, mode } = project()
+    mode('bad')
+    const touched = 'stdin-touched-by-the-hook'
+    const preload = join(dir, 'stdin-touched.cjs')
+    writeFileSync(
+      preload,
+      `const own = Object.getOwnPropertyDescriptor(process, 'stdin')
+let told = false
+Object.defineProperty(process, 'stdin', { configurable: true, enumerable: own.enumerable, get() {
+  const stdin = own.get.call(process)
+  if (!told) { told = true; require('node:fs').writeSync(2, ${JSON.stringify(`${touched}\n`)}) }
+  return stdin
+} })
+`,
+    )
+    const child = spawn(scriptNode(), [join(plugin, 'hooks', 'stop.mjs')], { cwd: work, env: { ...process.env, NODE_OPTIONS: `--require ${JSON.stringify(preload)}` }, stdio: 'pipe' })
+    let stderr = ''
+    let sent = false
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+      stderr += chunk
+      if (!sent && stderr.includes(touched)) {
+        sent = true
+        child.stdin.end(JSON.stringify(codexStopInput(work)))
+      }
+    })
+    const code = await new Promise<number | null>((resolve) => child.on('close', resolve))
+    expect(sent, 'the hook touched process.stdin').toBe(true)
+    expect([code, stderr.replace(`${touched}\n`, '')]).toEqual([2, expect.stringMatching(/^The quality gate is red \(failed at .+\)\. Run `node /)])
+    const verdicts = readdirNames(state).filter((name) => name.startsWith('verdict-'))
+    expect(verdicts, 'the hook ran the gate').toHaveLength(1)
+    expect(JSON.parse(readFileSync(join(state, verdicts[0] as string), 'utf8'))).toMatchObject({ outcome: 'red', key: 'c' })
   }, RUN_MS)
 
   it('count the blocks of each Subagent on their own: two red SubagentStops of the reviewer leave the main Stop its own two', async () => {

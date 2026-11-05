@@ -49,13 +49,27 @@ const MAX_BLOCKS = 2
 // limit in hooks.json became the 900 s the gate run on Codex needs.
 const RESOLVE_MS = 10_000
 
-function readStdin() {
-    if (process.stdin.isTTY) return ""
+// The hook input: stdin read as a stream to its end. Not fs.readFileSync(0): once process.stdin has
+// been touched (its isTTY below), Node holds a pipe on descriptor 0 in non-blocking mode, and a
+// synchronous read of it fails with EAGAIN when the input has not arrived yet — under load the
+// writer is late. The hook then took the input for empty: on Codex it ran no gate and held or let go
+// the turn by the marker an earlier run had left.
+async function readStdin() {
+    let stdin
     try {
-        return fs.readFileSync(0, "utf8")
+        stdin = process.stdin // a closed descriptor 0 makes this getter throw
     } catch {
         return ""
     }
+    if (stdin.isTTY) return ""
+    let text = ""
+    try {
+        stdin.setEncoding("utf8")
+        for await (const chunk of stdin) text += chunk
+    } catch {
+        return ""
+    }
+    return text
 }
 
 // A top-level string field of the hook JSON, or "".
@@ -117,14 +131,13 @@ function runGate(here, input) {
     })
 }
 
-// What the hook does; the exit code it returns.
-function main() {
+// What the hook does with `input`, the text it got on stdin; the exit code it returns.
+function main(input) {
     // The scripts next to this one: the folder of its real file, not of a symlink to it.
     const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)))
     const state = gateStateDir()
     const resolver = process.env.CLAUDE_GATE_RESOLVE || path.join(here, "gate-resolve.mjs")
 
-    const input = readStdin()
     let payload = null
     try {
         payload = JSON.parse(input)
@@ -327,7 +340,7 @@ function isMain() {
 if (isMain()) {
     let code = 0
     try {
-        code = main()
+        code = main(await readStdin())
     } catch (e) {
         // code stays 0: a broken hook must not hold the turn.
         process.stderr.write(`stop: ${String(e?.message ?? e).split("\n")[0]}\n`)
