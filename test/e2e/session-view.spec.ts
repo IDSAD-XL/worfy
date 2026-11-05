@@ -101,9 +101,20 @@ async function expectUserRowOnTheRight(prompt: Locator, answer: Locator): Promis
   expect(promptBox.x).toBeGreaterThan(answerBody.x)
   expect(userLabel.x).toBeGreaterThanOrEqual(promptBox.x + promptBox.width)
   const accent = await answer.locator('.w-tr__who--assistant').evaluate((label) => (globalThis as unknown as { getComputedStyle(element: object): { color: string } }).getComputedStyle(label).color)
-  await expect(box).toHaveCSS('border-right-width', '3px')
+  const scale = await prompt.page().evaluate(() => (globalThis as unknown as { devicePixelRatio: number }).devicePixelRatio)
+  await expect(box).toHaveCSS('border-right-width', paintedBorder(3, scale))
   await expect(box).toHaveCSS('border-right-color', accent)
-  await expect(box).toHaveCSS('border-left-width', '1px')
+  await expect(box).toHaveCSS('border-left-width', paintedBorder(1, scale))
+}
+
+/**
+ * A border of `width` CSS px as getComputedStyle reports it on a display of `scale` device px per CSS
+ * px. Chromium paints a border in whole device pixels, at least one (floor of width × scale), and
+ * reports that painted width: 3px is 3px at 100 % and 200 %, but 4 device px = 2.66667px at 150 %
+ * (pc-main-red #1423). The string has the 6 significant digits Chromium prints.
+ */
+function paintedBorder(width: number, scale: number): string {
+  return `${Number((Math.max(1, Math.floor(width * scale + 1e-6)) / scale).toPrecision(6))}px`
 }
 
 /** The window's clock: the one the transcript stamps a live row with and tells today by. */

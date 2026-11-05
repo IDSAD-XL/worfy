@@ -139,9 +139,13 @@ test('a Codex Session: its presets, its slash menu and its approval with four an
     expect(promptBox?.x ?? 0).toBeGreaterThan(answerBody?.x ?? 0)
     expect(userLabel?.x ?? 0).toBeGreaterThanOrEqual((promptBox?.x ?? 0) + (promptBox?.width ?? 0))
     const accent = await answer.locator('.w-tr__who--assistant').evaluate((label) => (globalThis as unknown as { getComputedStyle(element: object): { color: string } }).getComputedStyle(label).color)
-    await expect(prompt.locator('.w-tr__prompt')).toHaveCSS('border-right-width', '3px')
+    // Chromium paints a border in whole device pixels, at least one (floor of width × scale), and
+    // reports that painted width: 3px is 2.66667px on a 150 % display (pc-main-red #1423).
+    const scale = await window.evaluate(() => (globalThis as unknown as { devicePixelRatio: number }).devicePixelRatio)
+    const painted = (width: number): string => `${Number((Math.max(1, Math.floor(width * scale + 1e-6)) / scale).toPrecision(6))}px`
+    await expect(prompt.locator('.w-tr__prompt')).toHaveCSS('border-right-width', painted(3))
     await expect(prompt.locator('.w-tr__prompt')).toHaveCSS('border-right-color', accent)
-    await expect(prompt.locator('.w-tr__prompt')).toHaveCSS('border-left-width', '1px')
+    await expect(prompt.locator('.w-tr__prompt')).toHaveCSS('border-left-width', painted(1))
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
       await view.getByTestId('transcript').screenshot({ path: test.info().outputPath(`57-codex-session-${scheme}.png`) })
