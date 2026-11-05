@@ -107,9 +107,38 @@ describe.each(shells)('%s', (name) => {
     }
     const run = spawnSync(shell, ['-c', command], { cwd: folder, env, encoding: 'utf8' })
     expect(run.status, run.stderr).toBe(0)
-    expect(expected(command)).toEqual(printed(run.stdout))
+    const words = { analyzed: expected(command), shell: printed(run.stdout) }
+    const named = filesNamed(shell, [...words.analyzed, ...words.shell])
+    expect(words.analyzed.map(named)).toEqual(words.shell.map(named))
   })
 })
+
+/**
+ * On Windows, each absolute Git Bash path among `words` turned into the Windows path of the file it
+ * names (cygpath -w, in lower case: NTFS ignores case); other words stay as they are. Elsewhere words
+ * stay as they are.
+ *
+ * Git Bash spells one folder in more than one way. The MSYS runtime turns the Windows working folder
+ * into a path under the longest mount that holds it, and Git for Windows mounts the user's %TEMP% at
+ * /tmp (its /etc/fstab, `usertemp`): there `$PWD` of a folder under %TEMP% is `/tmp/…`, while
+ * analyze() spells it through the drive, `/c/Users/…/Temp/…` (pc-main-red #1423). The Windows job of
+ * CI passes: its TEMP is probably the short 8.3 name, which the long folder name here does not match. Both
+ * spellings name the same file, and the approval policy judges paths in their Windows form (the
+ * writes, deletes and reads of an action), never the spelling of `$PWD`; so the test compares the
+ * files the words name. analyze() cannot spell `$PWD` as Git Bash does without reading its mount table.
+ */
+function filesNamed(shell: string, words: string[]): (word: string) => string {
+  if (!ON_WINDOWS) return (word) => word
+  const paths = [...new Set(words.filter((word) => word.startsWith('/')))]
+  if (paths.length === 0) return (word) => word
+  const script = `for p; do w=$(/usr/bin/cygpath -w "$p") || exit 1; printf '%s\\0' "$w"; done`
+  const run = spawnSync(shell, ['-c', script, 'cygpath', ...paths], { env, encoding: 'utf8' })
+  if (run.status !== 0) throw new Error(`cygpath -w failed: ${run.stderr}`)
+  const windows = printed(run.stdout)
+  if (windows.length !== paths.length) throw new Error(`cygpath -w gave ${windows.length} paths for ${paths.length}`)
+  const of = new Map(paths.map((path, index) => [path, (windows[index] ?? '').toLowerCase()]))
+  return (word) => of.get(word) ?? word
+}
 
 // Why a glob component that starts with a dot is refused: sh, dash and bash before 5.2 (macOS
 // /bin/bash 3.2) match `.?` to `..`, so `ls .?` lists the parent folder; zsh and bash 5.2 do not.
