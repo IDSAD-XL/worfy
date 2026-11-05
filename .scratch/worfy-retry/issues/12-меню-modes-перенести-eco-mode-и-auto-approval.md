@@ -1,7 +1,8 @@
 # 12 — Меню Modes: перенести Eco mode и Auto-approval
 
 Type: task
-Status: claimed 2026-11-05T08:19Z
+Status: done 2026-11-05T10:42Z
+PR: #1426
 Blocked by: —
 Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «Решения владельца 2026-11-05», Q10–Q14; [worfy-throughput 60](../../worfy-throughput/issues/60-переключатель-eco-mode-в-чате-orchestrator-а.md) (переключатель Eco mode); [worfy-auto-approve](../../worfy-auto-approve/spec.md), Ticket 06 (переключатель Auto-approval, PR #1368)
 
