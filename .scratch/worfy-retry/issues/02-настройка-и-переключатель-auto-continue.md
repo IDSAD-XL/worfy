@@ -1,7 +1,8 @@
 # 02 — Настройка Auto-continue и пункт меню Modes в чате Orchestrator-а
 
 Type: task
-Status: claimed 2026-11-05T10:48Z
+Status: done 2026-11-05T18:10Z
+PR: #1437
 Blocked by: 12
 Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2; «Как работает» → «Где живёт»; «Вопросы владельцу», Q1, Q2; «Решения владельца 2026-11-05», Q10–Q13; [worfy-throughput 60](../../worfy-throughput/issues/60-переключатель-eco-mode-в-чате-orchestrator-а.md) (образец)
 
