@@ -210,6 +210,18 @@ _Avoid_: привязка, assignment, линк
 Настройка Project-а: на Ticket работает меньше агентов, а роли Subagent-ов (implementer, reviewer, scout, verifier) идут на модели подешевле. Действует с раздачи следующего Ticket-а, идущие Ticket-ы не меняются. Противоположность — full; дневной бюджет Autopilot — отдельная настройка Machine, Eco mode его не меняет.
 _Avoid_: эко-режим, режим экономии, lite, cheap mode
 
+**Orchestrator modes**:
+Настройки Project-а, которые меняют то, как работает Orchestrator: Eco mode, Auto-approval и Auto-continue. Это не настройки Autopilot: Auto-continue действует и на ходы Orchestrator-а, которые начал человек, а Eco mode — на любую раздачу Ticket-а.
+_Avoid_: режимы Autopilot, настройки Autopilot, режимы оркестратора
+
+**Auto-approval**:
+Настройка Project-а на Machine: как worfy отвечает на запрос разрешения агента в Run-е, где человека нет. Off — отказ, как без неё; Shadow — отказ, но worfy записывает в Journal, что разрешил бы; On — ответ по правилам worfy: то, что остаётся внутри Project-а, разрешается, остальное отклоняется с подсказкой агенту или ждёт ответа владельца. Жёсткие запреты действуют при любом положении.
+_Avoid_: Auto-approve (в тексте интерфейса), автоодобрение, autoyes
+
+**Auto-continue**:
+Настройка Project-а на Machine: после временной ошибки API worfy шлёт Orchestrator-у продолжение с растущей паузой, после отказа Limits ждёт сброса окна и продолжает. Исходное сообщение и команду Wave не повторяет.
+_Avoid_: автоповтор, replay, retry loop
+
 ## App
 
 **Settings**:
@@ -239,7 +251,7 @@ _Avoid_: глава, раздел, статья, страница (страни�
 _Avoid_: инстанс, машина (как термин), host и client (как виды устройств)
 
 **Linked machine**:
-Machine, связанная с этой по коду из 6 цифр. Связь двусторонняя, удаляется (Remove) с любой стороны. Если здесь включён доступ «Linked machines can work with my Projects» (по умолчанию выключен), Linked machine видит Project-ы этой Machine и работает с ними: открывает Canvas, пишет в Session, печатает в Terminal, запускает Autopilot. При выключенном доступе Project-ов этой Machine она не видит. Всё это выполняется на Machine Project-а ([ADR-0052](docs/adr/0052-machines-and-linking.md), [ADR-0053](docs/adr/0053-several-screens-on-one-project.md)).
+Machine, связанная с этой по коду из 6 цифр. Связь двусторонняя, удаляется (Remove) с любой стороны. Каждой Linked machine эта Machine даёт свой уровень доступа к своим Project-ам ([ADR-0066](docs/adr/0066-read-only-access-for-a-linked-machine.md)): Off — Project-ов не видит (так у новой связи); Read only — видит Project-ы, их Session-ы и уведомления, но не вывод Terminal, и ничего не меняет; Full access — работает с ними, как владелец: открывает Canvas, пишет в Session, печатает в Terminal, запускает Autopilot. Общий выключатель «Linked machines can work with my Projects» (по умолчанию выключен) ставит всем Linked machine-ам Off. Всё это выполняется на Machine Project-а ([ADR-0052](docs/adr/0052-machines-and-linking.md), [ADR-0053](docs/adr/0053-several-screens-on-one-project.md)).
 _Avoid_: удалённый инстанс, host, client, remote, отозвать, Revoke
 
 ## Terminal AI
@@ -291,7 +303,7 @@ _Avoid_: исключение (без «Windows»), windows quarantine, кара
 - У **Project** ровно один **Profile**; **Harness** один на **Machine** и ведёт работу каждого Project по его **Profile**.
 - **User personalization** одна у пользователя на **Machine** и действует во всех его **Project**-ах; **Profile** задаёт языки команды и документов Project-а, **User personalization** — язык отчётов и личные правила.
 - У **Project** ровно одна **Machine**. Один репозиторий, подключённый на двух Machine, — это два разных Project-а, у каждого свой Canvas.
-- **Linked machine** видит **Project**-ы другой **Machine** и работает с ними, только если та включила доступ; при выключенном доступе Project-ов не видит. Session-ы, Terminal, Gate и Autopilot такого Project-а всё равно идут на его Machine.
+- **Linked machine** получает от другой **Machine** один из трёх уровней доступа к её **Project**-ам: Off — не видит их; Read only — видит **Project**-ы, **Session**-ы и уведомления и ничего не меняет; Full access — работает с ними. Session-ы, Terminal, Gate и Autopilot такого Project-а всё равно идут на его Machine.
 - У **Project** ровно один режим — **Full mode** или **Silent mode**; Project над несколькими репозиториями всегда в **Silent mode**.
 - У **Project** ровно одна **Workflow folder**: в **Full mode** это корень репозитория, в **Silent mode** — папка вне репозитория.
 - **Card** принадлежит **Project**, а не Session: менять её может любая Session Project.
