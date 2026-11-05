@@ -10,6 +10,10 @@
 // - GH_STUB_DIR: a folder with the answers (test/contract/gh-world.ts writes them):
 //   - fail: when it exists, the call prints its text to stderr and exits 1, as GH_STUB_FAIL does;
 //     a test can create and remove it while the app runs.
+//   - hang: when it exists (and `fail` does not), the call appends its process id to `hang.pids`
+//     next to it, waits as many milliseconds as the file holds (60 000 when it holds no number) and
+//     then exits 1: gh that hangs (worfy-faults ticket 04). A runner's timeout ends it sooner; the
+//     test kills whatever `hang.pids` names that still runs.
 //   - prs.json: the repository's PRs newest first in the shape of
 //     `gh pr list --json number,headRefName,state,url,statusCheckRollup,comments`; none without it.
 //   - auth-status.json: what `gh auth status --json hosts` prints (`{"hosts":{"<host>":[…]}}`);
@@ -32,6 +36,7 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
+import { setTimeout as sleep } from 'node:timers/promises'
 
 const args = process.argv.slice(2)
 if (process.env.GH_STUB_LOG) appendFileSync(process.env.GH_STUB_LOG, `${JSON.stringify(args)}\n`)
@@ -44,6 +49,13 @@ const option = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : u
 const dir = process.env.GH_STUB_DIR
 if (dir && existsSync(join(dir, 'fail'))) {
   process.stderr.write(`${readFileSync(join(dir, 'fail'), 'utf8').trim()}\n`)
+  process.exit(1)
+}
+if (dir && existsSync(join(dir, 'hang'))) {
+  const wait = Number(readFileSync(join(dir, 'hang'), 'utf8').trim()) || 60_000
+  appendFileSync(join(dir, 'hang.pids'), `${process.pid}\n`)
+  await sleep(wait)
+  process.stderr.write(`gh stub: hung for ${wait} ms\n`)
   process.exit(1)
 }
 const read = (file, fallback) => (dir && existsSync(join(dir, file)) ? JSON.parse(readFileSync(join(dir, file), 'utf8')) : fallback)
