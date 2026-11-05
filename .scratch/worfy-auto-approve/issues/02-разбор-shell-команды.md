@@ -1,7 +1,7 @@
 # 02 — Разбор shell-команды
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T13:27Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает», п. 2; «Безопасность», п. 4; «Решено без владельца», п. 2
 
@@ -37,12 +37,49 @@ Source: [spec.md](../spec.md), «Как работает», п. 2; «Безоп�
 
 - [ ] Unit test таблицей: каждая конструкция вне грамматики даёт `judged: false`; каждый пример из spec
       (`cd <tmp> && rm -rf *`, `rm -rf "$M/$d"`, `T=$(mktemp -d); rm -rf "$T"/*`, многострочный `zsh -c` с `rm`)
-      разобран с верными путями.
+      разобран с верными путями. Форма с `;` перечисляет и цель `/*` (на случай упавшего `mktemp`), поэтому
+      одобрять её нельзя; без `/*` разобраны `T=$(mktemp -d) && rm -rf "$T"/*` и `… || exit 1; rm -rf "$T"/*`
+      (spec, «Проблема»; Ticket 03).
+  - evidence: test-run pass · `pnpm vitest run --project node test/unit/auto-approve-shell.test.ts` exit 0 · mac - · ad5417fe2ccb75ffcfc74ce2df4f93d1892502f1
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/auto-approve-shell.test.ts, 300 tests, exact reason of every refusal) · mac - · c39ef44b32932226e5746cfa0e348fe9db3a5801
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/auto-approve-shell.test.ts, 318 tests, round 3: a -- as an option value, git long-option prefixes) · mac - · f2d52af18989a8ea2a075f311944d640d90b1f7d
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/auto-approve-shell.test.ts, 332 tests, round 4: what git read subcommands and git config read) · mac - · 84baf24dc3cd643ead747d114fefec40e1ccbdf3
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/auto-approve-shell.test.ts, 345 tests, round 5: a glob in a path component that starts with a dot) · mac - · dc6ebf3c9c724998c76b9263fec910b39d0868bf
+  - evidence: test-run pass · CI job windows (3/3) / full-suite, run 41920990034: test/unit/auto-approve-shell.test.ts 345 tests, exit 0 · windows - · 15f8c0d08762e787ca9b8c102011669219ffbcff
 - [ ] Differential test: для набора команд без побочных эффектов (`printf '%s\0'` вместо программы) слова, которые
       даёт `analyze`, совпадают со словами настоящего `sh` (и `bash` на Windows через Git Bash); расхождение — test
       красный.
+  - evidence: test-run pass · `pnpm vitest run --project contract test/contract/auto-approve-shell-sh.test.ts` exit 0 (sh, dash, bash, zsh on macOS) · mac - · ad5417fe2ccb75ffcfc74ce2df4f93d1892502f1
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/auto-approve-shell-sh.test.ts: sh, dash, bash, zsh on macOS) · mac - · c39ef44b32932226e5746cfa0e348fe9db3a5801
+  - evidence: test-run pass · CI job windows (2/3) / full-suite, run 41862352623: test/contract/auto-approve-shell-sh.test.ts 21 tests on Git Bash, exit 0 · windows - · 0ef9b1bf48da28af56d0f351149bbf5b665b0304
+  - evidence: test-run pass · CI job macos-tests, run 41862352623: test/contract/auto-approve-shell-sh.test.ts 87 tests (the darwin guard puts it there), exit 0 · mac - · 0ef9b1bf48da28af56d0f351149bbf5b665b0304
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/auto-approve-shell-sh.test.ts: sh, dash, bash, zsh on macOS) · mac - · f2d52af18989a8ea2a075f311944d640d90b1f7d
+  - evidence: test-run pass · CI job windows (2/3) / full-suite, run 41885529847: test/contract/auto-approve-shell-sh.test.ts 21 tests on Git Bash, exit 0 · windows - · cefa08026e3e1010edee2c55589bb66df7f57348
+  - evidence: test-run pass · CI job macos-tests, run 41885529847: test/contract/auto-approve-shell-sh.test.ts 87 tests, exit 0 · mac - · cefa08026e3e1010edee2c55589bb66df7f57348
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/auto-approve-shell-sh.test.ts: sh, dash, bash, zsh on macOS) · mac - · 84baf24dc3cd643ead747d114fefec40e1ccbdf3
+  - evidence: test-run pass · CI job windows (2/3) / full-suite, run 41904557261: test/contract/auto-approve-shell-sh.test.ts 21 tests on Git Bash, exit 0 · windows - · 05431806749d828296c02d5169e8dfe111899a0c
+  - evidence: test-run pass · CI job macos-tests, run 41904557261: test/contract/auto-approve-shell-sh.test.ts 87 tests, exit 0 · mac - · 05431806749d828296c02d5169e8dfe111899a0c
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/auto-approve-shell-sh.test.ts: sh, dash, bash, zsh on macOS; /bin/bash 3.2 expands .? to .. on a fixture folder) · mac - · dc6ebf3c9c724998c76b9263fec910b39d0868bf
+  - evidence: test-run pass · CI job windows (2/3) / full-suite, run 41920990034: test/contract/auto-approve-shell-sh.test.ts 22 tests on Git Bash, exit 0 · windows - · 15f8c0d08762e787ca9b8c102011669219ffbcff
+  - evidence: test-run pass · CI job macos-tests, run 41920990034: test/contract/auto-approve-shell-sh.test.ts 88 tests, exit 0 · mac - · 15f8c0d08762e787ca9b8c102011669219ffbcff
 - [ ] Windows: `\` в путях, форма `/c/Users/…`, регистр — тот же результат, что на macOS и Linux.
+  - evidence: test-run pass · `pnpm vitest run --project node test/unit/auto-approve-shell.test.ts` exit 0 (describe Windows (Git Bash), platform win32) · mac - · ad5417fe2ccb75ffcfc74ce2df4f93d1892502f1
+  - evidence: test-run pass · `pnpm test` exit 0 (describe Windows (Git Bash), platform win32, rm -rf ~/x/* agrees with Linux) · mac - · c39ef44b32932226e5746cfa0e348fe9db3a5801
+  - evidence: test-run pass · `pnpm test` exit 0 (describe Windows (Git Bash), platform win32, git push to ..\other and C:/r) · mac - · f2d52af18989a8ea2a075f311944d640d90b1f7d
+  - evidence: test-run pass · CI job windows (3/3) / full-suite, run 41885529847: test/unit/auto-approve-shell.test.ts 318 tests, exit 0 · windows - · cefa08026e3e1010edee2c55589bb66df7f57348
+  - evidence: test-run pass · `pnpm test` exit 0 (describe Windows (Git Bash), platform win32, git config reads the user .gitconfig) · mac - · 84baf24dc3cd643ead747d114fefec40e1ccbdf3
+  - evidence: test-run pass · CI job windows (3/3) / full-suite, run 41904557261: test/unit/auto-approve-shell.test.ts 332 tests, exit 0 · windows - · 05431806749d828296c02d5169e8dfe111899a0c
+  - evidence: test-run pass · `pnpm test` exit 0 (describe Windows (Git Bash), platform win32, after the rebase onto main) · mac - · dc6ebf3c9c724998c76b9263fec910b39d0868bf
+  - evidence: test-run pass · CI job windows (3/3) / full-suite, run 41920990034: test/unit/auto-approve-shell.test.ts 345 tests, exit 0 · windows - · 15f8c0d08762e787ca9b8c102011669219ffbcff
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на Linux, macOS, Windows.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ad5417fe2ccb75ffcfc74ce2df4f93d1892502f1
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c39ef44b32932226e5746cfa0e348fe9db3a5801
+  - evidence: gate pass · CI run 41862352623: ci-ok pass on Linux, macOS, Windows · linux - · 0ef9b1bf48da28af56d0f351149bbf5b665b0304
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f2d52af18989a8ea2a075f311944d640d90b1f7d
+  - evidence: gate pass · CI run 41885529847: ci-ok pass on Linux, macOS, Windows · linux - · cefa08026e3e1010edee2c55589bb66df7f57348
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 84baf24dc3cd643ead747d114fefec40e1ccbdf3
+  - evidence: gate pass · CI run 41904557261: ci-ok pass on Linux, macOS, Windows · linux - · 05431806749d828296c02d5169e8dfe111899a0c
+  - evidence: gate pass · `gate fast` exit 0 · mac - · dc6ebf3c9c724998c76b9263fec910b39d0868bf
 
 ## Тесты
 
@@ -55,3 +92,81 @@ Source: [spec.md](../spec.md), «Как работает», п. 2; «Безоп�
 - `src/main/agent/auto-approve/shell.ts` (новый)
 - `test/unit/auto-approve-shell.test.ts` (новый)
 - `test/contract/auto-approve-shell-sh.test.ts` (новый)
+
+## Итог
+
+Решено без владельца (round 1 и round 2 ревью PR #1372):
+
+1. **`stdinFrom`** — номер действия, чей вывод идёт этому на вход через `|`; так политика видит `curl … | sh`, не
+   читая `args`. Во вложенном `-c`-скрипте номер считается в общем списке действий.
+2. **`/dev/null` не запись.** Перенаправление в `/dev/null` в `writes` не попадает; `/dev/tcp/…` и `/dev/udp/…` —
+   `judged: false` (bash открывает сеть).
+3. **git:** `git config` с записью, подкоманда, которую таблица не знает, и alias — `writes: ['<unknown>']`;
+   `git config --get` и `--list` — чтение. Факты для Ticket-а 03 — в `ShellAction.git`: `branchDelete` (ветки,
+   force) и `push` (remote, refspecs, force, delete, many, `localPath`); push в локальный путь пишет этот путь.
+   Переименование и копия ветки, commit без сообщения, `commit -c`, `tag -s` / `-u` / `-a` без `-m`,
+   `pull --rebase=interactive`, `rebase --continue` — `judged: false`: они запускают editor или gpg.
+4. **`set`:** без действия только `-e`, `-u`, `+e`, `+u` и `-o` / `+o` с `errexit`, `nounset`, `pipefail`.
+   `set -x` и `-o xtrace` — `judged: false`: trace раскрывает `PS4`, а там может быть подстановка команды. Опции
+   `sh -c` — тоже только `-e`, `-u`; любая другая форма с `c` (`bash -l -c`) — `judged: false`.
+5. **Присваивания.** Присваивание перед программой — всегда `judged: false`. Отдельное присваивание — только имени,
+   которому shell не даёт смысла: список имён bash, sh и zsh (`PATH`, `PS4`, `GLOBIGNORE`, `EXECIGNORE`,
+   `POSIXLY_CORRECT`, zsh `path` / `cdpath` / `fpath`, `_`…) и префиксы (`BASH_`, `ZSH_`, `PS<цифра>`, `GIT_`,
+   `LD_`, `DYLD_`, `LC_`…); и не переменной из окружения.
+6. **Glob, который может стать опцией.** Glob до `--` у программы таблицы — `judged: false` (`git grep -e x *` при
+   файле `-O…`). Исключения — `rm`, `rmdir`, `echo` (у них нет опции, которая называет путь) и операнды `printf`
+   после формата; `curl`, `test` и `[` конец опций по `--` не признают.
+7. **`ln` — `judged: false` целиком** (ссылка — обход корней), как и `-l`, `-s`, `--link`, `--symbolic-link` у `cp` и
+   `-b` / `--backup` у `cp`, `mv`: таблица их не знает. `test -v`, `[ -v`, `-R` — `judged: false`: имя переменной
+   с индексом выполняет подстановку.
+8. **`exit`** с перенаправлением, с двумя операндами или с не-числом — `judged: false`: такой `exit` может не выйти,
+   и shell идёт дальше. Команды после настоящего `exit` в список не попадают.
+9. **Продолжение строки** (`\` + newline) — только между словами; внутри слова (`$NA\<newline>ME`) —
+   `judged: false`. Числовой glob zsh (`<1-9>`, `<->`), `chdir`, ссылка на `OLDPWD` — `judged: false`.
+10. **Windows:** `HOME`, `TMPDIR`, `TMP`, `TEMP` вида `C:\…` скрипт видит как `/c/…` — так их отдаёт MSYS Git Bash;
+    поэтому `rm -rf ~/x/*` на Windows и на Linux даёт одно действие. Ticket платформенный: пути Windows.
+11. **Маркер новой временной папки** — `<new-temp-folder-N>`; модуль экспортирует `newTempFolderName(n)` и
+    `isNewTempFolder(component)`, политика узнаёт папку по ним, не по строке.
+12. **macOS в CI.** Contract test требует zsh на macOS (`process.platform === 'darwin'`); этот darwin guard
+    включает файл в CI job `macos-tests` (`scripts/ci-scope.mjs`, `DARWIN_GUARD`). Без него pull request запускал
+    файл только на Linux и Windows.
+13. **Mutation testing** (round 2, свой скрипт в отдельном worktree, unit test-файл): 613 mutant-ов — 197 из списка
+    ревьюера, найденные заново по тексту, каждый `fail(…)` убран, каждое имя из списков `SPECIAL`, `BUILTINS`,
+    `RESERVED` и других убрано по одному. Убит 581 (5 из них — по зависанию test-а), 17 из списка ревьюера ушли вместе с
+    кодом, выжили 15. Все 15 эквивалентны: имена, которые и так ловит префикс (`HISTCHARS`, `HISTNO`, `zsh_…`),
+    reserved words, которые раньше отсекает разбор слова (`!`, `{`, `}`, `[[`), и проверки, до которых не доходит
+    ни один ввод (строки, которые прошлая проверка уже отклонила с тем же исходом).
+14. **Round 3: `--` как значение опции.** Какие опции git берут значение, здесь не известно, поэтому
+    `--` может быть значением (`git grep -e -- -Oprogram`, `git commit -m -- -e`, `git tag -m -- --sign`).
+    Запрещённые опции git ищутся во всех словах, и после `--` тоже. Признаки editor или gpg ищутся по любому
+    префиксу длинной опции (`--sig`, `--ann`, `--cont`, `--reb=i`). Сообщение commit-а считается только как
+    сам `-m` или `-C` (после флагов без значения, `-am`) или точный `--message` до первого `--`. У
+    `git branch` любая длинная опция, кроме точных `--delete`, `--force` и форм списка, — `judged: false`
+    (`--del`, `--mov`). Glob после `--`, который стоит сразу за словом-опцией, — отказ: этот `--` может быть
+    её значением. Цена — лишние отказы (`cat -n -- *`, pathspec `-x` после настоящего `--`).
+15. **`git push` в голое слово** (`sibdir`, `origin`) тоже даёт `localPath` — папку с этим именем в рабочей
+    папке: git читает слово как папку, если remote с таким именем не настроен. Так же Windows-путь `..\other`.
+    URL remote-а из git config разбор не видит: `origin`, настроенный на локальную папку, Ticket 03 должен
+    решать по config сам (spec, «Безопасность», п. 9).
+16. **Mutation testing, round 3** (тот же скрипт, плюс 17 mutant-ов нового кода разбора опций git и конца
+    опций, плюс имена `GIT_BRANCH_LONG`): 634 mutant-а — убит 601 (5 по зависанию test-а), 18 ушли вместе с
+    кодом, выжили те же 15 эквивалентных, что в п. 13.
+17. **Round 4: что читают подкоманды чтения git.** `git diff /dev/null x`, `--no-index` и `git blame --contents=x`
+    печатают любой файл, не только репозиторий. Какое слово — revision, а какое — путь, здесь не известно,
+    поэтому в `reads` идёт каждое слово, которое не опция, и значение каждого `--name=value`. Слово, путь
+    которого может уйти из репозитория (абсолютный, с компонентом `..`), — `judged: false`, как и `--no-index`
+    по любому префиксу. Значение, приклеенное к короткой опции (`-O/tmp/order`), с `/`, `\`, `~` или `.` —
+    `judged: false`. Revision в одном компоненте с символом extended glob zsh (`HEAD~3`, `main^`) идёт в `reads`
+    как написан. Цена: в `reads` попадают и revision-ы (`/…/HEAD~3`), и шаблоны `git grep`.
+18. **`git config`:** `--global`, `--system`, `--file`, `--blob` (по любому префиксу) и `-f` — `judged: false`.
+    Чтение без `--local` или `--worktree` перечисляет и файлы пользователя: `~/.gitconfig` и
+    `$XDG_CONFIG_HOME/git/config` (или `~/.config/git/config`); без HOME — `judged: false`.
+19. **Mutation testing, round 4** (плюс 11 mutant-ов кода round 4 и имена `GIT_CONFIG_OUTSIDE`): 654 mutant-а —
+    убито 620 (5 по зависанию test-а), 19 ушли вместе с кодом, выжили те же 15 эквивалентных, что в п. 13.
+20. **Round 5: glob в компоненте, который начинается с точки.** sh, dash и bash до 5.2 (на macOS `/bin/bash` 3.2)
+    сопоставляют `.?` с `..`, а `.*` — с `.` и `..`; zsh и bash 5.2 — нет. Значит, `git diff . .?`, `ls .?` или
+    `cp -r .? x` в одних shell-ах читают родительскую папку, а в `reads` стояло бы `<cwd>/.?`. Теперь glob в
+    последнем компоненте, который начинается с `.` (`.?`, `.*`, `..?`, `.??*`, `sub/.?`), — `judged: false`
+    для всех программ и для подкоманд чтения git. Glob в среднем компоненте (`sub/.?/x`) и `[` уже были
+    `judged: false`. Contract test показывает это на fixture-папке: на macOS `/bin/bash -c 'ls .?'` печатает
+    файл папки уровнем выше. Mutation testing этой проверки: 10 mutant-ов, убиты все.
