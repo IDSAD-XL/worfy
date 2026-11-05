@@ -200,6 +200,7 @@ any data arrives it says "no data yet". A window without data says "no data".
 
 - **Three sources.** The SDK's `rate_limit_event` from any Session. The `rate_limits` that Claude Code passes to the status line
   command, copied to a file by a small script worfy puts in front of the user's own command. And a usage request of the SDK.
+  worfy watches that file's folder and also checks the file every second (on Windows only the check, see below).
 - **Passive sources first.** The usage request goes at most every 30 minutes, and is skipped while the passive sources are fresh. It
   costs no tokens: its process keeps no session and has no settings, MCP servers, tools or API keys
   ([ADR-0058](../adr/0058-terminal-ai-assist-process.md)). It times out after 30 seconds. Autopilot can ask for a fresher value.
@@ -217,15 +218,17 @@ any data arrives it says "no data yet". A window without data says "no data".
 
 #### Windows
 
-When the data folder disappears, Windows keeps sending events for the watch without end. So the watch closes at the first such event,
-and a poll every second still looks at the file.
+On Windows the app opens no watch of the data folder: it only checks the status line file once a second. That folder is also
+Chromium's profile, which Chromium writes all the time, and for each event of a folder watch Node's file-watch code (libuv) made the main
+process wait; the page did not answer meanwhile (worfy-polish 47). A watch given to the tracker explicitly still closes at the first
+event that says the data folder is gone: Windows would send such events without end, and the check every second goes on.
 
 ### Implementation
 
 | What | Where |
 | ---- | ----- |
 | Reading sources, merge, bars (pure) | `src/shared/agent/limits.ts` |
-| Tracker, `limits.json` in the data folder, watching the status line file | `src/main/agent/limits.ts` |
+| Tracker, `limits.json` in the data folder, following the status line file | `src/main/agent/limits.ts` |
 | The usage request, the poll of Codex | `src/main/agent/limits-usage.ts` |
 | Codex's windows and events | `src/main/vendors/codex/limits.ts`, `src/main/vendors/codex/session.ts` |
 | The script behind the status line | `scripts/statusline-bridge.sh`, `scripts/statusline-bridge.mjs` |
