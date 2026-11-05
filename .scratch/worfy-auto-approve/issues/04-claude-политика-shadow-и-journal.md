@@ -105,18 +105,23 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3, 7; «Ре�
       правки).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · 2d648f4e86a24412d120c7426ec3a0a0ba6824a2
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 5ab8f1c294f2c8aa912cb892503b283617a59da9
 - [ ] Contract test: `shadow` — агент получает прежний текст отказа, в Journal `would-allow` с правилом.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · 2d648f4e86a24412d120c7426ec3a0a0ba6824a2
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 5ab8f1c294f2c8aa912cb892503b283617a59da9
 - [ ] Contract test: `on` — запрос внутри worktree Wave проходит; вне корня — deny с подсказкой; hard deny — отказ.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · 2d648f4e86a24412d120c7426ec3a0a0ba6824a2
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 5ab8f1c294f2c8aa912cb892503b283617a59da9
 - [ ] Unit test очистки: домашняя папка, `GH_TOKEN=…`, длинная команда — в строке Journal нет ни секрета, ни пути дома.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-run.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-run.test.ts` exit 0 · mac - · 2d648f4e86a24412d120c7426ec3a0a0ba6824a2
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/unit/auto-approve-run.test.ts exit 0 · mac - · 5ab8f1c294f2c8aa912cb892503b283617a59da9
 - [ ] Переключение режима во время Run-а действует со следующего запроса; строка Journal называет режим.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · 2d648f4e86a24412d120c7426ec3a0a0ba6824a2
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 5ab8f1c294f2c8aa912cb892503b283617a59da9
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты
