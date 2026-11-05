@@ -84,3 +84,16 @@ Source: [spec.md](../spec.md), «Решено без владельца» (ра�
   упавшего вне своих test-ов, и для необработанных ошибок run-а названы в «What a red run leaves» (в `<n> tests`
   входят, `list`, `rerun` и `report` считают их шагами); строка индекса `docs/features/README.md` называет Failure
   records. Оба языка. Разбиение страницы — не в этом раунде.
+
+### Проверка
+
+- Раунд 1 (verify-08): REJECTED — [med] «skipped, with its reason on stderr» неверно для `--json`; исправлено в раунде 2.
+  Раунд 2 (verify-08-r2): VERIFIED, ~80 утверждений сверены с кодом на обоих языках — это и есть сверка пункта 1.
+- Решение Orchestrator-а: страницу 586 строк в этом Ticket-е не делить — место раздела задал spec, до правки страница
+  была 415 строк, ещё пять страниц длиннее 400, `check-feature-docs.mjs` порог не проверяет.
+- Consider: [low] разбить страницу Gate and GitHub, вынеся Failure records на свою страницу. [low] `gate.mjs` считает
+  в `<n> tests` записи с `runner !== null`, а `list`, `rerun` и `report` считают записи с `test === null` шагами —
+  для записей vitest о файле и об ошибке run-а два счёта расходятся.
+- Noted: [low] запись vitest об упавшем файле несёт команду повтора всего файла (`test/failures-reporter.ts`), но
+  `rerun` её никогда не запускает. [low] debt: фраза «skipped with a line on stderr» у `quarantine-suggest` не сверена
+  с кодом во втором раунде.
