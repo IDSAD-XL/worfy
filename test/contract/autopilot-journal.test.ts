@@ -131,6 +131,16 @@ describe('openRun and append', () => {
     expect(rawLines(first.file)).toHaveLength(1)
   })
 
+  it('opens the file of the run id it is given, and refuses one that is not a run id (worfy-auto-approve ticket 04)', async () => {
+    const run = '2026-10-06T01-00-00-000Z-a1b2c3'
+    const journal = await openRun({ project: PROJECT, epic: EPIC, run }, { now: () => new Date(T0), suffix: suffixes('ffffff') })
+    expect(journal.run).toBe(run)
+    expect(readdirSync(join(dataDir, 'autopilot'))).toEqual([`${run}.jsonl`])
+    await expect(openRun({ project: PROJECT, epic: EPIC, run: '../escape' }, { now: () => new Date(T0) })).rejects.toThrow('not a run id')
+    await expect(openRun({ project: PROJECT, epic: EPIC, run }, { now: () => new Date(T0) })).rejects.toThrow()
+    expect(readdirSync(join(dataDir, 'autopilot'))).toEqual([`${run}.jsonl`])
+  })
+
   it('keeps the call order of appends that were not awaited one by one', async () => {
     const journal = await openRun({ project: PROJECT, epic: EPIC }, { now: ticking(T0) })
     const waves = Array.from({ length: 40 }, (_, index) => index + 1)

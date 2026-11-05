@@ -203,6 +203,16 @@ describe('openRunApproval: the context of each request', () => {
     await approval.close()
   })
 
+  it('a relative target is judged from the shell folder of the request, not from the Project', async () => {
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/01', join(scratch, 'wt'))
+    const approval = await open()
+    approval.setWave(['01'])
+    const request = { tool: 'Bash', input: { command: 'rm -rf build' } }
+    expect(await approval.judge(request, { cwd: join(scratch, 'wt'), scratchpad: null, sessionId: 's' })).toMatchObject({ outcome: 'allow', targets: [join(realpathSync(scratch), 'wt', 'build')] })
+    expect((await approval.judge(request, { cwd: repo, scratchpad: null, sessionId: 's' })).outcome).not.toBe('allow')
+    await approval.close()
+  })
+
   it('the Run\'s TMPDIR folder exists from the start, is a root, and close() removes it', async () => {
     const approval = await open()
     expect(approval.runTemp).toBe(join(scratch, 'data', 'autopilot-tmp', approval.run))
