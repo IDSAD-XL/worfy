@@ -59,10 +59,12 @@ function prepareB(scratch: string) {
   git(harnessHome, 'add', '-A')
   git(harnessHome, 'commit', '-q', '-m', 'init')
   const env = { HARNESS_HOME: harnessHome, HOME: home, USERPROFILE: home }
+  const runs = join(scratch, 'b-profile-set-runs.jsonl')
   writeFileSync(
     join(claudeHome, 'bin', 'profile-set'),
     [
       "const { spawnSync } = require('node:child_process')",
+      `require('node:fs').appendFileSync(${JSON.stringify(runs)}, JSON.stringify(process.argv.slice(2)) + '\\n')`,
       `const env = { ...process.env, ...${JSON.stringify(env)} }`,
       'for (const name of ["CLAUDE_GATE_CONFIG", "CLAUDE_PROFILES_DIR", "EVAL_HARNESS_HOME"]) delete env[name]',
       `const run = spawnSync(process.execPath, [${JSON.stringify(PROFILE_SET)}, ...process.argv.slice(2)], { stdio: 'inherit', env })`,
@@ -71,7 +73,16 @@ function prepareB(scratch: string) {
     ].join('\n'),
   )
   const dataDir = dataFolder(join(scratch, 'b-data'), [{ id: BETA, name: 'beta', path: realRepo }])
-  return { profile, dataDir, env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view' } }
+  /** The writes B's worfy started through bin/profile-set so far, each by its arguments; a read is no write. */
+  const profileWrites = (): string[][] =>
+    existsSync(runs)
+      ? readFileSync(runs, 'utf8')
+          .split('\n')
+          .filter((line) => line !== '')
+          .map((line) => JSON.parse(line) as string[])
+          .filter((args) => !args.includes('--read'))
+      : []
+  return { profile, profileWrites, dataDir, env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view' } }
 }
 
 /** Opens the Orchestrator's Session view with a double click on its Node. */
@@ -181,19 +192,28 @@ test('Modes in a window on a Linked machine: full access changes the modes on th
     await expect(readOnly.eco).toHaveAttribute('aria-checked', 'true')
     await captureScreenshot(readOnly.menu, 'modes-linked-read-only')
     // Playwright waits for an aria-disabled item to become enabled; the click is forced, as a person's would land.
-    // "Nothing written" is checked after a write B's own window makes to the other file has landed: a write of
-    // A's click, had it gone out, had that long to land too. A's Eco mode first, B's Auto-continue as the mark.
+    // "Nothing written" is checked once a write from B's own window has landed that goes no faster than the
+    // write A's click would have sent. A's Eco mode would go link → B's main → bin/profile-set; the mark is an
+    // Eco mode write in B's window, through the same bin/profile-set: once it shows in the Profile, B's
+    // bin/profile-set has run for that write alone. (A's write would carry the fingerprint before the mark,
+    // so arriving later it would be refused, but it would still have started bin/profile-set.)
+    const agents = () => (json(bSetup.profile).workflow as { agents?: unknown } | undefined)?.agents
+    const writesBefore = bSetup.profileWrites().length
     await readOnly.eco.click({ force: true })
     await bModes.button.click()
-    await bModes.cont.click()
-    await expect.poll(() => (json(bSettings).autoContinue as Record<string, unknown> | undefined)?.[BETA]).toBe(true)
-    expect((json(bSetup.profile).workflow as { agents?: unknown } | undefined)?.agents).toBe('eco')
-    // A sees B's change, and its forced Auto-continue click would write off; B's Eco mode is the mark.
-    await expect(readOnly.cont).toHaveAttribute('aria-checked', 'true', { timeout: ms(20_000) })
+    await expect(bModes.eco).toHaveAttribute('aria-checked', 'true')
+    await bModes.eco.click()
+    await expect.poll(agents).toBeUndefined()
+    await expect(bModes.eco).toHaveAttribute('aria-checked', 'false')
+    expect(bSetup.profileWrites().slice(writesBefore)).toHaveLength(1)
+    // A's Auto-continue would go link → B's main → app-settings.json, faster than any Profile write: B's next
+    // Eco mode write is the mark. A shows B's Eco mode change first, so its menu is current.
+    await expect(readOnly.eco).toHaveAttribute('aria-checked', 'false', { timeout: ms(20_000) })
+    await expect(readOnly.cont).toHaveAttribute('aria-checked', 'false')
     await readOnly.cont.click({ force: true })
     await bModes.eco.click()
-    await expect.poll(() => (json(bSetup.profile).workflow as { agents?: unknown } | undefined)?.agents).not.toBe('eco')
-    expect((json(bSettings).autoContinue as Record<string, unknown> | undefined)?.[BETA]).toBe(true)
+    await expect.poll(agents).toBe('eco')
+    expect((json(bSettings).autoContinue as Record<string, unknown> | undefined)?.[BETA]).toBeUndefined()
   } finally {
     await a.close()
     await b?.close()
