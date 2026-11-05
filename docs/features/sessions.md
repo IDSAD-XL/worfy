@@ -162,11 +162,11 @@ answers.
   resumes the old Session. A Codex Orchestrator shows its model and status block from its first answer after a start,
   not from its transcript.
 - The Orchestrator modes sit in one button under the Orchestrator's input field, "Modes"; a regular Session has none.
-  The button always shows one icon per mode, in a fixed order — Eco mode, then Auto-approval: bright when on, muted
+  The button always shows one icon per mode, in a fixed order — Eco mode, Auto-approval, then Auto-continue: bright when on, muted
   when off, an outline for Auto-approval Shadow, faint while the state is not known. Its width does not change with the
   states; only its caption goes first when the bar is short of room. A click, or Enter, Space or ArrowDown, opens the
-  menu over it: Eco mode (on or off), then Auto-approval with its three positions Off, Shadow and On, each with a line
-  under it and a tooltip. The arrows, Home and End move through the items, Enter and Space choose, Esc closes the menu
+  menu over it: Eco mode (on or off), Auto-approval with its three positions Off, Shadow and On, then Auto-continue (on
+  or off), each with a line next to it and a tooltip. The arrows, Home and End move through the items, Enter and Space choose, Esc closes the menu
   back to the button, Tab closes it. Choosing an item does not close the menu: it shows the new state.
 - Eco mode writes two fields of the Project's Profile: `workflow.agents` set to `eco`, and `agents`, which is Sonnet with
   effort medium for each agent role. Off removes both fields, and the models the roles had before are not restored. It
@@ -183,6 +183,10 @@ answers.
   ignores `--inspect` and its kin, `kill -USR1` opens no inspector (the signal ends worfy), and `ELECTRON_RUN_AS_NODE=1`
   starts worfy, not a Node. A development run (`pnpm dev`) is the stock Electron and keeps both.
 - For now the mode is only stored: an unattended Run still refuses every permission request.
+- Auto-continue is off for a Project until turned on. It is kept per Project in the same `app-settings.json`, and only
+  the Modes menu writes it: on adds the Project's entry, off removes it, other Projects keep theirs. A change shows at
+  once in the Modes menu of every window of this Machine. A debugging port does not hold it off. For now it is only
+  stored: the Orchestrator still stops on an API error as before.
 - Autopilot runs this Session unattended. On Codex a run is refused, with the reason, while the Harness's hooks are not
   approved in Codex's `/hooks`; see [Autopilot, During a run](autopilot.md#during-a-run). While it does, the permission
   mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission
@@ -201,7 +205,8 @@ Session sends at most one notification in 10 seconds. A click opens that Session
   why. The Session view does not open an Orchestrator there: it shows "No Orchestrator yet" when there is none.
 - The Modes menu reads and writes nothing there: its icons show the states as not known, and its items are unavailable.
   Eco mode says "Eco mode is set in worfy on the Machine of the Project", or the read-only hint with read-only access;
-  Auto-approval says "Auto-approval is set in worfy on the Machine of the Project".
+  Auto-approval says "Auto-approval is set in worfy on the Machine of the Project". Auto-continue says "Auto-continue is
+  set in worfy on the Machine of the Project", or the read-only hint with read-only access.
 - A notification also goes to the connected Linked machines. Each Machine applies its own focus rule and its own 10 seconds.
 
 #### Windows
@@ -274,6 +279,7 @@ for a process also asks the system.
 | Modes menu | `src/renderer/session/composer/Modes.tsx` |
 | Eco mode | `src/main/ipc/eco-mode.ts`, `src/shared/ipc/eco-mode.ts`, `src/shared/agent/plan-preset.ts`, `src/renderer/session/modes/eco-mode.ts` |
 | Auto-approval | `src/main/ipc/auto-approve.ts`, `src/shared/ipc/auto-approve.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-approval.ts` |
+| Auto-continue | `src/main/ipc/auto-continue.ts`, `src/shared/ipc/auto-continue.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-continue.ts` |
 | Nodes | `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/overlays/SessionNodes.tsx` |
 | Autocompact settings | `src/renderer/settings/SessionsSection.tsx`, `src/shared/settings/app-settings.ts` |
 | Notifications | `src/main/notify.ts`, `src/renderer/session/notification-target.ts` |

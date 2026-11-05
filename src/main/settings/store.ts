@@ -20,7 +20,10 @@
 // 06) holds the Auto-approval mode of each Project that is not Off; an entry with a mode outside Off /
 // Shadow / On or a key that is no Project id is dropped (reads as Off), and so is the whole field when
 // it is not a record. Only setAutoApproval() writes it — the `autoApproval` IPC domain, `local`, the
-// switch of the Orchestrator — never set(): the patch has no such field.
+// switch of the Orchestrator — never set(): the patch has no such field. `autoContinue` (worfy-retry
+// ticket 02) holds the Projects with Auto-continue on, kept the same way: an entry that is not a Project
+// id with `true` is dropped (reads as off); only setAutoContinue() writes it, through the `autoContinue`
+// IPC domain.
 //
 // The file is read once, on first use; the store then answers from memory and every write puts the
 // whole state back. An edit of the file made outside worfy (by hand, or by an agent's shell command)
@@ -61,6 +64,7 @@ import {
   autoApprovalOf,
   autoApprovalProjectIdSchema,
   type AutoApprovalMode,
+  autoContinueOf,
 } from '../../shared/settings/app-settings'
 import { readJsonFile, writeJsonFile, type ReadOptions } from '../storage/json-file'
 import { dataRoot } from '../storage/paths'
@@ -84,6 +88,24 @@ function modesOf(entries: Readonly<Record<string, unknown>>): Record<string, Exc
 function modesChoice(modes: AppSettings['autoApproval']): Pick<AppSettings, 'autoApproval'> {
   const kept = modes === undefined ? undefined : modesOf(modes)
   return kept === undefined ? {} : { autoApproval: kept }
+}
+
+/**
+ * The Projects with Auto-continue on, kept from `entries`: a Project id with `true`. A key that is no
+ * Project id — `__proto__` among them — is dropped. Nothing left: undefined.
+ */
+function continuesOf(entries: Readonly<Record<string, unknown>>): Record<string, true> | undefined {
+  const kept: Record<string, true> = {}
+  for (const [projectId, on] of Object.entries(entries)) {
+    if (on === true && autoApprovalProjectIdSchema.safeParse(projectId).success) kept[projectId] = true
+  }
+  return Object.keys(kept).length === 0 ? undefined : kept
+}
+
+/** The Auto-continue field of a state: present only while it is on for a Project. */
+function continuesChoice(on: AppSettings['autoContinue']): Pick<AppSettings, 'autoContinue'> {
+  const kept = on === undefined ? undefined : continuesOf(on)
+  return kept === undefined ? {} : { autoContinue: kept }
 }
 
 /**
@@ -142,6 +164,12 @@ const appSettingsFileSchema = z.object({
   autoApproval: z
     .record(z.string(), z.unknown())
     .transform(modesOf)
+    .optional()
+    .catch(undefined),
+  // The same way: an entry that is not a Project id with `true` is dropped, so it reads as off.
+  autoContinue: z
+    .record(z.string(), z.unknown())
+    .transform(continuesOf)
     .optional()
     .catch(undefined),
   revision: z.number().int().nonnegative().default(0),
@@ -240,6 +268,7 @@ function copy(settings: AppSettings): AppSettings {
     ...runChoice(settings.autopilotRun),
     ...(settings.guideLanguage === undefined ? {} : { guideLanguage: settings.guideLanguage }),
     ...modesChoice(settings.autoApproval),
+    ...continuesChoice(settings.autoContinue),
     revision: settings.revision,
   }
 }
@@ -272,6 +301,8 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     ...guideLanguageAfter(current.guideLanguage, patch.guideLanguage),
     // Never from the patch: setAutoApproval() is the one way to change a mode.
     ...modesChoice(current.autoApproval),
+    // Nor Auto-continue: setAutoContinue() is the one way to change it.
+    ...continuesChoice(current.autoContinue),
     revision: current.revision,
   }
 }
@@ -286,9 +317,15 @@ function sameModes(a: AppSettings['autoApproval'], b: AppSettings['autoApproval'
   return keys.length === Object.keys(b ?? {}).length && keys.every((key) => autoApprovalOf({ autoApproval: a }, key) === autoApprovalOf({ autoApproval: b }, key))
 }
 
+function sameContinues(a: AppSettings['autoContinue'], b: AppSettings['autoContinue']): boolean {
+  const keys = Object.keys(a ?? {})
+  return keys.length === Object.keys(b ?? {}).length && keys.every((key) => autoContinueOf({ autoContinue: b }, key))
+}
+
 function same(a: AppSettings, b: AppSettings): boolean {
   return (
     sameModes(a.autoApproval, b.autoApproval) &&
+    sameContinues(a.autoContinue, b.autoContinue) &&
     a.interfaceScale === b.interfaceScale &&
     a.sidebar.visible.normal === b.sidebar.visible.normal &&
     a.sidebar.visible.focus === b.sidebar.visible.focus &&
@@ -380,6 +417,26 @@ export class AppSettingsStore extends EventEmitter<{ changed: [AppSettings] }> {
     return this.write(current, { ...copy(current), autoApproval: modes })
   }
 
+  /** Whether Auto-continue is on for Project `projectId`, as the store holds it: off without an entry. */
+  autoContinue(projectId: string): boolean {
+    return autoContinueOf(this.current(), projectId)
+  }
+
+  /**
+   * Turns Auto-continue of Project `projectId` on or off and leaves everything else as it is: the other
+   * Projects and every other setting. Off removes the entry. Writes and announces as set() does; a
+   * value already in force writes nothing. An id that is no Project id, or a value that is no boolean,
+   * throws and changes nothing.
+   */
+  setAutoContinue(projectId: string, on: boolean): AppSettings {
+    const id = autoApprovalProjectIdSchema.parse(projectId)
+    const chosen = z.boolean().parse(on)
+    const current = this.current()
+    const others = Object.entries(current.autoContinue ?? {}).filter(([key]) => key !== id)
+    const entries: Record<string, true> = Object.fromEntries(chosen ? [...others, [id, true]] : others)
+    return this.write(current, { ...copy(current), autoContinue: entries })
+  }
+
   /** Writes `merged` over `current` unless it changes nothing; answers the state after it. */
   private write(current: AppSettings, merged: AppSettings): AppSettings {
     const tidy = copy(merged)
@@ -436,4 +493,13 @@ export function debugAccess(): string | null {
  */
 export function autoApprovalMode(projectId: string, debug: () => string | null = debugAccess): AutoApprovalMode {
   return debug() === null ? appSettingsStore().autoApproval(projectId) : 'off'
+}
+
+/**
+ * Whether Auto-continue is on for Project `projectId` on this Machine, for the retry of the Orchestrator's
+ * turn (worfy-retry tickets 04–06): what the Auto-continue item of the Modes menu last wrote, off without an
+ * entry. Read from the store's memory, not from the file (see the head of this file).
+ */
+export function autoContinueOn(projectId: string): boolean {
+  return appSettingsStore().autoContinue(projectId)
 }
