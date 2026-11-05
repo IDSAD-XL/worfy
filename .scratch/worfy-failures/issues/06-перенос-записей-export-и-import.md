@@ -147,3 +147,17 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 5. Stand-in-ы для test-ов: `GATE_FAILURES_GH` (как `TICKET_GH`, `LAND_GH` у соседних скриптов, а не `WORFY_GH` приложения)
    и `CLAUDE_PROFILE_BIN` (как у `hooks/gh-token-env.mjs`).
 6. Q6 = А (принято владельцем 2026-11-04): поле `error` в export остаётся, режима без него нет.
+
+Ревью волны (2026-11-05, PR #1402, `VERIFIED`, глубина low).
+
+Consider (долги, не блокируют):
+- `harness/lib/gate-failures/transfer-common.mjs` (`leaksOf`, около `:195`) — ключ записи, который сам несёт личные
+  данные, попадает в путь поля на stderr без маски (`${at}.${k}`); `import.mjs` печатает тот же путь. Gate таких ключей
+  не пишет. Правка: `(key)` в пути поля вместо текста ключа.
+- `harness/lib/gate-failures/export.mjs:117` с `harness/lib/privacy.cjs` — некоторые написания чужой домашней папки
+  проходят проверку export (`/users/<имя>` в нижнем регистре, `/Volumes/<диск>/<имя>`, `/root`, `../Users/<имя>`,
+  URL-encoded); своя домашняя папка отвергается во всех проверенных написаниях. Та же регулярка — в `scrub()`
+  `harness/hooks/gate-failures.mjs`.
+
+Noted:
+- Строка evidence `windows-verdict-scope` ссылается на `c1af438a5` до rebase; повтор на merge-base печатает `runner`, exit 0.
