@@ -970,12 +970,50 @@ the old way or one after another — every Check of the Pipeline has its mark on
     both.
   - Its report names the commit, the exit code and the verdict line, as for a PR's head. Green — the
     check is done.
-  - Red — that session first runs the failing tests once more, one at a time, on the same SHA, to
-    check for a flaky test. Red again — the main branch is red there, and that session records it in
-    the one place the project's rules name for it (worfy: an open GitHub issue with the label
-    `pc-main-red`, its title the SHA, its body the report). That session also clears it. Green on that
-    rerun — a flaky test, and the main branch is not red: the report lists those tests with their exit
-    codes, and a test that fails like that again goes to quarantine by the project's rules.
+  - Red — that session reruns the failed tests right away, on the same SHA and in the same worktree, to
+    check for a flaky test: `"${CLAUDE_PLUGIN_ROOT}/bin/gate-failures" rerun --last` runs each failed
+    test of the newest red gate run of that worktree alone and writes a rerun file next to the failure
+    records of that run. It takes the e2e lock and the screen check itself when the profile sets
+    `F workflow.e2e_lock`; nobody takes them by hand. The gate's verdict does not change: there is no
+    rerun inside a gate run. `--dry-run` prints the tests and an estimate of the time without running
+    them; `--file <path>` and `--limit N` narrow a long rerun, and a test left out stays unconfirmed,
+    not flaky.
+    - Exit 0 — every rerun test is green alone: a flaky test. The main branch is not red only when
+      the rerun output has no line `step without tests, not rerun: <step>`. The rerun names a failed
+      step without tests (lint, typecheck, a build) on such a line and runs nothing for it, so with
+      such a line the main branch is red, as with exit 2. A rerun narrowed by `--file` prints no such
+      line; the gate's own line `--- failure records: <file> (<n> tests, <m> steps without tests)`
+      then decides: `<m>` above 0 is red.
+    - Exit 2 — at least one test is red alone: the main branch is red there, and that session records
+      it in the one place the project's rules name for it (worfy: an open GitHub issue with the label
+      `pc-main-red`, its title the SHA, its body the report). That session also clears it.
+    - Exit 3 — the rerun confirmed nothing green: a step without tests failed (lint, typecheck, a
+      build), a test has no rerun command, or the rerun was refused. It counts as exit 2. A refusal
+      over the worktree (HEAD is not that SHA, the worktree is not clean) is fixed first, and the
+      rerun runs again.
+  - After a red check the report also carries the rerun's exit code and the block that
+    `"${CLAUDE_PLUGIN_ROOT}/bin/gate-failures" export --run <id>` prints. `<id>` is the id of the red
+    run, `<tag>/<run>`, the first word of the rerun's first line; the export takes the rerun files of
+    that run with it. A refused rerun prints only `gate-failures rerun: <reason>` on stderr; then
+    `<id>` is the first word of the line `"${CLAUDE_PLUGIN_ROOT}/bin/gate-failures" list` prints for
+    that run: the newest line with the first 12 characters of the checked SHA and no `imported`
+    mark (the list is newest first). No such line —
+    the gate saved no records (its report ends with `--- failure records: not saved, <why>`): no
+    block, and the report says the records were not sent. It checks the text for personal data first: a finding is exit 2 and no block,
+    and the report then says the records were not sent. Where the block goes is the project's rule
+    (worfy: with the main branch red, into the issue `pc-main-red`; green on the rerun, a comment on
+    the PR whose merge commit was checked; a message between the sessions when neither can be
+    written). A long export comes in parts: one comment per part.
+  - The session that asked for the check reads the records, not a retelling of them:
+    `"${CLAUDE_PLUGIN_ROOT}/bin/gate-failures" import --gh <owner/repo> --issue <N>` (or `--pr <N>`;
+    only the body and the comments whose author is the profile's `F github.account` count), or
+    `import -` with the text of a message on stdin, then
+    `"${CLAUDE_PLUGIN_ROOT}/bin/gate-failures" report --days 14`. The first three lines of the report
+    go into the wave report (outside a wave, into the report of the session that merged the PR). A
+    test flaky in two different runs (another SHA or another computer) within 14 days is a quarantine
+    candidate of the report. A script of the project may turn the candidates of `report --json` into
+    quarantine entries; it only prints them: the entry is written by a person or the orchestrator
+    under the project's quarantine rules, never by a command.
   - The record is written so that the read below finds it: a record it does not find reads as green.
     Worfy: `gh label create pc-main-red --force --color B60205 --description "main is red on the PC gate full"`
     first, so the label exists, then `gh issue create --label pc-main-red`. An issue opened without
