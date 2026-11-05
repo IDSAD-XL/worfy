@@ -74,6 +74,11 @@ export interface PolicyContext {
   checkouts: ReadonlyArray<{ path: string; branch: string | null }>
   /** The Project's default branch; `main` is protected as well. */
   defaultBranch: string
+  /**
+   * git's `rebase.updateRefs` as the Run read it when it started: true moves every branch a rebase passes, so
+   * rebase and pull are allowed only when it is false; null: not read.
+   */
+  rebaseUpdateRefs: boolean | null
   /** The real path of each root recorded when the Run started (roots.ts, recordRoots), by the root's path. */
   recordedRoots: Readonly<Record<string, string>>
   /** The file system; the machine's when absent. */
@@ -89,6 +94,8 @@ export interface Act {
   /** The words after the program; none for a file tool. */
   args: readonly string[]
   git: ShellAction['git']
+  /** For git: whether the command is one of the forms of the git allow-list (gitFormAllowed). */
+  gitForm: boolean
   network: boolean
   targets: Target[]
 }
@@ -134,6 +141,7 @@ export const ALLOW_RULES: readonly AllowRule[] = [
     describe: 'git in a worktree of the Wave, without push and without deleting a branch',
     match: (act) =>
       act.git !== undefined &&
+      act.gitForm &&
       act.git.push === undefined &&
       act.git.branchDelete === undefined &&
       !fetchesFromElsewhere(act) &&
@@ -289,7 +297,7 @@ function actOf(action: ShellAction, prepared: Prepared): Act {
   for (const path of action.deletes) add(path, 'delete')
   // git works in its folder: a link on the way there is a link on every path it touches.
   if (action.git !== undefined) targets.push({ path: normalizePath(action.cwd, win) ?? action.cwd, use: 'read', marker: 'folder', placement: resolveTarget(action.cwd, roots, 'read') })
-  return { program: action.program, fileTool: false, args: action.args, git: action.git, network: action.network, targets }
+  return { program: action.program, fileTool: false, args: action.args, git: action.git, gitForm: action.git !== undefined && gitFormAllowed(action, prepared), network: action.network, targets }
 }
 
 function targetsOf(acts: Act[]): string[] {
@@ -370,7 +378,10 @@ function operandsOf(words: readonly string[], valued: { short: string; long: rea
     }
     if (word.startsWith('--')) {
       const [name = '', value] = word.slice(2).split(/=(.*)/s)
-      if (valued.long.includes(name)) add(name, value ?? words[++i] ?? '')
+      // git takes any unambiguous prefix of a long option; with `=` it can only be one that takes a value.
+      const prefixed = valued.long.filter((each) => name !== '' && each.startsWith(name))
+      const long = valued.long.includes(name) ? name : value !== undefined && prefixed.length === 1 ? prefixed[0] : undefined
+      if (long !== undefined) add(long, value ?? words[++i] ?? '')
       else if (value === undefined) add(name, '')
       continue
     }
@@ -417,7 +428,7 @@ function currentBranch(top: string, roots: Roots, win: boolean, caseless: boolea
 
 // Subcommands that commit onto the current branch or move it.
 const MOVES_CURRENT = new Set(['commit', 'merge', 'rebase', 'cherry-pick', 'revert', 'reset', 'am', 'pull'])
-const CHECKOUT_VALUED = { short: 'bBcC', long: ['orphan', 'conflict', 'pathspec-from-file'] } as const
+const CHECKOUT_VALUED = { short: 'bBcC', long: ['orphan', 'conflict', 'pathspec-from-file', 'create', 'force-create'] } as const
 const WORKTREE_ADD_VALUED = { short: 'bB', long: ['reason', 'orphan'] } as const
 const FETCH_VALUED = { short: 'jo', long: ['depth', 'deepen', 'shallow-since', 'shallow-exclude', 'jobs', 'negotiation-tip', 'server-option', 'refmap', 'recurse-submodules-default', 'upload-pack'] } as const
 const REBASE_VALUED = { short: 'sX', long: ['onto', 'strategy', 'strategy-option', 'exec'] } as const
@@ -488,13 +499,15 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
     // git refuses a branch checked out in another worktree unless told to ignore that.
     if (words.some((word) => word.length > 9 && '--ignore-other-worktrees'.startsWith(word))) return 'git-ignore-other-worktrees'
     const { operands, values } = operandsOf(words, CHECKOUT_VALUED, sub === 'switch')
-    const created = ['b', 'B', 'c', 'C', 'orphan'].flatMap((name) => values.get(name) ?? [])
+    const created = ['b', 'B', 'c', 'C', 'orphan', 'create', 'force-create'].flatMap((name) => values.get(name) ?? [])
     // --track origin/x makes and checks out x.
     const tracked = values.has('t') || values.has('track') ? operands.map((word) => word.slice(word.indexOf('/') + 1)) : []
     // `checkout <tree> -- <paths>` restores files and `--detach` leaves every branch: neither switches one. With
     // nothing after `--`, checkout switches.
     const dashes = words.indexOf('--')
-    const switches = !values.has('detach') && !(sub === 'checkout' && dashes >= 0 && dashes < words.length - 1)
+    // A later `--no-detach` (or a prefix of it) takes `--detach` back.
+    const detached = values.has('detach') && !words.some((word) => word.startsWith('--no-d'))
+    const switches = !detached && !(sub === 'checkout' && dashes >= 0 && dashes < words.length - 1)
     const rule = firstOf(created.length > 0 ? created : switches ? [...operands, ...tracked] : [], 'git-checkout-default-branch')
     if (rule !== null) return rule
   }
@@ -509,7 +522,13 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
   }
   if (sub === 'branch' && facts.branchDelete === undefined) {
     // `git branch -f x <commit>` moves x; any branch named here is judged.
-    const rule = firstOf(operandsOf(words, { short: '', long: [] }, true).operands.slice(0, 1), 'git-checkout-default-branch')
+    // `git branch -u <upstream> x` sets x's upstream in the shared config: the owner's next pull moves x.
+    const rule = firstOf(operandsOf(words, { short: 'u', long: ['set-upstream-to'] }, true).operands.slice(0, 1), 'git-checkout-default-branch')
+    if (rule !== null) return rule
+  }
+  if (sub === 'tag' && !words.some((word) => /^-[A-Za-z]*[dlv]/.test(word) || ['--delete', '--list', '--verify'].includes(word))) {
+    // A tag named like a branch comes first when git resolves the name: `git merge main` takes the tag.
+    const rule = firstOf(operandsOf(words, { short: 'mu', long: ['message', 'local-user', 'cleanup'] }, true).operands.slice(0, 1), 'git-checkout-default-branch')
     if (rule !== null) return rule
   }
   if (sub === 'fetch' || sub === 'pull') {
@@ -617,6 +636,146 @@ function copyFollowsLinks(args: readonly string[], platform: NodeJS.Platform): b
     word === '--dereference' || (/^-[A-Za-z]+$/.test(word) && (word.includes('L') || (platform === 'darwin' && word.includes('r')))))
 }
 
+/** The option words a form of the git allow-list takes: `flags` alone, `valued` with the next word. */
+interface FormSpec {
+  flags?: readonly string[]
+  valued?: readonly string[]
+}
+
+/** A command's words read by a form: its options, its operands, and the words after `--` (null: no `--`). */
+interface Form {
+  options: string[]
+  operands: string[]
+  paths: string[] | null
+}
+
+/**
+ * `words` read by `spec` when every option is spelled exactly as listed (a cluster of listed short options too,
+ * `-am`, a valued one only last); null for any other option word, an abbreviation, a `--x=v`, or a `--` where
+ * `dashes` is false.
+ */
+function exactForm(words: readonly string[], spec: FormSpec, dashes = false): Form | null {
+  const flags = spec.flags ?? []
+  const valued = spec.valued ?? []
+  const options: string[] = []
+  const operands: string[] = []
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i] ?? ''
+    if (word === '--') return dashes ? { options, operands, paths: words.slice(i + 1) } : null
+    if (!word.startsWith('-') || word === '-') operands.push(word)
+    else if (flags.includes(word)) options.push(word)
+    else if (valued.includes(word)) {
+      if (i + 1 >= words.length) return null
+      options.push(word)
+      i++
+    } else {
+      if (!/^-[A-Za-z]{2,}$/.test(word)) return null
+      const letters = [...word.slice(1)]
+      for (const [n, letter] of letters.entries()) {
+        const option = `-${letter}`
+        if (flags.includes(option)) options.push(option)
+        else if (valued.includes(option) && n === letters.length - 1 && i + 1 < words.length) {
+          options.push(option)
+          i++
+        } else return null
+      }
+    }
+  }
+  return { options, operands, paths: null }
+}
+
+const only = (form: Form, option: string): boolean => form.options.length > 0 && form.options.every((each) => each === option)
+
+/**
+ * The git allow-list (review round 5). Five rounds each found a new spelling in git's option grammar that moved
+ * a protected branch, so git is allowed only in these forms, every option spelled in full from the form's own
+ * list. A read (the parser gives no write or delete) stays allowed as before. The hard rules judge separately.
+ */
+function gitFormAllowed(action: ShellAction, prepared: Prepared): boolean {
+  if (action.writes.length === 0 && action.deletes.length === 0) return true
+  const { context } = prepared
+  const words = subcommandWords(action.args)
+  const sub = action.git?.subcommand
+  const noColon = (form: Form): boolean => form.operands.every((word) => !word.includes(':'))
+  switch (sub) {
+    case 'add':
+      return exactForm(words, { flags: ['-A', '--all', '-u', '--update'] }, true) !== null
+    case 'rm':
+      return exactForm(words, { flags: ['-r', '--cached', '-q', '--quiet'] }, true) !== null
+    case 'mv':
+      return exactForm(words, {}, true) !== null
+    case 'restore':
+      return exactForm(words, { flags: ['--staged', '--worktree', '-S', '-W'] }, true) !== null
+    case 'commit': {
+      const form = exactForm(words, { flags: ['-a', '--all', '--amend', '--no-edit', '--allow-empty'], valued: ['-m', '--message'] })
+      return form !== null && form.operands.length === 0
+    }
+    case 'fetch': {
+      const form = exactForm(words, { flags: ['--prune', '--tags', '--no-tags', '--quiet'] })
+      return form !== null && noColon(form)
+    }
+    case 'pull': {
+      // pull.rebase in the config makes any pull a rebase.
+      const form = exactForm(words, { flags: ['--rebase', '--ff-only', '--no-rebase'] })
+      return context.rebaseUpdateRefs === false && form !== null && form.operands.length <= 2 && noColon(form)
+    }
+    case 'checkout':
+    case 'switch': {
+      if (sub === 'checkout') {
+        // `checkout [<rev>] -- <paths>` restores files.
+        const restore = exactForm(words, {}, true)
+        if (restore?.paths != null) return restore.options.length === 0 && restore.operands.length <= 1 && restore.paths.length > 0
+      }
+      const form = exactForm(words, { valued: [sub === 'switch' ? '-c' : '-b'] })
+      if (form === null) return false
+      if (form.options.length === 1) return form.operands.length <= 1
+      return form.options.length === 0 && form.operands.length === 1 && ownBranch(form.operands[0] ?? '', action, prepared)
+    }
+    case 'rebase': {
+      const form = exactForm(words, { flags: ['--abort', '--skip', '--autostash'] })
+      if (context.rebaseUpdateRefs !== false || form === null) return false
+      if (form.operands.length === 0) return form.options.length === 1 && (form.options[0] === '--abort' || form.options[0] === '--skip')
+      return form.operands.length === 1 && form.options.every((each) => each === '--autostash')
+    }
+    case 'merge': {
+      const form = exactForm(words, { flags: ['--ff-only', '--no-ff', '--no-edit', '--abort'] })
+      if (form === null) return false
+      return form.operands.length === 0 ? only(form, '--abort') : form.operands.length === 1 && !form.options.includes('--abort')
+    }
+    case 'cherry-pick':
+    case 'revert': {
+      const form = exactForm(words, { flags: ['--abort'] })
+      if (form === null) return false
+      return form.operands.length === 0 ? only(form, '--abort') : form.options.length === 0
+    }
+    case 'reset': {
+      const form = exactForm(words, { flags: ['--soft', '--mixed', '--hard'] })
+      return form !== null && form.options.length <= 1 && form.operands.length <= 1
+    }
+    case 'stash': {
+      // refs/stash is shared by every worktree: pop, apply, drop and clear take the owner's entries.
+      if (words.length === 0) return true
+      if (words[0] === 'list' || words[0] === 'show') return words.length === 1
+      const form = words[0] === 'push' ? exactForm(words.slice(1), { flags: ['-u'], valued: ['-m'] }) : null
+      return form !== null && form.operands.length === 0
+    }
+    case 'branch':
+      return words.length === 1 && !(words[0] ?? '-').startsWith('-')
+    default:
+      return false
+  }
+}
+
+/** Whether `name` is the branch checked out in the action's own worktree. */
+function ownBranch(name: string, action: ShellAction, prepared: Prepared): boolean {
+  const { context, roots, win } = prepared
+  const top = repositoryTop(action.cwd, roots)
+  const own = top === null ? undefined : context.checkouts.find((checkout) => samePath(checkout.path, top, win))?.branch
+  if (own === undefined || own === null) return false
+  const caseless = win || context.platform === 'darwin'
+  return caseless ? branchName(own).toLowerCase() === name.toLowerCase() : branchName(own) === name
+}
+
 function allowOrPark(acts: Act[], targets: string[]): Decision {
   const inside = acts.every((act) => act.targets.every((target) => target.marker !== 'unknown' && isInside(target.placement)))
   if (inside) {
@@ -672,6 +831,7 @@ function judgeFiles(tool: string, input: Record<string, unknown>, prepared: Prep
     program: tool,
     fileTool: true,
     args: [],
+    gitForm: false,
     git: undefined,
     network: false,
     // The raw path is judged (a `..` after a link goes up from the link's target); the folded one is reported.

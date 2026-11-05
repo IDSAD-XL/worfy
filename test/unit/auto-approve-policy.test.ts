@@ -121,6 +121,7 @@ function posix(overrides: Partial<PolicyContext> = {}): PolicyContext {
     sessions: { list: () => [info('demo-run', REPO), info('demo-other', OTHER)] },
     checkouts: [{ path: REPO, branch: 'main' }, { path: WT, branch: 'worfy-demo/03' }, { path: WT7, branch: 'refs/heads/worfy-demo/07' }],
     defaultBranch: 'main',
+    rebaseUpdateRefs: false,
     fs: fakeFs(TREE),
     ...overrides,
   })
@@ -320,9 +321,11 @@ describe('the allow rules', () => {
 
   describe('git-in-wave-worktree', () => {
     it('allows git without push in a worktree of the Wave', () => {
-      for (const command of ['git status', 'git add -A && git commit -m demo', 'git diff HEAD~3', 'git log --oneline -- src/a.ts', 'git config --local --get user.name', 'git fetch origin', 'git clean -fdx']) {
+      for (const command of ['git status', 'git add -A && git commit -m demo', 'git diff HEAD~3', 'git log --oneline -- src/a.ts', 'git config --local --get user.name', 'git fetch origin']) {
         expect(run(command), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
       }
+      // Not a form of the git allow-list (round 5 of the review).
+      expect(outcome('git clean -fdx')).toBe('park')
     })
     it('is not allow in a repository outside the roots', () => {
       expect(outcome(`git -C ${REPO} status`)).toBe('park')
@@ -677,7 +680,7 @@ describe('git fetch and pull only from a configured remote name', () => {
   })
   it('a remote name is allowed', () => {
     expect(outcome('git fetch origin')).toBe('allow')
-    expect(outcome('git fetch --depth 5 origin main')).toBe('allow')
+    expect(outcome('git fetch --depth 5 origin main')).toBe('park')
     expect(outcome('git fetch')).toBe('allow')
     expect(outcome('git pull origin worfy-demo/03')).toBe('allow')
   })
@@ -972,10 +975,10 @@ describe('round 3 of the review', () => {
     expect(outcome(`rm -f ${WT}/build/*`, posix({ fs: failing }))).toBe('park')
     expect(outcome(`rm -f ${WT}/build/*`)).toBe('allow')
   })
-  it('forms that stay allowed', () => {
-    expect(outcome('git switch -C worfy-demo/03-fix main')).toBe('allow')
+  it('forms that stay allowed, and forms the git allow-list of round 5 parks', () => {
+    expect(outcome('git switch -C worfy-demo/03-fix main')).toBe('park')
     expect(run(`git worktree add -B x ${PAD}/w`).outcome).not.toBe('hard-deny')
-    expect(outcome(`git worktree add -B worfy-demo/03-b ${WT}/t/w`)).toBe('allow')
+    expect(outcome(`git worktree add -B worfy-demo/03-b ${WT}/t/w`)).toBe('park')
     const relative = { ...TREE, [`${WT}/.git`]: 'text:gitdir: ../../../.git/worktrees/03\n' }
     expect(outcome('git commit -m demo', posix({ fs: fakeFs(relative) }))).toBe('allow')
     expect(run('git commit -m demo', posix({ fs: fakeFs({ ...relative, [`${REPO}/.git/worktrees/03/HEAD`]: 'text:ref: refs/heads/main\n' }) })).rule).toBe('hard:git-commit-default-branch')
@@ -1011,12 +1014,12 @@ describe('round 4 of the review', () => {
   const darwin = (overrides: Partial<PolicyContext> = {}): PolicyContext => posix({ platform: 'darwin', ...overrides })
   const head = (ref: string, context: (overrides: Partial<PolicyContext>) => PolicyContext = posix): PolicyContext =>
     context({ fs: fakeFs({ ...TREE, [`${REPO}/.git/worktrees/03/HEAD`]: `text:${ref}\n` }) })
-  it('a fetch or pull destination is allowed only under refs/remotes/', () => {
+  it('a fetch or pull with a destination is never allowed (round 5: no colon in the allow-list)', () => {
     for (const context of [posix(), darwin()]) {
-      expect(outcome('git fetch origin e/03:refs/remotes/origin/e', context)).toBe('allow')
-      expect(outcome('git fetch origin +e/03:REFS/Remotes/origin/e', context)).toBe('allow')
-      expect(outcome('git fetch origin "refs/heads/*:refs/remotes/origin/*"', context)).toBe('allow')
-      expect(outcome('git pull origin e/03:refs/remotes/origin/e', context)).toBe('allow')
+      expect(outcome('git fetch origin e/03:refs/remotes/origin/e', context)).toBe('park')
+      expect(outcome('git fetch origin +e/03:REFS/Remotes/origin/e', context)).toBe('park')
+      expect(outcome('git fetch origin "refs/heads/*:refs/remotes/origin/*"', context)).toBe('park')
+      expect(outcome('git pull origin e/03:refs/remotes/origin/e', context)).toBe('park')
       for (const command of ['git fetch origin e/03:x', 'git fetch origin e/03:heads/x', 'git fetch origin e/03:refs/tags/x', 'git fetch origin e/03:refs/x', 'git fetch origin e/03:HEAD', 'git pull origin e/03:x', 'git fetch origin e/03:remotes/origin/x']) {
         expect(outcome(command, context), command).not.toBe('allow')
       }
@@ -1037,8 +1040,8 @@ describe('round 4 of the review', () => {
   it('--refmap maps the named refs: its destinations are judged the same way', () => {
     expect(run('git fetch origin main --refmap=+refs/heads/*:refs/heads/*').rule).toBe('hard:git-fetch-default-branch')
     expect(outcome('git fetch origin main --refmap refs/heads/main:refs/heads/x')).toBe('park')
-    expect(outcome('git fetch origin main --refmap=+refs/heads/*:refs/remotes/origin/*')).toBe('allow')
-    expect(outcome('git fetch origin main --refmap=')).toBe('allow')
+    expect(outcome('git fetch origin main --refmap=+refs/heads/*:refs/remotes/origin/*')).toBe('park')
+    expect(outcome('git fetch origin main --refmap=')).toBe('park')
     // A fetch refspec set through git's own -c is no allowed form either.
     expect(outcome('git -c remote.origin.fetch=+refs/heads/*:refs/heads/* fetch origin')).not.toBe('allow')
   })
@@ -1065,7 +1068,7 @@ describe('round 4 of the review', () => {
     expect(run('git checkout worfy-demo/07 --').rule).toBe('hard:git-other-branch')
     expect(run('git checkout --track origin/main --').rule).toBe('hard:git-checkout-default-branch')
     // A new branch made from main switches to the new branch, not to main.
-    expect(outcome('git checkout -b worfy-demo/03-fix main --')).toBe('allow')
+    expect(run('git checkout -b worfy-demo/03-fix main --').outcome).toBe('park')
     expect(run('git checkout main -- src/a.ts').outcome).not.toBe('hard-deny')
   })
   it('main is protected in any case on macOS even when the default branch is another one', () => {
@@ -1078,5 +1081,75 @@ describe('round 4 of the review', () => {
     expect(outcome(`mv ${WT}/srcl ${WT}/dst`, darwin({ fs: fakeFs(tree) }))).toBe('allow')
     expect(outcome(`mv -v ${WT}/srcl ${WT}/dst`, darwin({ fs: fakeFs(tree) }))).toBe('allow')
     expect(outcome(`cp -R --verbose ${WT}/srcl ${WT}/dst`, darwin({ fs: fakeFs(tree) }))).toBe('allow')
+  })
+})
+
+describe('round 5: git is allowed only in the forms of its allow-list', () => {
+  const ALLOWED = [
+    'git commit -m demo', 'git commit -am demo', 'git commit --amend --no-edit', 'git commit --allow-empty -m demo', 'git commit --all --message demo',
+    'git add -A', 'git add src/a.ts', 'git add -- src/a.ts', 'git add -u', 'git rm --cached src/a.ts', 'git mv src/a.ts src/b.ts', 'git restore --staged src/a.ts', 'git restore src/a.ts',
+    'git fetch', 'git fetch origin', 'git fetch origin main', 'git fetch --prune origin', 'git fetch --tags --quiet origin', 'git fetch --no-tags origin worfy-demo/03',
+    'git pull', 'git pull --rebase', 'git pull --ff-only origin main', 'git pull --no-rebase origin worfy-demo/03',
+    'git switch -c worfy-demo/03-x', 'git switch -c worfy-demo/03-x origin/main', 'git checkout -b worfy-demo/03-x', 'git checkout -b worfy-demo/03-x main',
+    'git switch worfy-demo/03', 'git checkout worfy-demo/03', 'git checkout -- src/a.ts', 'git checkout HEAD -- src/a.ts',
+    'git rebase origin/main', 'git rebase --autostash origin/main', 'git rebase --abort', 'git rebase --skip',
+    'git merge --ff-only origin/main', 'git merge --no-ff --no-edit origin/x', 'git merge --abort',
+    'git cherry-pick abc123', 'git cherry-pick abc123 def456', 'git cherry-pick --abort', 'git revert --abort',
+    'git reset', 'git reset --hard origin/main', 'git reset --soft abc123',
+    'git stash', 'git stash push', 'git stash push -m wip -u', 'git stash list', 'git stash show',
+    'git branch', 'git branch -a', 'git branch worfy-demo/03-b',
+  ]
+  it('allows each form in a worktree of the Wave', () => {
+    for (const command of ALLOWED) expect(run(command), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+  })
+  it('an unknown option in any of them is no allow', () => {
+    for (const command of ALLOWED) {
+      const [git, sub, ...rest] = command.split(' ')
+      const changed = [git, sub, '--frobnicate', ...rest].join(' ')
+      expect(run(changed).outcome, changed).not.toBe('allow')
+    }
+  })
+  it('an abbreviated, unlisted or = form of an option is no allow', () => {
+    for (const command of [
+      'git commit -m demo --amen', 'git commit --no-verify -m demo', 'git commit --message=demo', 'git commit -m demo src/a.ts',
+      'git add -A --forc', 'git add --force src/a.ts', 'git rm -f src/a.ts', 'git restore --source HEAD src/a.ts', 'git restore -s HEAD src/a.ts',
+      'git fetch --pru origin', 'git fetch --depth 5 origin', 'git fetch --depth=5 origin', 'git fetch -u origin', 'git fetch --update-head-ok origin', 'git fetch -- origin',
+      'git pull --reb', 'git pull --rebase=merges', 'git pull origin main extra',
+      'git switch -C worfy-demo/03-x', 'git switch --create worfy-demo/03-x', 'git switch -c worfy-demo/03-x main extra', 'git switch --detach main', 'git switch worfy-demo/03-other',
+      'git checkout -b worfy-demo/03-x --no-track', 'git checkout --merge worfy-demo/03', 'git checkout main --', 'git checkout main', 'git checkout src/a.ts', 'git checkout -p -- src/a.ts',
+      'git rebase --autost origin/main', 'git rebase --update-refs origin/main', 'git rebase origin/main worfy-demo/03', 'git rebase', 'git rebase --continue --skip', 'git rebase --onto main origin/x',
+      'git merge --ff-o origin/main', 'git merge origin/a origin/b', 'git merge', 'git merge --abort origin/x',
+      'git cherry-pick --continue abc123', 'git cherry-pick', 'git revert --no-commit abc123',
+      'git reset --keep origin/main', 'git reset --hard --soft', 'git reset abc123 src/a.ts', 'git reset -- src/a.ts',
+      'git stash pop', 'git stash apply', 'git stash drop', 'git stash clear', 'git stash push --keep-index', 'git stash show stash@{1}', 'git stash list extra',
+      'git branch -u origin/e worfy-demo/03', 'git branch -m worfy-demo/03-x', 'git branch --track worfy-demo/03-y origin/x', 'git branch worfy-demo/03-y origin/x',
+      'git tag v1', 'git tag -f v1', 'git clean -fdx', `git worktree add ${PAD}/w`, 'git worktree prune', 'git notes add -m x', 'git gc',
+    ]) expect(run(command).outcome, command).not.toBe('allow')
+  })
+  it('rebase, and pull that may rebase, only when the Run read rebase.updateRefs as false', () => {
+    for (const rebaseUpdateRefs of [true, null]) {
+      for (const command of ['git rebase origin/main', 'git rebase --abort', 'git pull', 'git pull --rebase origin main']) {
+        expect(outcome(command, posix({ rebaseUpdateRefs })), `${command} with ${String(rebaseUpdateRefs)}`).toBe('park')
+      }
+      expect(outcome('git commit -m demo', posix({ rebaseUpdateRefs }))).toBe('allow')
+    }
+  })
+  it('the moves of a protected branch the review found on real git are hard', () => {
+    const trunk = posix({ defaultBranch: 'trunk' })
+    expect(run('git fetch -u origin e/03 --refm=refs/heads/e/03:refs/heads/main').rule).toBe('hard:git-fetch-default-branch')
+    expect(run('git pull origin e/03 --refm=refs/heads/e/03:refs/heads/trunk', trunk).rule).toBe('hard:git-fetch-default-branch')
+    for (const option of ['--force-create=trunk', '--force-c=trunk', '--create=trunk', '--orph=trunk']) {
+      expect(run(`git switch ${option} origin/e/03`, trunk).rule, option).toBe('hard:git-checkout-default-branch')
+    }
+    expect(run('git switch --force-create worfy-demo/07 origin/e/03').rule).toBe('hard:git-other-branch')
+    expect(run('git checkout --detach --no-detach trunk', trunk).rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git checkout --detach --no-d main').rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git branch -u origin/e/03 main').rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git branch --unset-upstream worfy-demo/07').outcome).not.toBe('allow')
+    expect(run('git tag -f main HEAD').rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git tag worfy-demo/07').rule).toBe('hard:git-other-branch')
+    expect(run('git tag -d main').outcome).not.toBe('hard-deny')
+    expect(run('git rebase --update-refs --root --force-rebase').outcome).not.toBe('allow')
+    expect(run('git fetch origin x:refs/heads/refs/remotes/y').outcome).not.toBe('allow')
   })
 })
