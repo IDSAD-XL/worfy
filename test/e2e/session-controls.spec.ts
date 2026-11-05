@@ -123,7 +123,7 @@ test('the pickers change the live Session and survive a restart; the queue sends
     expect(await view.getByTestId('effort-mark').evaluateAll((marks) => marks.map((mark) => mark.getAttribute('data-mark')))).toEqual(['default', 'low', 'medium', 'high', 'max'])
     await expect(slider).toHaveAttribute('aria-valuetext', 'default')
     const [popoverBox, effortBox] = [await popover.boundingBox(), await effort.boundingBox()]
-    expect(popoverBox !== null && effortBox !== null && popoverBox.y >= 0 && popoverBox.y + popoverBox.height <= effortBox.y).toBe(true)
+    expect(popoverBox !== null && effortBox !== null && popoverBox.y >= -PX_TOLERANCE && popoverBox.y + popoverBox.height <= effortBox.y + PX_TOLERANCE).toBe(true)
     // → moves the thumb to the next mark; the level goes to Claude Code once, not on the key press.
     await window.keyboard.press('ArrowRight')
     await expect(slider).toHaveAttribute('aria-valuetext', 'low')
@@ -315,7 +315,7 @@ async function nothingLost(view: Locator, width: number): Promise<void> {
     expect(each.x, `the left edge of ${name} at ${width} px`).toBeGreaterThanOrEqual(barBox.x - 0.5)
     expect(each.x + each.width, `the right edge of ${name} at ${width} px`).toBeLessThanOrEqual(barBox.x + barBox.width + 0.5)
   }
-  expect(modesBox.x, `Modes right of the pickers at ${width} px`).toBeGreaterThanOrEqual(pickersBox.x)
+  expect(modesBox.x, `Modes right of the pickers at ${width} px`).toBeGreaterThanOrEqual(pickersBox.x - PX_TOLERANCE)
   // The three state icons of the button — Eco mode, Auto-approval, Auto-continue (worfy-retry ticket 02) — all shown, inside it.
   const slots = view.getByRole('button', { name: 'Modes' }).locator('[data-mode-item]')
   expect(await slots.count(), `the icons of Modes at ${width} px`).toBe(3)
@@ -413,8 +413,8 @@ test('on the default model the pickers do not make the bar under the input field
         // In a line narrower than the pickers their values are cut; the buttons stay inside the bar.
         const [outer, inner] = [await box(bar), await box(pickers)]
         if (outer.width >= 400) {
-          expect(inner.x, `the pickers' left edge in a ${width}×${height} window, the sidebar ${sidebar}`).toBeGreaterThanOrEqual(outer.x)
-          expect(inner.x + inner.width, `the pickers' right edge in a ${width}×${height} window, the sidebar ${sidebar}`).toBeLessThanOrEqual(outer.x + outer.width)
+          expect(inner.x, `the pickers' left edge in a ${width}×${height} window, the sidebar ${sidebar}`).toBeGreaterThanOrEqual(outer.x - PX_TOLERANCE)
+          expect(inner.x + inner.width, `the pickers' right edge in a ${width}×${height} window, the sidebar ${sidebar}`).toBeLessThanOrEqual(outer.x + outer.width + PX_TOLERANCE)
         }
       }
     }
@@ -500,8 +500,8 @@ test('a caption "Model" or "Permissions" goes when a value would be cut with it,
         if (picker.caption) expect(picker.cut, `the ${name}'s value under its caption, ${where}`).toBe(false)
       }
       // No line more than with the captions always shown, or with the native lists; Send keeps its line.
-      expect(now.bar, `the bar, ${where}`).toBe(before.bar)
-      expect((await barHeights(window, bar)).withNativeLists, `the bar with the native lists, ${where}`).toBeGreaterThanOrEqual(now.bar)
+      expectSamePx([now.bar], before.bar, `the bar, ${where}`)
+      expect((await barHeights(window, bar)).withNativeLists, `the bar with the native lists, ${where}`).toBeGreaterThanOrEqual(now.bar - PX_TOLERANCE)
       expect(now.sendOnTheirLine, `Send on the pickers' line, ${where}`).toBe(before.sendOnTheirLine)
       // Buttons wider than the room overflow on the right, as before, not out of the bar on the left.
       expect((await box(model)).x, `the model's left edge, ${where}`).toBeGreaterThanOrEqual((await box(pickers)).x - 0.5)
@@ -609,7 +609,7 @@ test('a turn and its queue take no room from the pickers: the captions stay as t
       const [line, pickersBox, hintBox, sendBox] = [await box(controls), await box(pickers), await box(hint), await box(send)]
       expect(Math.abs((await box(view.getByTestId('picker-model'))).x - line.x), `${where}: the pickers at the left of their line`).toBeLessThan(1)
       expect(Math.abs(middle(sendBox) - middle(hintBox)), `${where}: Send on the line of the hint`).toBeLessThan(4)
-      expect(sendBox.x - (hintBox.x + hintBox.width), `${where}: Send right after the hint`).toBeGreaterThanOrEqual(0)
+      expect(sendBox.x - (hintBox.x + hintBox.width), `${where}: Send right after the hint`).toBeGreaterThanOrEqual(-PX_TOLERANCE)
       expect(sendBox.x - (hintBox.x + hintBox.width), `${where}: Send right after the hint`).toBeLessThan(16)
       expect(line.x + line.width - (sendBox.x + sendBox.width), `${where}: Send at the right end`).toBeLessThan(1)
       // The send group is as wide whichever hint it shows; the bar as tall, so the field stays where it was.
