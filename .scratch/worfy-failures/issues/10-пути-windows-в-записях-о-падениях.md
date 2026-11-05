@@ -76,4 +76,5 @@ Source: [spec.md](../spec.md), «Windows» («Пути в записях — о�
   «//» в «/»), чтобы POSIX-путь не менялся; (2) слово после пути, в котором есть «\» без пробела перед ним
   (`<repo>\x.ts vs a\b`), считается частью пути — отмечено `shortcut:` в коде, переделать, если такая строка появится в
   записи.
-- Scope PR — `pc` (правка `harness/`), gate full на ПК — после Wave (ADR-0086).
+- Scope PR — `runner` (`node scripts/windows-verdict-scope.mjs origin/main HEAD`, exit 0): Windows-проверка — job-ы
+  Windows в CI PR, gate full на ПК не нужен.
