@@ -29,8 +29,6 @@ const WINDOWS = process.platform === 'win32'
 /** The folders of the Harness the four hooks need; skills, agents and evals stay out of the copy. */
 const PARTS = ['.claude-plugin', 'hooks', 'bin', 'lib', 'profiles']
 const RUN_MS = ms(60_000)
-/** python3 with its pty module, for the terminal case: none on Windows, and a runner without it skips that case. */
-const PYTHON3 = !WINDOWS && spawnSync('python3', ['-c', 'import pty'], { stdio: 'ignore' }).status === 0
 
 let root: string
 let plugin: string
@@ -256,7 +254,10 @@ Object.defineProperty(process, 'stdin', { configurable: true, enumerable: own.en
   // end of input): a hook that read the terminal would get a red Codex Stop and hold the turn. The script
   // kills the hook itself after half the test's limit (exit 98): a kill of python3 alone would leave the
   // hook running on its terminal.
-  it.skipIf(!PYTHON3)('read nothing from a terminal: the hook ends with no input even when the terminal sends one', () => {
+  it.skipIf(WINDOWS)('read nothing from a terminal: the hook ends with no input even when the terminal sends one', (context) => {
+    // python3 with its pty module drives the terminal; a runner without it skips the case. Asked here,
+    // not while the file loads: no file of test/contract starts a process then (e2e-no-spawn-on-load).
+    if (spawnSync('python3', ['-c', 'import pty'], { stdio: 'ignore' }).status !== 0) context.skip()
     const { work, state, mode } = project()
     mode('bad')
     const input = JSON.stringify(codexStopInput(work))
