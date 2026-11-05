@@ -13,7 +13,8 @@ Run-е); [worfy-throughput 60](../worfy-throughput/issues/60-переключа�
 действий); [CONTEXT.md](../../CONTEXT.md), термины Run, Wave, Journal, Orchestrator, Session, Limits, Eco mode, Vendor;
 ADR [0002](../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md),
 [0005](../../docs/adr/0005-worfy-own-state-inventory.md), [0094](../../docs/adr/0094-vendor-seam.md).
-Ticket-ы: Epic `worfy-retry`, 13 Ticket-ов, нумерация с `01` (12 и 13 добавлены 2026-11-05). Шапка — `Type:` / `Status:` / `Blocked by:` / `Source:`,
+Ticket-ы: Epic `worfy-retry`, 14 Ticket-ов, нумерация с `01` (12 и 13 добавлены 2026-11-05; 14 перенесён из worfy-faults
+решением владельца 2026-11-05). Шапка — `Type:` / `Status:` / `Blocked by:` / `Source:`,
 как у worfy-faults.
 
 **Старт Epic-а — после merge worfy-multi-vendor 38** (budget и прогноз по Vendor-у): он правит
@@ -218,7 +219,8 @@ mode и Auto-approval (Q10). Включён —
 1. **Продолжение, не повтор исходного текста.** Единственный способ не повторить уже сделанное — дать модели её же
    историю и спросить «продолжай»; повтор исходного сообщения запустил бы работу заново.
 2. **`cycle.ts` не меняется.** Повтор перехватывается в `run.ts` до `turn-ended`, как отказ Limits: чистый цикл и его
-   test-ы остаются.
+   test-ы остаются. Исключение — Ticket 14: он правит в `cycle.ts` только остановку `session-error` (Ticket-ы Wave в
+   `stopped`), не повтор.
 3. **Повтор только у Orchestrator-а.** Session implementer-а — Subagent внутри Claude Code; его ошибку видит
    Orchestrator и решает сам. Обычные Session на Canvas переключателя не получают.
 4. **Умерший процесс** (Claude Code или app-server Codex вышел — `session-error`) — не временная ошибка хода: relaunch
@@ -250,11 +252,16 @@ mode и Auto-approval (Q10). Включён —
 - **08 — Codex: тот же переключатель.** Blocked by: 04, 06.
 - **09 — Сценарии worfy-faults с включённым переключателем.** Blocked by: 04, 05 (и worfy-faults 01, 02 — влиты до старта).
 - **10 — Документация.** Blocked by: 07, 08, 09.
-- **11 — Приёмка с владельцем.** Blocked by: 01–10, 12, 13.
+- **11 — Приёмка с владельцем.** Blocked by: 01–10, 12–14.
 - **12 — Меню Modes: перенести Eco mode и Auto-approval.** Одна кнопка «Modes» с иконками состояний вместо двух
   переключателей. Blocked by: —.
 - **13 — Modes с Linked machine: Full access меняет, Read only видит.** Пометки каналов `project`, события смены,
   риски link-а. Blocked by: 12, 02.
+- **14 — Ticket умершего Run-а в следующей Wave.** Дефект, найденный сценарием 1 Ticket-а worfy-faults 03 (влит #1439):
+  после смерти Claude Code Orchestrator-а Ticket умершего implementer-а остаётся `claimed`, и следующий Run его не берёт.
+  Следующий Run называет такие Ticket-ы в команде Wave, как после Force stop; статус worfy сам не пишет (ADR-0002);
+  поправка ADR-0050 — в том же PR. Перенесён из worfy-faults (там был 09) решением владельца 2026-11-05, Q8 и Q9:
+  worfy-faults остаётся Epic-ом только test-ов. Blocked by: —.
 
 ## Волны
 
@@ -270,6 +277,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 04 | `src/main/autopilot/turn-retry.ts`, `src/main/autopilot/run.ts`, `src/shared/autopilot/journal.ts`, `src/shared/ipc/autopilot.ts`, `src/main/ipc/autopilot.ts`, `test/contract/autopilot-retry.test.ts`, `test/fixtures/agent-scripts/autopilot-retry-*.jsonl` | 3 |
 | 13 | `src/shared/ipc/eco-mode.ts`, `src/shared/ipc/auto-approve.ts`, `src/shared/ipc/auto-continue.ts`, `src/main/ipc/eco-mode.ts`, `src/main/ipc/auto-approve.ts`, `src/main/ipc/auto-continue.ts`, `src/main/ipc/linked.ts`, `src/renderer/session/composer/Modes.tsx`, `src/renderer/session/modes/eco-mode.ts`, `src/renderer/session/modes/auto-approval.ts`, `src/renderer/session/modes/auto-continue.ts`, `test/contract/modes-linked.test.ts`, `test/unit/modes-menu.test.tsx`, `test/unit/link-access.test.ts`, `docs/features/sessions.md`, `docs/features/ru/sessions.md` | 3 |
 | 05 | `src/shared/autopilot/resume-at.ts`, `src/main/autopilot/limits-wait.ts`, `src/main/autopilot/run.ts`, `src/main/ipc/autopilot.ts`, `test/unit/autopilot-resume-at.test.ts`, `test/contract/autopilot-limits-switch.test.ts`, `test/fixtures/agent-scripts/autopilot-limits-weekly.jsonl`, `test/fixtures/agent-scripts/autopilot-limits-no-window.jsonl` | 4 |
+| 14 | `src/shared/autopilot/cycle.ts`, `src/main/autopilot/run.ts`, `src/shared/ipc/autopilot.ts`, `test/contract/autopilot-faults-process.test.ts`, `test/unit/autopilot-cycle.test.ts`, `docs/features/autopilot.md`, `docs/adr/0050-autopilot-user-stop-interrupts-orchestrator.md` | 5 |
 | 06 | `src/main/agent/orchestrator-continue.ts`, `src/main/agent/app-orchestrators.ts`, `test/contract/orchestrator-continue.test.ts`, `test/fixtures/agent-scripts/orchestrator-continue-*.jsonl` | 5 |
 | 09 | `test/contract/autopilot-faults-setup.ts`, `test/autopilot-invariants.ts`, `test/unit/autopilot-invariants.test.ts`, `test/contract/autopilot-faults-retry.test.ts`, `test/fixtures/agent-scripts/autopilot-fault-retry-*.jsonl` | 5 |
 | 07 | `src/shared/ipc/auto-continue.ts`, `src/main/ipc/auto-continue.ts`, `src/renderer/session/composer/ContinueCountdown.tsx`, `src/renderer/session/session.css`, `test/unit/continue-countdown.test.tsx`, `test/e2e/auto-continue.spec.ts` | 6 |
@@ -280,14 +288,16 @@ Wave — Ticket-ы, которые можно брать параллельно:
 Правило плана: Ticket стоит в первой Wave, где закрыты все его блокеры; общий файл у двух Ticket-ов одной Wave —
 Ticket с большим номером уходит дальше (`filesOverlap`, `src/shared/workflow/waves.ts:158`).
 
-План пересчитан 2026-11-05 после Ticket-ов 12 и 13; 01 и 03 к этому дню влиты.
+План пересчитан 2026-11-05 после Ticket-ов 12 и 13 и ещё раз после переноса 14; 01, 02, 03 и 12 к этому дню влиты.
 
 - **Wave 1 — 01 (влит), 12.** Меню Modes не зависит ни от чего.
 - **Wave 2 — 02, 03 (влит).** 02 ждёт меню (12); 03 ждал 01.
 - **Wave 3 — 04, 13.** 04 ждёт 02 и 03; 13 — 12 и 02. Общих файлов нет. 05 тоже свободен с Wave 3, но делит с 04
   `run.ts` и `src/main/ipc/autopilot.ts` и уходит дальше.
 - **Wave 4 — 05.**
-- **Wave 5 — 06, 09.** 06 ждёт повтор (04) и Limits (05); 09 — то же, файлы только test-ов worfy-faults.
+- **Wave 5 — 06, 09, 14.** 06 ждёт повтор (04) и Limits (05); 09 — то же, файлы только test-ов worfy-faults. 14 блокеров
+  в Epic-е не имеет, но делит `run.ts` и `src/shared/ipc/autopilot.ts` с 04 (Wave 3) и `run.ts` с 05 (Wave 4) и уходит
+  дальше; с 06 и 09 общих файлов нет. `docs/features/autopilot.md` у него общий с 10 (Wave 7).
 - **Wave 6 — 07, 08.** Обоим нужно состояние ожидания ручного хода (06).
 - **Wave 7 — 10.** **Wave 8 — 11**, владелец.
 

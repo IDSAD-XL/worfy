@@ -189,11 +189,7 @@ Epic даёт набор test-ов: каждый сценарий вносит �
 - **05 — e2e: убитое приложение и GitHub без сети.** Blocked by: 01.
 - **06 — Сбои на Orchestrator-е Codex.** Шаг выхода в fake Codex. Blocked by: 02 (и worfy-multi-vendor 37 — до старта Epic-а влит).
 - **07 — Документация test-ов Autopilot и урок.** Вместо страницы Feature (Q6). Blocked by: 02, 03, 04, 05, 06.
-- **08 — Приёмка с владельцем.** Blocked by: 01–07, 09.
-- **09 — Ticket умершего Run-а в следующей Wave.** Дефект, найденный сценарием 1 Ticket-а 03: после смерти Claude Code
-  Orchestrator-а Ticket умершего implementer-а остаётся `claimed`, и следующий Run его не берёт. Следующий Run называет
-  такие Ticket-ы в команде Wave, как после Force stop; статус worfy сам не пишет (ADR-0002). Решение владельца
-  2026-11-05. Blocked by: 03.
+- **08 — Приёмка с владельцем.** Blocked by: 01–07.
 
 ## Волны
 
@@ -209,8 +205,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 04 | `test/contract/autopilot-faults-github.test.ts`, `test/fixtures/gh/gh-stub.mjs`, `test/fixtures/agent-scripts/autopilot-fault-conflict.jsonl` | 3 |
 | 06 | `test/contract/autopilot-faults-codex.test.ts`, `test/fixtures/codex-scripts/autopilot-fault-turn-failed.jsonl`, `test/fixtures/codex-scripts/autopilot-fault-exit.jsonl`, `test/fixtures/codex-app-server/fake-app-server.mjs`, `test/contract/codex-fake.test.ts` | 3 |
 | 07 | `docs/features/autopilot.md`, `docs/features/ru/autopilot.md`, `docs/lessons/testing.md` | 4 |
-| 09 | `src/shared/autopilot/cycle.ts`, `src/main/autopilot/run.ts`, `src/shared/ipc/autopilot.ts`, `test/contract/autopilot-faults-process.test.ts`, `test/unit/autopilot-cycle.test.ts`, `docs/features/autopilot.md` | 5 |
-| 08 | `.scratch/worfy-faults/spec.md` | 6 |
+| 08 | `.scratch/worfy-faults/spec.md` | 5 |
 
 Правило плана: Ticket стоит в первой Wave, где закрыты все его блокеры; общий файл у двух Ticket-ов одной Wave —
 Ticket с большим номером уходит дальше (`filesOverlap`, `src/shared/workflow/waves.ts:158`).
@@ -220,9 +215,7 @@ Ticket с большим номером уходит дальше (`filesOverlap
 - **Wave 3 — 03, 04, 06.** Ждут setup из 02 и только импортируют его: все их поля кладёт 02. gh stub правит только
   04 (05 его читает, файл `fail` уже есть, и к этому времени влит); fake Codex и его test схем — только 06.
 - **Wave 4 — 07.** Ждёт все сценарии.
-- **Wave 5 — 09.** Ждёт 03; по блокерам встал бы в Wave 4, но делит `docs/features/autopilot.md` с 07 и уходит дальше.
-  Добавлен решением владельца 2026-11-05.
-- **Wave 6 — 08.** Владелец.
+- **Wave 5 — 08.** Владелец.
 
 ## Не в этом Epic-е
 

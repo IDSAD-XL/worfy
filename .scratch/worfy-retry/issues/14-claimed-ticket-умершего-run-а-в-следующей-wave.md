@@ -1,13 +1,13 @@
-# 09 — Ticket умершего Run-а остаётся `claimed`: следующий Run называет его в команде Wave
+# 14 — Ticket умершего Run-а остаётся `claimed`: следующий Run называет его в команде Wave
 
 Type: task
 Status: open
-Blocked by: 03
-Source: [spec.md](../spec.md), «Решено без владельца», п. 6, и «Вопросы владельцу», Q4 (найденный дефект — новый Ticket Epic-а с «Инцидент»); «Итог» [Ticket-а 03](03-убитый-orchestrator-и-упавший-implementer.md), сценарий 1; решение владельца 2026-11-05; [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md) (worfy не пишет статус Ticket-а), [ADR-0050](../../../docs/adr/0050-autopilot-user-stop-interrupts-orchestrator.md) (`resumable` после Force stop)
+Blocked by: —
+Source: [spec.md](../spec.md), «Ticket-ы», 14; решения владельца 2026-11-05: Q8 — Ticket перенесён из Epic-а [worfy-faults](../../worfy-faults/spec.md) (там был 09; тот Epic остаётся только test-ами), Q9 — поправка ADR-0050 входит в этот Ticket; дефект найден сценарием 1 Ticket-а [worfy-faults 03](../../worfy-faults/issues/03-убитый-orchestrator-и-упавший-implementer.md) (влит #1439), его «Итог»; [worfy-faults](../../worfy-faults/spec.md), «Вопросы владельцу», Q4 (найденный дефект — Ticket с «Инцидент»); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md) (worfy не пишет статус Ticket-а), [ADR-0050](../../../docs/adr/0050-autopilot-user-stop-interrupts-orchestrator.md) (`resumable` после Force stop)
 
 ## Что происходит
 
-- Сценарий 1 Ticket-а 03 (`test/contract/autopilot-faults-process.test.ts:82`): Claude Code Orchestrator-а умирает
+- Сценарий 1 Ticket-а worfy-faults 03 (`test/contract/autopilot-faults-process.test.ts:82`): Claude Code Orchestrator-а умирает
   при двух живых implementer-ах, Run останавливается с `session-error`. 01 остаётся `claimed` за умершим
   implementer-ом. Новый Run шлёт Wave только с 02 (`:115-116`; `WAVE_OF_02`, `:31`; `:121`). 01 так и висит: ready
   Wave берёт только `open` Ticket-ы, и вернуть 01 в работу может только человек.
@@ -30,14 +30,21 @@ Source: [spec.md](../spec.md), «Решено без владельца», п. 6
    Force stop. Orchestrator доводит их, как при возобновлении Wave (skill epic-wave, «How to resume a wave»): по
    ветке, PR и «Итог» решает, продолжить работу или отдать Ticket заново.
 3. worfy статус Ticket-а сам не пишет (ADR-0002): ни `open`, ни `blocked`. Он только называет Ticket в команде Wave.
-4. Поправка ADR-0050 (`resumable` и после `session-error`) — у Orchestrator-а, по `rules-adr.md`.
+4. Поправка ADR-0050 в PR этого Ticket-а (решение владельца 2026-11-05, Q9): `resumable` остаётся и после
+   `session-error` посреди Wave, не только после Force stop. По правилам ADR проекта (`rules-adr.md` в папке Profile-а)
+   текст принятого ADR не переписывается: в конец `docs/adr/0050-autopilot-user-stop-interrupts-orchestrator.md`
+   дописывается раздел `## Amendments` со строкой «ГГГГ-ММ-ДД — что изменилось, worfy-retry 14, PR #…». Прежний текст,
+   включая отвергнутый вариант «Возобновлять любой Ticket в `work`», остаётся как был: Ticket-ы берутся только из
+   последней Wave Run-а, как после Force stop.
 5. `docs/features/autopilot.md`: раздел о Force stop и следующем Run (строка «The next run of the same Epic takes the
    Tickets interrupted by a Force stop…») и строка `autopilot-faults-process.test.ts` таблицы `#### Tests`. Перевод
    `docs/features/ru/` в этом PR не обязателен (ADR-0088).
 
-Ticket правит `src/` — по решению владельца 2026-11-05 (дефект чинит новый Ticket этого Epic-а, Q4 (а)). Пункт spec-а
-«`src/` не изменён ни одним PR Epic-а» и третий пункт «Готово, когда» Ticket-а 08 с этим PR расходятся: формулировку
-уточняет Orchestrator при приёмке.
+Ticket перенесён в worfy-retry решением владельца 2026-11-05 (Q8): worfy-faults остаётся Epic-ом только test-ов, его
+пункт «`src/` не изменён ни одним PR Epic-а» верен, и приёмка worfy-faults (Ticket 08) этот Ticket не ждёт. Ожидание
+сценария 1 в test-е worfy-faults 03 меняет PR этого Ticket-а. Пункт spec-а worfy-retry «`cycle.ts` не меняется» — о
+повторе хода; этот Ticket правит в `cycle.ts` только остановку `session-error`. Relaunch умершего процесса он не делает
+(«Не в этом Epic-е» spec-а): он только называет Ticket-ы в команде Wave следующего Run-а.
 
 Не входит:
 - Перезапуск приложения: `resumable` в памяти, хранение в журнале отложено в ADR-0050.
@@ -57,8 +64,10 @@ Ticket правит `src/` — по решению владельца 2026-11-05
       зелёные без правки их ожиданий.
 - [ ] worfy не пишет `Status:` Ticket-а (ADR-0002): И7 в `checkRecovery` сценария 1 пустой.
 - [ ] `docs/features/autopilot.md` описывает новое поведение.
+- [ ] ADR-0050: в конце файла раздел `## Amendments` с датированной строкой — `resumable` и после `session-error`
+      посреди Wave, worfy-retry 14 и номер PR; прежний текст ADR не изменён.
 - [ ] «Итог» с подразделом «Инцидент»: класс — дефект кода (процесс worfy-reliability 03), ссылки на PR #1439 и «Итог»
-      Ticket-а 03.
+      Ticket-а worfy-faults 03.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
 
 ## Тесты
@@ -78,6 +87,7 @@ Ticket правит `src/` — по решению владельца 2026-11-05
 - `test/contract/autopilot-faults-process.test.ts` — сценарий 1 (`:82-124`; ожидания `:115-121`; `WAVE_OF_02`, `:31`)
 - `test/unit/autopilot-cycle.test.ts`
 - `docs/features/autopilot.md`
+- `docs/adr/0050-autopilot-user-stop-interrupts-orchestrator.md` — новый раздел `## Amendments` в конце файла
 
 Только читать: `src/shared/actions/render-template.ts` (`resumedTickets`, `:95-96`), `src/main/actions/launch.ts`
 (`autopilotWave`, `sendWave`, `:272-298`), `src/renderer/canvas/actions/AutopilotAction.tsx:383-384`,

@@ -2,7 +2,7 @@
 
 Type: task
 Status: blocked
-Blocked reason: делается после приёмки Epic-а worfy-faults (Ticket worfy-faults 08) — до неё страницу правят Ticket-ы того Epic-а (worfy-faults 09)
+Blocked reason: делается после приёмки Epic-а worfy-faults (Ticket worfy-faults 08), решение владельца 2026-11-05
 Waits: owner
 Blocked by: —
 Source: «Как устроено» [spec.md](../spec.md) (страница больше примерно 400 строк делится на две), решение владельца 2026-10-30, Q9; решение владельца 2026-11-05 (деление после приёмки worfy-faults); Epic [worfy-faults](../../worfy-faults/spec.md), Q6; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (английский как основной язык Feature page)
@@ -13,13 +13,13 @@ Source: «Как устроено» [spec.md](../spec.md) (страница бо
   Epic-а — больше примерно 400 строк делится на две.
 - Страница выросла с Epic-ом worfy-faults: Ticket worfy-faults 07 дописал в `#### Tests` шесть строк test-ов сбоев и
   блок **Fault scenarios** (что такое Fault scenario, `checkRecovery`, правила I1–I8, `faultRun()` и
-  `test/e2e/autopilot-world.ts`). Ticket worfy-faults 09 правит ту же страницу ещё раз.
+  `test/e2e/autopilot-world.ts`). Ticket-ы worfy-retry 14 и 10 правят ту же страницу ещё раз.
 - На разделы страницы ссылаются другие страницы: `#during-a-run` (4 ссылки), `#the-journal-file`,
   `#the-run-mode-the-start-window-and-the-budget`.
 
 ## Что делаем
 
-1. Ждёт приёмки worfy-faults (Ticket 08): до неё страницу правят Ticket-ы того Epic-а. После приёмки Orchestrator
+1. Ждёт приёмки worfy-faults (Ticket 08), решение владельца 2026-11-05. После приёмки Orchestrator
    переводит этот Ticket в `open` инструментом `ticket`.
 2. Читает страницу и код из свежего `origin/main`. Новая страница `docs/features/autopilot-faults.md` получает часть о
    сбоях и восстановлении: блок **Fault scenarios** с правилами I1–I8 и строки test-ов сбоев из `#### Tests`. Если
