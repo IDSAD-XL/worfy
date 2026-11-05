@@ -1,7 +1,7 @@
 # 07 — Документация test-ов Autopilot и урок «сбой Autopilot-а → Fault scenario»
 
 Type: task
-Status: open
+Status: claimed 2026-11-05T18:27Z
 Blocked by: 02, 03, 04, 05, 06
 Source: [spec.md](../spec.md), «Вопросы владельцу», Q6, «Новые термины», «Решено без владельца», п. 6; Epic [worfy-feature-docs](../../worfy-feature-docs/spec.md), «Шаблон раздела» (Implementation — главные test-ы); [worfy-reliability 03](../../worfy-reliability/issues/03-сбой-инцидент-и-регрессионный-test-предложение-процесса.md) (сбой → инцидент → регрессионный test)
 
@@ -46,3 +46,19 @@ Epic добавляет только test-ы: поведение Autopilot не 
 - `docs/features/autopilot.md`
 - `docs/features/ru/autopilot.md`
 - `docs/lessons/testing.md`
+
+## Итог
+
+- `docs/features/autopilot.md`, `#### Tests`: шесть строк таблицы — `test/unit/autopilot-invariants.test.ts`,
+  `autopilot-faults-api`, `-process`, `-github`, `-codex` и `test/e2e/autopilot-faults.spec.ts`; абзац «Fault scenarios» —
+  что такое Fault scenario, что берёт `checkRecovery` (`test/autopilot-invariants.ts`), правила I1–I8 по одной-две фразы
+  (сверены с функциями правил, не с шапкой файла: И2 — список чтений, И3 — допуск без последнего чтения, И4 — причина
+  после нужной строки и `resumed`), и где сценарии собирают Run (`faultRun()`, `autopilot-world.ts`). Без номеров строк.
+- `docs/features/ru/autopilot.md` — те же строки и абзац в переводе. **Шапка перевода:** `same-pr` заменён на
+  `19f1660c` — последний commit английской страницы, с которого сделан перевод (README `docs/features`, раздел
+  «Translation»). С `same-pr` эта правка сдвинула бы начало счёта и спрятала бы отставание: до неё
+  `feature-docs-lag.mjs` показывал 6 commit-ов английской страницы после `19f1660c` (среди них строки
+  `codex-orchestrator.test.ts` и `autopilot-vendor-limits.test.ts`, которых в переводе нет). Перевод этих commit-ов —
+  не этот Ticket.
+- `docs/lessons/testing.md` — урок «Сбой Autopilot-а, найденный человеком, — сначала Fault scenario в `autopilot-faults`,
+  потом исправление»; `Проверка:` — `test/contract/autopilot-faults-api.test.ts:64` (API 500, случай worfy-polish 50).

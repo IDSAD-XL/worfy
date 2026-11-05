@@ -1,6 +1,6 @@
 # Autopilot
 
-> Перевод [английской версии](../autopilot.md), commit `same-pr`.
+> Перевод [английской версии](../autopilot.md), commit `19f1660c`.
 
 Autopilot ведёт Wave-ы одного Epic-а одну за другой, без человека у Orchestrator-а. Он отправляет Wave, ждёт её конца,
 отправляет следующую готовую Wave и останавливается, когда готовой Wave нет или что-то пошло не так. Один такой проход
@@ -450,3 +450,30 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `test/e2e/autopilot.spec.ts` | Собранное приложение: run, ожидание Limits, бюджет, background task-и, Force stop, узкий круг исправления. |
 | `test/e2e/linked-autopilot.spec.ts` | Два связанных приложения: отказ, Start anyway, Stop на двух экранах. |
 | `test/e2e/browser-autopilot.spec.ts` | Что Session run-а может делать с Browser. |
+| `test/unit/autopilot-invariants.test.ts` | Правила восстановления на journal-ах из `test/fixtures/autopilot-faults/`: хороший run не нарушает ни одного, а каждое правило ловит испорченную для него копию. |
+| `test/contract/autopilot-faults-api.test.ts` | Fault scenario-и API модели: API 500, 529 посреди потокового ответа (не принимается за Limits) и обрыв связи останавливают run с `turn-error`, и новый старт шлёт свою команду Wave один раз; Limits, отказавшие ходу Wave 2, — run ждёт и продолжает после сброса одним продолжением, Wave 1 второй раз не идёт. |
+| `test/contract/autopilot-faults-process.test.ts` | Fault scenario-и процессов: Claude Code Orchestrator-а умирает, пока работают оба implementer-а (`session-error`, новый старт идёт в новую Session); implementer падает, и его Ticket остаётся `claimed` (`wave-unfinished`) или возвращается в `open` (следующая Wave — только с этим Ticket-ом). |
+| `test/contract/autopilot-faults-github.test.ts` | Fault scenario-и на стороне GitHub: режим `hang` у gh stub; gh висит весь run (Wave-ы идут, остановка ждёт не дольше предела последнего чтения); gh отвечает 502 (следующее чтение — через удвоенный интервал); конфликт merge (run останавливается с `blocked-tickets`, новый run не берёт заблокированный Ticket). |
+| `test/contract/autopilot-faults-codex.test.ts` | Fault scenario-и на Orchestrator-е Codex: упавший ход останавливает run с `turn-error`; app-server, вышедший посреди Wave, даёт `session-error`, и новый run стартует в новой Session. |
+| `test/e2e/autopilot-faults.spec.ts` | Fault scenario-и в собранном приложении: приложение убито SIGKILL посреди Wave и запущено снова (при старте Orchestrator-у ничего не уходит, Run history показывает прошлый run оборванным, кнопка стартует новый run, и тот шлёт свою Wave один раз); GitHub недоступен весь run (обе Wave-ы проходят, `gh` только читали). |
+
+**Fault scenario-и.** Fault scenario — test, который вносит один сбой в run на fake agent над временным Project-ом — ошибку API
+модели, умерший процесс, `gh`, который висит или падает, конфликт merge, приложение, убитое посреди Wave, — и потом проверяет правила
+восстановления. `checkRecovery` в `test/autopilot-invariants.ts` берёт то, что run оставил: файлы journal, сообщения, которые получил
+Orchestrator, вызовы `gh`, изменения `Status:`, которые test записал за Orchestrator-а, и файлы Project-а до и после. Он возвращает по
+строке на каждое нарушенное правило, и каждый сценарий ждёт пустой список. Правила:
+
+- **I1.** У каждой `wave-started` ровно одна команда `/epic-wave` с её Ticket-ами, и Wave-ов столько, сколько ждёт сценарий.
+- **I2.** Каждый вызов `gh` — чтение: `pr list`, `auth status`, `auth token` или `api` на репозиторий без опции, которая пишет.
+- **I3.** У каждого Ticket-а строки `ticket-status` run-а — это изменения его `Status:` за run, по порядку. После Force stop, выхода из
+  приложения или убитого приложения последних изменений может не быть, более ранних — всегда есть.
+- **I4.** У run-а сценария один `run-stopped` с ожидаемой причиной, после строки, которая этой причине нужна (например, `session-error`
+  перед `turn-error`). Убитое приложение не оставляет `run-stopped`. У run-а, пережившего сбой, есть строка `resumed`.
+- **I5.** Человек не вмешивался: нет строк `human-input` и `refused-dialog`.
+- **I6.** Новый старт после остановки не получает отказа и начинает свой journal с `run-started`.
+- **I7.** worfy ничего не пишет в Project: каждый файл, который изменился, записал test.
+- **I8.** Каждая строка каждого journal читается. Убитое приложение может оставить одну оборванную последнюю строку.
+
+Contract-сценарии собирают run через `faultRun()` из `test/contract/autopilot-faults-setup.ts`: настоящие Session registry,
+Orchestrators, launcher, journal, `LimitsTracker`, `PrTracker` и `Autopilot`, часы, которые двигаются, только когда их двигает test, и
+gh stub из `test/contract/gh-world.ts`. E2e-сценарии готовят Project, папку данных и gh stub через `test/e2e/autopilot-world.ts`.
