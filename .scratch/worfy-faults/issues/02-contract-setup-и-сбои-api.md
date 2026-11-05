@@ -1,7 +1,8 @@
 # 02 — Contract setup и сбои API: 500, 529, обрыв связи, Limits в Wave 2
 
 Type: task
-Status: claimed 2026-11-05T09:24Z
+Status: done 2026-11-05T10:30Z
+PR: #1431
 Blocked by: 01
 Source: [spec.md](../spec.md), «Сценарии» (строки API 500, API 529, обрыв связи, Limits), «Что уже есть», «Решено без владельца», п. 1, 2, 5, «Где идёт набор»; [worfy-polish 50](../../worfy-polish/issues/50-autopilot-не-стартует-после-остановки-run-а.md), «Что происходит»
 
@@ -49,20 +50,28 @@ Source: [spec.md](../spec.md), «Сценарии» (строки API 500, API 5
 - [ ] Contract test: API 500 — `run-stopped` `turn-error`, `session-error` с «API Error: 500»; `checkRecovery` пустой;
       новый Run стартует и шлёт команду Wave один раз.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-api.test.ts` exit 0 · mac - · d28453518a44ba9434de54a4acfb936758f7386f
+  - evidence: review pass · PR #1431 · - - · 5e151a50d97dc827e8f330914bd6eef1e70f9f62
 - [ ] Contract test: 529 посреди потока — то же; в Journal нет `limits-hit` (не принят за Limits).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-api.test.ts` exit 0 · mac - · d28453518a44ba9434de54a4acfb936758f7386f
+  - evidence: review pass · PR #1431 · - - · 5e151a50d97dc827e8f330914bd6eef1e70f9f62
 - [ ] Contract test: обрыв связи — то же.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-api.test.ts` exit 0 · mac - · d28453518a44ba9434de54a4acfb936758f7386f
+  - evidence: review pass · PR #1431 · - - · 5e151a50d97dc827e8f330914bd6eef1e70f9f62
 - [ ] Contract test: Limits в Wave 2 — `limits-hit`, `waiting-until`, `resumed`; команда Wave 1 одна, продолжение одно;
       `checkRecovery` пустой.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-api.test.ts` exit 0 · mac - · d28453518a44ba9434de54a4acfb936758f7386f
+  - evidence: review pass · PR #1431 · - - · 5e151a50d97dc827e8f330914bd6eef1e70f9f62
 - [ ] Каждый test краснеет, если испортить ожидание (вторая отправка команды Wave в setup-е) — записано в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-api.test.ts` on the second-send mutant exit 1, 5 of 5 red · mac - · d28453518a44ba9434de54a4acfb936758f7386f
+  - evidence: review pass · PR #1431 · - - · 5e151a50d97dc827e8f330914bd6eef1e70f9f62
 - [ ] Contract test: `faultRun({ vendor: 'codex' })` доходит до `wave-started` (поле для Ticket-а 06 работает).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-api.test.ts` exit 0 · mac - · d28453518a44ba9434de54a4acfb936758f7386f
+  - evidence: review pass · PR #1431 · - - · 5e151a50d97dc827e8f330914bd6eef1e70f9f62
 - [ ] Файл contract test-ов идёт не дольше 20 с по логу `linux-tests` (предел этого Epic-а); после него нет живых процессов stub-а.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42005749025 · ci - · 5e151a50d97dc827e8f330914bd6eef1e70f9f62
 - [ ] `src/` не изменён. `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux и Windows).
   - evidence: gate pass · `gate fast` exit 0 · mac - · d28453518a44ba9434de54a4acfb936758f7386f
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42005749025 · ci - · 5e151a50d97dc827e8f330914bd6eef1e70f9f62
 
 ## Тесты
 
