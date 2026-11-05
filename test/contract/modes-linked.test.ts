@@ -18,7 +18,7 @@ import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { addClient } from '../../src/main/broadcast'
 import { autoApprovalHandlers } from '../../src/main/ipc/auto-approve'
 import { autoContinueHandlers } from '../../src/main/ipc/auto-continue'
@@ -83,19 +83,27 @@ function git(cwd: string, ...args: string[]): void {
 }
 
 const PROFILE = { schema: 2, name: 'demo', mode: 'full', commands: { test: 'make test' }, workflow: { ci: 'pr' } }
-mkdirSync(join(scratch, 'home'), { recursive: true })
-mkdirSync(join(harnessHome, 'gate'), { recursive: true })
-mkdirSync(join(harnessHome, 'projects', 'demo'), { recursive: true })
-mkdirSync(repo, { recursive: true })
-mkdirSync(join(scratch, 'b-data'), { recursive: true })
-git(repo, 'init', '-q')
-writeFileSync(join(harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'demo', match: repo, profile: 'demo' }] }))
-writeFileSync(join(harnessHome, 'projects', 'demo', 'rules.md'), '# demo rules\n')
-writeFileSync(profileJson, `${JSON.stringify(PROFILE, null, 2)}\n`)
-git(harnessHome, 'init', '-q')
-git(harnessHome, 'add', '-A')
-git(harnessHome, 'commit', '-q', '-m', 'init')
-const profileBefore = readFileSync(profileJson, 'utf8')
+
+/** The Profile as the folders are made; a test puts it back. */
+let profileBefore = ''
+
+// In beforeAll, not on load: Playwright and vitest load a file before running it, and git started on
+// load fails the whole file (test/unit/e2e-no-spawn-on-load.test.ts).
+beforeAll(() => {
+  mkdirSync(join(scratch, 'home'), { recursive: true })
+  mkdirSync(join(harnessHome, 'gate'), { recursive: true })
+  mkdirSync(join(harnessHome, 'projects', 'demo'), { recursive: true })
+  mkdirSync(repo, { recursive: true })
+  mkdirSync(join(scratch, 'b-data'), { recursive: true })
+  git(repo, 'init', '-q')
+  writeFileSync(join(harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'demo', match: repo, profile: 'demo' }] }))
+  writeFileSync(join(harnessHome, 'projects', 'demo', 'rules.md'), '# demo rules\n')
+  writeFileSync(profileJson, `${JSON.stringify(PROFILE, null, 2)}\n`)
+  git(harnessHome, 'init', '-q')
+  git(harnessHome, 'add', '-A')
+  git(harnessHome, 'commit', '-q', '-m', 'init')
+  profileBefore = readFileSync(profileJson, 'utf8')
+})
 
 // ---- B: the Machine of the Project --------------------------------------------------------------
 
