@@ -335,10 +335,11 @@ let appTracker: LimitsTracker | null = null
  * How the app follows the status line file on `platform`: on Windows by the slow poll alone, no
  * watch of the data folder (worfy-polish ticket 47). That folder is also Chromium's profile
  * (userData), and Chromium writes there all the time; for each event of a folder watch libuv calls
- * GetLongPathNameW twice on the main thread before the callback, and on the GitHub Windows runner
- * the main thread then stood in those calls for 1–2 s at a time, so the app answered nothing — not
- * even the page, whose DevTools messages that thread passes on. The bridge writes the file at most
- * as often as the status line runs, so a second of delay costs nothing.
+ * GetLongPathNameW twice on the main thread before the callback (src/win/fs-event.c). On the GitHub
+ * Windows runner the main thread stood 1–2 s at a time in Node's loop with next to no CPU, and the
+ * first JavaScript to run after it was each time the callback of this watch; meanwhile the app
+ * answered nothing, not even the page, whose DevTools messages that thread passes on. The bridge
+ * writes the file at most as often as the status line runs, so a second of delay costs nothing.
  */
 export function statuslineWatchFor(platform: NodeJS.Platform): WatchFolder | null | undefined {
   return platform === 'win32' ? null : undefined
