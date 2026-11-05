@@ -36,14 +36,34 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2
 ## Готово, когда
 
 - [ ] Пункт Auto-continue есть в меню Modes только у Orchestrator-а; в обычной Session меню нет.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · bb1dd8947
 - [ ] Off по умолчанию; on пишет запись Project-а в `app-settings.json`, off её удаляет; другой Project не меняется.
+  - evidence: test-run pass · `pnpm test test/contract/auto-continue-setting.test.ts` exit 0 · mac - · bb1dd8947
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/auto-continue.spec.ts test/e2e/session-controls.spec.ts test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · bb1dd8947
 - [ ] Перезапуск приложения — состояние то же.
+  - evidence: test-run pass · `pnpm test test/contract/auto-continue-setting.test.ts` exit 0 · mac - · bb1dd8947
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/auto-continue.spec.ts test/e2e/session-controls.spec.ts test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · bb1dd8947
 - [ ] Linked machine — до Ticket-а 13 как сегодня: пункт недоступен с tooltip-ом, ничего не прочитано и не записано.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · bb1dd8947
+  - evidence: test-run pass · `pnpm test test/contract/auto-continue-setting.test.ts` exit 0 · mac - · bb1dd8947
 - [ ] Кнопка «Modes» показывает три иконки; ширина одинакова при любом сочетании состояний.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · bb1dd8947
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/auto-continue.spec.ts test/e2e/session-controls.spec.ts test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · bb1dd8947
 - [ ] Снимки кнопки и меню в светлой и тёмной теме (on и off); ширины окна 800–1600 px с открытым sidebar — ни один
       элемент строки не выпадает, Send на строке pickers от 1220 px, по правилу Ticket-а 12
       (`test/e2e/session-controls.spec.ts:315`, `test/e2e/context-meter.spec.ts:128`).
+  - evidence: screenshot pass · `../evidence/02-modes-continue-off-light.png` · mac dev · bb1dd8947fb399e53c9fa666fa772b8691377e99 · scrub: 2026-11-05
+  - evidence: screenshot pass · `../evidence/02-modes-continue-off-dark.png` · mac dev · bb1dd8947fb399e53c9fa666fa772b8691377e99 · scrub: 2026-11-05
+  - evidence: screenshot pass · `../evidence/02-modes-continue-on-light.png` · mac dev · bb1dd8947fb399e53c9fa666fa772b8691377e99 · scrub: 2026-11-05
+  - evidence: screenshot pass · `../evidence/02-modes-continue-on-dark.png` · mac dev · bb1dd8947fb399e53c9fa666fa772b8691377e99 · scrub: 2026-11-05
+  - evidence: screenshot pass · `../evidence/02-modes-menu-continue-off-light.png` · mac dev · bb1dd8947fb399e53c9fa666fa772b8691377e99 · scrub: 2026-11-05
+  - evidence: screenshot pass · `../evidence/02-modes-menu-continue-off-dark.png` · mac dev · bb1dd8947fb399e53c9fa666fa772b8691377e99 · scrub: 2026-11-05
+  - evidence: screenshot pass · `../evidence/02-modes-menu-continue-on-light.png` · mac dev · bb1dd8947fb399e53c9fa666fa772b8691377e99 · scrub: 2026-11-05
+  - evidence: screenshot pass · `../evidence/02-modes-menu-continue-on-dark.png` · mac dev · bb1dd8947fb399e53c9fa666fa772b8691377e99 · scrub: 2026-11-05
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/auto-continue.spec.ts test/e2e/session-controls.spec.ts test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · bb1dd8947
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · bb1dd8947
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · bb1dd8947
 
 ## Тесты
 
