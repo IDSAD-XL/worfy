@@ -965,7 +965,9 @@ function existingFile(word: string, action: ShellAction, prepared: Prepared): bo
  * (PSEUDO_REFS, *_HEAD) or @, no option.
  * Without case on macOS and Windows; without the remote names, none.
  */
-const PSEUDO_REFS = ['HEAD', 'ORIG_HEAD', 'FETCH_HEAD', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'REBASE_HEAD', 'BISECT_HEAD', 'AUTO_MERGE', 'MERGE_AUTOSTASH', 'BISECT_EXPECTED_REV', 'NOTES_MERGE_REF', 'NOTES_MERGE_PARTIAL']
+// git's pseudo-refs besides those ending in _HEAD (ORIG_HEAD, FETCH_HEAD, MERGE_HEAD, CHERRY_PICK_HEAD, REVERT_HEAD,
+// REBASE_HEAD, BISECT_HEAD), which newBranchAllowed refuses by the ending.
+const PSEUDO_REFS = ['HEAD', 'AUTO_MERGE', 'MERGE_AUTOSTASH', 'BISECT_EXPECTED_REV', 'NOTES_MERGE_REF', 'NOTES_MERGE_PARTIAL']
 
 function newBranchAllowed(name: string, prepared: Prepared): boolean {
   const { context, win } = prepared

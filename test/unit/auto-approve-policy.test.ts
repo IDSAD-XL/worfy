@@ -1464,7 +1464,7 @@ describe('round 9: index revisions, signature placeholders, named formats, branc
     }
     // A revision, a reflog entry and a path after -- read no index (real git 2.50, round 9).
     for (const command of ['git cat-file -p HEAD:src/a.ts', 'git cat-file -p main:src/a.ts', 'git rev-parse HEAD:src/a.ts', "git log -1 'HEAD@{1}'", "git rev-parse '@{1}'",
-      'git log --oneline -- :src/a.ts', 'git ls-tree HEAD:src']) {
+      'git log --oneline -- :src/a.ts', 'git log -- :src/a.ts', 'git ls-tree HEAD:src']) {
       expect(run(command, active), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
     }
     expect(run('git cat-file -p :src/a.ts')).toMatchObject({ outcome: 'allow' })
@@ -1475,7 +1475,7 @@ describe('round 9: index revisions, signature placeholders, named formats, branc
       expect(run(command, active).outcome, command).not.toBe('allow')
     }
     for (const command of ['git log --format=oneline', 'git log --pretty=short', 'git log --pretty=medium', 'git log --pretty=full', 'git log --pretty=fuller', 'git log --pretty=reference',
-      'git log --pretty=raw', "git log '--pretty=format:%h %s'", "git log '--format=tformat:%h'", "git log '--format=%h'", "git log '--format=%x47'", 'git log --date=short']) {
+      'git log --pretty=raw', "git log '--pretty=format:%h %s'", "git log '--format=tformat:%h'", "git log '--format=%h'", "git log '--format=%x47'", 'git log --date=short', "git log '--format=tformat:hello'", "git log '--pretty=format:hello'"]) {
       expect(run(command, active), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
     }
     expect(run('git log --format=sig')).toMatchObject({ outcome: 'allow' })
@@ -1484,7 +1484,7 @@ describe('round 9: index revisions, signature placeholders, named formats, branc
     const mac = posix({ platform: 'darwin' })
     for (const command of ['git branch fix_tests', 'git switch -c my_feature', 'git checkout -b fix_tests_2']) expect(run(command, mac), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
     for (const command of ['git branch orig_head', 'git branch Auto_Merge', 'git switch -c x_head']) expect(run(command, mac), command).toMatchObject({ outcome: 'park', rule: 'branch-name', hint: HINTS.branchName })
-    for (const command of ['git branch ORIG_HEAD', 'git branch origin/main', 'git switch -c refs/heads/x', 'git checkout -b HEAD', 'git branch @']) {
+    for (const command of ['git branch ORIG_HEAD', 'git branch FETCH_HEAD', 'git branch BISECT_HEAD', 'git branch origin/main', 'git switch -c refs/heads/x', 'git checkout -b HEAD', 'git branch @']) {
       expect(run(command), command).toMatchObject({ outcome: 'park', rule: 'branch-name', hint: HINTS.branchName })
     }
     expect(run('git branch worfy-demo/03-b', posix({ remotes: null }))).toMatchObject({ outcome: 'park', rule: 'branch-name' })
