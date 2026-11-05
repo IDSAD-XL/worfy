@@ -99,6 +99,7 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-05»,
   - evidence: commit pass · Modes from a Linked machine: full access changes all three modes, read-only access sees them · - - · aaa6d8a29
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 4bb48b4822db5ed345838ad3e944f5e644bc139a
 
 ## Тесты
 
@@ -157,7 +158,13 @@ hook-ах, сброс догадки) — все убиты.
 зелёные, шаг test красный на test-ах, которых ветка не касается, и каждый раз на других:
 `test/contract/codex-parity.test.ts` (Stop hook фейкового Codex увидел красный gate), затем
 `test/contract/harness-scripts-4.test.ts` (`wave-gate-heartbeat.test.sh`: 1285 ms при лимите 1200) и
-`test/contract/terminal-ai-zle.test.ts`. Отдельно все три зелёные (exit 0). Gate fast зелёным не назван.
+`test/contract/terminal-ai-zle.test.ts`. Отдельно все три зелёные (exit 0). Оба красных запуска шли, пока на Mac
+работали чужие gate; на 4bb48b482, без чужих gate, gate fast — exit 0, `[gate] green`. e2e
+`test/e2e/linked-modes.spec.ts` после rebase — exit 0 на 486677b1b.
+
+Снимки меню (fixture build, `captureScreenshot`, светлая и тёмная тема, Full access и Read only) не закоммичены: на
+них только текст меню, без имён Machine, хостов и путей (проверил агент), но правило Evidence требует проверки
+человеком.
 
 ### Решено без владельца
 
