@@ -1,7 +1,8 @@
 # 60 — E2e test `recordClip` висит на macOS, и job `macos-e2e` падает на teardown worker-а
 
 Type: bug
-Status: claimed 2026-11-04T23:03Z
+Status: done 2026-11-05T00:46Z
+PR: #1395
 Blocked by:
 Source: CI PR-ов 2026-11-04, run-ы 41910321425 и 41925102507, job `macos-e2e (1/2)`; бриф Orchestrator-а
 2026-11-05 (номер 60 выдан Orchestrator-ом, 59 занят остановленной WIP-веткой)
