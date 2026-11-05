@@ -351,8 +351,11 @@ function subcommandWords(args: readonly string[]): string[] {
   return args.slice(i + 1)
 }
 
-/** The operands of `words` before `--`, with the values of the options in `valued` (`-b x`, `-bx`, `--onto x`) apart. */
-function operandsOf(words: readonly string[], valued: { short: string; long: readonly string[] }): { operands: string[]; values: Map<string, string[]> } {
+/**
+ * The operands of `words`, with the values of the options in `valued` (`-b x`, `-bx`, `--onto x`) apart. After
+ * `--` come paths (checkout), or for `pastDashes` more operands (`git fetch -- <url>`).
+ */
+function operandsOf(words: readonly string[], valued: { short: string; long: readonly string[] }, pastDashes = false): { operands: string[]; values: Map<string, string[]> } {
   const operands: string[] = []
   const values = new Map<string, string[]>()
   const add = (name: string, value: string): void => {
@@ -360,7 +363,10 @@ function operandsOf(words: readonly string[], valued: { short: string; long: rea
   }
   for (let i = 0; i < words.length; i++) {
     const word = words[i] ?? ''
-    if (word === '--') break
+    if (word === '--') {
+      if (pastDashes) operands.push(...words.slice(i + 1))
+      break
+    }
     if (word.startsWith('--')) {
       const [name = '', value] = word.slice(2).split(/=(.*)/s)
       if (valued.long.includes(name)) add(name, value ?? words[++i] ?? '')
@@ -421,7 +427,7 @@ function fetchDestination(spec: string): string | null {
 function fetchesFromElsewhere(act: Act): boolean {
   const sub = act.git?.subcommand
   if (sub !== 'fetch' && sub !== 'pull') return false
-  const remote = operandsOf(subcommandWords(act.args), FETCH_VALUED).operands[0]
+  const remote = operandsOf(subcommandWords(act.args), FETCH_VALUED, true).operands[0]
   return remote !== undefined && (/[:\\/]/.test(remote) || remote.startsWith('.') || remote.startsWith('~'))
 }
 
@@ -464,7 +470,7 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
     if (rule !== null) return rule
   }
   if (sub === 'worktree' && words[0] === 'add') {
-    const { operands, values } = operandsOf(words.slice(1), WORKTREE_ADD_VALUED)
+    const { operands, values } = operandsOf(words.slice(1), WORKTREE_ADD_VALUED, true)
     if (values.has('f') || values.has('force')) return 'git-worktree-force'
     const created = [...(values.get('b') ?? []), ...(values.get('B') ?? [])]
     // Without a branch given, git takes the one named after the folder.
@@ -478,7 +484,7 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
     if (rule !== null) return rule
   }
   if (sub === 'fetch' || sub === 'pull') {
-    const destinations = operandsOf(words, FETCH_VALUED).operands.slice(1).map(fetchDestination).filter((each): each is string => each !== null)
+    const destinations = operandsOf(words, FETCH_VALUED, true).operands.slice(1).map(fetchDestination).filter((each): each is string => each !== null)
     const rule = firstOf(destinations, 'git-fetch-default-branch')
     if (rule !== null) return rule
   }
