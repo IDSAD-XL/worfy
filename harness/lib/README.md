@@ -16,6 +16,9 @@ the plugin, where `lib/` lies next to `bin/` and `hooks/`.
   exports `run(argv, io)` and a one-line `summary`): `bin/gate-failures` finds them by name, so a new
   subcommand is a new file here. The format of the failure records, their scrubbing and their files are
   in `hooks/gate-failures.mjs`, next to the gate that writes them.
+- `e2e-lock.cjs` — the e2e lock of the profile (`workflow.e2e_lock`, a directory made by mkdir, with its
+  holder.json, heartbeat and takeover of a dead holder), the check of a locked screen before e2e tests and the
+  release of the locks on a signal: `bin/wave-gate` and `gate-failures/rerun.mjs` take them from here.
 - `qmd-common.cjs` — what `bin/qmd-mcp`, `bin/qmd-refresh`, `bin/qmd-sync-main` and `bin/qmd-collections`
   share: the folders of qmd, the node qmd runs on, which qmd to start, the lock of an index update and the
   update itself. `node qmd-common.cjs --update-job` is that update as a background process.

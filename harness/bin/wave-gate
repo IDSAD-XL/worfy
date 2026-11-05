@@ -84,6 +84,8 @@
 // holds it and for which PRs; the file goes with the directory (the main-branch lock has none, see merge()).
 // A lock older than 30 min is removed with its holder.json, and so is one whose holder.json names this host and a
 // pid that is not running, with no running "child" (the gate it runs): a wave-gate killed without its handlers.
+// The locks, the screen check and their release on a signal live in ../lib/e2e-lock.cjs, which
+// `gate-failures rerun` shares.
 //
 // Exit codes. check: 0 green (or nothing to check), 2 red, 3 unverified, 1 error. merge: 0 merged
 // (or nothing to merge), 4 stopped (reason in the state file), 1 error or refused.
@@ -100,35 +102,51 @@ const path = require("path")
 const { spawn, spawnSync } = require("child_process")
 // The git to start, with the variable of an eval run (EVAL_GIT).
 const { git: GIT } = require("../hooks/eval-env.cjs")
+// The e2e lock, the main-branch lock, the screen check and the release of the locks on a signal, shared with
+// lib/gate-failures/rerun.mjs.
+const {
+    STARTED,
+    TAKEOVER_STALE_S,
+    configure: configureLocks,
+    e2eTimings,
+    holderAlive,
+    lock,
+    noteChild,
+    onStopSignals,
+    releaseLocks,
+    screenLocked,
+    screenPoll,
+    screenWait: waitForScreen,
+    screenWatch: watchScreen,
+    seconds,
+    stopChild,
+    stopPoint,
+    unlock,
+} = require("../lib/e2e-lock.cjs")
 
 const GATE_SCRIPT = path.join(__dirname, "..", "hooks", "gate.mjs")
 const TREE_NAME = "worfy-wave-gate"
 const SHA = /^[0-9a-f]{40}$/
-const seconds = (name, dflt) => {
-    const v = Number(process.env[name])
-    return Number.isFinite(v) && v > 0 ? v : dflt
-}
-const E2E = { poll: seconds("WAVE_GATE_LOCK_POLL_S", 20), stale: seconds("WAVE_GATE_LOCK_STALE_S", 1800), beat: seconds("WAVE_GATE_HEARTBEAT_S", 300) }
-const TAKEOVER_STALE_S = 60
+const E2E = e2eTimings()
 const MAIN = { poll: seconds("WAVE_GATE_MAIN_LOCK_POLL_S", 30), stale: seconds("WAVE_GATE_MAIN_LOCK_STALE_S", 5400), beat: seconds("WAVE_GATE_HEARTBEAT_S", 300) }
-const SCREEN = { poll: seconds("WAVE_GATE_SCREEN_POLL_S", 30) }
+const SCREEN = { poll: screenPoll() }
+const screenWait = () => waitForScreen(SCREEN.poll, "screen locked: gate full waits")
+const screenWatch = () => watchScreen(SCREEN.poll)
 const SCREEN_TRIES = 3
 // A gate label is "<project>/<workspace>:<script>"; these scripts start Electron and need a window.
 const WINDOW_SCRIPT = /(?:^|:)test:(?:e2e|package)$/
-// On Windows node gets no SIGTERM from another process (a kill ends it at once, see lock()), but Ctrl+Break in its
-// console comes as SIGBREAK.
-const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15, ...(process.platform === "win32" ? { SIGBREAK: 21 } : {}) }
 
 class Fail extends Error {}
 const fail = (msg) => {
     throw new Fail(msg)
 }
 const say = (msg) => process.stdout.write(`[wave-gate] ${msg}\n`)
+configureLocks({ say })
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000))
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z")
 
-// --- what has to be undone on the way out ----------------------------------------------------
-const held = { locks: new Map(), child: null, pidFile: null, tree: null, repo: null, awake: null }
+// --- what has to be undone on the way out (the locks are held by lib/e2e-lock.cjs) --------------------
+const held = { child: null, pidFile: null, tree: null, repo: null, awake: null }
 
 function git(args, cwd, { allowFail = false } = {}) {
     const r = spawnSync(GIT, args, { cwd, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20 })
@@ -184,191 +202,6 @@ function save(file, st) {
 const labelsOf = (pr) => (Array.isArray(pr.labels) ? pr.labels : []).map((l) => (typeof l === "string" ? l : l && l.name)).filter(Boolean)
 const RESULT_KEYS = ["base", "excluded", "candidates", "set", "prefixes", "runs", "status", "flaky", "culprit", "green_prefix", "green_tree", "error", "checked_at"]
 
-// --- locks: a directory made by mkdir ---------------------------------------------------------------
-const HOLDER = "holder.json"
-// holder — what goes into <dir>/holder.json once the lock is taken (the e2e lock); none for the main lock.
-async function lock(dir, t, what, holder) {
-    let told = false
-    for (;;) {
-        try {
-            fs.mkdirSync(dir)
-            break
-        } catch (e) {
-            if (e.code !== "EEXIST") throw e
-        }
-        const dead = deadHolder(dir)
-        if (dead && takeOver(dir, dead, what)) continue
-        let m
-        try {
-            m = fs.statSync(dir).mtimeMs
-        } catch {
-            continue // released between mkdir and stat
-        }
-        // a dead lock whose takeover token is held is another waiter's to remove, however old it is
-        if (!dead && (Date.now() - m) / 1000 > t.stale) {
-            say(`${what} ${dir} is older than ${t.stale} s — abandoned, removed`)
-            try {
-                fs.rmSync(path.join(dir, HOLDER), { force: true })
-                fs.rmdirSync(dir)
-            } catch {}
-            continue
-        }
-        if (!told) say(`waiting for ${what} ${dir}`)
-        told = true
-        await sleep(t.poll)
-    }
-    if (holder) {
-        const record = { ...holder, pid: process.pid, started: STARTED, host: os.hostname(), since: new Date().toISOString() }
-        try {
-            fs.writeFileSync(path.join(dir, HOLDER), JSON.stringify(record) + "\n")
-        } catch (e) {
-            say(`${what} ${dir} is held, but its ${HOLDER} could not be written: ${e.message}`)
-        }
-    }
-    // touch -c: a lock someone else removed is not created again by the heartbeat
-    const beat = setInterval(() => {
-        try {
-            const d = new Date()
-            fs.utimesSync(dir, d, d)
-        } catch {
-            clearInterval(beat)
-        }
-    }, t.beat * 1000)
-    held.locks.set(dir, beat)
-}
-// The holder.json of a lock whose wave-gate is gone, or null. A wave-gate stopped without its signal handlers
-// (SIGKILL; on Windows a kill from any other process, taskkill /F or Git Bash's kill) leaves its lock, and waiting
-// for the lock to grow stale would hold every later run for half an hour. Its child (the gate, which runs the e2e)
-// may outlive it off Windows (on Windows libuv's job object ends node's children with node), so a holder with a
-// `child` that runs is not dead either (noteChild). A pid whose process started after the holder's `started` (the
-// child's `childStarted`) has been handed to another process, and its holder is gone (holderAlive). Only a holder.json with this
-// machine's host is judged by its pids: the pid of another machine means nothing here, and the one-PR block of
-// skills/epic-wave writes no host and the pid of its shell, which in Git Bash is not a Windows pid.
-// shortcut: a child of the gate (an e2e script) that outlives both is not seen; redo with the pids of the whole tree
-// when such an orphan is reported.
-function deadHolder(dir) {
-    let text, record
-    try {
-        text = fs.readFileSync(path.join(dir, HOLDER), "utf8")
-        record = JSON.parse(text)
-    } catch {
-        return null
-    }
-    const gone = (pid, started) => Number.isInteger(pid) && pid > 0 && pid !== process.pid && !holderAlive(pid, started)
-    if (record?.host !== os.hostname() || !gone(record.pid, record.started)) return null
-    if (record.child !== undefined && !gone(record.child, record.childStarted)) return null
-    return { text, pid: record.pid }
-}
-// Takes the lock of a dead holder. Of two waiters only one may remove it, or the second removes the lock the first
-// has just made. A rename does not decide that on Windows: libuv renames through a handle it opened, and two renames
-// of one path both succeed, the second moving what the first has moved. So a waiter first makes
-// `<lock>.takeover` with mkdir, and under it reads the holder.json again: the lock goes only while it is still the
-// dead holder's. A token older than TAKEOVER_STALE_S is left by a waiter killed in those milliseconds and is removed.
-// false — another waiter takes the lock over right now: the caller waits as for a live lock.
-function takeOver(dir, dead, what) {
-    const token = `${dir}.takeover`
-    try {
-        fs.mkdirSync(token)
-    } catch (e) {
-        if (e.code !== "EEXIST") throw e
-        try {
-            if ((Date.now() - fs.statSync(token).mtimeMs) / 1000 > TAKEOVER_STALE_S) fs.rmdirSync(token)
-        } catch {}
-        return false
-    }
-    try {
-        let got = null
-        try {
-            got = fs.readFileSync(path.join(dir, HOLDER), "utf8")
-        } catch {}
-        if (got !== dead.text) return true
-        say(`${what} ${dir} is held by pid ${dead.pid}, which is not running — abandoned, removed`)
-        fs.rmSync(path.join(dir, HOLDER), { force: true })
-        // A waiter that is reading the removed holder.json right now keeps it in the directory on Windows until
-        // it closes the file, and rmdir fails meanwhile.
-        for (let i = 0; ; i++) {
-            try {
-                fs.rmdirSync(dir)
-                break
-            } catch (e) {
-                if (e.code === "ENOENT") break
-                if (i === 50) {
-                    say(`${what} ${dir} could not be removed: ${e.message}`)
-                    break
-                }
-                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
-            }
-        }
-        return true
-    } finally {
-        try {
-            fs.rmdirSync(token)
-        } catch {}
-    }
-}
-// The child a run starts while it holds a lock goes into the lock's holder.json (null — it has ended), so a
-// waiter does not take the lock of a killed wave-gate while its gate still runs the e2e (deadHolder).
-function noteChild(pid) {
-    for (const dir of held.locks.keys()) {
-        const file = path.join(dir, HOLDER)
-        try {
-            const record = JSON.parse(fs.readFileSync(file, "utf8"))
-            if (record.pid !== process.pid) continue
-            if (pid === null) {
-                delete record.child
-                delete record.childStarted
-            } else {
-                // Written once the child has started, so never before the system's start time of it.
-                record.child = pid
-                record.childStarted = Date.now()
-            }
-            fs.writeFileSync(file, JSON.stringify(record) + "\n")
-        } catch {}
-    }
-}
-function unlock(dir) {
-    const beat = held.locks.get(dir)
-    if (beat === undefined) return
-    clearInterval(beat)
-    held.locks.delete(dir)
-    // Only our own holder.json goes: a lock someone else took over after ours was removed as abandoned keeps
-    // its file, and with it the directory (rmdir of a non-empty directory fails).
-    const file = path.join(dir, HOLDER)
-    try {
-        if (JSON.parse(fs.readFileSync(file, "utf8")).pid === process.pid) fs.rmSync(file, { force: true })
-    } catch {}
-    try {
-        fs.rmdirSync(dir)
-    } catch {}
-}
-
-// --- the screen ------------------------------------------------------------------------------------
-// true — locked; false — not locked, or no `ioreg` in PATH (spawn fails with ENOENT), or no answer.
-function screenLocked() {
-    const r = spawnSync("ioreg", ["-n", "Root", "-d1"], { encoding: "utf8", windowsHide: true, maxBuffer: 16 << 20 })
-    if (r.error || r.status !== 0) return false
-    return /"IOConsoleLocked"\s*=\s*Yes\b/.test(r.stdout || "")
-}
-async function screenWait() {
-    if (!screenLocked()) return
-    say("screen locked: gate full waits")
-    do {
-        await sleep(SCREEN.poll)
-    } while (screenLocked())
-}
-// Samples the screen during a gate run; stop() tells whether it was seen locked at any sample or at the end.
-function screenWatch() {
-    let seen = false
-    const t = setInterval(() => {
-        if (!seen && screenLocked()) seen = true
-    }, SCREEN.poll * 1000)
-    return {
-        stop() {
-            clearInterval(t)
-            return seen || screenLocked()
-        },
-    }
-}
 // caffeinate -d -w <own pid>: the display stays on while this command lives. -w makes caffeinate end with
 // it even when nothing below runs (SIGKILL); the kill on the way out only makes that immediate.
 function keepAwake() {
@@ -430,74 +263,6 @@ function closeTree() {
 // pid in between), it is put back with link(), which fails rather than overwrite a newer file, and this check gives
 // way. A token older than TAKEOVER_STALE_S was left by a check killed in those milliseconds and is removed.
 const PID_EMPTY_S = 10
-const pidAlive = (pid) => {
-    try {
-        process.kill(pid, 0)
-        return true
-    } catch (e) {
-        return e.code === "EPERM"
-    }
-}
-// Windows hands the pid of a process that has ended to a new one within seconds, so a pid alone does not say that
-// the run which wrote it still runs. Each record of a pid also names when that process started (ms since the
-// epoch, never later than the system's own start time of it), and a live process with that pid which started
-// after it is another one. START_SLACK_MS covers the rounding of the start times the system reports.
-// shortcut: the start time is read on Windows only, where pids come back within seconds; read /proc/<pid>/stat and
-// `ps -o lstart=` when a reused pid is reported on Linux or macOS.
-const START_SLACK_MS = 1000
-const STARTED = Math.floor(Date.now() - process.uptime() * 1000)
-// When the process with this pid started, in ms since the epoch, NO_PROCESS when the system says none has this pid, or
-// null when it cannot be told. The exceptions are told by their exact type, not by inheritance: the text of their
-// messages is in the system's language, and a subclass, as a refusal under a language restriction may be, says nothing
-// about the process. Any other exception leaves it untold, which keeps the wait for a live check. get_StartTime(), not
-// .StartTime: PowerShell turns an exception of a property into $null. The answer is a word on stdout, not an exit code,
-// which a crash of PowerShell can give too.
-const NO_PROCESS = "no process"
-function startedAt(pid) {
-    if (process.platform !== "win32") return null
-    const shell = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-    const ask =
-        `try { [System.Diagnostics.Process]::GetProcessById(${pid}).get_StartTime().ToUniversalTime().ToString('o') } ` +
-        `catch { $e = $_.Exception; if ($e -is [System.Management.Automation.MethodInvocationException]) { $e = $e.InnerException }; ` +
-        `if (@('System.ArgumentException', 'System.InvalidOperationException') -contains $e.GetType().FullName) { '${NO_PROCESS}' } else { throw } }`
-    const r = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", ask], {
-        encoding: "utf8",
-        timeout: 15000,
-        windowsHide: true,
-    })
-    const answer = r.status === 0 ? r.stdout.trim() : ""
-    if (answer === NO_PROCESS) return NO_PROCESS
-    const at = Date.parse(answer)
-    return Number.isFinite(at) ? at : null
-}
-// Test-only: with WAVE_GATE_PID_SYNC=<folder> that holds `hold-<at>`, the check stops at the point `at`: it creates
-// `<at>-<pid>` there and waits for `resume-<at>`, up to 30 s. The point `alive`: the pid of the pid file was found
-// running, and when its process started is not asked yet. The point `stale`: the pid file was found stale, and its
-// takeover has not begun.
-function stopPoint(at) {
-    const dir = process.env.WAVE_GATE_PID_SYNC
-    if (!dir || !fs.existsSync(path.join(dir, `hold-${at}`))) return
-    fs.writeFileSync(path.join(dir, `${at}-${process.pid}`), "")
-    // A spin, not a sleep: two checks stopped at one point go on within microseconds of each other, as two started
-    // together do, and not up to a sleep apart.
-    for (const until = Date.now() + 30000; !fs.existsSync(path.join(dir, `resume-${at}`)) && Date.now() < until; );
-}
-// Whether the process that wrote `pid` (started at `started`, when the record names it) still runs: false, or why it
-// is taken to run, which the error names.
-function holderAlive(pid, started) {
-    if (!pidAlive(pid)) return false
-    if (!Number.isFinite(started)) return "no start time to compare"
-    if (process.platform !== "win32") return "its start time is not read here"
-    stopPoint("alive")
-    const now = startedAt(pid)
-    // The process found running has ended, as a short-lived process that got the pid of a killed check does on a loaded
-    // runner. That is final: looking at the pid again may find another process that has just got it (2 of 120 runs of
-    // the case under load on the PC, each refused as a check that still runs).
-    if (now === NO_PROCESS) return false
-    // No answer, as when PowerShell ran out of its time limit: a pid no longer running is dead, whatever PowerShell said.
-    if (now === null) return pidAlive(pid) && "its start time could not be read"
-    return now <= started + START_SLACK_MS && `it started at ${new Date(now).toISOString()}, no later than the file says`
-}
 // The pid file holds the bare pid: wave-gates before the start time read it as Number(text.trim()), and they share
 // the file. The start time of its writer is in <pid file>.started, "<pid> <started>", written right after the pid
 // file. It counts only when it names the same pid and is no older than the pid file: one left by a check that was
@@ -1070,22 +835,21 @@ async function ci(file) {
 
 // --- entry -------------------------------------------------------------------------------------------------
 function release() {
-    for (const dir of [...held.locks.keys()]) unlock(dir)
+    releaseLocks()
     releasePid()
 }
-for (const [sig, n] of Object.entries(SIGNALS))
-    process.on(sig, () => {
-        // A signal is a broken-off run: the worktree stays for the resume, the locks go. On Windows libuv cannot
-        // send SIGHUP or SIGBREAK (kill throws ENOSYS), so the gate is ended there (TerminateProcess); whatever the
-        // kill does, the locks are released.
-        try {
-            if (held.child) process.platform === "win32" ? held.child.kill() : held.child.kill(sig)
-        } catch {}
-        release()
+// A signal is a broken-off run: the worktree stays for the resume, the locks go. On Windows libuv cannot send SIGHUP
+// or SIGBREAK, so the gate is ended there (TerminateProcess, stopChild); whatever the kill does, the locks are
+// released (onStopSignals).
+onStopSignals({
+    stop: (sig) => stopChild(held.child, sig),
+    exit: (sig, n) => {
+        releasePid()
         letSleep()
         process.stderr.write(`[wave-gate] stopped by ${sig}: the state file has every finished step; run the same command again to resume\n`)
         process.exit(128 + n)
-    })
+    },
+})
 
 async function main() {
     const [cmd, file, ...rest] = process.argv.slice(2)

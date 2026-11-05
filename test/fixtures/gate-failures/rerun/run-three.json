@@ -1,0 +1,40 @@
+{
+  "failures": [
+    {
+      "step": "demo/.:test",
+      "runner": "vitest",
+      "file": "test/unit/alone.test.ts",
+      "line": 4,
+      "name": "alone > goes green",
+      "test": "vitest test/unit/alone.test.ts > alone > goes green",
+      "ms": 1200,
+      "error": "expected 1 to be 2",
+      "attempt": 1,
+      "rerun": ["node", "<stub>", "<trace>", "green", "0", "50"]
+    },
+    {
+      "step": "demo/.:test",
+      "runner": "vitest",
+      "file": "test/unit/alone.test.ts",
+      "line": 9,
+      "name": "alone > stays red",
+      "test": "vitest test/unit/alone.test.ts > alone > stays red",
+      "ms": 800,
+      "error": "expected 3 to be 4",
+      "attempt": 1,
+      "rerun": ["node", "<stub>", "<trace>", "red", "1", "50"]
+    },
+    {
+      "step": "demo/.:test",
+      "runner": "vitest",
+      "file": "test/unit/other.test.ts",
+      "line": 2,
+      "name": "other > has no rerun",
+      "test": "vitest test/unit/other.test.ts > other > has no rerun",
+      "ms": null,
+      "error": "timed out",
+      "attempt": 1,
+      "rerun": null
+    }
+  ]
+}
