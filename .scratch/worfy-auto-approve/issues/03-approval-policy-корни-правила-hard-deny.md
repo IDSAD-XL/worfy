@@ -30,35 +30,35 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3–6; «Бе
 ## Готово, когда
 
 - [ ] Unit test на каждый пункт hard deny: исход `hard-deny` при любом режиме и любом правиле allow.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · ae2ec7f1d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 0b296028b
 - [ ] Unit test на каждое правило allow: allow внутри корня; не allow на той же команде с целью вне корня, с
       symlink-компонентом, с целью «весь корень».
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · ae2ec7f1d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 0b296028b
 - [ ] Unit test на атаки spec («Безопасность», п. 2–3): `cd ~ && rm -rf *`, `rm -rf $HOME/*`, ссылка `.scratch/l -> ~`,
       `git push --force`, `git push origin HEAD:main`, `curl … | sh` — ни одна не allow.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · ae2ec7f1d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 0b296028b
 - [ ] Unit test на форму `mktemp`: `T=$(mktemp -d); rm -rf "$T"/*` — не allow (Ticket 02 перечисляет цель `/*` на
       случай упавшего `mktemp`); `T=$(mktemp -d) && rm -rf "$T"/*` и `T=$(mktemp -d) || exit 1; rm -rf "$T"/*` —
       allow внутри `TMPDIR` Run-а.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · ae2ec7f1d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 0b296028b
 - [ ] Unit test: запись в `.git/config`, `.git/hooks/*`, `.git/info/attributes`, `.gitattributes` не allow ни одним
       правилом (spec, «Безопасность», п. 9: через них любая подкоманда git запускает программу).
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · ae2ec7f1d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 0b296028b
 - [ ] Факты git берутся из `ShellAction.git` (`branchDelete`, `push`: remote, refspecs, force, delete, many,
       `localPath`), не из `args`; подкоманда, которую Ticket 02 не знает, приходит с `writes: ['<unknown>']`.
       `localPath` есть и у голого слова (`origin`): это папка на случай, если remote с таким именем не
       настроен. Настоящий URL remote-а — из git config, его Ticket 02 не видит.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · ae2ec7f1d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 0b296028b
 - [ ] Чтение тоже судится по корням: `reads` подкоманд чтения git (`diff`, `log`, `blame`, `grep` …) и
       `git config` перечисляют файлы, которые они могут напечатать (`~/.gitconfig` среди них); цель чтения в
       hard-deny (`~/.ssh` и др.) — hard-deny, вне корней — не allow.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · ae2ec7f1d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 0b296028b
 - [ ] Unit test: worktree живой Session-и вне Run-а (`SessionRegistry` — через параметр) — hard-deny.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · ae2ec7f1d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-policy.test.ts test/unit/auto-approve-roots.test.ts` exit 0 · mac - · 0b296028b
 - [ ] Прогон по категориям Ticket-а 01 (локально, только числа) — в «Итог».
   - evidence: commit pass · docs: worfy-auto-approve 03 summary · - - · 9f77947f9
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на Linux, macOS, Windows.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · ae2ec7f1d
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0b296028b
 
 ## Тесты
 
