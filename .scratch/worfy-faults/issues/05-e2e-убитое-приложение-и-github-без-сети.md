@@ -1,7 +1,7 @@
 # 05 — e2e: приложение убито посреди Wave и запущено снова; GitHub недоступен весь Run
 
 Type: task
-Status: open
+Status: claimed 2026-11-05T09:24Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Сценарии» (строки «Приложение убито посреди Wave и запущено снова», «GitHub недоступен весь Run»), «Где идёт набор», «Риски», п. 3, 4, 6
 
@@ -67,6 +67,46 @@ Source: [spec.md](../spec.md), «Сценарии» (строки «Прилож
 - `test/e2e/autopilot-faults.spec.ts` (новый)
 - `test/fixtures/agent-scripts/autopilot-fault-held.jsonl` (новый)
 - `scripts/e2e-specs.table.json`
+- `scripts/ci-scope.mjs` (одна строка в `APP_FILES`, см. «Итог»)
 
 Только читать: `test/e2e/autopilot.spec.ts`, `test/e2e/end-app.ts`, `test/e2e/helpers.ts`, `test/e2e/launch-env.ts`,
 `test/autopilot-invariants.ts`, `test/fixtures/gh/gh-stub.mjs`.
+
+## Итог
+
+- `test/e2e/autopilot-world.ts`: `prepareWorld(scratch)` (`:78`) — git-папка с Epic-ом `demo` (01, 02 готовы, 03
+  после обоих), epic-status stub, папка данных с Project-ом, `GH_STUB_DIR` и `GH_STUB_LOG`; `env(script)` — окружение
+  запуска. Читатели: `messages` (`:158`), `journals` (`:169`, тексты всех Journal-ов по времени первой строки),
+  `kindsOf` (`:186`), `ghCalls` (`:201`), `files` (`:36`); `setStatus` (`:145`) меняет статус за Orchestrator-а —
+  сначала ответ epic-status, потом строку `Status:` файла Ticket-а — и отдаёт `StatusWrite` для И3 и И7;
+  `releaseTurn` (`:210`). `autopilot.spec.ts` не тронут.
+- `test/fixtures/agent-scripts/autopilot-fault-held.jsonl`: два хода Orchestrator-а, каждый держится на
+  `wait_release "turn"`. Убитому приложению хватает первого: второй запуск играет скрипт заново.
+- `test/e2e/autopilot-faults.spec.ts`, test убитого приложения (`:35`): Wave 1 (01, 02) ушла, test ставит 01 в
+  `claimed`, ждёт `ticket-status` в Journal-е и убивает приложение `endApp` (SIGKILL, ожидание ухода процесса), потом
+  `close({ windowGone: true })` убирает временные папки запуска. Второй запуск с той же `WORFY_DATA_DIR`: строки
+  статуса нет, кнопка `Autopilot` активна; Run history из палитры открыт на убитом Run-е с «no stop in the Journal»;
+  сообщений Orchestrator-у по-прежнему одно. Кнопка стартует новый Run без toast отказа; его Wave — только 02 (01 в
+  работе); в логе fake agent ровно `/epic-wave Ticket-ы 01, 02 …` и `/epic-wave Ticket-ы 02 …`. После закрытия
+  второго запуска (его Run кончается `run-stopped app-quit`) `checkRecovery` с `stop: null`, `waves: 2`,
+  `tornLastLine: true` пустой: `claimed` 01 записан один раз, прошлым Run-ом.
+- Test GitHub без сети (`:115`): файл `fail` с «error connecting to api.github.com» до старта. Wave 1 → test ставит
+  01 и 02 в `done` → Wave 2 (03) → 03 `done` → `stopped: no ready wave`, кнопка снова `Autopilot`. gh звали
+  (`pr list` упал), `checkRecovery` с `stop: 'no-ready-wave'`, `waves: 2` пустой, в том числе И2.
+- **Правка вне списка брифа, согласована с Orchestrator-ом:** `scripts/ci-scope.mjs`, `APP_FILES` +=
+  `test/autopilot-invariants.ts` (`:132`). Spec импортирует `checkRecovery` из этого файла, и contract test
+  `test/contract/ci-workflow.test.ts:1227` («every file outside test/e2e that the e2e tests import makes a pull
+  request run macos-e2e») без строки краснел: PR, который правит правила восстановления, не запускал бы
+  macos-e2e. Копия `checkRecovery` внутри `test/e2e` отвергнута — две копии правил.
+- `scripts/e2e-specs.table.json`: spec дописан в правило Link и в правило `src/renderer/flight-recorder/**`, в обоих
+  `why` — по фразе. `node scripts/ci-scope.mjs` (EVENT=pull_request) на пробном commit-е поверх ветки с правкой
+  `src/renderer/flight-recorder/filter.ts`: `e2e-files` = autopilot-chat, **autopilot-faults**, autopilot,
+  flight-recorder-detail, flight-recorder. `test/contract/ci-scope-e2e.test.ts` и `ci-workflow.test.ts` — exit 0.
+- Сначала падающий: test убитого приложения с ожиданием «Run продолжился сам после рестарта» (`Wave 1 · running`
+  после второго запуска) — красный: `element(s) not found`, строки статуса нет, Run жил в памяти.
+- Мутанты (каждый — exit 1, правило в выводе): ожидание лога сообщений с лишней командой Wave — «I1: /epic-wave names
+  01, 02, which no wave-started announces»; ожидание `stop: 'app-quit'` у убитого Run-а — «I4: no run-stopped, the
+  scenario expects app-quit»; лог gh с `pr merge 11` — «I2: gh log line 2: gh pr merge 11 is not a read»; `waves: 1`
+  у GitHub-сценария — «I1: 2 wave-started, the scenario expects 1».
+- Время локально (Mac, один worker): 3.5 с и 1.4 с, spec — 5.1 с. Предел 30 с по логу `macos-e2e` и зелёный
+  `windows-e2e` проверяет CI на PR.
