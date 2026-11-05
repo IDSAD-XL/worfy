@@ -2,7 +2,8 @@
 // the spec's section on security, item 4): for commands without side effects — `printf '%s\0'` in place of the
 // program — the words analyze() gives must be the words a real shell passes. Each command runs in
 // every shell the parser stands for: sh and bash, dash and zsh where installed (macOS has all four),
-// Git Bash on Windows. A difference turns the test red.
+// Git Bash on Windows. A difference turns the test red. On Windows an absolute path is compared by the
+// file it names, not by its spelling: Git Bash may spell one folder in more than one way (filesNamed below).
 //
 // The commands run in an empty temporary folder, so a glob matches nothing: sh, dash and bash keep it
 // as written, as analyze() does; zsh stops on it (NOMATCH), so glob commands skip zsh.
@@ -122,7 +123,8 @@ describe.each(shells)('%s', (name) => {
  * into a path under the longest mount that holds it, and Git for Windows mounts the user's %TEMP% at
  * /tmp (its /etc/fstab, `usertemp`): there `$PWD` of a folder under %TEMP% is `/tmp/…`, while
  * analyze() spells it through the drive, `/c/Users/…/Temp/…` (pc-main-red #1423). The Windows job of
- * CI passes: its TEMP is probably the short 8.3 name, which the long folder name here does not match. Both
+ * CI passed with the old comparison (PR #1372); why the runner's Git Bash spelled the folder through the
+ * drive is not known (its log does not show TEMP or the folder). Both
  * spellings name the same file, and the approval policy judges paths in their Windows form (the
  * writes, deletes and reads of an action), never the spelling of `$PWD`; so the test compares the
  * files the words name. analyze() cannot spell `$PWD` as Git Bash does without reading its mount table.
