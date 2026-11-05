@@ -225,13 +225,15 @@ function folderPattern(dir) {
     return new RegExp(`${BEFORE_PATH}(?:${d}:|/${d}|/mnt/${d})[\\\\/]+${rest}${AFTER_PATH}`, "gi")
 }
 
-// The rest of a path after a folder folderPattern() found: separators and names up to the end of the path. A name
-// may hold a space ("a b"), not at its end: the path ends at white space that no separator follows, at a quote, a
-// colon (of :12:5), a closing bracket or punctuation, or at the end of the text.
-// shortcut: a word after the path that itself holds "\" with no space before it ("<repo>\x.ts vs a\b") is read as
-// part of the path and gets "/", redo when a record shows such a line.
+// The rest of a path after a folder folderPattern() found: separators and names up to the last separator and the
+// name after it. A folder name may hold a space ("a b"): words joined by spaces are taken only when a separator
+// follows them, so a word after the path is never taken — not the drive letter of the next path either
+// ("<repo>\x.ts to equal D:\a\y.ts"). A last name with a space ("c d.ts") is left where it is: it has no separator
+// to rewrite. The path ends at a quote, a colon (of :12:5), a closing bracket or punctuation, or at the end of the text.
+// shortcut: a word after the path that is itself followed by "\" with no space before it ("<repo>\x.ts vs a\b") is
+// read as a folder of the path and gets "/", redo when a record shows such a line.
 const NAME_CHAR = String.raw`[^\s\\/"'\x60:;,)\]}>]`
-const PATH_TAIL = String.raw`((?:[\\/]+${NAME_CHAR}+(?: +${NAME_CHAR}+)*)*)`
+const PATH_TAIL = String.raw`((?:[\\/]+${NAME_CHAR}+(?:(?: +${NAME_CHAR}+)+(?=[\\/]))?)*)`
 
 // `text` with the folder `re` (folderPattern) replaced by `stand` and the rest of each such path written as a
 // record writes paths, with "/": a run of "\" ("\\" in JSON) and "/" becomes one "/", a run of "/" alone stays.

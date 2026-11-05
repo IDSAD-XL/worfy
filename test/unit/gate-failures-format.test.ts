@@ -165,6 +165,40 @@ describe('scrub', () => {
       expect(scrub('expected D:\\a\\worfy\\worfy\\x.ts to match \\d+', WIN)).toBe('expected <repo>/x.ts to match \\d+')
     })
 
+    it.each([
+      ['two paths under the root with "\\"', 'expected D:\\a\\worfy\\worfy\\x.ts to equal D:\\a\\worfy\\worfy\\y.ts', 'expected <repo>/x.ts to equal <repo>/y.ts'],
+      [
+        'two paths under the root with "\\\\" as JSON writes them',
+        'expected D:\\\\a\\\\worfy\\\\worfy\\\\x.ts to equal D:\\\\a\\\\worfy\\\\worfy\\\\y.ts',
+        'expected <repo>/x.ts to equal <repo>/y.ts',
+      ],
+      ['two paths under the root with no word between them', 'D:\\a\\worfy\\worfy\\x.ts D:\\a\\worfy\\worfy\\y.ts', '<repo>/x.ts <repo>/y.ts'],
+      ['two paths under the root, folder names with a space', 'a D:\\a\\worfy\\worfy\\a b\\x.ts and D:\\a\\worfy\\worfy\\c d\\y.ts', 'a <repo>/a b/x.ts and <repo>/c d/y.ts'],
+      ['two paths under the home folder with "\\"', 'a C:\\Users\\runneradmin\\x.ts and C:\\Users\\runneradmin\\y.ts', 'a ~/x.ts and ~/y.ts'],
+      [
+        'two paths under the home folder with "\\\\" as JSON writes them',
+        'a C:\\\\Users\\\\runneradmin\\\\x.ts and C:\\\\Users\\\\runneradmin\\\\y.ts',
+        'a ~/x.ts and ~/y.ts',
+      ],
+      ['a path under the root, then one under the home folder', 'D:\\a\\worfy\\worfy\\x.ts vs C:\\Users\\runneradmin\\y.ts', '<repo>/x.ts vs ~/y.ts'],
+      ['a path under the home folder, then one under the root', 'C:\\Users\\runneradmin\\y.ts vs D:\\a\\worfy\\worfy\\x.ts', '~/y.ts vs <repo>/x.ts'],
+      ['a path with "\\", then the same root as Git Bash writes it', 'D:\\a\\worfy\\worfy\\x.ts vs /d/a/worfy/worfy/y.ts', '<repo>/x.ts vs <repo>/y.ts'],
+    ])('replaces every path of a line: %s', (_how, text, expected) => {
+      expect(scrub(text, WIN)).toBe(expected)
+    })
+
+    it('runs in milliseconds on a long line of words and separators', () => {
+      const lines = [
+        `D:\\a\\worfy\\worfy${'\\a b'.repeat(20000)} c`,
+        `D:\\a\\worfy\\worfy\\x${' w'.repeat(40000)}:`,
+        `C:\\Users\\runneradmin${'\\\\x y z'.repeat(20000)}"`,
+        `${'D:\\a\\worfy\\worfy\\x.ts D'.repeat(5000)}`,
+      ]
+      const started = performance.now()
+      for (const line of lines) scrub(line, WIN)
+      expect(performance.now() - started).toBeLessThan(1000)
+    })
+
     it('leaves a path outside the root and the home folder as it is', () => {
       expect(scrub('Error: cannot read E:\\data\\x y\\z.json', WIN)).toBe('Error: cannot read E:\\data\\x y\\z.json')
       expect(scrub('Error: cannot read D:\\a\\worfy\\other\\z.json', WIN)).toBe('Error: cannot read D:\\a\\worfy\\other\\z.json')
