@@ -111,3 +111,13 @@ Source: [spec.md](../spec.md), «Сценарии» (строки «gh виси�
 - `src/` не изменён. `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (645 файлов, 14 596 test-ов). Gate fast:
   первый прогон красный на `test/contract/harness-codex-hooks.test.ts:139` (код Harness-а, этот PR его не трогает;
   отдельно и в полном `pnpm test` зелёный), повтор — `[gate] green (fast)`.
+- **Ревью Wave 3** (verify-04, ступень `low`, VERIFIED — [#1441](https://github.com/IDSAD-XL/worfy/pull/1441)).
+  Noted, без правки сейчас:
+  - [low] `test/contract/autopilot-faults-github.test.ts:181` — `expect(alive(last)).toBe(true)` опирается на реальное
+    время: запас — timeout gh 1,5 с при множителе 3 против десятков мс на остановку. Зелёный под нагрузкой 6 процессов
+    `yes`; покраснеет, если runner замрёт дольше ~1,4 с.
+  - [low] `test/contract/autopilot-faults-github.test.ts:97-99` — `afterEach` шлёт SIGKILL каждому живому pid из
+    `hang.pids`; pid уже вышедшего stub-а мог достаться чужому процессу. Окно крошечное; закрыла бы группа процессов.
+  - Merge после второго rebase: первый `ci-ok` на `2ed0f881` красный из-за flaky Windows e2e `browser.spec.ts:554`
+    (рамка 640, к этому diff-у не относится; тот же shard зелёный на `a7f463c7`) — в карантин #1444, owner
+    `worfy-polish` 47 (решено без владельца, подтвердить).

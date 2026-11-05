@@ -21,7 +21,7 @@
 - `worfy-flight-recorder` ([spec](.scratch/worfy-flight-recorder/spec.md), ADR-0091): закрыт, 28/28, принят владельцем 2026-11-01; Windows-часть 25 не проводилась.
 - `worfy-resource-planner`: закрыт, 12/12, принят владельцем 2026-11-01.
 - `worfy-multi-vendor`: 45/46, код в main; осталась 43 (приёмка владельца). Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–42, 44, 45 (`additionalContextLimit`), 46, ADR-0095; `high` 19–21. Должен: gate full ПК на `c4eb4117`.
-- Приняты 2026-11-04: `worfy-evidence`, `worfy-faults`, `worfy-retry`, `worfy-auto-approve`; `worfy-failures` закрыт 10/10; подтвердить «Итог» 09.
+- Приняты 11-04: `worfy-evidence`, `worfy-faults` 6/8, `worfy-retry`, `worfy-auto-approve`; `worfy-failures` закрыт 10/10; подтвердить «Итог» 09.
 
 ## Ждёт владельца
 
