@@ -1,7 +1,8 @@
 # 13 — Modes с Linked machine: Full access меняет, Read only видит
 
 Type: task
-Status: claimed 2026-11-05T20:00Z
+Status: done 2026-11-05T22:33Z
+PR: #1458
 Blocked by: 12, 02
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-05», Q15–Q18; [ADR-0066](../../../docs/adr/0066-read-only-access-for-a-linked-machine.md) (уровни доступа Linked machine); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), п. 5–6
 
