@@ -984,6 +984,20 @@ describe('round 3 of the review', () => {
     expect(run(`git worktree add -- ${PAD}/x`).outcome).not.toBe('hard-deny')
     expect(run(`git worktree add -- ${PAD}/x main`).rule).toBe('hard:git-checkout-default-branch')
   })
+  it('after -- git switch, branch and rebase still take branches; checkout takes paths', () => {
+    expect(run('git switch -- worfy-demo/07').rule).toBe('hard:git-other-branch')
+    expect(run('git switch -- main').rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git branch -f -- main HEAD').rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git rebase -- origin/x main').rule).toBe('hard:git-commit-default-branch')
+    expect(run('git rebase origin/x -- worfy-demo/07').rule).toBe('hard:git-other-branch')
+    expect(run('git checkout -- main').outcome).not.toBe('hard-deny')
+  })
+  it('only options before -- make cp follow links, and only --dereference among the long ones', () => {
+    const tree = { ...TREE, [`${WT}/srcl/a.txt`]: 'file', [`${WT}/srcl/l`]: `-> ${SCRATCH}` }
+    expect(outcome(`cp -R -- ${WT}/srcl ${WT}/dst`, posix({ fs: fakeFs(tree) }))).toBe('allow')
+    expect(outcome(`cp -R --verbose ${WT}/srcl ${WT}/dst`, posix({ fs: fakeFs(tree) }))).toBe('allow')
+    expect(outcome(`cp -R --no-dereference ${WT}/srcl ${WT}/dst`, posix({ fs: fakeFs(tree) }))).toBe('allow')
+  })
   it('chmod in another Session\'s folder inside a root is chmod-outside', () => {
     const context = posix({ sessions: { list: () => [info('demo-run', REPO), info('demo-src', `${WT}/src`)] } })
     expect(run(`chmod 000 ${WT}/src/a.ts`, context).rule).toBe('hard:chmod-outside')

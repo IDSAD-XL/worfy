@@ -353,9 +353,10 @@ function subcommandWords(args: readonly string[]): string[] {
 
 /**
  * The operands of `words`, with the values of the options in `valued` (`-b x`, `-bx`, `--onto x`) apart. After
- * `--` come paths (checkout), or for `pastDashes` more operands (`git fetch -- <url>`).
+ * `--` come paths (checkout), or for `pastDashes` more operands: git drops the `--` of switch, branch, rebase,
+ * fetch, pull and worktree add (`git switch -- x` switches to x).
  */
-function operandsOf(words: readonly string[], valued: { short: string; long: readonly string[] }, pastDashes = false): { operands: string[]; values: Map<string, string[]> } {
+function operandsOf(words: readonly string[], valued: { short: string; long: readonly string[] }, pastDashes: boolean): { operands: string[]; values: Map<string, string[]> } {
   const operands: string[] = []
   const values = new Map<string, string[]>()
   const add = (name: string, value: string): void => {
@@ -468,7 +469,7 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
   if (sub === 'checkout' || sub === 'switch') {
     // git refuses a branch checked out in another worktree unless told to ignore that.
     if (words.some((word) => word.length > 9 && '--ignore-other-worktrees'.startsWith(word))) return 'git-ignore-other-worktrees'
-    const { operands, values } = operandsOf(words, CHECKOUT_VALUED)
+    const { operands, values } = operandsOf(words, CHECKOUT_VALUED, sub === 'switch')
     const created = ['b', 'B', 'c', 'C', 'orphan'].flatMap((name) => values.get(name) ?? [])
     // --track origin/x makes and checks out x.
     const tracked = values.has('t') || values.has('track') ? operands.map((word) => word.slice(word.indexOf('/') + 1)) : []
@@ -488,7 +489,7 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
   }
   if (sub === 'branch' && facts.branchDelete === undefined) {
     // `git branch -f x <commit>` moves x; any branch named here is judged.
-    const rule = firstOf(operandsOf(words, { short: '', long: [] }).operands.slice(0, 1), 'git-checkout-default-branch')
+    const rule = firstOf(operandsOf(words, { short: '', long: [] }, true).operands.slice(0, 1), 'git-checkout-default-branch')
     if (rule !== null) return rule
   }
   if (sub === 'fetch' || sub === 'pull') {
@@ -498,7 +499,7 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
   }
   if (sub === 'rebase') {
     // `git rebase <upstream> <branch>` checks out <branch> first.
-    const rule = firstOf(operandsOf(words, REBASE_VALUED).operands.slice(1, 2), 'git-commit-default-branch')
+    const rule = firstOf(operandsOf(words, REBASE_VALUED, true).operands.slice(1, 2), 'git-commit-default-branch')
     if (rule !== null) return rule
   }
   if (top !== null && (MOVES_CURRENT.has(sub) || (sub === 'stash' && (words[0] === 'pop' || words[0] === 'apply')))) {
@@ -586,15 +587,14 @@ function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared):
 }
 
 /**
- * Whether cp follows the links inside what it copies: `-L` or `--dereference`, and on macOS `-r` too (BSD cp
- * makes it `-RL`). A later `-P` is not looked at: following is assumed.
+ * Whether cp follows the links inside what it copies: `-L` or `--dereference` (the parser takes no shorter
+ * form), and on macOS `-r` too (BSD cp makes it `-RL`). Only options before `--` count. A later `-P` is not
+ * looked at: following is assumed.
  */
 function copyFollowsLinks(args: readonly string[], platform: NodeJS.Platform): boolean {
-  return args.some((word) => {
-    if (word === '--') return false
-    if (word.startsWith('--')) return 'dereference'.startsWith(word.slice(2)) && word.length > 2
-    return /^-[A-Za-z]+$/.test(word) && (word.includes('L') || (platform === 'darwin' && word.includes('r')))
-  })
+  const end = args.indexOf('--')
+  return (end < 0 ? args : args.slice(0, end)).some((word) =>
+    word === '--dereference' || (/^-[A-Za-z]+$/.test(word) && (word.includes('L') || (platform === 'darwin' && word.includes('r')))))
 }
 
 function allowOrPark(acts: Act[], targets: string[]): Decision {
