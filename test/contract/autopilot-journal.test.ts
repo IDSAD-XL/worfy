@@ -76,6 +76,7 @@ const appended: JournalEventFields[] = [
   { kind: 'resumed' },
   { kind: 'session-error', session: 'abc-123', message: 'spawn ENOENT' },
   { kind: 'refused-dialog', session: null, what: 'AskUserQuestion' },
+  { kind: 'auto-approval', session: 'abc-123', agent: 'agent-impl-07', vendor: 'claude', mode: 'shadow', outcome: 'would-allow', rule: 'files-inside-roots', tool: 'Bash', targets: ['~/repo/.claude/worktrees/07/build'], command: 'rm -rf build' },
   { kind: 'human-input', source: 'worfy', what: 'Send queued' },
   { kind: 'background-tasks', tasks: [] },
   { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },

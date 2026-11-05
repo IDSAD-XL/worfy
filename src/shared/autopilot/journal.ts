@@ -47,7 +47,14 @@
 //                                    (worfy-multi-vendor ticket 37): `claude` or `codex`; absent —
 //                                    `claude`, as in every line written before that ticket. A
 //                                    `vendor` this build does not know reads as none, the line stays
-//   harness-behind harness, main,    the Harness in worfy's main has changes in harness/ that the
+//                  autoApproval?     the Auto-approval mode of the Project when the run started
+//                                    (worfy-auto-approve ticket 04): `shadow` or `on`; `off` when
+//                                    it was Shadow or On but the run could not read what the
+//                                    policy needs (git), so the policy is off for the whole run;
+//                                    absent when it was Off, as in every line written before the
+//                                    ticket. A mode switched later counts from the next request,
+//                                    and each auto-approval line names the mode it was judged in
+//   harness-behind harness, main,   the Harness in worfy's main has changes in harness/ that the
 //                  commits           running build's Harness has not (worfy-harness ticket 21,
 //                                    ADR-0047): the Stable copy is due `pnpm install:stable` once
 //                                    the run is over. harness: the build version,
@@ -204,6 +211,20 @@
 //                                    (journalReason). The command itself is never written: it may
 //                                    hold tokens and personal paths. Lines written before
 //                                    worfy-polish ticket 26 have neither field
+//   auto-approval  session, agent?,  the approval policy judged a permission request of the run's
+//                  vendor, mode,     Session (worfy-auto-approve ticket 04) while Auto-approval was
+//                  outcome, rule,    Shadow or On; mode: `shadow` or `on`, as it was at the request;
+//                  tool, targets,    outcome: `allow`, `deny`, `park`, `hard-deny`, in Shadow
+//                  command?          `would-allow`, `would-deny`, `would-park` (a hard-deny stays
+//                                    `hard-deny`), and `park-answered`, `park-expired` once a parked
+//                                    request ends (ticket 07); rule: the id of the rule that decided;
+//                                    tool: the tool asked for; targets: the paths judged, the home
+//                                    folder as `~`, each at most COMMAND_MAX units; command: a Bash
+//                                    command as journalCommand keeps it — `NAME=***` for an
+//                                    assignment whose name holds TOKEN, KEY, SECRET or PASSWORD, the
+//                                    home folder as `~`, at most COMMAND_MAX units. Off writes no
+//                                    such line: a refusal then is `refused-dialog` as before.
+//                                    Journals written before ticket 04 have none
 //   human-input    source, what      a person stepped into the run; any such line is a defect
 //   background-tasks tasks           the live background tasks of the run's Orchestrator Session
 //                                    changed (ADR-0029); tasks: every one now, possibly none; also
@@ -309,6 +330,7 @@ export const JOURNAL_EVENT_KINDS = [
   'resumed',
   'session-error',
   'refused-dialog',
+  'auto-approval',
   'human-input',
   'background-tasks',
   'run-stopping',
@@ -323,6 +345,13 @@ export type JournalEventKind = (typeof JOURNAL_EVENT_KINDS)[number]
 /** Who wrote a `human-input` line. */
 export const HUMAN_INPUT_SOURCES = ['worfy', 'observer'] as const
 export type HumanInputSource = (typeof HUMAN_INPUT_SOURCES)[number]
+
+/** What an `auto-approval` line says the policy did (worfy-auto-approve ticket 04; the last two: ticket 07). */
+export const AUTO_APPROVAL_OUTCOMES = ['allow', 'deny', 'park', 'hard-deny', 'would-allow', 'would-deny', 'would-park', 'park-answered', 'park-expired'] as const
+export type AutoApprovalOutcome = (typeof AUTO_APPROVAL_OUTCOMES)[number]
+
+/** The modes of Auto-approval an `auto-approval` line names; Off writes none. */
+export const AUTO_APPROVAL_LINE_MODES = ['shadow', 'on'] as const
 
 /** What a `limits-hit` line says of a refusal without a window that resets (worfy-multi-vendor ticket 38). */
 export const LIMITS_HIT_REASONS = ['quota'] as const
@@ -368,6 +397,8 @@ const wave = { wave: z.number().int().positive(), tickets: z.array(text) }
 export const LAST_TEXT_MAX = 1000
 /** How much of Claude Code's reason for a permission request `refused-dialog` keeps. */
 export const REASON_MAX = 200
+/** How much of a command, and of each target path, `auto-approval` keeps. */
+export const COMMAND_MAX = 200
 const skipped = z.array(z.object({ num: text, state: z.enum(['blocked', 'none']) }))
 const session = z.string().min(1).nullable()
 const tasks = z.array(z.object({ id: text, type: z.string().nullable(), description: z.string().nullable() }))
@@ -419,7 +450,7 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
   z.object({ ...common, kind: z.literal(kind), ...fields })
 
 export const journalEventSchema = z.discriminatedUnion('kind', [
-  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional(), mode: z.enum(RUN_MODES).optional().catch(undefined), vendor: vendorIdSchema.optional().catch(undefined) }),
+  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional(), mode: z.enum(RUN_MODES).optional().catch(undefined), vendor: vendorIdSchema.optional().catch(undefined), autoApproval: z.enum(['off', 'shadow', 'on']).optional().catch(undefined) }),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
   event('forecast', {
     mode: z.enum(RUN_MODES).optional().catch(undefined),
@@ -446,6 +477,17 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('resumed', {}),
   event('session-error', { session, message: z.string() }),
   event('refused-dialog', { session, what: text, agent: text.optional(), reason: text.max(REASON_MAX).optional() }),
+  event('auto-approval', {
+    session,
+    agent: text.optional(),
+    vendor: vendorIdSchema,
+    mode: z.enum(AUTO_APPROVAL_LINE_MODES),
+    outcome: z.enum(AUTO_APPROVAL_OUTCOMES),
+    rule: text,
+    tool: text,
+    targets: z.array(text.max(COMMAND_MAX)),
+    command: z.string().max(COMMAND_MAX).optional(),
+  }),
   event('human-input', { source: z.enum(HUMAN_INPUT_SOURCES), what: text }),
   event('background-tasks', { tasks }),
   event('run-stopping', { reason: text, ...wave, inWork: z.array(text) }),
@@ -501,13 +543,38 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
  * a sentence) does not stop the replacement.
  */
 export function journalReason(reason: string, home: string): string {
+  return clip(homeAsTilde(reason, home), REASON_MAX)
+}
+
+/** `text` with the home folder `home` written as `~` wherever a path starts with it (journalReason). */
+function homeAsTilde(text: string, home: string): string {
   const parts = home.split(/[\\/]+/).filter((part) => part !== '')
-  if (parts.length === 0) return clip(reason, REASON_MAX)
+  if (parts.length === 0) return text
   const drive = /^([A-Za-z]):$/.exec(parts[0] ?? '')
   const rest = parts.slice(drive === null ? 0 : 1).map((part) => `${SEPARATOR}${escapeRegExp(part)}`).join('')
   // `C:` or `/c` before a drive home's folders; a separator before any other home's.
   const prefix = drive === null ? `${PATH_START}${rest}` : `(?:${DRIVE_START}${drive[1]}:|${PATH_START}[\\\\/]${drive[1]})${rest}`
-  return clip(reason.replace(new RegExp(`${prefix}${NAME_GOES_ON}`, 'giu'), '~'), REASON_MAX)
+  return text.replace(new RegExp(`${prefix}${NAME_GOES_ON}`, 'giu'), '~')
+}
+
+/**
+ * An assignment whose value the Journal hides: a name that holds TOKEN, KEY, SECRET or PASSWORD (any
+ * case, `GH_TOKEN`, `api_key`), `=`, and the value — quoted, or up to the next blank.
+ */
+const SECRET_ASSIGNMENT = /(?<![\p{L}\p{N}_])([\p{L}_][\p{L}\p{N}_]*(?:TOKEN|KEY|SECRET|PASSWORD)[\p{L}\p{N}_]*)=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\S*)/giu
+
+/**
+ * A command as `auto-approval` keeps it (spec of worfy-auto-approve, how it works, item 7; security,
+ * item 7): an assignment of a secret as `NAME=***`, the home folder as `~` (as journalReason), then at
+ * most COMMAND_MAX UTF-16 units. The secret goes first, so a cut never leaves half of one.
+ */
+export function journalCommand(command: string, home: string): string {
+  return clip(homeAsTilde(command.replace(SECRET_ASSIGNMENT, '$1=***'), home), COMMAND_MAX)
+}
+
+/** A path as `auto-approval` keeps it in `targets`: the home folder as `~`, at most COMMAND_MAX units. */
+export function journalTarget(path: string, home: string): string {
+  return clip(homeAsTilde(path, home), COMMAND_MAX)
 }
 
 /**

@@ -121,6 +121,26 @@ export interface QueryRequest {
    * (app-registry.ts). A Session always sets it.
    */
   orchestrator?: boolean | undefined
+  /**
+   * Variables Claude Code gets over the agent environment: the Run's TMPDIR and git environment
+   * (worfy-auto-approve ticket 04). Absent: none.
+   */
+  environment?: Readonly<Record<string, string>> | undefined
+  /**
+   * Told, before Claude Code asks canUseTool about a tool call, where its shell stands for that call
+   * (a PreToolUse hook of the query, options.ts): the approval policy judges a command in the folder
+   * the agent's `cd`s left it in. Absent: no hook.
+   */
+  toolUse?: ((use: ToolUseFacts) => void) | undefined
+}
+
+/** What a PreToolUse hook of Claude Code tells of one tool call. */
+export interface ToolUseFacts {
+  toolUseId: string
+  /** The shell's current folder; null when Claude Code did not say. */
+  cwd: string | null
+  /** The Session's scratchpad folder (scratchpad_dir); null when it has none. */
+  scratchpad: string | null
 }
 
 /** Starts Claude Code for a Session: the real SDK, or the fake agent in tests. */

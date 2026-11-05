@@ -11,8 +11,10 @@
 //
 // Claude Code's canUseTool becomes worfy's neutral permission request (claudeCanUseTool): the options
 // are Allow / Always allow / Deny, and the Session's gate (src/main/agent/permissions.ts) waits for the
-// user's pick. An unattended Session (Autopilot) refuses every call at once instead
-// (unattendedCanUseTool), and each refusal reaches its subscribers as a `refused_dialog` event.
+// user's pick. An unattended Session (Autopilot) answers by the Auto-approval mode instead
+// (unattendedCanUseTool, worfy-auto-approve ticket 04): at Off it refuses every call at once, and each
+// refusal reaches its subscribers as a `refused_dialog` event; at Shadow and On it asks the approval
+// policy, whose every decision is an `auto_approval` event.
 //
 // `null` — "Default" in the pickers — is the user's own model and effort from ~/.claude/settings.json
 // (worfy-daily ticket 23; user-model.ts): setModel(null) on a live query calls setModel with that
@@ -37,13 +39,16 @@ import type {
   QueryFactory,
   QueryHandle,
   QueryRequest,
+  ToolUseFacts,
 } from '../../agent/session/types'
 import type { SlashCommand } from '../../../shared/agent/commands'
 import type { AgentEvent, PermissionOption } from '../../../shared/agent/events'
 import { ASK_USER_QUESTION, parseQuestions } from '../../../shared/agent/questions'
+import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
+import { PARK_PENDING_HINT } from '../../agent/auto-approve/run-approval'
 import { isSelectableModel, PERMISSION_MODES, type EffortChoice, type ModelOption, type PermissionModeChoice, type SessionSettings } from '../../../shared/agent/settings'
 import { contextUsageOf, isCompactBoundary, sdkMessageToEvents } from '../../../shared/vendors/claude/events'
-import type { PermissionAsker, RefusalDetails, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
+import type { ApprovalWhere, PermissionAsker, RefusalDetails, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import { claudeSignedIn } from './account'
 import { claudeSettings } from './options'
 import { queryFactoryFromEnv } from './query'
@@ -123,20 +128,87 @@ export function claudeCanUseTool(asker: PermissionAsker): CanUseToolHandler {
   }
 }
 
+/** What the model reads when the approval policy refused a request (On): Claude Code's reason, then the rule's hint. */
+export const approvalDeniedMessage = (reason: string | null, hint: string): string =>
+  `${UNATTENDED_DENIED_MESSAGE}${reason === null ? '' : `\nrefused because: ${reason}`}\n${hint}`
+
+/** What Shadow records for an outcome: what would have been done; a hard deny is one in any mode. */
+const SHADOW_OUTCOME = { allow: 'would-allow', deny: 'would-deny', park: 'would-park', 'hard-deny': 'hard-deny' } as const
+
+/** How many tool calls the folders are kept for, waiting for canUseTool: most calls are never asked about. */
+const TOOL_USES_KEPT = 256
+
 /**
- * canUseTool of an unattended Session: refuses every call at once and tells `refused` the tool's
- * name, the message given and who asked and why. Claude Code still asks in bypassPermissions for a
- * few of its own checks (`rm -rf` with a target it cannot resolve); its `decisionReason` goes to the
- * model, so it can rewrite the command, and to the subscribers with the Subagent that asked
- * (`agentID`). Without a reason the message is UNATTENDED_DENIED_MESSAGE alone.
+ * Where the shell stood for each tool call, as the PreToolUse hook of the query told it
+ * (QueryRequest.toolUse), until canUseTool takes it.
  */
-export function unattendedCanUseTool(refused: (toolName: string, message: string, details: RefusalDetails) => void): CanUseToolHandler {
-  return (toolName, _input, options: PermissionRequestOptions) => {
+export class ToolUseFolders {
+  private readonly folders = new Map<string, ApprovalWhere>()
+
+  readonly record = (use: ToolUseFacts): void => {
+    this.folders.delete(use.toolUseId)
+    this.folders.set(use.toolUseId, { cwd: use.cwd, scratchpad: use.scratchpad })
+    // The oldest go first: a Map keeps the order things were set in.
+    for (const key of this.folders.keys()) {
+      if (this.folders.size <= TOOL_USES_KEPT) break
+      this.folders.delete(key)
+    }
+  }
+
+  /** Where the shell stood for the call `toolUseId`; nulls when the hook did not say. */
+  take(toolUseId: string | null): ApprovalWhere {
+    const where = toolUseId === null ? undefined : this.folders.get(toolUseId)
+    if (toolUseId !== null) this.folders.delete(toolUseId)
+    return where ?? { cwd: null, scratchpad: null }
+  }
+}
+
+/** The mode of `approval` now; Off without one, and when reading it fails. */
+function modeOf(approval: SessionApproval | undefined): AutoApprovalMode {
+  if (approval === undefined) return 'off'
+  try {
+    return approval.mode()
+  } catch (error) {
+    console.warn('[agent] could not read the Auto-approval mode, the request is refused as at Off', error)
+    return 'off'
+  }
+}
+
+/**
+ * canUseTool of an unattended Session. Claude Code still asks in bypassPermissions for a few of its
+ * own checks (`rm -rf` with a target it cannot resolve); its `decisionReason` goes to the model, so it
+ * can rewrite the command, and to the subscribers with the Subagent that asked (`agentID`). Without a
+ * reason the message is UNATTENDED_DENIED_MESSAGE alone.
+ *
+ * The Auto-approval mode of `approval` is read at each call (worfy-auto-approve ticket 04):
+ * - Off, or no `approval`: refuses at once and tells `refused` the tool's name, the message and who
+ *   asked and why — the policy is not asked;
+ * - Shadow: asks the policy, reports what it would have done (`would-*`, a hard deny as `hard-deny`),
+ *   and refuses with the same message as Off; `refused` is not told;
+ * - On: allow answers the call with its input unchanged; deny and hard deny refuse with the rule's hint
+ *   after Claude Code's reason; park refuses with PARK_PENDING_HINT until ticket 07 parks it.
+ * `folders` gives where the shell stood for the call (the PreToolUse hook, ToolUseFolders).
+ */
+export function unattendedCanUseTool(refused: (toolName: string, message: string, details: RefusalDetails) => void, approval?: SessionApproval, folders?: ToolUseFolders): CanUseToolHandler {
+  return async (toolName, input, options: PermissionRequestOptions) => {
     const reason = text(options.decisionReason)
     const agent = text(options.agentID)
     const message = reason === null ? UNATTENDED_DENIED_MESSAGE : unattendedDeniedMessage(reason)
-    refused(toolName, message, { ...(agent === null ? {} : { agent }), ...(reason === null ? {} : { reason }) })
-    return Promise.resolve({ behavior: 'deny', message })
+    const details: RefusalDetails = { ...(agent === null ? {} : { agent }), ...(reason === null ? {} : { reason }) }
+    const mode = modeOf(approval)
+    if (approval === undefined || mode === 'off') {
+      refused(toolName, message, details)
+      return { behavior: 'deny', message }
+    }
+    const where = folders?.take(text(options.toolUseID)) ?? { cwd: null, scratchpad: null }
+    const decision = await approval.judge({ tool: toolName, input }, where)
+    const command = typeof input['command'] === 'string' ? input['command'] : null
+    const outcome = mode === 'shadow' ? SHADOW_OUTCOME[decision.outcome] : decision.outcome
+    approval.decided({ mode, outcome, rule: decision.rule, tool: toolName, targets: [...decision.targets], command, ...details })
+    if (mode === 'shadow') return { behavior: 'deny', message }
+    if (decision.outcome === 'allow') return { behavior: 'allow', updatedInput: input }
+    const hint = decision.outcome === 'park' ? PARK_PENDING_HINT : decision.hint
+    return { behavior: 'deny', message: hint === null ? message : approvalDeniedMessage(reason, hint) }
   }
 }
 
@@ -382,16 +454,20 @@ export function claudeSessions(factory: QueryFactory, given: Partial<UserDefault
   const open = async (opts: SessionStart, resume: string | undefined, sessionId: string | undefined): Promise<SessionHandle> => {
     const previous = opts.previous === undefined ? null : claudeLive(opts.previous)
     const handle = new ClaudeSession(previous?.catalog ?? new CommandCatalog(), user, resume ?? sessionId ?? 'a new Session')
+    // The shell's folder of each tool call, for the approval policy of an unattended Session (worfy-auto-approve ticket 04).
+    const folders = opts.unattended && opts.approval !== undefined ? new ToolUseFolders() : undefined
     await handle.open(factory, {
       cwd: opts.cwd,
       resume,
       sessionId: resume === undefined ? sessionId : undefined,
       stderr: opts.stderr,
       settings: handle.startSettings(opts.settings),
-      canUseTool: opts.unattended ? unattendedCanUseTool(opts.refused) : claudeCanUseTool(opts.permissions),
+      canUseTool: opts.unattended ? unattendedCanUseTool(opts.refused, opts.approval, folders) : claudeCanUseTool(opts.permissions),
       unattended: opts.unattended,
       spawned: opts.spawned,
       orchestrator: opts.orchestrator,
+      ...(opts.environment === undefined ? {} : { environment: opts.environment }),
+      ...(folders === undefined ? {} : { toolUse: folders.record }),
     })
     return handle
   }

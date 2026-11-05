@@ -103,6 +103,13 @@ export interface RunStart {
   mode?: RunMode
   /** The Vendor of the run's Orchestrator (worfy-multi-vendor ticket 37); absent in a start that does not say, read as Claude Code. */
   vendor?: VendorId
+  /** The Auto-approval mode at the start (worfy-auto-approve ticket 04); absent at Off. */
+  autoApproval?: 'off' | 'shadow' | 'on'
+  /**
+   * The run id to open the journal under: the one the run's folder for temporary files is named by
+   * (worfy-auto-approve ticket 04). Absent: a new one. A file of that id already there is an error.
+   */
+  run?: string
 }
 
 /**
@@ -110,17 +117,19 @@ export interface RunStart {
  * carries the run's origin key, `override` and the Linked machines not asked when given
  * (worfy-link ticket 15), who started it and its named Tickets (worfy-flight-recorder ticket 11), and
  * its Run mode (worfy-resource-planner ticket 05) and the Vendor of its Orchestrator (worfy-multi-vendor
- * ticket 37).
+ * ticket 37), and its Auto-approval mode (worfy-auto-approve ticket 04). With `start.run` the run has
+ * that id.
  */
 export async function openRun(start: RunStart, options: JournalOptions = {}): Promise<RunJournal> {
   const now = options.now ?? (() => new Date())
   const suffix = options.suffix ?? randomSuffix
+  if (start.run !== undefined && !isRunId(start.run)) throw new Error(`not a run id: ${start.run}`)
   const dir = journalDir(options.env)
   await mkdir(dir, { recursive: true })
 
   for (let attempt = 1; ; attempt++) {
     const at = now()
-    const run = makeRunId(at, suffix())
+    const run = start.run ?? makeRunId(at, suffix())
     const file = join(dir, journalFileName(run))
     const line = formatJournalLine({
       at: at.toISOString(),
@@ -135,12 +144,13 @@ export async function openRun(start: RunStart, options: JournalOptions = {}): Pr
       ...(start.tickets === undefined ? {} : { tickets: [...start.tickets] }),
       ...(start.mode === undefined ? {} : { mode: start.mode }),
       ...(start.vendor === undefined ? {} : { vendor: start.vendor }),
+      ...(start.autoApproval === undefined ? {} : { autoApproval: start.autoApproval }),
     })
     try {
       // 'wx': a new run never appends to the file of another one.
       await writeFile(file, line, { flag: 'wx' })
     } catch (error) {
-      if (isCode(error, 'EEXIST') && attempt < OPEN_ATTEMPTS) continue
+      if (isCode(error, 'EEXIST') && attempt < OPEN_ATTEMPTS && start.run === undefined) continue
       throw error
     }
     return new RunJournal(run, file, start.project, start.epic, now)

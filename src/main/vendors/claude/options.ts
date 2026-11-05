@@ -81,6 +81,7 @@ import { CANVAS_SERVER_NAME } from '../../../shared/canvas/tools'
 import type { HarnessKind } from '../../../shared/projects/action-templates'
 import type { Env } from '../../agent/env'
 import type { CanUseToolHandler } from '../../agent/permissions'
+import type { ToolUseFacts } from '../../agent/session/types'
 import { bundledHarnessDir } from '../../harness/bundled'
 import { HARNESS_PLUGIN_NAME } from '../../harness/locate'
 import { sdkServerConfig, type ClaudeMcpServer } from './mcp'
@@ -301,6 +302,42 @@ export interface SessionOptionsInput {
    * environment. Absent or null — "Claude Code default" — passes no flag settings at all.
    */
   autoCompactWindow?: number | null | undefined
+  /**
+   * Variables over `env` (worfy-auto-approve ticket 04): the Run's TMPDIR and git environment of an
+   * unattended Session. Absent: `env` as it is.
+   */
+  environment?: Readonly<Record<string, string>> | undefined
+  /**
+   * Told where the shell stands for each tool call, before canUseTool is asked about it: a PreToolUse
+   * hook of the query that answers nothing, so Claude Code goes on as without it (toolUseHooks).
+   * Absent: no hook.
+   */
+  toolUse?: ((use: ToolUseFacts) => void) | undefined
+}
+
+/**
+ * The PreToolUse hook that tells `observe` the shell folder (`cwd`) and the scratchpad
+ * (`scratchpad_dir`) of each tool call (worfy-auto-approve ticket 04). Claude Code runs PreToolUse
+ * hooks before it asks canUseTool, and gives no folder to canUseTool itself. The hook answers `{}`:
+ * no decision and no output, so the tool call goes on as without it, and no `hook` event is made of it
+ * (hookSaidSomething, src/shared/vendors/claude/events.ts).
+ */
+export function toolUseHooks(observe: (use: ToolUseFacts) => void): NonNullable<Options['hooks']> {
+  const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null)
+  return {
+    PreToolUse: [
+      {
+        hooks: [
+          (input) => {
+            const fields = input as unknown as Record<string, unknown>
+            const toolUseId = text(fields['tool_use_id'])
+            if (toolUseId !== null) observe({ toolUseId, cwd: text(fields['cwd']), scratchpad: text(fields['scratchpad_dir']) })
+            return Promise.resolve({})
+          },
+        ],
+      },
+    ],
+  }
 }
 
 /** The user's plugins and own skills a Session would get without a list (ADR-0084). */
@@ -490,7 +527,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   const settings = input.settings ?? DEFAULT_SETTINGS
   const options: Options = {
     cwd: input.cwd,
-    env: input.env,
+    env: input.environment === undefined ? input.env : { ...input.env, ...input.environment },
     settingSources: [...(input.settingSources ?? ['user', 'project', 'local'])],
     systemPrompt: { type: 'preset', preset: 'claude_code' },
     permissionMode: input.unattended === true ? 'bypassPermissions' : claudeMode(settings.permissionMode),
@@ -517,6 +554,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.stderr !== undefined) options.stderr = input.stderr
   if (input.spawned !== undefined) options.spawnClaudeCodeProcess = watchedSpawn(input.spawned, input.stderr)
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
+  if (input.toolUse !== undefined) options.hooks = toolUseHooks(input.toolUse)
   if (input.outputFormat !== undefined) options.outputFormat = input.outputFormat
   if (input.disallowedTools !== undefined && input.disallowedTools.length > 0) options.disallowedTools = [...input.disallowedTools]
   if (input.allowedTools !== undefined && input.allowedTools.length > 0) options.allowedTools = [...input.allowedTools]

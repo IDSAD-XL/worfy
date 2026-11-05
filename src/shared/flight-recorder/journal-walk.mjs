@@ -21,6 +21,7 @@ export const JOURNAL_KINDS = [
   'resumed',
   'session-error',
   'refused-dialog',
+  'auto-approval',
   'human-input',
   'background-tasks',
   'run-stopping',

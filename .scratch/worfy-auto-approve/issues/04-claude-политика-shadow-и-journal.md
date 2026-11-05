@@ -1,7 +1,7 @@
 # 04 — Claude: политика в unattended canUseTool, Shadow, строка Journal
 
 Type: task
-Status: open
+Status: claimed 2026-11-05T20:00Z
 Blocked by: 03, 06, 12
 Source: [spec.md](../spec.md), «Как работает», п. 1, 3, 7; «Решено без владельца», п. 4–6; «Безопасность», п. 5, 7
 
