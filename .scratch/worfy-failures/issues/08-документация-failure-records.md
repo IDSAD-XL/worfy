@@ -1,7 +1,7 @@
 # 08 — Документация: раздел «Failure records»
 
 Type: task
-Status: open
+Status: claimed 2026-11-05T04:26Z
 Blocked by: 07
 Source: [spec.md](../spec.md), «Решено без владельца» (раздел на странице Gate, не новая страница), «Риски», п. 1 и 4 (что не ловится), «Новые термины»; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (страницы функций: английский — основной, перевод — `docs/features/ru/`)
 
@@ -34,8 +34,15 @@ Source: [spec.md](../spec.md), «Решено без владельца» (ра�
 - [ ] Раздел «Failure records» на английской странице и в переводе; каждое утверждение сверено с кодом вторым
       агентом.
 - [ ] Раздел называет, чего очистка не ловит, и что CI не пишет записей.
+  - evidence: commit pass · docs: section "Failure records" on the Gate feature page (worfy-failures 08) · - - · f51519768
 - [ ] `node scripts/check-feature-docs.mjs` — exit 0 и строка `feature docs: ok (…)`.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0, feature docs: ok (26 pages, 1964 paths); on a copy before worfy-failures 01 exit 1 · mac - · f51519768
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0, feature docs: ok (26 pages, 1964 paths), round 2 · mac - · bfda0211bfd32eb6176b06e7f420ed2c6b266bb0
 - [ ] `pnpm lint` — exit 0; CI PR зелёный.
+  - evidence: test-run pass · `pnpm lint` exit 0 (CI of the PR not yet read) · mac - · f51519768
+  - evidence: gate pass · `gate fast` exit 0, GATE_SCOPE=all · mac - · f51519768
+  - evidence: test-run pass · `pnpm lint` exit 0, round 2 · mac - · bfda0211bfd32eb6176b06e7f420ed2c6b266bb0
+  - evidence: gate pass · `gate fast` exit 0, GATE_SCOPE=all, round 2 · mac - · bfda0211bfd32eb6176b06e7f420ed2c6b266bb0
 
 ## Тесты
 
@@ -51,3 +58,24 @@ Source: [spec.md](../spec.md), «Решено без владельца» (ра�
 Только читать: `harness/hooks/gate-failures.mjs`, `harness/hooks/gate.mjs`, `harness/lib/gate-failures/`,
 `test/failures-reporter.ts`, `test/e2e/failures-reporter.ts`, `scripts/quarantine-suggest.mjs`,
 `docs/features/README.md`, ADR Ticket-а 07.
+
+## Итог
+
+- `docs/features/gate-and-github.md`: раздел «Failure records» после «Gate full» — Behaviour (что оставляет red run,
+  строка `--- failure records:`, subcommand-ы `list`, `rerun`, `report`, `export`, `import`, `machine` и их exit code-ы,
+  классы flaky / stable red / without rerun и «under load», кандидаты, `quarantine-suggest` печатает и не пишет, срок
+  60 дней, шаги без test-ов, CI записей не пишет), подраздел Windows, How it works (контракт `GATE_FAILURES_FILE`, id
+  test-а без строки, очистка и чего она не ловит, компьютер без hostname, ссылки на ADR-0096 и ADR-0086),
+  Implementation без номеров строк. Вступление страницы теперь называет четыре Feature.
+- `docs/features/ru/gate-and-github.md`: перевод раздела; заодно переведены абзацы про Codex из #1308, на которые
+  перевод отставал, поэтому строка `same-pr` остаётся верной.
+- Сначала падающий: страница на копии дерева до merge 01 (`649954d91^`) — `check-feature-docs.mjs` exit 1, 20 путей
+  «does not exist», среди них `harness/bin/gate-failures`; на ветке — exit 0, `feature docs: ok (26 pages, 1964 paths)`.
+- Страница теперь 586 строк — больше порога шаблона в ~400 строк; раздел на этой странице решён spec-ом, разбиение
+  страницы — вопрос Orchestrator-у.
+- Сверка утверждений вторым агентом (пункт 1) — за Orchestrator-ом.
+- Раунд 2 (замечания проверки #1416): `list --json` и `report --json` кладут пропущенные файлы в поле `skipped`
+  JSON-объекта и в stderr не пишут — страница говорит это для обоих режимов; записи reporter-а vitest для файла,
+  упавшего вне своих test-ов, и для необработанных ошибок run-а названы в «What a red run leaves» (в `<n> tests`
+  входят, `list`, `rerun` и `report` считают их шагами); строка индекса `docs/features/README.md` называет Failure
+  records. Оба языка. Разбиение страницы — не в этом раунде.
