@@ -29,11 +29,17 @@
 
 - [04 — Данные для Work track](issues/04-данные-work-track.md): за 1–14 дней источников хватает без журнала работы; транскрипты — ровно 30 дней (4 ГБ, ~12 с), GitHub полон, но нынешний reader (3 вызова `gh` на ветку) не годится для месяца — нужен пакетный GraphQL; логи gate живут 8–13 дней, ручные Wave-ы нигде не записаны. Рекомендация: без своего хранилища, две правки Harness — `timings.json` gate 31 день и строки начала/конца каждой Wave в `epic-wave`; иначе — минимальный журнал и новый ADR.
 
+- [02 — Старт при идущей работе](issues/02-старт-при-идущей-работе.md): Run ждёт только ход, очередь и фоновые задачи Orchestrator-а; Start now после подтверждения, Cancel, без предела; причина `orchestrator-busy`; Run, остановленный ошибкой, сразу отдаёт Session; окно запуска внутри worfy для кнопки и `autopilot_start` (прототип `card-918c77d9` принят).
+- [03 — Очередь Epic-ов](issues/03-очередь-epic-ов.md): список в чате, MCP tool и «Run all accepted»; правка между Wave-ами без перестановки; Epic, ждущий владельца, пропускается; красный CI main и `limits-timeout` — стоп всего Run-а; новое определение Run.
+- [05 — Вид Work track](issues/05-вид-work-track.md): прототип `card-dcf3918a` принят: «Run history | Work track», Day / Week / Month, by Session / by Epic, сводка одной строкой, панель Span-а.
+- [06 — Объём и доступ Work track](issues/06-объём-и-доступ-work-track.md): все Session этой Machine, только названия, без Linked machine; журнала нет — «данных нет» и две правки Harness-а; `cleanupPeriodDays` 35.
+
+Destination достигнут 2026-11-05: [spec.md](spec.md) (Ticket-ы 07–20) и [../worfy-work-track/spec.md](../worfy-work-track/spec.md) (Ticket-ы 01–12) — ждут приёмки владельцем.
+
 ## Not yet specified
 
-- Work track с работой Linked machine (ПК) в той же ленте: доступ, объём, чей транскрипт читать — после решений 05–06.
-- Нужен ли всё-таки журнал работы вне Run-а (смена статуса Ticket-а, ручная «Run wave») — по ответу research 04; если да — новый ADR, отменяющий часть ADR-0092.
-- Нарезка Ticket-ов и Wave-ов обоих spec-ов — после 02, 03, 05, 06.
+- Work track с работой Linked machine (ПК) в той же ленте — вне первой версии (решение 06, Q3); отдельный Epic, если понадобится.
+- Свой журнал работы вне Run-а — не нужен по ответу 04 и решению 06; вернуться, только если Work track с правками Harness-а не покажет нужного (тогда новый ADR, отменяющий часть ADR-0092).
 
 ## Out of scope
 
