@@ -44,13 +44,18 @@ Source: [spec.md](../spec.md), «Сценарии» (строки «Прилож
 
 - [ ] e2e: после SIGKILL и нового запуска сообщений Orchestrator-у нет, прошлый Run в Run history оборван, новый Run
       стартует и шлёт команду Wave один раз; `checkRecovery` пустой.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · eddc8bad409b0208b84aae8dc90da9ddc794dbe1
 - [ ] e2e: GitHub недоступен весь Run — Run проходит, `checkRecovery` пустой, gh только читал.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · eddc8bad409b0208b84aae8dc90da9ddc794dbe1
 - [ ] После spec-а нет живого процесса приложения (ожидание `endApp` и закрытие второго запуска).
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · eddc8bad409b0208b84aae8dc90da9ddc794dbe1
 - [ ] Spec не дольше 30 с по логу `macos-e2e` на PR (предел этого Epic-а, не ADR-0081); зелёный в `macos-e2e` и
       `windows-e2e`.
 - [ ] `node scripts/ci-scope.mjs` для diff-а с правкой `src/renderer/flight-recorder/` называет новый spec;
       `test/contract/ci-scope-e2e.test.ts` — exit 0.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs --run test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts` exit 0 · mac - · eddc8bad409b0208b84aae8dc90da9ddc794dbe1
 - [ ] Каждый test краснеет на испорченном ожидании — в «Итог».
+  - evidence: test-run pass · `pnpm exec playwright test test/e2e/autopilot-faults.spec.ts` on 4 mutants exit 1 each · mac - · eddc8bad409b0208b84aae8dc90da9ddc794dbe1
 - [ ] `src/` не изменён. `pnpm lint`, `pnpm typecheck` — exit 0; `ci-ok` на PR зелёный.
 
 ## Тесты
