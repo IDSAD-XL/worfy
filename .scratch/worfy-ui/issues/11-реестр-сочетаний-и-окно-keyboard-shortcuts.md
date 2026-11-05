@@ -125,8 +125,8 @@ PowerShell).
   Как проверить: окно worfy.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
   exit 0.
-- [ ] Windows-ПК: gate full — строка вердикта и код выхода в PR (платформенный PR: `src/main/menu.ts`,
-  `src/renderer/platform.ts`).
+- [x] Windows-ПК: gate full — строка вердикта и код выхода в PR (платформенный PR: `src/main/menu.ts`,
+  `src/renderer/platform.ts`). 2026-11-06: зелёный gate full ПК на `5557f7448` (2026-11-01), после merge этого Ticket-а.
 
 ## Тесты
 

@@ -25,8 +25,6 @@
 
 ## Ждёт владельца
 
-- С `check/windows` skipped, пока ПК на паузе, влит #878 — его покрывает полный run Windows e2e ПК на свежем `main` (решение 2026-10-28).
-- Должен: gate full ПК на свежем `main` для #878 — ПК без питания с 2026-11-05 ~20:15Z; последний, `9731f583a`, — только flaky.
 - Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-faults` 08, `worfy-evidence` 09, `worfy-auto-approve` 11, `worfy-retry` 11; [список](.scratch/owner-manual-checks.md).
 - Ручные проверки владельца (Mac и ПК, ~30 мин) и песочница приёмки (`worfy-harness` 36) — [один список](.scratch/owner-manual-checks.md).
 - `worfy-windows` 07 закрыт (#1127, отступления Q31 подтвердить).
@@ -65,6 +63,7 @@
 - `worfy-harness` 31: `$0` и `$1` в shell-блоках skills подменяются аргументами вызова.
 - Кандидаты Harness (`worfy-harness`): изоляция `preflight.test.sh` (11), абсолютный путь к `gh` (01), PATH с node в hook-е `gh-token-env` (18); прочие — `worfy-polish`.
 - `worfy-link` ведёт Session на Mac, `worfy-windows` — Session на ПК; PR с ПК вливает Session на Mac по `ci-ok` и `review`; метки `needs-mac-gate` нет (ADR-0083).
+- ПК должен gate full на свежем `main` за #878 (влит с `check/windows` skipped, решение 2026-10-28): ПК без питания с 2026-11-05 ~20:15Z; последний, `9731f583a`, — только flaky.
 - E4 (подпись Developer ID и нотаризация) — после `worfy-link` и `worfy-windows` и только при первом внешнем пользователе ([roadmap](docs/roadmap.md)).
 
 ## Где остальное
