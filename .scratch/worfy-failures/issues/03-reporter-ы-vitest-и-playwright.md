@@ -1,7 +1,8 @@
 # 03 — Reporter-ы vitest и Playwright пишут записи
 
 Type: task
-Status: claimed 2026-11-04T23:30Z
+Status: done 2026-11-05T00:34Z
+PR: #1397
 Blocked by: 01
 Source: [spec.md](../spec.md), «Источники и что меняется в них» (worfy: reporter-ы; повтор поодиночке), «Модель» (запись о падении), «Windows» (argv без shell); [ADR-0083](../../../docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md) (повторы только в CI)
 
@@ -38,25 +39,33 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
 - [ ] Unit test (vitest): fake `TestModule` с одним упавшим, одним зелёным и одним flaky test-ом — одна строка;
       `name` через « > », `file` с `/`, `line` есть; `error` — первая строка без ANSI и без пути домашней папки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/failures-reporter.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
+  - evidence: review pass · PR #1397 · - - · 7de9a2e4c022db9b3ae4faafe7f1ca354d377d57
 - [ ] Unit test (vitest): модуль с ошибкой импорта — запись с `name: null`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/failures-reporter.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
+  - evidence: review pass · PR #1397 · - - · 7de9a2e4c022db9b3ae4faafe7f1ca354d377d57
 - [ ] Unit test (Playwright): fake `Suite` с `unexpected`, `flaky` и `skipped` — одна строка, `attempt` = номер
       последней попытки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/failures-reporter.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
+  - evidence: review pass · PR #1397 · - - · 7de9a2e4c022db9b3ae4faafe7f1ca354d377d57
 - [ ] Unit test: без `GATE_FAILURES_FILE` reporter-ы не пишут ничего и не печатают ничего.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/failures-reporter.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
+  - evidence: review pass · PR #1397 · - - · 7de9a2e4c022db9b3ae4faafe7f1ca354d377d57
 - [ ] Unit test: `rerun` начинается с `node`, второй элемент — существующий файл в репозитории; на `win32` argv тот
       же (shell не нужен).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/failures-reporter.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
+  - evidence: review pass · PR #1397 · - - · 7de9a2e4c022db9b3ae4faafe7f1ca354d377d57
 - [ ] Contract test: шаблон `-t` из `rerun` упавшего fixture-test-а `a` в файле, где есть и test `a b`, запускает
       ровно `a` (vitest печатает `1 failed`, остальные test-ы файла — skipped).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/failures-reporter-rerun.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
+  - evidence: review pass · PR #1397 · - - · 7de9a2e4c022db9b3ae4faafe7f1ca354d377d57
 - [ ] FLAKY-строки и `test-results/vitest-timings.json` — как до Ticket-а (`test/unit/flaky-reporter.test.ts`,
       `test/unit/test-timings.test.ts` зелёные).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/flaky-reporter.test.ts test/unit/test-timings.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
+  - evidence: review pass · PR #1397 · - - · 7de9a2e4c022db9b3ae4faafe7f1ca354d377d57
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (правка `playwright.config.ts` включит
       полный e2e — это ожидаемо).
   - evidence: gate pass · `gate fast` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/41938369856/job/126963660501 · ci - · 7de9a2e4c022db9b3ae4faafe7f1ca354d377d57
 
 ## Тесты
 
