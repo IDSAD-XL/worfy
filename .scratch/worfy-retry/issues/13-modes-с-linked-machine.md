@@ -90,6 +90,7 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-05»,
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts read-only, auto-approve-setting, auto-continue-setting) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
   - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · 486677b1b4d134edcb1c30c9c0f329e8a7d02a37
   - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · bd82c0c23
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 (read-only marks no faster than the write) · mac dev · 208778eaf04dc40f4ae5f485bea067b0c2acd640
 - [ ] Смена на одной Machine видна в открытом меню другой без перезагрузки (Q18).
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts Q18 both ways) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
   - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · 486677b1b4d134edcb1c30c9c0f329e8a7d02a37
@@ -105,6 +106,7 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-05»,
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
   - evidence: gate pass · `gate fast` exit 0 · mac - · 4bb48b4822db5ed345838ad3e944f5e644bc139a
   - evidence: gate pass · `gate fast` exit 0 · mac - · 87d54e9f2548e057a5bf24240db8ee9e6814faae
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 208778eaf04dc40f4ae5f485bea067b0c2acd640
 
 ## Тесты
 
@@ -178,8 +180,12 @@ hook-ах, сброс догадки) — все убиты.
   link, где `linked.invoke` проверяет debugging port сам;
 - добавлен contract test debugging port на Machine Project-а: Shadow и On из Linked machine отказаны, Off в силе,
   Off и Auto-continue проходят;
-- e2e: «ничего не записано» проверяется после того, как запись из окна B в другой файл дошла (`expect.poll`), а не
-  сразу после принудительных кликов;
+- e2e: «ничего не записано» проверяется после того, как дошла запись-метка из окна B (`expect.poll`), а не сразу после
+  принудительных кликов. Раунд 3: каждая метка идёт не быстрее записи, которую она исключает. Eco mode из A пошёл бы
+  через `bin/profile-set` B, поэтому метка для него — запись Eco mode в окне B, и сверяется число запусков
+  `bin/profile-set` на запись (обёртка e2e пишет их в файл). Для Auto-continue метка — следующая запись Eco mode.
+  Мутации e2e: если отключить проверки Read only в окне и в link adapter для Eco mode или для Auto-continue,
+  test падает в обоих случаях;
 - риск 1: contract test-ы держат сторону link (ответ «unreachable» и что лежит на B). Сторону меню — без догадки, toast,
   повторное чтение — держат unit test-ы `test/unit/modes-menu.test.tsx` («a write through the link without an answer»
   и два после него); названия contract test-ов сужены до этого.
