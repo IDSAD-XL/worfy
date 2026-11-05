@@ -115,3 +115,12 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
     `files-inside-roots`, `shell-script-inside-roots`, `git-in-wave-worktree`, `edit-inside-roots` (allow, через `+`);
     `question`, `not-judged`, `symlink-on-path`, `git-files`, `whole-root`, `read-only`, `no-home` (deny);
     `outside-roots`, `unknown-tool` (park); `hard:<пункт>`.
+13. **Mutation testing** (свой скрипт в отдельном worktree, оба unit test-файла с `--bail 1`; операторы сравнения и
+    логики, `true` / `false`, `some` / `every`, исходы и use, снятый `!`, снятые guard clause-ы и `continue`, каждый
+    элемент списков программ и hard-областей по одному): 557 mutant-ов в `policy.ts` и `roots.ts`. Первый прогон
+    (569 mutant-ов) оставил 141; по ним добавлены test-ы и убраны три мёртвые ветки (проверка `.git` по настоящему
+    пути — её раньше закрывает запрет ссылки; повтор `is-root` для glob в корне; лишняя проверка сети в `curl | sh`).
+    Итог: убито 516, выжил 41. Все 41 эквивалентны: строки типов (`Outcome`, `Placement`, `TargetUse`), текст
+    подсказки, `?? null` против `?? undefined`, `use` цели `<repository>`, которую разбор никогда не удаляет, ветки,
+    до которых согласованная файловая система не доходит (компонент после отсутствующего, ENOENT при
+    `throwIfNoEntry: false`), равная длина областей и равная тяжесть исходов.
