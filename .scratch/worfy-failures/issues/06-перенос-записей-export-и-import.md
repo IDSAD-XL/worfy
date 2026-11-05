@@ -42,17 +42,25 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 
 - [ ] Contract test: export двух run-ов → import из файла на «другой машине» (вторая временная Harness home) — оба в
       `imported/<id>/`; второй import — «already imported».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
 - [ ] Contract test: `import -` из stdin даёт то же.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
 - [ ] Contract test: export 40 run-ов с длинными `error` — несколько частей, каждая ≤ 60000 символов; import всех
       частей даёт все 40; без последней части — отказ «export incomplete: part 3/3 missing».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
 - [ ] Contract test: `--gh` со stand-in `gh` — из трёх комментариев взят только блок нужного автора; комментарий без
       маркера пропущен.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
 - [ ] Contract test приватности: запись с `C:\Users\jdoe\…`, hostname машины, UUID и `ghp_…` в `error` — export
       exit 2, вывод пуст; тот же файл в import — отвергнут.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
 - [ ] Contract test: блок export не содержит пути корня worktree, домашней папки, hostname и имени пользователя
       машины, где шёл test (проверка по значениям `os.homedir()`, `os.hostname()`, `os.userInfo().username`).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
 - [ ] Contract test: файл своего компьютера в import не попадает.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
 - [ ] Платформенный PR, если так скажет `scripts/windows-verdict-scope.mjs`.
+  - evidence: commit pass · node scripts/windows-verdict-scope.mjs origin/main HEAD prints runner: not a platform PR · - - · c1af438a5
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
 
 ## Тесты
