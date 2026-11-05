@@ -290,8 +290,32 @@ export function repositoryTop(cwd: string, roots: Roots): string | null {
   }
 }
 
+/** The names that make a folder a git directory to git's search for one: one of them, or objects and refs together. */
+const GIT_DIRECTORY_FILES = ['HEAD', 'commondir', 'gitdir']
+
 /**
- * The real form of `path`, which may not exist yet: the nearest existing folder above it, resolved by the
+ * Whether git, started in the folder `cwd`, may open another repository than the one at `top` (repositoryTop of
+ * `cwd`): a folder from `cwd` up to `top`, `top` not included, holds a HEAD, commondir or gitdir entry, or
+ * objects and refs together, which git's search takes for a git directory. True as well when the way up cannot
+ * be read or does not reach `top`.
+ */
+export function gitDirectoryBelow(cwd: string, top: string, roots: Roots): boolean {
+  const win = roots.platform === 'win32'
+  const raw = rawPath(cwd, win)
+  if (raw === null) return true
+  const walked = walk(raw, roots)
+  if (walked.error) return true
+  const has = (folder: string, name: string): boolean => roots.fs.lstat(joinPath(folder, name, win)) !== null
+  for (let folder: string | null = walked.real; folder !== top; folder = parentOf(folder, win)) {
+    if (folder === null) return true
+    const current = folder
+    if (GIT_DIRECTORY_FILES.some((name) => has(current, name)) || (has(current, 'objects') && has(current, 'refs'))) return true
+  }
+  return false
+}
+
+/**
+ * The real form of `path`, which may not exist yet:the nearest existing folder above it, resolved by the
  * system, plus the missing names. The system's spelling (Windows long names instead of `RUNNER~1`) makes a
  * target and an area comparable.
  */
@@ -529,6 +553,11 @@ const GIT_FILE_NAMES = new Set(['.git', '.gitattributes', '.gitmodules'])
 /** Whether `name` is one of the git files (any case): config, hooks, attributes, submodules. */
 export function isGitFileName(name: string): boolean {
   return GIT_FILE_NAMES.has(name.toLowerCase())
+}
+
+/** Whether `name` (any case) makes its folder a git directory: HEAD, commondir, gitdir. */
+export function isGitDirectoryFileName(name: string): boolean {
+  return GIT_DIRECTORY_FILES.some((each) => each.toLowerCase() === name.toLowerCase())
 }
 
 /**

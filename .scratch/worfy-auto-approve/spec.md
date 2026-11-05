@@ -263,7 +263,12 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
    (`core.fsmonitor`, `core.pager`, filters, `textconv`, alias-ы, `.git/hooks/*`): через них любая подкоманда git
    запускает программу. Первые два — остаток риска («Риски», п. 6). Третье закрывает Ticket 03: запись в `.git/config`,
    `.git/hooks/`, `.git/info/attributes` и в `.gitattributes` не allow ни одним правилом, так что агент не может сначала
-   поставить hook, а потом попросить одобрить безобидный `git commit`.
+   поставить hook, а потом попросить одобрить безобидный `git commit`. Это верно, только пока hooks лежат там, где их
+   знает политика: если `core.hooksPath` указывает на отслеживаемую папку (husky, `.githooks`), запись в неё закрыта
+   полем контекста `hooksPath` (Ticket 04); без этого поля правка `.githooks/pre-commit` была бы allow. git тоже
+   запускается только в репозитории самого worktree-а: папка по пути к его верху с `HEAD`, `commondir`, `gitdir` или
+   `objects` вместе с `refs` — подложенный репозиторий со своим config-ом, и git там не allow (Ticket 03, «Итог»,
+   пункт 20).
 
 ## Решено без владельца
 

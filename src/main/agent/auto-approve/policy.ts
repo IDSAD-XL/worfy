@@ -28,7 +28,7 @@
 // never allowed (at most parked).
 import type { SessionInfo } from '../session/types'
 import { analyze, REPOSITORY, UNKNOWN, type ShellAction } from './shell'
-import { copiedTree, isGitFileName, joinPath, normalizePath, realPathOf, repositoryTop, resolveTarget, rootsOf, type FileSystem, type Placement, type Roots, type TargetUse } from './roots'
+import { copiedTree, gitDirectoryBelow, isGitDirectoryFileName, isGitFileName, joinPath, normalizePath, realPathOf, repositoryTop, resolveTarget, rootsOf, type FileSystem, type Placement, type Roots, type TargetUse } from './roots'
 
 export type Outcome = 'allow' | 'deny' | 'park' | 'hard-deny'
 
@@ -79,6 +79,18 @@ export interface PolicyContext {
    * rebase and pull are allowed only when it is false; null: not read.
    */
   rebaseUpdateRefs: boolean | null
+  /**
+   * The names of the repository's remotes (`git remote`) as the Run read them when it started: a new branch may
+   * not be named like one of them or like a ref under it (`origin/main`); null: not read, and no new branch is
+   * allowed.
+   */
+  remotes: readonly string[] | null
+  /**
+   * git's `core.hooksPath` as `git config --get core.hooksPath` prints it when the Run starts; null when it is not
+   * set. A relative path is read against the top of each worktree, `~/` against HOME. Writes into that folder
+   * are never allowed: the next git command runs what is there.
+   */
+  hooksPath: string | null
   /** The real path of each root recorded when the Run started (roots.ts, recordRoots), by the root's path. */
   recordedRoots: Readonly<Record<string, string>>
   /** The file system; the machine's when absent. */
@@ -94,7 +106,7 @@ export interface Act {
   /** The words after the program; none for a file tool. */
   args: readonly string[]
   git: ShellAction['git']
-  /** For git: whether the command is one of the forms of the git allow-list (gitFormAllowed). */
+  /** For git: whether the command is one of the forms of the git allow-list (gitFormOf). */
   gitForm: boolean
   network: boolean
   targets: Target[]
@@ -185,6 +197,7 @@ export const HINTS = {
   noTarget: 'worfy could not find what this request changes, so it did not approve it. Give the full absolute path, as it is: no ~, no relative path, no spaces around it, no \\\\ network or device path.',
   unclearPath: 'worfy could not tell where a path of this request leads (a .. after a folder that does not exist, or a Windows name with a trailing dot or space, a colon or a short ~1 form), so it did not approve it. Give the plain full path.',
   noHome: 'worfy does not know the home folder of this Session, so it approves nothing here.',
+  gitTop: 'worfy approves git only in the repository of the Ticket\'s worktree, and a folder on the way to it holds what git takes for another repository (.git, HEAD, commondir, gitdir, or objects with refs). Run git from the worktree top, and leave such files to the owner.',
 } as const
 
 // Programs that change the settings of the OS or of apps; `defaults`, `schtasks` and `networksetup` only
@@ -297,7 +310,10 @@ function actOf(action: ShellAction, prepared: Prepared): Act {
   for (const path of action.deletes) add(path, 'delete')
   // git works in its folder: a link on the way there is a link on every path it touches.
   if (action.git !== undefined) targets.push({ path: normalizePath(action.cwd, win) ?? action.cwd, use: 'read', marker: 'folder', placement: resolveTarget(action.cwd, roots, 'read') })
-  return { program: action.program, fileTool: false, args: action.args, git: action.git, gitForm: action.git !== undefined && gitFormAllowed(action, prepared), network: action.network, targets }
+  const form = action.git === undefined ? null : gitFormOf(action, prepared)
+  // The paths a form of the allow-list names are placed and checked as any file write.
+  for (const { word, use } of form ?? []) add(normalizePath(word, win) === null ? `${action.cwd}${win ? '\\' : '/'}${word}` : word, use)
+  return { program: action.program, fileTool: false, args: action.args, git: action.git, gitForm: form !== null, network: action.network, targets }
 }
 
 function targetsOf(acts: Act[]): string[] {
@@ -582,6 +598,50 @@ function touchesGitFiles(path: string): boolean {
   return path.split(/[\\/]/).some(isGitFileName)
 }
 
+/**
+ * Whether the repository git opens from the folder `cwd` is the worktree's own: no folder on the way up to the
+ * top holds what git takes for a git directory, the top is one of the checkouts, and its .git is the main
+ * checkout's folder or a file naming `<checkout>/.git/worktrees/<name>`. True when there is no repository.
+ */
+function ownRepository(cwd: string, prepared: Prepared): boolean {
+  const { context, roots, win } = prepared
+  const top = repositoryTop(cwd, roots)
+  if (top === null) return true
+  if (gitDirectoryBelow(cwd, top, roots) || !context.checkouts.some((checkout) => samePath(checkout.path, top, win))) return false
+  const entry = joinPath(top, '.git', win)
+  const kind = roots.fs.lstat(entry)
+  if (kind === 'dir') return true
+  if (kind !== 'file') return false
+  const named = /^gitdir: ([^\r\n]+)/.exec(roots.fs.readFile(entry) ?? '')?.[1]?.trim()
+  if (named === undefined) return false
+  // git 2.48 may write it relative to the worktree (worktree.useRelativePaths).
+  const gitdir = normalizePath(named, win) ?? joinPath(top, named, win)
+  return context.checkouts.some((checkout) => samePath(joinPath(checkout.path, '.git/worktrees', win), joinPath(gitdir, '..', win), win))
+}
+
+/** The folders of core.hooksPath, written and real: an absolute one, or a relative one under each worktree. */
+function hooksFolders(prepared: Prepared): string[] {
+  const { context, roots, win } = prepared
+  const value = context.hooksPath
+  if (value === null) return []
+  const home = context.env.HOME
+  const path = value.startsWith('~/') && home !== undefined ? `${home}${value.slice(1)}` : value
+  const absolute = normalizePath(path, win)
+  const tops = [...context.worktrees, ...context.checkouts.map((checkout) => checkout.path)]
+  const folders = absolute === null ? tops.map((top) => joinPath(top, path, win)) : [absolute]
+  return folders.flatMap((folder) => [folder, realPathOf(folder, roots) ?? folder])
+}
+
+/** Whether `path` is `folder` or lies below it; without case on macOS and Windows. */
+function within(path: string, folder: string, prepared: Prepared): boolean {
+  const caseless = prepared.win || prepared.context.platform === 'darwin'
+  const key = (text: string): string => (caseless ? text.toLowerCase() : text)
+  const sep = prepared.win ? '\\' : '/'
+  const p = key(path)
+  const f = key(folder)
+  return p === f || p.startsWith(f.endsWith(sep) ? f : `${f}${sep}`)
+}
+
 function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared): Omit<Decision, 'targets'> | null {
   for (const act of acts) {
     for (const target of act.targets) if (target.placement.kind === 'symlink-on-path') return deny('symlink-on-path', HINTS.symlink)
@@ -590,14 +650,24 @@ function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared):
     for (const target of act.targets) if (target.placement.kind === 'not-judged') return deny('not-judged', HINTS.unclearPath)
   }
   for (const [n, act] of acts.entries()) {
+    // git opens the repository its search finds first from its folder: that must be the worktree's own.
+    const action = actions?.[n]
+    const inRoot = act.targets.some((target) => target.marker === 'folder' && isInside(target.placement))
+    if (action !== undefined && act.git !== undefined && inRoot && !ownRepository(action.cwd, prepared)) return deny('not-judged', HINTS.gitTop)
+  }
+  const hooks = hooksFolders(prepared)
+  for (const [n, act] of acts.entries()) {
     // cp names its sources by their last component in a folder it copies into.
     const copies = actions?.[n]?.program === 'cp'
     for (const target of act.targets) {
       if (target.marker === 'unknown' || target.marker === 'repository') continue
       if (target.use === 'read' && !copies) continue
       // The written form, and the system's (a Windows short name such as GIT~1 is `.git` on disk).
-      const real = touchesGitFiles(target.path) ? target.path : realPathOf(target.path, prepared.roots)
-      if (real !== null && touchesGitFiles(real)) return deny('git-files', HINTS.gitFiles)
+      const real = realPathOf(target.path, prepared.roots)
+      const forms = real === null ? [target.path] : [target.path, real]
+      // Besides the git files: a file that makes its folder a git directory, and the hooks of core.hooksPath.
+      const named = forms.some((path) => touchesGitFiles(path) || isGitDirectoryFileName(path.split(/[\\/]/).at(-1) ?? ''))
+      if (named || (target.use !== 'read' && forms.some((path) => hooks.some((folder) => within(path, folder, prepared))))) return deny('git-files', HINTS.gitFiles)
     }
   }
   for (const act of acts) {
@@ -611,7 +681,8 @@ function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared):
   for (const [n, act] of acts.entries()) {
     // A folder copied or moved brings along what is inside it: .gitattributes too.
     const program = actions?.[n]?.program
-    if ((program !== 'cp' && program !== 'mv') || !act.targets.every((target) => isInside(target.placement))) continue
+    const moves = program === 'mv' || act.git?.subcommand === 'mv'
+    if ((program !== 'cp' && !moves) || !act.targets.every((target) => isInside(target.placement))) continue
     const follows = program === 'cp' && copyFollowsLinks(act.args, prepared.context.platform)
     for (const target of act.targets) {
       if (target.use === 'write' || target.marker !== null) continue
@@ -686,81 +757,129 @@ function exactForm(words: readonly string[], spec: FormSpec, dashes = false): Fo
 
 const only = (form: Form, option: string): boolean => form.options.length > 0 && form.options.every((each) => each === option)
 
+/** A path a form of the git allow-list names, as written, and what the form does to it. */
+interface GitPath {
+  word: string
+  use: TargetUse
+}
+
 /**
- * The git allow-list (review round 5). Five rounds each found a new spelling in git's option grammar that moved
- * a protected branch, so git is allowed only in these forms, every option spelled in full from the form's own
- * list. A read (the parser gives no write or delete) stays allowed as before. The hard rules judge separately.
+ * The git allow-list (review round 5): the paths the command names when it is one of these forms, every option
+ * spelled in full from the form's own list; null for any other git command. Five rounds each found a new spelling
+ * in git's option grammar that moved a protected branch. A read (the parser gives no write or delete) stays
+ * allowed as before. The hard rules judge separately. Round 6: the paths of add, rm, mv, restore and
+ * checkout -- go through the checks of a file write, with no pathspec magic or glob; a new branch name is
+ * checked by newBranchAllowed.
  */
-function gitFormAllowed(action: ShellAction, prepared: Prepared): boolean {
-  if (action.writes.length === 0 && action.deletes.length === 0) return true
+function gitFormOf(action: ShellAction, prepared: Prepared): GitPath[] | null {
+  if (action.writes.length === 0 && action.deletes.length === 0) return []
   const { context } = prepared
   const words = subcommandWords(action.args)
   const sub = action.git?.subcommand
   const noColon = (form: Form): boolean => form.operands.every((word) => !word.includes(':'))
+  const named = (form: Form | null, use: TargetUse): GitPath[] | null => (form === null ? null : pathsOf([...form.operands, ...(form.paths ?? [])], use))
+  const allowed = (yes: boolean): GitPath[] | null => (yes ? [] : null)
   switch (sub) {
     case 'add':
-      return exactForm(words, { flags: ['-A', '--all', '-u', '--update'] }, true) !== null
+      return named(exactForm(words, { flags: ['-A', '--all', '-u', '--update'] }, true), 'write')
     case 'rm':
-      return exactForm(words, { flags: ['-r', '--cached', '-q', '--quiet'] }, true) !== null
-    case 'mv':
-      return exactForm(words, {}, true) !== null
+      return named(exactForm(words, { flags: ['-r', '--cached', '-q', '--quiet'] }, true), 'write')
+    case 'mv': {
+      // The sources leave (and a folder brings what is inside it along); the last word is where they go.
+      const sources = named(exactForm(words, {}, true), 'delete')
+      return sources === null || sources.length === 0 ? sources : [...sources.slice(0, -1), { word: sources.at(-1)?.word ?? '', use: 'write' }]
+    }
     case 'restore':
-      return exactForm(words, { flags: ['--staged', '--worktree', '-W'] }, true) !== null
+      return named(exactForm(words, { flags: ['--staged', '--worktree', '-W'] }, true), 'write')
     case 'commit': {
       const form = exactForm(words, { flags: ['-a', '--all', '--amend', '--no-edit', '--allow-empty'], valued: ['-m', '--message'] })
-      return form !== null && form.operands.length === 0
+      return allowed(form !== null && form.operands.length === 0)
     }
     case 'fetch': {
       const form = exactForm(words, { flags: ['--prune', '--tags', '--no-tags', '--quiet'] })
-      return form !== null && noColon(form)
+      return allowed(form !== null && noColon(form))
     }
     case 'pull': {
       // pull.rebase in the config makes any pull a rebase.
       const form = exactForm(words, { flags: ['--rebase', '--ff-only', '--no-rebase'] })
-      return context.rebaseUpdateRefs === false && form !== null && form.operands.length <= 2 && noColon(form)
+      return allowed(context.rebaseUpdateRefs === false && form !== null && form.operands.length <= 2 && noColon(form))
     }
     case 'checkout':
     case 'switch': {
       if (sub === 'checkout') {
-        // `checkout [<rev>] -- <paths>` restores files.
+        // `checkout [<rev>] -- <paths>` restores files. From a revision only files that exist here: a folder or a
+        // new name may bring the revision's .gitattributes along.
         const restore = exactForm(words, {}, true)
-        if (restore?.paths != null) return restore.operands.length <= 1 && restore.paths.length > 0
+        if (restore?.paths != null) {
+          const paths = pathsOf(restore.paths, 'write')
+          if (restore.operands.length > 1 || paths === null || paths.length === 0) return null
+          return restore.operands.length === 0 || paths.every((path) => existingFile(path.word, action, prepared)) ? paths : null
+        }
       }
-      const form = exactForm(words, { valued: [sub === 'switch' ? '-c' : '-b'] })
-      if (form === null) return false
-      if (form.options.length === 1) return form.operands.length <= 1
-      return form.options.length === 0 && form.operands.length === 1 && ownBranch(form.operands[0] ?? '', action, prepared)
+      const option = sub === 'switch' ? '-c' : '-b'
+      const form = exactForm(words, { valued: [option] })
+      if (form === null) return null
+      if (form.options.length === 1) return allowed(form.operands.length <= 1 && newBranchAllowed(words[words.indexOf(option) + 1] ?? '', prepared))
+      return allowed(form.options.length === 0 && form.operands.length === 1 && ownBranch(form.operands[0] ?? '', action, prepared))
     }
     case 'rebase': {
       const form = exactForm(words, { flags: ['--abort', '--skip', '--autostash'] })
-      if (context.rebaseUpdateRefs !== false || form === null) return false
-      if (form.operands.length === 0) return form.options.length === 1 && (form.options[0] === '--abort' || form.options[0] === '--skip')
-      return form.operands.length === 1 && form.options.every((each) => each === '--autostash')
+      if (context.rebaseUpdateRefs !== false || form === null) return null
+      if (form.operands.length === 0) return allowed(form.options.length === 1 && (form.options[0] === '--abort' || form.options[0] === '--skip'))
+      return allowed(form.operands.length === 1 && form.options.every((each) => each === '--autostash'))
     }
     case 'merge': {
       const form = exactForm(words, { flags: ['--ff-only', '--no-ff', '--no-edit', '--abort'] })
-      if (form === null) return false
-      return form.operands.length === 0 ? only(form, '--abort') : form.operands.length === 1 && !form.options.includes('--abort')
+      if (form === null) return null
+      return allowed(form.operands.length === 0 ? only(form, '--abort') : form.operands.length === 1 && !form.options.includes('--abort'))
     }
     case 'cherry-pick':
     case 'revert': {
       const form = exactForm(words, { flags: ['--abort'] })
-      if (form === null) return false
-      return form.operands.length === 0 ? only(form, '--abort') : form.options.length === 0
+      if (form === null) return null
+      return allowed(form.operands.length === 0 ? only(form, '--abort') : form.options.length === 0)
     }
     case 'reset': {
       const form = exactForm(words, { flags: ['--soft', '--mixed', '--hard'] })
-      return form !== null && form.options.length <= 1 && form.operands.length <= 1
+      return allowed(form !== null && form.options.length <= 1 && form.operands.length <= 1)
     }
     case 'stash':
       // refs/stash is shared by every worktree: pop, apply, drop and clear take the owner's entries, and a push
       // shifts them (the owner's next `stash pop` takes the agent's). Work is set aside in a WIP commit.
-      return words.length === 1 && (words[0] === 'list' || words[0] === 'show')
+      return allowed(words.length === 1 && (words[0] === 'list' || words[0] === 'show'))
     case 'branch':
-      return words.length === 1 && !(words[0] ?? '-').startsWith('-')
+      return allowed(words.length === 1 && newBranchAllowed(words[0] ?? '', prepared))
     default:
-      return false
+      return null
   }
+}
+
+/** `words` as paths with `use`; null when one is pathspec magic (`:/`, `:(top)`, `:!x`) or a glob git expands itself. */
+function pathsOf(words: readonly string[], use: TargetUse): GitPath[] | null {
+  return words.every((word) => !word.startsWith(':') && !/[*?[]/.test(word)) ? words.map((word) => ({ word, use })) : null
+}
+
+/** Whether the path `word` of git's command is a file that exists, not a folder or a link. */
+function existingFile(word: string, action: ShellAction, prepared: Prepared): boolean {
+  const { roots, win } = prepared
+  const path = normalizePath(word, win) ?? joinPath(normalizePath(action.cwd, win) ?? action.cwd, word, win)
+  return roots.fs.lstat(path) === 'file'
+}
+
+/**
+ * Whether `name` may be the name of a new branch: none that git or the owner may read as another ref. A name
+ * under a remote (`origin/main`) shadows the remote-tracking ref: the owner's `merge --ff-only origin/main` takes
+ * the agent's branch. Also no ref path (refs/, heads/, tags/, remotes/), no remote name, no HEAD or @, no option.
+ * Without case on macOS and Windows; without the remote names, none.
+ */
+function newBranchAllowed(name: string, prepared: Prepared): boolean {
+  const { context, win } = prepared
+  if (context.remotes === null || name.startsWith('-') || name === '@') return false
+  const caseless = win || context.platform === 'darwin'
+  const key = (text: string): string => (caseless ? text.toLowerCase() : text)
+  const n = key(name)
+  if (n === key('HEAD') || ['refs/', 'heads/', 'tags/', 'remotes/'].some((prefix) => n.startsWith(prefix))) return false
+  return context.remotes.every((remote) => n !== key(remote) && !n.startsWith(`${key(remote)}/`))
 }
 
 /** Whether `name` is the branch checked out in the action's own worktree. */

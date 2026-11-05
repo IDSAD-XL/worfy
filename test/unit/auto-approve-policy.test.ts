@@ -2,7 +2,7 @@
 // tools, the allow rules and the attacks of the Epic spec. The file system is a made-up tree under
 // /tmp/demo and /home/demo (C:\work and C:\Users\demo on Windows); nothing on disk is read.
 import { describe, expect, it } from 'vitest'
-import { ALLOW_RULES, HARD_HINTS, judge, type ApprovalRequest, type Decision, type PolicyContext } from '../../src/main/agent/auto-approve/policy'
+import { ALLOW_RULES, HARD_HINTS, HINTS, judge, type ApprovalRequest, type Decision, type PolicyContext } from '../../src/main/agent/auto-approve/policy'
 import { recordRoots, type FileSystem } from '../../src/main/agent/auto-approve/roots'
 
 /**
@@ -122,6 +122,8 @@ function posix(overrides: Partial<PolicyContext> = {}): PolicyContext {
     checkouts: [{ path: REPO, branch: 'main' }, { path: WT, branch: 'worfy-demo/03' }, { path: WT7, branch: 'refs/heads/worfy-demo/07' }],
     defaultBranch: 'main',
     rebaseUpdateRefs: false,
+    remotes: ['origin'],
+    hooksPath: null,
     fs: fakeFs(TREE),
     ...overrides,
   })
@@ -335,9 +337,9 @@ describe('the allow rules', () => {
       expect(outcome(`git -C ${WT7} commit -m demo`)).toBe('hard-deny')
     })
     it('is not allow in a repository nested inside a root', () => {
-      expect(outcome(`git -C ${SCRATCH}/sub status`, posix({ fs: fakeFs({ ...TREE, [`${SCRATCH}/sub/.git/HEAD`]: 'file' }) }))).toBe('park')
+      expect(outcome(`git -C ${SCRATCH}/sub status`, posix({ fs: fakeFs({ ...TREE, [`${SCRATCH}/sub/.git/HEAD`]: 'file' }) }))).toBe('deny')
       expect(outcome(`git -C ${PAD} status`)).toBe('park')
-      expect(outcome(`git -C ${WT}/vendor status`, posix({ fs: fakeFs({ ...TREE, [`${WT}/vendor/.git/HEAD`]: 'file' }) }))).toBe('park')
+      expect(outcome(`git -C ${WT}/vendor status`, posix({ fs: fakeFs({ ...TREE, [`${WT}/vendor/.git/HEAD`]: 'file' }) }))).toBe('deny')
     })
     it('is not allow through a symlink component', () => {
       expect(outcome('git -C lw status')).toBe('deny')
@@ -1172,11 +1174,137 @@ describe('round 5: git is allowed only in the forms of its allow-list', () => {
     expect(outcome('git checkout worfy-demo/03-other', posix({ platform: 'darwin' }))).toBe('park')
     expect(outcome('git checkout WORFY-DEMO/03')).toBe('park')
     expect(outcome('git checkout worfy-demo/03', posix({ checkouts: [{ path: REPO, branch: 'main' }, { path: WT, branch: null }] }))).toBe('park')
-    expect(outcome('git checkout worfy-demo/03', posix({ checkouts: [{ path: REPO, branch: 'main' }] }))).toBe('park')
+    // A worktree that is no checkout: the repository git opens is not known to be its own (round 6).
+    expect(outcome('git checkout worfy-demo/03', posix({ checkouts: [{ path: REPO, branch: 'main' }] }))).toBe('deny')
   })
   it('stash only lists and shows: refs/stash is shared with the owner, so work is set aside in a WIP commit', () => {
     for (const command of ['git stash', 'git stash push', 'git stash push -m x', 'git stash push -m wip -u', 'git stash save x']) {
       expect(run(command).outcome, command).toBe('park')
     }
+  })
+})
+
+describe('round 6: the repository git opens, and the paths and branch names inside the allowed forms', () => {
+  const write = (path: string, context: PolicyContext = posix()): Decision => judge({ tool: 'Write', input: { file_path: path, content: 'x' } }, context)
+  const tree = (entries: Record<string, string>, overrides: Partial<PolicyContext> = {}): PolicyContext => posix({ fs: fakeFs({ ...TREE, ...entries }), ...overrides })
+  const PLANTED = {
+    [`${WT}/src/evil/HEAD`]: 'text:ref: refs/heads/main\n',
+    [`${WT}/src/evil/commondir`]: `text:${REPO}/.git\n`,
+    [`${WT}/src/evil/objects`]: 'dir',
+    [`${WT}/src/evil/refs`]: 'dir',
+  }
+
+  it('a git directory planted inside the worktree: git anywhere below it is not judged', () => {
+    const context = tree(PLANTED)
+    for (const command of ['git -C src/evil reset --soft HEAD~1', 'cd src/evil && git reset --soft HEAD~1', 'git -C src/evil diff HEAD~1 HEAD', 'git -C src/evil fetch origin',
+      'git -C src/evil status', 'git -C src/evil commit --allow-empty -m x', `git -C ${WT}/src/evil/objects status`]) {
+      expect(run(command, context), command).toMatchObject({ outcome: 'deny', rule: 'not-judged', hint: HINTS.gitTop })
+    }
+    // The worktree top and a folder beside the planted one are as before.
+    expect(run('git reset --soft HEAD~1', context)).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    expect(run('git -C src add a.ts', context)).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+  })
+  it('each mark of a git directory on its own is enough, objects and refs only together', () => {
+    for (const [name, entries] of Object.entries<Record<string, string>>({
+      HEAD: { [`${WT}/src/evil/HEAD`]: 'text:0123abcd\n' },
+      commondir: { [`${WT}/src/evil/commondir`]: `text:${REPO}/.git\n` },
+      gitdir: { [`${WT}/src/evil/gitdir`]: `text:${WT}/.git\n` },
+      'objects and refs': { [`${WT}/src/evil/objects`]: 'dir', [`${WT}/src/evil/refs`]: 'dir' },
+      '.git (a nested repository)': { [`${WT}/src/evil/.git`]: 'dir' },
+    })) expect(outcome('git -C src/evil commit -m x', tree(entries)), name).not.toBe('allow')
+    for (const [name, entries] of Object.entries<Record<string, string>>({
+      objects: { [`${WT}/src/evil/objects`]: 'dir' },
+      refs: { [`${WT}/src/evil/refs`]: 'dir' },
+      'a file named like the folder': { [`${WT}/src/evil/x`]: 'file' },
+    })) expect(outcome('git -C src/evil commit -m x', tree(entries)), name).toBe('allow')
+  })
+  it('the .git of the worktree top must be its own: a gitdir file into worktrees/ of a checkout, or the folder of a checkout', () => {
+    // A commit or reset there is hard already (its branch is not known); a read is judged here.
+    expect(outcome('git commit -m x', tree({ [`${WT}/.git`]: `text:gitdir: ${ELSEWHERE}/.git/worktrees/03\n` }))).not.toBe('allow')
+    expect(run('git status', tree({ [`${WT}/.git`]: `text:gitdir: ${ELSEWHERE}/.git/worktrees/03\n` }))).toMatchObject({ outcome: 'deny', rule: 'not-judged', hint: HINTS.gitTop })
+    expect(outcome('git status', tree({ [`${WT}/.git`]: `text:gitdir: ${REPO}/.git/other/03\n` }))).toBe('deny')
+    expect(outcome('git status', tree({ [`${WT}/.git`]: `text:gitdir: ${REPO}/elsewhere/worktrees/03\n` }))).toBe('deny')
+    expect(outcome('git status', tree({ [`${WT}/.git`]: `text:${REPO}/.git/worktrees/03\n` }))).toBe('deny')
+    expect(outcome('git status', tree({ [`${WT}/.git`]: '-> /tmp/demo/elsewhere' }))).not.toBe('allow')
+    // git 2.48 may write the path relative to the worktree.
+    expect(outcome('git commit -m x', tree({ [`${WT}/.git`]: 'text:gitdir: ../../../.git/worktrees/03\n' }))).toBe('allow')
+    const folder = { [`${WT}/.git`]: 'dir', [`${WT}/.git/HEAD`]: 'text:ref: refs/heads/worfy-demo/03\n' }
+    expect(outcome('git commit -m x', tree(folder))).toBe('allow')
+    expect(outcome('git commit -m x', tree(folder, { checkouts: [{ path: REPO, branch: 'main' }] }))).toBe('deny')
+    expect(outcome('git commit -m x', windows())).toBe('allow')
+  })
+  it('a write that makes a file named HEAD, commondir or gitdir is git-files', () => {
+    for (const path of [`${WT}/src/evil/HEAD`, `${WT}/src/evil/commondir`, `${WT}/src/evil/gitdir`, `${WT}/src/evil/head`, `${SCRATCH}/x/HEAD`]) {
+      expect(write(path), path).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    }
+    for (const command of ['touch src/evil/HEAD', 'echo x > src/evil/commondir', `cp ${PAD}/s.sh src/evil/gitdir`, `mv ${PAD}/s.sh src/evil/HEAD`, `cp ${PAD}/HEAD src/evil/`]) {
+      expect(run(command), command).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    }
+    expect(write(`${WT}/src/HEAD.md`).outcome).toBe('allow')
+    expect(write(`${WT}/src/HEADS/a.ts`).outcome).toBe('allow')
+    expect(outcome('mkdir -p src/evil/objects src/evil/refs')).toBe('allow')
+  })
+  it('the paths of git add, rm, mv, restore and checkout -- go through the git-files check', () => {
+    for (const command of ['git mv src/a.ts .gitattributes', 'git mv src/a.ts .gitmodules', 'git mv src/a.ts .GITATTRIBUTES', 'git mv src/a.ts .git/hooks/pre-commit',
+      'git mv -- src/a.ts src/.gitattributes', 'git checkout HEAD -- .gitattributes', 'git checkout -- .gitattributes', 'git restore .gitattributes', 'git restore --staged .gitmodules',
+      'git add .gitattributes', 'git add -- src/.gitattributes', 'git rm .gitattributes', 'git rm --cached .gitmodules', 'git -C src mv a.ts .gitattributes', 'git mv src/a.ts src/HEAD']) {
+      expect(run(command, tree({ [`${WT}/.gitattributes`]: 'file', [`${WT}/.gitmodules`]: 'file' })), command).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    }
+    // A moved folder brings its .gitattributes along.
+    expect(run('git mv src lib', tree({ [`${WT}/src/.gitattributes`]: 'file' }))).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    expect(run('git mv src lib')).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    expect(run('git -C src mv a.ts b.ts')).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+  })
+  it('the paths of those forms must be inside the roots, with no link and no pathspec magic', () => {
+    for (const command of [`git mv src/a.ts ${OTHER}/x`, 'git mv src/a.ts ../../../x', `git checkout HEAD -- ${OTHER}/a.ts`, `git add ${OTHER}/a.ts`, `git restore ${OTHER}/a.ts`]) {
+      expect(outcome(command), command).not.toBe('allow')
+    }
+    expect(run('git add ln/x')).toMatchObject({ outcome: 'deny', rule: 'symlink-on-path' })
+    for (const command of ['git checkout HEAD -- :/', "git add ':(top)src'", "git add ':!src'", "git add '*.ts'", "git restore 'src/?.ts'", "git rm -r 'src/[ab].ts'", "git mv ':/x' src/b.ts"]) {
+      expect(outcome(command), command).not.toBe('allow')
+    }
+  })
+  it('checkout <rev> -- <paths> takes only files that exist: a folder or a new name may bring a .gitattributes of the revision', () => {
+    expect(outcome('git checkout HEAD -- src/a.ts')).toBe('allow')
+    expect(outcome('git checkout origin/main -- src')).toBe('park')
+    expect(outcome('git checkout origin/main -- src/new.ts')).toBe('park')
+    expect(outcome('git checkout origin/main -- src/a.ts src')).toBe('park')
+    expect(outcome('git checkout -- src')).toBe('allow')
+  })
+  it('a new branch name may not stand for a remote-tracking ref, a ref path, HEAD or an option', () => {
+    for (const command of ['git branch origin/main', 'git switch -c origin/main', 'git checkout -b origin/main', 'git branch origin', 'git branch refs/heads/x', 'git branch heads/x',
+      'git branch tags/x', 'git branch remotes/origin/x', 'git branch HEAD', 'git branch @', 'git switch -c -f', 'git checkout -b -D', 'git switch -c refs/x origin/main']) {
+      expect(outcome(command), command).not.toBe('allow')
+    }
+    const two = posix({ remotes: ['origin', 'upstream'] })
+    expect(outcome('git branch upstream/main', two)).toBe('park')
+    expect(outcome('git branch upstream', two)).toBe('park')
+    expect(outcome('git branch ORIGIN/main', posix({ platform: 'darwin' }))).toBe('park')
+    expect(outcome('git branch head', posix({ platform: 'darwin' }))).toBe('park')
+    expect(outcome('git branch Origin/main')).toBe('allow')
+    for (const command of ['git branch originals', 'git branch worfy-demo/origin', 'git switch -c headsup', 'git checkout -b tagsx', 'git branch @x']) {
+      expect(run(command), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    }
+  })
+  it('without the remote names no new branch is allowed; the other forms are as before', () => {
+    const unread = posix({ remotes: null })
+    for (const command of ['git branch worfy-demo/03-b', 'git switch -c worfy-demo/03-x', 'git checkout -b worfy-demo/03-x']) expect(outcome(command, unread), command).toBe('park')
+    expect(outcome('git checkout worfy-demo/03', unread)).toBe('allow')
+    expect(outcome('git commit -m x', unread)).toBe('allow')
+  })
+  it('core.hooksPath: a write into the hooks folder is git-files', () => {
+    const relative = posix({ hooksPath: '.githooks' })
+    expect(write(`${WT}/.githooks/pre-commit`, relative)).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    for (const command of ['echo x > .githooks/pre-commit', 'git mv src/a.ts .githooks/pre-commit', 'cp src/a.ts .githooks/pre-commit', 'rm .githooks/pre-commit', 'echo x > .githooks', 'touch .githooks/sub/x']) {
+      expect(run(command, relative), command).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    }
+    expect(outcome('echo x > .githooks-notes/a', relative)).toBe('allow')
+    expect(outcome('echo x > .githooks/pre-commit')).toBe('allow')
+    expect(write(`${WT}/.husky/pre-commit`, posix({ hooksPath: './.husky/' })).rule).toBe('git-files')
+    expect(run(`echo x > ${SCRATCH}/hooks/pre-commit`, posix({ hooksPath: `${SCRATCH}/hooks` })).rule).toBe('git-files')
+    expect(run(`echo x > ${PAD}/h/pre-commit`, posix({ hooksPath: '~/h', env: { HOME: PAD, TMPDIR: RUN_TEMP } })).rule).toBe('git-files')
+    expect(run('echo x > .GITHOOKS/pre-commit', posix({ hooksPath: '.githooks', platform: 'darwin' })).rule).toBe('git-files')
+    expect(outcome('echo x > .GITHOOKS/pre-commit', relative)).toBe('allow')
+    expect(judge({ tool: 'Write', input: { file_path: 'c:/work/repo/.claude/worktrees/03/.GITHOOKS/pre-commit' } }, { ...windows(), hooksPath: '.githooks' }).rule).toBe('git-files')
   })
 })
