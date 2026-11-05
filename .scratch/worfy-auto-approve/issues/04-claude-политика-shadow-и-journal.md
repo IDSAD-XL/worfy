@@ -122,3 +122,62 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3, 7; «Ре�
 - `src/main/agent/session.ts`, `src/shared/agent/events.ts`
 - `src/shared/autopilot/journal.ts`, `src/main/autopilot/run.ts` (общие с worfy-retry 04 / 05 — не параллельно)
 - `test/contract/auto-approve-claude.test.ts` (новый)
+
+## Итог
+
+Unattended Session Run-а на Claude Code спрашивает политику Ticket-а 03 вместо отказа на всё. Режим читается при
+каждом запросе. Off — прежний отказ байт в байт: поток событий и Journal Run-а совпадают с записью, сделанной до
+правки (`test/fixtures/auto-approve/off-baseline.json`). Shadow — строка `auto-approval` с `would-*` и правилом,
+агенту прежний отказ. On — allow пропускает вызов, deny и hard deny отказывают с подсказкой правила, park отказывает
+с подсказкой «ждёт очереди» до Ticket-а 07.
+
+**`TMPDIR` и scratchpad Claude Code.** `TMPDIR` папку scratchpad не меняет. Claude Code берёт свою временную папку из
+`CLAUDE_CODE_TMPDIR`, иначе из `XDG_RUNTIME_DIR`, иначе `/tmp/claude-<uid>` (строки бинарника Claude Code); в Session,
+где это проверено, `TMPDIR` — папка `/var/folders/…`, а scratchpad — `/private/tmp/claude-<uid>/…`. Поэтому scratchpad
+— отдельный корень: путь берётся из `scratchpad_dir` входа PreToolUse hook-а и записывается при первом появлении. На
+живой Session с `TMPDIR` папки Run-а это не проверено: настоящий Claude Code в test-ах не запускается.
+
+**Откуда папка и scratchpad запроса.** В `canUseTool` у SDK нет `cwd`. Его даёт PreToolUse hook (SDK callback): он
+идёт раньше `canUseTool` и несёт `cwd` shell-а (после `cd` прошлых вызовов), `tool_use_id` и `scratchpad_dir`. Hook
+отвечает `{}` — Claude Code идёт дальше, как без него, и события `hook` не появляется. Драйвер держит последние 256
+вызовов по `tool_use_id`; вызов, о котором hook не сказал, судится без папки — для Bash это deny `no-cwd`.
+
+Решено без владельца:
+
+1. **`run-started.autoApproval` при Off не пишется**, иначе Off не был бы байт в байт. При Shadow и On — режим на
+   старте; `off`, когда режим Shadow или On, а политика не открылась (чтение `core.hooksPath` упало с exit code не 0
+   и не 1, по пункту 5 Ticket-а) — Run идёт как при Off, без папки Run-а и без окружения git-а.
+2. **Папка Run-а и окружение git-а — во всех режимах**, Off тоже: пункт 4 Ticket-а не ставит их в зависимость от
+   режима. Поток событий и Journal при Off от этого не меняются (contract test Off).
+3. **Shadow не пишет `refused-dialog`**: отказ при Shadow — решение политики, его строка — `auto-approval` с `would-*`.
+   При Off `refused-dialog` как прежде.
+4. **park при On** пишется в Journal как `park`, агенту — deny с `PARK_PENDING_HINT` (заготовка до Ticket-а 07).
+5. **`checkouts` читаются при каждом запросе**, а не кешируются до смены Wave, как пишет пункт 5: implementer
+   создаёт свой worktree после старта Wave, и кеш его бы не видел. Список, который не прочитался, — deny
+   `no-checkouts`, пустым не передаётся.
+6. **Worktree Wave записывается в корни при первом запросе, который его видит**, а не «при создании»: worfy не видит
+   момента создания. Worktree находится по ветке `<epic>/<NN>` (комментарий `shortcut:` в `run-approval.ts`: шаблон
+   ветки Profile-а не читается).
+7. **`rebaseUpdateRefs`, `hooksPath`, `hooksActive`, `remotes` читаются в корне Project-а**, не «в worktree-е Run-а»:
+   на старте Run-а worktree-ов Wave ещё нет, а config у worktree-ов общий (кроме `extensions.worktreeConfig`).
+8. **Ветка по умолчанию**: `refs/remotes/origin/HEAD`, иначе текущая ветка корня, иначе `main`.
+9. **Run id приходит в Journal из политики** (`RunStart.run`): папка Run-а создаётся до `setUnattended`, а файл Journal
+   — после, и имя у них одно. Чужой id (`../x`) `openRun` отказывает; существующий файл не переоткрывается.
+10. **Takeover**: Session, которую новый Run принял на ходу, продолжает с прежним `TMPDIR`, поэтому папка старого Run-а
+    при takeover не удаляется. Цена — она остаётся в `autopilot-tmp` до ручной уборки.
+11. **Строка `auto-approval`**: `targets` тоже с `~` и не длиннее 200; секрет — имя, в котором есть `TOKEN`, `KEY`,
+    `SECRET` или `PASSWORD` (без учёта регистра), значение в кавычках или до пробела.
+12. **Ошибка политики** (исключение в `judge`) — deny `policy-failed` без подсказки: агенту прежний текст отказа.
+    Режим, который не читается, — Off.
+
+Расхождений текста Ticket-а с кодом политики Ticket-а 03 не найдено: правило `hooksActive` и окружение git-а сделаны
+по тексту и покрыты unit test-ами (`test/unit/auto-approve-run.test.ts`).
+
+**Mutation testing** (свой скрипт, отдельный worktree, test-файлы модуля): 25 mutant-ов на изменённых строках
+(`run-approval.ts`, драйвер Claude, `options.ts`, `query.ts`, Journal, `run.ts`, fake agent). Первый прогон: 21 убит,
+4 выжили — `cwd` запроса, проверка run id в `openRun`, передача hook-а в `query.ts`, `cwd` fake agent-а. На первые три
+добавлены test-ы, повторный прогон их убил. Выжил один — запасной `cwd` fake agent-а (`line.cwd ?? request.cwd`),
+это код test-ов: сценарий всегда задаёт `cwd`, а его смена переписала бы запись Off.
+
+ADR-0005 (worfy не пишет в репозиторий Project-а): unit test сравнивает все файлы репозитория и worktree-а, `.git`
+тоже, до и после открытия политики, двух запросов и закрытия.
