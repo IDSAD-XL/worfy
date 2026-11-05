@@ -1006,3 +1006,77 @@ describe('round 3 of the review', () => {
     expect(run(`chmod 000 ${WT}/build/out.js`, context).outcome).not.toBe('hard-deny')
   })
 })
+
+describe('round 4 of the review', () => {
+  const darwin = (overrides: Partial<PolicyContext> = {}): PolicyContext => posix({ platform: 'darwin', ...overrides })
+  const head = (ref: string, context: (overrides: Partial<PolicyContext>) => PolicyContext = posix): PolicyContext =>
+    context({ fs: fakeFs({ ...TREE, [`${REPO}/.git/worktrees/03/HEAD`]: `text:${ref}\n` }) })
+  it('a fetch or pull destination is allowed only under refs/remotes/', () => {
+    for (const context of [posix(), darwin()]) {
+      expect(outcome('git fetch origin e/03:refs/remotes/origin/e', context)).toBe('allow')
+      expect(outcome('git fetch origin +e/03:REFS/Remotes/origin/e', context)).toBe('allow')
+      expect(outcome('git fetch origin "refs/heads/*:refs/remotes/origin/*"', context)).toBe('allow')
+      expect(outcome('git pull origin e/03:refs/remotes/origin/e', context)).toBe('allow')
+      for (const command of ['git fetch origin e/03:x', 'git fetch origin e/03:heads/x', 'git fetch origin e/03:refs/tags/x', 'git fetch origin e/03:refs/x', 'git fetch origin e/03:HEAD', 'git pull origin e/03:x', 'git fetch origin e/03:remotes/origin/x']) {
+        expect(outcome(command, context), command).not.toBe('allow')
+      }
+    }
+  })
+  it('a destination that git expands to the default branch is hard, in any case on macOS and Windows', () => {
+    for (const command of ['git fetch origin e/03:heads/main', 'git pull origin e/03:heads/main', 'git fetch origin +e/03:heads/main']) {
+      expect(run(command).rule, command).toBe('hard:git-fetch-default-branch')
+    }
+    for (const command of ['git fetch origin e/03:refs/HEADS/main', 'git fetch origin +e/03:refs/Heads/main', 'git pull origin e/03:refs/HEADS/main', 'git fetch origin e/03:heads/MAIN', 'git fetch origin e/03:HEADS/main']) {
+      expect(run(command, darwin()).rule, command).toBe('hard:git-fetch-default-branch')
+      expect(run(command, windows()).rule, command).toBe('hard:git-fetch-default-branch')
+    }
+    expect(run('git fetch origin e/03:heads/worfy-demo/07').rule).toBe('hard:git-other-branch')
+    // On Linux refs/HEADS/main is no branch: not hard, and not allowed either.
+    expect(outcome('git fetch origin e/03:refs/HEADS/main')).toBe('park')
+  })
+  it('--refmap maps the named refs: its destinations are judged the same way', () => {
+    expect(run('git fetch origin main --refmap=+refs/heads/*:refs/heads/*').rule).toBe('hard:git-fetch-default-branch')
+    expect(outcome('git fetch origin main --refmap refs/heads/main:refs/heads/x')).toBe('park')
+    expect(outcome('git fetch origin main --refmap=+refs/heads/*:refs/remotes/origin/*')).toBe('allow')
+    expect(outcome('git fetch origin main --refmap=')).toBe('allow')
+    // A fetch refspec set through git's own -c is no allowed form either.
+    expect(outcome('git -c remote.origin.fetch=+refs/heads/*:refs/heads/* fetch origin')).not.toBe('allow')
+  })
+  it('a push to heads/<branch> reaches that branch', () => {
+    expect(run('git push origin HEAD:heads/main').rule).toBe('hard:git-push-default-branch')
+    expect(run('git push origin HEAD:refs/HEADS/main', darwin()).rule).toBe('hard:git-push-default-branch')
+    expect(run('git push origin HEAD:heads/worfy-demo/07').rule).toBe('hard:git-other-branch')
+  })
+  it('HEAD is a branch only under refs/heads/, in any case on macOS and Windows', () => {
+    expect(run('git commit -m demo', head('ref: refs/HEADS/main', darwin)).rule).toBe('hard:git-commit-default-branch')
+    expect(run('git commit -m demo', head('ref: refs/Heads/worfy-demo/07', darwin)).rule).toBe('hard:git-other-branch')
+    expect(run('git commit -m demo', head('ref: refs/HEADS/main')).rule).toBe('hard:git-commit-default-branch')
+    expect(run('git commit -m demo', head('ref: refs/tags/v1')).rule).toBe('hard:git-commit-default-branch')
+    expect(outcome('git commit -m demo', head('ref: refs/HEADS/worfy-demo/03', darwin))).toBe('allow')
+  })
+  it('a HEAD that is a folder or cannot be looked at is no known branch', () => {
+    expect(run('git commit -m demo', posix({ fs: fakeFs({ ...TREE, [`${REPO}/.git/worktrees/03/HEAD`]: 'dir' }) })).rule).toBe('hard:git-commit-default-branch')
+    const fs = fakeFs(TREE)
+    const failing: FileSystem = { ...fs, lstat: (path) => (path === `${REPO}/.git/worktrees/03/HEAD` ? 'error' : fs.lstat(path)) }
+    expect(run('git commit -m demo', posix({ fs: failing })).rule).toBe('hard:git-commit-default-branch')
+  })
+  it('checkout <branch> -- with nothing after -- switches to the branch', () => {
+    expect(run('git checkout main --').rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git checkout worfy-demo/07 --').rule).toBe('hard:git-other-branch')
+    expect(run('git checkout --track origin/main --').rule).toBe('hard:git-checkout-default-branch')
+    // A new branch made from main switches to the new branch, not to main.
+    expect(outcome('git checkout -b worfy-demo/03-fix main --')).toBe('allow')
+    expect(run('git checkout main -- src/a.ts').outcome).not.toBe('hard-deny')
+  })
+  it('main is protected in any case on macOS even when the default branch is another one', () => {
+    const context = darwin({ defaultBranch: 'trunk', checkouts: [{ path: WT, branch: 'worfy-demo/03' }] })
+    expect(run('git checkout MAIN', context).rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git checkout TRUNK', context).rule).toBe('hard:git-checkout-default-branch')
+  })
+  it('mv keeps links as links; only GNU-style short clusters with r count on macOS', () => {
+    const tree = { ...TREE, [`${WT}/srcl/a.txt`]: 'file', [`${WT}/srcl/l`]: `-> ${SCRATCH}` }
+    expect(outcome(`mv ${WT}/srcl ${WT}/dst`, darwin({ fs: fakeFs(tree) }))).toBe('allow')
+    expect(outcome(`mv -v ${WT}/srcl ${WT}/dst`, darwin({ fs: fakeFs(tree) }))).toBe('allow')
+    expect(outcome(`cp -R --verbose ${WT}/srcl ${WT}/dst`, darwin({ fs: fakeFs(tree) }))).toBe('allow')
+  })
+})

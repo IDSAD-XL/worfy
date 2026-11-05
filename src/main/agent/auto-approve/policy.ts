@@ -396,7 +396,7 @@ function operandsOf(words: readonly string[], valued: { short: string; long: rea
  * The branch a repository's worktree is on: read from its HEAD (`.git` a folder, or a file naming the
  * git folder); null when detached; undefined when it cannot be read.
  */
-function currentBranch(top: string, roots: Roots, win: boolean): string | null | undefined {
+function currentBranch(top: string, roots: Roots, win: boolean, caseless: boolean): string | null | undefined {
   const dotGit = joinPath(top, '.git', win)
   const kind = roots.fs.lstat(dotGit)
   let gitDir: string | null = kind === 'dir' ? dotGit : null
@@ -410,7 +410,8 @@ function currentBranch(top: string, roots: Roots, win: boolean): string | null |
   const head = roots.fs.readFile(headPath)
   if (head === null) return undefined
   const ref = /^ref:[ \t]*(\S+)\s*$/.exec(head)?.[1]
-  if (ref !== undefined) return branchName(ref)
+  // A ref outside refs/heads/ (in any case where loose refs are files without case) is no known branch.
+  if (ref !== undefined) return (caseless ? /^refs\/heads\//i : /^refs\/heads\//).test(ref) ? ref.slice('refs/heads/'.length) : undefined
   return /^[0-9a-f]{40,64}\s*$/.test(head) ? null : undefined
 }
 
@@ -422,17 +423,32 @@ const FETCH_VALUED = { short: 'jo', long: ['depth', 'deepen', 'shallow-since', '
 const REBASE_VALUED = { short: 'sX', long: ['onto', 'strategy', 'strategy-option', 'exec'] } as const
 
 /** Where a fetch or pull refspec writes (`src:dst`, `+src:dst`); null when it writes no local ref. */
+/** Where a fetch refspec stores what it fetches, as written; null when it stores nothing (`src`, `src:`). */
 function fetchDestination(spec: string): string | null {
   const at = spec.indexOf(':')
-  return at < 0 || spec.slice(at + 1) === '' ? null : branchName(spec.slice(at + 1))
+  return at < 0 || spec.slice(at + 1) === '' ? null : spec.slice(at + 1)
 }
 
-/** fetch / pull from what is no configured remote name: a URL, an scp-like `host:path`, a path. */
+/** The destinations of a fetch or pull: those of its refspecs and of its `--refmap` values. */
+function fetchDestinations(words: readonly string[]): string[] {
+  const { operands, values } = operandsOf(words, FETCH_VALUED, true)
+  return [...operands.slice(1), ...(values.get('refmap') ?? [])].map(fetchDestination).filter((each): each is string => each !== null)
+}
+
+/** A remote-tracking ref: the one kind of destination a fetch may write. In any case: on Linux it is no branch either way. */
+const isRemoteTracking = (ref: string): boolean => /^refs\/remotes\//i.test(ref)
+
+/**
+ * fetch / pull from what is no configured remote name (a URL, an scp-like `host:path`, a path), or into a
+ * destination outside refs/remotes/: git expands `x`, `heads/x` and `refs/HEADS/x` to a branch.
+ */
 function fetchesFromElsewhere(act: Act): boolean {
   const sub = act.git?.subcommand
   if (sub !== 'fetch' && sub !== 'pull') return false
-  const remote = operandsOf(subcommandWords(act.args), FETCH_VALUED, true).operands[0]
-  return remote !== undefined && (/[:\\/]/.test(remote) || remote.startsWith('.') || remote.startsWith('~'))
+  const words = subcommandWords(act.args)
+  const remote = operandsOf(words, FETCH_VALUED, true).operands[0]
+  if (remote !== undefined && (/[:\\/]/.test(remote) || remote.startsWith('.') || remote.startsWith('~'))) return true
+  return fetchDestinations(words).some((destination) => !isRemoteTracking(destination))
 }
 
 function gitHard(action: ShellAction, prepared: Prepared): string | null {
@@ -446,6 +462,8 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
   const ofRun = (path: string): boolean => context.worktrees.some((wt) => samePath(wt, path, win))
   const top = repositoryTop(action.cwd, roots)
   const elsewhere = (path: string): boolean => !ofRun(path) && !(top !== null && samePath(path, top, win))
+  // The branch a fetch, pull or push destination names: git expands `heads/x` and `refs/heads/x` to x.
+  const destinationBranch = (ref: string): string => ref.replace(caseless ? /^(refs\/)?heads\//i : /^(refs\/)?heads\//, '')
   const otherBranch = (branch: string): boolean => context.checkouts.some((checkout) => checkout.branch !== null && sameBranch(branchName(checkout.branch), branch) && elsewhere(checkout.path))
   // A name git cannot resolve here (`-`, `@{-1}`, a glob) may be the default branch.
   const unknownName = (branch: string): boolean => branch === '' || branch === '-' || branch.startsWith('@{') || /[*?]/.test(branch)
@@ -473,8 +491,10 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
     const created = ['b', 'B', 'c', 'C', 'orphan'].flatMap((name) => values.get(name) ?? [])
     // --track origin/x makes and checks out x.
     const tracked = values.has('t') || values.has('track') ? operands.map((word) => word.slice(word.indexOf('/') + 1)) : []
-    // `checkout <tree> -- <paths>` restores files and `--detach` leaves every branch: neither switches one.
-    const switches = !values.has('detach') && !(sub === 'checkout' && words.includes('--'))
+    // `checkout <tree> -- <paths>` restores files and `--detach` leaves every branch: neither switches one. With
+    // nothing after `--`, checkout switches.
+    const dashes = words.indexOf('--')
+    const switches = !values.has('detach') && !(sub === 'checkout' && dashes >= 0 && dashes < words.length - 1)
     const rule = firstOf(created.length > 0 ? created : switches ? [...operands, ...tracked] : [], 'git-checkout-default-branch')
     if (rule !== null) return rule
   }
@@ -493,7 +513,7 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
     if (rule !== null) return rule
   }
   if (sub === 'fetch' || sub === 'pull') {
-    const destinations = operandsOf(words, FETCH_VALUED, true).operands.slice(1).map(fetchDestination).filter((each): each is string => each !== null)
+    const destinations = fetchDestinations(words).filter((each) => !isRemoteTracking(each)).map(destinationBranch)
     const rule = firstOf(destinations, 'git-fetch-default-branch')
     if (rule !== null) return rule
   }
@@ -503,7 +523,7 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
     if (rule !== null) return rule
   }
   if (top !== null && (MOVES_CURRENT.has(sub) || (sub === 'stash' && (words[0] === 'pop' || words[0] === 'apply')))) {
-    const current = currentBranch(top, roots, win)
+    const current = currentBranch(top, roots, win, caseless)
     if (current === undefined) return 'git-commit-default-branch'
     if (current !== null) {
       const rule = judgeBranch(current, 'git-commit-default-branch')
@@ -521,7 +541,7 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
     const at = spec.indexOf(':')
     // `src:` with no destination pushes src to its own name.
     const destination = at < 0 ? spec : spec.slice(at + 1) === '' ? spec.slice(0, at) : spec.slice(at + 1)
-    return destination === 'HEAD' || destination === '@' || destination === '' ? null : branchName(destination)
+    return destination === 'HEAD' || destination === '@' || destination === '' ? null : destinationBranch(destination)
   })
   for (const destination of destinations) {
     // A push of the current branch whose name is not known may reach the default branch.
