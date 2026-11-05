@@ -1,7 +1,8 @@
 # 07 — Документация test-ов Autopilot и урок «сбой Autopilot-а → Fault scenario»
 
 Type: task
-Status: claimed 2026-11-05T18:27Z
+Status: done 2026-11-05T18:47Z
+PR: #1449
 Blocked by: 02, 03, 04, 05, 06
 Source: [spec.md](../spec.md), «Вопросы владельцу», Q6, «Новые термины», «Решено без владельца», п. 6; Epic [worfy-feature-docs](../../worfy-feature-docs/spec.md), «Шаблон раздела» (Implementation — главные test-ы); [worfy-reliability 03](../../worfy-reliability/issues/03-сбой-инцидент-и-регрессионный-test-предложение-процесса.md) (сбой → инцидент → регрессионный test)
 
@@ -35,13 +36,18 @@ Epic добавляет только test-ы: поведение Autopilot не 
 - [ ] В `#### Tests` английской страницы — абзац и строки всех файлов набора; ссылки на файлы открываются.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 09b2482e277b3afad2be80d695cb171ddd209b05
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 3e3654f40a8d21812e3ee41ca958fd4ea503ac0a
+  - evidence: review pass · PR #1449 · - - · 46edee48b2cb3136c180bb4d270a3e97ff574cf2
 - [ ] Перевод в `docs/features/ru/autopilot.md` совпадает по смыслу.
   - evidence: commit pass · docs: Autopilot fault scenarios in the Autopilot page and the lesson (worfy-faults 07) · - - · 09b2482e277b3afad2be80d695cb171ddd209b05
   - evidence: commit pass · docs: checkRecovery returns one line per violation; I3 relaxes for any run without run-stopped (worfy-faults 07, rework 1) · - - · 3e3654f40a8d21812e3ee41ca958fd4ea503ac0a
+  - evidence: review pass · PR #1449 · - - · 46edee48b2cb3136c180bb4d270a3e97ff574cf2
 - [ ] Урок в `docs/lessons/testing.md` с `Проверка:` на существующий test; `node scripts/check-lessons.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-lessons.mjs` exit 0 · mac - · 09b2482e277b3afad2be80d695cb171ddd209b05
   - evidence: test-run pass · `node scripts/check-lessons.mjs` exit 0 · mac - · 3e3654f40a8d21812e3ee41ca958fd4ea503ac0a
+  - evidence: review pass · PR #1449 · - - · 46edee48b2cb3136c180bb4d270a3e97ff574cf2
 - [ ] `pnpm lint` — exit 0 (Cyrillic, ссылки); `ci-ok` на PR зелёный.
+  - evidence: review pass · PR #1449 · - - · 46edee48b2cb3136c180bb4d270a3e97ff574cf2
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42086967099/job/127455705772 · ci - · 46edee48b2cb3136c180bb4d270a3e97ff574cf2
 
 ## Тесты
 
