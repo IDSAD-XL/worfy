@@ -2,7 +2,7 @@
 
 Four Features. **Gate** is the check of whether the changes in a worktree are ready. **Gate full** is the complete
 form of that check and the situations that call for it. **Failure records** are what a red Gate run leaves about each
-failed test, and the command that reads them. **PR and CI badges** are the chips on a Ticket and a Session that show
+failed test or step, and the command that reads them. **PR and CI badges** are the chips on a Ticket and a Session that show
 what the Gate and GitHub say. Terms are explained in [Concepts](concepts.md).
 
 ## Gate
@@ -277,7 +277,10 @@ markers, the cache, the `[gate] …` lines and the exit codes are the same with 
 
 **What a red run leaves.** One entry per failed test: the runner, the file, the line of the test, its name (the describe
 blocks and the test joined by ` > `), the Gate step, how long it took, the first line of its error (at most 200
-characters), the attempt and the command that runs this test alone. The run adds the SHA, the profile, the time, the
+characters), the attempt and the command that runs this test alone. The vitest reporter also writes an entry without a test name for a
+test file that failed outside its tests, such as one that did not load, and one entry with neither a file nor a command
+for the unhandled errors of the vitest run. Both count among the `<n> tests` of the line below, while `list`,
+`rerun` and `report` treat them as steps without tests. The run adds the SHA, the profile, the time, the
 computer and `dirty`: true when `git status --porcelain` printed anything, or failed, before the first script. The red report ends with
 `--- failure records: <file> (<n> tests, <m> steps without tests)`, or with `--- failure records: not saved, <why>`
 when the file could not be written. A green run, a run where nothing ran, a stopped run and a script whose environment
@@ -305,7 +308,9 @@ with 2, and so does a wrong argument of any subcommand.
 | `import <file> \| - \| --gh <owner/repo> (--issue N \| --pr N)` | The records another computer exported, kept apart as imported. | 0. 2: a file or an export refused. 1: the source could not be read |
 | `machine [--json] [--name <name>]` | The computer the records name, or a new name for it. | 0. 2: the name refused |
 
-`list` and `report` only read. A file that is broken or of another version is skipped, with its reason on stderr.
+`list` and `report` only read. A file that is broken or of another version is skipped. Without `--json` its reason goes
+to stderr. With `--json` the file and its reason are in the `skipped` field of the JSON object, and nothing goes to
+stderr.
 
 **`rerun`.** By default (`--last`) it takes the newest red run of this worktree. It refuses with code 3 and the reason
 on one line when the run was imported or names another computer, since the commands of its entries are never run here,
