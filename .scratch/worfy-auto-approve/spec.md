@@ -286,6 +286,7 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
 `worfy-retry` (черновик, ветка `docs/epic-worfy-retry`) — переключатель **Auto-continue**: повтор хода после
 временных ошибок API и resume после Limits, тоже в чате Orchestrator-а, справа от Eco mode.
 
+- _С 2026-11-05 устарело:_ три режима — пункты одного меню «Modes» (`worfy-retry` 12, решения Q10–Q18 spec-а `worfy-retry`); абзац ниже — история.
 - **Общая панель — строка controls под полем ввода Orchestrator-а**: Eco mode (`order = 15`), Auto-continue (справа от
   Eco mode; предлагаю `order = 16`), Auto-approval (`order = 17`). Каждый Epic кладёт свой файл composer item-а; общий
   список не правится (`composer/index.ts:46`). Вид — класс `w-eco` Eco mode; у Auto-approval три состояния, поэтому
