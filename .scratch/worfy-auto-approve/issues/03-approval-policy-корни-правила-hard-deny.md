@@ -425,3 +425,25 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
       убраны из списка. Ещё два убиты новыми test-ами: `git log -- :path` с `--` первым словом, значение
       `format:`/`tformat:` без `%`. Один эквивалентен: `eq < 0` → `<= 0`, у слова с `-` в начале `=` не на месте 0.
       Повторный прогон исправленных строк: 12 mutant-ов, убиты все.
+24. **Раунд 10 review (PR #1410): путь из index в середине слова, опции rev-parse, регистр ключей config-а.** High нет.
+    - **Путь из index в середине слова ревизии (medium).** `^:a.txt`, `HEAD..:a.txt`, `HEAD...:a.txt`,
+      `rev-list -1 HEAD ^:a.txt`, `log -1 HEAD..:a.txt` и `rev-parse --shared-index-path` получали allow, а git
+      запускал `core.fsmonitor`. Решение review — написания больше не перебирать: пока hooks или программы config-а
+      активны, каждое слово до `--`, которое не опция и содержит `:`, даёт park `git-hooks`. Цена записана в spec,
+      «Решено без владельца», п. 8: `rev-parse HEAD:path`, `cat-file -p <rev>:path`, `ls-tree HEAD:dir` и значение
+      опции отдельным словом с `:` (`log --grep 'fix: a'`) в таком проекте тоже уходят в park. Опция с `=`
+      (`--grep=fix: a`, `--format=%(refname:short)`) и слова после `--` остаются как были.
+    - **Опции `rev-parse` — точный allow-list.** Оставлены `--verify`, `--quiet`, `-q`, `--short`, `--short=<n>`,
+      `--abbrev-ref`, `--symbolic`, `--symbolic-full-name`, `--show-toplevel`, `--show-prefix`, `--show-cdup`,
+      `--git-dir`, `--git-common-dir`, `--absolute-git-dir`, `--is-inside-work-tree`, `--is-inside-git-dir`,
+      `--is-bare-repository`, `--is-shallow-repository`, `--all`, `--branches`, `--tags`, `--remotes`. Каждая
+      проверена на настоящем git 2.50 с hooks, fsmonitor, textconv, clean/smudge, diff.external и gpg.program: ни
+      одна ничего не запустила. `--shared-index-path` запустил fsmonitor и даёт park; любая другая опция тоже.
+      Скрипт и вывод — в scratchpad исполнителя, `impl-aa03/r8git/kept10.sh` и `kept10.out`.
+    - **Регистр ключей config-а (low).** `git config --list` печатает секцию и последнюю часть ключа строчными
+      (`core.sshcommand`, `gpg.ssh.defaultkeycommand`), поэтому правило по окончанию в Ticket 04 и в spec теперь без
+      учёта регистра. `core.sshCommand` на `.command` не кончается, поэтому он назван в правиле отдельно (он
+      запускает программу на `fetch` и `pull`). Записанная цена — `fetch` уходит в park в проекте с
+      `core.sshCommand` — теперь верна. Комментарий поля `hooksActive` в `policy.ts` говорит то же.
+    - **Mutation testing после раунда 10.** Изменённые строки `policy.ts` (список опций `rev-parse`, проверка `:`,
+      allow-list `rev-parse`): 34 mutant-а, убиты все.
