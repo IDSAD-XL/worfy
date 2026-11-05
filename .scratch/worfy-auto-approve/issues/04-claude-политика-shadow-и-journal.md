@@ -62,14 +62,17 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3, 7; «Ре�
    - `hooksActive` — есть ли в репозитории hooks или программы, названные в git config; читается при старте Run-а.
      `true`, когда задан `core.hooksPath`, когда в `hooks/` общей git-папки (`git rev-parse --git-common-dir`) лежит
      файл без окончания `.sample` или когда в `git config --list` есть ключ по одному правилу: `core.fsmonitor` со
-     значением не `true` и не `false`, `diff.external`, `core.sshCommand`, или ключ, который кончается на
+     значением не `true` и не `false`, `diff.external`, `core.sshCommand`, `remote.*.uploadpack`,
+     `remote.*.receivepack`, или ключ, который кончается на
      `.program`, `.command`, `.cmd`, `.driver`, `.textconv`, `.clean`, `.smudge`, `.process` или
      `.defaultKeyCommand` (сюда входят `gpg.program`, `gpg.*.program`, `gpg.ssh.defaultKeyCommand`,
      `diff.*.command`, `merge.*.driver`, `trailer.*.cmd`, filters). Имена и окончания сравниваются без учёта
      регистра: `git config --list` печатает имя секции и последнюю часть ключа строчными (`core.sshcommand`,
      `gpg.ssh.defaultkeycommand`), а средняя часть (`trailer.Sign.cmd`) сохраняет регистр. Правило по окончанию
-     ключа, а не список: новые ключи git с программой обычно так и названы. `core.sshCommand` назван отдельно: он
-     запускает программу на `fetch` и `pull`, а на `.command` не кончается. Цена — в spec, «Решено без владельца»,
+     ключа, а не список: новые ключи git с программой обычно так и названы. `core.sshCommand`,
+     `remote.*.uploadpack` и `remote.*.receivepack` названы отдельно: они запускают программу на `fetch`, `pull` и
+     `push`, а под окончания не подходят. `credential.helper`, `core.askPass` и `core.gitProxy` в правило не входят
+     (spec, «Решено без владельца», п. 9). Цена — в spec, «Решено без владельца»,
      п. 7: `core.sshCommand` владельца включает поле, и `fetch` уходит в park. `core.pager` и `pager.*` не нужны: у Session-и нет tty, и git pager не запускает. `false` — когда нет ничего из этого; `null` — когда
      прочитать не удалось. Пока поле не `false` (или задан `hooksPath`), git одобряется только на чтение ref-ов и
      object-ов: без diff-а, без filter-ов и без обращения к рабочему дереву (Ticket 03, «Итог», пункты 21 и 22).
@@ -87,7 +90,11 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3, 7; «Ре�
    `log.showSignature=true` в config-е владельца простой `git log` на подписанном commit-е запускает `gpg.program`
    (проверено на git 2.50; переменная это отключает, Ticket 03, «Итог», пункт 22). Третий — тоже для `git log`:
    `format.pretty` владельца с подписью (`%G?` или именованный формат с ней) делает простой `git log -1` вызовом
-   `gpg.program` (проверено; Ticket 03, «Итог», пункт 23). `GIT_CONFIG_COUNT` не подходит: он в списке `GIT_ENV` разбора
+   `gpg.program` (проверено; Ticket 03, «Итог», пункт 23). Когда Run стартует с `hooksActive`, которое не `false`, драйвер задаёт
+   ещё `GIT_NO_LAZY_FETCH=1`. В partial clone (`--filter=blob:none`, `tree:0`) чтение недостающего object-а
+   (`cat-file`, `ls-tree -l`, `log -- <path>`, `rev-parse HEAD^{tree}`) иначе догружает его с remote и запускает
+   `core.sshCommand`; с переменной такое чтение падает, и программа не запускается (проверено review на git 2.50;
+   Ticket 03, «Итог», пункт 25). `GIT_CONFIG_COUNT` не подходит: он в списке `GIT_ENV` разбора
    команды (Ticket 02), и при нём любой git не судится. `GIT_CONFIG_PARAMETERS` в `env` контекста передавать можно.
    Драйвер передаёт вход инструмента как получен (`file_path` без обрезки пробелов и раскрытия `~`): путь, не
    абсолютный как дан, политика не одобряет.

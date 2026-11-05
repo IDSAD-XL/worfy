@@ -447,3 +447,20 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
       `core.sshCommand` — теперь верна. Комментарий поля `hooksActive` в `policy.ts` говорит то же.
     - **Mutation testing после раунда 10.** Изменённые строки `policy.ts` (список опций `rev-parse`, проверка `:`,
       allow-list `rev-parse`): 34 mutant-а, убиты все.
+25. **Раунд 11 review (PR #1410): lazy fetch в partial clone, ключи remote, системные помощники.** High нет; обходов
+    через опции других подкоманд review не нашёл, отдельные allow-list опций для них не нужны.
+    - **Lazy fetch (medium, только текст).** В partial clone (`--filter=blob:none`, `tree:0`) `cat-file -p/-s/-t/-e`,
+      `ls-tree -l`, `log -1 -- a.txt` и `rev-parse HEAD^{tree}` догружают недостающий object и запускают
+      `core.sshCommand`, а политика при `hooksActive` true даёт allow. Решение review: Ticket 04 — когда Run стартует с
+      `hooksActive`, которое не `false`, драйвер задаёт ещё `GIT_NO_LAZY_FETCH=1` рядом с `GIT_CONFIG_PARAMETERS`;
+      чтение недостающего object-а тогда падает, программа не запускается (проверено review на git 2.50). Код
+      политики не менялся. Зависимость названа в комментарии поля `hooksActive` в `policy.ts` и в spec,
+      «Безопасность», п. 9. Test политики на это не добавлен: политика окружение не видит, и такой test проверял бы
+      только текст.
+    - **`remote.*.uploadpack` и `remote.*.receivepack` (low).** Названы в правиле явно, как `core.sshCommand`: Ticket
+      04, spec «Решено без владельца» п. 7, комментарий поля `hooksActive`.
+    - **Системные помощники (low).** В spec, «Решено без владельца», п. 9, записано, почему `credential.helper`,
+      `core.askPass` и `core.gitProxy` не включают поле: это стандартные помощники (`osxkeychain` задан системным
+      config-ом Apple git, и любой commit Wave на Mac уходил бы в park), они работают на любом `fetch` и с политикой,
+      и без неё.
+    - **Mutation testing** не нужен: строки кода не менялись, только комментарий.

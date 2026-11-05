@@ -94,9 +94,12 @@ export interface PolicyContext {
   /**
    * Whether the repository has client hooks or programs named in its config, read when the Run starts: true when
    * `core.hooksPath` is set, the common git folder's `hooks/` holds a file not ending in `.sample`, or a config key
-   * is `core.fsmonitor` (not true / false), `diff.external` or `core.sshCommand`, or ends in `.program`, `.command`,
-   * `.cmd`, `.driver`, `.textconv`, `.clean`, `.smudge`, `.process` or `.defaultKeyCommand`, compared without case
-   * (`git config --list` prints keys in lower case); null when it could not be read. Such a program may run
+   * is `core.fsmonitor` (not true / false), `diff.external`, `core.sshCommand`, `remote.*.uploadpack` or
+   * `remote.*.receivepack`, or ends in `.program`, `.command`, `.cmd`, `.driver`, `.textconv`, `.clean`, `.smudge`,
+   * `.process` or `.defaultKeyCommand`, compared without case (`git config --list` prints keys in lower case); null
+   * when it could not be read. The reads kept while it is not false rely on the Run's git environment (ticket 04):
+   * GIT_CONFIG_PARAMETERS turns off `log.showSignature` and `format.pretty`, and GIT_NO_LAZY_FETCH=1 keeps a partial
+   * clone from fetching a missing object through `core.sshCommand`. Such a program may run
    * files the agent can edit (husky's `.husky/pre-commit`, lint-staged, `python3 -m nbstripout`), so unless it is
    * false git may only read refs and objects (mayRunHook). A set `hooksPath` counts as true.
    */

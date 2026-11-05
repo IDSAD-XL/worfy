@@ -271,7 +271,9 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
    git config (`core.fsmonitor`, `textconv`, filters `clean` / `smudge`), — и на «чистых» чтениях: `git show`,
    `git blame`, `git ls-files`. Поэтому при поле `hooksActive`, которое не `false` (hooks или такие ключи config-а), git
    одобряется только на чтение ref-ов и object-ов без diff-а, filter-ов и рабочего дерева; остальное — park (Ticket
-   03, «Итог», пункты 21 и 22). git тоже
+   03, «Итог», пункты 21 и 22). Эти чтения безопасны, только пока окружение git-а Run-а задано Ticket 04:
+   `GIT_CONFIG_PARAMETERS` выключает `log.showSignature` и `format.pretty` владельца, а `GIT_NO_LAZY_FETCH=1` не даёт
+   partial clone догружать недостающий object через `core.sshCommand` (Ticket 03, «Итог», пункт 25). git тоже
    запускается только в репозитории самого worktree-а: папка по пути к его верху с `HEAD`, `commondir`, `gitdir` или
    `objects` вместе с `refs` — подложенный репозиторий со своим config-ом, и git там не allow (Ticket 03, «Итог»,
    пункт 20).
@@ -290,7 +292,7 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
    показывает `needs_permission`, как у attended.
 7. **Программы git config-а определяются по окончанию ключа** (решение review PR #1410, раунды 9 и 10).
    `hooksActive` становится `true`, если в config-е есть `core.fsmonitor` (не `true`/`false`), `diff.external`,
-   `core.sshCommand` или ключ на `.program`, `.command`, `.cmd`, `.driver`, `.textconv`, `.clean`, `.smudge`,
+   `core.sshCommand`, `remote.*.uploadpack`, `remote.*.receivepack` или ключ на `.program`, `.command`, `.cmd`, `.driver`, `.textconv`, `.clean`, `.smudge`,
    `.process`, `.defaultKeyCommand` (Ticket 04). Сравнение без учёта регистра: `git config --list` печатает ключи
    строчными. Принятая цена: `core.sshCommand` владельца включает поле, и `git fetch` в таком проекте уходит в park.
 8. **Пока hooks активны, любое слово ревизии с `:` уходит в park** (решение review PR #1410, раунд 10). Путь из
@@ -299,6 +301,11 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
    Принятая цена: `git rev-parse HEAD:path`, `git cat-file -p <rev>:path`, `git ls-tree HEAD:dir` и значение опции
    отдельным словом с `:` (`git log --grep 'fix: a'`) в проекте с hooks или программами config-а тоже уходят в
    park. Опции `git rev-parse` — точный allow-list, каждая проверена на настоящем git.
+9. **`credential.helper`, `core.askPass` и `core.gitProxy` не включают `hooksActive`** (решение review PR #1410,
+   раунд 11). Это стандартные системные помощники: `credential.helper=osxkeychain` задан системным config-ом Apple git,
+   и если считать их, любой commit Wave на Mac уходил бы в park. Они запускаются на любом `fetch` и с политикой, и
+   без неё; это обычная работа git с remote, а не программа, которую агент может назначить: запись в `.git/config`
+   ни одним правилом не allow.
 
 ## Соседний Epic worfy-retry
 
