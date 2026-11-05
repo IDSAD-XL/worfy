@@ -77,7 +77,8 @@ function ModesMenu({ projectId }: { projectId: string }) {
   const autoState: IconState = auto.mode ?? 'unknown'
   const readOnly = eco.readOnly && auto.readOnly
   // The states are in the button's name, not only in its tooltip: a screen reader says them with it.
-  const summary = `Modes: Eco mode ${stateWords(ecoState, eco)}, Auto-approval ${stateWords(autoState, auto)}`
+  // A window on a Linked machine says once where both are set.
+  const summary = readOnly ? 'Modes: set on the Machine of the Project' : `Modes: Eco mode ${stateWords(ecoState, eco)}, Auto-approval ${stateWords(autoState, auto)}`
 
   const close = useCallback((focus: boolean) => {
     setMenu(null)

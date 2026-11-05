@@ -713,7 +713,8 @@ describe('a window on a Linked machine', () => {
     expect(trigger().hasAttribute('data-read-only')).toBe(true)
     // The button still opens the menu: it is not unavailable itself, and its name says where the modes are set.
     expect(trigger().getAttribute('aria-disabled')).toBeNull()
-    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode set on the Machine of the Project, Auto-approval set on the Machine of the Project')
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: set on the Machine of the Project')
+    expect(trigger().title).toBe('Modes: set on the Machine of the Project')
     expect(slot('eco').getAttribute('data-state')).toBe('unknown')
     expect(slot('auto-approval').getAttribute('data-state')).toBe('unknown')
     expect(slot('auto-approval').hasAttribute('data-saved')).toBe(false)
@@ -746,6 +747,7 @@ describe('a window on a Linked machine', () => {
     expect(ecoItem().title).toBe('studio gives this Machine read-only access')
     expect(ecoItem().hasAttribute('data-read-only')).toBe(true)
     expect(position('On').title).toBe(AUTO_APPROVAL_ELSEWHERE)
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: set on the Machine of the Project')
     await clickEco()
     await choose('On')
     expect(modeCalls()).toEqual([])

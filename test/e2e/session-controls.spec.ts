@@ -355,14 +355,13 @@ test('on the default model the pickers do not make the bar under the input field
     expect(sendBox.x).toBeGreaterThan(pickersBox.x + pickersBox.width)
     expect(await heights()).toEqual({ now: barBox.height, withNativeLists: barBox.height })
     // The window from 800 to 1600 px wide with the sidebar shown (worfy-retry ticket 12): no element of
-    // the bar is lost, and from 1260 px up Send stays on the pickers' line. Below 1260 px Send had a
-    // line of its own before the Modes button too: measured on origin/main db7ded110 with both
-    // switches, every 10 px of 800–1600, it left the pickers' line below 1260 px (below 1210 px with
-    // the Modes button).
+    // the bar is lost, and from 1220 px up Send stays on the pickers' line. Measured every 10 px of
+    // 800–1600 px: on origin/main db7ded110, with both switches, Send left the pickers' line below
+    // 1260 px; with the Modes button it holds down to 1210 px, and this keeps that gain.
     for (let width = 800; width <= 1600; width += 20) {
       await resize(width, 800)
       await nothingLost(view, width)
-      if (width >= 1260) {
+      if (width >= 1220) {
         const [shownPickers, shownSend] = [await box(pickers), await box(send)]
         expect(Math.abs(shownSend.y + shownSend.height / 2 - (shownPickers.y + shownPickers.height / 2)), `Send on the pickers' line at ${width} px`).toBeLessThan(4)
       }
