@@ -362,10 +362,13 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
   ничего — закрывается без кода. Blocked by: 01. Ревью: high (hook меняет команды агента).
 - **10 — Документация и термины.** Страница Feature, `CONTEXT.md`, ADR политики. Blocked by: 04, 05, 06, 07, 08, 09.
   Ревью: low.
-- **11 — Приёмка с владельцем.** Ночи Shadow, разбор списка, переход в On. Blocked by: 01–10, 12.
+- **11 — Приёмка с владельцем.** Ночи Shadow, разбор списка, переход в On. Blocked by: 01–10, 12, 13.
 - **12 — Electron fuses.** В собранном worfy выключить `EnableNodeCliInspectArguments` и `RunAsNode`, чтобы процесс
   Machine не открыл Node inspector worfy сигналом `SIGUSR1`; test, что у собранного приложения они выключены, на
   macOS и Windows. Blocked by: —.
+- **13 — Остатки review Ticket-а 04.** Ложные срабатывания маскировки Journal, test-ы на настоящем git на Windows,
+  ветка по умолчанию при reftable, пустой config по `GIT_CONFIG_GLOBAL`, русский перевод страницы. Blocked by: 04.
+  Ревью: medium.
 
 ## Волны
 
@@ -385,6 +388,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 08 | `src/shared/flight-recorder/from-journal.ts`, `src/shared/flight-recorder/facts.ts`, `src/shared/ipc/runs.ts`, `src/renderer/flight-recorder/DetailPanel.tsx`, `src/main/autopilot/run.ts`, `test/unit/auto-approve-summary.test.ts` | 4 |
 | 10 | `docs/features/autopilot.md`, `docs/features/ru/autopilot.md`, `CONTEXT.md`, `docs/adr/<NNNN>-approval-policy.md` | 5 |
 | 12 | `electron-builder.yml`, `package.json`, `src/main/program.ts`, `src/main/vendors/codex/launch.ts`, `test/contract/electron-fuses.test.ts` | 1 |
+| 13 | `src/shared/autopilot/journal.ts`, `src/main/agent/auto-approve/run-approval.ts`, `test/unit/auto-approve-run.test.ts`, `test/unit/autopilot-journal.test.ts`, `docs/features/ru/autopilot.md` | 4 |
 | 11 | `.scratch/worfy-auto-approve/spec.md` | 6 |
 
 Правило плана: Ticket стоит в первой Wave, где закрыты все его блокеры; общий файл у двух Ticket-ов одной Wave —
@@ -393,7 +397,7 @@ Ticket с большим номером уходит дальше (`filesOverlap
 - **Wave 1 — 01, 02, 06.** Данные, разбор команды и переключатель не зависят друг от друга.
 - **Wave 2 — 03, 09.** Политике нужны категории 01 и разбор 02; hook-у — только категории 01.
 - **Wave 3 — 04.** Первое подключение к driver-у: нужны политика и режим.
-- **Wave 4 — 05, 07, 08.** Все ждут 04; общих файлов нет (`run.ts` из них правит только 08).
+- **Wave 4 — 05, 07, 08, 13.** Все ждут 04; общих файлов нет (`run.ts` из них правит только 08).
 - **Wave 5 — 10.** Wave 6 — 11, владелец.
 
 ## Не в этом Epic-е
