@@ -323,3 +323,37 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
       `add`, `rm`, `restore` (без него `use` — `undefined`, а для путей этих форм код сравнивает `use` только с `'read'` и
       `'delete'` — сравнения с `'write'` стоят у file tool-ов и у переноса cp / mv, — так что это та же запись; typecheck такое не пропустит) и `.some` → `.every` по двум формам пути при проверке hooks
       (папки hooks взяты в обеих формах, записанной и настоящей, и обе формы пути лежат под ними вместе).
+21. **Раунд 7 review (PR #1410): установленные git hooks.** Входы раунда 6 закрыты; `fetch --prune --tags` на
+    настоящем git локальные теги не удаляет, allow верен (проверка reviewer-а).
+    - **Установленные hooks (high).** husky 9 ставит `core.hooksPath=.husky/_`, его `_/pre-commit` запускает
+      `.husky/pre-commit`; Write `.husky/pre-commit` и `git commit -m x` были allow, и настоящий git запустил файл
+      агента. Класс шире husky: любой hook, который зовёт файлы проекта (lint-staged, скрипты `package.json`).
+      Охрана папок hooks его не закрывает. Решение review: новое поле контекста **`hooksActive`** (Ticket 04): `true`,
+      когда задан `core.hooksPath` или в `hooks/` общей git-папки есть файл без `.sample`; `null` — не прочитано.
+      Пока оно не `false`, git-форма allow-list-а, которая может запустить client hook, получает park с правилом
+      `git-hooks` и подсказкой `HINTS.gitHooks`; подсказка — только когда hooks единственная причина (с push рядом
+      — обычный park).
+    - **Какие формы (решение моё, строже списка review).** Review оставлял `reset --hard`, `mv`, `rm`, `add`. Но
+      `post-index-change` запускается при каждой записи index-а (add, rm, mv, restore, reset, checkout, а также
+      status, diff и describe, которые обновляют index, когда могут), `reference-transaction` — при каждом изменении
+      ref-а (commit, fetch, pull, branch, reset, merge, rebase), `post-checkout` — у checkout, switch и restore,
+      hooks commit-а — у commit, merge, cherry-pick, revert, rebase. Поэтому park получает весь git allow-list-а,
+      кроме чтений, которые не пишут ни index, ни ref: `log`, `show`, `rev-parse`, `ls-files`, `ls-tree`, `cat-file`,
+      `merge-base`, `blame`, `shortlog`, `rev-list`, `name-rev`, `for-each-ref`, `show-ref`, `grep`, `check-ignore`,
+      `branch` без операнда (список), `stash list`, `stash show`. У самого worfy hooks нет, так что commit-ы Wave в
+      нём остаются allow.
+    - **Замена родительской папки папки hooks (medium).** С `hooksPath=tools/hooks` команды `mv tools tools-old`
+      и `mv src/fk tools` ставили другую папку hooks. Теперь папки между папкой hooks и ближайшим верхом
+      (worktree или checkout) охраняются сами по себе: запись, перенос (источник и место) и удаление такой папки —
+      `git-files`; файлы внутри неё, кроме самой папки hooks, — как раньше. Для абсолютного `hooksPath` вне всех
+      верхов — только сама папка и то, что в ней.
+    - **`*_HEAD` (low).** Новая ветка с именем на `_HEAD` (ORIG_HEAD, FETCH_HEAD, MERGE_HEAD, CHERRY_PICK_HEAD…) —
+      не allow; без регистра на macOS и Windows.
+    - **Ticket 04 (low).** Для `safe.bareRepository=explicit` назван только `GIT_CONFIG_PARAMETERS`: `GIT_CONFIG_COUNT`
+      стоит в `GIT_ENV` разбора команды, и при нём любой git не судится. Spec («Безопасность», п. 9) называет
+      установленные hooks и `hooksActive`.
+    - **Mutation testing после раунда 7** на изменённых строках `policy.ts`: 71 mutant, убито 58, выжило 13. Test-ы
+      добавлены на каждое чтение списка без hooks и на park без подсказки, когда рядом push. Повторный прогон: 11
+      убито, 2 эквивалентны — `.some` → `.every` по двум формам пути при проверке hooks (как в пункте 20) и
+      `gitHooks: true` у file tool-а (правило `edit-inside-roots` разрешает каждый file tool внутри корней раньше, чем
+      дойдёт до park с подсказкой).

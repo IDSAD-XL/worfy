@@ -1337,7 +1337,8 @@ describe('round 7: installed git hooks, the parents of the hooks folder, and *_H
     'git cherry-pick abc123', 'git cherry-pick --abort', 'git revert --abort', 'git reset', 'git reset --hard origin/main', 'git branch worfy-demo/03-b']
   // status, diff and describe write the index when they can (post-index-change); the rest only read.
   const INDEX_READS = ['git status', 'git diff', 'git diff HEAD', 'git describe']
-  const PURE_READS = ['git log', 'git show HEAD', 'git rev-parse HEAD', 'git ls-files', 'git branch -a', 'git stash list', 'git merge-base HEAD origin/main', 'git grep demo']
+  const PURE_READS = ['git log', 'git show HEAD', 'git rev-parse HEAD', 'git ls-files', 'git branch -a', 'git stash list', 'git merge-base HEAD origin/main', 'git grep demo',
+    'git ls-tree HEAD', 'git cat-file -p HEAD', 'git blame src/a.ts', 'git shortlog', 'git rev-list HEAD', 'git name-rev HEAD', 'git for-each-ref', 'git show-ref', 'git check-ignore src/a.ts', 'git stash show']
 
   it('with hooks installed, or not known, no git command that may run a hook is allowed: park with a hint', () => {
     for (const hooksActive of [true, null]) {
@@ -1357,6 +1358,8 @@ describe('round 7: installed git hooks, the parents of the hooks folder, and *_H
     expect(run(`git mv src/a.ts ${ELSEWHERE}/y`, hooked)).toMatchObject({ outcome: 'park', rule: 'outside-roots' })
     expect(run('rm -rf build', hooked)).toMatchObject({ outcome: 'allow', rule: 'files-inside-roots' })
     expect(run('rm -rf build && git commit -m x', hooked)).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    // The hint is given only when the hooks are the one reason: with a push beside it, the park is the plain one.
+    expect(run('git commit -m x && git push', hooked)).toMatchObject({ outcome: 'park', rule: 'outside-roots', hint: null })
     expect(judge({ tool: 'Write', input: { file_path: `${WT}/.husky/pre-commit` } }, hooked).outcome).toBe('allow')
   })
   it('a write, move or delete of a folder between the worktree top and the hooks folder is git-files', () => {
