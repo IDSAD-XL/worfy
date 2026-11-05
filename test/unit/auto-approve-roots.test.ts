@@ -514,6 +514,14 @@ describe('what a copy brings along (copiedTree)', () => {
     expect(copiedTree('/tmp/demo/pad/kit', roots(unreadable))).toBe('unclear')
     expect(copiedTree('/tmp/demo/pad/kit/*', roots(unreadable))).toBe('unclear')
   })
+  it('a link inside is unclear only for a copy that follows links', () => {
+    const linked = treeFs({ '/tmp/demo/pad/kit/a/b.txt': 'file', '/tmp/demo/pad/kit/a/l': '-> /home/demo/.ssh', '/home/demo/.ssh/id_demo': 'file' })
+    expect(copiedTree('/tmp/demo/pad/kit', roots(linked))).toBe('clean')
+    expect(copiedTree('/tmp/demo/pad/kit', roots(linked), false)).toBe('clean')
+    expect(copiedTree('/tmp/demo/pad/kit', roots(linked), true)).toBe('unclear')
+    expect(copiedTree('/tmp/demo/pad/kit/*', roots(linked), true)).toBe('unclear')
+    expect(copiedTree('/tmp/demo/pad/kit', roots(treeFs({ '/tmp/demo/pad/kit/a/b.txt': 'file' })), true)).toBe('clean')
+  })
   it('more entries than a glob may have is unclear, in a glob\'s folder or below', () => {
     const many: Record<string, string> = {}
     for (let n = 0; n <= 10_000; n++) many[`/tmp/demo/pad/kit/d/${n}`] = 'file'

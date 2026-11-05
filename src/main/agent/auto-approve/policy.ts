@@ -403,7 +403,10 @@ function currentBranch(top: string, roots: Roots, win: boolean): string | null |
     const named = /^gitdir:[ \t]*(.+?)[ \t\r]*$/m.exec(roots.fs.readFile(dotGit) ?? '')?.[1]
     if (named !== undefined) gitDir = normalizePath(named, win) ?? joinPath(top, named, win)
   }
-  const head = gitDir === null ? null : roots.fs.readFile(joinPath(gitDir, 'HEAD', win))
+  const headPath = gitDir === null ? null : joinPath(gitDir, 'HEAD', win)
+  // A HEAD that is a link reads as its target's content (a SHA): the branch is not known.
+  if (headPath === null || roots.fs.lstat(headPath) !== 'file') return undefined
+  const head = roots.fs.readFile(headPath)
   if (head === null) return undefined
   const ref = /^ref:[ \t]*(\S+)\s*$/.exec(head)?.[1]
   if (ref !== undefined) return branchName(ref)
@@ -435,11 +438,14 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
   const facts = action.git
   if (facts === undefined) return null
   const { context, roots, win } = prepared
-  const protectedBranch = (branch: string): boolean => branch === context.defaultBranch || branch === 'main'
+  // Loose refs are files: on macOS and Windows `MAIN` is `main`.
+  const caseless = win || context.platform === 'darwin'
+  const sameBranch = (a: string, b: string): boolean => (caseless ? a.toLowerCase() === b.toLowerCase() : a === b)
+  const protectedBranch = (branch: string): boolean => sameBranch(branch, context.defaultBranch) || sameBranch(branch, 'main')
   const ofRun = (path: string): boolean => context.worktrees.some((wt) => samePath(wt, path, win))
   const top = repositoryTop(action.cwd, roots)
   const elsewhere = (path: string): boolean => !ofRun(path) && !(top !== null && samePath(path, top, win))
-  const otherBranch = (branch: string): boolean => context.checkouts.some((checkout) => checkout.branch !== null && branchName(checkout.branch) === branch && elsewhere(checkout.path))
+  const otherBranch = (branch: string): boolean => context.checkouts.some((checkout) => checkout.branch !== null && sameBranch(branchName(checkout.branch), branch) && elsewhere(checkout.path))
   // A name git cannot resolve here (`-`, `@{-1}`, a glob) may be the default branch.
   const unknownName = (branch: string): boolean => branch === '' || branch === '-' || branch.startsWith('@{') || /[*?]/.test(branch)
   const judgeBranch = (branch: string, defaultRule: string): string | null => {
@@ -466,7 +472,9 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
     const created = ['b', 'B', 'c', 'C', 'orphan'].flatMap((name) => values.get(name) ?? [])
     // --track origin/x makes and checks out x.
     const tracked = values.has('t') || values.has('track') ? operands.map((word) => word.slice(word.indexOf('/') + 1)) : []
-    const rule = firstOf(created.length > 0 ? created : [...operands, ...tracked], 'git-checkout-default-branch')
+    // `checkout <tree> -- <paths>` restores files and `--detach` leaves every branch: neither switches one.
+    const switches = !values.has('detach') && !(sub === 'checkout' && words.includes('--'))
+    const rule = firstOf(created.length > 0 ? created : switches ? [...operands, ...tracked] : [], 'git-checkout-default-branch')
     if (rule !== null) return rule
   }
   if (sub === 'worktree' && words[0] === 'add') {
@@ -564,9 +572,10 @@ function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared):
     // A folder copied or moved brings along what is inside it: .gitattributes too.
     const program = actions?.[n]?.program
     if ((program !== 'cp' && program !== 'mv') || !act.targets.every((target) => isInside(target.placement))) continue
+    const follows = program === 'cp' && copyFollowsLinks(act.args, prepared.context.platform)
     for (const target of act.targets) {
       if (target.use === 'write' || target.marker !== null) continue
-      const tree = copiedTree(target.path, prepared.roots)
+      const tree = copiedTree(target.path, prepared.roots, follows)
       if (tree === 'git-files') return deny('git-files', HINTS.gitFiles)
       if (tree === 'unclear') return deny('copy-unclear', HINTS.copyUnclear)
     }
@@ -574,6 +583,18 @@ function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared):
   const changes = acts.some((act) => act.git !== undefined || act.targets.some((target) => target.use !== 'read'))
   if (actions !== null && !changes && acts.every((act) => act.targets.every((target) => isInside(target.placement)))) return deny('read-only', HINTS.readOnly)
   return null
+}
+
+/**
+ * Whether cp follows the links inside what it copies: `-L` or `--dereference`, and on macOS `-r` too (BSD cp
+ * makes it `-RL`). A later `-P` is not looked at: following is assumed.
+ */
+function copyFollowsLinks(args: readonly string[], platform: NodeJS.Platform): boolean {
+  return args.some((word) => {
+    if (word === '--') return false
+    if (word.startsWith('--')) return 'dereference'.startsWith(word.slice(2)) && word.length > 2
+    return /^-[A-Za-z]+$/.test(word) && (word.includes('L') || (platform === 'darwin' && word.includes('r')))
+  })
 }
 
 function allowOrPark(acts: Act[], targets: string[]): Decision {

@@ -533,10 +533,11 @@ export function isGitFileName(name: string): boolean {
 
 /**
  * What copying or moving the source `path` (a glob in the last component too) brings along: a folder is
- * looked through, links not followed (cp -R and mv keep them as links). More entries than a glob may
- * have, or one that cannot be read, is unclear.
+ * looked through. A link inside is kept as a link by `cp -R`, `cp -P` and `mv`; a copy that follows links
+ * (`followsLinks`: `cp -L`, `--dereference`, `cp -r` on macOS) brings what it leads to, so a link there is
+ * unclear. More entries than a glob may have, or one that cannot be read, is unclear.
  */
-export function copiedTree(path: string, roots: Roots): CopiedTree {
+export function copiedTree(path: string, roots: Roots, followsLinks = false): CopiedTree {
   const win = roots.platform === 'win32'
   const raw = rawPath(path, win)
   if (raw === null) return 'unclear'
@@ -556,7 +557,7 @@ export function copiedTree(path: string, roots: Roots): CopiedTree {
     const entry = queue.pop() as string
     if (isGitFileName(lastComponent(entry, win))) return 'git-files'
     const kind = roots.fs.lstat(entry)
-    if (kind === 'error') return 'unclear'
+    if (kind === 'error' || (followsLinks && kind === 'link')) return 'unclear'
     if (kind !== 'dir') continue
     const names = roots.fs.readdir(entry)
     if (names === null) return 'unclear'
