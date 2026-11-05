@@ -118,7 +118,7 @@ seed 1–4: все зелёные, и seed 3 тоже.
 Буквальная команда пункта `pnpm vitest run …` запускает vitest под системным Node, а не под Node
 из Electron. На ней краснеет `test/unit/runtime.test.ts` («runs under the Node built into
 Electron»), и так было и раньше. Поэтому пункт проверен через `pnpm test …`: это тот же vitest под
-Electron. Решено без владельца, подтвердить.
+Electron. Решено без владельца, подтверждено владельцем 2026-11-05.
 
 **Мутанты glob-ов.** Каждый шаблон испорчен по очереди, и test краснеет:
 - `nodes/index.ts` `./*Node.tsx` → `./*Nodes.tsx` — `canvas.test.tsx`;

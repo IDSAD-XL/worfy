@@ -72,7 +72,7 @@ PR #1247. Ревью — комментарий PR #1247: раунд 1 (глуб
   пробовали: неизвестно, что из него нужно app-server.
 - Пункт «`pnpm build` кладёт бинарник в `app.asar.unpacked`»: на деле это делает `pnpm package`; `pnpm build` пишет
   только `out/`. Проверено через `pnpm package`.
-- Решено implementer-ом, подтвердить при приёмке: `limitWindows` → `limitSource: 'windows'`; `slashCommands` →
+- Решено implementer-ом, подтверждено владельцем 2026-11-05 (`harness` позже изменён Ticket-ом 39): `limitWindows` → `limitSource: 'windows'`; `slashCommands` →
   `commandsComplete: false` с причиной (команды только TUI в меню не попадут, Ticket 22); `hooks`, `harness`,
   `oneShotToolFree` — false; `historyList`, `modelSwitchStable` — true; `effortLevels` и `models` пустые до
   `model/list` (Ticket 20).

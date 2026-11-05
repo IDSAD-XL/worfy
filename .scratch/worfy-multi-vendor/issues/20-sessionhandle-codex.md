@@ -121,7 +121,7 @@ test-ы presets, sandbox policy и `model/list`.
 
 Ревью (PR #1260):
 
-- Ступень `high` по тексту тикета — решено без владельца, подтвердить. Круг 1 — verifier, два reviewer-а, два
+- Ступень `high` по тексту тикета — решено без владельца, подтверждено владельцем 2026-11-05. Круг 1 — verifier, два reviewer-а, два
   sceptic-а: REJECTED, четыре пункта (approval-ы Subagent-а без путей и три пробела test-ов, которые сторожат остановку
   процесса и Interrupt; закрыты доработкой выше), 631 561 subagent-токен. Круг 2 — verifier и reviewer (`medium`):
   VERIFIED; debt, 144 743 токена.

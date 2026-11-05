@@ -69,7 +69,7 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   `test/unit/subagent-trees.test.tsx`, e2e `test/e2e/codex-subagents.spec.ts` (правило в `scripts/e2e-specs.table.json`).
 - Снимки обеих тем: [светлая](../evidence/34/34-codex-subagents-light.png), [тёмная](../evidence/34/34-codex-subagents-dark.png).
 
-Решено без владельца, подтвердить:
+Решено без владельца, подтверждено владельцем 2026-11-05:
 
 - Дерево строит main и отдаёт готовым (`tree`), а не через `signals`/`files` Claude: у Codex четыре статуса, и
   `interrupted` в модели файлов Claude значит другое (ADR-0085).

@@ -61,5 +61,5 @@ Codex 0.166.0 печатает `codex plugin list --json` как `{"installed": 
   в тексте ответа ищутся «already added» и «different source», это угадано по help-тексту, живой записи нет. Риск
   мал: план добавляет marketplace, только когда живой `marketplace list` его не называет. `plugin upgrade`/`remove`
   установка в Codex не запускает.
-- Решено без владельца, подтвердить: plugin из `available` не считается установленным, даже если в нём
+- Решено без владельца, подтверждено владельцем 2026-11-05: plugin из `available` не считается установленным, даже если в нём
   `installed: true` (массив `available` не читается вовсе).

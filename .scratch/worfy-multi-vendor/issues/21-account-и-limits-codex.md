@@ -55,7 +55,7 @@ Source: [spec.md](../spec.md), «Модель» (LimitWindow), «Риски», �
   `codex app-server` (`app-server.ts`, Ticket 19) в папке worfy `<WORFY_DATA_DIR>/terminal-ai`, закрывается после ответа.
   - `check(signal)` — `account/read {refreshToken: false}` → одно подключение `{provider: 'openai', signedIn, email, plan}`.
     Вход считается только ChatGPT (`account.type === 'chatgpt'`); `apiKey`, `amazonBedrock`, `gcp` — «не вошёл»
-    (spec: «Никогда — всё, что требует API-ключа»; решено без владельца, подтвердить).
+    (spec: «Никогда — всё, что требует API-ключа»; решено без владельца, подтверждено владельцем 2026-11-05).
   - Нет папки Codex (`CODEX_HOME`, иначе `~/.codex`) — «не вошёл», процесс не запускается: так опрос не создаёт
     `~/.codex` у того, кто Codex не ставил. App-server не запустился (нет Codex для платформы) — «не вошёл» без
     исключения, одна строка debug. App-server запустился, но не ответил — отказ.
@@ -91,7 +91,7 @@ Source: [spec.md](../spec.md), «Модель» (LimitWindow), «Риски», �
 
 Ревью (PR #1259):
 
-- Ступень `high` по тексту тикета — решено без владельца, подтвердить. Один круг — verifier и два reviewer-а
+- Ступень `high` по тексту тикета — решено без владельца, подтверждено владельцем 2026-11-05. Один круг — verifier и два reviewer-а
   (корректность с безопасностью; test-ы с mutation testing): VERIFIED, находок high и med нет, 283 083 subagent-токена.
   Mutation 121/130; все mutant-ы закрытия процесса и остановки опроса убиты.
 - Consider (low):
@@ -112,6 +112,6 @@ Source: [spec.md](../spec.md), «Модель» (LimitWindow), «Риски», �
   с API-ключами (долг Ticket-а 19).
 - Подключение `codexLimitReachedEvent`/`codexLimitsEvent` к Session Codex не сделано ни здесь, ни в Ticket-е 20
   (там `usageLimitExceeded` — только `result` с ошибкой): нужен Ticket, который его сделает (решено без владельца,
-  подтвердить: событие `limits` Session-а нужно Ticket-у 26 для окон, `limit_reached` — Ticket-у 38, п. 2; подключение
+  подтверждено владельцем 2026-11-05: событие `limits` Session-а нужно Ticket-у 26 для окон, `limit_reached` — Ticket-у 38, п. 2; подключение
   делает тот из них, кто придёт первым).
 - Dismissed: нет.

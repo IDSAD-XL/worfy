@@ -49,7 +49,7 @@ Source: [spec.md](../spec.md), «Модель» (History, таблица час�
     Папку сравнивает worfy, `isInsidePath` (`src/main/claude-home/registry.ts:80`) в NFC: папка Project-а или папка
     внутри неё, на Windows — любой разделитель и без учёта регистра. Фильтр `cwd` самого Codex сравнивает путь точно и
     теряет подпапки и другой регистр, поэтому он не передаётся — отличие от п. 1 «Что делаем» (решено без владельца,
-    подтвердить). Название — `name`, иначе `preview`; время — `updatedAt` × 1000; `origin` — `originator`: `worfy` —
+    подтверждено владельцем 2026-11-05). Название — `name`, иначе `preview`; время — `updatedAt` × 1000; `origin` — `originator`: `worfy` —
     своя, другой — `external`, нет — `null`.
   - `read(id, cwd)` — `thread/read {threadId, includeTurns: true}`, `cwd` не нужен. Item-ы переводит `CodexItems`
     Ticket-а 20 (как `item/completed` живой Session); сообщение пользователя — `notice` `user`, как в транскрипте
@@ -58,11 +58,11 @@ Source: [spec.md](../spec.md), «Модель» (History, таблица час�
   имени, каждый один раз (описание — `interface.shortDescription`, `shortDescription`, `description`). Разбор
   сообщения: `/compact` → `thread/compact/start`; `/review` → `review/start` inline (`uncommittedChanges`, с текстом —
   `custom`); skill → текст `$name …` и item `skill {name, path}` в том же `turn/start`. Встроенная команда с вложениями
-  уходит обычным сообщением, чтобы вложения не потерялись (решено без владельца, подтвердить).
+  уходит обычным сообщением, чтобы вложения не потерялись (решено без владельца, подтверждено владельцем 2026-11-05).
 - `src/main/vendors/codex/session.ts` — п. 3 «Что делаем» («правятся только history.ts и commands.ts») неверен: разбор
   команды и item `skill` — в `deliver`/`userInput` Session; `skills/list` спрашивается раз на процесс и снова после
   `skills/changed`; `commands()` отдаёт строки меню (без skills, если `skills/list` не ответил; пусто после close).
-  `/compact` или `/review` во время хода — notice «только между ходами» (решено без владельца, подтвердить); отказ
+  `/compact` или `/review` во время хода — notice «только между ходами» (решено без владельца, подтверждено владельцем 2026-11-05); отказ
   Codex — `result` с ошибкой `Codex did not run /compact: …`.
 - `commandsComplete` у Codex остаётся `false`: команды TUI без метода (`/model`, `/plan` …) в меню не входят.
 - Тесты: `test/unit/codex-history.test.ts`, `test/contract/codex-history.test.ts` (сценарии `threads`, `thread-read`),
@@ -119,7 +119,7 @@ Source: [spec.md](../spec.md), «Модель» (History, таблица час�
     время ревью не проверены (`src/main/vendors/codex/session.ts:450`);
   - `codexSkills()` после закрытия handle-а без test-а (`session.ts:350`).
 - Dismissed: нет.
-- Решено без владельца, подтвердить: `exec` в `sourceKinds` `thread/list` (`history.ts:35`) — запуски `codex exec` в
+- Решено без владельца, подтверждено владельцем 2026-11-05: `exec` в `sourceKinds` `thread/list` (`history.ts:35`) — запуски `codex exec` в
   папке Project-а видны в списке Session-ов. Остальные решения этого «Итог» уже отмечены выше: нет фильтра `cwd`
   (предел 2000 новейших thread-ов), встроенная команда с вложениями — обычным текстом, `/compact` или `/review` во
   время хода — notice.

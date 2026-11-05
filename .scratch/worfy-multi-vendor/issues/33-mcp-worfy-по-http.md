@@ -66,7 +66,7 @@ Source: [spec.md](../spec.md), «Модель» (часть mcp), «Решени
   наблюдаются: `init` даёт tool-ам id thread-а, `fileChange` в папку Card записывает Session в `lastEditor`, поэтому
   `session.ask` Card доходит до Session Codex тем же путём `src/main/cards/ask.ts`.
 - capabilities Codex: `canvasTools: true`, причины недоступности нет.
-- Откуда context Session для token-а — решено без владельца, подтвердить: внутри driver-а Codex (`codex/mcp.ts`), теми
+- Откуда context Session для token-а — решено без владельца, подтверждено владельцем 2026-11-05: внутри driver-а Codex (`codex/mcp.ts`), теми
   же поисками Project-а, что у Claude; нейтральный `SessionStart` (`src/main/vendors/session.ts`) не расширен.
 - Проверка на настоящем Codex 0.166.0 (вне test-ов, временный `CODEX_HOME`): `thread/start` с этими `config`
   подключил оба сервера (`mcpServer/startupStatus/updated` → `ready`, `authStatus: bearerToken`, по 9 tool-ов),
@@ -157,5 +157,5 @@ Source: [spec.md](../spec.md), «Модель» (часть mcp), «Решени
   - путь приложения с `options.env` `undefined` (запасной `process.env`, `session.ts:549`) без test-а;
   - 403 на `Origin` проверен только для POST, `request.resume()` в ветке 403 без test-а (`http-server.ts:162`).
 - Dismissed: нет.
-- Решено без владельца, подтвердить: 403 на любой запрос с заголовком `Origin` до проверки token-а
+- Решено без владельца, подтверждено владельцем 2026-11-05: 403 на любой запрос с заголовком `Origin` до проверки token-а
   (`http-server.ts:162`) — так шлёт web-страница, Codex — нет.

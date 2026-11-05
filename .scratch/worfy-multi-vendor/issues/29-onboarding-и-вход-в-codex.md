@@ -60,19 +60,19 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   гонять на настоящем Codex.
 - Getting started: ссылка «Use Codex too» в нижней строке панели, между «worfy Guide» и «Skip», только когда Codex в
   сборке; tooltip объясняет, что шаг необязательный. Это не шаг: не отмечается, в счёт `n/6` не входит; ссылка
-  открывает Settings → Vendors (решено без владельца, подтвердить: вход один, в Settings, а не вторая кнопка входа в
+  открывает Settings → Vendors (решено без владельца, подтверждено владельцем 2026-11-05: вход один, в Settings, а не вторая кнопка входа в
   панели). Сначала это был отдельный блок под «Connect your own project», но он делал панель выше на ~100 px: в
   Session view toast «Skip» больше не помещался под панелью, вставал наверх и закрывал Hide tools
   (`test/e2e/getting-started.spec.ts`, красный CI на macOS и Windows). Ссылка в нижней строке высоты не добавляет
-  (решено без владельца, подтвердить). Проверка входа в Claude Code (`src/main/ipc/first-run.ts`) не менялась,
+  (решено без владельца, подтверждено владельцем 2026-11-05). Проверка входа в Claude Code (`src/main/ipc/first-run.ts`) не менялась,
   test-ы first-run — без правок ожиданий.
 - Нет входа, нет бинарника: Codex в «New session» неактивен с tooltip `Sign in to Codex in Settings → Vendors`
-  (Ticket 24); toast-ов и диалогов ошибок нет. В сборке без бинарника tooltip тот же (решено без владельца, подтвердить):
+  (Ticket 24); toast-ов и диалогов ошибок нет. В сборке без бинарника tooltip тот же (решено без владельца, подтверждено владельцем 2026-11-05):
   особый текст потребовал бы правки `app-node-sessions.ts`, который правит параллельный Ticket 27; Settings → Vendors
   уже говорит, что Codex нет в сборке.
 - Ошибка `account/read`: в Settings — строка «Could not check the sign-in: …» с «Check again», без toast. В списке
   «New session» осталось правило Ticket-а 24 — проверка, которая упала, ничего не запрещает, Session покажет ошибку
-  Vendor-а (решено без владельца, подтвердить). Пункт 3 тикета просит здесь «недоступен», но это сломало бы
+  Vendor-а (решено без владельца, подтверждено владельцем 2026-11-05). Пункт 3 тикета просит здесь «недоступен», но это сломало бы
   `vendor-picker.spec.ts`: фейк `turn` отвечает на `account/read` ошибкой, и spec выбирает Codex.
 - e2e `test/e2e/onboarding-codex.spec.ts`: фейк `login` — «Use Codex too» → Settings → Vendors → «Sign in to Codex» →
   `Signed in: user@example.com · plus`; адрес страницы входа попал только в recorder вместо `shell.openExternal`, браузер

@@ -25,7 +25,7 @@ Source: [spec.md](../spec.md), «Модель» (Vendor), «Решено без 
 6. Черновик профиля Project (`src/main/projects/connect.ts`) переходит на нейтральный `vendorDriver(<vendor>).oneShot`.
    Сейчас он зовёт части driver-а Claude напрямую: `claudeOneShotQuery` (через `src/main/ipc/projects.ts`) и
    `readOneShot` (`src/main/vendors/claude/one-shot.ts`); так решено в Ticket-е 15. Решено Orchestrator-ом
-   2026-11-02, подтвердить при приёмке.
+   2026-11-02, подтверждено владельцем 2026-11-05.
 
 ## Готово, когда
 
@@ -85,7 +85,7 @@ Source: [spec.md](../spec.md), «Модель» (Vendor), «Решено без 
 - Документы: `docs/features/sessions.md` (абзац «Vendor», список test-ов), `docs/features/projects.md` (`defaultVendor`,
   черновик через oneShot).
 
-Решено без владельца, подтвердить:
+Решено без владельца, подтверждено владельцем 2026-11-05 (третий и четвёртый пункты позже изменены Ticket-ами 22 и 24):
 
 - Проверка входа при «New session» не спрашивает Claude Code: его вход уже требует first-run (spec, решение 6), а
   лишний запуск процесса Claude на каждый первый «New session» стоил бы секунды. Проверка, которая упала или не
