@@ -1,7 +1,8 @@
 # 07 — Порядок ПК → Mac: ADR и skill `epic-wave`
 
 Type: task
-Status: claimed 2026-11-05T02:54Z
+Status: done 2026-11-05T03:46Z
+PR: #1412
 Branch: worfy-failures/07
 Blocked by: 02, 03, 04, 05, 06
 Source: [spec.md](../spec.md), «Вопросы владельцу», Q1, Q2, Q3 (решения владельца 2026-11-04 — А и В, А, да); «Риски», п. 3; [ADR-0086](../../../docs/adr/0086-pc-gate-full-once-per-wave.md), пункты 2–4
@@ -45,19 +46,23 @@ Source: [spec.md](../spec.md), «Вопросы владельцу», Q1, Q2, Q3
 - [x] В ADR-0086 — раздел `## Amendments` с датированной записью; остальной текст ADR-0086 не изменён (дифф — только
       новый раздел).
   - evidence: commit pass · ADR-0096: failure records and solo rerun by command, amends ADR-0086 points 2-4 (worfy-failures 07) · - - · 75d15d31fbee7fba45c73ac75b81c369e0c9838a
+  - evidence: review pass · PR #1412 · - - · 4c0cf92e4c443c736b87324cc6f793b641e76bf0
 - [x] `harness/skills/epic-wave/SKILL.md` описывает `rerun`, `export`, `import`, `report`; ручного «one at a time»
       больше нет.
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 · mac - · 75d15d31fbee7fba45c73ac75b81c369e0c9838a
   - evidence: test-run pass · `harness/bin/tests/epic-wave-ship-ticket.test.sh` run by bash, exit 0 · mac - · 4565a8eddef5e56f0b3816959feaea5a9e7800f3
+  - evidence: review pass · PR #1412 · - - · 4c0cf92e4c443c736b87324cc6f793b641e76bf0
 - [x] Shell test-ы текста skill-ов (`harness/bin/tests/skill-blocks.test.sh`, `skill-text.sh`,
       `plugin-neutral.test.sh`) зелёные.
   - evidence: test-run pass · `bash harness/bin/tests/skill-blocks.test.sh` and `bash harness/bin/tests/plugin-neutral.test.sh` exit 0 · mac - · 75d15d31fbee7fba45c73ac75b81c369e0c9838a
   - evidence: gate pass · `gate fast` exit 0 · mac - · 75d15d31fbee7fba45c73ac75b81c369e0c9838a
   - evidence: gate pass · `gate fast` exit 0 · mac - · 4565a8eddef5e56f0b3816959feaea5a9e7800f3
   - evidence: test-run pass · `harness/bin/tests/skill-blocks.test.sh` and `harness/bin/tests/plugin-neutral.test.sh` run by bash, exit 0 · mac - · 4565a8eddef5e56f0b3816959feaea5a9e7800f3
+  - evidence: review pass · PR #1412 · - - · 4c0cf92e4c443c736b87324cc6f793b641e76bf0
 - [ ] (вручную) `rules.md` Profile-а на Mac и на ПК поправлены после слова владельца; дифф в «Итог».
 - [ ] После merge — `pnpm install:stable` и Replace Harness на Mac; `claude plugin list` показывает новый Harness.
 - [ ] `pnpm lint` — exit 0; CI PR зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/41962335998 · ci - · 4c0cf92e4c443c736b87324cc6f793b641e76bf0
 
 ## Тесты
 
