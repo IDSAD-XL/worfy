@@ -430,6 +430,7 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       ['curl -H "X: Bearer abcdefghijkl" x', 'curl -H "X: Bearer ***" x'],
       ['git clone https://user:p4ss@example.invalid/r.git', 'git clone https://user:***@example.invalid/r.git'],
       ['tool --token abc --password xyz --password=q --api-key k --client-secret s', 'tool --token *** --password *** --password=*** --api-key *** --client-secret ***'],
+      ['tool --secret-key k --token-file f', 'tool --secret-key *** --token-file ***'],
       ['curl -u demo:secret x', 'curl -u demo:*** x'],
       ['mysql -u root -psecret db', 'mysql -u root -p*** db'],
       ['echo ghp_abcdefghijklmnop1234 github_pat_abcdefghijklmnop_1234 sk-abcdefghijklmnop1234 xoxb-1234-abcd AKIAABCDEFGHIJKLMNOP', 'echo *** *** *** *** ***'],

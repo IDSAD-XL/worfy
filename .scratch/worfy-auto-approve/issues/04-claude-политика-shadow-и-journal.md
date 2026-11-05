@@ -151,27 +151,39 @@ Unattended Session Run-а на Claude Code спрашивает политику
 
 1. **`run-started.autoApproval` при Off не пишется**, иначе Off не был бы байт в байт. При Shadow и On — режим на
    старте; `off`, когда режим Shadow или On, а политика не открылась (чтение `core.hooksPath` упало с exit code не 0
-   и не 1, по пункту 5 Ticket-а) — Run идёт как при Off, без папки Run-а и без окружения git-а.
-2. **Папка Run-а и окружение git-а — во всех режимах**, Off тоже: пункт 4 Ticket-а не ставит их в зависимость от
-   режима. Поток событий и Journal при Off от этого не меняются (contract test Off).
+   и не 1, по пункту 5 Ticket-а), или Orchestrator на Vendor-е без политики (Codex, до Ticket-а 05) — Run идёт как
+   при Off, без папки Run-а и без окружения git-а.
+2. **Папка Run-а создаётся во всех режимах, но агент получает её и окружение git-а только при Shadow и On**
+   (раунд 2 review): при Off процесс стартует как сегодня («Готово, когда» spec-а: «Off ведёт себя ровно как
+   сегодня»). Папка при Off нужна на случай переключения на On посреди Run-а.
 3. **Shadow не пишет `refused-dialog`**: отказ при Shadow — решение политики, его строка — `auto-approval` с `would-*`.
    При Off `refused-dialog` как прежде.
-4. **park при On** пишется в Journal как `park`, агенту — deny с `PARK_PENDING_HINT` (заготовка до Ticket-а 07).
-5. **`checkouts` читаются при каждом запросе**, а не кешируются до смены Wave, как пишет пункт 5: implementer
-   создаёт свой worktree после старта Wave, и кеш его бы не видел. Список, который не прочитался, — deny
-   `no-checkouts`, пустым не передаётся.
+4. **park при On** пишется в Journal как `park`, агенту — deny с `HINTS.parkPending` (заготовка до Ticket-а 07).
+5. **`checkouts` и факты git-а читаются при каждом запросе**, а не кешируются до смены Wave, как пишет пункт 5:
+   implementer создаёт свой worktree после старта Wave, а агент в `bypassPermissions` может без вопроса поставить
+   hook или программу в git config. Список, который не прочитался, — deny `no-checkouts`, пустым не передаётся;
+   факты, которые не прочитались, — deny `no-git-facts`.
 6. **Worktree Wave записывается в корни при первом запросе, который его видит**, а не «при создании»: worfy не видит
    момента создания. Worktree находится по ветке `<epic>/<NN>` (комментарий `shortcut:` в `run-approval.ts`: шаблон
    ветки Profile-а не читается).
 7. **`rebaseUpdateRefs`, `hooksPath`, `hooksActive`, `remotes` читаются в корне Project-а**, не «в worktree-е Run-а»:
    на старте Run-а worktree-ов Wave ещё нет, а config у worktree-ов общий (кроме `extensions.worktreeConfig`).
+   Читаются в окружении login shell-а агента (с `GIT_CONFIG_PARAMETERS` Run-а), не в окружении Electron-а: так
+   `GIT_CONFIG_GLOBAL` или `XDG_CONFIG_HOME` из shell-а владельца видны.
 8. **Ветка по умолчанию**: `refs/remotes/origin/HEAD`, иначе текущая ветка корня, иначе `main`.
 9. **Run id приходит в Journal из политики** (`RunStart.run`): папка Run-а создаётся до `setUnattended`, а файл Journal
    — после, и имя у них одно. Чужой id (`../x`) `openRun` отказывает; существующий файл не переоткрывается.
-10. **Takeover**: Session, которую новый Run принял на ходу, продолжает с прежним `TMPDIR`, поэтому папка старого Run-а
-    при takeover не удаляется. Цена — она остаётся в `autopilot-tmp` до ручной уборки.
-11. **Строка `auto-approval`**: `targets` тоже с `~` и не длиннее 200; секрет — имя, в котором есть `TOKEN`, `KEY`,
-    `SECRET` или `PASSWORD` (без учёта регистра), значение в кавычках или до пробела.
+10. **Takeover**: Session, которую новый Run принял на ходу, продолжает с прежним `TMPDIR` и судится в окружении,
+    с которым стартовал её процесс; папка старого Run-а при takeover не удаляется. Её, как и папки после crash-а
+    или quit-а, удаляет уборка при создании Autopilot-а в следующий запуск worfy (только папки Run-ов, начатых
+    раньше этого момента). Удаление — асинхронное (`removeTreeAsync`: тот же осмотр на смонтированный том, затем `rm`
+    из `node:fs/promises`; на Windows — прежний синхронный обход, он нужен для junction-ов).
+11. **Строка `auto-approval`**: `targets` тоже с `~` и не длиннее 200. Скрывается значение переменной, в имени
+    которой (части через `_`, без учёта регистра) есть `token`, `secret`, `passw`, `apikey`, часть на `key` или часть
+    `pat`, `pass`, `pw`, `pwd`, `auth`, `credential(s)`, `cookie`; значение опции с таким словом (`--token x`,
+    `--password=x`); `Authorization: …` и `Bearer …`; пароль в URL; `curl -u user:pass`; `mysql -p…`; токены с
+    известным началом (`ghp_`, `github_pat_`, `sk-`, `xox?-`, `AKIA`). Лишнее скрытие (`--auth-mode x`) безопаснее
+    утечки.
 12. **Ошибка политики** (исключение в `judge`) — deny `policy-failed` без подсказки: агенту прежний текст отказа.
     Режим, который не читается, — Off.
 
@@ -186,3 +198,34 @@ Unattended Session Run-а на Claude Code спрашивает политику
 
 ADR-0005 (worfy не пишет в репозиторий Project-а): unit test сравнивает все файлы репозитория и worktree-а, `.git`
 тоже, до и после открытия политики, двух запросов и закрытия.
+
+### Раунд 2 (review high PR #1460)
+
+1. **Политика судит в том окружении, в котором стартовал процесс агента**: всё окружение login shell-а и
+   переменные Run-а поверх (`ApprovalAt.started`). Раньше политика видела 6 переменных, и проверки `CDPATH`,
+   `BASH_ENV`, `IFS`, `GIT_DIR` разбора команды молчали: при `CDPATH=~` `cd projects && rm -rf *` проходил как allow.
+   Unit test на каждую из четырёх переменных.
+2. **Чтения git-а Run-а идут в окружении shell-а**, не Electron-а (`GIT_CONFIG_GLOBAL` shell-а с `core.sshCommand`
+   теперь даёт `hooksActive: true`).
+3. **Takeover**: старая Session судится с `TMPDIR` и окружением своего процесса, не нового Run-а; папка старого
+   Run-а остаётся (contract test в `autopilot-background.test.ts`).
+4. **Факты git-а перечитываются на каждый запрос** (как `checkouts`). Процессу, который стартовал без окружения
+   git-а Run-а (при Off) или без `GIT_NO_LAZY_FETCH` при `hooksActive`, которое теперь не `false`, git не
+   одобряется: allow с правилом `git-in-wave-worktree` (и в составном правиле) становится park
+   `git-without-run-environment`. Spec, «Безопасность», п. 9 дополнен.
+5. **Маскировка Journal** расширена (пункт 11 выше), unit test на каждую форму.
+6. **macOS `mktemp -d` не смотрит на `TMPDIR`** (проверено здесь: `TMPDIR=<папка> mktemp -d -u` печатает путь под
+   `/var/folders`): на darwin папка `X=$(mktemp -d)` — вне корней (`MACOS_TEMP` в `shell.ts`), запись в неё — park.
+   Подсказки hard deny домашней папки по-прежнему советуют `mktemp -d`; на macOS такая команда уйдёт в park.
+7. **Off — как сегодня**: без `TMPDIR` и без окружения git-а; переключение Off → On посреди Run-а судит процесс
+   по пункту 4.
+8. **Уборка папок**: асинхронное удаление и уборка при создании Autopilot-а (пункт 10 выше).
+9. **Документы**: `docs/features/autopilot.md`, `docs/features/flight-recorder.md` (у `auto-approval` нет метки `i`).
+10. Слова решения (`AUTO_APPROVAL_OUTCOMES`, `AUTO_APPROVAL_LINE_MODES`) — в `src/shared/agent/auto-approval.ts`;
+    подсказка park — `HINTS.parkPending` политики; `ApprovalWhere` описан без Claude. Run на Codex пишет
+    `autoApproval: off`.
+
+**Mutation testing раунда 2**: 29 mutant-ов на изменённых строках, 27 убиты сразу, 2 выжили. Суффикс в имени
+опции маскировки убит новым случаем (`--secret-key`, `--token-file`). Выжил один — deny `no-git-facts`: факты git-а
+не читаются, когда `git config --get core.hooksPath` падает с кодом не 0 и не 1, а при такой поломке config-а
+раньше падает и `git worktree list` (deny `no-checkouts`). Ветка — защита на случай, который test не воспроизводит.
