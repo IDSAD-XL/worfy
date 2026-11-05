@@ -209,9 +209,23 @@ export function rootsOf(input: RootsInput): Roots {
     const resolved = fsys.realpath(path)
     return resolved === null ? null : normalizePath(resolved, win)
   }
+  // A hard area that does not exist yet (no ~/.npmrc) still has a real form: the nearest existing folder
+  // above it, resolved, plus the missing names. Without it a home behind a link loses the area.
+  const realOrAbove = (path: string): string | null => {
+    const missing: string[] = []
+    for (let head = path; ; ) {
+      const resolved = fsys.realpath(head)
+      if (resolved !== null) return normalizePath(missing.reduce((at, name) => joinPath(at, name, win), resolved), win)
+      const split = splitPath(head, win)
+      const name = split?.parts.pop()
+      if (split === null || name === undefined) return null
+      missing.unshift(name)
+      head = `${split.root}${split.parts.join(win ? '\\' : '/')}`
+    }
+  }
   const tolerated = new Set<string>()
   for (const root of allowed) for (const prefix of prefixes(root.path, win)) tolerated.add(keyOf(prefix, win))
-  return { platform: input.platform, fs: fsys, allowed, hard, realAllowed: allowed.map((root) => real(root.path)), realHard: hard.map((area) => real(area.path)), tolerated }
+  return { platform: input.platform, fs: fsys, allowed, hard, realAllowed: allowed.map((root) => real(root.path)), realHard: hard.map((area) => realOrAbove(area.path)), tolerated }
 }
 
 /** Where the target `path` (absolute, as shell.ts or a file tool gives it) lies among `roots`. */

@@ -260,6 +260,8 @@ describe('on disk: links and globs', () => {
     link(join(top, 'home', '.ssh'), join(top, 'outside', 'k'))
     link(join(top, 'home'), join(root, 'h'))
     link(join(top, 'outside'), join(root, 'dotted', '.l'))
+    mkdirSync(join(top, 'realhome'), { recursive: true })
+    link(join(top, 'realhome'), join(top, 'homelink'))
     // The roots are given as the system's temporary folder spells them (macOS: /var/… through a link).
     disk = rootsOf({ ...base, platform: process.platform, worktrees: [root], scratch: null, runTemp: null, scratchpad: null, home: join(top, 'home'), dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [], fs: undefined })
   })
@@ -311,7 +313,15 @@ describe('on disk: links and globs', () => {
   it('a link that leads into a hard area is hard, from inside a root or from outside', () => {
     expect(kind(at('outside', 'k', 'id'), 'read', disk)).toBe('hard:ssh')
     expect(kind(at('wt', 'h', '*'), 'delete', disk)).toBe('hard:ssh')
-    expect(kind(at('wt', 'h'), 'delete', disk)).toBe('hard:ssh')
+    // Deleting the home names the first hard area under it, whether it exists (.ssh) or not (.claude).
+    expect(kind(at('wt', 'h'), 'delete', disk)).toBe('hard:claude-home')
+  })
+
+  it('a hard area that does not exist yet stays hard when the home is behind a link', () => {
+    const linked = rootsOf({ ...base, platform: process.platform, worktrees: [at('wt')], scratch: null, runTemp: null, scratchpad: null, home: at('homelink'), dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [], fs: undefined })
+    expect(kind(at('realhome', '.npmrc'), 'write', linked)).toBe('hard:npmrc')
+    expect(kind(at('realhome', '.config', 'gh', 'hosts.yml'), 'write', linked)).toBe('hard:gh-config')
+    expect(kind(at('realhome', 'notes.txt'), 'write', linked)).toBe('outside')
   })
 
   it('finds the top of the repository of a folder', () => {
