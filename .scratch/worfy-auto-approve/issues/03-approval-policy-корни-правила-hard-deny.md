@@ -391,3 +391,37 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
       выжили 2. Оба эквивалентны: `i < words.length` → `<=` (лишний проход по пустому слову делает `continue`) и
       `eq < 0` → `<= 0` (у слова с `-` в начале `=` не стоит на месте 0). Скрипт теперь снимает и элементы списков
       `const X = [...]`. Второй прогон, по спискам опций с test-ом на каждую опцию: 34 mutant-а, убиты все.
+23. **Раунд 9 review (PR #1410): index в словах ревизии, флаги подписи, именованные форматы.** High нет.
+    - **Слова, которые читают index (medium).** `:<path>`, `:<n>:<path>` и `:/<text>` читают index, и git при этом
+      запускает `core.fsmonitor`: `cat-file -p :a.txt`, `rev-parse :a.txt`, `log -1 :a.txt`, `rev-list`, `ls-tree :`.
+      Теперь, пока hooks или программы config-а активны, слово до `--`, которое начинается с `:`, даёт park
+      `git-hooks`. Оставлены `HEAD:path`, `<rev>:path`, `HEAD@{1}`, `@{1}` и пути после `--` (`log -- :a.txt`).
+      `rev-parse :/<text>` на настоящем git fsmonitor не запустил, но отказ по нему остаётся: строже.
+    - **Подпись мимо проверки `%G` (medium).** `%-GG`, `% GK`, `%+GS`, `%<(10)%GG` и именованный формат из
+      `pretty.<name>` (`--format=sig`, `--pretty=sig`, `rev-list --pretty=sig`) запускали `gpg.program`. Теперь
+      отказ по `/%[-+ ]?G/` (отступ `%<(…)` перед ним этим тоже покрыт). Значение `--format` и `--pretty` без `%` и
+      без `format:` или `tformat:` допускается только как встроенное имя: `oneline`, `short`, `medium`, `full`,
+      `fuller`, `reference`, `raw`. Сравнение точное, `Medium` — отказ. Комментарий в `policy.ts` говорит только то,
+      что доказывает `kept.sh`.
+    - **`format.pretty` (low).** Ticket 04 добавляет `'format.pretty'='medium'` в `GIT_CONFIG_PARAMETERS`. Иначе
+      `format.pretty` владельца с подписью делает простой `git log -1` вызовом `gpg.program`. Проверено: без переменной
+      gpg запустился, с переменной — нет.
+    - **Pseudo-ref (low).** Отказ теперь только по известному списку (`HEAD`, `AUTO_MERGE`, `MERGE_AUTOSTASH`,
+      `BISECT_EXPECTED_REV`, `NOTES_MERGE_REF`, `NOTES_MERGE_PARTIAL`) и по окончанию `_HEAD`. Окончание покрывает
+      ORIG_HEAD, FETCH_HEAD, MERGE_HEAD, CHERRY_PICK_HEAD, REVERT_HEAD, REBASE_HEAD, BISECT_HEAD, поэтому в списке их
+      нет. Правило раунда 8 «заглавные с `_`» убрано: `fix_tests` и `my_feature` на macOS снова allow. Отказ по
+      имени новой ветки (любой из прежних: remote, `refs/…`, pseudo-ref, `@`, опция, `remotes` не прочитаны) теперь
+      park со своим правилом `branch-name` и подсказкой `HINTS.branchName`. Если рядом есть другая причина, это
+      обычный park.
+    - **Ключи config-а одним правилом (low, решение review).** `hooksActive` равен `true`, когда в config-е есть
+      `core.fsmonitor` (не `true`/`false`), `diff.external` или ключ на `.program`, `.command`, `.cmd`, `.driver`,
+      `.textconv`, `.clean`, `.smudge`, `.process`, `.defaultKeyCommand`. Это записано в Ticket 04 и в комментарии
+      поля. Цена записана в spec, «Решено без владельца», п. 7: `core.sshCommand` владельца тоже включает поле, и
+      `fetch` уходит в park.
+    - **Проверка на настоящем git 2.50.** Оставленные формы раунда 9 ничего не запустили; отказанные запустили
+      fsmonitor или gpg. Скрипт и вывод — в scratchpad исполнителя, `impl-aa03/r8git/kept9.sh` и `kept9.out`.
+    - **Mutation testing после раунда 9.** Изменённые строки `policy.ts`: 75 mutant-ов, убито 65, выжило 10. Семь
+      выживших — элементы `*_HEAD` в `PSEUDO_REFS`. Их покрывает окончание `_HEAD`, поэтому они были мёртвыми и
+      убраны из списка. Ещё два убиты новыми test-ами: `git log -- :path` с `--` первым словом, значение
+      `format:`/`tformat:` без `%`. Один эквивалентен: `eq < 0` → `<= 0`, у слова с `-` в начале `=` не на месте 0.
+      Повторный прогон исправленных строк: 12 mutant-ов, убиты все.
