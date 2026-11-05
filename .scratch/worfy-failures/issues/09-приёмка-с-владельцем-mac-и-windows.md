@@ -1,7 +1,9 @@
 # 09 — Приёмка Epic-а worfy-failures с владельцем: Mac и Windows-ПК
 
 Type: task
-Status: open
+Status: blocked 2026-11-05T05:27Z
+Blocked reason: приёмка ведёт владелец (не Autopilot): нужен Stable + Harness из main на Mac и ПК, затем проверки Mac и Windows по Ticket-у
+Waits: owner
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 10
 Source: [spec.md](../spec.md), «Готово, когда» (все пункты), «Цель и что видит пользователь», «Windows», «Риски», п. 2–4; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2 (платформенная часть — на Windows-ПК владельца)
 
