@@ -2,7 +2,7 @@
 // (hooksActive, hooksPath, rebase.updateRefs, remotes, the default branch), the git environment of its
 // Session, the worktrees of its Wave, and the Journal's cleaning of a command.
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -125,7 +125,7 @@ describe('readGitFacts: what the Run reads of the repository when it starts', ()
     git(repo, 'remote', 'add', 'origin', 'https://example.invalid/demo.git')
     git(repo, 'remote', 'add', 'upstream', 'https://example.invalid/up.git')
     const facts = await readGitFacts(repo, gitEnv())
-    expect({ ...facts, configFiles: facts.configFiles.map(samePathForm) }).toEqual({ hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: ['origin', 'upstream'], defaultBranch: 'main', configFiles: [samePathForm(join(repo, '.git', 'config'))], checkoutConfig: false })
+    expect({ ...facts, configFiles: facts.configFiles.map(samePathForm), commonDir: samePathForm(facts.commonDir ?? '') }).toEqual({ hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: ['origin', 'upstream'], defaultBranch: 'main', configFiles: [samePathForm(join(repo, '.git', 'config'))], checkoutConfig: false, commonDir: samePathForm(join(repo, '.git')) })
   })
 
   it('reads rebase.updateRefs as git prints it, and the default branch of origin/HEAD', async () => {
@@ -597,6 +597,73 @@ describe('openRunApproval: round 4 (review of PR #1460)', () => {
   })
 })
 
+describe('openRunApproval: round 5 (review of PR #1460): a worktree whose git folder is not the Project\'s', () => {
+  const posix = process.platform !== 'win32'
+  const shell = (): Record<string, string> => ({ ...(process.env as Record<string, string>), HOME: homedir(), USERPROFILE: homedir() })
+  const wt = (): string => join(scratch, 'wt')
+  const inWave = async () => {
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/01', wt())
+    const approval = await openRunApproval({ root: repo, epic: 'demo', dataDir: join(scratch, 'data'), harnessHome: join(scratch, 'harness'), shellEnv: shell(), gitEnv: gitEnv(), sessions: { list: () => [] } })
+    approval.setWave(['01'])
+    return approval
+  }
+  type Approval = Awaited<ReturnType<typeof inWave>>
+  const ask = (approval: Approval, command: string) => approval.judge({ tool: 'Bash', input: { command } }, { cwd: wt(), scratchpad: null, sessionId: 's', started: approval.environment })
+  /** As `ask`, for a process that started with GIT_NO_LAZY_FETCH: the policy's own decision, not the park of the run's git environment. */
+  const fetchless = (approval: Approval, command: string) =>
+    approval.judge({ tool: 'Bash', input: { command } }, { cwd: wt(), scratchpad: null, sessionId: 's', started: { ...approval.environment, GIT_NO_LAZY_FETCH: '1' } })
+  /** A copy of the Project's git folder, which the worktree's `commondir` is then made to name. */
+  const otherCommon = (): string => {
+    const other = join(scratch, 'other-common')
+    cpSync(join(repo, '.git'), other, { recursive: true })
+    return other
+  }
+
+  it.skipIf(!posix)('commondir that names another git folder, whose config runs core.fsmonitor: git status and add get no allow', async () => {
+    const approval = await inWave()
+    expect(await ask(approval, 'git status')).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    const other = otherCommon()
+    git(scratch, 'config', '-f', join(other, 'config'), 'core.fsmonitor', join(scratch, 'fsmonitor.sh'))
+    writeFileSync(join(repo, '.git', 'worktrees', 'wt', 'commondir'), `${other}\n`)
+    // Real git in the worktree now reads the other folder's config.
+    expect(git(wt(), 'config', 'core.fsmonitor').trim()).toBe(join(scratch, 'fsmonitor.sh'))
+    for (const command of ['git status', 'git add a.txt']) {
+      expect((await ask(approval, command)).outcome, command).not.toBe('allow')
+      expect(await fetchless(approval, command), command).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    }
+    // A read of refs and objects is judged as in round 3: allowed for a process that started with GIT_NO_LAZY_FETCH only.
+    expect(await ask(approval, 'git log --oneline -1')).toMatchObject({ outcome: 'park', rule: 'git-without-run-environment' })
+    expect(await fetchless(approval, 'git log --oneline -1')).toMatchObject({ outcome: 'allow' })
+    await approval.close()
+  })
+
+  it.skipIf(!posix)('commondir that names another git folder with a pre-commit hook: git commit gets no allow', async () => {
+    const approval = await inWave()
+    const other = otherCommon()
+    writeFileSync(join(other, 'hooks', 'pre-commit'), '#!/bin/sh\ntrue\n', { mode: 0o755 })
+    writeFileSync(join(repo, '.git', 'worktrees', 'wt', 'commondir'), `${other}\n`)
+    expect((await ask(approval, 'git commit -m x')).outcome).not.toBe('allow')
+    expect(await fetchless(approval, 'git commit -m x')).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    await approval.close()
+  })
+
+  it.skipIf(!posix)('a .git file that names a git folder out of the Project\'s, or a commondir that cannot be read: git gets no allow', async () => {
+    const approval = await inWave()
+    expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'allow' })
+    // The worktree's .git file names a copy of its git folder in another common folder, and that copy's commondir names it.
+    const other = otherCommon()
+    writeFileSync(join(other, 'worktrees', 'wt', 'commondir'), `${other}\n`)
+    writeFileSync(join(wt(), '.git'), `gitdir: ${join(other, 'worktrees', 'wt')}\n`)
+    expect((await fetchless(approval, 'git status')).outcome).not.toBe('allow')
+    // Back to the Project's git folder, it is allowed again; without a readable commondir it is not.
+    writeFileSync(join(wt(), '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'wt')}\n`)
+    expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'allow' })
+    removeTestTree(join(repo, '.git', 'worktrees', 'wt', 'commondir'))
+    expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    await approval.close()
+  })
+})
+
 describe('removeTreeAsync', () => {
   it.skipIf(process.platform === 'win32')('looks through the tree first: a volume mounted in it removes nothing', async () => {
     const root = join(scratch, 'tree')
@@ -713,32 +780,71 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       ['curl --user=bob:pass x', 'curl --user=bob:*** x'],
       ['docker login -u demo -p s3cret registry.invalid', 'docker login -u demo -p *** registry.invalid'],
       ['sshpass -p s3cret ssh host', 'sshpass -p *** ssh host'],
-      ['tool --private-key=abc --access-key def --signing-key g', 'tool --private-key=*** --access-key *** --signing-key ***'],
-      ['curl -H "X-Api-Key: a" --header \'Cookie: b\' https://x', 'curl -H "X-Api-Key: ***" --header \'Cookie: ***\' https://x'],
-      ['wget --header="X-Auth-Token: abc" https://x', 'wget --header="X-Auth-Token: ***" https://x'],
-      ['printf \'default login demo password hunter2\' > n', 'printf \'default login demo password ***\' > n'],
+      ['tool --key=abc --key def', 'tool --key=*** --key ***'],
     ]
     for (const [command, kept] of cases) expect(journalCommand(command, home), command).toBe(kept)
     // What is not a secret stays.
     for (const command of [`curl -d '{"user":"demo","count":"3"}' x`, 'docker run -p 8080:80 image', 'tool --keyboard us', `curl -H 'Accept: text/plain' x`]) expect(journalCommand(command, home), command).toBe(command)
   })
 
-  it('keeps ordinary commands as they are (round 4 of PR #1460): no header, user or password form out of its program', () => {
-    for (const command of [
-      'sort --key=2 -t, data.csv',
-      'sort --key 2 data.csv',
-      'git commit -m "auth: keep the session cookie"',
-      'git commit -m "keyboard: map keys"',
-      'git commit -m "session: expire after an hour"',
-      'grep -rn password src/',
-      'grep -rn "password reset" docs/',
-      'docker run -u 1000:1000 image',
-      'rg "apiKey: string" src',
-      'grep -H "token: none" notes.txt',
-      'docker run -u "1000:1000" image',
-      'echo "token: none"',
-    ])
-      expect(journalCommand(command, home), command).toBe(command)
+  it('keeps every form of round 3 (round 5 of PR #1460): each input of the round 2 and 3 tests and the review\'s other forms give the output of 7af4d4a2b', () => {
+    // The output of each input as the Journal of 7af4d4a2b gave it.
+    const cases: [string, string][] = [
+      ["TOKEN=abc run", "TOKEN=*** run"],
+      ["PASSWORD=hunter2 run", "PASSWORD=*** run"],
+      ["GITHUB_PAT=abc AUTH=xyz DB_PASS=p run", "GITHUB_PAT=*** AUTH=*** DB_PASS=*** run"],
+      ["TOKEN= run", "TOKEN=*** run"],
+      ["curl -H \"Authorization: Bearer abc.def.ghi\" https://x", "curl -H \"Authorization: ***\" https://x"],
+      ["curl -H 'authorization: token abc123' x", "curl -H 'authorization: ***' x"],
+      ["curl -H \"X: Bearer abcdefghijkl\" x", "curl -H \"X: Bearer ***\" x"],
+      ["git clone https://user:p4ss@example.invalid/r.git", "git clone https://user:***@example.invalid/r.git"],
+      ["tool --token abc --password xyz --password=q --api-key k --client-secret s", "tool --token *** --password *** --password=*** --api-key *** --client-secret ***"],
+      ["tool --secret-key k --token-file f", "tool --secret-key *** --token-file ***"],
+      ["curl -u demo:secret x", "curl -u demo:*** x"],
+      ["mysql -u root -psecret db", "mysql -u root -p*** db"],
+      ["echo ghp_abcdefghijklmnop1234 github_pat_abcdefghijklmnop_1234 sk-abcdefghijklmnop1234 xoxb-1234-abcd AKIAABCDEFGHIJKLMNOP", "echo *** *** *** *** ***"],
+      ["curl -d '{\"token\":\"abc\",\"user\":\"demo\"}' x", "curl -d '{\"token\":\"***\",\"user\":\"demo\"}' x"],
+      ["curl -d '{\"password\": \"a b c\", \"secret\":\"s\", \"api_key\":\"k\"}' x", "curl -d '{\"password\": \"***\", \"secret\":\"***\", \"api_key\":\"***\"}' x"],
+      ["curl -d \"{\\\"token\\\":\\\"abc\\\"}\" x", "curl -d \"{\\\"token\\\":\\\"***\\\"}\" x"],
+      ["curl -d '{\"x-auth\":\"v\"}' x", "curl -d '{\"x-auth\":\"***\"}' x"],
+      ["printf 'machine x login demo password hunter2' > n", "printf 'machine x login demo password ***' > n"],
+      ["curl -H \"X-Api-Key: abc def\" x", "curl -H \"X-Api-Key: ***\" x"],
+      ["curl -H 'Cookie: a=b; c=d' x", "curl -H 'Cookie: ***' x"],
+      ["curl -ubob:pass x", "curl -ubob:*** x"],
+      ["curl -u \"bob:a b\" x", "curl -u \"bob:***\" x"],
+      ["curl --user=bob:pass x", "curl --user=bob:*** x"],
+      ["docker login -u demo -p s3cret registry.invalid", "docker login -u demo -p *** registry.invalid"],
+      ["sshpass -p s3cret ssh host", "sshpass -p *** ssh host"],
+      ["tool --key=abc --key def", "tool --key=*** --key ***"],
+      ["PATH=/usr/bin make", "PATH=/usr/bin make"],
+      ["AUTHOR=demo x", "AUTHOR=demo x"],
+      ["mkdir -p build", "mkdir -p build"],
+      ["git log -p", "git log -p"],
+      ["NAME=demo x", "NAME=demo x"],
+      ["curl -d '{\"user\":\"demo\",\"count\":\"3\"}' x", "curl -d '{\"user\":\"demo\",\"count\":\"3\"}' x"],
+      ["docker run -p 8080:80 image", "docker run -p 8080:80 image"],
+      ["tool --keyboard us", "tool --keyboard us"],
+      ["curl -H 'Accept: text/plain' x", "curl -H 'Accept: text/plain' x"],
+      ["gh api -H 'X-Api-Key: s3cr3tvalue' /x", "gh api -H 'X-Api-Key: ***' /x"],
+      ["http POST https://x 'X-Api-Key:s3cr3tvalue'", "http POST https://x 'X-Api-Key:***'"],
+      ["xh https://x 'X-Api-Key:s3cr3tvalue'", "xh https://x 'X-Api-Key:***'"],
+      ["git -c http.extraHeader='X-Api-Key: s3cr3tvalue' fetch", "git -c http.extraHeader='X-Api-Key: ***' fetch"],
+      ["aria2c --header='X-Api-Key: s3cr3tvalue' https://x", "aria2c --header='X-Api-Key: ***' https://x"],
+      ["wget2 --header='X-Api-Key: s3cr3tvalue' https://x", "wget2 --header='X-Api-Key: ***' https://x"],
+      ["curlie -H 'X-Api-Key: s3cr3tvalue' https://x", "curlie -H 'X-Api-Key: ***' https://x"],
+      ["node -e \"fetch('https://x',{headers:{'Cookie: sid=s3cr3tvalue'}})\"", "node -e \"fetch('https://x',{headers:{'Cookie: ***'}})\""],
+      ["lftp -u bob:s3cr3tvalue ftp://x", "lftp -u bob:*** ftp://x"],
+      ["rsync -u bob:s3cr3tvalue x", "rsync -u bob:*** x"],
+      ["mongo -u bob:s3cr3tvalue", "mongo -u bob:***"],
+      ["cat > n <<EOF\nmachine x\nlogin bob\npassword s3cr3tvalue\nEOF", "cat > n <<EOF\nmachine x\nlogin bob\npassword ***\nEOF"],
+      ["echo password s3cr3tvalue | sudo -S true", "echo password *** | sudo -S true"],
+      ["expect -c 'send \"password s3cr3tvalue\"'", "expect -c 'send \"password ***\"'"],
+      ["age --key s3cr3tvalue", "age --key ***"],
+      ["tool --key s3cr3tvalue", "tool --key ***"],
+      ["tool --key sk_live_abcdef", "tool --key ***"],
+      ["tool --key=abcdef123", "tool --key=***"],
+    ]
+    for (const [command, kept] of cases) expect(journalCommand(command, home), command).toBe(kept)
   })
   it('the home folder of Windows in every form', () => {
     expect(journalCommand('rm -rf C:\\Users\\Demo\\x /c/Users/Demo/y', 'C:\\Users\\Demo')).toBe('rm -rf ~\\x ~/y')

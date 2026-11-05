@@ -33,7 +33,7 @@
 // shell folder the Vendor did not tell is not judged in another folder.
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdir, readdir, readFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { isRunId, makeRunId, RUN_ID_SUFFIX_LENGTH } from '../../../shared/autopilot/journal'
 import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
@@ -109,6 +109,8 @@ export interface GitFacts extends CheckoutGitFacts {
    * `includeIf` names a condition (gitdir, onbranch). Without it every checkout of the repository reads what this one does.
    */
   checkoutConfig: boolean
+  /** The repository's common git folder (`git rev-parse --git-common-dir`); null when this is no repository. */
+  commonDir: string | null
 }
 
 /** How long one git read may take. */
@@ -237,7 +239,25 @@ export async function readGitFacts(folder: string, env: NodeJS.ProcessEnv): Prom
     defaultBranch: origin !== '' ? origin : current !== '' && current !== '.invalid' ? current : 'main',
     configFiles: configFilesOf(entries, folder, env['HOME']),
     checkoutConfig: entries.some((entry) => (entry.key === 'extensions.worktreeconfig' && gitBool(entry.value) === true) || entry.key.startsWith('includeif.')),
+    commonDir: repository ? common : null,
   }
+}
+
+/**
+ * Whether the linked worktree at `path` keeps its git folder in the common git folder `common`: its `.git` file names
+ * `<common>/worktrees/<name>`, and that folder's `commondir` names `common`. Read from the files, not by git; false when
+ * one of them cannot be read. A worktree that fails it may read another repository's config and hooks.
+ */
+async function sharesGitDir(path: string, common: string, platform: NodeJS.Platform): Promise<boolean> {
+  const named = /^gitdir: (.+)$/.exec((await firstLine(join(path, '.git'))) ?? '')?.[1]
+  if (named === undefined) return false
+  const gitDir = resolve(path, named)
+  const commondir = await firstLine(join(gitDir, 'commondir'))
+  if (commondir === null || commondir === '') return false
+  const realOf = (folder: string): Promise<string | null> => realpath(folder).catch(() => null)
+  const [real, realGitDir, namedCommon] = await Promise.all([realOf(common), realOf(gitDir), realOf(resolve(gitDir, commondir))])
+  if (real === null || realGitDir === null || namedCommon === null) return false
+  return samePath(dirname(realGitDir), join(real, 'worktrees'), platform) && samePath(namedCommon, real, platform)
 }
 
 /** One worktree of `git worktree list`; a null branch: detached. */
@@ -428,12 +448,22 @@ export async function openRunApproval(options: RunApprovalOptions): Promise<RunA
         reads.set(folder, known)
         return known
       }
-      const factsOf = (folder: string): Promise<GitFacts | null> => {
+      // Whether each worktree keeps its git folder in the Project's, checked once per request from the files.
+      const shares = new Map<string, Promise<boolean>>()
+      const sharing = (checkout: string): Promise<boolean> => {
+        const known = shares.get(checkout) ?? (now.commonDir === null ? Promise.resolve(false) : sharesGitDir(checkout, now.commonDir, platform))
+        shares.set(checkout, known)
+        return known
+      }
+      const factsOf = async (folder: string): Promise<GitFacts | null> => {
         const checkout = checkoutOf(folder, checkouts, platform)
         // Outside every checkout git is never approved: nothing to read there.
-        if (checkout === null) return Promise.resolve(null)
-        if (samePath(checkout, options.root, platform) || !now.checkoutConfig) return Promise.resolve(now)
-        return read(checkout)
+        if (checkout === null) return null
+        if (samePath(checkout, options.root, platform)) return now
+        // A worktree whose git folder is not the Project's reads another config and other hooks: not known, so git there
+        // is parked (git-hooks).
+        if (!(await sharing(checkout))) return null
+        return now.checkoutConfig ? read(checkout) : now
       }
       const folders = [...new Set([...(needs.writes && now.checkoutConfig ? worktrees : []), ...needs.git])]
       const found = await Promise.all(folders.map(factsOf))

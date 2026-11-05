@@ -299,7 +299,7 @@ function fakeApproval(approvals: FakeApproval[]): RunApproval {
     run: entry.run,
     runTemp,
     environment: { TMPDIR: runTemp },
-    facts: { hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: [], defaultBranch: 'main', configFiles: [], checkoutConfig: false },
+    facts: { hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: [], defaultBranch: 'main', configFiles: [], checkoutConfig: false, commonDir: null },
     setWave: () => undefined,
     judge: () => Promise.resolve({ outcome: 'deny', rule: 'not-judged', hint: null, targets: [] }),
     close: () => {
