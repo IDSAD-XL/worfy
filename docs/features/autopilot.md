@@ -499,13 +499,13 @@ a replaced `powerSaveBlocker`, and not what the display does.
 model API error, a dead process, a `gh` that hangs or fails, a merge conflict, an app killed in the middle of a Wave — and then checks the
 recovery rules. `checkRecovery` in `test/autopilot-invariants.ts` takes what the run left behind: the journal files, the messages the
 Orchestrator got, the `gh` calls, the `Status:` changes the test wrote for the Orchestrator, and the Project's files before and after. It
-returns one line per broken rule, and every scenario expects none. The rules:
+returns one line per violation, and every scenario expects none. The rules:
 
 - **I1.** Each `wave-started` has exactly one `/epic-wave` command that names its Tickets, and there are as many Waves as the scenario
   expects.
 - **I2.** Every `gh` call is a read: `pr list`, `auth status`, `auth token`, or `api` on a repository without an option that writes.
 - **I3.** For each Ticket, the run's `ticket-status` lines are the changes of its `Status:` during the run, in order. After a Force stop,
-  a quit or a killed app the latest changes may be missing, never earlier ones.
+  a quit, or in a run without `run-stopped` (as after a killed app) the latest changes may be missing, never earlier ones.
 - **I4.** The scenario's run has one `run-stopped` with the expected reason, after the line that reason needs (for example `session-error`
   before `turn-error`). A killed app leaves no `run-stopped`. A run that outlived the fault has a `resumed` line.
 - **I5.** No person stepped in: no `human-input` and no `refused-dialog` line.
