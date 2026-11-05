@@ -1,7 +1,7 @@
 # 03 — Approval policy: корни, правила, hard deny
 
 Type: task
-Status: open
+Status: claimed 2026-11-05T01:40Z
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Как работает», п. 1, 3–6; «Безопасность», п. 2–3, 5–8; Q3, Q6, Q8
 
