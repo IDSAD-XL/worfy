@@ -1,7 +1,8 @@
 # worfy-autopilot-queue: Autopilot стартует, пока идёт работа, и ведёт очередь Epic-ов
 
 Status: ждёт приёмки владельцем. Решения grilling-а 2026-11-05 (Ticket-ы карты 01–03, раунды 1 и 2) и прототип окна
-запуска приняты владельцем; нарезка на Ticket-ы и Wave-ы — нет. До приёмки Ticket-ы 07–20 не раздаются.
+запуска приняты владельцем; нарезка на Ticket-ы и Wave-ы — нет. До приёмки Ticket-ы 07–20 не раздаются; раздача начинается после merge worfy-retry
+04, 05 и 14 (общие `run.ts`, `cycle.ts`, журнал).
 Source: слово владельца 2026-11-05: «нельзя запустить автопилот пока идет работа»; «запускать автопилот не только по
 одному эпику»; новое требование того же дня — системное окно подтверждения старта заменить окном внутри worfy;
 [map.md](map.md) и Ticket-ы карты [01](issues/01-destination-и-масштаб.md), [02](issues/02-старт-при-идущей-работе.md),
@@ -203,10 +204,12 @@ Node через seam Vendor-а `setPermissionPreset` (`src/main/vendors/session.
   (`index`, `of`) и `epic-finished` (`outcome`: `done` | `waits-owner` | `elsewhere` | `removed`, `tickets?`);
   `queue-changed` (`added`, `removed`) при правке между Wave-ами. Run того же Epic-а на другой Machine
   (`checkElsewhere`) проверяется для каждого Epic-а при его начале; занят — пропуск с `elsewhere`. Названные
-  Ticket-ы — только при одном Epic-е. Budget и Run mode — общие на весь Run, прогноз — сумма Wave по Epic-ам.
+  Ticket-ы — только при одном Epic-е. Run mode — общий на весь Run; budget проверяется на каждой границе Wave,
+  как сейчас (`boundaryCheck`, `run.ts:1551`); по очереди суммируется только прогноз.
 - **Принятые Epic-и** (Ticket 13): `epic-status --json` (Harness) отдаёт для Epic-а строку `Status:` spec-а и дату
-  принятия; принятый — `Status:` начинается с «принят владельцем», «утверждён владельцем» или «по решению владельца»
-  и несёт дату; плюс есть хотя бы один готовый Ticket (`readyWave`). worfy не разбирает spec сам (ADR-0002).
+  принятия; принятый — `Status:` начинается с «принят владельцем», «утверждён владельцем», «по решению владельца»,
+  «по решениям владельца» или «решения владельца … приняты» (worfy-update) и несёт дату (решено без владельца,
+  подтвердить: Epic-и с такими строками считаются принятыми); плюс есть хотя бы один готовый Ticket (`readyWave`). worfy не разбирает spec сам (ADR-0002).
 - **Точки входа** (Ticket-ы 15, 16): MCP tool `autopilot_start` — `epics: string[]` (1–10) вместо `epic` (старое поле
   остаётся как список из одного); команда чата `/worfy:epic-wave epics A, B, C`; «Run all accepted» — Command palette.
 - **Виды** (Ticket-ы 17, 18): строка Autopilot «Epic 2/3: <имя> · Wave 1»; в меню «⋯» — «Add to queue…», «Remove from
@@ -245,6 +248,8 @@ Node через seam Vendor-а `setPermissionPreset` (`src/main/vendors/session.
    там, где нажата.
 8. **Предел очереди** — 10 Epic-ов: новая константа рядом с `AUTOPILOT_TICKETS_MAX` (`src/shared/canvas/tools.ts:56`).
 9. **Тексты в коде — английские** (ADR-0074), документы — русские.
+10. **Принятые spec-и старых форм** — «по решениям владельца …» (worfy-windows, -harness, -link, -terminal-ai,
+    -terminal-ssh, -ui) и «решения владельца … приняты» (worfy-update) считаются принятыми (Ticket 13).
 
 ## ADR
 
@@ -325,9 +330,10 @@ Wave — Ticket-ы, которые можно брать параллельно:
 Имена файлов test-ов, которых ещё нет, — предложение; implementer может назвать иначе, не задевая чужих Ticket-ов своей
 Wave. Названия файлов test-ов, которые есть, сверены с `main` 2026-11-05 (`16a0932dc`).
 
-С Epic-ом [worfy-work-track](../worfy-work-track/spec.md) общих файлов в «Где в коде» нет: переключатель «Run history |
-Work track» живёт в новом `src/renderer/flight-recorder/RunsView.tsx`, а `RunHistoryView.tsx` правит только Ticket 18
-этого Epic-а. Оба Epic-а можно раздавать в одно время.
+С Epic-ом [worfy-work-track](../worfy-work-track/spec.md) общие файлы — только у документации: Ticket 19 здесь и
+Ticket 11 там правят `CONTEXT.md` и `docs/features/(ru/)flight-recorder.md`; work-track 11 начинается после merge 19.
+Код не пересекается: переключатель «Run history | Work track» живёт в новом `src/renderer/flight-recorder/RunsView.tsx`,
+а `RunHistoryView.tsx` правит только Ticket 18 этого Epic-а.
 
 ## Не в этом Epic-е
 

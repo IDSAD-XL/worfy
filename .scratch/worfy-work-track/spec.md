@@ -13,7 +13,8 @@ ADR [0002](../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md),
 [0005](../../docs/adr/0005-worfy-own-state-inventory.md), [0092](../../docs/adr/0092-run-history.md).
 Ticket-ы: Epic `worfy-work-track`, 12 Ticket-ов, нумерация с `01`. Шапка — `Type:` / `Status:` / `Blocked by:` /
 `Source:`, как у worfy-retry. Спутник — spec [worfy-autopilot-queue](../worfy-autopilot-queue/spec.md) той же карты;
-общих файлов с ним нет, раздаются параллельно.
+код не пересекается, раздаются параллельно; общая только документация (`CONTEXT.md`,
+`docs/features/(ru/)flight-recorder.md`): Ticket 11 здесь — после merge autopilot-queue 19.
 
 ## Цель
 
@@ -205,9 +206,9 @@ Wave — Ticket-ы, которые можно брать параллельно:
 - **Wave 4 — 09. Wave 5 — 10** (общий `WorkTrackView.tsx`). **Wave 6 — 11. Wave 7 — 12**, владелец.
 
 Имена новых файлов — предложение; implementer может назвать иначе, не задевая чужих Ticket-ов своей Wave. С Epic-ом
-`worfy-autopilot-queue` общих файлов нет (его Ticket 18 правит `RunHistoryView.tsx`, этот Epic — только новый
-`RunsView.tsx` вокруг него). Ticket 11 правит `docs/features/flight-recorder.md`, как Ticket 19 того Epic-а, — они не
-раздаются одновременно.
+`worfy-autopilot-queue` код не пересекается (его Ticket 18 правит `RunHistoryView.tsx`, этот Epic — только новый
+`RunsView.tsx` вокруг него). Общие файлы — у документации: Ticket 11 и Ticket 19 того Epic-а правят `CONTEXT.md` и
+`docs/features/(ru/)flight-recorder.md`; Ticket 11 начинается после merge 19.
 
 ## Не в этом Epic-е
 

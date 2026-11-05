@@ -5,6 +5,8 @@ Status: open
 Blocked by:
 Source: [spec.md](../spec.md), «Что видит владелец», п. 2–3; «Как работает» → «Run принят и ждёт»; «Решения владельца», 1–6, 8; «ADR»; «Решено без владельца», 1–4; [02](02-старт-при-идущей-работе.md), Q1–Q6, Q8
 
+Начинать после merge worfy-retry 04, 05 и 14 (общие run.ts, cycle.ts, журнал).
+
 ## Что происходит
 
 - `Orchestrators.setUnattended(projectId, true)` отказывает при ходе (`ORCHESTRATOR_IN_TURN`,

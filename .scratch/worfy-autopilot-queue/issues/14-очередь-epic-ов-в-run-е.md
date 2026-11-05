@@ -5,6 +5,8 @@ Status: open
 Blocked by: 07, 08, 12
 Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5; «Как работает» → «Очередь Epic-ов», «Run»; «Решения владельца», 17–21, 23; «ADR»; «Решено без владельца», 2, 4, 6, 8; [03](03-очередь-epic-ов.md), Q2–Q6, Q8
 
+Начинать после merge worfy-retry 04, 05 и 14 (общие run.ts, cycle.ts, журнал).
+
 ## Что происходит
 
 - Run знает один Epic: `Run.epic` (`src/main/autopilot/run.ts:682`), `initialCycle(epic, named)` (`:689`;
@@ -30,7 +32,8 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5
    `autopilot.queue` (`write`): добавить в конец (Epic Project-а, не в очереди), убрать не начатый; применяется на
    границе Wave; во время Wave — ставится в ожидание и применяется на её конце. Переставлять нельзя.
 5. **Состояние Autopilot.** `queue: { epic, status: 'done'|'running'|'next'|'waits-owner'|'elsewhere' }[]`, `index`;
-   прогноз и budget — по сумме оставшихся Wave всех не начатых Epic-ов.
+   прогноз — сумма оставшихся Wave всех не начатых Epic-ов; budget проверяется на каждой границе Wave, как сейчас
+   (`boundaryCheck`, `run.ts:1551`; решение владельца Q8).
 6. **ADR.** Номер — `preflight` при claim. Новый ADR «Run ведёт очередь Epic-ов»: очередь в одном Run-е, правило
    перехода и пропуска (Ticket 12), стоп всего Run-а, события журнала, правка между Wave-ами, принятый Epic через
    `epic-status` (Ticket 13); «Considered Options» — смешанные Wave-ы, отдельный Run на Epic, перестановка во время
