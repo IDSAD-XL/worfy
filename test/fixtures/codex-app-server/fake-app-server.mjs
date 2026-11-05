@@ -10,6 +10,8 @@
 //   {"expect":"<method>"}                 wait for worfy's notification <method> (`initialized`)
 //   {"notify":"<method>","params":{...}}  send this notification
 //   {"request":"<method>","params":{...}} send this request to worfy (an approval) and wait for its answer
+//   {"exit":<code>}                       exit with this code at once, without waiting for worfy to close
+//                                         stdin and without SessionEnd: the app-server died (worfy-faults 06)
 // Every message a script sends passes the JSON Schema of the pinned Codex
 // (test/contract/codex-fake.test.ts checks each script), so a script never plays a field or a method the
 // real app-server of that version does not have.
@@ -42,7 +44,7 @@
 //
 // What worfy sends while the fake waits for something else: a request gets a JSON-RPC error that names
 // the step the fake waits for; a notification or an answer is only reported on stderr. After the last
-// step every request gets an error. The fake exits when worfy closes its stdin.
+// step every request gets an error. The fake exits when worfy closes its stdin, or at an "exit" step.
 // One exception (ticket 39): a `hooks/list` the script does not expect is answered at any point, also
 // after the last step, from the plugins installed in CODEX_HOME (hook-runner.mjs, hooksList) — each hook
 // "untrusted", "trusted" or "modified" by config.toml, so approvePluginHooks of a test approves them as
@@ -92,8 +94,15 @@ function loadScript(dir, name) {
     } catch (error) {
       fail(`${where}: not JSON: ${error.message}`)
     }
+    if (typeof step === 'object' && step !== null && 'exit' in step) {
+      if (!Number.isInteger(step.exit) || step.exit < 0 || step.exit > 255) fail(`${where}: "exit" is an exit code, an integer from 0 to 255`)
+      const others = Object.keys(step).filter((key) => key !== 'exit')
+      if (others.length > 0) fail(`${where}: an "exit" step has no ${others.map((key) => `"${key}"`).join(', ')}`)
+      steps.push({ exit: step.exit, kind: 'exit', where })
+      continue
+    }
     const kind = Object.keys(STEP_KEYS).find((key) => typeof step?.[key] === 'string')
-    if (kind === undefined) fail(`${where}: a step has one of "expect", "notify" or "request"`)
+    if (kind === undefined) fail(`${where}: a step has one of "expect", "notify", "request" or "exit"`)
     const acts = kind === 'notify' ? Object.keys(ACT_KEYS).filter((key) => key in step) : []
     if (acts.length > 1) fail(`${where}: a step has one of ${acts.map((key) => `"${key}"`).join(', ')}, not several`)
     const act = acts[0]
@@ -394,6 +403,11 @@ async function play() {
     if (skip > 0) {
       skip--
       continue
+    }
+    if (step.kind === 'exit') {
+      // On macOS a write to a pipe completes later: exit once what the script sent before has gone out.
+      await new Promise((resolve) => process.stdout.write('', resolve))
+      process.exit(step.exit)
     }
     if (step.kind === 'notify') {
       if (step.act === 'tool') await playTool(step)

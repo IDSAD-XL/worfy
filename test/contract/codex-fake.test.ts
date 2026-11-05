@@ -141,6 +141,8 @@ interface Step {
   params?: unknown
   result?: unknown
   error?: unknown
+  /** The exit code of a step that ends the fake (worfy-faults ticket 06); it sends nothing. */
+  exit?: unknown
 }
 
 /**
@@ -184,7 +186,10 @@ function scriptChecker(): (text: string) => string[] {
       if (line.trim() === '') continue
       const at = (problem: string) => problems.push(`line ${index + 1}: ${problem}`)
       const step = JSON.parse(line) as Step
-      if (step.notify !== undefined) for (const problem of checkSent(notifications, 'ServerNotification', 'notification', { method: step.notify, params: step.params })) at(problem)
+      // An exit step sends nothing, so the schema has nothing to check; only its shape is checked.
+      if ('exit' in step) {
+        if (Object.keys(step).length !== 1 || !Number.isInteger(step.exit)) at('an "exit" step is {"exit": <exit code>} alone')
+      } else if (step.notify !== undefined) for (const problem of checkSent(notifications, 'ServerNotification', 'notification', { method: step.notify, params: step.params })) at(problem)
       else if (step.request !== undefined) for (const problem of checkSent(serverRequests, 'ServerRequest', 'request', { method: step.request, params: step.params })) at(problem)
       else if (step.expect !== undefined && step.result === undefined && step.error === undefined) {
         if (!clientNotifications.has(step.expect)) at(`${step.expect} is not a notification of the client`)
@@ -197,7 +202,7 @@ function scriptChecker(): (text: string) => string[] {
           if (response === undefined) at(`no response schema for ${step.expect}`)
           else for (const problem of check(response, step.result)) at(problem)
         }
-      } else at('a step has one of "expect", "notify" or "request"')
+      } else at('a step has one of "expect", "notify", "request" or "exit"')
     }
     return problems
   }
@@ -211,6 +216,8 @@ const scriptFiles = () => readdirSync(SCRIPTS).filter((name) => name.endsWith('.
 describe('the scripts of the fake app-server', () => {
   it('has every script the ticket names', () => {
     expect(scriptFiles().map((name) => name.replace(/\.jsonl$/, ''))).toEqual(expect.arrayContaining(NAMED_SCRIPTS))
+    // The Fault scenarios of a Run on Codex (worfy-faults ticket 06): the check below covers them too.
+    expect(scriptFiles()).toEqual(expect.arrayContaining(['autopilot-fault-turn-failed.jsonl', 'autopilot-fault-exit.jsonl']))
   })
 
   it('plays only messages of the JSON Schema of the pinned Codex, every script', () => {
@@ -230,6 +237,10 @@ describe('the scripts of the fake app-server', () => {
     expect(checkScript('{"expect":"thread/teleport","result":{}}')).toEqual(['line 1: thread/teleport is not a request of the client'])
     expect(checkScript('{"expect":"turn/steer","result":{"turn":"u"}}')).not.toEqual([])
     expect(checkScript('{"expect":"initialised"}')).toEqual(['line 1: initialised is not a notification of the client'])
+    // An exit step (worfy-faults ticket 06) is an exit code alone: one mixed with a message, or with a code that is no integer, fails.
+    expect(checkScript('{"exit":1}')).toEqual([])
+    expect(checkScript('{"exit":"1"}')).toEqual(['line 1: an "exit" step is {"exit": <exit code>} alone'])
+    expect(checkScript('{"exit":1,"notify":"turn/started","params":{}}')).toEqual(['line 1: an "exit" step is {"exit": <exit code>} alone'])
   })
 
   it('takes the fields a message has beside the branch of its kind', () => {
@@ -248,6 +259,8 @@ interface Fake {
   seen: Message[]
   /** Ends the fake's stdin and waits for its exit; its stderr. */
   close: () => Promise<{ code: number | null; stderr: string }>
+  /** The exit code of the fake once it exits on its own, its stdin still open. */
+  exited: Promise<number | null>
 }
 
 interface Message {
@@ -277,6 +290,7 @@ function startFake(cwd: string, env: Record<string, string>): Fake {
   const exit = new Promise<number | null>((resolve) => child.on('exit', resolve))
   return {
     seen,
+    exited: exit,
     send: (message) => child.stdin.write(`${JSON.stringify(message)}\n`),
     next: (match) =>
       new Promise((resolve, reject) => {
@@ -420,6 +434,34 @@ describe('the fake app-server', () => {
     const { code, stderr } = await fake.close()
     expect(code).toBe(2)
     expect(stderr).toMatch(/cannot read the script .*no-such-script\.jsonl/)
+  })
+
+  it('exits with the code of an "exit" step in the middle of a turn, its stdin still open, after what the script sent before (worfy-faults ticket 06)', async () => {
+    const root = tempRoot()
+    const fake = startFake(root, { WORFY_CODEX_SCRIPT: 'autopilot-fault-exit' })
+    await handshake(fake)
+    fake.send({ id: 2, method: 'thread/start', params: { cwd: root } })
+    await fake.next(answerTo(2))
+    fake.send({ id: 3, method: 'turn/start', params: { threadId: 'thr_fake_wave', input: [{ type: 'text', text: '/epic-wave' }] } })
+    await fake.next(answerTo(3))
+    // Nobody closes the fake's stdin: it ends on its own, with the code of the step.
+    expect(await fake.exited).toBe(1)
+    expect(fake.seen.filter((message) => message.id === undefined).map((message) => message.method)).toEqual(['thread/started', 'turn/started', 'item/started', 'item/agentMessage/delta'])
+
+    // The code is the step's, whatever it is; a step that is not an exit code alone stops the fake with 2.
+    writeFileSync(join(root, 'exit-7.jsonl'), '{"exit":7}\n')
+    expect(await startFake(root, { WORFY_CODEX_SCRIPT: 'exit-7', WORFY_CODEX_SCRIPTS: root }).exited).toBe(7)
+    const bad: Record<string, [object, RegExp]> = {
+      'exit-text': [{ exit: '1' }, /"exit" is an exit code, an integer from 0 to 255/],
+      'exit-big': [{ exit: 256 }, /"exit" is an exit code, an integer from 0 to 255/],
+      'exit-mixed': [{ exit: 1, notify: 'turn/started', params: {} }, /an "exit" step has no "notify", "params"/],
+    }
+    for (const [name, [step]] of Object.entries(bad)) writeFileSync(join(root, `${name}.jsonl`), `${JSON.stringify(step)}\n`)
+    for (const [name, [, message]] of Object.entries(bad)) {
+      const { code, stderr } = await startFake(root, { WORFY_CODEX_SCRIPT: name, WORFY_CODEX_SCRIPTS: root }).close()
+      expect(code, name).toBe(2)
+      expect(stderr, name).toMatch(message)
+    }
   })
 
   it('stops with exit code 2 on an act of the agent it cannot play (ticket 44)', async () => {
