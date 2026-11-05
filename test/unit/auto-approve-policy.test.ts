@@ -997,6 +997,8 @@ describe('round 3 of the review', () => {
     expect(outcome(`cp -R -- ${WT}/srcl ${WT}/dst`, posix({ fs: fakeFs(tree) }))).toBe('allow')
     expect(outcome(`cp -R --verbose ${WT}/srcl ${WT}/dst`, posix({ fs: fakeFs(tree) }))).toBe('allow')
     expect(outcome(`cp -R --no-dereference ${WT}/srcl ${WT}/dst`, posix({ fs: fakeFs(tree) }))).toBe('allow')
+    // A file named like an option, after a leading --, is a file.
+    expect(run(`cp -- -rL ${WT}/dst`, posix({ platform: 'darwin', fs: fakeFs({ ...tree, [`${WT}/-rL/l`]: `-> ${SCRATCH}` }) })).rule).not.toBe('copy-unclear')
   })
   it('chmod in another Session\'s folder inside a root is chmod-outside', () => {
     const context = posix({ sessions: { list: () => [info('demo-run', REPO), info('demo-src', `${WT}/src`)] } })
