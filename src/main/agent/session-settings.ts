@@ -21,6 +21,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { readSettings, sessionSettingsSchema, type SessionSettings, type SettingsChange } from '../../shared/agent/settings'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
+import type { LaunchApproval } from './auto-approve/run-approval'
 
 export const SESSION_SETTINGS_FILE = 'session-settings.json'
 
@@ -34,6 +35,12 @@ export interface SessionLaunch {
    * Absent — any other Session.
    */
   orchestrator?: boolean
+  /**
+   * The approval policy of an unattended Session (worfy-auto-approve ticket 04): the mode and the
+   * decisions of the Autopilot run that owns the Session, and the environment its agent starts with.
+   * Absent: every permission request is refused, as before the ticket.
+   */
+  approval?: LaunchApproval
 }
 
 /** A Session the user started, or one they can answer: the default. */

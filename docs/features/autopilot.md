@@ -124,6 +124,31 @@ While a run goes on:
 - A permission request, a question with answer options and a Card's `session.ask` are refused at once, because no one is
   there to answer. An approval Codex still asks for gets `decline`. Each refusal goes to the journal. When Claude Code gave a reason for a permission request, the model
   gets that reason so it can change the command.
+- On a Claude Code Orchestrator the Project's Auto-approval mode changes what happens to a permission request; it is read
+  at each request, so a switch counts from the next one. Off: as above. Shadow: the approval policy judges the request,
+  the journal gets an `auto-approval` line with what it would have done (`would-allow`, `would-deny`, `would-park`) and
+  the rule, and the model still gets the refusal of Off. On: the policy's decision is the answer — an allowed request
+  runs, a denied one is refused with the rule's hint, and a hard deny is always refused; a request the policy would park
+  for a person is refused for now. Each request is judged in the environment the agent's process started with: its
+  whole shell environment, so `CDPATH`, `BASH_ENV`, `ZDOTDIR`, `ENV`, `IFS` or a `GIT_` variable there makes a command
+  it changes not approved. Git is read again at each request that writes a file or runs git, in the Project's root and,
+  when a worktree may have config of its own (`git config --worktree`, an `includeIf`), in the checkout each git
+  command runs in and in each worktree of the Wave: a hook or a program the agent put into the git config since is
+  seen. A request that only reads, and runs no git, reads no git. Git in a worktree whose `.git` file or `commondir`
+  names a git folder other than the Project's, or cannot be read, is judged as git whose hooks are not known: a command
+  a hook or the config could change is not approved. Writing a config file git reads — one an
+  `include.path` or `includeIf` names too, also before it exists — is never approved, as writing `.git/config`.
+- In Shadow and On the run's Claude Code agent starts with the run's own temporary folder as `TMPDIR`
+  (`<data folder>/autopilot-tmp/<run>`) and a git environment: `GIT_CONFIG_PARAMETERS` turns off the owner's
+  `log.showSignature` and `format.pretty` and keeps git from opening a bare repository above the folder, and
+  `GIT_NO_LAZY_FETCH=1` keeps a partial clone from fetching through `core.sshCommand` while the repository has hooks or
+  programs in its config. This does not stop hooks or filters themselves: while there are any, the policy approves git
+  only for reading refs and objects. An agent whose process started without that environment (in Off, or before the
+  repository got a hook) gets no git approved. On macOS `mktemp -d` ignores `TMPDIR`, so a folder it makes is outside
+  every root; `mkdir -p "$TMPDIR/<name>"` is approved, and the hint of a refusal in the home folder names it. In Off
+  the agent starts as before, with neither. The folder is removed when the run ends; a run that could not start its
+  policy has none. A Session another run took over keeps its folder, as does a crash or a quit;
+  such folders go the next time worfy starts.
 - "Run wave" and "Process gate queue" by hand and "New conversation" of the Orchestrator are refused.
 - A person can still write to the Orchestrator. What a person does on its Session through worfy goes to the journal as
   `human-input`: a message, a Card's message, Interrupt, "Send queued", removing a queued message, a change of settings,
@@ -422,7 +447,7 @@ it cannot read.
 
 | Kind | Written when |
 |---|---|
-| `run-started` | The run began. Has `origin`, and `override` or `unasked` when they apply. `by` says who started it: `button`, `command` or `tool`. `tickets` names the Tickets of a run over named Tickets. `mode` is the Run mode: `fastest`, `budget-aware` or `start-window`. `vendor` is the Vendor of the Orchestrator, `claude` or `codex`; a line without it is a run on Claude Code. |
+| `run-started` | The run began. Has `origin`, and `override` or `unasked` when they apply. `by` says who started it: `button`, `command` or `tool`. `tickets` names the Tickets of a run over named Tickets. `mode` is the Run mode: `fastest`, `budget-aware` or `start-window`. `vendor` is the Vendor of the Orchestrator, `claude` or `codex`; a line without it is a run on Claude Code. `autoApproval` is the Auto-approval mode at the start, `shadow` or `on`, or `off` when the policy could not start or the Orchestrator's Vendor has no policy yet (Codex), and the run went on as at Off; a line without it is a run at Off. |
 | `harness-behind` | The Harness in `main` is newer: after `run-started`, and before a `wave-started` when the count changed. |
 | `forecast` | The Epic forecast at the start, once, after `run-started` and `harness-behind`, before the first `wave-started`: the Run mode, the Waves and Tickets left, the samples, `low` and `high` (p10 and p90 of the share of the week, `null` under 5 samples), `fit` (how many Waves fit before the 7-day reset with the reserve; only when the Run has a recommendation, in Budget-aware or in Start window with the budget on, else `null`), `week` (the 7-day number at the start), the p90 of a Wave's duration with its sample count, and `window` in Start window. Journals that cannot be read give `samples: 0`; the run goes on. In a run on Codex, `samples`, `fit` and `week` are of the longest Codex window and of earlier Codex Waves only. |
 | `wave-started`, `wave-finished` | A Wave went or ended. `wave-started` has the text sent, the skipped Tickets and `session`, the id of the Orchestrator's SDK session the Wave went to (its transcript's name). Both may have `limits`: `{five_hour, seven_day}` in a run on Claude Code, `{windows}` with the Codex windows in a run on Codex. |
@@ -434,6 +459,7 @@ it cannot read.
 | `waiting-until`, `resumed` | A wait began or ended. |
 | `session-error` | A Session failed. |
 | `refused-dialog` | An unattended Session refused a request. Has the Subagent and the reason when given, and never the command. The home folder is written as `~`. |
+| `auto-approval` | The approval policy judged a permission request in Shadow or On. Has the Session, the Subagent when given, the Vendor, the `mode`, the `outcome`, the `rule`, the tool, the `targets` and, for a shell command, the `command` cut to 200 characters with secrets replaced by `***`: the values of secret-named variables, options and JSON keys, passwords in URLs, after curl's `-u`, the `-p` of mysql, docker login and sshpass, and `password` of `.netrc`, secret-named headers and known token forms. The home folder is written as `~`. |
 | `human-input` | A person stepped in. `source` is `worfy` or `observer`. |
 | `background-tasks` | The set of live background tasks changed. |
 | `run-stopping` | A graceful Stop came during a turn or tasks. |

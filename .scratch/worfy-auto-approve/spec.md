@@ -276,7 +276,11 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
    одобряется только на чтение ref-ов и object-ов без diff-а, filter-ов и рабочего дерева; остальное — park (Ticket
    03, «Итог», пункты 21 и 22). Эти чтения безопасны, только пока окружение git-а Run-а задано Ticket 04:
    `GIT_CONFIG_PARAMETERS` выключает `log.showSignature` и `format.pretty` владельца, а `GIT_NO_LAZY_FETCH=1` не даёт
-   partial clone догружать недостающий object через `core.sshCommand` (Ticket 03, «Итог», пункт 25). git тоже
+   partial clone догружать недостающий object через `core.sshCommand` (Ticket 03, «Итог», пункт 25). Поля git-а
+   (`hooksPath`, `hooksActive` и остальные) читаются заново при каждом запросе: в `bypassPermissions` агент может без
+   вопроса сам поставить hook или программу в git config (`git config core.hooksPath x`), и следующий запрос это видит.
+   Процесс агента, запущенный без окружения git-а Run-а (при Off) или без `GIT_NO_LAZY_FETCH`, когда `hooksActive`
+   теперь не `false`, не получает git ни одним правилом (Ticket 04, «Итог», раунд 2). git тоже
    запускается только в репозитории самого worktree-а: папка по пути к его верху с `HEAD`, `commondir`, `gitdir` или
    `objects` вместе с `refs` — подложенный репозиторий со своим config-ом, и git там не allow (Ticket 03, «Итог»,
    пункт 20).

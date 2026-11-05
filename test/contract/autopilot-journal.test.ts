@@ -76,6 +76,7 @@ const appended: JournalEventFields[] = [
   { kind: 'resumed' },
   { kind: 'session-error', session: 'abc-123', message: 'spawn ENOENT' },
   { kind: 'refused-dialog', session: null, what: 'AskUserQuestion' },
+  { kind: 'auto-approval', session: 'abc-123', agent: 'agent-impl-07', vendor: 'claude', mode: 'shadow', outcome: 'would-allow', rule: 'files-inside-roots', tool: 'Bash', targets: ['~/repo/.claude/worktrees/07/build'], command: 'rm -rf build' },
   { kind: 'human-input', source: 'worfy', what: 'Send queued' },
   { kind: 'background-tasks', tasks: [] },
   { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },
@@ -128,6 +129,16 @@ describe('openRun and append', () => {
     const second = await openRun({ project: PROJECT, epic: EPIC }, { now, suffix: suffixes('abcabc', 'defdef') })
     expect(second.run).toBe('2026-10-06T01-00-00-000Z-defdef')
     expect(rawLines(first.file)).toHaveLength(1)
+  })
+
+  it('opens the file of the run id it is given, and refuses one that is not a run id (worfy-auto-approve ticket 04)', async () => {
+    const run = '2026-10-06T01-00-00-000Z-a1b2c3'
+    const journal = await openRun({ project: PROJECT, epic: EPIC, run }, { now: () => new Date(T0), suffix: suffixes('ffffff') })
+    expect(journal.run).toBe(run)
+    expect(readdirSync(join(dataDir, 'autopilot'))).toEqual([`${run}.jsonl`])
+    await expect(openRun({ project: PROJECT, epic: EPIC, run: '../escape' }, { now: () => new Date(T0) })).rejects.toThrow('not a run id')
+    await expect(openRun({ project: PROJECT, epic: EPIC, run }, { now: () => new Date(T0) })).rejects.toThrow()
+    expect(readdirSync(join(dataDir, 'autopilot'))).toEqual([`${run}.jsonl`])
   })
 
   it('keeps the call order of appends that were not awaited one by one', async () => {

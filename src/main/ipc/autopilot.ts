@@ -36,6 +36,8 @@ import {
 import { autopilotRunOf } from '../../shared/settings/app-settings'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
+import { openRunApproval, sweepRunTemps } from '../agent/auto-approve/run-approval'
+import { agentEnv } from '../agent/env'
 import { appLimits, observeSessionLimits } from '../agent/limits'
 import { refreshAppUsage } from '../agent/limits-usage'
 import { ChatStarts, orchestratorRefusal, whenIdle } from '../autopilot/chat-start'
@@ -51,8 +53,8 @@ import { harnessScriptEnv } from '../harness/script-env'
 import { AutopilotRunsLink } from '../link/autopilot-runs'
 import { appLinkService, onAppLinkStart, type LinkService } from '../link/service'
 import { projectStore } from '../projects/store'
-import { appSettingsStore } from '../settings/store'
-import { claudeHome } from '../storage/paths'
+import { appSettingsStore, autoApprovalMode } from '../settings/store'
+import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { readWorkflow } from '../workflow/reader'
 import type { WorkflowHub } from '../workflow/watch'
 import { sharedLauncher } from './actions'
@@ -162,13 +164,15 @@ runsLink()
 /** The app's Autopilot, made on first use. */
 export function sharedAutopilot(): Autopilot {
   if (shared !== undefined) return shared
+  // No run is alive yet: the folders for temporary files earlier runs left behind go (worfy-auto-approve ticket 04).
+  void sweepRunTemps(dataRoot())
   const autopilot = new Autopilot({
     projectRoot: (projectId) => projectStore().get(projectId).path,
     selfRefusal: (root) => selfProjectRefusal({ packaged: app.isPackaged, appPath: app.getAppPath(), projectRoot: root, gitCommonDir }),
     workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
     watchWorkflow: workflowWatch(workflowHub),
     orchestrators: {
-      setUnattended: (projectId, unattended) => sharedOrchestrators().setUnattended(projectId, unattended),
+      setUnattended: (projectId, unattended, approval) => sharedOrchestrators().setUnattended(projectId, unattended, approval),
       giveBackNow: (projectId) => sharedOrchestrators().giveBackNow(projectId),
       newUnattendedSession: (projectId) => sharedOrchestrators().newUnattendedSession(projectId),
       unattendedRefusal: (projectId) => sharedOrchestrators().unattendedRefusal(projectId),
@@ -196,6 +200,14 @@ export function sharedAutopilot(): Autopilot {
       return service !== undefined && service.linkedMachines().length > 0 ? service.machine : null
     },
     onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),
+    // Auto-approval (worfy-auto-approve ticket 04): the mode of app-settings.json, Off while a debugging
+    // port or the inspector is open (autoApprovalMode); the policy's side of each run, with the shell
+    // environment the Session's agent gets, in which the run's git reads run too.
+    approval: {
+      mode: (projectId) => autoApprovalMode(projectId),
+      open: async (_projectId, root, epic) =>
+        openRunApproval({ root, epic, dataDir: dataRoot(), harnessHome: harnessHome(), shellEnv: (await agentEnv()).env, sessions: sharedRegistry() }),
+    },
     // Before a Wave's line in the journal: one usage ask when the number is older than 5 minutes.
     usage: { refresh: (olderThanMs, vendor) => refreshAppUsage(olderThanMs, vendor) },
     // Read before each Wave: a change in Settings counts from the next Wave of a run that goes on.

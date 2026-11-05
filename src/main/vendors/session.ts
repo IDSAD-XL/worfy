@@ -7,6 +7,8 @@ import type { SlashCommand } from '../../shared/agent/commands'
 import type { AgentEvent } from '../../shared/agent/events'
 import type { Question } from '../../shared/agent/questions'
 import type { ModelOption, SessionSettings } from '../../shared/agent/settings'
+import type { AutoApprovalMode } from '../../shared/settings/app-settings'
+import type { ApprovalRequest, Decision } from '../agent/auto-approve/policy'
 
 /** A message of the user, in worfy's types rather than the Vendor's. */
 export interface SessionMessage {
@@ -64,6 +66,33 @@ export interface PermissionAsker {
   askQuestions(request: QuestionAsk): Promise<QuestionReply>
 }
 
+/** Where the agent's shell stands for one tool call, as the Vendor tells it; null: the Vendor did not tell. */
+export interface ApprovalWhere {
+  /** The shell's current folder at the call, after the folder changes of the calls before. */
+  cwd: string | null
+  /** A folder of the Session's own the Vendor names for the agent's scratch files, if it has one. */
+  scratchpad: string | null
+  /** The whole environment the agent's process started with, when the driver knows it. */
+  env?: Readonly<Record<string, string | undefined>> | undefined
+}
+
+/** One decision of the approval policy as the driver reports it: the `auto_approval` event without its time. */
+export type ApprovalDecided = Omit<Extract<AgentEvent, { type: 'auto_approval' }>, 'type' | 'at'>
+
+/**
+ * The approval policy of an unattended Session (worfy-auto-approve ticket 04): what the driver asks
+ * instead of refusing every permission request. The mode is read at each request, so a switch
+ * counts from the next one.
+ */
+export interface SessionApproval {
+  /** Off: refuse as before, and ask nothing else; Shadow: judge, record, refuse as before; On: answer by the decision. */
+  mode(): AutoApprovalMode
+  /** The policy's decision on a request; never rejects (a failure is a deny). */
+  judge(request: ApprovalRequest, where: ApprovalWhere): Promise<Decision>
+  /** Told each decision of Shadow and On, as the agent got it. */
+  decided(decision: ApprovalDecided): void
+}
+
 /** What the agent of a Session is started with; the same for a start and a resume. */
 export interface SessionStart {
   cwd: string
@@ -77,6 +106,13 @@ export interface SessionStart {
   permissions: PermissionAsker
   /** Told of each request an unattended Session refused: what was asked about, the refusal given, who asked and why. */
   refused(subject: string, message: string, details: RefusalDetails): void
+  /** The approval policy of an unattended Session (Autopilot); absent: every request is refused, as `refused` says. */
+  approval?: SessionApproval | undefined
+  /**
+   * Variables the agent's process gets over its own environment (the Run's TMPDIR and git environment,
+   * worfy-auto-approve ticket 04), read when the process starts; absent: none.
+   */
+  environment?: Readonly<Record<string, string>> | undefined
   /** The agent's process' stderr, kept to explain a crash. */
   stderr(data: string): void
   /** Told of each process the agent starts, so the Session can wait for its exit. */

@@ -57,6 +57,7 @@ const everyKind: JournalEvent[] = [
   { ...base, at: at(31), kind: 'resumed' },
   { ...base, at: at(32), kind: 'session-error', session: 'abc-123', message: 'spawn ENOENT' },
   { ...base, at: at(33), kind: 'refused-dialog', session: 'abc-123', what: 'AskUserQuestion' },
+  { ...base, at: at(33), kind: 'auto-approval', session: 'abc-123', agent: 'agent-impl-01', vendor: 'claude', mode: 'on', outcome: 'allow', rule: 'files-inside-roots', tool: 'Bash', targets: ['~/repo/.claude/worktrees/01/build'], command: 'rm -rf build' },
   { ...base, at: at(34), kind: 'human-input', source: 'worfy', what: 'message to the Orchestrator' },
   { ...base, at: at(35), kind: 'background-tasks', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }] },
   { ...base, at: at(36), kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },
@@ -300,6 +301,24 @@ describe('parseJournal', () => {
 
   const refusedOld: JournalEvent = { ...base, at: at(33), kind: 'refused-dialog', session: 'abc-123', what: 'permission_request Bash' }
   const refusedNew: JournalEvent = { ...refusedOld, agent: 'agent-impl-07', reason: 'rm -rf with a target that cannot be resolved (~/x)' }
+
+  it('skips an auto-approval line with a command or a target over COMMAND_MAX, an unknown mode or outcome, and counts it (worfy-auto-approve ticket 04)', () => {
+    const good = { ...base, at: at(33), kind: 'auto-approval', session: 'abc-123', vendor: 'claude', mode: 'shadow', outcome: 'would-park', rule: 'outside-roots', tool: 'Write', targets: ['~/x'] } as const
+    const bad = [
+      { ...good, command: 'x'.repeat(201) },
+      { ...good, targets: ['x'.repeat(201)] },
+      { ...good, mode: 'off' },
+      { ...good, outcome: 'maybe' },
+    ]
+    const text = [good, { ...good, command: 'x'.repeat(200) }, ...bad].map((event) => `${JSON.stringify(event)}\n`).join('')
+    expect(parseJournal(text)).toEqual({ events: [good, { ...good, command: 'x'.repeat(200) }], skipped: 4 })
+  })
+
+  it('reads run-started with autoApproval, and an unknown value of it as a line without the field', () => {
+    const shadow = { ...started, autoApproval: 'shadow' }
+    const unknown = { ...started, autoApproval: 'sometimes' }
+    expect(parseJournal(`${JSON.stringify(shadow)}\n${JSON.stringify(unknown)}\n`)).toEqual({ events: [shadow, started], skipped: 0 })
+  })
 
   it('reads refused-dialog with the Subagent and the reason, and an old line without them as before', () => {
     expect(parseJournal(line(started) + line(refusedOld) + line(refusedNew) + line(stopped))).toEqual({ events: [started, refusedOld, refusedNew, stopped], skipped: 0 })

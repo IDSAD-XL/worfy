@@ -14,7 +14,8 @@
 // - `$NAME` and `${NAME}` with a value known from the environment or from an assignment earlier in the
 //   same command; an unquoted value must hold no blank and no glob character (bash splits and globs
 //   it, zsh does not);
-// - assignments `NAME=value` on their own, and `NAME=$(mktemp -d)`: a new folder inside TMPDIR. The
+// - assignments `NAME=value` on their own, and `NAME=$(mktemp -d)`: a new folder inside TMPDIR (on macOS
+//   in the system's temporary folder, MACOS_TEMP, whatever TMPDIR says). The
 //   name must be one the shell gives no meaning to (not PATH, PS4, GLOBIGNORE, zsh `path`, a
 //   `BASH_`, `GIT_` or `LD_` name…) and not exported;
 // - `~` and `~/…` at the start of a word, from HOME;
@@ -1097,8 +1098,20 @@ function mktemp(args: Expanded[], state: State, scope: Scope): string {
   return newTempFolder(state, scope)
 }
 
+/**
+ * Where macOS's `mktemp -d` creates its folder: the user's temporary folder of the system
+ * (`/var/folders/…/T`), whatever TMPDIR says (measured on macOS 26: `TMPDIR=/x mktemp -d -u` and
+ * `mktemp -d -u -t x` print a path under /var/folders). A name no root holds: the new folder is
+ * outside every root there, so what goes into it is not approved.
+ */
+export const MACOS_TEMP = '/<macos-user-temp-folder>'
+
 /** The folder `mktemp -d` creates, as the shell would hold it. */
 function newTempFolder(state: State, scope: Scope): string {
+  if (scope.context.platform === 'darwin') {
+    scope.counter.tempFolders++
+    return `${MACOS_TEMP}/${newTempFolderName(scope.counter.tempFolders)}`
+  }
   const tmp = scope.context.env['TMPDIR']
   if (tmp === undefined || tmp === '') fail('mktemp without TMPDIR')
   const base = scope.win ? shellForm(windowsAbsolute(tmp) ?? fail('a TMPDIR that is not absolute'), true) : tmp.startsWith('/') ? tmp : fail('a TMPDIR that is not absolute')
@@ -1180,6 +1193,9 @@ const BUILTINS = new Set([
 ])
 const RESERVED = new Set(['if', 'then', 'else', 'elif', 'fi', 'case', 'esac', 'for', 'while', 'until', 'do', 'done', 'in', 'function', 'select', 'time', 'coproc', 'repeat', 'foreach', 'end', '!', '{', '}', '[[', ']]'])
 const SHELLS = new Set(['sh', 'bash', 'zsh'])
+// The variables that name a file each shell runs before a -c script: bash's BASH_ENV; zsh's ZDOTDIR (its
+// .zshenv); sh's ENV, and BASH_ENV, as sh may be bash.
+const STARTUP_FILES: Readonly<Record<string, readonly string[]>> = { bash: ['BASH_ENV'], zsh: ['ZDOTDIR'], sh: ['ENV', 'BASH_ENV'] }
 // The programs of the table, which read their options from their words.
 const TABLE = new Set(['echo', 'true', 'false', ':', 'pwd', 'test', '[', 'printf', 'cat', 'ls', 'head', 'tail', 'wc', 'rm', 'rmdir', 'mv', 'cp', 'mkdir', 'touch', 'tee', 'mktemp', 'git', 'curl', 'wget'])
 // Programs for which an option a file name could become changes nothing listed: rm and rmdir take no
@@ -1399,7 +1415,8 @@ function command(cmd: Command, state: State, scope: Scope, stdinFrom: number | n
       // The outer shell globs the script word before the inner one reads it: a file name becomes code.
       if (script.globAt >= 0 || script.extendedGlob) fail('a glob in a shell -c script')
       if (scope.depth + 1 > MAX_DEPTH) fail('shells nested too deep')
-      if (program === 'bash' && scope.context.env['BASH_ENV'] !== undefined) fail('a bash -c with BASH_ENV set')
+      // A file the inner shell reads before the script: may hold anything.
+      for (const name of STARTUP_FILES[program] ?? []) if (scope.context.env[name] !== undefined) fail(`a ${program} -c with ${name} set`)
       const index = emit(scope, action(none()))
       let inner: ShellAction[]
       try {

@@ -159,7 +159,7 @@ import { messageText } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import { budgetWindows, listsWindows, STORED_LIMITS_VENDOR, type VendorLimits } from '../../shared/autopilot/budget-window'
-import { clipLastText, journalLimits, journalReason, journalVendorLimits, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
+import { clipLastText, journalCommand, journalLimits, journalReason, journalTarget, journalVendorLimits, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
 import { BUDGET_FRESH_MS, budgetDecision, budgetStopText, type AutopilotBudget, type BudgetCause, type BudgetDecision } from '../../shared/autopilot/budget'
 import { epicForecast, remainingWaves } from '../../shared/autopilot/forecast'
 import { fitBeforeReset } from '../../shared/autopilot/forecast-lines'
@@ -182,7 +182,10 @@ import type { AutopilotState, HarnessBehind } from '../../shared/ipc/autopilot'
 import type { HarnessKind } from '../../shared/projects/action-templates'
 import type { PullRequest } from '../../shared/ipc/checks'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
-import type { AutopilotRunSettings } from '../../shared/settings/app-settings'
+import type { AutopilotRunSettings, AutoApprovalMode } from '../../shared/settings/app-settings'
+import type { VendorId } from '../../shared/vendors/vendor'
+import { HINTS, type Decision } from '../agent/auto-approve/policy'
+import type { LaunchApproval, RunApproval } from '../agent/auto-approve/run-approval'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { readyWave } from '../../shared/workflow/waves'
 import type { WorkflowModel } from '../../shared/workflow/types'
@@ -260,7 +263,8 @@ export interface AutopilotDeps {
   /** Calls `onChange` on every `workflow.changed` of the root; answers the unsubscribe. */
   watchWorkflow(root: string, onChange: () => void): Promise<() => Promise<void> | void>
   orchestrators: {
-    setUnattended(projectId: string, unattended: boolean): Promise<OrchestratorView | null>
+    /** `approval`: the policy the unattended Session is launched with (worfy-auto-approve ticket 04). */
+    setUnattended(projectId: string, unattended: boolean, approval?: LaunchApproval): Promise<OrchestratorView | null>
     /**
      * Stop by the user: the Orchestrator attended again at once, its old process closed; answers once
      * that process has exited and the new one started (Orchestrators.giveBackNow, ADR-0064).
@@ -376,6 +380,16 @@ export interface AutopilotDeps {
   linkedRuns?(): Promise<readonly LinkedRuns[]>
   /** This Machine as the link knows it, for the state of its runs; null while it has no Linked machines or the link does not run. */
   machine?(): { id: string; name: string } | null
+  /**
+   * Auto-approval (worfy-auto-approve ticket 04): the Project's mode, read at each permission request
+   * of the run's Session and at the start for run-started; and the policy's side of one run
+   * (openRunApproval), opened before the Orchestrator goes unattended — one that throws leaves the run
+   * without a policy. Without it the Session is launched with no policy: every request is refused.
+   */
+  approval?: {
+    mode(projectId: string): AutoApprovalMode
+    open(projectId: string, root: string, epic: string): Promise<RunApproval>
+  }
 }
 
 
@@ -410,6 +424,29 @@ function refusedDialogLine(event: Extract<AgentEvent, { type: 'refused_dialog' }
     ...(event.reason === undefined ? {} : { reason: journalReason(event.reason, homedir()) }),
   }
 }
+
+/**
+ * The journal line of a decision of the approval policy (worfy-auto-approve ticket 04): the command and
+ * the targets cleaned (journalCommand, journalTarget: secrets as `***`, the home folder as `~`, clipped).
+ */
+function autoApprovalLine(event: Extract<AgentEvent, { type: 'auto_approval' }>, session: string | null, vendor: string): JournalEventFields {
+  const home = homedir()
+  return {
+    kind: 'auto-approval',
+    session,
+    ...(event.agent === undefined ? {} : { agent: event.agent }),
+    vendor: vendor as VendorId,
+    mode: event.mode,
+    outcome: event.outcome,
+    rule: event.rule,
+    tool: event.tool,
+    targets: event.targets.map((target) => journalTarget(target, home)).filter((target) => target !== ''),
+    ...(event.command === null ? {} : { command: journalCommand(event.command, home) }),
+  }
+}
+
+/** What the run's Session gets when no run of the Project holds a policy now: nothing is approved. */
+const NO_RUN_DECISION: Decision = { outcome: 'deny', rule: 'no-run', hint: HINTS.notJudged, targets: [] }
 
 /** Whether a Session state is a running turn: the Orchestrator is not given back during one (orchestrator.ts). */
 const inTurn = (state: SessionState): boolean => state === 'busy' || state === 'needs_permission'
@@ -578,6 +615,8 @@ class Run {
   limits: LimitsWait | null = null
   /** The Vendor of the run's Orchestrator, as run-started names it (worfy-multi-vendor ticket 37); Claude without one. */
   vendor: string = STORED_LIMITS_VENDOR
+  /** The policy's side of the run (worfy-auto-approve ticket 04); null without Auto-approval, or when it could not open. */
+  approval: RunApproval | null = null
   message: string | null = null
   private chain: Promise<void> = Promise.resolve()
   readonly cleanups: (() => Promise<void> | void)[] = []
@@ -751,6 +790,11 @@ export class Autopilot {
   private readonly harness = new Map<string, HarnessBehind | null>()
   private revision = 0
 
+  /** The policy each Project's unattended Session is launched with: one per Project, it asks the Project's run of the moment. */
+  private readonly launchApprovals = new Map<string, LaunchApproval>()
+  /** The open policy of each Project's run, until the run lets its Session go (closeApproval). */
+  private readonly activeApprovals = new Map<string, RunApproval>()
+
   constructor(private readonly deps: AutopilotDeps) {}
 
   /** The Project's run as it is now. */
@@ -877,12 +921,26 @@ export class Autopilot {
       // The first read of the statuses: a status from before the run is not a change of it.
       statusChanges(run, model.tickets)
       if (this.deps.limits !== undefined) run.limits = new LimitsWait(this.deps.limits)
-      const view = await this.deps.orchestrators.setUnattended(projectId, true)
+      // Opened before the Orchestrator goes unattended: its Session starts with the run's TMPDIR and git environment.
+      const autoApproval = await this.openApproval(run)
+      let view: OrchestratorView | null
+      try {
+        view = await this.deps.orchestrators.setUnattended(projectId, true, this.deps.approval === undefined ? undefined : this.launchApproval(projectId))
+      } catch (error) {
+        await this.closeApproval(run)
+        throw error
+      }
       try {
         if (view === null || view.sessionId === null) throw new Error('The Orchestrator has no Session')
         run.session = this.deps.registry.get(view.sessionId)
         run.vendor = view.vendor ?? STORED_LIMITS_VENDOR
+        // Only the Claude driver asks the policy (worfy-auto-approve ticket 05 brings Codex): another
+        // Vendor's run says `off`, and its policy lets go of the folder.
+        const judged = view.vendor === undefined || view.vendor === 'claude'
+        if (!judged) await this.closeApproval(run)
         run.journal = await this.deps.journal({
+          // The run's folder for temporary files is named by the run id: the journal takes the same one.
+          ...(run.approval === null ? {} : { run: run.approval.run }),
           project: projectId,
           epic,
           ...(run.origin === null ? {} : { origin: run.origin }),
@@ -893,6 +951,7 @@ export class Autopilot {
           mode: run.mode,
           // Whose agent runs the Waves, as the Orchestrator's view names it (worfy-multi-vendor ticket 37).
           ...(view.vendor === undefined ? {} : { vendor: view.vendor }),
+          ...(judged || autoApproval.autoApproval === undefined ? autoApproval : { autoApproval: 'off' as const }),
         })
         await this.journalHarness(run)
         await this.journalForecast(run, model.tickets)
@@ -1152,6 +1211,9 @@ export class Autopilot {
       case 'refused_dialog':
         void run.enqueue(() => this.write(run, refusedDialogLine(event, run.session?.id ?? null)))
         return
+      case 'auto_approval':
+        void run.enqueue(() => this.write(run, autoApprovalLine(event, run.session?.id ?? null, run.vendor)))
+        return
       case 'background_tasks': {
         const tasks = event.tasks.map((task) => ({ ...task }))
         void run.enqueue(async () => {
@@ -1225,6 +1287,8 @@ export class Autopilot {
           const sent = run.sent
           await this.journalHarness(run)
           const tickets = effect.tickets.map(ticketNumber)
+          // Their worktrees are the policy's roots from now on (worfy-auto-approve ticket 04).
+          run.approval?.setWave(tickets)
           run.waveStart = this.waveLine(run, { kind: 'wave-started', wave: effect.wave, tickets, ...(run.sentLimits === undefined ? {} : { limits: run.sentLimits }) })
           await this.write(run, {
             kind: 'wave-started',
@@ -2048,12 +2112,15 @@ export class Autopilot {
       if (!end()) return
       await this.write(run, last)
       stopAwake()
+      await this.closeApproval(run)
     }
     const quit = (): Promise<void> => finish({ kind: 'tasks-killed', reason: 'app-quit', tasks: journalTasks(this.liveTasks(run)) })
     // A new run took the Session as it runs: the tasks go on in that run, and nothing more of this
     // one's journal follows its run-stopped.
     const takeOver = (): void => {
-      if (end()) stopAwake()
+      if (!end()) return
+      stopAwake()
+      void this.closeApproval(run, false)
     }
     this.lingering.add(quit)
     this.takeOvers.set(run.projectId, takeOver)
@@ -2084,11 +2151,81 @@ export class Autopilot {
         console.error(`[autopilot] ${run.projectId}: could not release keep-awake`, error)
       }
     }
-    if (!giveBack) return
+    if (giveBack) {
+      try {
+        await this.deps.orchestrators.setUnattended(run.projectId, false)
+      } catch (error) {
+        console.warn(`[autopilot] ${run.projectId}: could not give the Orchestrator back`, error)
+      }
+    }
+    // A stop with live tasks keeps the policy and the run's folder until they end (linger).
+    if (stopAwake) await this.closeApproval(run)
+  }
+
+  /**
+   * Opens the policy's side of the run (AutopilotDeps.approval, worfy-auto-approve ticket 04); answers
+   * what run-started says of it: nothing at Off, the mode at Shadow and On, `off` at Shadow or On when it
+   * could not open — the run then goes without a policy, as at Off.
+   */
+  private async openApproval(run: Run): Promise<{ autoApproval?: AutoApprovalMode }> {
+    const approval = this.deps.approval
+    if (approval === undefined) return {}
+    const mode = this.approvalMode(run.projectId)
     try {
-      await this.deps.orchestrators.setUnattended(run.projectId, false)
+      run.approval = await approval.open(run.projectId, run.root, run.epic)
+      this.activeApprovals.set(run.projectId, run.approval)
     } catch (error) {
-      console.warn(`[autopilot] ${run.projectId}: could not give the Orchestrator back`, error)
+      console.warn(`[autopilot] ${run.projectId}: Auto-approval is off for this run, its policy could not start: ${messageOf(error)}`)
+    }
+    if (mode === 'off') return {}
+    return { autoApproval: run.approval === null ? 'off' : mode }
+  }
+
+  /** The Project's Auto-approval mode now; Off when it cannot be read. */
+  private approvalMode(projectId: string): AutoApprovalMode {
+    try {
+      return this.deps.approval?.mode(projectId) ?? 'off'
+    } catch (error) {
+      console.warn(`[autopilot] ${projectId}: could not read the Auto-approval mode, Off is in force`, error)
+      return 'off'
+    }
+  }
+
+  /**
+   * The policy the Project's unattended Session is launched with: the same object for every run of the
+   * Project, since a Session a new run takes over as it runs keeps its launch. It asks the run that
+   * holds the policy now: with none, the mode is Off and nothing is approved.
+   */
+  private launchApproval(projectId: string): LaunchApproval {
+    const known = this.launchApprovals.get(projectId)
+    if (known !== undefined) return known
+    const made: LaunchApproval = {
+      mode: () => (this.activeApprovals.has(projectId) ? this.approvalMode(projectId) : 'off'),
+      // In Off the process starts as before the ticket: no TMPDIR and no git environment of the run.
+      environment: () => {
+        const active = this.activeApprovals.get(projectId)
+        return active === undefined || this.approvalMode(projectId) === 'off' ? {} : active.environment
+      },
+      judge: (request, at) => this.activeApprovals.get(projectId)?.judge(request, at) ?? Promise.resolve(NO_RUN_DECISION),
+    }
+    this.launchApprovals.set(projectId, made)
+    return made
+  }
+
+  /**
+   * The run lets its policy go; with `remove`, its folder for temporary files is removed too. A Session
+   * a new run took over keeps running with that folder as TMPDIR, so then it stays.
+   */
+  private async closeApproval(run: Run, remove = true): Promise<void> {
+    const approval = run.approval
+    if (approval === null) return
+    run.approval = null
+    if (this.activeApprovals.get(run.projectId) === approval) this.activeApprovals.delete(run.projectId)
+    if (!remove) return
+    try {
+      await approval.close()
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not remove the run's folder ${approval.runTemp}`, error)
     }
   }
 

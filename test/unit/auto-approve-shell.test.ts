@@ -403,6 +403,21 @@ describe('outside the grammar: judged false', () => {
     expect(analyze("bash -c 'rm x'", { ...posix, env: { ...posix.env, BASH_ENV: '/tmp/demo/env' } }).judged).toBe(false)
   })
 
+  it('a zsh -c with ZDOTDIR, an sh -c with ENV or BASH_ENV: the file each reads first may hold anything (round 3 of PR #1460)', () => {
+    const cases: [string, Record<string, string>][] = [
+      ["zsh -c 'rm x'", { ZDOTDIR: '/tmp/demo' }],
+      ["sh -c 'rm x'", { ENV: '/tmp/demo/env' }],
+      ["sh -c 'rm x'", { BASH_ENV: '/tmp/demo/env' }],
+    ]
+    for (const [command, extra] of cases) {
+      expect(analyze(command, posix).judged, command).toBe(true)
+      expect(analyze(command, { ...posix, env: { ...posix.env, ...extra } }).judged, `${command} ${Object.keys(extra)[0]}`).toBe(false)
+    }
+    // Each variable counts for its own shell only.
+    expect(analyze("bash -c 'rm x'", { ...posix, env: { ...posix.env, ZDOTDIR: '/tmp/demo', ENV: '/tmp/demo/env' } }).judged).toBe(true)
+    expect(analyze("zsh -c 'rm x'", { ...posix, env: { ...posix.env, BASH_ENV: '/tmp/demo/env', ENV: '/tmp/demo/env' } }).judged).toBe(true)
+  })
+
   it('git with GIT_DIR in the environment', () => {
     expect(analyze('git status', { ...posix, env: { ...posix.env, GIT_DIR: '/tmp/demo/.git' } }).judged).toBe(false)
   })

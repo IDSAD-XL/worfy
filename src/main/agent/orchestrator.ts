@@ -67,6 +67,7 @@ import type { TranscriptFacts } from './orchestrator-transcript'
 import { closeRefusal } from './resume'
 import { EXIT_WAIT_MS, type EventSink, type Session, type SessionRegistry } from './session'
 import { ATTENDED, type SessionLaunch } from './session-settings'
+import type { LaunchApproval } from './auto-approve/run-approval'
 
 /**
  * What the agent answers when asked to resume a session it has no transcript for: Claude Code (it
@@ -293,9 +294,12 @@ export class Orchestrators {
    * run's Session that still waits to be given back is kept as it is (worfy-polish ticket 50).
    * Going back to attended while a turn runs waits for the turn's end; the queue goes over to the
    * attended Session. Answers the view, after a relaunch once the new Session's process has started
-   * (ADR-0064); for an Orchestrator that is not open, going attended does nothing.
+   * (ADR-0064); for an Orchestrator that is not open, going attended does nothing. `approval`: the
+   * run's approval policy the unattended Session is launched with (worfy-auto-approve ticket 04); a
+   * Session taken over as it runs keeps the one it was launched with, and the new Session of the next
+   * Wave (newUnattendedSession) the one of its launch.
    */
-  async setUnattended(projectId: string, unattended: boolean): Promise<OrchestratorView | null> {
+  async setUnattended(projectId: string, unattended: boolean, approval?: LaunchApproval): Promise<OrchestratorView | null> {
     if (!unattended) {
       const entry = this.entries.get(projectId)
       if (entry === undefined) return null
@@ -326,7 +330,7 @@ export class Orchestrators {
     entry.wanted = null
     // The grace time of the stopped run's give-back would otherwise fire into the new run's own one.
     this.cancelGrace(entry)
-    if (!entry.launch.unattended) await this.relaunch(entry, { unattended: true })
+    if (!entry.launch.unattended) await this.relaunch(entry, { unattended: true, ...(approval === undefined ? {} : { approval }) })
     // The Project may have left the list while the old process was waited for.
     if (this.entries.get(projectId) !== entry || entry.cancelled) throw new Error(`the Orchestrator of ${projectId} was stopped`)
     const view = this.views.get(entry.nodeId)

@@ -4,6 +4,7 @@
 // them on `agent.event`.
 import { z } from 'zod'
 import { messageAttachmentSchema } from './attachments'
+import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from './auto-approval'
 import { limitStateSchema, limitWindowSchema } from './limits'
 import { questionSchema } from './questions'
 import { sessionSettingsSchema } from './settings'
@@ -143,6 +144,27 @@ export const agentEvent = z.discriminatedUnion('type', [
     dialog: z.enum(['permission_request', 'card_ask']),
     subject: z.string(),
     message: z.string(),
+    agent: z.string().min(1).optional(),
+    reason: z.string().min(1).optional(),
+  }),
+  /**
+   * The approval policy judged a permission request of an unattended Session while Auto-approval was
+   * Shadow or On (worfy-auto-approve ticket 04, src/main/agent/auto-approve/policy.ts); at Off it is not
+   * asked, and the refusal is `refused_dialog` as before. `mode`: the mode at the request; `outcome`:
+   * what the agent got in On (`park` answers a refusal until ticket 07), what it would have got in
+   * Shadow (`would-*`; a hard deny stays `hard-deny`), where the agent got the refusal of Off; `rule`:
+   * the id of the rule that decided; `tool`; `targets`: the paths judged; `command`: the Bash command as
+   * asked, null for another tool; `agent` and `reason` as in `refused_dialog`. The journal of an
+   * Autopilot run records it as `auto-approval`, cleaned (journalCommand).
+   */
+  timed({
+    type: z.literal('auto_approval'),
+    mode: z.enum(AUTO_APPROVAL_LINE_MODES),
+    outcome: z.enum(AUTO_APPROVAL_OUTCOMES),
+    rule: z.string().min(1),
+    tool: z.string(),
+    targets: z.array(z.string()),
+    command: z.string().nullable(),
     agent: z.string().min(1).optional(),
     reason: z.string().min(1).optional(),
   }),

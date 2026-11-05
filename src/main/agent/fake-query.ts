@@ -37,7 +37,11 @@
 //                                    / settings.json, userSettings writes <settingsHome>/settings.json
 //                                    (FakeQueryOptions; not applied without it).
 //                                    "decisionReason" and "agentID" go to canUseTool as Claude Code
-//                                    gives them: why it asks, which Subagent asks. With
+//                                    gives them: why it asks, which Subagent asks. "cwd" and
+//                                    "scratchpad" go to the query's PreToolUse hook first
+//                                    (QueryRequest.toolUse), as Claude Code's hook input gives them:
+//                                    the shell's folder for the call (the Session's cwd when absent)
+//                                    and the scratchpad (worfy-auto-approve ticket 04). With
 //                                    "bypassImmune":true it asks in bypassPermissions too, as Claude
 //                                    Code does for a few of its own checks (dangerousRemoval)
 //   {"fake":"question","toolUseId":"toolu_…","questions":[...]}
@@ -147,6 +151,9 @@ type Step =
       /** canUseTool's decisionReason and agentID; null: not given. */
       decisionReason: string | null
       agentID: string | null
+      /** What the PreToolUse hook says of the call (QueryRequest.toolUse): the shell's folder (null: the Session's cwd) and the scratchpad. */
+      cwd: string | null
+      scratchpad: string | null
     }
 
 type Line = Step | { kind: 'config'; config: FakeConfig }
@@ -171,6 +178,8 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
     bypassImmune: value.bypassImmune === true,
     decisionReason: typeof value.decisionReason === 'string' ? value.decisionReason : null,
     agentID: typeof value.agentID === 'string' ? value.agentID : null,
+    cwd: typeof value.cwd === 'string' ? value.cwd : null,
+    scratchpad: typeof value.scratchpad === 'string' ? value.scratchpad : null,
   }),
   question: (value) => ({
     kind: 'permission',
@@ -183,6 +192,8 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
     bypassImmune: true,
     decisionReason: null,
     agentID: null,
+    cwd: null,
+    scratchpad: null,
   }),
   account: (value) => ({ kind: 'config', config: { account: typeof value.error === 'string' ? { error: value.error } : { info: value.info as AccountInfoLike } } }),
   models: (value) => ({ kind: 'config', config: { models: value.models as ModelInfoLike[] } }),
@@ -435,6 +446,8 @@ class FakeQuery implements QueryHandle {
    */
   private async ask(line: Extract<Step, { kind: 'permission' }>): Promise<PermissionAnswer | null> {
     if (this.permissionMode === 'bypassPermissions' && !line.bypassImmune) return null
+    // Claude Code runs the PreToolUse hooks before it asks canUseTool.
+    this.request.toolUse?.({ toolUseId: line.toolUseId, cwd: line.cwd ?? this.request.cwd, scratchpad: line.scratchpad })
     const controller = new AbortController()
     if (!line.keepSignal && line.crash === null) this.requests.add(controller)
     const description = typeof line.input.description === 'string' ? line.input.description : undefined

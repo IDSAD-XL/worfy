@@ -128,6 +128,7 @@
 // scripts/install-stable.mjs. test/unit/remove-tree-copies.test.ts compares the copies, and
 // test/unit/remove-tree-mounted.test.ts compares their look before rmSync off Windows.
 import { lstatSync, readdirSync, rmdirSync, rmSync, unlinkSync, type Stats } from 'node:fs'
+import { lstat, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 /**
@@ -382,22 +383,104 @@ function listedIn(folder: string, name: string, fs: RemoveFs): boolean {
 export function removeTree(path: string, options: RemoveOptions = {}): void {
   const fs = options.fs ?? nodeFs
   if (!onWindows(options)) {
-    let mounted: string | null
-    try {
-      mounted = mountedIn(path, fs)
-    } catch (error) {
-      // What the look could not see ends the removal before rmSync: its error, with its code and
-      // its path, and words that name the path given and say so.
-      const { message, code, errno, syscall, path: where } = error as NodeJS.ErrnoException
-      throw Object.assign(new Error(`${message}. Nothing of ${path} was removed`), { code, errno, syscall, path: where, cause: error })
-    }
-    if (mounted !== null) {
-      throw Object.assign(new Error(`${MOUNTED_VOLUME}: ${mounted} is on another volume than the folder it lies in: a volume is mounted there. Nothing of ${path} was removed`), { code: MOUNTED_VOLUME, path: mounted })
-    }
+    lookBeforeRm(path, fs)
     fs.rmSync(path, { recursive: true, force: true })
     return
   }
   walk(trimmed(path), fs, options, { waits: REMOVE_RETRIES })
+}
+
+/** The look through the tree before rm off Windows: throws when a volume is mounted in it, or a part of it cannot be seen. */
+function lookBeforeRm(path: string, fs: RemoveFs): void {
+  let mounted: string | null
+  try {
+    mounted = mountedIn(path, fs)
+  } catch (error) {
+    throw unseen(path, error)
+  }
+  if (mounted !== null) throw mountedError(path, mounted)
+}
+
+/** The error of a look that could not see a part of `path`. */
+function unseen(path: string, error: unknown): Error {
+    // What the look could not see ends the removal before rm: its error, with its code and its
+    // path, and words that name the path given and say so.
+  const { message, code, errno, syscall, path: where } = error as NodeJS.ErrnoException
+  return Object.assign(new Error(`${message}. Nothing of ${path} was removed`), { code, errno, syscall, path: where, cause: error })
+}
+
+/** The error of a look that found the volume `mounted` in `path`. */
+function mountedError(path: string, mounted: string): Error {
+  return Object.assign(new Error(`${MOUNTED_VOLUME}: ${mounted} is on another volume than the folder it lies in: a volume is mounted there. Nothing of ${path} was removed`), { code: MOUNTED_VOLUME, path: mounted })
+}
+
+/** The calls of node:fs/promises the look of removeTreeAsync makes; tests replace them. */
+export interface LookFs {
+  lstat: (path: string) => Promise<Pick<Stats, 'isDirectory' | 'dev'>>
+  readdir: (path: string) => Promise<string[]>
+}
+
+const nodeLook: LookFs = { lstat, readdir: (path) => readdir(path) }
+
+/** mountedIn without blocking: each lstat and readdir a promise. */
+async function mountedInAsync(path: string, fs: LookFs, outer?: number, folder?: string): Promise<string | null> {
+  let seen: Pick<Stats, 'isDirectory' | 'dev'>
+  try {
+    seen = await fs.lstat(path)
+  } catch (error) {
+    if (!GONE.includes(codeOf(error) ?? '')) throw error
+    if (folder !== undefined && (await listedInAsync(folder, path.slice(folder.length + 1), fs))) {
+      const { message, code, errno, syscall } = error as NodeJS.ErrnoException
+      throw Object.assign(new Error(`${message}: the folder it lies in still lists it, so what it holds cannot be looked at`), { code, errno, syscall, path })
+    }
+    return null
+  }
+  if (!seen.isDirectory()) return null
+  let names: string[]
+  try {
+    if (seen.dev !== (outer ?? (await fs.lstat(`${path}/..`)).dev)) return path
+    names = await fs.readdir(path)
+  } catch (error) {
+    if (GONE.includes(codeOf(error) ?? '')) return null
+    throw error
+  }
+  for (const name of names) {
+    const found = await mountedInAsync(`${path}/${name}`, fs, seen.dev, path)
+    if (found !== null) return found
+  }
+  return null
+}
+
+async function listedInAsync(folder: string, name: string, fs: LookFs): Promise<boolean> {
+  try {
+    return (await fs.readdir(folder)).includes(name)
+  } catch (error) {
+    if (GONE.includes(codeOf(error) ?? '')) return false
+    throw error
+  }
+}
+
+/**
+ * removeTree that leaves the event loop free while files go (worfy-auto-approve ticket 04: a run's
+ * folder for temporary files may hold many). Off Windows the look through the tree of removeTree comes
+ * first, each lstat and readdir a promise (it reads, and removes nothing), then the removal of
+ * node:fs/promises; a volume mounted in the tree, or a part the look cannot see, removes nothing and
+ * rejects. On Windows it is removeTree's own walk, which a junction needs: that one blocks while it
+ * runs. `look` and `rm` stand in for node:fs/promises in tests.
+ */
+export async function removeTreeAsync(path: string, options: RemoveOptions & { look?: LookFs; rm?: (path: string, options: { recursive: true; force: true }) => Promise<void> } = {}): Promise<void> {
+  if (onWindows(options)) {
+    removeTree(path, options)
+    return
+  }
+  let mounted: string | null
+  try {
+    mounted = await mountedInAsync(trimmed(path), options.look ?? nodeLook)
+  } catch (error) {
+    throw unseen(path, error)
+  }
+  if (mounted !== null) throw mountedError(path, mounted)
+  await (options.rm ?? rm)(path, { recursive: true, force: true })
 }
 
 /**

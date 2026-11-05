@@ -31,8 +31,10 @@
 // open requests.
 //
 // A Session launched unattended (Autopilot, worfy-daily ticket 02, session-settings.ts) never waits
-// for a person: it runs in bypassPermissions, refuses a change of mode, its driver refuses every
-// permission request at once, and each refusal reaches its subscribers as a `refused_dialog` event.
+// for a person: it runs in bypassPermissions, refuses a change of mode, and its driver answers every
+// permission request at once. At Auto-approval Off it refuses each, and each refusal reaches its
+// subscribers as a `refused_dialog` event; at Shadow and On the driver asks the run's approval policy
+// (SessionLaunch.approval, worfy-auto-approve ticket 04), and each decision is an `auto_approval` event.
 //
 // Stop in Autopilot halts the Orchestrator's Session before the Orchestrator is given back
 // (halt(), worfy-week ticket 17, ADR-0050): the queue is held, open requests are refused, and a
@@ -504,6 +506,42 @@ export class Session {
     this.setState('busy')
   }
 
+  /**
+   * What an unattended Session's driver gets of the run's approval policy (worfy-auto-approve ticket
+   * 04): the mode, read at each request; the decision, judged with this Session's id and where the
+   * agent's shell stands — a decision that fails is a deny, never an allow; each decision of Shadow
+   * and On as an `auto_approval` event; and the environment the agent's process starts with. Nothing
+   * for an attended Session or a launch without a policy.
+   */
+  private approvalStart(): Pick<SessionStart, 'approval' | 'environment'> {
+    const approval = this.launch.approval
+    if (!this.launch.unattended || approval === undefined) return {}
+    let environment: Readonly<Record<string, string>> = {}
+    try {
+      environment = approval.environment()
+    } catch (error) {
+      console.warn(`[agent] unattended Session ${this.current}: no environment of the run`, error)
+    }
+    // The process is judged in the environment it starts with, whatever run or mode comes later.
+    const started = environment
+    return {
+      approval: {
+        mode: () => approval.mode(),
+        judge: async (request, where) => {
+          try {
+            return await approval.judge(request, { ...where, sessionId: this.current, started })
+          } catch (error) {
+            console.warn(`[agent] unattended Session ${this.current}: the approval policy failed, the request is refused`, error)
+            return { outcome: 'deny', rule: 'policy-failed', hint: null, targets: [] }
+          }
+        },
+        decided: (decision) => this.emit({ type: 'auto_approval', ...decision }),
+      },
+      // In Off, none: the process starts in the shell's environment as before.
+      ...(Object.keys(environment).length === 0 ? {} : { environment }),
+    }
+  }
+
   /** Sends the next queued message, unless the queue is held or empty, or the Session is halted. */
   private next(): void {
     if (this.halted) return
@@ -527,6 +565,7 @@ export class Session {
       orchestrator: this.launch.orchestrator === true,
       permissions: this.permissions,
       refused: (subject, message, details) => this.refuseDialog('permission_request', subject, message, details),
+      ...this.approvalStart(),
       stderr: (data) => {
         run.stderr.push(data)
         if (run.stderr.length > STDERR_KEEP) run.stderr.shift()

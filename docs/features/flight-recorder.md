@@ -84,7 +84,8 @@ The rows, top to bottom:
    `outside, until <time>`, or `wave-too-long, until <time>` when the next Wave would not end inside the window. The
    time of a wait's `until` is local, as the other times on the screen, in the tooltip and in the detail panel.
 2. The **Orchestrator** lane: the Orchestrator's turns. A turn links to the Tickets it touched and is not nested in
-   them. An `i` mark stands for each refused dialog and each time a person stepped in.
+   them. An `i` mark stands for each refused dialog and each time a person stepped in. A request the approval policy
+   answered in Shadow or On is an `auto-approval` line, not a refused dialog, and has no mark.
 3. The tree: Run → Wave → Ticket → Stage → work. Work is an agent (implementer, verifier or other), a CI run, a gate run
    or a script. A Ticket that went through several Waves is one row, under the Wave it started in, with one part per
    Wave and the gap between them.

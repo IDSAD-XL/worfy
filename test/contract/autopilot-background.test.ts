@@ -13,6 +13,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
+import type { RunApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { ORCHESTRATOR_HAS_TASKS, Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
@@ -23,7 +24,7 @@ import { Autopilot, STOP_TEXT } from '../../src/main/autopilot/run'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import { BACKGROUND_STALL_MS, TASKS_GRACE_MS } from '../../src/shared/autopilot/cycle'
 import type { AgentEvent } from '../../src/shared/agent/events'
-import type { JournalEvent } from '../../src/shared/autopilot/journal'
+import { makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
 import { autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { IGNORE_TERM_EXIT_SIGNAL, StubProcesses, type StubKind } from './claude-process-stub'
@@ -180,7 +181,7 @@ class ReadGate {
  */
 const HALT_MS = 100
 
-function harness(options: { script?: string; attendedScript?: string; returnGraceMs?: number; processes?: StubKind; exitWaitMs?: number } = {}) {
+function harness(options: { script?: string; attendedScript?: string; returnGraceMs?: number; processes?: StubKind; exitWaitMs?: number; approval?: boolean } = {}) {
   const env = { WORFY_DATA_DIR: join(scratch, 'data-root') }
   const calls: (FakeCall & { unattended: boolean })[] = []
   const requests: QueryRequest[] = []
@@ -230,6 +231,8 @@ function harness(options: { script?: string; attendedScript?: string; returnGrac
     waitMs: 200,
   })
   const power: string[] = []
+  /** The policies the runs opened (worfy-auto-approve ticket 04), in order, and whether each let its folder go. */
+  const approvals: FakeApproval[] = []
   const states: AutopilotState[] = []
   const clock = new ManualClock()
   const workflowListeners = new Set<() => void>()
@@ -260,6 +263,7 @@ function harness(options: { script?: string; attendedScript?: string; returnGrac
     settleMs: 60_000,
     tasksClock: clock,
     haltTurnMs: HALT_MS,
+    ...(options.approval === true ? { approval: { mode: () => 'on' as const, open: () => Promise.resolve(fakeApproval(approvals)) } } : {}),
   })
   autopilots.push(autopilot)
   launcher.attachAutopilot(autopilot)
@@ -278,7 +282,31 @@ function harness(options: { script?: string; attendedScript?: string; returnGrac
   /** What reached Claude Code so far: prompts the Sessions reported, and messages the fake agent got. */
   const sent = () => ({ prompts: observed.filter((event) => event.type === 'prompt').length, messages: calls.filter((call) => call.kind === 'message').length })
   const closes = () => calls.filter((call) => call.kind === 'close').map((call) => (call.kind === 'close' ? call.backgroundTasks : []))
-  return { registry, orchestrators, autopilot, calls, requests, releases, power, states, clock, gate, observed, broadcast, journal, kinds, session, results, changed, sent, closes, stub, watch }
+  return { registry, orchestrators, autopilot, calls, requests, releases, power, states, clock, gate, observed, broadcast, journal, kinds, session, results, changed, sent, closes, stub, watch, approvals }
+}
+
+interface FakeApproval {
+  run: string
+  closed: boolean
+}
+
+/** A run's policy that judges nothing and tells when its folder goes (worfy-auto-approve ticket 04). */
+function fakeApproval(approvals: FakeApproval[]): RunApproval {
+  const entry: FakeApproval = { run: makeRunId(new Date(), (approvals.length + 1).toString(16).padStart(6, '0')), closed: false }
+  approvals.push(entry)
+  const runTemp = join(scratch, 'run-temp', entry.run)
+  return {
+    run: entry.run,
+    runTemp,
+    environment: { TMPDIR: runTemp },
+    facts: { hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: [], defaultBranch: 'main', configFiles: [], checkoutConfig: false, commonDir: null },
+    setWave: () => undefined,
+    judge: () => Promise.resolve({ outcome: 'deny', rule: 'not-judged', hint: null, targets: [] }),
+    close: () => {
+      entry.closed = true
+      return Promise.resolve()
+    },
+  }
 }
 
 /** The Session's background tasks as worfy counts them, by id. */
@@ -927,5 +955,48 @@ describe('a new run after a stop while the Orchestrator still has live tasks (wo
     await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(ORCHESTRATOR_HAS_TASKS)
     expect(h.requests.map((request) => request.unattended)).toEqual([false])
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+  })
+})
+
+describe('the folder for temporary files of a run with a policy (worfy-auto-approve ticket 04)', () => {
+  const turnErrorScript = (): string => {
+    let results = 0
+    return variant('turn-error-tasks-approval', (line) => {
+      if (line.type !== 'result' || (results += 1) > 1) return line
+      return { ...line, is_error: true, result: 'API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}', terminal_reason: 'api_error' }
+    })
+  }
+
+  it('a stopped run whose tasks still live keeps its folder until the Orchestrator is given back', async () => {
+    const h = harness({ script: turnErrorScript(), approval: true })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.requests.at(-1)?.environment).toEqual({ TMPDIR: join(scratch, 'run-temp', h.approvals[0]!.run) })
+    await new Promise((done) => setTimeout(done, 50))
+    expect(h.approvals.map((approval) => approval.closed)).toEqual([false])
+    h.releases.release('tasks')
+    h.releases.release('tasks')
+    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the Orchestrator to be given back')
+    await until(() => h.approvals[0]!.closed, 'the folder to go')
+  })
+
+  it('a new run that takes the Session over keeps the old run\'s folder: the process goes on with it as TMPDIR', async () => {
+    const h = harness({ script: turnErrorScript(), approval: true })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    await expect(h.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'running' })
+    // The same process: it started with the first run's folder.
+    expect(h.requests.map((request) => request.environment?.['TMPDIR'])).toEqual([undefined, join(scratch, 'run-temp', h.approvals[0]!.run)])
+    await new Promise((done) => setTimeout(done, 50))
+    expect(h.approvals.map((approval) => approval.closed)).toEqual([false, false])
+  })
+
+  it('a start refused when the Session goes unattended lets its folder go', async () => {
+    const h = harness({ attendedScript: 'autopilot-background', approval: true })
+    const session = await h.session()
+    session.send('start the implementers')
+    await until(async () => (await taskIds(h)).length === 2 && (await h.session()).state === 'idle', 'the person\'s turn to end with two tasks')
+    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(ORCHESTRATOR_HAS_TASKS)
+    expect(h.approvals.map((approval) => approval.closed)).toEqual([true])
   })
 })

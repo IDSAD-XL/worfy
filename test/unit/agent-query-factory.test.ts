@@ -95,6 +95,29 @@ describe('sdkQueryFactory', () => {
     expect(sdkOptions()).toMatchObject({ model: 'sonnet', effort: 'low', permissionMode: 'bypassPermissions', allowDangerouslySkipPermissions: true })
   })
 
+  it("gives an Autopilot run's Session its TMPDIR and git environment over the login shell's, and a PreToolUse hook that tells where each call stands (worfy-auto-approve ticket 04)", async () => {
+    const seen: unknown[] = []
+    await sdkQueryFactory()({ ...request(), unattended: true, environment: { TMPDIR: '/tmp/run-tmp', GIT_NO_LAZY_FETCH: '1' }, toolUse: (use) => seen.push(use) })
+    const options = sdkOptions() as { env: Record<string, string>; hooks: { PreToolUse: { hooks: ((input: unknown, id: string, extra: unknown) => Promise<unknown>)[] }[] } }
+    expect(options.env).toMatchObject({ ...LOGIN_ENV, TMPDIR: '/tmp/run-tmp', GIT_NO_LAZY_FETCH: '1' })
+    await options.hooks.PreToolUse[0]?.hooks[0]?.({ hook_event_name: 'PreToolUse', cwd: '/Users/tester/project/wt', tool_use_id: 'toolu_1' }, 'toolu_1', { signal: new AbortController().signal })
+    expect(seen).toEqual([{ toolUseId: 'toolu_1', cwd: '/Users/tester/project/wt', scratchpad: null }])
+  })
+
+  it('tells the Session the whole environment its Claude Code process starts with (worfy-auto-approve ticket 04, round 3 of PR #1460)', async () => {
+    const told: unknown[] = []
+    await sdkQueryFactory()({ ...request(), unattended: true, environment: { TMPDIR: '/tmp/run-tmp' }, processEnv: (env) => told.push(env) })
+    const options = sdkOptions() as { env: Record<string, string> }
+    expect(told).toEqual([options.env])
+    expect(told[0]).toMatchObject({ ...LOGIN_ENV, TMPDIR: '/tmp/run-tmp' })
+  })
+
+  it('adds no hook and no variable to a Session without them', async () => {
+    await sdkQueryFactory()(request())
+    expect(sdkOptions()).not.toHaveProperty('hooks')
+    expect(sdkOptions()['env']).not.toHaveProperty('GIT_CONFIG_PARAMETERS')
+  })
+
   it('writes what the fake agent was asked to do to WORFY_AGENT_LOG, one JSON line each', async () => {
     const scriptsDir = join(import.meta.dirname, '..', 'fixtures', 'agent-scripts')
     const log = join(dataDir, 'agent.log')

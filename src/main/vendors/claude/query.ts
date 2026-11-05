@@ -164,7 +164,11 @@ export function sdkQueryFactory(
       // Looked for at every Session start: worfy's own Harness inline unless the old one is on the machine (ADR-0049).
       harnessPlugin: sessionHarnessPlugin(currentHarness().kind),
       autoCompactWindow: autoCompactWindow(request.orchestrator === true),
+      // The Run's TMPDIR and git environment, and where the shell stands for each tool call (worfy-auto-approve ticket 04).
+      environment: request.environment,
+      toolUse: request.toolUse,
     })
+    request.processEnv?.(options.env ?? environment.env)
     const handle = query({ prompt: request.prompt, options }) as QueryHandle
     const observed = attached ? attached.observe(handle) : handle
     return browserSession ? browserSession.observe(observed) : observed
