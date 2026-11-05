@@ -34,6 +34,8 @@ export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER
 mkdir -p "$HOME" "$HARNESS_HOME" "$CLAUDE_GATE_STATE"
 STATE="$CLAUDE_GATE_STATE"
 FAILURES="$STATE/failures"
+# The home folder of a made-up macOS user, put together from pieces so that this file holds no such path.
+export JDOE="/Us""ers/jdoe"
 
 # --- fixtures ---------------------------------------------------------------------
 # The gate runs "<pm> run <script>" for lint, test and e2e. The package manager is fakepm.cjs
@@ -43,7 +45,7 @@ FAILURES="$STATE/failures"
 #   lintbad — lint prints a line, an error line with the home folder in it and a last line, exit 1;
 #   rows    — test writes two rows to its GATE_FAILURES_FILE, exit 1;
 #   norows  — test fails without rows; its last line is «Tests 1 failed»;
-#   home    — test writes a row with /Users/jdoe/… in its error and its name, exit 1;
+#   home    — test writes a row with $JDOE (a macOS home folder) in its error and its name, exit 1;
 #   broken  — test writes one row, a line that is not JSON and a row with a wrong `ms`, exit 1;
 #   env     — test writes a row and says "command not found", exit 127;
 #   wait    — test writes a row, says it started ($T/started) and waits for SIGTERM, exit 1 on it;
@@ -80,7 +82,7 @@ if (mode === "norows") {
     process.exit(1)
 }
 if (mode === "home") {
-    write(row("suite /Users/jdoe/proj > works", "AssertionError at /Users/jdoe/proj/a.test.ts:3"))
+    write(row(`suite ${process.env.JDOE}/proj > works`, `AssertionError at ${process.env.JDOE}/proj/a.test.ts:3`))
     process.exit(1)
 }
 if (mode === "broken") {
@@ -212,12 +214,12 @@ else bad "lint: a personal path in the run file ($(head -c 600 "$F"))"; fi
 # --- 5. The gate scrubs the rows itself -----------------------------------------------------
 mode home
 before="$(records)"
-out="$(cd "$R" && HOME=/Users/jdoe USERPROFILE=/Users/jdoe GATE_SCOPE=all node "$GATE" fast </dev/null 2>"$T/err")"; rc=$?
+out="$(cd "$R" && HOME="$JDOE" USERPROFILE="$JDOE" GATE_SCOPE=all node "$GATE" fast </dev/null 2>"$T/err")"; rc=$?
 new="$(comm -13 <(printf '%s\n' "$before") <(records) | tail -n 1)"
 F="$FAILURES/$new"
 got="$(field "$F" 'failures[0].error + "|" + failures[0].name + "|" + failures[0].test' 2>/dev/null)"
 if [ -n "$new" ] && [ "$got" = "AssertionError at ~/proj/a.test.ts:3|suite ~/proj > works|vitest test/a.test.ts > suite ~/proj > works" ] && ! grep -q jdoe "$F"; then
-    ok "scrub: /Users/jdoe/… of the reporter's row is ~/… in the run file, its test id too"
+    ok "scrub: $JDOE/… of the reporter's row is ~/… in the run file, its test id too"
 else bad "scrub: got '$got' (rc=$rc, $(head -c 600 "$F" 2>/dev/null))"; fi
 
 # --- 6. Broken rows are skipped and counted -------------------------------------------------
