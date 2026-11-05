@@ -107,26 +107,31 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3, 7; «Ре�
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · 2d648f4e86a24412d120c7426ec3a0a0ba6824a2
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 5ab8f1c294f2c8aa912cb892503b283617a59da9
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 9bf3f6c8d6ab1b67a66e099e8757d82ccb176fa1
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 29f757b13cc81ce9ce7ea34cddac5e0546ec50ab
 - [ ] Contract test: `shadow` — агент получает прежний текст отказа, в Journal `would-allow` с правилом.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · 2d648f4e86a24412d120c7426ec3a0a0ba6824a2
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 5ab8f1c294f2c8aa912cb892503b283617a59da9
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 9bf3f6c8d6ab1b67a66e099e8757d82ccb176fa1
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 29f757b13cc81ce9ce7ea34cddac5e0546ec50ab
 - [ ] Contract test: `on` — запрос внутри worktree Wave проходит; вне корня — deny с подсказкой; hard deny — отказ.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · 2d648f4e86a24412d120c7426ec3a0a0ba6824a2
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 5ab8f1c294f2c8aa912cb892503b283617a59da9
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 9bf3f6c8d6ab1b67a66e099e8757d82ccb176fa1
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 29f757b13cc81ce9ce7ea34cddac5e0546ec50ab
 - [ ] Unit test очистки: домашняя папка, `GH_TOKEN=…`, длинная команда — в строке Journal нет ни секрета, ни пути дома.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-run.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-run.test.ts` exit 0 · mac - · 2d648f4e86a24412d120c7426ec3a0a0ba6824a2
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/unit/auto-approve-run.test.ts exit 0 · mac - · 5ab8f1c294f2c8aa912cb892503b283617a59da9
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/unit/auto-approve-run.test.ts exit 0 · mac - · 9bf3f6c8d6ab1b67a66e099e8757d82ccb176fa1
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/unit/auto-approve-run.test.ts exit 0 · mac - · 29f757b13cc81ce9ce7ea34cddac5e0546ec50ab
 - [ ] Переключение режима во время Run-а действует со следующего запроса; строка Journal называет режим.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · 2d648f4e86a24412d120c7426ec3a0a0ba6824a2
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 5ab8f1c294f2c8aa912cb892503b283617a59da9
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 9bf3f6c8d6ab1b67a66e099e8757d82ccb176fa1
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts exit 0 · mac - · 29f757b13cc81ce9ce7ea34cddac5e0546ec50ab
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты
