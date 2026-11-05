@@ -66,11 +66,11 @@ export interface PermissionAsker {
   askQuestions(request: QuestionAsk): Promise<QuestionReply>
 }
 
-/** Where the agent's shell stands for one tool call, as the Vendor tells it; null: not told. */
+/** Where the agent's shell stands for one tool call, as the Vendor tells it; null: the Vendor did not tell. */
 export interface ApprovalWhere {
-  /** The shell's current folder, after the `cd`s of the calls before (Claude Code keeps them). */
+  /** The shell's current folder at the call, after the folder changes of the calls before. */
   cwd: string | null
-  /** The Session's scratchpad folder (Claude Code's scratchpad_dir). */
+  /** A folder of the Session's own the Vendor names for the agent's scratch files, if it has one. */
   scratchpad: string | null
 }
 

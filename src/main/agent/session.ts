@@ -516,18 +516,20 @@ export class Session {
   private approvalStart(): Pick<SessionStart, 'approval' | 'environment'> {
     const approval = this.launch.approval
     if (!this.launch.unattended || approval === undefined) return {}
-    let environment: Readonly<Record<string, string>> | undefined
+    let environment: Readonly<Record<string, string>> = {}
     try {
       environment = approval.environment()
     } catch (error) {
       console.warn(`[agent] unattended Session ${this.current}: no environment of the run`, error)
     }
+    // The process is judged in the environment it starts with, whatever run or mode comes later.
+    const started = environment
     return {
       approval: {
         mode: () => approval.mode(),
         judge: async (request, where) => {
           try {
-            return await approval.judge(request, { ...where, sessionId: this.current })
+            return await approval.judge(request, { ...where, sessionId: this.current, started })
           } catch (error) {
             console.warn(`[agent] unattended Session ${this.current}: the approval policy failed, the request is refused`, error)
             return { outcome: 'deny', rule: 'policy-failed', hint: null, targets: [] }
@@ -535,7 +537,8 @@ export class Session {
         },
         decided: (decision) => this.emit({ type: 'auto_approval', ...decision }),
       },
-      ...(environment === undefined ? {} : { environment }),
+      // In Off, none: the process starts in the shell's environment as before.
+      ...(Object.keys(environment).length === 0 ? {} : { environment }),
     }
   }
 

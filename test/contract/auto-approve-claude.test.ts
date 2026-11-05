@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
 import { HARD_HINTS, HINTS } from '../../src/main/agent/auto-approve/policy'
-import { openRunApproval, PARK_PENDING_HINT } from '../../src/main/agent/auto-approve/run-approval'
+import { openRunApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
@@ -105,6 +105,12 @@ async function until(condition: () => boolean | Promise<boolean>, what: string, 
 interface HarnessOptions {
   /** The Auto-approval mode the run reads at each request; absent: the run is given no policy at all (as before the ticket). */
   mode?: { value: AutoApprovalMode }
+  /** The unattended Session's script; auto-approve-claude by default. */
+  script?: string
+  /** `open`: the run's policy cannot start; `judge`: it starts, and every judging throws. */
+  fails?: 'open' | 'judge'
+  /** The Orchestrator's view names this Vendor (the Session itself runs on the fake Claude agent). */
+  vendor?: 'codex'
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -114,7 +120,7 @@ function harness(options: HarnessOptions = {}) {
   const requests: QueryRequest[] = []
   const registry = new SessionRegistry((request) => {
     if (request.unattended === true) requests.push(request)
-    return fakeQueryFactory({ scriptsDir, script: request.unattended === true ? 'auto-approve-claude' : 'autopilot-waves', record: (call) => calls.push(call), releases })(request)
+    return fakeQueryFactory({ scriptsDir, script: request.unattended === true ? (options.script ?? 'auto-approve-claude') : 'autopilot-waves', record: (call) => calls.push(call), releases })(request)
   })
   registries.push(registry)
   const orchestrators = new Orchestrators({
@@ -145,12 +151,28 @@ function harness(options: HarnessOptions = {}) {
   })
   const events: AgentEvent[] = []
   const mode = options.mode
+  const vendor = options.vendor
+  // The view of another Vendor's Orchestrator, over the same Session.
+  const seen =
+    vendor === undefined
+      ? orchestrators
+      : new Proxy(orchestrators, {
+          get(target, key) {
+            if (key === 'setUnattended')
+              return async (...args: Parameters<Orchestrators['setUnattended']>) => {
+                const view = await target.setUnattended(...args)
+                return view === null ? view : { ...view, vendor }
+              }
+            const value: unknown = Reflect.get(target, key)
+            return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
+          },
+        })
   const autopilot = new Autopilot({
     projectRoot: () => repo,
     selfRefusal: () => Promise.resolve(null),
     workflow,
     watchWorkflow: () => Promise.resolve(() => undefined),
-    orchestrators,
+    orchestrators: seen,
     registry,
     waves: launcher,
     journal: (start) => openRun(start, { env }),
@@ -162,8 +184,9 @@ function harness(options: HarnessOptions = {}) {
       : {
           approval: {
             mode: () => mode.value,
-            open: (_projectId: string, root: string, epic: string) =>
-              openRunApproval({
+            open: async (_projectId: string, root: string, epic: string) => {
+              if (options.fails === 'open') throw new Error('core.hooksPath cannot be read')
+              const opened = await openRunApproval({
                 root,
                 epic,
                 dataDir: env.WORFY_DATA_DIR,
@@ -171,7 +194,9 @@ function harness(options: HarnessOptions = {}) {
                 shellEnv: { HOME: homedir(), USERPROFILE: homedir() },
                 gitEnv: gitEnv(),
                 sessions: registry,
-              }),
+              })
+              return options.fails === 'judge' ? { ...opened, judge: () => Promise.reject(new Error('the policy broke')) } : opened
+            },
           },
         }),
   })
@@ -249,7 +274,7 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     const [inside, outside, hard, secret] = h.answers()
     expect(inside).toEqual({ behavior: 'allow', updatedInput: { command: `rm -rf '${repo}/.claude/worktrees/01/build'`, description: "Remove the build folder of the Ticket's worktree" } })
     expect(outside).toMatchObject({ behavior: 'deny' })
-    expect((outside as { message: string }).message).toBe(`${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${PARK_PENDING_HINT}`)
+    expect((outside as { message: string }).message).toBe(`${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${HINTS.parkPending}`)
     expect(hard).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${HARD_HINTS['ssh']}` })
     expect(secret).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${HINTS.notJudged}` })
 
@@ -300,8 +325,14 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     ])
   })
 
-  it('the Run\'s Session gets the Run\'s TMPDIR and git environment; the folder is gone after run-stopped', async () => {
+  it('In Off the Run\'s Session starts as before: no TMPDIR and no git environment of the run', async () => {
     const h = harness({ mode: { value: 'off' } })
+    await h.runToEnd()
+    expect(h.requests.map((request) => request.environment)).toEqual([undefined])
+  })
+
+  it('the Run\'s Session gets the Run\'s TMPDIR and git environment in Shadow; the folder is gone after run-stopped', async () => {
+    const h = harness({ mode: { value: 'shadow' } })
     await h.runToEnd()
     const run = (await h.journal())[0]!.run
     const folder = join(h.env.WORFY_DATA_DIR, 'autopilot-tmp', run)
@@ -315,9 +346,64 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
 
   it('a repository with hooks also gets GIT_NO_LAZY_FETCH=1', async () => {
     writeFileSync(join(repo, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n')
-    const h = harness({ mode: { value: 'off' } })
+    const h = harness({ mode: { value: 'on' } })
     await h.runToEnd()
     expect(h.requests.map((request) => request.environment?.['GIT_NO_LAZY_FETCH'])).toEqual(['1'])
+  })
+
+  it('git is approved to a process that started with the run\'s git environment, and parked for one that started in Off', async () => {
+    const started = harness({ mode: { value: 'on' }, script: 'auto-approve-claude-git' })
+    await started.runToEnd()
+    expect(started.answers()).toEqual([expect.objectContaining({ behavior: 'allow' })])
+    expect((await started.journal()).find((event) => event.kind === 'auto-approval')).toMatchObject({ mode: 'on', outcome: 'allow', rule: 'git-in-wave-worktree' })
+    for (const autopilot of autopilots) await autopilot.stopAll()
+    removeTestTree(join(scratch, 'data-root'))
+    for (const num of [1, 2]) writeFileSync(ticketPath(num), ticketText(num, 'open'))
+
+    const mode = { value: 'off' as AutoApprovalMode }
+    const off = harness({ mode, script: 'auto-approve-claude-git' })
+    await off.autopilot.start(PROJECT, EPIC)
+    await until(() => off.requests.length === 1, 'the Session to start')
+    // The process started in Off; the switch counts from the next request, in the environment it started with.
+    mode.value = 'on'
+    off.releases.release('next')
+    await until(() => off.answers().length === 1, 'the git request')
+    expect(off.requests.map((request) => request.environment)).toEqual([undefined])
+    expect(off.answers()).toEqual([{ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: This command requires approval\n${HINTS.parkPending}` }])
+    await until(() => off.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect((await off.journal()).find((event) => event.kind === 'auto-approval')).toMatchObject({ mode: 'on', outcome: 'park', rule: 'git-without-run-environment' })
+  })
+
+  it('a policy that cannot start: run-started says off, the Session starts as before, and every request is refused as before', async () => {
+    const h = harness({ mode: { value: 'on' }, fails: 'open' })
+    await h.runToEnd()
+    const journal = await h.journal()
+    expect(journal[0]).toMatchObject({ kind: 'run-started', autoApproval: 'off' })
+    expect(h.requests.map((request) => request.environment)).toEqual([undefined])
+    expect(journal.filter((event) => event.kind === 'auto-approval')).toEqual([])
+    expect(h.answers().every((answer) => answer.behavior === 'deny' && answer.message.startsWith(UNATTENDED_DENIED_MESSAGE) && !answer.message.includes(HINTS.notJudged))).toBe(true)
+    expect(existsSync(join(h.env.WORFY_DATA_DIR, 'autopilot-tmp')) ? readdirSync(join(h.env.WORFY_DATA_DIR, 'autopilot-tmp')) : []).toEqual([])
+  })
+
+  it('a policy that throws while it judges: the agent gets the refusal of before, and the journal a deny of policy-failed', async () => {
+    const h = harness({ mode: { value: 'on' }, fails: 'judge' })
+    await h.runToEnd()
+    expect(h.answers()).toEqual([
+      { behavior: 'deny', message: unattendedDeniedMessage('Dangerous rm operation on statically-unresolvable target') },
+      { behavior: 'deny', message: unattendedDeniedMessage('Dangerous rm operation on statically-unresolvable target') },
+      { behavior: 'deny', message: unattendedDeniedMessage('Dangerous rm operation on statically-unresolvable target') },
+      { behavior: 'deny', message: unattendedDeniedMessage('Dangerous rm operation on statically-unresolvable target') },
+    ])
+    const lines = (await h.journal()).filter((event) => event.kind === 'auto-approval')
+    expect(lines.map((event) => (event.kind === 'auto-approval' ? [event.mode, event.outcome, event.rule] : []))).toEqual(Array(4).fill(['on', 'deny', 'policy-failed']))
+  })
+
+  it('a run whose Orchestrator is on another Vendor (Codex) says off in run-started and keeps no folder: nothing judges there yet', async () => {
+    const h = harness({ mode: { value: 'on' }, vendor: 'codex' })
+    await h.autopilot.start(PROJECT, EPIC)
+    const journal = await h.journal()
+    expect(journal[0]).toMatchObject({ kind: 'run-started', vendor: 'codex', autoApproval: 'off' })
+    expect(existsSync(join(h.env.WORFY_DATA_DIR, 'autopilot-tmp')) ? readdirSync(join(h.env.WORFY_DATA_DIR, 'autopilot-tmp')) : []).toEqual([])
   })
 
   it('a run given no policy (no Auto-approval wired) starts its Session as before: no environment of its own', async () => {

@@ -2,42 +2,40 @@
 // works, items 1, 3 and 7; security, items 5 and 9): the context of each request (policy.ts,
 // PolicyContext) and the environment of the run's Session.
 //
-// When the run starts (openRunApproval) it reads what does not change during the run, once, in the
-// Project's root: git's `core.hooksPath` as git prints it, whether the repository has hooks or programs
-// named in its config (hooksActive), `rebase.updateRefs`, the names of the remotes and the default
-// branch. A read of `core.hooksPath` that fails with another exit code than 1 (unset) throws: the run
-// then goes without a policy, since null would say "not set". It makes the run's folder for temporary
-// files, `<WORFY_DATA_DIR>/autopilot-tmp/<run>/`, and records the real path of the roots it knows
-// (roots.ts, recordRoots). The Session's agent gets that folder as TMPDIR, and git the run's
-// environment (gitEnvironment): GIT_CONFIG_PARAMETERS with `safe.bareRepository=explicit` (git opens no
-// bare repository it finds above the command's folder), `log.showSignature=false` and
-// `format.pretty=medium` (a plain `git log` of the owner's config would run gpg.program), and
-// GIT_NO_LAZY_FETCH=1 while hooksActive is not false (a partial clone would fetch a missing object
-// through core.sshCommand). Only through GIT_CONFIG_PARAMETERS: under GIT_CONFIG_COUNT the parser of
-// ticket 02 judges no git at all.
+// When the run starts (openRunApproval) it reads git in the Project's root, in the environment of the
+// Session's shell: a read of `core.hooksPath` that fails with another exit code than 1 (unset) throws,
+// and the run then goes without a policy, since null would say "not set". It makes the run's folder
+// for temporary files, `<WORFY_DATA_DIR>/autopilot-tmp/<run>/`. In Shadow and On the Session's agent
+// gets that folder as TMPDIR, and git the run's environment (gitEnvironment): GIT_CONFIG_PARAMETERS
+// with `safe.bareRepository=explicit` (git opens no bare repository it finds above the command's
+// folder), `log.showSignature=false` and `format.pretty=medium` (a plain `git log` of the owner's
+// config would run gpg.program), and GIT_NO_LAZY_FETCH=1 while hooksActive is not false (a partial
+// clone would fetch a missing object through core.sshCommand). Only through GIT_CONFIG_PARAMETERS:
+// under GIT_CONFIG_COUNT the parser of ticket 02 judges no git at all. In Off the agent gets none of it,
+// as before the ticket.
 //
-// At each request it reads `git worktree list` again: an implementer makes its worktree after the Wave
-// started. The worktrees of the Wave are those on the branch `<epic>/<NN>` of a Ticket of the Wave
-// (setWave); each is recorded the first time it is seen, and so is the scratchpad Claude Code names. A
-// list that cannot be read approves nothing: an empty one would turn off the hard denies of other
-// worktrees. A command whose shell folder Claude Code did not tell is not judged in another folder.
+// Each request is judged in the environment the Session's process started with (ApprovalAt.started):
+// the shell's whole environment with the run's variables over it, since CDPATH, BASH_ENV, IFS or a
+// GIT_ variable change what a command does. The process keeps that environment when another run takes
+// the Session over, or the mode changes. At each request git is read again — the worktree list (an
+// implementer makes its worktree after the Wave started) and the git facts (in bypassPermissions the
+// agent may set a hook or a program in the git config without asking). A process that started without
+// the run's git environment, or without GIT_NO_LAZY_FETCH while hooksActive is not false now, gets no
+// git approved: the reads the policy keeps are safe only under them. The worktrees of the Wave are
+// those on the branch `<epic>/<NN>` of a Ticket of the Wave (setWave); each is recorded the first time
+// it is seen, and so is the scratchpad and the TMPDIR of the process. A list that cannot be read
+// approves nothing: an empty one would turn off the hard denies of other worktrees. A command whose
+// shell folder the Vendor did not tell is not judged in another folder.
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { mkdir, readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { makeRunId, RUN_ID_SUFFIX_LENGTH } from '../../../shared/autopilot/journal'
+import { isRunId, makeRunId, RUN_ID_SUFFIX_LENGTH } from '../../../shared/autopilot/journal'
 import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
-import { removeTree } from '../../storage/remove'
+import { removeTreeAsync } from '../../storage/remove'
 import type { SessionInfo } from '../session/types'
 import { HINTS, judge, type ApprovalRequest, type Decision, type PolicyContext } from './policy'
 import { normalizePath, recordRoots } from './roots'
-
-/**
- * What the agent reads when the policy parks a request in On, until worfy-auto-approve ticket 07 parks it
- * for the owner: a refusal. A constant, never a piece of the request (spec, security, item 8).
- */
-export const PARK_PENDING_HINT =
-  'Only the owner can approve this request, and no one is here to answer it now (worfy Autopilot). Go on without it, or write what you need into the owner questions of the Ticket.'
 
 /** The git config of the run's Session, in the form of GIT_CONFIG_PARAMETERS. */
 export const GIT_CONFIG_PARAMETERS = "'safe.bareRepository'='explicit' 'log.showSignature'='false' 'format.pretty'='medium'"
@@ -197,13 +195,15 @@ export interface ApprovalAt {
   cwd: string | null
   scratchpad: string | null
   sessionId: string
+  /** The run's variables the Session's process started with (LaunchApproval.environment); {}: none. */
+  started: Readonly<Record<string, string>>
 }
 
 /** What a Session launched by a run reads of the run's policy (SessionLaunch.approval). */
 export interface LaunchApproval {
   /** The Auto-approval mode now: read at each request. */
   mode(): AutoApprovalMode
-  /** The variables the agent's process starts with over its own environment. */
+  /** The variables the agent's process starts with over its own environment; {} in Off. */
   environment(): Readonly<Record<string, string>>
   judge(request: ApprovalRequest, at: ApprovalAt): Promise<Decision>
 }
@@ -232,9 +232,9 @@ export interface RunApprovalOptions {
   /** worfy's data folder (WORFY_DATA_DIR). */
   dataDir: string
   harnessHome: string | null
-  /** The environment of the Session's shell: HOME (USERPROFILE on Windows), APPDATA, XDG_CONFIG_HOME. */
+  /** The environment the Session's agent gets before the run's variables (the login shell's, src/main/agent/env.ts). */
   shellEnv: Readonly<Record<string, string | undefined>>
-  /** The environment git runs in for the run's reads; process.env when absent. */
+  /** The environment git runs in for the run's reads; the shell's with the run's GIT_CONFIG_PARAMETERS when absent. */
   gitEnv?: NodeJS.ProcessEnv
   /** The live Sessions (the app's SessionRegistry). */
   sessions: { list(): ReadonlyArray<Pick<SessionInfo, 'sessionId' | 'cwd'>> }
@@ -246,21 +246,47 @@ const COMMAND_TOOLS = new Set(['Bash', 'commandExecution'])
 
 const refusal = (rule: string): Decision => ({ outcome: 'deny', rule, hint: HINTS.notJudged, targets: [] })
 
+/** The rule of the policy that approves git (policy.ts); a compound allow joins its rules with `+`. */
+const GIT_RULE = 'git-in-wave-worktree'
+
+/** The folder all runs keep their folders for temporary files in. */
+export const runTempsDir = (dataDir: string): string => join(dataDir, 'autopilot-tmp')
+
+/**
+ * Removes the folders for temporary files that runs started before `before` left behind (a crash, a
+ * quit, a Session another run took over), each by its literal path; called when the app's Autopilot is
+ * made, before any run of this app's life. A run id begins with its start time, so a run that starts
+ * meanwhile keeps its folder. Only folders named by a run id; one that cannot be removed stays for the
+ * next time.
+ */
+export async function sweepRunTemps(dataDir: string, before: Date = new Date()): Promise<void> {
+  const limit = makeRunId(before, '0'.repeat(RUN_ID_SUFFIX_LENGTH))
+  const names = await namesIn(runTempsDir(dataDir))
+  for (const name of names ?? []) {
+    if (!isRunId(name) || name >= limit) continue
+    try {
+      await removeTreeAsync(join(runTempsDir(dataDir), name))
+    } catch (error) {
+      console.warn(`[autopilot] could not remove the folder of an old run ${name}`, error)
+    }
+  }
+}
+
 /** Starts the policy's side of one run; throws when it cannot (the run then goes without a policy). */
 export async function openRunApproval(options: RunApprovalOptions): Promise<RunApproval> {
   const platform = options.platform ?? process.platform
   const win = platform === 'win32'
-  const gitEnv = options.gitEnv ?? process.env
+  const gitEnv: NodeJS.ProcessEnv = options.gitEnv ?? { ...options.shellEnv, GIT_CONFIG_PARAMETERS }
   const facts = await readGitFacts(options.root, gitEnv)
   const run = makeRunId((options.now ?? (() => new Date()))(), randomBytes(RUN_ID_SUFFIX_LENGTH / 2).toString('hex'))
-  const runTemp = join(options.dataDir, 'autopilot-tmp', run)
+  const runTemp = join(runTempsDir(options.dataDir), run)
   await mkdir(runTemp, { recursive: true })
   const environment: Readonly<Record<string, string>> = { TMPDIR: runTemp, ...gitEnvironment(facts.hooksActive) }
   const scratch = join(options.root, '.scratch')
   const recorded: Record<string, string> = recordRoots([scratch, runTemp], platform)
   /** Records a root the first time it is seen: its real path now is the one later requests are held to. */
-  const record = (path: string | null): void => {
-    const normal = path === null ? null : normalizePath(path, win)
+  const record = (path: string | null | undefined): void => {
+    const normal = path === null || path === undefined ? null : normalizePath(path, win)
     if (normal !== null && !(normal in recorded)) Object.assign(recorded, recordRoots([normal], platform))
   }
   let wave: string[] = []
@@ -274,50 +300,42 @@ export async function openRunApproval(options: RunApprovalOptions): Promise<RunA
     },
     judge: async (request, at) => {
       if (at.cwd === null && COMMAND_TOOLS.has(request.tool)) return refusal('no-cwd')
-      const checkouts = await readCheckouts(options.root, gitEnv)
+      const [checkouts, now] = await Promise.all([readCheckouts(options.root, gitEnv), readGitFacts(options.root, gitEnv).catch(() => null)])
       if (checkouts === null) return refusal('no-checkouts')
+      if (now === null) return refusal('no-git-facts')
       // shortcut: the Wave's worktrees are found by the branch `<epic>/<NN>`, the default of the Profile's
       // tickets.branch; redo when a Project with another template runs Autopilot with Auto-approval.
       const branches = new Set(wave.map((ticket) => `${options.epic}/${ticket}`))
       const worktrees = checkouts.filter((checkout) => checkout.branch !== null && branches.has(checkout.branch)).map((checkout) => checkout.path)
-      for (const path of [...worktrees, at.scratchpad]) record(path)
+      // The folder for temporary files of this process: the one it started with, also another run's.
+      const temp = at.started['TMPDIR'] ?? runTemp
+      for (const path of [...worktrees, at.scratchpad, temp]) record(path)
+      const env: Record<string, string | undefined> = { ...options.shellEnv, ...at.started }
       const context: PolicyContext = {
         platform,
         cwd: at.cwd ?? options.root,
-        env: {
-          HOME: options.shellEnv['HOME'],
-          USERPROFILE: options.shellEnv['USERPROFILE'],
-          APPDATA: options.shellEnv['APPDATA'],
-          XDG_CONFIG_HOME: options.shellEnv['XDG_CONFIG_HOME'],
-          TMPDIR: runTemp,
-          GIT_CONFIG_PARAMETERS,
-        },
+        env,
         worktrees,
         scratch,
-        runTemp,
+        runTemp: temp,
         scratchpad: at.scratchpad,
         dataDir: options.dataDir,
         harnessHome: options.harnessHome,
         sessionId: at.sessionId,
         sessions: options.sessions,
         checkouts,
-        defaultBranch: facts.defaultBranch,
-        rebaseUpdateRefs: facts.rebaseUpdateRefs,
-        remotes: facts.remotes,
-        hooksPath: facts.hooksPath,
-        hooksActive: facts.hooksActive,
+        defaultBranch: now.defaultBranch,
+        rebaseUpdateRefs: now.rebaseUpdateRefs,
+        remotes: now.remotes,
+        hooksPath: now.hooksPath,
+        hooksActive: now.hooksActive,
         recordedRoots: { ...recorded },
       }
-      return judge(request, context)
+      const decision = judge(request, context)
+      const gitSafe = at.started['GIT_CONFIG_PARAMETERS'] === GIT_CONFIG_PARAMETERS && (now.hooksActive === false || at.started['GIT_NO_LAZY_FETCH'] === '1')
+      if (decision.outcome === 'allow' && !gitSafe && decision.rule.split('+').includes(GIT_RULE)) return { outcome: 'park', rule: 'git-without-run-environment', hint: null, targets: decision.targets }
+      return decision
     },
-    close: () =>
-      new Promise((done, fail) => {
-        try {
-          removeTree(runTemp)
-          done()
-        } catch (error) {
-          fail(error instanceof Error ? error : new Error(String(error)))
-        }
-      }),
+    close: () => removeTreeAsync(runTemp),
   }
 }

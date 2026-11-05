@@ -26,6 +26,7 @@
 // The app's part makes its query factory (query.ts) at its first start. Nothing in this driver imports
 // the Session registry (src/main/agent/app-registry.ts), which is made over it: the registry wires
 // what the fake agent needs from it itself (test/contract/vendor-imports.test.ts).
+import { HINTS } from '../../agent/auto-approve/policy'
 import { CommandCatalog } from '../../agent/commands'
 import { userContent } from '../../agent/attachments'
 import { readUserEffort, readUserModel, type UserEffortReader, type UserModelReader } from '../../claude-home/user-model'
@@ -45,7 +46,6 @@ import type { SlashCommand } from '../../../shared/agent/commands'
 import type { AgentEvent, PermissionOption } from '../../../shared/agent/events'
 import { ASK_USER_QUESTION, parseQuestions } from '../../../shared/agent/questions'
 import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
-import { PARK_PENDING_HINT } from '../../agent/auto-approve/run-approval'
 import { isSelectableModel, PERMISSION_MODES, type EffortChoice, type ModelOption, type PermissionModeChoice, type SessionSettings } from '../../../shared/agent/settings'
 import { contextUsageOf, isCompactBoundary, sdkMessageToEvents } from '../../../shared/vendors/claude/events'
 import type { ApprovalWhere, PermissionAsker, RefusalDetails, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
@@ -186,7 +186,7 @@ function modeOf(approval: SessionApproval | undefined): AutoApprovalMode {
  * - Shadow: asks the policy, reports what it would have done (`would-*`, a hard deny as `hard-deny`),
  *   and refuses with the same message as Off; `refused` is not told;
  * - On: allow answers the call with its input unchanged; deny and hard deny refuse with the rule's hint
- *   after Claude Code's reason; park refuses with PARK_PENDING_HINT until ticket 07 parks it.
+ *   after Claude Code's reason; park refuses with HINTS.parkPending until ticket 07 parks it.
  * `folders` gives where the shell stood for the call (the PreToolUse hook, ToolUseFolders).
  */
 export function unattendedCanUseTool(refused: (toolName: string, message: string, details: RefusalDetails) => void, approval?: SessionApproval, folders?: ToolUseFolders): CanUseToolHandler {
@@ -207,7 +207,7 @@ export function unattendedCanUseTool(refused: (toolName: string, message: string
     approval.decided({ mode, outcome, rule: decision.rule, tool: toolName, targets: [...decision.targets], command, ...details })
     if (mode === 'shadow') return { behavior: 'deny', message }
     if (decision.outcome === 'allow') return { behavior: 'allow', updatedInput: input }
-    const hint = decision.outcome === 'park' ? PARK_PENDING_HINT : decision.hint
+    const hint = decision.outcome === 'park' ? HINTS.parkPending : decision.hint
     return { behavior: 'deny', message: hint === null ? message : approvalDeniedMessage(reason, hint) }
   }
 }

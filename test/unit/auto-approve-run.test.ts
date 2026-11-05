@@ -2,18 +2,19 @@
 // (hooksActive, hooksPath, rebase.updateRefs, remotes, the default branch), the git environment of its
 // Session, the worktrees of its Wave, and the Journal's cleaning of a command.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { HINTS, type Decision } from '../../src/main/agent/auto-approve/policy'
-import { configRunsProgram, GIT_CONFIG_PARAMETERS, gitEnvironment, hooksActiveOf, openRunApproval, PARK_PENDING_HINT, readCheckouts, readGitFacts } from '../../src/main/agent/auto-approve/run-approval'
+import { configRunsProgram, GIT_CONFIG_PARAMETERS, gitEnvironment, hooksActiveOf, openRunApproval, readCheckouts, readGitFacts, runTempsDir, sweepRunTemps } from '../../src/main/agent/auto-approve/run-approval'
 import type { PermissionRequestOptions } from '../../src/main/agent/session/types'
 import { sessionOptions } from '../../src/main/vendors/claude/options'
 import { ToolUseFolders, UNATTENDED_DENIED_MESSAGE, unattendedCanUseTool, unattendedDeniedMessage } from '../../src/main/vendors/claude/session'
 import type { SessionApproval } from '../../src/main/vendors/session'
-import { COMMAND_MAX, journalCommand } from '../../src/shared/autopilot/journal'
+import { COMMAND_MAX, journalCommand, makeRunId } from '../../src/shared/autopilot/journal'
 import type { AutoApprovalMode } from '../../src/shared/settings/app-settings'
+import { removeTreeAsync } from '../../src/main/storage/remove'
 import { removeTestTree } from '../remove'
 
 let scratch: string
@@ -196,7 +197,7 @@ describe('openRunApproval: the context of each request', () => {
     git(repo, 'worktree', 'add', '-q', '-b', 'demo/01', join(scratch, 'wt'))
     const approval = await open()
     const request = { tool: 'Bash', input: { command: `rm -rf '${join(scratch, 'wt', 'build')}'` } }
-    const at = { cwd: join(scratch, 'wt'), scratchpad: null, sessionId: 's' }
+    const at = { cwd: join(scratch, 'wt'), scratchpad: null, sessionId: 's', started: approval.environment }
     expect((await approval.judge(request, at)).outcome).not.toBe('allow')
     approval.setWave(['01'])
     expect(await approval.judge(request, at)).toMatchObject({ outcome: 'allow', rule: 'files-inside-roots' })
@@ -208,8 +209,8 @@ describe('openRunApproval: the context of each request', () => {
     const approval = await open()
     approval.setWave(['01'])
     const request = { tool: 'Bash', input: { command: 'rm -rf build' } }
-    expect(await approval.judge(request, { cwd: join(scratch, 'wt'), scratchpad: null, sessionId: 's' })).toMatchObject({ outcome: 'allow', targets: [join(realpathSync(scratch), 'wt', 'build')] })
-    expect((await approval.judge(request, { cwd: repo, scratchpad: null, sessionId: 's' })).outcome).not.toBe('allow')
+    expect(await approval.judge(request, { cwd: join(scratch, 'wt'), scratchpad: null, sessionId: 's', started: approval.environment })).toMatchObject({ outcome: 'allow', targets: [join(realpathSync(scratch), 'wt', 'build')] })
+    expect((await approval.judge(request, { cwd: repo, scratchpad: null, sessionId: 's', started: approval.environment })).outcome).not.toBe('allow')
     await approval.close()
   })
 
@@ -217,7 +218,7 @@ describe('openRunApproval: the context of each request', () => {
     const approval = await open()
     expect(approval.runTemp).toBe(join(scratch, 'data', 'autopilot-tmp', approval.run))
     expect(approval.environment).toMatchObject({ TMPDIR: approval.runTemp })
-    const decision = await approval.judge({ tool: 'Bash', input: { command: `rm -rf '${join(approval.runTemp, 'x')}'` } }, { cwd: repo, scratchpad: null, sessionId: 's' })
+    const decision = await approval.judge({ tool: 'Bash', input: { command: `rm -rf '${join(approval.runTemp, 'x')}'` } }, { cwd: repo, scratchpad: null, sessionId: 's', started: approval.environment })
     expect(decision).toMatchObject({ outcome: 'allow' })
     await approval.close()
     const { existsSync } = await import('node:fs')
@@ -228,14 +229,14 @@ describe('openRunApproval: the context of each request', () => {
     const pad = join(scratch, 'pad')
     mkdirSync(pad)
     const approval = await open()
-    const decision = await approval.judge({ tool: 'Bash', input: { command: `rm -rf '${join(pad, 'x')}'` } }, { cwd: repo, scratchpad: pad, sessionId: 's' })
+    const decision = await approval.judge({ tool: 'Bash', input: { command: `rm -rf '${join(pad, 'x')}'` } }, { cwd: repo, scratchpad: pad, sessionId: 's', started: approval.environment })
     expect(decision).toMatchObject({ outcome: 'allow' })
     await approval.close()
   })
 
   it('a Bash request whose shell folder is not known is not judged against another folder: deny with a hint', async () => {
     const approval = await open()
-    expect(await approval.judge({ tool: 'Bash', input: { command: 'rm -rf build' } }, { cwd: null, scratchpad: null, sessionId: 's' })).toEqual({ outcome: 'deny', rule: 'no-cwd', hint: HINTS.notJudged, targets: [] })
+    expect(await approval.judge({ tool: 'Bash', input: { command: 'rm -rf build' } }, { cwd: null, scratchpad: null, sessionId: 's', started: approval.environment })).toEqual({ outcome: 'deny', rule: 'no-cwd', hint: HINTS.notJudged, targets: [] })
     await approval.close()
   })
 
@@ -243,8 +244,154 @@ describe('openRunApproval: the context of each request', () => {
     const approval = await open()
     approval.setWave(['01'])
     removeTestTree(join(repo, '.git'))
-    expect(await approval.judge({ tool: 'Bash', input: { command: `rm -rf '${join(approval.runTemp, 'x')}'` } }, { cwd: repo, scratchpad: null, sessionId: 's' })).toEqual({ outcome: 'deny', rule: 'no-checkouts', hint: HINTS.notJudged, targets: [] })
+    expect(await approval.judge({ tool: 'Bash', input: { command: `rm -rf '${join(approval.runTemp, 'x')}'` } }, { cwd: repo, scratchpad: null, sessionId: 's', started: approval.environment })).toEqual({ outcome: 'deny', rule: 'no-checkouts', hint: HINTS.notJudged, targets: [] })
     await approval.close()
+  })
+})
+
+describe('openRunApproval: the environment, the git facts and the folders of round 2 (review of PR #1460)', () => {
+  const posix = process.platform !== 'win32'
+  const shell = (extra: Record<string, string> = {}): Record<string, string> => ({ ...(process.env as Record<string, string>), HOME: homedir(), USERPROFILE: homedir(), ...extra })
+  const open = (shellEnv: Record<string, string> = shell(), more: { platform?: NodeJS.Platform; gitEnv?: NodeJS.ProcessEnv | null } = {}) =>
+    openRunApproval({
+      root: repo,
+      epic: 'demo',
+      dataDir: join(scratch, 'data'),
+      harnessHome: join(scratch, 'harness'),
+      shellEnv,
+      ...(more.gitEnv === null ? {} : { gitEnv: more.gitEnv ?? gitEnv() }),
+      sessions: { list: () => [] },
+      ...(more.platform === undefined ? {} : { platform: more.platform }),
+    })
+  const wt = (): string => join(scratch, 'wt')
+  const inWave = async (shellEnv?: Record<string, string>, more?: Parameters<typeof open>[1]) => {
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/01', wt())
+    mkdirSync(join(wt(), 'build'))
+    const approval = await open(shellEnv, more)
+    approval.setWave(['01'])
+    return approval
+  }
+  const ask = (approval: Awaited<ReturnType<typeof open>>, command: string, started: Readonly<Record<string, string>> = approval.environment) =>
+    approval.judge({ tool: 'Bash', input: { command } }, { cwd: wt(), scratchpad: null, sessionId: 's', started })
+
+  it.skipIf(!posix)('judges in the whole environment of the shell: CDPATH, BASH_ENV, IFS and GIT_DIR each keep a command they change from allow', async () => {
+    const cases: [Record<string, string>, string][] = [
+      [{ CDPATH: homedir() }, 'cd build && rm -rf x'],
+      [{ BASH_ENV: join(scratch, 'env.sh') }, "bash -c 'rm -rf build/x'"],
+      [{ IFS: ':' }, 'rm -rf build/x'],
+      [{ GIT_DIR: join(scratch, 'other.git') }, 'git log --oneline -1'],
+    ]
+    const plain = await inWave()
+    for (const [, command] of cases) expect((await ask(plain, command)).outcome, command).toBe('allow')
+    await plain.close()
+    for (const [extra, command] of cases) {
+      const approval = await open(shell(extra))
+      approval.setWave(['01'])
+      expect((await ask(approval, command)).outcome, `${Object.keys(extra)[0]}: ${command}`).not.toBe('allow')
+      await approval.close()
+    }
+  })
+
+  it('reads git in the shell\'s environment by default: a program in the global config the shell names counts', async () => {
+    const global = join(scratch, 'shell-global-config')
+    writeFileSync(global, '[core]\n\tsshCommand = ssh -i key\n')
+    const approval = await open(shell({ GIT_CONFIG_GLOBAL: global, GIT_CONFIG_NOSYSTEM: '1' }), { gitEnv: null })
+    expect(approval.facts.hooksActive).toBe(true)
+    expect(approval.environment).toMatchObject({ GIT_NO_LAZY_FETCH: '1' })
+    await approval.close()
+    const clean = await open(shell({ GIT_CONFIG_GLOBAL: join(scratch, 'global-config'), GIT_CONFIG_NOSYSTEM: '1' }), { gitEnv: null })
+    expect(clean.facts.hooksActive).toBe(false)
+    await clean.close()
+  })
+
+  it.skipIf(!posix)('reads git again at each request: a hook the agent set since the start keeps git from allow', async () => {
+    const approval = await inWave()
+    expect((await ask(approval, 'git status')).outcome).toBe('allow')
+    git(repo, 'config', 'core.hooksPath', '.husky/_')
+    expect((await ask(approval, 'git status')).outcome).not.toBe('allow')
+    await approval.close()
+  })
+
+  it.skipIf(!posix)('a process without the run\'s git environment, or without GIT_NO_LAZY_FETCH once hooks came, gets git parked', async () => {
+    const approval = await inWave()
+    expect(await ask(approval, 'git log --oneline -1')).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    expect(await ask(approval, 'git log --oneline -1', {})).toMatchObject({ outcome: 'park', rule: 'git-without-run-environment' })
+    expect(await ask(approval, 'git log --oneline -1 && rm -rf build/x', {})).toMatchObject({ outcome: 'park', rule: 'git-without-run-environment' })
+    // Files are judged as before.
+    expect(await ask(approval, 'rm -rf build/x', {})).toMatchObject({ outcome: 'allow' })
+    writeFileSync(join(repo, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\n')
+    expect(approval.environment).not.toHaveProperty('GIT_NO_LAZY_FETCH')
+    expect(await ask(approval, 'git log --oneline -1')).toMatchObject({ outcome: 'park', rule: 'git-without-run-environment' })
+    expect(await ask(approval, 'git log --oneline -1', { ...approval.environment, GIT_NO_LAZY_FETCH: '1' })).toMatchObject({ outcome: 'allow' })
+    await approval.close()
+  })
+
+  it.skipIf(!posix)('the folder for temporary files is the one the process started with, also another run\'s', async () => {
+    const approval = await inWave()
+    const other = join(scratch, 'data', 'autopilot-tmp', 'other-run')
+    mkdirSync(other, { recursive: true })
+    expect((await ask(approval, `rm -rf '${join(other, 'x')}'`, { ...approval.environment, TMPDIR: other })).outcome).toBe('allow')
+    expect((await ask(approval, `rm -rf '${join(other, 'x')}'`)).outcome).not.toBe('allow')
+    expect((await ask(approval, `rm -rf '${join(approval.runTemp, 'x')}'`, {})).outcome).toBe('allow')
+    await approval.close()
+  })
+
+  it.skipIf(!posix)('mktemp -d: a new folder in TMPDIR on Linux; on macOS, where mktemp ignores TMPDIR, outside every root', async () => {
+    const linux = await open(shell(), { platform: 'linux' })
+    expect((await linux.judge({ tool: 'Bash', input: { command: 'X=$(mktemp -d) && touch "$X/a"' } }, { cwd: repo, scratchpad: null, sessionId: 's', started: linux.environment })).outcome).toBe('allow')
+    await linux.close()
+    const mac = await open(shell(), { platform: 'darwin' })
+    expect((await mac.judge({ tool: 'Bash', input: { command: 'X=$(mktemp -d) && touch "$X/a"' } }, { cwd: repo, scratchpad: null, sessionId: 's', started: mac.environment })).outcome).toBe('park')
+    await mac.close()
+  })
+
+  it('a repository without hooks/ has hooksActive false; core.fsmonitor true from real git is no program, a path is', async () => {
+    removeTestTree(join(repo, '.git', 'hooks'))
+    expect((await readGitFacts(repo, gitEnv())).hooksActive).toBe(false)
+    git(repo, 'config', 'core.fsmonitor', 'true')
+    git(repo, 'config', 'diff.demo.cachetextconv', 'true')
+    expect((await readGitFacts(repo, gitEnv())).hooksActive).toBe(false)
+    git(repo, 'config', 'core.fsmonitor', '/usr/local/bin/watchman-hook')
+    expect((await readGitFacts(repo, gitEnv())).hooksActive).toBe(true)
+  })
+
+  it('sweepRunTemps removes the folders of runs that started before, and keeps a later run\'s and other names', async () => {
+    const dir = runTempsDir(join(scratch, 'data'))
+    const old = makeRunId(new Date('2026-11-05T10:00:00Z'), 'abcdef')
+    const later = makeRunId(new Date('2026-11-05T12:00:01Z'), '000001')
+    for (const name of [old, later, 'notes']) mkdirSync(join(dir, name, 'inner'), { recursive: true })
+    await sweepRunTemps(join(scratch, 'data'), new Date('2026-11-05T12:00:00Z'))
+    expect(readdirSync(dir).sort()).toEqual([later, 'notes'].sort())
+    await sweepRunTemps(join(scratch, 'nothing-here'))
+  })
+
+  it('close() removes the folder without blocking: a promise of the removal', async () => {
+    const approval = await open()
+    writeFileSync(join(approval.runTemp, 'f'), 'x')
+    const closing = approval.close()
+    expect(closing).toBeInstanceOf(Promise)
+    await closing
+    expect(existsSync(approval.runTemp)).toBe(false)
+  })
+})
+
+describe('removeTreeAsync', () => {
+  it.skipIf(process.platform === 'win32')('looks through the tree first: a volume mounted in it removes nothing', async () => {
+    const root = join(scratch, 'tree')
+    mkdirSync(join(root, 'mounted'), { recursive: true })
+    const removed: string[] = []
+    const fs = {
+      lstatSync: (path: string) => ({ isDirectory: () => true, dev: path.endsWith('mounted') ? 2 : 1 }),
+      readdirSync: (path: string) => (path === root ? ['mounted'] : []),
+      unlinkSync: () => undefined,
+      rmdirSync: () => undefined,
+      rmSync: () => undefined,
+    }
+    await expect(removeTreeAsync(root, { fs, rm: (path) => Promise.resolve(void removed.push(path)) })).rejects.toMatchObject({ code: 'EXDEV' })
+    expect(removed).toEqual([])
+    await removeTreeAsync(root)
+    expect(existsSync(root)).toBe(false)
+    await removeTreeAsync(root)
   })
 })
 
@@ -261,6 +408,35 @@ describe('journalCommand: a command as the Journal keeps it', () => {
     expect(long.length).toBeLessThanOrEqual(COMMAND_MAX)
     expect(long).not.toContain('secret-demo-token')
     expect(long).not.toContain('/Users/demo')
+  })
+
+  it('cuts after the cleaning: a secret where the cut falls leaves none of its value, and the line is COMMAND_MAX long', () => {
+    const command = `echo ${'a'.repeat(183)} GH_TOKEN=supersecretvalue123 x`
+    expect(command.length).toBeGreaterThan(COMMAND_MAX)
+    const kept = journalCommand(command, home)
+    expect(kept).toBe(`echo ${'a'.repeat(183)} GH_TOKEN=**`)
+    expect(kept).toHaveLength(COMMAND_MAX)
+    expect(journalCommand(`${'b'.repeat(250)}`, home)).toHaveLength(COMMAND_MAX)
+  })
+
+  it('hides every form of a secret the review found', () => {
+    const cases: [string, string][] = [
+      ['TOKEN=abc run', 'TOKEN=*** run'],
+      ['PASSWORD=hunter2 run', 'PASSWORD=*** run'],
+      ['GITHUB_PAT=abc AUTH=xyz DB_PASS=p run', 'GITHUB_PAT=*** AUTH=*** DB_PASS=*** run'],
+      ['TOKEN= run', 'TOKEN=*** run'],
+      ['curl -H "Authorization: Bearer abc.def.ghi" https://x', 'curl -H "Authorization: ***" https://x'],
+      ["curl -H 'authorization: token abc123' x", "curl -H 'authorization: ***' x"],
+      ['curl -H "X: Bearer abcdefghijkl" x', 'curl -H "X: Bearer ***" x'],
+      ['git clone https://user:p4ss@example.invalid/r.git', 'git clone https://user:***@example.invalid/r.git'],
+      ['tool --token abc --password xyz --password=q --api-key k --client-secret s', 'tool --token *** --password *** --password=*** --api-key *** --client-secret ***'],
+      ['curl -u demo:secret x', 'curl -u demo:*** x'],
+      ['mysql -u root -psecret db', 'mysql -u root -p*** db'],
+      ['echo ghp_abcdefghijklmnop1234 github_pat_abcdefghijklmnop_1234 sk-abcdefghijklmnop1234 xoxb-1234-abcd AKIAABCDEFGHIJKLMNOP', 'echo *** *** *** *** ***'],
+    ]
+    for (const [command, kept] of cases) expect(journalCommand(command, home), command).toBe(kept)
+    // What is not a secret stays.
+    for (const command of ['PATH=/usr/bin make', 'AUTHOR=demo x', 'mkdir -p build', 'git log -p', 'NAME=demo x']) expect(journalCommand(command, home), command).toBe(command)
   })
   it('the home folder of Windows in every form', () => {
     expect(journalCommand('rm -rf C:\\Users\\Demo\\x /c/Users/Demo/y', 'C:\\Users\\Demo')).toBe('rm -rf ~\\x ~/y')
@@ -342,7 +518,7 @@ describe('the Claude driver: environment, PreToolUse hook and the unattended can
     }
   })
 
-  it('On answers by the decision: allow with the input unchanged, deny with the rule\'s hint after the reason, park with PARK_PENDING_HINT', async () => {
+  it('On answers by the decision: allow with the input unchanged, deny with the rule\'s hint after the reason, park with HINTS.parkPending', async () => {
     const input = { command: ' rm -rf ~/x ', description: 'd' }
     const allow = driver(() => 'on', { outcome: 'allow', rule: 'files-inside-roots', hint: null, targets: [] })
     expect(await allow.ask(input)).toEqual({ behavior: 'allow', updatedInput: input })
@@ -351,7 +527,7 @@ describe('the Claude driver: environment, PreToolUse hook and the unattended can
     expect(await driver(() => 'on', deny('not-judged', 'the hint')).ask(input, { decisionReason: undefined })).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nthe hint` })
     expect(await driver(() => 'on', { outcome: 'hard-deny', rule: 'hard:ssh', hint: 'never', targets: [] }).ask(input)).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: why\nnever` })
     const park = driver(() => 'on', { outcome: 'park', rule: 'outside-roots', hint: null, targets: [] })
-    expect(await park.ask(input)).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: why\n${PARK_PENDING_HINT}` })
+    expect(await park.ask(input)).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: why\n${HINTS.parkPending}` })
     expect(park.decided).toMatchObject([{ mode: 'on', outcome: 'park', rule: 'outside-roots' }])
     // A deny without a hint keeps the refusal of Off.
     expect(await driver(() => 'on', deny('policy-failed', null)).ask(input)).toEqual({ behavior: 'deny', message: unattendedDeniedMessage('why') })
@@ -387,8 +563,8 @@ describe('the run reads the repository and writes nothing into it (ADR-0005)', (
     const before = snapshot()
     const approval = await openRunApproval({ root: repo, epic: 'demo', dataDir: join(scratch, 'data'), harnessHome: null, shellEnv: { HOME: homedir(), USERPROFILE: homedir() }, gitEnv: gitEnv(), sessions: { list: () => [] } })
     approval.setWave(['01'])
-    await approval.judge({ tool: 'Bash', input: { command: 'git log --oneline -1' } }, { cwd: join(scratch, 'wt'), scratchpad: null, sessionId: 's' })
-    await approval.judge({ tool: 'Bash', input: { command: `rm -rf '${join(scratch, 'wt', 'x')}'` } }, { cwd: join(scratch, 'wt'), scratchpad: null, sessionId: 's' })
+    await approval.judge({ tool: 'Bash', input: { command: 'git log --oneline -1' } }, { cwd: join(scratch, 'wt'), scratchpad: null, sessionId: 's', started: approval.environment })
+    await approval.judge({ tool: 'Bash', input: { command: `rm -rf '${join(scratch, 'wt', 'x')}'` } }, { cwd: join(scratch, 'wt'), scratchpad: null, sessionId: 's', started: approval.environment })
     await approval.close()
     expect(snapshot()).toEqual(before)
   })

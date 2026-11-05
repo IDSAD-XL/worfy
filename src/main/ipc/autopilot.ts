@@ -36,7 +36,7 @@ import {
 import { autopilotRunOf } from '../../shared/settings/app-settings'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
-import { openRunApproval } from '../agent/auto-approve/run-approval'
+import { openRunApproval, sweepRunTemps } from '../agent/auto-approve/run-approval'
 import { agentEnv } from '../agent/env'
 import { appLimits, observeSessionLimits } from '../agent/limits'
 import { refreshAppUsage } from '../agent/limits-usage'
@@ -164,6 +164,8 @@ runsLink()
 /** The app's Autopilot, made on first use. */
 export function sharedAutopilot(): Autopilot {
   if (shared !== undefined) return shared
+  // No run is alive yet: the folders for temporary files earlier runs left behind go (worfy-auto-approve ticket 04).
+  void sweepRunTemps(dataRoot())
   const autopilot = new Autopilot({
     projectRoot: (projectId) => projectStore().get(projectId).path,
     selfRefusal: (root) => selfProjectRefusal({ packaged: app.isPackaged, appPath: app.getAppPath(), projectRoot: root, gitCommonDir }),
@@ -200,7 +202,7 @@ export function sharedAutopilot(): Autopilot {
     onChange: (state: AutopilotState) => toEveryWindow((target) => emit(target, autopilotChanged, state)),
     // Auto-approval (worfy-auto-approve ticket 04): the mode of app-settings.json, Off while a debugging
     // port or the inspector is open (autoApprovalMode); the policy's side of each run, with the shell
-    // environment the Session's agent gets.
+    // environment the Session's agent gets, in which the run's git reads run too.
     approval: {
       mode: (projectId) => autoApprovalMode(projectId),
       open: async (_projectId, root, epic) =>

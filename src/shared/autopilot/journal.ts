@@ -310,6 +310,7 @@
 //
 // Everything here is pure; src/main/autopilot/journal.ts reads and writes the files.
 import { z } from 'zod'
+import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from '../agent/auto-approval'
 import { limitStateSchema, type LimitWindow, type LimitWindowId, type LimitsState } from '../agent/limits'
 import { vendorIdSchema } from '../vendors/vendor'
 import { RUN_MODES, WINDOW_WAIT_REASONS } from './run-mode'
@@ -346,12 +347,9 @@ export type JournalEventKind = (typeof JOURNAL_EVENT_KINDS)[number]
 export const HUMAN_INPUT_SOURCES = ['worfy', 'observer'] as const
 export type HumanInputSource = (typeof HUMAN_INPUT_SOURCES)[number]
 
-/** What an `auto-approval` line says the policy did (worfy-auto-approve ticket 04; the last two: ticket 07). */
-export const AUTO_APPROVAL_OUTCOMES = ['allow', 'deny', 'park', 'hard-deny', 'would-allow', 'would-deny', 'would-park', 'park-answered', 'park-expired'] as const
-export type AutoApprovalOutcome = (typeof AUTO_APPROVAL_OUTCOMES)[number]
-
-/** The modes of Auto-approval an `auto-approval` line names; Off writes none. */
-export const AUTO_APPROVAL_LINE_MODES = ['shadow', 'on'] as const
+/** What an `auto-approval` line says the policy did, and the modes it names: the words of src/shared/agent/auto-approval.ts. */
+export { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES }
+export type { AutoApprovalOutcome } from '../agent/auto-approval'
 
 /** What a `limits-hit` line says of a refusal without a window that resets (worfy-multi-vendor ticket 38). */
 export const LIMITS_HIT_REASONS = ['quota'] as const
@@ -557,19 +555,51 @@ function homeAsTilde(text: string, home: string): string {
   return text.replace(new RegExp(`${prefix}${NAME_GOES_ON}`, 'giu'), '~')
 }
 
-/**
- * An assignment whose value the Journal hides: a name that holds TOKEN, KEY, SECRET or PASSWORD (any
- * case, `GH_TOKEN`, `api_key`), `=`, and the value — quoted, or up to the next blank.
- */
-const SECRET_ASSIGNMENT = /(?<![\p{L}\p{N}_])([\p{L}_][\p{L}\p{N}_]*(?:TOKEN|KEY|SECRET|PASSWORD)[\p{L}\p{N}_]*)=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\S*)/giu
+/** A value as a shell word holds it: quoted, or up to the next blank. */
+const VALUE = String.raw`(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s'"]\S*)`
+
+/** Any assignment `NAME=value`; secretName decides whether its value is hidden. */
+const ASSIGNMENT = new RegExp(String.raw`(?<![\p{L}\p{N}_-])([\p{L}_][\p{L}\p{N}_]*)=(${VALUE}|(?=\s|$))`, 'gu')
+
+/** The parts of a variable's name, split at `_`, that make it a secret's (any case). */
+const SECRET_PARTS = new Set(['pat', 'pass', 'pw', 'pwd', 'auth', 'credential', 'credentials', 'cookie'])
+
+/** Whether a variable named so holds a secret: GH_TOKEN, api_key, PASSWORD, GITHUB_PAT, AUTH, DB_PASS… */
+function secretName(name: string): boolean {
+  return name
+    .toLowerCase()
+    .split('_')
+    .some((part) => SECRET_PARTS.has(part) || /token|secret|passw|apikey|key$/.test(part))
+}
+
+/** The forms of a secret outside `NAME=value`, each replaced by its kept part and `***`. */
+const SECRET_FORMS: readonly [RegExp, string][] = [
+  // An option that takes a secret: --token x, --password=x, --api-key x, --client-secret x.
+  // The word must be a whole part of the option's name: --author and -psecret are no such option.
+  [new RegExp(String.raw`((?:^|\s)--?(?:[a-z0-9]+[-_])*(?:token|password|passwd|pass|secret|api-?key|apikey|auth)(?:[-_][a-z0-9]+)*(?:=|\s+))${VALUE}`, 'giu'), '$1***'],
+  // A header or a word that carries one: Authorization: Bearer x, Bearer x, Basic x.
+  [/(authorization\s*:\s*)(?:(?:bearer|basic|token|digest)\s+)?[^\s'"]+/giu, '$1***'],
+  [/(\b(?:bearer|basic)\s+)[A-Za-z0-9._~+/=-]{8,}/giu, '$1***'],
+  // The password of a URL: https://user:secret@host.
+  [/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]*:)[^\s@/]+@/giu, '$1***@'],
+  // curl's user and password: -u user:secret, --user user:secret.
+  [/((?:^|\s)(?:-u|--user)(?:=|\s+)['"]?[^\s:'"]+:)[^\s'"]+/giu, '$1***'],
+  // The password of mysql and its tools, joined to -p: mysql -psecret.
+  [/(\bmysql\w*\b[^|;&\n]*?\s-p)[^\s'"]\S*/giu, '$1***'],
+  // The token forms that say what they are: GitHub, OpenAI and Anthropic, Slack, AWS.
+  [/\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[abeprs]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16})\b/gu, '***'],
+]
 
 /**
  * A command as `auto-approval` keeps it (spec of worfy-auto-approve, how it works, item 7; security,
- * item 7): an assignment of a secret as `NAME=***`, the home folder as `~` (as journalReason), then at
- * most COMMAND_MAX UTF-16 units. The secret goes first, so a cut never leaves half of one.
+ * item 7): the value of an assignment whose name says secret as `NAME=***`, every form of SECRET_FORMS
+ * hidden, the home folder as `~` (as journalReason), then at most COMMAND_MAX UTF-16 units. The secrets go
+ * first, so a cut never leaves half of one.
  */
 export function journalCommand(command: string, home: string): string {
-  return clip(homeAsTilde(command.replace(SECRET_ASSIGNMENT, '$1=***'), home), COMMAND_MAX)
+  let text = command.replace(ASSIGNMENT, (whole: string, name: string) => (secretName(name) ? `${name}=***` : whole))
+  for (const [form, kept] of SECRET_FORMS) text = text.replace(form, kept)
+  return clip(homeAsTilde(text, home), COMMAND_MAX)
 }
 
 /** A path as `auto-approval` keeps it in `targets`: the home folder as `~`, at most COMMAND_MAX units. */

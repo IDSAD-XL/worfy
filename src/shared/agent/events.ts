@@ -3,8 +3,8 @@
 // its messages into these events — Claude's in src/shared/vendors/claude/events.ts — and main sends
 // them on `agent.event`.
 import { z } from 'zod'
-import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from '../autopilot/journal'
 import { messageAttachmentSchema } from './attachments'
+import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from './auto-approval'
 import { limitStateSchema, limitWindowSchema } from './limits'
 import { questionSchema } from './questions'
 import { sessionSettingsSchema } from './settings'

@@ -14,7 +14,8 @@
 // - `$NAME` and `${NAME}` with a value known from the environment or from an assignment earlier in the
 //   same command; an unquoted value must hold no blank and no glob character (bash splits and globs
 //   it, zsh does not);
-// - assignments `NAME=value` on their own, and `NAME=$(mktemp -d)`: a new folder inside TMPDIR. The
+// - assignments `NAME=value` on their own, and `NAME=$(mktemp -d)`: a new folder inside TMPDIR (on macOS
+//   in the system's temporary folder, MACOS_TEMP, whatever TMPDIR says). The
 //   name must be one the shell gives no meaning to (not PATH, PS4, GLOBIGNORE, zsh `path`, a
 //   `BASH_`, `GIT_` or `LD_` name…) and not exported;
 // - `~` and `~/…` at the start of a word, from HOME;
@@ -1097,8 +1098,20 @@ function mktemp(args: Expanded[], state: State, scope: Scope): string {
   return newTempFolder(state, scope)
 }
 
+/**
+ * Where macOS's `mktemp -d` creates its folder: the user's temporary folder of the system
+ * (`/var/folders/…/T`), whatever TMPDIR says (measured on macOS 26: `TMPDIR=/x mktemp -d -u` and
+ * `mktemp -d -u -t x` print a path under /var/folders). A name no root holds: the new folder is
+ * outside every root there, so what goes into it is not approved.
+ */
+export const MACOS_TEMP = '/<macos-user-temp-folder>'
+
 /** The folder `mktemp -d` creates, as the shell would hold it. */
 function newTempFolder(state: State, scope: Scope): string {
+  if (scope.context.platform === 'darwin') {
+    scope.counter.tempFolders++
+    return `${MACOS_TEMP}/${newTempFolderName(scope.counter.tempFolders)}`
+  }
   const tmp = scope.context.env['TMPDIR']
   if (tmp === undefined || tmp === '') fail('mktemp without TMPDIR')
   const base = scope.win ? shellForm(windowsAbsolute(tmp) ?? fail('a TMPDIR that is not absolute'), true) : tmp.startsWith('/') ? tmp : fail('a TMPDIR that is not absolute')
