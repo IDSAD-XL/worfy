@@ -22,9 +22,14 @@ const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'ci.yml')
 const SCOPE = join(REPO, 'scripts', 'ci-scope.mjs')
 const OK = join(REPO, 'scripts', 'ci-ok.mjs')
-const { workflowParts, E2E_SHARDS } = (await import(pathToFileURL(SCOPE).href)) as {
+const { workflowParts, E2E_SHARDS, MACOS_PATHS, MACOS_TESTS_CHECKED_OTHERWISE, MACOS_NAME, globRegExp, isMacosPath } = (await import(pathToFileURL(SCOPE).href)) as {
   workflowParts: (text: string) => { parts: Map<string, string[]>; anchored: boolean }
   E2E_SHARDS: Record<'macos-e2e' | 'windows-e2e', number>
+  MACOS_PATHS: Array<{ paths: string[]; why: string }>
+  MACOS_TESTS_CHECKED_OTHERWISE: Record<string, string>
+  MACOS_NAME: RegExp
+  globRegExp: (glob: string) => RegExp
+  isMacosPath: (path: string, darwin: string[]) => boolean
 }
 
 /** A workflow file without its comment lines and blank lines. */
@@ -742,9 +747,11 @@ describe('scripts/ci-scope.mjs', () => {
   const ALL = Object.fromEntries(DECIDED.map((name) => [name, true]))
   const ONLY_LINT = Object.fromEntries(DECIDED.map((name) => [name, name === 'lint-typecheck']))
   const NO_PACKAGE = { ...ALL, 'macos-package': false }
+  /** A pull request that changes the app but no build input and no macOS path: the e2e tests, no macos-package and no macos-tests. */
+  const APP_ONLY = { ...NO_PACKAGE, 'macos-tests': false }
   /** A pull request that changes code but no app path: the Linux and Windows tests, no macOS job and no e2e on Windows. */
   const NO_MACOS = { ...ALL, 'macos-tests': false, 'macos-e2e': false, 'macos-package': false, 'windows-e2e': false }
-  /** A pull request that changes a script or a part of the Harness the app does not carry: the macOS-only test files, no e2e. */
+  /** A pull request that changes a macOS path outside the app: the macOS-only test files, no e2e. */
   const TESTS_ONLY = { ...NO_MACOS, 'macos-tests': true }
   // Test files of the base: two with a macOS-only test or assertion, one with a Windows-only test,
   // one with none. macos-tests on a pull request runs the first two alone.
@@ -797,8 +804,9 @@ describe('scripts/ci-scope.mjs', () => {
     'test/contract/mac-menu.test.tsx': `const file = process.platform === ${DARWIN.replaceAll("'", '"')} ? 'fileMenu' : 'File'\n`,
     'test/unit/windows-only.test.ts': "describe.runIf(process.platform === 'win32')('x', () => {})\n",
     'test/unit/plain.test.ts': "it('x', () => {})\n",
-    // Not a test file: a helper that names the platform is not run by itself.
-    'test/unit/mac-helper.ts': `export const mac = process.platform === ${DARWIN}\n`,
+    // Not a test file: a helper that names the platform is not run by itself. Its name is not one
+    // named for macOS (MACOS_NAME), so a change of it is no macOS path.
+    'test/unit/platform-helper.ts': `export const mac = process.platform === ${DARWIN}\n`,
   }
 
   beforeAll(() => {
@@ -856,43 +864,60 @@ describe('scripts/ci-scope.mjs', () => {
 
   it.each([
     ['the app', ['src/main/index.ts', 'src/renderer/App.tsx']],
-    ['tests and scripts the package does not use', ['test/e2e/canvas.spec.ts', 'scripts/ci-scope.mjs', 'test/contract/ci-workflow.test.ts']],
+    ['tests the package does not use', ['test/e2e/canvas.spec.ts', 'test/contract/plain.test.ts']],
     ['look-alikes of build inputs', ['src/build/x.ts', 'buildx/a.ts', 'test/package.json', 'scripts/statusline-bridge.test.mjs']],
-  ])('a pull request that changes the app but no build input (%s) runs every job but macos-package, macos-tests with the macOS-only files', (_name, files) => {
+    // Words that only start like mac: no path named for macOS.
+    ['look-alikes of names for macOS', ['src/main/machine.ts', 'src/renderer/macro/a.ts', 'src/main/stomach-darwinia.ts']],
+  ])('a pull request that changes the app but no build input and no macOS path (%s) runs every job but macos-package and macos-tests', (_name, files) => {
     commitOnBase(files)
+    const result = scope({ EVENT: 'pull_request', BASE: base })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.expect).toEqual(APP_ONLY)
+    expect(result.files).toEqual([])
+    expect(result.stdout).toContain('no build input, so no macos-package; no macOS path, so no macos-tests\n')
+    // The same change pushed to main runs every job, macos-tests with every file.
+    const push = scope({ EVENT: 'push', BASE: base })
+    expect(push.expect).toEqual(ALL)
+    expect(push.files).toEqual([])
+  })
+
+  it('a pull request that changes the app and a script the macOS-only tests check runs every job but macos-package, macos-tests with the macOS-only files', () => {
+    commitOnBase(['test/e2e/canvas.spec.ts', 'scripts/ci-scope.mjs', 'test/contract/ci-workflow.test.ts'])
     const result = scope({ EVENT: 'pull_request', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.expect).toEqual(NO_PACKAGE)
     expect(result.files).toEqual(DARWIN_FILES)
-    expect(result.stdout).toContain('no build input, so no macos-package; macos-tests runs the 2 macOS-only test files\n')
+    expect(result.stdout).toContain('no build input, so no macos-package; scripts/ci-scope.mjs is a macOS path, so macos-tests runs the 2 macOS-only test files\n')
   })
 
+  // Each build input with whether it is a macOS path too: the dependencies and the packaging of the
+  // .app are, the configs and tests of the packaged run only package the app (macos-package).
   it.each([
-    'package.json',
-    'pnpm-lock.yaml',
-    'pnpm-workspace.yaml',
-    'electron-builder.yml',
-    'electron.vite.config.ts',
-    'scripts/build-version.ts',
-    'build/icon.icns',
-    'build/brand/logo.svg',
-    'scripts/postinstall.mjs',
-    'scripts/statusline-bridge.sh',
-    'scripts/statusline-bridge.mjs',
+    ['package.json', true],
+    ['pnpm-lock.yaml', true],
+    ['pnpm-workspace.yaml', true],
+    ['electron-builder.yml', true],
+    ['electron.vite.config.ts', false],
+    ['scripts/build-version.ts', false],
+    ['build/icon.icns', true],
+    ['build/brand/logo.svg', true],
+    ['scripts/postinstall.mjs', true],
+    ['scripts/statusline-bridge.sh', false],
+    ['scripts/statusline-bridge.mjs', false],
     // The @packaged tests install the packaged app with it.
-    'scripts/install-stable.mjs',
-    'playwright.config.ts',
-    'test/e2e/packaged.spec.ts',
+    ['scripts/install-stable.mjs', true],
+    ['playwright.config.ts', false],
+    ['test/e2e/packaged.spec.ts', false],
     // Holds the @packaged test of node-pty unpacked from app.asar.
-    'test/e2e/terminal.spec.ts',
+    ['test/e2e/terminal.spec.ts', false],
     // packagedBuild, packagedExecutable and packagedResources of the @packaged tests.
-    'test/e2e/helpers.ts',
-  ])('a pull request that changes the build input %s runs every job, macos-package too', (file) => {
+    ['test/e2e/helpers.ts', false],
+  ])('a pull request that changes the build input %s runs every job, macos-package too (macos-tests: %s)', (file, macos) => {
     commitOnBase([file])
     const result = scope({ EVENT: 'pull_request', BASE: base })
     expect(result.status, result.stderr).toBe(0)
-    expect(result.expect).toEqual(ALL)
-    expect(result.files).toEqual(DARWIN_FILES)
+    expect(result.expect).toEqual({ ...ALL, 'macos-tests': macos })
+    expect(result.files).toEqual(macos ? DARWIN_FILES : [])
   })
 
   // ci.yml is a build input only where it runs the package and the e2e tests: the job changes, which
@@ -1075,7 +1100,7 @@ describe('scripts/ci-scope.mjs', () => {
     },
   )
 
-  it('a source file with a Cyrillic name runs the tests: every job on a push, every job but macos-package on a pull request', () => {
+  it('a source file with a Cyrillic name runs the tests: every job on a push, every job but the macOS tests and package on a pull request', () => {
     commitOnBase(['docs/adr/0001-a.md', 'src/main/уведомления.ts'])
     const push = scope({ EVENT: 'push', BASE: base })
     expect(push.status, push.stderr).toBe(0)
@@ -1083,21 +1108,22 @@ describe('scripts/ci-scope.mjs', () => {
     expect(push.stdout).toContain('code changed: src/main/уведомления.ts\n')
     const pr = scope({ EVENT: 'pull_request', BASE: base })
     expect(pr.status, pr.stderr).toBe(0)
-    expect(pr.expect).toEqual(NO_PACKAGE)
-    expect(pr.stdout).toContain('code changed: src/main/уведомления.ts; no build input, so no macos-package; macos-tests')
+    expect(pr.expect).toEqual(APP_ONLY)
+    expect(pr.stdout).toContain('code changed: src/main/уведомления.ts; no build input, so no macos-package; no macOS path, so no macos-tests')
   })
 
   it.each([
-    ['Markdown under src/', 'src/renderer/notes.md', NO_PACKAGE],
+    ['Markdown under src/', 'src/renderer/notes.md', APP_ONLY],
     // The e2e tests read test/fixtures/worfy-mvp-epic/.
-    ['Markdown under a fixture folder the e2e tests read', 'test/fixtures/worfy-mvp-epic/spec.md', NO_PACKAGE],
-    // Only the contract tests of the evals read test/fixtures/eval-stub/; the macOS-only ones among them.
+    ['Markdown under a fixture folder the e2e tests read', 'test/fixtures/worfy-mvp-epic/spec.md', APP_ONLY],
+    // Only the contract tests of the evals read test/fixtures/eval-stub/, harness-evals-run.test.ts on macOS only among them.
     ['a fixture no e2e test reads', 'test/fixtures/eval-stub/claude.cjs', TESTS_ONLY],
+    ['a fixture neither the e2e tests nor a macOS-only test reads', 'test/fixtures/sdk-messages/a.json', NO_MACOS],
     // The build copies harness/ into the app.
-    ['Markdown under harness/', 'harness/skills/x/SKILL.md', NO_PACKAGE],
+    ['Markdown under harness/', 'harness/skills/x/SKILL.md', APP_ONLY],
     // test/contract/harness-evals-outcome.test.ts reads the README files of scripts/eval-outcome/.
-    ['Markdown under scripts/, which a test reads', 'scripts/eval-outcome/README.md', TESTS_ONLY],
-    ['any Markdown under scripts/', 'scripts/notes.md', TESTS_ONLY],
+    ['Markdown under scripts/, which a test reads', 'scripts/eval-outcome/README.md', NO_MACOS],
+    ['any Markdown under scripts/', 'scripts/notes.md', NO_MACOS],
     // test/unit/kind-tokens.test.ts reads docs/design/F-SPEC.md.
     ['the design spec, which a test reads', 'docs/design/F-SPEC.md', NO_MACOS],
     ['any file under docs/design/', 'docs/design/F-1.dc.html', NO_MACOS],
@@ -1121,15 +1147,17 @@ describe('scripts/ci-scope.mjs', () => {
 
   it.each([
     ['unit and contract tests', ['test/unit/plain.test.ts', 'test/contract/ci-workflow.test.ts', 'test/unit/windows-only.test.ts']],
-    ['a test helper the e2e tests do not use', ['test/remove.ts']],
-    ['a helper next to a macOS-only test file', ['test/unit/mac-helper.ts']],
-  ])('a pull request that changes no app path, script or Harness file (%s) asks for no macOS job', (_name, files) => {
+    ['a test helper neither the e2e tests nor MACOS_PATHS name', ['test/harness-shell-tests.ts']],
+    ['a helper next to a macOS-only test file', ['test/unit/platform-helper.ts']],
+    // Scripts and parts of the Harness the app does not carry, that no macOS-only test checks on macOS.
+    ['scripts and Harness tests', ['scripts/agent-cost.mjs', 'harness/bin/tests/profile.test.sh', 'harness/evals/cases/a.json']],
+  ])('a pull request that changes no app path and no macOS path (%s) asks for no macOS job', (_name, files) => {
     commitOnBase(files)
     const pr = scope({ EVENT: 'pull_request', BASE: base })
     expect(pr.status, pr.stderr).toBe(0)
     expect(pr.expect).toEqual(NO_MACOS)
     expect(pr.files).toEqual([])
-    expect(pr.stdout).toContain('no app path, so no macos-e2e and no windows-e2e; no app path, script, Harness or macOS-only test file, so no macos-tests\n')
+    expect(pr.stdout).toContain('no app path, so no macos-e2e and no windows-e2e; no macOS path, so no macos-tests\n')
     // The same change pushed to main runs every job, macos-tests with every file.
     const push = scope({ EVENT: 'push', BASE: base })
     expect(push.expect).toEqual(ALL)
@@ -1146,27 +1174,89 @@ describe('scripts/ci-scope.mjs', () => {
 
   it.each([
     // The Harness the app carries: the build copies it, the e2e tests install and run it.
-    ['harness/bin/profile', NO_PACKAGE],
-    ['harness/agents/implementer.md', NO_PACKAGE],
-    ['harness/profiles/draft.schema.json', NO_PACKAGE],
-    ['harness/hooks/gate.mjs', NO_PACKAGE],
-    ['harness/evalsx/a.md', NO_PACKAGE],
-    // The parts of harness/ the build leaves out (HARNESS_NOT_BUNDLED): the macOS-only tests check them.
-    ['harness/bin/tests/profile.test.sh', TESTS_ONLY],
-    ['harness/hooks/tests/gate.test.mjs', TESTS_ONLY],
-    ['harness/evals/cases/a.json', TESTS_ONLY],
-    ['harness/evals-outcome/a.md', TESTS_ONLY],
-    // Scripts the macOS-only tests run: make-icons.test.ts with the real sips, hang-sample.test.ts with the ps of macOS.
+    ['harness/bin/profile', APP_ONLY],
+    ['harness/agents/implementer.md', APP_ONLY],
+    ['harness/profiles/draft.schema.json', APP_ONLY],
+    ['harness/hooks/gate.mjs', APP_ONLY],
+    ['harness/evalsx/a.md', APP_ONLY],
+    // The parts of harness/ the build leaves out (HARNESS_NOT_BUNDLED): no macOS path.
+    ['harness/bin/tests/profile.test.sh', NO_MACOS],
+    ['harness/hooks/tests/gate.test.mjs', NO_MACOS],
+    ['harness/evals/cases/a.json', NO_MACOS],
+    ['harness/evals-outcome/a.md', NO_MACOS],
+    // Scripts the macOS-only tests run on the real macOS: make-icons.test.ts with sips, hang-sample.test.ts with the ps of macOS.
     ['scripts/make-icons.mjs', TESTS_ONLY],
     ['scripts/hang-sample.mjs', TESTS_ONLY],
-    ['scripts/agent-cost.mjs', TESTS_ONLY],
+    ['scripts/agent-cost.mjs', NO_MACOS],
     ['scripts/ci-scope.mjs', TESTS_ONLY],
   ])('a pull request that changes %s asks for the macOS jobs that check it', (file, jobs) => {
     commitOnBase([file])
     const pr = scope({ EVENT: 'pull_request', BASE: base })
     expect(pr.status, pr.stderr).toBe(0)
     expect(pr.expect).toEqual(jobs)
+    expect(pr.files).toEqual(jobs['macos-tests'] ? DARWIN_FILES : [])
+  })
+
+  // A path named for macOS: the word darwin, mac, macos or osx as a folder or a part of a file name.
+  it.each([
+    ['src/main/darwin/dock.ts', APP_ONLY],
+    ['src/main/menu-darwin.ts', APP_ONLY],
+    ['src/main/macos/window.ts', APP_ONLY],
+    ['src/renderer/MacOS.tsx', APP_ONLY],
+    ['scripts/notarize-mac.mjs', NO_MACOS],
+    ['scripts/osx_sign.sh', NO_MACOS],
+    ['harness/bin/tests/mac.test.sh', NO_MACOS],
+  ])('a pull request that changes %s, a path named for macOS, runs macos-tests with the macOS-only files', (file, jobs) => {
+    commitOnBase([file])
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect).toEqual({ ...jobs, 'macos-tests': true })
     expect(pr.files).toEqual(DARWIN_FILES)
+    expect(pr.stdout).toContain(`${file} is a macOS path, so macos-tests runs the 2 macOS-only test files`)
+    // The same change pushed to main runs every job, macos-tests with every file.
+    const push = scope({ EVENT: 'push', BASE: base })
+    expect(push.expect).toEqual(ALL)
+    expect(push.files).toEqual([])
+  })
+
+  // A path written by hand for each glob of MACOS_PATHS, one that no other macOS rule matches: a typo
+  // in the glob makes its case red.
+  const GLOB_EXAMPLES: Record<string, string> = {
+    'build/**': 'build/icon.png',
+    '**/*entitlements*': 'resources/app.entitlements.plist',
+    '**/*notariz*': 'scripts/notarize.mjs',
+    '**/*notaris*': 'tools/notarise-app.sh',
+    'src/main/terminal/zsh/**': 'src/main/terminal/zsh/rc.d/10-history.zsh',
+    'test/fixtures/eval-stub/**': 'test/fixtures/eval-stub/claude.cjs',
+  }
+  // Every path of MACOS_PATHS without a glob, and the example of each glob.
+  const macosPaths = MACOS_PATHS.flatMap((row) => row.paths.map((glob) => [glob.includes('*') ? (GLOB_EXAMPLES[glob] ?? `no example for ${glob}`) : glob, row.why] as const))
+  it('MACOS_PATHS: every glob has an example written by hand, which no other macOS rule matches', () => {
+    const globs = MACOS_PATHS.flatMap((row) => row.paths.filter((path) => path.includes('*')))
+    expect(Object.keys(GLOB_EXAMPLES).sort()).toEqual(globs.sort())
+    const rules = MACOS_PATHS.flatMap((row) => row.paths)
+    for (const [glob, example] of Object.entries(GLOB_EXAMPLES)) {
+      expect(globRegExp(glob).test(example), `${example} is not matched by ${glob}`).toBe(true)
+      expect(MACOS_NAME.test(example), `${example} is named for macOS`).toBe(false)
+      const others = rules.filter((rule) => rule !== glob && globRegExp(rule).test(example))
+      expect(others, `${example} is matched by other rules too`).toEqual([])
+    }
+  })
+  it.each(macosPaths)('a pull request that changes %s (%s) runs macos-tests with the macOS-only files', (file) => {
+    // ci.yml is rewritten here, so it packages the app (ciPackaging) and stays a macOS path.
+    commitOnBase([file])
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect?.['macos-tests'], file).toBe(true)
+    expect(pr.files).toEqual(DARWIN_FILES)
+  })
+
+  it('MACOS_PATHS: every row has a reason, and every path without a glob is a file of this repository', () => {
+    expect(MACOS_PATHS.length).toBeGreaterThan(5)
+    for (const row of MACOS_PATHS) {
+      expect(row.why.length, row.paths.join(' ')).toBeGreaterThan(10)
+      for (const path of row.paths.filter((glob) => !glob.includes('*'))) expect(existsSync(join(REPO, path)), path).toBe(true)
+    }
   })
 
   it('leaves out of the app exactly the parts of harness/ that the build leaves out of its copy', () => {
@@ -1186,20 +1276,38 @@ describe('scripts/ci-scope.mjs', () => {
     expect(pr.files).toEqual([...DARWIN_FILES, added])
   })
 
+  it('a pull request that changes a macOS-only test file whose name is not one for macOS runs macos-tests with it', () => {
+    const guarded = 'test/unit/guarded.test.ts'
+    commitOnBase([guarded], { [guarded]: MAC_ONLY })
+    const pr = scope({ EVENT: 'pull_request', BASE: base })
+    expect(pr.status, pr.stderr).toBe(0)
+    expect(pr.expect).toEqual(TESTS_ONLY)
+    // test/unit first, then test/contract, each by name.
+    expect(pr.files).toEqual([guarded, ...DARWIN_FILES])
+    expect(pr.stdout).toContain(`${guarded} is a macOS path, so macos-tests runs the 3 macOS-only test files`)
+  })
+
   it.each([
-    ['vitest.config.ts', NO_MACOS],
-    ['scripts/vitest-electron.mjs', NO_MACOS],
-    ['src/renderer/App.tsx', NO_PACKAGE],
-    ['src/main/index.ts', NO_PACKAGE],
-    ['src/preload/index.ts', NO_PACKAGE],
-    ['src/shared/ipc/channels.ts', NO_PACKAGE],
-    ['src/card-runtime/worfy-card.ts', NO_PACKAGE],
-  ])('a pull request that changes %s runs macos-tests with the macOS-only files', (file, jobs) => {
+    // How the job runs vitest: a macOS path.
+    ['vitest.config.ts', TESTS_ONLY],
+    ['scripts/vitest-electron.mjs', TESTS_ONLY],
+    // A module with code for macOS only, which a macOS-only test checks on the real macOS.
+    ['src/main/menu.ts', { ...NO_PACKAGE, 'macos-tests': true }],
+    ['src/main/terminal/zsh/rc.d/10-history.zsh', { ...NO_PACKAGE, 'macos-tests': true }],
+    // The rest of the app: no macOS path.
+    ['src/renderer/App.tsx', APP_ONLY],
+    ['src/main/index.ts', APP_ONLY],
+    ['src/preload/index.ts', APP_ONLY],
+    ['src/shared/ipc/channels.ts', APP_ONLY],
+    ['src/card-runtime/worfy-card.ts', APP_ONLY],
+    // A module whose macOS branch takes the platform as an argument: Linux checks it.
+    ['src/shared/shortcuts.ts', APP_ONLY],
+  ])('a pull request that changes %s runs macos-tests only when it is a macOS path', (file, jobs) => {
     commitOnBase([file])
     const pr = scope({ EVENT: 'pull_request', BASE: base })
     expect(pr.status, pr.stderr).toBe(0)
-    expect(pr.expect).toEqual({ ...jobs, 'macos-tests': true })
-    expect(pr.files).toEqual(DARWIN_FILES)
+    expect(pr.expect).toEqual(jobs)
+    expect(pr.files).toEqual(jobs['macos-tests'] ? DARWIN_FILES : [])
   })
 
   it.each([
@@ -1384,6 +1492,57 @@ describe('scripts/ci-scope.mjs', () => {
     expect(unlisted(REPO)).toEqual([])
   })
 
+  // A macOS-only test file checks code on macOS: a pull request that changes that code must run it.
+  it('every macOS-only test file of this repository is named in the reason of a MACOS_PATHS row, or checked otherwise with a reason', () => {
+    const darwin = darwinTests(REPO)
+    const byName = new Map(darwin.map((path) => [path.slice(path.lastIndexOf('/') + 1), path]))
+    expect(byName.size, 'two macOS-only test files with one name').toBe(darwin.length)
+    const named = new Set(MACOS_PATHS.flatMap((row) => [...row.why.matchAll(/[\w.-]+\.test\.tsx?/g)].map(([name]) => name)))
+    // Every test a reason names is a macOS-only test file of this repository.
+    for (const name of named) expect(byName.has(name), `${name} is named in MACOS_PATHS but is no macOS-only test file`).toBe(true)
+    for (const [path, reason] of Object.entries(MACOS_TESTS_CHECKED_OTHERWISE)) {
+      expect(darwin, `${path} is checked otherwise but is no macOS-only test file`).toContain(path)
+      expect(reason.length, path).toBeGreaterThan(10)
+    }
+    const covered = (path: string) => named.has(path.slice(path.lastIndexOf('/') + 1)) || Object.hasOwn(MACOS_TESTS_CHECKED_OTHERWISE, path)
+    expect(darwin.filter((path) => !covered(path))).toEqual([])
+  })
+
+  /**
+   * The files under test/ but test files that `files` import with a static relative import (one
+   * level deep), each with the test files that import it: from `root`, forward slashes.
+   */
+  function helpersOf(root: string, files: string[]): Map<string, string[]> {
+    const helpers = new Map<string, string[]>()
+    for (const file of files) {
+      for (const [, from = ''] of readFileSync(join(root, file), 'utf8').matchAll(/^import\s[^;]*?\sfrom\s+'(\.{1,2}\/[^']+)'/gms)) {
+        const bare = relative(root, resolve(root, dirname(file), from)).split(sep).join('/')
+        const path = /\.[cm]?[jt]sx?$/.test(bare) ? bare : (['.ts', '.tsx', '.mjs', '.js', '/index.ts'].map((end) => `${bare}${end}`).find((name) => existsSync(join(root, name))) ?? bare)
+        if (!path.startsWith('test/') || /\.test(?:\.tsx?)?$/.test(path)) continue
+        helpers.set(path, [...(helpers.get(path) ?? []), file])
+      }
+    }
+    return helpers
+  }
+
+  it('reads the relative imports of a test file, written on one line or on several, and resolves them to files', () => {
+    const importer = 'test/unit/imports-helpers.test.ts'
+    commitOnBase(['test/unit/one.ts', 'test/two.tsx', importer], {
+      [importer]: "import { a } from './one'\nimport {\n  b,\n  c,\n} from '../two'\nimport { d } from '../../src/main/x'\nimport { e } from 'vitest'\nimport { f } from './other.test'\n",
+    })
+    expect([...helpersOf(repo, [importer]).keys()]).toEqual(['test/unit/one.ts', 'test/two.tsx'])
+  })
+
+  // A helper a macOS-only test imports changes what that test checks on macOS. The files of
+  // MACOS_TESTS_CHECKED_OTHERWISE run their cases on Linux too, so their helpers are left out.
+  it('every helper under test/ that a macOS-only test file imports is a macOS path', () => {
+    const darwin = darwinTests(REPO).filter((path) => !Object.hasOwn(MACOS_TESTS_CHECKED_OTHERWISE, path))
+    const helpers = helpersOf(REPO, darwin)
+    expect(helpers.size).toBeGreaterThan(5)
+    const missing = [...helpers].filter(([path]) => !isMacosPath(path, [])).map(([path, by]) => `${path} (imported by ${by.join(', ')})`)
+    expect(missing).toEqual([])
+  })
+
   it('a macOS-only test file whose name the shell would split: macos-tests runs every file', () => {
     const odd = 'test/unit/two words.test.ts'
     commitOnBase([odd, 'src/main/index.ts'], { [odd]: MAC_ONLY })
@@ -1398,8 +1557,10 @@ describe('scripts/ci-scope.mjs', () => {
     ['a base of zeros (a new branch)', '0000000000000000000000000000000000000000'],
     ['a base that does not exist', 'f'.repeat(40)],
     ['no base', ''],
-  ])('runs every job, macos-package too, when the diff cannot be read: %s', (_name, missing) => {
-    commitOnBase(['docs/adr/0001-a.md'])
+  ])('runs every job, macos-package and macos-tests too, when the diff cannot be read: %s', (_name, missing) => {
+    // A change of the app and no macOS path: with a readable diff a pull request skips macos-tests.
+    commitOnBase(['docs/adr/0001-a.md', 'src/renderer/App.tsx'])
+    expect(scope({ EVENT: 'pull_request', BASE: base }).expect).toEqual(APP_ONLY)
     for (const event of ['push', 'pull_request']) {
       const result = scope({ EVENT: event, BASE: missing })
       expect(result.status, result.stderr).toBe(0)

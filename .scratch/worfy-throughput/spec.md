@@ -708,6 +708,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | 54 | Меньше PR на полном наборе e2e macOS: узкие триггеры полного набора (`test/fixtures/**`, `.github/workflows/**`) и `macos-package` только на настоящий build input; сначала замер на run-ах после таблицы путей (`87b87f6a`) | 11 | нет | нет | runner (если меняется `windows-tests.yml` — сказать) | после 11 (замер 2026-10-29: медиана ожидания macOS на PR 20 min) |
 | 58 | Узкие правила e2e для путей `src/main` в `scripts/e2e-specs.table.json`; сначала замер по ~30 PR с кодом, какие пути шлют на весь набор | — | нет | нет | runner (правка `scripts/` и `test/contract/`) | вне Wave (решение владельца 2026-10-29, раунд 3, Q9) |
 | 60 | Переключатель «Eco mode» в чате Orchestrator-а: on — `workflow.agents: eco` и Sonnet/medium ролей агентов, off — поля удалены | — | нет | нет | CI (renderer + IPC) | вне Wave (просьба владельца 2026-10-30) |
+| 61 | `macos-tests` в PR только по путям macOS (таблица `MACOS_PATHS` в `scripts/ci-scope.mjs`); push в `main` — всё | — | нет | нет | runner (правка `scripts/`, `test/contract/` и комментариев `ci.yml`) | вне Wave (решение владельца 2026-11-05, round-2 Q7) |
 
 Почему так:
 

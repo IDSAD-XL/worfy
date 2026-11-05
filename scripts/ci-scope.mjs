@@ -17,8 +17,8 @@
 //   macOS jobs its diff asks for: the free plan runs 5 macOS jobs at a time, and pull requests
 //   waited 26 to 67 minutes in that queue. macos-package runs when it changes a build input
 //   (isBuildInput), macos-e2e when it changes the app (isAppPath, the Harness the app carries too),
-//   macos-tests when it changes the app, scripts/, harness/ or a macOS-only test file, and then with
-//   the macOS-only test files alone (darwinTestFiles,
+//   macos-tests only when it touches a macOS path (isMacosPath: a macOS-only test file, a path named
+//   for macOS, a path of MACOS_PATHS), and then with the macOS-only test files alone (darwinTestFiles,
 //   the second output `macos-tests-files`; empty means every file). A diff that cannot be read, a
 //   BASE of zeros (a new branch) and an empty diff run every job, the whole suite in each: when in
 //   doubt, test. windows-e2e runs whenever macos-e2e does. Both run only the spec files the diff
@@ -268,15 +268,87 @@ export function e2eShards(files, specs, seconds, full) {
 // The job macos-tests on a pull request runs only the test files that check something on macOS that
 // the Linux and Windows jobs do not: a test or a describe that runs on macOS only, or an assertion
 // that differs there (darwinTestFiles). On the macOS runner they took 179 s of the 1131 s that all
-// 462 files took (run 40744007856): the job ends in a few minutes instead of 11. It runs when the
-// pull request changes the app (isAppPath), one of those files, the way vitest runs, or code under
-// scripts/ or harness/, which those files check too (make-icons.test.ts runs scripts/make-icons.mjs
-// with the real sips, harness-evals-run.test.ts the Harness evals with the git of macOS). The push to
-// main runs the whole suite on macOS, and catches what an unguarded test finds only there.
-const TEST_RUNNER = new Set(['vitest.config.ts', 'scripts/vitest-electron.mjs'])
-// test/fixtures/ too: a fixture no e2e test reads is read by unit and contract tests, macOS-only ones
-// among them (harness-evals-run.test.ts reads test/fixtures/eval-stub/).
-const CHECKED_FOLDERS = ['scripts/', 'harness/', 'test/fixtures/']
+// 462 files took (run 40744007856): the job ends in a few minutes instead of 11. It runs only when
+// the pull request touches a macOS path (isMacosPath; the owner's decision of 2026-11-05, ticket
+// worfy-throughput 61): one of those files, a path named for macOS (MACOS_NAME) or a path of
+// MACOS_PATHS. A change of the app, scripts/ or harness/ elsewhere is checked on Linux and Windows
+// before the merge; the push to main runs the whole suite on macOS, and catches what only macOS finds.
+//
+// The paths besides those two, globs as in SPEC_TABLE, each row with the reason it is here. A glob
+// without `*` is a file of this repository (test/contract/ci-workflow.test.ts checks it). The modules
+// here have code that runs only on macOS and that a macOS-only test checks on the real macOS: a
+// module whose macOS branch takes the platform as an argument is checked on Linux and is not here.
+export const MACOS_PATHS = [
+  // ci.yml counts only where it changes the job macos-tests, packages the app or runs the e2e tests
+  // (ciPackaging): pullRequest drops it otherwise.
+  { paths: ['.github/workflows/ci.yml', 'scripts/ci-scope.mjs'], why: 'the CI workflow and this script: what macos-tests runs' },
+  { paths: ['vitest.config.ts', 'scripts/vitest-electron.mjs'], why: 'how the job runs vitest' },
+  { paths: ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'scripts/postinstall.mjs'], why: 'the dependencies: native packages are installed and built for macOS (node-pty for Electron, fsevents)' },
+  { paths: ['build/**', 'electron-builder.yml', '**/*entitlements*', '**/*notariz*', '**/*notaris*'], why: 'packaging, signing and notarizing the .app' },
+  { paths: ['scripts/make-icons.mjs'], why: 'renders the icon with sips and iconutil (make-icons.test.ts)' },
+  { paths: ['scripts/hang-sample.mjs'], why: 'reads the ps and pgrep of macOS (hang-sample.test.ts)' },
+  { paths: ['scripts/install-stable.mjs'], why: 'installs the .app and registers it with Launch Services (install-stable.test.ts, install-stable-functions.test.ts)' },
+  { paths: ['scripts/dev-bundle.ts'], why: 'writes the Info.plist of the dev .app (dev-bundle.test.ts)' },
+  { paths: ['scripts/eval-run-env.mjs'], why: 'the git of Xcode and ~/Library/Caches of the Harness evals (harness-evals-run.test.ts, harness-evals-outcome.test.ts)' },
+  { paths: ['src/main/dock-icon.ts'], why: 'the Dock icon' },
+  { paths: ['src/main/menu.ts'], why: 'the application menu of macOS (view-menu.test.ts)' },
+  { paths: ['src/main/ipc/shell.ts'], why: 'Finder, firmlinks and alias files (shell.test.ts)' },
+  {
+    paths: ['src/main/agent/env.ts', 'src/main/agent/auto-approve/shell.ts', 'src/main/terminal/shell-integration.ts', 'src/main/terminal/zsh/**'],
+    why: 'the login zsh of macOS (agent-env.test.ts, auto-approve-shell-sh.test.ts, terminal-shell-integration.test.ts)',
+  },
+  {
+    paths: ['src/main/terminal/pty.ts', 'src/main/ipc/terminal.ts'],
+    why: 'the terminal starts the real $SHELL -l of macOS (terminal.test.ts)',
+  },
+  {
+    paths: ['src/main/cards/store.ts', 'src/main/workflow/watch.ts', 'src/main/claude-home/registry.ts', 'src/main/link-safe-watch.ts', 'src/main/chokidar-close.ts'],
+    why: 'chokidar watches through FSEvents on macOS (cards-watch-edits.test.ts, tickets-chokidar.test.ts)',
+  },
+  {
+    paths: ['src/main/watch-gone.ts', 'src/main/docs/watch.ts', 'src/main/ipc/docs.ts'],
+    why: 'the recursive fs.watch of Node and its rule for a root removed on macOS (docs-watch-root.test.ts, docs.test.ts)',
+  },
+  { paths: ['src/main/vendors/claude/options.ts'], why: "the SDK's platform package of macOS in a dev run (harness-install.test.ts)" },
+  { paths: ['src/main/update/restart.ts'], why: 'the previous copy of worfy-stable.app (update-harness.test.ts)' },
+  { paths: ['harness/hooks/gate-failures.mjs'], why: 'names the Mac computer of a failure record (gate-failures-cli.test.ts)' },
+  // test/contract/ci-workflow.test.ts checks that every helper under test/ a macOS-only test file
+  // imports (but those of MACOS_TESTS_CHECKED_OTHERWISE) is a macOS path.
+  {
+    paths: [
+      'test/app-url.ts',
+      'test/git-bash.ts',
+      'test/quarantine.ts',
+      'test/remove.ts',
+      'test/script-node.ts',
+      'test/shell-stub.ts',
+      'test/time-scale.ts',
+      'test/zsh.ts',
+      'test/contract/counted-fs.ts',
+      'test/contract/harness-evals-shared.ts',
+      'test/contract/terminal-harness.ts',
+      'test/unit/install-stable-harness.ts',
+      'test/fixtures/eval-stub/**',
+    ],
+    why: 'helpers and fixtures the macOS-only tests use (terminal-shell-integration.test.ts, harness-evals-run.test.ts, install-stable.test.ts)',
+  },
+]
+// The macOS-only test files (darwinTestFiles) that no row above names in its `why`, each with the
+// reason a pull request needs no macos-tests for the code they check. test/contract/ci-workflow.test.ts
+// holds every macOS-only test file of this repository to a row or to this list.
+export const MACOS_TESTS_CHECKED_OTHERWISE = {
+  'test/unit/console-request.test.ts': "its 'darwin' is a parameter of it.each: the case runs on Linux and Windows too",
+  'test/unit/terminal-console.test.ts': "its 'darwin' is a parameter of it.each: the case runs on Linux and Windows too",
+  'test/contract/ci-workflow.test.ts': 'its darwin is the text of a regular expression over playwright.config.ts: every case runs on Linux too',
+}
+// A path named for macOS: a folder or a file name with the word darwin, mac, macos or osx, between
+// `/`, `.`, `-` and `_` (src/main/darwin/x.ts, scripts/notarize-mac.mjs, test/e2e/macos-menu.spec.ts).
+export const MACOS_NAME = /(?:^|[/._-])(?:darwin|macos|mac|osx)(?=[/._-]|$)/i
+const MACOS_MATCHERS = MACOS_PATHS.flatMap((row) => row.paths.map(globRegExp))
+
+/** A path whose change a pull request checks with macos-tests, given the macOS-only test files (`darwin`). */
+export const isMacosPath = (path, darwin) => darwin.includes(path) || MACOS_NAME.test(path) || MACOS_MATCHERS.some((matcher) => matcher.test(path))
+
 const TEST_FOLDERS = ['test/unit/', 'test/contract/']
 // The guard of a test that runs on macOS only, or of an assertion that differs there:
 // `process.platform === 'darwin'`, `!== "darwin"`, `platform() === 'darwin'`, `'darwin' ===
@@ -512,13 +584,14 @@ function pullRequest(all, ci, base) {
     notes.push('the macOS-only test files could not be listed, so macos-tests runs every file')
     return { expect, files: [], e2e, notes }
   }
-  const checked = (path) => isAppPath(path) || TEST_RUNNER.has(path) || CHECKED_FOLDERS.some((folder) => path.startsWith(folder))
-  if (!ci?.macosTests && !code.some((path) => checked(path) || darwin.includes(path))) {
+  // The job macos-tests of ci.yml changed: ci.yml stays in `code` only when it packages the app.
+  const asked = ci?.macosTests ? CI_WORKFLOW : code.find((path) => isMacosPath(path, darwin))
+  if (asked === undefined) {
     expect['macos-tests'] = false
-    notes.push('no app path, script, Harness or macOS-only test file, so no macos-tests')
+    notes.push('no macOS path, so no macos-tests')
     return { expect, files: [], e2e, notes }
   }
-  notes.push(`macos-tests runs the ${darwin.length} macOS-only test files`)
+  notes.push(`${asked} is a macOS path, so macos-tests runs the ${darwin.length} macOS-only test files`)
   return { expect, files: darwin, e2e, notes }
 }
 

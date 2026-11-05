@@ -8,8 +8,9 @@ name: CI
 # - changes: which jobs this run needs (scripts/ci-scope.mjs). A change of documents only runs
 #   lint-typecheck and skips the rest. A push to main runs every job. A pull request runs only the
 #   macOS jobs its diff asks for: macos-e2e when it changes the app (harness/ included, which the app
-#   carries), macos-tests (the macOS-only test files) when it changes the app, scripts/, harness/ or
-#   one of those files, macos-package when it changes a build input.
+#   carries), macos-tests (the macOS-only test files) only when it touches a macOS path (one of those
+#   files, a path named for macOS, MACOS_PATHS of scripts/ci-scope.mjs), macos-package when it changes
+#   a build input.
 # - lint-typecheck: pnpm lint and pnpm typecheck on Linux. pnpm lint ends with the privacy check of
 #   what the change adds to the tickets root, harness/bin/evidence-check --changed --root .scratch
 #   (the root is given: the runner has no Harness registry for `ticket root` to read). Its base here
@@ -27,8 +28,9 @@ name: CI
 #   by hand always run the whole suite. The Harness shell tests (test/contract/harness-scripts-<n>.test.ts)
 #   run after the shard, alone, part <shard> of them in each shard.
 # - macos-tests: pnpm test on macOS in one job: the tests that run on macOS only are checked here. A
-#   push to main runs every file; a pull request the files with a macOS-only test or assertion
-#   (scripts/ci-scope.mjs, output macos-tests-files).
+#   push to main runs every file; a pull request that touches a macOS path the files with a macOS-only
+#   test or assertion (scripts/ci-scope.mjs, output macos-tests-files), and any other pull request
+#   skips the job.
 # - macos-e2e: pnpm test:e2e on macOS in 2 shards, Electron with a window. scripts/e2e-shard.mjs gives
 #   each shard its spec files by their measured time (test/e2e/timings.json), not by test count. A
 #   pull request runs only the spec files its diff asks for (scripts/e2e-specs.table.json, output
@@ -56,9 +58,10 @@ name: CI
 #
 # The free plan runs 5 macOS jobs at a time, and pull requests waited 26 to 67 minutes for them while
 # their longest job took 19. So a pull request asks for at most 3 of them (one macos-tests and two
-# macos-e2e shards) when it changes the app, for one (macos-tests) when it changes only scripts or
-# the Harness's tests and evals, and for none when it changes only unit or contract tests. The push to
-# main runs them all.
+# macos-e2e shards) when it changes the app and a macOS path, for two (macos-e2e) when it changes the
+# app elsewhere, for one (macos-tests) when it changes only a macOS path outside the app, and for none
+# when it changes only other scripts, the Harness's tests and evals or unit and contract tests. The
+# push to main runs them all.
 #
 # The manual run stays: Actions → CI → Run workflow, or `gh workflow run ci.yml --ref <ref> -f
 # job=check` (lint, typecheck and the Linux shards — the batch run of a Wave) and `-f job=full-macos`
