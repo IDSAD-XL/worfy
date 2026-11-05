@@ -1,7 +1,8 @@
 # 02 — Gate пишет записи о падениях
 
 Type: task
-Status: claimed 2026-11-04T23:30Z
+Status: done 2026-11-05T02:09Z
+PR: #1404
 Blocked by: 01
 Source: [spec.md](../spec.md), «Источники и что меняется в них» (gate не знает test-ов, `GATE_FAILURES_FILE`), «Модель» (файл run-а, запись шага без test-ов, срок хранения), «Windows» (оба пути запуска script-а), «Решено без владельца» (строка в красном отчёте); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md), [ADR-0074](../../../docs/adr/0074-harness-neutral-by-language-and-project.md)
 
@@ -43,33 +44,47 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
 - [ ] Shell test: проект-fixture, чей script `test` пишет две строки в `$GATE_FAILURES_FILE` и выходит с 1 — файл
       run-а с двумя записями, `step` = метка script-а, `head` = HEAD, код gate 2, строка `[gate] red …` прежняя.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Shell test: script `lint` падает без строк — одна запись шага с первой строкой ошибки; в ней нет пути
       домашней папки.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Shell test: строка reporter-а с `/Users/jdoe/…` в `error` и `name` — в файле run-а `~/…`: gate очистил сам.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Shell test: run на дереве с незакоммиченной правкой — `dirty: true`; на чистом — `false`.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Shell test: после каждого script-а его `.run-…failures.jsonl` в папке состояния нет (script следующего шага
       печатает список папки).
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Shell test: зелёный run и run «nothing ran» файла не пишут; run с `command not found` (окружение недоступно)
       записей не даёт.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Shell test: run, остановленный SIGTERM во время script-а, который уже записал строку, не оставляет ни файла
       run-а, ни `.run-…failures.jsonl`.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Shell test: второй script не видит `GATE_FAILURES_FILE` первого (печатает своё значение — оно другое).
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Shell test: красный отчёт содержит строку `--- failure records:`; verdict-файл тот же, что у run-а без строк
       в файле, без полей времени: `at`, `total_ms` и `steps[].ms` сравнение убирает.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Shell test: файл run-а с `at` старше 60 дней удалён после нового красного run-а.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Shell-test-ы gate (`harness/hooks/tests/*.test.sh`) и `test/unit/gate-state.test.ts` зелёные.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-*.test.sh` each exit 0; `node scripts/vitest-electron.mjs run test/unit/gate-state.test.ts` (with gate-failures and flight-recorder gate files) exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Платформенный PR, если так скажет `scripts/windows-verdict-scope.mjs`: путь `cmd.exe` проверяется на Windows.
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
+  - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/41951852702/job/127001880491 · ci - · 146eeec28fdf579387373e194810215b53fb4be0
 
 ## Тесты
 
