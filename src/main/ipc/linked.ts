@@ -7,7 +7,10 @@
 // Linked machine — has no use for them.
 //
 // This module is also loaded by the IPC adapter of every link service (ipc-adapter.ts), in tests
-// without Electron: it imports Electron only when it sends to the windows.
+// without Electron. It imports `BrowserWindow` only when it sends to the windows, but it loads
+// settings/store, which imports Electron's `app` on load; `app` is used only when `linked.invoke` carries
+// `autoApproval.set` (debugAccess() asks Chromium's switches), so a test that sends one without Electron
+// mocks `electron` or debugAccess().
 //
 // A debugging port of this Machine (worfy-retry ticket 13). While worfy runs with a debugging port or the
 // Node inspector open, any local process can script a window, and a Linked machine cannot know that the

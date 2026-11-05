@@ -179,15 +179,21 @@ test('Modes in a window on a Linked machine: full access changes the modes on th
       await expect(item).toHaveAttribute('title', HINT)
     }
     await expect(readOnly.eco).toHaveAttribute('aria-checked', 'true')
-    const profileBefore = readFileSync(bSetup.profile, 'utf8')
-    const settingsBefore = readFileSync(bSettings, 'utf8')
-    // Playwright waits for an aria-disabled item to become enabled; the click is forced, as a person's would land.
-    await readOnly.eco.click({ force: true })
-    await readOnly.cont.click({ force: true })
     await captureScreenshot(readOnly.menu, 'modes-linked-read-only')
-    expect(readFileSync(bSetup.profile, 'utf8')).toBe(profileBefore)
-    expect(readFileSync(bSettings, 'utf8')).toBe(settingsBefore)
-    await expect(readOnly.eco).toHaveAttribute('aria-checked', 'true')
+    // Playwright waits for an aria-disabled item to become enabled; the click is forced, as a person's would land.
+    // "Nothing written" is checked after a write B's own window makes to the other file has landed: a write of
+    // A's click, had it gone out, had that long to land too. A's Eco mode first, B's Auto-continue as the mark.
+    await readOnly.eco.click({ force: true })
+    await bModes.button.click()
+    await bModes.cont.click()
+    await expect.poll(() => (json(bSettings).autoContinue as Record<string, unknown> | undefined)?.[BETA]).toBe(true)
+    expect((json(bSetup.profile).workflow as { agents?: unknown } | undefined)?.agents).toBe('eco')
+    // A sees B's change, and its forced Auto-continue click would write off; B's Eco mode is the mark.
+    await expect(readOnly.cont).toHaveAttribute('aria-checked', 'true', { timeout: ms(20_000) })
+    await readOnly.cont.click({ force: true })
+    await bModes.eco.click()
+    await expect.poll(() => (json(bSetup.profile).workflow as { agents?: unknown } | undefined)?.agents).not.toBe('eco')
+    expect((json(bSettings).autoContinue as Record<string, unknown> | undefined)?.[BETA]).toBe(true)
   } finally {
     await a.close()
     await b?.close()

@@ -63,6 +63,8 @@ interface FakeMain {
   contHold: (() => void) | null
   /** What `autoApproval.blockedHere` of this Machine answers: why it lets no Shadow or On out. */
   blockedHere: string | null
+  /** When set, `autoApproval.blockedHere` fails with this error instead. */
+  blockedHereFails: string | null
   /** Sends an event of main to the window's subscribers. */
   emit: (channel: string, payload: unknown) => void
   /** Sends an event of Linked machine `machine` to the window, as this Machine's main passes it on (`linked.event`). */
@@ -79,6 +81,7 @@ const ECO_ON: EcoModeState = { available: true, on: true, fingerprint: FP_ON }
 
 interface Setup {
   blockedHere?: string | null
+  blockedHereFails?: string
   eco?: (EcoModeState | string)[]
   ecoSet?: EcoModeSetResult | string
   auto?: Answer[]
@@ -101,6 +104,7 @@ function preload(setup: Setup = {}): FakeMain {
     contSet: setup.contSet,
     contHold: null,
     blockedHere: setup.blockedHere ?? null,
+    blockedHereFails: setup.blockedHereFails ?? null,
     emit: (channel, payload) => {
       for (const [, each] of listeners) if (each.channel === channel) each.handler(payload)
     },
@@ -128,6 +132,7 @@ function preload(setup: Setup = {}): FakeMain {
         return answer(call.channel, call.input, call.machine).then((inner) => ({ ok: true, value: inner }) as never)
       }
       case 'autoApproval.blockedHere':
+        if (fake.blockedHereFails !== null) return Promise.resolve({ ok: false, error: fake.blockedHereFails } as never)
         return Promise.resolve({ ok: true, value: { blocked: fake.blockedHere } } as never)
       case 'ecoMode.read':
         return ecoAnswer(fake.ecoReads.length > 1 ? fake.ecoReads.shift() : fake.ecoReads[0])
@@ -919,6 +924,19 @@ describe('a window on a Linked machine', () => {
     expect(contItem().getAttribute('aria-disabled')).toBeNull()
     await click(contItem())
     expect(writes()).toEqual([{ channel: 'autoContinue.set', input: { projectId: PROJECT, on: true }, machine: MACHINE }])
+  })
+
+  it('asking this Machine why it would hold Auto-approval back fails: the group stays available, and the choice goes through the link, which checks on its own', async () => {
+    onLinked()
+    main = preload({ auto: ['off'], blockedHereFails: 'autoApproval.blockedHere failed: no answer' })
+    await mount()
+    await openMenu()
+    for (const name of ['Off', 'Shadow', 'On'] as const) {
+      expect(position(name).getAttribute('aria-disabled')).toBeNull()
+      expect(position(name).title).not.toMatch(/cannot be set from this Machine/)
+    }
+    await choose('On')
+    expect(writes()).toEqual([{ channel: 'autoApproval.set', input: { projectId: PROJECT, mode: 'on' }, machine: MACHINE }])
   })
 
   it('a window on this Machine does not ask why this Machine would hold Auto-approval back: the read says it', async () => {

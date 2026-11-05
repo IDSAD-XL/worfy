@@ -54,8 +54,8 @@ vi.mock('electron', () => ({
 }))
 vi.mock('../../src/main/harness/script-env', () => ({ harnessScriptEnv: () => Promise.resolve(process.env) }))
 
-/** Why A's worfy runs with a debugging port open; null — it does not. B's handlers take their own. */
-const debug = vi.hoisted(() => ({ reason: null as string | null }))
+/** Why A's worfy runs with a debugging port open (`reason`), and B's (`onB`); null — it does not. */
+const debug = vi.hoisted(() => ({ reason: null as string | null, onB: null as string | null }))
 vi.mock('../../src/main/settings/store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/main/settings/store')>()),
   debugAccess: () => debug.reason,
@@ -164,7 +164,7 @@ let store = new BenchStore(settingsFile)
 const projects = () => [{ id: PROJECT, path: repo }]
 const bHandlers = {
   eco: ecoModeHandlers({ projects, profileSet }),
-  auto: autoApprovalHandlers({ projects, store: () => store, debugAccess: () => null }),
+  auto: autoApprovalHandlers({ projects, store: () => store, debugAccess: () => debug.onB }),
   cont: autoContinueHandlers({ projects, store: () => store }),
 }
 
@@ -248,6 +248,7 @@ beforeEach(async () => {
   store = new BenchStore(settingsFile)
   writeFileSync(settingsFile, '{}\n')
   debug.reason = null
+  debug.onB = null
   afterProfileSet = null
   profileSetRuns.length = 0
   bench = new LinkBench({ ipcModules: modules, addClient })
@@ -391,8 +392,11 @@ describe('a change on one Machine shows on the other at once (Q18)', () => {
   })
 })
 
-describe('risk 1: the link drops in the middle of a write', () => {
-  it('the write went through and the answer was lost: A gets "unreachable"; once connected again it reads what was written', async () => {
+// What these two hold is the link's side: the answer A gets and what B holds afterwards. The menu's side of
+// risk 1 — no guess while the answer is lost, a toast, then a read again — is held by the unit tests of
+// test/unit/modes-menu.test.tsx ("a write through the link without an answer" and the two after it).
+describe('risk 1: the link drops in the middle of a write — what A gets and what B holds', () => {
+  it('the write went through and the answer was lost: A gets "unreachable", B holds the new value, and A reads it once connected again', async () => {
     setAccess('all')
     // B writes, then its end of the connection closes before the answer goes.
     store.afterWrite = () => b.service.connectionTo(a.service.machine.id)?.close()
@@ -406,7 +410,7 @@ describe('risk 1: the link drops in the middle of a write', () => {
     expect(await onB('autoContinue.read', { projectId: PROJECT })).toEqual({ ok: true, value: { on: true } })
   })
 
-  it('the write did not go through: A gets "unreachable"; once connected again it reads the value before', async () => {
+  it('the write did not go through: A gets "unreachable", B holds the value before, and A reads it once connected again', async () => {
     setAccess('all')
     store.beforeWrite = () => {
       b.service.connectionTo(a.service.machine.id)?.close()
@@ -475,6 +479,27 @@ describe('risk 3: both Machines write at once', () => {
     expect(lastOnA('autoContinue.changed')).toEqual({ projectId: PROJECT, on })
     expect(await onB('autoApproval.read', { projectId: PROJECT })).toMatchObject({ ok: true, value: { saved } })
     expect(await onB('autoContinue.read', { projectId: PROJECT })).toEqual({ ok: true, value: { on } })
+  })
+})
+
+describe('a debugging port open on the Machine of the Project', () => {
+  it('B refuses Shadow and On from A with its own refusal and keeps Off in force; Off and the other modes go through; A reads why', async () => {
+    setAccess('all')
+    store.setAutoApproval(PROJECT, 'on')
+    const writes = store.writes
+    debug.onB = DEBUG
+    // A's own worfy has no debugging port: the call leaves A, and B's handler refuses it.
+    expect(await aCall('autoApproval.blockedHere', undefined)).toEqual({ ok: true, value: { blocked: null } })
+    const refused = { ok: false, error: `autoApproval.set failed: Auto-approval stays off: ${DEBUG}, so any program on this Machine could call this channel` }
+    expect(await onB('autoApproval.set', { projectId: PROJECT, mode: 'on' })).toEqual(refused)
+    expect(await onB('autoApproval.set', { projectId: PROJECT, mode: 'shadow' })).toEqual(refused)
+    expect(store.writes).toBe(writes)
+    expect(settingsOnB().autoApproval).toEqual({ [PROJECT]: 'on' })
+    // The read says why, and Off is the mode in force while the saved one waits.
+    expect(await onB('autoApproval.read', { projectId: PROJECT })).toEqual({ ok: true, value: { mode: 'off', saved: 'on', blocked: DEBUG } })
+    expect(await onB('autoApproval.set', { projectId: PROJECT, mode: 'off' })).toEqual({ ok: true, value: { mode: 'off', saved: 'off', blocked: DEBUG } })
+    expect(settingsOnB().autoApproval).toBeUndefined()
+    expect(await onB('autoContinue.set', { projectId: PROJECT, on: true })).toEqual({ ok: true, value: { on: true } })
   })
 })
 
