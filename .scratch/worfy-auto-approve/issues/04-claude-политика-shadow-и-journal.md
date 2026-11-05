@@ -103,10 +103,15 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3, 7; «Ре�
 
 - [ ] Contract test на fake agent: при `off` поток событий и Journal байт в байт как сегодня (сравнение с записью до
       правки).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
 - [ ] Contract test: `shadow` — агент получает прежний текст отказа, в Journal `would-allow` с правилом.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
 - [ ] Contract test: `on` — запрос внутри worktree Wave проходит; вне корня — deny с подсказкой; hard deny — отказ.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
 - [ ] Unit test очистки: домашняя папка, `GH_TOKEN=…`, длинная команда — в строке Journal нет ни секрета, ни пути дома.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-run.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
 - [ ] Переключение режима во время Run-а действует со следующего запроса; строка Journal называет режим.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · b2b67e8290e738ff006af71bf49e722579c00622
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты
