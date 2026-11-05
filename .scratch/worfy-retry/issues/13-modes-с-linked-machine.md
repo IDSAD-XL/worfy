@@ -1,0 +1,114 @@
+# 13 — Modes с Linked machine: Full access меняет, Read only видит
+
+Type: task
+Status: open
+Blocked by: 12, 02
+Source: [spec.md](../spec.md), «Решения владельца 2026-11-05», Q15–Q18; [ADR-0066](../../../docs/adr/0066-read-only-access-for-a-linked-machine.md) (уровни доступа Linked machine); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), п. 5–6
+
+## Что происходит
+
+- После Ticket-ов 12 и 02 у Orchestrator-а меню Modes с тремя пунктами: Eco mode, Auto-approval, Auto-continue. В окне
+  Linked machine все три недоступны при любом уровне доступа и ничего не читают: сегодня так у Eco mode и
+  Auto-approval (`elsewhere`, `src/renderer/session/composer/EcoMode.tsx:52`, `AutoApprove.tsx:85`; Ticket 12 переносит
+  это правило в меню, Ticket 02 — в пункт Auto-continue).
+- Причина — пометка каналов. `ecoMode.read` и `ecoMode.set` (`src/shared/ipc/eco-mode.ts:29`, `:54`),
+  `autoApproval.read` и `autoApproval.set` (`src/shared/ipc/auto-approve.ts:30`, `:33`) помечены `local`: такой канал
+  никогда не открыт Linked machine (`src/shared/ipc/channels.ts:30-31`), из окна Linked machine он ушёл бы в main этой
+  Machine, где Project-а нет. Каналы `autoContinue.*` Ticket 02 создаёт тоже `local`.
+- Как окно Linked machine уже пишет в Project той Machine: маршрут выбирает пометка канала — `project` и `desktop` идут
+  на Machine окна (`routeOf`, `src/renderer/ipc.ts:60-63`) через `linked.invoke` этой Machine (`machineBridge`,
+  `src/renderer/ipc.ts:123-134`; handler — `src/main/ipc/linked.ts:251-261`; `RemoteCalls.call`,
+  `src/main/link/remote-calls.ts:153`). Так идут ввод Session (`agent.send`, `src/shared/ipc/agent.ts:61-69`, вызов —
+  `src/renderer/session/SessionView.tsx:227`), смена модели в pickers (`agent.configure`, `agent.ts:93`, вызов —
+  `src/renderer/session/composer/Pickers.tsx:401`) и Binding (`bindings.set`, `src/shared/ipc/bindings.ts:47`): все
+  `project`, `write`.
+- Read only: Machine Project-а отказывает каналу `write` до разбора входа, handler не запускается
+  (`LinkIpcAdapter.call`, `src/main/link/ipc-adapter.ts:241-244`, текст — `readOnlyRefusal`, `:61`). Окно заранее
+  гасит запись: `useReadOnly` (`src/renderer/projects/useProjects.ts:263-270`) для кнопок, `readOnlyNow`
+  (`useProjects.ts:273-276`) для кода, который шлёт (пример — `src/renderer/binding/store.ts:85-86`).
+- Рассылка: `toEveryWindow` доходит и до клиентов без окна (`src/main/broadcast.ts:29-31`), клиент `project`
+  соединения — один из них (`src/main/link/ipc-adapter.ts:23-24`); клиент Read only пересылает только события `read`
+  (`ipc-adapter.ts:109`). Смена настроек Machine рассылается как `appSettings.changed`
+  (`src/main/ipc/app-settings.ts:11`), но этот канал `local` (`src/shared/ipc/app-settings.ts:18`) и на Linked machine
+  не уходит. У `ecoMode.*` и `autoApproval.*` своего события нет.
+
+## Что делаем (решения владельца Q15–Q18)
+
+1. **Пометки каналов.** `ecoMode.read`, `autoApproval.read`, `autoContinue.read` → `project`, `read`;
+   `ecoMode.set`, `autoApproval.set`, `autoContinue.set` → `project`, `write`. Запись идёт на Machine Project-а:
+   Eco mode — в Profile через `bin/profile-set` той Machine (`src/main/ipc/eco-mode.ts:79` проверяет, что путь — Project
+   той Machine), Auto-approval и Auto-continue — в `app-settings.json` той Machine. Списки
+   `test/unit/link-access.test.ts` (`READ_CALLS` — `:174`, `WRITE_CALLS` — `:252`) получают новые имена.
+2. **События смены** `ecoMode.changed`, `autoApproval.changed`, `autoContinue.changed` — `project`, `read`; main
+   Machine Project-а шлёт их всем клиентам после каждой удачной записи, с какой бы Machine она ни пришла. Открытое меню
+   на обеих Machine обновляется сразу (Q18). Смена Profile мимо worfy (командой Harness) события не даёт: её покажет
+   следующее чтение или `conflict` при записи, как сегодня.
+3. **Меню в окне Linked machine.** Правило `elsewhere` уходит: меню читает три состояния через `project`-каналы.
+   Full access — пункты меняют (Q15). Read only — меню открывается, три состояния видны, каждый пункт
+   `aria-disabled` с подсказкой `useReadOnly`; запись не уходит (`readOnlyNow`) (Q17). Off — Project-ов этой
+   Machine окно не показывает (ADR-0066, п. 1).
+4. **Debugging port на вызывающей Machine.** Сегодня Shadow и On не принимаются, пока worfy своей Machine запущен с
+   debugging port или inspector-ом: окно тогда может вести любой локальный процесс (`src/main/ipc/auto-approve.ts:7-11`,
+   `:45-46`). Через link та же дыра открывается с другой стороны: Machine Project-а не знает, что окно вызывающей
+   Machine ведёт скрипт. Решение без владельца: `linked.invoke` вызывающей Machine (`src/main/ipc/linked.ts:251-261`)
+   отказывает `autoApproval.set` с Shadow или On, пока её собственный `debugAccess()` (`src/main/settings/store.ts:427`)
+   не пуст, тем же текстом; Off проходит. Пункт показывает причину, как `blockedTitle` сегодня.
+5. **Страницы Feature**: раздел «On a Linked machine» (`docs/features/sessions.md:196-197`,
+   `docs/features/ru/sessions.md:143`) — Full access меняет все три режима, Read only видит.
+
+## Риски и их test-ы
+
+1. **Link оборвался посреди записи.** Ответ не пришёл за `CALL_TIMEOUT_MS` (30 с, `src/main/link/connection.ts:13`,
+   `:123-137`) или соединение закрылось: окно получает «did not answer in time» / «is unreachable»
+   (`remote-calls.ts:167-168`), а запись на той Machine могла пройти. Пункт показывает toast с причиной
+   (`readableReason`, `src/renderer/ipc.ts:222-224`) и читает состояние заново; не прочиталось — пункт недоступен с
+   причиной, догадку не показывает. Вернулась связь — окно Linked machine загружается заново
+   (`remote-calls.ts:19-21`) и читает всё. Contract test: запись дошла, ответ потерян → после переподключения меню
+   показывает записанное; запись не дошла → прежнее.
+2. **Уровень доступа сменили посреди записи.** Начатый вызов доходит, следующий проверяется по новому уровню
+   (`ipc-adapter.ts:25-28`, ADR-0066, п. 5; образец — `test/contract/link-access.test.ts:591`). Contract test: Full
+   access → запись начата → уровень Read only → запись завершилась, следующая получает `readOnlyRefusal`, меню
+   переходит в Read only без перезагрузки окна (`useReadOnly` следит за уровнем).
+3. **Обе Machine пишут одновременно.** Eco mode: запись несёт `--expect` с fingerprint-ом, вторая получает `conflict`
+   (`src/main/ipc/eco-mode.ts:97`, `:100`) и toast `ECO_MODE_CHANGED` — ничего не затёрто молча. Auto-approval и
+   Auto-continue: побеждает последняя запись на Machine Project-а; событие смены приводит оба меню к ней.
+   Contract test: две записи с двух сторон → итог одинаков на обеих Machine, у Eco mode вторая — `conflict`.
+4. **Read only пишет мимо окна.** Запись `set` от Machine с Read only отказана в `ipc-adapter.ts:241-244`, handler не
+   запускается, файл и Profile не меняются. Contract test на каждый из трёх `set`.
+5. **Debugging port на вызывающей Machine** (п. 4). Contract test: у вызывающей Machine `debugAccess()` не пуст →
+   `autoApproval.set` On отказан, Off прошёл; на Machine Project-а режим не изменился.
+
+## Готово, когда
+
+- [ ] Full access: каждый из трёх пунктов меняется из окна Linked machine; запись — на Machine Project-а (Profile или
+      `app-settings.json` той Machine), на вызывающей Machine ничего не записано.
+- [ ] Read only: меню открывается, три состояния видны, пункты недоступны с подсказкой Read only; запись отказана и
+      на стороне Machine Project-а.
+- [ ] Смена на одной Machine видна в открытом меню другой без перезагрузки (Q18).
+- [ ] Пять contract test-ов из «Риски» зелёные.
+- [ ] Списки `test/unit/link-access.test.ts` обновлены.
+- [ ] Страницы Feature EN и RU, раздел Linked machine.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+
+## Тесты
+
+- Contract `test/contract/modes-linked.test.ts` (новый) на двух Machine link bench (`test/contract/link-bench.ts`,
+  как `test/contract/link-access.test.ts`): Full access пишет три режима; Read only — отказ; рассылка смены (Q18);
+  риски 1–5.
+- Unit `test/unit/modes-menu.test.tsx`: окно Linked machine с Full access — пункты доступны, вызовы идут через
+  `linked.invoke`; Read only — пункты недоступны с подсказкой, вызова записи нет.
+- Unit `test/unit/link-access.test.ts`: новые каналы в списках `read` и `write`.
+- Сначала падающий: contract — `autoApproval.read` с Linked machine отказан «not open to Linked machines».
+
+## Где в коде
+
+- `src/shared/ipc/eco-mode.ts`, `src/shared/ipc/auto-approve.ts`, `src/shared/ipc/auto-continue.ts`
+- `src/main/ipc/eco-mode.ts`, `src/main/ipc/auto-approve.ts`, `src/main/ipc/auto-continue.ts`, `src/main/ipc/linked.ts`
+- `src/renderer/session/composer/Modes.tsx`, `src/renderer/session/modes/eco-mode.ts`,
+  `src/renderer/session/modes/auto-approval.ts`, `src/renderer/session/modes/auto-continue.ts`
+- `test/contract/modes-linked.test.ts` (новый), `test/unit/modes-menu.test.tsx`, `test/unit/link-access.test.ts`
+- `docs/features/sessions.md`, `docs/features/ru/sessions.md`
+
+Только читать: `src/renderer/ipc.ts`, `src/main/link/ipc-adapter.ts`, `src/main/link/remote-calls.ts`,
+`src/main/link/connection.ts`, `src/main/broadcast.ts`, `src/renderer/projects/useProjects.ts`,
+`test/contract/link-bench.ts`, `test/contract/link-access.test.ts`.

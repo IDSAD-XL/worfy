@@ -1,6 +1,7 @@
 # worfy-retry: Auto-continue — повтор хода после сбоя API и продолжение после Limits
 
-Status: принят владельцем 2026-11-04 («Да, всё»): ответы Q1–Q9 — по рекомендации (Q8 (в), остальные (а))
+Status: принят владельцем 2026-11-04 («Да, всё»): ответы Q1–Q9 — по рекомендации (Q8 (в), остальные (а)); 2026-11-05
+владелец принял Q10–Q18 (меню Modes, Ticket-ы 12 и 13)
 Source: слово владельца 2026-11-04: «насчет автоповтора после ошибок, нужен отдельный эпик. Так же как и автоповтор при
 исчерпании 5 часового окна, это должно быть в виде переключателя в чате оркестратора, как эко мод.»; уточнение владельца
 в тот же день: у его верхнего плана окна в 5 часов нет, у планов ниже — есть, продолжение после Limits должно
@@ -12,7 +13,7 @@ Run-е); [worfy-throughput 60](../worfy-throughput/issues/60-переключа�
 действий); [CONTEXT.md](../../CONTEXT.md), термины Run, Wave, Journal, Orchestrator, Session, Limits, Eco mode, Vendor;
 ADR [0002](../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md),
 [0005](../../docs/adr/0005-worfy-own-state-inventory.md), [0094](../../docs/adr/0094-vendor-seam.md).
-Ticket-ы: Epic `worfy-retry`, 11 Ticket-ов, нумерация с `01`. Шапка — `Type:` / `Status:` / `Blocked by:` / `Source:`,
+Ticket-ы: Epic `worfy-retry`, 13 Ticket-ов, нумерация с `01` (12 и 13 добавлены 2026-11-05). Шапка — `Type:` / `Status:` / `Blocked by:` / `Source:`,
 как у worfy-faults.
 
 **Старт Epic-а — после merge worfy-multi-vendor 38** (budget и прогноз по Vendor-у): он правит
@@ -40,7 +41,8 @@ Ticket-ы 04 и 05 этого Epic-а. **Ticket 09 — после merge worfy-fa
   плане владельца окна `five_hour` нет, есть только `seven_day` или вообще ни одного окна с временем сброса.
   У Codex — свои `primary` и `secondary` (CONTEXT.md, Limits). Отсутствие окна — нормальное состояние, не ошибка.
 
-Epic даёт один переключатель в чате Orchestrator-а, рядом с Eco mode: **Auto-continue** (рабочее имя, Q1). Включён —
+Epic даёт одну настройку в чате Orchestrator-а: **Auto-continue** (рабочее имя, Q1) — пункт меню **Modes** рядом с Eco
+mode и Auto-approval (Q10). Включён —
 после временной ошибки API worfy сам шлёт Orchestrator-у продолжение с паузой, растущей от попытки к попытке; после
 отказа Limits ждёт сброса того окна, которое сообщил Vendor (`five_hour`, `seven_day`, `primary`, `secondary`), а без
 окна — проверяет по интервалу, и продолжает. Выключен — всё как сегодня, и test-ы worfy-faults «стоп на 500» остаются
@@ -48,12 +50,17 @@ Epic даёт один переключатель в чате Orchestrator-а, �
 
 ## Что видит владелец
 
-1. **Переключатель.** Во второй строке поля ввода **только Orchestrator-а**, справа от Eco mode: подпись «Auto-continue»,
-   on/off, тот же стиль, что у Eco mode (`src/renderer/session/composer/EcoMode.tsx:107-127`, класс `w-eco`). Tooltip:
+1. **Меню Modes** (Q10–Q13). Во второй строке поля ввода **только Orchestrator-а** — одна кнопка «Modes» вместо
+   отдельных переключателей Eco mode и Auto-approval: в строке нет места для третьего (при 1280×800 с открытым sidebar
+   остаётся около 30 px, а Send должен остаться на строке pickers). На кнопке — три иконки состояния, всегда все и в
+   постоянной ширине: включённый режим — яркая, выключенный — приглушённая, Auto-approval Shadow — контур. Меню:
+   Eco mode (on/off), Auto-approval (Off/Shadow/On), **Auto-continue** (on/off). Tooltip пункта Auto-continue:
    «Auto-continue: after a temporary API error (500, 529, connection lost) worfy sends the Orchestrator "continue" up to
    5 times with growing pauses; after the Limits refuse, it waits for the reset and continues. Never resends your
-   message or the Wave command.» Linked machine и только чтение — недоступен с tooltip-ом, как Eco mode
-   (`ECO_MODE_ELSEWHERE`, `EcoMode.tsx:23`).
+   message or the Wave command.» Перенос двух переключателей в меню — Ticket 12, пункт Auto-continue — Ticket 02.
+   Окно Linked machine: до Ticket-а 13 все пункты недоступны, как сегодня оба переключателя (`elsewhere`,
+   `src/renderer/session/composer/EcoMode.tsx:52`, `AutoApprove.tsx:85`); после него Full access меняет все три режима,
+   Read only видит их и ничего не меняет (Q15–Q17).
 2. **Состояния.** Off (как сегодня); On; On и ждёт — повтора после ошибки или сброса Limits. Пока ждёт, над полем
    ввода Orchestrator-а — строка с обратным отсчётом:
    - `API error 529 (overloaded) · retry 2 of 5 in 4:12` и кнопки `Retry now`, `Cancel`;
@@ -226,11 +233,15 @@ Epic даёт один переключатель в чате Orchestrator-а, �
 - **Auto-continue** — настройка Project-а на Machine: после временной ошибки API worfy шлёт Orchestrator-у продолжение с
   растущей паузой, после отказа Limits ждёт сброса окна и продолжает. Исходное сообщение и команду Wave не повторяет.
   _Avoid_: автоповтор, replay, retry loop.
+- **Orchestrator modes** (Q11) — настройки, которые меняют то, как работает Orchestrator: Eco mode, Auto-approval,
+  Auto-continue. _Avoid_: режимы Autopilot.
+
+Оба термина и «Auto-approval» внесены в `CONTEXT.md` 2026-11-05; Ticket 10 сверяет их со сделанным.
 
 ## Ticket-ы
 
 - **01 — Какая ошибка временная.** Проверка формы ошибок Claude Code и Codex, чистая функция `turnFailureKind`. Blocked by: —.
-- **02 — Настройка и переключатель Auto-continue.** `app-settings.json`, канал, элемент поля ввода. Blocked by: —.
+- **02 — Настройка Auto-continue и пункт меню Modes.** `app-settings.json`, канал, третий пункт меню. Blocked by: 12.
 - **03 — План повтора и текст продолжения.** Паузы, предел, внешние действия хода, правило `in-flight`. Blocked by: 01.
 - **04 — Повтор в Run-е Autopilot-а.** `TurnRetry`, Journal `turn-retry` / `retry-refused`, строка на Canvas. Blocked by: 02, 03.
 - **05 — Limits с переключателем: любые окна, далёкий сброс.** Blocked by: 02.
@@ -239,7 +250,11 @@ Epic даёт один переключатель в чате Orchestrator-а, �
 - **08 — Codex: тот же переключатель.** Blocked by: 04, 06.
 - **09 — Сценарии worfy-faults с включённым переключателем.** Blocked by: 04, 05 (и worfy-faults 01, 02 — влиты до старта).
 - **10 — Документация.** Blocked by: 07, 08, 09.
-- **11 — Приёмка с владельцем.** Blocked by: 01–10.
+- **11 — Приёмка с владельцем.** Blocked by: 01–10, 12, 13.
+- **12 — Меню Modes: перенести Eco mode и Auto-approval.** Одна кнопка «Modes» с иконками состояний вместо двух
+  переключателей. Blocked by: —.
+- **13 — Modes с Linked machine: Full access меняет, Read only видит.** Пометки каналов `project`, события смены,
+  риски link-а. Blocked by: 12, 02.
 
 ## Волны
 
@@ -248,27 +263,33 @@ Wave — Ticket-ы, которые можно брать параллельно:
 
 | Тикет | Файлы из «Где в коде» | Волна |
 | --- | --- | --- |
-| 01 | `src/shared/agent/turn-failure.ts`, `test/unit/turn-failure.test.ts` | 1 |
-| 02 | `src/shared/settings/app-settings.ts`, `src/main/settings/store.ts`, `src/shared/ipc/auto-continue.ts`, `src/main/ipc/auto-continue.ts`, `src/renderer/session/composer/AutoContinue.tsx`, `src/renderer/session/session.css`, `test/contract/auto-continue-setting.test.ts`, `test/unit/auto-continue-switch.test.tsx`, `test/e2e/auto-continue.spec.ts` | 1 |
-| 03 | `src/shared/agent/continue-plan.ts`, `test/unit/continue-plan.test.ts` | 2 |
-| 05 | `src/shared/autopilot/resume-at.ts`, `src/main/autopilot/limits-wait.ts`, `src/main/autopilot/run.ts`, `src/main/ipc/autopilot.ts`, `test/unit/autopilot-resume-at.test.ts`, `test/contract/autopilot-limits-switch.test.ts`, `test/fixtures/agent-scripts/autopilot-limits-weekly.jsonl`, `test/fixtures/agent-scripts/autopilot-limits-no-window.jsonl` | 2 |
+| 01 | `src/shared/agent/turn-failure.ts`, `test/unit/turn-failure.test.ts` | 1 (влит) |
+| 12 | `src/renderer/session/composer/Modes.tsx`, `src/renderer/session/composer/EcoMode.tsx`, `src/renderer/session/composer/AutoApprove.tsx`, `src/renderer/session/modes/eco-mode.ts`, `src/renderer/session/modes/auto-approval.ts`, `src/renderer/session/composer/Pickers.tsx`, `src/renderer/session/session.css`, `test/unit/modes-menu.test.tsx`, `test/unit/eco-mode-switch.test.tsx`, `test/unit/auto-approve-switch.test.tsx`, `test/e2e/eco-mode.spec.ts`, `test/e2e/auto-approve.spec.ts`, `test/e2e/session-controls.spec.ts`, `docs/features/sessions.md`, `docs/features/ru/sessions.md`, `docs/features/skills-agents-and-hooks.md`, `docs/features/ru/skills-agents-and-hooks.md` | 1 |
+| 02 | `src/shared/settings/app-settings.ts`, `src/main/settings/store.ts`, `src/shared/ipc/auto-continue.ts`, `src/main/ipc/auto-continue.ts`, `src/renderer/session/modes/auto-continue.ts`, `src/renderer/session/composer/Modes.tsx`, `src/renderer/session/session.css`, `test/contract/auto-continue-setting.test.ts`, `test/unit/modes-menu.test.tsx`, `test/e2e/auto-continue.spec.ts`, `test/e2e/session-controls.spec.ts` | 2 |
+| 03 | `src/shared/agent/continue-plan.ts`, `test/unit/continue-plan.test.ts` | 2 (влит) |
 | 04 | `src/main/autopilot/turn-retry.ts`, `src/main/autopilot/run.ts`, `src/shared/autopilot/journal.ts`, `src/shared/ipc/autopilot.ts`, `src/main/ipc/autopilot.ts`, `test/contract/autopilot-retry.test.ts`, `test/fixtures/agent-scripts/autopilot-retry-*.jsonl` | 3 |
-| 06 | `src/main/agent/orchestrator-continue.ts`, `src/main/agent/app-orchestrators.ts`, `test/contract/orchestrator-continue.test.ts`, `test/fixtures/agent-scripts/orchestrator-continue-*.jsonl` | 4 |
-| 09 | `test/contract/autopilot-faults-setup.ts`, `test/autopilot-invariants.ts`, `test/unit/autopilot-invariants.test.ts`, `test/contract/autopilot-faults-retry.test.ts`, `test/fixtures/agent-scripts/autopilot-fault-retry-*.jsonl` | 4 |
-| 07 | `src/shared/ipc/auto-continue.ts`, `src/main/ipc/auto-continue.ts`, `src/renderer/session/composer/ContinueCountdown.tsx`, `src/renderer/session/session.css`, `test/unit/continue-countdown.test.tsx`, `test/e2e/auto-continue.spec.ts` | 5 |
-| 08 | `test/contract/codex-auto-continue.test.ts`, `test/fixtures/codex-scripts/auto-continue-*.jsonl`, `src/main/vendors/codex/items.ts` | 5 |
-| 10 | `docs/features/sessions.md`, `docs/features/ru/sessions.md`, `docs/features/autopilot.md`, `docs/features/ru/autopilot.md`, `CONTEXT.md` | 6 |
-| 11 | `.scratch/worfy-retry/spec.md` | 7 |
+| 13 | `src/shared/ipc/eco-mode.ts`, `src/shared/ipc/auto-approve.ts`, `src/shared/ipc/auto-continue.ts`, `src/main/ipc/eco-mode.ts`, `src/main/ipc/auto-approve.ts`, `src/main/ipc/auto-continue.ts`, `src/main/ipc/linked.ts`, `src/renderer/session/composer/Modes.tsx`, `src/renderer/session/modes/eco-mode.ts`, `src/renderer/session/modes/auto-approval.ts`, `src/renderer/session/modes/auto-continue.ts`, `test/contract/modes-linked.test.ts`, `test/unit/modes-menu.test.tsx`, `test/unit/link-access.test.ts`, `docs/features/sessions.md`, `docs/features/ru/sessions.md` | 3 |
+| 05 | `src/shared/autopilot/resume-at.ts`, `src/main/autopilot/limits-wait.ts`, `src/main/autopilot/run.ts`, `src/main/ipc/autopilot.ts`, `test/unit/autopilot-resume-at.test.ts`, `test/contract/autopilot-limits-switch.test.ts`, `test/fixtures/agent-scripts/autopilot-limits-weekly.jsonl`, `test/fixtures/agent-scripts/autopilot-limits-no-window.jsonl` | 4 |
+| 06 | `src/main/agent/orchestrator-continue.ts`, `src/main/agent/app-orchestrators.ts`, `test/contract/orchestrator-continue.test.ts`, `test/fixtures/agent-scripts/orchestrator-continue-*.jsonl` | 5 |
+| 09 | `test/contract/autopilot-faults-setup.ts`, `test/autopilot-invariants.ts`, `test/unit/autopilot-invariants.test.ts`, `test/contract/autopilot-faults-retry.test.ts`, `test/fixtures/agent-scripts/autopilot-fault-retry-*.jsonl` | 5 |
+| 07 | `src/shared/ipc/auto-continue.ts`, `src/main/ipc/auto-continue.ts`, `src/renderer/session/composer/ContinueCountdown.tsx`, `src/renderer/session/session.css`, `test/unit/continue-countdown.test.tsx`, `test/e2e/auto-continue.spec.ts` | 6 |
+| 08 | `test/contract/codex-auto-continue.test.ts`, `test/fixtures/codex-scripts/auto-continue-*.jsonl`, `src/main/vendors/codex/items.ts` | 6 |
+| 10 | `docs/features/sessions.md`, `docs/features/ru/sessions.md`, `docs/features/autopilot.md`, `docs/features/ru/autopilot.md`, `CONTEXT.md` | 7 |
+| 11 | `.scratch/worfy-retry/spec.md` | 8 |
 
 Правило плана: Ticket стоит в первой Wave, где закрыты все его блокеры; общий файл у двух Ticket-ов одной Wave —
 Ticket с большим номером уходит дальше (`filesOverlap`, `src/shared/workflow/waves.ts:158`).
 
-- **Wave 1 — 01, 02.** Классификатор и переключатель не зависят друг от друга.
-- **Wave 2 — 03, 05.** 03 ждёт 01; 05 — только настройку из 02. Общих файлов нет.
-- **Wave 3 — 04.** Ждёт 02 и 03; `run.ts` и `src/main/ipc/autopilot.ts` правил 05 в Wave 2.
-- **Wave 4 — 06, 09.** 06 ждёт повтор (04) и Limits (05); 09 — то же, файлы только test-ов worfy-faults.
-- **Wave 5 — 07, 08.** Обоим нужно состояние ожидания ручного хода (06).
-- **Wave 6 — 10.** **Wave 7 — 11**, владелец.
+План пересчитан 2026-11-05 после Ticket-ов 12 и 13; 01 и 03 к этому дню влиты.
+
+- **Wave 1 — 01 (влит), 12.** Меню Modes не зависит ни от чего.
+- **Wave 2 — 02, 03 (влит).** 02 ждёт меню (12); 03 ждал 01.
+- **Wave 3 — 04, 13.** 04 ждёт 02 и 03; 13 — 12 и 02. Общих файлов нет. 05 тоже свободен с Wave 3, но делит с 04
+  `run.ts` и `src/main/ipc/autopilot.ts` и уходит дальше.
+- **Wave 4 — 05.**
+- **Wave 5 — 06, 09.** 06 ждёт повтор (04) и Limits (05); 09 — то же, файлы только test-ов worfy-faults.
+- **Wave 6 — 07, 08.** Обоим нужно состояние ожидания ручного хода (06).
+- **Wave 7 — 10.** **Wave 8 — 11**, владелец.
 
 ## Не в этом Epic-е
 
@@ -302,7 +323,8 @@ Ticket с большим номером уходит дальше (`filesOverlap
 
 - Ветка `worfy-retry/<NN>`, worktree `.claude/worktrees/<NN>`. Конец Ticket-а — `pr-green-ci`: PR, зелёный `ci-ok`
   (Linux, macOS и Windows job-ы), отметка `review`. Глубина ревью — по общему правилу (`rules-review-depth.md`);
-  Ticket-ы 04 и 06 (worfy сам шлёт сообщения модели) — не ниже `high`.
+  Ticket-ы 04 и 06 (worfy сам шлёт сообщения модели) и 13 (запись с другой Machine, Auto-approval через link) — не
+  ниже `high`.
 - **Сначала падающий test**: показать красный на старом поведении, это пишется в «Итог».
 - **Без токенов и без чужих учётных записей.** `WORFY_AGENT=fake`, `WORFY_CODEX=fake` с временным `CODEX_HOME`, Limits —
   stub (`LimitsTracker` с часами test-а); настоящие Claude Code и Codex не запускаются. Оба случая окон — с `five_hour`
@@ -359,9 +381,41 @@ Ticket с большим номером уходит дальше (`filesOverlap
    только если в ходе не было вызовов tool-ов. **Рекомендую (а):** почти каждый ход Orchestrator-а запускает Agent-ы или
    gh, и (б)/(в) почти никогда не повторяли бы; модель видит результаты, а неизвестный исход останавливает повтор.
 
+## Решения владельца 2026-11-05 (Q10–Q18)
+
+Владелец ответил «да» на все девять; Q15 — с его поправкой.
+
+10. **Q10. Где третий переключатель.** В строке controls Orchestrator-а после Auto-approval (PR #1368) места нет: при
+    1280×800 с открытым sidebar остаётся около 30 px, более широкая строка сталкивает Send со строки pickers
+    (`test/e2e/session-controls.spec.ts:315`, `test/e2e/context-meter.spec.ts:128`). **Решено:** одна кнопка-меню вместо
+    отдельных Eco mode и Auto-approval; в меню Eco mode (on/off), Auto-approval (off/shadow/on), Auto-continue (on/off).
+11. **Q11. Имя.** **Решено:** кнопка «Modes»; новый термин глоссария «Orchestrator modes» — настройки, которые меняют
+    то, как работает Orchestrator: Eco mode, Auto-approval, Auto-continue. Не «Autopilot»: Auto-continue действует и на
+    ручные ходы Orchestrator-а (Q5), Eco mode — на любую раздачу Ticket-а.
+12. **Q12. Вид кнопки.** **Решено:** всегда три иконки состояния, ширина постоянная: включённый режим — яркая,
+    выключенный — приглушённая, Auto-approval Shadow — контур. Строка не меняет ширину от состояний.
+13. **Q13. Кто переносит.** **Решено:** новый Ticket 12 «Меню Modes: перенести Eco mode и Auto-approval»; Ticket 02
+    получает `Blocked by: 12` и добавляет в меню третий пункт вместо своего `AutoContinue.tsx` с порядком 16.
+14. **Q14. Имя в UI.** **Решено:** «Auto-approval», как `aria-label` в `src/renderer/session/composer/AutoApprove.tsx:205`;
+    папка Epic-а `worfy-auto-approve` остаётся. В глоссарии «Auto-approval», _Avoid_: Auto-approve в тексте UI.
+15. **Q15. Linked machine с Full access** (поправка владельца: «полный доступ — значит действительно полный»).
+    **Решено:** меняет все три режима. С Read only видит их и не меняет.
+16. **Q16. Отдельный Ticket.** **Решено:** Ticket 13 «Modes с Linked machine: Full access меняет, Read only видит»,
+    Blocked by 12 и 02, все три пункта; запись идёт через link на Machine Project-а (Eco mode — в Profile через
+    `bin/profile-set` там, Auto-approval и Auto-continue — в настройки той Machine). До merge 13 окно Linked machine —
+    как сегодня: оба переключателя недоступны при любом уровне доступа и даже не читают состояние (`elsewhere`,
+    `EcoMode.tsx:52`, `AutoApprove.tsx:85`).
+17. **Q17. Read only.** **Решено:** меню открывается, три состояния видны, каждый пункт недоступен с подсказкой
+    Read only из `useReadOnly` (`src/renderer/projects/useProjects.ts:263-270`).
+18. **Q18. Смена на другой Machine.** **Решено:** открытое меню обновляется сразу (рассылка, как у store настроек);
+    Ticket 13 проверяет это contract test-ом.
+
 ## Готово, когда
 
-- [ ] Переключатель Auto-continue есть только в чате Orchestrator-а; off по умолчанию; хранится по Project-у (02).
+- [ ] Меню Modes у Orchestrator-а: Eco mode, Auto-approval, Auto-continue; кнопка постоянной ширины с тремя иконками
+      (12, 02). Auto-continue off по умолчанию; хранится по Project-у (02).
+- [ ] Linked machine: Full access меняет все три режима, Read only видит; смена видна в открытом меню другой Machine
+      сразу (13).
 - [ ] Выключен — Run и ручной ход ведут себя как сегодня; сценарии worfy-faults 02 и 06 зелёные без правки (04, 09).
 - [ ] Включён — после временной ошибки продолжение уходит в ту же Session с паузами и пределом; исходный текст и команда
       Wave не повторяются; действие без результата останавливает повтор (03, 04, 06).

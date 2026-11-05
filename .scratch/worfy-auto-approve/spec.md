@@ -139,6 +139,9 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
 1. **Переключатель Auto-approval** в строке под полем ввода Orchestrator-а, рядом с Eco mode и Auto-continue: три
    состояния **Off / Shadow / On**, по умолчанию Off, своё у каждого Project-а. Tooltip объясняет каждое; в окне Linked
    machine переключатель read-only («Auto-approval is set in worfy on the Machine of the Project»).
+   _Дополнение 2026-11-05 (решения владельца, [worfy-retry](../worfy-retry/spec.md), Q10–Q18):_ Auto-approval —
+   пункт меню Modes вместе с Eco mode и Auto-continue, отдельного переключателя нет (worfy-retry 12); с Linked machine
+   с Full access режим меняется, с Read only — виден (worfy-retry 13).
 2. **Ночью** при Shadow — ничего нового: запросы отклоняются как сейчас, worfy только пишет, что разрешил бы. При On
    запрос в пределах Project-а проходит сам; запрос, который агент может переписать, отклоняется с подсказкой; запрос,
    который решает только человек, ставится на Park — уведомление «Parked: …» и карточка разрешения в Session
@@ -283,6 +286,7 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
 `worfy-retry` (черновик, ветка `docs/epic-worfy-retry`) — переключатель **Auto-continue**: повтор хода после
 временных ошибок API и resume после Limits, тоже в чате Orchestrator-а, справа от Eco mode.
 
+- _С 2026-11-05 устарело:_ три режима — пункты одного меню «Modes» (`worfy-retry` 12, решения Q10–Q18 spec-а `worfy-retry`); абзац ниже — история.
 - **Общая панель — строка controls под полем ввода Orchestrator-а**: Eco mode (`order = 15`), Auto-continue (справа от
   Eco mode; предлагаю `order = 16`), Auto-approval (`order = 17`). Каждый Epic кладёт свой файл composer item-а; общий
   список не правится (`composer/index.ts:46`). Вид — класс `w-eco` Eco mode; у Auto-approval три состояния, поэтому
