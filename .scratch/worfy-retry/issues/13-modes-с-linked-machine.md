@@ -166,6 +166,22 @@ hook-ах, сброс догадки) — все убиты.
 них только текст меню, без имён Machine, хостов и путей (проверил агент), но правило Evidence требует проверки
 человеком.
 
+Раунд 2 после ревью high (#1458, два reviewer-а, high и medium нет). Исправлены 6 low:
+- исправлены ложные комментарии в `src/main/ipc/linked.ts` (что он загружает Electron) и в
+  `src/main/settings/store.ts` (что домен `autoApproval` — `local`);
+- добавлен unit test: если `autoApproval.blockedHere` вернул ошибку, группа остаётся доступной, а выбор уходит через
+  link, где `linked.invoke` проверяет debugging port сам;
+- добавлен contract test debugging port на Machine Project-а: Shadow и On из Linked machine отказаны, Off в силе,
+  Off и Auto-continue проходят;
+- e2e: «ничего не записано» проверяется после того, как запись из окна B в другой файл дошла (`expect.poll`), а не
+  сразу после принудительных кликов;
+- риск 1: contract test-ы держат сторону link (ответ «unreachable» и что лежит на B). Сторону меню — без догадки, toast,
+  повторное чтение — держат unit test-ы `test/unit/modes-menu.test.tsx` («a write through the link without an answer»
+  и два после него); названия contract test-ов сужены до этого.
+
+Mutation testing раунда: мутация R9 (ошибка `blockedHere` блокирует группу), отказ debugging port Machine Project-а
+в `set` и в `read` — все три убиты.
+
 ### Решено без владельца
 
 - **Причина debugging port в окне Linked machine — отдельный `local` канал** `autoApproval.blockedHere`, а не правка
