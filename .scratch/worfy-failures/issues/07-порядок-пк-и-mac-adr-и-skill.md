@@ -96,6 +96,23 @@ Source: [spec.md](../spec.md), «Вопросы владельцу», Q1, Q2, Q3
   `node scripts/check-cyrillic.mjs`, `pnpm lint`, `pnpm typecheck` — exit 0. `skill-text.sh` — библиотека, которую
   подключают test-ы выше, своего запуска у неё нет. `pnpm test` целиком локально не гонялся (по брифу) — его гоняет CI PR.
 
+Доработка, раунд 1 (замечания проверки PR #1412):
+
+- Код 0 `rerun` больше не читается как «`main` не красный» сам по себе. `rerun` печатает упавший шаг без test-ов
+  строкой `  step without tests, not rerun: <step>` (`harness/lib/gate-failures/rerun.mjs:243`) и при зелёных
+  test-ах возвращает 0 (`rerun.mjs:356-357`): красный typecheck плюс flaky e2e давали код 0. Теперь в SKILL.md
+  (раздел 4) и в ADR-0096, пункт 1: с такой строкой `main` красный, как при коде 2. Повтор с `--file` шагов не
+  печатает (`rerun.mjs:209`), тогда решает строка gate `--- failure records: <file> (<n> tests, <m> steps without
+  tests)` (`harness/hooks/gate.mjs:912`): `<m>` больше 0 — красный. В «Последствиях» ADR-0096 — то же.
+- Id run-а при отказе `rerun` (код 3, в stderr только `gate-failures rerun: <reason>`, `rerun.mjs:169-172`) — первое
+  слово строки `gate-failures list` (`harness/lib/gate-failures/list.mjs:76-80`): самая новая строка с первыми 12
+  знаками проверенного SHA без пометки `imported`. Такой строки нет — gate записей не сохранил
+  (`--- failure records: not saved, <why>`, `gate.mjs:905`): блока нет, отчёт говорит, что записи не переданы.
+- `harness/bin/tests/epic-wave-ship-ticket.test.sh`: старая проверка кода 0 заменена; новые проверяют обе фразы,
+  отсутствие старой безусловной фразы и что цитируемые строки есть в `rerun.mjs`, `list.mjs`, `gate.mjs`. Пять
+  мутантов копии SKILL.md в scratchpad (убрана фраза о строке шага, возвращена старая фраза кода 0, убрано «refused»,
+  убрано «No such line», убрано «narrowed by `--file`») — каждый exit 1. Без мутантов — `passed 612, failed 0`.
+
 Решено без владельца, подтвердить:
 
 1. ADR-0096 принят по ответам владельца Q1–Q3 от 2026-11-04 — решено без владельца, подтвердить.

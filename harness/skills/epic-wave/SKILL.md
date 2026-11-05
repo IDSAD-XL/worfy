@@ -978,7 +978,12 @@ the old way or one after another — every Check of the Pipeline has its mark on
     rerun inside a gate run. `--dry-run` prints the tests and an estimate of the time without running
     them; `--file <path>` and `--limit N` narrow a long rerun, and a test left out stays unconfirmed,
     not flaky.
-    - Exit 0 — every failed test is green alone: a flaky test, and the main branch is not red.
+    - Exit 0 — every rerun test is green alone: a flaky test. The main branch is not red only when
+      the rerun output has no line `step without tests, not rerun: <step>`. The rerun names a failed
+      step without tests (lint, typecheck, a build) on such a line and runs nothing for it, so with
+      such a line the main branch is red, as with exit 2. A rerun narrowed by `--file` prints no such
+      line; the gate's own line `--- failure records: <file> (<n> tests, <m> steps without tests)`
+      then decides: `<m>` above 0 is red.
     - Exit 2 — at least one test is red alone: the main branch is red there, and that session records
       it in the one place the project's rules name for it (worfy: an open GitHub issue with the label
       `pc-main-red`, its title the SHA, its body the report). That session also clears it.
@@ -989,7 +994,12 @@ the old way or one after another — every Check of the Pipeline has its mark on
   - After a red check the report also carries the rerun's exit code and the block that
     `"${CLAUDE_PLUGIN_ROOT}/bin/gate-failures" export --run <id>` prints. `<id>` is the id of the red
     run, `<tag>/<run>`, the first word of the rerun's first line; the export takes the rerun files of
-    that run with it. It checks the text for personal data first: a finding is exit 2 and no block,
+    that run with it. A refused rerun prints only `gate-failures rerun: <reason>` on stderr; then
+    `<id>` is the first word of the line `"${CLAUDE_PLUGIN_ROOT}/bin/gate-failures" list` prints for
+    that run: the newest line with the first 12 characters of the checked SHA and no `imported`
+    mark (the list is newest first). No such line —
+    the gate saved no records (its report ends with `--- failure records: not saved, <why>`): no
+    block, and the report says the records were not sent. It checks the text for personal data first: a finding is exit 2 and no block,
     and the report then says the records were not sent. Where the block goes is the project's rule
     (worfy: with the main branch red, into the issue `pc-main-red`; green on the rerun, a comment on
     the PR whose merge commit was checked; a message between the sessions when neither can be
