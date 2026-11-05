@@ -69,6 +69,11 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
   `the window is 1600 px wide` в `canvasReady` в обеих попытках, job `windows-e2e (1/4)` run-а
   https://github.com/IDSAD-XL/worfy/actions/runs/41840970500 (head PR #1367 `8be4575b`, diff не касается Canvas).
   С 2026-11-04 — quarantine (win32), запись `test/quarantine/card-drag-canvas-middle-pan.json` (до 2026-11-16).
+- `test/e2e/browser.spec.ts:554` («the Open bar shows a long host whole and cuts only the path, in a frame 640 wide»,
+  раунд `640` цикла): та же причина — `the window is 1400 px wide` в `canvasReady` (`test/e2e/helpers.ts:593`) в обеих
+  попытках, job `windows-e2e (1/4)` run-а https://github.com/IDSAD-XL/worfy/actions/runs/42070024246 (head PR #1441
+  `2ed0f881`, diff не касается Browser card; тот же shard зелёный на прошлом head `a7f463c7` того же diff). С 2026-11-05 —
+  quarantine (win32), запись `test/quarantine/browser-open-bar-long-host-640.json` (до 2026-11-19).
 - Кандидат во flaky test: `test/contract/login-shell-capture.test.ts:144-146` читает файл `after` сразу после
   `existsSync`; под нагрузкой файл может быть ещё пуст (замечено в gate PR #1190, не воспроизведено).
 

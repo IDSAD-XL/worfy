@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { generate } from 'selfsigned'
 import { canvasReady, launchApp, openSecondWindow, repoRoot, type LaunchedApp } from './helpers'
+import { quarantined } from './quarantine'
 import { snapshotThemes } from './snapshots'
 import { ms } from '../time-scale'
 
@@ -550,7 +551,7 @@ for (const { width, name, underLabel } of [
   { width: 640, name: 'long', underLabel: false },
   { width: 400, name: 'long-narrow', underLabel: true },
 ]) {
-  test(`the Open bar shows a long host whole and cuts only the path, in a frame ${width} wide`, async () => {
+  quarantined('browser-open-bar-long-host-640', { when: width === 640 })(`the Open bar shows a long host whole and cuts only the path, in a frame ${width} wide`, async () => {
     const blankUrl = `${origin}/blank.html`
     const host = `bank.example.com.${'a'.repeat(60)}.evil.invalid`
     const longUrl = `http://${host}/${'b'.repeat(60)}/bank.example.com/login`
