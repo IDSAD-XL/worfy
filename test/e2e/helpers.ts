@@ -102,6 +102,11 @@ export function packagedResources(app: string): string {
 const FIRST_WINDOW_TIMEOUT_MS = ms(30_000)
 /** How long the app may take to quit. A quit takes well under a second; this bounds a quit that hangs. */
 const QUIT_TIMEOUT_MS = ms(20_000)
+/**
+ * How long a quit may take when the caller says the window is gone (close({ windowGone })): Playwright
+ * may still wait on that window, so a quit that is not over by then is ended with a kill at once.
+ */
+const GONE_QUIT_TIMEOUT_MS = ms(2_000)
 /** How long a kill waits for the app to name its PID (launchApp); an app that answers at all does in milliseconds. */
 const PID_TIMEOUT_MS = ms(5_000)
 
@@ -139,8 +144,14 @@ export interface LaunchedApp {
    * Saves the app's trace and a screenshot of the window as attachments of the test (kept only
    * when the test fails), quits the app, waits for its process to exit and removes both temporary
    * directories. A quit that hangs is ended with SIGKILL and reported as a failure of the test.
+   * With `windowGone` (the test destroyed the window, or it stopped answering) no screenshot of it is
+   * taken, the quit gets GONE_QUIT_TIMEOUT_MS, and the kill after it is expected, not a failure.
    */
-  close: () => Promise<void>
+  close: (options?: CloseOptions) => Promise<void>
+}
+
+export interface CloseOptions {
+  windowGone?: boolean
 }
 
 export interface LaunchOptions {
@@ -189,11 +200,11 @@ const within = (work: Promise<unknown>, ms: number): Promise<boolean> =>
  * the pages of its browser fixtures, not an Electron app launched by the test, hence this; the
  * reporter at the end of this file drops both again when the test passes.
  */
-async function saveArtifacts(app: ElectronApplication, window: Page, tracing: boolean): Promise<void> {
+async function saveArtifacts(app: ElectronApplication, window: Page | null, tracing: boolean): Promise<void> {
   const info = currentTest()
   if (!info) return
   const screenshot = info.outputPath(`${APP_SCREENSHOT}-${info.retry}-${Date.now()}.png`)
-  if (await within(window.screenshot({ path: screenshot, timeout: ms(5_000) }), ms(6_000))) {
+  if (window !== null && (await within(window.screenshot({ path: screenshot, timeout: ms(5_000) }), ms(6_000)))) {
     await info.attach(APP_SCREENSHOT, { path: screenshot, contentType: 'image/png' })
     await removeDir(screenshot)
   }
@@ -343,17 +354,20 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
       window,
       dataDir,
       claudeHome,
-      close: async () => {
-        await saveArtifacts(app, window, tracing)
-        const closed = await Promise.race([app.close().then(() => 'closed' as const), timeout(QUIT_TIMEOUT_MS)])
+      close: async (closeOptions = {}) => {
+        const gone = closeOptions.windowGone === true
+        await saveArtifacts(app, gone ? null : window, tracing)
+        // Once the window is gone, a quit that fails is ended by the kill too, as one that hangs.
+        const quit = app.close().then(() => 'closed' as const, (error: unknown) => (gone ? ('timeout' as const) : Promise.reject(error)))
+        const closed = await Promise.race([quit, timeout(gone ? GONE_QUIT_TIMEOUT_MS : QUIT_TIMEOUT_MS)])
         // Before the kill: what the hung app's main thread is doing can only be read while it runs.
-        if (closed === 'timeout') await diagnoseQuit(await Promise.race([appPid, timeout(PID_TIMEOUT_MS).then(() => undefined)]), output.text())
+        if (closed === 'timeout' && !gone) await diagnoseQuit(await Promise.race([appPid, timeout(PID_TIMEOUT_MS).then(() => undefined)]), output.text())
         const killFailure = await killThenClean(async () => {
           if (closed === 'timeout') await kill()
           await exited(child)
         }, cleanDirs)
         reportKillFailure(killFailure)
-        if (closed === 'closed') return
+        if (closed === 'closed' || gone) return
         const problem = `the app did not quit within ${QUIT_TIMEOUT_MS / 1000} s and was killed`
         // Soft inside a test: a test that already failed keeps its own error, which a throw here would replace.
         if (currentTest()) expect.soft(closed, problem).toBe('closed')

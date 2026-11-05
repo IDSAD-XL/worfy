@@ -36,6 +36,26 @@ export const SHEET_GAP = 8
 export const SHEET_CAPTION = 22
 /** One frame of the sheet per second of the scenario: real seconds of the clip, not a limit of the run. */
 const FRAME_EVERY_MS = 1000
+/**
+ * How long one frame may take: Playwright's own timeout of the screenshot, and a bound of the helper over
+ * it. On macOS CI the screenshot of a window destroyed meanwhile never settled, its timeout notwithstanding,
+ * and the run hung until the test's timeout and then the worker's teardown (worfy-polish ticket 60).
+ */
+const FRAME_TIMEOUT_MS = ms(5_000)
+const FRAME_BOUND_MS = ms(6_000)
+/** While a frame is taken, main is asked this often whether the recorded window still exists. */
+const WINDOW_POLL_MS = 250
+/** How long main may take to answer that; no answer in time counts as "still there", the frame's bound then decides. */
+const WINDOW_ASK_MS = ms(2_000)
+/** How long the hidden window may take to draw the contact sheet. */
+const SHEET_TIMEOUT_MS = ms(30_000)
+/** How long Playwright may take to name the file of the clip; it knows it from the start of the recording. */
+const VIDEO_PATH_TIMEOUT_MS = ms(10_000)
+/**
+ * How long the scenario may run on once recordClip gave up on it (a failed frame, or the limit) and the app
+ * is closed: its calls to the app then fail at once, but its own waits do not.
+ */
+const SCENARIO_SETTLE_MS = ms(2_000)
 
 export type Theme = 'light' | 'dark'
 
@@ -208,6 +228,19 @@ function limitsOf(options: ClipOptions): { seconds: number; bytes: number } {
 
 const sleep = (wait: number): Promise<void> => new Promise((done) => setTimeout(done, Math.max(0, wait)))
 
+/** `work`, or an error that names `what` once `limit` ms have passed without it settling. */
+async function bounded<T>(work: Promise<T>, limit: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const late = new Promise<never>((_, fail) => {
+    timer = setTimeout(() => fail(new Error(`${what} did not finish within ${limit / 1000} s`)), limit)
+  })
+  try {
+    return await Promise.race([work, late])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** The width and height of a PNG, from its IHDR chunk. */
 export function pngSize(png: Buffer): { width: number; height: number } {
   if (png.length < 24 || png.readUInt32BE(12) !== 0x49484452) throw new Error('not a PNG')
@@ -298,7 +331,7 @@ export async function contactSheet(app: ElectronApplication, frames: Frame[], di
     }
     return canvas.toDataURL('image/png').slice('data:image/png;base64,'.length)
   })()`
-  const base64 = await app.evaluate(
+  const drawn = app.evaluate(
     async ({ BrowserWindow }, { page, draw }) => {
       const window = new BrowserWindow({ show: false, width: 200, height: 200 })
       try {
@@ -310,6 +343,7 @@ export async function contactSheet(app: ElectronApplication, frames: Frame[], di
     },
     { page, draw },
   )
+  const base64 = await bounded(drawn, SHEET_TIMEOUT_MS, 'recordClip: drawing the contact sheet')
   const png = Buffer.from(base64, 'base64')
   if (png.length === 0) throw new Error('recordClip: the app drew an empty contact sheet')
   return png
@@ -399,11 +433,22 @@ export async function recordClip(what: string, scenario: (launched: LaunchedApp)
     const videoDir = join(work, 'video')
     const launched = await launchApp({ ...options.launch, recordVideo: { dir: videoDir, size: options.size ?? CLIP_SIZE } })
     let recorded: Recorded
+    let windowGone = false
+    const playing: ScenarioRun = {}
     try {
-      recorded = await underLimit(launched, scenario, limits.seconds, work)
+      recorded = await underLimit(launched, scenario, limits.seconds, work, playing)
+    } catch (error) {
+      // Only a window that is destroyed or closed: a live one that was slow to give a frame keeps the
+      // diagnosis and the failure of a quit that hangs.
+      windowGone = (error instanceof FrameFailed && error.windowGone) || launched.window.isClosed()
+      throw error
     } finally {
-      // The clip is complete only once the app has closed.
-      await launched.close()
+      // The clip is complete only once the app has closed. With the window gone Playwright may still wait
+      // on it, so the app is killed after a short quit: an app left running hangs the worker's teardown.
+      await launched.close({ windowGone })
+      // A scenario given up on runs on: its calls to the closed app fail, its own waits do not. It gets
+      // SCENARIO_SETTLE_MS to end; one that waits longer still runs into whatever the worker does next.
+      if (playing.played !== undefined) await bounded(playing.played, SCENARIO_SETTLE_MS, 'the scenario').catch(() => undefined)
     }
     const bytes = statSync(recorded.video).size
     if (bytes > limits.bytes) {
@@ -416,6 +461,75 @@ export async function recordClip(what: string, scenario: (launched: LaunchedApp)
   } finally {
     // Electron helper processes may still hold the clip for a moment after the app exits.
     await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+}
+
+/** The recorded window is closed or destroyed: no frame can come from it any more. */
+class WindowGone extends Error {}
+
+/** A frame of the contact sheet that was not taken; `windowGone` when it failed because the window is gone. */
+class FrameFailed extends Error {
+  constructor(
+    message: string,
+    readonly windowGone: boolean,
+  ) {
+    super(message)
+  }
+}
+
+/** The scenario of a recording, once it has started: recordClip waits for it briefly after the app is closed. */
+interface ScenarioRun {
+  played?: Promise<unknown>
+}
+
+/** The id of the BrowserWindow in main that shows `page`, or undefined when main does not say in time. */
+async function windowIdOf(app: ElectronApplication, page: Page): Promise<number | undefined> {
+  const ask = app.evaluate(({ BrowserWindow }, url) => {
+    const windows = BrowserWindow.getAllWindows().filter((each) => !each.isDestroyed())
+    return (windows.find((each) => each.webContents.getURL() === url) ?? windows[0])?.id
+  }, page.url())
+  return bounded(ask, WINDOW_ASK_MS, 'asking main for the window').catch(() => undefined)
+}
+
+/**
+ * Whether main says the window `id` is destroyed. An app that no longer answers Playwright is gone too;
+ * one that does not answer in time is not taken for gone.
+ */
+async function windowDestroyed(app: ElectronApplication, id: number | undefined): Promise<boolean> {
+  if (id === undefined) return false
+  const ask = app.evaluate(({ BrowserWindow }, id) => {
+    const window = BrowserWindow.fromId(id)
+    return window === null || window.isDestroyed()
+  }, id)
+  // A rejection of the bound is only its timer: the answer itself never rejects.
+  return bounded(ask.then((destroyed) => destroyed, () => true), WINDOW_ASK_MS, 'asking main for the window').catch(() => false)
+}
+
+/**
+ * A screenshot of the recorded window, in CSS pixels: the frame at the window's own size, whatever the
+ * scale of the display. It fails at once when the page closes or main says the window is destroyed, and
+ * at FRAME_BOUND_MS when the screenshot never settles.
+ */
+async function takeFrame(launched: LaunchedApp, windowId: number | undefined): Promise<Buffer> {
+  const page = launched.window
+  if (page.isClosed()) throw new WindowGone('the window was closed')
+  let over = false
+  let onClose = (): void => undefined
+  const gone = new Promise<never>((_, fail) => {
+    onClose = () => fail(new WindowGone('the window was closed'))
+    page.once('close', onClose)
+    void (async () => {
+      while (!over) {
+        await sleep(WINDOW_POLL_MS)
+        if (!over && (await windowDestroyed(launched.app, windowId))) return fail(new WindowGone('the window was destroyed'))
+      }
+    })()
+  })
+  try {
+    return await bounded(Promise.race([page.screenshot({ scale: 'css', timeout: FRAME_TIMEOUT_MS }), gone]), FRAME_BOUND_MS, 'the screenshot')
+  } finally {
+    over = true
+    page.off('close', onClose)
   }
 }
 
@@ -433,9 +547,11 @@ async function underLimit(
   scenario: (launched: LaunchedApp) => Promise<void>,
   seconds: number,
   work: string,
+  run: ScenarioRun,
 ): Promise<Recorded> {
   const video = launched.window.video()
   if (video === null) throw new Error('recordClip: the window records no clip')
+  const windowId = await windowIdOf(launched.app, launched.window)
   const frames: Frame[] = []
   const start = Date.now()
   let running = true
@@ -446,8 +562,7 @@ async function underLimit(
       await sleep(start + second * FRAME_EVERY_MS - Date.now())
       if (second > 0 && !running) return
       try {
-        // CSS pixels: the frame at the window's own size, whatever the scale of the display.
-        frames.push({ second, png: await launched.window.screenshot({ scale: 'css', timeout: ms(5_000) }) })
+        frames.push({ second, png: await takeFrame(launched, windowId) })
       } catch (error) {
         frameError = error
         return
@@ -455,12 +570,15 @@ async function underLimit(
     }
   })()
   const played = scenario(launched).then(() => 'done' as const)
+  run.played = played
   // The scenario still runs on after the limit; it fails once the app is closed, and that is not news.
   played.catch(() => undefined)
   let limit: NodeJS.Timeout | undefined
   try {
     const over = new Promise<'over'>((done) => (limit = setTimeout(() => done('over'), seconds * 1000)))
-    const outcome = await Promise.race([played, over])
+    // A frame that failed ends the wait: no clip is kept anyway. The scenario runs on (recordClip waits for
+    // it briefly once the app is closed).
+    const outcome = await Promise.race([played, over, framing.then(() => 'frame' as const)])
     if (outcome === 'over') throw new Error(`recordClip: the scenario ran longer than ${seconds} s, the limit of a clip: no clip is kept; shorten the scenario`)
   } finally {
     clearTimeout(limit)
@@ -468,10 +586,11 @@ async function underLimit(
     await framing
   }
   const took = (Date.now() - start) / 1000
-  if (frameError !== undefined) throw new Error(`recordClip: a frame of the contact sheet failed: ${String(frameError)}`)
+  if (frameError !== undefined) throw new FrameFailed(`recordClip: a frame of the contact sheet failed: ${String(frameError)}`, frameError instanceof WindowGone)
   const sheetDir = join(work, 'sheet')
   mkdirSync(sheetDir, { recursive: true })
   const sheet = await contactSheet(launched.app, frames, sheetDir)
   // Asked while the app runs: Playwright knows the path from the start of the recording.
-  return { video: await video.path(), sheet, frames: frames.length, seconds: took, frame: sheetCell(frames) }
+  const path = await bounded(video.path(), VIDEO_PATH_TIMEOUT_MS, 'recordClip: the path of the clip')
+  return { video: path, sheet, frames: frames.length, seconds: took, frame: sheetCell(frames) }
 }
