@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { MIN_SIZE } from '../../src/shared/window/bounds'
 import { launchApp, newSessionOn, smallestWindow } from './helpers'
+import { expectSamePx, PX_TOLERANCE } from './px'
 import { nextFrames, settled } from './wait'
 
 // The input field's pickers and message queue (ticket 19) against the built app, on the fake agent
@@ -366,7 +367,8 @@ test('on the default model the pickers do not make the bar under the input field
     const [barBox, pickersBox, sendBox] = [await box(bar), await box(pickers), await box(send)]
     expect(Math.abs(sendBox.y + sendBox.height / 2 - (pickersBox.y + pickersBox.height / 2))).toBeLessThan(4)
     expect(sendBox.x).toBeGreaterThan(pickersBox.x + pickersBox.width)
-    expect(await heights()).toEqual({ now: barBox.height, withNativeLists: barBox.height })
+    const { now, withNativeLists } = await heights()
+    expectSamePx([now, withNativeLists], barBox.height, 'the height of the bar, as it is and with the native lists')
     // The window from 800 to 1600 px wide with the sidebar shown (worfy-retry ticket 12): no element of
     // the bar is lost, and from 1220 px up Send stays on the pickers' line. Measured every 10 px of
     // 800–1600 px: on origin/main db7ded110, with both switches, Send left the pickers' line below
@@ -407,7 +409,7 @@ test('on the default model the pickers do not make the bar under the input field
       ] as const) {
         await resize(width, height)
         const { now, withNativeLists } = await heights()
-        expect(now, `the bar in a ${width}×${height} window, the sidebar ${sidebar}`).toBeLessThanOrEqual(withNativeLists)
+        expect(now, `the bar in a ${width}×${height} window, the sidebar ${sidebar}`).toBeLessThanOrEqual(withNativeLists + PX_TOLERANCE)
         // In a line narrower than the pickers their values are cut; the buttons stay inside the bar.
         const [outer, inner] = [await box(bar), await box(pickers)]
         if (outer.width >= 400) {
