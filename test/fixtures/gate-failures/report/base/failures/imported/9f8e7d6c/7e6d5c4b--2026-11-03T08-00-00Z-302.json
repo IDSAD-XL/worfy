@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "kind": "run",
+  "run": "7e6d5c4b/2026-11-03T08-00-00Z-302",
+  "at": "2026-11-03T08:00:00Z",
+  "key": "demo",
+  "profile": "full",
+  "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "outcome": "red",
+  "computer": {
+    "id": "9f8e7d6c",
+    "name": "PC",
+    "platform": "win32"
+  },
+  "dirty": false,
+  "failures": [
+    {
+      "step": "demo/.:test:e2e",
+      "runner": "playwright",
+      "file": "test/e2e/toolbar.spec.ts",
+      "line": 12,
+      "name": "toolbar > opens the Command palette",
+      "test": "playwright test/e2e/toolbar.spec.ts > toolbar > opens the Command palette",
+      "ms": 30100,
+      "error": "Error: locator.click: Timeout 30000ms exceeded.",
+      "attempt": 1,
+      "rerun": [
+        "node",
+        "node_modules/@playwright/test/cli.js",
+        "test",
+        "test/e2e/toolbar.spec.ts:12"
+      ]
+    }
+  ]
+}

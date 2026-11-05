@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "kind": "rerun",
+  "of": "1a2b3c4d/2026-11-01T10-00-00Z-11",
+  "at": "2026-11-01T10:20:00Z",
+  "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "computer": {
+    "id": "0a1b2c3d",
+    "name": "mac",
+    "platform": "darwin"
+  },
+  "results": [
+    {
+      "test": "vitest test/unit/card-drag.test.ts > card drag > keeps the card under the pointer",
+      "exit": 0,
+      "ms": 1400,
+      "error": null
+    }
+  ]
+}
