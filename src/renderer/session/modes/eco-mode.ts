@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { EcoModeState } from '../../../shared/ipc/eco-mode'
-import { invoke, readableReason, windowMachine } from '../../ipc'
+import { invoke, readableReason, subscribe } from '../../ipc'
+import { readOnlyNow } from '../../projects/read-only-now'
 import { useProjects, useReadOnly } from '../../projects/useProjects'
 import { showToast } from '../../toast/toasts'
 
@@ -10,14 +11,15 @@ import { showToast } from '../../toast/toasts'
 // src/main/ipc/eco-mode.ts): on — the eco set of the Pro preset, off — neither field. It changes what
 // the next Ticket handed out gets, in this Orchestrator and in the Project's Autopilot; a Ticket already
 // running keeps its agents. The Profile is read when the menu's button appears and again after a write
-// that did not go through, so a Profile changed outside worfy shows as it is.
+// that did not go through, so a Profile changed outside worfy shows as it is; a write made in another
+// window or on another Machine shows at once (`ecoMode.changed`). A window that shows a Linked machine
+// reads and writes the Profile on that Machine through the link (worfy-retry ticket 13): with full access
+// the item changes it, with read-only access it shows it, unavailable with the read-only hint.
 //
 // No `order` here: every .tsx of composer/ is an item of the bar (src/renderer/shell/registry.ts).
 
 /** The tooltip of the working item: what eco does, and from when. */
 export const ECO_MODE_TITLE = "Eco mode: fewer agents per Ticket, Sonnet with effort medium for every agent role. Writes the Project's Profile; applies to the next Ticket."
-/** The tooltip in a window that shows a Linked machine: the Profile is that Machine's. */
-export const ECO_MODE_ELSEWHERE = 'Eco mode is set in worfy on the Machine of the Project'
 /** The toast of a conflict: the Profile changed since the item read it; nothing was written. */
 export const ECO_MODE_CHANGED = 'The Profile changed outside worfy: Eco mode shows what it says now. Nothing was written.'
 
@@ -35,7 +37,7 @@ export interface EcoMode {
   reading: boolean
   /** A write runs. */
   busy: boolean
-  /** The window shows a Linked machine or has read-only access: the item says so and reads nothing. */
+  /** The window has read-only access to the Machine of the Project: the item shows the mode and changes nothing. */
   readOnly: boolean
   /** Writes the other value; does nothing while unavailable or busy. */
   toggle: () => void
@@ -47,9 +49,8 @@ type Shown = { root: string; state: EcoModeState } | undefined
 /** Eco mode of Project `projectId`; its toasts stay with that Project. */
 export function useEcoMode(projectId: string): EcoMode {
   const root = useProjects()?.projects.find((project) => project.id === projectId)?.path
-  // A window that shows a Linked machine reads and writes nothing here: the Profile lives there.
+  // A window that shows a Linked machine asks that Machine: the channels are `project` (src/renderer/ipc.ts).
   const readOnly = useReadOnly()
-  const elsewhere = windowMachine() !== null
   const [shown, setShown] = useState<Shown>(undefined)
   /** The value being written; null while no write runs. */
   const [writing, setWriting] = useState<boolean | null>(null)
@@ -57,7 +58,7 @@ export function useEcoMode(projectId: string): EcoMode {
   const [generation, setGeneration] = useState(0)
 
   useEffect(() => {
-    if (elsewhere || root === undefined) return
+    if (root === undefined) return
     let active = true
     void invoke('ecoMode.read', { root }).then((result) => {
       if (!active) return
@@ -66,12 +67,23 @@ export function useEcoMode(projectId: string): EcoMode {
     return () => {
       active = false
     }
-  }, [root, generation, elsewhere])
+  }, [root, generation])
+
+  // A write made in another window or on another Machine, with the fingerprint after it.
+  useEffect(() => {
+    if (root === undefined) return
+    return subscribe('ecoMode.changed', (change) => {
+      if (change.root === root) setShown({ root, state: { available: true, on: change.on, fingerprint: change.fingerprint } })
+    })
+  }, [root])
 
   const state = shown !== undefined && shown.root === root ? shown.state : undefined
 
   const failed = (text: string): void => {
     showToast({ kind: 'error', key: TOAST_KEY, projectId, text, testId: 'eco-mode-toast' })
+    // The write may have gone through on the Machine of the Project with its answer lost: no guess
+    // until the Profile is read again.
+    setShown(undefined)
     setGeneration((count) => count + 1)
   }
 
@@ -100,18 +112,17 @@ export function useEcoMode(projectId: string): EcoMode {
     }
   }
 
-  const hint = readOnly ?? (elsewhere ? ECO_MODE_ELSEWHERE : null)
-  const unavailable = hint ?? (state === undefined ? "Reading the Project's Profile…" : state.available ? null : `Eco mode is not available: ${state.reason}`)
-  const on = hint !== null ? null : (writing ?? (state?.available === true ? state.on : null))
+  const unavailable = readOnly ?? (state === undefined ? "Reading the Project's Profile…" : state.available ? null : `Eco mode is not available: ${state.reason}`)
   return {
-    on,
+    on: writing ?? (state?.available === true ? state.on : null),
     unavailable,
     title: unavailable ?? ECO_MODE_TITLE,
-    reading: hint === null && state === undefined,
+    reading: state === undefined,
     busy: writing !== null,
-    readOnly: hint !== null,
+    readOnly: readOnly !== null,
     toggle: () => {
-      if (unavailable !== null || writing !== null || root === undefined || state?.available !== true) return
+      // readOnlyNow: the level may have gone read-only since the item was drawn.
+      if (unavailable !== null || writing !== null || root === undefined || state?.available !== true || readOnlyNow() !== null) return
       void write(root, !state.on, state.fingerprint)
     },
   }

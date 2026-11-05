@@ -19,8 +19,10 @@
 // language this version does not know reads as not chosen. `autoApproval` (worfy-auto-approve ticket
 // 06) holds the Auto-approval mode of each Project that is not Off; an entry with a mode outside Off /
 // Shadow / On or a key that is no Project id is dropped (reads as Off), and so is the whole field when
-// it is not a record. Only setAutoApproval() writes it — the `autoApproval` IPC domain, `local`, the
-// switch of the Orchestrator — never set(): the patch has no such field. `autoContinue` (worfy-retry
+// it is not a record. Only setAutoApproval() writes it — the `autoApproval` IPC domain, the switch of
+// the Orchestrator: `project` channels, its write `write`, so a Linked machine with full access sets it
+// and one with read-only access only reads it (worfy-retry ticket 13) — never set(): the patch has no
+// such field. `autoContinue` (worfy-retry
 // ticket 02) holds the Projects with Auto-continue on, kept the same way: an entry that is not a Project
 // id with `true` is dropped (reads as off); only setAutoContinue() writes it, through the `autoContinue`
 // IPC domain.

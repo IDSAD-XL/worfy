@@ -1,7 +1,7 @@
 # 13 — Modes с Linked machine: Full access меняет, Read only видит
 
 Type: task
-Status: open
+Status: claimed 2026-11-05T20:00Z
 Blocked by: 12, 02
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-05», Q15–Q18; [ADR-0066](../../../docs/adr/0066-read-only-access-for-a-linked-machine.md) (уровни доступа Linked machine); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), п. 5–6
 
@@ -82,13 +82,31 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-05»,
 
 - [ ] Full access: каждый из трёх пунктов меняется из окна Linked machine; запись — на Machine Project-а (Profile или
       `app-settings.json` той Machine), на вызывающей Machine ничего не записано.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts full access, test/unit/modes-menu.test.tsx) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · 486677b1b4d134edcb1c30c9c0f329e8a7d02a37
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · bd82c0c23
 - [ ] Read only: меню открывается, три состояния видны, пункты недоступны с подсказкой Read only; запись отказана и
       на стороне Machine Project-а.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts read-only, auto-approve-setting, auto-continue-setting) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · 486677b1b4d134edcb1c30c9c0f329e8a7d02a37
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · bd82c0c23
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 (read-only marks no faster than the write) · mac dev · 208778eaf04dc40f4ae5f485bea067b0c2acd640
 - [ ] Смена на одной Machine видна в открытом меню другой без перезагрузки (Q18).
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts Q18 both ways) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · 486677b1b4d134edcb1c30c9c0f329e8a7d02a37
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/linked-modes.spec.ts` exit 0 · mac dev · bd82c0c23
 - [ ] Пять contract test-ов из «Риски» зелёные.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/modes-linked.test.ts risks 1-5) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
+  - evidence: test-run pass · `pnpm vitest run test/contract/modes-linked.test.ts` exit 0 (13 tests, debugging port on the Project Machine) · mac - · 87d54e9f2548e057a5bf24240db8ee9e6814faae
 - [ ] Списки `test/unit/link-access.test.ts` обновлены.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/link-access.test.ts) · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
 - [ ] Страницы Feature EN и RU, раздел Linked machine.
+  - evidence: commit pass · Modes from a Linked machine: full access changes all three modes, read-only access sees them · - - · aaa6d8a29
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 06aff8e25a8b2f2f7bc6b25498783f4f29c30912
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 4bb48b4822db5ed345838ad3e944f5e644bc139a
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 87d54e9f2548e057a5bf24240db8ee9e6814faae
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 208778eaf04dc40f4ae5f485bea067b0c2acd640
 
 ## Тесты
 
@@ -112,3 +130,75 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-05»,
 Только читать: `src/renderer/ipc.ts`, `src/main/link/ipc-adapter.ts`, `src/main/link/remote-calls.ts`,
 `src/main/link/connection.ts`, `src/main/broadcast.ts`, `src/renderer/projects/useProjects.ts`,
 `test/contract/link-bench.ts`, `test/contract/link-access.test.ts`.
+
+## Итог
+
+Каналы трёх режимов стали `project`: `ecoMode.read`, `autoApproval.read`, `autoContinue.read` — `read`;
+`ecoMode.set`, `autoApproval.set`, `autoContinue.set` — `write` (`src/shared/ipc/eco-mode.ts`, `auto-approve.ts`,
+`auto-continue.ts`). Окно Linked machine само шлёт их на Machine Project-а через `linked.invoke` (маршрут по пометке,
+`src/renderer/ipc.ts`), так что запись идёт в Profile и `app-settings.json` той Machine; Read only отказан в
+`LinkIpcAdapter.call` до handler-а. Новые события `ecoMode.changed` (с fingerprint-ом после записи) и
+`autoApproval.changed` — `project`, `read`, как и `autoContinue.changed`; main Machine Project-а шлёт их всем клиентам
+после удачной записи (`src/main/ipc/eco-mode.ts`, `auto-approve.ts`, `auto-continue.ts`), hook-и меню
+(`src/renderer/session/modes/*.ts`) подписаны на них. Правило `elsewhere` и тексты `*_ELSEWHERE` убраны: окно Linked
+machine читает три режима всегда; с Read only пункты недоступны с подсказкой `useReadOnly`, а клик проверяет ещё и
+`readOnlyNow()`. Запись без ответа (link оборвался) — toast с причиной, состояние сбрасывается до нового чтения, догадка
+не показывается; чтение не удалось — пункт недоступен с причиной.
+
+Debugging port (ADR-0005): Machine Project-а по-прежнему отказывает в Shadow и On при своём debugging port. Вызывающая
+Machine при своём debugging port или inspector-е пропускает через `linked.invoke` только `autoApproval.set` с Off (вход,
+который она не может разобрать, тоже отказан), тем же текстом (`autoApprovalDebugRefusal`, `src/main/ipc/linked.ts`);
+Eco mode и Auto-continue идут, как и без link. Окно узнаёт причину по новому `local` каналу `autoApproval.blockedHere` и
+показывает её в tooltip-е группы Auto-approval (`blockedHereTitle`). ADR 0005 получил строку Amendments 2026-11-05.
+
+Test-ы: contract `test/contract/modes-linked.test.ts` (две Machine на link bench, настоящий `bin/profile-set`, настоящий
+`linked.invoke` и RemoteCalls вызывающей Machine: Full access, Read only, рассылка Q18, риски 1–5); unit
+`test/unit/modes-menu.test.tsx` (новый блок окна Linked machine), `test/unit/link-access.test.ts` (списки);
+`test/contract/auto-approve-setting.test.ts` и `auto-continue-setting.test.ts` — старые проверки `local` заменены
+новыми пометками. e2e `test/e2e/linked-modes.spec.ts` на двух собранных worfy: Full access меняет Eco mode и
+Auto-continue на B, смена в окне B видна в открытом меню A, Read only — состояния видны, пункты недоступны, ничего не
+записано; spec внесён в правило link таблицы `scripts/e2e-specs.table.json`. Mutation testing: 26 мутаций изменённых
+строк (пометки каналов, проверка debugging port в `linked.invoke`, события, `readOnlyNow` и подсказка Read only в трёх
+hook-ах, сброс догадки) — все убиты.
+
+`pnpm lint && pnpm typecheck && pnpm test` на 06aff8e25 — exit 0. Gate fast — exit 2 дважды: lint и typecheck
+зелёные, шаг test красный на test-ах, которых ветка не касается, и каждый раз на других:
+`test/contract/codex-parity.test.ts` (Stop hook фейкового Codex увидел красный gate), затем
+`test/contract/harness-scripts-4.test.ts` (`wave-gate-heartbeat.test.sh`: 1285 ms при лимите 1200) и
+`test/contract/terminal-ai-zle.test.ts`. Отдельно все три зелёные (exit 0). Оба красных запуска шли, пока на Mac
+работали чужие gate; на 4bb48b482, без чужих gate, gate fast — exit 0, `[gate] green`. e2e
+`test/e2e/linked-modes.spec.ts` после rebase — exit 0 на 486677b1b.
+
+Снимки меню (fixture build, `captureScreenshot`, светлая и тёмная тема, Full access и Read only) не закоммичены: на
+них только текст меню, без имён Machine, хостов и путей (проверил агент), но правило Evidence требует проверки
+человеком.
+
+Раунд 2 после ревью high (#1458, два reviewer-а, high и medium нет). Исправлены 6 low:
+- исправлены ложные комментарии в `src/main/ipc/linked.ts` (что он загружает Electron) и в
+  `src/main/settings/store.ts` (что домен `autoApproval` — `local`);
+- добавлен unit test: если `autoApproval.blockedHere` вернул ошибку, группа остаётся доступной, а выбор уходит через
+  link, где `linked.invoke` проверяет debugging port сам;
+- добавлен contract test debugging port на Machine Project-а: Shadow и On из Linked machine отказаны, Off в силе,
+  Off и Auto-continue проходят;
+- e2e: «ничего не записано» проверяется после того, как дошла запись-метка из окна B (`expect.poll`), а не сразу после
+  принудительных кликов. Раунд 3: каждая метка идёт не быстрее записи, которую она исключает. Eco mode из A пошёл бы
+  через `bin/profile-set` B, поэтому метка для него — запись Eco mode в окне B, и сверяется число запусков
+  `bin/profile-set` на запись (обёртка e2e пишет их в файл). Для Auto-continue метка — следующая запись Eco mode.
+  Мутации e2e: если отключить проверки Read only в окне и в link adapter для Eco mode или для Auto-continue,
+  test падает в обоих случаях;
+- риск 1: contract test-ы держат сторону link (ответ «unreachable» и что лежит на B). Сторону меню — без догадки, toast,
+  повторное чтение — держат unit test-ы `test/unit/modes-menu.test.tsx` («a write through the link without an answer»
+  и два после него); названия contract test-ов сужены до этого.
+
+Mutation testing раунда: мутация R9 (ошибка `blockedHere` блокирует группу), отказ debugging port Machine Project-а
+в `set` и в `read` — все три убиты.
+
+### Решено без владельца
+
+- **Причина debugging port в окне Linked machine — отдельный `local` канал** `autoApproval.blockedHere`, а не правка
+  ответа `autoApproval.read`: `blocked` в ответе — это debugging port Machine Project-а, при котором режим там Off; порт
+  вызывающей Machine режим на Machine Project-а не меняет, поэтому группа показывает режим как есть и недоступна с
+  причиной.
+- **При debugging port вызывающей Machine недоступна вся группа Auto-approval**, как и сегодня при своём порту, хотя
+  `linked.invoke` пропустил бы Off: выбор Off оттуда — только через окно Machine Project-а.
+- **Снимки не закоммичены**: их пиксели не проверял человек (правило Evidence, шаг 6 skill-а ship-ticket).

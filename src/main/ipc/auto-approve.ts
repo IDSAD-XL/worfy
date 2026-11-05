@@ -9,10 +9,23 @@
 // may be any local process scripting it — an agent's shell command included, which could also start
 // worfy with such a flag itself. Then Shadow and On are refused, Off goes through (it only takes
 // approval away), and the read says that Off is in force and why.
-import { autoApprovalRead, autoApprovalSet, type AutoApprovalState } from '../../shared/ipc/auto-approve'
+//
+// A Linked machine with full access reads and sets the mode through the link (worfy-retry ticket 13):
+// the handlers run here, on the Machine of the Project, and the check of its own debugging port is
+// that Machine's `linked.invoke` (src/main/ipc/linked.ts); `autoApproval.blockedHere` tells its window
+// why. A write that changed the saved mode reaches every client as `autoApproval.changed`.
+import {
+  autoApprovalBlockedHere,
+  autoApprovalChanged,
+  autoApprovalDebugRefusal,
+  autoApprovalRead,
+  autoApprovalSet,
+  type AutoApprovalState,
+} from '../../shared/ipc/auto-approve'
+import { toEveryWindow } from '../broadcast'
 import { projectStore } from '../projects/store'
 import { appSettingsStore, debugAccess as runningDebugAccess, type AppSettingsStore } from '../settings/store'
-import { defineHandler, type HandlerModule } from './index'
+import { defineHandler, emit, type HandlerModule } from './index'
 
 export interface AutoApprovalHandlersOptions {
   /** This Machine's Projects; the app's (projectStore) when absent. */
@@ -43,10 +56,14 @@ export function autoApprovalHandlers(options: AutoApprovalHandlersOptions = {}):
     defineHandler(autoApprovalSet, ({ projectId, mode }): AutoApprovalState => {
       known(projectId)
       const blocked = debugAccess()
-      if (blocked !== null && mode !== 'off') throw new Error(`Auto-approval stays off: ${blocked}, so any program on this Machine could call this channel`)
+      if (blocked !== null && mode !== 'off') throw new Error(autoApprovalDebugRefusal(blocked))
+      const before = store().autoApproval(projectId)
       store().setAutoApproval(projectId, mode)
-      return stateOf(projectId)
+      const state = stateOf(projectId)
+      if (state.saved !== before) toEveryWindow((client) => emit(client, autoApprovalChanged, { projectId, state }))
+      return state
     }),
+    defineHandler(autoApprovalBlockedHere, () => ({ blocked: debugAccess() })),
   ]
 }
 

@@ -7,13 +7,24 @@
 // Linked machine — has no use for them.
 //
 // This module is also loaded by the IPC adapter of every link service (ipc-adapter.ts), in tests
-// without Electron: it imports Electron only when it sends to the windows.
+// without Electron. It imports `BrowserWindow` only when it sends to the windows, but it loads
+// settings/store, which imports Electron's `app` on load; `app` is used only when `linked.invoke` carries
+// `autoApproval.set` (debugAccess() asks Chromium's switches), so a test that sends one without Electron
+// mocks `electron` or debugAccess().
+//
+// A debugging port of this Machine (worfy-retry ticket 13). While worfy runs with a debugging port or the
+// Node inspector open, any local process can script a window, and a Linked machine cannot know that the
+// call it gets came from such a script. So `linked.invoke` itself lets `autoApproval.set` out only with
+// Off then, as this Machine's own handler does for its Projects (src/main/ipc/auto-approve.ts), and
+// answers the rest with the same refusal; an input it cannot read is refused too.
 import { posix } from 'node:path'
-import { IPC_CHANNEL_PREFIX, type InvokeInput, type InvokeName, type IpcResult } from '../../shared/ipc/channels'
+import { autoApprovalDebugRefusal, autoApprovalSet } from '../../shared/ipc/auto-approve'
+import { handlerFailure, IPC_CHANNEL_PREFIX, type InvokeInput, type InvokeName, type IpcResult } from '../../shared/ipc/channels'
 import { linkedChanged, linkedEvent, linkedInvoke, linkedOpen, linkedState, type LinkedState } from '../../shared/ipc/linked'
 import { onNewDocument, type Client, type NavigatingClient } from '../clients'
 import { appRemoteCalls, type RemoteCalls } from '../link/remote-calls'
 import { appLinkProblem, onAppLinkStart } from '../link/service'
+import { debugAccess } from '../settings/store'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 let revision = 0
@@ -231,6 +242,15 @@ function countWindow(screen: Screen | undefined, machine: string, channel: strin
   }
 }
 
+/** Why `channel` with `input` does not leave this Machine while it runs with a debugging port open; null — it goes. */
+function debugRefusal(channel: string, input: unknown): string | null {
+  if (channel !== autoApprovalSet.name) return null
+  const blocked = debugAccess()
+  if (blocked === null) return null
+  const parsed = autoApprovalSet.input.safeParse(input)
+  return parsed.success && parsed.data.mode === 'off' ? null : handlerFailure(channel, autoApprovalDebugRefusal(blocked))
+}
+
 const watched = new WeakSet<object>()
 
 function watch(screen: Screen): void {
@@ -253,6 +273,8 @@ export default [
     if (calls === undefined) return { ok: false as const, error: `${channel}: ${appLinkProblem() ?? 'the link service has not started yet'}` }
     // A name with the prefix would read as another channel on the other side.
     if (channel.startsWith(IPC_CHANNEL_PREFIX)) return { ok: false as const, error: `${channel}: not a channel name` }
+    const refusal = debugRefusal(channel, input)
+    if (refusal !== null) return { ok: false as const, error: refusal }
     const counted = countWindow(event.sender as unknown as Screen | undefined, machine, channel, input)
     if (counted.answer !== undefined) return counted.answer
     const result = await calls.call(machine, channel, input)

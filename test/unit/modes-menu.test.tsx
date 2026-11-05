@@ -12,9 +12,11 @@
 // and unavailable. Auto-continue (worfy-retry ticket 02), the third item, shows whether main reads it
 // on for the Project, a choice writes the other value through `autoContinue.set`, a change made in
 // another window shows at once (`autoContinue.changed`), and a write that did not go through shows a
-// toast and the setting read again. A window on another Machine, read-only or not, reads and writes
-// nothing. What main does with a write is checked in test/contract/eco-mode.test.ts,
-// test/contract/auto-approve-setting.test.ts and test/contract/auto-continue-setting.test.ts.
+// toast and the setting read again. A window on a Linked machine (worfy-retry ticket 13) reads and writes
+// the modes of that Machine through `linked.invoke`: with full access it changes them, with read-only
+// access it shows them unavailable with the read-only hint. What main does with a write is checked in test/contract/eco-mode.test.ts,
+// test/contract/auto-approve-setting.test.ts, test/contract/auto-continue-setting.test.ts and, from a Linked
+// machine, test/contract/modes-linked.test.ts.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
@@ -41,7 +43,8 @@ const FP_ON = `sha256:${'2'.repeat(64)}`
 type Answer = AutoApprovalMode | AutoApprovalState | string
 
 interface FakeMain {
-  calls: { channel: string; input: unknown }[]
+  /** Every call; the inner one of `linked.invoke` also names the Machine it went to. */
+  calls: { channel: string; input: unknown; machine?: string }[]
   /** What each ecoMode.read answers, in turn (the last one again once they run out); a string — main threw with it. */
   ecoReads: (EcoModeState | string)[]
   /** What ecoMode.set answers; a string — main threw with it. */
@@ -58,8 +61,14 @@ interface FakeMain {
   contSet: boolean | string | undefined
   /** Holds the answer of autoContinue.set until called. */
   contHold: (() => void) | null
+  /** What `autoApproval.blockedHere` of this Machine answers: why it lets no Shadow or On out. */
+  blockedHere: string | null
+  /** When set, `autoApproval.blockedHere` fails with this error instead. */
+  blockedHereFails: string | null
   /** Sends an event of main to the window's subscribers. */
   emit: (channel: string, payload: unknown) => void
+  /** Sends an event of Linked machine `machine` to the window, as this Machine's main passes it on (`linked.event`). */
+  emitLinked: (machine: string, channel: string, payload: unknown) => void
   /** How many subscriptions the window holds on `channel` now. */
   listening: (channel: string) => number
 }
@@ -71,6 +80,8 @@ const ECO_OFF: EcoModeState = { available: true, on: false, fingerprint: FP_OFF 
 const ECO_ON: EcoModeState = { available: true, on: true, fingerprint: FP_ON }
 
 interface Setup {
+  blockedHere?: string | null
+  blockedHereFails?: string
   eco?: (EcoModeState | string)[]
   ecoSet?: EcoModeSetResult | string
   auto?: Answer[]
@@ -92,9 +103,12 @@ function preload(setup: Setup = {}): FakeMain {
     contReads: setup.cont ?? [false],
     contSet: setup.contSet,
     contHold: null,
+    blockedHere: setup.blockedHere ?? null,
+    blockedHereFails: setup.blockedHereFails ?? null,
     emit: (channel, payload) => {
       for (const [, each] of listeners) if (each.channel === channel) each.handler(payload)
     },
+    emitLinked: (machine, channel, payload) => fake.emit('linked.event', { machine, channel, payload }),
     listening: (channel) => [...listeners.values()].filter((each) => each.channel === channel).length,
   }
   const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
@@ -109,36 +123,45 @@ function preload(setup: Setup = {}): FakeMain {
           ? ({ ok: true, value: { mode: value, saved: value, blocked: null } } as never)
           : ({ ok: false, error: value } as never),
     )
-  const bridge: WorfyBridge = {
-    invoke: (channel, input) => {
-      fake.calls.push({ channel, input })
-      switch (channel) {
-        case 'ecoMode.read':
-          return ecoAnswer(fake.ecoReads.length > 1 ? fake.ecoReads.shift() : fake.ecoReads[0])
-        case 'ecoMode.set':
-          return ecoAnswer(fake.ecoSet)
-        case 'autoApproval.read':
-          return autoAnswer(fake.autoReads.length > 1 ? fake.autoReads.shift() : fake.autoReads[0])
-        case 'autoApproval.set': {
-          const value = fake.autoSet ?? (input as { mode: AutoApprovalMode }).mode
-          if (setup.hold !== true) return autoAnswer(value)
-          return new Promise((resolve) => {
-            fake.hold = () => resolve(autoAnswer(value) as never)
-          })
-        }
-        case 'autoContinue.read':
-          return contAnswer(fake.contReads.length > 1 ? fake.contReads.shift() : fake.contReads[0])
-        case 'autoContinue.set': {
-          const value = fake.contSet ?? (input as { on: boolean }).on
-          if (setup.contHold !== true) return contAnswer(value)
-          return new Promise((resolve) => {
-            fake.contHold = () => resolve(contAnswer(value) as never)
-          })
-        }
-        default:
-          return Promise.resolve({ ok: false, error: `no ${channel} here` } as never)
+  const answer = (channel: string, input: unknown, machine: string | null): Promise<never> => {
+    fake.calls.push(machine === null ? { channel, input } : { channel, input, machine })
+    switch (channel) {
+      case 'linked.invoke': {
+        // A window on a Linked machine: this Machine's main passes the call on and wraps the answer.
+        const call = input as { machine: string; channel: string; input: unknown }
+        return answer(call.channel, call.input, call.machine).then((inner) => ({ ok: true, value: inner }) as never)
       }
-    },
+      case 'autoApproval.blockedHere':
+        if (fake.blockedHereFails !== null) return Promise.resolve({ ok: false, error: fake.blockedHereFails } as never)
+        return Promise.resolve({ ok: true, value: { blocked: fake.blockedHere } } as never)
+      case 'ecoMode.read':
+        return ecoAnswer(fake.ecoReads.length > 1 ? fake.ecoReads.shift() : fake.ecoReads[0])
+      case 'ecoMode.set':
+        return ecoAnswer(fake.ecoSet)
+      case 'autoApproval.read':
+        return autoAnswer(fake.autoReads.length > 1 ? fake.autoReads.shift() : fake.autoReads[0])
+      case 'autoApproval.set': {
+        const value = fake.autoSet ?? (input as { mode: AutoApprovalMode }).mode
+        if (setup.hold !== true) return autoAnswer(value)
+        return new Promise((resolve) => {
+          fake.hold = () => resolve(autoAnswer(value) as never)
+        })
+      }
+      case 'autoContinue.read':
+        return contAnswer(fake.contReads.length > 1 ? fake.contReads.shift() : fake.contReads[0])
+      case 'autoContinue.set': {
+        const value = fake.contSet ?? (input as { on: boolean }).on
+        if (setup.contHold !== true) return contAnswer(value)
+        return new Promise((resolve) => {
+          fake.contHold = () => resolve(contAnswer(value) as never)
+        })
+      }
+      default:
+        return Promise.resolve({ ok: false, error: `no ${channel} here` } as never)
+    }
+  }
+  const bridge: WorfyBridge = {
+    invoke: (channel, input) => answer(channel, input, null),
     on: (channel, handler) => {
       const id = nextListener++
       listeners.set(id, { channel, handler })
@@ -159,13 +182,19 @@ const settle = () =>
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 
+/**
+ * The revision of the Project list each mount gives: the mocked useProjects module keeps its store from
+ * test to test (vi.resetModules does not renew a mocked module), and a list of a lower revision is not taken.
+ */
+let projectsRevision = 100
+
 /** The button with the window knowing the Orchestrator of the Project at ROOT and its live Session SESSION. */
 async function mount(sessionId: string | null = SESSION) {
   const { acceptOrchestratorView } = await import('../../src/renderer/canvas/nodes/orchestrator-view')
   const { acceptProjectsState } = await import('../../src/renderer/projects/useProjects')
   const { default: Modes } = await import('../../src/renderer/session/composer/Modes')
   acceptOrchestratorView(view(SESSION))
-  acceptProjectsState({ projects: [{ id: PROJECT, name: 'demo', path: ROOT, branch: null }], activeId: PROJECT, revision: 1 })
+  acceptProjectsState({ projects: [{ id: PROJECT, name: 'demo', path: ROOT, branch: null }], activeId: PROJECT, revision: ++projectsRevision })
   render(<Modes sessionId={sessionId} busy={false} text="" setText={() => undefined} />)
   // Whatever main was asked has answered.
   await settle()
@@ -601,7 +630,7 @@ describe('Eco mode in the menu', () => {
     expect(slot('eco').getAttribute('data-state')).toBe('on')
     const { acceptProjectsState } = await import('../../src/renderer/projects/useProjects')
     await act(async () => {
-      acceptProjectsState({ projects: [{ id: PROJECT, name: 'demo', path: OTHER, branch: null }], activeId: PROJECT, revision: 2 })
+      acceptProjectsState({ projects: [{ id: PROJECT, name: 'demo', path: OTHER, branch: null }], activeId: PROJECT, revision: ++projectsRevision })
     })
     await settle()
     expect(ecoCalls().map((call) => call.input)).toEqual([{ root: ROOT }, { root: OTHER }])
@@ -761,75 +790,213 @@ describe('Auto-approval in the menu', () => {
   })
 })
 
+// worfy-retry ticket 13 (Q15–Q18): a window on Linked machine `studio` shows the modes of that Machine's
+// Project. Every mode channel goes there through this Machine's `linked.invoke`, its changes come back
+// as `linked.event`; full access changes them, read-only access only sees them.
 describe('a window on a Linked machine', () => {
-  it('the menu opens; nothing is read or written, the icons unknown, each item unavailable with where it is set', async () => {
-    const { ECO_MODE_ELSEWHERE } = await import('../../src/renderer/session/modes/eco-mode')
-    const { AUTO_APPROVAL_ELSEWHERE } = await import('../../src/renderer/session/modes/auto-approval')
-    expect(ECO_MODE_ELSEWHERE).toBe('Eco mode is set in worfy on the Machine of the Project')
-    expect(AUTO_APPROVAL_ELSEWHERE).toBe('Auto-approval is set in worfy on the Machine of the Project')
-    window.history.replaceState(null, '', '/?machine=studio')
-    main = preload({ eco: [ECO_ON], auto: ['on'] })
-    await mount()
-    expect(trigger().hasAttribute('data-read-only')).toBe(true)
-    // The button still opens the menu: it is not unavailable itself, and its name says where the modes are set.
-    expect(trigger().getAttribute('aria-disabled')).toBeNull()
-    expect(trigger().getAttribute('aria-label')).toBe('Modes: set on the Machine of the Project')
-    expect(trigger().title).toBe('Modes: set on the Machine of the Project')
-    expect(slot('eco').getAttribute('data-state')).toBe('unknown')
-    expect(slot('auto-approval').getAttribute('data-state')).toBe('unknown')
-    expect(slot('auto-approval').hasAttribute('data-saved')).toBe(false)
-    expect(slot('auto-continue').getAttribute('data-state')).toBe('unknown')
-    await openMenu()
-    expect(ecoItem().getAttribute('aria-disabled')).toBe('true')
-    expect(ecoItem().title).toBe(ECO_MODE_ELSEWHERE)
-    expect(ecoItem().hasAttribute('data-read-only')).toBe(true)
-    expect(ecoItem().getAttribute('aria-checked')).toBe('false')
-    expect(marked(ecoItem())).toBe(false)
-    for (const name of ['Off', 'Shadow', 'On'] as const) {
-      expect(position(name).getAttribute('aria-disabled')).toBe('true')
-      expect(position(name).getAttribute('aria-checked')).toBe('false')
-      expect(position(name).hasAttribute('data-read-only')).toBe(true)
-      expect(marked(position(name))).toBe(false)
-      expect(position(name).title).toBe(AUTO_APPROVAL_ELSEWHERE)
-    }
-    const { AUTO_CONTINUE_ELSEWHERE } = await import('../../src/renderer/session/modes/auto-continue')
-    expect(AUTO_CONTINUE_ELSEWHERE).toBe('Auto-continue is set in worfy on the Machine of the Project')
-    expect(contItem().getAttribute('aria-disabled')).toBe('true')
-    expect(contItem().getAttribute('aria-checked')).toBe('false')
-    expect(contItem().hasAttribute('data-read-only')).toBe(true)
-    expect(contItem().title).toBe(AUTO_CONTINUE_ELSEWHERE)
-    expect(marked(contItem())).toBe(false)
-    await clickEco()
-    await choose('Shadow')
-    await click(contItem())
-    // Nothing read or written, and no subscription to this Machine's changes either.
-    expect(main.listening('autoContinue.changed')).toBe(0)
-    main.emit('autoContinue.changed', { projectId: PROJECT, on: true })
-    await settle()
-    expect(slot('auto-continue').getAttribute('data-state')).toBe('unknown')
-    expect(modeCalls()).toEqual([])
-  })
+  const MACHINE = 'studio'
+  const HINT = 'studio gives this Machine read-only access'
+  const DEBUG = 'worfy runs with a debugging port open (--remote-debugging-port)'
+  const onLinked = () => window.history.replaceState(null, '', `/?machine=${MACHINE}`)
+  const writes = () => modeCalls().filter((call) => call.channel.endsWith('.set'))
 
-  it('with read-only access: Eco mode takes the read-only hint, Auto-approval keeps its text; nothing read or written', async () => {
-    const { AUTO_APPROVAL_ELSEWHERE } = await import('../../src/renderer/session/modes/auto-approval')
-    window.history.replaceState(null, '', '/?machine=studio')
-    readOnly.hint = 'studio gives this Machine read-only access'
-    main = preload({ eco: [ECO_ON], auto: ['on'] })
+  it('full access: the menu shows the modes of the Machine of the Project, and every choice goes there through linked.invoke', async () => {
+    onLinked()
+    main = preload({ eco: [ECO_OFF], auto: ['shadow'], cont: [false] })
     await mount()
+    expect(slot('eco').getAttribute('data-state')).toBe('off')
+    expect(slot('auto-approval').getAttribute('data-state')).toBe('shadow')
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('off')
+    expect(trigger().hasAttribute('data-read-only')).toBe(false)
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode off, Auto-approval shadow, Auto-continue off')
+    // Read on the Machine of the Project, never on this one.
+    expect(modeCalls().filter((call) => call.channel.endsWith('.read'))).toEqual([
+      expect.objectContaining({ channel: expect.stringMatching(/^(ecoMode|autoApproval|autoContinue)\.read$/u), machine: MACHINE }),
+      expect.objectContaining({ machine: MACHINE }),
+      expect.objectContaining({ machine: MACHINE }),
+    ])
+    expect(main.calls.filter((call) => call.channel === 'ecoMode.read')).toEqual([{ channel: 'ecoMode.read', input: { root: ROOT }, machine: MACHINE }])
+    // Why this Machine would hold Auto-approval back is asked of this Machine.
+    expect(main.calls.filter((call) => call.channel === 'autoApproval.blockedHere')).toEqual([{ channel: 'autoApproval.blockedHere', input: undefined }])
     await openMenu()
-    expect(ecoItem().getAttribute('aria-disabled')).toBe('true')
-    expect(ecoItem().title).toBe('studio gives this Machine read-only access')
-    expect(ecoItem().hasAttribute('data-read-only')).toBe(true)
-    expect(position('On').title).toBe(AUTO_APPROVAL_ELSEWHERE)
-    // Auto-continue takes the read-only hint, as Eco mode does.
-    expect(contItem().getAttribute('aria-disabled')).toBe('true')
-    expect(contItem().title).toBe('studio gives this Machine read-only access')
-    expect(contItem().hasAttribute('data-read-only')).toBe(true)
-    expect(trigger().getAttribute('aria-label')).toBe('Modes: set on the Machine of the Project')
+    for (const item of items()) {
+      expect(item.getAttribute('aria-disabled')).toBeNull()
+      expect(item.hasAttribute('data-read-only')).toBe(false)
+    }
     await clickEco()
     await choose('On')
     await click(contItem())
-    expect(modeCalls()).toEqual([])
+    expect(writes()).toEqual([
+      { channel: 'ecoMode.set', input: { root: ROOT, on: true, expected: FP_OFF }, machine: MACHINE },
+      { channel: 'autoApproval.set', input: { projectId: PROJECT, mode: 'on' }, machine: MACHINE },
+      { channel: 'autoContinue.set', input: { projectId: PROJECT, on: true }, machine: MACHINE },
+    ])
+    expect(slot('eco').getAttribute('data-state')).toBe('on')
+    expect(slot('auto-approval').getAttribute('data-state')).toBe('on')
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('on')
+  })
+
+  it('a change made on the Machine of the Project shows in the open menu at once (Q18); one of another Machine does not', async () => {
+    onLinked()
+    main = preload({ eco: [ECO_OFF], auto: ['off'], cont: [false] })
+    await mount()
+    await openMenu()
+    // This Machine's own change of a Project of the same id is not the Linked machine's.
+    main.emit('autoContinue.changed', { projectId: PROJECT, on: true })
+    main.emitLinked('other', 'autoContinue.changed', { projectId: PROJECT, on: true })
+    await settle()
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('off')
+    main.emitLinked(MACHINE, 'autoContinue.changed', { projectId: PROJECT, on: true })
+    main.emitLinked(MACHINE, 'autoApproval.changed', { projectId: PROJECT, state: { mode: 'shadow', saved: 'shadow', blocked: null } })
+    main.emitLinked(MACHINE, 'ecoMode.changed', { root: ROOT, on: true, fingerprint: FP_ON })
+    // Another Project's change is not this one's.
+    main.emitLinked(MACHINE, 'ecoMode.changed', { root: '/work/other', on: false, fingerprint: FP_OFF })
+    main.emitLinked(MACHINE, 'autoApproval.changed', { projectId: 'other-0000000e', state: { mode: 'off', saved: 'off', blocked: null } })
+    await settle()
+    expect(menu()).not.toBeNull()
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('on')
+    expect(slot('auto-approval').getAttribute('data-state')).toBe('shadow')
+    expect(slot('eco').getAttribute('data-state')).toBe('on')
+    expect(ecoItem().getAttribute('aria-checked')).toBe('true')
+    // The next write carries the fingerprint the change brought.
+    await clickEco()
+    expect(writes()).toEqual([{ channel: 'ecoMode.set', input: { root: ROOT, on: false, expected: FP_ON }, machine: MACHINE }])
+  })
+
+  it('read-only access: the three states show, each item is unavailable with the read-only hint, and nothing is written', async () => {
+    onLinked()
+    readOnly.hint = HINT
+    main = preload({ eco: [ECO_ON], auto: ['on'], cont: [true] })
+    await mount()
+    expect(slot('eco').getAttribute('data-state')).toBe('on')
+    expect(slot('auto-approval').getAttribute('data-state')).toBe('on')
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('on')
+    expect(trigger().hasAttribute('data-read-only')).toBe(true)
+    expect(trigger().getAttribute('aria-disabled')).toBeNull()
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode on, Auto-approval on, Auto-continue on')
+    await openMenu()
+    expect(ecoItem().getAttribute('aria-checked')).toBe('true')
+    expect(position('On').getAttribute('aria-checked')).toBe('true')
+    expect(contItem().getAttribute('aria-checked')).toBe('true')
+    for (const item of items()) {
+      expect(item.getAttribute('aria-disabled')).toBe('true')
+      expect(item.title).toBe(HINT)
+      expect(item.hasAttribute('data-read-only')).toBe(true)
+    }
+    await clickEco()
+    await choose('Off')
+    await click(contItem())
+    expect(writes()).toEqual([])
+    // A change on the Machine of the Project still shows.
+    main.emitLinked(MACHINE, 'autoContinue.changed', { projectId: PROJECT, on: false })
+    await settle()
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('off')
+  })
+
+  it('access goes read-only after the menu was drawn: a choice writes nothing (readOnlyNow)', async () => {
+    onLinked()
+    main = preload({ eco: [ECO_OFF], auto: ['off'], cont: [false] })
+    await mount()
+    await openMenu()
+    const { answerReadOnly } = await import('../../src/renderer/projects/read-only-now')
+    answerReadOnly(() => HINT)
+    await clickEco()
+    await choose('On')
+    await click(contItem())
+    expect(writes()).toEqual([])
+  })
+
+  it('a debugging port open on this Machine: Auto-approval is unavailable with why; Eco mode and Auto-continue still change', async () => {
+    const { blockedHereTitle } = await import('../../src/renderer/session/modes/auto-approval')
+    expect(blockedHereTitle(DEBUG)).toBe(`Auto-approval cannot be set from this Machine: ${DEBUG}, so any program on this Machine could set it through this window.`)
+    onLinked()
+    main = preload({ eco: [ECO_OFF], auto: ['on'], cont: [false], blockedHere: DEBUG })
+    await mount()
+    // The mode in force on the Machine of the Project shows as it is.
+    expect(slot('auto-approval').getAttribute('data-state')).toBe('on')
+    await openMenu()
+    for (const name of ['Off', 'Shadow', 'On'] as const) {
+      expect(position(name).getAttribute('aria-disabled')).toBe('true')
+      expect(position(name).title).toBe(blockedHereTitle(DEBUG))
+    }
+    await choose('Off')
+    expect(ecoItem().getAttribute('aria-disabled')).toBeNull()
+    expect(contItem().getAttribute('aria-disabled')).toBeNull()
+    await click(contItem())
+    expect(writes()).toEqual([{ channel: 'autoContinue.set', input: { projectId: PROJECT, on: true }, machine: MACHINE }])
+  })
+
+  it('asking this Machine why it would hold Auto-approval back fails: the group stays available, and the choice goes through the link, which checks on its own', async () => {
+    onLinked()
+    main = preload({ auto: ['off'], blockedHereFails: 'autoApproval.blockedHere failed: no answer' })
+    await mount()
+    await openMenu()
+    for (const name of ['Off', 'Shadow', 'On'] as const) {
+      expect(position(name).getAttribute('aria-disabled')).toBeNull()
+      expect(position(name).title).not.toMatch(/cannot be set from this Machine/)
+    }
+    await choose('On')
+    expect(writes()).toEqual([{ channel: 'autoApproval.set', input: { projectId: PROJECT, mode: 'on' }, machine: MACHINE }])
+  })
+
+  it('a window on this Machine does not ask why this Machine would hold Auto-approval back: the read says it', async () => {
+    main = preload({ blockedHere: DEBUG })
+    await mount()
+    expect(main.calls.filter((call) => call.channel === 'autoApproval.blockedHere')).toEqual([])
+    await openMenu()
+    expect(position('On').getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('a write through the link without an answer: a toast with the reason, then what the Machine of the Project reads', async () => {
+    onLinked()
+    main = preload({ cont: [false, true], contSet: 'autoContinue.set: studio is unreachable' })
+    await mount()
+    await openMenu()
+    await click(contItem())
+    expect(await shownToasts()).toEqual([{ kind: 'error', text: 'Auto-continue was not turned on: studio is unreachable' }])
+    // The write had gone through there: the read again shows it.
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('on')
+    expect(main.calls.filter((call) => call.channel === 'autoContinue.read')).toHaveLength(2)
+  })
+
+  it('while the read after a lost answer runs, no item shows what it showed before the write', async () => {
+    onLinked()
+    main = preload({
+      eco: [ECO_OFF],
+      ecoSet: 'ecoMode.set: studio is unreachable',
+      auto: ['off'],
+      autoSet: 'autoApproval.set: studio is unreachable',
+      cont: [false],
+      contSet: 'autoContinue.set: studio is unreachable',
+    })
+    await mount()
+    // From now on no read answers.
+    const bridge = (globalThis as { worfy?: WorfyBridge }).worfy!
+    const invoke = bridge.invoke
+    bridge.invoke = (channel, input) => {
+      const inner = channel === 'linked.invoke' ? (input as { channel: string }).channel : channel
+      return inner.endsWith('.read') ? new Promise(() => undefined) : invoke(channel, input)
+    }
+    await clickEco()
+    await choose('On')
+    await click(contItem())
+    expect(slot('eco').getAttribute('data-state')).toBe('unknown')
+    expect(slot('auto-approval').getAttribute('data-state')).toBe('unknown')
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('unknown')
+    expect(position('Off').getAttribute('aria-checked')).toBe('false')
+    expect(ecoItem().getAttribute('aria-disabled')).toBe('true')
+    expect(contItem().getAttribute('aria-disabled')).toBe('true')
+  })
+
+  it('the read after a lost answer fails too: the item is unavailable with why and shows no guess', async () => {
+    onLinked()
+    main = preload({ auto: ['off', 'autoApproval.read: studio is unreachable'], autoSet: 'autoApproval.set: studio is unreachable' })
+    await mount()
+    await choose('On')
+    expect(await shownToasts()).toEqual([{ kind: 'error', text: 'Auto-approval was not set to On: studio is unreachable' }])
+    expect(slot('auto-approval').getAttribute('data-state')).toBe('unknown')
+    expect(position('Off').getAttribute('aria-checked')).toBe('false')
+    expect(position('On').title).toBe('Auto-approval is not available: studio is unreachable')
   })
 })
 

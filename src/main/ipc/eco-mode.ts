@@ -7,16 +7,21 @@
 // Autopilot budget: that is this Machine's setting, not the Project's. Off removes both fields
 // (`--reset`); the models the roles had before are not kept. Each write carries `--expect` with the
 // fingerprint the window read: a Profile changed in between is not written.
+//
+// A window of a Linked machine with full access calls these handlers through the link (worfy-retry
+// ticket 13): the root it sends must be a Project of this Machine, and the Profile is written here. Each
+// write that went through is announced as `ecoMode.changed` to every client, with the new fingerprint.
 import { resolve } from 'node:path'
 import { PLAN_PRESETS } from '../../shared/agent/plan-preset'
-import { ecoModeRead, ecoModeSet, type EcoModeSetResult, type EcoModeState } from '../../shared/ipc/eco-mode'
+import { ecoModeChanged, ecoModeRead, ecoModeSet, type EcoModeSetResult, type EcoModeState } from '../../shared/ipc/eco-mode'
 import { pipelineFingerprintSchema } from '../../shared/ipc/pipeline'
+import { toEveryWindow } from '../broadcast'
 import { realInsideProjects } from '../link/caller'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { harnessScriptEnv } from '../harness/script-env'
 import { HarnessScriptStartError, scriptFailureDetail, type ProfileRun } from '../workflow/profile'
-import { defineHandler, type HandlerModule } from './index'
+import { defineHandler, emit, type HandlerModule } from './index'
 import { PROFILE_SET_BUSY, PROFILE_SET_CONFLICT, profileSetRunner, type ProfileSetRunner } from './pipeline'
 
 const FIELDS = ['--field', 'workflow.agents', '--field', 'agents']
@@ -102,11 +107,13 @@ export function ecoModeHandlers(options: EcoModeHandlersOptions = {}): HandlerMo
       if (run.code === 1) return { status: 'invalid', reason: scriptFailureDetail(run.stderr).replace(/^profile-set: /u, '') || 'bin/profile-set refused the change' }
       const what = on ? '--set' : '--reset'
       if (run.code !== 0) throw failure(run, what)
-      return answerOf(run.stdout, what, (json) => {
+      const saved = answerOf(run.stdout, what, (json): EcoModeSetResult | undefined => {
         const fingerprint = fingerprintOf(json.fingerprint)
         const warning = typeof json.warning === 'string' ? json.warning : null
         return fingerprint === undefined ? undefined : { status: 'saved', on, fingerprint, warning }
       })
+      if (saved.status === 'saved') toEveryWindow((client) => emit(client, ecoModeChanged, { root, on, fingerprint: saved.fingerprint }))
+      return saved
     }),
   ]
 }

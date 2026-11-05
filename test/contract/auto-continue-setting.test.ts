@@ -4,7 +4,8 @@
 // off; anything outside the schema — off; on writes the Project's entry, off removes it, and a write of
 // one Project leaves every other Project and every other setting as it was. A file of an older worfy
 // without the field reads as off everywhere. Every window of this Machine hears a change at once
-// (`autoContinue.changed`), and the channels are `local`: a Linked machine reaches none of them.
+// (`autoContinue.changed`). A Linked machine with full access reads and sets it through the link, with
+// read-only access it only reads it (worfy-retry ticket 13).
 // autoContinueOn(projectId) is the reader of main for the retry of tickets 04–06.
 import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,7 +13,7 @@ import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type ModuleLoader } from '../../src/main/ipc/index'
-import { createLinkIpc, LinkPeer } from '../../src/main/link/ipc-adapter'
+import { createLinkIpc, LinkPeer, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
 import { projectId } from '../../src/main/projects/store'
 import { APP_SETTINGS_FILE, AppSettingsStore, autoContinueOn } from '../../src/main/settings/store'
 import { autoContinueChanged, autoContinueRead, autoContinueSet } from '../../src/shared/ipc/auto-continue'
@@ -262,25 +263,25 @@ describe('autoContinue channels', () => {
   })
 })
 
+// worfy-retry ticket 13: a Linked machine with full access sets the setting, with read-only access it
+// only reads it and hears its changes. The whole flow over two Machines is test/contract/modes-linked.test.ts.
 describe('autoContinue and a Linked machine', () => {
-  it('every channel is marked `local`', () => {
-    expect([autoContinueRead.access, autoContinueSet.access, autoContinueChanged.access]).toEqual(['local', 'local', 'local'])
+  it('the read and the change are `project` and `read`, the write `project` and `write`', () => {
+    expect([autoContinueRead.access, autoContinueRead.use]).toEqual(['project', 'read'])
+    expect([autoContinueSet.access, autoContinueSet.use]).toEqual(['project', 'write'])
+    expect([autoContinueChanged.access, autoContinueChanged.use]).toEqual(['project', 'read'])
   })
 
-  it('the link adapter registers neither, and refuses both even with full access; nothing is written', async () => {
-    // A `project` channel next to them, so an adapter that registered nothing would not pass.
-    const sample = await import('./ipc-sample/main/sample')
-    sample.echoCalls.length = 0
-    const modules: Record<string, ModuleLoader> = { './auto-continue.ts': loadModule, './sample.ts': async () => sample.default }
+  it('the link adapter registers the read and the write; read-only access reads, and its write is refused with nothing written', async () => {
+    const modules: Record<string, ModuleLoader> = { './auto-continue.ts': loadModule }
     const adapter = await createLinkIpc({ modules, isLinked: (id) => id === LINKED })
-    expect(adapter.channels()).toEqual(['sample.echo'])
+    expect([...adapter.channels()].sort()).toEqual(['autoContinue.read', 'autoContinue.set'])
 
     const peer = new LinkPeer({ machineId: LINKED, describe: () => LINKED, push: () => undefined, local: () => ({ id: 'beta', name: 'Beta', protocol: 1, build: 'x' }), warn: () => undefined })
-    peer.setAccess('all')
+    peer.setAccess('read')
     const before = existsSync(dataFile) ? readFileSync(dataFile, 'utf8') : null
-    expect(await adapter.call(peer, 'autoContinue.set', { projectId: ALPHA, on: true }, 'Beta')).toEqual({ ok: false, error: 'autoContinue.set: not open to Linked machines' })
-    expect(await adapter.call(peer, 'autoContinue.read', { projectId: ALPHA }, 'Beta')).toEqual({ ok: false, error: 'autoContinue.read: not open to Linked machines' })
+    expect(await adapter.call(peer, 'autoContinue.read', { projectId: ALPHA }, 'Beta')).toEqual({ ok: true, value: { on: autoContinueOn(ALPHA) } })
+    expect(await adapter.call(peer, 'autoContinue.set', { projectId: ALPHA, on: !autoContinueOn(ALPHA) }, 'Beta')).toEqual({ ok: false, error: readOnlyRefusal('Beta') })
     expect(existsSync(dataFile) ? readFileSync(dataFile, 'utf8') : null).toBe(before)
-    expect(autoContinueOn(ALPHA)).toBe(false)
   })
 })
