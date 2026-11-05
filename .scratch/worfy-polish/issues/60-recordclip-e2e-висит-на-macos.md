@@ -42,14 +42,14 @@ Playwright не может завершиться.
 - [ ] Новый e2e test: снимок кадра, который никогда не завершается, после уничтожения окна, и `app.close()`, который
       не завершается, — ошибка «a frame of the contact sheet failed» за секунды, процесс приложения завершён, файлов
       нет. До правки — красный (висит до timeout-а).
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/evidence-capture.spec.ts -g "never comes back"` exit 0 · mac dev · 06267f07e35f27bf5462915dee11e528344c87bb
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/evidence-capture.spec.ts -g "cannot be taken|never comes back"` exit 0 · mac dev · ee5012a0ef08acb7b710cd90675a3b3d83f108a5
 - [ ] Test 503 проходит за секунды; весь `test/e2e/evidence-capture.spec.ts` проходит 3 раза подряд без ошибки
       teardown-а; время до и после — в «Итог».
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/evidence-capture.spec.ts --retries=0` exit 0, three runs in a row · mac dev · 06267f07e35f27bf5462915dee11e528344c87bb
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/evidence-capture.spec.ts --retries=0` exit 0, three runs in a row · mac dev · ee5012a0ef08acb7b710cd90675a3b3d83f108a5
 - [ ] `pnpm lint`, `pnpm typecheck`, unit и contract test-ы затронутых модулей, gate fast — exit 0.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · 06267f07e35f27bf5462915dee11e528344c87bb
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ee5012a0ef08acb7b710cd90675a3b3d83f108a5
 - [ ] `ci-ok` PR-а зелёный, `macos-e2e (1/2)` — зелёный.
-  - evidence: ci-check pass · PR 1395 run 41932530798: ci-ok pass, macos-e2e (1/2) pass, test 503 in 1.2 s · mac - · 06267f07e35f27bf5462915dee11e528344c87bb
+  - evidence: ci-check pass · PR 1395 run 41937490366: ci-ok pass, macos-e2e (1/2) pass, test 503 in 3.8 s · mac - · ee5012a0ef08acb7b710cd90675a3b3d83f108a5
 
 ## Итог
 
@@ -84,7 +84,9 @@ Playwright не может завершиться.
   2-секундного ожидания его сценария), первый новый test — 7.1–7.2 s (6 s — предел выхода `ms(2_000)` при множителе 3),
   второй — 19.3–19.5 s (18 s — предел кадра `ms(6_000)`); весь `test/e2e/evidence-capture.spec.ts` три раза подряд —
   24 passed за 50.7 s, 50.0 s, 50.0 s, ни одной ошибки вне test-ов. На CI PR #1395 первого раунда (run 41932530798,
-  `macos-e2e (1/2)`): test 503 — 1.2 s, первый новый test — 7.2 s, 226 passed, ни одной ошибки вне test-ов.
+  `macos-e2e (1/2)`): test 503 — 1.2 s, первый новый test — 7.2 s, 226 passed, ни одной ошибки вне test-ов. На CI
+  второго раунда (run 41937490366, `macos-e2e (1/2)`): test 503 — 3.8 s, первый новый test — 8.0 s, второй — 21.5 s,
+  226 passed, ни одной ошибки вне test-ов; `ci-ok` зелёный.
 
 Решено без владельца:
 - **Кадр, который не пришёл, обрывает сценарий.** Раньше helper ждал конца сценария и после ошибки кадра. Клипа всё
