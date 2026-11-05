@@ -55,6 +55,7 @@
         "src/main/ipc/linked.ts"
       ],
       "specs": [
+        "test/e2e/autopilot-faults.spec.ts",
         "test/e2e/autopilot.spec.ts",
         "test/e2e/browser-family.spec.ts",
         "test/e2e/controls.spec.ts",
@@ -75,7 +76,7 @@
         "test/e2e/linked-tailscale.spec.ts",
         "test/e2e/sidebar-sections.spec.ts"
       ],
-      "why": "The link between machines: its remote paths run only with a linked machine, in the specs that pair two apps (linkThroughUi, launchLinkedPair) or open the Linked machines settings: the linked-* specs, family.spec.ts, controls.spec.ts and browser-family.spec.ts; sidebar-sections and focus-sidebar show the Link machine button, autopilot.spec.ts reaches service.ts through ipc/autopilot.ts. Left out: caller.ts and messages.ts (every ipc handler calls through them), ipc-adapter.ts (browser/read-only.ts, read by ipc/layout.ts for every canvas) and autopilot-runs.ts (ipc/autopilot.ts)."
+      "why": "The link between machines: its remote paths run only with a linked machine, in the specs that pair two apps (linkThroughUi, launchLinkedPair) or open the Linked machines settings: the linked-* specs, family.spec.ts, controls.spec.ts and browser-family.spec.ts; sidebar-sections and focus-sidebar show the Link machine button, autopilot.spec.ts and autopilot-faults.spec.ts reach service.ts through ipc/autopilot.ts. Left out: caller.ts and messages.ts (every ipc handler calls through them), ipc-adapter.ts (browser/read-only.ts, read by ipc/layout.ts for every canvas) and autopilot-runs.ts (ipc/autopilot.ts)."
     },
     {
       "paths": [
@@ -172,9 +173,10 @@
         "test/e2e/flight-recorder.spec.ts",
         "test/e2e/flight-recorder-detail.spec.ts",
         "test/e2e/autopilot.spec.ts",
+        "test/e2e/autopilot-faults.spec.ts",
         "test/e2e/autopilot-chat.spec.ts"
       ],
-      "why": "The Run history screen (worfy-flight-recorder tickets 18, 19): every window mounts it in the hidden view `history`, where it draws one line until openRunHistory opens a Run, and only flight-recorder.spec.ts and flight-recorder-detail.spec.ts (its detail panel, filter and «Retry») open one; its mount is covered by test/unit/flight-recorder-view.test.tsx. The entries into it (ticket 20): the toast when a Run stops (stop-toast.ts, installed by every window, shown only on a stop) and the screen opened from it, from the Epic frame and from the palette, which autopilot.spec.ts and autopilot-chat.spec.ts (a Run started from a chat) drive. Left out: main.tsx, AppShell.tsx and Toolbar.tsx, which every window runs through, and the runs IPC of main, whose handlers every app loads."
+      "why": "The Run history screen (worfy-flight-recorder tickets 18, 19): every window mounts it in the hidden view `history`, where it draws one line until openRunHistory opens a Run, and only flight-recorder.spec.ts and flight-recorder-detail.spec.ts (its detail panel, filter and «Retry») open one; its mount is covered by test/unit/flight-recorder-view.test.tsx. The entries into it (ticket 20): the toast when a Run stops (stop-toast.ts, installed by every window, shown only on a stop) and the screen opened from it, from the Epic frame and from the palette, which autopilot.spec.ts and autopilot-chat.spec.ts (a Run started from a chat) drive; autopilot-faults.spec.ts opens it on a Run the app was killed in. Left out: main.tsx, AppShell.tsx and Toolbar.tsx, which every window runs through, and the runs IPC of main, whose handlers every app loads."
     },
     {
       "paths": [
