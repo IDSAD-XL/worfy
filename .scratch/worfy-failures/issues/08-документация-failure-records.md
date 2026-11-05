@@ -1,7 +1,8 @@
 # 08 — Документация: раздел «Failure records»
 
 Type: task
-Status: claimed 2026-11-05T04:26Z
+Status: done 2026-11-05T05:16Z
+PR: #1416
 Blocked by: 07
 Source: [spec.md](../spec.md), «Решено без владельца» (раздел на странице Gate, не новая страница), «Риски», п. 1 и 4 (что не ловится), «Новые термины»; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (страницы функций: английский — основной, перевод — `docs/features/ru/`)
 
@@ -33,16 +34,20 @@ Source: [spec.md](../spec.md), «Решено без владельца» (ра�
 
 - [ ] Раздел «Failure records» на английской странице и в переводе; каждое утверждение сверено с кодом вторым
       агентом.
+  - evidence: review pass · PR #1416 · - - · 14c619f2810792f17a6c1a84348712690dad3615
 - [ ] Раздел называет, чего очистка не ловит, и что CI не пишет записей.
   - evidence: commit pass · docs: section "Failure records" on the Gate feature page (worfy-failures 08) · - - · f51519768
+  - evidence: review pass · PR #1416 · - - · 14c619f2810792f17a6c1a84348712690dad3615
 - [ ] `node scripts/check-feature-docs.mjs` — exit 0 и строка `feature docs: ok (…)`.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0, feature docs: ok (26 pages, 1964 paths); on a copy before worfy-failures 01 exit 1 · mac - · f51519768
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0, feature docs: ok (26 pages, 1964 paths), round 2 · mac - · bfda0211bfd32eb6176b06e7f420ed2c6b266bb0
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/41971902281 · ci - · 14c619f2810792f17a6c1a84348712690dad3615
 - [ ] `pnpm lint` — exit 0; CI PR зелёный.
   - evidence: test-run pass · `pnpm lint` exit 0 (CI of the PR not yet read) · mac - · f51519768
   - evidence: gate pass · `gate fast` exit 0, GATE_SCOPE=all · mac - · f51519768
   - evidence: test-run pass · `pnpm lint` exit 0, round 2 · mac - · bfda0211bfd32eb6176b06e7f420ed2c6b266bb0
   - evidence: gate pass · `gate fast` exit 0, GATE_SCOPE=all, round 2 · mac - · bfda0211bfd32eb6176b06e7f420ed2c6b266bb0
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/41971902281 · ci - · 14c619f2810792f17a6c1a84348712690dad3615
 
 ## Тесты
 
