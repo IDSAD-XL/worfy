@@ -48,10 +48,13 @@ Source: [spec.md](../spec.md), «Вопросы владельцу», Q1, Q2, Q3
 - [x] `harness/skills/epic-wave/SKILL.md` описывает `rerun`, `export`, `import`, `report`; ручного «one at a time»
       больше нет.
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 · mac - · 75d15d31fbee7fba45c73ac75b81c369e0c9838a
+  - evidence: test-run pass · `harness/bin/tests/epic-wave-ship-ticket.test.sh` run by bash, exit 0 · mac - · 4565a8eddef5e56f0b3816959feaea5a9e7800f3
 - [x] Shell test-ы текста skill-ов (`harness/bin/tests/skill-blocks.test.sh`, `skill-text.sh`,
       `plugin-neutral.test.sh`) зелёные.
   - evidence: test-run pass · `bash harness/bin/tests/skill-blocks.test.sh` and `bash harness/bin/tests/plugin-neutral.test.sh` exit 0 · mac - · 75d15d31fbee7fba45c73ac75b81c369e0c9838a
   - evidence: gate pass · `gate fast` exit 0 · mac - · 75d15d31fbee7fba45c73ac75b81c369e0c9838a
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 4565a8eddef5e56f0b3816959feaea5a9e7800f3
+  - evidence: test-run pass · `harness/bin/tests/skill-blocks.test.sh` and `harness/bin/tests/plugin-neutral.test.sh` run by bash, exit 0 · mac - · 4565a8eddef5e56f0b3816959feaea5a9e7800f3
 - [ ] (вручную) `rules.md` Profile-а на Mac и на ПК поправлены после слова владельца; дифф в «Итог».
 - [ ] После merge — `pnpm install:stable` и Replace Harness на Mac; `claude plugin list` показывает новый Harness.
 - [ ] `pnpm lint` — exit 0; CI PR зелёный.
