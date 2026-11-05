@@ -82,7 +82,9 @@ export default defineConfig({
   // None outside CI: a local run (gate full, the Windows PC) has no job limit to beat.
   globalTimeout: process.env.CI ? 40 * 60_000 : 0,
   retries: CI_RETRIES,
-  reporter: [['list'], ['./test/e2e/helpers.ts'], ['./test/e2e/flaky-reporter.ts'], ['json', { outputFile: jsonReport }]],
+  // test/e2e/failures-reporter.ts writes a failure record for each test that failed, with the argv
+  // that runs it alone, into the file the Harness gate names in GATE_FAILURES_FILE; without it, nothing.
+  reporter: [['list'], ['./test/e2e/helpers.ts'], ['./test/e2e/flaky-reporter.ts'], ['./test/e2e/failures-reporter.ts'], ['json', { outputFile: jsonReport }]],
   use: {
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

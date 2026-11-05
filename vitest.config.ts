@@ -43,7 +43,9 @@ export default defineConfig({
     // in GitHub Actions), and test-results/vitest-timings.json with the time of each test file
     // (test/timings-reporter.ts; read by scripts/test-timings.mjs). test-results/ is not in git.
     // test/flaky-reporter.ts prints a FLAKY line for each test that passed only on the retry.
-    reporters: [...configDefaults.reporters, './test/timings-reporter.ts', './test/flaky-reporter.ts'],
+    // test/failures-reporter.ts writes a failure record for each failed test, with the argv that runs
+    // it alone, into the file the Harness gate names in GATE_FAILURES_FILE; without it, nothing.
+    reporters: [...configDefaults.reporters, './test/timings-reporter.ts', './test/failures-reporter.ts', './test/flaky-reporter.ts'],
     // A failed test runs once more in CI, never locally (test/flaky.ts). The time limits below are
     // per attempt: a test that runs into its limit and is retried takes twice its limit.
     retry: CI_RETRIES,

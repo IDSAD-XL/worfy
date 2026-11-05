@@ -54,7 +54,7 @@ describe('the JSON report of playwright.config.ts', () => {
   it('keeps the list reporter and the failure-artifacts reporter', async () => {
     process.argv = [argv[0] ?? 'node', 'playwright', 'test']
     const config = ((await import(`${pathToFileURL(join(REPO, 'playwright.config.ts')).href}?t=${Date.now()}${++loads}`)) as { default: { reporter: [string][] } }).default
-    expect(config.reporter.map(([name]) => name)).toEqual(['list', './test/e2e/helpers.ts', './test/e2e/flaky-reporter.ts', 'json'])
+    expect(config.reporter.map(([name]) => name)).toEqual(['list', './test/e2e/helpers.ts', './test/e2e/flaky-reporter.ts', './test/e2e/failures-reporter.ts', 'json'])
   })
 })
 

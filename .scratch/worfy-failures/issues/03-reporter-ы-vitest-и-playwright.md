@@ -1,7 +1,7 @@
 # 03 — Reporter-ы vitest и Playwright пишут записи
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T23:30Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Источники и что меняется в них» (worfy: reporter-ы; повтор поодиночке), «Модель» (запись о падении), «Windows» (argv без shell); [ADR-0083](../../../docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md) (повторы только в CI)
 
@@ -37,18 +37,26 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
 
 - [ ] Unit test (vitest): fake `TestModule` с одним упавшим, одним зелёным и одним flaky test-ом — одна строка;
       `name` через « > », `file` с `/`, `line` есть; `error` — первая строка без ANSI и без пути домашней папки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/failures-reporter.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
 - [ ] Unit test (vitest): модуль с ошибкой импорта — запись с `name: null`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/failures-reporter.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
 - [ ] Unit test (Playwright): fake `Suite` с `unexpected`, `flaky` и `skipped` — одна строка, `attempt` = номер
       последней попытки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/failures-reporter.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
 - [ ] Unit test: без `GATE_FAILURES_FILE` reporter-ы не пишут ничего и не печатают ничего.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/failures-reporter.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
 - [ ] Unit test: `rerun` начинается с `node`, второй элемент — существующий файл в репозитории; на `win32` argv тот
       же (shell не нужен).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/failures-reporter.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
 - [ ] Contract test: шаблон `-t` из `rerun` упавшего fixture-test-а `a` в файле, где есть и test `a b`, запускает
       ровно `a` (vitest печатает `1 failed`, остальные test-ы файла — skipped).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/failures-reporter-rerun.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
 - [ ] FLAKY-строки и `test-results/vitest-timings.json` — как до Ticket-а (`test/unit/flaky-reporter.test.ts`,
       `test/unit/test-timings.test.ts` зелёные).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/flaky-reporter.test.ts test/unit/test-timings.test.ts` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (правка `playwright.config.ts` включит
       полный e2e — это ожидаемо).
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0b27cf0f66b533ba386c86375265197d46b8a33e
 
 ## Тесты
 
@@ -73,3 +81,18 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
 
 Только читать: `test/flaky.ts`, `test/flaky-reporter.ts`, `test/e2e/flaky-reporter.ts`, `test/timings-reporter.ts`,
 `scripts/vitest-electron.mjs`, `harness/hooks/gate-failures.mjs` (Ticket 01 — формат строки).
+
+## Итог
+
+- `test/failure-records.ts` — форма строки и дописывание в `GATE_FAILURES_FILE`. В строке, кроме полей из «Что
+  делаем», есть и `test` (`<runner> <file> > <name>`, как `testId` Ticket-а 01, или `null`): со `step` от gate строка
+  сразу проходит `checkFailure`, unit test проверяет это через `checkRunRecord`. `error` обрезан до 200 символов,
+  как `ERROR_CHARS` gate; личные данные не ищутся — их чистит gate.
+- vitest: reporter стоит перед `test/flaky-reporter.ts`, а не после: test FLAKY-reporter-а требует, чтобы тот был
+  последним в списке. Повтор упавшего модуля (`name: null`) — `node scripts/vitest-electron.mjs <file>` без `-t`.
+- Playwright: путь CLI — `require.resolve('@playwright/test/cli')` от корня, у pnpm это
+  `node_modules/.pnpm/@playwright+test@<версия>/node_modules/@playwright/test/cli.js`. Повтор проверен вручную на
+  временном spec-е: `node <cli> test <file>:<line>` запустил только упавший test.
+- Вне следа, без этого красно: `tsconfig.test.node.json` (новые файлы в списке проекта), `scripts/ci-scope.mjs`
+  (`test/failure-records.ts` импортирует e2e reporter — PR с его правкой гоняет macos-e2e),
+  `test/unit/playwright-json-report.test.ts` (список reporter-ов Playwright).
