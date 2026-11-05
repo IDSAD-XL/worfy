@@ -521,5 +521,8 @@ describe('what a copy brings along (copiedTree)', () => {
     expect(copiedTree('/tmp/demo/pad/kit/d/*', roots(treeFs(many)))).toBe('unclear')
     delete many['/tmp/demo/pad/kit/d/0']
     expect(copiedTree('/tmp/demo/pad/kit/d/*', roots(treeFs(many)))).toBe('clean')
+    // kit holds d, d holds 9,999: 10,000 entries in all, still looked through.
+    delete many['/tmp/demo/pad/kit/d/1']
+    expect(copiedTree('/tmp/demo/pad/kit', roots(treeFs(many)))).toBe('clean')
   })
 })

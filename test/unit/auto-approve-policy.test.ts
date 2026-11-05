@@ -619,6 +619,8 @@ describe('a branch checked out in another worktree, and the default branch', () 
     expect(outcome('git switch -c worfy-demo/03-fix origin/main')).toBe('allow')
     expect(outcome('git checkout worfy-demo/03')).toBe('allow')
     expect(outcome('git checkout -- src/a.ts')).toBe('allow')
+    // After -- come paths: a file named main is no branch.
+    expect(run('git checkout -- main').outcome).not.toBe('hard-deny')
   })
   it('git worktree add: --force, the default branch, another worktree\'s branch, a folder named after one', () => {
     expect(run(`git worktree add -f ${PAD}/x main`).rule).toBe('hard:git-worktree-force')
