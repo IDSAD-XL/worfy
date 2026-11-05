@@ -102,7 +102,7 @@ Source: [spec.md](../spec.md), «Фейк и test-ы», «Гарантии workf
   отказы sandbox), проходит закрытую JSON Schema; неверные шаги — exit 2. Без новой реализации фейка новый test
   красный: 7 из 9.
 
-Решено без владельца, подтвердить:
+Решено без владельца, подтверждено владельцем 2026-11-05:
 
 1. Отказ `PreToolUse`: фейк не шлёт item tool-а вовсе (ни `item/started`, ни `item/completed`), только `hook/completed`
    со status `blocked` и причиной. Что шлёт живой app-server при deny, записи Ticket-а 30 не показывают.

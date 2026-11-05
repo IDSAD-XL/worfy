@@ -82,7 +82,7 @@ Source: [spec.md](../spec.md), кандидат R8 (формулировка sco
   Project asks»), два в `test/unit/checks-badges.test.tsx`. Первый contract test был красным на
   прежнем коде. Мутанты «игнорировать `project`», «принимать `project` без проверки, что это
   Project», «ключ снимка без Project-а» — каждый краснит свой test.
-- Решено без владельца, подтвердить: `project`, равный самому `root`, при `root` — репозитории
+- Решено без владельца, подтверждено владельцем 2026-11-05: `project`, равный самому `root`, при `root` — репозитории
   другого Project-а, судится по модели `project` (Canvas `B` видит ветки только Ticket-ов `B`).
 - `pnpm lint`, `pnpm typecheck` — exit 0; `pnpm test` под нагрузкой соседних implementer-ов упал на
   двух test-ах `test/contract/workflow-reader.test.ts` по таймауту 15 с, отдельно файл зелёный
@@ -94,4 +94,4 @@ Source: [spec.md](../spec.md), кандидат R8 (формулировка sco
 - Гейт — один круг: `VERIFIED` на `f35c3e5` ([комментарий в PR #350](https://github.com/IDSAD-XL/worfy/pull/350#issuecomment-6188560946)). Verifier сам: `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0 (gate fast из кэша); с `project` поле `root` — подмножество того, что пускал `targetOf`, отказ до запуска `gh` и `git`: Linked machine новой папки и чужих веток не получает; смена ключа снимка читателей не ломает.
 - Мерж: база `12b46d8`, head `f35c3e5`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `056c32a`.
 - Act on, Consider, Dismissed — нет.
-- Noted ([low]): `src/main/ipc/checks.ts:117` — `insideProjects` для `project` повторяет проверку `targetIn` (`:84-85`), строку не держит ни один test (regex `test/contract/github-prs.test.ts:968` принимает оба отказа). **Решено без владельца, подтвердить:** при `project = B`, `root = B` ветки — из модели самого B.
+- Noted ([low]): `src/main/ipc/checks.ts:117` — `insideProjects` для `project` повторяет проверку `targetIn` (`:84-85`), строку не держит ни один test (regex `test/contract/github-prs.test.ts:968` принимает оба отказа). **Решено без владельца, подтверждено владельцем 2026-11-05:** при `project = B`, `root = B` ветки — из модели самого B.

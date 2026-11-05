@@ -74,7 +74,7 @@ Linked machine — другая машина, к которой подключе
 `src/main/cards/protocol.ts` и `src/main/cards/remote.ts` в `src/main/link/file-chunks.ts`; Card-ы
 зовут их как раньше, их contract-тесты (`test/contract/card-protocol.test.ts`) и e2e
 (`linked-cards.spec.ts`) зелёные. Каналы остаются раздельными, протокол link-а не меняется — ADR-0088
-не занят. **Решено без владельца, подтвердить:** отдельный канал с общим кодом, а не один обобщённый
+не занят. **Решено без владельца, подтверждено владельцем 2026-11-05:** отдельный канал с общим кодом, а не один обобщённый
 канал файлов для Card-ов и картинок.
 
 **Безопасность.** По link-у идут только имя хранилища (`attachments` или `canvas.<project label>`,
@@ -101,7 +101,7 @@ Machine». Тесты — через link adapter в `test/contract/projects.tes
 Чтобы получить копию, Linked machine должна знать sha256 картинки. Узнать его она может только из
 Transcript-а, а Transcript Session Project-а с `localOnly` ей не отдаётся. Остаётся одна возможность:
 проверить, есть ли на машине картинка, которая у Linked machine уже есть, по хешу её байтов.
-**Решено без владельца, подтвердить.**
+**Решено без владельца, подтверждено владельцем 2026-11-05.**
 
 **Протокол.** `worfy-image://<хранилище>.<machine label>/<имя>` больше не 404: handler берёт байты
 через link (`src/main/images/remote.ts`). Это и картинки Canvas Linked machine, и миниатюры картинок
@@ -132,5 +132,5 @@ Session на Linked machine не написан.
   `images.file` и старый `cards.file`; три low). Круг 2 — VERIFIED на `042dc1f7`. Merge `df8ee68c` с `check/windows`
   «PC after Wave» (ADR-0086); gate full на ПК по main запрошен у моста. Долг: комментарии
   `test/e2e/linked-images.spec.ts:121,168` говорят, что картинка идёт в корзину раньше note, а `deletableNodes`
-  убирает её из выделения. Подтвердить владельцу: картинка Linked machine только для чтения при любом уровне доступа;
+  убирает её из выделения. Подтверждено владельцем 2026-11-05: картинка Linked machine только для чтения при любом уровне доступа;
   хранилище `attachments` вне `localOnly`; отдельный канал `images.file`.

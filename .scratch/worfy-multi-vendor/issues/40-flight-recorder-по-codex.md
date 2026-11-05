@@ -65,7 +65,7 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   — три span-а агентов с `#2`, два хода Orchestrator-а, Claude home не читается; Wave без thread-а — `transcript deleted`;
   Run без `vendor` и с `claude` — прежнее чтение файлов), новые случаи в `test/unit/flight-recorder-transcript.test.ts`,
   `test/unit/codex-history.test.ts`, `test/unit/flight-recorder-journal.test.ts`. Test-ы Run-ов Claude — без правок ожиданий.
-- Решено без владельца, подтвердить:
+- Решено без владельца, подтверждено владельцем 2026-11-05:
   - имя агента `impl_NN`, `verify_NN` (с подчёркиванием, как его может назвать путь агента Codex) даёт Ticket и подвид так
     же, как `impl-NN` (`AGENT_NAME_TICKET`, `agentSubkind` в `src/shared/flight-recorder/spans.ts`); для Claude это меняет
     только агентов с таким именем;

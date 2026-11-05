@@ -105,7 +105,7 @@ Source: [spec.md](../spec.md), «Решено без владельца», п. 4
   проверка hook-ов перед gate queue; tooltip и диалог на Codex; где текст `vendor-quota`; `fit`, `week`, `samples` и
   `actual` на Codex. `docs/features/run-planning.md`: budget на Codex считается по самому длинному окну Codex.
 
-Решено без владельца, подтвердить:
+Решено без владельца, подтверждено владельцем 2026-11-05:
 
 1. Вид окна в Journal — все поля `LimitWindow` (вместе с `label`, `state`, `source`), времена — ISO, как все времена Journal.
 2. Окно неизвестной длины становится окном budget, только если длины нет ни у одного окна; из равных — первое.

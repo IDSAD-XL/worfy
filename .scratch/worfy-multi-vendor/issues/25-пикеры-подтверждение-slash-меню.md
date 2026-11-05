@@ -25,7 +25,7 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
      (`src/renderer/session/composer/Pickers.tsx:21-25`). Ticket оставляет один источник: пикер берёт подписи из
      `permissionPresets`, `MODE_LABELS` удаляется.
 
-   Три решения выше — решено Orchestrator-ом 2026-11-02 по поручению владельца, подтвердить при приёмке.
+   Три решения выше — решено Orchestrator-ом 2026-11-02 по поручению владельца, подтверждено владельцем 2026-11-05.
 2. Недоступное — недоступным с tooltip причины из capabilities («Codex does not support …»); скрыто только то, что
    для Vendor-а смысла не имеет.
 3. Диалог подтверждения у Codex: `subject` — команда (с `cwd`) или список файлов; кнопки — варианты Codex.
@@ -62,18 +62,18 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 - Недоступное: Vendor без `modelSwitchStable` — пикер Model неактивен, tooltip — причина из `unsupported`. Slash-меню
   Vendor-а без `commandsComplete` (Codex) — последняя неактивная строка «Not every command is listed», tooltip — причина.
   Session, чьи capabilities main не дал, считается Session Claude Code (как Node без Vendor-а) — решено без владельца,
-  подтвердить.
+  подтверждено владельцем 2026-11-05.
 - Настройки Session несут id preset-а и уровень effort Vendor-а (`src/shared/agent/settings.ts`): схема принимает id,
   которые даёт хоть один Vendor (режимы Claude, `read-only` / `auto` / `full-access`, уровни Claude и `none` / `minimal`),
   чужое по-прежнему отказывается на входе IPC. Session отказывает в preset-е и уровне, которых нет у её Vendor-а
   (`offeredRefusal` в `src/main/agent/session.ts`). Новая Session Codex переводит настройки в термины Codex
   (`SessionPart.settingsFor`, `codexSettings`): `bypassPermissions` по умолчанию → «Full access», `acceptEdits` → «Auto»,
   `default` и `plan` → «Read only», `max` → default. Shortcut-ы тикетов 20 и 23 (`PRESET_OF_CLAUDE_MODE` как единственный
-  путь, `pickerEfforts` только с уровнями Claude) сняты. Решено без владельца, подтвердить: схема перечисляет id всех
+  путь, `pickerEfforts` только с уровнями Claude) сняты. Решено без владельца, подтверждено владельцем 2026-11-05: схема перечисляет id всех
   Vendor-ов (`OTHER_VENDOR_PRESETS`, `OTHER_VENDOR_EFFORTS`, сверка с driver-ом — `test/unit/codex-capabilities.test.ts`),
   а не принимает любую строку — так старые test-ы Claude держат свои ожидания.
 - Claude Code с сохранённым чужим id (не дойдёт через пикер, только из файла) стартует в `default` и без effort
-  (`claudeMode`, `claudeEffort` в `src/main/vendors/claude/options.ts`) — решено без владельца, подтвердить.
+  (`claudeMode`, `claudeEffort` в `src/main/vendors/claude/options.ts`) — решено без владельца, подтверждено владельцем 2026-11-05.
 - Диалог подтверждения (`src/renderer/session/PermissionCard.tsx`) читает input по форме, без имени Vendor-а: команда с
   `cwd` — команда целиком и строка `in <cwd>`; `changes` с `path` — файлы по строке. Кнопки — варианты Vendor-а в его
   порядке (у Codex четыре).

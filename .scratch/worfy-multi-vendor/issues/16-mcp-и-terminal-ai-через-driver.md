@@ -38,8 +38,7 @@ Source: [spec.md](../spec.md), «Модель» (части mcp и oneShot), «�
    `vendors/registry.ts` → `claude/index.ts` → `claude/session.ts` → `app-registry.ts` (долг Ticket-а 13). Импорты
    обновляются: `src/main/vendors/claude/session.ts:6`, `src/main/ipc/first-run.ts`,
    `test/unit/vendor-driver-types.test.ts`, `test/unit/agent-query-factory.test.ts`,
-   `test/contract/plan-preset.test.ts`. Решено Orchestrator-ом 2026-11-02 по поручению владельца, подтвердить при
-   приёмке.
+   `test/contract/plan-preset.test.ts`. Решено Orchestrator-ом 2026-11-02 по поручению владельца, подтверждено владельцем 2026-11-05.
    Третья копия правила «Claude вошёл» — с Ticket-а 14 в `src/main/vendors/claude/session.ts:327` — заменяется
    вызовом `claudeSignedIn` (`src/main/vendors/claude/account.ts:16`, Ticket 15, п. 6).
 4. Список исключений `test/contract/vendor-sdk-imports.test.ts` пуст; исключение, которое уже не импортирует SDK,
@@ -81,7 +80,7 @@ VERIFIED.
   агента переехало в `sharedRegistry()` (`src/main/agent/app-registry.ts`), `claude/session.ts` импортирует `./query`
   статически, новый `test/contract/vendor-imports.test.ts` краснеет на любой импорт `app-registry` из
   `src/main/vendors/`. Решено implementer-ом вместо параметра у `queryFactoryFromEnv` (у driver-а нет доступа к
-  реестру без глобального setter-а); подтвердить при приёмке.
+  реестру без глобального setter-а); подтверждено владельцем 2026-11-05.
 - Отклонение от текста п. 3 (принято ревью): экспортируемые интерфейсы `vendors/claude/options.ts` построены на типах
   worfy (`ClaudeMcpServer`, `ClaudeOutputFormat`, `ClaudeSettingSource`), иначе правило «тип SDK не выходит из
   driver-а» было бы нарушено.

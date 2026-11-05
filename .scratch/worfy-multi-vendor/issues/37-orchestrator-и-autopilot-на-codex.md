@@ -57,7 +57,7 @@ Run на Codex начинается только с Harness, чьи гарант
 - Takeover остановленного Run-а (worfy-polish 50) — код общий для обоих Vendor-ов, но у Codex он не наступает: driver Codex
   не сообщает background task-ов, а старт во время хода отказывается (`ORCHESTRATOR_IN_TURN`) у обоих Vendor-ов.
 
-Решено без владельца, подтвердить:
+Решено без владельца, подтверждено владельцем 2026-11-05 (шестой пункт позже изменён Ticket-ом 39):
 
 1. «Следующий старт Orchestrator-а» — открытие Orchestrator-а (запуск worfy) и «New conversation»; во время работы
    Orchestrator Vendor не меняет, Autopilot тоже.

@@ -113,9 +113,9 @@ Session-а, `detail` — «Orchestrator»; выбор центрирует ег�
 - Клавиша ⌘[ свободна: в меню приложения (`src/main/menu.ts`: роли editMenu, windowMenu, viewMenu, Settings ⌘,,
   Toggle Sidebar ⌘B, масштаб ⌥⌘0/=/-) и в обработчиках клавиш renderer-а `[` не занят; в окне Subagent-а нет поля
   ввода. Слушатель стоит только пока показан Session view (панель остаётся смонтированной под Canvas). Клавиша
-  ловится и по месту (`code: BracketLeft`) — для раскладок, где там другая буква. Решено без владельца, подтвердить.
+  ловится и по месту (`code: BracketLeft`) — для раскладок, где там другая буква. Решено без владельца, подтверждено владельцем 2026-11-05.
 - Подпись берёт имя Session-а, как велит пункт 3, а не слово «Orchestrator»: у Orchestrator-а это его имя из
-  транскрипта (ai-title или первый prompt). Решено без владельца, подтвердить.
+  транскрипта (ai-title или первый prompt). Решено без владельца, подтверждено владельцем 2026-11-05.
 
 **«Go to Orchestrator» в палитре** (`src/renderer/palette/commands.ts`): строка `go-to:orchestrator` в группе `Go to`,
 заголовок `Orchestrator`, `detail` — `Session view`, ключи `orchestrator`, `go to orchestrator`; есть всегда, когда

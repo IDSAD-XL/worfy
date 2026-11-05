@@ -142,7 +142,7 @@ Orchestrator» такой явный переход показывал бы Orch
 снимается, и закрытый, архивный или скрытый после этого Node ведёт к Orchestrator. Отметку снимает
 подписка на `layout.changed` уровня хранилища (работает, даже когда вкладка Session этого Project-а
 не нарисована) и проверка в `useOpenedSession` для Layout-а, прочитанного через `layout.get`.
-**Решено без владельца, подтвердить.**
+**Решено без владельца, подтверждено владельцем 2026-11-05.**
 
 Dropdown (Q1) — `src/renderer/session/SessionPicker.tsx` в шапке обоих panel-ей, сразу после статуса;
 строки — `src/renderer/session/session-picker.ts` (`pickerSessions`). Это общий `Select`

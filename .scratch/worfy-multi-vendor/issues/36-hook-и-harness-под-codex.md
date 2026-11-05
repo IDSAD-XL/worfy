@@ -108,9 +108,9 @@ thread с sandbox `read-only`) не нужен.
   gate не запускает, SubagentStop ничего не делает. На старых hook-ах красные 7 из 12.
 - `harness/hooks/tests/rules-hooks.test.sh`: в снимке `hooks.json` три строки (timeout `Stop`, `SubagentStop`, matcher).
   Это ожидание формы файла, не поведения Claude; иначе Codex не получил бы ни gate, ни guard на `apply_patch`, потому
-  что файл у них общий. Решено без владельца, подтвердить.
+  что файл у них общий. Решено без владельца, подтверждено владельцем 2026-11-05.
 
-Решено без владельца, подтвердить:
+Решено без владельца, подтверждено владельцем 2026-11-05 (счётчик блоков позже изменён раундом 1 ревью PR #1308: по `agent_id`):
 - счётчик блоков `stop.mjs` (не больше 2 на Session) общий для `Stop` и `SubagentStop` одной Session Codex;
 - для `worfy-*` запрещён любой интерактивный старт, не только тот, в который потом пишут: hook не видит, будет ли
   `write_stdin`; список программ — частый, в коде помечен `shortcut:`.
@@ -137,7 +137,7 @@ manifest-е, фейк надо научить (его `shortcut:` в шапке 
   (`gh auth token -u <account>`, как PR tracker и как hook `gh-token-env.mjs` у Claude) и кладёт его в env процесса
   app-server; оттуда он идёт в каждый shell Session-а. Без account-а или без входа gh под ним — env worfy как раньше
   (свой `GH_TOKEN` worfy, если он есть, проходит). Токен не пишется в log; причина отказа называет только account.
-  Решено без владельца, подтвердить: без account-а `GH_TOKEN` worfy не убирается (у Claude `agentEnv` его убирает).
+  Решено без владельца, подтверждено владельцем 2026-11-05: без account-а `GH_TOKEN` worfy не убирается (у Claude `agentEnv` его убирает).
 - Страницы `docs/features/skills-agents-and-hooks.md` (matcher `Bash|apply_patch`, 900 s у `Stop`, строка
   `SubagentStop`) и `docs/features/gate-and-github.md` (на Codex gate запускают `Stop` и `SubagentStop`) — только
   английские.
