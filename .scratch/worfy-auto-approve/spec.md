@@ -288,11 +288,17 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
 5. **При Off политика не зовётся**: строка Journal — прежний `refused-dialog`, ничего нового.
 6. **Park ждёт только один tool call одного Subagent-а**; остальные Subagent-ы Wave работают. Session Orchestrator-а
    показывает `needs_permission`, как у attended.
-7. **Программы git config-а определяются по окончанию ключа** (решение review PR #1410, раунд 9). `hooksActive`
-   становится `true`, если в config-е есть `core.fsmonitor` (не `true`/`false`), `diff.external` или ключ на
-   `.program`, `.command`, `.cmd`, `.driver`, `.textconv`, `.clean`, `.smudge`, `.process`, `.defaultKeyCommand`
-   (Ticket 04). Принятая цена: `core.sshCommand` владельца тоже включает поле, и `git fetch` в таком проекте уходит в
-   park.
+7. **Программы git config-а определяются по окончанию ключа** (решение review PR #1410, раунды 9 и 10).
+   `hooksActive` становится `true`, если в config-е есть `core.fsmonitor` (не `true`/`false`), `diff.external`,
+   `core.sshCommand` или ключ на `.program`, `.command`, `.cmd`, `.driver`, `.textconv`, `.clean`, `.smudge`,
+   `.process`, `.defaultKeyCommand` (Ticket 04). Сравнение без учёта регистра: `git config --list` печатает ключи
+   строчными. Принятая цена: `core.sshCommand` владельца включает поле, и `git fetch` в таком проекте уходит в park.
+8. **Пока hooks активны, любое слово ревизии с `:` уходит в park** (решение review PR #1410, раунд 10). Путь из
+   index может стоять в любом месте слова (`:a`, `^:a`, `HEAD..:a`), и git тогда запускает `core.fsmonitor`.
+   Написания больше не перебираются: park получает каждое слово до `--`, которое не опция и содержит `:`.
+   Принятая цена: `git rev-parse HEAD:path`, `git cat-file -p <rev>:path`, `git ls-tree HEAD:dir` и значение опции
+   отдельным словом с `:` (`git log --grep 'fix: a'`) в проекте с hooks или программами config-а тоже уходят в
+   park. Опции `git rev-parse` — точный allow-list, каждая проверена на настоящем git.
 
 ## Соседний Epic worfy-retry
 

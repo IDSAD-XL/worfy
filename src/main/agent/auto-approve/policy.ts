@@ -94,8 +94,9 @@ export interface PolicyContext {
   /**
    * Whether the repository has client hooks or programs named in its config, read when the Run starts: true when
    * `core.hooksPath` is set, the common git folder's `hooks/` holds a file not ending in `.sample`, or a config key
-   * is `core.fsmonitor` (not true / false) or `diff.external`, or ends in `.program`, `.command`, `.cmd`, `.driver`,
-   * `.textconv`, `.clean`, `.smudge`, `.process` or `.defaultKeyCommand`; null when it could not be read. Such a program may run
+   * is `core.fsmonitor` (not true / false), `diff.external` or `core.sshCommand`, or ends in `.program`, `.command`,
+   * `.cmd`, `.driver`, `.textconv`, `.clean`, `.smudge`, `.process` or `.defaultKeyCommand`, compared without case
+   * (`git config --list` prints keys in lower case); null when it could not be read. Such a program may run
    * files the agent can edit (husky's `.husky/pre-commit`, lint-staged, `python3 -m nbstripout`), so unless it is
    * false git may only read refs and objects (mayRunHook). A set `hooksPath` counts as true.
    */
@@ -306,13 +307,16 @@ function judgeCommand(command: string, cwd: string, prepared: Prepared): Decisio
 }
 
 // While the repository has hooks or programs named in its config, git is allowed only to read refs and objects:
-// no diff (textconv, diff.external), no filter (clean, smudge), no index (core.fsmonitor; a revision word `:<path>`,
-// `:<n>:<path>`, `:/<text>` reads it), no index write (post-index-change) and no ref update (reference-transaction).
-// The forms kept here ran none of hooks, fsmonitor, textconv, clean / smudge, diff.external and gpg.program on real
-// git 2.50 (scratchpad kept.sh of review rounds 8 and 9). A signature placeholder (`%G`, with a `-`, `+` or space
-// flag) or a named format of `pretty.<name>` runs gpg.program: refused. `log.showSignature` and `format.pretty` are
-// set by the Run's GIT_CONFIG_PARAMETERS (ticket 04).
+// no diff (textconv, diff.external), no filter (clean, smudge), no index (core.fsmonitor), no index write
+// (post-index-change) and no ref update (reference-transaction). A revision word reads the index when it holds a
+// `:<path>` anywhere (`:a`, `^:a`, `HEAD..:a`), so every word before `--` that is not an option and holds a `:` is
+// refused, `<rev>:<path>` too. The forms kept here ran none of hooks, fsmonitor, textconv, clean / smudge,
+// diff.external and gpg.program on real git 2.50 (scratchpad kept.sh of review rounds 8 to 10). A signature
+// placeholder (`%G`, with a `-`, `+` or space flag) or a named format of `pretty.<name>` runs gpg.program: refused.
+// `log.showSignature` and `format.pretty` are set by the Run's GIT_CONFIG_PARAMETERS (ticket 04).
 const REF_READS = new Set(['rev-parse', 'merge-base', 'for-each-ref', 'show-ref', 'name-rev', 'branch', 'ls-tree'])
+// rev-parse: these options only (`--shared-index-path` reads the index).
+const REV_PARSE_OPTIONS = ['--verify', '--quiet', '-q', '--short', '--abbrev-ref', '--symbolic', '--symbolic-full-name', '--show-toplevel', '--show-prefix', '--show-cdup', '--git-dir', '--git-common-dir', '--absolute-git-dir', '--is-inside-work-tree', '--is-inside-git-dir', '--is-bare-repository', '--is-shallow-repository', '--all', '--branches', '--tags', '--remotes']
 // log and rev-list: these options only, the valued ones as `--x=v`, or as the next word where git takes it so.
 const REVISION_FLAGS = ['--oneline', '--graph', '--decorate', '--no-decorate', '--all', '--reverse', '--first-parent', '--no-merges', '--merges', '--branches', '--tags', '--remotes', '--abbrev-commit', '--date-order', '--topo-order', '--count', '--left-right']
 const REVISION_NEXT = ['-n', '--max-count', '--skip', '--author', '--committer', '--since', '--until', '--after', '--before', '--grep']
@@ -328,7 +332,9 @@ function mayRunHook(action: ShellAction): boolean {
   if (action.writes.length > 0 || action.deletes.length > 0) return !(sub === 'stash' && words.length === 1 && words[0] === 'list')
   if (words.some((word) => /%[-+ ]?G/.test(word) || /signature/i.test(word))) return true
   const end = words.indexOf('--')
-  if ((end < 0 ? words : words.slice(0, end)).some((word) => word.startsWith(':'))) return true
+  const before = end < 0 ? words : words.slice(0, end)
+  if (before.some((word) => !word.startsWith('-') && word.includes(':'))) return true
+  if (sub === 'rev-parse') return !before.every((word) => !word.startsWith('-') || REV_PARSE_OPTIONS.includes(word) || /^--short=\d+$/.test(word))
   if (sub === 'log' || sub === 'rev-list') return !revisionReadOnly(words, sub === 'log')
   if (sub === 'cat-file') return !words.every((word) => !word.startsWith('-') || ['-p', '-t', '-s', '-e'].includes(word))
   return !REF_READS.has(sub)

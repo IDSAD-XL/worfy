@@ -1462,9 +1462,8 @@ describe('round 9: index revisions, signature placeholders, named formats, branc
       'git rev-list -1 :src/a.ts', 'git merge-base :src/a.ts HEAD', 'git name-rev :src/a.ts', 'git ls-tree :src', "git rev-parse ':/fix'", 'git log --oneline -1 :2:src/a.ts']) {
       expect(run(command, active), command).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
     }
-    // A revision, a reflog entry and a path after -- read no index (real git 2.50, round 9).
-    for (const command of ['git cat-file -p HEAD:src/a.ts', 'git cat-file -p main:src/a.ts', 'git rev-parse HEAD:src/a.ts', "git log -1 'HEAD@{1}'", "git rev-parse '@{1}'",
-      'git log --oneline -- :src/a.ts', 'git log -- :src/a.ts', 'git ls-tree HEAD:src']) {
+    // A reflog entry and a path after -- read no index (real git 2.50, round 9). `<rev>:<path>` parks since round 10.
+    for (const command of ["git log -1 'HEAD@{1}'", "git rev-parse '@{1}'", 'git log --oneline -- :src/a.ts', 'git log -- :src/a.ts']) {
       expect(run(command, active), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
     }
     expect(run('git cat-file -p :src/a.ts')).toMatchObject({ outcome: 'allow' })
@@ -1490,5 +1489,36 @@ describe('round 9: index revisions, signature placeholders, named formats, branc
     expect(run('git branch worfy-demo/03-b', posix({ remotes: null }))).toMatchObject({ outcome: 'park', rule: 'branch-name' })
     // Another reason beside it gives the plain park.
     expect(run('git branch ORIG_HEAD && git push')).toMatchObject({ outcome: 'park', rule: 'outside-roots', hint: null })
+  })
+})
+
+describe('round 10: any revision word with a colon, and the options of rev-parse', () => {
+  const active = posix({ hooksActive: true })
+  it('a word with a colon anywhere before -- parks while hooks are active, a revision with a path included', () => {
+    for (const command of ["git rev-parse '^:src/a.ts'", "git rev-parse 'HEAD..:src/a.ts'", "git rev-parse 'HEAD...:src/a.ts'", "git rev-list -1 HEAD '^:src/a.ts'",
+      "git log -1 'HEAD..:src/a.ts'", "git rev-parse --verify 'HEAD..:src/a.ts'", "git log --oneline 'HEAD...:src/a.ts'", "git rev-list 'main..:src/a.ts'",
+      'git cat-file -p HEAD:src/a.ts', 'git cat-file -p main:src/a.ts', 'git rev-parse HEAD:src/a.ts', 'git ls-tree HEAD:src', "git cat-file -p '@{-1}:src/a.ts'",
+      "git log --grep 'fix: a'"]) {
+      expect(run(command, active), command).toMatchObject({ outcome: 'park', rule: 'git-hooks', hint: HINTS.gitHooks })
+    }
+    // An option word and a word after -- are not revisions; without hooks a colon is fine.
+    for (const command of ["git log -1 '--grep=fix: a'", "git for-each-ref '--format=%(refname:short)'", 'git rev-parse HEAD -- :src/a.ts', 'git log -1 -- :src/a.ts']) {
+      expect(run(command, active), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    }
+    expect(run("git rev-parse 'HEAD..:src/a.ts'")).toMatchObject({ outcome: 'allow' })
+    expect(run('git cat-file -p HEAD:src/a.ts')).toMatchObject({ outcome: 'allow' })
+  })
+  it('rev-parse takes only the options real git ran nothing for', () => {
+    // Each ran none of hooks, fsmonitor, textconv, clean / smudge, diff.external and gpg.program on real git 2.50 (round 10).
+    const kept = ['--verify', '--quiet', '-q', '--short', '--short=7', '--abbrev-ref', '--symbolic', '--symbolic-full-name', '--show-toplevel', '--show-prefix', '--show-cdup',
+      '--git-dir', '--git-common-dir', '--absolute-git-dir', '--is-inside-work-tree', '--is-inside-git-dir', '--is-bare-repository', '--is-shallow-repository', '--all',
+      '--branches', '--tags', '--remotes']
+    for (const option of kept) expect(run(`git rev-parse ${option} HEAD`, active), option).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    expect(run('git rev-parse --abbrev-ref --symbolic-full-name HEAD', active)).toMatchObject({ outcome: 'allow' })
+    for (const command of ['git rev-parse --shared-index-path', 'git rev-parse --short=x HEAD', 'git rev-parse --short= HEAD', 'git rev-parse --git-path index',
+      'git rev-parse --local-env-vars', 'git rev-parse --verify=x HEAD', 'git rev-parse --abbrev-ref=strict HEAD', 'git rev-parse --sq-quote x', 'git rev-parse --end-of-options HEAD']) {
+      expect(run(command, active), command).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    }
+    expect(run('git rev-parse --shared-index-path')).toMatchObject({ outcome: 'allow' })
   })
 })

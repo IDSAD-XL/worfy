@@ -62,12 +62,15 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3, 7; «Ре�
    - `hooksActive` — есть ли в репозитории hooks или программы, названные в git config; читается при старте Run-а.
      `true`, когда задан `core.hooksPath`, когда в `hooks/` общей git-папки (`git rev-parse --git-common-dir`) лежит
      файл без окончания `.sample` или когда в `git config --list` есть ключ по одному правилу: `core.fsmonitor` со
-     значением не `true` и не `false`, `diff.external`, или ключ, который кончается на `.program`, `.command`,
-     `.cmd`, `.driver`, `.textconv`, `.clean`, `.smudge`, `.process` или `.defaultKeyCommand` (сюда входят
-     `gpg.program`, `gpg.*.program`, `gpg.ssh.defaultKeyCommand`, `diff.*.command`, `merge.*.driver`,
-     `trailer.*.cmd`, filters). Правило по окончанию ключа, а не список: новые ключи git с программой обычно так и
-     названы. Цена — в spec, «Решено без владельца», п. 7: `core.sshCommand` владельца тоже включает поле, и `fetch`
-     уходит в park. `core.pager` и `pager.*` не нужны: у Session-и нет tty, и git pager не запускает. `false` — когда нет ничего из этого; `null` — когда
+     значением не `true` и не `false`, `diff.external`, `core.sshCommand`, или ключ, который кончается на
+     `.program`, `.command`, `.cmd`, `.driver`, `.textconv`, `.clean`, `.smudge`, `.process` или
+     `.defaultKeyCommand` (сюда входят `gpg.program`, `gpg.*.program`, `gpg.ssh.defaultKeyCommand`,
+     `diff.*.command`, `merge.*.driver`, `trailer.*.cmd`, filters). Имена и окончания сравниваются без учёта
+     регистра: `git config --list` печатает имя секции и последнюю часть ключа строчными (`core.sshcommand`,
+     `gpg.ssh.defaultkeycommand`), а средняя часть (`trailer.Sign.cmd`) сохраняет регистр. Правило по окончанию
+     ключа, а не список: новые ключи git с программой обычно так и названы. `core.sshCommand` назван отдельно: он
+     запускает программу на `fetch` и `pull`, а на `.command` не кончается. Цена — в spec, «Решено без владельца»,
+     п. 7: `core.sshCommand` владельца включает поле, и `fetch` уходит в park. `core.pager` и `pager.*` не нужны: у Session-и нет tty, и git pager не запускает. `false` — когда нет ничего из этого; `null` — когда
      прочитать не удалось. Пока поле не `false` (или задан `hooksPath`), git одобряется только на чтение ref-ов и
      object-ов: без diff-а, без filter-ов и без обращения к рабочему дереву (Ticket 03, «Итог», пункты 21 и 22).
      Пример: `nbstripout --install` ставит `filter.nbstripout.clean` и `diff.ipynb.textconv` = `"python3" -m
