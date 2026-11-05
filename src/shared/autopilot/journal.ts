@@ -583,21 +583,23 @@ const JSON_PAIR = /((\\?)"([\w.-]+)\2"\s*:\s*)(\2")(?:\\\\|\\(?!")|[^"\\])*\4/gu
 
 /** The forms of a secret outside `NAME=value`, each replaced by its kept part and `***`. */
 const SECRET_FORMS: readonly [RegExp, string][] = [
-  // An option that takes a secret: --token x, --password=x, --api-key x, --client-secret x.
-  // The word must be a whole part of the option's name: --author and -psecret are no such option.
-  [new RegExp(String.raw`((?:^|\s)--?(?:[a-z0-9]+[-_])*(?:token|password|passwd|pass|secret|api-?key|apikey|auth|key)(?:[-_][a-z0-9]+)*(?:=|\s+))${VALUE}`, 'giu'), '$1***'],
-  // A password word of .netrc and its kind: machine x login y password secret.
-  [new RegExp(String.raw`(\b(?:password|passwd)\s+)${WORD}`, 'giu'), '$1***'],
-  // A quoted header whose name says secret: "X-Api-Key: x", 'Cookie: a=b; c=d'.
-  [/((['"])[\w-]*?(?:key|token|secret|cookie|auth|password|session)[\w-]*\s*:\s*)(?:(?!\2).)+/giu, '$1***'],
+  // An option that takes a secret: --token x, --password=x, --api-key x, --client-secret x, --private-key x.
+  // The word must be a whole part of the option's name: --author, --keyboard and -psecret are no such option, and
+  // a bare --key (sort --key=2) is not one either.
+  [new RegExp(String.raw`((?:^|\s)--?(?:[a-z0-9]+[-_])*(?:token|password|passwd|pass|secret|api-?key|apikey|auth|(?:access|private|signing|encryption|ssh|deploy)[-_]key)(?:[-_][a-z0-9]+)*(?:=|\s+))${VALUE}`, 'giu'), '$1***'],
+  // The password of a .netrc line: machine x login y password secret, default login y password secret.
+  [new RegExp(String.raw`(\b(?:machine\s+\S+|default)\s[^|;&\n]*?\bpassword\s+)${WORD}`, 'giu'), '$1***'],
+  // A header of curl, wget or HTTPie whose name says secret: -H "X-Api-Key: x", --header 'Cookie: a=b; c=d'.
+  [/(?<=\b(?:curl|wget|https?|xh)\b[^|;&\n]*)((?:^|\s)(?:-H|--header)(?:=|\s*)(['"])[\w-]*?(?:key|token|secret|cookie|auth|password|session)[\w-]*\s*:\s*)(?:(?!\2).)+/giu, '$1***'],
   // A header or a word that carries one: Authorization: Bearer x, Bearer x, Basic x.
   [/(authorization\s*:\s*)(?:(?:bearer|basic|token|digest)\s+)?[^\s'"]+/giu, '$1***'],
   [/(\b(?:bearer|basic)\s+)[A-Za-z0-9._~+/=-]{8,}/giu, '$1***'],
   // The password of a URL: https://user:secret@host.
   [/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]*:)[^\s@/]+@/giu, '$1***@'],
-  // curl's user and password: -u user:secret, -uuser:secret, --user user:secret, -u "user:a b".
-  [/((?:^|\s)(?:-u\s*|--user(?:=|\s+))(['"])[^:'"]+:)[^'"]*/giu, '$1***'],
-  [/((?:^|\s)(?:-u\s*|--user(?:=|\s+))[^\s:'"]+:)[^\s'"]+/giu, '$1***'],
+  // The user and password of curl and wget: -u user:secret, -uuser:secret, --user user:secret, -u "user:a b";
+  // docker run -u 1000:1000 is no such option.
+  [/(?<=\b(?:curl|wget)\b[^|;&\n]*)((?:^|\s)(?:-u\s*|--user(?:=|\s+))(['"])[^:'"]+:)[^'"]*/giu, '$1***'],
+  [/(?<=\b(?:curl|wget)\b[^|;&\n]*)((?:^|\s)(?:-u\s*|--user(?:=|\s+))[^\s:'"]+:)[^\s'"]+/giu, '$1***'],
   // The password of mysql and its tools, joined to -p: mysql -psecret.
   [/(\bmysql\w*\b[^|;&\n]*?\s-p)[^\s'"]\S*/giu, '$1***'],
   // The password of docker login (podman's too) and of sshpass: -p secret.

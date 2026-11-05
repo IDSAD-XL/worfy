@@ -113,6 +113,13 @@ export interface PolicyContext {
    * folder of every core.hooksPath here and above. Absent: every folder has the facts above (the Project's).
    */
   gitFacts?: ReadonlyMap<string, CheckoutGitFacts | null>
+  /**
+   * The config files git reads in the Project's root, or would read: each file an entry of `git config --list
+   * --show-origin` comes from, and each target of `include.path` / `includeIf.*.path`, there or not yet. Writes
+   * into them are never approved, as into .git/config: a hooksPath or a program set there runs at the next git
+   * command. Absent: none known.
+   */
+  configFiles?: readonly string[]
   /** The real path of each root recorded when the Run started (roots.ts, recordRoots), by the root's path. */
   recordedRoots: Readonly<Record<string, string>>
   /** The file system; the machine's when absent. */
@@ -126,6 +133,8 @@ export interface CheckoutGitFacts {
   rebaseUpdateRefs: boolean | null
   remotes: readonly string[] | null
   defaultBranch: string
+  /** As PolicyContext.configFiles, for this checkout. */
+  configFiles?: readonly string[]
 }
 
 /** One action as the rules see it, with each of its targets placed. */
@@ -266,15 +275,21 @@ export function judge(request: ApprovalRequest, context: PolicyContext): Decisio
 }
 
 /**
- * The folders the git commands of `request` run in, after their `cd` and `-C`, as the policy will judge them
- * (PolicyContext.gitFacts takes them as keys); none for a file tool, or a command that is not judged.
+ * What of git judging `request` needs: `git`, the folders its git commands run in, after their `cd` and `-C`, as
+ * the policy will judge them (PolicyContext.gitFacts takes them as keys); `writes`, whether it writes or deletes
+ * anything (the hooks folders and config files then count). Neither for a request the policy decides without them:
+ * a read-only command, a command it cannot read, a question, an unknown tool.
  */
-export function gitFolders(request: ApprovalRequest, context: PolicyContext): string[] {
+export function gitNeeds(request: ApprovalRequest, context: PolicyContext): { git: string[]; writes: boolean } {
+  if (FILE_TOOLS.has(request.tool)) return { git: [], writes: true }
   const where = commandOf(request, context)
-  if (where === null) return []
+  if (where === null) return { git: [], writes: false }
   const analysis = analyze(where.command, { cwd: where.cwd, env: context.env, platform: context.platform })
-  if (!analysis.judged) return []
-  return [...new Set(analysis.actions.filter((action) => action.git !== undefined).map((action) => action.cwd))]
+  if (!analysis.judged) return { git: [], writes: false }
+  return {
+    git: [...new Set(analysis.actions.filter((action) => action.git !== undefined).map((action) => action.cwd))],
+    writes: analysis.actions.some((action) => action.writes.length > 0 || action.deletes.length > 0),
+  }
 }
 
 /** The command of a command tool's request and the folder it starts in; null for any other request. */
@@ -764,7 +779,15 @@ function ownRepository(cwd: string, prepared: Prepared): boolean {
  * nearest top above it, themselves only: moving or replacing one puts another hooks folder in place.
  */
 function hooksAreas(prepared: Prepared): { folders: string[]; parents: string[] } {
-  const values = new Set([prepared.context.hooksPath, ...[...(prepared.context.gitFacts?.values() ?? [])].map((facts) => facts?.hooksPath ?? null)])
+  const { context } = prepared
+  const checkouts = [...(context.gitFacts?.values() ?? [])]
+  // The config files git reads count as a hooks folder: absolute, so each is guarded where it is.
+  const values = new Set([
+    context.hooksPath,
+    ...checkouts.map((facts) => facts?.hooksPath ?? null),
+    ...(context.configFiles ?? []),
+    ...checkouts.flatMap((facts) => facts?.configFiles ?? []),
+  ])
   const areas = [...values].filter((value) => value !== null).map((value) => hooksAreasOf(value, prepared))
   return { folders: areas.flatMap((area) => area.folders), parents: areas.flatMap((area) => area.parents) }
 }

@@ -330,6 +330,17 @@ describe('the allow rules', () => {
       // Not a form of the git allow-list (round 5 of the review).
       expect(outcome('git clean -fdx')).toBe('park')
     })
+    it('judges git by the facts of its own folder (gitFacts): a folder the map lacks, or could not read, counts as hooks not known', () => {
+      const clean = { hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: [], defaultBranch: 'main' }
+      expect(run('git status', posix({ gitFacts: new Map([[WT, clean]]) }))).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+      expect(run('git status', posix({ gitFacts: new Map([[WT, null]]) }))).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+      expect(run('git status', posix({ gitFacts: new Map() }))).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+      expect(run('git status', posix({ gitFacts: new Map([[WT, { ...clean, hooksPath: '.husky/_' }]]) }))).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+      // A file write is guarded by the config files of every checkout read.
+      expect(run(`echo x > ${WT}/cfg`, posix({ gitFacts: new Map([[WT, { ...clean, configFiles: [`${WT}/cfg`] }]]) }))).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+      expect(run(`echo x > ${WT}/cfg`, posix({ configFiles: [`${WT}/cfg`] }))).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+      expect(run(`echo x > ${WT}/cfg`)).toMatchObject({ outcome: 'allow' })
+    })
     it('is not allow in a repository outside the roots', () => {
       expect(outcome(`git -C ${REPO} status`)).toBe('park')
       expect(outcome(`git -C ${ELSEWHERE} status`)).toBe('park')

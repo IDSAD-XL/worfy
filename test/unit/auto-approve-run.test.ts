@@ -121,7 +121,7 @@ describe('readGitFacts: what the Run reads of the repository when it starts', ()
   it('a plain repository: no hooks, rebase.updateRefs false, its remotes, the default branch', async () => {
     git(repo, 'remote', 'add', 'origin', 'https://example.invalid/demo.git')
     git(repo, 'remote', 'add', 'upstream', 'https://example.invalid/up.git')
-    expect(await readGitFacts(repo, gitEnv())).toEqual({ hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: ['origin', 'upstream'], defaultBranch: 'main' })
+    expect(await readGitFacts(repo, gitEnv())).toEqual({ hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: ['origin', 'upstream'], defaultBranch: 'main', configFiles: [join(repo, '.git', 'config')], checkoutConfig: false })
   })
 
   it('reads rebase.updateRefs as git prints it, and the default branch of origin/HEAD', async () => {
@@ -432,11 +432,12 @@ describe('openRunApproval: round 3 (review of PR #1460)', () => {
     await approval.close()
   })
 
-  it.skipIf(!posix)('a git command in a folder git cannot read there is judged as with hooks not known: no git status', async () => {
+  it.skipIf(!posix)('a git command in a folder that does not exist yet is judged by the facts of the checkout it lies in', async () => {
     const approval = await inWave()
-    const command = `mkdir -p '${join(wt(), 'n')}' && cd '${join(wt(), 'n')}' && git status`
-    expect((await ask(approval, command)).outcome).not.toBe('allow')
-    expect(await fetchless(approval, command)).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    const inside = `mkdir -p '${join(wt(), 'n')}' && cd '${join(wt(), 'n')}' && git status`
+    expect(await ask(approval, inside)).toMatchObject({ outcome: 'allow' })
+    git(repo, 'config', 'core.hooksPath', '.husky/_')
+    expect(await fetchless(approval, inside)).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
     await approval.close()
   })
 
@@ -461,6 +462,92 @@ describe('openRunApproval: round 3 (review of PR #1460)', () => {
     const named = 'mkdir -p "$TMPDIR/work" && touch "$TMPDIR/work/a"'
     expect((await mac.judge({ tool: 'Bash', input: { command: named } }, { cwd: repo, scratchpad: null, sessionId: 's', started: mac.environment })).outcome).toBe('allow')
     await mac.close()
+  })
+})
+
+describe('openRunApproval: round 4 (review of PR #1460)', () => {
+  const posix = process.platform !== 'win32'
+  const shell = (): Record<string, string> => ({ ...(process.env as Record<string, string>), HOME: homedir(), USERPROFILE: homedir() })
+  const wt = (n = 1): string => join(scratch, n === 1 ? 'wt' : `wt${n}`)
+  /** The git calls of the Run, counted by a git in front of the real one on PATH. */
+  const counted = (): { env: NodeJS.ProcessEnv; calls: () => string[] } => {
+    const bin = join(scratch, 'counting-bin')
+    const log = join(scratch, 'git-calls.log')
+    mkdirSync(bin, { recursive: true })
+    const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
+    writeFileSync(join(bin, 'git'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${real}' "$@"\n`, { mode: 0o755 })
+    writeFileSync(log, '')
+    return { env: { ...gitEnv(), PATH: `${bin}:${process.env.PATH ?? ''}` }, calls: () => readFileSync(log, 'utf8').split('\n').filter((line) => line !== '') }
+  }
+  const open = (env: NodeJS.ProcessEnv = gitEnv()) =>
+    openRunApproval({ root: repo, epic: 'demo', dataDir: join(scratch, 'data'), harnessHome: join(scratch, 'harness'), shellEnv: shell(), gitEnv: env, sessions: { list: () => [] } })
+  const inWave = async (env?: NodeJS.ProcessEnv, count = 1) => {
+    for (let n = 1; n <= count; n++) git(repo, 'worktree', 'add', '-q', '-b', `demo/0${n}`, wt(n))
+    const approval = await open(env)
+    approval.setWave(Array.from({ length: count }, (_, n) => `0${n + 1}`))
+    return approval
+  }
+  const at = (approval: Awaited<ReturnType<typeof open>>, cwd = wt()) => ({ cwd, scratchpad: null, sessionId: 's', started: approval.environment })
+  const bash = (approval: Awaited<ReturnType<typeof open>>, command: string, cwd = wt()) => approval.judge({ tool: 'Bash', input: { command } }, at(approval, cwd))
+  const write = (approval: Awaited<ReturnType<typeof open>>, path: string) => approval.judge({ tool: 'Write', input: { file_path: path, content: '[core]\n\thooksPath = h\n' } }, at(approval))
+
+  it.skipIf(!posix)('a file git includes (include.path, includeIf.*.path), there or not yet, is written as git config: never approved', async () => {
+    const approval = await inWave()
+    const absolute = join(wt(), 'cfg')
+    const relative = join(wt(), 'cfg-relative')
+    const conditional = join(wt(), 'cfg-gitdir')
+    const existing = join(wt(), 'cfg-existing')
+    writeFileSync(existing, '[demo]\n\tx = 1\n')
+    // Before any include: an ordinary file of the worktree.
+    expect(await write(approval, absolute)).toMatchObject({ outcome: 'allow' })
+    git(repo, 'config', '--add', 'include.path', absolute)
+    // A relative path is read from the folder of the config file that names it (.git/).
+    git(repo, 'config', '--add', 'include.path', '../../wt/cfg-relative')
+    git(repo, 'config', 'includeIf.gitdir:**/worktrees/wt.path', conditional)
+    git(repo, 'config', '--add', 'include.path', existing)
+    for (const path of [absolute, relative, conditional, existing]) {
+      expect(await write(approval, path), path).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+      expect(await bash(approval, `printf '[core]\\n\\thooksPath = h\\n' > '${path}'`), path).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    }
+    // One command that writes the file and runs git; and the same as two requests.
+    expect(await bash(approval, `printf '[core]\\n\\thooksPath = h\\n' > cfg && git status`)).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    expect(await bash(approval, 'cp /dev/null cfg')).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    expect(await bash(approval, 'rm -f cfg-existing')).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    // A file of the worktree git does not include stays an ordinary one.
+    expect(await write(approval, join(wt(), 'other.txt'))).toMatchObject({ outcome: 'allow' })
+    await approval.close()
+  })
+
+  it.skipIf(!posix)('a file the config of one worktree includes (config.worktree) is protected there too', async () => {
+    const approval = await inWave()
+    git(repo, 'config', 'extensions.worktreeConfig', 'true')
+    const file = join(wt(), 'cfg-worktree')
+    git(wt(), 'config', '--worktree', 'include.path', file)
+    expect(await write(approval, file)).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    await approval.close()
+  })
+
+  it.skipIf(!posix)('reads git at most twice per checkout, and not at all for a request that neither writes nor runs git', async () => {
+    const { env, calls } = counted()
+    const approval = await inWave(env, 3)
+    mkdirSync(join(wt(), 'build'))
+    const per = async (request: () => Promise<Decision>): Promise<number> => {
+      const before = calls().length
+      await request()
+      return calls().length - before
+    }
+    // The worktree list only.
+    expect(await per(() => bash(approval, `cat '${join(wt(), 'a.txt')}'`))).toBe(1)
+    // The list and the Project's root: its config and its git folders.
+    expect(await per(() => bash(approval, 'rm -rf build/x'))).toBe(3)
+    expect(await per(() => write(approval, join(wt(), 'build', 'y')))).toBe(3)
+    expect(await per(() => bash(approval, 'git status'))).toBe(3)
+    expect(await per(() => bash(approval, 'cd build && git status && git log --oneline -1'))).toBe(3)
+    // A config one worktree may see alone: each worktree of the Wave is read too, twice.
+    git(repo, 'config', 'extensions.worktreeConfig', 'true')
+    expect(await per(() => bash(approval, 'rm -rf build/x'))).toBe(1 + 2 + 3 * 2)
+    expect(await per(() => bash(approval, `cat '${join(wt(), 'a.txt')}'`))).toBe(1)
+    await approval.close()
   })
 })
 
@@ -580,11 +667,30 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       ['curl --user=bob:pass x', 'curl --user=bob:*** x'],
       ['docker login -u demo -p s3cret registry.invalid', 'docker login -u demo -p *** registry.invalid'],
       ['sshpass -p s3cret ssh host', 'sshpass -p *** ssh host'],
-      ['tool --key=abc --key def', 'tool --key=*** --key ***'],
+      ['tool --private-key=abc --access-key def --signing-key g', 'tool --private-key=*** --access-key *** --signing-key ***'],
+      ['curl -H "X-Api-Key: a" --header \'Cookie: b\' https://x', 'curl -H "X-Api-Key: ***" --header \'Cookie: ***\' https://x'],
+      ['wget --header="X-Auth-Token: abc" https://x', 'wget --header="X-Auth-Token: ***" https://x'],
+      ['printf \'default login demo password hunter2\' > n', 'printf \'default login demo password ***\' > n'],
     ]
     for (const [command, kept] of cases) expect(journalCommand(command, home), command).toBe(kept)
     // What is not a secret stays.
     for (const command of [`curl -d '{"user":"demo","count":"3"}' x`, 'docker run -p 8080:80 image', 'tool --keyboard us', `curl -H 'Accept: text/plain' x`]) expect(journalCommand(command, home), command).toBe(command)
+  })
+
+  it('keeps ordinary commands as they are (round 4 of PR #1460): no header, user or password form out of its program', () => {
+    for (const command of [
+      'sort --key=2 -t, data.csv',
+      'sort --key 2 data.csv',
+      'git commit -m "auth: keep the session cookie"',
+      'git commit -m "keyboard: map keys"',
+      'git commit -m "session: expire after an hour"',
+      'grep -rn password src/',
+      'grep -rn "password reset" docs/',
+      'docker run -u 1000:1000 image',
+      'rg "apiKey: string" src',
+      'echo "token: none"',
+    ])
+      expect(journalCommand(command, home), command).toBe(command)
   })
   it('the home folder of Windows in every form', () => {
     expect(journalCommand('rm -rf C:\\Users\\Demo\\x /c/Users/Demo/y', 'C:\\Users\\Demo')).toBe('rm -rf ~\\x ~/y')

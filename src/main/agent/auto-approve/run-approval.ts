@@ -19,10 +19,12 @@
 // since CDPATH, BASH_ENV, IFS or a GIT_ variable change what a command does. The process keeps that
 // environment when another run takes the Session over, or the mode changes. At each request git is read
 // again — the worktree list (an implementer makes its worktree after the Wave started) and the git facts
-// (in bypassPermissions the agent may set a hook or a program in the git config without asking): in the
-// Project's root, in each worktree of the Wave and in each folder a git command of the request runs in,
-// with `git -C <folder>`, so a config of one worktree alone (`git config --worktree`, an `includeIf
-// "gitdir:…"`) counts there; each folder is read once per request. A process that started without
+// (in bypassPermissions the agent may set a hook or a program in the git config without asking), two
+// git calls per checkout (readGitFacts). Only for a request that writes or runs git (gitNeeds): the
+// Project's root, and, when a checkout may have config of its own (`git config --worktree`, an
+// `includeIf`), the checkout of each git command (`git -C <checkout>`) and, for a write, each worktree
+// of the Wave; each once per request. The config files git reads there, and the targets of its
+// include.path and includeIf.*.path, are guarded as .git/config (policy.ts). A process that started without
 // the run's git environment, or without GIT_NO_LAZY_FETCH while hooksActive is not false now, gets no
 // git approved: the reads the policy keeps are safe only under them. The worktrees of the Wave are
 // those on the branch `<epic>/<NN>` of a Ticket of the Wave (setWave); each is recorded the first time
@@ -31,13 +33,13 @@
 // shell folder the Vendor did not tell is not judged in another folder.
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdir, readdir } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, readdir, readFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { isRunId, makeRunId, RUN_ID_SUFFIX_LENGTH } from '../../../shared/autopilot/journal'
 import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
 import { removeTreeAsync } from '../../storage/remove'
 import type { SessionInfo } from '../session/types'
-import { gitFolders, HINTS, judge, type ApprovalRequest, type CheckoutGitFacts, type Decision, type PolicyContext } from './policy'
+import { gitNeeds, HINTS, judge, type ApprovalRequest, type CheckoutGitFacts, type Decision, type PolicyContext } from './policy'
 import { normalizePath, recordRoots } from './roots'
 
 /** The git config of the run's Session, in the form of GIT_CONFIG_PARAMETERS. */
@@ -99,6 +101,14 @@ export interface GitFacts extends CheckoutGitFacts {
   /** null: not read (no repository, or a value git does not read as a boolean). */
   rebaseUpdateRefs: boolean | null
   remotes: string[] | null
+  /** The Project's default branch: origin/HEAD, else the checkout's branch, else main. */
+  defaultBranch: string
+  configFiles: string[]
+  /**
+   * Whether a checkout may see config of its own: `extensions.worktreeConfig` is true (config.worktree), or an
+   * `includeIf` names a condition (gitdir, onbranch). Without it every checkout of the repository reads what this one does.
+   */
+  checkoutConfig: boolean
 }
 
 /** How long one git read may take. */
@@ -119,9 +129,6 @@ function runGit(cwd: string, args: readonly string[], env: NodeJS.ProcessEnv): P
   })
 }
 
-/** git's output without the one newline it ends a value with. */
-const value = (stdout: string): string => stdout.replace(/\r?\n$/, '')
-
 /** The names in the folder; [] when it is not there, null when it cannot be read. */
 async function namesIn(folder: string): Promise<string[] | null> {
   try {
@@ -131,43 +138,105 @@ async function namesIn(folder: string): Promise<string[] | null> {
   }
 }
 
-/** The entries of `git config --list -z`: `key\nvalue`, or the key alone for a key without `=`. */
-function configEntries(stdout: string): { key: string; value: string | null }[] {
-  return stdout
-    .split('\0')
-    .filter((entry) => entry !== '')
-    .map((entry) => {
-      const cut = entry.indexOf('\n')
-      return cut === -1 ? { key: entry, value: null } : { key: entry.slice(0, cut), value: entry.slice(cut + 1) }
-    })
+/** One entry of `git config --list -z --show-origin`: where it comes from, its key, its value (null: a key without `=`). */
+interface ConfigEntry {
+  origin: string
+  key: string
+  value: string | null
+}
+
+/** The entries of `git config --list -z --show-origin`: `origin\0key\nvalue\0`, or the key alone for a key without `=`. */
+function configEntries(stdout: string): ConfigEntry[] {
+  const parts = stdout.split('\0')
+  const entries: ConfigEntry[] = []
+  for (let n = 0; n + 1 < parts.length; n += 2) {
+    const origin = parts[n] ?? ''
+    const entry = parts[n + 1] ?? ''
+    const cut = entry.indexOf('\n')
+    entries.push(cut === -1 ? { origin, key: entry, value: null } : { origin, key: entry.slice(0, cut), value: entry.slice(cut + 1) })
+  }
+  return entries
+}
+
+/** A config value as git's --bool reads it; null when git would refuse it. A key without `=` is true. */
+function gitBool(value: string | null): boolean | null {
+  if (value === null) return true
+  const word = value.trim().toLowerCase()
+  if (['true', 'yes', 'on'].includes(word)) return true
+  if (['false', 'no', 'off', ''].includes(word)) return false
+  return /^-?\d+$/.test(word) ? Number(word) !== 0 : null
+}
+
+/** The first line of a file, or null when it cannot be read. */
+async function firstLine(path: string): Promise<string | null> {
+  try {
+    return (await readFile(path, 'utf8')).split(/\r?\n/)[0] ?? ''
+  } catch {
+    return null
+  }
 }
 
 /**
- * The git facts of the repository at `root` (GitFacts), read in the environment `env`. Throws when
- * `core.hooksPath` cannot be read (an exit code other than 0 and 1): the policy needs it.
+ * The config files git reads, or would read, at `folder`: each file an entry comes from, and the target of each
+ * `include.path` and `includeIf.<condition>.path` — also one that is not there yet (git skips a missing file, so
+ * writing it would add config) — read as git reads it: `~/` from HOME, a relative path from the folder of the file
+ * that names it.
  */
-export async function readGitFacts(root: string, env: NodeJS.ProcessEnv): Promise<GitFacts> {
-  const [hooksPath, common, config, updateRefs, remotes, originHead, head] = await Promise.all([
-    runGit(root, ['config', '--get', 'core.hooksPath'], env),
-    runGit(root, ['rev-parse', '--git-common-dir'], env),
-    runGit(root, ['config', '--list', '-z'], env),
-    runGit(root, ['config', '--bool', 'rebase.updateRefs'], env),
-    runGit(root, ['remote'], env),
-    runGit(root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], env),
-    runGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'], env),
-  ])
-  if (hooksPath.code !== 0 && hooksPath.code !== 1) throw new Error(`could not read git's core.hooksPath in ${root} (exit code ${String(hooksPath.code)})`)
-  const repository = common.code === 0 && common.stdout.trim() !== ''
-  const hookFiles = repository ? await namesIn(join(resolve(root, value(common.stdout)), 'hooks')) : null
-  const hooksActive = hooksActiveOf({ hooksPath: hooksPath.code === 0 ? value(hooksPath.stdout) : null, hookFiles, config: config.code === 0 ? configEntries(config.stdout) : null })
-  const origin = originHead.code === 0 ? value(originHead.stdout).replace(/^origin\//, '') : ''
-  const current = head.code === 0 ? value(head.stdout) : ''
+function configFilesOf(entries: readonly ConfigEntry[], folder: string, home: string | undefined): string[] {
+  const files = new Set<string>()
+  const fileOf = (origin: string): string | null => (origin.startsWith('file:') ? resolve(folder, origin.slice('file:'.length)) : null)
+  for (const entry of entries) {
+    const from = fileOf(entry.origin)
+    if (from !== null) files.add(from)
+    const include = entry.key === 'include.path' || (entry.key.startsWith('includeif.') && entry.key.endsWith('.path'))
+    if (!include || entry.value === null || entry.value === '') continue
+    const target = entry.value
+    if (target.startsWith('~/')) {
+      if (home !== undefined) files.add(resolve(home, target.slice(2)))
+    } else if (isAbsolute(target)) files.add(resolve(target))
+    else if (from !== null) files.add(resolve(dirname(from), target))
+  }
+  return [...files]
+}
+
+/**
+ * The git facts of the checkout at `folder` (GitFacts), read in the environment `env` with two git calls — the
+ * config with the origin of each entry, and the git folders — and the rest from the files: the hooks folder, HEAD,
+ * origin/HEAD, the remotes of the old `remotes/` and `branches/` folders. Throws when the config cannot be read: the
+ * policy needs core.hooksPath.
+ */
+export async function readGitFacts(folder: string, env: NodeJS.ProcessEnv): Promise<GitFacts> {
+  const [config, dirs] = await Promise.all([runGit(folder, ['config', '--list', '-z', '--show-origin'], env), runGit(folder, ['rev-parse', '--git-dir', '--git-common-dir'], env)])
+  if (config.code !== 0) throw new Error(`could not read git's config (core.hooksPath and the rest) in ${folder} (exit code ${String(config.code)})`)
+  const entries = configEntries(config.stdout)
+  const last = (key: string): ConfigEntry | undefined => entries.findLast((entry) => entry.key === key)
+  const lines = dirs.code === 0 ? dirs.stdout.split(/\r?\n/).filter((line) => line !== '') : []
+  const repository = lines.length === 2
+  const gitDir = resolve(folder, lines[0] ?? '.')
+  const common = resolve(folder, lines[1] ?? '.')
+  const [hookFiles, head, originHead, legacyRemotes, legacyBranches] = repository
+    ? await Promise.all([namesIn(join(common, 'hooks')), firstLine(join(gitDir, 'HEAD')), firstLine(join(common, 'refs', 'remotes', 'origin', 'HEAD')), namesIn(join(common, 'remotes')), namesIn(join(common, 'branches'))])
+    : [null, null, null, null, null]
+  const hooksEntry = last('core.hookspath')
+  const hooksPath = hooksEntry === undefined ? null : (hooksEntry.value ?? '')
+  const updateRefs = last('rebase.updaterefs')
+  const remotes = new Set<string>()
+  for (const { key } of entries) {
+    const name = /^remote\.(.+)\.[^.]+$/s.exec(key)?.[1]
+    if (name !== undefined) remotes.add(name)
+  }
+  for (const name of [...(legacyRemotes ?? []), ...(legacyBranches ?? [])]) remotes.add(name)
+  const origin = /^ref: refs\/remotes\/origin\/(.+)$/.exec(originHead ?? '')?.[1] ?? ''
+  const current = /^ref: refs\/heads\/(.+)$/.exec(head ?? '')?.[1] ?? ''
   return {
-    hooksPath: hooksPath.code === 0 ? value(hooksPath.stdout) : null,
-    hooksActive,
-    rebaseUpdateRefs: !repository ? null : updateRefs.code === 0 ? value(updateRefs.stdout) === 'true' : updateRefs.code === 1 ? false : null,
-    remotes: repository && remotes.code === 0 ? remotes.stdout.split(/\r?\n/).filter((name) => name !== '') : null,
-    defaultBranch: origin !== '' ? origin : current !== '' ? current : 'main',
+    hooksPath,
+    hooksActive: hooksActiveOf({ hooksPath, hookFiles, config: entries }),
+    rebaseUpdateRefs: !repository ? null : updateRefs === undefined ? false : gitBool(updateRefs.value),
+    remotes: repository ? [...remotes] : null,
+    // A ref store that is no files (reftable) names `.invalid` in HEAD: the default branch is then main.
+    defaultBranch: origin !== '' ? origin : current !== '' && current !== '.invalid' ? current : 'main',
+    configFiles: configFilesOf(entries, folder, env['HOME']),
+    checkoutConfig: entries.some((entry) => (entry.key === 'extensions.worktreeconfig' && gitBool(entry.value) === true) || entry.key.startsWith('includeif.')),
   }
 }
 
@@ -188,6 +257,21 @@ export async function readCheckouts(root: string, env: NodeJS.ProcessEnv): Promi
     if (last !== undefined && field.startsWith('branch ')) last.branch = field.slice('branch '.length).replace(/^refs\/heads\//, '')
   }
   return checkouts
+}
+
+/** Whether `a` and `b` name one folder; without case on macOS and Windows. */
+function samePath(a: string, b: string, platform: NodeJS.Platform): boolean {
+  const key = (path: string): string => (platform === 'darwin' || platform === 'win32' ? resolve(path).toLowerCase() : resolve(path))
+  return key(a) === key(b)
+}
+
+/** The checkout `folder` lies in (the deepest one), or null when it lies in none. */
+function checkoutOf(folder: string, checkouts: readonly Checkout[], platform: NodeJS.Platform): string | null {
+  const caseless = platform === 'darwin' || platform === 'win32'
+  const key = (path: string): string => (caseless ? resolve(path).toLowerCase() : resolve(path))
+  const at = key(folder)
+  const holding = checkouts.map((checkout) => checkout.path).filter((path) => at === key(path) || at.startsWith(key(path).endsWith(sep) ? key(path) : `${key(path)}${sep}`))
+  return holding.sort((a, b) => b.length - a.length)[0] ?? null
 }
 
 /** Where a request was made: the Session that asked and where its shell stands (null: not told). */
@@ -302,9 +386,8 @@ export async function openRunApproval(options: RunApprovalOptions): Promise<RunA
     },
     judge: async (request, at) => {
       if (at.cwd === null && COMMAND_TOOLS.has(request.tool)) return refusal('no-cwd')
-      const [checkouts, now] = await Promise.all([readCheckouts(options.root, gitEnv), readGitFacts(options.root, gitEnv).catch(() => null)])
+      const checkouts = await readCheckouts(options.root, gitEnv)
       if (checkouts === null) return refusal('no-checkouts')
-      if (now === null) return refusal('no-git-facts')
       // shortcut: the Wave's worktrees are found by the branch `<epic>/<NN>`, the default of the Profile's
       // tickets.branch; redo when a Project with another template runs Autopilot with Auto-approval.
       const branches = new Set(wave.map((ticket) => `${options.epic}/${ticket}`))
@@ -326,20 +409,45 @@ export async function openRunApproval(options: RunApprovalOptions): Promise<RunA
         sessionId: at.sessionId,
         sessions: options.sessions,
         checkouts,
+        // Not read: a request that neither writes nor runs git is decided without them.
+        defaultBranch: 'main',
+        rebaseUpdateRefs: null,
+        remotes: null,
+        hooksPath: null,
+        hooksActive: null,
+        recordedRoots: { ...recorded },
+      }
+      const needs = gitNeeds(request, context)
+      if (!needs.writes && needs.git.length === 0) return judge(request, context)
+      const now = await readGitFacts(options.root, gitEnv).catch(() => null)
+      if (now === null) return refusal('no-git-facts')
+      // Each checkout is read once per request, and only when it may see config of its own.
+      const reads = new Map<string, Promise<GitFacts | null>>()
+      const read = (folder: string): Promise<GitFacts | null> => {
+        const known = reads.get(folder) ?? readGitFacts(folder, gitEnv).catch(() => null)
+        reads.set(folder, known)
+        return known
+      }
+      const factsOf = (folder: string): Promise<GitFacts | null> => {
+        const checkout = checkoutOf(folder, checkouts, platform)
+        if (checkout === null) return read(folder)
+        if (samePath(checkout, options.root, platform) || !now.checkoutConfig) return Promise.resolve(now)
+        return read(checkout)
+      }
+      const folders = [...new Set([...(needs.writes && now.checkoutConfig ? worktrees : []), ...needs.git])]
+      const found = await Promise.all(folders.map(factsOf))
+      const facts = new Map(folders.map((folder, n) => [folder, found[n] ?? null]))
+      const decision = judge(request, {
+        ...context,
         defaultBranch: now.defaultBranch,
         rebaseUpdateRefs: now.rebaseUpdateRefs,
         remotes: now.remotes,
         hooksPath: now.hooksPath,
         hooksActive: now.hooksActive,
-        recordedRoots: { ...recorded },
-      }
-      // git in each checkout this request touches, each folder read once.
-      const commands = gitFolders(request, context)
-      const folders = [...new Set([...worktrees, ...commands])]
-      const read = await Promise.all(folders.map((folder) => readGitFacts(folder, gitEnv).catch(() => null)))
-      const facts = new Map(folders.map((folder, n) => [folder, read[n] ?? null]))
-      const decision = judge(request, { ...context, gitFacts: facts })
-      const hooksOff = [now, ...commands.map((folder) => facts.get(folder) ?? null)].every((each) => each?.hooksActive === false)
+        configFiles: now.configFiles,
+        gitFacts: facts,
+      })
+      const hooksOff = [now, ...needs.git.map((folder) => facts.get(folder) ?? null)].every((each) => each?.hooksActive === false)
       const gitSafe = at.started['GIT_CONFIG_PARAMETERS'] === GIT_CONFIG_PARAMETERS && (hooksOff || at.started['GIT_NO_LAZY_FETCH'] === '1')
       if (decision.outcome === 'allow' && !gitSafe && decision.rule.split('+').includes(GIT_RULE)) return { outcome: 'park', rule: 'git-without-run-environment', hint: null, targets: decision.targets }
       return decision

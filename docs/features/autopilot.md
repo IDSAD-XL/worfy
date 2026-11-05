@@ -131,9 +131,11 @@ While a run goes on:
   runs, a denied one is refused with the rule's hint, and a hard deny is always refused; a request the policy would park
   for a person is refused for now. Each request is judged in the environment the agent's process started with: its
   whole shell environment, so `CDPATH`, `BASH_ENV`, `ZDOTDIR`, `ENV`, `IFS` or a `GIT_` variable there makes a command
-  it changes not approved. Git is read again at each request, in the checkout each git command runs in (after its `cd`
-  and `-C`) and in each worktree of the Wave: a hook or a program the agent put into the git config since is seen, a
-  config of one worktree alone (`git config --worktree`, an `includeIf "gitdir:…"`) included.
+  it changes not approved. Git is read again at each request that writes a file or runs git, in the Project's root and,
+  when a worktree may have config of its own (`git config --worktree`, an `includeIf`), in the checkout each git
+  command runs in and in each worktree of the Wave: a hook or a program the agent put into the git config since is
+  seen. A request that only reads, and runs no git, reads no git. Writing a config file git reads — one an
+  `include.path` or `includeIf` names too, also before it exists — is never approved, as writing `.git/config`.
 - In Shadow and On the run's Claude Code agent starts with the run's own temporary folder as `TMPDIR`
   (`<data folder>/autopilot-tmp/<run>`) and a git environment: `GIT_CONFIG_PARAMETERS` turns off the owner's
   `log.showSignature` and `format.pretty` and keeps git from opening a bare repository above the folder, and
