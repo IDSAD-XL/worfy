@@ -13,7 +13,8 @@
 //
 // Each test with a `rerun` argv runs alone, one after another, in the root of the worktree: no shell, a leading
 // "node" is the node that runs this script, and GATE_FAILURES_FILE is not passed on (the run is not a gate run).
-// Its result is its exit code, how long it took and, when red, the first line of its error after scrub(). A test
+// Its result is its exit code, how long it took and, when red, the first line of its error after scrub(), a path
+// under the root with "/" (errorText). A test
 // whose record has no argv is not run: it goes into the file with exit null and the error "cannot rerun: …". A
 // record of a step without tests (lint, typecheck…) is named and left out: there is no test to run alone.
 //
@@ -119,6 +120,18 @@ function errorLine(stderr, stdout, code) {
         lines.find((l) => /fail|✗|×/i.test(l)) ??
         lines.find((l) => l !== "")
     return found ?? `exit ${code}`
+}
+
+// A path under the root of the worktree after scrub(): <repo> and the rest of the path up to its end (white
+// space, a quote, a colon before a line number, punctuation).
+const REPO_PATH = /<repo>((?:[\\/]+[^\s\\/"'`:;,)\]}>]+)+)/g
+
+// The error of a red test as the rerun file keeps it: its first line, scrubbed, at most ERROR_CHARS long, with a
+// path under the root written as a record writes paths — from the root, with "/". scrub() puts <repo> in place
+// of the root only, so on Windows the rest of the path kept its "\" (<repo>\test\x.test.ts).
+export function errorText(stderr, stdout, code, ctx) {
+    const scrubbed = scrub(errorLine(stderr, stdout, code), ctx)
+    return firstLine(scrubbed.replace(REPO_PATH, (_, rest) => `<repo>${rest.replace(/[\\/]+/g, "/")}`), ERROR_CHARS)
 }
 
 function userName() {
@@ -325,7 +338,7 @@ export async function run(argv, io) {
             if (stopping) return 1
             const r = await runOne(f)
             if (stopping) return 1
-            const error = r.code === 0 ? null : firstLine(scrub(errorLine(r.stderr, r.stdout, r.code), ctx), ERROR_CHARS)
+            const error = r.code === 0 ? null : errorText(r.stderr, r.stdout, r.code, ctx)
             results.push({ test: f.test, exit: r.code, ms: r.ms, error })
             say(`${r.code === 0 ? "green" : `red (exit ${r.code})`}  ${r.ms} ms  ${f.test}${error ? `\n    ${error}` : ""}`)
         }

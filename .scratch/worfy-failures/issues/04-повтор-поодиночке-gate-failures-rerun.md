@@ -102,7 +102,7 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 - `harness/lib/e2e-lock.cjs` — из `harness/bin/wave-gate` вынесены `lock` / `unlock`, `noteChild`, захват замка мёртвого
   держателя, `holderAlive` (он нужен и pid-файлу `wave-gate`), `screenLocked` / `screenWait` / `screenWatch` и снятие
   замков по сигналу (`onStopSignals`). Тексты, тайминги и переменные `WAVE_GATE_*` прежние; `wave-gate` берёт всё оттуда.
-- Test-ы: `test/contract/gate-failures-rerun.test.ts` (9), fixture — `test/fixtures/gate-failures/rerun/` (run с тремя
+- Test-ы: `test/contract/gate-failures-rerun.test.ts` (13 после раунда 1), fixture — `test/fixtures/gate-failures/rerun/` (run с тремя
   записями и stub-test). Временные git-репозиторий, Harness home, состояние gate и папка замка; настоящий
   `/tmp/worfy-e2e.lock` не берётся. Test-ы SIGTERM и заблокированного экрана на Windows пропускаются: там `kill` от другого
   процесса завершает node без обработчика, а stub `ioreg` — shell-скрипт.
@@ -127,3 +127,18 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
 9. `--limit N` считает только test-ы с argv; остальные печатаются как «left out by --limit».
 10. В `e2e-lock.cjs` пустой `catch` разрешён комментарием-настройкой eslint в самом файле, как правило для `harness/**/*.mjs`
    в `eslint.config`: `wave-gate` без расширения lint не проверял, а `.cjs` правило не покрывает.
+11. Слэши пути под корнем worktree правятся в `rerun.mjs` (`errorText`), а не в общем `scrub` Ticket-а 01
+   (`harness/hooks/gate-failures.mjs`): `scrub` заменяет на `<repo>` только сам корень и хвост пути не трогает. Тот же
+   хвост с `\` остаётся и в записях run-а на Windows — это вопрос к `scrub`, а не к повтору.
+
+Раунд 1 (красный CI, job `windows (1/3) / full-suite`):
+
+- На Windows ошибка в файле повтора была `<repo>\test\x.test.ts`: `scrub` меняет только корень. Теперь `errorText` в
+  `rerun.mjs` пишет путь под `<repo>` с `/` (и при `\\` из JSON). Unit-проверка с корнем `D:\a\worfy\worfy` во всех
+  написаниях (`\`, `\\`, `/d/…`, другой регистр) идёт на любой ОС.
+- Повтор того же test-а на CI падал в `git commit`: `world()` брал папку `<root>/<имя>`, а первая попытка уже сделала там
+  commit, и второму `git commit` нечего было коммитить (git пишет это в stdout, поэтому в ошибке было пусто). Теперь
+  каждый `world()` — новая папка `mkdtemp`, git setup-а идёт без глобального и системного config-а машины
+  (`GIT_CONFIG_GLOBAL` — пустой файл, `GIT_CONFIG_NOSYSTEM=1`), в репозитории `core.autocrlf false`, в ошибке git — оба
+  потока. Новые test-ы: два `world()` с одним именем и `world()` при глобальном config-е с падающим `pre-commit`.
+- Каждый новый test красный на своём мутанте: без замены слэшей, с прежней папкой `<root>/<имя>`, без подмены config-а git.

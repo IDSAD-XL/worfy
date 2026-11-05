@@ -3,12 +3,14 @@
 // (HARNESS_HOME, with machine.json and, where the e2e lock is the subject, a profile that sets workflow.e2e_lock to
 // a temporary folder) and a temporary gate state (CLAUDE_GATE_STATE). The tests themselves are a stub script
 // (test/fixtures/gate-failures/rerun/stub-test.mjs) that leaves a trace file per run. No test takes the real e2e
-// lock or touches the Harness home of this machine.
+// lock or touches the Harness home of this machine. Each world() is a new folder (a retry of a red test does not
+// meet the repository of its first attempt), and its git runs without the global and system config of the machine.
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { checkRerunRecord, testId, type FailureRecord, type RunRecord } from '../../harness/hooks/gate-failures.mjs'
 import { removeTestTree } from '../remove'
@@ -23,9 +25,13 @@ const OTHER = '9f8e7d6c'
 const POSIX = process.platform !== 'win32'
 
 let root: string
+// An empty file in place of the global git config of the machine (GIT_CONFIG_GLOBAL).
+let noGitConfig: string
 
 beforeAll(() => {
   root = realpathSync.native(mkdtempSync(join(tmpdir(), 'gate-failures-rerun-')))
+  noGitConfig = join(root, 'gitconfig')
+  writeFileSync(noGitConfig, '')
 })
 
 afterAll(() => {
@@ -43,16 +49,23 @@ interface World {
   tag: string
 }
 
+// git of the test's own setup: neither the global nor the system config of the machine (an identity, hooks,
+// core.autocrlf of a CI runner) changes what it does. Its error carries both streams: git says "nothing to
+// commit" on stdout.
 function git(cwd: string, ...args: string[]): string {
-  const run = spawnSync('git', args, { cwd, encoding: 'utf8' })
-  if (run.status !== 0) throw new Error(`git ${args.join(' ')}: ${run.stderr}`)
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: noGitConfig, GIT_CONFIG_NOSYSTEM: '1' }
+  const run = spawnSync('git', args, { cwd, encoding: 'utf8', env })
+  if (run.status !== 0) throw new Error(`git ${args.join(' ')} (exit ${run.status ?? run.signal}): ${run.stderr}${run.stdout}`)
   return run.stdout.trim()
 }
 
 // A committed repository, a Harness home with machine.json of the computer OWN, an empty gate state and a trace
-// folder. With `lock`, the profile of the repository sets workflow.e2e_lock to <world>/e2e.lock.
+// folder, all in a new folder <root>/<name>-XXXXXX: a retry of a red test gets a new one, not the repository its
+// first attempt committed (where `git commit` has nothing to commit). With `lock`, the profile of the repository
+// sets workflow.e2e_lock to <world>/e2e.lock. The repository's own config sets core.autocrlf false, so the CLI's
+// `git status` there does not depend on the config of the machine either.
 function world(name: string, { lock = false }: { lock?: boolean } = {}): World {
-  const base = join(root, name)
+  const base = mkdtempSync(join(root, `${name}-`))
   const w: World = {
     repo: join(base, 'repo'),
     home: join(base, 'harness-home'),
@@ -69,6 +82,7 @@ function world(name: string, { lock = false }: { lock?: boolean } = {}): World {
   git(w.repo, 'config', 'user.email', 'test@example.invalid')
   git(w.repo, 'config', 'user.name', 'test')
   git(w.repo, 'config', 'commit.gpgsign', 'false')
+  git(w.repo, 'config', 'core.autocrlf', 'false')
   writeFileSync(join(w.repo, 'README.md'), 'demo\n')
   git(w.repo, 'add', '.')
   git(w.repo, 'commit', '-q', '-m', 'demo')
@@ -234,6 +248,65 @@ function alive(pid: number): boolean {
     return false
   }
 }
+
+// errorText of rerun.mjs, loaded by its URL: the module has no type declarations.
+type ErrorText = (stderr: string, stdout: string, code: number, ctx: { repo?: string; home?: string; host?: string; user?: string }) => string
+async function errorText(): Promise<ErrorText> {
+  const url = pathToFileURL(join(process.cwd(), 'harness', 'lib', 'gate-failures', 'rerun.mjs')).href
+  return ((await import(url)) as { errorText: ErrorText }).errorText
+}
+
+describe('the error line of a red rerun', () => {
+  it('writes a path under a Windows root from the root with "/", in every spelling of that root, on any OS', async () => {
+    const text = await errorText()
+    const ctx = { repo: 'D:\\a\\worfy\\worfy', home: 'C:\\Users\\runneradmin', host: 'fv-az123', user: 'runneradmin' }
+    const err = (path: string) => `\nAssertionError: red failed in ${path}\n    at more\n`
+    expect(text(err('D:\\a\\worfy\\worfy\\test\\x.test.ts'), '', 1, ctx)).toBe('AssertionError: red failed in <repo>/test/x.test.ts')
+    // JSON doubles "\"; Git Bash writes /d/…; Windows ignores the letter case
+    expect(text(err('D:\\\\a\\\\worfy\\\\worfy\\\\test\\\\x.test.ts'), '', 1, ctx)).toBe('AssertionError: red failed in <repo>/test/x.test.ts')
+    expect(text(err('/d/a/worfy/worfy/test/x.test.ts'), '', 1, ctx)).toBe('AssertionError: red failed in <repo>/test/x.test.ts')
+    expect(text(err('d:\\A\\Worfy\\worfy\\test\\x.test.ts'), '', 1, ctx)).toBe('AssertionError: red failed in <repo>/test/x.test.ts')
+    // the line and column after the path, and what follows it, stay as they were
+    expect(text('Error: at fn (D:\\a\\worfy\\worfy\\src\\a.ts:12:5), then "D:\\a\\worfy\\worfy\\x.ts"', '', 1, ctx)).toBe(
+      'Error: at fn (<repo>/src/a.ts:12:5), then "<repo>/x.ts"',
+    )
+  })
+
+  it('leaves a POSIX path under the root as it was, and a path outside the root alone', async () => {
+    const text = await errorText()
+    const ctx = { repo: '/work/repo', home: '/home/dev', host: 'box-1', user: 'dev' }
+    expect(text('AssertionError: failed in /work/repo/test/x.test.ts:3', '', 1, ctx)).toBe('AssertionError: failed in <repo>/test/x.test.ts:3')
+    expect(text('Error: cannot read E:\\data\\x.json', '', 1, ctx)).toBe('Error: cannot read E:\\data\\x.json')
+  })
+})
+
+describe('the setup of these tests', () => {
+  it('gives each world() a repository of its own, even under the same name (a retry of a red test makes it again)', () => {
+    const first = world('again')
+    const second = world('again')
+    expect(second.repo).not.toBe(first.repo)
+    expect(git(second.repo, 'status', '--porcelain')).toBe('')
+    expect(git(second.repo, 'rev-list', '--count', 'HEAD')).toBe('1')
+  })
+
+  it('commits whatever the global git config of the machine says', () => {
+    const hooks = join(root, 'global-hooks')
+    mkdirSync(hooks, { recursive: true })
+    writeFileSync(join(hooks, 'pre-commit'), '#!/bin/sh\nexit 1\n')
+    chmodSync(join(hooks, 'pre-commit'), 0o755)
+    const hostile = join(root, 'hostile-gitconfig')
+    writeFileSync(hostile, `[core]\n\thooksPath = ${hooks.replaceAll('\\', '/')}\n[user]\n\tuseConfigOnly = true\n`)
+    const saved = process.env.GIT_CONFIG_GLOBAL
+    process.env.GIT_CONFIG_GLOBAL = hostile
+    try {
+      const w = world('hostile')
+      expect(git(w.repo, 'rev-list', '--count', 'HEAD')).toBe('1')
+    } finally {
+      if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL
+      else process.env.GIT_CONFIG_GLOBAL = saved
+    }
+  })
+})
 
 describe('gate-failures rerun', () => {
   it('runs each test with a rerun argv alone, lists the one without as "cannot rerun", writes the rerun file and exits 2 on a red one', () => {
