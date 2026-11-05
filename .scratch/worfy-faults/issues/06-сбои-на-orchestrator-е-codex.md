@@ -1,7 +1,8 @@
 # 06 — Сбои на Orchestrator-е Codex: упавший ход и умерший app-server
 
 Type: task
-Status: claimed 2026-11-05T11:30Z
+Status: done 2026-11-05T16:53Z
+PR: #1440
 Blocked by: 02
 Source: [spec.md](../spec.md), «Сценарии» (строки «Codex: ход упал», «Codex: app-server умер»), «Вопросы владельцу», Q5; [worfy-multi-vendor 37](../../worfy-multi-vendor/issues/37-orchestrator-и-autopilot-на-codex.md) (Autopilot ведёт Wave через SessionHandle Orchestrator-а любого Vendor-а) — влит до старта Epic-а
 
@@ -33,15 +34,22 @@ Source: [spec.md](../spec.md), «Сценарии» (строки «Codex: хо�
 
 - [ ] Contract test: Codex, ход упал — `turn-error`, `checkRecovery` пустой, новый Run шлёт команду Wave один раз.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs --run test/contract/autopilot-faults-codex.test.ts` exit 0 · mac - · 63a8cca0c8887cb03ce1250603de7932ee35f58d
+  - evidence: review pass · PR #1440 · - - · 3d47083ce6637236a2356a428ab5f3741e79e4c7
 - [ ] Contract test: Codex, app-server умер — `session-error`, `checkRecovery` пустой, новый Run стартует.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs --run test/contract/autopilot-faults-codex.test.ts` exit 0 · mac - · 63a8cca0c8887cb03ce1250603de7932ee35f58d
+  - evidence: review pass · PR #1440 · - - · 3d47083ce6637236a2356a428ab5f3741e79e4c7
 - [ ] `codex-fake.test.ts`: шаг `exit` — fake выходит с кодом шага; оба новых скрипта проходят проверку схемы.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs --run test/contract/codex-fake.test.ts test/contract/codex-compat.test.ts` exit 0 · mac - · 63a8cca0c8887cb03ce1250603de7932ee35f58d
+  - evidence: review pass · PR #1440 · - - · 3d47083ce6637236a2356a428ab5f3741e79e4c7
 - [ ] Ни один test не запускает настоящий `codex`; `CODEX_HOME` — временная папка.
   - evidence: test-run pass · `pnpm test` exit 0 (all fake Codex users under WORFY_CODEX=fake from test/setup-contract.ts) · mac - · 63a8cca0c8887cb03ce1250603de7932ee35f58d
+  - evidence: review pass · PR #1440 · - - · 3d47083ce6637236a2356a428ab5f3741e79e4c7
 - [ ] Каждый test краснеет на испорченном ожидании — в «Итог».
   - evidence: test-run pass · `zsh -f mutate.zsh` 8 mutants, each run exit 1 (list in Итог) · mac - · 63a8cca0c8887cb03ce1250603de7932ee35f58d
+  - evidence: review pass · PR #1440 · - - · 3d47083ce6637236a2356a428ab5f3741e79e4c7
 - [ ] `src/` не изменён. `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: review pass · PR #1440 · - - · 3d47083ce6637236a2356a428ab5f3741e79e4c7
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42064938576/job/127390738535 · ci - · 3d47083ce6637236a2356a428ab5f3741e79e4c7
 
 ## Тесты
 
