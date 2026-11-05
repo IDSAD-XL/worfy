@@ -550,5 +550,7 @@ describe('Windows (Git Bash)', () => {
     const context = { ...windows(), checkouts: [{ path: 'c:/WORK/repo', branch: 'main' }, { path: 'c:/Work/Repo/.Claude/Worktrees/03', branch: 'worfy-demo/03' }] }
     expect(outcome('rm -rf build', context)).toBe('allow')
     expect(outcome('git push', context)).toBe('park')
+    const seven = { ...context, checkouts: [...context.checkouts, { path: 'C:\\work\\repo\\.claude\\worktrees\\07', branch: 'worfy-demo/07' }] }
+    expect(outcome('echo x > C:/work/repo/.claude/worktrees/07/a.ts', seven)).toBe('hard-deny')
   })
 })
