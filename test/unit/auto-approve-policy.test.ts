@@ -259,6 +259,8 @@ describe('the allow rules', () => {
     })
     it('a glob delete is judged by what it matches, not by the folder', () => {
       expect(outcome('rm -rf ~/notes*')).toBe('park')
+    // A folder no command may change stays so when nothing matches.
+    expect(outcome(`rm -rf ${OTHER}/zz*`)).toBe('hard-deny')
     })
     it('lists the targets it judged', () => {
       expect(run('rm -rf build').targets).toEqual([`${WT}/build`])
@@ -315,12 +317,14 @@ describe('the allow rules', () => {
     it('is not allow in a repository outside the roots', () => {
       expect(outcome(`git -C ${REPO} commit -m demo`)).toBe('park')
       expect(outcome(`git -C ${ELSEWHERE} status`)).toBe('park')
-      // Reading another worktree is not hard, only outside.
+      // Reading another worktree is not hard, only outside; changing it is.
       expect(outcome(`git -C ${WT7} status`)).toBe('park')
+      expect(outcome(`git -C ${WT7} commit -m demo`)).toBe('hard-deny')
     })
     it('is not allow in a repository nested inside a root', () => {
       expect(outcome(`git -C ${SCRATCH}/sub status`, posix({ fs: fakeFs({ ...TREE, [`${SCRATCH}/sub/.git/HEAD`]: 'file' }) }))).toBe('park')
       expect(outcome(`git -C ${PAD} status`)).toBe('park')
+      expect(outcome(`git -C ${WT}/vendor status`, posix({ fs: fakeFs({ ...TREE, [`${WT}/vendor/.git/HEAD`]: 'file' }) }))).toBe('park')
     })
     it('is not allow through a symlink component', () => {
       expect(outcome('git -C lw status')).toBe('deny')
@@ -466,6 +470,7 @@ describe('the request itself', () => {
   })
   it('a read partly outside the roots is park, not read-only', () => {
     expect(run(`cat src/a.ts ${ELSEWHERE}/x`)).toMatchObject({ outcome: 'park', rule: 'outside-roots' })
+    expect(run(`cat src/a.ts; cat ${ELSEWHERE}/x`)).toMatchObject({ outcome: 'park', rule: 'outside-roots' })
   })
 })
 
@@ -542,7 +547,7 @@ describe('Windows (Git Bash)', () => {
     expect(outcome('rm -rf C:/work/other/x', windows())).toBe('park')
   })
   it('compares the worktrees of the Wave with the checkouts without case', () => {
-    const context = { ...windows(), checkouts: [{ path: 'c:/WORK/repo', branch: 'main' }, { path: WWT.toLowerCase(), branch: 'worfy-demo/03' }] }
+    const context = { ...windows(), checkouts: [{ path: 'c:/WORK/repo', branch: 'main' }, { path: 'c:/Work/Repo/.Claude/Worktrees/03', branch: 'worfy-demo/03' }] }
     expect(outcome('rm -rf build', context)).toBe('allow')
     expect(outcome('git push', context)).toBe('park')
   })

@@ -179,8 +179,9 @@ describe('a file system that answers with errors', () => {
     expect(kind('/tmp/demo/pad/x/y', 'write', rootsOf({ ...base, fs: failing('/tmp/demo/pad/x') }))).toBe('outside')
   })
   it('a link whose target cannot be resolved is outside, a configured one too', () => {
-    const dangling: FileSystem = { lstat: (path) => (path === '/tmp' ? 'link' : 'dir'), realpath: () => null, readdir: () => [] }
-    expect(kind('/tmp/demo/pad/x', 'write', rootsOf({ ...base, fs: dangling }))).toBe('outside')
+    const dangling = (at: string): FileSystem => ({ lstat: (path) => (path === at ? 'link' : 'dir'), realpath: () => null, readdir: () => [] })
+    expect(kind('/tmp/demo/pad/x', 'write', rootsOf({ ...base, fs: dangling('/tmp') }))).toBe('outside')
+    expect(kind('/tmp/demo/pad/x', 'write', rootsOf({ ...base, fs: dangling('/tmp/demo/pad') }))).toBe('outside')
   })
   it('no top of a repository on an error or for a relative folder', () => {
     expect(repositoryTop('/tmp/demo/pad/x/y', rootsOf({ ...base, fs: failing('/tmp/demo/pad/x') }))).toBeNull()
