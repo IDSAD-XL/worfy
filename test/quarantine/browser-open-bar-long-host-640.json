@@ -1,0 +1,12 @@
+{
+  "runner": "playwright",
+  "file": "test/e2e/browser.spec.ts",
+  "test": "the Open bar shows a long host whole and cuts only the path, in a frame 640 wide",
+  "reason": "On the GitHub Windows runner the app window sometimes does not reach its 1400 px width within canvasReady's 10 s (test/e2e/helpers.ts:593: the page did not answer innerWidth), so the test gives up before the Open bar under test is drawn, on the first try and on the retry. Red in job windows-e2e (1/4) of https://github.com/IDSAD-XL/worfy/actions/runs/42070024246 on the head of #1441 (2ed0f881f52a4fafb8bba7cd6dfbf5711f1eac8a), whose diff touches only a contract test of Autopilot faults, the gh stub, a fixture and a ticket — nothing the browser e2e test loads; the same shard was green on the previous head a7f463c7c of the same diff. Same cause as card-drag-canvas-middle-pan. Not a fault of the change under review.",
+  "platforms": [
+    "win32"
+  ],
+  "owner": "worfy-polish 47",
+  "since": "2026-11-05",
+  "until": "2026-11-19"
+}
