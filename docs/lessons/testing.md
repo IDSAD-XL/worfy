@@ -161,3 +161,17 @@ gate full (worfy-harness 53) и время падения; предел test-а 
 Что делать: оставить один слой; второй — только с причиной в описании PR.
 Проверка: harness/bin/tests/agents-text.test.sh:130 — фраза правила одного слоя в harness/agents/implementer.md.
 Источник: worfy-throughput/15.
+
+## Сбой Autopilot-а, найденный человеком, — сначала Fault scenario в `autopilot-faults`, потом исправление
+
+2026-11-03 Run остановился с `turn-error` после `API Error: 500`, и после этого кнопка Autopilot на Canvas ничего не делала,
+а `autopilot_start` отвечал «runs unattended»: Session Orchestrator-а ждала конца своих фоновых задач. Нашёл это владелец, не
+test (worfy-polish 50). Набор Fault scenario-ев теперь есть: test вносит один сбой в Run на fake agent и проверяет правила
+восстановления I1–I8 (`checkRecovery`, `test/autopilot-invariants.ts`; правила — раздел `#### Tests` страницы
+[Autopilot](../features/autopilot.md)).
+Как узнать: остановка Run-а, повтор команды Wave, отказ нового старта или ручное вмешательство, которых не поймал ни один test.
+Что делать: сначала сценарий в `test/contract/autopilot-faults-*.test.ts` на `faultRun()` (или в
+`test/e2e/autopilot-faults.spec.ts`, если сбой виден только в собранном приложении), который краснеет на текущем коде, потом
+исправление. Сценарий не лечит: дефект — свой Ticket с подразделом «Инцидент» в «Итог», сценарий — его первый падающий test.
+Проверка: test/contract/autopilot-faults-api.test.ts:64 — API 500: Run останавливается с `turn-error`, новый старт той же Session проходит, команда Wave уходит один раз, `checkRecovery` пуст.
+Источник: worfy-polish/50, worfy-faults/07.
