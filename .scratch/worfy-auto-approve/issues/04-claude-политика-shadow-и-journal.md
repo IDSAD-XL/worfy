@@ -234,3 +234,32 @@ ADR-0005 (worfy не пишет в репозиторий Project-а): unit test
 опции маскировки убит новым случаем (`--secret-key`, `--token-file`). Выжил один — deny `no-git-facts`: факты git-а
 не читаются, когда `git config --get core.hooksPath` падает с кодом не 0 и не 1, а при такой поломке config-а
 раньше падает и `git worktree list` (deny `no-checkouts`). Ветка — защита на случай, который test не воспроизводит.
+
+### Раунд 3 (review PR #1460: 2 medium, 5 low)
+
+1. **git читается в том checkout-е, где идёт команда.** На каждый запрос факты git-а читаются в корне Project-а, в
+   каждом worktree Wave и в каждой папке, где идёт git-команда запроса (после её `cd` и `-C`), командой
+   `git -C <папка>`; каждая папка — один раз за запрос. Config одного worktree (`git config --worktree`,
+   `includeIf "gitdir:…"`) теперь виден: `git status` в таком worktree больше не allow, запись в папку его
+   `core.hooksPath` — deny `git-files`. Папка, где git не прочитался (её ещё нет), считается «hooks не исключены».
+   Test-ы на настоящем git-е: `--worktree` config, `includeIf "gitdir:**/worktrees/wt"`, `git -C`.
+2. **Flaky contract test «a run given no policy» исправлен.** Причина нашёл reviewer: store-ы harness-а читали
+   общую переменную `scratch` в момент записи, а Codex test не ждал остановки своего Run-а — его `layout.json`
+   попадал в папку следующего test-а. Harness держит свою папку (`own`, `ownRepo`), Codex test ждёт конца Run-а.
+   10 прогонов файла подряд — зелёные (до коммита и после него).
+3. **Подсказка hard deny домашней папки на macOS** называет `mkdir -p "$TMPDIR/<name>"` вместо `mktemp -d`
+   (`hardHint`); на Linux и Windows — как было. Test: названная форма получает allow.
+4. **Маскировка Journal**: ключи JSON с секретным именем (и в экранированных кавычках), `password X` из `.netrc`,
+   заголовки с секретным именем в кавычках (`X-Api-Key:`, `Cookie:`), `curl -ubob:pass` и `curl -u "bob:a b"`,
+   `-p` у `docker login` / `podman login` / `sshpass`, `--key`. Unit test на каждую форму.
+5. **`removeTreeAsync` обходит дерево через `fs/promises`**: event loop свободен, отказ при смонтированном томе и при
+   части, которую не видно, — как был.
+6. **Политика судит во всём окружении процесса.** Фабрика query говорит Session-у окружение, с которым стартует
+   Claude Code (`QueryRequest.processEnv`), driver передаёт его в каждый запрос (`ApprovalWhere.env`), политика
+   судит в нём. Без него — окружение shell-а Run-а и переменные процесса поверх, как в раунде 2.
+7. **`ZDOTDIR` для `zsh -c`, `ENV` (и `BASH_ENV`) для `sh -c`** — not-judged, как `BASH_ENV` для `bash -c`.
+
+**Mutation testing раунда 3**: 35 mutant-ов на изменённых строках (policy, run-approval, shell, journal, remove,
+query, driver Claude), 32 убиты сразу, 3 выжили и убиты новыми случаями: чтение git-а в подпапке worktree
+(`cd src && git status`), решение самой политики для процесса с `GIT_NO_LAZY_FETCH` (park `git-hooks` вместо park
+окружения Run-а) и папка, где git не прочитался. Выживших нет.

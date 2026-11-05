@@ -389,11 +389,17 @@ describe('openRunApproval: round 3 (review of PR #1460)', () => {
   }
   const ask = (approval: Awaited<ReturnType<typeof open>>, command: string, cwd = wt(), env?: Record<string, string>) =>
     approval.judge({ tool: 'Bash', input: { command } }, { cwd, scratchpad: null, sessionId: 's', started: approval.environment, ...(env === undefined ? {} : { env }) })
+  /** As `ask`, for a process that started with GIT_NO_LAZY_FETCH: the policy's own decision, not the park of the run's git environment. */
+  const fetchless = (approval: Awaited<ReturnType<typeof open>>, command: string, cwd = wt()) =>
+    approval.judge({ tool: 'Bash', input: { command } }, { cwd, scratchpad: null, sessionId: 's', started: { ...approval.environment, GIT_NO_LAZY_FETCH: '1' } })
 
   it.skipIf(!posix)('reads git in the checkout the command runs in: a core.hooksPath of the worktree\'s own config keeps git status from allow', async () => {
     const approval = await inWave()
     expect(await ask(approval, 'git status')).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
     expect(await ask(approval, `git -C '${wt()}' status`, repo)).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    // A folder below the worktree is read on its own.
+    mkdirSync(join(wt(), 'src'))
+    expect(await ask(approval, 'cd src && git status')).toMatchObject({ outcome: 'allow', rule: 'files-inside-roots+git-in-wave-worktree' })
     git(repo, 'config', 'extensions.worktreeConfig', 'true')
     git(wt(), 'config', '--worktree', 'core.hooksPath', 'hooks')
     // The Project's own checkout sees no hook: only the worktree's config names one.
@@ -401,6 +407,10 @@ describe('openRunApproval: round 3 (review of PR #1460)', () => {
     expect((await ask(approval, 'git status')).outcome).not.toBe('allow')
     // The checkout after git -C, from a shell that stands in the Project.
     expect((await ask(approval, `git -C '${wt()}' status`, repo)).outcome).not.toBe('allow')
+    // The policy itself refuses it, also to a process that started with GIT_NO_LAZY_FETCH.
+    expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    expect(await fetchless(approval, `git -C '${wt()}' status`, repo)).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    expect(await fetchless(approval, 'cd src && git status')).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
     // A write into the hooks folder of the worktree's config is refused as one into .git/hooks.
     expect(await ask(approval, `touch '${join(wt(), 'hooks', 'pre-commit')}'`)).toMatchObject({ outcome: 'deny', rule: 'git-files' })
     await approval.close()
@@ -417,14 +427,16 @@ describe('openRunApproval: round 3 (review of PR #1460)', () => {
     expect((await ask(approval, 'git status')).outcome).not.toBe('allow')
     // A read of refs and objects stays allowed, for a process that started with GIT_NO_LAZY_FETCH only.
     expect(await ask(approval, 'git log --oneline -1')).toMatchObject({ outcome: 'park', rule: 'git-without-run-environment' })
-    const fetchless = { ...approval.environment, GIT_NO_LAZY_FETCH: '1' }
-    expect(await approval.judge({ tool: 'Bash', input: { command: 'git log --oneline -1' } }, { cwd: wt(), scratchpad: null, sessionId: 's', started: fetchless })).toMatchObject({ outcome: 'allow' })
+    expect(await fetchless(approval, 'git log --oneline -1')).toMatchObject({ outcome: 'allow' })
+    expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
     await approval.close()
   })
 
   it.skipIf(!posix)('a git command in a folder git cannot read there is judged as with hooks not known: no git status', async () => {
     const approval = await inWave()
-    expect((await ask(approval, `mkdir -p '${join(wt(), 'n')}' && cd '${join(wt(), 'n')}' && git status`)).outcome).not.toBe('allow')
+    const command = `mkdir -p '${join(wt(), 'n')}' && cd '${join(wt(), 'n')}' && git status`
+    expect((await ask(approval, command)).outcome).not.toBe('allow')
+    expect(await fetchless(approval, command)).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
     await approval.close()
   })
 
