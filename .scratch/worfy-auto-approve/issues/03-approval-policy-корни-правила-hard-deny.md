@@ -113,7 +113,8 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
    неизвестно. Удаление ветки: default branch или ветка другого worktree — hard, прочее — park. Правило
    `git-in-wave-worktree` требует, чтобы верх репозитория был worktree-ом Wave (не вложенный репозиторий в корне) и
    чтобы на пути к папке git не было ссылки; `fetch` и `pull` разрешены только от имени remote-а (URL, `host:path`,
-   путь — park) и только с назначением под `refs/remotes/` (пункт 18), `git clean` в корне — тоже (он удаляет содержимое, не корень).
+   путь — park). С раунда 5 review git одобряется только в формах allow-list-а (пункт 19); `git clean` в него не
+   входит.
 8. **Чтение.** Цели чтения судятся по корням; команда без записи и удаления (кроме git) — deny-with-hint `read-only`:
    решение Ticket-а 01 для `bash-other`, проверку Claude Code не повторить.
 9. **git config, hooks, attributes, submodules:** любая цель записи или удаления с компонентом `.git`,
@@ -229,3 +230,39 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
       раньше ловит `push.delete`) и `dashes >= 0` против `> 0` (с `--` первым словом у checkout нет операндов до
       него). Из выживших у review mutant «mv тоже раскрывает ссылки» эквивалентен: у `mv` в таблице парсера нет ни
       `-L`, ни `-r`; test `mv` со ссылкой внутри (allow) всё равно добавлен.
+19. **Раунд 5 review (PR #1410): git — только allow-list точных форм.** Решение review, без владельца, строже
+    прежнего и совпадает с «безопасно по умолчанию» spec-а. Пять раундов подряд находили новое написание в грамматике
+    опций git, которое двигало защищённую ветку на настоящем git: `--refm=` (однозначный префикс `--refmap`) и `-u`
+    (`--update-head-ok`), `switch --force-create=trunk`, `rebase --update-refs`, `--detach --no-detach`,
+    `branch -u … main` (upstream в общем config, следующий `pull` владельца двигал `main`), `stash clear` / `pop` на
+    общем для всех worktree-ов `refs/stash`. Список запрещённого не сходится, поэтому git одобряется, только если
+    команда — одна из форм ниже, каждая опция написана полностью из списка этой формы (без сокращений, без
+    неизвестных опций, без `--x=v`; кластер перечисленных коротких, `-am`, допустим), плюс прежние условия правила
+    `git-in-wave-worktree`. Чтение (парсер не даёт записи и удаления: status, diff, log, show, `branch -a`,
+    `config --local --get`…) одобряется как раньше. Формы:
+    - `add` (`-A`, `--all`, `-u`, `--update`, `--`), `rm` (`-r`, `--cached`, `-q`, `--quiet`, `--`), `mv` (`--`),
+      `restore` (`--staged`, `--worktree`, `-W`, `--`; без `--source` / `-s`; `-S` парсер не пропускает);
+    - `commit` с `-m` / `--message`, `-a` / `--all`, `--amend`, `--no-edit`, `--allow-empty`, без путей (`-F` парсер
+      Ticket-а 02 не пропускает);
+    - `fetch [<remote>] [<ветка>…]` с `--prune`, `--tags`, `--no-tags`, `--quiet`, без `:` в операндах;
+    - `pull [--rebase|--ff-only|--no-rebase] [<remote> [<ветка>]]`, без `:`;
+    - `switch -c <новая> [<начало>]`, `checkout -b <новая> [<начало>]`; `switch <своя>`, `checkout <своя>` (ветка
+      этого worktree-а по `checkouts`); `checkout [<rev>] -- <пути>` хотя бы с одним путём;
+    - `rebase <upstream>` (одним операндом, с `--autostash`), `rebase --abort`, `rebase --skip`;
+    - `merge [--ff-only|--no-ff|--no-edit] <rev>`, `merge --abort`; `cherry-pick` и `revert` `<rev>…` или `--abort`;
+      `reset [--soft|--mixed|--hard] [<rev>]` (без путей);
+    - `stash`, `stash push [-m <сообщение>] [-u]`, `stash list`, `stash show` — `pop`, `apply`, `drop`, `clear` нет:
+      `refs/stash` общий для всех worktree-ов;
+    - `branch <новая>` (одним операндом, без опций).
+    Всё прочее в git (`tag`, `branch -u/-m/-c/-f/-d`, `worktree add`, `clean`, `update-ref`, `notes`, `gc`, push,
+    config…) — не allow. `--continue` в формы не входит: парсер Ticket-а 02 не пропускает его (он делает commit).
+    - **`rebaseUpdateRefs`** — новое поле контекста: `rebase.updateRefs`, прочитанный один раз при старте Run-а
+      (заполняет Ticket 04). `rebase` и `pull` (его делает rebase-ом `pull.rebase`) одобряются только при `false`;
+      `true` и `null` (не прочитан) — park.
+    - **Hard остаётся, как был**, и дополнен (решение моё): префикс опции, которая берёт значение, в форме `--x=v`
+      (`--refm=`, `--force-c=`, `--orph=`) читается как сама опция; `switch --create` / `--force-create` — как
+      `-c` / `-C`; `--detach`, взятый назад `--no-d…`, — переключение; `branch -u <upstream> <ветка>` судит ветку;
+      тег с именем защищённой ветки или ветки другого worktree-а — hard (при разрешении имени git берёт тег раньше
+      ветки). Префикс с отдельным значением (`--force-c trunk`) и `rebase --update-refs` hard не дают — их держит
+      allow-list (park): у `--force` и `--force-create` общий префикс, и такое чтение съело бы следующую опцию.
+    - **Mutation testing после раунда 5** на allow-list-е и изменённых строках hard: MUTATION_RESULT

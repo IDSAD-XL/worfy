@@ -1152,4 +1152,26 @@ describe('round 5: git is allowed only in the forms of its allow-list', () => {
     expect(run('git rebase --update-refs --root --force-rebase').outcome).not.toBe('allow')
     expect(run('git fetch origin x:refs/heads/refs/remotes/y').outcome).not.toBe('allow')
   })
+  it('the edges mutation testing of the allow-list found', () => {
+    for (const command of ['git add --all', 'git add --update', 'git rm -r --cached src', 'git rm -q src/a.ts', 'git rm --quiet src/a.ts', 'git rm -- src/a.ts', 'git mv -- src/a.ts src/b.ts',
+      'git restore -- src/a.ts', 'git restore --worktree src/a.ts', 'git restore -W src/a.ts', 'git reset --mixed']) {
+      expect(run(command), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    }
+    for (const command of ['git commit -am', 'git commit -ma demo', 'git stash push -m', 'git merge --abort --no-ff', 'git mv --staged src/a.ts src/b.ts',
+      'git checkout worfy-demo/03 --', 'git checkout HEAD main -- src/a.ts', 'git rebase --abort --skip', 'git rebase --autostash', 'git checkout worfy-demo/03-other']) {
+      expect(run(command).outcome, command).toBe('park')
+    }
+    // Hard: a flag that only shares a prefix with a valued option takes no value.
+    expect(run('git checkout --force -B main').rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git tag -- main').rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git tag --message demo main').rule).toBe('hard:git-checkout-default-branch')
+    expect(run('git tag --cleanup strip -m demo main').rule).toBe('hard:git-checkout-default-branch')
+  })
+  it('switch or checkout <own branch> needs the own branch, matched without case only on macOS and Windows', () => {
+    expect(outcome('git checkout WORFY-DEMO/03', posix({ platform: 'darwin' }))).toBe('allow')
+    expect(outcome('git checkout worfy-demo/03-other', posix({ platform: 'darwin' }))).toBe('park')
+    expect(outcome('git checkout WORFY-DEMO/03')).toBe('park')
+    expect(outcome('git checkout worfy-demo/03', posix({ checkouts: [{ path: REPO, branch: 'main' }, { path: WT, branch: null }] }))).toBe('park')
+    expect(outcome('git checkout worfy-demo/03', posix({ checkouts: [{ path: REPO, branch: 'main' }] }))).toBe('park')
+  })
 })

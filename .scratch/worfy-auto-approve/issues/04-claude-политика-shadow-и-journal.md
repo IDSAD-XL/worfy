@@ -44,6 +44,10 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3, 7; «Ре�
      **пустой `checkouts` молча выключает hard-deny `other-worktree` и `git-other-branch`**: если список прочитать
      не удалось, пустой не передавать, а ничего не одобрять;
    - `defaultBranch` — ветка по умолчанию Project-а (`main` защищён и так);
+   - `rebaseUpdateRefs` — значение `git config --bool rebase.updateRefs` в worktree-е Run-а, прочитанное один раз
+     при старте Run-а: `true` двигает при rebase каждую ветку, через которую он проходит. `rebase` и `pull` (его
+     может сделать rebase-ом `pull.rebase`) одобряются только при `false`; если прочитать не удалось — `null`, и
+     они не одобряются (Ticket 03, «Итог», пункт 19);
    - `recordedRoots` — настоящие пути корней, записанные при старте Run-а: `recordRoots([...worktrees, scratch,
      runTemp, scratchpad], platform)` из `roots.ts`. Корень без записи — не корень; корень, чей настоящий путь с тех
      пор другой (подменён ссылкой), — тоже. Worktree, созданный позже старта Run-а, записывается при создании.

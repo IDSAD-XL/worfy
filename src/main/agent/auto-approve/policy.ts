@@ -528,7 +528,7 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
   }
   if (sub === 'tag' && !words.some((word) => /^-[A-Za-z]*[dlv]/.test(word) || ['--delete', '--list', '--verify'].includes(word))) {
     // A tag named like a branch comes first when git resolves the name: `git merge main` takes the tag.
-    const rule = firstOf(operandsOf(words, { short: 'mu', long: ['message', 'local-user', 'cleanup'] }, true).operands.slice(0, 1), 'git-checkout-default-branch')
+    const rule = firstOf(operandsOf(words, { short: 'm', long: ['message', 'cleanup'] }, true).operands.slice(0, 1), 'git-checkout-default-branch')
     if (rule !== null) return rule
   }
   if (sub === 'fetch' || sub === 'pull') {
@@ -669,7 +669,7 @@ function exactForm(words: readonly string[], spec: FormSpec, dashes = false): Fo
       options.push(word)
       i++
     } else {
-      if (!/^-[A-Za-z]{2,}$/.test(word)) return null
+      // Anything else is read as a cluster of listed short options; a long or unknown one fails here.
       const letters = [...word.slice(1)]
       for (const [n, letter] of letters.entries()) {
         const option = `-${letter}`
@@ -705,7 +705,7 @@ function gitFormAllowed(action: ShellAction, prepared: Prepared): boolean {
     case 'mv':
       return exactForm(words, {}, true) !== null
     case 'restore':
-      return exactForm(words, { flags: ['--staged', '--worktree', '-S', '-W'] }, true) !== null
+      return exactForm(words, { flags: ['--staged', '--worktree', '-W'] }, true) !== null
     case 'commit': {
       const form = exactForm(words, { flags: ['-a', '--all', '--amend', '--no-edit', '--allow-empty'], valued: ['-m', '--message'] })
       return form !== null && form.operands.length === 0
@@ -724,7 +724,7 @@ function gitFormAllowed(action: ShellAction, prepared: Prepared): boolean {
       if (sub === 'checkout') {
         // `checkout [<rev>] -- <paths>` restores files.
         const restore = exactForm(words, {}, true)
-        if (restore?.paths != null) return restore.options.length === 0 && restore.operands.length <= 1 && restore.paths.length > 0
+        if (restore?.paths != null) return restore.operands.length <= 1 && restore.paths.length > 0
       }
       const form = exactForm(words, { valued: [sub === 'switch' ? '-c' : '-b'] })
       if (form === null) return false
