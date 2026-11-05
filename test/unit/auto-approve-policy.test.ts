@@ -124,6 +124,7 @@ function posix(overrides: Partial<PolicyContext> = {}): PolicyContext {
     rebaseUpdateRefs: false,
     remotes: ['origin'],
     hooksPath: null,
+    hooksActive: false,
     fs: fakeFs(TREE),
     ...overrides,
   })
@@ -1325,5 +1326,64 @@ describe('round 6: the repository git opens, and the paths and branch names insi
     expect(run('echo x > .GITHOOKS/pre-commit', posix({ hooksPath: '.githooks', platform: 'darwin' })).rule).toBe('git-files')
     expect(outcome('echo x > .GITHOOKS/pre-commit', relative)).toBe('allow')
     expect(judge({ tool: 'Write', input: { file_path: 'c:/work/repo/.claude/worktrees/03/.GITHOOKS/pre-commit' } }, { ...windows(), hooksPath: '.githooks' }).rule).toBe('git-files')
+  })
+})
+
+describe('round 7: installed git hooks, the parents of the hooks folder, and *_HEAD', () => {
+  const tree = (entries: Record<string, string>, overrides: Partial<PolicyContext> = {}): PolicyContext => posix({ fs: fakeFs({ ...TREE, ...entries }), ...overrides })
+  const WRITES = ['git commit -m demo', 'git commit --amend --no-edit', 'git add -A', 'git add src/a.ts', 'git rm --cached src/a.ts', 'git mv src/a.ts src/b.ts',
+    'git restore src/a.ts', 'git restore --staged src/a.ts', 'git fetch origin', 'git pull --ff-only origin main', 'git switch -c worfy-demo/03-x', 'git checkout worfy-demo/03',
+    'git checkout -- src/a.ts', 'git checkout HEAD -- src/a.ts', 'git rebase origin/main', 'git rebase --abort', 'git merge --ff-only origin/main', 'git merge --abort',
+    'git cherry-pick abc123', 'git cherry-pick --abort', 'git revert --abort', 'git reset', 'git reset --hard origin/main', 'git branch worfy-demo/03-b']
+  // status, diff and describe write the index when they can (post-index-change); the rest only read.
+  const INDEX_READS = ['git status', 'git diff', 'git diff HEAD', 'git describe']
+  const PURE_READS = ['git log', 'git show HEAD', 'git rev-parse HEAD', 'git ls-files', 'git branch -a', 'git stash list', 'git merge-base HEAD origin/main', 'git grep demo']
+
+  it('with hooks installed, or not known, no git command that may run a hook is allowed: park with a hint', () => {
+    for (const hooksActive of [true, null]) {
+      for (const command of [...WRITES, ...INDEX_READS]) {
+        expect(run(command, posix({ hooksActive })), `${command} with ${String(hooksActive)}`).toMatchObject({ outcome: 'park', rule: 'git-hooks', hint: HINTS.gitHooks })
+      }
+      for (const command of PURE_READS) expect(run(command, posix({ hooksActive })), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    }
+  })
+  it('without hooks the same commands are allowed', () => {
+    for (const command of [...WRITES, ...INDEX_READS, ...PURE_READS]) expect(run(command), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+  })
+  it('the hooks park does not hide a deny, a hard deny or a write outside the roots; other programs beside git keep their rule', () => {
+    const hooked = posix({ hooksActive: true })
+    expect(run('git mv src/a.ts .gitattributes', hooked).rule).toBe('git-files')
+    expect(run('git push --force', hooked).outcome).toBe('hard-deny')
+    expect(run(`git mv src/a.ts ${ELSEWHERE}/y`, hooked)).toMatchObject({ outcome: 'park', rule: 'outside-roots' })
+    expect(run('rm -rf build', hooked)).toMatchObject({ outcome: 'allow', rule: 'files-inside-roots' })
+    expect(run('rm -rf build && git commit -m x', hooked)).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    expect(judge({ tool: 'Write', input: { file_path: `${WT}/.husky/pre-commit` } }, hooked).outcome).toBe('allow')
+  })
+  it('a write, move or delete of a folder between the worktree top and the hooks folder is git-files', () => {
+    const tools = tree({ [`${WT}/tools/hooks/pre-commit`]: 'file', [`${WT}/tools/x.ts`]: 'file', [`${WT}/src/fk/hooks/pre-commit`]: 'file' }, { hooksPath: 'tools/hooks' })
+    for (const command of ['mv tools tools-old', 'mv src/fk tools', 'rm -rf tools', 'cp -R src/fk tools', 'git mv tools t2', 'git mv src/fk tools', 'mkdir tools', 'rm -rf tools/hooks', 'echo x > tools/hooks/pre-commit']) {
+      expect(run(command, tools), command).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    }
+    for (const command of ['mkdir -p src/fk2/hooks', 'echo x > tools/x.ts', 'rm -rf tools/x.ts', 'cp -R tools build/t', 'echo x > toolsx']) {
+      expect(run(command, tools), command).toMatchObject({ outcome: 'allow' })
+    }
+    expect(run('mv TOOLS t', posix({ hooksPath: 'tools/hooks', platform: 'darwin' })).rule).toBe('git-files')
+    expect(run('mv TOOLS t', posix({ hooksPath: 'tools/hooks' })).rule).toBe('files-inside-roots')
+    // An absolute hooks folder: its parents below the nearest top (here the main checkout) are guarded too.
+    const scratchHooks = posix({ hooksPath: `${SCRATCH}/a/hooks` })
+    expect(run(`rm -rf ${SCRATCH}/a`, scratchHooks).rule).toBe('git-files')
+    expect(run(`echo x > ${SCRATCH}/b`, scratchHooks).outcome).toBe('allow')
+    const padHooks = posix({ hooksPath: `${PAD}/h/hooks` })
+    expect(run(`rm -rf ${PAD}/h/hooks`, padHooks).rule).toBe('git-files')
+    expect(run(`rm -rf ${PAD}/h`, padHooks).outcome).toBe('allow')
+  })
+  it('a new branch named like a pseudo-ref (*_HEAD) is no allow', () => {
+    for (const command of ['git branch ORIG_HEAD', 'git branch FETCH_HEAD', 'git branch MERGE_HEAD', 'git switch -c CHERRY_PICK_HEAD', 'git checkout -b REBASE_HEAD', 'git branch x_HEAD']) {
+      expect(outcome(command), command).not.toBe('allow')
+    }
+    expect(outcome('git branch orig_head', posix({ platform: 'darwin' }))).toBe('park')
+    expect(outcome('git branch orig_head')).toBe('allow')
+    expect(outcome('git branch HEADS-up')).toBe('allow')
+    expect(outcome('git branch x_HEADER')).toBe('allow')
   })
 })

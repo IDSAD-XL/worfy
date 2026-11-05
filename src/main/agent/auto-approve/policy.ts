@@ -36,7 +36,7 @@ export interface Decision {
   outcome: Outcome
   /** The id of the rule that decided: an allow rule (several joined by `+`), a deny reason, `hard:<item>`. */
   rule: string
-  /** What the agent reads with a deny: a constant of this module; null for the other outcomes. */
+  /** What the agent reads with a deny, or with the park of `git-hooks`: a constant of this module; null otherwise. */
   hint: string | null
   /** The paths judged, normalized and in order, without repeats. */
   targets: string[]
@@ -91,6 +91,13 @@ export interface PolicyContext {
    * are never allowed: the next git command runs what is there.
    */
   hooksPath: string | null
+  /**
+   * Whether the repository has client hooks installed, read when the Run starts: true when `core.hooksPath` is set
+   * or the common git folder's `hooks/` holds a file not ending in `.sample`; null when it could not be read. An
+   * installed hook may run files the agent can edit (husky's `.husky/pre-commit`, lint-staged, package.json
+   * scripts), so unless it is false no git command that may run a hook is allowed.
+   */
+  hooksActive: boolean | null
   /** The real path of each root recorded when the Run started (roots.ts, recordRoots), by the root's path. */
   recordedRoots: Readonly<Record<string, string>>
   /** The file system; the machine's when absent. */
@@ -108,6 +115,8 @@ export interface Act {
   git: ShellAction['git']
   /** For git: whether the command is one of the forms of the git allow-list (gitFormOf). */
   gitForm: boolean
+  /** For git: a form of the allow-list that may run a client hook while the repository has hooks (or may have). */
+  gitHooks: boolean
   network: boolean
   targets: Target[]
 }
@@ -197,6 +206,7 @@ export const HINTS = {
   noTarget: 'worfy could not find what this request changes, so it did not approve it. Give the full absolute path, as it is: no ~, no relative path, no spaces around it, no \\\\ network or device path.',
   unclearPath: 'worfy could not tell where a path of this request leads (a .. after a folder that does not exist, or a Windows name with a trailing dot or space, a colon or a short ~1 form), so it did not approve it. Give the plain full path.',
   noHome: 'worfy does not know the home folder of this Session, so it approves nothing here.',
+  gitHooks: 'This Project has git hooks (or worfy could not tell), and this git command may run one; a hook may run files you can edit, so worfy does not approve it. Leave it to the owner, or go on without it.',
   gitTop: 'worfy approves git only in the repository of the Ticket\'s worktree, and a folder on the way to it holds what git takes for another repository (.git, HEAD, commondir, gitdir, or objects with refs). Run git from the worktree top, and leave such files to the owner.',
 } as const
 
@@ -289,6 +299,20 @@ function judgeCommand(command: string, cwd: string, prepared: Prepared): Decisio
   return allowOrPark(acts, targets)
 }
 
+// git reads that write neither the index nor a ref, so no client hook runs (post-index-change runs on every index
+// write, reference-transaction on every ref update, post-checkout on checkout, switch and restore, the commit
+// hooks on commit, merge, cherry-pick, revert and rebase). status, diff and describe refresh the index when they
+// can.
+// `stash list` and `show`, the only stash forms of the allow-list, read refs/stash and its commits.
+const HOOK_FREE_GIT = new Set(['log', 'show', 'rev-parse', 'ls-files', 'ls-tree', 'cat-file', 'merge-base', 'blame', 'shortlog', 'rev-list', 'name-rev', 'for-each-ref', 'show-ref', 'grep', 'check-ignore', 'branch'])
+
+/** Whether a git command of the allow-list may run a client hook: anything but a read of HOOK_FREE_GIT and stash. */
+function mayRunHook(action: ShellAction): boolean {
+  const sub = action.git?.subcommand ?? ''
+  if (sub === 'stash') return false
+  return !HOOK_FREE_GIT.has(sub) || action.writes.length > 0 || action.deletes.length > 0
+}
+
 function actOf(action: ShellAction, prepared: Prepared): Act {
   const { roots, win } = prepared
   const targets: Target[] = []
@@ -313,7 +337,8 @@ function actOf(action: ShellAction, prepared: Prepared): Act {
   const form = action.git === undefined ? null : gitFormOf(action, prepared)
   // The paths a form of the allow-list names are placed and checked as any file write.
   for (const { word, use } of form ?? []) add(normalizePath(word, win) === null ? `${action.cwd}${win ? '\\' : '/'}${word}` : word, use)
-  return { program: action.program, fileTool: false, args: action.args, git: action.git, gitForm: form !== null, network: action.network, targets }
+  const hooks = form !== null && prepared.context.hooksActive !== false && mayRunHook(action)
+  return { program: action.program, fileTool: false, args: action.args, git: action.git, gitForm: form !== null && !hooks, gitHooks: hooks, network: action.network, targets }
 }
 
 function targetsOf(acts: Act[]): string[] {
@@ -619,17 +644,34 @@ function ownRepository(cwd: string, prepared: Prepared): boolean {
   return context.checkouts.some((checkout) => samePath(joinPath(checkout.path, '.git/worktrees', win), joinPath(gitdir, '..', win), win))
 }
 
-/** The folders of core.hooksPath, written and real: an absolute one, or a relative one under each worktree. */
-function hooksFolders(prepared: Prepared): string[] {
+/**
+ * What core.hooksPath guards, each path written and real: `folders`, the hooks folder (an absolute one, or a
+ * relative one under each worktree and checkout), with everything inside; `parents`, the folders between it and the
+ * nearest top above it, themselves only: moving or replacing one puts another hooks folder in place.
+ */
+function hooksAreas(prepared: Prepared): { folders: string[]; parents: string[] } {
   const { context, roots, win } = prepared
   const value = context.hooksPath
-  if (value === null) return []
+  if (value === null) return { folders: [], parents: [] }
   const home = context.env.HOME
   const path = value.startsWith('~/') && home !== undefined ? `${home}${value.slice(1)}` : value
   const absolute = normalizePath(path, win)
-  const tops = [...context.worktrees, ...context.checkouts.map((checkout) => checkout.path)]
-  const folders = absolute === null ? tops.map((top) => joinPath(top, path, win)) : [absolute]
-  return folders.flatMap((folder) => [folder, realPathOf(folder, roots) ?? folder])
+  const tops = [...context.worktrees, ...context.checkouts.map((checkout) => checkout.path)].map((top) => normalizePath(top, win) ?? top)
+  const nearest = (folder: string): string | undefined =>
+    tops.filter((top) => within(folder, top, prepared) && !within(top, folder, prepared)).sort((a, b) => b.length - a.length)[0]
+  const pairs = absolute === null ? tops.map((top) => [joinPath(top, path, win), top] as const) : [[absolute, nearest(absolute)] as const]
+  const both = (folder: string): string[] => [folder, realPathOf(folder, roots) ?? folder]
+  const parents: string[] = []
+  for (const [folder, top] of pairs) {
+    if (top === undefined) continue
+    for (let up = joinPath(folder, '..', win); !within(top, up, prepared); up = joinPath(up, '..', win)) parents.push(...both(up))
+  }
+  return { folders: pairs.flatMap(([folder]) => both(folder)), parents }
+}
+
+/** Whether `a` and `b` are one path; without case on macOS and Windows. */
+function samePlace(a: string, b: string, prepared: Prepared): boolean {
+  return within(a, b, prepared) && within(b, a, prepared)
 }
 
 /** Whether `path` is `folder` or lies below it; without case on macOS and Windows. */
@@ -655,7 +697,7 @@ function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared):
     const inRoot = act.targets.some((target) => target.marker === 'folder' && isInside(target.placement))
     if (action !== undefined && act.git !== undefined && inRoot && !ownRepository(action.cwd, prepared)) return deny('not-judged', HINTS.gitTop)
   }
-  const hooks = hooksFolders(prepared)
+  const hooks = hooksAreas(prepared)
   for (const [n, act] of acts.entries()) {
     // cp names its sources by their last component in a folder it copies into.
     const copies = actions?.[n]?.program === 'cp'
@@ -667,7 +709,8 @@ function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared):
       const forms = real === null ? [target.path] : [target.path, real]
       // Besides the git files: a file that makes its folder a git directory, and the hooks of core.hooksPath.
       const named = forms.some((path) => touchesGitFiles(path) || isGitDirectoryFileName(path.split(/[\\/]/).at(-1) ?? ''))
-      if (named || (target.use !== 'read' && forms.some((path) => hooks.some((folder) => within(path, folder, prepared))))) return deny('git-files', HINTS.gitFiles)
+      const guarded = (path: string): boolean => hooks.folders.some((folder) => within(path, folder, prepared)) || hooks.parents.some((parent) => samePlace(path, parent, prepared))
+      if (named || (target.use !== 'read' && forms.some(guarded))) return deny('git-files', HINTS.gitFiles)
     }
   }
   for (const act of acts) {
@@ -869,7 +912,8 @@ function existingFile(word: string, action: ShellAction, prepared: Prepared): bo
 /**
  * Whether `name` may be the name of a new branch: none that git or the owner may read as another ref. A name
  * under a remote (`origin/main`) shadows the remote-tracking ref: the owner's `merge --ff-only origin/main` takes
- * the agent's branch. Also no ref path (refs/, heads/, tags/, remotes/), no remote name, no HEAD or @, no option.
+ * the agent's branch. Also no ref path (refs/, heads/, tags/, remotes/), no remote name, no HEAD, *_HEAD or @, no
+ * option.
  * Without case on macOS and Windows; without the remote names, none.
  */
 function newBranchAllowed(name: string, prepared: Prepared): boolean {
@@ -878,7 +922,8 @@ function newBranchAllowed(name: string, prepared: Prepared): boolean {
   const caseless = win || context.platform === 'darwin'
   const key = (text: string): string => (caseless ? text.toLowerCase() : text)
   const n = key(name)
-  if (n === key('HEAD') || ['refs/', 'heads/', 'tags/', 'remotes/'].some((prefix) => n.startsWith(prefix))) return false
+  // git's pseudo-refs (ORIG_HEAD, FETCH_HEAD, MERGE_HEAD…) are read before a branch of the same name.
+  if (n === key('HEAD') || n.endsWith(key('_HEAD')) || ['refs/', 'heads/', 'tags/', 'remotes/'].some((prefix) => n.startsWith(prefix))) return false
   return context.remotes.every((remote) => n !== key(remote) && !n.startsWith(`${key(remote)}/`))
 }
 
@@ -905,6 +950,9 @@ function allowOrPark(acts: Act[], targets: string[]): Decision {
       const ordered = ALLOW_RULES.map((rule) => rule.id).filter((id) => used.includes(id))
       return { outcome: 'allow', rule: ordered.join('+'), hint: null, targets }
     }
+    // Allowed but for the hooks the repository has: park, and say why.
+    const hooked = acts.some((act) => act.gitHooks) && acts.every((act) => ALLOW_RULES.some((rule) => rule.match(act.gitHooks ? { ...act, gitForm: true } : act)))
+    if (hooked) return { outcome: 'park', rule: 'git-hooks', hint: HINTS.gitHooks, targets }
   }
   return { outcome: 'park', rule: 'outside-roots', hint: null, targets }
 }
@@ -948,6 +996,7 @@ function judgeFiles(tool: string, input: Record<string, unknown>, prepared: Prep
     fileTool: true,
     args: [],
     gitForm: false,
+    gitHooks: false,
     git: undefined,
     network: false,
     // The raw path is judged (a `..` after a link goes up from the link's target); the folded one is reported.

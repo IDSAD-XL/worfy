@@ -263,9 +263,12 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
    (`core.fsmonitor`, `core.pager`, filters, `textconv`, alias-ы, `.git/hooks/*`): через них любая подкоманда git
    запускает программу. Первые два — остаток риска («Риски», п. 6). Третье закрывает Ticket 03: запись в `.git/config`,
    `.git/hooks/`, `.git/info/attributes` и в `.gitattributes` не allow ни одним правилом, так что агент не может сначала
-   поставить hook, а потом попросить одобрить безобидный `git commit`. Это верно, только пока hooks лежат там, где их
-   знает политика: если `core.hooksPath` указывает на отслеживаемую папку (husky, `.githooks`), запись в неё закрыта
-   полем контекста `hooksPath` (Ticket 04); без этого поля правка `.githooks/pre-commit` была бы allow. git тоже
+   поставить hook, а потом попросить одобрить безобидный `git commit`. Это верно, только пока в репозитории нет
+   установленных hooks. Если `core.hooksPath` указывает на отслеживаемую папку (`.githooks`), запись в неё и замена её
+   родительских папок закрыты полем контекста `hooksPath` (Ticket 04). Но установленный hook может вызывать файлы
+   проекта, которые агент править может: husky 9 ставит `core.hooksPath=.husky/_`, а его `_/pre-commit` запускает
+   `.husky/pre-commit`; так же работают lint-staged и скрипты `package.json`. Поэтому при поле `hooksActive`, которое
+   не `false`, git-команды, которые могут запустить hook, не allow, а park (Ticket 03, «Итог», пункт 21). git тоже
    запускается только в репозитории самого worktree-а: папка по пути к его верху с `HEAD`, `commondir`, `gitdir` или
    `objects` вместе с `refs` — подложенный репозиторий со своим config-ом, и git там не allow (Ticket 03, «Итог»,
    пункт 20).
