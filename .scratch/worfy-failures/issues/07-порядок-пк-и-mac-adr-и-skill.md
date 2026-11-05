@@ -1,7 +1,8 @@
 # 07 — Порядок ПК → Mac: ADR и skill `epic-wave`
 
 Type: task
-Status: open
+Status: claimed 2026-11-05T02:54Z
+Branch: worfy-failures/07
 Blocked by: 02, 03, 04, 05, 06
 Source: [spec.md](../spec.md), «Вопросы владельцу», Q1, Q2, Q3 (решения владельца 2026-11-04 — А и В, А, да); «Риски», п. 3; [ADR-0086](../../../docs/adr/0086-pc-gate-full-once-per-wave.md), пункты 2–4
 
