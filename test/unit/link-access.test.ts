@@ -179,6 +179,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'agent.controls',
     'agent.list',
     'agent.models',
+    // The Orchestrator modes of a Project (worfy-retry ticket 13): a read-only screen sees them in the Modes menu.
+    'autoApproval.read',
+    'autoContinue.read',
     'autopilot.state',
     // The estimate of a Wave's share of the week, read from the run journals (worfy-throughput ticket 40).
     'autopilot.estimate',
@@ -211,6 +214,7 @@ describe('the read-or-write mark of `project` channels', () => {
     // does for its own active Project: the caller changes nothing.
     'docs.open',
     'docs.read',
+    'ecoMode.read',
     // Read-only gh, as checks.get: the cross-machine gate queue (worfy-windows ticket 17).
     'gateQueue.get',
     // A stored image for the window of a Linked machine that shows it (worfy-canvas ticket 24): reading, as cards.file.
@@ -266,6 +270,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'agent.queueSend',
     'agent.send',
     'agent.start',
+    // The Orchestrator modes (worfy-retry ticket 13): only full access changes them, on the Machine of the Project.
+    'autoApproval.set',
+    'autoContinue.set',
     'autopilot.forceStop',
     'autopilot.start',
     'autopilot.stop',
@@ -295,6 +302,7 @@ describe('the read-or-write mark of `project` channels', () => {
     // Hiding Subagent entries and showing them again write the Project's data folder (worfy-polish ticket 45).
     'claudeHome.hideSubagents',
     'claudeHome.showSubagents',
+    'ecoMode.set',
     // Writes an image file into the Project's data folder (worfy-canvas ticket 23).
     'canvasImage.add',
     'layout.apply',

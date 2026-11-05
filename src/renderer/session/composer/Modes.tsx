@@ -19,7 +19,9 @@ import type { ComposerItemProps } from './index'
 //
 // The menu opens over the button, drawn into the page's body like the list of a Select
 // (theme/select.css). Choosing an item does not close it: the new state shows in it. A window that shows
-// a Linked machine opens the menu too; every item there is unavailable and says where it is set.
+// a Linked machine shows the modes of that Machine's Project (worfy-retry ticket 13): with full access
+// every item changes them there, with read-only access every item shows its state and is unavailable with
+// the read-only hint. A change made on either Machine shows in an open menu at once.
 
 /** Right of the pickers (Pickers.tsx, order 10), before the queue (Queue.tsx, order 20). */
 export const order = 15
@@ -69,9 +71,9 @@ function CheckMark() {
 }
 
 /** How the button's name says the state of an item: the state, or why it is not known. */
-function stateWords(state: IconState, item: { readOnly: boolean; reading: boolean }): string {
+function stateWords(state: IconState, item: { reading: boolean }): string {
   if (state !== 'unknown') return state
-  return item.readOnly ? 'set on the Machine of the Project' : item.reading ? 'being read' : 'not available'
+  return item.reading ? 'being read' : 'not available'
 }
 
 /** The menu of the Orchestrator of Project `projectId`. */
@@ -90,10 +92,7 @@ function ModesMenu({ projectId }: { projectId: string }) {
   const contState: IconState = cont.on === null ? 'unknown' : cont.on ? 'on' : 'off'
   const readOnly = eco.readOnly && auto.readOnly && cont.readOnly
   // The states are in the button's name, not only in its tooltip: a screen reader says them with it.
-  // A window on a Linked machine says once where all of them are set.
-  const summary = readOnly
-    ? 'Modes: set on the Machine of the Project'
-    : `Modes: Eco mode ${stateWords(ecoState, eco)}, Auto-approval ${stateWords(autoState, auto)}, Auto-continue ${stateWords(contState, cont)}`
+  const summary = `Modes: Eco mode ${stateWords(ecoState, eco)}, Auto-approval ${stateWords(autoState, auto)}, Auto-continue ${stateWords(contState, cont)}`
 
   const close = useCallback((focus: boolean) => {
     setMenu(null)

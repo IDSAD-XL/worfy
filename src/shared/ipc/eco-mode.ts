@@ -5,10 +5,14 @@
 // fields, so the Project gets the Harness's defaults again. The write goes through the Harness's
 // `bin/profile-set --field workflow.agents --field agents` (src/main/ipc/eco-mode.ts), never by worfy
 // itself (ADR-0002, ADR-0005), and takes effect from the next Ticket handed out.
-// Both channels are `local`: a Profile is written only by worfy on the Machine its Project lives on.
+// The channels are `project` (worfy-retry ticket 13): a window that shows a Linked machine reads and
+// writes the Profile of that Machine's Project through the link, so the write still runs `bin/profile-set`
+// on the Machine the Project lives on. Reading is `read`, open with read-only access; writing is `write`,
+// open only with full access. Every write that went through is announced as `ecoMode.changed` to every
+// client of that Machine, a Linked machine's included, so an open Modes menu shows it at once.
 import { z } from 'zod'
 import { absolutePathSchema } from '../paths'
-import { invokeChannel } from './channels'
+import { eventChannel, invokeChannel } from './channels'
 import { pipelineFingerprintSchema } from './pipeline'
 
 /** What the switch shows for a Project. */
@@ -26,7 +30,7 @@ export const ecoModeStateSchema = z.discriminatedUnion('available', [
 export type EcoModeState = z.infer<typeof ecoModeStateSchema>
 
 /** The switch's state for the Project at `root`. Writes nothing. */
-export const ecoModeRead = invokeChannel('ecoMode.read', z.object({ root: absolutePathSchema }), ecoModeStateSchema, 'local')
+export const ecoModeRead = invokeChannel('ecoMode.read', z.object({ root: absolutePathSchema }), ecoModeStateSchema, 'project', 'read')
 
 export const ecoModeSetInputSchema = z.object({
   root: absolutePathSchema,
@@ -51,11 +55,25 @@ export const ecoModeSetResultSchema = z.discriminatedUnion('status', [
 export type EcoModeSetResult = z.infer<typeof ecoModeSetResultSchema>
 
 /** Turns Eco mode on or off for the Project at `root`: the click of the switch. */
-export const ecoModeSet = invokeChannel('ecoMode.set', ecoModeSetInputSchema, ecoModeSetResultSchema, 'local')
+export const ecoModeSet = invokeChannel('ecoMode.set', ecoModeSetInputSchema, ecoModeSetResultSchema, 'project', 'write')
+
+/**
+ * Sent to every client of the Project's Machine after a write of `ecoMode.set` went through, whoever
+ * wrote: `root` as the writer named it (every window names a Project by the path of the Project list),
+ * and the Profile's fingerprint after the write, so the next write of another window does not conflict.
+ * A change of the Profile made outside worfy sends none.
+ */
+export const ecoModeChanged = eventChannel(
+  'ecoMode.changed',
+  z.object({ root: absolutePathSchema, on: z.boolean(), fingerprint: pipelineFingerprintSchema }),
+  'project',
+  'read',
+)
 
 declare module './channels' {
   interface IpcContract {
     'ecoMode.read': typeof ecoModeRead
     'ecoMode.set': typeof ecoModeSet
+    'ecoMode.changed': typeof ecoModeChanged
   }
 }

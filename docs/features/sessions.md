@@ -185,7 +185,7 @@ answers.
 - For now the mode is only stored: an unattended Run still refuses every permission request.
 - Auto-continue is off for a Project until turned on. It is kept per Project in the same `app-settings.json`, and only
   the Modes menu writes it: on adds the Project's entry, off removes it, other Projects keep theirs. A change shows at
-  once in the Modes menu of every window of this Machine. A debugging port does not hold it off. For now it is only
+  once in the Modes menu of every window, on a Linked machine too. A debugging port does not hold it off. For now it is only
   stored: the Orchestrator still stops on an API error as before.
 - Autopilot runs this Session unattended. On Codex a run is refused, with the reason, while the Harness's hooks are not
   approved in Codex's `/hooks`; see [Autopilot, During a run](autopilot.md#during-a-run). While it does, the permission
@@ -203,10 +203,14 @@ Session sends at most one notification in 10 seconds. A click opens that Session
 - "+" uses a hidden file input there, and the file travels as bytes.
 - With read-only access, the input field, the pickers and the answers on the cards are inactive, with a tooltip that says
   why. The Session view does not open an Orchestrator there: it shows "No Orchestrator yet" when there is none.
-- The Modes menu reads and writes nothing there: its icons show the states as not known, and its items are unavailable.
-  Eco mode says "Eco mode is set in worfy on the Machine of the Project", or the read-only hint with read-only access;
-  Auto-approval says "Auto-approval is set in worfy on the Machine of the Project". Auto-continue says "Auto-continue is
-  set in worfy on the Machine of the Project", or the read-only hint with read-only access.
+- The Modes menu shows the modes of the Project on the Machine it lives on. With full access each item changes them
+  there: Eco mode writes that Machine's Profile, Auto-approval and Auto-continue its `app-settings.json`; nothing is
+  written on the Machine of the window. With read-only access the icons and the menu show the states, and each item is
+  unavailable with the read-only hint; the Machine of the Project refuses such a write too. A change made on either
+  Machine shows in an open menu on the other at once. A write whose answer did not come back shows a toast with the
+  reason, and the item reads the state again; while that read fails, the item is unavailable with why.
+- While worfy on the Machine of the window runs with a debugging port or the Node inspector open, Auto-approval there
+  is unavailable with the reason, and only Off leaves that Machine; Eco mode and Auto-continue still change.
 - A notification also goes to the connected Linked machines. Each Machine applies its own focus rule and its own 10 seconds.
 
 #### Windows

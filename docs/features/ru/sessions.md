@@ -148,9 +148,13 @@ worfy. Session из терминала или Claude desktop уведомляе�
 - «+» там использует скрытый file input, и файл передаётся байтами.
 - При read-only доступе поле ввода, picker-ы и ответы на карточках неактивны, а tooltip объясняет почему. Session view не открывает там
   Orchestrator: если его нет, показывается «No Orchestrator yet».
-- Меню Modes там ничего не читает и не пишет: иконки показывают состояние как неизвестное, пункты недоступны. Eco mode пишет
-  «Eco mode is set in worfy on the Machine of the Project» (при read-only доступе — подсказку read-only), Auto-approval —
-  «Auto-approval is set in worfy on the Machine of the Project».
+- Меню Modes показывает режимы Project-а на той Machine, где он живёт. С полным доступом пункты меняют их там: Eco mode
+  пишет Profile той Machine, Auto-approval и Auto-continue — её `app-settings.json`; на Machine окна ничего не пишется. С
+  read-only доступом иконки и меню показывают состояния, каждый пункт недоступен с подсказкой read-only; Machine Project-а
+  такую запись тоже отклоняет. Смена на одной Machine сразу видна в открытом меню другой. Если ответ на запись не пришёл,
+  toast называет причину, а пункт читает состояние заново; пока чтение не удаётся, пункт недоступен с причиной.
+- Пока worfy на Machine окна запущен с debugging port или Node inspector, Auto-approval там недоступен с причиной, и с этой
+  Machine уходит только Off; Eco mode и Auto-continue меняются.
 - Уведомление идёт и подключённым Linked machine. Каждая Machine применяет своё правило фокуса и свои 10 секунд.
 
 #### Windows

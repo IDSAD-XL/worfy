@@ -2,8 +2,8 @@
 // app-settings.json in worfy's data folder (src/main/settings/store.ts, ADR-0005) and the
 // `autoApproval` IPC domain (src/main/ipc/auto-approve.ts) over a mocked `electron` and a temporary
 // WORFY_DATA_DIR. No entry — Off; anything outside the schema — Off; a write of one Project leaves
-// every other Project and every other setting as it was. Both channels are `local`: a Linked machine
-// reaches neither, so a mode is never written from another Machine. The store reads the file once:
+// every other Project and every other setting as it was. A Linked machine with full access reads and
+// sets the mode through the link, with read-only access it only reads it (worfy-retry ticket 13). The store reads the file once:
 // an edit of the file made outside worfy shows only after a restart (spec, "security", item 5). While
 // worfy runs with a debugging port or the Node inspector open, any local process can call the
 // window's IPC: then Shadow and On are refused and the mode in force is Off.
@@ -13,10 +13,10 @@ import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type ModuleLoader } from '../../src/main/ipc/index'
-import { createLinkIpc, LinkPeer } from '../../src/main/link/ipc-adapter'
+import { createLinkIpc, LinkPeer, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
 import { projectId } from '../../src/main/projects/store'
 import { APP_SETTINGS_FILE, AppSettingsStore, autoApprovalMode, debugAccessOf } from '../../src/main/settings/store'
-import { autoApprovalRead, autoApprovalSet } from '../../src/shared/ipc/auto-approve'
+import { autoApprovalBlockedHere, autoApprovalChanged, autoApprovalRead, autoApprovalSet } from '../../src/shared/ipc/auto-approve'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { appSettingsSchema, autoApprovalOf, autoApprovalProjectIdSchema, DEFAULT_APP_SETTINGS, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
@@ -310,28 +310,28 @@ describe('autoApproval channels', () => {
   })
 })
 
+// worfy-retry ticket 13: a Linked machine with full access sets the mode, with read-only access it only
+// reads it. The whole flow over two Machines is test/contract/modes-linked.test.ts.
 describe('autoApproval and a Linked machine', () => {
-  it('both channels are marked `local`', () => {
-    expect([autoApprovalRead.access, autoApprovalSet.access]).toEqual(['local', 'local'])
+  it('the read and the change are `project` and `read`, the write `project` and `write`; why this Machine holds it back is `local`', () => {
+    expect([autoApprovalRead.access, autoApprovalRead.use]).toEqual(['project', 'read'])
+    expect([autoApprovalSet.access, autoApprovalSet.use]).toEqual(['project', 'write'])
+    expect([autoApprovalChanged.access, autoApprovalChanged.use]).toEqual(['project', 'read'])
+    expect([autoApprovalBlockedHere.access, autoApprovalBlockedHere.use]).toEqual(['local', null])
   })
 
-  it('the link adapter registers neither, and refuses both even with full access; nothing is written', async () => {
-    // A `project` channel next to them, so an adapter that registered nothing would not pass.
-    const sample = await import('./ipc-sample/main/sample')
-    sample.echoCalls.length = 0
-    const modules: Record<string, ModuleLoader> = { './auto-approve.ts': loadModule, './sample.ts': async () => sample.default }
+  it('the link adapter registers the read and the write; read-only access reads, and its write is refused with nothing written', async () => {
+    const modules: Record<string, ModuleLoader> = { './auto-approve.ts': loadModule }
     const adapter = await createLinkIpc({ modules, isLinked: (id) => id === LINKED })
-    expect(adapter.channels()).toEqual(['sample.echo'])
+    expect([...adapter.channels()].sort()).toEqual(['autoApproval.read', 'autoApproval.set'])
 
     const peer = new LinkPeer({ machineId: LINKED, describe: () => LINKED, push: () => undefined, local: () => ({ id: 'beta', name: 'Beta', protocol: 1, build: 'x' }), warn: () => undefined })
-    peer.setAccess('all')
+    peer.setAccess('read')
     const before = existsSync(dataFile) ? readFileSync(dataFile, 'utf8') : null
-    expect(await adapter.call(peer, 'autoApproval.set', { projectId: ALPHA, mode: 'on' }, 'Beta')).toEqual({ ok: false, error: 'autoApproval.set: not open to Linked machines' })
-    expect(await adapter.call(peer, 'autoApproval.read', { projectId: ALPHA }, 'Beta')).toEqual({ ok: false, error: 'autoApproval.read: not open to Linked machines' })
+    expect(await adapter.call(peer, 'autoApproval.read', { projectId: ALPHA }, 'Beta')).toMatchObject({ ok: true, value: { saved: autoApprovalMode(ALPHA, () => null) } })
+    expect(await adapter.call(peer, 'autoApproval.set', { projectId: ALPHA, mode: 'on' }, 'Beta')).toEqual({ ok: false, error: readOnlyRefusal('Beta') })
     expect(existsSync(dataFile) ? readFileSync(dataFile, 'utf8') : null).toBe(before)
     expect(autoApprovalMode(ALPHA, debugAccess)).not.toBe('on')
-    expect(await adapter.call(peer, 'sample.echo', { text: 'hi' }, 'Beta')).toEqual({ ok: true, value: { echoed: 'hi' } })
-    expect(sample.echoCalls).toEqual(['hi'])
   })
 })
 

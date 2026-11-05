@@ -2,9 +2,10 @@
 // Auto-continue item of the Orchestrator's Modes menu. The setting lives in app-settings.json of worfy's
 // data folder (src/main/settings/store.ts, ADR-0005) and is written only here; the retry of the
 // Orchestrator's turn reads it with autoContinueOn() of the store. A Project id that is not one of this
-// Machine's Projects is refused: the setting of a Project is set on the Machine it lives on. A write that
-// changes the setting reaches every window as `autoContinue.changed`, so a menu open in another window
-// shows it at once.
+// Machine's Projects is refused: the setting of a Project is set on the Machine it lives on — from a
+// window of a Linked machine too, through the link (worfy-retry ticket 13). A write that changes the
+// setting reaches every client as `autoContinue.changed` — the windows of this Machine and the Linked
+// machines with access — so a menu open anywhere shows it at once.
 import { toEveryWindow } from '../broadcast'
 import { autoContinueChanged, autoContinueRead, autoContinueSet, type AutoContinueState } from '../../shared/ipc/auto-continue'
 import { projectStore } from '../projects/store'
