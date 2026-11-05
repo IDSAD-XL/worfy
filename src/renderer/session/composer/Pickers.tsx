@@ -65,30 +65,30 @@ function useModels(sessionId: string | null): { models: readonly ModelOption[]; 
 }
 
 /**
- * Which of the captions "Model" and "Permissions" the pickers show, and "Eco mode" of the switch
- * next to them in the Orchestrator's bar (EcoMode.tsx; session.css hides it by the pickers' state).
+ * Which of the captions "Model" and "Permissions" the pickers show, and "Modes" of the button next
+ * to them in the Orchestrator's bar (Modes.tsx; session.css hides it by the pickers' state).
  */
 interface Captions {
   model: boolean
   permissions: boolean
-  eco: boolean
+  modes: boolean
 }
-const ALL_CAPTIONS: Captions = { model: true, permissions: true, eco: true }
-const NO_CAPTIONS: Captions = { model: false, permissions: false, eco: false }
+const ALL_CAPTIONS: Captions = { model: true, permissions: true, modes: true }
+const NO_CAPTIONS: Captions = { model: false, permissions: false, modes: false }
 /**
- * From the most captions to none. The Eco mode caption goes first: the switch keeps its icon and
- * its tooltip, and its caption gives the pickers room (a bar without the switch gets none from it).
+ * From the most captions to none. The Modes caption goes first: the button keeps its icons and its
+ * tooltip, and its caption gives the pickers room (a bar without the button gets none from it).
  * A bar too narrow cuts the model's value first (session.css), so its caption is the next to go.
  * Each step only gives the values more room, so as the window narrows a caption goes once and stays
  * gone.
  */
-const CAPTION_STEPS: readonly Captions[] = [ALL_CAPTIONS, { model: true, permissions: true, eco: false }, { model: false, permissions: true, eco: false }, NO_CAPTIONS]
+const CAPTION_STEPS: readonly Captions[] = [ALL_CAPTIONS, { model: true, permissions: true, modes: false }, { model: false, permissions: true, modes: false }, NO_CAPTIONS]
 
 /** The `data-probe` of the pickers that lays them out with these captions (session.css); "natural": all of them, at full width. */
 const probeOf = (captions: Captions | 'natural'): string =>
   captions === 'natural'
     ? 'natural'
-    : [captions.model ? '' : 'model', captions.permissions ? '' : 'permissions', captions.eco ? '' : 'eco'].filter((token) => token !== '').join(' ') || 'all'
+    : [captions.model ? '' : 'model', captions.permissions ? '' : 'permissions', captions.modes ? '' : 'modes'].filter((token) => token !== '').join(' ') || 'all'
 
 /**
  * The captions the pickers show, and a ref for their element: the first of CAPTION_STEPS with which
@@ -96,7 +96,7 @@ const probeOf = (captions: Captions | 'natural'): string =>
  * read before the page paints, at a width that does not depend on the captions: while a step is
  * laid out, the pickers' full width with every caption is pinned on their element
  * (--w-pickers-width) and their line does not break (session.css), so the line gives them the room
- * it gives them next to the Eco mode switch and the send group, and that room alone picks the step.
+ * it gives them next to the Modes button and the send group, and that room alone picks the step.
  * Read at the width a step makes itself, a caption would go, free the room it needed, come back and
  * go again.
  */
@@ -123,7 +123,7 @@ function useCaptions(): { ref: RefObject<HTMLSpanElement | null>; captions: Capt
     }
     const chosen = CAPTION_STEPS.find(whole) ?? NO_CAPTIONS
     delete pickers.dataset['probe']
-    setCaptions((now) => (now.model === chosen.model && now.permissions === chosen.permissions && now.eco === chosen.eco ? now : chosen))
+    setCaptions((now) => (now.model === chosen.model && now.permissions === chosen.permissions && now.modes === chosen.modes ? now : chosen))
   }, [])
   // After every render: a new value changes the widths before the page paints.
   useLayoutEffect(measure)
@@ -420,7 +420,7 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
   }
 
   return (
-    <span ref={ref} className="w-pickers" data-testid="pickers" data-eco-caption={captions.eco ? undefined : 'off'}>
+    <span ref={ref} className="w-pickers" data-testid="pickers" data-modes-caption={captions.modes ? undefined : 'off'}>
       {/* A caption goes where a value would be cut with it; a value still cut is in its button's title in full. */}
       <Select
         className={`w-pickers__select w-pickers__select--model${captions.model ? '' : ' w-pickers__select--bare'}`}

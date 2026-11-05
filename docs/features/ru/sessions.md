@@ -123,9 +123,17 @@ Orchestrator. Память об этом выборе живёт столько 
 
 - «New conversation» отклоняется в `busy` и пока работает Autopilot. Старый разговор остаётся в истории, а стоимость начинается с нуля.
 - Когда Orchestrator открывается, его сохранённая Session продолжается. Если transcript пропал, стартует новая Session.
-- Eco mode, переключатель под полем ввода Orchestrator, пишет два поля Profile Project-а: `workflow.agents` со значением `eco` и
-  `agents`, то есть Sonnet с effort medium для каждой роли агента. Выключение убирает оба поля, а прежние модели ролей не возвращаются.
-  Действует со следующего Ticket-а.
+- Orchestrator modes собраны в одной кнопке под полем ввода Orchestrator, «Modes»; у обычной Session её нет. Кнопка всегда
+  показывает по иконке на режим в постоянном порядке — Eco mode, потом Auto-approval: яркую, когда режим включён, приглушённую,
+  когда выключен, контур для Auto-approval Shadow, бледную, пока состояние неизвестно. Ширина кнопки от состояний не меняется;
+  когда в строке тесно, первой пропадает её подпись. Клик, Enter, Space или ArrowDown открывают меню над ней: Eco mode (вкл. или
+  выкл.), потом Auto-approval с тремя положениями Off, Shadow и On, у каждого строка под ним и tooltip. Стрелки, Home и End ходят
+  по пунктам, Enter и Space выбирают, Esc закрывает меню и возвращает фокус на кнопку, Tab закрывает. Выбор пункта меню не
+  закрывает: в нём видно новое состояние.
+- Eco mode пишет два поля Profile Project-а: `workflow.agents` со значением `eco` и `agents`, то есть Sonnet с effort medium для
+  каждой роли агента. Выключение убирает оба поля, а прежние модели ролей не возвращаются. Действует со следующего Ticket-а.
+- Auto-approval хранится по Project-у в собственных настройках worfy на этой Machine (`app-settings.json`), не в Profile; пока
+  worfy запущен с открытым debugging port, режим Off, а три положения недоступны с причиной и сохранённым режимом в tooltip.
 - Autopilot ведёт эту Session без человека. См. [Autopilot](autopilot.md). В это время permission mode принудительно Bypass permissions и не
   сохраняется, смена режима отклоняется, а запросы разрешений и вопросы сразу отклоняются.
 
@@ -140,7 +148,9 @@ worfy. Session из терминала или Claude desktop уведомляе�
 - «+» там использует скрытый file input, и файл передаётся байтами.
 - При read-only доступе поле ввода, picker-ы и ответы на карточках неактивны, а tooltip объясняет почему. Session view не открывает там
   Orchestrator: если его нет, показывается «No Orchestrator yet».
-- Eco mode пишет «Eco mode is set in worfy on the Machine of the Project».
+- Меню Modes там ничего не читает и не пишет: иконки показывают состояние как неизвестное, пункты недоступны. Eco mode пишет
+  «Eco mode is set in worfy on the Machine of the Project» (при read-only доступе — подсказку read-only), Auto-approval —
+  «Auto-approval is set in worfy on the Machine of the Project».
 - Уведомление идёт и подключённым Linked machine. Каждая Machine применяет своё правило фокуса и свои 10 секунд.
 
 #### Windows
@@ -201,7 +211,9 @@ worfy. Session из терминала или Claude desktop уведомляе�
 | Store в renderer, соединение прошлых и live-событий | `src/renderer/session/store.ts` |
 | Карточки | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Элементы под полем ввода, находятся через glob | `src/renderer/session/composer/` |
-| Eco mode | `src/main/ipc/eco-mode.ts`, `src/shared/ipc/eco-mode.ts`, `src/shared/agent/plan-preset.ts`, `src/renderer/session/composer/EcoMode.tsx` |
+| Меню Modes | `src/renderer/session/composer/Modes.tsx` |
+| Eco mode | `src/main/ipc/eco-mode.ts`, `src/shared/ipc/eco-mode.ts`, `src/shared/agent/plan-preset.ts`, `src/renderer/session/modes/eco-mode.ts` |
+| Auto-approval | `src/main/ipc/auto-approve.ts`, `src/shared/ipc/auto-approve.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-approval.ts` |
 | Node | `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/overlays/SessionNodes.tsx` |
 | Настройки autocompact | `src/renderer/settings/SessionsSection.tsx`, `src/shared/settings/app-settings.ts` |
 | Уведомления | `src/main/notify.ts`, `src/renderer/session/notification-target.ts` |

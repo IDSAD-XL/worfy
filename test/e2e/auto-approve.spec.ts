@@ -3,17 +3,19 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { captureScreenshot } from './evidence-capture'
 import { launchApp } from './helpers'
 
-// The Auto-approval switch under the Orchestrator's input field (worfy-auto-approve ticket 06) against
-// the built app, on the fake agent, over a temporary data folder. Playwright drives Electron through
-// its debugging port and Node inspector (it starts it with --remote-debugging-port=0 --inspect=0), so
-// this run is the case the switch guards against: any local process could script the window. The
-// switch therefore shows Off, unavailable, says why and which mode is saved, opens no menu and writes
-// nothing; the mode saved in app-settings.json is read at start, and an edit of the file made outside
-// worfy is not picked up by the running app. Choosing a position and the write are covered by
-// test/unit/auto-approve-switch.test.tsx and test/contract/auto-approve-setting.test.ts. At the window
-// the app opens in, the switch is as tall as Eco mode, right of it, and Send stays on the pickers' line.
+// Auto-approval in the Modes menu under the Orchestrator's input field (worfy-auto-approve ticket 06,
+// worfy-retry ticket 12) against the built app, on the fake agent, over a temporary data folder.
+// Playwright drives Electron through its debugging port and Node inspector (it starts it with
+// --remote-debugging-port=0 --inspect=0), so this run is the case the setting guards against: any local
+// process could script the window. The menu therefore shows Off, its three positions unavailable with
+// why and which mode is saved, and a choice writes nothing; the mode saved in app-settings.json is read
+// at start, and an edit of the file made outside worfy is not picked up by the running app. Choosing a
+// position and the write are covered by test/unit/modes-menu.test.tsx and
+// test/contract/auto-approve-setting.test.ts. At the window the app opens in, the Modes button is 24 px
+// tall, right of the pickers, and Send stays on the pickers' line.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -49,18 +51,6 @@ async function openSession(window: Page): Promise<Locator> {
   return view
 }
 
-/** The bar under the input field in the light and the dark theme, into the test's output folder. */
-async function snapshotBar(window: Page, bar: Locator, name: string): Promise<void> {
-  try {
-    for (const scheme of ['light', 'dark'] as const) {
-      await window.emulateMedia({ colorScheme: scheme })
-      await bar.screenshot({ path: test.info().outputPath(`${name}-${scheme}.png`), animations: 'disabled' })
-    }
-  } finally {
-    await window.emulateMedia({ colorScheme: null })
-  }
-}
-
 const modes = (): unknown => (JSON.parse(readFileSync(settingsFile, 'utf8')) as { autoApproval?: unknown }).autoApproval
 
 const writeModes = (entries: Record<string, string>): void => {
@@ -68,31 +58,45 @@ const writeModes = (entries: Record<string, string>): void => {
   writeFileSync(settingsFile, JSON.stringify({ ...current, autoApproval: entries }))
 }
 
-test("the Orchestrator's Auto-approval switch under a debugging port: Off in force, why, the saved mode read at start, nothing written", async () => {
+/** The Modes button of the Orchestrator's bar in Session view `view`, and its Auto-approval icon. */
+const modesOf = (view: Locator) => {
+  const button = view.locator('.w-composer__bar').getByRole('button', { name: 'Modes' })
+  return { button, icon: button.locator('[data-mode-item="auto-approval"]') }
+}
+
+test("Auto-approval in the Orchestrator's Modes menu under a debugging port: Off in force, why, the saved mode read at start, nothing written", async () => {
   const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view' }
   const first = await launchApp({ env })
   try {
     const { window } = first
     const view = await openSession(window)
     const bar = view.locator('.w-composer__bar')
-    const button = bar.getByRole('button', { name: 'Auto-approval' })
+    const { button, icon } = modesOf(view)
+    const menu = window.getByRole('menu', { name: 'Modes' })
+    const position = (name: string): Locator => menu.getByRole('menuitemradio', { name: new RegExp(`^${name}`, 'u') })
 
-    // Off in force and saved; unavailable, with the reason.
-    await expect(button).toHaveAttribute('data-mode', 'off')
-    await expect(button).toHaveAttribute('data-saved', 'off')
-    await expect(button).toHaveAttribute('aria-disabled', 'true')
-    await expect(button).toHaveAttribute('title', /^Auto-approval is off: worfy runs with a debugging port open \(--remote-debugging-port\), so any program on this Machine could turn it on\.$/u)
-    // Right of Eco mode and as tall; Send still on the line of the pickers.
-    const eco = bar.getByRole('switch', { name: 'Eco mode' })
-    const [own, ecoBox, send, pickers] = [await button.boundingBox(), await eco.boundingBox(), await bar.getByTestId('input-send').boundingBox(), await bar.getByTestId('pickers').boundingBox()]
-    expect(own!.x).toBeGreaterThan(ecoBox!.x)
-    expect(Math.round(own!.height)).toBe(Math.round(ecoBox!.height))
+    // Off in force and saved: the icon shows Off.
+    await expect(icon).toHaveAttribute('data-state', 'off')
+    await expect(icon).toHaveAttribute('data-saved', 'off')
+    await expect(button).toHaveAttribute('title', /Auto-approval: Off\.$/u)
+    // Right of the pickers and as tall as before; Send still on the line of the pickers.
+    const [own, permissions, send, pickers] = [await button.boundingBox(), await bar.getByTestId('picker-permissions').boundingBox(), await bar.getByTestId('input-send').boundingBox(), await bar.getByTestId('pickers').boundingBox()]
+    expect(own!.x).toBeGreaterThan(permissions!.x)
+    expect(Math.round(own!.height)).toBe(24)
     expect(Math.abs(send!.y + send!.height / 2 - (pickers!.y + pickers!.height / 2))).toBeLessThan(4)
-    await snapshotBar(window, bar, 'auto-approval-blocked')
-    // A click opens nothing, and nothing is written. Dispatched: Playwright does not click an
-    // aria-disabled button, the person can.
-    await button.dispatchEvent('click')
-    await expect(window.getByRole('menu', { name: 'Auto-approval' })).toHaveCount(0)
+
+    // In the menu the three positions are unavailable, with the reason; Off is checked.
+    await button.click()
+    await expect(menu.getByRole('group', { name: 'Auto-approval' })).toBeVisible()
+    for (const name of ['Off', 'Shadow', 'On']) {
+      await expect(position(name)).toHaveAttribute('aria-disabled', 'true')
+      await expect(position(name)).toHaveAttribute('title', /^Auto-approval is off: worfy runs with a debugging port open \(--remote-debugging-port\), so any program on this Machine could turn it on\.$/u)
+    }
+    await expect(position('Off')).toHaveAttribute('aria-checked', 'true')
+    await captureScreenshot(menu, 'modes-menu-auto-approval-blocked')
+    // A choice writes nothing. Dispatched: Playwright does not click an aria-disabled item, the person can.
+    await position('On').dispatchEvent('click')
+    await expect(icon).toHaveAttribute('data-state', 'off')
     expect(existsSync(settingsFile) ? modes() : undefined).toBeUndefined()
   } finally {
     await first.close()
@@ -104,16 +108,18 @@ test("the Orchestrator's Auto-approval switch under a debugging port: Off in for
   try {
     const { window } = second
     const view = await openSession(window)
-    const button = view.locator('.w-composer__bar').getByRole('button', { name: 'Auto-approval' })
-    await expect(button).toHaveAttribute('data-saved', 'on')
-    await expect(button).toHaveAttribute('data-mode', 'off')
-    await expect(button).toHaveAttribute('title', /The saved mode, On, applies once worfy starts without it\.$/u)
+    const { button, icon } = modesOf(view)
+    await expect(icon).toHaveAttribute('data-saved', 'on')
+    await expect(icon).toHaveAttribute('data-state', 'off')
+    await button.click()
+    await expect(window.getByRole('menu', { name: 'Modes' }).getByRole('menuitemradio', { name: /^On/u })).toHaveAttribute('title', /The saved mode, On, applies once worfy starts without it\.$/u)
+    await window.keyboard.press('Escape')
 
     // An edit made outside worfy: the running app does not take it, even in a view opened again.
     writeModes({ [PROJECT]: 'shadow' })
     await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Canvas' }).click()
     const again = await openSession(window)
-    await expect(again.locator('.w-composer__bar').getByRole('button', { name: 'Auto-approval' })).toHaveAttribute('data-saved', 'on')
+    await expect(modesOf(again).icon).toHaveAttribute('data-saved', 'on')
   } finally {
     await second.close()
   }

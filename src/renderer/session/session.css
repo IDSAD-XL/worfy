@@ -1569,19 +1569,19 @@
   cursor: pointer;
 }
 
-/* Input field: the Eco mode switch of the Orchestrator (composer/EcoMode.tsx, worfy-throughput
-   ticket 60). The button has the look of the pickers next to it (theme/select.css), only tighter:
-   24 px tall, a 1 px border, a muted caption, then a small track whose knob carries the state as an
-   icon — a leaf on the green of "ready" when on, a bolt on the plain track when off. The knob has
-   no fill and no ring of its own: the track's border is the switch's only outline, and the icon
-   alone moves inside it (green when on, muted when off). An unavailable
-   switch (aria-disabled: read-only, another Machine, no Profile) loses its fill, as a disabled
-   picker does. */
-.w-eco {
+/* Input field: the Modes button of the Orchestrator (composer/Modes.tsx, worfy-retry ticket 12). The
+   button has the look of the pickers next to it (theme/select.css), only tighter: 24 px tall, a 1 px
+   border, a muted caption, then one icon per item of the menu, each in a slot of a fixed width, so the
+   button is as wide in every combination of states. An item that is on shows its icon bright (the
+   green of "ready"), one that is off muted, Auto-approval Shadow as an outline, and an item whose
+   state is not known (being read, unavailable, another Machine's) faint. The slots draw no ring and
+   no fill of their own: the icon alone carries the state. In a window that shows a Linked machine the
+   button loses its fill, as a disabled picker does; it still opens the menu. */
+.w-modes {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 5px;
+  gap: 2px;
   height: 24px;
   padding: 0 4px 0 6px;
   box-sizing: border-box;
@@ -1593,113 +1593,73 @@
   font-size: var(--text-12);
   white-space: nowrap;
 }
-.w-eco:hover:not([aria-disabled='true']) {
+.w-modes:hover,
+.w-modes[aria-expanded='true'] {
   border-color: var(--text-muted);
 }
-.w-eco:focus-visible {
+.w-modes:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
-.w-eco[aria-disabled='true'] {
+.w-modes[data-read-only] {
   background: transparent;
   color: var(--text-muted);
 }
-.w-eco[aria-busy='true'] {
+.w-modes[aria-busy='true'] {
   cursor: progress;
 }
-.w-eco__label {
+.w-modes__label {
+  margin-right: 3px;
   color: var(--text-muted);
 }
 /* The caption is the first to go when the bar is short of room, by the pickers' rule (Pickers.tsx,
    useCaptions): while the pickers lay out a step for a measure (data-probe) it follows that step, so
-   the room it frees counts in the measure; then it follows the step chosen (data-eco-caption). The
-   switch keeps its icon, its aria-label and its tooltip. */
-.w-composer__bar:has(.w-pickers[data-probe~='eco']) .w-eco__label,
-.w-composer__bar:has(.w-pickers:not([data-probe])[data-eco-caption='off']) .w-eco__label {
+   the room it frees counts in the measure; then it follows the step chosen (data-modes-caption). The
+   button keeps its icons, its aria-label and its tooltip. */
+.w-composer__bar:has(.w-pickers[data-probe~='modes']) .w-modes__label,
+.w-composer__bar:has(.w-pickers:not([data-probe])[data-modes-caption='off']) .w-modes__label {
   display: none;
 }
-.w-eco__track {
-  position: relative;
+.w-modes__slot {
+  display: inline-flex;
   flex: none;
-  width: 24px;
-  height: 14px;
-  box-sizing: border-box;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  background: var(--surface-raised);
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease;
-}
-.w-eco__knob {
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 10px;
-  height: 10px;
-  display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  width: 14px;
+  height: 14px;
   color: var(--text-muted);
-  transition: transform 120ms ease;
 }
-.w-eco[aria-checked='true'] .w-eco__track {
-  border-color: var(--ready-dot);
-  background: var(--ready-bg);
+.w-modes__slot svg {
+  fill: currentColor;
+  stroke: none;
 }
-.w-eco[aria-checked='true'] .w-eco__knob {
-  transform: translateX(10px);
+.w-modes__slot[data-state='on'] {
   color: var(--ready-text);
 }
-.w-eco[aria-disabled='true'] .w-eco__track {
+.w-modes__slot[data-state='off'] {
   opacity: 0.6;
 }
-@media (prefers-reduced-motion: reduce) {
-  .w-eco__track,
-  .w-eco__knob {
-    transition: none;
-  }
-}
-
-/* Input field: the Auto-approval switch of the Orchestrator (composer/AutoApprove.tsx,
-   worfy-auto-approve ticket 06), right of Eco mode. The button is Eco mode's (`w-eco`, so the same
-   frame, hover, focus and unavailable look) with the modifier `w-eco--three`: its track is a third
-   longer and the knob stands in one of three places — left for Off (an empty ring), the middle for
-   Shadow (a half-filled ring), right for On (a tick, on the green of "ready", as Eco mode when on).
-   Its caption is its own class and goes when Eco mode's goes (the rule below copies Eco mode's).
-   A click opens the menu of the three positions over the button, drawn into the page's body like the
-   list of a Select (theme/select.css). */
-.w-auto-approval__label {
-  color: var(--text-muted);
-}
-.w-composer__bar:has(.w-pickers[data-probe~='eco']) .w-auto-approval__label,
-.w-composer__bar:has(.w-pickers:not([data-probe])[data-eco-caption='off']) .w-auto-approval__label {
-  display: none;
-}
-.w-eco--three .w-eco__track {
-  width: 34px;
-}
-.w-eco--three[data-mode='shadow'] .w-eco__knob {
-  transform: translateX(10px);
+.w-modes__slot[data-state='shadow'] {
   color: var(--text);
 }
-.w-eco--three[data-mode='on'] .w-eco__track {
-  border-color: var(--ready-dot);
-  background: var(--ready-bg);
+.w-modes__slot[data-state='shadow'] svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
 }
-.w-eco--three[data-mode='on'] .w-eco__knob {
-  transform: translateX(20px);
-  color: var(--ready-text);
+.w-modes__slot[data-state='unknown'] {
+  opacity: 0.3;
 }
-.w-eco--three[aria-expanded='true'] {
-  border-color: var(--text-muted);
-}
-.w-auto-approval__menu {
+
+/* The menu over the button, drawn into the page's body like the list of a Select (theme/select.css):
+   Eco mode, a line, then the group of the three positions of Auto-approval under its heading. Each
+   item has a slot for the check mark in front, its caption and a muted line after it. */
+.w-modes__menu {
   z-index: 3000;
   display: flex;
   flex-direction: column;
-  min-width: 220px;
+  min-width: 240px;
   padding: var(--space-1);
   box-sizing: border-box;
   border: 1px solid var(--border);
@@ -1709,12 +1669,27 @@
   color: var(--text);
   font-size: var(--text-13);
 }
-.w-auto-approval__option {
+.w-modes__group {
+  display: flex;
+  flex-direction: column;
+}
+.w-modes__heading {
+  padding: var(--space-1) var(--space-2) 2px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+.w-modes__separator {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border);
+}
+.w-modes__item {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   height: var(--row-height);
-  padding: 0 var(--space-2) 0 var(--space-2);
+  padding: 0 var(--space-2);
   box-sizing: border-box;
   border: 0;
   border-radius: var(--radius-button);
@@ -1725,21 +1700,38 @@
   white-space: nowrap;
   cursor: pointer;
 }
-.w-auto-approval__option:hover,
-.w-auto-approval__option:focus-visible {
+.w-modes__item:hover,
+.w-modes__item:focus-visible {
   background: var(--selected);
   outline: none;
 }
-.w-auto-approval__option[aria-checked='true'] .w-auto-approval__option-label {
+.w-modes__item[aria-disabled='true'] {
+  color: var(--text-muted);
+  cursor: default;
+}
+.w-modes__item[aria-busy='true'],
+.w-modes__group[aria-busy='true'] .w-modes__item {
+  cursor: progress;
+}
+.w-modes__check {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  color: var(--text);
+}
+.w-modes__item[aria-checked='true'] .w-modes__item-label {
   font-weight: 600;
 }
-.w-auto-approval__option[data-mode='on'][aria-checked='true'] .w-auto-approval__option-label {
+.w-modes__item[aria-checked='true']:is([data-item='eco'], [data-mode='on']) .w-modes__check,
+.w-modes__item[aria-checked='true']:is([data-item='eco'], [data-mode='on']) .w-modes__item-label {
   color: var(--ready-text);
 }
-.w-auto-approval__option-label {
+.w-modes__item-label {
   flex: 1;
 }
-.w-auto-approval__option-detail {
+.w-modes__item-detail {
   color: var(--text-muted);
   font-size: var(--text-12);
 }

@@ -4,13 +4,16 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import { captureScreenshot } from './evidence-capture'
 import { launchApp } from './helpers'
 
-// The Eco mode switch under the Orchestrator's input field (worfy-throughput ticket 60) against the
-// built app, on the fake agent, with the real harness/bin/profile-set over a temporary Harness home:
-// a click on writes `workflow.agents: "eco"` and Sonnet with effort medium for the four agent roles
-// into the Project's profile.json, a click off removes both fields, and a Profile changed outside
-// worfy since the switch read it is not written — the switch shows it as it is now.
+// Eco mode in the Modes menu under the Orchestrator's input field (worfy-throughput ticket 60,
+// worfy-retry ticket 12) against the built app, on the fake agent, with the real harness/bin/profile-set
+// over a temporary Harness home: turning it on writes `workflow.agents: "eco"` and Sonnet with effort
+// medium for the four agent roles into the Project's profile.json, turning it off removes both fields,
+// and a Profile changed outside worfy since the menu read it is not written — the item shows it as it is
+// now. The pictures of the button and the open menu, in both themes, go through captureScreenshot
+// (evidence-capture.ts): into the test's output, or with WORFY_EVIDENCE into the Ticket's evidence.
 //
 // The app finds bin/profile-set in its Claude home (src/main/harness/locate.ts, the old layout). The
 // one there is a Node stand-in that runs the repository's harness/bin/profile-set with the temporary
@@ -100,29 +103,19 @@ async function resizeWindow(app: ElectronApplication, window: Page, width: numbe
     .toBe(width)
 }
 
-/** The bar under the input field in the light and the dark theme, into the test's output folder. */
-async function snapshotBar(window: Page, bar: Locator, name: string): Promise<void> {
+/** Each icon slot of the Modes button draws no ring and no disc of its own in the light and the dark theme: only its icon shows. */
+async function expectBareSlots(window: Page, modes: Locator): Promise<void> {
   try {
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
-      await bar.screenshot({ path: test.info().outputPath(`${name}-${scheme}.png`), animations: 'disabled' })
-    }
-  } finally {
-    await window.emulateMedia({ colorScheme: null })
-  }
-}
-
-/** The switch's knob draws no ring and no disc of its own in the light and the dark theme: only its icon shows. */
-async function expectBareKnob(window: Page, eco: Locator): Promise<void> {
-  const knob = eco.locator('.w-eco__knob')
-  try {
-    for (const scheme of ['light', 'dark'] as const) {
-      await window.emulateMedia({ colorScheme: scheme })
-      const look = await knob.evaluate((element) => {
-        const style = (globalThis as unknown as { getComputedStyle: (node: object) => { boxShadow: string; backgroundColor: string } }).getComputedStyle(element)
-        return { boxShadow: style.boxShadow, backgroundColor: style.backgroundColor }
-      })
-      expect(look, `${scheme}: the knob`).toEqual({ boxShadow: 'none', backgroundColor: 'rgba(0, 0, 0, 0)' })
+      const looks = await modes.locator('.w-modes__slot').evaluateAll((elements) =>
+        elements.map((element) => {
+          const style = (globalThis as unknown as { getComputedStyle: (node: object) => { boxShadow: string; backgroundColor: string; borderStyle: string } }).getComputedStyle(element)
+          return { boxShadow: style.boxShadow, backgroundColor: style.backgroundColor, borderStyle: style.borderStyle }
+        }),
+      )
+      const bare = { boxShadow: 'none', backgroundColor: 'rgba(0, 0, 0, 0)', borderStyle: 'none' }
+      expect(looks, `${scheme}: the slots`).toEqual([bare, bare])
     }
   } finally {
     await window.emulateMedia({ colorScheme: null })
@@ -132,61 +125,91 @@ async function expectBareKnob(window: Page, eco: Locator): Promise<void> {
 type Written = typeof PROFILE & { agents?: unknown; workflow: { agents?: unknown } }
 const written = (): Written => JSON.parse(readFileSync(profileJson, 'utf8')) as Written
 
-test("the Orchestrator's Eco mode switch writes the Project's Profile: on, off, and nothing over a Profile changed outside", async () => {
+test("the Orchestrator's Modes menu: Eco mode writes the Project's Profile on, off, and nothing over a Profile changed outside", async () => {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view' } })
   try {
     const { app, window } = launched
     const view = await openSession(window)
     const bar = view.locator('.w-composer__bar')
-    const eco = bar.getByRole('switch', { name: 'Eco mode' })
-    const caption = eco.locator('.w-eco__label')
+    const modes = bar.getByRole('button', { name: 'Modes' })
+    const caption = modes.locator('.w-modes__label')
+    const icon = modes.locator('[data-mode-item="eco"]')
+    const menu = window.getByRole('menu', { name: 'Modes' })
+    const eco = menu.getByRole('menuitemcheckbox', { name: /^Eco mode/u })
     const model = bar.getByTestId('picker-model')
+    // One button in place of the two switches.
+    await expect(bar.getByRole('switch')).toHaveCount(0)
+    await expect(bar.getByRole('button', { name: 'Auto-approval' })).toHaveCount(0)
+    await expect(modes).toHaveAttribute('aria-haspopup', 'menu')
     // Off, and usable once the Profile is read: it has no workflow.agents.
+    await expect(icon).toHaveAttribute('data-state', 'off')
+    await modes.click()
     await expect(eco).toHaveAttribute('aria-checked', 'false')
     await expect(eco).toHaveAttribute('title', /applies to the next Ticket/u)
     await expect(eco).not.toHaveAttribute('aria-disabled', 'true')
+    // The first item has the focus; Esc closes the menu back to the button.
+    await expect(eco).toBeFocused()
+    await window.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(modes).toBeFocused()
 
-    // A wide bar: the pickers keep their captions, and the switch its caption, right of the permission picker.
+    // A wide bar: the pickers keep their captions, and the button its caption, right of the permission picker.
     await window.getByRole('button', { name: 'Hide sidebar' }).click()
     await resizeWindow(app, window, 1920, 1080)
     await expect(model).not.toHaveClass(/w-pickers__select--bare/u)
     await expect(caption).toBeVisible()
-    expect((await eco.boundingBox())!.x).toBeGreaterThan((await bar.getByTestId('picker-permissions').boundingBox())!.x)
-    await snapshotBar(window, bar, 'eco-off-wide')
+    const offBox = (await modes.boundingBox())!
+    expect(offBox.x).toBeGreaterThan((await bar.getByTestId('picker-permissions').boundingBox())!.x)
+    expect(Math.round(offBox.height)).toBe(24)
+    await captureScreenshot(bar, 'modes-eco-off')
 
-    // The switch shows the value it writes at once; the write is done once it is no longer busy.
+    // The item shows the value it writes at once; the write is done once it is no longer busy. The
+    // menu stays open with the new state.
+    await modes.click()
     await eco.click()
     await expect(eco).toHaveAttribute('aria-checked', 'true')
     await expect(eco).not.toHaveAttribute('aria-busy', 'true')
-    await expect(eco.getByTestId('eco-mode-icon')).toHaveAttribute('data-icon', 'leaf')
-    // The track's border is the switch's only outline: the knob has no ring and no fill of its own,
-    // on and off, in both themes (the owner's request, 2026-10-31).
-    await expectBareKnob(window, eco)
+    await expect(menu).toBeVisible()
+    await expect(icon).toHaveAttribute('data-state', 'on')
     expect(written().workflow.agents).toBe('eco')
     expect(written().agents).toEqual({ implementer: SONNET_MEDIUM, reviewer: SONNET_MEDIUM, scout: SONNET_MEDIUM, verifier: SONNET_MEDIUM })
-    await snapshotBar(window, bar, 'eco-on-wide')
+    await captureScreenshot(menu, 'modes-menu')
+    await window.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    // The slots draw no ring and no fill of their own, on and off, in both themes (the owner's
+    // request of 2026-10-31 for the knob of the Eco mode switch), and the button is as wide on as off.
+    await expectBareSlots(window, modes)
+    expect((await modes.boundingBox())!.width).toBe(offBox.width)
+    await captureScreenshot(bar, 'modes-eco-on')
 
-    // A narrower bar: the caption is the first to go; the icon and the tooltip stay.
+    // A narrower bar: the caption is the first to go; the icons and the tooltip stay.
     await resizeWindow(app, window, 1100, 800)
     await expect(caption).toBeHidden()
-    await expect(eco.getByTestId('eco-mode-icon')).toBeVisible()
-    await expect(eco).toHaveAttribute('title', /applies to the next Ticket/u)
-    await snapshotBar(window, bar, 'eco-on-narrow')
+    await expect(icon).toBeVisible()
+    await expect(modes).toHaveAttribute('title', /Eco mode: On\./u)
+    await captureScreenshot(bar, 'modes-eco-on-narrow')
 
-    await eco.click()
+    // Without the mouse: ArrowDown on the button opens the menu, Enter on Eco mode turns it off.
+    await modes.focus()
+    await window.keyboard.press('ArrowDown')
+    await expect(eco).toBeFocused()
+    await window.keyboard.press('Enter')
     await expect(eco).toHaveAttribute('aria-checked', 'false')
     await expect(eco).not.toHaveAttribute('aria-busy', 'true')
-    await expect(eco.getByTestId('eco-mode-icon')).toHaveAttribute('data-icon', 'bolt')
-    await expectBareKnob(window, eco)
+    await expect(icon).toHaveAttribute('data-state', 'off')
+    await expectBareSlots(window, modes)
     expect(written()).toEqual(PROFILE)
-    await snapshotBar(window, bar, 'eco-off-narrow')
+    await window.keyboard.press('Tab')
+    await expect(menu).toHaveCount(0)
 
-    // Turned on outside worfy: the switch still shows off, and a click finds the Profile changed.
+    // Turned on outside worfy: the item still shows off, and a choice finds the Profile changed.
     const outside = `${JSON.stringify({ ...PROFILE, workflow: { ...PROFILE.workflow, agents: 'eco' } }, null, 2)}\n`
     writeFileSync(profileJson, outside)
+    await modes.click()
     await eco.click()
     await expect(window.getByTestId('eco-mode-toast')).toContainText('The Profile changed outside worfy')
     await expect(eco).toHaveAttribute('aria-checked', 'true')
+    await expect(icon).toHaveAttribute('data-state', 'on')
     expect(readFileSync(profileJson, 'utf8')).toBe(outside)
   } finally {
     await launched.close()
