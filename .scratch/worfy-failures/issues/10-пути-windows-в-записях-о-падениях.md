@@ -30,9 +30,12 @@ Source: [spec.md](../spec.md), «Windows» («Пути в записях — о�
 
 - [x] Unit test в `test/unit/gate-failures-format.test.ts`: корень `D:\a\worfy\worfy` во всех написаниях («\», «\\»,
       `/d/…`, другой регистр буквы диска) даёт `<repo>/test/x.test.ts:12:5`; то же для домашней папки и `~`.
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/gate-failures-format.test.ts` exit 0 · mac - · 9f88f5a0630564e201ae8f10a431b14c2bb2f8fd
 - [x] Тот же test с пробелом в имени папки; на мутанте «до первого пробела» он красный.
+  - evidence: test-run pass · `vitest run` of gate-failures-format.test.ts on the mutant "up to the first space" exit 1, unmutated copy exit 0 · mac - · 9f88f5a0630564e201ae8f10a431b14c2bb2f8fd
 - [x] `rerun.mjs` не держит своей копии перевода; contract `test/contract/gate-failures-rerun.test.ts` зелёный без правок
       ожиданий.
+  - evidence: test-run pass · `pnpm exec vitest run test/contract/gate-failures-rerun.test.ts` (with the other gate-failures unit and contract tests) exit 0 · mac - · 9f88f5a0630564e201ae8f10a431b14c2bb2f8fd
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (job-ы Windows в составе `ci-ok`).
 
 ## Тесты
