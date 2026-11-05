@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { HARD_HINTS, hardHint, HINTS, type Decision } from '../../src/main/agent/auto-approve/policy'
 import { configRunsProgram, GIT_CONFIG_PARAMETERS, gitEnvironment, hooksActiveOf, openRunApproval, readCheckouts, readGitFacts, runTempsDir, sweepRunTemps } from '../../src/main/agent/auto-approve/run-approval'
@@ -117,11 +117,15 @@ describe('gitEnvironment: the git environment of the Run\'s Session', () => {
   })
 })
 
+/** A path as the system names it, compared: one separator, and without case on Windows (git may print another case). */
+const samePathForm = (path: string): string => (process.platform === 'win32' ? resolve(path).replaceAll('\\', '/').toLowerCase() : resolve(path))
+
 describe('readGitFacts: what the Run reads of the repository when it starts', () => {
   it('a plain repository: no hooks, rebase.updateRefs false, its remotes, the default branch', async () => {
     git(repo, 'remote', 'add', 'origin', 'https://example.invalid/demo.git')
     git(repo, 'remote', 'add', 'upstream', 'https://example.invalid/up.git')
-    expect(await readGitFacts(repo, gitEnv())).toEqual({ hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: ['origin', 'upstream'], defaultBranch: 'main', configFiles: [join(repo, '.git', 'config')], checkoutConfig: false })
+    const facts = await readGitFacts(repo, gitEnv())
+    expect({ ...facts, configFiles: facts.configFiles.map(samePathForm) }).toEqual({ hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: ['origin', 'upstream'], defaultBranch: 'main', configFiles: [samePathForm(join(repo, '.git', 'config'))], checkoutConfig: false })
   })
 
   it('reads rebase.updateRefs as git prints it, and the default branch of origin/HEAD', async () => {
@@ -135,6 +139,41 @@ describe('readGitFacts: what the Run reads of the repository when it starts', ()
   it('a value of rebase.updateRefs git cannot read as a boolean is not known (null)', async () => {
     git(repo, 'config', 'rebase.updateRefs', 'maybe')
     expect(await readGitFacts(repo, gitEnv())).toMatchObject({ rebaseUpdateRefs: null })
+  })
+
+  it('reads rebase.updateRefs as git --bool does, from the config list (round 4 of PR #1460)', async () => {
+    const config = join(repo, '.git', 'config')
+    const plain = readFileSync(config, 'utf8')
+    for (const [line, read] of [['\tupdateRefs\n', true], ['\tupdateRefs = on\n', true], ['\tupdateRefs = 1\n', true], ['\tupdateRefs = 0\n', false], ['\tupdateRefs = Off\n', false], ['\tupdateRefs = \n', false]] as const) {
+      writeFileSync(config, `${plain}[rebase]\n${line}`)
+      expect((await readGitFacts(repo, gitEnv())).rebaseUpdateRefs, line).toBe(read)
+    }
+  })
+
+  it('a core.hooksPath without a value counts as set; the remotes of every key, of a dotted name and of the old folders', async () => {
+    const config = join(repo, '.git', 'config')
+    writeFileSync(config, `${readFileSync(config, 'utf8')}[core]\n\thooksPath\n[remote "my.fork"]\n\turl = https://example.invalid/f.git\n[remote "push-only"]\n\tpushurl = https://example.invalid/p.git\n`)
+    mkdirSync(join(repo, '.git', 'remotes'))
+    writeFileSync(join(repo, '.git', 'remotes', 'legacy'), 'URL: https://example.invalid/l.git\n')
+    mkdirSync(join(repo, '.git', 'branches'))
+    writeFileSync(join(repo, '.git', 'branches', 'older'), 'https://example.invalid/o.git\n')
+    const facts = await readGitFacts(repo, gitEnv())
+    expect(facts).toMatchObject({ hooksPath: '', hooksActive: true })
+    expect([...(facts.remotes ?? [])].sort()).toEqual(['legacy', 'my.fork', 'older', 'push-only'])
+  })
+
+  it('the config files: each origin, and each include target from HOME, from the folder of its file, or as given', async () => {
+    const home = join(scratch, 'home')
+    git(repo, 'config', '--add', 'include.path', '~/demo.cfg')
+    git(repo, 'config', '--add', 'include.path', 'rel.cfg')
+    git(repo, 'config', '--add', 'include.path', join(scratch, 'abs.cfg'))
+    const facts = await readGitFacts(repo, { ...gitEnv(), HOME: home })
+    expect(facts.configFiles.map(samePathForm).sort()).toEqual([join(repo, '.git', 'config'), join(home, 'demo.cfg'), join(repo, '.git', 'rel.cfg'), join(scratch, 'abs.cfg')].map(samePathForm).sort())
+  })
+
+  it('a HEAD of a ref store that is no files (reftable names .invalid) gives main as the default branch', async () => {
+    writeFileSync(join(repo, '.git', 'HEAD'), 'ref: refs/heads/.invalid\n')
+    expect((await readGitFacts(repo, gitEnv())).defaultBranch).toBe('main')
   })
 
   it('core.hooksPath as git prints it, and hooksActive true with it', async () => {
@@ -501,6 +540,8 @@ describe('openRunApproval: round 4 (review of PR #1460)', () => {
     // Before any include: an ordinary file of the worktree.
     expect(await write(approval, absolute)).toMatchObject({ outcome: 'allow' })
     git(repo, 'config', '--add', 'include.path', absolute)
+    // No checkout config of its own here: the Project's root names the file.
+    expect(await write(approval, absolute)).toMatchObject({ outcome: 'deny', rule: 'git-files' })
     // A relative path is read from the folder of the config file that names it (.git/).
     git(repo, 'config', '--add', 'include.path', '../../wt/cfg-relative')
     git(repo, 'config', 'includeIf.gitdir:**/worktrees/wt.path', conditional)
@@ -543,9 +584,14 @@ describe('openRunApproval: round 4 (review of PR #1460)', () => {
     expect(await per(() => write(approval, join(wt(), 'build', 'y')))).toBe(3)
     expect(await per(() => bash(approval, 'git status'))).toBe(3)
     expect(await per(() => bash(approval, 'cd build && git status && git log --oneline -1'))).toBe(3)
-    // A config one worktree may see alone: each worktree of the Wave is read too, twice.
+    // git outside every checkout: nothing more is read, its facts are not known.
+    expect(await per(() => bash(approval, 'git status', approval.runTemp))).toBe(3)
+    // A config one worktree may see alone: for a write each worktree of the Wave is read too, twice;
+    // for git the checkout it runs in, once however many folders of it the command names.
     git(repo, 'config', 'extensions.worktreeConfig', 'true')
     expect(await per(() => bash(approval, 'rm -rf build/x'))).toBe(1 + 2 + 3 * 2)
+    expect(await per(() => bash(approval, 'git status && cd build && git status'))).toBe(1 + 2 + 2)
+    expect(await per(() => bash(approval, 'git status', repo))).toBe(1 + 2)
     expect(await per(() => bash(approval, `cat '${join(wt(), 'a.txt')}'`))).toBe(1)
     await approval.close()
   })
@@ -688,6 +734,8 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       'grep -rn "password reset" docs/',
       'docker run -u 1000:1000 image',
       'rg "apiKey: string" src',
+      'grep -H "token: none" notes.txt',
+      'docker run -u "1000:1000" image',
       'echo "token: none"',
     ])
       expect(journalCommand(command, home), command).toBe(command)

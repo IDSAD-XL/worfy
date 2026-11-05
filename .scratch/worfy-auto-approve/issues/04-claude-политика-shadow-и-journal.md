@@ -268,3 +268,45 @@ ADR-0005 (worfy не пишет в репозиторий Project-а): unit test
 query, driver Claude), 32 убиты сразу, 3 выжили и убиты новыми случаями: чтение git-а в подпапке worktree
 (`cd src && git status`), решение самой политики для процесса с `GIT_NO_LAZY_FETCH` (park `git-hooks` вместо park
 окружения Run-а) и папка, где git не прочитался. Выживших нет.
+
+### Раунд 4 (review PR #1460: 1 medium, 2 low; CI Windows)
+
+1. **Файлы config-а, которые подключает git, защищены как `.git/config`.** Факты читаются через
+   `git config --list -z --show-origin`. Каждый файл-origin записи и каждая цель `include.path` /
+   `includeIf.*.path` (`~/` от HOME, относительный путь — от папки файла, который его называет; и файл, которого
+   ещё нет: git его пропускает, а запись добавила бы config) — защищённая область, как папка hooks. Запись в неё
+   (Write, Edit, перенаправление shell-а, `cp`, `rm`) — deny `git-files`. Test-ы на настоящем git-е:
+   `include.path` абсолютный и относительный, `includeIf.gitdir`, существующий файл, `config.worktree`; одна команда
+   «запись + git» и отдельные запросы.
+2. **Два вызова git-а на checkout.** `git config --list -z --show-origin` и `git rev-parse --git-dir
+   --git-common-dir`; папка hooks, HEAD, origin/HEAD и старые папки `remotes/` и `branches/` читаются как файлы.
+   Запрос, который не пишет и не вызывает git, фактов git-а не читает. Worktree-ы Wave и checkout git-команды
+   читаются, только когда у checkout-а может быть свой config (`extensions.worktreeConfig`, любой `includeIf`);
+   иначе их факты — факты корня. Git вне всех checkout-ов не читается: там git не одобряется.
+   Вызовов git-а на запрос (3 worktree-а в Wave, измерено счётчиком перед настоящим git-ом в PATH):
+
+   | Запрос | До | После |
+   |---|---|---|
+   | чтение без git-а (`cat`) | 29 | 1 |
+   | запись (`rm -rf build/x`, Write) | 29 | 3 |
+   | `git status` в worktree | 29 | 3 |
+   | `cd build && git status && git log` | 36 | 3 |
+   | запись при config-е worktree-а | 29 | 9 |
+   | `git status` дважды в одном worktree при config-е worktree-а | — | 5 |
+
+3. **Маскировка Journal сужена по контексту.** Заголовки — только после `-H` / `--header` у curl, wget и HTTPie;
+   `-u user:pass` — только у curl и wget; `--key` — только как `--private-key`, `--access-key` и подобные;
+   `password X` — только в строке `.netrc` (`machine … password …`, `default … password …`). Формы раундов 2 и 3
+   скрыты, как были. Unit test на каждую ложную маскировку: `sort --key`, сообщения commit-а «auth: …»,
+   «keyboard: …», «session: …», `grep password`, `docker run -u`, `rg "apiKey: string"`, `grep -H`.
+4. **CI Windows, `windows (2/3) / full-suite`**: contract test ждал путь в `targets` со `/`, а на Windows путь идёт с
+   `\`. Test сравнивает путь с одним разделителем; продукт пути не сравнивает со `/` как строки. Ожидания путей
+   config-файлов в unit test-ах сравниваются так же (на Windows и без учёта регистра).
+5. **CI Windows, `windows-e2e (2/4)`, `test/e2e/interface-scale.spec.ts:379`** — PR не трогает ни этот spec, ни
+   код масштаба (`git diff --stat origin/main...HEAD`): падение не из этого PR.
+
+**Mutation testing раунда 4**: 34 mutant-а на изменённых строках. 19 убиты сразу, 15 выжили. Все 15 убиты новыми
+test-ами: чтение `--bool`, `hooksPath` без значения, remotes с точкой в имени и из старых папок, цели include от
+HOME, HEAD `.invalid`, счёт вызовов git-а (повторное чтение, корень, worktree-ы для git-а), config-файлы корня без
+своего config-а у checkout-а, `grep -H`, `docker run -u "…"`. Выживших нет. Git вне всех checkout-ов теперь не
+читается: строка, на которой выжил mutant, упрощена.

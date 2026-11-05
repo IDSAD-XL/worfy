@@ -292,7 +292,9 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
       ['on', 'hard-deny', 'hard:ssh', undefined],
       ['on', 'deny', 'not-judged', 'agent-impl-02'],
     ])
-    expect(lines[0]).toMatchObject({ vendor: 'claude', tool: 'Bash', targets: [`${repo}/.claude/worktrees/01/build`.replaceAll('\\', '/')].map((path) => expect.stringContaining(path.split('/').slice(-4).join('/')) as unknown) })
+    expect(lines[0]).toMatchObject({ vendor: 'claude', tool: 'Bash' })
+    // The path in the form of the system (backslashes on Windows), the home folder as ~: compared with / as separator.
+    expect(lines[0]?.kind === 'auto-approval' ? lines[0].targets.map((target) => target.replaceAll('\\', '/')) : []).toEqual([expect.stringMatching(/\/repo\/\.claude\/worktrees\/01\/build$/)])
     // The Session that asked is the run's: the line names it as refused-dialog does.
     const session = journal.find((event) => event.kind === 'wave-started')
     expect(session).toBeDefined()

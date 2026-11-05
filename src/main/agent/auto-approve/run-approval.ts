@@ -430,7 +430,8 @@ export async function openRunApproval(options: RunApprovalOptions): Promise<RunA
       }
       const factsOf = (folder: string): Promise<GitFacts | null> => {
         const checkout = checkoutOf(folder, checkouts, platform)
-        if (checkout === null) return read(folder)
+        // Outside every checkout git is never approved: nothing to read there.
+        if (checkout === null) return Promise.resolve(null)
         if (samePath(checkout, options.root, platform) || !now.checkoutConfig) return Promise.resolve(now)
         return read(checkout)
       }
