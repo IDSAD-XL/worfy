@@ -38,13 +38,20 @@ Source: [spec.md](../spec.md), «Сценарии» (строки «gh виси�
 ## Готово, когда
 
 - [ ] Test самого gh stub: `hang` ждёт и выходит с exit 1; без файла — прежнее поведение.
+  - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-github.test.ts` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
 - [ ] Contract test: gh висит — Run не стоит на gh, Stop кончается не позже `endReadMs`; `checkRecovery` пустой.
+  - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-github.test.ts` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
 - [ ] Contract test: 5xx, затем восстановление — опрос после удвоенного интервала, `narrow-round` один раз;
       `checkRecovery` пустой.
+  - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-github.test.ts` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
 - [ ] Contract test: конфликт — `blocked-tickets`, 02 `blocked` один раз, новый Run без 02; `checkRecovery` пустой.
+  - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-github.test.ts` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
 - [ ] Каждый test краснеет на испорченном ожидании — в «Итог».
+  - evidence: test-run pass · `pnpm test test/contract/zz-mutant-` exit 1, 4 of 4 spoiled copies red · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
 - [ ] `src/` не изменён. `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (правка fixture-а
       gh запускает все e2e spec-файлы — это ожидаемо).
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
 
 ## Тесты
 
