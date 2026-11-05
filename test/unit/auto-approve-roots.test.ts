@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { copiedTree, nodeFileSystem, normalizePath, recordRoots, repositoryTop, resolveTarget, rootsOf as rootsOfRecorded, type FileSystem, type Roots, type RootsInput } from '../../src/main/agent/auto-approve/roots'
+import { copiedTree, gitDirectoryBelow, nodeFileSystem, normalizePath, recordRoots, repositoryTop, resolveTarget, rootsOf as rootsOfRecorded, type FileSystem, type Roots, type RootsInput } from '../../src/main/agent/auto-approve/roots'
 import { newTempFolderName } from '../../src/main/agent/auto-approve/shell'
 import { removeTestTree } from '../remove'
 
@@ -192,6 +192,15 @@ describe('a file system that answers with errors', () => {
     const dangling = (at: string): FileSystem => ({ lstat: (path) => (path === at ? 'link' : 'dir'), realpath: () => null, readdir: () => [], readFile: () => null })
     expect(kind('/tmp/demo/pad/x', 'write', rootsOf({ ...base, fs: dangling('/tmp') }))).toBe('outside')
     expect(kind('/tmp/demo/pad/x', 'write', rootsOf({ ...base, fs: dangling('/tmp/demo/pad') }))).toBe('outside')
+  })
+  it('a planted git directory is assumed when the way up to the top cannot be read or does not reach it', () => {
+    const marks = /\/(HEAD|commondir|gitdir|objects|refs)$/
+    const bad = '/tmp/demo/pad/x'
+    const failingWay: FileSystem = { lstat: (path) => (path === bad ? 'error' : marks.test(path) || path.startsWith(`${bad}/`) ? null : 'dir'), realpath: () => null, readdir: () => [], readFile: () => null }
+    expect(gitDirectoryBelow(`${bad}/y`, '/tmp/demo', rootsOf({ ...base, fs: failingWay }))).toBe(true)
+    expect(gitDirectoryBelow('relative', '/tmp/demo', roots)).toBe(true)
+    expect(gitDirectoryBelow('/tmp/demo/a', '/tmp/x', roots)).toBe(true)
+    expect(gitDirectoryBelow('/tmp/demo/a/b', '/tmp/demo', roots)).toBe(false)
   })
   it('no top of a repository on an error or for a relative folder', () => {
     expect(repositoryTop('/tmp/demo/pad/x/y', rootsOf({ ...base, fs: failing('/tmp/demo/pad/x') }))).toBeNull()

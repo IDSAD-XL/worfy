@@ -274,3 +274,52 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
       прогон: 261 mutant, убито 259, выжило 2, оба эквивалентны: `dashes >= 0` против `> 0` (с `--` первым словом
       у checkout нет операндов до него) и `return false` в `default`, вместо которого функция возвращает
       `undefined` — то же «нет».
+20. **Раунд 6 review (PR #1410): какой репозиторий открывает git, пути и имена веток внутри форм.** Allow-list
+    точных форм выдержал атаки; обходы шли мимо него. Решения review (входы и свидетельства на настоящем git 2.50 — у
+    reviewer-а), детали — мои:
+    - **Подложенная git-папка (high).** Write `src/evil/HEAD` + `commondir` и `mkdir src/evil/objects src/evil/refs`,
+      затем `git -C src/evil reset --soft HEAD~1` двигал `main`; вариант с `config` (`diff.external`,
+      `core.sshCommand`) запускал программу. Теперь перед любым git (и чтением тоже) папки от папки команды (после
+      `-C`, после `cd`) до верха worktree-а, верх не включая, не должны содержать `.git`, `HEAD`, `commondir`, `gitdir`
+      или `objects` вместе с `refs` (`gitDirectoryBelow` в `roots.ts`); верх — один из `checkouts`, а его `.git` —
+      папка или файл `gitdir: <checkout>/.git/worktrees/<имя>` (относительный путь git 2.48 тоже). Иначе
+      `not-judged` с подсказкой `gitTop`: запускать git с верха worktree-а. Без репозитория вообще проверка молчит —
+      остальные правила дают park, как раньше. Изменение прежнего поведения: git во вложенном репозитории внутри
+      корня (submodule, `vendor/.git`, клон в `.scratch`) теперь deny с подсказкой, а не park; worktree, которого нет
+      в `checkouts`, — тоже deny.
+    - Запись, которая создаёт файл с именем `HEAD`, `commondir` или `gitdir` (в любом регистре, где угодно в корнях),
+      и cp / mv такого файла — `git-files`. `mkdir objects refs` остаётся allow: без `HEAD` это не репозиторий, а git
+      под такой папкой ловит проверка выше. Вторая защита — в Ticket 04: `safe.bareRepository=explicit` в окружении
+      git-а Run-а.
+    - **Пути форм git (medium).** Пути `add`, `rm`, `mv`, `restore` и `checkout [<rev>] -- <пути>` (от папки команды)
+      проходят те же проверки, что запись файла: внутри корней, без ссылки на пути, не `.git*`, не `HEAD`, не папка
+      hooks. У `mv` источники проверяются как перенос папки (`copiedTree`: папка с `.gitattributes` внутри — тоже
+      `git-files`). Pathspec magic (`:/`, `:(top)`, `:!x`) и glob, который git раскрывает сам (`*`, `?`, `[`), — не
+      allow. Решение моё: `checkout <rev> -- <пути>` берёт только существующие файлы — папка или новое имя могут
+      принести `.gitattributes` из ревизии; `checkout -- <пути>` (из index-а) — как раньше.
+    - **Имя новой ветки (medium).** `git branch origin/main` подменял remote-tracking ref, и `merge --ff-only
+      origin/main` владельца двигал `main`. Новое имя (`switch -c`, `checkout -b`, `branch <новая>`) не allow, если
+      совпадает с remote-ом или начинается с `<remote>/`, начинается с `refs/`, `heads/`, `tags/`, `remotes/`,
+      равно `HEAD` или `@`, начинается с `-` (решение моё: `switch -c -f`). Без регистра на macOS и Windows. Новое
+      поле контекста **`remotes`** (Ticket 04); `null` — новые ветки не allow.
+    - **`core.hooksPath` (medium).** С hooks в отслеживаемой папке (husky, `.githooks`) правка `.githooks/pre-commit`
+      была allow, и следующий `git commit` её запускал. Новое поле контекста **`hooksPath`** (Ticket 04): значение как
+      git его печатает; относительное читается от верха каждого worktree-а и checkout-а, `~/` — от `HOME`. Запись и
+      удаление в этой папке (и в ней самой) — `git-files`. Фраза spec-а «агент не может сначала поставить hook»
+      теперь называет это условие.
+    - Решение координатора о stash (`stash list` / `stash show` и только они) — в пункте 19, в том же push-е.
+    - **Не покрыто:** содержимое, которое приносят в worktree разрешённые merge, cherry-pick, `reset --hard <rev>`
+      (их `.gitattributes` и hooks из истории — это история репозитория владельца); `add -A` / `commit -a` кладут в
+      index уже лежащие файлы без проверки путей; remote в `fetch` / `pull` по-прежнему судится по форме имени, не по
+      списку `remotes`; `fetch --prune --tags` удаляет локальные теги, которых нет на remote-е (у reviewer-а в
+      свидетельствах, в решения раунда не вошло).
+    - **Mutation testing после раунда 6**: на изменённых строках `policy.ts` и `roots.ts`
+      (вместе со строкой stash): 310 mutant-ов, убито 293, выжило 17. По каждому настоящему добавлен test: `.git` —
+      ссылка на файл с верным `gitdir`; подложенная папка в `.scratch`, чей верх — основной checkout (судит папка
+      git-а, а не верх); git вне корней остаётся park; hooks-папка выше worktree-а не мешает commit-у (сам репозиторий
+      — не записанный файл); пути `add` / `rm` / `restore` в `~/.claude` — hard; `git mv src/a.ts .` — allow (последнее
+      слово — куда, а не переносимая папка); прямые test-ы `gitDirectoryBelow` (относительный путь, ошибка по пути,
+      верх не выше папки, обычный путь). Повторный прогон выживших: 13 убито, 4 эквивалентны — снятое `'write'` у
+      `add`, `rm`, `restore` (без него `use` — `undefined`, а для путей этих форм код сравнивает `use` только с `'read'` и
+      `'delete'` — сравнения с `'write'` стоят у file tool-ов и у переноса cp / mv, — так что это та же запись; typecheck такое не пропустит) и `.some` → `.every` по двум формам пути при проверке hooks
+      (папки hooks взяты в обеих формах, записанной и настоящей, и обе формы пути лежат под ними вместе).

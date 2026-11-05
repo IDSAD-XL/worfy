@@ -1292,6 +1292,25 @@ describe('round 6: the repository git opens, and the paths and branch names insi
     expect(outcome('git checkout worfy-demo/03', unread)).toBe('allow')
     expect(outcome('git commit -m x', unread)).toBe('allow')
   })
+  it('the edges mutation testing of round 6 found', () => {
+    // A .git that is a link to a gitdir file is not the worktree's own.
+    const linked = tree({ [`${WT}/.git`]: `-> ${PAD}/gitfile`, [`${PAD}/gitfile`]: `text:gitdir: ${REPO}/.git/worktrees/03\n` })
+    expect(run('git status', linked)).toMatchObject({ outcome: 'deny', rule: 'not-judged', hint: HINTS.gitTop })
+    // The folder of git decides, not the repository's top: a planted folder in .scratch, whose top is the main checkout.
+    expect(run('git -C .scratch/evil status', tree({ [`${SCRATCH}/evil/HEAD`]: 'text:0123abcd\n' }, { cwd: REPO }))).toMatchObject({ outcome: 'deny', hint: HINTS.gitTop })
+    expect(run(`git -C ${SCRATCH}/evil status`, tree({ [`${SCRATCH}/evil/HEAD`]: 'text:0123abcd\n' }))).toMatchObject({ outcome: 'deny', hint: HINTS.gitTop })
+    // Outside the roots git parks as before, planted or not.
+    expect(outcome(`git -C ${OTHER}/x status`, tree({ [`${OTHER}/.git`]: 'dir', [`${OTHER}/x/HEAD`]: 'file' }))).toBe('park')
+    // The repository itself is no written file: a hooks folder above the worktree does not stop a commit.
+    expect(run('git commit -m x', posix({ hooksPath: `${REPO}/.claude` }))).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    // The paths of add, rm and restore are written: a settings file of the home folder is hard.
+    for (const command of [`git add ${HOME}/.claude/settings.json`, `git rm ${HOME}/.claude/settings.json`, `git restore ${HOME}/.claude/settings.json`]) {
+      expect(outcome(command), command).toBe('hard-deny')
+    }
+    // The last word of git mv is where it goes, not a folder moved: the worktree top is fine.
+    expect(run('git mv src/a.ts .')).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    expect(run('git mv src/a.ts lib', tree({ [`${WT}/lib/.gitattributes`]: 'file' }))).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+  })
   it('core.hooksPath: a write into the hooks folder is git-files', () => {
     const relative = posix({ hooksPath: '.githooks' })
     expect(write(`${WT}/.githooks/pre-commit`, relative)).toMatchObject({ outcome: 'deny', rule: 'git-files' })
