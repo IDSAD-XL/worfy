@@ -22,11 +22,14 @@ const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'ci.yml')
 const SCOPE = join(REPO, 'scripts', 'ci-scope.mjs')
 const OK = join(REPO, 'scripts', 'ci-ok.mjs')
-const { workflowParts, E2E_SHARDS, MACOS_PATHS, MACOS_TESTS_CHECKED_OTHERWISE } = (await import(pathToFileURL(SCOPE).href)) as {
+const { workflowParts, E2E_SHARDS, MACOS_PATHS, MACOS_TESTS_CHECKED_OTHERWISE, MACOS_NAME, globRegExp, isMacosPath } = (await import(pathToFileURL(SCOPE).href)) as {
   workflowParts: (text: string) => { parts: Map<string, string[]>; anchored: boolean }
   E2E_SHARDS: Record<'macos-e2e' | 'windows-e2e', number>
   MACOS_PATHS: Array<{ paths: string[]; why: string }>
   MACOS_TESTS_CHECKED_OTHERWISE: Record<string, string>
+  MACOS_NAME: RegExp
+  globRegExp: (glob: string) => RegExp
+  isMacosPath: (path: string, darwin: string[]) => boolean
 }
 
 /** A workflow file without its comment lines and blank lines. */
@@ -1144,7 +1147,7 @@ describe('scripts/ci-scope.mjs', () => {
 
   it.each([
     ['unit and contract tests', ['test/unit/plain.test.ts', 'test/contract/ci-workflow.test.ts', 'test/unit/windows-only.test.ts']],
-    ['a test helper neither the e2e tests nor MACOS_PATHS name', ['test/script-node.ts']],
+    ['a test helper neither the e2e tests nor MACOS_PATHS name', ['test/harness-shell-tests.ts']],
     ['a helper next to a macOS-only test file', ['test/unit/platform-helper.ts']],
     // Scripts and parts of the Harness the app does not carry, that no macOS-only test checks on macOS.
     ['scripts and Harness tests', ['scripts/agent-cost.mjs', 'harness/bin/tests/profile.test.sh', 'harness/evals/cases/a.json']],
@@ -1228,9 +1231,16 @@ describe('scripts/ci-scope.mjs', () => {
   }
   // Every path of MACOS_PATHS without a glob, and the example of each glob.
   const macosPaths = MACOS_PATHS.flatMap((row) => row.paths.map((glob) => [glob.includes('*') ? (GLOB_EXAMPLES[glob] ?? `no example for ${glob}`) : glob, row.why] as const))
-  it('MACOS_PATHS: every glob has an example written by hand', () => {
+  it('MACOS_PATHS: every glob has an example written by hand, which no other macOS rule matches', () => {
     const globs = MACOS_PATHS.flatMap((row) => row.paths.filter((path) => path.includes('*')))
     expect(Object.keys(GLOB_EXAMPLES).sort()).toEqual(globs.sort())
+    const rules = MACOS_PATHS.flatMap((row) => row.paths)
+    for (const [glob, example] of Object.entries(GLOB_EXAMPLES)) {
+      expect(globRegExp(glob).test(example), `${example} is not matched by ${glob}`).toBe(true)
+      expect(MACOS_NAME.test(example), `${example} is named for macOS`).toBe(false)
+      const others = rules.filter((rule) => rule !== glob && globRegExp(rule).test(example))
+      expect(others, `${example} is matched by other rules too`).toEqual([])
+    }
   })
   it.each(macosPaths)('a pull request that changes %s (%s) runs macos-tests with the macOS-only files', (file) => {
     // ci.yml is rewritten here, so it packages the app (ciPackaging) and stays a macOS path.
@@ -1496,6 +1506,41 @@ describe('scripts/ci-scope.mjs', () => {
     }
     const covered = (path: string) => named.has(path.slice(path.lastIndexOf('/') + 1)) || Object.hasOwn(MACOS_TESTS_CHECKED_OTHERWISE, path)
     expect(darwin.filter((path) => !covered(path))).toEqual([])
+  })
+
+  /**
+   * The files under test/ but test files that `files` import with a static relative import (one
+   * level deep), each with the test files that import it: from `root`, forward slashes.
+   */
+  function helpersOf(root: string, files: string[]): Map<string, string[]> {
+    const helpers = new Map<string, string[]>()
+    for (const file of files) {
+      for (const [, from = ''] of readFileSync(join(root, file), 'utf8').matchAll(/^import\s[^;]*?\sfrom\s+'(\.{1,2}\/[^']+)'/gms)) {
+        const bare = relative(root, resolve(root, dirname(file), from)).split(sep).join('/')
+        const path = /\.[cm]?[jt]sx?$/.test(bare) ? bare : (['.ts', '.tsx', '.mjs', '.js', '/index.ts'].map((end) => `${bare}${end}`).find((name) => existsSync(join(root, name))) ?? bare)
+        if (!path.startsWith('test/') || /\.test(?:\.tsx?)?$/.test(path)) continue
+        helpers.set(path, [...(helpers.get(path) ?? []), file])
+      }
+    }
+    return helpers
+  }
+
+  it('reads the relative imports of a test file, written on one line or on several, and resolves them to files', () => {
+    const importer = 'test/unit/imports-helpers.test.ts'
+    commitOnBase(['test/unit/one.ts', 'test/two.tsx', importer], {
+      [importer]: "import { a } from './one'\nimport {\n  b,\n  c,\n} from '../two'\nimport { d } from '../../src/main/x'\nimport { e } from 'vitest'\nimport { f } from './other.test'\n",
+    })
+    expect([...helpersOf(repo, [importer]).keys()]).toEqual(['test/unit/one.ts', 'test/two.tsx'])
+  })
+
+  // A helper a macOS-only test imports changes what that test checks on macOS. The files of
+  // MACOS_TESTS_CHECKED_OTHERWISE run their cases on Linux too, so their helpers are left out.
+  it('every helper under test/ that a macOS-only test file imports is a macOS path', () => {
+    const darwin = darwinTests(REPO).filter((path) => !Object.hasOwn(MACOS_TESTS_CHECKED_OTHERWISE, path))
+    const helpers = helpersOf(REPO, darwin)
+    expect(helpers.size).toBeGreaterThan(5)
+    const missing = [...helpers].filter(([path]) => !isMacosPath(path, [])).map(([path, by]) => `${path} (imported by ${by.join(', ')})`)
+    expect(missing).toEqual([])
   })
 
   it('a macOS-only test file whose name the shell would split: macos-tests runs every file', () => {

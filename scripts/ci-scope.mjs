@@ -312,9 +312,25 @@ export const MACOS_PATHS = [
   { paths: ['src/main/vendors/claude/options.ts'], why: "the SDK's platform package of macOS in a dev run (harness-install.test.ts)" },
   { paths: ['src/main/update/restart.ts'], why: 'the previous copy of worfy-stable.app (update-harness.test.ts)' },
   { paths: ['harness/hooks/gate-failures.mjs'], why: 'names the Mac computer of a failure record (gate-failures-cli.test.ts)' },
+  // test/contract/ci-workflow.test.ts checks that every helper under test/ a macOS-only test file
+  // imports (but those of MACOS_TESTS_CHECKED_OTHERWISE) is a macOS path.
   {
-    paths: ['test/contract/terminal-harness.ts', 'test/remove.ts', 'test/time-scale.ts', 'test/fixtures/eval-stub/**'],
-    why: 'helpers and fixtures the macOS-only tests use (terminal-shell-integration.test.ts, harness-evals-run.test.ts)',
+    paths: [
+      'test/app-url.ts',
+      'test/git-bash.ts',
+      'test/quarantine.ts',
+      'test/remove.ts',
+      'test/script-node.ts',
+      'test/shell-stub.ts',
+      'test/time-scale.ts',
+      'test/zsh.ts',
+      'test/contract/counted-fs.ts',
+      'test/contract/harness-evals-shared.ts',
+      'test/contract/terminal-harness.ts',
+      'test/unit/install-stable-harness.ts',
+      'test/fixtures/eval-stub/**',
+    ],
+    why: 'helpers and fixtures the macOS-only tests use (terminal-shell-integration.test.ts, harness-evals-run.test.ts, install-stable.test.ts)',
   },
 ]
 // The macOS-only test files (darwinTestFiles) that no row above names in its `why`, each with the
