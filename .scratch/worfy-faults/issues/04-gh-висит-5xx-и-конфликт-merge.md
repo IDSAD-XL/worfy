@@ -1,7 +1,8 @@
 # 04 — gh висит, отвечает 5xx; конфликт merge
 
 Type: task
-Status: claimed 2026-11-05T11:30Z
+Status: done 2026-11-05T18:02Z
+PR: #1441
 Blocked by: 02
 Source: [spec.md](../spec.md), «Сценарии» (строки «gh висит», «gh отвечает 5xx», «Конфликт merge»), «Решено без владельца», п. 3 и 5, «Правила восстановления» (И2)
 
@@ -39,19 +40,26 @@ Source: [spec.md](../spec.md), «Сценарии» (строки «gh виси�
 
 - [ ] Test самого gh stub: `hang` ждёт и выходит с exit 1; без файла — прежнее поведение.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-github.test.ts` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
+  - evidence: review pass · PR #1441 · - - · a7f463c7c2d32e26a746e604d664cbf0f34f9486
 - [ ] Contract test: gh висит — Run не стоит на gh, Stop кончается не позже `endReadMs`; `checkRecovery` пустой.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-github.test.ts` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
+  - evidence: review pass · PR #1441 · - - · a7f463c7c2d32e26a746e604d664cbf0f34f9486
 - [ ] Contract test: 5xx, затем восстановление — опрос после удвоенного интервала, `narrow-round` один раз;
       `checkRecovery` пустой.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-github.test.ts` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
+  - evidence: review pass · PR #1441 · - - · a7f463c7c2d32e26a746e604d664cbf0f34f9486
 - [ ] Contract test: конфликт — `blocked-tickets`, 02 `blocked` один раз, новый Run без 02; `checkRecovery` пустой.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-faults-github.test.ts` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
+  - evidence: review pass · PR #1441 · - - · a7f463c7c2d32e26a746e604d664cbf0f34f9486
 - [ ] Каждый test краснеет на испорченном ожидании — в «Итог».
   - evidence: test-run pass · `pnpm test test/contract/zz-mutant-` exit 1, 4 of 4 spoiled copies red · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
+  - evidence: review pass · PR #1441 · - - · a7f463c7c2d32e26a746e604d664cbf0f34f9486
 - [ ] `src/` не изменён. `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (правка fixture-а
       gh запускает все e2e spec-файлы — это ожидаемо).
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
   - evidence: gate pass · `gate fast` exit 0 · mac - · c48e4fcf05f18fc34060a0ebdd9113b41279848e
+  - evidence: review pass · PR #1441 · - - · a7f463c7c2d32e26a746e604d664cbf0f34f9486
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42075746811/job/127430753029 · ci - · a7f463c7c2d32e26a746e604d664cbf0f34f9486
 
 ## Тесты
 
