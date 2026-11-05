@@ -294,6 +294,14 @@ _Avoid_: карантин, skip-лист, disabled test, ignored test, Windows e
 Test, который краснеет только на Windows: его пропускают только на Windows, только в блокирующих run-ах и только до приёмки Windows с небольшим запасом после неё. В отличие от Quarantine, у всех таких записей один общий Ticket-владелец, свой предел числа записей, отдельный от Quarantine, и срок, привязанный к приёмке Windows, а не к дате записи. На других платформах test идёт как обычно.
 _Avoid_: исключение (без «Windows»), windows quarantine, карантин для Windows, known failure, xfail, skip на Windows
 
+**Fault scenario**:
+Test, который вносит один сбой (ошибка API, убитый процесс, недоступный GitHub, убитое приложение, конфликт merge) в Run на fake agent над временным fixture-проектом и проверяет Recovery invariants.
+_Avoid_: chaos test, fault lab
+
+**Recovery invariant**:
+Правило, которое держится после любого Fault scenario (И1–И8): команда Wave одна, статус Ticket-а один раз, Journal называет причину, Run снова стартует.
+_Avoid_: «гарантия», health check
+
 ## Relationships
 
 - **Project** содержит много **Epic**-ов; **Epic** — много **Ticket**-ов; **Ticket** может блокироваться другими Ticket-ами того же Epic.
