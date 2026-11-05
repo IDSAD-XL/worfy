@@ -658,6 +658,9 @@ describe('openRunApproval: round 5 (review of PR #1460): a worktree whose git fo
     // Back to the Project's git folder, it is allowed again; without a readable commondir it is not.
     writeFileSync(join(wt(), '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'wt')}\n`)
     expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'allow' })
+    // A gitdir relative to the worktree, as git 2.48 writes it with worktree.useRelativePaths.
+    writeFileSync(join(wt(), '.git'), 'gitdir: ../repo/.git/worktrees/wt\n')
+    expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'allow' })
     // A .git file without a gitdir line names no git folder.
     writeFileSync(join(wt(), '.git'), 'not a gitdir line\n')
     expect((await fetchless(approval, 'git status')).outcome).not.toBe('allow')

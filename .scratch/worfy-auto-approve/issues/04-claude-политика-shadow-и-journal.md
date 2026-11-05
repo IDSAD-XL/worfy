@@ -315,3 +315,33 @@ test-ами: чтение `--bool`, `hooksPath` без значения, remotes
 HOME, HEAD `.invalid`, счёт вызовов git-а (повторное чтение, корень, worktree-ы для git-а), config-файлы корня без
 своего config-а у checkout-а, `grep -H`, `docker run -u "…"`. Выживших нет. Git вне всех checkout-ов теперь не
 читается: строка, на которой выжил mutant, упрощена.
+
+### Раунд 5 (review PR #1460: 2 high, регрессии раунда 4)
+
+1. **Worktree с чужим общим git-каталогом.** Раньше worktree Wave без своего config-а получал факты корня, даже
+   когда его `commondir` называл другой общий git-каталог (с `core.fsmonitor` или hook-ами там): `git status`,
+   `git add`, `git commit` получали allow. Теперь на каждый запрос с git-ом run читает файлами (без вызова git-а)
+   `.git`-файл worktree-а и `commondir` его git-папки. Если `commondir` не ведёт в общий git-каталог корня
+   (`git rev-parse --git-common-dir`) или файл не читается, фактов у worktree-а нет: git там получает park
+   `git-hooks`, как в раунде 3. Чтение refs и объектов (`git log`) — как в раунде 3: allow только процессу с
+   `GIT_NO_LAZY_FETCH`. Цель `.git`-файла вне `<checkout>/.git/worktrees/` policy уже отклоняет сама
+   (`ownRepository`, deny `not-judged`); отдельной проверки в run-approval нет. Test-ы на настоящем git-е: P1
+   (`core.fsmonitor`) и P2 (`pre-commit`) из probe review-а, `.git`-файл с чужой целью, без строки `gitdir`, с
+   относительным `gitdir`, `commondir` в несуществующую папку и без `commondir`. Число вызовов git-а не изменилось.
+2. **Маскировка Journal — снова как на 7af4d4a2b (раунд 3).** `journal.ts` возвращён к 7af4d4a2b целиком; сужение
+   раунда 4 (заголовки только у curl/wget/HTTPie, `-u` только у curl/wget, `--key` только как `--private-key` и т.п.,
+   `password` только в строке `.netrc`) убрано вместе с его test-ом. Table test: каждый вход test-ов раундов 2 и 3
+   и другие формы review-а (`gh api -H`, `git -c http.extraHeader`, curlie, wget2, `aria2c --header=`, HTTPie/xh,
+   `.netrc` в несколько строк, `echo password … | sudo -S`, `-u user:pass` у lftp/rsync/mongo, голый `--key`) дают
+   вывод 7af4d4a2b. Ложные срабатывания раунда 4 (`sort --key`, `git commit -m "auth: …"`, `grep password`,
+   `docker run -u 1000:1000`, `rg "apiKey: string"`, `grep -H "token: …"`) снова маскируются; они уходят в
+   follow-up ticket (решение координатора).
+
+**Mutation testing раунда 5**: 17 mutant-ов на изменённых строках, потом 6 на строках после правки. Первая
+серия: 11 убиты, 6 выжили. Строка с пустым `commondir` упрощена (пустой путь ведёт в саму git-папку и так не
+совпадает); проверка цели `.git`-файла убрана как повтор `ownRepository`; для `commondir` в несуществующую папку
+добавлен test. Эквивалентны три: `.git` без строки `gitdir` (policy отклоняет такой worktree раньше фактов),
+`commonDir` null (без репозитория в корне `git worktree list` не даёт checkout-ов, и git вне checkout-ов не
+читается), строка корня (git в своём checkout-е Project-а policy не одобряет: `outside-roots`). Вторая серия:
+2 убиты, mutant `resolve(path, named)` убит test-ом с относительным `gitdir`; два выживших эквивалентны по
+построению (`real` null недостижим, замена null на `''` даёт тот же false).
