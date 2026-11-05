@@ -1,0 +1,7 @@
+{"at":"2026-11-03T10:00:00.000Z","run":"2026-11-03T10-00-00-000Z-a1b2c3","project":"demo-000000a4","epic":"demo","kind":"run-started","by":"button"}
+{"at":"2026-11-03T10:00:01.000Z","run":"2026-11-03T10-00-00-000Z-a1b2c3","project":"demo-000000a4","epic":"demo","kind":"wave-started","wave":1,"tickets":["01","02"],"text":"/epic-wave Ticket-ы 01, 02 эпика demo"}
+{"at":"2026-11-03T10:00:05.000Z","run":"2026-11-03T10-00-00-000Z-a1b2c3","project":"demo-000000a4","epic":"demo","kind":"ticket-status","ticket":"01","state":"claimed","statusAt":"2026-11-03T10:00Z"}
+{"at":"2026-11-03T10:00:06.000Z","run":"2026-11-03T10-00-00-000Z-a1b2c3","project":"demo-000000a4","epic":"demo","kind":"ticket-status","ticket":"02","state":"claimed","statusAt":"2026-11-03T10:00Z"}
+{"at":"2026-11-03T10:00:08.000Z","run":"2026-11-03T10-00-00-000Z-a1b2c3","project":"demo-000000a4","epic":"demo","kind":"human-input","source":"observer","what":"clicked Allow on a dialog"}
+{"at":"2026-11-03T10:00:10.000Z","run":"2026-11-03T10-00-00-000Z-a1b2c3","project":"demo-000000a4","epic":"demo","kind":"session-error","session":"demo-session-000001","message":"API Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}"}
+{"at":"2026-11-03T10:00:11.000Z","run":"2026-11-03T10-00-00-000Z-a1b2c3","project":"demo-000000a4","epic":"demo","kind":"run-stopped","reason":"turn-error"}

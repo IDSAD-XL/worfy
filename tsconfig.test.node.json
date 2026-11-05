@@ -41,6 +41,7 @@
     "src/renderer/flight-recorder/filter.ts",
     "src/renderer/flight-recorder/stop-toast.ts",
     "test/app-url.ts",
+    "test/autopilot-invariants.ts",
     "test/big-transcript.ts",
     "test/claude-home-legacy.ts",
     "test/git-bash.ts",

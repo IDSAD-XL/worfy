@@ -1,0 +1,6 @@
+["auth","status","--json","hosts"]
+["pr","list","--state","all","--limit","100","--json","number,headRefName,state,url,statusCheckRollup,comments,headRefOid,reviewDecision,mergeCommit,mergedAt"]
+["pr","list","--state","all","--head","demo/01","--limit","1","--json","number,headRefName,state,url,statusCheckRollup,comments,headRefOid,reviewDecision,mergeCommit,mergedAt"]
+["api","repos/demo-owner/demo","--jq",".permissions.push"]
+["auth","token","-u","demo-user"]
+["pr","merge","1","--squash"]

@@ -1,0 +1,9 @@
+{
+  "about": "The app was killed during the turn: no run-stopped, the last line is torn. Nothing is broken.",
+  "rule": null,
+  "expect": {
+    "stop": null,
+    "errorText": null,
+    "tornLastLine": true
+  }
+}

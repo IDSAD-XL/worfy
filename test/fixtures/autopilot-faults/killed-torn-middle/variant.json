@@ -1,0 +1,9 @@
+{
+  "about": "The same killed Run, but the torn line is in the middle of the journal.",
+  "rule": "I8",
+  "expect": {
+    "stop": null,
+    "errorText": null,
+    "tornLastLine": true
+  }
+}
