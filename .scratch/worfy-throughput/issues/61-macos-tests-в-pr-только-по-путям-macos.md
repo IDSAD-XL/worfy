@@ -1,7 +1,8 @@
 # 61 — `macos-tests` в PR только по путям macOS
 
 Type: task
-Status: claimed 2026-11-05T20:18Z
+Status: done 2026-11-05T21:39Z
+PR: #1459
 Branch: worfy-throughput/61
 Blocked by: —
 Source: решение владельца 2026-11-05, round-2 Q7 («да»): в pull request CI job `macos-tests` идёт, только когда
@@ -56,18 +57,25 @@ PR трогает пути macOS; push в `main` по-прежнему гоня�
 
 - [ ] PR только с правкой приложения (например `src/renderer/App.tsx`) — без `macos-tests`; e2e как раньше.
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
+  - evidence: review pass · PR #1459 · - - · 7668cd17327cc5ba737cbecf7466c4d1109eaff7
 - [ ] PR с macOS-only test-файлом — `macos-tests` с этим файлом в `macos-tests-files`.
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
+  - evidence: review pass · PR #1459 · - - · 7668cd17327cc5ba737cbecf7466c4d1109eaff7
 - [ ] PR с исходником, в имени которого `darwin` (или `mac`, `macos`), — `macos-tests`.
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
+  - evidence: review pass · PR #1459 · - - · 7668cd17327cc5ba737cbecf7466c4d1109eaff7
 - [ ] PR с модулем из таблицы `MACOS_PATHS` — `macos-tests`; каждый glob таблицы без `*` — существующий файл
       репозитория (contract test).
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
+  - evidence: review pass · PR #1459 · - - · 7668cd17327cc5ba737cbecf7466c4d1109eaff7
 - [ ] Push в `main` — все job-ы; diff, который нельзя прочитать, — все job-ы (test-ы на оба случая).
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts test/unit/affected-tests.test.ts` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
+  - evidence: review pass · PR #1459 · - - · 7668cd17327cc5ba737cbecf7466c4d1109eaff7
 - [ ] Test-ы `test/contract/ci-workflow.test.ts` (раздел `scripts/ci-scope.mjs`), `test/contract/ci-scope-e2e.test.ts`,
       `test/unit/affected-tests.test.ts` — exit 0; gate fast — `[gate] green (fast)`, exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · e3e0eee44efbcd9b9144e8c24d8af17f7275cbcd
+  - evidence: review pass · PR #1459 · - - · 7668cd17327cc5ba737cbecf7466c4d1109eaff7
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42113317831/job/127550220489 · ci - · 7668cd17327cc5ba737cbecf7466c4d1109eaff7
 
 ## Тесты
 
