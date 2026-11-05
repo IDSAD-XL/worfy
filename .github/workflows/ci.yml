@@ -415,6 +415,8 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           E2E_FILES: ${{ needs.changes.outputs.e2e-files }}
+          # DO NOT MERGE: diagnosis of worfy-polish 47 (test/e2e/app-stall.ts prints its report in the log).
+          WORFY_E2E_STALL_PROBE: '1'
         run: $files = @(-split $env:E2E_FILES | Where-Object { $_ }); pnpm test:e2e "--shard=$env:SHARD" @files
       # A failing e2e test keeps the app's trace and a screenshot of its window under test-results/.
       - if: failure()
