@@ -1,7 +1,7 @@
 # 08 — Документация: раздел «Failure records»
 
 Type: task
-Status: open
+Status: claimed 2026-11-05T04:26Z
 Blocked by: 07
 Source: [spec.md](../spec.md), «Решено без владельца» (раздел на странице Gate, не новая страница), «Риски», п. 1 и 4 (что не ловится), «Новые термины»; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (страницы функций: английский — основной, перевод — `docs/features/ru/`)
 

@@ -1,8 +1,9 @@
 # Gate and GitHub
 
-Three Features. **Gate** is the check of whether the changes in a worktree are ready. **Gate full** is the complete
-form of that check and the situations that call for it. **PR and CI badges** are the chips on a Ticket and a Session that
-show what the Gate and GitHub say. Terms are explained in [Concepts](concepts.md).
+Four Features. **Gate** is the check of whether the changes in a worktree are ready. **Gate full** is the complete
+form of that check and the situations that call for it. **Failure records** are what a red Gate run leaves about each
+failed test, and the command that reads them. **PR and CI badges** are the chips on a Ticket and a Session that show
+what the Gate and GitHub say. Terms are explained in [Concepts](concepts.md).
 
 ## Gate
 
@@ -265,6 +266,176 @@ the PRs of the other: [ADR-0069](../adr/0069-cross-machine-gate-label-and-roles.
 - `harness/bin/tests/wave-gate.test.sh`, `harness/bin/tests/wave-gate-screen.test.sh`, `harness/bin/tests/wave-gate-lock.test.sh`:
   the run over a set, the locked screen and the lock.
 - `test/contract/gate-queue.test.ts`: which PR waits, and the read of the queue.
+
+## Failure records
+
+### Behaviour
+
+A red Gate run leaves a record of what failed, so that a red run can be read later: a flaky test told apart from a test
+that stays red, over many runs and more than one computer. The records change nothing in the Gate: the verdict file, the
+markers, the cache, the `[gate] …` lines and the exit codes are the same with them or without them.
+
+**What a red run leaves.** One entry per failed test: the runner, the file, the line of the test, its name (the describe
+blocks and the test joined by ` > `), the Gate step, how long it took, the first line of its error (at most 200
+characters), the attempt and the command that runs this test alone. The run adds the SHA, the profile, the time, the
+computer and `dirty`: true when `git status --porcelain` printed anything, or failed, before the first script. The red report ends with
+`--- failure records: <file> (<n> tests, <m> steps without tests)`, or with `--- failure records: not saved, <why>`
+when the file could not be written. A green run, a run where nothing ran, a stopped run and a script whose environment
+is missing leave no record.
+
+**Steps without tests.** The Gate does not know the tests inside a script: the Project's test reporters tell it. A failed
+script that left no usable entry, such as lint, typecheck, a build or any script of a Project without reporters, gets
+one entry of the step. Its error is the first line of the script's output that holds `error`, `Error` or `FAIL`, else
+its last line that holds anything. worfy's own repository has a reporter for vitest and one for Playwright. In
+Playwright a test that passed on a retry, and a skipped test, give no entry.
+
+**CI writes no records.** The reporters write only into the file the Gate gives them, and CI jobs do not run the Gate.
+A `pnpm test` by hand writes none either.
+
+**The command.** `gate-failures` is a command of the Harness, `<Harness>/bin/gate-failures <subcommand>`. `--help` lists
+the subcommands, and each subcommand takes `--help` too. A missing or unknown subcommand prints the usage and exits
+with 2, and so does a wrong argument of any subcommand.
+
+| Subcommand | What it does | Other exit codes |
+|---|---|---|
+| `list [--json] [--days N]` | The runs that left records, own and imported, newest first: run id, time, computer, SHA, profile, number of entries, and the marks `dirty`, `imported` and the number of reruns. | 0 |
+| `rerun [--run <id> \| --last] [--file <path>] [--limit N] [--dry-run]` | Runs each failed test of a red run again, alone, on the same SHA, and writes a rerun file. | 0: every test green alone. 2: at least one red alone. 3: refused, nothing to rerun, or a test without a rerun command and none red. 128 + the signal number: stopped |
+| `report [--days N] [--computer <name>] [--json]` | The classes below over the runs of the last 14 days by default, and the candidates. | 0 |
+| `export [--run <id> ...] [--since <days>] [--out <file>]` | The own runs of this computer, each with its rerun files, as text for another computer. | 0, also with nothing to export. 2: an unknown `--run`, personal data found, a run too long for a part |
+| `import <file> \| - \| --gh <owner/repo> (--issue N \| --pr N)` | The records another computer exported, kept apart as imported. | 0. 2: a file or an export refused. 1: the source could not be read |
+| `machine [--json] [--name <name>]` | The computer the records name, or a new name for it. | 0. 2: the name refused |
+
+`list` and `report` only read. A file that is broken or of another version is skipped, with its reason on stderr.
+
+**`rerun`.** By default (`--last`) it takes the newest red run of this worktree. It refuses with code 3 and the reason
+on one line when the run was imported or names another computer, since the commands of its entries are never run here,
+when HEAD is not the SHA of the run, or when `git status --porcelain` is not empty. Before the first test it prints the
+list and an estimate of the time from the recorded durations, and `--dry-run` stops there. `--file` keeps the tests of
+one file, `--limit N` the first N. Without `--file`, a failed step without tests is named with
+`step without tests, not rerun: <step>` and not run. A test whose entry has no rerun command is not run either: the
+rerun file keeps it as `cannot rerun`. Playwright tests run last. When the Profile sets `workflow.e2e_lock`, they run
+under that lock after the screen check, as `wave-gate` does, and the other tests take no lock. A signal ends the
+running test, releases the lock and writes the rerun file with the tests that finished.
+
+**The classes.** `report` gives each failure of a test in a run one class, from the reruns of that run on its SHA and its
+computer:
+
+| Class | Its group in the report | When |
+|---|---|---|
+| Flaky | `flaky` | Red in the run, green alone in a rerun. |
+| Stable red | `stable red` | Red in the run, and red alone in the reruns that ran it, never green. |
+| Without rerun | `without rerun` | No rerun ran it on that SHA, or its entry has no rerun command. |
+
+A run marked `dirty` counts in no class: one line gives the number of such runs. A run in which more than half of the
+failed tests were green alone is shown as `under load: <run> … <n> failed, <k> green alone`. Steps without tests are a
+list of their own, by step.
+
+**Candidates**, from the failures of the last 14 days, or fewer when `--days` is smaller:
+
+- quarantine: flaky in at least 2 different runs, that is on another SHA or on another computer;
+- Windows exception: stable red on `win32`, and on those SHAs the test did not fail on another platform other than as
+  flaky. A test that is both is a Windows exception candidate only.
+
+`node scripts/quarantine-suggest.mjs [<report.json>]` turns the candidates of `report --json` into entries of
+`test/quarantine/`. Without a file it runs `report --json` of this repository's copy of the Harness. It prints the file
+name and the JSON of each entry and writes nothing. A quarantine entry gets the owner `<ticket>` for a person to fill in
+and lasts 14 days. A Windows exception gets the owner `worfy-windows 117` and lasts 45 days. A test that already has an
+entry, or is not a test of this repository's runners, is skipped with a line on stderr. A warning says when the entries
+would take the quarantine past 15 entries or the Windows exceptions past 30. Exit codes: 0, also with no candidate; 1
+when there is no report to read or it is not a report; 2 for a wrong argument.
+
+**Moving records between computers.** `export` prints parts of at most 60000 characters, so that each fits one GitHub
+comment, and keeps a run with its reruns in one part. A run longer than a part has the errors of its entries cut to 80
+characters. `--out <file>` writes part k to `<file>.k`. `import` reads every block that starts with
+`gate-failures export v1 part <k>/<n>`, wherever it is in the text, and puts the parts of one export together. An
+export with a part missing is refused whole. With `--gh` it reads the body and the comments of the issue or PR through
+`gh api`, and only those by the Profile's `github.account` count. A record of this computer is not imported, one that is
+already there is skipped, and the rerun commands of an imported record are never run.
+
+**The computer.** A record names its computer by an id of 8 random hex digits, made once, and a name: `mac`, `windows`
+or `linux` by the platform, until `gate-failures machine --name <name>` gives another one. A name that is the host name,
+the user name or other personal data is refused. This is not the Machine of worfy Link, which keeps a file of its own.
+
+**Retention.** Records live 60 days, counted by the time inside the file. Each time a red run writes its file, the Gate
+removes the older records, own and imported. A broken file, or one of another version, stays.
+
+#### Windows
+
+- The Gate starts a script through cmd.exe, or directly as an `.exe` or `.com` when cmd.exe cannot be given its command
+  line (see Windows under Gate). `GATE_FAILURES_FILE` is in the environment of the script on both paths.
+- File paths in the records are from the root of the repository, with `/`. Scrubbing knows a Windows home folder written
+  with `\`, a doubled `\` or `/`, as Git Bash (`/c/…`) and WSL (`/mnt/c/…`) write it, in any letter case, and the 8.3
+  form such as `RUNNER~1`.
+- `gate-failures` is a Node file without an extension: `node <Harness>/bin/gate-failures <subcommand>` starts it in any
+  shell, and a shell that reads its `#!/usr/bin/env node` line, such as Git Bash, starts it by its path.
+- `rerun` takes the e2e lock whenever the Profile sets `workflow.e2e_lock`, on any computer. The screen check asks the
+  macOS `ioreg`, so on Windows it never waits.
+
+### How it works
+
+**The contract with a Project.** Each script of a Gate run gets the variable `GATE_FAILURES_FILE`: the path of a file of
+its own in the Gate's state folder, which no other script sees. The Project's reporters append one JSON line per failed
+test, with the fields of an entry except the step. worfy's reporters write nothing without the variable. The Gate reads and
+removes the file as soon as the script ends, keeps only those fields, adds the step, and writes the run file only for a
+red run. A line that is not a valid entry is skipped, and its step then also gets an entry of its own that counts the
+skipped lines.
+
+**A test id without a line.** Runs are compared by `<runner> <file> > <name>`. The line moves from commit to commit, so
+it is not part of the id. A renamed test, or a moved file, starts a new history.
+
+**Scrubbing.** An export may be published in a public repository, so every text of an entry is scrubbed before it is
+written, whatever the reporter did. The root of the worktree becomes `<repo>` and the home folder `~`, and the rest of
+such a path is written with `/`. The user name in any home folder path becomes `<user>`. The host name becomes `<host>`
+as a whole word, and the user name `<user>` when it has at least 3 characters and is not a stand-in such as `test` or
+`runner`. The privacy rules of the Harness then mask what they find by shape (UUIDs, email addresses, tokens, Tailscale
+addresses, host names of known shapes) and the words of the personal list `<Harness home>/user/privacy.json`.
+`export` checks every field and the whole text once more, against those rules and the host name, the user name, the
+home folder and the worktree root of this computer. On a finding it names the record, the field and the rule, never the
+value, prints nothing else and exits with 2. `import` checks each file against the same rules and the host name, the user name and the home folder of this
+computer, and refuses one that fails.
+
+**What scrubbing does not catch.** A word that a test prints in its own message, not inside a path: the name of a
+branch, of a project or of a person, when it is not the user name, not the host name, not on the personal list and not
+of a shape the rules know. Both layers miss it. Such a word belongs on the personal list.
+
+**A computer without a host name.** The id is random and the default name is the platform, so a record says which
+computer it came from without naming the host.
+
+**The rerun is a command, not part of the Gate.** The Gate does not retry within a run, and its verdict stays as it is.
+`rerun` runs the failed tests afterwards, alone, without `GATE_FAILURES_FILE`, on the same SHA and in a clean worktree.
+How a red Gate full on `main` on the Windows PC is checked with `rerun`, `export`, `import` and `report`:
+[ADR-0096](../adr/0096-failure-records-and-solo-rerun.md), which changes points 2–4 of
+[ADR-0086](../adr/0086-pc-gate-full-once-per-wave.md).
+
+### Implementation
+
+| What | Where |
+|---|---|
+| The format of a record, scrubbing, the computer, the files, retention | `harness/hooks/gate-failures.mjs`, types in `harness/hooks/gate-failures.d.mts` |
+| `GATE_FAILURES_FILE`, the run file of a red run, the line of the red report | `harness/hooks/gate.mjs` |
+| The command: one module per subcommand | `harness/bin/gate-failures`, `harness/lib/gate-failures/` |
+| The text of an export and its check for personal data | `harness/lib/gate-failures/transfer-common.mjs` |
+| The privacy rules and the personal list | `harness/lib/privacy.cjs` |
+| The e2e lock and the screen check of a rerun | `harness/lib/e2e-lock.cjs` |
+| worfy's reporters | `test/failure-records.ts`, `test/failures-reporter.ts` (in `vitest.config.ts`), `test/e2e/failures-reporter.ts` (in `playwright.config.ts`) |
+| Quarantine entries from the candidates | `scripts/quarantine-suggest.mjs`, with the rules of `test/quarantine.ts` |
+| The order of the commands after a red Gate full on `main` | `harness/skills/epic-wave/SKILL.md` |
+
+**Files.** All of them are outside every repository. In the Gate's state folder: the run file
+`failures/<tag>--<run>.json`, where `<tag>/<run>` is the name of the run's log folder and the run id, the rerun file
+`failures/<tag>--<run>.rerun-<time>.json`, and the files of another computer under `failures/imported/<computer id>/`.
+The computer is `<Harness home>/gate/machine.json`.
+
+**Main tests.**
+
+- `harness/hooks/tests/gate-failures.test.sh`: `GATE_FAILURES_FILE` per script, the run file, the report line, the runs
+  that write nothing, retention.
+- `test/unit/gate-failures-format.test.ts`: the format, the test id, scrubbing.
+- `test/unit/failures-reporter.test.ts`, `test/contract/failures-reporter-rerun.test.ts`: the reporters, and that the
+  rerun command of an entry runs exactly its test.
+- `test/contract/gate-failures-cli.test.ts`, `test/contract/gate-failures-rerun.test.ts`,
+  `test/contract/gate-failures-report.test.ts`, `test/contract/gate-failures-transfer.test.ts`: the subcommands.
+- `test/unit/quarantine-suggest.test.ts`: entries from candidates.
 
 ## PR and CI badges
 
