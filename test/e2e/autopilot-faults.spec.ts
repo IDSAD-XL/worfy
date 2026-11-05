@@ -136,13 +136,23 @@ test('GitHub out of reach for the whole Run: the Run goes through both Waves, th
     await expect(status).toHaveText('Wave 2 · running')
     await expect.poll(() => messages(world.log)).toEqual([WAVE_1, `/epic-wave Ticket-ы 03 эпика ${EPIC}`])
 
-    // 03 is merged too: nothing is left, and the Run stops by itself.
+    // 03 is merged too: every Ticket is done, so the frame leaves the strip for a chip on the done
+    // shelf (ADR-0075, point 5) as soon as the screen reads 03's Status — with its status line, which
+    // can no longer show the stop. The screen and the Run's stop race for that, and on Windows CI the
+    // screen came first; the test lets the screen go first on every machine: the turn ends only after
+    // the chip is there.
     writes.push(setStatus(world, 3, 'done'))
+    await expect(window.locator(`[data-testid="done-shelf-chip"][data-epic="${EPIC}"]`)).toBeVisible()
+    await expect(frame).toHaveCount(0)
+    // Nothing is left, and the Run stops by itself: its toast and its Journal say why.
     await releaseTurn(app)
+    await expect(window.getByTestId('run-stopped-toast')).toContainText('Run stopped: no-ready-wave · 3 done, 0 blocked')
+    await expect.poll(() => journals(world.dataDir).map(kindsOf).flat().at(-1)).toBe('run-stopped no-ready-wave')
+    // The frame opened from the shelf: the status line keeps the stop, the button is back with nothing to start.
+    await window.getByRole('button', { name: `Expand ${EPIC}, 3 of 3 done` }).click()
     await expect(status).toHaveText('stopped: no ready wave')
     await expect(autopilot).toHaveText('Autopilot')
-    await expect(autopilot).toHaveAttribute('aria-disabled', 'false')
-    await expect.poll(() => journals(world.dataDir).map(kindsOf).flat().at(-1)).toBe('run-stopped no-ready-wave')
+    await expect(autopilot).toHaveAttribute('aria-disabled', 'true')
   } finally {
     await launched.close()
   }

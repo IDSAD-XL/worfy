@@ -115,3 +115,17 @@ Source: [spec.md](../spec.md), «Сценарии» (строки «Прилож
   у GitHub-сценария — «I1: 2 wave-started, the scenario expects 1».
 - Время локально (Mac, один worker): 3.5 с и 1.4 с, spec — 5.1 с. Предел 30 с по логу `macos-e2e` и зелёный
   `windows-e2e` проверяет CI на PR.
+- **Доработка, раунд 1 (красный `windows-e2e (1/4)`, run 42005761838):** test GitHub без сети на Windows падал на
+  `expect(status).toHaveText('stopped: no ready wave')` с `element(s) not found` после двух «Wave 2 · running».
+  Причина — в test-е, не в Run-е: Run остановился (в снимке ошибки toast «Run stopped: no-ready-wave · 3 done,
+  0 blocked»), но после `done` у 03 все Ticket-ы Epic-а готовы, и рамка Epic-а уходит фишкой на полку готовых
+  (ADR-0075, пункт 5) вместе со строкой статуса и кнопкой — как только экран прочтёт `Status:` 03. Экран и
+  остановка Run-а гонятся; на Mac первой успевала остановка, на Windows CI — экран. Теперь test сам ставит экран
+  первым: после `setStatus(03, done)` ждёт фишку `done-shelf-chip` эпика `demo` и пропажу рамки, только потом
+  `releaseTurn`. Остановку читает из того, что переживает рамку: toast `run-stopped-toast` («Run stopped:
+  no-ready-wave · 3 done, 0 blocked») и последняя строка Journal-а; потом открывает рамку кнопкой фишки «Expand demo,
+  3 of 3 done» — строка статуса `stopped: no ready wave`, кнопка `Autopilot` с `aria-disabled="true"` (запускать
+  нечего; прежнее `false` было верно только пока экран не видел 03 готовым). Timeout-ы не тронуты, src/ не тронут.
+- Воспроизведение на Mac: старые конечные проверки при новом порядке (экран первым) — exit 1, `element(s) not
+  found` на строке статуса, ровно как на Windows. Мутант без последнего `releaseTurn` — exit 1, toast не пришёл.
+  Spec целиком — exit 0 (6.0 с и 2.3 с).
