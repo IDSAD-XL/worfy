@@ -57,6 +57,10 @@
 //   never by `appSettings.set`: the patch has no such field. It lives here and not in the Profile, which
 //   an agent can rewrite with a plain command (spec of the Epic, "security", item 5). Main reads it
 //   with autoApprovalMode() of src/main/settings/store.ts;
+// - `autoContinue` — the Projects with Auto-continue on, by Project id (worfy-retry ticket 02): `true`;
+//   a Project with no entry is off. Set only by the Auto-continue item of the Orchestrator's Modes menu,
+//   through the `autoContinue` IPC domain (src/shared/ipc/auto-continue.ts), never by `appSettings.set`.
+//   Main reads it with autoContinueOn() of src/main/settings/store.ts;
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
 import { DEFAULT_START_WINDOW, RUN_MODES, type RunMode, type StartWindow } from '../autopilot/run-mode'
@@ -252,6 +256,9 @@ export const autoApprovalProjectIdSchema = z
 /** The modes of the Projects that are not Off, by Project id. */
 export const autoApprovalSchema = z.record(autoApprovalProjectIdSchema, autoApprovalModeSchema)
 
+/** The Projects with Auto-continue on, by Project id (the same keys as `autoApproval`); off is no entry. */
+export const autoContinueSchema = z.record(autoApprovalProjectIdSchema, z.literal(true))
+
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),
   sidebar: z.object({
@@ -287,6 +294,8 @@ export const appSettingsSchema = z.object({
   guideLanguage: guideLanguageSchema.optional(),
   /** The Auto-approval mode by Project id; absent while every Project is Off (see autoApprovalOf). */
   autoApproval: autoApprovalSchema.optional(),
+  /** The Projects with Auto-continue on; absent while it is off everywhere (see autoContinueOf). */
+  autoContinue: autoContinueSchema.optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
@@ -361,6 +370,12 @@ export function autoUpdateOf(settings: Pick<AppSettings, 'autoUpdate'>): boolean
 export function autoApprovalOf(settings: Pick<AppSettings, 'autoApproval'>, projectId: string): AutoApprovalMode {
   const modes = settings.autoApproval
   return modes !== undefined && Object.hasOwn(modes, projectId) ? (modes[projectId] ?? 'off') : 'off'
+}
+
+/** Whether Auto-continue is on for Project `projectId`: its entry, else off. */
+export function autoContinueOf(settings: Pick<AppSettings, 'autoContinue'>, projectId: string): boolean {
+  const on = settings.autoContinue
+  return on !== undefined && Object.hasOwn(on, projectId) && on[projectId] === true
 }
 
 /** The archive settings in force: each field the person chose, else its default. */

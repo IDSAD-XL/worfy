@@ -1569,7 +1569,7 @@
   cursor: pointer;
 }
 
-/* Input field: the Modes button of the Orchestrator (composer/Modes.tsx, worfy-retry ticket 12). The
+/* Input field: the Modes button of the Orchestrator (composer/Modes.tsx, worfy-retry tickets 12 and 02). The
    button has the look of the pickers next to it (theme/select.css), only tighter: 24 px tall, a 1 px
    border, a muted caption, then one icon per item of the menu, each in a slot of a fixed width, so the
    button is as wide in every combination of states. An item that is on shows its icon bright (the
@@ -1581,9 +1581,11 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 2px;
+  /* Tight enough for three slots: with them the button is 48 px without its caption, 6 px more than with
+     two slots of 14 px, so Send keeps the pickers' line from 1220 px (worfy-retry ticket 02). */
+  gap: 1px;
   height: 24px;
-  padding: 0 4px 0 6px;
+  padding: 0 3px 0 5px;
   box-sizing: border-box;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-button);
@@ -1625,7 +1627,7 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 14px;
+  width: 12px;
   height: 14px;
   color: var(--text-muted);
 }
@@ -1653,7 +1655,8 @@
 }
 
 /* The menu over the button, drawn into the page's body like the list of a Select (theme/select.css):
-   Eco mode, a line, then the group of the three positions of Auto-approval under its heading. Each
+   Eco mode, a line, the group of the three positions of Auto-approval under its heading, a line, then
+   Auto-continue (worfy-retry ticket 02). Each
    item has a slot for the check mark in front, its caption and a muted line after it. */
 .w-modes__menu {
   z-index: 3000;
@@ -1724,8 +1727,8 @@
 .w-modes__item[aria-checked='true'] .w-modes__item-label {
   font-weight: 600;
 }
-.w-modes__item[aria-checked='true']:is([data-item='eco'], [data-mode='on']) .w-modes__check,
-.w-modes__item[aria-checked='true']:is([data-item='eco'], [data-mode='on']) .w-modes__item-label {
+.w-modes__item[aria-checked='true']:is([data-item='eco'], [data-item='auto-continue'], [data-mode='on']) .w-modes__check,
+.w-modes__item[aria-checked='true']:is([data-item='eco'], [data-item='auto-continue'], [data-mode='on']) .w-modes__item-label {
   color: var(--ready-text);
 }
 .w-modes__item-label {

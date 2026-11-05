@@ -115,7 +115,7 @@ async function expectBareSlots(window: Page, modes: Locator): Promise<void> {
         }),
       )
       const bare = { boxShadow: 'none', backgroundColor: 'rgba(0, 0, 0, 0)', borderStyle: 'none' }
-      expect(looks, `${scheme}: the slots`).toEqual([bare, bare])
+      expect(looks, `${scheme}: the slots`).toEqual([bare, bare, bare])
     }
   } finally {
     await window.emulateMedia({ colorScheme: null })

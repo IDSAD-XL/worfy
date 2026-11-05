@@ -303,8 +303,8 @@ async function resizeWindow(app: ElectronApplication, inPage: Locator, width: nu
 
 /**
  * No element of the controls line of the Session view `view` is lost at `width` (worfy-retry ticket
- * 12): the pickers, the Orchestrator's Modes button and Send are shown, inside the bar, Modes right of
- * the pickers.
+ * 12): the pickers, the Orchestrator's Modes button with its three icons and Send are shown, inside
+ * the bar, Modes right of the pickers.
  */
 async function nothingLost(view: Locator, width: number): Promise<void> {
   const bar = view.locator('.w-composer__bar')
@@ -315,6 +315,14 @@ async function nothingLost(view: Locator, width: number): Promise<void> {
     expect(each.x + each.width, `the right edge of ${name} at ${width} px`).toBeLessThanOrEqual(barBox.x + barBox.width + 0.5)
   }
   expect(modesBox.x, `Modes right of the pickers at ${width} px`).toBeGreaterThanOrEqual(pickersBox.x)
+  // The three state icons of the button — Eco mode, Auto-approval, Auto-continue (worfy-retry ticket 02) — all shown, inside it.
+  const slots = view.getByRole('button', { name: 'Modes' }).locator('[data-mode-item]')
+  expect(await slots.count(), `the icons of Modes at ${width} px`).toBe(3)
+  for (const each of await slots.all()) {
+    const slotBox = await box(each)
+    expect(slotBox.width, `an icon of Modes at ${width} px`).toBeGreaterThan(0)
+    expect(slotBox.x + slotBox.width, `an icon inside Modes at ${width} px`).toBeLessThanOrEqual(modesBox.x + modesBox.width + 0.5)
+  }
 }
 
 /** The height of the bar as it is, and with a block as wide as the native lists in the pickers' place. */
@@ -357,7 +365,9 @@ test('on the default model the pickers do not make the bar under the input field
     // The window from 800 to 1600 px wide with the sidebar shown (worfy-retry ticket 12): no element of
     // the bar is lost, and from 1220 px up Send stays on the pickers' line. Measured every 10 px of
     // 800–1600 px: on origin/main db7ded110, with both switches, Send left the pickers' line below
-    // 1260 px; with the Modes button it holds down to 1210 px, and this keeps that gain.
+    // 1260 px; with the Modes button it holds down to 1210 px, and this keeps that gain. With the third
+    // icon of Auto-continue (worfy-retry ticket 02) and the slots narrowed to 12 px, measured every 2 px
+    // of 1190–1240 px: Send holds down to 1212 px.
     for (let width = 800; width <= 1600; width += 20) {
       await resize(width, 800)
       await nothingLost(view, width)

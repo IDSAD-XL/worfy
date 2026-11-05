@@ -3,13 +3,15 @@ import { createPortal } from 'react-dom'
 import { AUTO_APPROVAL_MODES } from '../../../shared/settings/app-settings'
 import { useOrchestratorViews } from '../../canvas/nodes/orchestrator-view'
 import { AUTO_APPROVAL_DETAILS, AUTO_APPROVAL_LABELS, AUTO_APPROVAL_TITLES, useAutoApproval } from '../modes/auto-approval'
+import { useAutoContinue } from '../modes/auto-continue'
 import { useEcoMode } from '../modes/eco-mode'
 import type { ComposerItemProps } from './index'
 
 // The Modes button (worfy-retry ticket 12), in the bar under the input field of the Orchestrator only:
-// a regular Session has none. It holds the Orchestrator modes — Eco mode (modes/eco-mode.ts) and
-// Auto-approval (modes/auto-approval.ts) — in one menu, where two switches stood before: a third switch
-// would push Send off the pickers' line at the window's usual width (test/e2e/session-controls.spec.ts).
+// a regular Session has none. It holds the Orchestrator modes — Eco mode (modes/eco-mode.ts),
+// Auto-approval (modes/auto-approval.ts) and Auto-continue (modes/auto-continue.ts, worfy-retry ticket
+// 02) — in one menu, where two switches stood before: a third switch would push Send off the pickers'
+// line at the window's usual width (test/e2e/session-controls.spec.ts).
 // The button shows the state of every item as an icon, always all of them and in a fixed order: bright
 // when on, muted when off, an outline for Auto-approval Shadow, faint while not known. Each icon has a
 // slot of a fixed width, so the button is as wide in every combination of states; only its caption
@@ -48,6 +50,15 @@ function ShieldIcon() {
   )
 }
 
+/** Auto-continue: an arrow that comes round and goes on. */
+function ContinueIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8 2a6 6 0 1 0 5.7 7.9l-1.9-.6A4 4 0 1 1 8 4c1 0 2 .4 2.7 1L9 6.7h5V1.7l-1.9 1.9A6 6 0 0 0 8 2z" />
+    </svg>
+  )
+}
+
 /** The mark in front of a checked item. */
 function CheckMark() {
   return (
@@ -67,6 +78,7 @@ function stateWords(state: IconState, item: { readOnly: boolean; reading: boolea
 function ModesMenu({ projectId }: { projectId: string }) {
   const eco = useEcoMode(projectId)
   const auto = useAutoApproval(projectId)
+  const cont = useAutoContinue(projectId)
   /** Where the open menu stands; null while it is closed. */
   const [menu, setMenu] = useState<CSSProperties | null>(null)
   const button = useRef<HTMLButtonElement>(null)
@@ -75,10 +87,13 @@ function ModesMenu({ projectId }: { projectId: string }) {
 
   const ecoState: IconState = eco.on === null ? 'unknown' : eco.on ? 'on' : 'off'
   const autoState: IconState = auto.mode ?? 'unknown'
-  const readOnly = eco.readOnly && auto.readOnly
+  const contState: IconState = cont.on === null ? 'unknown' : cont.on ? 'on' : 'off'
+  const readOnly = eco.readOnly && auto.readOnly && cont.readOnly
   // The states are in the button's name, not only in its tooltip: a screen reader says them with it.
-  // A window on a Linked machine says once where both are set.
-  const summary = readOnly ? 'Modes: set on the Machine of the Project' : `Modes: Eco mode ${stateWords(ecoState, eco)}, Auto-approval ${stateWords(autoState, auto)}`
+  // A window on a Linked machine says once where all of them are set.
+  const summary = readOnly
+    ? 'Modes: set on the Machine of the Project'
+    : `Modes: Eco mode ${stateWords(ecoState, eco)}, Auto-approval ${stateWords(autoState, auto)}, Auto-continue ${stateWords(contState, cont)}`
 
   const close = useCallback((focus: boolean) => {
     setMenu(null)
@@ -167,7 +182,7 @@ function ModesMenu({ projectId }: { projectId: string }) {
         aria-label={summary}
         aria-haspopup="menu"
         aria-expanded={menu !== null}
-        aria-busy={eco.busy || auto.busy ? 'true' : undefined}
+        aria-busy={eco.busy || auto.busy || cont.busy ? 'true' : undefined}
         title={summary}
         data-testid="modes"
         data-read-only={readOnly ? '' : undefined}
@@ -183,6 +198,9 @@ function ModesMenu({ projectId }: { projectId: string }) {
         </span>
         <span className="w-modes__slot" data-mode-item="auto-approval" data-state={autoState} data-saved={auto.saved ?? undefined}>
           <ShieldIcon />
+        </span>
+        <span className="w-modes__slot" data-mode-item="auto-continue" data-state={contState}>
+          <ContinueIcon />
         </span>
       </button>
       {menu === null
@@ -232,6 +250,24 @@ function ModesMenu({ projectId }: { projectId: string }) {
                   </button>
                 ))}
               </div>
+              <div role="separator" className="w-modes__separator" />
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                className="w-modes__item"
+                data-item="auto-continue"
+                aria-checked={cont.on === true}
+                aria-disabled={cont.unavailable !== null ? 'true' : undefined}
+                aria-busy={cont.busy ? 'true' : undefined}
+                title={cont.title}
+                data-read-only={cont.readOnly ? '' : undefined}
+                tabIndex={-1}
+                onClick={cont.toggle}
+              >
+                <span className="w-modes__check">{cont.on === true ? <CheckMark /> : null}</span>
+                <span className="w-modes__item-label">Auto-continue</span>
+                <span className="w-modes__item-detail">Retry after API errors and Limits</span>
+              </button>
             </div>,
             document.body,
           )}

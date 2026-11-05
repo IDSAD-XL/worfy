@@ -9,9 +9,12 @@
 // through shows a toast and the Profile as it is now. Auto-approval shows the mode main reads for the
 // Project (Off / Shadow / On), choosing another position writes it through `autoApproval.set`, and a
 // write that did not go through shows a toast and the mode read again; under a debugging port it is Off
-// and unavailable. A window on another Machine, read-only or not, reads and writes nothing. What main
-// does with a write is checked in test/contract/eco-mode.test.ts and
-// test/contract/auto-approve-setting.test.ts.
+// and unavailable. Auto-continue (worfy-retry ticket 02), the third item, shows whether main reads it
+// on for the Project, a choice writes the other value through `autoContinue.set`, a change made in
+// another window shows at once (`autoContinue.changed`), and a write that did not go through shows a
+// toast and the setting read again. A window on another Machine, read-only or not, reads and writes
+// nothing. What main does with a write is checked in test/contract/eco-mode.test.ts,
+// test/contract/auto-approve-setting.test.ts and test/contract/auto-continue-setting.test.ts.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AutoApprovalState } from '../../src/shared/ipc/auto-approve'
@@ -47,6 +50,14 @@ interface FakeMain {
   autoSet: Answer | undefined
   /** Holds the answer of autoApproval.set until called. */
   hold: (() => void) | null
+  /** What each autoContinue.read answers, in turn (the last one again once they run out); a string — main threw with it. */
+  contReads: (boolean | string)[]
+  /** What autoContinue.set answers; undefined — the value it was given; a string — main threw with it. */
+  contSet: boolean | string | undefined
+  /** Holds the answer of autoContinue.set until called. */
+  contHold: (() => void) | null
+  /** Sends an event of main to the window's subscribers. */
+  emit: (channel: string, payload: unknown) => void
 }
 
 let main: FakeMain
@@ -61,6 +72,9 @@ interface Setup {
   auto?: Answer[]
   autoSet?: Answer
   hold?: boolean
+  cont?: (boolean | string)[]
+  contSet?: boolean | string
+  contHold?: boolean
 }
 
 function preload(setup: Setup = {}): FakeMain {
@@ -71,7 +85,16 @@ function preload(setup: Setup = {}): FakeMain {
     autoReads: setup.auto ?? ['off'],
     autoSet: setup.autoSet,
     hold: null,
+    contReads: setup.cont ?? [false],
+    contSet: setup.contSet,
+    contHold: null,
+    emit: (channel, payload) => {
+      for (const [, each] of listeners) if (each.channel === channel) each.handler(payload)
+    },
   }
+  const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
+  let nextListener = 1
+  const contAnswer = (value: boolean | string | undefined) => Promise.resolve(typeof value === 'boolean' ? ({ ok: true, value: { on: value } } as never) : ({ ok: false, error: value } as never))
   const ecoAnswer = (value: unknown) => Promise.resolve(typeof value === 'string' ? ({ ok: false, error: value } as never) : ({ ok: true, value } as never))
   const autoAnswer = (value: Answer | undefined) =>
     Promise.resolve(
@@ -98,12 +121,27 @@ function preload(setup: Setup = {}): FakeMain {
             fake.hold = () => resolve(autoAnswer(value) as never)
           })
         }
+        case 'autoContinue.read':
+          return contAnswer(fake.contReads.length > 1 ? fake.contReads.shift() : fake.contReads[0])
+        case 'autoContinue.set': {
+          const value = fake.contSet ?? (input as { on: boolean }).on
+          if (setup.contHold !== true) return contAnswer(value)
+          return new Promise((resolve) => {
+            fake.contHold = () => resolve(contAnswer(value) as never)
+          })
+        }
         default:
           return Promise.resolve({ ok: false, error: `no ${channel} here` } as never)
       }
     },
-    on: () => 1,
-    off: () => undefined,
+    on: (channel, handler) => {
+      const id = nextListener++
+      listeners.set(id, { channel, handler })
+      return id
+    },
+    off: (id) => {
+      listeners.delete(id)
+    },
   }
   ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
   return fake
@@ -136,13 +174,15 @@ const group = () => within(menu()!).getByRole('group', { name: 'Auto-approval' }
 const position = (name: Name) => within(menu()!).getByRole('menuitemradio', { name: new RegExp(`^${name}`, 'u') })
 const items = () => [...menu()!.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"], [role="menuitemradio"]')]
 /** The state icon of an item on the button: on, off, shadow or unknown. */
-const slot = (item: 'eco' | 'auto-approval') => trigger().querySelector<HTMLElement>(`[data-mode-item="${item}"]`)!
+const slot = (item: 'eco' | 'auto-approval' | 'auto-continue') => trigger().querySelector<HTMLElement>(`[data-mode-item="${item}"]`)!
 /** What main was asked of the modes; other channels (projects.list) do not count. */
-const modeCalls = () => main.calls.filter((call) => /^(ecoMode|autoApproval)\./u.test(call.channel))
+const modeCalls = () => main.calls.filter((call) => /^(ecoMode|autoApproval|autoContinue)\./u.test(call.channel))
 /** The check mark in front of an item: shown only on a checked one. */
 const marked = (item: HTMLElement) => item.querySelector('.w-modes__check svg') !== null
 const ecoCalls = () => main.calls.filter((call) => call.channel.startsWith('ecoMode.'))
 const autoCalls = () => main.calls.filter((call) => call.channel.startsWith('autoApproval.'))
+const contCalls = () => main.calls.filter((call) => call.channel.startsWith('autoContinue.'))
+const contItem = () => within(menu()!).getByRole('menuitemcheckbox', { name: /^Auto-continue/u })
 const press = async (element: Element, key: string) => {
   await act(async () => {
     fireEvent.keyDown(element, { key })
@@ -212,17 +252,19 @@ describe('the Modes button', () => {
     expect(modeCalls()).toEqual([
       { channel: 'ecoMode.read', input: { root: ROOT } },
       { channel: 'autoApproval.read', input: { projectId: PROJECT } },
+      { channel: 'autoContinue.read', input: { projectId: PROJECT } },
     ])
     expect(trigger().textContent).toBe('Modes')
     // The states are in the accessible name and the tooltip alike.
-    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode on, Auto-approval shadow')
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode on, Auto-approval shadow, Auto-continue off')
     expect(trigger().getAttribute('aria-haspopup')).toBe('menu')
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
     expect(trigger().getAttribute('aria-disabled')).toBeNull()
-    expect([...trigger().querySelectorAll('[data-mode-item]')].map((each) => each.getAttribute('data-mode-item'))).toEqual(['eco', 'auto-approval'])
+    expect([...trigger().querySelectorAll('[data-mode-item]')].map((each) => each.getAttribute('data-mode-item'))).toEqual(['eco', 'auto-approval', 'auto-continue'])
     expect(slot('eco').getAttribute('data-state')).toBe('on')
     expect(slot('auto-approval').getAttribute('data-state')).toBe('shadow')
-    expect(trigger().title).toBe('Modes: Eco mode on, Auto-approval shadow')
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('off')
+    expect(trigger().title).toBe('Modes: Eco mode on, Auto-approval shadow, Auto-continue off')
     expect(menu()).toBeNull()
   })
 
@@ -235,15 +277,19 @@ describe('the Modes button', () => {
     const seen = new Map<string, string[]>()
     for (const eco of [ECO_OFF, ECO_ON, { available: false, reason: 'no Profile' } as EcoModeState]) {
       for (const auto of ['off', 'shadow', 'on', 'cannot read'] as Answer[]) {
-        main = preload({ eco: [eco], auto: [auto] })
-        await mount()
-        seen.set(`${slot('eco').getAttribute('data-state')}/${slot('auto-approval').getAttribute('data-state')}`, [trigger().textContent ?? '', ...shape()])
-        cleanup()
+        for (const cont of [false, true, 'cannot read']) {
+          main = preload({ eco: [eco], auto: [auto], cont: [cont] })
+          await mount()
+          seen.set(`${slot('eco').getAttribute('data-state')}/${slot('auto-approval').getAttribute('data-state')}/${slot('auto-continue').getAttribute('data-state')}`, [trigger().textContent ?? '', ...shape()])
+          cleanup()
+        }
       }
     }
-    expect([...seen.keys()]).toEqual(['off/off', 'off/shadow', 'off/on', 'off/unknown', 'on/off', 'on/shadow', 'on/on', 'on/unknown', 'unknown/off', 'unknown/shadow', 'unknown/on', 'unknown/unknown'])
+    // Every combination of the three states: 3 × 4 × 3.
+    expect(seen.size).toBe(36)
     expect(new Set([...seen.values()].map((each) => JSON.stringify(each))).size).toBe(1)
-    expect(seen.get('on/on')).toEqual(['Modes', 'w-modes__slot 10x10 0 0 16 16', 'w-modes__slot 10x10 0 0 16 16'])
+    expect(seen.get('on/on/on')).toEqual(['Modes', 'w-modes__slot 10x10 0 0 16 16', 'w-modes__slot 10x10 0 0 16 16', 'w-modes__slot 10x10 0 0 16 16'])
+    expect(seen.has('unknown/unknown/unknown')).toBe(true)
   })
 })
 
@@ -285,13 +331,16 @@ describe('the keyboard', () => {
       'menuitemradio true',
       'menuitemradio false',
       'menuitemradio false',
+      'menuitemcheckbox false',
     ])
     expect(document.activeElement).toBe(ecoItem())
     await press(ecoItem(), 'ArrowDown')
     expect(document.activeElement).toBe(position('Off'))
     await press(position('Off'), 'End')
-    expect(document.activeElement).toBe(position('On'))
-    await press(position('On'), 'ArrowDown')
+    expect(document.activeElement).toBe(contItem())
+    await press(contItem(), 'ArrowDown')
+    expect(document.activeElement).toBe(contItem())
+    await press(contItem(), 'ArrowUp')
     expect(document.activeElement).toBe(position('On'))
     await press(position('On'), 'ArrowUp')
     expect(document.activeElement).toBe(position('Shadow'))
@@ -312,9 +361,15 @@ describe('the keyboard', () => {
     await settle()
     expect(position('Shadow').getAttribute('aria-checked')).toBe('true')
     expect(slot('auto-approval').getAttribute('data-state')).toBe('shadow')
-    expect(modeCalls().map((call) => call.channel)).toEqual(['ecoMode.read', 'autoApproval.read', 'ecoMode.set', 'autoApproval.set'])
+    // Enter on Auto-continue turns it on.
+    await press(position('Shadow'), 'End')
+    await press(contItem(), 'Enter')
+    await settle()
+    expect(contItem().getAttribute('aria-checked')).toBe('true')
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('on')
+    expect(modeCalls().map((call) => call.channel)).toEqual(['ecoMode.read', 'autoApproval.read', 'autoContinue.read', 'ecoMode.set', 'autoApproval.set', 'autoContinue.set'])
 
-    await press(position('Shadow'), 'Escape')
+    await press(contItem(), 'Escape')
     expect(menu()).toBeNull()
     expect(document.activeElement).toBe(trigger())
     // Enter and Space on the button are its click: they open the menu again.
@@ -364,7 +419,7 @@ describe('the keyboard', () => {
       window.dispatchEvent(new Event('resize'))
     })
     expect(menu()).toBeNull()
-    expect(modeCalls()).toHaveLength(2)
+    expect(modeCalls()).toHaveLength(3)
   })
 
   it('a press outside closes the menu and writes nothing; a second click on the button closes it too', async () => {
@@ -387,7 +442,7 @@ describe('the keyboard', () => {
     await openMenu()
     await openMenu()
     expect(menu()).toBeNull()
-    expect(modeCalls()).toHaveLength(2)
+    expect(modeCalls()).toHaveLength(3)
   })
 })
 
@@ -510,7 +565,7 @@ describe('Eco mode in the menu', () => {
     expect(ecoItem().getAttribute('aria-disabled')).toBe('true')
     expect(ecoItem().title).toBe("Reading the Project's Profile…")
     expect(ecoItem().getAttribute('aria-checked')).toBe('false')
-    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode being read, Auto-approval off')
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode being read, Auto-approval off, Auto-continue off')
   })
 
   it('a Profile that cannot be read: unavailable, with the reason in the tooltip; a choice writes nothing', async () => {
@@ -521,7 +576,7 @@ describe('Eco mode in the menu', () => {
     expect(ecoItem().getAttribute('aria-disabled')).toBe('true')
     expect(ecoItem().title).toBe('Eco mode is not available: this Harness has no bin/profile-set --field')
     expect(ecoItem().getAttribute('aria-checked')).toBe('false')
-    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode not available, Auto-approval off')
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode not available, Auto-approval off, Auto-continue off')
     await clickEco()
     expect(ecoCalls().map((call) => call.channel)).toEqual(['ecoMode.read'])
   })
@@ -663,7 +718,7 @@ describe('Auto-approval in the menu', () => {
     await openMenu()
     expect(position('Off').getAttribute('aria-disabled')).toBe('true')
     expect(position('Off').title).toBe('Reading the Auto-approval mode…')
-    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode off, Auto-approval being read')
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode off, Auto-approval being read, Auto-continue off')
   })
 
   it('shows the mode main answers, not the one asked for', async () => {
@@ -718,6 +773,7 @@ describe('a window on a Linked machine', () => {
     expect(slot('eco').getAttribute('data-state')).toBe('unknown')
     expect(slot('auto-approval').getAttribute('data-state')).toBe('unknown')
     expect(slot('auto-approval').hasAttribute('data-saved')).toBe(false)
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('unknown')
     await openMenu()
     expect(ecoItem().getAttribute('aria-disabled')).toBe('true')
     expect(ecoItem().title).toBe(ECO_MODE_ELSEWHERE)
@@ -731,8 +787,20 @@ describe('a window on a Linked machine', () => {
       expect(marked(position(name))).toBe(false)
       expect(position(name).title).toBe(AUTO_APPROVAL_ELSEWHERE)
     }
+    const { AUTO_CONTINUE_ELSEWHERE } = await import('../../src/renderer/session/modes/auto-continue')
+    expect(AUTO_CONTINUE_ELSEWHERE).toBe('Auto-continue is set in worfy on the Machine of the Project')
+    expect(contItem().getAttribute('aria-disabled')).toBe('true')
+    expect(contItem().getAttribute('aria-checked')).toBe('false')
+    expect(contItem().hasAttribute('data-read-only')).toBe(true)
+    expect(contItem().title).toBe(AUTO_CONTINUE_ELSEWHERE)
+    expect(marked(contItem())).toBe(false)
     await clickEco()
     await choose('Shadow')
+    await click(contItem())
+    // Nothing read or written, and no subscription to this Machine's changes either.
+    main.emit('autoContinue.changed', { projectId: PROJECT, on: true })
+    await settle()
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('unknown')
     expect(modeCalls()).toEqual([])
   })
 
@@ -747,9 +815,127 @@ describe('a window on a Linked machine', () => {
     expect(ecoItem().title).toBe('studio gives this Machine read-only access')
     expect(ecoItem().hasAttribute('data-read-only')).toBe(true)
     expect(position('On').title).toBe(AUTO_APPROVAL_ELSEWHERE)
+    // Auto-continue takes the read-only hint, as Eco mode does.
+    expect(contItem().getAttribute('aria-disabled')).toBe('true')
+    expect(contItem().title).toBe('studio gives this Machine read-only access')
+    expect(contItem().hasAttribute('data-read-only')).toBe(true)
     expect(trigger().getAttribute('aria-label')).toBe('Modes: set on the Machine of the Project')
     await clickEco()
     await choose('On')
+    await click(contItem())
     expect(modeCalls()).toEqual([])
+  })
+})
+
+describe('Auto-continue in the menu', () => {
+  it('off by default: the third item, a checkbox after Auto-approval, with the tooltip of the spec; the icon muted', async () => {
+    const { AUTO_CONTINUE_TITLE } = await import('../../src/renderer/session/modes/auto-continue')
+    expect(AUTO_CONTINUE_TITLE).toBe(
+      'Auto-continue: after a temporary API error (500, 529, connection lost) worfy sends the Orchestrator "continue" up to 5 times with growing pauses; after the Limits refuse, it waits for the reset and continues. Never resends your message or the Wave command.',
+    )
+    main = preload()
+    await mount()
+    expect(contCalls()).toEqual([{ channel: 'autoContinue.read', input: { projectId: PROJECT } }])
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('off')
+    await openMenu()
+    expect(items().at(-1)).toBe(contItem())
+    expect(contItem().getAttribute('aria-checked')).toBe('false')
+    expect(contItem().getAttribute('aria-disabled')).toBeNull()
+    expect(marked(contItem())).toBe(false)
+    expect(contItem().title).toBe(AUTO_CONTINUE_TITLE)
+    expect(contItem().textContent).toContain('Auto-continue')
+  })
+
+  it('a choice writes on through main and shows it, the menu staying open; another writes off', async () => {
+    main = preload()
+    await mount()
+    await openMenu()
+    await click(contItem())
+    expect(contCalls()).toEqual([
+      { channel: 'autoContinue.read', input: { projectId: PROJECT } },
+      { channel: 'autoContinue.set', input: { projectId: PROJECT, on: true } },
+    ])
+    expect(contItem().getAttribute('aria-checked')).toBe('true')
+    expect(marked(contItem())).toBe(true)
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('on')
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode off, Auto-approval off, Auto-continue on')
+    expect(menu()).not.toBeNull()
+    await click(contItem())
+    expect(contCalls().at(-1)).toEqual({ channel: 'autoContinue.set', input: { projectId: PROJECT, on: false } })
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('off')
+    expect(await shownToasts()).toEqual([])
+  })
+
+  it('shows on what main reads as on', async () => {
+    main = preload({ cont: [true] })
+    await mount()
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('on')
+    await openMenu()
+    expect(contItem().getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('shows the value being written at once, busy until main answers; another choice meanwhile writes nothing', async () => {
+    main = preload({ contHold: true })
+    await mount()
+    await openMenu()
+    await click(contItem())
+    expect(contItem().getAttribute('aria-checked')).toBe('true')
+    expect(contItem().getAttribute('aria-busy')).toBe('true')
+    expect(trigger().getAttribute('aria-busy')).toBe('true')
+    await click(contItem())
+    expect(contCalls().filter((call) => call.channel === 'autoContinue.set')).toHaveLength(1)
+    await act(async () => {
+      main.contHold?.()
+    })
+    await settle()
+    expect(contItem().getAttribute('aria-busy')).toBeNull()
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('on')
+  })
+
+  it('a write that failed: a toast with the reason, and the item shows the setting read again', async () => {
+    main = preload({ cont: [false, false], contSet: 'autoContinue.set failed: disk full' })
+    await mount()
+    await openMenu()
+    await click(contItem())
+    expect(await shownToasts()).toEqual([{ kind: 'error', text: 'Auto-continue was not turned on: disk full' }])
+    expect(contCalls().map((call) => call.channel)).toEqual(['autoContinue.read', 'autoContinue.set', 'autoContinue.read'])
+    expect(contItem().getAttribute('aria-checked')).toBe('false')
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('off')
+  })
+
+  it('a read that failed: unavailable, saying why; a choice writes nothing; the other items still work', async () => {
+    main = preload({ cont: ['autoContinue.read failed: no such Project'] })
+    await mount()
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('unknown')
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode off, Auto-approval off, Auto-continue not available')
+    await openMenu()
+    expect(contItem().getAttribute('aria-disabled')).toBe('true')
+    expect(contItem().title).toBe('Auto-continue is not available: no such Project')
+    await click(contItem())
+    expect(contCalls().map((call) => call.channel)).toEqual(['autoContinue.read'])
+    await clickEco()
+    expect(ecoItem().getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('a change made in another window shows at once in the open menu; a change of another Project does not', async () => {
+    main = preload()
+    await mount()
+    await openMenu()
+    await act(async () => {
+      main.emit('autoContinue.changed', { projectId: 'other-0000000e', on: true })
+    })
+    expect(contItem().getAttribute('aria-checked')).toBe('false')
+    await act(async () => {
+      main.emit('autoContinue.changed', { projectId: PROJECT, on: true })
+    })
+    expect(contItem().getAttribute('aria-checked')).toBe('true')
+    expect(slot('auto-continue').getAttribute('data-state')).toBe('on')
+    expect(contCalls().map((call) => call.channel)).toEqual(['autoContinue.read'])
+  })
+
+  it('a Session that is not the Orchestrator asks nothing of Auto-continue', async () => {
+    main = preload()
+    await mount('another-session')
+    expect(contCalls()).toEqual([])
   })
 })
