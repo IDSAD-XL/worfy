@@ -1,0 +1,22 @@
+{
+  "about": "A good Run: Wave 1 (01, 02), the Orchestrator's turn ends with API Error: 500, the Run stops with turn-error; a new start then runs and is stopped by the user. The test claimed both Tickets for the Orchestrator.",
+  "journals": ["run-1.jsonl", "run-2.jsonl"],
+  "statusWrites": [
+    { "at": "2026-11-03T10:00:04.000Z", "file": ".scratch/demo/issues/01-ticket-1.md", "ticket": "01", "state": "claimed" },
+    { "at": "2026-11-03T10:00:04.500Z", "file": ".scratch/demo/issues/02-ticket-2.md", "ticket": "02", "state": "claimed" }
+  ],
+  "projectBefore": {
+    ".scratch/demo/issues/01-ticket-1.md": "# 01 — Ticket 1\n\nType: task\nStatus: open\nBlocked by: —\n",
+    ".scratch/demo/issues/02-ticket-2.md": "# 02 — Ticket 2\n\nType: task\nStatus: open\nBlocked by: —\n",
+    ".scratch/demo/issues/03-ticket-3.md": "# 03 — Ticket 3\n\nType: task\nStatus: open\nBlocked by: 01, 02\n",
+    "src/f1.ts": "export const f1 = 1\n"
+  },
+  "projectAfter": {
+    ".scratch/demo/issues/01-ticket-1.md": "# 01 — Ticket 1\n\nType: task\nStatus: claimed 2026-11-03T10:00Z\nBlocked by: —\n",
+    ".scratch/demo/issues/02-ticket-2.md": "# 02 — Ticket 2\n\nType: task\nStatus: claimed 2026-11-03T10:00Z\nBlocked by: —\n",
+    ".scratch/demo/issues/03-ticket-3.md": "# 03 — Ticket 3\n\nType: task\nStatus: open\nBlocked by: 01, 02\n",
+    "src/f1.ts": "export const f1 = 1\n"
+  },
+  "restart": { "refusal": null },
+  "expect": { "stop": "turn-error", "errorText": "^API Error: 500 .*api_error", "waves": 1 }
+}

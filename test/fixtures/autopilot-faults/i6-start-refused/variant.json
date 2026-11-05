@@ -1,0 +1,10 @@
+{
+  "about": "The new start after the stop was refused, so there is no second journal.",
+  "rule": "I6",
+  "journals": [
+    "run-1.jsonl"
+  ],
+  "restart": {
+    "refusal": "Autopilot is already running in this Project"
+  }
+}

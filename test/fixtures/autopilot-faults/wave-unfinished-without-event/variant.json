@@ -1,0 +1,8 @@
+{
+  "about": "run-stopped wave-unfinished: the reason needs no event before it, so nothing is broken.",
+  "rule": null,
+  "expect": {
+    "stop": "wave-unfinished",
+    "errorText": null
+  }
+}
