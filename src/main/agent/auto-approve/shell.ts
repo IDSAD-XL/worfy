@@ -1193,6 +1193,9 @@ const BUILTINS = new Set([
 ])
 const RESERVED = new Set(['if', 'then', 'else', 'elif', 'fi', 'case', 'esac', 'for', 'while', 'until', 'do', 'done', 'in', 'function', 'select', 'time', 'coproc', 'repeat', 'foreach', 'end', '!', '{', '}', '[[', ']]'])
 const SHELLS = new Set(['sh', 'bash', 'zsh'])
+// The variables that name a file each shell runs before a -c script: bash's BASH_ENV; zsh's ZDOTDIR (its
+// .zshenv); sh's ENV, and BASH_ENV, as sh may be bash.
+const STARTUP_FILES: Readonly<Record<string, readonly string[]>> = { bash: ['BASH_ENV'], zsh: ['ZDOTDIR'], sh: ['ENV', 'BASH_ENV'] }
 // The programs of the table, which read their options from their words.
 const TABLE = new Set(['echo', 'true', 'false', ':', 'pwd', 'test', '[', 'printf', 'cat', 'ls', 'head', 'tail', 'wc', 'rm', 'rmdir', 'mv', 'cp', 'mkdir', 'touch', 'tee', 'mktemp', 'git', 'curl', 'wget'])
 // Programs for which an option a file name could become changes nothing listed: rm and rmdir take no
@@ -1412,7 +1415,8 @@ function command(cmd: Command, state: State, scope: Scope, stdinFrom: number | n
       // The outer shell globs the script word before the inner one reads it: a file name becomes code.
       if (script.globAt >= 0 || script.extendedGlob) fail('a glob in a shell -c script')
       if (scope.depth + 1 > MAX_DEPTH) fail('shells nested too deep')
-      if (program === 'bash' && scope.context.env['BASH_ENV'] !== undefined) fail('a bash -c with BASH_ENV set')
+      // A file the inner shell reads before the script: may hold anything.
+      for (const name of STARTUP_FILES[program] ?? []) if (scope.context.env[name] !== undefined) fail(`a ${program} -c with ${name} set`)
       const index = emit(scope, action(none()))
       let inner: ShellAction[]
       try {

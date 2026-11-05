@@ -13,7 +13,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
-import { HARD_HINTS, HINTS } from '../../src/main/agent/auto-approve/policy'
+import { hardHint, HINTS } from '../../src/main/agent/auto-approve/policy'
 import { openRunApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
@@ -111,30 +111,36 @@ interface HarnessOptions {
   fails?: 'open' | 'judge'
   /** The Orchestrator's view names this Vendor (the Session itself runs on the fake Claude agent). */
   vendor?: 'codex'
+  /** The whole environment the factory tells the Session its process starts with, as the SDK's does (QueryRequest.processEnv). */
+  processEnv?: Record<string, string>
 }
 
 function harness(options: HarnessOptions = {}) {
-  const env = { WORFY_DATA_DIR: join(scratch, 'data-root') }
+  // This test's own folder: a store that writes after the test ended must not write into the next test's folder.
+  const own = scratch
+  const ownRepo = repo
+  const env = { WORFY_DATA_DIR: join(own, 'data-root') }
   const calls: FakeCall[] = []
   const releases = new FakeReleases()
   const requests: QueryRequest[] = []
   const registry = new SessionRegistry((request) => {
     if (request.unattended === true) requests.push(request)
+    if (options.processEnv !== undefined) request.processEnv?.(options.processEnv)
     return fakeQueryFactory({ scriptsDir, script: request.unattended === true ? (options.script ?? 'auto-approve-claude') : 'autopilot-waves', record: (call) => calls.push(call), releases })(request)
   })
   registries.push(registry)
   const orchestrators = new Orchestrators({
-    layout: new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 }),
-    projectPath: () => repo,
+    layout: new LayoutStore((projectId) => join(own, 'data', projectId), { delayMs: 0 }),
+    projectPath: () => ownRepo,
     registry,
-    settings: new SessionSettingsStore((projectId) => join(scratch, 'data', projectId)),
+    settings: new SessionSettingsStore((projectId) => join(own, 'data', projectId)),
     transcript: () => Promise.resolve({ model: null, statusBlock: null }),
     broadcast: () => undefined,
     publish: () => undefined,
   })
-  const workflow = async (root: string) => (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
+  const workflow = async (root: string) => (await readWorkflow({ root, claudeHome: join(own, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
   const launcher = new ActionLauncher({
-    projectRoot: () => repo,
+    projectRoot: () => ownRepo,
     settings: () => ({ actionTemplates: DEFAULT_ACTION_TEMPLATES }),
     branch: () => Promise.resolve('main'),
     workflow,
@@ -168,7 +174,7 @@ function harness(options: HarnessOptions = {}) {
           },
         })
   const autopilot = new Autopilot({
-    projectRoot: () => repo,
+    projectRoot: () => ownRepo,
     selfRefusal: () => Promise.resolve(null),
     workflow,
     watchWorkflow: () => Promise.resolve(() => undefined),
@@ -190,7 +196,7 @@ function harness(options: HarnessOptions = {}) {
                 root,
                 epic,
                 dataDir: env.WORFY_DATA_DIR,
-                harnessHome: join(scratch, 'harness-home'),
+                harnessHome: join(own, 'harness-home'),
                 shellEnv: { HOME: homedir(), USERPROFILE: homedir() },
                 gitEnv: gitEnv(),
                 sessions: registry,
@@ -275,7 +281,7 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     expect(inside).toEqual({ behavior: 'allow', updatedInput: { command: `rm -rf '${repo}/.claude/worktrees/01/build'`, description: "Remove the build folder of the Ticket's worktree" } })
     expect(outside).toMatchObject({ behavior: 'deny' })
     expect((outside as { message: string }).message).toBe(`${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${HINTS.parkPending}`)
-    expect(hard).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${HARD_HINTS['ssh']}` })
+    expect(hard).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${hardHint('ssh', process.platform)}` })
     expect(secret).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${HINTS.notJudged}` })
 
     const journal = await h.journal()
@@ -298,6 +304,15 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     expect(raw).toContain('GH_TOKEN=***')
     expect(raw).toContain('~/.ssh/demo-key')
     expect(journal[0]).toMatchObject({ kind: 'run-started', autoApproval: 'on' })
+  })
+
+  it('each request is judged in the whole environment the process started with, as the query factory tells it', async () => {
+    // A process environment without HOME: no home folder, so the policy approves nothing.
+    const h = harness({ mode: { value: 'on' }, processEnv: { PATH: '/usr/bin:/bin' } })
+    await h.runToEnd()
+    expect(typeof h.requests[0]?.processEnv).toBe('function')
+    const lines = (await h.journal()).filter((event) => event.kind === 'auto-approval')
+    expect(lines.map((line) => [line.outcome, line.rule])).toEqual(Array(4).fill(['deny', 'no-home']))
   })
 
   it('a switch of the mode during the run counts from the next request, and each line names the mode in force', async () => {
@@ -400,7 +415,7 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
 
   it('a run whose Orchestrator is on another Vendor (Codex) says off in run-started and keeps no folder: nothing judges there yet', async () => {
     const h = harness({ mode: { value: 'on' }, vendor: 'codex' })
-    await h.autopilot.start(PROJECT, EPIC)
+    await h.runToEnd()
     const journal = await h.journal()
     expect(journal[0]).toMatchObject({ kind: 'run-started', vendor: 'codex', autoApproval: 'off' })
     expect(existsSync(join(h.env.WORFY_DATA_DIR, 'autopilot-tmp')) ? readdirSync(join(h.env.WORFY_DATA_DIR, 'autopilot-tmp')) : []).toEqual([])

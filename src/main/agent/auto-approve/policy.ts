@@ -104,10 +104,28 @@ export interface PolicyContext {
    * false git may only read refs and objects (mayRunHook). A set `hooksPath` counts as true.
    */
   hooksActive: boolean | null
+  /**
+   * What git reads in each checkout a request touches, by folder: the folder a git command of the request runs
+   * in (after its `cd` and `-C`), and each worktree of the Wave. A git command is judged by the facts of its own
+   * folder, as `git -C <folder>` read them: a config of the worktree alone (`git config --worktree`, an
+   * `includeIf "gitdir:…"`) counts there. A folder git could not read (null), or one missing here, counts as
+   * nothing known: hooks not ruled out, no remotes, rebase.updateRefs not read. Writes are kept out of the hooks
+   * folder of every core.hooksPath here and above. Absent: every folder has the facts above (the Project's).
+   */
+  gitFacts?: ReadonlyMap<string, CheckoutGitFacts | null>
   /** The real path of each root recorded when the Run started (roots.ts, recordRoots), by the root's path. */
   recordedRoots: Readonly<Record<string, string>>
   /** The file system; the machine's when absent. */
   fs?: FileSystem
+}
+
+/** What git reads in one checkout (PolicyContext.gitFacts); each field as the field of PolicyContext with its name. */
+export interface CheckoutGitFacts {
+  hooksPath: string | null
+  hooksActive: boolean | null
+  rebaseUpdateRefs: boolean | null
+  remotes: readonly string[] | null
+  defaultBranch: string
 }
 
 /** One action as the rules see it, with each of its targets placed. */
@@ -188,6 +206,9 @@ export const ALLOW_RULES: readonly AllowRule[] = [
 
 const NEVER = 'worfy never approves this, in any mode. Do not retry it in another form.'
 const HARD_HOME = `${NEVER} It touches the user's secrets or settings in the home folder; leave it to the owner. If a path came from X=$(mktemp -d), put && or || exit 1 after it, so an empty X never reaches the home folder.`
+// On macOS mktemp -d makes its folder in the system's temporary folder, not in TMPDIR: outside every root, so the
+// form HARD_HOME names is never approved there. This names the one that is.
+const HARD_HOME_MACOS = `${NEVER} It touches the user's secrets or settings in the home folder; leave it to the owner. For a folder of temporary files use mkdir -p "$TMPDIR/<name>"; if a path comes from a variable, put && or || exit 1 after the command that sets it, so an empty one never reaches the home folder.`
 const HARD_OTHERS = `${NEVER} It changes the work of another Session or worktree, or a branch checked out there or the default branch. Commit only on your Ticket's branch, in its worktree.`
 const HARD_REMOTE = `${NEVER} It rewrites or deletes history on a remote, or pushes refs other than your Ticket's branch; leave pushing to the owner.`
 
@@ -244,22 +265,48 @@ export function judge(request: ApprovalRequest, context: PolicyContext): Decisio
   return decision
 }
 
+/**
+ * The folders the git commands of `request` run in, after their `cd` and `-C`, as the policy will judge them
+ * (PolicyContext.gitFacts takes them as keys); none for a file tool, or a command that is not judged.
+ */
+export function gitFolders(request: ApprovalRequest, context: PolicyContext): string[] {
+  const where = commandOf(request, context)
+  if (where === null) return []
+  const analysis = analyze(where.command, { cwd: where.cwd, env: context.env, platform: context.platform })
+  if (!analysis.judged) return []
+  return [...new Set(analysis.actions.filter((action) => action.git !== undefined).map((action) => action.cwd))]
+}
+
+/** The command of a command tool's request and the folder it starts in; null for any other request. */
+function commandOf(request: ApprovalRequest, context: PolicyContext): { command: string; cwd: string } | null {
+  if (!COMMAND_TOOLS.has(request.tool)) return null
+  const input = isRecord(request.input) ? request.input : {}
+  const command = input['command']
+  const cwd = request.tool === 'commandExecution' && typeof input['cwd'] === 'string' && input['cwd'] !== '' ? input['cwd'] : context.cwd
+  return typeof command === 'string' ? { command, cwd } : null
+}
+
 function judgeRequest(request: ApprovalRequest, prepared: Prepared): Decision {
   const { context } = prepared
   const input = isRecord(request.input) ? request.input : {}
   if (COMMAND_TOOLS.has(request.tool)) {
-    const command = input['command']
-    const cwd = request.tool === 'commandExecution' && typeof input['cwd'] === 'string' && input['cwd'] !== '' ? input['cwd'] : context.cwd
-    if (typeof command !== 'string' || command.trim() === '') return deny('not-judged', HINTS.notJudged, [])
-    return judgeCommand(command, cwd, prepared)
+    const where = commandOf(request, context)
+    if (where === null || where.command.trim() === '') return deny('not-judged', HINTS.notJudged, [])
+    return judgeCommand(where.command, where.cwd, prepared)
   }
   if (FILE_TOOLS.has(request.tool)) return judgeFiles(request.tool, input, prepared)
   return { outcome: 'park', rule: 'unknown-tool', hint: null, targets: [] }
 }
 
+/** The hint of the hard-deny rule `id` on `platform`: HARD_HINTS, with the home folder's for macOS. */
+export function hardHint(id: string, platform: NodeJS.Platform): string {
+  const hint = HARD_HINTS[id] ?? NEVER
+  return platform === 'darwin' && hint === HARD_HOME ? HARD_HOME_MACOS : hint
+}
+
 /** A hard-deny Decision of the rule `id` (a hard category or a rule of this module). */
-function hardDeny(id: string, targets: string[]): Decision {
-  return { outcome: 'hard-deny', rule: `hard:${id}`, hint: HARD_HINTS[id] ?? NEVER, targets }
+function hardDeny(id: string, targets: string[], context: PolicyContext): Decision {
+  return { outcome: 'hard-deny', rule: `hard:${id}`, hint: hardHint(id, context.platform), targets }
 }
 
 function homeOf(context: PolicyContext): string | null {
@@ -306,7 +353,7 @@ function judgeCommand(command: string, cwd: string, prepared: Prepared): Decisio
   const acts = actions.map((action) => actOf(action, prepared))
   const targets = targetsOf(acts)
   const hard = hardOfCommand(actions, acts, prepared)
-  if (hard !== null) return hardDeny(hard, targets)
+  if (hard !== null) return hardDeny(hard, targets, context)
   const hinted = hintOf(acts, actions, prepared)
   if (hinted !== null) return { ...hinted, targets }
   return allowOrPark(acts, targets)
@@ -368,7 +415,15 @@ function revisionReadOnly(words: readonly string[], paths: boolean): boolean {
   return true
 }
 
-function actOf(action: ShellAction, prepared: Prepared): Act {
+/** The git facts of the checkout at `folder` (PolicyContext.gitFacts); the context's own without that map. */
+function gitFactsAt(folder: string, context: PolicyContext): CheckoutGitFacts {
+  if (context.gitFacts === undefined) return context
+  return context.gitFacts.get(folder) ?? { hooksPath: null, hooksActive: null, rebaseUpdateRefs: null, remotes: null, defaultBranch: context.defaultBranch }
+}
+
+function actOf(action: ShellAction, outer: Prepared): Act {
+  // A git command is judged by the facts of the checkout it runs in.
+  const prepared = action.git === undefined ? outer : { ...outer, context: { ...outer.context, ...gitFactsAt(action.cwd, outer.context) } }
   const { roots, win } = prepared
   const targets: Target[] = []
   const add = (path: string, use: TargetUse): void => {
@@ -709,9 +764,14 @@ function ownRepository(cwd: string, prepared: Prepared): boolean {
  * nearest top above it, themselves only: moving or replacing one puts another hooks folder in place.
  */
 function hooksAreas(prepared: Prepared): { folders: string[]; parents: string[] } {
+  const values = new Set([prepared.context.hooksPath, ...[...(prepared.context.gitFacts?.values() ?? [])].map((facts) => facts?.hooksPath ?? null)])
+  const areas = [...values].filter((value) => value !== null).map((value) => hooksAreasOf(value, prepared))
+  return { folders: areas.flatMap((area) => area.folders), parents: areas.flatMap((area) => area.parents) }
+}
+
+/** hooksAreas of the one core.hooksPath `value`. */
+function hooksAreasOf(value: string, prepared: Prepared): { folders: string[]; parents: string[] } {
   const { context, roots, win } = prepared
-  const value = context.hooksPath
-  if (value === null) return { folders: [], parents: [] }
   const home = context.env.HOME
   const path = value.startsWith('~/') && home !== undefined ? `${home}${value.slice(1)}` : value
   const absolute = normalizePath(path, win)
@@ -1070,7 +1130,7 @@ function judgeFiles(tool: string, input: Record<string, unknown>, prepared: Prep
   }
   const targets = targetsOf([act])
   const hard = act.targets.find((target) => target.placement.kind === 'hard')
-  if (hard !== undefined && hard.placement.kind === 'hard') return hardDeny(hard.placement.category, targets)
+  if (hard !== undefined && hard.placement.kind === 'hard') return hardDeny(hard.placement.category, targets, prepared.context)
   const hinted = hintOf([act], null, prepared)
   if (hinted !== null) return { ...hinted, targets }
   return allowOrPark([act], targets)

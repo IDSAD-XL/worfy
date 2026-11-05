@@ -168,6 +168,7 @@ export function sdkQueryFactory(
       environment: request.environment,
       toolUse: request.toolUse,
     })
+    request.processEnv?.(options.env ?? environment.env)
     const handle = query({ prompt: request.prompt, options }) as QueryHandle
     const observed = attached ? attached.observe(handle) : handle
     return browserSession ? browserSession.observe(observed) : observed

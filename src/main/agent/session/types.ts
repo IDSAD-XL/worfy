@@ -132,6 +132,11 @@ export interface QueryRequest {
    * the agent's `cd`s left it in. Absent: no hook.
    */
   toolUse?: ((use: ToolUseFacts) => void) | undefined
+  /**
+   * Told the whole environment Claude Code's process starts with, before it starts: the approval policy
+   * judges each request of the process in it (worfy-auto-approve ticket 04). Absent: not told.
+   */
+  processEnv?: ((env: Readonly<Record<string, string | undefined>>) => void) | undefined
 }
 
 /** What a PreToolUse hook of Claude Code tells of one tool call. */

@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { HINTS, type Decision } from '../../src/main/agent/auto-approve/policy'
+import { HARD_HINTS, hardHint, HINTS, type Decision } from '../../src/main/agent/auto-approve/policy'
 import { configRunsProgram, GIT_CONFIG_PARAMETERS, gitEnvironment, hooksActiveOf, openRunApproval, readCheckouts, readGitFacts, runTempsDir, sweepRunTemps } from '../../src/main/agent/auto-approve/run-approval'
 import type { PermissionRequestOptions } from '../../src/main/agent/session/types'
 import { sessionOptions } from '../../src/main/vendors/claude/options'
@@ -375,23 +375,137 @@ describe('openRunApproval: the environment, the git facts and the folders of rou
   })
 })
 
+describe('openRunApproval: round 3 (review of PR #1460)', () => {
+  const posix = process.platform !== 'win32'
+  const shell = (): Record<string, string> => ({ ...(process.env as Record<string, string>), HOME: homedir(), USERPROFILE: homedir() })
+  const open = (platform?: NodeJS.Platform) =>
+    openRunApproval({ root: repo, epic: 'demo', dataDir: join(scratch, 'data'), harnessHome: join(scratch, 'harness'), shellEnv: shell(), gitEnv: gitEnv(), sessions: { list: () => [] }, ...(platform === undefined ? {} : { platform }) })
+  const wt = (): string => join(scratch, 'wt')
+  const inWave = async () => {
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/01', wt())
+    const approval = await open()
+    approval.setWave(['01'])
+    return approval
+  }
+  const ask = (approval: Awaited<ReturnType<typeof open>>, command: string, cwd = wt(), env?: Record<string, string>) =>
+    approval.judge({ tool: 'Bash', input: { command } }, { cwd, scratchpad: null, sessionId: 's', started: approval.environment, ...(env === undefined ? {} : { env }) })
+
+  it.skipIf(!posix)('reads git in the checkout the command runs in: a core.hooksPath of the worktree\'s own config keeps git status from allow', async () => {
+    const approval = await inWave()
+    expect(await ask(approval, 'git status')).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    expect(await ask(approval, `git -C '${wt()}' status`, repo)).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    git(repo, 'config', 'extensions.worktreeConfig', 'true')
+    git(wt(), 'config', '--worktree', 'core.hooksPath', 'hooks')
+    // The Project's own checkout sees no hook: only the worktree's config names one.
+    expect((await readGitFacts(repo, gitEnv())).hooksPath).toBeNull()
+    expect((await ask(approval, 'git status')).outcome).not.toBe('allow')
+    // The checkout after git -C, from a shell that stands in the Project.
+    expect((await ask(approval, `git -C '${wt()}' status`, repo)).outcome).not.toBe('allow')
+    // A write into the hooks folder of the worktree's config is refused as one into .git/hooks.
+    expect(await ask(approval, `touch '${join(wt(), 'hooks', 'pre-commit')}'`)).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    await approval.close()
+  })
+
+  it.skipIf(!posix)('an includeIf "gitdir:" of the Project\'s config that names only the worktree counts there', async () => {
+    const approval = await inWave()
+    expect(await ask(approval, 'git status')).toMatchObject({ outcome: 'allow' })
+    const included = join(scratch, 'included-config')
+    writeFileSync(included, '[core]\n\thooksPath = .husky/_\n')
+    git(repo, 'config', 'includeIf.gitdir:**/worktrees/wt.path', included)
+    expect((await readGitFacts(repo, gitEnv())).hooksPath).toBeNull()
+    expect((await readGitFacts(wt(), gitEnv())).hooksPath).toBe('.husky/_')
+    expect((await ask(approval, 'git status')).outcome).not.toBe('allow')
+    // A read of refs and objects stays allowed, for a process that started with GIT_NO_LAZY_FETCH only.
+    expect(await ask(approval, 'git log --oneline -1')).toMatchObject({ outcome: 'park', rule: 'git-without-run-environment' })
+    const fetchless = { ...approval.environment, GIT_NO_LAZY_FETCH: '1' }
+    expect(await approval.judge({ tool: 'Bash', input: { command: 'git log --oneline -1' } }, { cwd: wt(), scratchpad: null, sessionId: 's', started: fetchless })).toMatchObject({ outcome: 'allow' })
+    await approval.close()
+  })
+
+  it.skipIf(!posix)('a git command in a folder git cannot read there is judged as with hooks not known: no git status', async () => {
+    const approval = await inWave()
+    expect((await ask(approval, `mkdir -p '${join(wt(), 'n')}' && cd '${join(wt(), 'n')}' && git status`)).outcome).not.toBe('allow')
+    await approval.close()
+  })
+
+  it.skipIf(!posix)('judges with the whole environment the process started with, when the driver tells it', async () => {
+    const approval = await inWave()
+    mkdirSync(join(wt(), 'build'))
+    expect((await ask(approval, 'cd build && rm -rf x')).outcome).toBe('allow')
+    expect((await ask(approval, 'cd build && rm -rf x', wt(), { ...shell(), ...approval.environment, CDPATH: homedir() })).outcome).not.toBe('allow')
+    expect((await ask(approval, "zsh -c 'rm -rf build/x'", wt(), { ...shell(), ...approval.environment, ZDOTDIR: join(scratch, 'z') })).outcome).not.toBe('allow')
+    await approval.close()
+  })
+
+  it.skipIf(!posix)('on macOS the hint of a hard deny in the home folder names the folder form that is approved there', async () => {
+    const mac = await open('darwin')
+    const hard = await mac.judge({ tool: 'Bash', input: { command: `rm -rf '${join(homedir(), '.ssh', 'x')}'` } }, { cwd: repo, scratchpad: null, sessionId: 's', started: mac.environment })
+    expect(hard).toMatchObject({ outcome: 'hard-deny', hint: hardHint('ssh', 'darwin') })
+    expect(hardHint('ssh', 'darwin')).toContain('mkdir -p "$TMPDIR/<name>"')
+    expect(hardHint('ssh', 'darwin')).not.toContain('mktemp')
+    expect(hardHint('ssh', 'linux')).toBe(HARD_HINTS['ssh'])
+    expect(hardHint('ssh', 'win32')).toBe(HARD_HINTS['ssh'])
+    // The form the hint names is approved.
+    const named = 'mkdir -p "$TMPDIR/work" && touch "$TMPDIR/work/a"'
+    expect((await mac.judge({ tool: 'Bash', input: { command: named } }, { cwd: repo, scratchpad: null, sessionId: 's', started: mac.environment })).outcome).toBe('allow')
+    await mac.close()
+  })
+})
+
 describe('removeTreeAsync', () => {
   it.skipIf(process.platform === 'win32')('looks through the tree first: a volume mounted in it removes nothing', async () => {
     const root = join(scratch, 'tree')
     mkdirSync(join(root, 'mounted'), { recursive: true })
     const removed: string[] = []
-    const fs = {
-      lstatSync: (path: string) => ({ isDirectory: () => true, dev: path.endsWith('mounted') ? 2 : 1 }),
-      readdirSync: (path: string) => (path === root ? ['mounted'] : []),
-      unlinkSync: () => undefined,
-      rmdirSync: () => undefined,
-      rmSync: () => undefined,
+    const look = {
+      lstat: (path: string) => Promise.resolve({ isDirectory: () => true, dev: path.endsWith('mounted') ? 2 : 1 }),
+      readdir: (path: string) => Promise.resolve(path === root ? ['mounted'] : []),
     }
-    await expect(removeTreeAsync(root, { fs, rm: (path) => Promise.resolve(void removed.push(path)) })).rejects.toMatchObject({ code: 'EXDEV' })
+    await expect(removeTreeAsync(root, { look, rm: (path) => Promise.resolve(void removed.push(path)) })).rejects.toMatchObject({ code: 'EXDEV' })
     expect(removed).toEqual([])
     await removeTreeAsync(root)
     expect(existsSync(root)).toBe(false)
     await removeTreeAsync(root)
+  })
+
+  it.skipIf(process.platform === 'win32')('looks through the tree without blocking: other work runs while it looks (round 3 of PR #1460)', async () => {
+    const root = join(scratch, 'tree')
+    for (let n = 0; n < 20; n++) mkdirSync(join(root, `d${n}`, 'e'), { recursive: true })
+    let ticked = false
+    setImmediate(() => {
+      ticked = true
+    })
+    let tickedAtRm: boolean | null = null
+    await removeTreeAsync(root, {
+      rm: () => {
+        tickedAtRm = ticked
+        return Promise.resolve()
+      },
+    })
+    expect(tickedAtRm).toBe(true)
+  })
+
+  it.skipIf(process.platform === 'win32')('a part the look cannot read removes nothing, and the error names the path given', async () => {
+    const root = join(scratch, 'tree')
+    mkdirSync(join(root, 'a'), { recursive: true })
+    const removed: string[] = []
+    const look = {
+      lstat: (path: string) => (path.endsWith('/a') ? Promise.reject(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })) : Promise.resolve({ isDirectory: () => true, dev: 1 })),
+      readdir: (path: string) => Promise.resolve(path === root ? ['a'] : []),
+    }
+    await expect(removeTreeAsync(root, { look, rm: (path) => Promise.resolve(void removed.push(path)) })).rejects.toMatchObject({ code: 'EACCES', message: expect.stringContaining(`Nothing of ${root} was removed`) })
+    expect(removed).toEqual([])
+    // An entry its folder still lists, which lstat cannot find (a name that is not UTF-8 on Linux): not seen either.
+    const listed = {
+      lstat: (path: string) => (path.endsWith('/a') ? Promise.reject(Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })) : Promise.resolve({ isDirectory: () => true, dev: 1 })),
+      readdir: (path: string) => Promise.resolve(path === root ? ['a'] : []),
+    }
+    await expect(removeTreeAsync(root, { look: listed, rm: (path) => Promise.resolve(void removed.push(path)) })).rejects.toMatchObject({ code: 'ENOENT', message: expect.stringContaining('still lists it') })
+    // Gone meanwhile, and no longer listed: nothing to keep from the removal.
+    let listings = 0
+    const gone = { lstat: listed.lstat, readdir: (path: string) => Promise.resolve(path === root && listings++ === 0 ? ['a'] : []) }
+    await removeTreeAsync(root, { look: gone, rm: (path) => Promise.resolve(void removed.push(path)) })
+    expect(removed).toEqual([root])
   })
 })
 
@@ -439,6 +553,27 @@ describe('journalCommand: a command as the Journal keeps it', () => {
     // What is not a secret stays.
     for (const command of ['PATH=/usr/bin make', 'AUTHOR=demo x', 'mkdir -p build', 'git log -p', 'NAME=demo x']) expect(journalCommand(command, home), command).toBe(command)
   })
+
+  it('hides the forms of round 3 (review of PR #1460): JSON, .netrc, headers, curl -u joined or quoted, docker login, sshpass, --key', () => {
+    const cases: [string, string][] = [
+      [`curl -d '{"token":"abc","user":"demo"}' x`, `curl -d '{"token":"***","user":"demo"}' x`],
+      [`curl -d '{"password": "a b c", "secret":"s", "api_key":"k"}' x`, `curl -d '{"password": "***", "secret":"***", "api_key":"***"}' x`],
+      [`curl -d "{\\"token\\":\\"abc\\"}" x`, `curl -d "{\\"token\\":\\"***\\"}" x`],
+      [`curl -d '{"x-auth":"v"}' x`, `curl -d '{"x-auth":"***"}' x`],
+      [`printf 'machine x login demo password hunter2' > n`, `printf 'machine x login demo password ***' > n`],
+      [`curl -H "X-Api-Key: abc def" x`, `curl -H "X-Api-Key: ***" x`],
+      [`curl -H 'Cookie: a=b; c=d' x`, `curl -H 'Cookie: ***' x`],
+      ['curl -ubob:pass x', 'curl -ubob:*** x'],
+      ['curl -u "bob:a b" x', 'curl -u "bob:***" x'],
+      ['curl --user=bob:pass x', 'curl --user=bob:*** x'],
+      ['docker login -u demo -p s3cret registry.invalid', 'docker login -u demo -p *** registry.invalid'],
+      ['sshpass -p s3cret ssh host', 'sshpass -p *** ssh host'],
+      ['tool --key=abc --key def', 'tool --key=*** --key ***'],
+    ]
+    for (const [command, kept] of cases) expect(journalCommand(command, home), command).toBe(kept)
+    // What is not a secret stays.
+    for (const command of [`curl -d '{"user":"demo","count":"3"}' x`, 'docker run -p 8080:80 image', 'tool --keyboard us', `curl -H 'Accept: text/plain' x`]) expect(journalCommand(command, home), command).toBe(command)
+  })
   it('the home folder of Windows in every form', () => {
     expect(journalCommand('rm -rf C:\\Users\\Demo\\x /c/Users/Demo/y', 'C:\\Users\\Demo')).toBe('rm -rf ~\\x ~/y')
   })
@@ -476,6 +611,17 @@ describe('the Claude driver: environment, PreToolUse hook and the unattended can
     expect(folders.take('t43')).toEqual({ cwd: null, scratchpad: null })
     expect(folders.take('t44')).toEqual({ cwd: '/tmp/44', scratchpad: null })
     expect(folders.take('t299')).toEqual({ cwd: '/tmp/299', scratchpad: null })
+  })
+
+  it('ToolUseFolders gives each call the whole environment the process started with, once the query told it (round 3 of PR #1460)', () => {
+    const folders = new ToolUseFolders()
+    folders.record({ toolUseId: 'a', cwd: '/tmp/a', scratchpad: null })
+    expect(folders.take('a')).not.toHaveProperty('env')
+    folders.started({ HOME: '/tmp/demo-home', CDPATH: '/tmp' })
+    folders.record({ toolUseId: 'b', cwd: '/tmp/b', scratchpad: null })
+    expect(folders.take('b')).toEqual({ cwd: '/tmp/b', scratchpad: null, env: { HOME: '/tmp/demo-home', CDPATH: '/tmp' } })
+    // A call the hook did not tell still runs in that process.
+    expect(folders.take(null)).toEqual({ cwd: null, scratchpad: null, env: { HOME: '/tmp/demo-home', CDPATH: '/tmp' } })
   })
 
   /** The unattended canUseTool over a policy that answers `decision`, at `mode`. */

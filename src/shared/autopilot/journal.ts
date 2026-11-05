@@ -558,6 +558,9 @@ function homeAsTilde(text: string, home: string): string {
 /** A value as a shell word holds it: quoted, or up to the next blank. */
 const VALUE = String.raw`(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s'"]\S*)`
 
+/** A value as VALUE, but a bare one ends at a quote too: a word inside a quoted script. */
+const WORD = String.raw`(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s'"]+)`
+
 /** Any assignment `NAME=value`; secretName decides whether its value is hidden. */
 const ASSIGNMENT = new RegExp(String.raw`(?<![\p{L}\p{N}_-])([\p{L}_][\p{L}\p{N}_]*)=(${VALUE}|(?=\s|$))`, 'gu')
 
@@ -572,20 +575,33 @@ function secretName(name: string): boolean {
     .some((part) => SECRET_PARTS.has(part) || /token|secret|passw|apikey|key$/.test(part))
 }
 
+/**
+ * A JSON pair with a string value, `"name": "value"`, its quotes also escaped for a shell's double quotes
+ * (`\"name\":\"value\"`); secretName decides whether the value is hidden.
+ */
+const JSON_PAIR = /((\\?)"([\w.-]+)\2"\s*:\s*)(\2")(?:\\\\|\\(?!")|[^"\\])*\4/gu
+
 /** The forms of a secret outside `NAME=value`, each replaced by its kept part and `***`. */
 const SECRET_FORMS: readonly [RegExp, string][] = [
   // An option that takes a secret: --token x, --password=x, --api-key x, --client-secret x.
   // The word must be a whole part of the option's name: --author and -psecret are no such option.
-  [new RegExp(String.raw`((?:^|\s)--?(?:[a-z0-9]+[-_])*(?:token|password|passwd|pass|secret|api-?key|apikey|auth)(?:[-_][a-z0-9]+)*(?:=|\s+))${VALUE}`, 'giu'), '$1***'],
+  [new RegExp(String.raw`((?:^|\s)--?(?:[a-z0-9]+[-_])*(?:token|password|passwd|pass|secret|api-?key|apikey|auth|key)(?:[-_][a-z0-9]+)*(?:=|\s+))${VALUE}`, 'giu'), '$1***'],
+  // A password word of .netrc and its kind: machine x login y password secret.
+  [new RegExp(String.raw`(\b(?:password|passwd)\s+)${WORD}`, 'giu'), '$1***'],
+  // A quoted header whose name says secret: "X-Api-Key: x", 'Cookie: a=b; c=d'.
+  [/((['"])[\w-]*?(?:key|token|secret|cookie|auth|password|session)[\w-]*\s*:\s*)(?:(?!\2).)+/giu, '$1***'],
   // A header or a word that carries one: Authorization: Bearer x, Bearer x, Basic x.
   [/(authorization\s*:\s*)(?:(?:bearer|basic|token|digest)\s+)?[^\s'"]+/giu, '$1***'],
   [/(\b(?:bearer|basic)\s+)[A-Za-z0-9._~+/=-]{8,}/giu, '$1***'],
   // The password of a URL: https://user:secret@host.
   [/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]*:)[^\s@/]+@/giu, '$1***@'],
-  // curl's user and password: -u user:secret, --user user:secret.
-  [/((?:^|\s)(?:-u|--user)(?:=|\s+)['"]?[^\s:'"]+:)[^\s'"]+/giu, '$1***'],
+  // curl's user and password: -u user:secret, -uuser:secret, --user user:secret, -u "user:a b".
+  [/((?:^|\s)(?:-u\s*|--user(?:=|\s+))(['"])[^:'"]+:)[^'"]*/giu, '$1***'],
+  [/((?:^|\s)(?:-u\s*|--user(?:=|\s+))[^\s:'"]+:)[^\s'"]+/giu, '$1***'],
   // The password of mysql and its tools, joined to -p: mysql -psecret.
   [/(\bmysql\w*\b[^|;&\n]*?\s-p)[^\s'"]\S*/giu, '$1***'],
+  // The password of docker login (podman's too) and of sshpass: -p secret.
+  [new RegExp(String.raw`(\b(?:(?:docker|podman)\s+login|sshpass)\b[^|;&\n]*?\s-p\s*)${WORD}`, 'giu'), '$1***'],
   // The token forms that say what they are: GitHub, OpenAI and Anthropic, Slack, AWS.
   [/\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[abeprs]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16})\b/gu, '***'],
 ]
@@ -598,6 +614,7 @@ const SECRET_FORMS: readonly [RegExp, string][] = [
  */
 export function journalCommand(command: string, home: string): string {
   let text = command.replace(ASSIGNMENT, (whole: string, name: string) => (secretName(name) ? `${name}=***` : whole))
+  text = text.replace(JSON_PAIR, (whole: string, before: string, _slash: string, name: string, quote: string) => (secretName(name.replaceAll('-', '_')) ? `${before}${quote}***${quote}` : whole))
   for (const [form, kept] of SECRET_FORMS) text = text.replace(form, kept)
   return clip(homeAsTilde(text, home), COMMAND_MAX)
 }

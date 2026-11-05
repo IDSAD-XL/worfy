@@ -72,6 +72,8 @@ export interface ApprovalWhere {
   cwd: string | null
   /** A folder of the Session's own the Vendor names for the agent's scratch files, if it has one. */
   scratchpad: string | null
+  /** The whole environment the agent's process started with, when the driver knows it. */
+  env?: Readonly<Record<string, string | undefined>> | undefined
 }
 
 /** One decision of the approval policy as the driver reports it: the `auto_approval` event without its time. */

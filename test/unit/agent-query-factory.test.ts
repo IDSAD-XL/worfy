@@ -104,6 +104,14 @@ describe('sdkQueryFactory', () => {
     expect(seen).toEqual([{ toolUseId: 'toolu_1', cwd: '/Users/tester/project/wt', scratchpad: null }])
   })
 
+  it('tells the Session the whole environment its Claude Code process starts with (worfy-auto-approve ticket 04, round 3 of PR #1460)', async () => {
+    const told: unknown[] = []
+    await sdkQueryFactory()({ ...request(), unattended: true, environment: { TMPDIR: '/tmp/run-tmp' }, processEnv: (env) => told.push(env) })
+    const options = sdkOptions() as { env: Record<string, string> }
+    expect(told).toEqual([options.env])
+    expect(told[0]).toMatchObject({ ...LOGIN_ENV, TMPDIR: '/tmp/run-tmp' })
+  })
+
   it('adds no hook and no variable to a Session without them', async () => {
     await sdkQueryFactory()(request())
     expect(sdkOptions()).not.toHaveProperty('hooks')

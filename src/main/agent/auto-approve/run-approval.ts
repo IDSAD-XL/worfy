@@ -14,12 +14,15 @@
 // under GIT_CONFIG_COUNT the parser of ticket 02 judges no git at all. In Off the agent gets none of it,
 // as before the ticket.
 //
-// Each request is judged in the environment the Session's process started with (ApprovalAt.started):
-// the shell's whole environment with the run's variables over it, since CDPATH, BASH_ENV, IFS or a
-// GIT_ variable change what a command does. The process keeps that environment when another run takes
-// the Session over, or the mode changes. At each request git is read again — the worktree list (an
-// implementer makes its worktree after the Wave started) and the git facts (in bypassPermissions the
-// agent may set a hook or a program in the git config without asking). A process that started without
+// Each request is judged in the environment the Session's process started with: the whole one the
+// driver tells (ApprovalAt.env), else the shell's with the run's variables over it (ApprovalAt.started),
+// since CDPATH, BASH_ENV, IFS or a GIT_ variable change what a command does. The process keeps that
+// environment when another run takes the Session over, or the mode changes. At each request git is read
+// again — the worktree list (an implementer makes its worktree after the Wave started) and the git facts
+// (in bypassPermissions the agent may set a hook or a program in the git config without asking): in the
+// Project's root, in each worktree of the Wave and in each folder a git command of the request runs in,
+// with `git -C <folder>`, so a config of one worktree alone (`git config --worktree`, an `includeIf
+// "gitdir:…"`) counts there; each folder is read once per request. A process that started without
 // the run's git environment, or without GIT_NO_LAZY_FETCH while hooksActive is not false now, gets no
 // git approved: the reads the policy keeps are safe only under them. The worktrees of the Wave are
 // those on the branch `<epic>/<NN>` of a Ticket of the Wave (setWave); each is recorded the first time
@@ -34,7 +37,7 @@ import { isRunId, makeRunId, RUN_ID_SUFFIX_LENGTH } from '../../../shared/autopi
 import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
 import { removeTreeAsync } from '../../storage/remove'
 import type { SessionInfo } from '../session/types'
-import { HINTS, judge, type ApprovalRequest, type Decision, type PolicyContext } from './policy'
+import { gitFolders, HINTS, judge, type ApprovalRequest, type CheckoutGitFacts, type Decision, type PolicyContext } from './policy'
 import { normalizePath, recordRoots } from './roots'
 
 /** The git config of the run's Session, in the form of GIT_CONFIG_PARAMETERS. */
@@ -91,14 +94,11 @@ export function hooksActiveOf(facts: HookFacts): boolean | null {
   return hooks === null || programs === null ? null : false
 }
 
-/** What the run reads of the repository when it starts. */
-export interface GitFacts {
-  hooksPath: string | null
-  hooksActive: boolean | null
+/** What the run reads of a checkout: when it starts, in the root; at each request, in each folder it judges. */
+export interface GitFacts extends CheckoutGitFacts {
   /** null: not read (no repository, or a value git does not read as a boolean). */
   rebaseUpdateRefs: boolean | null
   remotes: string[] | null
-  defaultBranch: string
 }
 
 /** How long one git read may take. */
@@ -197,6 +197,8 @@ export interface ApprovalAt {
   sessionId: string
   /** The run's variables the Session's process started with (LaunchApproval.environment); {}: none. */
   started: Readonly<Record<string, string>>
+  /** The whole environment the process started with, when the driver tells it (ApprovalWhere.env). */
+  env?: Readonly<Record<string, string | undefined>> | undefined
 }
 
 /** What a Session launched by a run reads of the run's policy (SessionLaunch.approval). */
@@ -310,7 +312,7 @@ export async function openRunApproval(options: RunApprovalOptions): Promise<RunA
       // The folder for temporary files of this process: the one it started with, also another run's.
       const temp = at.started['TMPDIR'] ?? runTemp
       for (const path of [...worktrees, at.scratchpad, temp]) record(path)
-      const env: Record<string, string | undefined> = { ...options.shellEnv, ...at.started }
+      const env: Readonly<Record<string, string | undefined>> = at.env ?? { ...options.shellEnv, ...at.started }
       const context: PolicyContext = {
         platform,
         cwd: at.cwd ?? options.root,
@@ -331,8 +333,14 @@ export async function openRunApproval(options: RunApprovalOptions): Promise<RunA
         hooksActive: now.hooksActive,
         recordedRoots: { ...recorded },
       }
-      const decision = judge(request, context)
-      const gitSafe = at.started['GIT_CONFIG_PARAMETERS'] === GIT_CONFIG_PARAMETERS && (now.hooksActive === false || at.started['GIT_NO_LAZY_FETCH'] === '1')
+      // git in each checkout this request touches, each folder read once.
+      const commands = gitFolders(request, context)
+      const folders = [...new Set([...worktrees, ...commands])]
+      const read = await Promise.all(folders.map((folder) => readGitFacts(folder, gitEnv).catch(() => null)))
+      const facts = new Map(folders.map((folder, n) => [folder, read[n] ?? null]))
+      const decision = judge(request, { ...context, gitFacts: facts })
+      const hooksOff = [now, ...commands.map((folder) => facts.get(folder) ?? null)].every((each) => each?.hooksActive === false)
+      const gitSafe = at.started['GIT_CONFIG_PARAMETERS'] === GIT_CONFIG_PARAMETERS && (hooksOff || at.started['GIT_NO_LAZY_FETCH'] === '1')
       if (decision.outcome === 'allow' && !gitSafe && decision.rule.split('+').includes(GIT_RULE)) return { outcome: 'park', rule: 'git-without-run-environment', hint: null, targets: decision.targets }
       return decision
     },

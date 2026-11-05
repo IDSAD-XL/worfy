@@ -130,8 +130,10 @@ While a run goes on:
   the rule, and the model still gets the refusal of Off. On: the policy's decision is the answer — an allowed request
   runs, a denied one is refused with the rule's hint, and a hard deny is always refused; a request the policy would park
   for a person is refused for now. Each request is judged in the environment the agent's process started with: its
-  whole shell environment, so `CDPATH`, `BASH_ENV`, `IFS` or a `GIT_` variable there makes a command it changes not
-  approved. Git is read again at each request: a hook or a program the agent put into the git config since is seen.
+  whole shell environment, so `CDPATH`, `BASH_ENV`, `ZDOTDIR`, `ENV`, `IFS` or a `GIT_` variable there makes a command
+  it changes not approved. Git is read again at each request, in the checkout each git command runs in (after its `cd`
+  and `-C`) and in each worktree of the Wave: a hook or a program the agent put into the git config since is seen, a
+  config of one worktree alone (`git config --worktree`, an `includeIf "gitdir:…"`) included.
 - In Shadow and On the run's Claude Code agent starts with the run's own temporary folder as `TMPDIR`
   (`<data folder>/autopilot-tmp/<run>`) and a git environment: `GIT_CONFIG_PARAMETERS` turns off the owner's
   `log.showSignature` and `format.pretty` and keeps git from opening a bare repository above the folder, and
@@ -139,8 +141,9 @@ While a run goes on:
   programs in its config. This does not stop hooks or filters themselves: while there are any, the policy approves git
   only for reading refs and objects. An agent whose process started without that environment (in Off, or before the
   repository got a hook) gets no git approved. On macOS `mktemp -d` ignores `TMPDIR`, so a folder it makes is outside
-  every root. In Off the agent starts as before, with neither. The folder is removed when the run ends; a run that
-  could not start its policy has none. A Session another run took over keeps its folder, as does a crash or a quit;
+  every root; `mkdir -p "$TMPDIR/<name>"` is approved, and the hint of a refusal in the home folder names it. In Off
+  the agent starts as before, with neither. The folder is removed when the run ends; a run that could not start its
+  policy has none. A Session another run took over keeps its folder, as does a crash or a quit;
   such folders go the next time worfy starts.
 - "Run wave" and "Process gate queue" by hand and "New conversation" of the Orchestrator are refused.
 - A person can still write to the Orchestrator. What a person does on its Session through worfy goes to the journal as
@@ -452,7 +455,7 @@ it cannot read.
 | `waiting-until`, `resumed` | A wait began or ended. |
 | `session-error` | A Session failed. |
 | `refused-dialog` | An unattended Session refused a request. Has the Subagent and the reason when given, and never the command. The home folder is written as `~`. |
-| `auto-approval` | The approval policy judged a permission request in Shadow or On. Has the Session, the Subagent when given, the Vendor, the `mode`, the `outcome`, the `rule`, the tool, the `targets` and, for a shell command, the `command` cut to 200 characters with the values of secret-named variables replaced by `***`. The home folder is written as `~`. |
+| `auto-approval` | The approval policy judged a permission request in Shadow or On. Has the Session, the Subagent when given, the Vendor, the `mode`, the `outcome`, the `rule`, the tool, the `targets` and, for a shell command, the `command` cut to 200 characters with secrets replaced by `***`: the values of secret-named variables, options and JSON keys, passwords in URLs, after curl's `-u`, the `-p` of mysql, docker login and sshpass, and `password` of `.netrc`, secret-named headers and known token forms. The home folder is written as `~`. |
 | `human-input` | A person stepped in. `source` is `worfy` or `observer`. |
 | `background-tasks` | The set of live background tasks changed. |
 | `run-stopping` | A graceful Stop came during a turn or tasks. |

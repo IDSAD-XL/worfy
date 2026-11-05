@@ -140,10 +140,16 @@ const TOOL_USES_KEPT = 256
 
 /**
  * Where the shell stood for each tool call, as the PreToolUse hook of the query told it
- * (QueryRequest.toolUse), until canUseTool takes it.
+ * (QueryRequest.toolUse), until canUseTool takes it; and the whole environment the process started
+ * with, once the query told it (QueryRequest.processEnv).
  */
 export class ToolUseFolders {
-  private readonly folders = new Map<string, ApprovalWhere>()
+  private readonly folders = new Map<string, Omit<ApprovalWhere, 'env'>>()
+  private env: Readonly<Record<string, string | undefined>> | null = null
+
+  readonly started = (env: Readonly<Record<string, string | undefined>>): void => {
+    this.env = env
+  }
 
   readonly record = (use: ToolUseFacts): void => {
     this.folders.delete(use.toolUseId)
@@ -157,9 +163,9 @@ export class ToolUseFolders {
 
   /** Where the shell stood for the call `toolUseId`; nulls when the hook did not say. */
   take(toolUseId: string | null): ApprovalWhere {
-    const where = toolUseId === null ? undefined : this.folders.get(toolUseId)
+    const where = (toolUseId === null ? undefined : this.folders.get(toolUseId)) ?? { cwd: null, scratchpad: null }
     if (toolUseId !== null) this.folders.delete(toolUseId)
-    return where ?? { cwd: null, scratchpad: null }
+    return this.env === null ? where : { ...where, env: this.env }
   }
 }
 
@@ -467,7 +473,7 @@ export function claudeSessions(factory: QueryFactory, given: Partial<UserDefault
       spawned: opts.spawned,
       orchestrator: opts.orchestrator,
       ...(opts.environment === undefined ? {} : { environment: opts.environment }),
-      ...(folders === undefined ? {} : { toolUse: folders.record }),
+      ...(folders === undefined ? {} : { toolUse: folders.record, processEnv: folders.started }),
     })
     return handle
   }
