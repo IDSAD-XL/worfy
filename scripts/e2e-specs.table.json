@@ -67,6 +67,7 @@
         "test/e2e/linked-cards.spec.ts",
         "test/e2e/linked-images.spec.ts",
         "test/e2e/linked-machines.spec.ts",
+        "test/e2e/linked-modes.spec.ts",
         "test/e2e/linked-notify.spec.ts",
         "test/e2e/linked-opening.spec.ts",
         "test/e2e/linked-read-only.spec.ts",
