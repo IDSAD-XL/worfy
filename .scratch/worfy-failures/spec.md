@@ -319,15 +319,17 @@ Ticket с большим номером уходит в следующую Wave.
 
 ## Готово, когда
 
-- [ ] Красный gate fast и gate full на worfy оставляют файл run-а с записью на каждый упавший test vitest и
+- [x] Красный gate fast и gate full на worfy оставляют файл run-а с записью на каждый упавший test vitest и
       Playwright и записью на упавший script без test-ов; остановленный run не оставляет ничего; verdict, маркеры и
       коды выхода gate не изменились.
-- [ ] `gate-failures rerun` повторяет упавшие test-ы поодиночке на том же SHA и пишет файл повтора; на другом SHA или
+- [x] `gate-failures rerun` повторяет упавшие test-ы поодиночке на том же SHA и пишет файл повтора; на другом SHA или
       грязном дереве — отказ с кодом 3.
-- [ ] `gate-failures report` печатает flaky, стабильно красные и без повтора по run-ам обеих машин, с «под
+- [x] `gate-failures report` печатает flaky, стабильно красные и без повтора по run-ам обеих машин, с «под
       нагрузкой»; `scripts/quarantine-suggest.mjs` печатает записи в формате `test/quarantine/` и ничего не пишет.
-- [ ] Записи ПК доходят до Mac `export` → `import` без пересказа; в блоке export нет путей домашней папки, имён
+- [x] Записи ПК доходят до Mac `export` → `import` без пересказа; в блоке export нет путей домашней папки, имён
       пользователя, hostname, UUID, email и токенов (test приватности).
-- [ ] Порядок ПК → Mac записан в ADR и skill `epic-wave`; правила Profile обеих машин поправлены (по решению Q3).
-- [ ] Раздел «Failure records» в `docs/features/gate-and-github.md` и переводе.
-- [ ] Приёмка владельца на Mac и Windows-ПК (09).
+- [x] Порядок ПК → Mac записан в ADR и skill `epic-wave`; правила Profile обеих машин поправлены (по решению Q3).
+- [x] Раздел «Failure records» в `docs/features/gate-and-github.md` и переводе.
+- [x] Приёмка владельца на Mac и Windows-ПК (09).
+
+Отмечено 2026-11-05 по приёмке — [«Итог» Ticket-а 09](issues/09-приёмка-с-владельцем-mac-и-windows.md#итог); пункты, которые приёмка не показывала вживую (остановленный run, отказ `rerun` с кодом 3, «под нагрузкой», правила Profile), закрыты test-ами Ticket-ов 02, 04, 05 и 07.
