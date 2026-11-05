@@ -15,6 +15,8 @@
 // toast and the setting read again. A window on another Machine, read-only or not, reads and writes
 // nothing. What main does with a write is checked in test/contract/eco-mode.test.ts,
 // test/contract/auto-approve-setting.test.ts and test/contract/auto-continue-setting.test.ts.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AutoApprovalState } from '../../src/shared/ipc/auto-approve'
@@ -58,6 +60,8 @@ interface FakeMain {
   contHold: (() => void) | null
   /** Sends an event of main to the window's subscribers. */
   emit: (channel: string, payload: unknown) => void
+  /** How many subscriptions the window holds on `channel` now. */
+  listening: (channel: string) => number
 }
 
 let main: FakeMain
@@ -91,6 +95,7 @@ function preload(setup: Setup = {}): FakeMain {
     emit: (channel, payload) => {
       for (const [, each] of listeners) if (each.channel === channel) each.handler(payload)
     },
+    listening: (channel) => [...listeners.values()].filter((each) => each.channel === channel).length,
   }
   const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
   let nextListener = 1
@@ -798,6 +803,7 @@ describe('a window on a Linked machine', () => {
     await choose('Shadow')
     await click(contItem())
     // Nothing read or written, and no subscription to this Machine's changes either.
+    expect(main.listening('autoContinue.changed')).toBe(0)
     main.emit('autoContinue.changed', { projectId: PROJECT, on: true })
     await settle()
     expect(slot('auto-continue').getAttribute('data-state')).toBe('unknown')
@@ -839,11 +845,33 @@ describe('Auto-continue in the menu', () => {
     expect(slot('auto-continue').getAttribute('data-state')).toBe('off')
     await openMenu()
     expect(items().at(-1)).toBe(contItem())
+    // After a line of its own, below the group of Auto-approval.
+    expect(contItem().previousElementSibling?.getAttribute('role')).toBe('separator')
+    expect(contItem().previousElementSibling?.previousElementSibling).toBe(group())
+    // The key the stylesheet colours a checked item by (session.css, the green of Eco mode).
+    expect(contItem().getAttribute('data-item')).toBe('auto-continue')
+    expect(contItem().querySelector('.w-modes__item-label')?.textContent).toBe('Auto-continue')
+    expect(contItem().querySelector('.w-modes__item-detail')?.textContent).toBe('Retry after API errors and Limits')
     expect(contItem().getAttribute('aria-checked')).toBe('false')
     expect(contItem().getAttribute('aria-disabled')).toBeNull()
     expect(marked(contItem())).toBe(false)
     expect(contItem().title).toBe(AUTO_CONTINUE_TITLE)
     expect(contItem().textContent).toContain('Auto-continue')
+  })
+
+  it('the stylesheet draws a checked Auto-continue in the green of Eco mode, by its data-item key', () => {
+    const css = readFileSync(join(process.cwd(), 'src/renderer/session/session.css'), 'utf8')
+    const checked = [...css.matchAll(/^\.w-modes__item\[aria-checked='true'\]:is\(([^)]*)\)/gmu)].map((match) => match[1])
+    expect(checked.length).toBeGreaterThan(0)
+    for (const keys of checked) expect(keys).toContain("[data-item='auto-continue']")
+  })
+
+  it('a subscription to changes is held while the button shows, and dropped with it', async () => {
+    main = preload()
+    await mount()
+    expect(main.listening('autoContinue.changed')).toBe(1)
+    cleanup()
+    expect(main.listening('autoContinue.changed')).toBe(0)
   })
 
   it('a choice writes on through main and shows it, the menu staying open; another writes off', async () => {

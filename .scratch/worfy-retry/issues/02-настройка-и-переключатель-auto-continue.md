@@ -82,9 +82,11 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2
   `src/renderer/session/session.css`
 - `test/contract/auto-continue-setting.test.ts`, `test/e2e/auto-continue.spec.ts` (новые); `test/unit/modes-menu.test.tsx`,
   `test/e2e/session-controls.spec.ts`
+- `test/e2e/auto-approve.spec.ts` (tooltip кнопки кончается на «Auto-continue off») и `test/e2e/eco-mode.spec.ts` (три
+  слота иконок без заливки, а не два) — правка одной строки в каждом из-за третьей иконки; Ticket 13 правит их же.
 
 Только читать: `src/renderer/session/modes/eco-mode.ts`, `src/renderer/session/modes/auto-approval.ts`,
-`src/renderer/session/composer/index.ts`, `src/main/ipc/auto-approve.ts`, `test/e2e/auto-approve.spec.ts`.
+`src/renderer/session/composer/index.ts`, `src/main/ipc/auto-approve.ts`.
 
 ## Итог
 
@@ -134,6 +136,12 @@ e2e `test/e2e/auto-continue.spec.ts` (on/off, файл, перезапуск, 64
 - **Правка двух e2e вне следа тикета**: `test/e2e/auto-approve.spec.ts` (tooltip кнопки теперь кончается на
   «Auto-continue off») и `test/e2e/eco-mode.spec.ts` (слотов без заливки три, а не два). Без них оба падали на третьей
   иконке; смысл проверок тот же.
+- **Раунд 2 ревью (четыре low).** Unit test окна Linked machine проверяет, что подписки на `autoContinue.changed` нет
+  (fake bridge считает подписки); новый случай — подписка есть, пока кнопка видна, и снимается с ней. Unit test-ы
+  проверяют черту перед пунктом, ключ `data-item="auto-continue"`, подпись и строку пункта, а отдельный случай читает
+  `session.css`: правило отмеченного пункта называет этот ключ. В `nothingLost` каждая иконка целиком внутри своего
+  слота (иконка не уже 9.5 px), а слот — внутри кнопки. Две e2e-spec вне следа добавлены в «Где в коде». Mutants
+  ревью R2, X14, X15, X16 (unit и contract) и E3 (слот Auto-continue шириной 2 px, e2e session-controls) теперь убиты.
 - **Опись состояния в ADR-0005 не правил**: ADR — дело Orchestrator-а; строку про поле `autoContinue` нужно добавить при
   merge, как для `autoApproval` 2026-11-04.
 

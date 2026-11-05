@@ -319,9 +319,14 @@ async function nothingLost(view: Locator, width: number): Promise<void> {
   const slots = view.getByRole('button', { name: 'Modes' }).locator('[data-mode-item]')
   expect(await slots.count(), `the icons of Modes at ${width} px`).toBe(3)
   for (const each of await slots.all()) {
-    const slotBox = await box(each)
-    expect(slotBox.width, `an icon of Modes at ${width} px`).toBeGreaterThan(0)
-    expect(slotBox.x + slotBox.width, `an icon inside Modes at ${width} px`).toBeLessThanOrEqual(modesBox.x + modesBox.width + 0.5)
+    const [slotBox, iconBox] = [await box(each), await box(each.locator('svg'))]
+    const name = `the ${(await each.getAttribute('data-mode-item')) ?? '?'} icon of Modes at ${width} px`
+    // The whole icon inside its slot, and the slot inside the button: a slot narrower than its icon would cut it.
+    expect(iconBox.width, name).toBeGreaterThanOrEqual(9.5)
+    expect(iconBox.x, `${name}: left edge in its slot`).toBeGreaterThanOrEqual(slotBox.x - 0.5)
+    expect(iconBox.x + iconBox.width, `${name}: right edge in its slot`).toBeLessThanOrEqual(slotBox.x + slotBox.width + 0.5)
+    expect(slotBox.x, `${name}: left edge in the button`).toBeGreaterThanOrEqual(modesBox.x - 0.5)
+    expect(slotBox.x + slotBox.width, `${name}: right edge in the button`).toBeLessThanOrEqual(modesBox.x + modesBox.width + 0.5)
   }
 }
 
