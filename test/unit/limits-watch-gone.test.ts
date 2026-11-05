@@ -3,11 +3,12 @@
 // folder itself by its `\\?\` path — recursive or not, measured: 442 394 events and a whole
 // processor core in 3 s. The watch of the system is a stand-in here and the rule for a full path is
 // path.win32's, so the case runs on any system.
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LimitsTracker, STATUSLINE_FILE, statuslineWatchFor, type WatchFolder } from '../../src/main/agent/limits'
+import type { LimitsState } from '../../src/shared/agent/limits'
 import { watchWithNode } from '../../src/main/watch-gone'
 import { removeTestTree } from '../remove'
 
@@ -149,21 +150,32 @@ describe('the status line file followed by the slow poll alone', () => {
     expect(statuslineWatchFor('linux')).toBeUndefined()
   })
 
-  it('with watch null no folder is watched, and a file written later is read by the poll within a second', async () => {
+  it('with watch null no folder is watched, a file written later is read by the poll within a second and told to the subscribers, and stop ends the poll', async () => {
     vi.useFakeTimers()
     const dataDir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-limits-poll-')))
     dirs.push(dataDir)
     const tracker = new LimitsTracker({ dataDir, watch: null })
     trackers.push(tracker)
     const read = vi.spyOn(tracker, 'readStatusline')
+    const told: LimitsState[] = []
+    tracker.subscribe((state) => told.push(state))
     tracker.watchStatusline()
     expect(vi.mocked(watchWithNode)).not.toHaveBeenCalled()
     expect(read).toHaveBeenCalledTimes(1)
-    writeFileSync(join(dataDir, STATUSLINE_FILE), STATUSLINE)
+    const file = join(dataDir, STATUSLINE_FILE)
+    writeFileSync(file, STATUSLINE)
     await vi.advanceTimersByTimeAsync(1100)
     expect(read).toHaveBeenCalledTimes(2)
     expect(tracker.snapshot().windows.five_hour?.utilization).toBe(0.42)
+    // The subscribers are told, not only the snapshot changed.
+    expect(told.map((state) => state.windows.five_hour?.utilization)).toEqual([0.42])
     tracker.stop()
+    // After stop the poll is over: a file written then, with another time, is not read.
+    writeFileSync(file, JSON.stringify({ five_hour: { used_percentage: 77, resets_at: 2_000_000_000 } }))
+    utimesSync(file, new Date(Date.now() + 60_000), new Date(Date.now() + 60_000))
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(told).toHaveLength(1)
     expect(vi.mocked(watchWithNode)).not.toHaveBeenCalled()
   })
 
@@ -175,4 +187,29 @@ describe('the status line file followed by the slow poll alone', () => {
     tracker.watchStatusline()
     expect(vi.mocked(watchWithNode).mock.calls.map(([path, recursive]) => [path, recursive])).toEqual([[dataDir, false]])
   })
+
+  // appLimits() itself, on a fresh module (its tracker is made once): on Windows it opens no watch of
+  // the data folder, elsewhere it does. process.platform is set for the call; WORFY_DATA_DIR points
+  // dataRoot() at a folder of the test.
+  for (const [platform, watched] of [['win32', false], ['darwin', true]] as const) {
+    it(`appLimits on ${platform} ${watched ? 'watches' : 'does not watch'} the data folder`, async () => {
+      const dataDir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-limits-app-')))
+      dirs.push(dataDir)
+      vi.stubEnv('WORFY_DATA_DIR', dataDir)
+      const real = Object.getOwnPropertyDescriptor(process, 'platform')!
+      vi.resetModules()
+      const fresh = await import('../../src/main/agent/limits')
+      const counted = vi.mocked((await import('../../src/main/watch-gone')).watchWithNode)
+      Object.defineProperty(process, 'platform', { ...real, value: platform })
+      let tracker: LimitsTracker
+      try {
+        tracker = fresh.appLimits()
+      } finally {
+        Object.defineProperty(process, 'platform', real)
+        vi.unstubAllEnvs()
+      }
+      trackers.push(tracker)
+      expect(counted.mock.calls.map(([path, recursive]) => [path, recursive])).toEqual(watched ? [[dataDir, false]] : [])
+    })
+  }
 })
