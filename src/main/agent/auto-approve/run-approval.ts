@@ -244,20 +244,20 @@ export async function readGitFacts(folder: string, env: NodeJS.ProcessEnv): Prom
 }
 
 /**
- * Whether the linked worktree at `path` keeps its git folder in the common git folder `common`: its `.git` file names
- * `<common>/worktrees/<name>`, and that folder's `commondir` names `common`. Read from the files, not by git; false when
- * one of them cannot be read. A worktree that fails it may read another repository's config and hooks.
+ * Whether the linked worktree at `path` shares the common git folder `common`: the `commondir` of the git folder its
+ * `.git` file names resolves to `common`. Read from the files, not by git; false when one of them cannot be read. A
+ * worktree that fails it reads another repository's config and hooks. (A `.git` file that names a folder out of
+ * `<checkout>/.git/worktrees/` the policy refuses itself: ownRepository.)
  */
 async function sharesGitDir(path: string, common: string, platform: NodeJS.Platform): Promise<boolean> {
   const named = /^gitdir: (.+)$/.exec((await firstLine(join(path, '.git'))) ?? '')?.[1]
   if (named === undefined) return false
   const gitDir = resolve(path, named)
   const commondir = await firstLine(join(gitDir, 'commondir'))
-  if (commondir === null || commondir === '') return false
+  if (commondir === null) return false
   const realOf = (folder: string): Promise<string | null> => realpath(folder).catch(() => null)
-  const [real, realGitDir, namedCommon] = await Promise.all([realOf(common), realOf(gitDir), realOf(resolve(gitDir, commondir))])
-  if (real === null || realGitDir === null || namedCommon === null) return false
-  return samePath(dirname(realGitDir), join(real, 'worktrees'), platform) && samePath(namedCommon, real, platform)
+  const [real, namedCommon] = await Promise.all([realOf(common), realOf(resolve(gitDir, commondir))])
+  return real !== null && namedCommon !== null && samePath(namedCommon, real, platform)
 }
 
 /** One worktree of `git worktree list`; a null branch: detached. */

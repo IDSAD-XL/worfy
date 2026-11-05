@@ -134,7 +134,9 @@ While a run goes on:
   it changes not approved. Git is read again at each request that writes a file or runs git, in the Project's root and,
   when a worktree may have config of its own (`git config --worktree`, an `includeIf`), in the checkout each git
   command runs in and in each worktree of the Wave: a hook or a program the agent put into the git config since is
-  seen. A request that only reads, and runs no git, reads no git. Writing a config file git reads — one an
+  seen. A request that only reads, and runs no git, reads no git. Git in a worktree whose `.git` file or `commondir`
+  names a git folder other than the Project's, or cannot be read, is judged as git whose hooks are not known: a command
+  a hook or the config could change is not approved. Writing a config file git reads — one an
   `include.path` or `includeIf` names too, also before it exists — is never approved, as writing `.git/config`.
 - In Shadow and On the run's Claude Code agent starts with the run's own temporary folder as `TMPDIR`
   (`<data folder>/autopilot-tmp/<run>`) and a git environment: `GIT_CONFIG_PARAMETERS` turns off the owner's
