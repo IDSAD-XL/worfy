@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { captureScreenshot } from './evidence-capture'
 import { launchApp } from './helpers'
+import { expectSamePx } from './px'
 
 // Eco mode in the Modes menu under the Orchestrator's input field (worfy-throughput ticket 60,
 // worfy-retry ticket 12) against the built app, on the fake agent, with the real harness/bin/profile-set
@@ -179,7 +180,7 @@ test("the Orchestrator's Modes menu: Eco mode writes the Project's Profile on, o
     // The slots draw no ring and no fill of their own, on and off, in both themes (the owner's
     // request of 2026-10-31 for the knob of the Eco mode switch), and the button is as wide on as off.
     await expectBareSlots(window, modes)
-    expect((await modes.boundingBox())!.width).toBe(offBox.width)
+    expectSamePx([(await modes.boundingBox())!.width], offBox.width, 'the Modes button on as wide as off')
     // Every state of every slot, as the stylesheet draws it — Auto-approval cannot leave Off under
     // Playwright's debugging port, so the slots' states are set on the page: the button is as wide in
     // each of the 16 combinations.
@@ -198,7 +199,7 @@ test("the Orchestrator's Modes menu: Eco mode writes the Project's Profile on, o
       return seen
     })
     expect(widths).toHaveLength(16)
-    expect(new Set(widths)).toEqual(new Set([offBox.width]))
+    expectSamePx(widths, offBox.width, 'the Modes button in every combination of states')
     await captureScreenshot(bar, 'modes-eco-on')
 
     // A narrower bar: the caption is the first to go; the icons and the tooltip stay.

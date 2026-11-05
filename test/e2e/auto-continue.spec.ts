@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { captureScreenshot } from './evidence-capture'
 import { launchApp } from './helpers'
+import { expectSamePx } from './px'
 
 // Auto-continue in the Modes menu under the Orchestrator's input field (worfy-retry ticket 02) against
 // the built app, on the fake agent, over a temporary data folder. Off by default: the third icon of the
@@ -97,7 +98,7 @@ test("Auto-continue in the Orchestrator's Modes menu: off by default, on writes 
     await window.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
     await expect(button).toHaveAttribute('title', /, Auto-continue on$/u)
-    expect((await button.boundingBox())!.width).toBe(offBox.width)
+    expectSamePx([(await button.boundingBox())!.width], offBox.width, 'the Modes button on as wide as off')
     await captureScreenshot(bar, 'modes-continue-on')
 
     // Every state of every slot, as the stylesheet draws it (Auto-approval cannot leave Off under
@@ -123,7 +124,7 @@ test("Auto-continue in the Orchestrator's Modes menu: off by default, on writes 
     })
     expect(widths.slots).toBe(3)
     expect(widths.seen).toHaveLength(64)
-    expect(new Set(widths.seen)).toEqual(new Set([offBox.width]))
+    expectSamePx(widths.seen, offBox.width, 'the Modes button in every combination of states')
   } finally {
     await first.close()
   }
