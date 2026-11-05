@@ -1,7 +1,7 @@
 # 02 — Gate пишет записи о падениях
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T23:30Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Источники и что меняется в них» (gate не знает test-ов, `GATE_FAILURES_FILE`), «Модель» (файл run-а, запись шага без test-ов, срок хранения), «Windows» (оба пути запуска script-а), «Решено без владельца» (строка в красном отчёте); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md), [ADR-0074](../../../docs/adr/0074-harness-neutral-by-language-and-project.md)
 
@@ -42,21 +42,32 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
 
 - [ ] Shell test: проект-fixture, чей script `test` пишет две строки в `$GATE_FAILURES_FILE` и выходит с 1 — файл
       run-а с двумя записями, `step` = метка script-а, `head` = HEAD, код gate 2, строка `[gate] red …` прежняя.
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
 - [ ] Shell test: script `lint` падает без строк — одна запись шага с первой строкой ошибки; в ней нет пути
       домашней папки.
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
 - [ ] Shell test: строка reporter-а с `/Users/jdoe/…` в `error` и `name` — в файле run-а `~/…`: gate очистил сам.
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
 - [ ] Shell test: run на дереве с незакоммиченной правкой — `dirty: true`; на чистом — `false`.
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
 - [ ] Shell test: после каждого script-а его `.run-…failures.jsonl` в папке состояния нет (script следующего шага
       печатает список папки).
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
 - [ ] Shell test: зелёный run и run «nothing ran» файла не пишут; run с `command not found` (окружение недоступно)
       записей не даёт.
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
 - [ ] Shell test: run, остановленный SIGTERM во время script-а, который уже записал строку, не оставляет ни файла
       run-а, ни `.run-…failures.jsonl`.
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
 - [ ] Shell test: второй script не видит `GATE_FAILURES_FILE` первого (печатает своё значение — оно другое).
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
 - [ ] Shell test: красный отчёт содержит строку `--- failure records:`; verdict-файл тот же, что у run-а без строк
       в файле, без полей времени: `at`, `total_ms` и `steps[].ms` сравнение убирает.
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
 - [ ] Shell test: файл run-а с `at` старше 60 дней удалён после нового красного run-а.
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
 - [ ] Shell-test-ы gate (`harness/hooks/tests/*.test.sh`) и `test/unit/gate-state.test.ts` зелёные.
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-*.test.sh` each exit 0; `node scripts/vitest-electron.mjs run test/unit/gate-state.test.ts` (with gate-failures and flight-recorder gate files) exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
 - [ ] Платформенный PR, если так скажет `scripts/windows-verdict-scope.mjs`: путь `cmd.exe` проверяется на Windows.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
 
@@ -78,3 +89,35 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
 Только читать: `harness/hooks/gate-failures.mjs` (Ticket 01), `harness/hooks/gate-log.mjs`,
 `harness/hooks/gate-paths.mjs`, `src/main/gate/state.ts` (читает маркеры и verdict — не должен заметить папку
 `failures/`).
+
+## Итог
+
+Сделано в ветке `worfy-failures/02`.
+
+- `harness/hooks/gate.mjs`: каждый script получает `GATE_FAILURES_FILE` = `<state>/.run-<tag>-<pid>-<NN>.failures.jsonl`
+  через параметр `env` у `runScript` → `start` (прямой `spawnSync` и `throughCmd` для `cmd.exe`), а не через
+  `process.env`: следующий script получает свой путь, чужого не видит. Файл удаляется перед стартом (остаток того же
+  pid), читается и удаляется в `finally` сразу после `runScript`; обработчик сигнала удаляет файл идущего script-а.
+- `dirty` — `git --no-optional-locks status --porcelain` один раз перед первым запущенным script-ом; git, который не
+  ответил, считается «не чистым».
+- После `settle`, в красной ветке: из строки reporter-а берутся только поля записи (runner, file, line, name, test, ms,
+  error, attempt, rerun) — прочие поля в файл не попадают; к ним `step`, затем `scrubRecord` (контекст: корень
+  worktree, домашняя папка, имя пользователя, hostname, `deny` из `privacy.personal`), затем проверка
+  `checkRunRecord`. Запись шага — если годных строк нет **или** часть строк пропущена; в ней поле `skipped` с числом
+  пропущенных строк (решение исполнителя: «число пропущенных — в записи шага» иначе некуда положить, когда годные
+  строки есть; `checkRunRecord` лишние поля принимает).
+- Модули записей (`gate-failures.mjs`, `../lib/privacy.cjs`) грузятся динамически, только в красной ветке: без них
+  (как в копии plugin-а в `gate-shim.test.sh`) gate работает, а строка отчёта — `not saved, <причина>`. Файл run-а
+  пишется после red-маркера и verdict-файла: сигнал во время загрузки модулей только обрывает вывод.
+- `harness/hooks/tests/gate-file-size.test.sh`: `strip()` убирает и строку `--- failure records:` — она называет файл
+  своего run-а, как строка `full output`. Файла нет в «Где в коде»; без правки test «red: the warning changed more than
+  its own line» падал.
+- `scripts/windows-verdict-scope.mjs 59a376618 69ff30164` → `runner`: путь `cmd.exe` проверяет Windows job CI
+  (`gate-failures.test.sh` на Windows идёт через `.cmd`, случай с SIGTERM там пропущен, как в
+  `gate-verdict-signals.test.sh`).
+- `harness/hooks/tests/gate-failures.test.sh`: путь домашней папки macOS собирается из частей (`"/Us""ers/jdoe"`), как в
+  `evidence-check.test.sh`: `plugin-neutral.test.sh` не пускает такие пути в файлы plugin-а.
+- Проверено локально: `pnpm lint`, `pnpm typecheck`, все `harness/hooks/tests/gate-*.test.sh`, `plugin-neutral.test.sh`,
+  vitest-файлы gate (`gate-failures-format`, `gate-failures-cli`, `gate-state`, `flight-recorder-gate`,
+  `flight-recorder-gate-logs`) — exit 0. Полный `pnpm test` и gate fast на этом Mac не дошли до конца: `pnpm test`
+  висит и на base (`test/contract/getting-started-state.test.ts`), run остановлен; условие merge — `ci-ok` на head PR.

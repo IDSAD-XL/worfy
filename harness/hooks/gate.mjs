@@ -66,6 +66,27 @@
 // line «--- full output (<N> lines): <path>». The logs are written with the outcome, so a run that
 // was stopped leaves none, and a cache hit runs nothing and writes no log.
 //
+// The failure records (a contract for projects; the format is gate-failures.mjs). The gate does not
+// know the tests of a script, so the project tells it: each script runs with GATE_FAILURES_FILE,
+// the path of a file of its own, <state>/.run-<tag>-<pid>-<NN>.failures.jsonl, which no other script
+// sees. The project's reporters append one JSON line per failed test there: the fields of a failure
+// record (runner, file, line, name, test, ms, error, attempt, rerun) without `step`, which the gate
+// adds. The gate reads and removes that file as soon as the script ends — and its signal handler
+// removes it if the run is stopped meanwhile — and keeps the lines until the outcome. A red run then
+// writes the run file <state>/failures/<tag>--<run>.json (<tag>/<run> names the run's log folder)
+// with a record per line of each failed script: only the fields above are kept, each line passes
+// scrubRecord here, whatever the project scrubbed, and a line that is not a failure record after
+// that is skipped. A failed script that left no usable line — or skipped some — gets one record of
+// the step: runner, file and name null, its error the first line of its output that holds
+// «error», «Error» or «FAIL», else its last line that holds anything, scrubbed; `skipped` counts
+// the lines left out. A script whose environment is missing (see UNVERIFIABLE) gives no record, nor
+// do a green run, a run where nothing ran and a run that was stopped. `dirty` says whether `git
+// status --porcelain` printed anything before the first script. After the run file the gate removes
+// the records older than 60 days (pruneFailures). The red report ends with one line,
+//   --- failure records: <file> (<n> tests, <m> steps without tests)
+// or «--- failure records: not saved, <why>». The verdict file, the markers, the cache, the
+// «[gate] …» lines and the exit codes do not depend on any of this.
+//
 // The timings. Each script, as it ends, prints a line on stdout:
 //   [gate] time (<profile>): <label> <s> s            (« (exit <code>)» after it when it failed)
 // A run that ran scripts or took them from the cache prints, right above its verdict line and on
@@ -148,11 +169,12 @@
 import { spawn, spawnSync } from "node:child_process"
 import crypto from "node:crypto"
 import fs from "node:fs"
+import { createRequire } from "node:module"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { cachedTimes, cacheTimeRecord, playwrightFailures, pruneLogs, runLogDir, stepLine, timingLine, writeScriptLog, writeTimings } from "./gate-log.mjs"
-import { endedBySignal, gateConfigFile, gateStateDir, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
+import { endedBySignal, gateConfigFile, gateStateDir, harnessHome, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
 import { git as GIT } from "./eval-env.cjs"
 
 const WINDOWS = process.platform === "win32"
@@ -220,6 +242,8 @@ let began = null // performance.now() once the hook input is read: the start of 
 let totalMs = null // how long the run took, fixed when the outcome is known
 const steps = [] // { step, package, script, ms, exit } of each script that ran
 const cachedSteps = [] // { step, ms, at } of each script the cache answered for
+let failuresFile = null // the GATE_FAILURES_FILE of the script running now, for the signal handler
+let dirty // whether `git status --porcelain` printed anything before the first script
 
 // --- a signal while the gate waits -------------------------------------------------------------
 // A signal sent to the gate itself (a hook that ran out of time, Ctrl-C) waits while the gate
@@ -629,8 +653,8 @@ function endRunning() {
 
 // Runs `line` — the command line for the second cmd.exe — in a hidden console of its own and
 // waits for it without blocking, so that a signal handler can run meanwhile. Resolves with
-// { result, out } as `start` returns them.
-function throughCmd(line) {
+// { result, out } as `start` returns them. `env` — variables added to those of the gate.
+function throughCmd(line, env) {
     return new Promise((resolve) => {
         const chunks = []
         const late = []
@@ -647,7 +671,7 @@ function throughCmd(line) {
         try {
             child = spawn(CMD_EXE, ["/d", "/v:on", "/s", "/c", `""${CHCP}" 65001 >nul 2>&1 & "${CMD_EXE}" /d /v:off /s /c !${LINE_VARIABLE}!"`], {
                 cwd: repo,
-                env: { ...process.env, [LINE_VARIABLE]: line },
+                env: { ...process.env, ...env, [LINE_VARIABLE]: line },
                 stdio: ["ignore", "pipe", "pipe"],
                 windowsHide: true,
                 windowsVerbatimArguments: true,
@@ -675,8 +699,9 @@ function throughCmd(line) {
 // through a promise when the start goes through cmd.exe: `result` is that of spawnSync (or its
 // `status`, `signal` and `error` alone), or { refused: <why> } when Windows cannot be given these
 // words safely; `out` is what the child wrote, stdout and stderr in the order they were written.
-function start(words) {
-    const direct = (file) => captured((stdio) => spawnSync(file, words.slice(1), { cwd: repo, stdio, windowsHide: true }))
+// `env` — variables added to those of the gate, the same on both paths.
+function start(words, env = {}) {
+    const direct = (file) => captured((stdio) => spawnSync(file, words.slice(1), { cwd: repo, stdio, env: { ...process.env, ...env }, windowsHide: true }))
     // An empty name is what a shell calls ": command not found"; spawnSync would throw on it.
     if (!words[0]) return { result: notFound(), out: "" }
     if (!WINDOWS) return direct(words[0])
@@ -692,7 +717,7 @@ function start(words) {
     // /s makes cmd.exe drop the outer quotes and read the rest as it is.
     const command = `"${line.map((word) => `"${word}"`).join(" ")} 2>&1"`
     if (command.length > LINE_LIMIT) return { result: { refused: `cmd.exe cannot be given a command line of ${command.length} characters (${file} …)` }, out: "" }
-    return throughCmd(command)
+    return throughCmd(command, env)
 }
 
 // The output of a child process started without cmd.exe, stdout and stderr in the order they
@@ -723,14 +748,14 @@ function captured(run) {
 // that a signal ended has failed: `rc` is what a shell reports for it, 128 + the number of the
 // signal (SIGKILL 137, SIGTERM 143), `out` is what the script wrote up to then plus one line
 // that names the signal, and `signal` is its name. On Windows a script ends by a signal only when
-// Node itself ended it.
-async function runScript(pkg, script) {
+// Node itself ended it. `env` — variables added to those of the gate for this script alone.
+async function runScript(pkg, script, env) {
     let words
     if (!pkg) words = [PM, "run", script]
     else if (PM === "pnpm") words = ["pnpm", "--filter", pkg, "run", script]
     else if (PM === "yarn") words = ["yarn", "workspace", pkg, "run", script]
     else words = ["npm", "run", script, "--workspace", pkg]
-    const { result, out } = await start(words)
+    const { result, out } = await start(words, env)
     if (result.refused) return { rc: 126, out: result.refused, refused: result.refused }
     // The words a shell would say: "command not found" is one of the signs of a missing environment.
     if (result.error?.code === "ENOENT") return { rc: 127, out: `gate: ${words[0]}: command not found` }
@@ -782,6 +807,111 @@ function knownProfile(name, config) {
     return repos.some((entry) => entry !== null && typeof entry === "object" && (has(entry.root) || has(entry.workspace)))
 }
 
+// --- the failure records (see the header) ------------------------------------------------------
+// True unless `git status --porcelain` printed nothing: a tree git could not tell about is not
+// taken for a clean one. --no-optional-locks: the gate does not take the index lock from a git
+// running in the worktree meanwhile.
+function treeDirty() {
+    const run = git(["--no-optional-locks", "status", "--porcelain"])
+    return run.status !== 0 || run.stdout !== ""
+}
+
+// The lines a script's reporters wrote to its GATE_FAILURES_FILE; the file is removed. None when the
+// script wrote nothing or the file cannot be read.
+function takeLines(file) {
+    let text = ""
+    try {
+        text = fs.readFileSync(file, "utf8")
+    } catch {}
+    remove(file)
+    return text.split(/\r?\n/).filter((line) => line.trim() !== "")
+}
+
+// The fields of a failure record (gate-failures.mjs): a line keeps only these, so nothing else it
+// carries reaches the run file unscrubbed.
+const FAILURE_FIELDS = ["runner", "file", "line", "name", "test", "ms", "error", "attempt", "rerun"]
+
+// The record of one line of a reporter, of the step `label`, scrubbed; null when the line is not a
+// failure record once scrubbed. `run` is the run record it goes into: the check is that of the file.
+// F — gate-failures.mjs.
+function failureOf(F, line, label, ctx, run) {
+    let value
+    try {
+        value = JSON.parse(line)
+    } catch {
+        return null
+    }
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return null
+    const record = F.scrubRecord({ step: label, ...Object.fromEntries(FAILURE_FIELDS.map((field) => [field, value[field]])) }, ctx)
+    return F.checkRunRecord({ ...run, failures: [record] }) === null ? record : null
+}
+
+// The error of a failed script without test records: the first line of its output with «error»,
+// «Error» or «FAIL», else its last line that holds anything; without control sequences, scrubbed,
+// at most ERROR_CHARS characters. F — gate-failures.mjs.
+function stepError(F, out, ctx) {
+    const outLines = out.split(/\r?\n/)
+    const line = outLines.find((l) => /error|Error|FAIL/.test(l)) ?? outLines.findLast((l) => l.trim() !== "") ?? ""
+    return F.firstLine(F.scrub(F.firstLine(line, Infinity), ctx))
+}
+
+const userName = () => {
+    try {
+        return os.userInfo().username
+    } catch {
+        return ""
+    }
+}
+
+// Writes the run file of a red run and removes the records past their time; returns the line of
+// the red report. `failed` — [label, log file name, lines, ms] of each failed script, `outputs` —
+// the output by log file name, `logDir` — the run's log folder, whose name is the run's.
+// The modules of the records are loaded here, for a red run alone: one that is missing or broken
+// costs the records of the run, never its verdict.
+async function saveFailureRecords(failed, outputs, logDir) {
+    let F
+    let file
+    let run
+    try {
+        F = await import("./gate-failures.mjs")
+        const privacy = createRequire(import.meta.url)("../lib/privacy.cjs")
+        const home = harnessHome()
+        const ctx = { repo, home: os.homedir(), user: userName(), host: os.hostname(), deny: privacy.personal(home).deny }
+        run = {
+            version: 1,
+            kind: "run",
+            run: `${tag}/${path.basename(logDir)}`,
+            at: utcNow(),
+            key: KEY || null,
+            profile: PROFILE,
+            head,
+            outcome: "red",
+            computer: F.ensureComputer(home),
+            dirty: dirty !== false,
+            failures: [],
+        }
+        for (const [label, name, lines, ms] of failed) {
+            const own = lines.map((line) => failureOf(F, line, label, ctx, run)).filter(Boolean)
+            const skipped = lines.length - own.length
+            run.failures.push(...own)
+            if (!own.length || skipped) {
+                const error = stepError(F, outputs.get(name) ?? "", ctx)
+                run.failures.push({ step: label, runner: null, file: null, line: null, name: null, test: null, ms, error, attempt: 1, rerun: null, ...(skipped ? { skipped } : {}) })
+            }
+        }
+        file = F.writeRunFile(STATE, run)
+    } catch (error) {
+        const why = String(error?.message ?? error).split(/\r?\n/)[0].trim()
+        return `--- failure records: not saved, ${why || "unknown error"}\n`
+    }
+    // Errors are left alone, as in pruneLogs: the file of this run is written.
+    try {
+        F.pruneFailures(STATE)
+    } catch {}
+    const tests = run.failures.filter((f) => f.runner !== null).length
+    return `--- failure records: ${file} (${tests} tests, ${run.failures.length - tests} steps without tests)\n`
+}
+
 // --- the run --------------------------------------------------------------------------------
 async function main() {
     try {
@@ -825,6 +955,7 @@ async function main() {
     for (const [signal, stopped] of [["SIGHUP", 129], ["SIGINT", 130], ["SIGTERM", 143], ["SIGBREAK", 149]]) {
         process.on(signal, () => {
             endRunning()
+            if (failuresFile) remove(failuresFile)
             process.exit(settled ? (outcomeCode ?? 3) : stopped)
         })
     }
@@ -976,7 +1107,7 @@ async function main() {
     let failedLabels = ""
     let envBroken = ""
     const logs = [] // [log file name, output] of each script that ran
-    const failures = [] // [label, log file name] of each script that failed; the output is in `logs`
+    const failures = [] // [label, log file name, lines of its GATE_FAILURES_FILE, ms] of each script that failed; the output is in `logs`
     const logDir = runLogDir(STATE, tag) // named by the time the scripts start, written at the end
     const greens = [] // [cache file, fingerprint] of each package whose scripts all passed
     for (const { dir: wsdir, name: pkgname = "", scripts, fingerprint: fpscope = [] } of plan) {
@@ -1011,8 +1142,25 @@ async function main() {
         const wsSteps = [] // this package's steps, for the record of its cache entry
         for (const script of scripts) {
             const label = `${where}:${script}`
+            const number = String(logs.length + 1).padStart(2, "0")
+            if (dirty === undefined) {
+                dirty = treeDirty()
+                await stopIfTold()
+            }
+            // The file of this script alone (see "The failure records" above), read and removed as
+            // soon as it ends, as `captured` does with its output.
+            failuresFile = path.join(STATE, `.run-${tag}-${process.pid}-${number}.failures.jsonl`)
+            remove(failuresFile)
             const startedAt = performance.now()
-            const { rc, out, refused, signal } = await runScript(pkgname, script)
+            let result
+            let rows
+            try {
+                result = await runScript(pkgname, script, { GATE_FAILURES_FILE: failuresFile })
+            } finally {
+                rows = takeLines(failuresFile)
+                failuresFile = null
+            }
+            const { rc, out, refused, signal } = result
             const step = { step: label, package: wsdir, script, ms: Math.round(performance.now() - startedAt), exit: rc }
             // Right after the script returns and before its result is looked at: a script that
             // Ctrl-C ended together with the gate would otherwise count as failed, and one that
@@ -1022,7 +1170,7 @@ async function main() {
             wsSteps.push(step)
             say(stepLine(PROFILE, step))
             const outLines = out.split(/\r?\n/)
-            const logName = `${String(logs.length + 1).padStart(2, "0")}-${fileNamePart(label)}.log`
+            const logName = `${number}-${fileNamePart(label)}.log`
             logs.push([logName, out])
             if (rc === 0) {
                 ran += ` ${label}`
@@ -1034,7 +1182,7 @@ async function main() {
                 envBroken += `\n  ${label}: ${sign}`
             } else {
                 failedLabels += ` ${label}`
-                failures.push([label, logName])
+                failures.push([label, logName, rows, step.ms])
             }
         }
 
@@ -1075,6 +1223,9 @@ async function main() {
         }
         writeMarker(redMarker, `${utcNow()}\n`)
         writeVerdict("red", 2, "")
+        // After the verdict file: the records wait for their modules, and a signal meanwhile may
+        // only cut the output short (see `settle`), never leave a red run without its verdict.
+        report += await saveFailureRecords(failures, outputs, logDir)
         if (timing) complain(timing)
         complain("[gate] red (" + PROFILE + "):" + failedLabels + (ran ? " (passed:" + ran + ")" : ""))
         complain(`The quality gate did not pass (profile: ${PROFILE}, repository: ${KEY}).`)
