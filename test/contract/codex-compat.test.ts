@@ -51,6 +51,8 @@ interface Step {
   error?: unknown
   answer?: unknown
   answerError?: unknown
+  /** The exit code of a fake step that ends the app-server (worfy-faults ticket 06). */
+  exit?: unknown
 }
 interface Played {
   /** `<file>:<line>`. */
@@ -418,12 +420,25 @@ function inventedShapes(played: readonly Played[], recorded: Record<string, Shap
   return { invented, used }
 }
 
-/** Every step of the fake's scripts, as the fake plays them. */
-const fakeSteps = (): Played[] =>
+/** Every step of the fake's scripts, as they are written. */
+const scriptSteps = (): Played[] =>
   readdirSync(SCRIPTS)
     .filter((name) => name.endsWith('.jsonl'))
     .sort()
     .flatMap((name) => readSteps(join(SCRIPTS, name), name))
+
+/** An exit step of the fake (worfy-faults ticket 06): an exit code alone, `{"exit": 1}`. It plays no message. */
+const isExitStep = (step: Step): boolean => Object.keys(step).length === 1 && Number.isInteger(step.exit)
+
+/** The steps that carry "exit" and are not an exit step: the fake refuses them, and so does this suite. */
+const exitProblems = (played: readonly Played[]): string[] =>
+  played.filter(({ step }) => 'exit' in step && !isExitStep(step)).map(({ where }) => `${where}: an "exit" step is {"exit": <exit code>} alone`)
+
+/** The steps that play a message: an exit step has nothing to compare and is left out. */
+const messageSteps = (played: readonly Played[]): Played[] => played.filter(({ step }) => !isExitStep(step))
+
+/** Every step of the fake's scripts that plays a message. */
+const fakeSteps = (): Played[] => messageSteps(scriptSteps())
 
 describe('the pinned Codex and its recorded messages', () => {
   it('the recordings are of the pinned Codex, pass its JSON Schema and have every shape the fake plays', () => {
@@ -434,6 +449,7 @@ describe('the pinned Codex and its recorded messages', () => {
     expect.soft(hookProblems(readHooks(recordings.folder))).toEqual([])
     const played = fakeSteps()
     expect(played.length).toBeGreaterThan(0)
+    expect.soft(exitProblems(scriptSteps())).toEqual([])
     const { invented, used } = inventedShapes(played, shapesByKind(recordings.steps), EXCEPTIONS)
     expect.soft(invented).toEqual([])
     expect.soft(EXCEPTIONS.filter((exception) => !used.has(exception)).map(({ kind, path }) => `${kind} ${path ?? ''}: no script needs this exception`)).toEqual([])
@@ -446,6 +462,17 @@ describe('the pinned Codex and its recorded messages', () => {
 const fromScripts = (codex: string): Recordings => ({ folder: '/synthetic', manifest: { codex }, steps: fakeSteps() })
 
 describe('the checks of the recordings', () => {
+  it('leave out only an exit step that is an exit code alone; a step that mixes "exit" with a message, or names no integer, is a problem and stays compared (worfy-faults ticket 06)', () => {
+    const steps = scriptSteps()
+    expect(steps.filter(({ step }) => isExitStep(step)).map(({ where }) => where)).toContain('autopilot-fault-exit.jsonl:9')
+    expect(exitProblems(steps)).toEqual([])
+    const text: Played = { where: 'e.jsonl:1', step: { exit: '1' } }
+    const mixed: Played = { where: 'e.jsonl:2', step: { exit: 1, notify: 'turn/started', params: {} } }
+    expect(exitProblems([text, mixed])).toEqual(['e.jsonl:1: an "exit" step is {"exit": <exit code>} alone', 'e.jsonl:2: an "exit" step is {"exit": <exit code>} alone'])
+    const exit: Played = { where: 'e.jsonl:3', step: { exit: 1 } }
+    expect(messageSteps([text, mixed, exit])).toEqual([text, mixed])
+  })
+
   it('pass recordings of the pinned version that have every shape the fake plays', () => {
     const recordings = fromScripts(pinnedCodex())
     expect(versionProblems(recordings, pinnedCodex(), pinnedCodex())).toEqual([])
