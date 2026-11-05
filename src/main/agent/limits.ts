@@ -53,8 +53,11 @@ export interface LimitsTrackerOptions {
   dataDir: string
   /** Clock in milliseconds; tests pass a fixed one. */
   now?: () => number
-  /** The watch of the system; replaced in tests. */
-  watch?: WatchFolder
+  /**
+   * The watch of the system; replaced in tests. null: no watch, the slow poll alone — the app's
+   * choice on Windows (appLimits, worfy-polish ticket 47).
+   */
+  watch?: WatchFolder | null
   /** Whether the name an event carries is a full path; path.win32's rule in tests on any system. */
   isAbsolute?: (name: string) => boolean
 }
@@ -204,17 +207,28 @@ export class LimitsTracker {
   /**
    * Reads the status line file now and again whenever it changes, until stop(). The data
    * directory is watched rather than the file: the bridge replaces the file by a rename, and the
-   * file may not exist yet. A slow poll of the file's time backs the watch up.
+   * file may not exist yet. A slow poll of the file's time backs the watch up; with the option
+   * `watch` null the poll is all there is.
    */
   watchStatusline(): void {
     if (this.watcher !== null || this.poller !== null) return
     if (!existsSync(this.options.dataDir)) mkdirSync(this.options.dataDir, { recursive: true })
     this.readStatusline()
+    const watchFolder = this.options.watch === undefined ? watchFolderWithNode : this.options.watch
+    if (watchFolder !== null) this.watchDataFolder(watchFolder)
+    // The poll compares with the file as last read above, not with a first look of its own:
+    // fs.watchFile takes that look on the thread pool after this method returns, so a file written
+    // in between was never reported by it, and FSEvents may miss such a write too.
+    this.poller = setInterval(() => this.pollStatusline(), STATUSLINE_POLL_MS)
+    this.poller.unref()
+  }
+
+  private watchDataFolder(watchFolder: WatchFolder): void {
     try {
       const { dataDir } = this.options
       const full = this.options.isAbsolute ?? isAbsolute
       const mine: { handle: { close: () => void } | null } = { handle: null }
-      mine.handle = (this.options.watch ?? watchFolderWithNode)(
+      mine.handle = watchFolder(
         dataDir,
         (name) => {
           // A watch that was closed may still have events on the way.
@@ -237,11 +251,6 @@ export class LimitsTracker {
     } catch (error) {
       console.warn('[limits] cannot watch the status line file', error)
     }
-    // The poll compares with the file as last read above, not with a first look of its own:
-    // fs.watchFile takes that look on the thread pool after this method returns, so a file written
-    // in between was never reported by it, and FSEvents may miss such a write too.
-    this.poller = setInterval(() => this.pollStatusline(), STATUSLINE_POLL_MS)
-    this.poller.unref()
   }
 
   stop(): void {
@@ -322,10 +331,23 @@ function sessionLimitsStatusOf(event: Extract<AgentEvent, { type: 'limits' | 'li
 
 let appTracker: LimitsTracker | null = null
 
-/** The app's tracker over WORFY_DATA_DIR, made on first use; it starts watching the status line file. */
+/**
+ * How the app follows the status line file on `platform`: on Windows by the slow poll alone, no
+ * watch of the data folder (worfy-polish ticket 47). That folder is also Chromium's profile
+ * (userData), and Chromium writes there all the time; for each event of a folder watch libuv calls
+ * GetLongPathNameW twice on the main thread before the callback, and on the GitHub Windows runner
+ * the main thread then stood in those calls for 1–2 s at a time, so the app answered nothing — not
+ * even the page, whose DevTools messages that thread passes on. The bridge writes the file at most
+ * as often as the status line runs, so a second of delay costs nothing.
+ */
+export function statuslineWatchFor(platform: NodeJS.Platform): WatchFolder | null | undefined {
+  return platform === 'win32' ? null : undefined
+}
+
+/** The app's tracker over WORFY_DATA_DIR, made on first use; it starts following the status line file. */
 export function appLimits(): LimitsTracker {
   if (appTracker === null) {
-    appTracker = new LimitsTracker({ dataDir: dataRoot() })
+    appTracker = new LimitsTracker({ dataDir: dataRoot(), watch: statuslineWatchFor(process.platform) })
     appTracker.watchStatusline()
   }
   return appTracker

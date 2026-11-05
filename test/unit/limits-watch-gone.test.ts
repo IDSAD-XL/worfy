@@ -6,9 +6,17 @@
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LimitsTracker, STATUSLINE_FILE, type WatchFolder } from '../../src/main/agent/limits'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { LimitsTracker, STATUSLINE_FILE, statuslineWatchFor, type WatchFolder } from '../../src/main/agent/limits'
+import { watchWithNode } from '../../src/main/watch-gone'
 import { removeTestTree } from '../remove'
+
+// The watch of the system, counted: most tests hand the tracker a stand-in, so only the ones that
+// leave the option out reach it.
+vi.mock('../../src/main/watch-gone', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../src/main/watch-gone')>()
+  return { ...original, watchWithNode: vi.fn(original.watchWithNode) }
+})
 
 /** The name Windows gives in the events of a watched folder that is gone. */
 const ITSELF = '\\\\?\\C:\\Users\\dev\\AppData\\Roaming\\worfy'
@@ -124,5 +132,47 @@ describe('the watch of the status line file and a data folder that is gone', () 
     tracker.watchStatusline()
     expect(watches).toHaveLength(2)
     expect(watches[1]!.closed).toBe(false)
+  })
+})
+
+// On Windows the app follows the status line file by the slow poll alone (worfy-polish ticket 47):
+// the data folder is also Chromium's profile, and each event of a folder watch costs the main
+// thread two GetLongPathNameW calls in libuv before the callback runs.
+describe('the status line file followed by the slow poll alone', () => {
+  beforeEach(() => {
+    vi.mocked(watchWithNode).mockClear()
+  })
+
+  it('the app takes no watch on Windows and the watch of the system elsewhere', () => {
+    expect(statuslineWatchFor('win32')).toBeNull()
+    expect(statuslineWatchFor('darwin')).toBeUndefined()
+    expect(statuslineWatchFor('linux')).toBeUndefined()
+  })
+
+  it('with watch null no folder is watched, and a file written later is read by the poll within a second', async () => {
+    vi.useFakeTimers()
+    const dataDir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-limits-poll-')))
+    dirs.push(dataDir)
+    const tracker = new LimitsTracker({ dataDir, watch: null })
+    trackers.push(tracker)
+    const read = vi.spyOn(tracker, 'readStatusline')
+    tracker.watchStatusline()
+    expect(vi.mocked(watchWithNode)).not.toHaveBeenCalled()
+    expect(read).toHaveBeenCalledTimes(1)
+    writeFileSync(join(dataDir, STATUSLINE_FILE), STATUSLINE)
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(tracker.snapshot().windows.five_hour?.utilization).toBe(0.42)
+    tracker.stop()
+    expect(vi.mocked(watchWithNode)).not.toHaveBeenCalled()
+  })
+
+  it('without the option the data folder is watched by the watch of the system', () => {
+    const dataDir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-limits-poll-')))
+    dirs.push(dataDir)
+    const tracker = new LimitsTracker({ dataDir })
+    trackers.push(tracker)
+    tracker.watchStatusline()
+    expect(vi.mocked(watchWithNode).mock.calls.map(([path, recursive]) => [path, recursive])).toEqual([[dataDir, false]])
   })
 })
