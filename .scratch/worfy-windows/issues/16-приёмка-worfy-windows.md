@@ -194,3 +194,15 @@ Ticket последний в Epic-е, с другими Ticket-ами он не 
   worfy ([`../evidence/16-window-after-restart.webp`](../evidence/16-window-after-restart.webp)). Это наблюдение, а не
   дефект worfy, если без установщика NVIDIA не повторится. Захват экрана computer use зависал до перезагрузки ПК.
 - Wave Autopilot не начата: ждёт Project worfy на ПК из чистого клона; добавляет его и жмёт Run wave владелец.
+
+Пункт 2, повтор в Stable copy (2026-11-04, ПК; снимок делал владелец, computer use выключен):
+- Копия: Stable copy (`%LOCALAPPDATA%\worfy-stable`), `v0.3.1403`, Harness `0.3.0+b09dfab0`.
+- Canvas с Epic-ами worfy в своём Project worfy на ПК (клон `main`, ветка `main` в шапке): Epic-и worfy-terminal-ssh и
+  worfy-throughput на Canvas, список Epic-ов слева. Имена машин закрашены:
+  [`../evidence/16-stable-canvas-worfy.webp`](../evidence/16-stable-canvas-worfy.webp). Эта часть пункта закрыта.
+- `gate fast` в этом клоне на `b09dfab0` (`GATE_SCOPE=all`; без него на чистом `main` gate пишет «nothing ran»): зелёный,
+  1430.7 s, `[gate] green (fast): worfy-app/.:lint worfy-app/.:typecheck worfy-app/.:test`:
+  [`../evidence/16-gate-fast-stable-b09dfab0.log`](../evidence/16-gate-fast-stable-b09dfab0.log).
+- Не сделано в Stable copy: снимки Session с вызовом Bash tool и Terminal `pwsh.exe` с `$PSVersionTable.PSEdition`;
+  Wave polish 48 «Шапка на узком окне» (Run wave жмёт владелец); пункт 4 (Session находит ADR через qmd или grep).
+- Не сделано: экран первого запуска и снимки установщика — нужна пустая папка данных или новый пользователь Windows.
