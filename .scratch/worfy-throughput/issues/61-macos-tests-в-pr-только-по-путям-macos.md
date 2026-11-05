@@ -36,7 +36,11 @@ PR трогает пути macOS; push в `main` по-прежнему гоня�
    - упаковка и подпись: `build/**`, `electron-builder.yml`, файлы `*entitlements*`, `*notariz*`, `*notaris*`;
    - модули, у которых есть код только для macOS, и его проверяет macOS-only test на настоящем macOS: инструменты
      macOS (`sips`, `iconutil`, `ps`, Launch Services, Info.plist, `git` из Xcode), меню приложения, Dock, Finder,
-     login shell `zsh`, watcher-ы на chokidar (на macOS — FSEvents);
+     login shell `zsh` и `$SHELL -l` терминала, watcher-ы на chokidar (на macOS — FSEvents) и на `fs.watch` с
+     правилом macOS для удалённого root, platform package SDK, копия `worfy-stable.app`, имя Mac в записи падения
+     gate; helper-ы и fixture-ы, которые читают macOS-only test-ы;
+   - каждый macOS-only test-файл назван в причине (`why`) строки таблицы или стоит в списке
+     `MACOS_TESTS_CHECKED_OTHERWISE` с причиной (contract test держит это в синхроне);
    - CI workflow (`.github/workflows/ci.yml` — по прежнему правилу `ciPackaging`) и сам `scripts/ci-scope.mjs`;
      способ запуска vitest (`vitest.config.ts`, `scripts/vitest-electron.mjs`); зависимости (`package.json`,
      lockfile, `pnpm-workspace.yaml`, `scripts/postinstall.mjs`: нативные пакеты собираются под macOS).
@@ -90,10 +94,24 @@ PR трогает пути macOS; push в `main` по-прежнему гоня�
 - Зависимости (`package.json`, lockfile, `pnpm-workspace.yaml`, `scripts/postinstall.mjs`) и способ запуска vitest
   считаются путями macOS: нативные пакеты (`node-pty` под Electron, `fsevents`) собираются под macOS, а такие PR
   уже идут на macOS-job `macos-package`. Решено без владельца, подтвердить.
-- Watcher-ы на chokidar (`src/main/cards/store.ts`, `src/main/workflow/watch.ts`, `src/main/docs/watch.ts`,
-  `src/main/claude-home/registry.ts`, `src/main/link-safe-watch.ts`, `src/main/chokidar-close.ts`) — пути macOS:
-  на macOS chokidar идёт через FSEvents, и macOS-only test-ы (`cards-watch-edits`, `tickets-chokidar`,
-  `docs-watch-root`, `docs`) проверяют именно это до merge. Решено без владельца, подтвердить.
+- Watcher-ы — пути macOS: на chokidar (`src/main/cards/store.ts`, `src/main/workflow/watch.ts`,
+  `src/main/claude-home/registry.ts`, `src/main/link-safe-watch.ts`, `src/main/chokidar-close.ts`; на macOS —
+  FSEvents) и на `fs.watch` (`src/main/watch-gone.ts`, `src/main/docs/watch.ts`, `src/main/ipc/docs.ts`): их
+  macOS-only test-ы (`cards-watch-edits`, `tickets-chokidar`, `docs-watch-root`, `docs`) проверяют это до merge.
+  Решено без владельца, подтвердить.
 - Модули с веткой `platform === 'darwin'`, которую Linux test-ы проверяют подставленным `platform`
   (`src/shared/shortcuts.ts`, `src/main/window-frame.ts`, `src/main/agent/auto-approve/policy.ts` и др.), путями
   macOS не считаются. Решено без владельца, подтвердить.
+- После ревью 1 добавлены строки `src/main/terminal/pty.ts`, `src/main/ipc/terminal.ts`,
+  `src/main/vendors/claude/options.ts`, `src/main/update/restart.ts`, `harness/hooks/gate-failures.mjs` и helper-ы
+  `test/contract/terminal-harness.ts`, `test/remove.ts`, `test/time-scale.ts`, `test/fixtures/eval-stub/**`.
+  `console-request.test.ts`, `terminal-console.test.ts` и `ci-workflow.test.ts` стоят в
+  `MACOS_TESTS_CHECKED_OTHERWISE`: их `darwin` — параметр `it.each` или текст регулярного выражения, и их случаи
+  идут на Linux тоже. Решено без владельца, подтвердить.
+
+## Итог
+
+- Известные пробелы, оставленные по решению ревью 1. `MACOS_NAME` не видит слово в camelCase: `macMenu.ts` и
+  `darwinDock.ts` — не пути macOS, а `mac-menu.ts` и `MacOS.tsx` — пути macOS. Ложное срабатывание:
+  `test/quarantine/ci-scope-e2e-imports-run-macos-e2e.json` — путь macOS по слову `macos`, так что правка этой
+  записи карантина запускает `macos-tests`.

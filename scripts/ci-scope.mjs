@@ -298,10 +298,33 @@ export const MACOS_PATHS = [
     why: 'the login zsh of macOS (agent-env.test.ts, auto-approve-shell-sh.test.ts, terminal-shell-integration.test.ts)',
   },
   {
-    paths: ['src/main/cards/store.ts', 'src/main/workflow/watch.ts', 'src/main/docs/watch.ts', 'src/main/claude-home/registry.ts', 'src/main/link-safe-watch.ts', 'src/main/chokidar-close.ts'],
-    why: 'chokidar watches through FSEvents on macOS (cards-watch-edits.test.ts, tickets-chokidar.test.ts, docs-watch-root.test.ts, docs.test.ts)',
+    paths: ['src/main/terminal/pty.ts', 'src/main/ipc/terminal.ts'],
+    why: 'the terminal starts the real $SHELL -l of macOS (terminal.test.ts)',
+  },
+  {
+    paths: ['src/main/cards/store.ts', 'src/main/workflow/watch.ts', 'src/main/claude-home/registry.ts', 'src/main/link-safe-watch.ts', 'src/main/chokidar-close.ts'],
+    why: 'chokidar watches through FSEvents on macOS (cards-watch-edits.test.ts, tickets-chokidar.test.ts)',
+  },
+  {
+    paths: ['src/main/watch-gone.ts', 'src/main/docs/watch.ts', 'src/main/ipc/docs.ts'],
+    why: 'the recursive fs.watch of Node and its rule for a root removed on macOS (docs-watch-root.test.ts, docs.test.ts)',
+  },
+  { paths: ['src/main/vendors/claude/options.ts'], why: "the SDK's platform package of macOS in a dev run (harness-install.test.ts)" },
+  { paths: ['src/main/update/restart.ts'], why: 'the previous copy of worfy-stable.app (update-harness.test.ts)' },
+  { paths: ['harness/hooks/gate-failures.mjs'], why: 'names the Mac computer of a failure record (gate-failures-cli.test.ts)' },
+  {
+    paths: ['test/contract/terminal-harness.ts', 'test/remove.ts', 'test/time-scale.ts', 'test/fixtures/eval-stub/**'],
+    why: 'helpers and fixtures the macOS-only tests use (terminal-shell-integration.test.ts, harness-evals-run.test.ts)',
   },
 ]
+// The macOS-only test files (darwinTestFiles) that no row above names in its `why`, each with the
+// reason a pull request needs no macos-tests for the code they check. test/contract/ci-workflow.test.ts
+// holds every macOS-only test file of this repository to a row or to this list.
+export const MACOS_TESTS_CHECKED_OTHERWISE = {
+  'test/unit/console-request.test.ts': "its 'darwin' is a parameter of it.each: the case runs on Linux and Windows too",
+  'test/unit/terminal-console.test.ts': "its 'darwin' is a parameter of it.each: the case runs on Linux and Windows too",
+  'test/contract/ci-workflow.test.ts': 'its darwin is the text of a regular expression over playwright.config.ts: every case runs on Linux too',
+}
 // A path named for macOS: a folder or a file name with the word darwin, mac, macos or osx, between
 // `/`, `.`, `-` and `_` (src/main/darwin/x.ts, scripts/notarize-mac.mjs, test/e2e/macos-menu.spec.ts).
 export const MACOS_NAME = /(?:^|[/._-])(?:darwin|macos|mac|osx)(?=[/._-]|$)/i

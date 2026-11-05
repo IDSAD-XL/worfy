@@ -22,10 +22,11 @@ const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'ci.yml')
 const SCOPE = join(REPO, 'scripts', 'ci-scope.mjs')
 const OK = join(REPO, 'scripts', 'ci-ok.mjs')
-const { workflowParts, E2E_SHARDS, MACOS_PATHS } = (await import(pathToFileURL(SCOPE).href)) as {
+const { workflowParts, E2E_SHARDS, MACOS_PATHS, MACOS_TESTS_CHECKED_OTHERWISE } = (await import(pathToFileURL(SCOPE).href)) as {
   workflowParts: (text: string) => { parts: Map<string, string[]>; anchored: boolean }
   E2E_SHARDS: Record<'macos-e2e' | 'windows-e2e', number>
   MACOS_PATHS: Array<{ paths: string[]; why: string }>
+  MACOS_TESTS_CHECKED_OTHERWISE: Record<string, string>
 }
 
 /** A workflow file without its comment lines and blank lines. */
@@ -1112,8 +1113,9 @@ describe('scripts/ci-scope.mjs', () => {
     ['Markdown under src/', 'src/renderer/notes.md', APP_ONLY],
     // The e2e tests read test/fixtures/worfy-mvp-epic/.
     ['Markdown under a fixture folder the e2e tests read', 'test/fixtures/worfy-mvp-epic/spec.md', APP_ONLY],
-    // Only the contract tests of the evals read test/fixtures/eval-stub/: no macOS path.
-    ['a fixture no e2e test reads', 'test/fixtures/eval-stub/claude.cjs', NO_MACOS],
+    // Only the contract tests of the evals read test/fixtures/eval-stub/, harness-evals-run.test.ts on macOS only among them.
+    ['a fixture no e2e test reads', 'test/fixtures/eval-stub/claude.cjs', TESTS_ONLY],
+    ['a fixture neither the e2e tests nor a macOS-only test reads', 'test/fixtures/sdk-messages/a.json', NO_MACOS],
     // The build copies harness/ into the app.
     ['Markdown under harness/', 'harness/skills/x/SKILL.md', APP_ONLY],
     // test/contract/harness-evals-outcome.test.ts reads the README files of scripts/eval-outcome/.
@@ -1142,7 +1144,7 @@ describe('scripts/ci-scope.mjs', () => {
 
   it.each([
     ['unit and contract tests', ['test/unit/plain.test.ts', 'test/contract/ci-workflow.test.ts', 'test/unit/windows-only.test.ts']],
-    ['a test helper the e2e tests do not use', ['test/remove.ts']],
+    ['a test helper neither the e2e tests nor MACOS_PATHS name', ['test/script-node.ts']],
     ['a helper next to a macOS-only test file', ['test/unit/platform-helper.ts']],
     // Scripts and parts of the Harness the app does not carry, that no macOS-only test checks on macOS.
     ['scripts and Harness tests', ['scripts/agent-cost.mjs', 'harness/bin/tests/profile.test.sh', 'harness/evals/cases/a.json']],
@@ -1214,8 +1216,22 @@ describe('scripts/ci-scope.mjs', () => {
     expect(push.files).toEqual([])
   })
 
-  // Every path of MACOS_PATHS; a glob stands for a file it matches (`**/` a folder, `**` two levels, `*` a letter).
-  const macosPaths = MACOS_PATHS.flatMap((row) => row.paths.map((glob) => [glob.replaceAll('**/', 'a/').replaceAll('**', 'x/y').replaceAll('*', 'z'), row.why] as const))
+  // A path written by hand for each glob of MACOS_PATHS, one that no other macOS rule matches: a typo
+  // in the glob makes its case red.
+  const GLOB_EXAMPLES: Record<string, string> = {
+    'build/**': 'build/icon.png',
+    '**/*entitlements*': 'resources/app.entitlements.plist',
+    '**/*notariz*': 'scripts/notarize.mjs',
+    '**/*notaris*': 'tools/notarise-app.sh',
+    'src/main/terminal/zsh/**': 'src/main/terminal/zsh/rc.d/10-history.zsh',
+    'test/fixtures/eval-stub/**': 'test/fixtures/eval-stub/claude.cjs',
+  }
+  // Every path of MACOS_PATHS without a glob, and the example of each glob.
+  const macosPaths = MACOS_PATHS.flatMap((row) => row.paths.map((glob) => [glob.includes('*') ? (GLOB_EXAMPLES[glob] ?? `no example for ${glob}`) : glob, row.why] as const))
+  it('MACOS_PATHS: every glob has an example written by hand', () => {
+    const globs = MACOS_PATHS.flatMap((row) => row.paths.filter((path) => path.includes('*')))
+    expect(Object.keys(GLOB_EXAMPLES).sort()).toEqual(globs.sort())
+  })
   it.each(macosPaths)('a pull request that changes %s (%s) runs macos-tests with the macOS-only files', (file) => {
     // ci.yml is rewritten here, so it packages the app (ciPackaging) and stays a macOS path.
     commitOnBase([file])
@@ -1464,6 +1480,22 @@ describe('scripts/ci-scope.mjs', () => {
   it('every test file of this repository that guards on macOS is one ci-scope.mjs lists', () => {
     expect(darwinTests(REPO).length).toBeGreaterThan(10)
     expect(unlisted(REPO)).toEqual([])
+  })
+
+  // A macOS-only test file checks code on macOS: a pull request that changes that code must run it.
+  it('every macOS-only test file of this repository is named in the reason of a MACOS_PATHS row, or checked otherwise with a reason', () => {
+    const darwin = darwinTests(REPO)
+    const byName = new Map(darwin.map((path) => [path.slice(path.lastIndexOf('/') + 1), path]))
+    expect(byName.size, 'two macOS-only test files with one name').toBe(darwin.length)
+    const named = new Set(MACOS_PATHS.flatMap((row) => [...row.why.matchAll(/[\w.-]+\.test\.tsx?/g)].map(([name]) => name)))
+    // Every test a reason names is a macOS-only test file of this repository.
+    for (const name of named) expect(byName.has(name), `${name} is named in MACOS_PATHS but is no macOS-only test file`).toBe(true)
+    for (const [path, reason] of Object.entries(MACOS_TESTS_CHECKED_OTHERWISE)) {
+      expect(darwin, `${path} is checked otherwise but is no macOS-only test file`).toContain(path)
+      expect(reason.length, path).toBeGreaterThan(10)
+    }
+    const covered = (path: string) => named.has(path.slice(path.lastIndexOf('/') + 1)) || Object.hasOwn(MACOS_TESTS_CHECKED_OTHERWISE, path)
+    expect(darwin.filter((path) => !covered(path))).toEqual([])
   })
 
   it('a macOS-only test file whose name the shell would split: macos-tests runs every file', () => {
