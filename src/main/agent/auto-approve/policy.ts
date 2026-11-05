@@ -225,7 +225,7 @@ function judgeCommand(command: string, cwd: string, prepared: Prepared): Decisio
   const targets = targetsOf(acts)
   const hard = hardOfCommand(actions, acts, prepared)
   if (hard !== null) return { outcome: 'hard-deny', rule: `hard:${hard}`, hint: HINTS.hard, targets }
-  const hinted = hintOf(acts, actions, prepared)
+  const hinted = hintOf(acts, actions)
   if (hinted !== null) return { ...hinted, targets }
   return allowOrPark(acts, targets)
 }
@@ -271,7 +271,7 @@ function hardOfCommand(actions: ShellAction[], acts: Act[], prepared: Prepared):
   const carries = new Set<number>()
   for (const [n, action] of actions.entries()) {
     const from = action.stdinFrom
-    const fed = from !== null && (actions[from]?.network === true || carries.has(from))
+    const fed = from !== null && carries.has(from)
     if (action.network || fed) carries.add(n)
     if (fed && (SHELLS.has(programName(action.program)) || action.writes.includes(UNKNOWN))) return 'run-download'
   }
@@ -354,7 +354,7 @@ function touchesGitFiles(path: string): boolean {
   })
 }
 
-function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared): Omit<Decision, 'targets'> | null {
+function hintOf(acts: Act[], actions: ShellAction[] | null): Omit<Decision, 'targets'> | null {
   for (const act of acts) {
     for (const target of act.targets) if (target.placement.kind === 'symlink-on-path') return deny('symlink-on-path', HINTS.symlink)
   }
@@ -363,7 +363,8 @@ function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared):
     const copies = actions?.[n]?.program === 'cp'
     for (const target of act.targets) {
       if (target.marker === 'unknown' || target.marker === 'repository') continue
-      if ((target.use !== 'read' || copies) && (touchesGitFiles(target.path) || touchesGitFiles(realOf(target.path, prepared)))) return deny('git-files', HINTS.gitFiles)
+      // The path as written is enough: a link on the way was denied above.
+      if ((target.use !== 'read' || copies) && touchesGitFiles(target.path)) return deny('git-files', HINTS.gitFiles)
     }
   }
   for (const act of acts) {
@@ -377,12 +378,6 @@ function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared):
   const changes = acts.some((act) => act.git !== undefined || act.targets.some((target) => target.use !== 'read'))
   if (actions !== null && !changes && acts.every((act) => act.targets.every((target) => isInside(target.placement)))) return deny('read-only', HINTS.readOnly)
   return null
-}
-
-/** The real path of `path` when it exists, for the git file check; else `path`. */
-function realOf(path: string, prepared: Prepared): string {
-  const real = prepared.roots.fs.realpath(path)
-  return real === null ? path : normalizePath(real, prepared.win) ?? path
 }
 
 function allowOrPark(acts: Act[], targets: string[]): Decision {
@@ -428,7 +423,7 @@ function judgeFiles(tool: string, input: Record<string, unknown>, prepared: Prep
   const targets = targetsOf([act])
   const hard = act.targets.find((target) => target.placement.kind === 'hard')
   if (hard !== undefined && hard.placement.kind === 'hard') return { outcome: 'hard-deny', rule: `hard:${hard.placement.category}`, hint: HINTS.hard, targets }
-  const hinted = hintOf([act], null, prepared)
+  const hinted = hintOf([act], null)
   if (hinted !== null) return { ...hinted, targets }
   return allowOrPark([act], targets)
 }

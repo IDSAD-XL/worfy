@@ -9,8 +9,10 @@
 // ~/.claude…), worfy's data folder outside the Run's folder, the Harness home, and the work of other
 // Sessions (the folder of a live Session, a worktree outside the Run).
 //
-// A path is made absolute and `.` / `..` are folded, then each component that exists is looked up on
-// the file system (through FileSystem, so tests give their own): a symbolic link is followed to find
+// A path is made absolute and walked component by component; each component that exists is looked up
+// on the file system (through FileSystem, so tests give their own), and `.` / `..` are folded against
+// the real path found so far, as the system does (`<root>/link/../x` is beside the link's target, not
+// inside the root). A symbolic link is followed to find
 // where the path really leads, and is itself a reason not to allow, wherever it leads (a link put in a
 // root can be pointed elsewhere after the decision). Only the links on the configured path of a root
 // are taken as given (macOS /tmp and /var). A target is judged by both its written and its real form:
@@ -399,7 +401,7 @@ function placeGlob(path: string, pattern: string, roots: Roots, use: TargetUse):
     const placed: Placement = entryKind === 'link' ? worst({ kind: 'symlink-on-path', link: entry }, place(entry, roots, use)) : place(entry, roots, use)
     result = worst(result, placed)
   }
-  if (result.kind === 'inside' && folder.kind === 'is-root') return folder
+  // A glob directly in a root stays the root: an entry inside it is no worse than the folder.
   return result
 }
 

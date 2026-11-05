@@ -53,6 +53,7 @@ describe('roots and hard areas on made-up paths', () => {
     expect(kind('/tmp/demo/repo/.scratch/x/../..')).toBe('outside')
     expect(kind('/tmp/demo/pad/../../../home/demo/.ssh/id')).toBe('hard:ssh')
     expect(kind('/../../tmp/demo/pad/x')).toBe('inside:scratchpad')
+    expect(kind('/tmp/demo/pad/x/../y')).toBe('inside:scratchpad')
   })
 
   it('places a missing file inside a root (a revision such as HEAD~3 too)', () => {
@@ -74,6 +75,7 @@ describe('roots and hard areas on made-up paths', () => {
       ['/home/demo/.zshenv', 'shell-rc'],
       ['/home/demo/.bashrc', 'shell-rc'],
       ['/home/demo/.profile', 'shell-rc'],
+      ...['.zprofile', '.zlogin', '.zlogout', '.bash_profile', '.bash_login', '.bash_logout', '.inputrc'].map((name) => [`/home/demo/${name}`, 'shell-rc'] as const),
       ['/home/demo/Library/Keychains/x', 'library'],
       ['/tmp/demo/data/app-settings.json', 'worfy-data'],
     ] as const) {
@@ -95,6 +97,13 @@ describe('roots and hard areas on made-up paths', () => {
     expect(kind('/home', 'delete')).toBe('hard:claude-home')
     expect(kind('/home/demo', 'write')).toBe('outside')
     expect(kind('/home/demo/notes.txt', 'delete')).toBe('outside')
+    // A delete of a folder that holds a root takes the root with it.
+    expect(kind('/tmp/demo/repo/.claude/worktrees', 'delete', rootsOf({ ...base, otherWorktrees: [] }))).toBe('is-root:worktree')
+    expect(kind('/tmp/demo/repo/.claude/worktrees', 'write', rootsOf({ ...base, otherWorktrees: [] }))).toBe('outside')
+  })
+
+  it('judges a write when no use is given', () => {
+    expect(resolveTarget('/tmp/demo/other/a.ts', roots).kind).toBe('hard')
   })
 
   it('the longest area wins: the Run\'s folder inside worfy\'s data is a root', () => {
@@ -109,6 +118,7 @@ describe('roots and hard areas on made-up paths', () => {
     const xdg = rootsOf({ ...base, xdgConfigHome: '/tmp/demo/xdg' })
     expect(kind('/tmp/demo/xdg/gh/hosts.yml', 'read', xdg)).toBe('hard:gh-config')
     expect(kind('/tmp/demo/xdg/git/config', 'read', xdg)).toBe('hard:git-config')
+    expect(kind('/gh/x', 'read', rootsOf({ ...base, xdgConfigHome: '' }))).toBe('outside')
   })
 
   it('macOS: hard areas ignore case, roots do not', () => {
@@ -116,6 +126,7 @@ describe('roots and hard areas on made-up paths', () => {
     expect(kind('/home/demo/.SSH/id', 'read', mac)).toBe('hard:ssh')
     expect(kind('/tmp/demo/PAD/x', 'write', mac)).toBe('outside')
     expect(kind('/home/demo/.SSH/id', 'read')).toBe('outside')
+    expect(kind('/home/DEMO', 'delete', mac)).toBe('hard:claude-home')
   })
 })
 
@@ -155,6 +166,58 @@ describe('Windows', () => {
     expect(normalizePath('/c/x/./y/../z', true)).toBe('C:\\x\\z')
     expect(normalizePath('c:/', true)).toBe('C:\\')
     expect(normalizePath('/tmp//a/./b/', false)).toBe('/tmp/a/b')
+  })
+})
+
+describe('a file system that answers with errors', () => {
+  const failing = (bad: string): FileSystem => ({
+    lstat: (path) => (path === bad ? 'error' : path.startsWith(`${bad}/`) ? null : 'dir'),
+    realpath: () => null,
+    readdir: () => [],
+  })
+  it('a component that cannot be told is outside', () => {
+    expect(kind('/tmp/demo/pad/x/y', 'write', rootsOf({ ...base, fs: failing('/tmp/demo/pad/x') }))).toBe('outside')
+  })
+  it('a link whose target cannot be resolved is outside, a configured one too', () => {
+    const dangling: FileSystem = { lstat: (path) => (path === '/tmp' ? 'link' : 'dir'), realpath: () => null, readdir: () => [] }
+    expect(kind('/tmp/demo/pad/x', 'write', rootsOf({ ...base, fs: dangling }))).toBe('outside')
+  })
+  it('no top of a repository on an error or for a relative folder', () => {
+    expect(repositoryTop('/tmp/demo/pad/x/y', rootsOf({ ...base, fs: failing('/tmp/demo/pad/x') }))).toBeNull()
+    const gitError: FileSystem = { lstat: (path) => (path.endsWith('.git') ? 'error' : 'dir'), realpath: () => null, readdir: () => [] }
+    expect(repositoryTop('/tmp/demo/pad', rootsOf({ ...base, fs: gitError }))).toBeNull()
+    expect(repositoryTop('relative', roots)).toBeNull()
+  })
+  it('a folder too big to look through is outside', () => {
+    const big = (count: number): FileSystem => ({ lstat: (path) => (path.endsWith('.txt') ? 'file' : 'dir'), realpath: () => null, readdir: () => Array.from({ length: count }, (_, n) => `${n}.txt`) })
+    expect(kind('/tmp/demo/pad/x/*', 'delete', rootsOf({ ...base, fs: big(10_000) }))).toBe('inside:scratchpad')
+    expect(kind('/tmp/demo/pad/x/*', 'delete', rootsOf({ ...base, fs: big(10_001) }))).toBe('outside')
+  })
+})
+
+describe('the machine\'s file system', () => {
+  let top = ''
+  beforeAll(() => {
+    top = mkdtempSync(join(tmpdir(), 'auto-approve-fs-'))
+    writeFileSync(join(top, 'f'), 'f')
+    mkdirSync(join(top, 'd'))
+    symlinkSync(join(top, 'd'), join(top, 'l'), process.platform === 'win32' ? 'junction' : 'dir')
+  })
+  afterAll(() => {
+    rmSync(top, { recursive: true, force: true })
+  })
+  it('tells files, folders, links and nothing apart', () => {
+    const fs = rootsOf({ ...base, fs: undefined }).fs
+    expect(fs.lstat(join(top, 'f'))).toBe('file')
+    expect(fs.lstat(join(top, 'd'))).toBe('dir')
+    expect(fs.lstat(join(top, 'l'))).toBe('link')
+    expect(fs.lstat(join(top, 'missing'))).toBeNull()
+    // Below a file: ENOTDIR, not an error.
+    expect(fs.lstat(join(top, 'f', 'x'))).toBeNull()
+    expect(fs.realpath(join(top, 'missing'))).toBeNull()
+    expect(fs.readdir(join(top, 'missing'))).toBeNull()
+    expect(fs.readdir(join(top, 'f'))).toBeNull()
+    expect(fs.readdir(top)?.sort()).toEqual(['d', 'f', 'l'])
   })
 })
 

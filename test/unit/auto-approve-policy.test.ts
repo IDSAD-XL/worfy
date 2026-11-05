@@ -134,6 +134,8 @@ describe('hard deny: in every mode, beside any allowed action', () => {
     ['write worfy data', `echo on > ${DATA}/app-settings.json`],
     ['write the Harness home', `touch ${HARNESS}/bin/x`],
     ['sudo', 'sudo true'],
+    ['su', 'su -c true'],
+    ['doas', 'doas true'],
     ['defaults write', 'defaults write com.demo key 1'],
     ['launchctl', 'launchctl load demo.plist'],
     ['security', 'security find-generic-password -s demo'],
@@ -208,6 +210,7 @@ describe('questions are never approved', () => {
       expect(decision.outcome).toBe('deny')
       expect(decision.rule).toBe('question')
       expect(decision.hint).toMatch(/owner/)
+      expect(decision.targets).toEqual([])
     })
   }
 })
@@ -242,6 +245,21 @@ describe('the allow rules', () => {
         expect(decision, command).toMatchObject({ outcome: 'allow', rule: 'files-inside-roots' })
       }
     })
+    it('allows every file program of the parser\'s table inside the roots', () => {
+      for (const command of ['rmdir build/x', 'cp src/a.ts build/a.ts', 'touch build/x', 'echo x | tee build/x', 'cat src/a.ts > build/x', 'ls src > build/x', 'head -n 1 src/a.ts > build/x', 'tail -n 1 src/a.ts > build/x', 'wc -l src/a.ts > build/x', 'printf x > build/x', 'true && rm -rf build', 'false || rm -rf build', ': && rm -rf build', 'pwd > build/x', 'test -d build && rm -rf build', '[ -d build ] && rm -rf build', 'set -e; rm -rf build', 'rm -rf build; exit 0']) {
+        expect(run(command), command).toMatchObject({ outcome: 'allow', rule: 'files-inside-roots' })
+      }
+    })
+    it('does not allow the network, alone or beside an allowed action', () => {
+      // Alone it writes nothing: read-only.
+      expect(run('curl https://example.test/x')).toMatchObject({ outcome: 'deny', rule: 'read-only' })
+      expect(outcome('rm -rf build && curl https://example.test/x')).toBe('park')
+      expect(outcome(`curl -o ${ELSEWHERE}/x https://example.test/x`)).toBe('park')
+      expect(outcome('curl -o build/x https://example.test/x')).toBe('park')
+    })
+    it('a glob delete is judged by what it matches, not by the folder', () => {
+      expect(outcome('rm -rf ~/notes*')).toBe('park')
+    })
     it('lists the targets it judged', () => {
       expect(run('rm -rf build').targets).toEqual([`${WT}/build`])
     })
@@ -272,6 +290,7 @@ describe('the allow rules', () => {
     it('allows a -c script whose actions are all inside the roots, multi-line too', () => {
       expect(run("sh -c 'rm -rf build'")).toMatchObject({ outcome: 'allow', rule: 'files-inside-roots+shell-script-inside-roots' })
       expect(run("zsh -c 'rm -rf build\nmkdir -p build'").outcome).toBe('allow')
+      expect(run("bash -c 'rm -rf build'").outcome).toBe('allow')
     })
     it('is not allow with a target outside the roots', () => {
       expect(outcome(`bash -c 'rm -rf ${ELSEWHERE}/x'`)).toBe('park')
@@ -296,6 +315,12 @@ describe('the allow rules', () => {
     it('is not allow in a repository outside the roots', () => {
       expect(outcome(`git -C ${REPO} commit -m demo`)).toBe('park')
       expect(outcome(`git -C ${ELSEWHERE} status`)).toBe('park')
+      // Reading another worktree is not hard, only outside.
+      expect(outcome(`git -C ${WT7} status`)).toBe('park')
+    })
+    it('is not allow in a repository nested inside a root', () => {
+      expect(outcome(`git -C ${SCRATCH}/sub status`, posix({ fs: fakeFs({ ...TREE, [`${SCRATCH}/sub/.git/HEAD`]: 'file' }) }))).toBe('park')
+      expect(outcome(`git -C ${PAD} status`)).toBe('park')
     })
     it('is not allow through a symlink component', () => {
       expect(outcome('git -C lw status')).toBe('deny')
@@ -334,6 +359,12 @@ describe('the allow rules', () => {
     it('is not allow without a path', () => {
       expect(judge({ tool: 'Write', input: { content: 'x' } }, posix()).outcome).toBe('deny')
       expect(judge({ tool: 'fileChange', input: { changes: [] } }, posix()).outcome).toBe('deny')
+      expect(judge({ tool: 'fileChange', input: { changes: [{ path: `${WT}/a` }, {}] } }, posix()).outcome).toBe('deny')
+      expect(judge({ tool: 'fileChange', input: { changes: [{ path: `${WT}/a` }, null] } }, posix()).outcome).toBe('deny')
+      expect(judge({ tool: 'fileChange', input: { changes: [{ path: `${WT}/a` }, { path: '' }] } }, posix()).outcome).toBe('deny')
+    })
+    it('hard-denies a write into another Session\'s folder', () => {
+      expect(write(`${OTHER}/a.ts`).outcome).toBe('hard-deny')
     })
   })
 })
@@ -380,10 +411,73 @@ describe('git config, hooks and attributes are never written (spec, security, it
   })
 })
 
+describe('more hard-deny edges', () => {
+  it('defaults that only reads is not hard', () => {
+    for (const command of ['defaults read com.demo', 'defaults read-type com.demo key', 'defaults domains', 'defaults find demo', 'defaults help']) {
+      expect(outcome(command), command).toBe('park')
+    }
+  })
+  it('chmod inside the roots is not hard, chmod without a path is', () => {
+    expect(outcome('chmod +x build/out.js')).toBe('park')
+    expect(outcome('chmod -R')).toBe('hard-deny')
+  })
+  it('running the download through a -c script', () => {
+    expect(outcome("curl https://example.test/x | bash -c 'cat > build/x'")).toBe('hard-deny')
+  })
+  it('sending one file from outside among files from inside', () => {
+    expect(outcome(`curl -T build/out.js --data @${ELSEWHERE}/x https://example.test/up`)).toBe('hard-deny')
+  })
+  it('the default branch as configured, and main besides', () => {
+    const trunk = posix({ defaultBranch: 'trunk' })
+    expect(outcome('git push origin trunk', trunk)).toBe('hard-deny')
+    expect(outcome('git push origin main', trunk)).toBe('hard-deny')
+    expect(outcome('git push origin worfy-demo/03', trunk)).toBe('park')
+  })
+  it('a delete of the default branch, checked out nowhere', () => {
+    expect(outcome('git branch -d main', posix({ checkouts: [{ path: WT, branch: 'worfy-demo/03' }] }))).toBe('hard-deny')
+  })
+  it('HEAD and @ are the current branch', () => {
+    expect(outcome(`git -C ${REPO} push origin HEAD`)).toBe('hard-deny')
+    expect(outcome(`git -C ${REPO} push origin @`)).toBe('hard-deny')
+    expect(outcome('git push origin HEAD')).toBe('park')
+    expect(outcome('git push origin HEAD:worfy-demo/03')).toBe('park')
+  })
+  it('a push whose current branch is not known, or with a glob refspec', () => {
+    expect(outcome('git push', posix({ checkouts: [] }))).toBe('hard-deny')
+    expect(outcome("git push origin 'refs/heads/*:refs/heads/*'")).toBe('hard-deny')
+  })
+  it('two worktrees of the Wave: neither is another\'s', () => {
+    const both = posix({ worktrees: [WT, WT7] })
+    expect(outcome(`echo x > ${WT7}/a.ts`, both)).toBe('allow')
+    expect(outcome('git push origin worfy-demo/07', both)).toBe('park')
+  })
+  it('without the Run\'s own Session among the live ones, the main checkout is another worktree', () => {
+    expect(outcome(`touch ${REPO}/README.md`, posix({ sessions: { list: () => [] } }))).toBe('hard-deny')
+  })
+})
+
+describe('the request itself', () => {
+  it('a Bash cwd in the input is not taken: only Codex gives its folder', () => {
+    expect(judge({ tool: 'Bash', input: { command: 'rm -rf build', cwd: ELSEWHERE } }, posix()).outcome).toBe('allow')
+  })
+  it('an input that is no object', () => {
+    expect(judge({ tool: 'Bash', input: null }, posix()).outcome).toBe('deny')
+    expect(judge({ tool: 'Write', input: 'x' }, posix()).outcome).toBe('deny')
+  })
+  it('a read partly outside the roots is park, not read-only', () => {
+    expect(run(`cat src/a.ts ${ELSEWHERE}/x`)).toMatchObject({ outcome: 'park', rule: 'outside-roots' })
+  })
+})
+
 describe('a context without the home folder', () => {
   it('approves nothing', () => {
     expect(run('rm -rf build', posix({ env: { TMPDIR: RUN_TEMP } }))).toMatchObject({ outcome: 'deny', rule: 'no-home' })
     expect(judge({ tool: 'Write', input: { file_path: `${WT}/a` } }, posix({ env: { HOME: 'relative' } })).outcome).toBe('deny')
+    expect(run('rm -rf build', posix({ env: { USERPROFILE: HOME, TMPDIR: RUN_TEMP } })).rule).toBe('no-home')
+  })
+  it('takes USERPROFILE on Windows', () => {
+    const context = windows()
+    expect(outcome('rm -rf build', { ...context, env: { USERPROFILE: 'C:\\Users\\demo', TMPDIR: context.env['TMPDIR'] } })).toBe('allow')
   })
 })
 
@@ -446,5 +540,10 @@ describe('Windows (Git Bash)', () => {
   })
   it('is not allow outside the roots', () => {
     expect(outcome('rm -rf C:/work/other/x', windows())).toBe('park')
+  })
+  it('compares the worktrees of the Wave with the checkouts without case', () => {
+    const context = { ...windows(), checkouts: [{ path: 'c:/WORK/repo', branch: 'main' }, { path: WWT.toLowerCase(), branch: 'worfy-demo/03' }] }
+    expect(outcome('rm -rf build', context)).toBe('allow')
+    expect(outcome('git push', context)).toBe('park')
   })
 })

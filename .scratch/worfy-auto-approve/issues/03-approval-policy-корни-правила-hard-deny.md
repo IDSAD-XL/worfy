@@ -63,3 +63,55 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3–6; «Бе
 - `test/unit/auto-approve-roots.test.ts` (новый)
 
 Только читать: `src/main/agent/auto-approve/shell.ts` (Ticket 02), `src/shared/autopilot/journal.ts` (`journalReason` — образец нормализации домашней папки).
+
+## Итог
+
+Прогон по категориям Ticket-а 01 с настоящей политикой (Mac, transcript-ы `~/.claude/projects`, только числа; корни
+приближены, как у черновика 01: все worktree-ы репозитория `cwd`, его `.scratch`, системный `TMPDIR`, scratchpad
+Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Причины deny: `not-judged` 6 (`rm-after-cd-glob` 2,
+`rm-var-target` 2, `bash-other` 1, `multiline-c-script` 1), `question` 4. Черновик 01 давал deny 9 и park 1: тот park
+настоящий разбор Ticket-а 02 читает как «не могу судить». Вывод 01 не меняется: одобрение — для простых команд,
+пользу на этих данных дают подсказки и правила агента (Ticket 09).
+
+Решено без владельца:
+
+1. **`..` — от настоящего пути, не по тексту.** Ticket говорит «свернуть `..`, потом `realpath`». Свёртка по тексту
+   превращает `<корень>/ln/../x` в `<корень>/x` и теряет ссылку `ln`, а система откроет `x` рядом с целью ссылки.
+   Поэтому `resolveTarget` идёт по компонентам: `..` поднимается от уже найденного настоящего пути. По тексту
+   свёрнутый путь тоже судится — для hard deny и для списка `targets`.
+2. **Symlink.** Ссылка-компонент на пути — не allow, куда бы ни вела; исключение — ссылки на настроенном пути самого
+   корня (macOS `/tmp`, `/var`). Цель hard deny находится и через ссылку: судятся обе формы пути.
+3. **Glob** (только последний компонент, как пишет Ticket 02) судится по каждой записи папки, которую шаблон может
+   совпасть при любых опциях shell-а: dot-файлы и любой регистр тоже. Ссылка среди них — `symlink-on-path`. Папка,
+   которую нельзя прочитать или в которой больше 10 000 записей, — `outside`; исключение — новая папка
+   `X=$(mktemp -d)`: её ещё нет, она пустая. Glob прямо в корне — сам корень (`rm -rf <worktree>/*`).
+4. **Самая длинная область выигрывает**: папка Run-а внутри папки данных worfy — корень; при равной длине hard
+   сильнее. На macOS hard-области сравниваются без учёта регистра, корни — с учётом (путь, отличный от корня
+   регистром, может быть другой папкой). Удаление папки, в которой лежит hard-область, — hard
+   (`rm -rf ~`); удаление папки, в которой лежит корень, — «весь корень».
+5. **Hard-области сверх списка spec:** `~/.git-credentials`, `~/.config/git` и `$XDG_CONFIG_HOME/git`, `~/.inputrc`,
+   все rc-файлы bash и zsh; программы `su`, `doas`; программа вне таблицы Ticket-а 02 (`env`, `nohup`, `xargs`), у
+   которой среди слов есть программа из этого списка. Читать в папке другой Session-и, другого worktree и Harness
+   home можно (не hard, а `outside`); читать секреты — hard.
+6. **Чужие worktree-ы** — из `checkouts` (`git worktree list`) без worktree-ов Wave и без папки Session-и самого Run-а:
+   main checkout Orchestrator-а — `outside` (park), не hard.
+7. **git.** Push никогда не allow: URL remote-а — в git config, его здесь не видно. Hard: force (`-f`, `--force`,
+   `--force-with-lease`, `+`), `--delete` и пустой источник, `--all` / `--mirror` / `--tags` (Ticket 02 их не различает),
+   назначение `main` или default branch, назначение-glob, ветка другого worktree, push текущей ветки, имя которой
+   неизвестно. Удаление ветки: default branch или ветка другого worktree — hard, прочее — park. Правило
+   `git-in-wave-worktree` требует, чтобы верх репозитория был worktree-ом Wave (не вложенный репозиторий в корне) и
+   чтобы на пути к папке git не было ссылки; `fetch` и `pull` разрешены, `git clean` в корне — тоже (он удаляет
+   содержимое, не корень).
+8. **Чтение.** Цели чтения судятся по корням; команда без записи и удаления (кроме git) — deny-with-hint `read-only`:
+   решение Ticket-а 01 для `bash-other`, проверку Claude Code не повторить.
+9. **git config, hooks, attributes:** любая цель записи или удаления с компонентом `.git` или `.gitattributes`, и
+   источники `cp`, — deny-with-hint `git-files`. Не закрыто: копия папки, внутри которой есть `.gitattributes`, и
+   подкоманды git, которые достают `.gitattributes` из коммита (`checkout`, `merge`); без записи в `.git/config` такой
+   файл программу не запускает.
+10. **Команда, которую Ticket 02 не разобрал, до hard deny не доходит:** её действий не видно, исход — deny-with-hint
+    `not-judged`. Текстового поиска опасных слов нет (ложные срабатывания на `echo sudo`).
+11. **Без HOME** (и `USERPROFILE` на Windows) политика не одобряет ничего: deny `no-home`.
+12. **Q3 (в):** цель вне корней, программа вне таблицы, сеть (кроме git fetch / pull), push — park. Rule id исходов:
+    `files-inside-roots`, `shell-script-inside-roots`, `git-in-wave-worktree`, `edit-inside-roots` (allow, через `+`);
+    `question`, `not-judged`, `symlink-on-path`, `git-files`, `whole-root`, `read-only`, `no-home` (deny);
+    `outside-roots`, `unknown-tool` (park); `hard:<пункт>`.
