@@ -810,3 +810,61 @@ describe('more programs and edges the review named', () => {
     expect(run('git push origin main', posix({ checkouts: [{ path: WT, branch: 'worfy-demo/03' }] })).rule).toBe('hard:git-push-default-branch')
   })
 })
+
+describe('the edges mutation testing found', () => {
+  const on = (branch: string): PolicyContext => posix({ fs: fakeFs({ ...TREE, [`${REPO}/.git/worktrees/03/HEAD`]: `text:ref: refs/heads/${branch}\n` }) })
+  it('a settings program behind a wrapper: defaults and networksetup too', () => {
+    expect(run('env defaults write com.demo key 1').rule).toBe('hard:os-settings')
+    expect(run('nohup networksetup -setdnsservers Wi-Fi 1.1.1.1').rule).toBe('hard:os-settings')
+  })
+  it('git reads its folder: the Harness home is outside, not hard', () => {
+    expect(run(`git -C ${HARNESS} status`).outcome).toBe('park')
+  })
+  it('what was not downloaded, piped into a shell, is not run-download', () => {
+    expect(run('echo hi | sh').outcome).not.toBe('hard-deny')
+  })
+  it('the subcommand is found after git\'s own options', () => {
+    expect(run('git --no-pager checkout main').rule).toBe('hard:git-checkout-default-branch')
+    expect(run(`git -C ${WT} worktree add -f ${PAD}/x worfy-demo/03`).rule).toBe('hard:git-worktree-force')
+  })
+  it('a value glued to a short option', () => {
+    // The parser refuses a cluster with any of git's launching letters, so the name has none.
+    const context = posix({ checkouts: [{ path: REPO, branch: 'main' }, { path: WT, branch: 'worfy-demo/03' }, { path: WT7, branch: 'cool/07' }] })
+    expect(run('git checkout -Bcool/07', context).rule).toBe('hard:git-other-branch')
+  })
+  it('git am on the default branch', () => {
+    expect(run('git am demo.patch', on('main')).rule).toBe('hard:git-commit-default-branch')
+  })
+  it('fetch refspecs: an empty source names the destination, an empty destination stores nothing', () => {
+    expect(run('git fetch origin :main').rule).toBe('hard:git-fetch-default-branch')
+    expect(run('git fetch origin main:').outcome).not.toBe('hard-deny')
+    expect(run('git fetch origin "x:wor*"').rule).toBe('hard:git-fetch-default-branch')
+    expect(run('git pull origin HEAD:main').rule).toBe('hard:git-fetch-default-branch')
+    expect(outcome('git fetch .')).toBe('park')
+    // Another subcommand's operand with a colon is no refspec.
+    expect(run('git diff HEAD HEAD:main').outcome).not.toBe('hard-deny')
+  })
+  it('the previous branch and an option that only starts like --ignore-other-worktrees', () => {
+    expect(run('git checkout --ignore- worfy-demo/03').rule).not.toBe('hard:git-ignore-other-worktrees')
+    expect(run('git remote add -f demo https://example.test/x').outcome).not.toBe('hard-deny')
+  })
+  it('the repository\'s own checkout is not another worktree', () => {
+    const tree = { ...TREE, [`${REPO}/.git/HEAD`]: 'text:ref: refs/heads/feature\n' }
+    const context = posix({ fs: fakeFs(tree), checkouts: [{ path: REPO, branch: 'feature' }, { path: WT, branch: 'worfy-demo/03' }, { path: WT7, branch: 'worfy-demo/07' }] })
+    expect(run(`git -C ${REPO} commit -m demo`, context).outcome).toBe('park')
+  })
+  it('a repository whose .git is a folder, on a branch of its own', () => {
+    const tree = { ...TREE, [`${PAD}/r/.git/HEAD`]: 'text:ref: refs/heads/demo\n' }
+    expect(run(`git -C ${PAD}/r commit -m demo`, posix({ fs: fakeFs(tree) })).outcome).not.toBe('hard-deny')
+  })
+  it('reading a git file is not a write of it; cp reading one is', () => {
+    const tree = { ...TREE, [`${WT}/.gitattributes`]: 'file' }
+    expect(run('cat .gitattributes', posix({ fs: fakeFs(tree) })).rule).toBe('read-only')
+    expect(run('cp .gitattributes build/x', posix({ fs: fakeFs(tree) })).rule).toBe('git-files')
+  })
+  it('a copy is looked through only when everything is inside, and only its sources', () => {
+    const tree = { ...TREE, [`${ELSEWHERE}/kit/.gitattributes`]: 'file', [`${SCRATCH}/kit/.gitattributes`]: 'file', [`${SCRATCH}/plain/a.txt`]: 'file' }
+    expect(run(`cp -r ${ELSEWHERE}/kit build/`, posix({ fs: fakeFs(tree) })).outcome).toBe('park')
+    expect(run(`cp -r ${SCRATCH}/plain ${SCRATCH}/kit`, posix({ fs: fakeFs(tree) })).outcome).toBe('allow')
+  })
+})

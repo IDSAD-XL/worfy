@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { normalizePath, recordRoots, repositoryTop, resolveTarget, rootsOf as rootsOfRecorded, type FileSystem, type Roots, type RootsInput } from '../../src/main/agent/auto-approve/roots'
+import { copiedTree, nodeFileSystem, normalizePath, recordRoots, repositoryTop, resolveTarget, rootsOf as rootsOfRecorded, type FileSystem, type Roots, type RootsInput } from '../../src/main/agent/auto-approve/roots'
 import { newTempFolderName } from '../../src/main/agent/auto-approve/shell'
 import { removeTestTree } from '../remove'
 
@@ -216,6 +216,11 @@ describe('the machine\'s file system', () => {
   })
   afterAll(() => {
     removeTestTree(top)
+  })
+  it('reads a file, and nothing for one that is not there or a folder', () => {
+    expect(nodeFileSystem.readFile(join(top, 'f'))).toBe('f')
+    expect(nodeFileSystem.readFile(join(top, 'missing'))).toBeNull()
+    expect(nodeFileSystem.readFile(join(top, 'd'))).toBeNull()
   })
   it('tells files, folders, links and nothing apart', () => {
     const fs = rootsOf({ ...base, fs: undefined }).fs
@@ -472,5 +477,49 @@ describe('Windows names the system rewrites', () => {
   it('on Linux and macOS such a name is a name', () => {
     expect(kind('/tmp/demo/pad/.git./x', 'write')).toBe('inside:scratchpad')
     expect(kind('/tmp/demo/pad/GIT~1', 'write')).toBe('inside:scratchpad')
+  })
+})
+
+describe('more edges mutation testing found', () => {
+  const at = { ...base, worktrees: ['/w/wt'], scratch: null, scratchpad: null, otherSessions: [], otherWorktrees: [] }
+  it('a moved root inside a hard area does not shield it', () => {
+    const fsys = treeFs({ '/tmp/demo/data/autopilot-tmp/demo-run': '-> /elsewhere', '/elsewhere/x': 'file', '/tmp/demo/data/x': 'file', '/w/wt/a': 'file' })
+    const roots = rootsOfRecorded({ ...at, recorded: { '/w/wt': '/w/wt', '/tmp/demo/data/autopilot-tmp/demo-run': '/tmp/demo/data/autopilot-tmp/demo-run' }, fs: fsys })
+    expect(kind('/tmp/demo/data/autopilot-tmp/demo-run/x', 'write', roots)).toBe('hard:worfy-data')
+  })
+  it('a delete of a folder that holds a root by its real path only', () => {
+    const fsys = treeFs({ '/var': '-> /private/var', '/private/var/run-temp/x': 'file', '/w/wt/a': 'file' })
+    const roots = rootsOfRecorded({ ...at, runTemp: '/var/run-temp', dataDir: null, recorded: { '/w/wt': '/w/wt', '/var/run-temp': '/private/var/run-temp' }, fs: fsys })
+    expect(kind('/private/var', 'delete', roots)).toBe('is-root:run-temp')
+  })
+  it('Windows: a . component is no rewritten name; an existing rewritten name that stays one is not judged', () => {
+    const win = rootsOf({ ...base, platform: 'win32', worktrees: ['C:\\w\\wt'], scratch: null, runTemp: null, scratchpad: null, home: 'C:\\Users\\demo', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [] })
+    expect(kind('C:\\w\\wt\\.\\a', 'write', win)).toBe('inside:worktree')
+    const odd: FileSystem = { lstat: (path) => (/^c:\\w(\\wt(\\x\.)?)?$/i.test(path) || /^c:\\$/i.test(path) ? 'dir' : null), realpath: (path) => path, readdir: () => null, readFile: () => null }
+    const stays = rootsOf({ ...base, platform: 'win32', worktrees: ['C:\\w\\wt'], scratch: null, runTemp: null, scratchpad: null, home: 'C:\\Users\\demo', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [], fs: odd })
+    expect(kind('C:\\w\\wt\\x.\\a', 'write', stays)).toBe('not-judged')
+  })
+})
+
+describe('what a copy brings along (copiedTree)', () => {
+  const roots = (fsys: FileSystem): Roots => rootsOf({ ...base, fs: fsys })
+  it('is clean, git-files, or unclear for an error, an unreadable folder or too many entries', () => {
+    expect(copiedTree('/tmp/demo/pad/kit', roots(treeFs({ '/tmp/demo/pad/kit/a/b.txt': 'file' })))).toBe('clean')
+    expect(copiedTree('/tmp/demo/pad/kit', roots(treeFs({ '/tmp/demo/pad/kit/a/.GITMODULES': 'file' })))).toBe('git-files')
+    expect(copiedTree('/tmp/demo/pad/kit/*', roots(treeFs({ '/tmp/demo/pad/kit/a/.git': 'file' })))).toBe('git-files')
+    const failing = (bad: string): FileSystem => ({ ...treeFs({ '/tmp/demo/pad/kit/a/b.txt': 'file' }), lstat: (path) => (path === bad ? 'error' : path.endsWith('.txt') ? 'file' : 'dir') })
+    expect(copiedTree('/tmp/demo/pad/kit', roots(failing('/tmp/demo/pad')))).toBe('unclear')
+    expect(copiedTree('/tmp/demo/pad/kit', roots(failing('/tmp/demo/pad/kit/a')))).toBe('unclear')
+    const unreadable: FileSystem = { ...treeFs({ '/tmp/demo/pad/kit/a': 'dir' }), readdir: () => null }
+    expect(copiedTree('/tmp/demo/pad/kit', roots(unreadable))).toBe('unclear')
+    expect(copiedTree('/tmp/demo/pad/kit/*', roots(unreadable))).toBe('unclear')
+  })
+  it('more entries than a glob may have is unclear, in a glob\'s folder or below', () => {
+    const many: Record<string, string> = {}
+    for (let n = 0; n <= 10_000; n++) many[`/tmp/demo/pad/kit/d/${n}`] = 'file'
+    expect(copiedTree('/tmp/demo/pad/kit', roots(treeFs(many)))).toBe('unclear')
+    expect(copiedTree('/tmp/demo/pad/kit/d/*', roots(treeFs(many)))).toBe('unclear')
+    delete many['/tmp/demo/pad/kit/d/0']
+    expect(copiedTree('/tmp/demo/pad/kit/d/*', roots(treeFs(many)))).toBe('clean')
   })
 })
