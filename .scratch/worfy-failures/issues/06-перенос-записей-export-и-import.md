@@ -1,7 +1,8 @@
 # 06 — Перенос записей между машинами: `export` и `import`
 
 Type: task
-Status: claimed 2026-11-04T23:32Z
+Status: done 2026-11-05T01:53Z
+PR: #1402
 Blocked by: 01
 Source: [spec.md](../spec.md), «Цель и что видит пользователь», п. 5, «Модель» (очистка текста, компьютер), «Вопросы владельцу», Q1 (рекомендация А и В) и Q6 (рекомендация А), «Риски», п. 4; [ADR-0086](../../../docs/adr/0086-pc-gate-full-once-per-wave.md), пункт 4 (issue `pc-main-red` с отчётом)
 
@@ -44,31 +45,41 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
       `imported/<id>/`; второй import — «already imported».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 after the rebase · mac - · 4ae72be10
+  - evidence: review pass · PR #1402 · - - · f2bfaa51d3b2e4ff7f2e42c1d1ae8cddc1e6db21
 - [ ] Contract test: `import -` из stdin даёт то же.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 after the rebase · mac - · 4ae72be10
+  - evidence: review pass · PR #1402 · - - · f2bfaa51d3b2e4ff7f2e42c1d1ae8cddc1e6db21
 - [ ] Contract test: export 40 run-ов с длинными `error` — несколько частей, каждая ≤ 60000 символов; import всех
       частей даёт все 40; без последней части — отказ «export incomplete: part 3/3 missing».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 after the rebase · mac - · 4ae72be10
+  - evidence: review pass · PR #1402 · - - · f2bfaa51d3b2e4ff7f2e42c1d1ae8cddc1e6db21
 - [ ] Contract test: `--gh` со stand-in `gh` — из трёх комментариев взят только блок нужного автора; комментарий без
       маркера пропущен.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 after the rebase · mac - · 4ae72be10
+  - evidence: review pass · PR #1402 · - - · f2bfaa51d3b2e4ff7f2e42c1d1ae8cddc1e6db21
 - [ ] Contract test приватности: запись с `C:\Users\jdoe\…`, hostname машины, UUID и `ghp_…` в `error` — export
       exit 2, вывод пуст; тот же файл в import — отвергнут.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 after the rebase · mac - · 4ae72be10
+  - evidence: review pass · PR #1402 · - - · f2bfaa51d3b2e4ff7f2e42c1d1ae8cddc1e6db21
 - [ ] Contract test: блок export не содержит пути корня worktree, домашней папки, hostname и имени пользователя
       машины, где шёл test (проверка по значениям `os.homedir()`, `os.hostname()`, `os.userInfo().username`).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 after the rebase · mac - · 4ae72be10
+  - evidence: review pass · PR #1402 · - - · f2bfaa51d3b2e4ff7f2e42c1d1ae8cddc1e6db21
 - [ ] Contract test: файл своего компьютера в import не попадает.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 after the rebase · mac - · 4ae72be10
+  - evidence: review pass · PR #1402 · - - · f2bfaa51d3b2e4ff7f2e42c1d1ae8cddc1e6db21
 - [ ] Платформенный PR, если так скажет `scripts/windows-verdict-scope.mjs`.
   - evidence: commit pass · node scripts/windows-verdict-scope.mjs origin/main HEAD prints runner: not a platform PR · - - · c1af438a5
+  - evidence: review pass · PR #1402 · - - · f2bfaa51d3b2e4ff7f2e42c1d1ae8cddc1e6db21
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный.
+  - evidence: review pass · PR #1402 · - - · f2bfaa51d3b2e4ff7f2e42c1d1ae8cddc1e6db21
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/41949110895/job/126995995328 · ci - · f2bfaa51d3b2e4ff7f2e42c1d1ae8cddc1e6db21
 
 ## Тесты
 
