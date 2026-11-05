@@ -209,23 +209,9 @@ export function rootsOf(input: RootsInput): Roots {
     const resolved = fsys.realpath(path)
     return resolved === null ? null : normalizePath(resolved, win)
   }
-  // A hard area that does not exist yet (no ~/.npmrc) still has a real form: the nearest existing folder
-  // above it, resolved, plus the missing names. Without it a home behind a link loses the area.
-  const realOrAbove = (path: string): string | null => {
-    const missing: string[] = []
-    for (let head = path; ; ) {
-      const resolved = fsys.realpath(head)
-      if (resolved !== null) return normalizePath(missing.reduce((at, name) => joinPath(at, name, win), resolved), win)
-      const split = splitPath(head, win)
-      const name = split?.parts.pop()
-      if (split === null || name === undefined) return null
-      missing.unshift(name)
-      head = `${split.root}${split.parts.join(win ? '\\' : '/')}`
-    }
-  }
   const tolerated = new Set<string>()
   for (const root of allowed) for (const prefix of prefixes(root.path, win)) tolerated.add(keyOf(prefix, win))
-  return { platform: input.platform, fs: fsys, allowed, hard, realAllowed: allowed.map((root) => real(root.path)), realHard: hard.map((area) => realOrAbove(area.path)), tolerated }
+  return { platform: input.platform, fs: fsys, allowed, hard, realAllowed: allowed.map((root) => real(root.path)), realHard: hard.map((area) => realAbove(area.path, fsys, win)), tolerated }
 }
 
 /** Where the target `path` (absolute, as shell.ts or a file tool gives it) lies among `roots`. */
@@ -256,6 +242,24 @@ export function repositoryTop(cwd: string, roots: Roots): string | null {
     const up = parentOf(folder, win)
     if (up === null) return null
     folder = up
+  }
+}
+
+/**
+ * The real form of `path`, which may not exist yet: the nearest existing folder above it, resolved by the
+ * system, plus the missing names. The system's spelling (Windows long names instead of `RUNNER~1`) makes a
+ * target and an area comparable.
+ */
+function realAbove(path: string, fsys: FileSystem, win: boolean): string | null {
+  const missing: string[] = []
+  for (let head = path; ; ) {
+    const resolved = fsys.realpath(head)
+    if (resolved !== null) return normalizePath(missing.reduce((at, name) => joinPath(at, name, win), resolved), win)
+    const split = splitPath(head, win)
+    const name = split?.parts.pop()
+    if (split === null || name === undefined) return null
+    missing.unshift(name)
+    head = `${split.root}${split.parts.join(win ? '\\' : '/')}`
   }
 }
 
@@ -313,7 +317,8 @@ function walk(path: string, roots: Roots): Walked {
     if (normal === null) return { real: candidate, links, error: true }
     real = normal
   }
-  return { real, links, error: false }
+  // Every link is followed already; this only brings the spelling to the system's own.
+  return { real: realAbove(real, roots.fs, win) ?? real, links, error: false }
 }
 
 type Match = { kind: 'root'; root: Root; exact: boolean } | { kind: 'hard'; area: HardArea } | null

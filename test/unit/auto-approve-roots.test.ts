@@ -331,3 +331,20 @@ describe('on disk: links and globs', () => {
     expect(repositoryTop(at('outside'), disk)).toBeNull()
   })
 })
+
+describe('the system spelling of a path', () => {
+  // A folder the system spells otherwise (a Windows short name such as RUNNER~1): /home/SHORT~1 is a plain
+  // folder that the system resolves to /home/real. The home is /home/link, a link to /home/real.
+  const spelled: FileSystem = {
+    lstat: (path) => (path === '/home/link' ? 'link' : path === '/home' || path === '/home/real' || path === '/home/SHORT~1' ? 'dir' : null),
+    realpath: (path) => (path === '/home/link' || path === '/home/SHORT~1' || path === '/home/real' ? '/home/real' : path === '/home' || path === '/' ? path : null),
+    readdir: () => null,
+  }
+  const spelledRoots = rootsOf({ ...base, platform: 'linux', worktrees: ['/work/wt'], scratch: null, runTemp: null, scratchpad: null, home: '/home/link', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [], fs: spelled })
+
+  it('a target in the other spelling reaches a hard area that does not exist yet', () => {
+    expect(kind('/home/SHORT~1/.npmrc', 'write', spelledRoots)).toBe('hard:npmrc')
+    expect(kind('/home/real/.ssh/id', 'read', spelledRoots)).toBe('hard:ssh')
+    expect(kind('/home/SHORT~1/notes.txt', 'write', spelledRoots)).toBe('outside')
+  })
+})
