@@ -288,6 +288,11 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
 5. **При Off политика не зовётся**: строка Journal — прежний `refused-dialog`, ничего нового.
 6. **Park ждёт только один tool call одного Subagent-а**; остальные Subagent-ы Wave работают. Session Orchestrator-а
    показывает `needs_permission`, как у attended.
+7. **Программы git config-а определяются по окончанию ключа** (решение review PR #1410, раунд 9). `hooksActive`
+   становится `true`, если в config-е есть `core.fsmonitor` (не `true`/`false`), `diff.external` или ключ на
+   `.program`, `.command`, `.cmd`, `.driver`, `.textconv`, `.clean`, `.smudge`, `.process`, `.defaultKeyCommand`
+   (Ticket 04). Принятая цена: `core.sshCommand` владельца тоже включает поле, и `git fetch` в таком проекте уходит в
+   park.
 
 ## Соседний Epic worfy-retry
 

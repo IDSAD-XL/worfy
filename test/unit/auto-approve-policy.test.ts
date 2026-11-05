@@ -1445,13 +1445,50 @@ describe('round 8: programs named in git config, pseudo-ref names, hooksPath', (
     expect(run('git show', hooks)).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
     expect(run('git log', hooks)).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
   })
-  it('a new branch may not be named like a pseudo-ref: all capitals with an underscore', () => {
-    for (const command of ['git branch AUTO_MERGE', 'git branch MERGE_AUTOSTASH', 'git branch BISECT_EXPECTED_REV', 'git switch -c NOTES_MERGE_REF', 'git checkout -b NOTES_MERGE_PARTIAL',
-      'git branch FOO_BAR', 'git branch X-Y_Z', 'git branch _']) {
+  it('a new branch may not be named like a pseudo-ref of git (round 9: the known list and *_HEAD only)', () => {
+    for (const command of ['git branch AUTO_MERGE', 'git branch MERGE_AUTOSTASH', 'git branch BISECT_EXPECTED_REV', 'git switch -c NOTES_MERGE_REF', 'git checkout -b NOTES_MERGE_PARTIAL']) {
       expect(outcome(command), command).not.toBe('allow')
     }
     expect(outcome('git branch auto_merge', posix({ platform: 'darwin' }))).toBe('park')
     expect(outcome('git branch auto_merge')).toBe('allow')
-    for (const command of ['git branch FOO', 'git branch FOO_bar', 'git branch release-1_2']) expect(outcome(command), command).toBe('allow')
+    for (const command of ['git branch FOO', 'git branch FOO_bar', 'git branch release-1_2', 'git branch FOO_BAR', 'git branch X-Y_Z', 'git branch _']) expect(outcome(command), command).toBe('allow')
+  })
+})
+
+describe('round 9: index revisions, signature placeholders, named formats, branch-name park', () => {
+  const active = posix({ hooksActive: true })
+  it('a revision word that reads the index (:<path>, :<n>:<path>, :/<text>) may run core.fsmonitor', () => {
+    for (const command of ['git cat-file -p :src/a.ts', 'git cat-file -t :0:src/a.ts', 'git rev-parse :src/a.ts', 'git rev-parse --verify :src/a.ts', 'git log -1 :src/a.ts',
+      'git rev-list -1 :src/a.ts', 'git merge-base :src/a.ts HEAD', 'git name-rev :src/a.ts', 'git ls-tree :src', "git rev-parse ':/fix'", 'git log --oneline -1 :2:src/a.ts']) {
+      expect(run(command, active), command).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    }
+    // A revision, a reflog entry and a path after -- read no index (real git 2.50, round 9).
+    for (const command of ['git cat-file -p HEAD:src/a.ts', 'git cat-file -p main:src/a.ts', 'git rev-parse HEAD:src/a.ts', "git log -1 'HEAD@{1}'", "git rev-parse '@{1}'",
+      'git log --oneline -- :src/a.ts', 'git ls-tree HEAD:src']) {
+      expect(run(command, active), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    }
+    expect(run('git cat-file -p :src/a.ts')).toMatchObject({ outcome: 'allow' })
+  })
+  it('a signature placeholder with a flag or padding, and a named format, may run gpg.program', () => {
+    for (const command of ["git log '--format=%-GG'", "git log '--format=% GK'", "git log '--pretty=format:%+GS'", "git log '--format=%<(10)%GG'", "git log '--pretty=tformat:%+GS'",
+      'git log --format=sig', 'git log --pretty=sig', 'git rev-list --pretty=sig HEAD', 'git log --pretty=format', 'git log --format=Medium']) {
+      expect(run(command, active).outcome, command).not.toBe('allow')
+    }
+    for (const command of ['git log --format=oneline', 'git log --pretty=short', 'git log --pretty=medium', 'git log --pretty=full', 'git log --pretty=fuller', 'git log --pretty=reference',
+      'git log --pretty=raw', "git log '--pretty=format:%h %s'", "git log '--format=tformat:%h'", "git log '--format=%h'", "git log '--format=%x47'", 'git log --date=short']) {
+      expect(run(command, active), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    }
+    expect(run('git log --format=sig')).toMatchObject({ outcome: 'allow' })
+  })
+  it('a refused branch name parks with its own rule and hint; on macOS fix_tests is fine', () => {
+    const mac = posix({ platform: 'darwin' })
+    for (const command of ['git branch fix_tests', 'git switch -c my_feature', 'git checkout -b fix_tests_2']) expect(run(command, mac), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    for (const command of ['git branch orig_head', 'git branch Auto_Merge', 'git switch -c x_head']) expect(run(command, mac), command).toMatchObject({ outcome: 'park', rule: 'branch-name', hint: HINTS.branchName })
+    for (const command of ['git branch ORIG_HEAD', 'git branch origin/main', 'git switch -c refs/heads/x', 'git checkout -b HEAD', 'git branch @']) {
+      expect(run(command), command).toMatchObject({ outcome: 'park', rule: 'branch-name', hint: HINTS.branchName })
+    }
+    expect(run('git branch worfy-demo/03-b', posix({ remotes: null }))).toMatchObject({ outcome: 'park', rule: 'branch-name' })
+    // Another reason beside it gives the plain park.
+    expect(run('git branch ORIG_HEAD && git push')).toMatchObject({ outcome: 'park', rule: 'outside-roots', hint: null })
   })
 })

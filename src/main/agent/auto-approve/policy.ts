@@ -93,9 +93,9 @@ export interface PolicyContext {
   hooksPath: string | null
   /**
    * Whether the repository has client hooks or programs named in its config, read when the Run starts: true when
-   * `core.hooksPath` is set, the common git folder's `hooks/` holds a file not ending in `.sample`, or the config
-   * names a program git runs on its own (core.fsmonitor, filter.*.clean / smudge / process, diff.*.textconv /
-   * command, diff.external, merge.*.driver, gpg.program); null when it could not be read. Such a program may run
+   * `core.hooksPath` is set, the common git folder's `hooks/` holds a file not ending in `.sample`, or a config key
+   * is `core.fsmonitor` (not true / false) or `diff.external`, or ends in `.program`, `.command`, `.cmd`, `.driver`,
+   * `.textconv`, `.clean`, `.smudge`, `.process` or `.defaultKeyCommand`; null when it could not be read. Such a program may run
    * files the agent can edit (husky's `.husky/pre-commit`, lint-staged, `python3 -m nbstripout`), so unless it is
    * false git may only read refs and objects (mayRunHook). A set `hooksPath` counts as true.
    */
@@ -117,8 +117,11 @@ export interface Act {
   git: ShellAction['git']
   /** For git: whether the command is one of the forms of the git allow-list (gitFormOf). */
   gitForm: boolean
-  /** For git: a form of the allow-list that may run a client hook while the repository has hooks (or may have). */
-  gitHooks: boolean
+  /**
+   * For git, why a form of the allow-list parks with its own rule and hint: `git-hooks`, it may run a hook or a
+   * program of the config while the repository has them (or may have); `branch-name`, its new branch name is refused.
+   */
+  gitPark: 'git-hooks' | 'branch-name' | null
   network: boolean
   targets: Target[]
 }
@@ -208,6 +211,7 @@ export const HINTS = {
   noTarget: 'worfy could not find what this request changes, so it did not approve it. Give the full absolute path, as it is: no ~, no relative path, no spaces around it, no \\\\ network or device path.',
   unclearPath: 'worfy could not tell where a path of this request leads (a .. after a folder that does not exist, or a Windows name with a trailing dot or space, a colon or a short ~1 form), so it did not approve it. Give the plain full path.',
   noHome: 'worfy does not know the home folder of this Session, so it approves nothing here.',
+  branchName: 'worfy did not approve this new branch name: git or the owner may read it as another ref (a remote or a branch under one, refs/…, HEAD, a pseudo-ref such as ORIG_HEAD or AUTO_MERGE, an option), or the Project\'s remote names are not known. Choose a plain name, such as the Ticket\'s branch with a suffix.',
   gitHooks: 'This Project has git hooks or programs named in its git config (or worfy could not tell), and this git command may run one; they may run files you can edit, so worfy does not approve it. Reading refs and objects (git log without a diff, rev-parse, ls-tree, cat-file -p) stays approved; leave the rest to the owner, or go on without it.',
   gitTop: 'worfy approves git only in the repository of the Ticket\'s worktree, and a folder on the way to it holds what git takes for another repository (.git, HEAD, commondir, gitdir, or objects with refs). Run git from the worktree top, and leave such files to the owner.',
 } as const
@@ -302,15 +306,19 @@ function judgeCommand(command: string, cwd: string, prepared: Prepared): Decisio
 }
 
 // While the repository has hooks or programs named in its config, git is allowed only to read refs and objects:
-// no diff (textconv, diff.external), no filter (clean, smudge), no look at the work tree (core.fsmonitor), no index
-// write (post-index-change) and no ref update (reference-transaction). Each form below was run on real git 2.50 with
-// all of these configured and ran none (review round 8). A signature check runs gpg.program: no `%G` format and no
-// word naming a signature; `log.showSignature` is turned off by the Run's GIT_CONFIG_PARAMETERS (ticket 04).
+// no diff (textconv, diff.external), no filter (clean, smudge), no index (core.fsmonitor; a revision word `:<path>`,
+// `:<n>:<path>`, `:/<text>` reads it), no index write (post-index-change) and no ref update (reference-transaction).
+// The forms kept here ran none of hooks, fsmonitor, textconv, clean / smudge, diff.external and gpg.program on real
+// git 2.50 (scratchpad kept.sh of review rounds 8 and 9). A signature placeholder (`%G`, with a `-`, `+` or space
+// flag) or a named format of `pretty.<name>` runs gpg.program: refused. `log.showSignature` and `format.pretty` are
+// set by the Run's GIT_CONFIG_PARAMETERS (ticket 04).
 const REF_READS = new Set(['rev-parse', 'merge-base', 'for-each-ref', 'show-ref', 'name-rev', 'branch', 'ls-tree'])
 // log and rev-list: these options only, the valued ones as `--x=v`, or as the next word where git takes it so.
 const REVISION_FLAGS = ['--oneline', '--graph', '--decorate', '--no-decorate', '--all', '--reverse', '--first-parent', '--no-merges', '--merges', '--branches', '--tags', '--remotes', '--abbrev-commit', '--date-order', '--topo-order', '--count', '--left-right']
 const REVISION_NEXT = ['-n', '--max-count', '--skip', '--author', '--committer', '--since', '--until', '--after', '--before', '--grep']
 const REVISION_JOINED = [...REVISION_NEXT, '--format', '--pretty', '--date']
+// The built-in formats; git reads no `pretty.<name>` for them.
+const BUILTIN_FORMATS = ['oneline', 'short', 'medium', 'full', 'fuller', 'reference', 'raw']
 
 /** Whether a git command of the allow-list may run a client hook or a program its config names. */
 function mayRunHook(action: ShellAction): boolean {
@@ -318,7 +326,9 @@ function mayRunHook(action: ShellAction): boolean {
   const words = subcommandWords(action.args)
   // stash list reads refs/stash; the parser gives every stash a write.
   if (action.writes.length > 0 || action.deletes.length > 0) return !(sub === 'stash' && words.length === 1 && words[0] === 'list')
-  if (words.some((word) => word.includes('%G') || /signature/i.test(word))) return true
+  if (words.some((word) => /%[-+ ]?G/.test(word) || /signature/i.test(word))) return true
+  const end = words.indexOf('--')
+  if ((end < 0 ? words : words.slice(0, end)).some((word) => word.startsWith(':'))) return true
   if (sub === 'log' || sub === 'rev-list') return !revisionReadOnly(words, sub === 'log')
   if (sub === 'cat-file') return !words.every((word) => !word.startsWith('-') || ['-p', '-t', '-s', '-e'].includes(word))
   return !REF_READS.has(sub)
@@ -336,7 +346,12 @@ function revisionReadOnly(words: readonly string[], paths: boolean): boolean {
       continue
     }
     const eq = word.indexOf('=')
-    if (eq < 0 || !REVISION_JOINED.includes(word.slice(0, eq))) return false
+    const option = word.slice(0, eq)
+    if (eq < 0 || !REVISION_JOINED.includes(option)) return false
+    // A format without `%` is a name: a built-in one, or one the config defines.
+    const value = word.slice(eq + 1)
+    const custom = value.includes('%') || value.startsWith('format:') || value.startsWith('tformat:')
+    if ((option === '--format' || option === '--pretty') && !custom && !BUILTIN_FORMATS.includes(value)) return false
   }
   return true
 }
@@ -362,13 +377,15 @@ function actOf(action: ShellAction, prepared: Prepared): Act {
   for (const path of action.deletes) add(path, 'delete')
   // git works in its folder: a link on the way there is a link on every path it touches.
   if (action.git !== undefined) targets.push({ path: normalizePath(action.cwd, win) ?? action.cwd, use: 'read', marker: 'folder', placement: resolveTarget(action.cwd, roots, 'read') })
-  const form = action.git === undefined ? null : gitFormOf(action, prepared)
+  const result = action.git === undefined ? null : gitFormOf(action, prepared)
+  const form = result === 'branch-name' ? null : result
   // The paths a form of the allow-list names are placed and checked as any file write.
   for (const { word, use } of form ?? []) add(normalizePath(word, win) === null ? `${action.cwd}${win ? '\\' : '/'}${word}` : word, use)
   // A set core.hooksPath is a hook folder in use, whatever hooksActive says.
   const active = prepared.context.hooksActive !== false || prepared.context.hooksPath !== null
   const hooks = form !== null && active && mayRunHook(action)
-  return { program: action.program, fileTool: false, args: action.args, git: action.git, gitForm: form !== null && !hooks, gitHooks: hooks, network: action.network, targets }
+  const gitPark = result === 'branch-name' ? 'branch-name' : hooks ? 'git-hooks' : null
+  return { program: action.program, fileTool: false, args: action.args, git: action.git, gitForm: form !== null && !hooks, gitPark, network: action.network, targets }
 }
 
 function targetsOf(acts: Act[]): string[] {
@@ -844,7 +861,7 @@ interface GitPath {
  * checkout -- go through the checks of a file write, with no pathspec magic or glob; a new branch name is
  * checked by newBranchAllowed.
  */
-function gitFormOf(action: ShellAction, prepared: Prepared): GitPath[] | null {
+function gitFormOf(action: ShellAction, prepared: Prepared): GitPath[] | 'branch-name' | null {
   if (action.writes.length === 0 && action.deletes.length === 0) return []
   const { context } = prepared
   const words = subcommandWords(action.args)
@@ -852,6 +869,8 @@ function gitFormOf(action: ShellAction, prepared: Prepared): GitPath[] | null {
   const noColon = (form: Form): boolean => form.operands.every((word) => !word.includes(':'))
   const named = (form: Form | null, use: TargetUse): GitPath[] | null => (form === null ? null : pathsOf([...form.operands, ...(form.paths ?? [])], use))
   const allowed = (yes: boolean): GitPath[] | null => (yes ? [] : null)
+  // A form with a new branch: 'branch-name' when only the name is refused.
+  const creates = (yes: boolean, name: string): GitPath[] | 'branch-name' | null => (!yes ? null : newBranchAllowed(name, prepared) ? [] : 'branch-name')
   switch (sub) {
     case 'add':
       return named(exactForm(words, { flags: ['-A', '--all', '-u', '--update'] }, true), 'write')
@@ -892,7 +911,7 @@ function gitFormOf(action: ShellAction, prepared: Prepared): GitPath[] | null {
       const option = sub === 'switch' ? '-c' : '-b'
       const form = exactForm(words, { valued: [option] })
       if (form === null) return null
-      if (form.options.length === 1) return allowed(form.operands.length <= 1 && newBranchAllowed(words[words.indexOf(option) + 1] ?? '', prepared))
+      if (form.options.length === 1) return creates(form.operands.length <= 1, words[words.indexOf(option) + 1] ?? '')
       return allowed(form.options.length === 0 && form.operands.length === 1 && ownBranch(form.operands[0] ?? '', action, prepared))
     }
     case 'rebase': {
@@ -921,7 +940,7 @@ function gitFormOf(action: ShellAction, prepared: Prepared): GitPath[] | null {
       // shifts them (the owner's next `stash pop` takes the agent's). Work is set aside in a WIP commit.
       return allowed(words.length === 1 && (words[0] === 'list' || words[0] === 'show'))
     case 'branch':
-      return allowed(words.length === 1 && newBranchAllowed(words[0] ?? '', prepared))
+      return creates(words.length === 1, words[0] ?? '')
     default:
       return null
   }
@@ -942,20 +961,20 @@ function existingFile(word: string, action: ShellAction, prepared: Prepared): bo
 /**
  * Whether `name` may be the name of a new branch: none that git or the owner may read as another ref. A name
  * under a remote (`origin/main`) shadows the remote-tracking ref: the owner's `merge --ff-only origin/main` takes
- * the agent's branch. Also no ref path (refs/, heads/, tags/, remotes/), no remote name, no HEAD, *_HEAD or @, no
- * option.
+ * the agent's branch. Also no ref path (refs/, heads/, tags/, remotes/), no remote name, no pseudo-ref of git
+ * (PSEUDO_REFS, *_HEAD) or @, no option.
  * Without case on macOS and Windows; without the remote names, none.
  */
+const PSEUDO_REFS = ['HEAD', 'ORIG_HEAD', 'FETCH_HEAD', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'REBASE_HEAD', 'BISECT_HEAD', 'AUTO_MERGE', 'MERGE_AUTOSTASH', 'BISECT_EXPECTED_REV', 'NOTES_MERGE_REF', 'NOTES_MERGE_PARTIAL']
+
 function newBranchAllowed(name: string, prepared: Prepared): boolean {
   const { context, win } = prepared
   if (context.remotes === null || name.startsWith('-') || name === '@') return false
   const caseless = win || context.platform === 'darwin'
   const key = (text: string): string => (caseless ? text.toLowerCase() : text)
   const n = key(name)
-  // git's pseudo-refs (ORIG_HEAD, FETCH_HEAD, AUTO_MERGE, MERGE_AUTOSTASH, BISECT_EXPECTED_REV, NOTES_MERGE_REF…) are
-  // read before a branch of the same name: no name of capitals, `-` and `_` with an `_` in it.
-  const upper = caseless ? name.toUpperCase() : name
-  if (n === key('HEAD') || n.endsWith(key('_HEAD')) || (/^[A-Z_-]+$/.test(upper) && upper.includes('_')) || ['refs/', 'heads/', 'tags/', 'remotes/'].some((prefix) => n.startsWith(prefix))) return false
+  // git's pseudo-refs are read before a branch of the same name.
+  if (PSEUDO_REFS.some((ref) => n === key(ref)) || n.endsWith(key('_HEAD')) || ['refs/', 'heads/', 'tags/', 'remotes/'].some((prefix) => n.startsWith(prefix))) return false
   return context.remotes.every((remote) => n !== key(remote) && !n.startsWith(`${key(remote)}/`))
 }
 
@@ -982,9 +1001,10 @@ function allowOrPark(acts: Act[], targets: string[]): Decision {
       const ordered = ALLOW_RULES.map((rule) => rule.id).filter((id) => used.includes(id))
       return { outcome: 'allow', rule: ordered.join('+'), hint: null, targets }
     }
-    // Allowed but for the hooks the repository has: park, and say why.
-    const hooked = acts.some((act) => act.gitHooks) && acts.every((act) => ALLOW_RULES.some((rule) => rule.match(act.gitHooks ? { ...act, gitForm: true } : act)))
-    if (hooked) return { outcome: 'park', rule: 'git-hooks', hint: HINTS.gitHooks, targets }
+    // Allowed but for the hooks the repository has, or for a new branch name: park, and say why.
+    const reason = acts.find((act) => act.gitPark !== null)?.gitPark
+    const only = acts.every((act) => ALLOW_RULES.some((rule) => rule.match(act.gitPark === null ? act : { ...act, gitForm: true })))
+    if (reason != null && only) return { outcome: 'park', rule: reason, hint: reason === 'git-hooks' ? HINTS.gitHooks : HINTS.branchName, targets }
   }
   return { outcome: 'park', rule: 'outside-roots', hint: null, targets }
 }
@@ -1028,7 +1048,7 @@ function judgeFiles(tool: string, input: Record<string, unknown>, prepared: Prep
     fileTool: true,
     args: [],
     gitForm: false,
-    gitHooks: false,
+    gitPark: null,
     git: undefined,
     network: false,
     // The raw path is judged (a `..` after a link goes up from the link's target); the folded one is reported.
