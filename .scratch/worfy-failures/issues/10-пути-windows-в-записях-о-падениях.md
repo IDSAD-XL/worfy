@@ -1,7 +1,8 @@
 # 10 — Пути Windows в записях о падениях: «/» после `<repo>` и `~`
 
 Type: task
-Status: claimed 2026-11-05T02:57Z
+Status: done 2026-11-05T03:42Z
+PR: #1411
 Blocked by: —
 Source: [spec.md](../spec.md), «Windows» («Пути в записях — от корня репозитория с `/`»); раунд доработки Ticket-а 04 (PR #1401: красный job `windows (1/3) / full-suite`, run 41944369347), «Вне скоупа» отчёта implementer-а
 
@@ -32,14 +33,18 @@ Source: [spec.md](../spec.md), «Windows» («Пути в записях — о�
       `/d/…`, другой регистр буквы диска) даёт `<repo>/test/x.test.ts:12:5`; то же для домашней папки и `~`.
   - evidence: test-run pass · `pnpm exec vitest run test/unit/gate-failures-format.test.ts` exit 0 · mac - · 9f88f5a0630564e201ae8f10a431b14c2bb2f8fd
   - evidence: test-run pass · `pnpm exec vitest run test/unit/gate-failures-format.test.ts` exit 0, with two paths in one line · mac - · 0f2582b0d12b33b49c94516892fdd4a08589a0fd
+  - evidence: review pass · PR #1411 · - - · b6773b1ea4863de633dce1d73c52928a17ca4825
 - [x] Тот же test с пробелом в имени папки; на мутанте «до первого пробела» он красный.
   - evidence: test-run pass · `vitest run` of gate-failures-format.test.ts on the mutant "up to the first space" exit 1, unmutated copy exit 0 · mac - · 9f88f5a0630564e201ae8f10a431b14c2bb2f8fd
   - evidence: test-run pass · `vitest run` of gate-failures-format.test.ts on the mutant old PATH_TAIL exit 1, unmutated exit 0 · mac - · 0f2582b0d12b33b49c94516892fdd4a08589a0fd
+  - evidence: review pass · PR #1411 · - - · b6773b1ea4863de633dce1d73c52928a17ca4825
 - [x] `rerun.mjs` не держит своей копии перевода; contract `test/contract/gate-failures-rerun.test.ts` зелёный без правок
       ожиданий.
   - evidence: test-run pass · `pnpm exec vitest run test/contract/gate-failures-rerun.test.ts` (with the other gate-failures unit and contract tests) exit 0 · mac - · 9f88f5a0630564e201ae8f10a431b14c2bb2f8fd
   - evidence: test-run pass · `pnpm exec vitest run test/contract/gate-failures-rerun.test.ts` (with the other gate-failures unit and contract tests) exit 0 · mac - · 0f2582b0d12b33b49c94516892fdd4a08589a0fd
+  - evidence: review pass · PR #1411 · - - · b6773b1ea4863de633dce1d73c52928a17ca4825
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (job-ы Windows в составе `ci-ok`).
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/41961652461 · ci - · b6773b1ea4863de633dce1d73c52928a17ca4825
 
 ## Тесты
 
