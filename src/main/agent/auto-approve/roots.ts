@@ -25,6 +25,12 @@
 // root itself (`rm -rf <worktree>/*` empties the root). A folder that cannot be read is outside, except
 // the new folder of `X=$(mktemp -d)`, which is empty.
 //
+// A target is inside a root only by the root's real path recorded when the Run started (recordRoots): a
+// root whose real path is another now (moved, or replaced by a link) is no root, and what lies under it
+// is denied as a path through a link. Where a path leads cannot be told after a `..` that follows a
+// missing folder, or through a Windows name the system rewrites (`.git.`, `.git::$INDEX_ALLOCATION`,
+// `GIT~1`) that does not resolve on disk: such a target is `not-judged`.
+//
 // Windows: `\` and `/` are one separator, `/c/x` (Git Bash) is `C:\x`, and case is ignored. Hard areas
 // ignore case on macOS too (its disks usually do); roots compare it exactly there, as a path that
 // differs in case only from a root may be another folder.
@@ -71,6 +77,8 @@ export type Placement =
   | { kind: 'outside' }
   | { kind: 'symlink-on-path'; link: string }
   | { kind: 'hard'; category: HardCategory }
+  /** Where the path leads cannot be told: a `..` after a missing folder, a Windows name the system rewrites. */
+  | { kind: 'not-judged' }
 
 /** How the target is used: a delete of a folder that holds a hard area is hard too. */
 export type TargetUse = 'read' | 'write' | 'delete'
@@ -83,6 +91,8 @@ export interface FileSystem {
   realpath(path: string): string | null
   /** The names in the folder `path`; null when it cannot be read. */
   readdir(path: string): string[] | null
+  /** The text of the file `path` (a few KB at most are needed); null when it cannot be read. */
+  readFile(path: string): string | null
 }
 
 const errorCode = (error: unknown): unknown => (error instanceof Error && 'code' in error ? error.code : undefined)
@@ -109,6 +119,13 @@ export const nodeFileSystem: FileSystem = {
   readdir(path) {
     try {
       return fs.readdirSync(path)
+    } catch {
+      return null
+    }
+  },
+  readFile(path) {
+    try {
+      return fs.readFileSync(path, 'utf8').slice(0, 4096)
     } catch {
       return null
     }
@@ -140,6 +157,11 @@ export interface RootsInput {
   otherSessions: readonly string[]
   /** Worktrees of the Project outside the Run (git worktree list, without the Wave's and the Run Session's own). */
   otherWorktrees: readonly string[]
+  /**
+   * The real path of each root, recorded when the Run started (recordRoots), by the root's path. A root
+   * without one is no root; a root whose real path is another now was moved or replaced by a link.
+   */
+  recorded: Readonly<Record<string, string>>
   fs?: FileSystem
 }
 
@@ -149,8 +171,11 @@ export interface Roots {
   fs: FileSystem
   allowed: readonly Root[]
   hard: readonly HardArea[]
-  /** @internal The real path of each root and area, in the same order; null when it does not resolve. */
-  realAllowed: readonly (string | null)[]
+  /** @internal The real path of each root as recorded at the start of the Run, in the same order. */
+  realAllowed: readonly string[]
+  /** @internal Whether each root's real path is another now than the one recorded. */
+  moved: readonly boolean[]
+  /** @internal The real path of each area, in the same order; null when it does not resolve. */
   realHard: readonly (string | null)[]
   /** @internal Prefixes of the configured root paths (a link there is taken as given), as keys. */
   tolerated: ReadonlySet<string>
@@ -178,9 +203,18 @@ export function rootsOf(input: RootsInput): Roots {
   const win = input.platform === 'win32'
   const fsys = input.fs ?? nodeFileSystem
   const allowed: Root[] = []
+  const realAllowed: string[] = []
+  const moved: boolean[] = []
+  const recorded = new Map(Object.entries(input.recorded).map(([path, real]) => [keyOf(normalizePath(path, win) ?? path, win), normalizePath(real, win)]))
   const addRoot = (kind: RootKind, path: string | null | undefined): void => {
     const normal = path === null || path === undefined ? null : normalizePath(path, win)
-    if (normal !== null) allowed.push({ kind, path: normal })
+    const real = normal === null ? null : recorded.get(keyOf(normal, win)) ?? null
+    if (normal === null || real === null) return
+    allowed.push({ kind, path: normal })
+    realAllowed.push(real)
+    // A file system that resolves nothing (not even the top) cannot tell a move; the walk finds no way then.
+    const now = realAbove(normal, fsys, win)
+    moved.push(now !== null && !same(now, real, win))
   }
   for (const path of input.worktrees) addRoot('worktree', path)
   addRoot('scratch', input.scratch)
@@ -205,13 +239,24 @@ export function rootsOf(input: RootsInput): Roots {
   for (const path of input.otherSessions) addHard('other-session', path)
   for (const path of input.otherWorktrees) addHard('other-worktree', path)
 
-  const real = (path: string): string | null => {
-    const resolved = fsys.realpath(path)
-    return resolved === null ? null : normalizePath(resolved, win)
-  }
   const tolerated = new Set<string>()
   for (const root of allowed) for (const prefix of prefixes(root.path, win)) tolerated.add(keyOf(prefix, win))
-  return { platform: input.platform, fs: fsys, allowed, hard, realAllowed: allowed.map((root) => real(root.path)), realHard: hard.map((area) => realAbove(area.path, fsys, win)), tolerated }
+  return { platform: input.platform, fs: fsys, allowed, hard, realAllowed, moved, realHard: hard.map((area) => realAbove(area.path, fsys, win)), tolerated }
+}
+
+/**
+ * The real path of each root, to record when the Run starts and pass back as RootsInput.recorded: a
+ * root that does not exist yet gets the real path of the nearest folder above it plus its own names.
+ */
+export function recordRoots(paths: ReadonlyArray<string | null>, platform: NodeJS.Platform, fsys: FileSystem = nodeFileSystem): Record<string, string> {
+  const win = platform === 'win32'
+  const out: Record<string, string> = {}
+  for (const path of paths) {
+    const normal = path === null ? null : normalizePath(path, win)
+    const real = normal === null ? null : realAbove(normal, fsys, win)
+    if (normal !== null && real !== null) out[normal] = real
+  }
+  return out
 }
 
 /** Where the target `path` (absolute, as shell.ts or a file tool gives it) lies among `roots`. */
@@ -271,6 +316,16 @@ interface Walked {
   /** Links on the way that are not on a root's configured path. */
   links: string[]
   error: boolean
+  /** A `..` after a missing folder, or a Windows name the system rewrites that does not resolve on disk. */
+  unclear: boolean
+}
+
+/**
+ * A Windows name the system rewrites before it opens it: a trailing dot or space (`.git.`), a stream
+ * (`.git::$INDEX_ALLOCATION`, `.gitattributes:x`) or a short 8.3 name (`GIT~1`). It may name `.git`.
+ */
+function rewrittenName(name: string): boolean {
+  return /[. ]$/.test(name) || name.includes(':') || /~\d/.test(name)
 }
 
 /**
@@ -284,25 +339,39 @@ function walk(path: string, roots: Roots): Walked {
   let real = rootOf(path, win)
   const links: string[] = []
   let missing = false
+  let unclear = false
   let lexical = real
   for (const part of parts) {
     if (part === '.') continue
     if (part === '..') {
+      // Beyond a missing folder the system stops; where `..` would lead is not known.
+      if (missing) unclear = true
       lexical = parentOf(lexical, win) ?? lexical
       real = parentOf(real, win) ?? real
       continue
     }
     lexical = joinPath(lexical, part, win)
     const candidate = joinPath(real, part, win)
+    const rewritten = win && rewrittenName(part)
     if (missing) {
+      if (rewritten) unclear = true
       real = candidate
       continue
     }
     const kind = roots.fs.lstat(candidate)
-    if (kind === 'error') return { real: candidate, links, error: true }
+    if (kind === 'error') return { real: candidate, links, error: true, unclear }
     if (kind === null) {
+      if (rewritten) unclear = true
       missing = true
       real = candidate
+      continue
+    }
+    if (rewritten && kind !== 'link') {
+      // On disk: the system's long name is judged, when it gives one.
+      const resolved = roots.fs.realpath(candidate)
+      const normal = resolved === null ? null : normalizePath(resolved, win)
+      if (normal === null || rewrittenName(lastComponent(normal, win))) unclear = true
+      real = normal ?? candidate
       continue
     }
     if (kind !== 'link') {
@@ -314,11 +383,11 @@ function walk(path: string, roots: Roots): Walked {
     if (!(links.length === 0 && candidate === lexical && roots.tolerated.has(keyOf(candidate, win)))) links.push(candidate)
     const resolved = roots.fs.realpath(candidate)
     const normal = resolved === null ? null : normalizePath(resolved, win)
-    if (normal === null) return { real: candidate, links, error: true }
+    if (normal === null) return { real: candidate, links, error: true, unclear }
     real = normal
   }
   // Every link is followed already; this only brings the spelling to the system's own.
-  return { real: realAbove(real, roots.fs, win) ?? real, links, error: false }
+  return { real: realAbove(real, roots.fs, win) ?? real, links, error: false, unclear }
 }
 
 type Match = { kind: 'root'; root: Root; exact: boolean } | { kind: 'hard'; area: HardArea } | null
@@ -336,6 +405,7 @@ function matchOf(path: string, roots: Roots, use: TargetUse): Match {
     }
   }
   roots.allowed.forEach((root, n) => {
+    if (roots.moved[n] === true) return
     for (const area of [root.path, roots.realAllowed[n] ?? null]) {
       if (area !== null) consider(area, win, { kind: 'root', root, exact: same(path, area, win) })
     }
@@ -362,9 +432,27 @@ function rootBelow(path: string, roots: Roots): Root | undefined {
   return roots.allowed.find((root, n) => [root.path, roots.realAllowed[n] ?? null].some((each) => each !== null && !same(each, path, win) && within(each, path, win, win)))
 }
 
+/** The root that holds the real path `real` by its real path recorded at the start of the Run; the longest. */
+function rootOfReal(real: string, roots: Roots): { root: Root; exact: boolean } | null {
+  const win = roots.platform === 'win32'
+  let best: { root: Root; exact: boolean } | null = null
+  let length = -1
+  for (const [n, root] of roots.allowed.entries()) {
+    const area = roots.realAllowed[n] ?? ''
+    if (roots.moved[n] === true || !within(real, area, win, win) || area.length <= length) continue
+    best = { root, exact: same(real, area, win) }
+    length = area.length
+  }
+  return best
+}
+
 function place(path: string, roots: Roots, use: TargetUse): Placement {
-  const walked = walk(path, roots)
-  const lexical = normalizePath(path, roots.platform === 'win32') ?? path
+  return placeWalked(normalizePath(path, roots.platform === 'win32') ?? path, walk(path, roots), roots, use)
+}
+
+/** The Placement of a path by its written form `lexical` and its walk. */
+function placeWalked(lexical: string, walked: Walked, roots: Roots, use: TargetUse): Placement {
+  const win = roots.platform === 'win32'
   for (const form of [lexical, walked.real]) {
     const match = matchOf(form, roots, use)
     if (match?.kind === 'hard') return { kind: 'hard', category: match.area.category }
@@ -373,23 +461,28 @@ function place(path: string, roots: Roots, use: TargetUse): Placement {
       if (below !== undefined) return { kind: 'hard', category: below.category }
     }
   }
+  // A root moved away or replaced by a link since the Run started (`mv .scratch x; ln -s ~ .scratch`).
+  const moved = roots.allowed.find((root, n) => roots.moved[n] === true && within(lexical, root.path, win, win))
+  if (moved !== undefined) return { kind: 'symlink-on-path', link: moved.path }
   const link = walked.links[0]
   if (link !== undefined) return { kind: 'symlink-on-path', link }
+  if (walked.unclear) return { kind: 'not-judged' }
   if (walked.error) return { kind: 'outside' }
   if (use === 'delete') {
     // A delete of a folder that holds a root takes the root with it.
     const below = rootBelow(walked.real, roots)
     if (below !== undefined) return { kind: 'is-root', root: below }
   }
-  const match = matchOf(walked.real, roots, use)
-  if (match?.kind !== 'root') return { kind: 'outside' }
+  // Inside a root only by the real path recorded when the Run started.
+  const match = rootOfReal(walked.real, roots)
+  if (match === null) return { kind: 'outside' }
   return match.exact ? { kind: 'is-root', root: match.root } : { kind: 'inside', root: match.root }
 }
 
 /** The most entries of a folder a glob target is judged by; a bigger folder is outside. */
 const MAX_GLOB_ENTRIES = 10_000
 
-const SEVERITY: Record<Placement['kind'], number> = { hard: 4, 'symlink-on-path': 3, outside: 2, 'is-root': 1, inside: 0 }
+const SEVERITY: Record<Placement['kind'], number> = { hard: 5, 'symlink-on-path': 4, 'not-judged': 3, outside: 2, 'is-root': 1, inside: 0 }
 
 function worst(a: Placement, b: Placement): Placement {
   return SEVERITY[b.kind] > SEVERITY[a.kind] ? b : a
@@ -413,15 +506,73 @@ function placeGlob(path: string, pattern: string, roots: Roots, use: TargetUse):
   const names = listed !== null && listed.length <= MAX_GLOB_ENTRIES ? listed : null
   let result: Placement = worst(folder, names === null ? { kind: 'outside' } : folder)
   const matcher = globMatcher(pattern)
+  const lexicalFolder = normalizePath(folderPath, win) ?? folderPath
   for (const name of names ?? []) {
     if (!matcher.test(name)) continue
+    // The folder is walked once; each entry costs one lstat (and a realpath for a link).
     const entry = joinPath(walked.real, name, win)
     const entryKind = roots.fs.lstat(entry)
-    const placed: Placement = entryKind === 'link' ? worst({ kind: 'symlink-on-path', link: entry }, place(entry, roots, use)) : place(entry, roots, use)
-    result = worst(result, placed)
+    const resolved = entryKind === 'link' ? roots.fs.realpath(entry) : null
+    const real = resolved === null ? entry : normalizePath(resolved, win) ?? entry
+    const entryWalk: Walked = { real, links: entryKind === 'link' ? [entry] : [], error: entryKind === 'error', unclear: false }
+    result = worst(result, placeWalked(joinPath(lexicalFolder, name, win), entryWalk, roots, use))
   }
   // A glob directly in a root stays the root: an entry inside it is no worse than the folder.
   return result
+}
+
+/** What a recursive copy or move of a source brings along: `.git`, `.gitattributes`, `.gitmodules`. */
+export type CopiedTree = 'clean' | 'git-files' | 'unclear'
+
+const GIT_FILE_NAMES = new Set(['.git', '.gitattributes', '.gitmodules'])
+
+/** Whether `name` is one of the git files (any case): config, hooks, attributes, submodules. */
+export function isGitFileName(name: string): boolean {
+  return GIT_FILE_NAMES.has(name.toLowerCase())
+}
+
+/**
+ * What copying or moving the source `path` (a glob in the last component too) brings along: a folder is
+ * looked through, links not followed (cp -R and mv keep them as links). More entries than a glob may
+ * have, or one that cannot be read, is unclear.
+ */
+export function copiedTree(path: string, roots: Roots): CopiedTree {
+  const win = roots.platform === 'win32'
+  const raw = rawPath(path, win)
+  if (raw === null) return 'unclear'
+  const last = lastComponent(raw, win)
+  const walked = walk(raw, roots)
+  if (walked.error) return 'unclear'
+  let budget = MAX_GLOB_ENTRIES
+  const queue: string[] = []
+  if (/[*?]/.test(last)) {
+    const folder = parentOf(walked.real, win)
+    const names = folder === null ? null : roots.fs.readdir(folder)
+    if (folder === null || names === null || names.length > budget) return 'unclear'
+    const matcher = globMatcher(last)
+    for (const name of names) if (matcher.test(name)) queue.push(joinPath(folder, name, win))
+  } else queue.push(walked.real)
+  while (queue.length > 0) {
+    const entry = queue.pop() as string
+    if (isGitFileName(lastComponent(entry, win))) return 'git-files'
+    const kind = roots.fs.lstat(entry)
+    if (kind === 'error') return 'unclear'
+    if (kind !== 'dir') continue
+    const names = roots.fs.readdir(entry)
+    if (names === null) return 'unclear'
+    budget -= names.length
+    if (budget < 0) return 'unclear'
+    for (const name of names) queue.push(joinPath(entry, name, win))
+  }
+  return 'clean'
+}
+
+/** The real path of `path` (absolute): links followed, the system's spelling; null when it cannot be told. */
+export function realPathOf(path: string, roots: Roots): string | null {
+  const raw = rawPath(path, roots.platform === 'win32')
+  if (raw === null) return null
+  const walked = walk(raw, roots)
+  return walked.error || walked.unclear ? null : walked.real
 }
 
 /** Matches every name the pattern may match under any shell option: dot files too, any case. */

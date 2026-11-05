@@ -6,13 +6,19 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { normalizePath, repositoryTop, resolveTarget, rootsOf, type FileSystem, type Roots, type RootsInput } from '../../src/main/agent/auto-approve/roots'
+import { normalizePath, recordRoots, repositoryTop, resolveTarget, rootsOf as rootsOfRecorded, type FileSystem, type Roots, type RootsInput } from '../../src/main/agent/auto-approve/roots'
 import { newTempFolderName } from '../../src/main/agent/auto-approve/shell'
 import { removeTestTree } from '../remove'
 
-const nothing: FileSystem = { lstat: () => null, realpath: () => null, readdir: () => null }
+const nothing: FileSystem = { lstat: () => null, realpath: () => null, readdir: () => null, readFile: () => null }
 
-const base: RootsInput = {
+/** rootsOf with the real paths of the roots recorded now, as the Run records them when it starts; a root that does not resolve as itself. */
+function rootsOf(input: Omit<RootsInput, 'recorded'> & { recorded?: RootsInput['recorded'] }): Roots {
+  const paths = [...input.worktrees, input.scratch, input.runTemp, input.scratchpad].filter((path): path is string => path !== null)
+  return rootsOfRecorded({ ...input, recorded: input.recorded ?? { ...Object.fromEntries(paths.map((path) => [path, path])), ...recordRoots(paths, input.platform, input.fs) } })
+}
+
+const base: Omit<RootsInput, 'recorded'> = {
   platform: 'linux',
   worktrees: ['/tmp/demo/repo/.claude/worktrees/03'],
   scratch: '/tmp/demo/repo/.scratch',
@@ -48,13 +54,15 @@ describe('roots and hard areas on made-up paths', () => {
     expect(kind('<unknown>')).toBe('outside')
   })
 
-  it('folds . and .. before placing', () => {
-    expect(kind('/tmp/demo/repo/.claude/worktrees/03/../secret')).toBe('outside')
-    expect(kind('/tmp/demo/repo/.claude/worktrees/03/./src/../a.ts')).toBe('inside:worktree')
-    expect(kind('/tmp/demo/repo/.scratch/x/../..')).toBe('outside')
+  it('cannot tell where a .. after a folder that does not exist leads; a hard area still wins', () => {
+    // Nothing exists in this file system: the system would stop at the first missing folder.
+    expect(kind('/tmp/demo/repo/.claude/worktrees/03/../secret')).toBe('not-judged')
+    expect(kind('/tmp/demo/repo/.claude/worktrees/03/./src/../a.ts')).toBe('not-judged')
+    expect(kind('/tmp/demo/pad/x/../y')).toBe('not-judged')
     expect(kind('/tmp/demo/pad/../../../home/demo/.ssh/id')).toBe('hard:ssh')
+    // .. at the top stays at the top, as the system does.
     expect(kind('/../../tmp/demo/pad/x')).toBe('inside:scratchpad')
-    expect(kind('/tmp/demo/pad/x/../y')).toBe('inside:scratchpad')
+    expect(kind('/tmp/demo/pad/./x')).toBe('inside:scratchpad')
   })
 
   it('places a missing file inside a root (a revision such as HEAD~3 too)', () => {
@@ -175,23 +183,24 @@ describe('a file system that answers with errors', () => {
     lstat: (path) => (path === bad ? 'error' : path.startsWith(`${bad}/`) ? null : 'dir'),
     realpath: () => null,
     readdir: () => [],
+    readFile: () => null,
   })
   it('a component that cannot be told is outside', () => {
     expect(kind('/tmp/demo/pad/x/y', 'write', rootsOf({ ...base, fs: failing('/tmp/demo/pad/x') }))).toBe('outside')
   })
   it('a link whose target cannot be resolved is outside, a configured one too', () => {
-    const dangling = (at: string): FileSystem => ({ lstat: (path) => (path === at ? 'link' : 'dir'), realpath: () => null, readdir: () => [] })
+    const dangling = (at: string): FileSystem => ({ lstat: (path) => (path === at ? 'link' : 'dir'), realpath: () => null, readdir: () => [], readFile: () => null })
     expect(kind('/tmp/demo/pad/x', 'write', rootsOf({ ...base, fs: dangling('/tmp') }))).toBe('outside')
     expect(kind('/tmp/demo/pad/x', 'write', rootsOf({ ...base, fs: dangling('/tmp/demo/pad') }))).toBe('outside')
   })
   it('no top of a repository on an error or for a relative folder', () => {
     expect(repositoryTop('/tmp/demo/pad/x/y', rootsOf({ ...base, fs: failing('/tmp/demo/pad/x') }))).toBeNull()
-    const gitError: FileSystem = { lstat: (path) => (path.endsWith('.git') ? 'error' : 'dir'), realpath: () => null, readdir: () => [] }
+    const gitError: FileSystem = { lstat: (path) => (path.endsWith('.git') ? 'error' : 'dir'), realpath: () => null, readdir: () => [], readFile: () => null }
     expect(repositoryTop('/tmp/demo/pad', rootsOf({ ...base, fs: gitError }))).toBeNull()
     expect(repositoryTop('relative', roots)).toBeNull()
   })
   it('a folder too big to look through is outside', () => {
-    const big = (count: number): FileSystem => ({ lstat: (path) => (path.endsWith('.txt') ? 'file' : 'dir'), realpath: () => null, readdir: () => Array.from({ length: count }, (_, n) => `${n}.txt`) })
+    const big = (count: number): FileSystem => ({ lstat: (path) => (path.endsWith('.txt') ? 'file' : 'dir'), realpath: () => null, readdir: () => Array.from({ length: count }, (_, n) => `${n}.txt`), readFile: () => null })
     expect(kind('/tmp/demo/pad/x/*', 'delete', rootsOf({ ...base, fs: big(10_000) }))).toBe('inside:scratchpad')
     expect(kind('/tmp/demo/pad/x/*', 'delete', rootsOf({ ...base, fs: big(10_001) }))).toBe('outside')
   })
@@ -339,6 +348,7 @@ describe('the system spelling of a path', () => {
     lstat: (path) => (path === '/home/link' ? 'link' : path === '/home' || path === '/home/real' || path === '/home/SHORT~1' ? 'dir' : null),
     realpath: (path) => (path === '/home/link' || path === '/home/SHORT~1' || path === '/home/real' ? '/home/real' : path === '/home' || path === '/' ? path : null),
     readdir: () => null,
+    readFile: () => null,
   }
   const spelledRoots = rootsOf({ ...base, platform: 'linux', worktrees: ['/work/wt'], scratch: null, runTemp: null, scratchpad: null, home: '/home/link', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [], fs: spelled })
 
@@ -346,5 +356,121 @@ describe('the system spelling of a path', () => {
     expect(kind('/home/SHORT~1/.npmrc', 'write', spelledRoots)).toBe('hard:npmrc')
     expect(kind('/home/real/.ssh/id', 'read', spelledRoots)).toBe('hard:ssh')
     expect(kind('/home/SHORT~1/notes.txt', 'write', spelledRoots)).toBe('outside')
+  })
+})
+
+/** A file system of `tree` (path → 'dir', 'file' or '-> target'); every folder above a key exists; it counts its calls. */
+function treeFs(tree: Record<string, string>): FileSystem & { calls: number } {
+  const nodes = new Map<string, string>()
+  for (const [path, value] of Object.entries(tree)) {
+    nodes.set(path, value)
+    for (let up = path.slice(0, path.lastIndexOf('/')); up !== ''; up = up.slice(0, up.lastIndexOf('/'))) if (!nodes.has(up)) nodes.set(up, 'dir')
+  }
+  nodes.set('/', 'dir')
+  const resolve = (path: string, depth = 0): string | null => {
+    if (depth > 8) return null
+    let current = ''
+    for (const part of path.split('/').filter((each) => each !== '')) {
+      const next = `${current}/${part}`
+      const value = nodes.get(next)
+      if (value === undefined) return null
+      if (value.startsWith('-> ')) {
+        const target = resolve(value.slice(3), depth + 1)
+        if (target === null) return null
+        current = target
+      } else current = next
+    }
+    return current === '' ? '/' : current
+  }
+  const fs = {
+    calls: 0,
+    lstat: (path: string) => {
+      fs.calls++
+      const value = nodes.get(path)
+      return value === undefined ? null : value.startsWith('-> ') ? 'link' as const : value === 'dir' ? 'dir' as const : 'file' as const
+    },
+    realpath: (path: string) => {
+      fs.calls++
+      return resolve(path)
+    },
+    readdir: (path: string) => {
+      fs.calls++
+      if (nodes.get(path) !== 'dir') return null
+      return [...nodes.keys()].filter((each) => each !== path && each.slice(0, each.lastIndexOf('/') || 1) === path).map((each) => each.slice(each.lastIndexOf('/') + 1))
+    },
+    readFile: () => null,
+  }
+  return fs
+}
+
+describe('roots recorded when the Run started', () => {
+  const at = { ...base, worktrees: ['/w/wt'], scratch: '/w/scratch', runTemp: '/var/run-temp', scratchpad: null, otherSessions: [], otherWorktrees: [] }
+  it('a root replaced by a link since is no root: what lies under it is symlink-on-path, a hard area under it hard', () => {
+    const recorded = { '/w/wt': '/w/wt', '/w/scratch': '/w/scratch', '/var/run-temp': '/private/var/run-temp' }
+    const fsys = treeFs({ '/w/wt/a': 'file', '/w/scratch': '-> /home/demo', '/home/demo/Documents/x': 'file', '/home/demo/.ssh/id': 'file', '/var': '-> /private/var', '/private/var/run-temp/x': 'file' })
+    const moved = rootsOfRecorded({ ...at, recorded, fs: fsys })
+    expect(kind('/w/scratch/Documents/x', 'write', moved)).toBe('symlink-on-path')
+    expect(kind('/w/scratch/Documents', 'delete', moved)).toBe('symlink-on-path')
+    expect(kind('/w/scratch/.ssh/id', 'read', moved)).toBe('hard:ssh')
+    // A root whose configured path was a link when the Run started (macOS /var) stays a root.
+    expect(kind('/var/run-temp/x', 'write', moved)).toBe('inside:run-temp')
+    expect(kind('/w/wt/a', 'write', moved)).toBe('inside:worktree')
+  })
+  it('targets are inside a root only by its recorded real path', () => {
+    // The worktree was a link to /w/real when the Run started, and still is.
+    const kept = rootsOfRecorded({ ...at, scratch: null, runTemp: null, recorded: { '/w/wt': '/w/real' }, fs: treeFs({ '/w/wt': '-> /w/real', '/w/real/a': 'file', '/w/other/a': 'file' }) })
+    expect(kind('/w/wt/a', 'write', kept)).toBe('inside:worktree')
+    expect(kind('/w/real/a', 'write', kept)).toBe('inside:worktree')
+    expect(kind('/w/other/a', 'write', kept)).toBe('outside')
+    // Now it leads elsewhere: the root is no root, by either path.
+    const moved = rootsOfRecorded({ ...at, scratch: null, runTemp: null, recorded: { '/w/wt': '/w/real' }, fs: treeFs({ '/w/wt': '-> /w/other', '/w/real/a': 'file', '/w/other/a': 'file' }) })
+    expect(kind('/w/wt/a', 'write', moved)).toBe('symlink-on-path')
+    expect(kind('/w/real/a', 'write', moved)).toBe('outside')
+    expect(kind('/w/other/a', 'write', moved)).toBe('outside')
+  })
+  it('records the real path of a root that does not exist yet from the folder above it', () => {
+    const fsys = treeFs({ '/var': '-> /private/var', '/private/var/x': 'dir' })
+    expect(recordRoots(['/var/x/new', null, 'relative'], 'linux', fsys)).toEqual({ '/var/x/new': '/private/var/x/new' })
+  })
+})
+
+describe('the review\'s edges of links and globs', () => {
+  it('a hard area that is itself a link is hard by its real path too', () => {
+    const fsys = treeFs({ '/home/demo/.ssh': '-> /dot/ssh', '/dot/ssh/id': 'file' })
+    const roots = rootsOf({ ...base, fs: fsys })
+    expect(kind('/dot/ssh/id', 'read', roots)).toBe('hard:ssh')
+  })
+  it('a link inside a hard area into a root is hard by its written form', () => {
+    const fsys = treeFs({ '/home/demo/.ssh/l': '-> /tmp/demo/pad', '/tmp/demo/pad/x': 'file' })
+    const roots = rootsOf({ ...base, fs: fsys })
+    expect(kind('/home/demo/.ssh/l/x', 'write', roots)).toBe('hard:ssh')
+  })
+  it('an existing folder named like a new mktemp folder is looked through', () => {
+    const folder = `/tmp/demo/data/autopilot-tmp/demo-run/${newTempFolderName(1)}`
+    const fsys = treeFs({ [`${folder}/l`]: '-> /home/demo', [`${folder}/a`]: 'file', '/home/demo/.claude/x': 'file' })
+    expect(kind(`${folder}/*`, 'delete', rootsOf({ ...base, fs: fsys }))).toBe('hard:claude-home')
+  })
+  it('a glob costs one lstat per entry, not a walk from the top', () => {
+    const tree: Record<string, string> = {}
+    for (let n = 0; n < 500; n++) tree[`/tmp/demo/pad/many/deep/folder/${n}.log`] = 'file'
+    const fsys = treeFs(tree)
+    const roots = rootsOf({ ...base, fs: fsys })
+    fsys.calls = 0
+    expect(kind('/tmp/demo/pad/many/deep/folder/*.log', 'delete', roots)).toBe('inside:scratchpad')
+    expect(fsys.calls).toBeLessThan(500 + 40)
+  })
+})
+
+describe('Windows names the system rewrites', () => {
+  const win = rootsOf({ ...base, platform: 'win32', worktrees: ['C:\\w\\wt'], scratch: null, runTemp: null, scratchpad: null, home: 'C:\\Users\\demo', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [] })
+  it('a trailing dot or space, a stream, a short name that does not resolve: not judged', () => {
+    for (const name of ['.git.', '.git ', '.git::$INDEX_ALLOCATION', 'a:b', 'GIT~1']) expect(kind(`C:\\w\\wt\\${name}\\config`, 'write', win), name).toBe('not-judged')
+  })
+  it('a hard area wins over a rewritten name', () => {
+    expect(kind('C:\\Users\\demo\\.ssh\\x.\\y', 'write', win)).toBe('hard:ssh')
+  })
+  it('on Linux and macOS such a name is a name', () => {
+    expect(kind('/tmp/demo/pad/.git./x', 'write')).toBe('inside:scratchpad')
+    expect(kind('/tmp/demo/pad/GIT~1', 'write')).toBe('inside:scratchpad')
   })
 })

@@ -31,6 +31,25 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3, 7; «Ре�
 4. Папка Run-а `<WORFY_DATA_DIR>/autopilot-tmp/<run>/` создаётся при старте Run-а, уходит в `TMPDIR` окружения
    Claude Code (`options.ts`), удаляется при `run-stopped` (по буквальному пути). Проверить, меняет ли `TMPDIR` папку
    scratchpad Claude Code; результат — в «Итог».
+5. **Поля `PolicyContext`** (Ticket 03, `src/main/agent/auto-approve/policy.ts`) и откуда каждое берётся:
+   - `platform` — `process.platform`;
+   - `cwd` — текущая папка shell-а Session-и на момент запроса, не стартовая: Claude Code сохраняет `cd` между
+     вызовами Bash (для Codex `commandExecution` берёт свой `cwd` из запроса);
+   - `env` — окружение shell-а Session-и: `HOME` (`USERPROFILE` на Windows), `TMPDIR`, `APPDATA`, `XDG_CONFIG_HOME`;
+   - `worktrees` — worktree-ы Ticket-ов текущей Wave; `scratch` — `.scratch` Project-а; `runTemp` — папка Run-а из п. 4;
+   - `scratchpad` — путь scratchpad-а Claude Code этой Session-и;
+   - `dataDir` — `WORFY_DATA_DIR`; `harnessHome` — домашняя папка Harness;
+   - `sessionId` и `sessions` — Session Run-а и `SessionRegistry`;
+   - `checkouts` — `git worktree list` Project-а (путь и ветка), закешированный и обновляемый при смене Wave;
+     **пустой `checkouts` молча выключает hard-deny `other-worktree` и `git-other-branch`**: если список прочитать
+     не удалось, пустой не передавать, а ничего не одобрять;
+   - `defaultBranch` — ветка по умолчанию Project-а (`main` защищён и так);
+   - `recordedRoots` — настоящие пути корней, записанные при старте Run-а: `recordRoots([...worktrees, scratch,
+     runTemp, scratchpad], platform)` из `roots.ts`. Корень без записи — не корень; корень, чей настоящий путь с тех
+     пор другой (подменён ссылкой), — тоже. Worktree, созданный позже старта Run-а, записывается при создании.
+   - `fs` не передаётся: политика читает диск сама (`nodeFileSystem`).
+   Драйвер передаёт вход инструмента как получен (`file_path` без обрезки пробелов и раскрытия `~`): путь, не
+   абсолютный как дан, политика не одобряет.
 
 ## Готово, когда
 

@@ -88,7 +88,9 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
 1. **`..` — от настоящего пути, не по тексту.** Ticket говорит «свернуть `..`, потом `realpath`». Свёртка по тексту
    превращает `<корень>/ln/../x` в `<корень>/x` и теряет ссылку `ln`, а система откроет `x` рядом с целью ссылки.
    Поэтому `resolveTarget` идёт по компонентам: `..` поднимается от уже найденного настоящего пути. По тексту
-   свёрнутый путь тоже судится — для hard deny и для списка `targets`.
+   свёрнутый путь тоже судится — для hard deny и для списка `targets`. Так и для Bash, и для файловых инструментов
+   (Edit, Write, MultiEdit, NotebookEdit, Codex `fileChange`): им передаётся сырой путь (раунд 2 review). `..` после
+   отсутствующей папки — `not-judged`: система дальше не идёт, куда ведёт `..`, не сказать.
 2. **Symlink.** Ссылка-компонент на пути — не allow, куда бы ни вела; исключение — ссылки на настроенном пути самого
    корня (macOS `/tmp`, `/var`). Цель hard deny находится и через ссылку: судятся обе формы пути.
 3. **Glob** (только последний компонент, как пишет Ticket 02) судится по каждой записи папки, которую шаблон может
@@ -110,20 +112,26 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
    назначение `main` или default branch, назначение-glob, ветка другого worktree, push текущей ветки, имя которой
    неизвестно. Удаление ветки: default branch или ветка другого worktree — hard, прочее — park. Правило
    `git-in-wave-worktree` требует, чтобы верх репозитория был worktree-ом Wave (не вложенный репозиторий в корне) и
-   чтобы на пути к папке git не было ссылки; `fetch` и `pull` разрешены, `git clean` в корне — тоже (он удаляет
-   содержимое, не корень).
+   чтобы на пути к папке git не было ссылки; `fetch` и `pull` разрешены только от имени remote-а (URL, `host:path`,
+   путь — park), `git clean` в корне — тоже (он удаляет содержимое, не корень).
 8. **Чтение.** Цели чтения судятся по корням; команда без записи и удаления (кроме git) — deny-with-hint `read-only`:
    решение Ticket-а 01 для `bash-other`, проверку Claude Code не повторить.
-9. **git config, hooks, attributes:** любая цель записи или удаления с компонентом `.git` или `.gitattributes`, и
-   источники `cp`, — deny-with-hint `git-files`. Не закрыто: копия папки, внутри которой есть `.gitattributes`, и
-   подкоманды git, которые достают `.gitattributes` из коммита (`checkout`, `merge`); без записи в `.git/config` такой
-   файл программу не запускает.
+9. **git config, hooks, attributes, submodules:** любая цель записи или удаления с компонентом `.git`,
+   `.gitattributes` или `.gitmodules` (в написанном виде и в настоящем, по диску), и источники `cp`, — deny-with-hint
+   `git-files`. Копия или перенос папки (`cp`, `mv`) просматривается целиком, ссылки не раскрываются: такой файл внутри
+   — `git-files`; папка, которую нельзя прочитать, или больше 10 000 записей — `copy-unclear`. Проверяется любая
+   копия папки, не только в репозиторий. `rsync`, `ditto`, `robocopy`, `Copy-Item` — вне таблицы Ticket-а 02, их
+   allow не бывает. Не закрыто: подкоманды git, которые достают `.gitattributes` из коммита (`checkout`, `merge`); без
+   записи в `.git/config` такой файл программу не запускает.
 10. **Команда, которую Ticket 02 не разобрал, до hard deny не доходит:** её действий не видно, исход — deny-with-hint
     `not-judged`. Текстового поиска опасных слов нет (ложные срабатывания на `echo sudo`).
-11. **Без HOME** (и `USERPROFILE` на Windows) политика не одобряет ничего: deny `no-home`.
+11. **Без HOME** (и `USERPROFILE` на Windows) политика не одобряет ничего: deny `no-home`. Hard deny, которому HOME
+    не нужен (git, программы настроек ОС, запуск скачанного, папка данных worfy, Harness home), идёт раньше и
+    остаётся hard-deny.
 12. **Q3 (в):** цель вне корней, программа вне таблицы, сеть (кроме git fetch / pull), push — park. Rule id исходов:
     `files-inside-roots`, `shell-script-inside-roots`, `git-in-wave-worktree`, `edit-inside-roots` (allow, через `+`);
-    `question`, `not-judged`, `symlink-on-path`, `git-files`, `whole-root`, `read-only`, `no-home` (deny);
+    `question`, `not-judged`, `symlink-on-path`, `git-files`, `copy-unclear`, `whole-root`, `read-only`, `no-home`
+    (deny);
     `outside-roots`, `unknown-tool` (park); `hard:<пункт>`.
 13. **Mutation testing** (свой скрипт в отдельном worktree, оба unit test-файла с `--bail 1`; операторы сравнения и
     логики, `true` / `false`, `some` / `every`, исходы и use, снятый `!`, снятые guard clause-ы и `continue`, каждый
@@ -142,3 +150,31 @@ Claude Code): 10 отказов — allow 0, deny 10, park 0, hard-deny 0. Пр�
     существующей папки): Windows CI пишет временную папку коротким именем (`RUNNER~1`), а настоящий путь
     hard-области приходит от системы длинными именами, и цель под home за ссылкой промахивалась мимо области.
     Test: `a target in the other spelling reaches a hard area that does not exist yet` (сделанная файловая система).
+16. **Раунд 2 review (PR #1410), решено без владельца:**
+    - **Корень, подменённый ссылкой.** Контекст получает `recordedRoots` — настоящие пути корней, записанные при
+      старте Run-а (`recordRoots`, заполняет Ticket 04). Внутри корня — только по записанному настоящему пути. Корень,
+      чей настоящий путь сейчас другой, — не корень: цель под ним — deny `symlink-on-path`, hard-область через него —
+      hard. Корень без записи — не корень. Файловая система, которая не разрешает даже `/`, сдвиг не видит; обход
+      пути тогда тоже ничего не находит.
+    - **Ветка другого worktree и default branch.** Hard: `checkout` / `switch` с `--ignore-other-worktrees` (любым
+      однозначным префиксом); `worktree add -f`; checkout, switch, `worktree add` (и ветка по имени папки), `branch`
+      (в том числе `-f`), `fetch` / `pull` в `src:dst` и `rebase <upstream> <branch>` на default branch, `main` или
+      ветку, выписанную в другом worktree. `-`, `@{-N}` и glob — как default branch. commit, merge, rebase,
+      cherry-pick, revert, reset, am, pull, `stash pop` / `apply` — hard, если текущая ветка (читается из `HEAD` git
+      папки worktree-а) — default branch или ветка другого worktree, и если `HEAD` не прочитать. Detached `HEAD` —
+      не ветка. Новая ветка от `main` (`checkout -b x main`) — разрешена. Слова команды для этого читаются из `args`
+      (Ticket 02 только читается в этом Ticket-е), консервативно.
+    - **Пути Windows.** Путь файлового инструмента без диска (`\Users\x`, `/x`) — на диске `cwd`; `/c/x` для них —
+      `C:\c\x`, как его откроет Node, а не `C:\x` Git Bash. `\\?\C:\x` — `C:\x`; любой другой `\\` путь — `not-judged`.
+      Компонент, который Windows переписывает (точка или пробел в конце, `:` — поток, краткое имя `~1`), —
+      `not-judged`, если на диске его нельзя разрешить в длинное имя; разрешённое длинное имя судится (`GIT~1` → `.git`
+      → `git-files`).
+    - **Путь файлового инструмента не абсолютный как дан** (`~`, пробелы по краям, относительный) — `not-judged`.
+      Codex `fileChange` с относительным путём тоже: раньше он приклеивался к `cwd`.
+    - **Glob** стоит одного `lstat` на запись (и `realpath` на ссылку), папка обходится один раз.
+    - **Подсказки hard-deny** — своя у каждого правила (`HARD_HINTS`); совет про `mktemp` — только у hard-областей
+      домашней папки.
+    - **Ещё программы настроек:** `schtasks` (кроме `/query`), `networksetup` (кроме `-list…`, `-get…`, `-print…`,
+      `-help`, `-version`), и они же за `env` / `nohup`.
+    - Поле `mode` из контекста убрано: исход от режима не зависит.
+

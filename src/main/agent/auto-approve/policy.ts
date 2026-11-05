@@ -6,18 +6,21 @@
 // it (ticket 04).
 //
 // The order is fixed:
-// 1. hard deny (spec, item 5): a target in a hard area (roots.ts), a program that changes the OS or app
+// 1. a question (AskUserQuestion, a Card's question) — deny with a hint (spec, item 6; Q8 (a));
+// 2. a command the parser (shell.ts) cannot judge, or a file tool path that is not absolute as given —
+//    deny with a hint;
+// 3. hard deny (spec, item 5): a target in a hard area (roots.ts), a program that changes the OS or app
 //    settings, chmod / chown outside the roots, a force push, a push that deletes, pushes refs it does
 //    not name or reaches the default branch or a branch of another worktree, a delete of the default
-//    branch or of a branch of another worktree, running what was downloaded, sending a file from
-//    outside the roots;
-// 2. a question (AskUserQuestion, a Card's question) — deny with a hint (spec, item 6; Q8 (a));
-// 3. a command the parser (shell.ts) cannot judge — deny with a hint;
-// 4. deny with a hint where the agent can rewrite: a symbolic link on a path, git config, hooks or
-//    attributes (spec, security, item 9), a whole root deleted, a command that writes and deletes
-//    nothing (ticket 01, category bash-other);
-// 5. allow when every target is inside the roots and an allow rule (ALLOW_RULES) passes every action;
-// 6. else park (Q3 (c)): parsed, but only the owner can decide.
+//    branch or of a branch of another worktree, a checkout of either, a commit on either, running what
+//    was downloaded, sending a file from outside the roots;
+// 4. without the home folder nothing else is approved (deny);
+// 5. deny with a hint where the agent can rewrite: a symbolic link on a path or a moved root, a path
+//    whose place cannot be told, git config, hooks, attributes or submodules (spec, security, item 9),
+//    a copy that brings them along, a whole root deleted, a command that writes and deletes nothing
+//    (ticket 01, category bash-other);
+// 6. allow when every target is inside the roots and an allow rule (ALLOW_RULES) passes every action;
+// 7. else park (Q3 (c)): parsed, but only the owner can decide.
 //
 // Hints are constants of this module, in English, never a piece of the request (spec, security,
 // item 8). Git facts come from ShellAction.git, never from the words of the command; the URL a
@@ -25,7 +28,7 @@
 // never allowed (at most parked).
 import type { SessionInfo } from '../session/types'
 import { analyze, REPOSITORY, UNKNOWN, type ShellAction } from './shell'
-import { joinPath, normalizePath, repositoryTop, resolveTarget, rootsOf, type FileSystem, type Placement, type Roots, type TargetUse } from './roots'
+import { copiedTree, isGitFileName, joinPath, normalizePath, realPathOf, repositoryTop, resolveTarget, rootsOf, type FileSystem, type Placement, type Roots, type TargetUse } from './roots'
 
 export type Outcome = 'allow' | 'deny' | 'park' | 'hard-deny'
 
@@ -46,10 +49,8 @@ export interface ApprovalRequest {
 }
 
 export interface PolicyContext {
-  /** The mode of Auto-approval; the outcome is the same in both. */
-  mode: 'shadow' | 'on'
   platform: NodeJS.Platform
-  /** The folder a Bash command starts in. */
+  /** The folder a Bash command starts in: the Session's current shell folder (Claude Code keeps `cd` between calls). */
   cwd: string
   /** The environment of the Session's shell: HOME, TMPDIR, APPDATA, XDG_CONFIG_HOME. */
   env: Readonly<Record<string, string | undefined>>
@@ -73,6 +74,8 @@ export interface PolicyContext {
   checkouts: ReadonlyArray<{ path: string; branch: string | null }>
   /** The Project's default branch; `main` is protected as well. */
   defaultBranch: string
+  /** The real path of each root recorded when the Run started (roots.ts, recordRoots), by the root's path. */
+  recordedRoots: Readonly<Record<string, string>>
   /** The file system; the machine's when absent. */
   fs?: FileSystem
 }
@@ -83,6 +86,8 @@ export interface Act {
   program: string
   /** Whether it is a file tool (Edit, Write, MultiEdit, NotebookEdit, fileChange). */
   fileTool: boolean
+  /** The words after the program; none for a file tool. */
+  args: readonly string[]
   git: ShellAction['git']
   network: boolean
   targets: Target[]
@@ -131,6 +136,7 @@ export const ALLOW_RULES: readonly AllowRule[] = [
       act.git !== undefined &&
       act.git.push === undefined &&
       act.git.branchDelete === undefined &&
+      !fetchesFromElsewhere(act) &&
       placed(act) &&
       // The repository is a worktree of the Wave itself, not a repository inside another root.
       act.targets.every((target) => target.marker !== 'repository' || (target.placement.kind === 'is-root' && target.placement.root.kind === 'worktree')),
@@ -142,20 +148,41 @@ export const ALLOW_RULES: readonly AllowRule[] = [
   },
 ]
 
+const NEVER = 'worfy never approves this, in any mode. Do not retry it in another form.'
+const HARD_HOME = `${NEVER} It touches the user's secrets or settings in the home folder; leave it to the owner. If a path came from X=$(mktemp -d), put && or || exit 1 after it, so an empty X never reaches the home folder.`
+const HARD_OTHERS = `${NEVER} It changes the work of another Session or worktree, or a branch checked out there or the default branch. Commit only on your Ticket's branch, in its worktree.`
+const HARD_REMOTE = `${NEVER} It rewrites or deletes history on a remote, or pushes refs other than your Ticket's branch; leave pushing to the owner.`
+
+/** The hint of each hard-deny rule, by its id after `hard:`. */
+export const HARD_HINTS: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(['claude-home', 'codex-home', 'ssh', 'gnupg', 'gh-config', 'git-config', 'npmrc', 'shell-rc', 'library', 'appdata'].map((id) => [id, HARD_HOME])),
+  'worfy-data': `${NEVER} It changes worfy's own data or settings; leave it to the owner.`,
+  'harness-home': `${NEVER} It changes the Harness; leave it to the owner.`,
+  ...Object.fromEntries(['other-session', 'other-worktree', 'git-other-branch', 'git-branch-delete-default', 'git-checkout-default-branch', 'git-commit-default-branch', 'git-fetch-default-branch', 'git-ignore-other-worktrees', 'git-worktree-force'].map((id) => [id, HARD_OTHERS])),
+  ...Object.fromEntries(['git-force-push', 'git-push-delete', 'git-push-many', 'git-push-default-branch'].map((id) => [id, HARD_REMOTE])),
+  'os-settings': `${NEVER} It changes the settings of the OS or of an app; leave it to the owner.`,
+  'chmod-outside': `${NEVER} It changes permissions or owners outside the Run's folders. Change them only inside the Ticket's worktree, .scratch, TMPDIR or your scratchpad.`,
+  'run-download': `${NEVER} It runs what it downloads. Save the download to a file in your scratchpad and leave running it to the owner.`,
+  'send-outside': `${NEVER} It sends a file from outside the Run's folders over the network; leave it to the owner.`,
+}
+
 export const HINTS = {
-  hard: 'worfy never approves this, in any mode: it touches a protected folder or setting (secrets, the OS, worfy or the Harness, another Session\'s work) or history on a remote. Do not retry it in another form; leave it to the owner. After X=$(mktemp -d) use && or || exit 1 before using X.',
   question: 'No one is here to answer (worfy Autopilot). Decide by the rules of the Project, or write the question into the owner questions of the Ticket and go on.',
   notJudged: 'worfy could not read this command, so it did not approve it. Rewrite it in plain steps: literal paths, no loops, conditions, functions or command substitution, no variables from outside the command; put a longer script into a file in your scratchpad and run the file.',
   symlink: 'A path of this request goes through a symbolic link, which worfy never approves, wherever it leads. Use the real path, inside the Ticket\'s worktree, the Project\'s .scratch, the Run\'s TMPDIR or your scratchpad.',
-  gitFiles: 'worfy never approves writing git config, hooks or attributes (.git/config, .git/hooks, .git/info/attributes, .gitattributes): through them any git command runs a program. Leave this change to the owner.',
+  gitFiles: 'worfy never approves writing git config, hooks, attributes or submodules (.git/config, .git/hooks, .git/info/attributes, .gitattributes, .gitmodules), nor a copy that brings them along: through them any git command runs a program. Leave this change to the owner.',
+  copyUnclear: 'worfy could not look through everything this copies or moves (a folder it cannot read, or more than 10,000 entries), so it did not approve it. Copy smaller folders, or the files by name.',
   wholeRoot: 'This deletes a whole root folder (a worktree, .scratch, TMPDIR or the scratchpad). Delete what is inside it, by literal paths.',
   readOnly: 'This command writes and deletes nothing, and the check that stopped it is Claude Code\'s own, which worfy cannot repeat. Follow the reason Claude Code gave, or rewrite the command with literal paths.',
-  noTarget: 'worfy could not find what this request changes, so it did not approve it. Give the full path.',
+  noTarget: 'worfy could not find what this request changes, so it did not approve it. Give the full absolute path, as it is: no ~, no relative path, no spaces around it, no \\\\ network or device path.',
+  unclearPath: 'worfy could not tell where a path of this request leads (a .. after a folder that does not exist, or a Windows name with a trailing dot or space, a colon or a short ~1 form), so it did not approve it. Give the plain full path.',
   noHome: 'worfy does not know the home folder of this Session, so it approves nothing here.',
 } as const
 
-// Programs that change the settings of the OS or of apps; `defaults` only with a subcommand that writes.
+// Programs that change the settings of the OS or of apps; `defaults`, `schtasks` and `networksetup` only
+// with a subcommand that writes.
 const OS_SETTINGS = new Set(['sudo', 'su', 'doas', 'launchctl', 'security', 'pfctl', 'socketfilterfw', 'netsh', 'reg', 'crontab'])
+const OS_SETTINGS_SOME = new Set(['defaults', 'schtasks', 'networksetup'])
 const DEFAULTS_READS = new Set(['read', 'read-type', 'domains', 'find', 'help'])
 const CHANGES_OWNER = new Set(['chmod', 'chown', 'chgrp'])
 
@@ -167,9 +194,14 @@ interface Prepared {
 
 export function judge(request: ApprovalRequest, context: PolicyContext): Decision {
   if (QUESTION_TOOLS.has(request.tool)) return deny('question', HINTS.question, [])
-  // Without the home folder its secrets cannot be found: nothing is approved.
-  if (homeOf(context) === null) return deny('no-home', HINTS.noHome, [])
-  const prepared = prepare(context)
+  const decision = judgeRequest(request, prepare(context))
+  // Without the home folder its secrets cannot be found: nothing but a hard deny is decided.
+  if (homeOf(context) === null && decision.outcome !== 'hard-deny') return deny('no-home', HINTS.noHome, [])
+  return decision
+}
+
+function judgeRequest(request: ApprovalRequest, prepared: Prepared): Decision {
+  const { context } = prepared
   const input = isRecord(request.input) ? request.input : {}
   if (COMMAND_TOOLS.has(request.tool)) {
     const command = input['command']
@@ -179,6 +211,11 @@ export function judge(request: ApprovalRequest, context: PolicyContext): Decisio
   }
   if (FILE_TOOLS.has(request.tool)) return judgeFiles(request.tool, input, prepared)
   return { outcome: 'park', rule: 'unknown-tool', hint: null, targets: [] }
+}
+
+/** A hard-deny Decision of the rule `id` (a hard category or a rule of this module). */
+function hardDeny(id: string, targets: string[]): Decision {
+  return { outcome: 'hard-deny', rule: `hard:${id}`, hint: HARD_HINTS[id] ?? NEVER, targets }
 }
 
 function homeOf(context: PolicyContext): string | null {
@@ -209,6 +246,7 @@ function prepare(context: PolicyContext): Prepared {
     harnessHome: context.harnessHome,
     otherSessions: others,
     otherWorktrees,
+    recorded: context.recordedRoots,
     ...(context.fs === undefined ? {} : { fs: context.fs }),
   })
   return { roots, win, context }
@@ -224,8 +262,8 @@ function judgeCommand(command: string, cwd: string, prepared: Prepared): Decisio
   const acts = actions.map((action) => actOf(action, prepared))
   const targets = targetsOf(acts)
   const hard = hardOfCommand(actions, acts, prepared)
-  if (hard !== null) return { outcome: 'hard-deny', rule: `hard:${hard}`, hint: HINTS.hard, targets }
-  const hinted = hintOf(acts, actions)
+  if (hard !== null) return hardDeny(hard, targets)
+  const hinted = hintOf(acts, actions, prepared)
   if (hinted !== null) return { ...hinted, targets }
   return allowOrPark(acts, targets)
 }
@@ -251,7 +289,7 @@ function actOf(action: ShellAction, prepared: Prepared): Act {
   for (const path of action.deletes) add(path, 'delete')
   // git works in its folder: a link on the way there is a link on every path it touches.
   if (action.git !== undefined) targets.push({ path: normalizePath(action.cwd, win) ?? action.cwd, use: 'read', marker: 'folder', placement: resolveTarget(action.cwd, roots, 'read') })
-  return { program: action.program, fileTool: false, git: action.git, network: action.network, targets }
+  return { program: action.program, fileTool: false, args: action.args, git: action.git, network: action.network, targets }
 }
 
 function targetsOf(acts: Act[]): string[] {
@@ -280,8 +318,10 @@ function hardOfCommand(actions: ShellAction[], acts: Act[], prepared: Prepared):
     const name = programName(action.program)
     if (OS_SETTINGS.has(name)) return 'os-settings'
     // A program outside the parser's table may run the next word (env, nohup, xargs, timeout…).
-    if (action.writes.includes(UNKNOWN) && action.args.some((word) => OS_SETTINGS.has(programName(word)))) return 'os-settings'
+    if (action.writes.includes(UNKNOWN) && action.args.some((word) => OS_SETTINGS.has(programName(word)) || OS_SETTINGS_SOME.has(programName(word)))) return 'os-settings'
     if (name === 'defaults' && !DEFAULTS_READS.has(action.args[0] ?? '')) return 'os-settings'
+    if (name === 'schtasks' && !/^[/-]query$/i.test(action.args[0] ?? '')) return 'os-settings'
+    if (name === 'networksetup' && !/^-(list|get|print|help|version)/i.test(action.args[0] ?? '')) return 'os-settings'
     if (CHANGES_OWNER.has(name) && changesOwnerOutside(action, prepared)) return 'chmod-outside'
     if (action.network && act.targets.some((target) => target.use === 'read' && target.marker === null && !isInside(target.placement))) return 'send-outside'
     const git = gitHard(action, prepared)
@@ -304,17 +344,155 @@ function changesOwnerOutside(action: ShellAction, prepared: Prepared): boolean {
 
 const branchName = (ref: string): string => ref.replace(/^refs\/heads\//, '')
 
+/** The words after git's subcommand (the global options and `-C <folder>` skipped, as shell.ts does). */
+function subcommandWords(args: readonly string[]): string[] {
+  let i = 0
+  while (i < args.length && (args[i] ?? '').startsWith('-')) i += args[i] === '-C' ? 2 : 1
+  return args.slice(i + 1)
+}
+
+/** The operands of `words` before `--`, with the values of the options in `valued` (`-b x`, `-bx`, `--onto x`) apart. */
+function operandsOf(words: readonly string[], valued: { short: string; long: readonly string[] }): { operands: string[]; values: Map<string, string[]> } {
+  const operands: string[] = []
+  const values = new Map<string, string[]>()
+  const add = (name: string, value: string): void => {
+    values.set(name, [...(values.get(name) ?? []), value])
+  }
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i] ?? ''
+    if (word === '--') break
+    if (word.startsWith('--')) {
+      const [name = '', value] = word.slice(2).split(/=(.*)/s)
+      if (valued.long.includes(name)) add(name, value ?? words[++i] ?? '')
+      else if (value === undefined) add(name, '')
+      continue
+    }
+    if (word.startsWith('-') && word !== '-') {
+      // A cluster of short flags; a valued one takes the rest of the word or the next word.
+      for (let k = 1; k < word.length; k++) {
+        const letter = word[k] ?? ''
+        if (!valued.short.includes(letter)) {
+          add(letter, '')
+          continue
+        }
+        add(letter, word.length > k + 1 ? word.slice(k + 1) : words[++i] ?? '')
+        break
+      }
+      continue
+    }
+    operands.push(word)
+  }
+  return { operands, values }
+}
+
+/**
+ * The branch a repository's worktree is on: read from its HEAD (`.git` a folder, or a file naming the
+ * git folder); null when detached; undefined when it cannot be read.
+ */
+function currentBranch(top: string, roots: Roots, win: boolean): string | null | undefined {
+  const dotGit = joinPath(top, '.git', win)
+  const kind = roots.fs.lstat(dotGit)
+  let gitDir: string | null = kind === 'dir' ? dotGit : null
+  if (kind === 'file') {
+    const named = /^gitdir:[ \t]*(.+?)[ \t\r]*$/m.exec(roots.fs.readFile(dotGit) ?? '')?.[1]
+    if (named !== undefined) gitDir = normalizePath(named, win) ?? joinPath(top, named, win)
+  }
+  const head = gitDir === null ? null : roots.fs.readFile(joinPath(gitDir, 'HEAD', win))
+  if (head === null) return undefined
+  const ref = /^ref:[ \t]*(\S+)\s*$/.exec(head)?.[1]
+  if (ref !== undefined) return branchName(ref)
+  return /^[0-9a-f]{40,64}\s*$/.test(head) ? null : undefined
+}
+
+// Subcommands that commit onto the current branch or move it.
+const MOVES_CURRENT = new Set(['commit', 'merge', 'rebase', 'cherry-pick', 'revert', 'reset', 'am', 'pull'])
+const CHECKOUT_VALUED = { short: 'bBcC', long: ['orphan', 'conflict', 'pathspec-from-file'] } as const
+const WORKTREE_ADD_VALUED = { short: 'bB', long: ['reason', 'orphan'] } as const
+const FETCH_VALUED = { short: 'jo', long: ['depth', 'deepen', 'shallow-since', 'shallow-exclude', 'jobs', 'negotiation-tip', 'server-option', 'refmap', 'recurse-submodules-default', 'upload-pack'] } as const
+const REBASE_VALUED = { short: 'sX', long: ['onto', 'strategy', 'strategy-option', 'exec'] } as const
+
+/** Where a fetch or pull refspec writes (`src:dst`, `+src:dst`); null when it writes no local ref. */
+function fetchDestination(spec: string): string | null {
+  const at = spec.indexOf(':')
+  return at < 0 || spec.slice(at + 1) === '' ? null : branchName(spec.slice(at + 1))
+}
+
+/** fetch / pull from what is no configured remote name: a URL, an scp-like `host:path`, a path. */
+function fetchesFromElsewhere(act: Act): boolean {
+  const sub = act.git?.subcommand
+  if (sub !== 'fetch' && sub !== 'pull') return false
+  const remote = operandsOf(subcommandWords(act.args), FETCH_VALUED).operands[0]
+  return remote !== undefined && (/[:\\/]/.test(remote) || remote.startsWith('.') || remote.startsWith('~'))
+}
+
 function gitHard(action: ShellAction, prepared: Prepared): string | null {
   const facts = action.git
   if (facts === undefined) return null
   const { context, roots, win } = prepared
   const protectedBranch = (branch: string): boolean => branch === context.defaultBranch || branch === 'main'
   const ofRun = (path: string): boolean => context.worktrees.some((wt) => samePath(wt, path, win))
-  const otherBranch = (branch: string): boolean => context.checkouts.some((checkout) => checkout.branch !== null && branchName(checkout.branch) === branch && !ofRun(checkout.path))
+  const top = repositoryTop(action.cwd, roots)
+  const elsewhere = (path: string): boolean => !ofRun(path) && !(top !== null && samePath(path, top, win))
+  const otherBranch = (branch: string): boolean => context.checkouts.some((checkout) => checkout.branch !== null && branchName(checkout.branch) === branch && elsewhere(checkout.path))
+  // A name git cannot resolve here (`-`, `@{-1}`, a glob) may be the default branch.
+  const unknownName = (branch: string): boolean => branch === '' || branch === '-' || branch.startsWith('@{') || /[*?]/.test(branch)
+  const judgeBranch = (branch: string, defaultRule: string): string | null => {
+    if (unknownName(branch) || protectedBranch(branch)) return defaultRule
+    return otherBranch(branch) ? 'git-other-branch' : null
+  }
+  const firstOf = (branches: readonly string[], defaultRule: string): string | null => {
+    for (const branch of branches) {
+      const rule = judgeBranch(branchName(branch), defaultRule)
+      if (rule !== null) return rule
+    }
+    return null
+  }
   if (facts.branchDelete !== undefined) {
-    for (const branch of facts.branchDelete.branches.map(branchName)) {
-      if (protectedBranch(branch)) return 'git-branch-delete-default'
-      if (otherBranch(branch)) return 'git-other-branch'
+    const rule = firstOf(facts.branchDelete.branches, 'git-branch-delete-default')
+    if (rule !== null) return rule
+  }
+  const words = subcommandWords(action.args)
+  const sub = facts.subcommand ?? ''
+  if (sub === 'checkout' || sub === 'switch') {
+    // git refuses a branch checked out in another worktree unless told to ignore that.
+    if (words.some((word) => word.length > 9 && '--ignore-other-worktrees'.startsWith(word))) return 'git-ignore-other-worktrees'
+    const { operands, values } = operandsOf(words, CHECKOUT_VALUED)
+    const created = ['b', 'B', 'c', 'C', 'orphan'].flatMap((name) => values.get(name) ?? [])
+    // --track origin/x makes and checks out x.
+    const tracked = values.has('t') || values.has('track') ? operands.map((word) => word.slice(word.indexOf('/') + 1)) : []
+    const rule = firstOf(created.length > 0 ? created : [...operands, ...tracked], 'git-checkout-default-branch')
+    if (rule !== null) return rule
+  }
+  if (sub === 'worktree' && words[0] === 'add') {
+    const { operands, values } = operandsOf(words.slice(1), WORKTREE_ADD_VALUED)
+    if (values.has('f') || values.has('force')) return 'git-worktree-force'
+    const created = [...(values.get('b') ?? []), ...(values.get('B') ?? [])]
+    // Without a branch given, git takes the one named after the folder.
+    const named = operands[1] ?? (values.has('detach') ? undefined : (operands[0] ?? '').split(/[\\/]/).at(-1))
+    const rule = firstOf(created.length > 0 ? created : named === undefined || values.has('detach') ? [] : [named], 'git-checkout-default-branch')
+    if (rule !== null) return rule
+  }
+  if (sub === 'branch' && facts.branchDelete === undefined) {
+    // `git branch -f x <commit>` moves x; any branch named here is judged.
+    const rule = firstOf(operandsOf(words, { short: '', long: [] }).operands.slice(0, 1), 'git-checkout-default-branch')
+    if (rule !== null) return rule
+  }
+  if (sub === 'fetch' || sub === 'pull') {
+    const destinations = operandsOf(words, FETCH_VALUED).operands.slice(1).map(fetchDestination).filter((each): each is string => each !== null)
+    const rule = firstOf(destinations, 'git-fetch-default-branch')
+    if (rule !== null) return rule
+  }
+  if (sub === 'rebase') {
+    // `git rebase <upstream> <branch>` checks out <branch> first.
+    const rule = firstOf(operandsOf(words, REBASE_VALUED).operands.slice(1, 2), 'git-commit-default-branch')
+    if (rule !== null) return rule
+  }
+  if (top !== null && (MOVES_CURRENT.has(sub) || (sub === 'stash' && (words[0] === 'pop' || words[0] === 'apply')))) {
+    const current = currentBranch(top, roots, win)
+    if (current === undefined) return 'git-commit-default-branch'
+    if (current !== null) {
+      const rule = judgeBranch(current, 'git-commit-default-branch')
+      if (rule !== null) return rule
     }
   }
   const push = facts.push
@@ -323,7 +501,6 @@ function gitHard(action: ShellAction, prepared: Prepared): string | null {
   if (push.delete) return 'git-push-delete'
   // --all and --mirror push the default branch too; --tags and --follow-tags are not told apart from them.
   if (push.many) return 'git-push-many'
-  const top = repositoryTop(action.cwd, roots)
   const current = top === null ? null : context.checkouts.find((checkout) => samePath(checkout.path, top, win))?.branch ?? null
   const destinations = push.refspecs.length === 0 ? [null] : push.refspecs.map((spec) => {
     const at = spec.indexOf(':')
@@ -346,25 +523,27 @@ function samePath(a: string, b: string, win: boolean): boolean {
   return x !== null && y !== null && (win ? x.toLowerCase() === y.toLowerCase() : x === y)
 }
 
-/** A component `.git` or `.gitattributes`: git config, hooks, attributes. */
+/** A component `.git`, `.gitattributes` or `.gitmodules`: git config, hooks, attributes, submodules. */
 function touchesGitFiles(path: string): boolean {
-  return path.split(/[\\/]/).some((part) => {
-    const name = part.toLowerCase()
-    return name === '.git' || name === '.gitattributes'
-  })
+  return path.split(/[\\/]/).some(isGitFileName)
 }
 
-function hintOf(acts: Act[], actions: ShellAction[] | null): Omit<Decision, 'targets'> | null {
+function hintOf(acts: Act[], actions: ShellAction[] | null, prepared: Prepared): Omit<Decision, 'targets'> | null {
   for (const act of acts) {
     for (const target of act.targets) if (target.placement.kind === 'symlink-on-path') return deny('symlink-on-path', HINTS.symlink)
+  }
+  for (const act of acts) {
+    for (const target of act.targets) if (target.placement.kind === 'not-judged') return deny('not-judged', HINTS.unclearPath)
   }
   for (const [n, act] of acts.entries()) {
     // cp names its sources by their last component in a folder it copies into.
     const copies = actions?.[n]?.program === 'cp'
     for (const target of act.targets) {
       if (target.marker === 'unknown' || target.marker === 'repository') continue
-      // The path as written is enough: a link on the way was denied above.
-      if ((target.use !== 'read' || copies) && touchesGitFiles(target.path)) return deny('git-files', HINTS.gitFiles)
+      if (target.use === 'read' && !copies) continue
+      // The written form, and the system's (a Windows short name such as GIT~1 is `.git` on disk).
+      const real = touchesGitFiles(target.path) ? target.path : realPathOf(target.path, prepared.roots)
+      if (real !== null && touchesGitFiles(real)) return deny('git-files', HINTS.gitFiles)
     }
   }
   for (const act of acts) {
@@ -373,6 +552,17 @@ function hintOf(acts: Act[], actions: ShellAction[] | null): Omit<Decision, 'tar
     for (const target of act.targets) {
       if (target.placement.kind !== 'is-root') continue
       if ((target.use === 'delete' && !clean) || (act.fileTool && target.use === 'write')) return deny('whole-root', HINTS.wholeRoot)
+    }
+  }
+  for (const [n, act] of acts.entries()) {
+    // A folder copied or moved brings along what is inside it: .gitattributes too.
+    const program = actions?.[n]?.program
+    if ((program !== 'cp' && program !== 'mv') || !act.targets.every((target) => isInside(target.placement))) continue
+    for (const target of act.targets) {
+      if (target.use === 'write' || target.marker !== null) continue
+      const tree = copiedTree(target.path, prepared.roots)
+      if (tree === 'git-files') return deny('git-files', HINTS.gitFiles)
+      if (tree === 'unclear') return deny('copy-unclear', HINTS.copyUnclear)
     }
   }
   const changes = acts.some((act) => act.git !== undefined || act.targets.some((target) => target.use !== 'read'))
@@ -399,31 +589,51 @@ function allowOrPark(acts: Act[], targets: string[]): Decision {
 
 // --- File tools -----------------------------------------------------------------------------
 
+/**
+ * The path of a file tool as the tool opens it, still raw (`..` kept for resolveTarget); null when it is
+ * not absolute as given: Claude Code trims spaces and expands `~`, which this does not repeat. Windows: a
+ * path rooted without a drive (`\Users\x`, `/x`) is on the drive of `cwd`; `\\?\C:\x` is `C:\x`; any
+ * other `\\` path (a share, a device) is null.
+ */
+function toolPath(path: string, cwd: string, win: boolean): string | null {
+  if (path === '' || path !== path.trim()) return null
+  if (!win) return path.startsWith('/') ? path : null
+  const verbatim = /^\\\\\?\\([A-Za-z]:\\.*)$/s.exec(path)?.[1]
+  if (verbatim !== undefined) return verbatim
+  if (/^[\\/]{2}/.test(path)) return null
+  if (/^[\\/]/.test(path)) {
+    const drive = normalizePath(cwd, win)?.slice(0, 2)
+    return drive === undefined ? null : `${drive}${path}`
+  }
+  return /^[A-Za-z]:[\\/]/.test(path) ? path : null
+}
+
 function judgeFiles(tool: string, input: Record<string, unknown>, prepared: Prepared): Decision {
   const { context, roots, win } = prepared
-  const paths: string[] = []
+  const given: string[] = []
   if (tool === 'fileChange') {
     const changes = Array.isArray(input['changes']) ? input['changes'] : []
-    for (const change of changes) if (isRecord(change) && typeof change['path'] === 'string') paths.push(change['path'])
-    if (paths.length !== changes.length) return deny('not-judged', HINTS.noTarget, [])
+    for (const change of changes) if (isRecord(change) && typeof change['path'] === 'string') given.push(change['path'])
+    if (given.length !== changes.length) return deny('not-judged', HINTS.noTarget, [])
   } else {
     const path = tool === 'NotebookEdit' ? input['notebook_path'] : input['file_path']
-    if (typeof path === 'string') paths.push(path)
+    if (typeof path === 'string') given.push(path)
   }
-  if (paths.length === 0 || paths.some((path) => path === '')) return deny('not-judged', HINTS.noTarget, [])
-  const base = normalizePath(context.cwd, win)
-  const absolute = paths.map((path) => normalizePath(path, win) ?? (base === null ? path : joinPath(base, path, win)))
+  const raw = given.map((path) => toolPath(path, context.cwd, win))
+  if (raw.length === 0 || raw.some((path) => path === null || normalizePath(path, win) === null)) return deny('not-judged', HINTS.noTarget, [])
   const act: Act = {
     program: tool,
     fileTool: true,
+    args: [],
     git: undefined,
     network: false,
-    targets: absolute.map((path) => ({ path, use: 'write' as const, marker: null, placement: resolveTarget(path, roots, 'write') })),
+    // The raw path is judged (a `..` after a link goes up from the link's target); the folded one is reported.
+    targets: (raw as string[]).map((path) => ({ path: normalizePath(path, win) ?? path, use: 'write' as const, marker: null, placement: resolveTarget(path, roots, 'write') })),
   }
   const targets = targetsOf([act])
   const hard = act.targets.find((target) => target.placement.kind === 'hard')
-  if (hard !== undefined && hard.placement.kind === 'hard') return { outcome: 'hard-deny', rule: `hard:${hard.placement.category}`, hint: HINTS.hard, targets }
-  const hinted = hintOf([act], null)
+  if (hard !== undefined && hard.placement.kind === 'hard') return hardDeny(hard.placement.category, targets)
+  const hinted = hintOf([act], null, prepared)
   if (hinted !== null) return { ...hinted, targets }
   return allowOrPark([act], targets)
 }
