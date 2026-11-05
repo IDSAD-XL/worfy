@@ -42,11 +42,11 @@ Source: [spec.md](../spec.md), «Вопросы владельцу», Q1, Q2, Q3
 
 - [ ] ADR принят владельцем, вторая строка «Дата: … Статус: принят.», заголовок кончается «меняет ADR-0086, пункты
       2–4», ссылки на ADR-0086 и этот Epic.
-- [ ] В ADR-0086 — раздел `## Amendments` с датированной записью; остальной текст ADR-0086 не изменён (дифф — только
+- [x] В ADR-0086 — раздел `## Amendments` с датированной записью; остальной текст ADR-0086 не изменён (дифф — только
       новый раздел).
-- [ ] `harness/skills/epic-wave/SKILL.md` описывает `rerun`, `export`, `import`, `report`; ручного «one at a time»
+- [x] `harness/skills/epic-wave/SKILL.md` описывает `rerun`, `export`, `import`, `report`; ручного «one at a time»
       больше нет.
-- [ ] Shell test-ы текста skill-ов (`harness/bin/tests/skill-blocks.test.sh`, `skill-text.sh`,
+- [x] Shell test-ы текста skill-ов (`harness/bin/tests/skill-blocks.test.sh`, `skill-text.sh`,
       `plugin-neutral.test.sh`) зелёные.
 - [ ] (вручную) `rules.md` Profile-а на Mac и на ПК поправлены после слова владельца; дифф в «Итог».
 - [ ] После merge — `pnpm install:stable` и Replace Harness на Mac; `claude plugin list` показывает новый Harness.
@@ -67,3 +67,45 @@ Source: [spec.md](../spec.md), «Вопросы владельцу», Q1, Q2, Q3
 Только читать: `docs/adr/0056-windows-checks-and-two-sessions.md:112-119` (форма `## Amendments`), `harness/lib/gate-failures/` (Ticket-ы 04–06),
 `scripts/quarantine-suggest.mjs` (Ticket 05). Вне репозитория (вручную): `~/.claude/worfy-harness/projects/worfy/rules.md`
 на Mac и `%USERPROFILE%\.claude\worfy-harness\projects\worfy\rules.md` на ПК.
+
+## Итог
+
+Сделано в ветке `worfy-failures/07`.
+
+- `docs/adr/0096-failure-records-and-solo-rerun.md` — новый ADR «записи о падениях и повтор поодиночке командой; меняет
+  ADR-0086, пункты 2–4». Пункт 1: красный gate full на ПК → `gate-failures rerun --last` на том же SHA и в том же worktree;
+  код 0 — flaky, код 2 — `main` красный, код 3 считается как 2 (после устранения отказа из-за дерева — повтор). Пункт 2:
+  отчёт ПК несёт код `rerun` и блок `gate-failures export --run <id>` (файлы повтора export берёт сам); куда — по Q1.
+  Пункт 3: issue `pc-main-red` — отчёт плюс блок export. Пункт 4: Orchestrator на Mac — `gate-failures import --gh … --issue N`
+  / `--pr N` / `-`, затем `gate-failures report --days 14`, три первые строки — в отчёт Wave; кандидаты —
+  `node scripts/quarantine-suggest.mjs`, запись в карантин — человеком или Orchestrator-ом.
+- `docs/adr/0086-pc-gate-full-once-per-wave.md` — только новый раздел `## Amendments` с записью от 2026-11-05;
+  `git diff origin/main -- docs/adr/0086-pc-gate-full-once-per-wave.md` — одни добавленные строки.
+- `harness/skills/epic-wave/SKILL.md` (раздел 4, «A check that answers on the main branch after the merge») — `rerun`,
+  `export`, `import`, `report` в общем виде, worfy — только в примерах в скобках; ручного повтора «one at a time» нет.
+- Вне «Где в коде»: `harness/bin/tests/epic-wave-ship-ticket.test.sh` проверял старую фразу о ручном повторе. Две старые
+  проверки заменены двенадцатью новыми (команда `rerun`, замок e2e, коды 0/2/3, блок export, `import`, `report`, карантин не
+  командой) и проверкой, что старой фразы нет. До правки skill — 12 красных, после — `passed 599, failed 0`.
+- Проверки на Mac 2026-11-05: `epic-wave-ship-ticket.test.sh`, `skill-blocks.test.sh`, `skill-blocks-gate.test.sh`,
+  `plugin-neutral.test.sh`, `skill-positional-tokens.test.sh`, `skills-allowed.test.sh`, `agents-text.test.sh`,
+  `decision-log.test.sh`, `max-review.test.sh`, `silent-mode.test.sh`, `review-depth.test.sh` — exit 0;
+  `node scripts/check-cyrillic.mjs`, `pnpm lint`, `pnpm typecheck` — exit 0. `skill-text.sh` — библиотека, которую
+  подключают test-ы выше, своего запуска у неё нет. `pnpm test` целиком локально не гонялся (по брифу) — его гоняет CI PR.
+
+Решено без владельца, подтвердить:
+
+1. ADR-0096 принят по ответам владельца Q1–Q3 от 2026-11-04 — решено без владельца, подтвердить.
+2. Раздел `## Amendments` в ADR-0086 стоит в конце файла, после «Considered Options», а не перед ним, как сказано в
+   «Что делаем», п. 2: так требует `rules-adr.md` Profile-а («дописывается в конец файла») и так сделано во всех 17 ADR с
+   этим разделом (ADR-0056 тоже). Текст ADR-0086 выше раздела не изменён.
+3. Блок export — `gate-failures export --run <id>` с одним id, а не `--run <id> --run <id повтора>`, как в «Что делаем», п. 1:
+   `--run` принимает только id run-а, файлы повтора export берёт вместе с run-ом сам (`harness/lib/gate-failures/export.mjs:6-8`).
+4. Код 3 `rerun` (шаг без test-ов, test без команды повтора, отказ) считается как красный повтор: spec этот случай не
+   называет, а «не подтверждено» безопаснее считать регрессией, чем flaky.
+5. Блок export при зелёном повторе — комментарием в PR, чей merge-коммит проверял gate full; в Wave это последний влитой PR
+   Wave (gate full идёт на SHA последнего merge Wave, ADR-0086, пункт 2).
+
+- не проверено: правка `rules.md` Profile-а worfy на Mac и на ПК — нужна команда владельца (Q3 — «да», но правка `rules.md`
+  идёт только по его слову); дифф обоих — сюда после правки.
+- не проверено: `pnpm install:stable` и Replace Harness на Mac после merge, `claude plugin list` — шаг Orchestrator-а.
+- не проверено: CI PR — на момент записи не закончен.

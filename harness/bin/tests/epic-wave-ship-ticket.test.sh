@@ -855,6 +855,7 @@ for sh in "${SHELLS[@]}"; do
 done
 EW4="$(section "$EW" 4 | tr '\n' ' ' | tr -s ' ')"
 in_ew4() { [[ "$EW4" == *"$1"* ]]; }
+lacks_ew4() { [[ "$EW4" != *"$1"* ]]; }
 check "Check: the mark is set with ticket mark on the head SHA" has "$EW" '"${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark <epic> <NN> check/<name> skipped --sha "$sha"'
 check "Check: the set takes only the ready PRs" in_ew4 'Only the PRs whose line says `ready` — `ready` or `ready, PLATFORM` — go into `PRS=(…)` of a set'
 check "Check: PLATFORM=() is filled from the PRs whose Check is not skipped" in_ew4 'the `ready, PLATFORM` ones go into its `PLATFORM=(…)` too'
@@ -865,7 +866,18 @@ check "Check after the merge: asked on the SHA of the wave's last merge" in_ew4 
 check "Check after the merge: a wave with no such PR asks for nothing" in_ew4 'A wave that merged no such PR asks for nothing'
 check "Check after the merge: a PR merged outside a wave is asked for right after its merge" in_ew4 'A PR merged outside a wave (skill `/worfy:ship-ticket`, step 9) is asked for right after its merge, on its merge commit, by the session that merged it'
 check "Check after the merge: a newer request replaces one with no report" in_ew4 'A request that has no report yet is replaced by a newer one: one check on the newer SHA answers both'
-check "Check after the merge: red — one rerun of the failing tests, then the red is recorded in one place" in_ew4 'first runs the failing tests once more, one at a time, on the same SHA, to check for a flaky test. Red again — the main branch is red there, and that session records it in the one place the project'"'"'s rules name for it'
+check "Check after the merge: red — the failed tests are rerun by the Harness command, on the same SHA and worktree" in_ew4 'Red — that session reruns the failed tests right away, on the same SHA and in the same worktree, to check for a flaky test: `"${CLAUDE_PLUGIN_ROOT}/bin/gate-failures" rerun --last` runs each failed test of the newest red gate run of that worktree alone'
+check "Check after the merge: the rerun takes the e2e lock and the screen check itself" in_ew4 'It takes the e2e lock and the screen check itself when the profile sets `F workflow.e2e_lock`; nobody takes them by hand.'
+check "Check after the merge: the rerun leaves the gate's verdict as it is" in_ew4 'The gate'"'"'s verdict does not change: there is no rerun inside a gate run.'
+check "Check after the merge: the manual rerun one test after another is gone" lacks_ew4 'first runs the failing tests once more, one at a time'
+check "Check after the merge: rerun exit 0 is a flaky test, the main branch is not red" in_ew4 'Exit 0 — every failed test is green alone: a flaky test, and the main branch is not red.'
+check "Check after the merge: rerun exit 2 — the red is recorded in one place" in_ew4 'Exit 2 — at least one test is red alone: the main branch is red there, and that session records it in the one place the project'"'"'s rules name for it'
+check "Check after the merge: rerun exit 3 counts as exit 2" in_ew4 'Exit 3 — the rerun confirmed nothing green: a step without tests failed (lint, typecheck, a build), a test has no rerun command, or the rerun was refused. It counts as exit 2.'
+check "Check after the merge: a red report carries the export block of the run" in_ew4 'After a red check the report also carries the rerun'"'"'s exit code and the block that `"${CLAUDE_PLUGIN_ROOT}/bin/gate-failures" export --run <id>` prints'
+check "Check after the merge: where the export block goes is the project's rule" in_ew4 'Where the block goes is the project'"'"'s rule (worfy: with the main branch red, into the issue `pc-main-red`; green on the rerun, a comment on the PR whose merge commit was checked; a message between the sessions when neither can be written)'
+check "Check after the merge: the asking session imports the records" in_ew4 '`"${CLAUDE_PLUGIN_ROOT}/bin/gate-failures" import --gh <owner/repo> --issue <N>` (or `--pr <N>`;'
+check "Check after the merge: three lines of report go into the wave report" in_ew4 'then `"${CLAUDE_PLUGIN_ROOT}/bin/gate-failures" report --days 14`. The first three lines of the report go into the wave report'
+check "Check after the merge: a quarantine entry is never written by a command" in_ew4 'the entry is written by a person or the orchestrator under the project'"'"'s quarantine rules, never by a command'
 check "Check after the merge: the record is read before every merge that needs it" in_ew4 'Before merging any PR that needs this check — in a wave or not — read that place'
 check "Check after the merge: while red, no PR that needs it merges" in_ew4 'While the main branch is red there, no PR that needs this check merges'
 check "Check after the merge: other PRs merge as before" in_ew4 'needs this check merges, and the wave report says so with the SHA. Other PRs merge as before.'
@@ -874,7 +886,6 @@ check "Check after the merge: the fixing PR merges with a check of the failing t
 check "Check after the merge: a green check on the fix or later ends the red" in_ew4 'A green check there, or on a later SHA of the main branch, ends the red, and that session clears the record'
 check "Check after the merge: the revert deadline is the project's rule, no automatic revert" in_ew4 'is the project'"'"'s rule (worfy: 1 h from the record, then the orchestrator reverts it by hand). There is no automatic revert.'
 check "Check after the merge: a check with no report holds no merge" in_ew4 'A check not asked for yet, or with no report yet, holds no merge.'
-check "Check after the merge: green on the rerun is a flaky test, the main branch is not red" in_ew4 'Green on that rerun — a flaky test, and the main branch is not red'
 check "Check after the merge: the label is created before the issue, so the read finds the record" in_ew4 '`gh label create pc-main-red --force --color B60205 --description "main is red on the PC gate full"` first, so the label exists, then `gh issue create --label pc-main-red`'
 check "Check after the merge: the record is read by its label" in_ew4 '(worfy: `gh issue list --label pc-main-red --state open`)'
 check "Check after the merge: the fixing PR names the record without a word that closes it on merge" in_ew4 'Its description names the record (worfy: the issue, without a GitHub word that closes it on merge)'

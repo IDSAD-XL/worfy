@@ -106,3 +106,11 @@ gate full на ПК на том же head».
   меню или уведомлений трогает пути `PC_ONLY`, само имеет scope `pc` и попадало бы под запрет.
 - **Автоматический revert по красному gate full на ПК.** Отвергнуто решением 7: revert — решение
   Orchestrator-а, по сроку пункта 7.
+
+## Amendments
+
+- **2026-11-05, [ADR-0096](0096-failure-records-and-solo-rerun.md)** (`worfy-failures` 07). Пункт 3: повтор
+  упавших test-ов поодиночке — команда `gate-failures rerun --last` на том же SHA и в том же worktree сразу после
+  gate full; flaky или регрессию решает её код выхода. Пункты 2 и 4: отчёт Session на ПК и issue `pc-main-red`
+  несут блок `gate-failures export --run <id>`; Orchestrator на Mac делает `gate-failures import` и
+  `gate-failures report --days 14`, три первые строки отчёта — в отчёт Wave.
