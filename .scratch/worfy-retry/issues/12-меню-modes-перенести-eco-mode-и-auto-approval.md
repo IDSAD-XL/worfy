@@ -67,13 +67,22 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
 ## Готово, когда
 
 - [x] У Orchestrator-а одна кнопка «Modes» вместо двух переключателей; в обычной Session её нет.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
 - [x] Меню: Eco mode (on/off) и Auto-approval (Off/Shadow/On); выбор пишет то же, что сегодня, в те же места
       (Profile через `ecoMode.set`, `app-settings.json` через `autoApproval.set`).
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
 - [x] Кнопка всегда показывает иконку каждого пункта; on — яркая, off — приглушённая, Shadow — контур; ширина кнопки
       одинакова во всех сочетаниях состояний (unit test сравнивает ширину слотов, e2e — `boundingBox` кнопки).
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
 - [x] Клавиатура: роли `menu`, `menuitemcheckbox`, `menuitemradio`; открыть, пройти, выбрать и закрыть меню без мыши.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
 - [x] Окно Linked machine — как сегодня: ничего не читается и не пишется, пункты недоступны с прежними tooltip-ами.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
 - [x] Debugging port: Auto-approval Off, недоступен, tooltip с причиной и сохранённым режимом.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
 - [x] Снимки кнопки и открытого меню в светлой и тёмной теме.
   - evidence: screenshot pass · `../evidence/12-modes-eco-on-light.png` · mac dev · db7ded110ffcfd647a68441cc164a1e3b654372e · scrub: 2026-11-05
   - evidence: screenshot pass · `../evidence/12-modes-eco-on-dark.png` · mac dev · db7ded110ffcfd647a68441cc164a1e3b654372e · scrub: 2026-11-05
@@ -81,8 +90,11 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
   - evidence: screenshot pass · `../evidence/12-modes-menu-dark.png` · mac dev · db7ded110ffcfd647a68441cc164a1e3b654372e · scrub: 2026-11-05
 - [x] Ширины окна 800–1600 px с открытым sidebar: Send на строке pickers (`session-controls.spec.ts:315`,
       `context-meter.spec.ts:128`); порядок снятия подписей проверен заново (`session-controls.spec.ts:491-531`).
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/session-controls.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
 - [x] Страницы Feature EN и RU описывают меню Modes.
+  - evidence: commit pass · Modes menu: Eco mode and Auto-approval move into one composer button · - - · a72b729268d924c69f607d4ad3dd7844593a16b6
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
 
 ## Тесты
 
