@@ -53,6 +53,8 @@ export interface AutoApproval {
   saved: AutoApprovalMode | null
   /** Why the positions cannot be chosen, as their tooltip; null when they can. */
   unavailable: string | null
+  /** The mode is being read. */
+  reading: boolean
   /** A write runs. */
   busy: boolean
   /** The window shows a Linked machine: nothing is read, and the group says where the mode is set. */
@@ -121,6 +123,7 @@ export function useAutoApproval(projectId: string): AutoApproval {
     mode: elsewhere ? null : (writing ?? state?.mode ?? null),
     saved: elsewhere ? null : (state?.saved ?? null),
     unavailable,
+    reading: !elsewhere && current === undefined,
     busy: writing !== null,
     readOnly: elsewhere,
     choose: (mode) => {

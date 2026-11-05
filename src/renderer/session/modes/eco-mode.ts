@@ -31,6 +31,8 @@ export interface EcoMode {
   unavailable: string | null
   /** The item's tooltip. */
   title: string
+  /** The Profile is being read. */
+  reading: boolean
   /** A write runs. */
   busy: boolean
   /** The window shows a Linked machine or has read-only access: the item says so and reads nothing. */
@@ -105,6 +107,7 @@ export function useEcoMode(projectId: string): EcoMode {
     on,
     unavailable,
     title: unavailable ?? ECO_MODE_TITLE,
+    reading: hint === null && state === undefined,
     busy: writing !== null,
     readOnly: hint !== null,
     toggle: () => {

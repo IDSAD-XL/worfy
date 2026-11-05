@@ -129,7 +129,7 @@ async function mount(sessionId: string | null = SESSION) {
 }
 
 type Name = 'Off' | 'Shadow' | 'On'
-const trigger = () => screen.getByRole('button', { name: 'Modes' })
+const trigger = () => screen.getByRole('button', { name: /^Modes/u })
 const menu = () => screen.queryByRole('menu', { name: 'Modes' })
 const ecoItem = () => within(menu()!).getByRole('menuitemcheckbox', { name: /^Eco mode/u })
 const group = () => within(menu()!).getByRole('group', { name: 'Auto-approval' })
@@ -139,6 +139,8 @@ const items = () => [...menu()!.querySelectorAll<HTMLElement>('[role="menuitemch
 const slot = (item: 'eco' | 'auto-approval') => trigger().querySelector<HTMLElement>(`[data-mode-item="${item}"]`)!
 /** What main was asked of the modes; other channels (projects.list) do not count. */
 const modeCalls = () => main.calls.filter((call) => /^(ecoMode|autoApproval)\./u.test(call.channel))
+/** The check mark in front of an item: shown only on a checked one. */
+const marked = (item: HTMLElement) => item.querySelector('.w-modes__check svg') !== null
 const ecoCalls = () => main.calls.filter((call) => call.channel.startsWith('ecoMode.'))
 const autoCalls = () => main.calls.filter((call) => call.channel.startsWith('autoApproval.'))
 const press = async (element: Element, key: string) => {
@@ -193,14 +195,14 @@ describe('the Modes button', () => {
   it('a Session that is not the Orchestrator has none, and asks main for nothing', async () => {
     main = preload()
     await mount('another-session')
-    expect(screen.queryByRole('button', { name: 'Modes' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Modes/u })).toBeNull()
     expect(modeCalls()).toEqual([])
   })
 
   it('no live Session: none, and nothing asked', async () => {
     main = preload()
     await mount(null)
-    expect(screen.queryByRole('button', { name: 'Modes' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Modes/u })).toBeNull()
     expect(modeCalls()).toEqual([])
   })
 
@@ -212,13 +214,15 @@ describe('the Modes button', () => {
       { channel: 'autoApproval.read', input: { projectId: PROJECT } },
     ])
     expect(trigger().textContent).toBe('Modes')
+    // The states are in the accessible name and the tooltip alike.
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode on, Auto-approval shadow')
     expect(trigger().getAttribute('aria-haspopup')).toBe('menu')
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
     expect(trigger().getAttribute('aria-disabled')).toBeNull()
     expect([...trigger().querySelectorAll('[data-mode-item]')].map((each) => each.getAttribute('data-mode-item'))).toEqual(['eco', 'auto-approval'])
     expect(slot('eco').getAttribute('data-state')).toBe('on')
     expect(slot('auto-approval').getAttribute('data-state')).toBe('shadow')
-    expect(trigger().title).toBe('Orchestrator modes. Eco mode: On. Auto-approval: Shadow.')
+    expect(trigger().title).toBe('Modes: Eco mode on, Auto-approval shadow')
     expect(menu()).toBeNull()
   })
 
@@ -240,6 +244,31 @@ describe('the Modes button', () => {
     expect([...seen.keys()]).toEqual(['off/off', 'off/shadow', 'off/on', 'off/unknown', 'on/off', 'on/shadow', 'on/on', 'on/unknown', 'unknown/off', 'unknown/shadow', 'unknown/on', 'unknown/unknown'])
     expect(new Set([...seen.values()].map((each) => JSON.stringify(each))).size).toBe(1)
     expect(seen.get('on/on')).toEqual(['Modes', 'w-modes__slot 10x10 0 0 16 16', 'w-modes__slot 10x10 0 0 16 16'])
+  })
+})
+
+describe('where the menu stands', () => {
+  it('over the button, moved left as far as the right edge of the window makes it', async () => {
+    main = preload()
+    const width = window.innerWidth
+    const height = window.innerHeight
+    // The button and the menu both 240 px wide, 900 px from the left, 700 px from the top, in a 1000×800 window.
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 900, top: 700, width: 240, height: 24, right: 1140, bottom: 724, x: 900, y: 700, toJSON: () => ({}) })
+    Object.assign(window, { innerWidth: 1000, innerHeight: 800 })
+    try {
+      await mount()
+      await openMenu()
+      expect(menu()!.style.bottom).toBe('104px')
+      expect(menu()!.style.left).toBe(`${1000 - 240 - 8}px`)
+      await press(ecoItem(), 'Escape')
+      // Room enough on the right: it stays where the button starts.
+      Object.assign(window, { innerWidth: 1600 })
+      await openMenu()
+      expect(menu()!.style.left).toBe('900px')
+    } finally {
+      rect.mockRestore()
+      Object.assign(window, { innerWidth: width, innerHeight: height })
+    }
   })
 })
 
@@ -303,7 +332,12 @@ describe('the keyboard', () => {
     document.addEventListener('keydown', listener)
     try {
       await openMenu()
-      await press(position('Off'), 'Escape')
+      let delivered = true
+      await act(async () => {
+        delivered = fireEvent.keyDown(position('Off'), { key: 'Escape' })
+      })
+      // Taken by the menu: its default is held back too.
+      expect(delivered).toBe(false)
       expect(menu()).toBeNull()
       expect(heard).toEqual([])
     } finally {
@@ -311,16 +345,23 @@ describe('the keyboard', () => {
     }
   })
 
-  it('Tab and the window losing focus close the menu, writing nothing', async () => {
+  it('Tab, a resize and the window losing focus close the menu, writing nothing', async () => {
     main = preload()
     await mount()
     await openMenu()
     await press(position('Off'), 'Tab')
     expect(menu()).toBeNull()
+    // The focus goes back to the button before the menu goes, so Tab moves on from the button.
+    expect(document.activeElement).toBe(trigger())
     await openMenu()
     expect(menu()).not.toBeNull()
     await act(async () => {
       window.dispatchEvent(new Event('blur'))
+    })
+    expect(menu()).toBeNull()
+    await openMenu()
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'))
     })
     expect(menu()).toBeNull()
     expect(modeCalls()).toHaveLength(2)
@@ -330,6 +371,15 @@ describe('the keyboard', () => {
     main = preload()
     await mount()
     await openMenu()
+    // A press inside the menu or on the button is not outside.
+    await act(async () => {
+      fireEvent.pointerDown(ecoItem())
+    })
+    expect(menu()).not.toBeNull()
+    await act(async () => {
+      fireEvent.pointerDown(trigger())
+    })
+    expect(menu()).not.toBeNull()
     await act(async () => {
       fireEvent.pointerDown(document.body)
     })
@@ -349,6 +399,7 @@ describe('Eco mode in the menu', () => {
     expect(slot('eco').getAttribute('data-state')).toBe('off')
     await openMenu()
     expect(ecoItem().getAttribute('aria-checked')).toBe('false')
+    expect(marked(ecoItem())).toBe(false)
     expect(ecoItem().title).toBe(ECO_MODE_TITLE)
     expect(ecoItem().title).toMatch(/applies to the next Ticket/u)
     expect(ecoItem().getAttribute('aria-disabled')).toBeNull()
@@ -358,6 +409,7 @@ describe('Eco mode in the menu', () => {
       { channel: 'ecoMode.set', input: { root: ROOT, on: true, expected: FP_OFF } },
     ])
     expect(ecoItem().getAttribute('aria-checked')).toBe('true')
+    expect(marked(ecoItem())).toBe(true)
     expect(slot('eco').getAttribute('data-state')).toBe('on')
     // The menu stays open: the new state shows in it.
     expect(menu()).not.toBeNull()
@@ -423,12 +475,15 @@ describe('Eco mode in the menu', () => {
     let release: (() => void) | null = null
     const bridge = (globalThis as { worfy?: WorfyBridge }).worfy!
     const invoke = bridge.invoke
-    bridge.invoke = (channel, input) =>
-      channel === 'ecoMode.set'
-        ? new Promise((resolve) => {
-            release = () => resolve(invoke(channel, input) as never)
-          })
-        : invoke(channel, input)
+    // Every ecoMode.set is recorded when it is asked, not when it answers: a second write while the
+    // first is held must show in the calls.
+    bridge.invoke = (channel, input) => {
+      if (channel !== 'ecoMode.set') return invoke(channel, input)
+      main.calls.push({ channel, input })
+      return new Promise((resolve) => {
+        release = () => resolve({ ok: true, value: main.ecoSet } as never)
+      })
+    }
     await mount()
     await clickEco()
     expect(ecoItem().getAttribute('aria-checked')).toBe('true')
@@ -454,6 +509,8 @@ describe('Eco mode in the menu', () => {
     await openMenu()
     expect(ecoItem().getAttribute('aria-disabled')).toBe('true')
     expect(ecoItem().title).toBe("Reading the Project's Profile…")
+    expect(ecoItem().getAttribute('aria-checked')).toBe('false')
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode being read, Auto-approval off')
   })
 
   it('a Profile that cannot be read: unavailable, with the reason in the tooltip; a choice writes nothing', async () => {
@@ -463,8 +520,36 @@ describe('Eco mode in the menu', () => {
     await openMenu()
     expect(ecoItem().getAttribute('aria-disabled')).toBe('true')
     expect(ecoItem().title).toBe('Eco mode is not available: this Harness has no bin/profile-set --field')
+    expect(ecoItem().getAttribute('aria-checked')).toBe('false')
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode not available, Auto-approval off')
     await clickEco()
     expect(ecoCalls().map((call) => call.channel)).toEqual(['ecoMode.read'])
+  })
+
+  it("the Project's folder changes: what was read of the old folder is not shown, nothing is written until the new one is read", async () => {
+    const OTHER = '/work/moved'
+    main = preload({ eco: [ECO_ON] })
+    const bridge = (globalThis as { worfy?: WorfyBridge }).worfy!
+    const invoke = bridge.invoke
+    // The read of the new folder never answers.
+    bridge.invoke = (channel, input) => {
+      if (channel !== 'ecoMode.read' || (input as { root: string }).root !== OTHER) return invoke(channel, input)
+      main.calls.push({ channel, input })
+      return new Promise(() => undefined)
+    }
+    await mount()
+    expect(slot('eco').getAttribute('data-state')).toBe('on')
+    const { acceptProjectsState } = await import('../../src/renderer/projects/useProjects')
+    await act(async () => {
+      acceptProjectsState({ projects: [{ id: PROJECT, name: 'demo', path: OTHER, branch: null }], activeId: PROJECT, revision: 2 })
+    })
+    await settle()
+    expect(ecoCalls().map((call) => call.input)).toEqual([{ root: ROOT }, { root: OTHER }])
+    expect(slot('eco').getAttribute('data-state')).toBe('unknown')
+    await openMenu()
+    expect(ecoItem().title).toBe("Reading the Project's Profile…")
+    await clickEco()
+    expect(ecoCalls().map((call) => call.channel)).toEqual(['ecoMode.read', 'ecoMode.read'])
   })
 
   it('a read that failed in main: unavailable, saying why', async () => {
@@ -490,7 +575,10 @@ describe('Auto-approval in the menu', () => {
     expect(radios.map((item) => item.querySelector('.w-modes__item-label')?.textContent)).toEqual(['Off', 'Shadow', 'On'])
     expect(radios.map((item) => item.querySelector('.w-modes__item-detail')?.textContent)).toEqual(['Refuse every request', 'Refuse, and log what would pass', 'Answer by the Approval policy'])
     expect(radios.map((item) => item.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false'])
+    expect(radios.map(marked)).toEqual([false, true, false])
     expect(radios.map((item) => item.getAttribute('aria-disabled'))).toEqual([null, null, null])
+    expect(radios.map((item) => item.hasAttribute('data-read-only'))).toEqual([false, false, false])
+    expect(trigger().hasAttribute('data-read-only')).toBe(false)
     expect(position('Off').title).toBe(AUTO_APPROVAL_OFF)
     expect(position('Shadow').title).toBe(AUTO_APPROVAL_SHADOW)
     expect(position('On').title).toBe(AUTO_APPROVAL_ON)
@@ -575,6 +663,7 @@ describe('Auto-approval in the menu', () => {
     await openMenu()
     expect(position('Off').getAttribute('aria-disabled')).toBe('true')
     expect(position('Off').title).toBe('Reading the Auto-approval mode…')
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode off, Auto-approval being read')
   })
 
   it('shows the mode main answers, not the one asked for', async () => {
@@ -622,6 +711,9 @@ describe('a window on a Linked machine', () => {
     main = preload({ eco: [ECO_ON], auto: ['on'] })
     await mount()
     expect(trigger().hasAttribute('data-read-only')).toBe(true)
+    // The button still opens the menu: it is not unavailable itself, and its name says where the modes are set.
+    expect(trigger().getAttribute('aria-disabled')).toBeNull()
+    expect(trigger().getAttribute('aria-label')).toBe('Modes: Eco mode set on the Machine of the Project, Auto-approval set on the Machine of the Project')
     expect(slot('eco').getAttribute('data-state')).toBe('unknown')
     expect(slot('auto-approval').getAttribute('data-state')).toBe('unknown')
     expect(slot('auto-approval').hasAttribute('data-saved')).toBe(false)
@@ -629,9 +721,13 @@ describe('a window on a Linked machine', () => {
     expect(ecoItem().getAttribute('aria-disabled')).toBe('true')
     expect(ecoItem().title).toBe(ECO_MODE_ELSEWHERE)
     expect(ecoItem().hasAttribute('data-read-only')).toBe(true)
+    expect(ecoItem().getAttribute('aria-checked')).toBe('false')
+    expect(marked(ecoItem())).toBe(false)
     for (const name of ['Off', 'Shadow', 'On'] as const) {
       expect(position(name).getAttribute('aria-disabled')).toBe('true')
       expect(position(name).getAttribute('aria-checked')).toBe('false')
+      expect(position(name).hasAttribute('data-read-only')).toBe(true)
+      expect(marked(position(name))).toBe(false)
       expect(position(name).title).toBe(AUTO_APPROVAL_ELSEWHERE)
     }
     await clickEco()

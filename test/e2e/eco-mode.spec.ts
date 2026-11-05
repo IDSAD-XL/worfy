@@ -139,7 +139,7 @@ test("the Orchestrator's Modes menu: Eco mode writes the Project's Profile on, o
     const model = bar.getByTestId('picker-model')
     // One button in place of the two switches.
     await expect(bar.getByRole('switch')).toHaveCount(0)
-    await expect(bar.getByRole('button', { name: 'Auto-approval' })).toHaveCount(0)
+    await expect(bar.getByRole('button', { name: 'Auto-approval', exact: true })).toHaveCount(0)
     await expect(modes).toHaveAttribute('aria-haspopup', 'menu')
     // Off, and usable once the Profile is read: it has no workflow.agents.
     await expect(icon).toHaveAttribute('data-state', 'off')
@@ -180,13 +180,32 @@ test("the Orchestrator's Modes menu: Eco mode writes the Project's Profile on, o
     // request of 2026-10-31 for the knob of the Eco mode switch), and the button is as wide on as off.
     await expectBareSlots(window, modes)
     expect((await modes.boundingBox())!.width).toBe(offBox.width)
+    // Every state of every slot, as the stylesheet draws it — Auto-approval cannot leave Off under
+    // Playwright's debugging port, so the slots' states are set on the page: the button is as wide in
+    // each of the 16 combinations.
+    const widths = await modes.evaluate((element) => {
+      const slots = [...element.querySelectorAll('.w-modes__slot')]
+      const before = slots.map((slot) => slot.getAttribute('data-state'))
+      const seen: number[] = []
+      for (const eco of ['on', 'off', 'shadow', 'unknown']) {
+        for (const auto of ['on', 'off', 'shadow', 'unknown']) {
+          slots[0]?.setAttribute('data-state', eco)
+          slots[1]?.setAttribute('data-state', auto)
+          seen.push(element.getBoundingClientRect().width)
+        }
+      }
+      slots.forEach((slot, at) => slot.setAttribute('data-state', before[at] ?? 'unknown'))
+      return seen
+    })
+    expect(widths).toHaveLength(16)
+    expect(new Set(widths)).toEqual(new Set([offBox.width]))
     await captureScreenshot(bar, 'modes-eco-on')
 
     // A narrower bar: the caption is the first to go; the icons and the tooltip stay.
     await resizeWindow(app, window, 1100, 800)
     await expect(caption).toBeHidden()
     await expect(icon).toBeVisible()
-    await expect(modes).toHaveAttribute('title', /Eco mode: On\./u)
+    await expect(modes).toHaveAttribute('title', /Eco mode on,/u)
     await captureScreenshot(bar, 'modes-eco-on-narrow')
 
     // Without the mouse: ArrowDown on the button opens the menu, Enter on Eco mode turns it off.

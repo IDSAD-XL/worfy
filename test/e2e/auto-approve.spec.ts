@@ -78,7 +78,7 @@ test("Auto-approval in the Orchestrator's Modes menu under a debugging port: Off
     // Off in force and saved: the icon shows Off.
     await expect(icon).toHaveAttribute('data-state', 'off')
     await expect(icon).toHaveAttribute('data-saved', 'off')
-    await expect(button).toHaveAttribute('title', /Auto-approval: Off\.$/u)
+    await expect(button).toHaveAttribute('title', /Auto-approval off$/u)
     // Right of the pickers and as tall as before; Send still on the line of the pickers.
     const [own, permissions, send, pickers] = [await button.boundingBox(), await bar.getByTestId('picker-permissions').boundingBox(), await bar.getByTestId('input-send').boundingBox(), await bar.getByTestId('pickers').boundingBox()]
     expect(own!.x).toBeGreaterThan(permissions!.x)

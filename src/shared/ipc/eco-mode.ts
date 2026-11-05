@@ -1,5 +1,5 @@
 // The `ecoMode` domain (worfy-throughput ticket 60): the Eco mode switch in the bar under the
-// Orchestrator's input field (src/renderer/session/composer/EcoMode.tsx). On writes the eco set of the
+// Orchestrator's input field (src/renderer/session/modes/eco-mode.ts). On writes the eco set of the
 // Pro preset (`PLAN_PRESETS.pro.profile` of src/shared/agent/plan-preset.ts: `workflow.agents: "eco"`
 // and Sonnet with effort medium for every agent role) to the Project's Profile; off removes both
 // fields, so the Project gets the Harness's defaults again. The write goes through the Harness's

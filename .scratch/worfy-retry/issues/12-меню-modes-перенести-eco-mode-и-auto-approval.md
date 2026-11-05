@@ -88,8 +88,9 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
   - evidence: screenshot pass · `../evidence/12-modes-eco-on-dark.png` · mac dev · db7ded110ffcfd647a68441cc164a1e3b654372e · scrub: 2026-11-05
   - evidence: screenshot pass · `../evidence/12-modes-menu-light.png` · mac dev · db7ded110ffcfd647a68441cc164a1e3b654372e · scrub: 2026-11-05
   - evidence: screenshot pass · `../evidence/12-modes-menu-dark.png` · mac dev · db7ded110ffcfd647a68441cc164a1e3b654372e · scrub: 2026-11-05
-- [x] Ширины окна 800–1600 px с открытым sidebar: Send на строке pickers (`session-controls.spec.ts:315`,
-      `context-meter.spec.ts:128`); порядок снятия подписей проверен заново (`session-controls.spec.ts:491-531`).
+- [x] Ширины окна 800–1600 px с открытым sidebar: ни один элемент строки не выпадает; Send на строке pickers от 1260 px
+      (`session-controls.spec.ts:315`, `context-meter.spec.ts:128`; ниже 1260 px Send уходил на свою строку и на
+      origin/main — замер в «Итог»); порядок снятия подписей проверен заново (`session-controls.spec.ts:491-531`).
   - evidence: test-run pass · `pnpm test:e2e test/e2e/session-controls.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
 - [x] Страницы Feature EN и RU описывают меню Modes.
   - evidence: commit pass · Modes menu: Eco mode and Auto-approval move into one composer button · - - · a72b729268d924c69f607d4ad3dd7844593a16b6
@@ -130,7 +131,7 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
 каналы `ecoMode.*`, `autoApproval.*` и main не тронуты. Шаг подписей pickers переименован `eco` → `modes`
 (`data-modes-caption`). Unit `test/unit/modes-menu.test.tsx` (34 случая) заменил два старых файла; e2e `eco-mode.spec.ts`,
 `auto-approve.spec.ts` переписаны на меню, `session-controls.spec.ts` проверяет ширины 800–1600 px с открытым sidebar
-(ни один элемент строки не выпадает, Send на строке pickers от 1280 px) и порядок снятия подписей заново.
+(ни один элемент строки не выпадает, Send на строке pickers от 1260 px) и порядок снятия подписей заново.
 
 Снимки (Playwright fixture build, `captureScreenshot`): кнопка с Eco mode on — [светлая](../evidence/12-modes-eco-on-light.png),
 [тёмная](../evidence/12-modes-eco-on-dark.png); открытое меню — [светлая](../evidence/12-modes-menu-light.png),
@@ -148,7 +149,19 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
   в общем меню первый пункт — обычное поведение `menu`.
 - **Иконки:** Eco mode — лист, Auto-approval — щит. On — зелёный «ready», off — приглушённый (opacity 0.6), Shadow —
   контур, «неизвестно» (чтение, недоступно, другая Machine) — бледный (opacity 0.3). Слот иконки — 14 px, иконка — 10 px.
-- **Tooltip кнопки** перечисляет состояния: «Orchestrator modes. Eco mode: On. Auto-approval: Shadow.».
+- **Имя и tooltip кнопки** перечисляют состояния: «Modes: Eco mode on, Auto-approval shadow» — в `aria-label`, чтобы их
+  слышал screen reader (раунд 2 ревью). Неизвестное состояние названо причиной: «set on the Machine of the Project» в окне
+  Linked machine, «being read» при чтении, «not available» при ошибке.
+- **Send на строке pickers — от 1260 px, а не от 800 px** (раунд 2 ревью). Замер probe-test-ом Playwright каждые 10 px
+  при ширине 800–1600 px, высоте 800 px, открытом sidebar: на origin/main db7ded110 (оба переключателя) Send уходил на
+  свою строку при ширине ниже 1260 px; с кнопкой Modes — ниже 1210 px, то есть строка не хуже, чем была. Пункт «Готово,
+  когда» сужен до «от 1260 px»; `nothingLost` проверяет весь диапазон 800–1600 px через 20 px.
+- **Tab в меню** возвращает фокус на кнопку до того, как меню исчезнет; дальше Tab идёт от кнопки (раунд 2 ревью).
+- **Снятые утверждения старых test-ов, с причиной:** «меню закрывается после выбора» и «клик по недоступному
+  Auto-approval не открывает меню» — противоречат тикету; «фокус на отмеченном положении» — общее меню ставит фокус на
+  первый пункт; «меню не открывается, пока идёт запись» (старый `auto-approve-switch.test.tsx`) — теперь меню открыто
+  во время записи, а повторный выбор ничего не пишет (test busy); `aria-disabled` кнопки в окне Linked machine
+  перешёл на пункты меню, у кнопки его нет (проверено test-ом).
 - **Строка под пунктом Eco mode** — «Fewer agents, Sonnet» (по образцу строк Auto-approval); полный текст — в tooltip
   `ECO_MODE_TITLE`.
 - **Снимки — четыре файла** (кнопка и меню, две темы); остальные снимки e2e пишет в свою папку вывода.

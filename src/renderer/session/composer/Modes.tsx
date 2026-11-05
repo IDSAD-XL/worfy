@@ -57,8 +57,11 @@ function CheckMark() {
   )
 }
 
-/** The words of a state in the button's tooltip. */
-const STATE_WORDS: Readonly<Record<IconState, string>> = { on: 'On', off: 'Off', shadow: 'Shadow', unknown: 'not known here' }
+/** How the button's name says the state of an item: the state, or why it is not known. */
+function stateWords(state: IconState, item: { readOnly: boolean; reading: boolean }): string {
+  if (state !== 'unknown') return state
+  return item.readOnly ? 'set on the Machine of the Project' : item.reading ? 'being read' : 'not available'
+}
 
 /** The menu of the Orchestrator of Project `projectId`. */
 function ModesMenu({ projectId }: { projectId: string }) {
@@ -73,6 +76,8 @@ function ModesMenu({ projectId }: { projectId: string }) {
   const ecoState: IconState = eco.on === null ? 'unknown' : eco.on ? 'on' : 'off'
   const autoState: IconState = auto.mode ?? 'unknown'
   const readOnly = eco.readOnly && auto.readOnly
+  // The states are in the button's name, not only in its tooltip: a screen reader says them with it.
+  const summary = `Modes: Eco mode ${stateWords(ecoState, eco)}, Auto-approval ${stateWords(autoState, auto)}`
 
   const close = useCallback((focus: boolean) => {
     setMenu(null)
@@ -133,7 +138,8 @@ function ModesMenu({ projectId }: { projectId: string }) {
       return
     }
     if (event.key === 'Tab') {
-      close(false)
+      // The focus goes back to the button before the menu goes, so Tab moves on from there.
+      close(true)
       return
     }
     const items = [...(list.current?.querySelectorAll<HTMLElement>(ITEMS) ?? [])]
@@ -157,11 +163,11 @@ function ModesMenu({ projectId }: { projectId: string }) {
         ref={button}
         type="button"
         className="w-modes"
-        aria-label="Modes"
+        aria-label={summary}
         aria-haspopup="menu"
         aria-expanded={menu !== null}
         aria-busy={eco.busy || auto.busy ? 'true' : undefined}
-        title={`Orchestrator modes. Eco mode: ${STATE_WORDS[ecoState]}. Auto-approval: ${STATE_WORDS[autoState]}.`}
+        title={summary}
         data-testid="modes"
         data-read-only={readOnly ? '' : undefined}
         onKeyDown={onButtonKey}
