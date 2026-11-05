@@ -65,7 +65,7 @@ A new Session resumes by running `wave-brief` first.
   the Orchestrator itself, unless it touches a script or a hook, is a platform PR, or deletes files, stops processes or
   replaces a copy. In `ship-ticket` a review of an `eco` Ticket's own diff is at depth `low`. The Verification gate of
   `epic-wave` keeps its depth.
-  The Eco mode switch writes this field together with `agents`, the model and effort of each role
+  Eco mode in the Orchestrator's Modes menu writes this field together with `agents`, the model and effort of each role
   ([Sessions](sessions.md)).
 - `docs.feature_pages`: a folder of pages that describe behaviour. In step 5 of `ship-ticket` a change that alters
   behaviour a page there describes updates that page in the same PR, and a Ticket's file list in `epic-wave` is not

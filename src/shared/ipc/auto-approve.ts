@@ -1,5 +1,5 @@
 // The `autoApproval` domain (worfy-auto-approve ticket 06): the Auto-approval switch in the bar under
-// the Orchestrator's input field (src/renderer/session/composer/AutoApprove.tsx). The mode of a
+// the Orchestrator's input field (src/renderer/session/modes/auto-approval.ts). The mode of a
 // Project — Off, Shadow or On — is a setting of this Machine in app-settings.json of worfy's data
 // folder (`autoApproval` of src/shared/settings/app-settings.ts), not a field of the Profile: an agent
 // rewrites a Profile with a plain command, and the mode decides whether worfy answers the agent's

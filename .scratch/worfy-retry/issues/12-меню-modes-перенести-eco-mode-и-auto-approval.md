@@ -1,7 +1,7 @@
 # 12 — Меню Modes: перенести Eco mode и Auto-approval
 
 Type: task
-Status: open
+Status: claimed 2026-11-05T08:19Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «Решения владельца 2026-11-05», Q10–Q14; [worfy-throughput 60](../../worfy-throughput/issues/60-переключатель-eco-mode-в-чате-orchestrator-а.md) (переключатель Eco mode); [worfy-auto-approve](../../worfy-auto-approve/spec.md), Ticket 06 (переключатель Auto-approval, PR #1368)
 
@@ -66,19 +66,51 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
 
 ## Готово, когда
 
-- [ ] У Orchestrator-а одна кнопка «Modes» вместо двух переключателей; в обычной Session её нет.
-- [ ] Меню: Eco mode (on/off) и Auto-approval (Off/Shadow/On); выбор пишет то же, что сегодня, в те же места
+- [x] У Orchestrator-а одна кнопка «Modes» вместо двух переключателей; в обычной Session её нет.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · 0f22c9a16dd6e6e996408047fa5f1f4b9da4e018
+- [x] Меню: Eco mode (on/off) и Auto-approval (Off/Shadow/On); выбор пишет то же, что сегодня, в те же места
       (Profile через `ecoMode.set`, `app-settings.json` через `autoApproval.set`).
-- [ ] Кнопка всегда показывает иконку каждого пункта; on — яркая, off — приглушённая, Shadow — контур; ширина кнопки
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+- [x] Кнопка всегда показывает иконку каждого пункта; on — яркая, off — приглушённая, Shadow — контур; ширина кнопки
       одинакова во всех сочетаниях состояний (unit test сравнивает ширину слотов, e2e — `boundingBox` кнопки).
-- [ ] Клавиатура: роли `menu`, `menuitemcheckbox`, `menuitemradio`; открыть, пройти, выбрать и закрыть меню без мыши.
-- [ ] Окно Linked machine — как сегодня: ничего не читается и не пишется, пункты недоступны с прежними tooltip-ами.
-- [ ] Debugging port: Auto-approval Off, недоступен, tooltip с причиной и сохранённым режимом.
-- [ ] Снимки кнопки и открытого меню в светлой и тёмной теме.
-- [ ] Ширины окна 800–1600 px с открытым sidebar: Send на строке pickers (`session-controls.spec.ts:315`,
-      `context-meter.spec.ts:128`); порядок снятия подписей проверен заново (`session-controls.spec.ts:491-531`).
-- [ ] Страницы Feature EN и RU описывают меню Modes.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+- [x] Клавиатура: роли `menu`, `menuitemcheckbox`, `menuitemradio`; открыть, пройти, выбрать и закрыть меню без мыши.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+- [x] Окно Linked machine — как сегодня: ничего не читается и не пишется, пункты недоступны с прежними tooltip-ами.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · 0f22c9a16dd6e6e996408047fa5f1f4b9da4e018
+- [x] Debugging port: Auto-approval Off, недоступен, tooltip с причиной и сохранённым режимом.
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+- [x] Снимки кнопки и открытого меню в светлой и тёмной теме.
+  - evidence: screenshot pass · `../evidence/12-modes-eco-on-light.png` · mac dev · db7ded110ffcfd647a68441cc164a1e3b654372e · scrub: 2026-11-05
+  - evidence: screenshot pass · `../evidence/12-modes-eco-on-dark.png` · mac dev · db7ded110ffcfd647a68441cc164a1e3b654372e · scrub: 2026-11-05
+  - evidence: screenshot pass · `../evidence/12-modes-menu-light.png` · mac dev · db7ded110ffcfd647a68441cc164a1e3b654372e · scrub: 2026-11-05
+  - evidence: screenshot pass · `../evidence/12-modes-menu-dark.png` · mac dev · db7ded110ffcfd647a68441cc164a1e3b654372e · scrub: 2026-11-05
+- [x] Ширины окна 800–1600 px с открытым sidebar: ни один элемент строки не выпадает; Send на строке pickers от 1220 px
+      (`session-controls.spec.ts:315`, `context-meter.spec.ts:128`; на origin/main Send держался на строке только от
+      1260 px — замер в «Итог»); порядок снятия подписей проверен заново (`session-controls.spec.ts:491-531`).
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/session-controls.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/session-controls.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/session-controls.spec.ts test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · 0f22c9a16dd6e6e996408047fa5f1f4b9da4e018
+- [x] Страницы Feature EN и RU описывают меню Modes.
+  - evidence: commit pass · Modes menu: Eco mode and Auto-approval move into one composer button · - - · a72b729268d924c69f607d4ad3dd7844593a16b6
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
+  - evidence: gate pass · `gate fast` exit 0 · mac - · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0f22c9a16dd6e6e996408047fa5f1f4b9da4e018
 
 ## Тесты
 
@@ -106,3 +138,51 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
 Только читать: `src/renderer/session/composer/index.ts`, `src/renderer/shell/registry.ts`,
 `src/shared/ipc/eco-mode.ts`, `src/shared/ipc/auto-approve.ts`, `src/main/ipc/eco-mode.ts`, `src/main/ipc/auto-approve.ts`,
 `src/renderer/projects/useProjects.ts`, `test/e2e/context-meter.spec.ts`.
+
+## Итог
+
+Кнопка «Modes» (`src/renderer/session/composer/Modes.tsx`, `order = 15`) заменила переключатели Eco mode и Auto-approval;
+логика и тексты переехали без изменений в `src/renderer/session/modes/eco-mode.ts` и `src/renderer/session/modes/auto-approval.ts`,
+каналы `ecoMode.*`, `autoApproval.*` и main не тронуты. Шаг подписей pickers переименован `eco` → `modes`
+(`data-modes-caption`). Unit `test/unit/modes-menu.test.tsx` (34 случая) заменил два старых файла; e2e `eco-mode.spec.ts`,
+`auto-approve.spec.ts` переписаны на меню, `session-controls.spec.ts` проверяет ширины 800–1600 px с открытым sidebar
+(ни один элемент строки не выпадает, Send на строке pickers от 1220 px) и порядок снятия подписей заново.
+
+Снимки (Playwright fixture build, `captureScreenshot`): кнопка с Eco mode on — [светлая](../evidence/12-modes-eco-on-light.png),
+[тёмная](../evidence/12-modes-eco-on-dark.png); открытое меню — [светлая](../evidence/12-modes-menu-light.png),
+[тёмная](../evidence/12-modes-menu-dark.png). Пиксели проверил implementer (агент), не человек.
+
+### Решено без владельца
+
+- **Кнопка в окне Linked machine не `aria-disabled`.** Тикет требует, чтобы кнопка открывала меню, а недоступная кнопка,
+  которая открывает меню, — противоречие для screen reader-а. Кнопка остаётся рабочей, вид «недоступна» (без заливки,
+  приглушённый текст) даёт атрибут `data-read-only`; недоступны сами пункты, с прежними tooltip-ами.
+- **Ошибка чтения или debugging port у одного режима не закрывает меню.** Раньше Auto-approval в этих случаях не
+  открывал меню; теперь меню открывается (в нём есть Eco mode), а три положения Auto-approval — `aria-disabled` с той же
+  причиной в tooltip.
+- **Фокус при открытии — на первый пункт (Eco mode)**, а не на отмеченное положение Auto-approval, как было в старом меню:
+  в общем меню первый пункт — обычное поведение `menu`.
+- **Иконки:** Eco mode — лист, Auto-approval — щит. On — зелёный «ready», off — приглушённый (opacity 0.6), Shadow —
+  контур, «неизвестно» (чтение, недоступно, другая Machine) — бледный (opacity 0.3). Слот иконки — 14 px, иконка — 10 px.
+- **Имя и tooltip кнопки** перечисляют состояния: «Modes: Eco mode on, Auto-approval shadow» — в `aria-label`, чтобы их
+  слышал screen reader (раунд 2 ревью). Неизвестное состояние названо причиной: «set on the Machine of the Project» в окне
+  Linked machine, «being read» при чтении, «not available» при ошибке.
+- **Send на строке pickers — от 1220 px, а не от 800 px** (раунды 2 и 3 ревью). Замер probe-test-ом Playwright каждые 10 px
+  при ширине 800–1600 px, высоте 800 px, открытом sidebar: на origin/main db7ded110 (оба переключателя) Send уходил на
+  свою строку при ширине ниже 1260 px; с кнопкой Modes — ниже 1210 px. Порог main — 1260 px, ветка проверяется от
+  1220 px, чтобы закрепить выигрыш. Пункт «Готово, когда» сужен до «от 1220 px»; `nothingLost` проверяет весь диапазон
+  800–1600 px через 20 px.
+- **Имя кнопки в окне Linked machine** — одна фраза «Modes: set on the Machine of the Project», а не два повтора
+  (раунд 3 ревью).
+- **Tab в меню** возвращает фокус на кнопку до того, как меню исчезнет; дальше Tab идёт от кнопки (раунд 2 ревью).
+- **Снятые утверждения старых test-ов, с причиной:** «меню закрывается после выбора» и «клик по недоступному
+  Auto-approval не открывает меню» — противоречат тикету; «фокус на отмеченном положении» — общее меню ставит фокус на
+  первый пункт; «меню не открывается, пока идёт запись» (старый `auto-approve-switch.test.tsx`) — теперь меню открыто
+  во время записи, а повторный выбор ничего не пишет (test busy); `aria-disabled` кнопки в окне Linked machine
+  перешёл на пункты меню, у кнопки его нет (проверено test-ом).
+- **Строка под пунктом Eco mode** — «Fewer agents, Sonnet» (по образцу строк Auto-approval); полный текст — в tooltip
+  `ECO_MODE_TITLE`.
+- **Снимки — четыре файла** (кнопка и меню, две темы); остальные снимки e2e пишет в свою папку вывода.
+- **Красный тест сначала — unit**, не e2e: `modes-menu.test.tsx` падал на отсутствии `Modes.tsx` до кода; e2e на старом
+  коде не гонялся (отдельная сборка старого дерева).
+
