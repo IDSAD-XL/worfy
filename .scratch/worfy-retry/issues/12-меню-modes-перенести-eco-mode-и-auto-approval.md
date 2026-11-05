@@ -71,6 +71,7 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
   - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
   - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
   - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · 0f22c9a16dd6e6e996408047fa5f1f4b9da4e018
 - [x] Меню: Eco mode (on/off) и Auto-approval (Off/Shadow/On); выбор пишет то же, что сегодня, в те же места
       (Profile через `ecoMode.set`, `app-settings.json` через `autoApproval.set`).
   - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
@@ -87,6 +88,7 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
 - [x] Окно Linked machine — как сегодня: ничего не читается и не пишется, пункты недоступны с прежними tooltip-ами.
   - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
   - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+  - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · 0f22c9a16dd6e6e996408047fa5f1f4b9da4e018
 - [x] Debugging port: Auto-approval Off, недоступен, tooltip с причиной и сохранённым режимом.
   - evidence: test-run pass · `pnpm test test/unit/modes-menu.test.tsx` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
   - evidence: test-run pass · `pnpm test:e2e test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
@@ -102,11 +104,13 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1; «
       1260 px — замер в «Итог»); порядок снятия подписей проверен заново (`session-controls.spec.ts:491-531`).
   - evidence: test-run pass · `pnpm test:e2e test/e2e/session-controls.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · a72b729268d924c69f607d4ad3dd7844593a16b6
   - evidence: test-run pass · `pnpm test:e2e test/e2e/session-controls.spec.ts test/e2e/context-meter.spec.ts` exit 0 · mac dev · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/session-controls.spec.ts test/e2e/eco-mode.spec.ts test/e2e/auto-approve.spec.ts` exit 0 · mac dev · 0f22c9a16dd6e6e996408047fa5f1f4b9da4e018
 - [x] Страницы Feature EN и RU описывают меню Modes.
   - evidence: commit pass · Modes menu: Eco mode and Auto-approval move into one composer button · - - · a72b729268d924c69f607d4ad3dd7844593a16b6
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · a72b729268d924c69f607d4ad3dd7844593a16b6
   - evidence: gate pass · `gate fast` exit 0 · mac - · d2b7a0c3206adff2731ceab4ebfc2882a39dc791
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0f22c9a16dd6e6e996408047fa5f1f4b9da4e018
 
 ## Тесты
 
