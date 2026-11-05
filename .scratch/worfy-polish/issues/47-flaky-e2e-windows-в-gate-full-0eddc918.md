@@ -313,3 +313,53 @@ a pid's start time`.
   эпизода не устранена.
 - **Дальше.** Run диагностики с `WORFY_E2E_STALL_PROBE=1` в job `windows-e2e` до первого длинного эпизода: отчёт назовёт
   задачи потоков main (Chromium trace, категория `toplevel`) и службы занятого `svchost`.
+
+### Часть 8. 2026-11-05/06, ветки `diag/polish-47-stall-probe` (draft PR #1452, закрыт) и `fix/polish-47-windows-stall` (PR #1462): main стоит в своём цикле на событиях `fs.watch` папки данных
+
+Длинный эпизод (9 s и больше) не пойман. Короткие эпизоды разобраны: у части из них причина найдена и убрана PR #1462.
+Связь с длинными эпизодами — гипотеза. Записи quarantine остаются.
+
+- **Run-ы.** Восемь run-ов CI на draft PR #1452 с `WORFY_E2E_STALL_PROBE=1` в job `windows-e2e`, все 32 job-а
+  `windows-e2e` зелёные. Без правки — 42093502619, 42095564144, 42098804932, 42101296468, 42104364363, 42107511689.
+  С правкой PR #1462 поверх probe — 42110701277, 42113850717. Красные job-ы Linux и Windows unit на этом PR ожидаемы:
+  contract test `test/contract/ci-workflow.test.ts:195` сверяет текст шага e2e дословно.
+- **Без правки: 8 медленных ответов страницы (> 1.5 s).** Самый долгий — 3.9 s (run 42101296468, shard 4/4, test
+  `ship-ticket.spec.ts:334`; test в первой попытке упал с «the Canvas did not come to rest within 10000 ms» и прошёл
+  на retry). В 4 из 8 цикл событий main стоял по 1.1–2.0 s подряд (run-ы 42095564144 ×2, 42101296468, 42104364363).
+  Во всех четырёх Chromium trace называет длинные задачи потока `CrBrowserMain`
+  `electron/shell/common/node_bindings.cc:WakeupMainThread`, то есть прогон цикла Node (uv_run). Их 13 штук по
+  0.3–2.0 s, в run-е 42101296468 — пять подряд, 7.1 s из примерно 8 s. CPU процесса Browser в это время 0–5 %:
+  main ждёт, а не считает. Первый JavaScript main после остановки каждый раз — `FSWatcher._handle.onchange`. Так было и
+  в трёх отчётах run-ов PR #1375. Из всех `fs.watch` main события есть только у одного — у не рекурсивного watch
+  папки данных (`<tmp>\data`), 55–125 событий за вызов: `change:Network`, `change:Shared Dictionary`,
+  `change:Code Cache`, `change:GPUCache`, `rename:DIPS`. У watch-ей проектов и `.git` событий 0. Этот watch открывает
+  `LimitsTracker.watchStatusline` (`src/main/agent/limits.ts`): он ждёт `statusline-limits.json`. Папка данных — она же
+  профиль Chromium: `app.setPath('userData', dataRoot())`, `src/main/index.ts:71`.
+- **Почему событие держит main (из исходников, на runner-е не замерено).** libuv на Windows для каждого события
+  watch-а папки, кроме удаления, дважды зовёт `GetLongPathNameW` на полный путь в потоке main, до callback-а
+  (`src/win/fs-event.c`, `uv__process_fs_event_req`). Каждый такой вызов проходит все компоненты пути. Других блокирующих
+  вызовов на этом пути нет. Пока поток main занят, страница тоже не отвечает: сообщения DevTools от Playwright к странице
+  идут через этот поток. Сколько длится один `GetLongPathNameW` на runner-е, не измерено. В двух замерах машины во время
+  эпизода больше всех CPU брал `svchost` со службой `StorSvc`: 3.1 s и 1.7 s CPU за 2 s. Связь этой службы с задержкой —
+  гипотеза.
+- **С правкой (2 run-а): 2 медленных ответа страницы, main ни разу не стоял.** Ответ на ping не дольше 6 ms, пауз
+  цикла нет, папка данных не под watch. Но страница в run-е 42113850717 отвечала 3.4 s: 3 s заняла задача renderer-а
+  `Receive mojo reply` (`electron.mojom.ElectronApiIPC`), такая же 2.7 s была в run-е 42101296468. Это второй источник
+  медленной страницы, не через main, и его причина не установлена. Test `palette-find.spec.ts:107` там же упал в первой
+  попытке с «did not come to rest» и прошёл на retry. Две таких ошибки за ночь, обе в run-ах с отчётом probe. Отчёт
+  стоит после ожидания `innerWidth`, но до ожидания покоя Canvas, и сам тратит время `canvasReady` (остановка trace,
+  PowerShell). Поэтому эти два красных probe мог вызвать сам.
+- **Правка (PR #1462).** На Windows `LimitsTracker` приложения следит за `statusline-limits.json` только опросом раз в
+  секунду: опрос был и раньше, как подстраховка. Watch папки данных не открывается (`statuslineWatchFor('win32')` →
+  `watch: null`). На macOS и Linux всё как было. Цена: Limits из status line на Windows появляются до секунды позже.
+  Unit test-ы в `test/unit/limits-watch-gone.test.ts`; мутант «`watch: null` падает на watch системы» даёт красный.
+  Timeout-ы и пределы не тронуты.
+- **Установлено:** короткие остановки main в 4 из 8 эпизодов без правки — это обработка libuv событий watch-а папки
+  данных, то есть профиля Chromium. С правкой таких остановок нет (0 из 2 эпизодов).
+- **Гипотеза:** длинные эпизоды 9–20 s, из-за которых в quarantine записи `card-drag-canvas-middle-pan`,
+  `card-drag-card-jerked-lower-end`, `card-drag-note-jerked-across-card` и `browser-open-bar-long-host-640`, — тот же
+  механизм в худшем виде. Против неё: страница бывает медленной и без main (задача renderer-а 2.7–3 s). Поэтому записи
+  не сняты.
+- **Дальше.** После merge PR #1462 считать красные `canvasReady` («the page answered innerWidth only after …») в
+  `windows-e2e` run-ов `main` и PR-ов. Если до срока записей (2026-11-16 и 2026-11-19) их не будет, записи снять. Если
+  будут — включить probe ещё раз, теперь ради задачи renderer-а `Receive mojo reply`: какой IPC приложения она обслуживает.
