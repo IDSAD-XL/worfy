@@ -112,3 +112,43 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-05»,
 Только читать: `src/renderer/ipc.ts`, `src/main/link/ipc-adapter.ts`, `src/main/link/remote-calls.ts`,
 `src/main/link/connection.ts`, `src/main/broadcast.ts`, `src/renderer/projects/useProjects.ts`,
 `test/contract/link-bench.ts`, `test/contract/link-access.test.ts`.
+
+## Итог
+
+Каналы трёх режимов стали `project`: `ecoMode.read`, `autoApproval.read`, `autoContinue.read` — `read`;
+`ecoMode.set`, `autoApproval.set`, `autoContinue.set` — `write` (`src/shared/ipc/eco-mode.ts`, `auto-approve.ts`,
+`auto-continue.ts`). Окно Linked machine само шлёт их на Machine Project-а через `linked.invoke` (маршрут по пометке,
+`src/renderer/ipc.ts`), так что запись идёт в Profile и `app-settings.json` той Machine; Read only отказан в
+`LinkIpcAdapter.call` до handler-а. Новые события `ecoMode.changed` (с fingerprint-ом после записи) и
+`autoApproval.changed` — `project`, `read`, как и `autoContinue.changed`; main Machine Project-а шлёт их всем клиентам
+после удачной записи (`src/main/ipc/eco-mode.ts`, `auto-approve.ts`, `auto-continue.ts`), hook-и меню
+(`src/renderer/session/modes/*.ts`) подписаны на них. Правило `elsewhere` и тексты `*_ELSEWHERE` убраны: окно Linked
+machine читает три режима всегда; с Read only пункты недоступны с подсказкой `useReadOnly`, а клик проверяет ещё и
+`readOnlyNow()`. Запись без ответа (link оборвался) — toast с причиной, состояние сбрасывается до нового чтения, догадка
+не показывается; чтение не удалось — пункт недоступен с причиной.
+
+Debugging port (ADR-0005): Machine Project-а по-прежнему отказывает в Shadow и On при своём debugging port. Вызывающая
+Machine при своём debugging port или inspector-е пропускает через `linked.invoke` только `autoApproval.set` с Off (вход,
+который она не может разобрать, тоже отказан), тем же текстом (`autoApprovalDebugRefusal`, `src/main/ipc/linked.ts`);
+Eco mode и Auto-continue идут, как и без link. Окно узнаёт причину по новому `local` каналу `autoApproval.blockedHere` и
+показывает её в tooltip-е группы Auto-approval (`blockedHereTitle`). ADR 0005 получил строку Amendments 2026-11-05.
+
+Test-ы: contract `test/contract/modes-linked.test.ts` (две Machine на link bench, настоящий `bin/profile-set`, настоящий
+`linked.invoke` и RemoteCalls вызывающей Machine: Full access, Read only, рассылка Q18, риски 1–5); unit
+`test/unit/modes-menu.test.tsx` (новый блок окна Linked machine), `test/unit/link-access.test.ts` (списки);
+`test/contract/auto-approve-setting.test.ts` и `auto-continue-setting.test.ts` — старые проверки `local` заменены
+новыми пометками. e2e `test/e2e/linked-modes.spec.ts` на двух собранных worfy: Full access меняет Eco mode и
+Auto-continue на B, смена в окне B видна в открытом меню A, Read only — состояния видны, пункты недоступны, ничего не
+записано; spec внесён в правило link таблицы `scripts/e2e-specs.table.json`. Mutation testing: 26 мутаций изменённых
+строк (пометки каналов, проверка debugging port в `linked.invoke`, события, `readOnlyNow` и подсказка Read only в трёх
+hook-ах, сброс догадки) — все убиты.
+
+### Решено без владельца
+
+- **Причина debugging port в окне Linked machine — отдельный `local` канал** `autoApproval.blockedHere`, а не правка
+  ответа `autoApproval.read`: `blocked` в ответе — это debugging port Machine Project-а, при котором режим там Off; порт
+  вызывающей Machine режим на Machine Project-а не меняет, поэтому группа показывает режим как есть и недоступна с
+  причиной.
+- **При debugging port вызывающей Machine недоступна вся группа Auto-approval**, как и сегодня при своём порту, хотя
+  `linked.invoke` пропустил бы Off: выбор Off оттуда — только через окно Machine Project-а.
+- **Снимки не закоммичены**: их пиксели не проверял человек (правило Evidence, шаг 6 skill-а ship-ticket).
