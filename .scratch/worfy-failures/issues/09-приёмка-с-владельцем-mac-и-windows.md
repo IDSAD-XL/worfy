@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 01, 02, 03, 04, 05, 06, 07, 08
+Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 10
 Source: [spec.md](../spec.md), «Готово, когда» (все пункты), «Цель и что видит пользователь», «Windows», «Риски», п. 2–4; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2 (платформенная часть — на Windows-ПК владельца)
 
 ## Что происходит

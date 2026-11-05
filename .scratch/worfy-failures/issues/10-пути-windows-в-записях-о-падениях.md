@@ -1,0 +1,56 @@
+# 10 — Пути Windows в записях о падениях: «/» после `<repo>` и `~`
+
+Type: task
+Status: open
+Blocked by: —
+Source: [spec.md](../spec.md), «Windows» («Пути в записях — от корня репозитория с `/`»); раунд доработки Ticket-а 04 (PR #1401: красный job `windows (1/3) / full-suite`, run 41944369347), «Вне скоупа» отчёта implementer-а
+
+## Что происходит
+
+- `scrub()` Ticket-а 01 (`harness/hooks/gate-failures.mjs:252-267`) заменяет на `<repo>` и `~` только сам корень
+  worktree и домашнюю папку; остаток пути не трогает. На Windows текст ошибки test-а несёт путь вида
+  `D:\a\worfy\worfy\test\x.test.ts`, и в записи run-а остаётся `<repo>\test\x.test.ts` — не тот вид, что требует spec.
+- Gate (Ticket 02) очищает строки reporter-ов этой же `scrub()`/`scrubRecord()` (`gate-failures.mjs:272`), так что
+  записи run-а на Windows хранят «\» в `error`.
+- Повтор (Ticket 04) это уже исправил только у себя: `errorText()` в `harness/lib/gate-failures/rerun.mjs` переводит
+  хвост пути после `<repo>` на «/» (в том числе двойной «\\» из JSON). Хвост переводится только до первого пробела.
+- Следствие: отчёт Ticket-а 05 и перенос Ticket-а 06 видят один и тот же test под двумя разными `error` (Mac и ПК),
+  а сравнение записи run-а с записью повтора на Windows расходится.
+
+## Что делаем
+
+1. Перевод хвоста пути на «/» после `<repo>` и `~` переезжает в `scrub()` `harness/hooks/gate-failures.mjs`: один
+   раз, для записей run-а, повтора и export-а. `rerun.mjs` зовёт его вместо своей `errorText()`.
+2. Путь с пробелом в имени папки (`<repo>\a b\c.ts`) переводится целиком, пока не кончился путь (граница — кавычка,
+   `:<строка>`, `)` или конец строки), а не до первого пробела.
+3. Номер строки и колонки после пути (`:12:5`) и кавычки вокруг пути остаются как были; POSIX-пути не меняются;
+   путь вне корня и вне домашней папки не трогается.
+
+## Готово, когда
+
+- [ ] Unit test в `test/unit/gate-failures-format.test.ts`: корень `D:\a\worfy\worfy` во всех написаниях («\», «\\»,
+      `/d/…`, другой регистр буквы диска) даёт `<repo>/test/x.test.ts:12:5`; то же для домашней папки и `~`.
+- [ ] Тот же test с пробелом в имени папки; на мутанте «до первого пробела» он красный.
+- [ ] `rerun.mjs` не держит своей копии перевода; contract `test/contract/gate-failures-rerun.test.ts` зелёный без правок
+      ожиданий.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; CI PR зелёный (job-ы Windows в составе `ci-ok`).
+
+## Тесты
+
+- Unit — в `test/unit/gate-failures-format.test.ts` (рядом с test-ами `scrub` Ticket-а 01).
+- Сначала падающий: запись с Windows-путём под корнем — в `error` остаётся «\».
+
+## Где в коде
+
+- `harness/hooks/gate-failures.mjs` (`scrub`, `scrubRecord`)
+- `harness/lib/gate-failures/rerun.mjs` (`errorText`, `REPO_PATH`)
+- `test/unit/gate-failures-format.test.ts`
+
+Только читать: `harness/lib/privacy.cjs`, `test/contract/gate-failures-rerun.test.ts`.
+
+## Вне скоупа
+
+- Маска чужой домашней папки в других написаниях (`/users/<имя>` в нижнем регистре, `/Volumes/<диск>/<имя>`) —
+  долг Ticket-а 06, «Итог».
+
+## Итог

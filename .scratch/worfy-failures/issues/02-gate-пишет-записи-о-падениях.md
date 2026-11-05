@@ -136,3 +136,10 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
   vitest-файлы gate (`gate-failures-format`, `gate-failures-cli`, `gate-state`, `flight-recorder-gate`,
   `flight-recorder-gate-logs`) — exit 0. Полный `pnpm test` и gate fast на этом Mac не дошли до конца: `pnpm test`
   висит и на base (`test/contract/getting-started-state.test.ts`), run остановлен; условие merge — `ci-ok` на head PR.
+
+Ревью волны (2026-11-05, PR #1404, `VERIFIED`, глубина low). Noted:
+- `harness/hooks/gate.mjs:1226` — в красной ветке между записью verdict и отчётом на stderr стоит `await` загрузки модулей
+  записей; сигнал в это окно (десятки мс) оставляет verdict и код 2, но строки `[gate] red` не печатаются. Можно
+  печатать строки red первыми.
+- `harness/hooks/gate.mjs:1152` — после SIGKILL в папке состояния остаётся `.run-…failures.jsonl`; старые `.run-`
+  файлы чистит `removeOld` (`:969`), утечки нет.

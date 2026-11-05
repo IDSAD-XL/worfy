@@ -246,6 +246,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 07 | `docs/adr/<NNNN>-failure-records-and-solo-rerun.md`, `docs/adr/0086-pc-gate-full-once-per-wave.md`, `harness/skills/epic-wave/SKILL.md` | 3 |
 | 08 | `docs/features/gate-and-github.md`, `docs/features/ru/gate-and-github.md` | 4 |
 | 09 | `.scratch/worfy-failures/spec.md` | 5 |
+| 10 | `harness/hooks/gate-failures.mjs`, `harness/lib/gate-failures/rerun.mjs`, `test/unit/gate-failures-format.test.ts` | 3 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры. Если у двух Ticket-ов одной Wave общий файл,
 Ticket с большим номером уходит в следующую Wave.
@@ -256,7 +257,7 @@ Ticket с большим номером уходит в следующую Wave.
   04–06 — свои модули подкоманд и свои папки fixture; `harness/lib/README.md` правят 01 и 04 в разных Wave (папки разные, `filesOverlap`,
   `src/shared/workflow/waves.ts:158`, их не пересекает). Каждый проверяется на fixture-записях формата 01, без
   соседей.
-- **Wave 3 — 07.** Процесс описывается по готовым командам.
+- **Wave 3 — 07, 10.** Процесс описывается по готовым командам. 10 (пути Windows в `scrub()`) найден в Wave 2: Ticket 04 упал на Windows, у 07 общих файлов с ним нет.
 - **Wave 4 — 08.** **Wave 5 — 09** — владелец.
 
 ## Не в этом Epic-е
