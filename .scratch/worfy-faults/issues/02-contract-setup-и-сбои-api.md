@@ -139,3 +139,10 @@ Source: [spec.md](../spec.md), «Сценарии» (строки API 500, API 5
 - Прогоны: test-ы модуля (`test/contract/autopilot*.test.ts`, `test/contract/orchestrator*.test.ts`,
   `test/unit/autopilot-*.test.ts`) — 26 файлов, 789 test-ов, exit 0; `pnpm lint && pnpm typecheck && pnpm test` — exit 0;
   gate fast — green. `src/` не изменён.
+
+**Ревью (PR #1431, VERIFIED, depth low).**
+- Noted: [low] `test/contract/autopilot-faults-api.test.ts:57` — новый Run останавливается Force stop сразу после своей
+  команды Wave, поэтому test не доказывает, что новый Run доходит до конца Wave (скрипт по кругу дал бы тот же сбой).
+  И1 и И6 при этом проверены (`checkRecovery` с `waves: 2`). Известный предел, не долг.
+- Noted: [low] `test/contract/autopilot-faults-api.test.ts:106` — в режиме `codex` setup не проверяет одобрение hooks
+  Harness-а (`autopilot-faults-setup.ts:395`, `harnessHooks: () => undefined`). Понадобится Ticket-у 06 — добавить там.

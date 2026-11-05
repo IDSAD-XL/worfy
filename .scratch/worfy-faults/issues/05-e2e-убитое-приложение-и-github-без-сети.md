@@ -45,27 +45,27 @@ Source: [spec.md](../spec.md), «Сценарии» (строки «Прилож
 
 - [ ] e2e: после SIGKILL и нового запуска сообщений Orchestrator-у нет, прошлый Run в Run history оборван, новый Run
       стартует и шлёт команду Wave один раз; `checkRecovery` пустой.
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · eddc8bad409b0208b84aae8dc90da9ddc794dbe1
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · efaa3e43d
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · 8d0421d92
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · 8d0cf7c3b
   - evidence: review pass · PR #1432 · - - · 2ed7d8f0918656b459e3093796d73c026692c154
 - [ ] e2e: GitHub недоступен весь Run — Run проходит, `checkRecovery` пустой, gh только читал.
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · eddc8bad409b0208b84aae8dc90da9ddc794dbe1
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · efaa3e43d
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · 8d0421d92
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · 8d0cf7c3b
   - evidence: review pass · PR #1432 · - - · 2ed7d8f0918656b459e3093796d73c026692c154
 - [ ] После spec-а нет живого процесса приложения (ожидание `endApp` и закрытие второго запуска).
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · eddc8bad409b0208b84aae8dc90da9ddc794dbe1
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · efaa3e43d
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · 8d0421d92
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-faults.spec.ts` exit 0 · mac - · 8d0cf7c3b
   - evidence: review pass · PR #1432 · - - · 2ed7d8f0918656b459e3093796d73c026692c154
 - [ ] Spec не дольше 30 с по логу `macos-e2e` на PR (предел этого Epic-а, не ADR-0081); зелёный в `macos-e2e` и
       `windows-e2e`.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42012882623 · ci - · 2ed7d8f0918656b459e3093796d73c026692c154
 - [ ] `node scripts/ci-scope.mjs` для diff-а с правкой `src/renderer/flight-recorder/` называет новый spec;
       `test/contract/ci-scope-e2e.test.ts` — exit 0.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs --run test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts` exit 0 · mac - · eddc8bad409b0208b84aae8dc90da9ddc794dbe1
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs --run test/contract/ci-workflow.test.ts test/contract/ci-scope-e2e.test.ts` exit 0 · mac - · 8d0421d92
   - evidence: review pass · PR #1432 · - - · 2ed7d8f0918656b459e3093796d73c026692c154
 - [ ] Каждый test краснеет на испорченном ожидании — в «Итог».
-  - evidence: test-run pass · `pnpm exec playwright test test/e2e/autopilot-faults.spec.ts` on 4 mutants exit 1 each · mac - · eddc8bad409b0208b84aae8dc90da9ddc794dbe1
-  - evidence: test-run pass · `pnpm exec playwright test -g "GitHub out of reach" test/e2e/autopilot-faults.spec.ts` on 2 mutants of round 1 exit 1 each · mac - · efaa3e43d
+  - evidence: test-run pass · `pnpm exec playwright test test/e2e/autopilot-faults.spec.ts` on 4 mutants exit 1 each · mac - · 8d0421d92
+  - evidence: test-run pass · `pnpm exec playwright test -g "GitHub out of reach" test/e2e/autopilot-faults.spec.ts` on 2 mutants of round 1 exit 1 each · mac - · 8d0cf7c3b
   - evidence: review pass · PR #1432 · - - · 2ed7d8f0918656b459e3093796d73c026692c154
 - [ ] `src/` не изменён. `pnpm lint`, `pnpm typecheck` — exit 0; `ci-ok` на PR зелёный.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42012882623 · ci - · 2ed7d8f0918656b459e3093796d73c026692c154
@@ -141,3 +141,8 @@ Source: [spec.md](../spec.md), «Сценарии» (строки «Прилож
 - Воспроизведение на Mac: старые конечные проверки при новом порядке (экран первым) — exit 1, `element(s) not
   found` на строке статуса, ровно как на Windows. Мутант без последнего `releaseTurn` — exit 1, toast не пришёл.
   Spec целиком — exit 0 (6.0 с и 2.3 с).
+
+**Ревью (PR #1432, VERIFIED, depth low).** Rework round 1 был по красному `windows-e2e` до проверки, не по `REJECTED`.
+- Consider: [low] строки Evidence пунктов 1, 2, 3, 6 называли SHA до rebase (`eddc8bad409b`, `efaa3e43d`), которых нет в
+  ветке PR. Исправлено документным PR Wave: те же патчи — `8d0421d92` и `8d0cf7c3b` (`git patch-id --stable` совпадает).
+- PR со scope `pc` (ADR-0086): gate full `GATE_SCOPE=all` на ПК — после Wave, на `a15af57a7`.
