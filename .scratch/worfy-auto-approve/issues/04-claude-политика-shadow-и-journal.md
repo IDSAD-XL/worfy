@@ -59,19 +59,27 @@ Source: [spec.md](../spec.md), «Как работает», п. 1, 3, 7; «Ре�
      `core.hooksPath=.husky/_`, а его `_/pre-commit` запускает `.husky/pre-commit`, который агент править может. Их
      закрывает `hooksActive`. Если чтение упало с другим exit code-ом, драйвер не включает политику для Run-а —
      передать `null` вместо неизвестного значения нельзя (Ticket 03, «Итог», пункты 20 и 21);
-   - `hooksActive` — есть ли в репозитории client hooks, прочитанное при старте Run-а: `true`, когда задан
-     `core.hooksPath` или в `hooks/` общей git-папки (`git rev-parse --git-common-dir`) лежит файл без окончания
-     `.sample`; `false` — когда нет ни того, ни другого; `null` — когда прочитать не удалось. Пока поле не `false`,
-     git-команды, которые могут запустить hook, получают park с подсказкой (Ticket 03, «Итог», пункт 21). У самого
-     worfy hooks нет, так что commit-ы Wave в нём остаются allow;
+   - `hooksActive` — есть ли в репозитории hooks или программы, названные в git config; читается при старте Run-а.
+     `true`, когда задан `core.hooksPath`, когда в `hooks/` общей git-папки (`git rev-parse --git-common-dir`) лежит
+     файл без окончания `.sample` или когда `git config --get-regexp` находит один из ключей: `core.fsmonitor` со
+     значением не `true` и не `false`, `filter.*.clean`, `filter.*.smudge`, `filter.*.process`, `diff.*.textconv`,
+     `diff.*.command`, `diff.external`, `merge.*.driver`, `gpg.program`, `gpg.*.program`. `core.pager` и `pager.*`
+     не нужны: у Session-и нет tty, и git pager не запускает. `false` — когда нет ничего из этого; `null` — когда
+     прочитать не удалось. Пока поле не `false` (или задан `hooksPath`), git одобряется только на чтение ref-ов и
+     object-ов: без diff-а, без filter-ов и без обращения к рабочему дереву (Ticket 03, «Итог», пункты 21 и 22).
+     Пример: `nbstripout --install` ставит `filter.nbstripout.clean` и `diff.ipynb.textconv` = `"python3" -m
+     nbstripout`, и `git show` запускал файл `nbstripout.py`, который агент положил в верх worktree-а. У самого worfy
+     нет ни hooks, ни таких ключей, так что commit-ы Wave в нём остаются allow;
    - `recordedRoots` — настоящие пути корней, записанные при старте Run-а: `recordRoots([...worktrees, scratch,
      runTemp, scratchpad], platform)` из `roots.ts`. Корень без записи — не корень; корень, чей настоящий путь с тех
      пор другой (подменён ссылкой), — тоже. Worktree, созданный позже старта Run-а, записывается при создании.
    - `fs` не передаётся: политика читает диск сама (`nodeFileSystem`).
-   Окружение git-а Session-и Run-а: драйвер задаёт `safe.bareRepository=explicit` через `GIT_CONFIG_PARAMETERS`
-   (`'safe.bareRepository'='explicit'`) и только через него. Тогда git не открывает голый репозиторий, найденный
-   поиском вверх от папки команды, — вторая защита к проверке политики, что папки по пути к верху worktree-а не
-   похожи на git-папку (Ticket 03, «Итог», пункт 20). `GIT_CONFIG_COUNT` не подходит: он в списке `GIT_ENV` разбора
+   Окружение git-а Session-и Run-а: драйвер задаёт `GIT_CONFIG_PARAMETERS="'safe.bareRepository'='explicit'
+   'log.showSignature'='false'"`, и только через эту переменную. С первым ключом git не открывает голый репозиторий,
+   найденный поиском вверх от папки команды, — вторая защита к проверке политики, что папки по пути к верху
+   worktree-а не похожи на git-папку (Ticket 03, «Итог», пункт 20). Второй ключ нужен для оставленного `git log`: при
+   `log.showSignature=true` в config-е владельца простой `git log` на подписанном commit-е запускает `gpg.program`
+   (проверено на git 2.50; переменная это отключает, Ticket 03, «Итог», пункт 22). `GIT_CONFIG_COUNT` не подходит: он в списке `GIT_ENV` разбора
    команды (Ticket 02), и при нём любой git не судится. `GIT_CONFIG_PARAMETERS` в `env` контекста передавать можно.
    Драйвер передаёт вход инструмента как получен (`file_path` без обрезки пробелов и раскрытия `~`): путь, не
    абсолютный как дан, политика не одобряет.

@@ -92,10 +92,12 @@ export interface PolicyContext {
    */
   hooksPath: string | null
   /**
-   * Whether the repository has client hooks installed, read when the Run starts: true when `core.hooksPath` is set
-   * or the common git folder's `hooks/` holds a file not ending in `.sample`; null when it could not be read. An
-   * installed hook may run files the agent can edit (husky's `.husky/pre-commit`, lint-staged, package.json
-   * scripts), so unless it is false no git command that may run a hook is allowed.
+   * Whether the repository has client hooks or programs named in its config, read when the Run starts: true when
+   * `core.hooksPath` is set, the common git folder's `hooks/` holds a file not ending in `.sample`, or the config
+   * names a program git runs on its own (core.fsmonitor, filter.*.clean / smudge / process, diff.*.textconv /
+   * command, diff.external, merge.*.driver, gpg.program); null when it could not be read. Such a program may run
+   * files the agent can edit (husky's `.husky/pre-commit`, lint-staged, `python3 -m nbstripout`), so unless it is
+   * false git may only read refs and objects (mayRunHook). A set `hooksPath` counts as true.
    */
   hooksActive: boolean | null
   /** The real path of each root recorded when the Run started (roots.ts, recordRoots), by the root's path. */
@@ -206,7 +208,7 @@ export const HINTS = {
   noTarget: 'worfy could not find what this request changes, so it did not approve it. Give the full absolute path, as it is: no ~, no relative path, no spaces around it, no \\\\ network or device path.',
   unclearPath: 'worfy could not tell where a path of this request leads (a .. after a folder that does not exist, or a Windows name with a trailing dot or space, a colon or a short ~1 form), so it did not approve it. Give the plain full path.',
   noHome: 'worfy does not know the home folder of this Session, so it approves nothing here.',
-  gitHooks: 'This Project has git hooks (or worfy could not tell), and this git command may run one; a hook may run files you can edit, so worfy does not approve it. Leave it to the owner, or go on without it.',
+  gitHooks: 'This Project has git hooks or programs named in its git config (or worfy could not tell), and this git command may run one; they may run files you can edit, so worfy does not approve it. Reading refs and objects (git log without a diff, rev-parse, ls-tree, cat-file -p) stays approved; leave the rest to the owner, or go on without it.',
   gitTop: 'worfy approves git only in the repository of the Ticket\'s worktree, and a folder on the way to it holds what git takes for another repository (.git, HEAD, commondir, gitdir, or objects with refs). Run git from the worktree top, and leave such files to the owner.',
 } as const
 
@@ -299,18 +301,44 @@ function judgeCommand(command: string, cwd: string, prepared: Prepared): Decisio
   return allowOrPark(acts, targets)
 }
 
-// git reads that write neither the index nor a ref, so no client hook runs (post-index-change runs on every index
-// write, reference-transaction on every ref update, post-checkout on checkout, switch and restore, the commit
-// hooks on commit, merge, cherry-pick, revert and rebase). status, diff and describe refresh the index when they
-// can.
-// `stash list` and `show`, the only stash forms of the allow-list, read refs/stash and its commits.
-const HOOK_FREE_GIT = new Set(['log', 'show', 'rev-parse', 'ls-files', 'ls-tree', 'cat-file', 'merge-base', 'blame', 'shortlog', 'rev-list', 'name-rev', 'for-each-ref', 'show-ref', 'grep', 'check-ignore', 'branch'])
+// While the repository has hooks or programs named in its config, git is allowed only to read refs and objects:
+// no diff (textconv, diff.external), no filter (clean, smudge), no look at the work tree (core.fsmonitor), no index
+// write (post-index-change) and no ref update (reference-transaction). Each form below was run on real git 2.50 with
+// all of these configured and ran none (review round 8). A signature check runs gpg.program: no `%G` format and no
+// word naming a signature; `log.showSignature` is turned off by the Run's GIT_CONFIG_PARAMETERS (ticket 04).
+const REF_READS = new Set(['rev-parse', 'merge-base', 'for-each-ref', 'show-ref', 'name-rev', 'branch', 'ls-tree'])
+// log and rev-list: these options only, the valued ones as `--x=v`, or as the next word where git takes it so.
+const REVISION_FLAGS = ['--oneline', '--graph', '--decorate', '--no-decorate', '--all', '--reverse', '--first-parent', '--no-merges', '--merges', '--branches', '--tags', '--remotes', '--abbrev-commit', '--date-order', '--topo-order', '--count', '--left-right']
+const REVISION_NEXT = ['-n', '--max-count', '--skip', '--author', '--committer', '--since', '--until', '--after', '--before', '--grep']
+const REVISION_JOINED = [...REVISION_NEXT, '--format', '--pretty', '--date']
 
-/** Whether a git command of the allow-list may run a client hook: anything but a read of HOOK_FREE_GIT and stash. */
+/** Whether a git command of the allow-list may run a client hook or a program its config names. */
 function mayRunHook(action: ShellAction): boolean {
   const sub = action.git?.subcommand ?? ''
-  if (sub === 'stash') return false
-  return !HOOK_FREE_GIT.has(sub) || action.writes.length > 0 || action.deletes.length > 0
+  const words = subcommandWords(action.args)
+  // stash list reads refs/stash; the parser gives every stash a write.
+  if (action.writes.length > 0 || action.deletes.length > 0) return !(sub === 'stash' && words.length === 1 && words[0] === 'list')
+  if (words.some((word) => word.includes('%G') || /signature/i.test(word))) return true
+  if (sub === 'log' || sub === 'rev-list') return !revisionReadOnly(words, sub === 'log')
+  if (sub === 'cat-file') return !words.every((word) => !word.startsWith('-') || ['-p', '-t', '-s', '-e'].includes(word))
+  return !REF_READS.has(sub)
+}
+
+/** Whether the words of log or rev-list ask for no diff: listed options only; paths after `--` for log. */
+function revisionReadOnly(words: readonly string[], paths: boolean): boolean {
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i] ?? ''
+    if (word === '--') return paths
+    if (!word.startsWith('-') || /^-\d+$/.test(word) || REVISION_FLAGS.includes(word)) continue
+    if (REVISION_NEXT.includes(word)) {
+      i++
+      if ((words[i] ?? '-').startsWith('-')) return false
+      continue
+    }
+    const eq = word.indexOf('=')
+    if (eq < 0 || !REVISION_JOINED.includes(word.slice(0, eq))) return false
+  }
+  return true
 }
 
 function actOf(action: ShellAction, prepared: Prepared): Act {
@@ -337,7 +365,9 @@ function actOf(action: ShellAction, prepared: Prepared): Act {
   const form = action.git === undefined ? null : gitFormOf(action, prepared)
   // The paths a form of the allow-list names are placed and checked as any file write.
   for (const { word, use } of form ?? []) add(normalizePath(word, win) === null ? `${action.cwd}${win ? '\\' : '/'}${word}` : word, use)
-  const hooks = form !== null && prepared.context.hooksActive !== false && mayRunHook(action)
+  // A set core.hooksPath is a hook folder in use, whatever hooksActive says.
+  const active = prepared.context.hooksActive !== false || prepared.context.hooksPath !== null
+  const hooks = form !== null && active && mayRunHook(action)
   return { program: action.program, fileTool: false, args: action.args, git: action.git, gitForm: form !== null && !hooks, gitHooks: hooks, network: action.network, targets }
 }
 
@@ -922,8 +952,10 @@ function newBranchAllowed(name: string, prepared: Prepared): boolean {
   const caseless = win || context.platform === 'darwin'
   const key = (text: string): string => (caseless ? text.toLowerCase() : text)
   const n = key(name)
-  // git's pseudo-refs (ORIG_HEAD, FETCH_HEAD, MERGE_HEAD…) are read before a branch of the same name.
-  if (n === key('HEAD') || n.endsWith(key('_HEAD')) || ['refs/', 'heads/', 'tags/', 'remotes/'].some((prefix) => n.startsWith(prefix))) return false
+  // git's pseudo-refs (ORIG_HEAD, FETCH_HEAD, AUTO_MERGE, MERGE_AUTOSTASH, BISECT_EXPECTED_REV, NOTES_MERGE_REF…) are
+  // read before a branch of the same name: no name of capitals, `-` and `_` with an `_` in it.
+  const upper = caseless ? name.toUpperCase() : name
+  if (n === key('HEAD') || n.endsWith(key('_HEAD')) || (/^[A-Z_-]+$/.test(upper) && upper.includes('_')) || ['refs/', 'heads/', 'tags/', 'remotes/'].some((prefix) => n.startsWith(prefix))) return false
   return context.remotes.every((remote) => n !== key(remote) && !n.startsWith(`${key(remote)}/`))
 }
 

@@ -1302,8 +1302,9 @@ describe('round 6: the repository git opens, and the paths and branch names insi
     expect(run(`git -C ${SCRATCH}/evil status`, tree({ [`${SCRATCH}/evil/HEAD`]: 'text:0123abcd\n' }))).toMatchObject({ outcome: 'deny', hint: HINTS.gitTop })
     // Outside the roots git parks as before, planted or not.
     expect(outcome(`git -C ${OTHER}/x status`, tree({ [`${OTHER}/.git`]: 'dir', [`${OTHER}/x/HEAD`]: 'file' }))).toBe('park')
-    // The repository itself is no written file: a hooks folder above the worktree does not stop a commit.
-    expect(run('git commit -m x', posix({ hooksPath: `${REPO}/.claude` }))).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    // The repository itself is no written file: a hooks folder above the worktree gives no git-files for a commit
+    // (since round 8 a set hooksPath parks it for its hooks).
+    expect(run('git commit -m x', posix({ hooksPath: `${REPO}/.claude` }))).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
     // The paths of add, rm and restore are written: a settings file of the home folder is hard.
     for (const command of [`git add ${HOME}/.claude/settings.json`, `git rm ${HOME}/.claude/settings.json`, `git restore ${HOME}/.claude/settings.json`]) {
       expect(outcome(command), command).toBe('hard-deny')
@@ -1335,10 +1336,12 @@ describe('round 7: installed git hooks, the parents of the hooks folder, and *_H
     'git restore src/a.ts', 'git restore --staged src/a.ts', 'git fetch origin', 'git pull --ff-only origin main', 'git switch -c worfy-demo/03-x', 'git checkout worfy-demo/03',
     'git checkout -- src/a.ts', 'git checkout HEAD -- src/a.ts', 'git rebase origin/main', 'git rebase --abort', 'git merge --ff-only origin/main', 'git merge --abort',
     'git cherry-pick abc123', 'git cherry-pick --abort', 'git revert --abort', 'git reset', 'git reset --hard origin/main', 'git branch worfy-demo/03-b']
-  // status, diff and describe write the index when they can (post-index-change); the rest only read.
-  const INDEX_READS = ['git status', 'git diff', 'git diff HEAD', 'git describe']
-  const PURE_READS = ['git log', 'git show HEAD', 'git rev-parse HEAD', 'git ls-files', 'git branch -a', 'git stash list', 'git merge-base HEAD origin/main', 'git grep demo',
-    'git ls-tree HEAD', 'git cat-file -p HEAD', 'git blame src/a.ts', 'git shortlog', 'git rev-list HEAD', 'git name-rev HEAD', 'git for-each-ref', 'git show-ref', 'git check-ignore src/a.ts', 'git stash show']
+  // status, diff and describe write the index when they can (post-index-change); since round 8 also the reads that
+  // diff, filter or look at the work tree (textconv, clean / smudge, core.fsmonitor).
+  const INDEX_READS = ['git status', 'git diff', 'git diff HEAD', 'git describe', 'git show HEAD', 'git ls-files', 'git grep demo', 'git blame src/a.ts', 'git shortlog',
+    'git check-ignore src/a.ts', 'git stash show']
+  const PURE_READS = ['git log', 'git rev-parse HEAD', 'git branch -a', 'git stash list', 'git merge-base HEAD origin/main', 'git ls-tree HEAD', 'git cat-file -p HEAD',
+    'git rev-list HEAD', 'git name-rev HEAD', 'git for-each-ref', 'git show-ref']
 
   it('with hooks installed, or not known, no git command that may run a hook is allowed: park with a hint', () => {
     for (const hooksActive of [true, null]) {
@@ -1388,5 +1391,46 @@ describe('round 7: installed git hooks, the parents of the hooks folder, and *_H
     expect(outcome('git branch orig_head')).toBe('allow')
     expect(outcome('git branch HEADS-up')).toBe('allow')
     expect(outcome('git branch x_HEADER')).toBe('allow')
+  })
+})
+
+describe('round 8: programs named in git config, pseudo-ref names, hooksPath', () => {
+  const active = posix({ hooksActive: true })
+  // Each of these was run on real git 2.50 with core.fsmonitor, textconv, clean / smudge, diff.external and gpg.program
+  // configured, and ran none of them (scratchpad evidence of round 8).
+  const KEPT = ['git rev-parse HEAD', 'git rev-parse --show-toplevel', 'git rev-list HEAD', 'git rev-list --count HEAD', 'git rev-list --max-count=3 --reverse HEAD',
+    'git merge-base HEAD origin/main', 'git for-each-ref', "git for-each-ref --format='%(refname:short)' refs/heads", 'git show-ref', 'git name-rev HEAD',
+    'git branch', 'git branch -a', 'git branch -vv', 'git stash list', 'git log', 'git log --oneline -5', 'git log --oneline -n 3 origin/main..HEAD',
+    "git log --format='%H %s' -1", 'git log --pretty=fuller -1', 'git log --oneline --graph --decorate --all', 'git log --oneline -- src/a.ts', "git log --author demo --since '2 weeks ago'",
+    'git ls-tree HEAD', 'git ls-tree -r HEAD', 'git cat-file -p HEAD', 'git cat-file -t HEAD', 'git cat-file -s HEAD', 'git cat-file -e HEAD']
+  const LEFT = ['git show', 'git show HEAD:src/a.ts', 'git blame src/a.ts', 'git grep demo', 'git ls-files', 'git check-ignore x', 'git shortlog', 'git stash show', 'git describe',
+    'git log -p', 'git log --patch', 'git log --pat', 'git log --stat', 'git log --stat=10', 'git log --numstat', 'git log --name-only', 'git log --name-status', 'git log --raw',
+    'git log -G demo', 'git log -S demo', 'git log --follow -- src/a.ts', 'git log -L 1,2:src/a.ts', 'git log --cc', 'git log -m', 'git log --diff-filter=M', 'git log --word-diff',
+    'git log --check', 'git log --summary', 'git log --dirstat', 'git log --show-signature', "git log '--format=%G?'", "git log '--pretty=format:%GS'", 'git log -n',
+    "git for-each-ref '--format=%(signature)'", "git rev-list '--format=%G?' HEAD", "git branch '--format=%(signature:grade)'",
+    'git cat-file --filters HEAD:src/a.ts', 'git cat-file --textconv HEAD:src/a.ts', 'git cat-file --filt HEAD:src/a.ts', 'git cat-file -p --path=src/a.ts HEAD:src/a.ts', 'git cat-file --batch']
+
+  it('with hooks or config-named programs, only reads of refs and objects that neither diff, filter nor look at the work tree are allowed', () => {
+    for (const command of KEPT) expect(run(command, active), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    for (const command of LEFT) expect(run(command, active).outcome, command).not.toBe('allow')
+    for (const command of ['git show', 'git log -p', 'git ls-files', 'git cat-file --filters HEAD:src/a.ts']) expect(run(command, active), command).toMatchObject({ outcome: 'park', rule: 'git-hooks', hint: HINTS.gitHooks })
+  })
+  it('without them the reads are allowed as before', () => {
+    for (const command of [...KEPT, 'git show', 'git log -p', 'git blame src/a.ts', 'git ls-files']) expect(run(command), command).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+  })
+  it('a set core.hooksPath means hooks, whatever hooksActive says', () => {
+    const hooks = posix({ hooksActive: false, hooksPath: '.githooks' })
+    expect(run('git commit -m x', hooks)).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    expect(run('git show', hooks)).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
+    expect(run('git log', hooks)).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+  })
+  it('a new branch may not be named like a pseudo-ref: all capitals with an underscore', () => {
+    for (const command of ['git branch AUTO_MERGE', 'git branch MERGE_AUTOSTASH', 'git branch BISECT_EXPECTED_REV', 'git switch -c NOTES_MERGE_REF', 'git checkout -b NOTES_MERGE_PARTIAL',
+      'git branch FOO_BAR', 'git branch X-Y_Z', 'git branch _']) {
+      expect(outcome(command), command).not.toBe('allow')
+    }
+    expect(outcome('git branch auto_merge', posix({ platform: 'darwin' }))).toBe('park')
+    expect(outcome('git branch auto_merge')).toBe('allow')
+    for (const command of ['git branch FOO', 'git branch FOO_bar', 'git branch release-1_2']) expect(outcome(command), command).toBe('allow')
   })
 })

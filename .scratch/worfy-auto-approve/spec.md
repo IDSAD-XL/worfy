@@ -267,8 +267,11 @@ Autopilot на ПК не запускался (папки `%APPDATA%\worfy\autop
    установленных hooks. Если `core.hooksPath` указывает на отслеживаемую папку (`.githooks`), запись в неё и замена её
    родительских папок закрыты полем контекста `hooksPath` (Ticket 04). Но установленный hook может вызывать файлы
    проекта, которые агент править может: husky 9 ставит `core.hooksPath=.husky/_`, а его `_/pre-commit` запускает
-   `.husky/pre-commit`; так же работают lint-staged и скрипты `package.json`. Поэтому при поле `hooksActive`, которое
-   не `false`, git-команды, которые могут запустить hook, не allow, а park (Ticket 03, «Итог», пункт 21). git тоже
+   `.husky/pre-commit`; так же работают lint-staged и скрипты `package.json`. Так же запускаются программы, названные в
+   git config (`core.fsmonitor`, `textconv`, filters `clean` / `smudge`), — и на «чистых» чтениях: `git show`,
+   `git blame`, `git ls-files`. Поэтому при поле `hooksActive`, которое не `false` (hooks или такие ключи config-а), git
+   одобряется только на чтение ref-ов и object-ов без diff-а, filter-ов и рабочего дерева; остальное — park (Ticket
+   03, «Итог», пункты 21 и 22). git тоже
    запускается только в репозитории самого worktree-а: папка по пути к его верху с `HEAD`, `commondir`, `gitdir` или
    `objects` вместе с `refs` — подложенный репозиторий со своим config-ом, и git там не allow (Ticket 03, «Итог»,
    пункт 20).
