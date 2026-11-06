@@ -1,7 +1,8 @@
 # 15 — Очередь из чата и из `autopilot_start`
 
 Type: task
-Status: open
+Status: done 2026-11-06T22:29Z
+PR: #1530
 Blocked by: 11, 13, 14
 Source: [spec.md](../spec.md), «Как работает» → «Очередь Epic-ов», «Точки входа»; «Решения владельца», 16, 19; «Решено без владельца», 4; [03](03-очередь-epic-ов.md), Q1, Q4
 
@@ -28,12 +29,17 @@ Source: [spec.md](../spec.md), «Как работает» → «Очередь 
 
 - [ ] Unit test команды: `epics A, B`, `accepted`, неверное имя, повтор Epic-а, больше 10 — отказ со словами.
   - evidence: test-run pass · `pnpm test test/unit/autopilot-chat-command.test.ts` exit 0 · mac - · e90e8ff2eb519f038fdc826c74b966ae44ba7180
+  - evidence: review pass · PR #1530 · - - · 57d444701f34ee84ad4fca4d0d175428362d6190
 - [ ] Contract test tool-а: `epics` → окно с очередью → старт с `epics`; `epics` + `tickets` — ошибка формы.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-start-tool.test.ts` exit 0 · mac - · e90e8ff2eb519f038fdc826c74b966ae44ba7180
+  - evidence: review pass · PR #1530 · - - · 57d444701f34ee84ad4fca4d0d175428362d6190
 - [ ] Contract test `agent.send`: `/worfy:epic-wave epics A, B` стартует Run очереди, сообщение не уходит агенту.
   - evidence: test-run pass · `pnpm test test/contract/agent-send-autopilot.test.ts` exit 0 · mac - · e90e8ff2eb519f038fdc826c74b966ae44ba7180
+  - evidence: review pass · PR #1530 · - - · 57d444701f34ee84ad4fca4d0d175428362d6190
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · e90e8ff2eb519f038fdc826c74b966ae44ba7180
+  - evidence: review pass · PR #1530 · - - · 57d444701f34ee84ad4fca4d0d175428362d6190
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42300343993 · ci - · 57d444701f34ee84ad4fca4d0d175428362d6190
 
 ## Тесты
 
