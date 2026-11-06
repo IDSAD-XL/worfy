@@ -45,9 +45,9 @@ Ticket 05 (PR #1469) судит команду Codex так. Значение п
 
 ## Готово, когда
 
-- [ ] В «Итог» — ссылка на исходник Codex и порядок `set` / `include_only` / `exclude` / `inherit`.
-- [ ] Путь выбран и записан; при (а) — test-ы п. 4 зелёные, при «set последним» — комментарий исправлен.
-- [ ] `docs/features/autopilot.md` говорит, какие переменные Codex-Run раскрывает при суде.
+- [x] В «Итог» — ссылка на исходник Codex и порядок `set` / `include_only` / `exclude` / `inherit`.
+- [x] Путь выбран и записан; при (а) — test-ы п. 4 зелёные, при «set последним» — комментарий исправлен.
+- [x] `docs/features/autopilot.md` говорит, какие переменные Codex-Run раскрывает при суде.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Где в коде
@@ -57,3 +57,43 @@ Ticket 05 (PR #1469) судит команду Codex так. Значение п
 - `src/main/agent/auto-approve/run-approval.ts:487` (git-окружение по `at.started`)
 - `test/contract/auto-approve-codex.test.ts`
 - `docs/features/autopilot.md`
+
+## Итог
+
+**Порядок по исходнику.** worfy ставит `@openai/codex` 0.166.0 (`package.json`). В теге `rust-v0.166.0` файл
+`codex-rs/core/src/exec_env.rs` только зовёт `codex_protocol::shell_environment::create_env`; сам порядок — функция
+`populate_env` в
+https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/protocol/src/shell_environment.rs:
+1. `inherit` (`all` / `none` / `core`) — с чего начать;
+2. исключения по умолчанию (`*KEY*`, `*SECRET*`, `*TOKEN*`), если не `ignore_default_excludes`;
+3. `exclude`;
+4. `set`;
+5. `include_only` — оставляет только подходящие имена;
+6. `CODEX_THREAD_ID`, затем снимаются `NON_INHERITABLE_ENV_VARS`.
+
+`include_only` применяется после `set`: `include_only` владельца без закреплённых имён снимает их из shell-а команды.
+
+**Путь (а).** На Codex при суде известен только `HOME` (и `USERPROFILE`, если есть) — `codexKnown`
+(`src/main/vendors/codex/approvals.ts`), передаётся в `known` из `src/main/vendors/codex/session.ts`. TMPDIR и
+git-окружение Run-а по-прежнему закрепляются ключами `shell_environment_policy.set` (у владельца без `include_only` они
+работают), но policy на них не опирается:
+- `rm -rf "$TMPDIR"/opt/x` — `deny not-judged` (неизвестная переменная);
+- `T=$(mktemp -d)` вне macOS берёт TMPDIR только из `known` (`src/main/agent/auto-approve/shell.ts`, `surely`), иначе
+  `mktemp without TMPDIR`; на macOS без изменений;
+- git: `run-approval.ts` считает `GIT_CONFIG_PARAMETERS` и `GIT_NO_LAZY_FETCH` только из `known`, поэтому git-команда,
+  которую policy одобрила бы, на Codex паркуется `git-without-run-environment`;
+- `git config --get` читает `HOME` только из `known`; `XDG_CONFIG_HOME`, которого нет в `known`, даёт чтение обоих мест.
+
+Остальные прямые чтения окружения в `shell.ts` и `policy.ts` (`GIT_` переменные, `IFS`, `CDPATH`, файлы запуска shell-а,
+присваивание экспортируемой, корни `XDG_CONFIG_HOME` / `APPDATA`) проверяют наличие и только запрещают — переменная,
+снятая `include_only`, их не ослабляет.
+
+HOME остаётся известным, хотя `include_only` может снять и его: путь `$HOME/…`, который policy считает внутри корня,
+тогда указывает на `/` и путь корня ниже домашней папки (`/Stuff/<project>/…`) — папку, которой обычно нет.
+
+Путь Claude Code не меняется: он не передаёт `known`, и все проверки читают окружение как раньше
+(`test/contract/auto-approve-claude.test.ts` 15/15 до и после).
+
+Test-ы: `test/contract/auto-approve-codex.test.ts` («the owner's include_only may drop…»),
+`test/unit/auto-approve-run.test.ts` (git с `known`), `test/unit/auto-approve-shell.test.ts` (`mktemp -d`, `git config
+--get` с `known`); `docs/features/autopilot.md` — какие переменные Codex-Run раскрывает при суде.
