@@ -55,6 +55,7 @@ function queueOf(text: string): ChatCommand {
   const epics = text.split(/\s*,\s*/u)
   if (epics.length > MAX_QUEUE_EPICS) return { kind: 'invalid', message: `A queue holds at most ${MAX_QUEUE_EPICS} Epics: ${epics.length} are named` }
   const wrong = epics.find((epic) => !EPIC_ONLY.test(epic))
+  if (wrong === '') return { kind: 'invalid', message: 'An Epic name is missing between two commas' }
   if (wrong !== undefined) return { kind: 'invalid', message: `"${wrong}" is not an Epic name` }
   const twice = epics.find((epic, at) => epics.indexOf(epic) !== at)
   if (twice !== undefined) return { kind: 'invalid', message: `Epic ${twice} is named twice in the queue` }

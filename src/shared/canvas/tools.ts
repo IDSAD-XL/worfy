@@ -145,7 +145,7 @@ export const canvasToolDescriptions: Record<CanvasToolName, string> = {
     'Start worfy Autopilot on an Epic of this Project, only when the user asks in words to run it on autopilot, autonomously or automatically. ' +
     'Give epic, or epics for a queue of Epics run one after another in that order (up to ' + String(MAX_QUEUE_EPICS) + '), never both. ' +
     'For named Tickets of one Epic ("run 05 and 06 on autopilot") give tickets: ["05", "06"]; without tickets the whole Epic runs. ' +
-    'The user confirms in a dialog that shows the queue, so the call may wait up to 10 minutes; a refusal says why. Refused in an unattended (Autopilot) Session and while a run goes on.',
+    'The user confirms in a dialog first, so the call may wait up to 10 minutes; for a queue the dialog names only its first Epic, so tell the user the whole queue in the chat before the call; a refusal says why. Refused in an unattended (Autopilot) Session and while a run goes on.',
 }
 
 /** A Node as list_nodes reports it. */

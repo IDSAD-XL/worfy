@@ -56,8 +56,9 @@ order as `epics: ["worfy-retry", "worfy-guide"]` instead of `epic` (up to 10, ea
 fields): one run goes through the queue. Tickets are named only for one Epic, never with a queue.
 For "all accepted Epics", read which Epics are accepted yourself and pass them as `epics`.
 
-worfy asks the user to confirm in a dialog first, which shows the Epic or the whole queue, so the
-call may wait up to 10 minutes. While a run goes on, the call is refused: you cannot add an Epic to a
+worfy asks the user to confirm in a dialog first, so the call may wait up to 10 minutes. For a queue
+the dialog names only its first Epic and that Epic's forecast, so before the call tell the user in
+the chat which Epics the queue holds, in order: the user confirms the queue as you stated it. While a run goes on, the call is refused: you cannot add an Epic to a
 running queue; the user does that in worfy ("Add to queue…"). The answer
 says whether Autopilot started, was refused and why, or waits for you ("Autopilot waits for the
 Orchestrator and starts when it is free"). Waiting is not a refusal: the run is accepted and starts

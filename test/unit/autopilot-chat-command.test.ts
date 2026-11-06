@@ -63,6 +63,8 @@ describe('parseChatCommand: a queue of Epics', () => {
     ['/worfy:epic-wave epics A, B', { kind: 'epics', epics: ['A', 'B'] }],
     ['/worfy:epic-wave epics worfy-retry,worfy-guide , demo_2.x', { kind: 'epics', epics: ['worfy-retry', 'worfy-guide', 'demo_2.x'] }],
     ['  /worfy:epic-wave  Epics  demo. ', { kind: 'epics', epics: ['demo'] }],
+    // A trailing comma closes the list like a sentence's mark: no empty Epic after it.
+    ['/worfy:epic-wave epics A, B,', { kind: 'epics', epics: ['A', 'B'] }],
     ['/worfy:epic-wave accepted', { kind: 'accepted' }],
     ['/worfy:epic-wave Accepted.', { kind: 'accepted' }],
   ])('%j is a command', (text, command) => {
@@ -72,7 +74,7 @@ describe('parseChatCommand: a queue of Epics', () => {
   it.each<[string, string]>([
     ['/worfy:epic-wave epics A, ../b', '"../b" is not an Epic name'],
     ['/worfy:epic-wave epics A B', '"A B" is not an Epic name'],
-    ['/worfy:epic-wave epics A,, B', '"" is not an Epic name'],
+    ['/worfy:epic-wave epics A,, B', 'An Epic name is missing between two commas'],
     ['/worfy:epic-wave epics A, B, A', 'Epic A is named twice in the queue'],
   ])('%j is refused: %s', (text, message) => {
     expect(parseChatCommand(text)).toEqual({ kind: 'invalid', message })

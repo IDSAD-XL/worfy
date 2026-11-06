@@ -95,8 +95,9 @@ read as a command.
 the agent calls the canvas tool `autopilot_start` with the Epic and, for named Tickets, their numbers. For several Epics
 one after another it gives `epics` (1 to 10, each once) instead of `epic`; both fields, neither, an Epic named twice, or
 `tickets` with more than one Epic is a form error before any ask. The ask then carries the queue (`epics` on
-`autopilot.confirm.ask`, when it has more than one Epic) and the forecast of all its Epics' Waves, and the start goes
-with the queue; the window itself still names only the first Epic of it. worfy then asks the
+`autopilot.confirm.ask`, when it has more than one Epic), and the start goes with the queue. The window itself still
+names only the first Epic of the queue and shows that Epic's forecast, so the agent tells the person the whole queue in
+the chat first, and the person confirms the queue as the agent stated it. worfy then asks the
 user in the same **Start Autopilot** window as the button, in its "Agent asks" view: under the title it says
 `Asked by Session "<first 8 characters of the Session id>" in a chat · answer within 9:59` and counts down 10 minutes;
 the last minute is in the blocked colours. The facts, the Modes and the Run mode are as for the button, and the
