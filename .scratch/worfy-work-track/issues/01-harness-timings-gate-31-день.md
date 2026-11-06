@@ -1,8 +1,8 @@
 # 01 — Harness: `timings.json` gate живёт 31 день
 
 Type: task
-Status: open
-Blocked by:
+Status: claimed 2026-11-06T09:47Z
+Blocked by: —
 Source: [spec.md](../spec.md), «Решения владельца», 4; «Как работает» → «Источники»; [research 04](../../worfy-autopilot-queue/issues/04-данные-work-track.md), «Пробелы», 1, «Рекомендация» (а); [06](../../worfy-autopilot-queue/issues/06-объём-и-доступ-work-track.md), Q2
 
 ## Что происходит
