@@ -9,7 +9,8 @@
 // these files, and one weighs about 1 KB where the logs of a run weigh up to megabytes. A run
 // folder is removed with everything in it once its timings.json is older than that, or when it has
 // none; the folder of another worktree, once none of its runs has a timings.json younger than that,
-// as the markers of abandoned sessions are (removeOld in gate.mjs).
+// as the markers of abandoned sessions are (removeOld in gate.mjs). Pruning acts only on real
+// folders: a symlink or a junction under logs/ is never followed, so nothing outside logs/ is removed.
 //
 // For output shaped like the list reporter of Playwright, the report of a failed script also gets
 // the failure blocks that lie above its last 40 lines: the error text, the locator and the call
@@ -65,8 +66,9 @@ export function writeScriptLog(dir, name, out) {
 // of another worktree whose folder was not touched for more than eight days. A stripped run whose
 // timings.json is missing, unreadable or older than TIMINGS_KEPT_MS goes whole; the folder of
 // another worktree goes whole when none of its runs keeps a timings.json. Nothing else in the
-// state folder is touched. Errors are left alone: a folder another gate is writing to at that
-// moment stays for the next run to remove.
+// state folder is touched, nor an entry that is a symlink or a junction, nor what it points to.
+// Errors are left alone: a folder another gate is writing to at that moment stays for the next run
+// to remove.
 export function pruneLogs(state, tag, current, keep = LOG_RUNS_KEPT, now = Date.now()) {
     const root = path.join(state, "logs")
     const rm = (dir) => {
@@ -77,6 +79,18 @@ export function pruneLogs(state, tag, current, keep = LOG_RUNS_KEPT, now = Date.
     const list = (dir) => {
         try {
             return fs.readdirSync(dir)
+        } catch {
+            return []
+        }
+    }
+    // The real folders in `dir`, by name: a symlink or a junction is not one (a Dirent describes
+    // the entry itself, as lstat does), so a link to a folder outside logs/ is never followed.
+    const folders = (dir) => {
+        try {
+            return fs
+                .readdirSync(dir, { withFileTypes: true })
+                .filter((entry) => entry.isDirectory())
+                .map((entry) => entry.name)
         } catch {
             return []
         }
@@ -104,11 +118,11 @@ export function pruneLogs(state, tag, current, keep = LOG_RUNS_KEPT, now = Date.
         return true
     }
     const mine = path.join(root, tag)
-    const runs = list(mine)
+    const runs = folders(mine)
         .filter((name) => RUN_NAME.test(name) && path.join(mine, name) !== current)
         .sort()
     for (const name of runs.slice(0, Math.max(0, runs.length - (keep - 1)))) strip(path.join(mine, name), name)
-    for (const other of list(root)) {
+    for (const other of folders(root)) {
         if (other === tag) continue
         const dir = path.join(root, other)
         try {
@@ -117,7 +131,7 @@ export function pruneLogs(state, tag, current, keep = LOG_RUNS_KEPT, now = Date.
             continue
         }
         let kept = false
-        for (const name of list(dir)) if (RUN_NAME.test(name) && strip(path.join(dir, name), name)) kept = true
+        for (const name of folders(dir)) if (RUN_NAME.test(name) && strip(path.join(dir, name), name)) kept = true
         if (!kept) rm(dir)
     }
 }
