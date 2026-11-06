@@ -118,6 +118,10 @@ test('"Check now" shows the Available update; with "Update automatically" off no
     // The check is over and has its answer: with the switch off no build began after it.
     expect(await buildPhase(window)).toBe('idle')
     expect(existsSync(join(dataDir, 'update', 'repo'))).toBe(false)
+    // Main counts Autopilot as running until its modules load; the look 2 s after the start turns idle
+    // true and broadcasts main's own snapshot. Wait for it here, so that broadcast cannot land after a
+    // snapshot sent below and draw "available" over it.
+    await expect.poll(() => idleNow(window)).toBe(true)
     await snapshotThemes(window, '09-updates-available')
 
     // The palette row of the same state: built from the window's snapshot.
@@ -172,6 +176,7 @@ test('"Check now" shows the Available update; with "Update automatically" off no
       await snapshotThemes(window, `${name === 'building-step' ? '16' : '09'}-updates-${name}`)
     }
     await sendSnapshot(app, { ...base, idle: false, build: { phase: 'ready', sha: NEWER, version: `9.9.9+${NEWER.slice(0, 7)}` } })
+    await expect(settings.getByTestId('settings-updates-status')).toContainText(`worfy 9.9.9+${NEWER.slice(0, 7)} is ready.`)
     await settings.getByRole('button', { name: 'Close' }).click()
     await window.keyboard.press('ControlOrMeta+k')
     await window.getByTestId('palette-input').fill('update')
