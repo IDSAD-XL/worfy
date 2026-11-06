@@ -88,7 +88,7 @@ merge. Человек, который нажал Stop, ждёт обратног
 
 ## Amendments
 
-- **2026-11-06 — `resumable` и после `session-error` посреди Wave** (worfy-retry 14, PR #PRNUM; решение владельца
+- **2026-11-06 — `resumable` и после `session-error` посреди Wave** (worfy-retry 14, PR #1480; решение владельца
   2026-11-05, Q9). Run, остановленный `session-error` после отправки Wave, оставляет `resumable` — Ticket-ы своей
   последней Wave, как Force stop: implementer-ы умирают вместе с процессом Orchestrator-а, и `claimed` за ними Ticket
   иначе ждал бы человека. Следующий Run того же Epic-а берёт из них только те, что ещё в работе, в первую команду Wave
