@@ -134,9 +134,9 @@ hook-ам (Ticket-ы 02–05).
 
 ## Amendments
 
-- 2026-11-06 — риск 1 проверен заново (Ticket `worfy-multi-vendor` 43). Условия OpenAI не молчат: документация
-  app-server (<https://learn.chatgpt.com/docs/app-server>, раздел «Auth endpoints», текст на странице примерно с
-  2026-09-28) разрешает локальному или open-source приложению вести Codex по входу ChatGPT через app-server
+- 2026-11-06 — риск 1 проверен заново (Ticket `worfy-multi-vendor` 43, PR #1492). Условия OpenAI не молчат: документация
+  app-server (<https://learn.chatgpt.com/docs/app-server>, раздел «Auth endpoints», по снимкам Wayback Machine
+  текст на странице с конца сентября 2026) разрешает локальному или open-source приложению вести Codex по входу ChatGPT через app-server
   («If you've built a local or open-source application using Codex app-server authentication, you can continue
   using it») и запрещает это коммерческому или серверному сервису («App-server authentication has never been
   permitted for commercial or hosted services»); OpenAI советует перейти на Sign in with ChatGPT. Решение
