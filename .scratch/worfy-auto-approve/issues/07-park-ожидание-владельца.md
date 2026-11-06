@@ -29,10 +29,14 @@ Source: [spec.md](../spec.md), «Как работает», п. 1; «Решен�
 
 - [ ] Unit test: park ждёт ответа; ответ allow пропускает один запрос; второй такой же снова park.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-park.test.ts` exit 0 · mac - · 475c00080778cdc1701dd124175f89fe79712a05
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 7e1aeb7af0297dd11bdbd63aff095412d5520dfd
 - [ ] Unit test: предел ожидания — deny-with-hint и `park-expired`; остановка Run-а снимает parked запрос.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-park.test.ts` exit 0 · mac - · 475c00080778cdc1701dd124175f89fe79712a05
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · 7e1aeb7af0297dd11bdbd63aff095412d5520dfd
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 7e1aeb7af0297dd11bdbd63aff095412d5520dfd
 - [ ] Unit test: уведомление уходит один раз на запрос, без текста команды.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-park.test.ts` exit 0 · mac - · 475c00080778cdc1701dd124175f89fe79712a05
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 7e1aeb7af0297dd11bdbd63aff095412d5520dfd
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты
