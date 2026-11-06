@@ -25,6 +25,23 @@ const WAIT_WORDS: Readonly<Record<WaitCause, string>> = {
   'gate-queue': 'Gate queue',
   'other-machine': 'Other Machine',
   'api-retry': 'Retry after an API error',
+  'orchestrator-busy': 'Orchestrator busy',
+}
+
+// The stops of a Run that waited for its Orchestrator (worfy-autopilot-queue tickets 07, 18) in words; the
+// other stop reasons are shown as the Journal writes them.
+const STOP_WORDS: Readonly<Record<string, string>> = {
+  'start-cancelled': 'start-cancelled: cancelled while it waited for the Orchestrator',
+  'start-refused': 'start-refused: refused once the Orchestrator was free',
+}
+
+/** A stop reason of `run-stopped` as the header and the detail panel write it. */
+export const stopReasonText = (reason: string): string => STOP_WORDS[reason] ?? reason
+
+/** «worfy-faults → worfy-retry → worfy-guide +2»: the Epics of a Run, three at most and how many more. */
+export function epicsText(epics: readonly string[]): string {
+  const shown = epics.slice(0, 3).join(' → ')
+  return epics.length > 3 ? `${shown} +${epics.length - 3}` : shown
 }
 
 /** The name a span goes by on screen. */
@@ -49,9 +66,11 @@ const UNTIL_ISO = /until (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]
 /**
  * The reason of a span as the screen writes it. A Wait's `until` is in local time, as Start and End are
  * (formatLocal; worfy-resource-planner ticket 11): the Journal keeps it as an ISO moment in UTC, and the
- * screen says «Times are local». A moment that does not parse stays as it is.
+ * screen says «Times are local». A moment that does not parse stays as it is. A Run's stop reason goes by
+ * stopReasonText.
  */
 export function reasonText(span: Span): string | null {
+  if (span.reason !== null && span.kind === 'run') return stopReasonText(span.reason)
   if (span.reason === null || span.kind !== 'wait') return span.reason
   return span.reason.replace(UNTIL_ISO, (whole, iso: string) => {
     const at = Date.parse(iso)

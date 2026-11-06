@@ -492,7 +492,7 @@ export function buildTimeline(facts: RunFacts): Timeline {
       kind: 'wave',
       lane: 'tree',
       parent: runSpan.id,
-      name: `Wave ${wave.number}`,
+      name: wave.label ?? `Wave ${wave.number}`,
       start,
       ...end,
       links: { run: runId, wave: wave.number, ...(wave.session === undefined ? {} : { session: wave.session }) },

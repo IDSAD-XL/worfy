@@ -25,9 +25,10 @@ export type SpanOutcome = (typeof SPAN_OUTCOMES)[number]
 /**
  * Why the work of a Run stood (the spec's Model section, on Waits, blocks and retries). `start-window`:
  * the Run mode Start window held the next Wave until the next start of its hours (worfy-resource-planner
- * ticket 08).
+ * ticket 08). `orchestrator-busy`: the Run was accepted while the Project's Orchestrator was busy and
+ * waited for it to be free (worfy-autopilot-queue tickets 07, 18).
  */
-export const WAIT_CAUSES = ['limits', 'limits-budget', 'start-window', 'background-tasks', 'gate-queue', 'other-machine', 'api-retry'] as const
+export const WAIT_CAUSES = ['limits', 'limits-budget', 'start-window', 'background-tasks', 'gate-queue', 'other-machine', 'api-retry', 'orchestrator-busy'] as const
 export type WaitCause = (typeof WAIT_CAUSES)[number]
 
 /** Where a fact came from: the source of a span's start and of its end. */
@@ -60,11 +61,11 @@ export type LostSource = keyof typeof LOST_SOURCE_LABELS
 // | `work` `agent`       | transcripts (14): `Agent` … report, `SendMessage` … report; `worktree` a canonical path |
 // | `work` `ci`          | GitHub (15)                                                            |
 // | `work` `gate`, `script` | gate logs (16): a gate run by `sha`/`worktree` (a canonical path), its steps with `parentWork` |
-// | `waits`              | Journal (13): `limits`, `limits-budget`, `start-window` (worfy-resource-planner 08), `background-tasks`, `gate-queue`; GitHub (15): `other-machine` |
+// | `waits`              | Journal (13): `limits`, `limits-budget`, `start-window` (worfy-resource-planner 08), `background-tasks`, `gate-queue`, `orchestrator-busy` (worfy-autopilot-queue 18); GitHub (15): `other-machine` |
 // | `retryCauses`        | Journal (13): `narrow-round`, `session-error`                         |
 // | `turns`              | the Orchestrator's transcript (14)                                     |
 // | `lost`               | the reader of the source that is gone: 14 transcripts, 15 GitHub, 16 gate logs and branches |
-// | `orchestratorMarks`  | Journal (13): `refused-dialog`, `human-input`                         |
+// | `orchestratorMarks`  | Journal (13): `refused-dialog`, `human-input`, `tasks-killed` `start-now`; `epic-started`, `epic-finished` (worfy-autopilot-queue 18) |
 //
 // Beside RunFacts the Journal gives the Run's Auto-approval decisions (AutoApprovalDecisionFact,
 // worfy-auto-approve ticket 08): the service puts them in the view, the span model does not read them.
@@ -108,8 +109,14 @@ export interface RunFact {
 
 /** A Wave of the Run (`wave-started` … `wave-finished`). */
 export interface WaveFact {
-  /** The number of the Wave within the Run, from 1. */
+  /**
+   * The number of the Wave within the Run, from 1: the key of its span. A Run over a queue of Epics
+   * (worfy-autopilot-queue ticket 14) counts the Waves of each Epic from 1 again, so its Waves are
+   * numbered through the whole Run, in file order, and `label` names each by its Epic.
+   */
   number: number
+  /** The name of the Wave on screen when it is not `Wave <number>`: `Wave 1 · <epic>` in a Run over a queue. */
+  label?: string
   startedAt: Iso
   finishedAt: Iso | null
   lastSeenAt?: Iso
@@ -259,9 +266,17 @@ export interface LostFact {
   end?: Iso
 }
 
-/** A mark on the Orchestrator's lane: a dialog Autopilot refused, input of a person. */
+/**
+ * A mark of the Run as a whole. On the Orchestrator's lane: a dialog Autopilot refused, input of a person
+ * (Start now too, which ended the Orchestrator's tasks). On the Run's row (worfy-autopilot-queue ticket
+ * 18): the start of the next Epic of a queue, an Epic the Run passed over (waits for the owner, runs
+ * elsewhere).
+ */
+export const ORCHESTRATOR_MARK_KINDS = ['refused-dialog', 'human-input', 'epic-started', 'epic-finished'] as const
+/** The marks drawn on the Run's row, not on the Orchestrator's lane. */
+export const RUN_MARK_KINDS: ReadonlySet<OrchestratorMarkFact['kind']> = new Set(['epic-started', 'epic-finished'])
 export interface OrchestratorMarkFact {
-  kind: 'refused-dialog' | 'human-input'
+  kind: (typeof ORCHESTRATOR_MARK_KINDS)[number]
   at: Iso
   text: string
 }

@@ -31,9 +31,12 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 7; «
 
 - [ ] Unit test `from-journal`: журнал с ожиданием — Wait `orchestrator-busy` с detail; Cancel — Wait до
       `run-stopped`; журнал очереди — метки Epic-ов.
+  - evidence: test-run pass · `pnpm test test/unit/flight-recorder-journal.test.ts` exit 0 · mac - · d24e6d6b45af80579547417ca38255e21cc082fa
 - [ ] Unit test вида: пункт списка и заголовок Run-а очереди; фильтр по второму Epic-у находит Run.
+  - evidence: test-run pass · `pnpm test test/unit/flight-recorder-view.test.tsx test/contract/flight-recorder-service.test.ts` exit 0 · mac - · d24e6d6b45af80579547417ca38255e21cc082fa
 - [ ] e2e `test/e2e/flight-recorder.spec.ts`: Run очереди из fixture-журнала — заголовок со списком, Wait «Orchestrator
       busy» на шкале.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/flight-recorder.spec.ts` exit 0 · mac - · d24e6d6b45af80579547417ca38255e21cc082fa
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты

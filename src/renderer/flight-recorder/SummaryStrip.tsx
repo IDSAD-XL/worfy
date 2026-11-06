@@ -18,6 +18,7 @@ const WAIT_WORDS: Readonly<Record<WaitCause, string>> = {
   'gate-queue': 'gate queue',
   'other-machine': 'other Machine',
   'api-retry': 'retry after an API error',
+  'orchestrator-busy': 'Orchestrator busy',
 }
 const percent = (share: number): string => `${Math.round(share * 100)}%`
 

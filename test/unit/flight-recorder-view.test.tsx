@@ -292,6 +292,70 @@ describe('a block, another Run and a live timeline', () => {
   })
 })
 
+// ── worfy-autopilot-queue ticket 18: a Run over a queue of Epics, the wait for the Orchestrator ──
+
+describe('a Run over a queue of Epics and a Run that waited for its Orchestrator', () => {
+  const QUEUE = ['worfy-faults', 'worfy-retry', 'worfy-guide', 'worfy-link', 'worfy-eco']
+  const queueFacts = () =>
+    smallFacts({
+      run: { id: SMALL_RUN, startedAt: T('10:00'), stoppedAt: T('12:00'), live: false, outcome: 'ok', reason: 'no-ready-wave' },
+      waves: [
+        { number: 1, label: 'Wave 1 · worfy-faults', startedAt: T('10:10'), finishedAt: T('11:00'), tickets: ['worfy-faults/01'] },
+        { number: 2, label: 'Wave 1 · worfy-retry', startedAt: T('11:05'), finishedAt: T('12:00'), tickets: ['worfy-retry/01'] },
+      ],
+      ticketEvents: [],
+      work: [],
+      waits: [{ id: 'orchestrator-busy:1', cause: 'orchestrator-busy', start: T('10:00'), end: T('10:10'), detail: 'turn; 2 queued; pnpm test', tickets: ['worfy-faults/01'], startSource: 'journal', endSource: 'journal' }],
+      orchestratorMarks: [
+        { kind: 'epic-started', at: T('11:01'), text: 'Epic 2/5: worfy-retry' },
+        { kind: 'human-input', at: T('10:09'), text: "Start now: the Orchestrator's turn and tasks were ended (pnpm test)" },
+      ],
+    })
+
+  it('names the Epics of the queue in the picker and the header: three at most and «+N», all of them in the tooltip', async () => {
+    await show('p-1', [smallItem({ epic: QUEUE[0], epics: QUEUE })], { [SMALL_RUN]: { ...viewOf(queueFacts()), epic: QUEUE[0]!, epics: QUEUE } })
+    const option = within(screen.getByTestId('run-history-choose')).getByRole('option')
+    expect(option.textContent).toBe(`${formatLocal(Date.parse(T('10:00')))} · worfy-faults → worfy-retry → worfy-guide +2`)
+    const epics = screen.getByTestId('run-history-epic')
+    expect(epics.textContent).toBe('worfy-faults → worfy-retry → worfy-guide +2')
+    expect(epics.parentElement?.textContent).toBe('Epics worfy-faults → worfy-retry → worfy-guide +2')
+    expect(epics.parentElement?.title).toBe(QUEUE.join(' → '))
+  })
+
+  it('a queue of two or three Epics names them all; a Run of one Epic stays «Epic <name>»', async () => {
+    await show('p-1', [smallItem({ epic: 'a', epics: ['a', 'b'] })], { [SMALL_RUN]: { ...viewOf(queueFacts()), epic: 'a', epics: ['a', 'b'] } })
+    expect(screen.getByTestId('run-history-epic').parentElement?.textContent).toBe('Epics a → b')
+    cleanup()
+    resetRunHistory()
+    await show('p-1', [smallItem()], { [SMALL_RUN]: viewOf(smallFacts()) })
+    expect(screen.getByTestId('run-history-epic').parentElement?.textContent).toBe('Epic e')
+  })
+
+  it('names each Wave by its Epic, draws the wait «Orchestrator busy» with its detail, and puts the Epic marks on the Run’s row, the Start now on the Orchestrator’s lane', async () => {
+    await show('p-1', [smallItem({ epics: ['worfy-faults', 'worfy-retry'] })], { [SMALL_RUN]: viewOf(queueFacts()) })
+    expect(rowOf('wave:1').textContent).toContain('Wave 1 · worfy-faults')
+    expect(rowOf('wave:2').textContent).toContain('Wave 1 · worfy-retry')
+    const bar = document.querySelector<HTMLElement>('[data-span-id="wait:orchestrator-busy:1"]')
+    expect(bar?.title.split('\n')[0]).toBe('Orchestrator busy')
+    expect(bar?.title).toContain('Reason: orchestrator-busy: turn; 2 queued; pnpm test')
+    expect(screen.getByTestId('run-history-waits').querySelector('[data-cause="orchestrator-busy"] .w-fr-total__name')?.textContent).toBe('Orchestrator busy')
+    const runRow = rowOf('run')
+    expect([...runRow.querySelectorAll<HTMLElement>('[data-testid="run-history-note"]')].map((mark) => mark.title)).toEqual(['Epic 2/5: worfy-retry'])
+    const lane = document.querySelector<HTMLElement>('[data-kind="lane-orchestrator"]')
+    expect([...(lane?.querySelectorAll<HTMLElement>('[data-testid="run-history-note"]') ?? [])].map((mark) => mark.title)).toEqual(["Start now: the Orchestrator's turn and tasks were ended (pnpm test)"])
+  })
+
+  it('says in words how a Run that waited for its Orchestrator stopped: cancelled, or refused once it was free', async () => {
+    const stoppedBy = (reason: string, outcome: 'stopped' | 'failed') => viewOf(smallFacts({ run: { id: SMALL_RUN, startedAt: T('10:00'), stoppedAt: T('10:05'), live: false, outcome, reason }, waves: [], ticketEvents: [], work: [], waits: [] }))
+    await show('p-1', [smallItem({ reason: 'start-cancelled' })], { [SMALL_RUN]: stoppedBy('start-cancelled', 'stopped') })
+    expect(screen.getByTestId('run-history-reason').textContent).toBe('stopped: start-cancelled: cancelled while it waited for the Orchestrator')
+    cleanup()
+    resetRunHistory()
+    await show('p-1', [smallItem({ reason: 'start-refused' })], { [SMALL_RUN]: stoppedBy('start-refused', 'failed') })
+    expect(screen.getByTestId('run-history-reason').textContent).toBe('stopped: start-refused: refused once the Orchestrator was free')
+  })
+})
+
 // ── worfy-resource-planner ticket 11: the Run mode, the Epic forecast and the actual share in the header ──
 
 describe('the Run mode, the Epic forecast and the actual share in the header', () => {

@@ -21,6 +21,7 @@ import {
   type RunStartedBy,
 } from '../../shared/autopilot/journal'
 import type { RunMode } from '../../shared/autopilot/run-mode'
+import { runEpics } from '../../shared/flight-recorder/journal-walk.mjs'
 import type { VendorId } from '../../shared/vendors/vendor'
 import { dataRoot } from '../storage/paths'
 
@@ -164,7 +165,10 @@ export async function openRun(start: RunStart, options: JournalOptions = {}): Pr
 export interface RunSummary {
   run: string
   project: string
+  /** The Epic the run began with. */
   epic: string
+  /** The Epics of the run in queue order, `epic` first (worfy-autopilot-queue ticket 18): `[epic]` for a run of one Epic. */
+  epics: string[]
   /** `at` of the run's first readable line, normally `run-started`. */
   startedAt: string
   file: string
@@ -203,7 +207,7 @@ export async function listRuns(project: string, options: Pick<JournalOptions, 'e
       const { events } = parseJournal(text)
       const first = events.find((event) => event.kind === 'run-started') ?? events[0]
       if (!first) return undefined
-      return { run, project: first.project, epic: first.epic, startedAt: first.at, file }
+      return { run, project: first.project, epic: first.epic, epics: runEpics(events), startedAt: first.at, file }
     }),
   )
   return summaries
