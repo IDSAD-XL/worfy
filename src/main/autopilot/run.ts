@@ -52,8 +52,9 @@
 //   answers after that. The next run of the Epic
 //   takes those Tickets, if still in work, into its first Wave (`resumable`); after a graceful Stop
 //   it takes none. A Session in error during a Wave (`session-error`, worfy-retry ticket 14) leaves
-//   them `resumable` too: its implementers died with the Orchestrator, and a Ticket one of them
-//   claimed would otherwise wait for a person (ADR-0050, Amendments).
+//   them `resumable` too, unless a graceful Stop came first: its implementers died with the
+//   Orchestrator, and a Ticket one of them claimed would otherwise wait for a person (ADR-0050,
+//   Amendments).
 // - keep-awake (power.ts) is held from the start to the end of the run.
 // - A turn of the Wave refused by the Limits does not end it (worfy-daily ticket 05): the run goes
 //   `waiting` until the Limits reset, then sends the Orchestrator on (limits-wait.ts). Past the

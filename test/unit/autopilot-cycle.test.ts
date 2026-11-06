@@ -154,6 +154,16 @@ describe('the Autopilot cycle', () => {
     }
   })
 
+  it('a Session in error after a graceful Stop names no Tickets: those are a person\'s now; a Force stop then still names them (worfy-retry ticket 14)', () => {
+    const inWork = [t(1, 'work'), t(2, 'work'), t(3, 'open', [1, 2])]
+    for (const from of [inWave1(), run([ok(OPEN, 2)], inWave1()).state]) {
+      const stopping = run([{ type: 'graceful-stop', tickets: inWork }], from).state
+      expect(stopping.stopping).toBe(true)
+      expect(run([{ type: 'session-error', message: 'x' }], stopping).effects).toEqual([{ kind: 'session-error', message: 'x' }, { kind: 'stopped', reason: 'session-error' }])
+      expect(run([{ type: 'stop', reason: 'user-force-stop' }], stopping).effects).toEqual([{ kind: 'stopped', reason: 'user-force-stop', tickets: [1, 2] }])
+    }
+  })
+
   it('a turn that ends with an error stops with turn-error; an interrupted one with interrupted', () => {
     const failed = run([{ type: 'turn-ended', isError: true, interrupted: false, message: 'Not logged in', tickets: WAVE1_DONE, tasks: 0, idle: true }], inWave1())
     expect(failed.effects).toEqual([{ kind: 'session-error', message: 'Not logged in' }, { kind: 'stopped', reason: 'turn-error' }])

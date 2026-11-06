@@ -93,6 +93,7 @@ merge. Человек, который нажал Stop, ждёт обратног
   последней Wave, как Force stop: implementer-ы умирают вместе с процессом Orchestrator-а, и `claimed` за ними Ticket
   иначе ждал бы человека. Следующий Run того же Epic-а берёт из них только те, что ещё в работе, в первую команду Wave
   вместе с ready Ticket-ами; Orchestrator доводит их, как при возобновлении Wave. Статус Ticket-а worfy по-прежнему не
-  пишет (ADR-0002). `session-error` до первой Wave, graceful Stop, `turn-error`, `session-closed` — как раньше.
+  пишет (ADR-0002). `session-error` до первой Wave и после graceful Stop, graceful Stop, `turn-error`,
+  `session-closed` — как раньше.
   Отвергнутый вариант «Возобновлять любой Ticket в `work`» остаётся отвергнутым: Ticket-ы берутся только из последней
   Wave Run-а. `resumable` по-прежнему только в памяти main.

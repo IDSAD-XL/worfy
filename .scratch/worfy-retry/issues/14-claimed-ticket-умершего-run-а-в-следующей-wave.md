@@ -65,7 +65,6 @@ Ticket перенесён в worfy-retry решением владельца 202
 - [ ] Force stop, graceful Stop и остальные причины остановки ведут себя как раньше: `test/contract/autopilot.test.ts`,
       `test/contract/autopilot-background.test.ts`, `test/unit/autopilot-cycle.test.ts`, `test/unit/autopilot-run.test.ts`
       зелёные без правки их ожиданий.
-  - evidence: test-run pass · `vitest run test/contract/autopilot test/unit/autopilot- test/unit/canvas-actions.test.tsx` exit 0 · mac - · 4a232a36b
 - [ ] worfy не пишет `Status:` Ticket-а (ADR-0002): И7 в `checkRecovery` сценария 1 пустой.
   - evidence: test-run pass · `vitest run test/contract/autopilot-faults-process.test.ts` exit 0 · mac - · 4a232a36b
 - [ ] `docs/features/autopilot.md` описывает новое поведение.
@@ -156,3 +155,20 @@ Mutation testing изменённых строк `cycle.ts` и `run.ts` (8 му�
 - **Вывод.** Детерминированный test — сценарий 1 `test/contract/autopilot-faults-process.test.ts` и case cycle-а
   `session-error` в фазах `turn` и `tasks` (`test/unit/autopilot-cycle.test.ts`): красный на `c0a7a766a`, зелёный
   на ветке `worfy-retry/14`. Урока нет: вывод не выходит за этот Ticket.
+
+### Итог раунда 2
+
+Ревью PR #1480, раунд 1: три замечания low, все исправлены.
+
+- `session-error` после graceful Stop (`state.stopping`) больше не оставляет Ticket-ы Wave в `resumable`: после
+  graceful Stop они у человека. Force stop после graceful Stop — как раньше, с Ticket-ами. Test —
+  `test/unit/autopilot-cycle.test.ts`, «a Session in error after a graceful Stop names no Tickets…» (фазы `turn` и
+  `tasks`), красный до правки. Комментарии `cycle.ts`, `run.ts`, абзац `docs/features/autopilot.md` и строка Amendments
+  ADR-0050 говорят об этом.
+- В `test/contract/autopilot.test.ts` («after a Wave, stops with blocked-tickets…») добавлена проверка
+  `resumable: []` после `blocked-tickets`: мутант «`end()` запоминает `tickets` при любой причине» теперь убит.
+- Строка Evidence пункта 4 называет правленое ожидание `autopilot-cycle.test.ts` и добавленную проверку
+  `autopilot.test.ts`.
+
+Mutation testing после раунда (10 мутантов изменённых строк `cycle.ts` и `run.ts`; test-ы — `autopilot-cycle`,
+`autopilot-run`, `autopilot-faults-process`, `autopilot.test.ts`): убиты все 10.

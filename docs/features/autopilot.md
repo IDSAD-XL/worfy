@@ -309,7 +309,7 @@ even when nothing else is ready. So it does after a run that stopped with `sessi
 died with the Orchestrator's process, and a Ticket one of them claimed stays `claimed`. The first Wave command of the next run
 names it along with the ready Tickets, and the Orchestrator resumes it as a resumed Wave (the `epic-wave` skill, "How to
 resume a wave"): by its branch, PR and result it carries the work on or hands the Ticket out again. worfy writes no
-`Status:` of its own. After a graceful Stop it takes none. A run that stops before its first Wave, for example
+`Status:` of its own. After a graceful Stop it takes none, also when the Orchestrator's Session fails after that Stop. A run that stops before its first Wave, for example
 during the wait for the Start window, took none of those Tickets, so the next run still gets them. worfy keeps this list in memory only, so it does not
 survive a restart of the app.
 
