@@ -1,0 +1,484 @@
+/* The Runs tab and its Work track (RunsView.tsx, WorkTrackView.tsx, Lanes.tsx, MonthGrid.tsx; worfy-work-track
+   ticket 09). Colours come from tokens.css only, the `--span-*` tokens of F-SPEC "Run history": the turns of
+   a Session take the colour of an Orchestrator turn there, an Epic lane the colour of a Ticket; the `kind-*`
+   roles stay the Node kinds' alone (ADR-0077). Both themes come for free. */
+
+.w-runs {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg);
+}
+.w-runs [hidden] {
+  display: none;
+}
+.w-runs__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.w-runs__body {
+  flex: 1;
+  min-height: 0;
+}
+
+.w-wt {
+  --w-wt-pad: 3px;
+  --w-wt-bar: 14px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--text-12);
+}
+.w-wt[data-density='comfortable'] {
+  --w-wt-pad: 5px;
+  --w-wt-bar: 20px;
+}
+
+.w-wt-controls {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) 14px;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.w-wt-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.w-wt-group__label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.w-wt-shift,
+.w-wt-retry {
+  font: inherit;
+  height: 22px;
+  min-width: 22px;
+  padding: 0 6px;
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+}
+.w-wt-shift:disabled {
+  color: var(--text-muted);
+}
+.w-wt-shift:focus-visible,
+.w-wt-retry:focus-visible,
+.w-wt-toggle:focus-visible,
+.w-wt-tick--day:focus-visible,
+.w-wt-month-day:focus-visible,
+.w-wt-cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.w-wt-period {
+  min-width: 150px;
+  text-align: center;
+  font-weight: 600;
+}
+.w-wt-loading {
+  color: var(--text-secondary);
+}
+.w-wt-notice {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--blocked-text);
+}
+.w-wt-empty {
+  margin: var(--space-4);
+  color: var(--text-secondary);
+}
+
+/* ── the lanes ─────────────────────────────────────────────────────────────── */
+
+.w-wt-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.w-wt-axisrow {
+  flex: none;
+  height: 42px;
+  display: flex;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface);
+}
+.w-wt-axis {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.w-wt-rows {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.w-wt-rows__inner {
+  position: relative;
+}
+.w-wt-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--w-wt-names);
+  right: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.w-wt-grid__line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--border);
+}
+.w-wt-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1.5px solid var(--span-problem);
+}
+
+.w-wt-lane {
+  display: flex;
+  height: calc(2 * var(--w-wt-pad) + var(--w-wt-lines, 1) * var(--w-wt-bar));
+  border-bottom: 1px solid var(--border);
+}
+.w-wt-lane:hover {
+  background: var(--surface-raised);
+}
+.w-wt-lane--runs,
+.w-wt-lane--gate {
+  border-top: 1px solid var(--border-strong);
+}
+
+.w-wt-name {
+  flex: none;
+  box-sizing: border-box;
+  /* The padding of a nested lane stays inside: every track starts where the grid does. */
+  width: var(--w-wt-names, 230px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 6px;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.w-wt-name--axis {
+  padding-left: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.w-wt-toggle {
+  flex: none;
+  width: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-align: center;
+}
+button.w-wt-toggle {
+  cursor: pointer;
+}
+.w-wt-name__kind {
+  flex: none;
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--w-wt-colour);
+}
+.w-wt-name__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-wt-name__note {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.w-wt-chip {
+  flex: none;
+  height: 15px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 13px;
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.w-wt-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.w-wt-bar {
+  position: absolute;
+  top: var(--w-wt-pad);
+  bottom: var(--w-wt-pad);
+  min-width: 2px;
+  padding: 0 4px;
+  overflow: hidden;
+  border-radius: 3px;
+  color: var(--span-label);
+  font-size: 10px;
+  line-height: calc(var(--w-wt-bar) - 1px);
+  white-space: nowrap;
+  box-sizing: border-box;
+  z-index: 1;
+}
+.w-wt-bar:hover {
+  outline: 1px solid var(--text);
+  z-index: 3;
+}
+.w-wt-bar--run {
+  top: calc(var(--w-wt-pad) - 2px);
+  bottom: calc(var(--w-wt-pad) - 2px);
+  background: var(--span-run-tint);
+  border: 1px solid var(--span-run);
+  color: var(--text);
+  z-index: 0;
+}
+.w-wt-bar--wave {
+  background: var(--span-wave-tint);
+  border: 1px solid var(--span-wave);
+  color: var(--text);
+  font-weight: 600;
+  line-height: calc(var(--w-wt-bar) - 3px);
+}
+.w-wt-bar--turn {
+  background: var(--span-orchestrator);
+}
+.w-wt-bar--implementer {
+  background: var(--span-implementer);
+}
+.w-wt-bar--verifier {
+  background: var(--span-verifier);
+}
+.w-wt-bar--agent {
+  background: var(--span-agent);
+}
+.w-wt-bar--gate {
+  background: var(--span-gate);
+}
+.w-wt-bar--problem {
+  box-shadow: inset 0 -3px var(--span-problem);
+}
+.w-wt-strip {
+  position: absolute;
+  bottom: 1px;
+  height: 3px;
+  min-width: 2px;
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.w-wt-colour--wave {
+  --w-wt-colour: var(--span-wave);
+}
+.w-wt-colour--turn {
+  --w-wt-colour: var(--span-orchestrator);
+}
+.w-wt-colour--implementer {
+  --w-wt-colour: var(--span-implementer);
+}
+.w-wt-colour--verifier {
+  --w-wt-colour: var(--span-verifier);
+}
+.w-wt-colour--agent {
+  --w-wt-colour: var(--span-agent);
+}
+.w-wt-colour--epic {
+  --w-wt-colour: var(--span-ticket);
+}
+.w-wt-colour--gate {
+  --w-wt-colour: var(--span-gate);
+}
+
+.w-wt-gap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--span-hatch) 55%, transparent) 0 2px, transparent 2px 6px);
+  border-left: 1px dashed var(--span-hatch);
+  border-right: 1px dashed var(--span-hatch);
+  cursor: help;
+  z-index: 1;
+}
+.w-wt-gap__label {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  transform: translateY(-50%);
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* ── the axis ──────────────────────────────────────────────────────────────── */
+
+.w-wt-tick {
+  position: absolute;
+  top: 2px;
+  height: 24px;
+  padding: 2px 0 0 3px;
+  border-left: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.w-wt-tick--day {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  background: none;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.w-wt-tick--day:hover {
+  color: var(--accent);
+}
+.w-wt-pr {
+  position: absolute;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  transform: translateX(-3.5px) rotate(45deg);
+  background: var(--accent);
+}
+.w-wt-pr__number {
+  position: absolute;
+  left: 10px;
+  bottom: -4px;
+  transform: rotate(-45deg);
+  transform-origin: left bottom;
+  color: var(--accent);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.w-wt-month-day {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  text-align: center;
+  cursor: pointer;
+}
+.w-wt-month-day:hover {
+  background: var(--surface-raised);
+}
+.w-wt-month-day b {
+  display: block;
+  font-size: 12px;
+}
+.w-wt-month-day i {
+  font-style: normal;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.w-wt-cell {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  margin: 0 1px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--w-wt-colour) var(--w-wt-shade), transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  box-sizing: border-box;
+  max-width: calc(100% - 2px);
+}
+.w-wt-cell:hover {
+  outline: 1px solid var(--text);
+}
+
+/* ── the legend ────────────────────────────────────────────────────────────── */
+
+.w-wt-legend {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 26px;
+  padding: 0 10px;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  background: var(--toolbar);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.w-wt-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.w-wt-legend__swatch {
+  position: static;
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 2px;
+}
+.w-wt-legend__swatch--problem {
+  background: var(--span-problem);
+}
+.w-wt-legend__swatch--gap {
+  background: repeating-linear-gradient(-45deg, var(--span-hatch) 0 2px, transparent 2px 5px);
+}
+.w-wt-legend__diamond {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin: 0 2px;
+  transform: rotate(45deg);
+  background: var(--accent);
+}
+.w-wt-legend__note {
+  margin-left: auto;
+}

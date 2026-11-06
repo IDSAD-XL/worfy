@@ -27,9 +27,20 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2
 
 - [ ] Unit test вида: переключатель, период и сдвиг, «by Epic», развёртка Subagent-ов, пробел с подсказкой; Month →
       щелчок → Day.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/work-track-view.test.tsx` 10 passed, exit 0 · mac - · 865d83d99c456f62c1c46dcf3e644d165ecf7139
 - [ ] e2e: Runs → Work track → Week на fixture-данных (stub канала) → Day → Month; Run history по-прежнему открывается.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/work-track.spec.ts` 1 passed, exit 0 · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139
 - [ ] Снимки Week, Day, Month в обеих темах — `../evidence/09-*.png`, сверка с прототипом `card-dcf3918a` в «Итог».
+  - evidence: screenshot pass · `../evidence/09-week-light.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/09-week-dark.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/09-day-light.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/09-day-dark.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/09-month-light.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/09-month-dark.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/09-month-before-light.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/09-month-before-dark.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0: [gate] green (fast) lint, typecheck, test · mac - · c8a31982b
 
 ## Тесты
 
@@ -45,3 +56,28 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2
 
 Только читать: `src/renderer/flight-recorder/RunHistoryView.tsx`, `src/renderer/flight-recorder/Timeline.tsx`,
 `docs/design/F-SPEC.md`, прототип `card-dcf3918a` (путь — spec, «Вид»).
+
+## Итог
+
+- Сначала падающий: `test/unit/work-track-view.test.tsx` до реализации не собирался — во вкладке Runs не было
+  `RunsView` и «Work track».
+- Вкладка Runs — `src/renderer/flight-recorder/RunsView.tsx`: сегменты «Run history | Work track», выбор помнится на
+  Project в памяти renderer-а (`src/renderer/work-track/store.ts`, `tabs`). Run history остаётся смонтированным под Work
+  track (скрыт): его Esc → Canvas и переход на Canvas при смене Project-а работают на обеих половинах. Вход, который
+  называет Run или Epic (toast остановленного Run-а, «History», меню Epic-а), показывает Run history.
+- Вид — `WorkTrackView.tsx`, дорожки — `Lanes.tsx` (модель `lanesBySession` / `lanesByEpic` из
+  `src/shared/work-track/lanes.ts`), Month — `MonthGrid.tsx`, стили — `work-track.css` (только токены `tokens.css`).
+- Сверка с прототипом `card-dcf3918a` (снимки `../evidence/09-week-*.png`, `09-day-*.png`, `09-month-*.png`,
+  `09-month-before-*.png` — Month с «no data» за сроком транскриптов):
+  - как в прототипе: строка управления (переключатель, Period с ‹ › и подписью, Lanes, Density), столбец имён 230 px с
+    ▸, чипами `hidden`, `archived`, `Codex` и числом Subagent-ов; «Autopilot Runs» сверху, «Gate runs» внизу; Run и
+    Wave — полосы с рамкой; цвета implementer, verifier, прочих Subagent-ов, gate; исход `failed`/`rejected` —
+    полоса снизу цветом проблемы; штриховка «no data · <источник>» с причиной в подсказке; линия «now»; ромбы PR на
+    оси; ось Week — дни (щелчок → Day), Day — часы через 2; Month — клетки дней по часам, на оси число merged,
+    щелчок → Day; легенда внизу.
+  - иначе, чем в прототипе: Month — календарный месяц с 1-го числа (так `Period` в `facts.ts`), а не 30 последних
+    дней; ход Session — цвет хода Orchestrator-а (`--span-orchestrator`), дорожка Epic-а — цвет Ticket-а
+    (`--span-ticket`), а не голубой и охра прототипа: те — роли `kind-*` типов Node-ов, ADR-0077 держит их только за
+    Node-ами (test `node-kind-header.test.tsx`); ‹ › двигают и Week, и Month (в прототипе — только Day); Week — 7 дней, кончая выбранным днём; в Month
+    Subagent-ы развёрнутой Session — по строке на каждого (в прототипе — одна строка «N Subagents»); дорожки «by
+    Epic» — до четырёх рядов полос в дорожке, по одной на перекрытие. Сводка периода и панель Span-а — Ticket 10.

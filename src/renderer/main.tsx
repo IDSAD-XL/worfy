@@ -11,7 +11,7 @@ import { openRunHistory } from './flight-recorder/open'
 import { installGettingStartedNotice } from './getting-started/notice'
 import { windowMachine } from './ipc'
 import { useMachines } from './machines/useMachines'
-import { RunHistoryView } from './flight-recorder/RunHistoryView'
+import { RunsView } from './flight-recorder/RunsView'
 import { installStopToasts } from './flight-recorder/stop-toast'
 import { markPlatform } from './platform'
 import { PipelineBoard } from './pipeline/PipelineBoard'
@@ -91,7 +91,8 @@ export function App() {
         }
         session={<SessionView projectId={active?.id} projectName={active?.name} />}
         pipeline={<PipelineBoard project={active} />}
-        history={<RunHistoryView activeProjectId={active?.id} />}
+        // The Runs tab: Run history, or the Work track of the Project (flight-recorder/RunsView.tsx).
+        history={<RunsView activeProjectId={active?.id} />}
       />
       <ToastRegion projectId={active?.id} />
     </>
