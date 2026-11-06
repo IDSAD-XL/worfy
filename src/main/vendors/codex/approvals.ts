@@ -96,19 +96,21 @@ export function approvalAsk(request: CodexApprovalRequest, item: ThreadItem | un
 }
 
 /**
- * The login shell Codex wraps a command in, as it names it: `<shell> -lc <script>` (or `-c`), the shell zsh, bash or
- * sh by name or in a folder of the system the agent cannot write, then a quote that opens the script. Codex runs the
- * shell with the script as one argument and shows the command joined with quotes (test/fixtures/codex-messages/
- * turn.jsonl: `/bin/zsh -lc 'cat README.md'`).
+ * The login shell Codex wraps a command in, as it names it: `<shell> -lc ` (or `-c`), the shell zsh, bash or sh by
+ * name or in a folder of the system the agent cannot write; the script follows (quotedWordEnd). Codex runs the shell
+ * with the script as one argument and shows the command joined with quotes (test/fixtures/codex-messages/turn.jsonl:
+ * `/bin/zsh -lc 'cat README.md'`).
  */
-const CODEX_SHELL = /^(?:(?:\/usr\/local|\/opt\/homebrew|\/usr)?\/bin\/)?(zsh|bash|sh) -l?c (?=["'])/
+const CODEX_SHELL = /^(?:(?:\/usr\/local|\/opt\/homebrew|\/usr)?\/bin\/)?(zsh|bash|sh) -l?c /
 
 /**
  * The length of the one quoted word `text` starts with: single quotes up to the next single quote; double quotes up to
- * the next double quote no backslash escapes. -1 when the quote does not close, or when a double-quoted word holds a `$`
- * or a backquote no backslash escapes (the shell would expand it in the outer word, before the script runs).
+ * the next double quote no backslash escapes. -1 when `text` starts with no quote, when the quote does not close, or
+ * when a double-quoted word holds a `$` or a backquote no backslash escapes (the shell would expand it in the outer
+ * word, before the script runs).
  */
 function quotedWordEnd(text: string): number {
+  if (!text.startsWith('"') && !text.startsWith("'")) return -1
   if (text.startsWith("'")) {
     const close = text.indexOf("'", 1)
     return close === -1 ? -1 : close + 1

@@ -2,7 +2,7 @@
 // tools, the allow rules and the attacks of the Epic spec. The file system is a made-up tree under
 // /tmp/demo and /home/demo (C:\work and C:\Users\demo on Windows); nothing on disk is read.
 import { describe, expect, it } from 'vitest'
-import { ALLOW_RULES, HARD_HINTS, HINTS, judge, type ApprovalRequest, type Decision, type PolicyContext } from '../../src/main/agent/auto-approve/policy'
+import { ALLOW_RULES, gitNeeds, HARD_HINTS, HINTS, judge, type ApprovalRequest, type Decision, type PolicyContext } from '../../src/main/agent/auto-approve/policy'
 import { recordRoots, type FileSystem } from '../../src/main/agent/auto-approve/roots'
 
 /**
@@ -1531,5 +1531,20 @@ describe('round 10: any revision word with a colon, and the options of rev-parse
       expect(run(command, active), command).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
     }
     expect(run('git rev-parse --shared-index-path')).toMatchObject({ outcome: 'allow' })
+  })
+})
+
+// worfy-auto-approve ticket 05, round 3: the variables a command surely gets (PolicyContext.known, Codex's pinned ones).
+describe('the variables a command surely gets (PolicyContext.known)', () => {
+  const pinned = (names: string[]): PolicyContext => posix({ env: { HOME, TMPDIR: RUN_TEMP, DEMO_DIR: WT }, known: new Set(names) })
+
+  it('a command that uses a variable not on the list is not judged, and reads no git for it', () => {
+    expect(run('rm -rf "$DEMO_DIR"/build', pinned(['HOME', 'TMPDIR']))).toMatchObject({ outcome: 'deny', rule: 'not-judged' })
+    expect(gitNeeds(bash('git -C "$DEMO_DIR" add -A'), pinned(['HOME', 'TMPDIR']))).toEqual({ git: [], writes: false })
+  })
+
+  it('the same command with the variable on the list is judged as without the list', () => {
+    expect(run('rm -rf "$DEMO_DIR"/build', pinned(['DEMO_DIR']))).toEqual(run('rm -rf "$DEMO_DIR"/build', posix({ env: { HOME, TMPDIR: RUN_TEMP, DEMO_DIR: WT } })))
+    expect(gitNeeds(bash('git -C "$DEMO_DIR" add -A'), pinned(['DEMO_DIR'])).git).toEqual([WT])
   })
 })

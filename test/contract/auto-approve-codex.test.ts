@@ -669,6 +669,8 @@ describe('the login-shell wrapper of a Codex command (codexScript)', () => {
     "/bin/zsh -lc 'unclosed",
     '/bin/zsh -lc "unclosed',
     '/bin/zsh -lc "ends with \\"',
+    '/bin/zsh -lc x"',
+    "/bin/zsh -lc x'",
   ])('%s stays as it is', (command) => {
     expect(codexScript(command)).toBe(command)
   })

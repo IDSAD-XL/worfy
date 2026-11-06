@@ -158,3 +158,42 @@ Contract test-ы park (`auto-approve-codex.test.ts`, describe «a parked request
 → не паркуется. Test On: владелец отклоняет все 8 parked запросов, у каждой строки `park` — своя карточка с тем же
 правилом и путями. Mutation testing новых строк `judged` (16 mutant-ов: условие On, проверка снятого запроса, каждое
 поле запроса к gate-у, ответ владельца, ответ без владельца, строки Journal, отказ gate-а): 16 убиты.
+
+### Раунд 3 (review PR #1469 на a615b9435: 2 medium, 4 low; последний раунд)
+
+1. **Accept владельца на parked `grantRoot`** (medium). По протоколу `grantRoot` просит запись под папкой до конца
+   Session-и, а ответ Codex — только `{decision}`. Accept на такой карточке был бы тем же «Accept for this Session».
+   Теперь (`parkedCard`, `approvals.ts`) у parked file change с `grantRoot` нет Accept — только Decline и «Decline and
+   stop the turn», и карточка говорит почему. Accept, который gate всё же передал, не входит в варианты: `decline` и
+   `park-expired`.
+2. **Окружение суда не совпадало с окружением команды** (medium). Regex имён секретов был у́же `secretName` Journal-а,
+   а `shell_environment_policy` владельца может убрать из shell-а команды любую переменную. Теперь в Shadow и On worfy
+   в `thread/start` (`config`) задаёт `shell_environment_policy.set.<NAME>` для HOME (и USERPROFILE, если есть) и
+   переменных Run-а (TMPDIR, git-окружение) — `codexPinned`, `codexPinConfig`. Значение при суде есть только у этих
+   имён: `ApprovalWhere.known` → `ApprovalAt.known` → `PolicyContext.known` → `AnalyzeContext.known`
+   (`shell.ts`, `variable`). Любая другая ссылка, секрет тоже, — неизвестная переменная, команда не одобряется, значение
+   в Journal не попадает. Regex секретов убран. Проверки присутствия (IFS, BASH_ENV, ZDOTDIR, CDPATH, `GIT_*`) видят
+   всё окружение процесса, как раньше: окружение «только из pinned» их бы ослабило. Почему `config` в `thread/start`, а
+   не `-c` в аргументах: тот же путь override-ов worfy уже использует для `mcp_servers.<name>` (`mcp.ts`), а аргументы
+   `codex app-server` без настоящего binary не проверить.
+3. (low) Обёртка `-lc` разворачивается, только если скрипт — ровно одно слово в кавычках и после него ничего нет
+   (`quotedWordEnd`). `'a' && b`, `'a' 2>&1`, `'a' #'`, `'a'$X'b'`, `'a'\''b'`, незакрытая кавычка — не разворачиваются.
+   Обёртка с хвостом теперь судится как программа `/bin/zsh` вне корней — park, а не deny `not-judged`.
+4. (low) Codex получает ответ раньше, чем решение уходит в Journal; отчёт, который бросает исключение, пойман
+   (`report` в `judged`). Test: все ответы на месте при падающем `decided`.
+5. (low) Карточка parked запроса показывает причину Codex («Codex says: …») и хост доступа к сети
+   (`ParkRequest.note`, `park.ts`).
+6. (low) Test снятия запроса шлёт `serverRequest/resolved` (preload fake-а пишет строку по файлу-сигналу): во время суда
+   — нет park, нет строки, нет ответа; во время park — карточка снята, `park-expired`, ответа нет.
+
+`docs/features/ru/autopilot.md` не правился: ADR-0088 — PR меняет только английскую страницу, переводы догоняют
+пакетом; русская страница сейчас на commit `19f1660c` и раздела Auto-approval не имеет.
+
+Mutation testing изменённых строк раунда 3 (`shell.ts`, `policy.ts`, `run-approval.ts`, `park.ts`, `approvals.ts`,
+`session.ts`; 27 mutant-ов). С первого прогона выжили четыре. Три убиты новыми test-ами:
+- пустой список `known` не значит «все» — unit test в `auto-approve-shell.test.ts`;
+- `gitNeeds` тоже судит со списком — unit test в `auto-approve-policy.test.ts`;
+- скрипт без открывающей кавычки — проверка перенесена из lookahead regex в `quotedWordEnd`, плюс случаи `x"`, `x'`.
+
+Четвёртый эквивалентен: порядок «отчёт, потом ответ» после park не наблюдаем. Отчёт обёрнут в try и бросить не может.
+Итого: 26 убиты, 1 эквивалентный.

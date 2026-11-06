@@ -855,6 +855,10 @@ describe('the variables whose value the command surely gets (AnalyzeContext.know
     expect(analyze(command, known(['TMPDIR']))).toEqual({ judged: false, why: 'an unknown variable' })
   })
 
+  it('an empty list knows no variable of the environment', () => {
+    expect(analyze('rm -rf "$TMPDIR"x', known([]))).toEqual({ judged: false, why: 'an unknown variable' })
+  })
+
   it('a variable the command assigns itself is known', () => {
     expect(brief('X=/tmp/demo/a; rm -rf "$X"', known([]))).toEqual(brief('X=/tmp/demo/a; rm -rf "$X"'))
   })
