@@ -23,6 +23,7 @@ Source: [spec.md](../spec.md), «Решения владельца», 4; «Ка�
 - [ ] `harness/hooks/tests/gate-log.test.sh`: run старше 10-го — выводы удалены, `timings.json` есть; worktree, не тронутый
       9 дней, — выводы удалены, `timings.json` есть; `timings.json` старше 31 дня — удалён вместе с папкой.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-log.test.sh` exit 0 · mac - · 539d5a7e5bc5a7d1536ee76a38dd4af5b274691e
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-log.test.sh` exit 0 · mac - · 4de684a63c4f71fac0cf267a9ccfeddc2a938774
 - [ ] Test-ы — с `HOME` и `HARNESS_HOME` во временном каталоге. PR ждёт Windows (ADR-0056); `ci-ok` зелёный.
 
 ## Тесты
