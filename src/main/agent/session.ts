@@ -412,6 +412,14 @@ export class Session {
     return this.permissions.answer(requestId, optionId)
   }
 
+  /**
+   * Ends the requests the approval policy parked for the owner (worfy-auto-approve ticket 07): the run
+   * that parked them is stopping. Each is refused as one that waited out its limit; other requests stay.
+   */
+  releaseParked(): void {
+    this.permissions.releaseParked()
+  }
+
   /** The user's picks for an open question request (null: "Decline"); false when it is no longer open. */
   answerQuestion(requestId: string, picks: readonly QuestionPick[] | null): boolean {
     this.assertOpen()

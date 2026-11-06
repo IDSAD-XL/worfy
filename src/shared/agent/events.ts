@@ -99,7 +99,9 @@ export const agentEvent = z.discriminatedUnion('type', [
    * src/main/vendors/claude/session.ts); the Session is `needs_permission` until every open request
    * is resolved. `subject`: what is asked about, as the card names it (Claude: the tool's name).
    * `options`: the answers the Vendor offers, in the order the card shows them. `suggestions`: what
-   * Claude Code proposed and where it would write; worfy applies none of them.
+   * Claude Code proposed and where it would write; worfy applies none of them. `parked`: the approval
+   * policy of an unattended Session left the request to the owner (worfy-auto-approve ticket 07,
+   * src/main/agent/auto-approve/park.ts) — the id of its rule and the paths it judged; absent otherwise.
    */
   timed({
     type: z.literal('permission_request'),
@@ -113,6 +115,7 @@ export const agentEvent = z.discriminatedUnion('type', [
     blockedPath: nullableString,
     suggestions: z.array(z.object({ type: z.string(), destination: nullableString })),
     options: z.array(permissionOptionSchema).min(1),
+    parked: z.object({ rule: z.string().min(1), targets: z.array(z.string()) }).optional(),
   }),
   /**
    * A permission request was answered — `decision` is the id of the option picked — or `cancelled`
@@ -151,11 +154,13 @@ export const agentEvent = z.discriminatedUnion('type', [
    * The approval policy judged a permission request of an unattended Session while Auto-approval was
    * Shadow or On (worfy-auto-approve ticket 04, src/main/agent/auto-approve/policy.ts); at Off it is not
    * asked, and the refusal is `refused_dialog` as before. `mode`: the mode at the request; `outcome`:
-   * what the agent got in On (`park` answers a refusal until ticket 07), what it would have got in
-   * Shadow (`would-*`; a hard deny stays `hard-deny`), where the agent got the refusal of Off; `rule`:
-   * the id of the rule that decided; `tool`; `targets`: the paths judged; `command`: the Bash command as
-   * asked, null for another tool; `agent` and `reason` as in `refused_dialog`. The journal of an
-   * Autopilot run records it as `auto-approval`, cleaned (journalCommand).
+   * what the agent got in On (`park`: the request waits for the owner on the Session's gate, ticket 07;
+   * it ends with `park-answered` — `answer`: the kind of the option the owner picked — or with
+   * `park-expired`: the wait limit or a stop of the run), what it would have got in Shadow (`would-*`;
+   * a hard deny stays `hard-deny`), where the agent got the refusal of Off; `rule`: the id of the rule
+   * that decided; `tool`; `targets`: the paths judged; `command`: the Bash command as asked, null for
+   * another tool; `agent` and `reason` as in `refused_dialog`. The journal of an Autopilot run records
+   * it as `auto-approval`, cleaned (journalCommand).
    */
   timed({
     type: z.literal('auto_approval'),
@@ -167,6 +172,7 @@ export const agentEvent = z.discriminatedUnion('type', [
     command: z.string().nullable(),
     agent: z.string().min(1).optional(),
     reason: z.string().min(1).optional(),
+    answer: z.enum(['allow', 'deny']).optional(),
   }),
   /** system/init: arrives at the start of every turn with the current model and mode. */
   timed({

@@ -39,6 +39,8 @@ interface FakeSession {
   state: SessionState
   tasks: BackgroundTask[]
   closed: boolean
+  /** How many times the requests parked for the owner were ended (Session.releaseParked). */
+  released: number
   emit(event: AgentEvent): void
 }
 
@@ -56,6 +58,7 @@ function setup() {
         state: 'idle',
         tasks: [],
         closed: false,
+        released: 0,
         emit: (event) => {
           if (event.type === 'state') fake.state = event.state
           sink(fake.id, event)
@@ -73,6 +76,9 @@ function setup() {
         queued: () => ({ items: [], paused: false }),
         handOverQueue: () => ({ items: [], paused: false }),
         adoptQueue: () => undefined,
+        releaseParked: () => {
+          fake.released += 1
+        },
         close: () => {
           fake.closed = true
           fake.emit({ type: 'state', state: 'closed', error: null } as AgentEvent)
@@ -103,6 +109,25 @@ function setup() {
     session.emit({ type: 'init', sdkSessionId, model: 'claude-opus-5-5', permissionMode: 'bypassPermissions', apiKeySource: 'none', cwd: scratch, claudeCodeVersion: null, slashCommands: [] } as unknown as AgentEvent)
   return { orchestrators, sessions, data, unattended, init }
 }
+
+describe('Orchestrators.setUnattended(false) and parked requests (worfy-auto-approve ticket 07)', () => {
+  it('a give-back that waits for the turn ends the requests parked for the owner, so the turn is not held to the limit', async () => {
+    const h = setup()
+    const session = await h.unattended()
+    session.emit({ type: 'state', state: 'needs_permission', error: null } as AgentEvent)
+    await h.orchestrators.setUnattended(PROJECT, false)
+    expect(session.released).toBe(1)
+    expect(session.closed).toBe(false)
+  })
+
+  it('a give-back at once (no turn, no tasks) has nothing parked to end', async () => {
+    const h = setup()
+    const session = await h.unattended()
+    await h.orchestrators.setUnattended(PROJECT, false)
+    expect(session.released).toBe(0)
+    expect(session.closed).toBe(true)
+  })
+})
 
 describe('Orchestrators.newUnattendedSession (worfy-throughput ticket 52)', () => {
   it('a turn runs: answers null, closes nothing and starts nothing', async () => {
