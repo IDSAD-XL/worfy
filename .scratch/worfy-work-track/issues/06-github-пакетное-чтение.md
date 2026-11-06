@@ -24,8 +24,12 @@ Source: [spec.md](../spec.md), «Как работает» → «Чтение»;
 
 - [ ] Contract test на stub `gh` (`WORFY_GH`): неделя из 150 PR — две страницы; месяц — четыре-пять запросов search, по
       одному на неделю; CI — по дню; повтор в интервале — без вызовов `gh`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/work-track-github.test.ts` exit 0 · mac - · 7c7755a2fdcbb39c14297076784c13f533de47df
 - [ ] Contract test: `gh` упал — пробел с причиной, остальные факты есть.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/work-track-github.test.ts` exit 0 · mac - · 7c7755a2fdcbb39c14297076784c13f533de47df
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 7c7755a2fdcbb39c14297076784c13f533de47df
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 7c7755a2fdcbb39c14297076784c13f533de47df
 
 ## Тесты
 
