@@ -118,9 +118,10 @@ export interface AnalyzeContext {
   /** The environment of the shell that runs the command. */
   env: Readonly<Record<string, string | undefined>>
   /**
-   * The variables of `env` whose value the command surely gets (worfy-auto-approve ticket 05): a Vendor that may
-   * leave variables out of the command's shell (Codex's shell_environment_policy) names the ones it pins. A reference
-   * to any other is an unknown variable; the checks of the environment (IFS, BASH_ENV…) still see all of `env`.
+   * The variables of `env` whose value the command surely gets (worfy-auto-approve tickets 05, 14): a Vendor that may
+   * leave variables out of the command's shell names the ones that surely reach it; Codex names none, since the
+   * owner's shell_environment_policy.include_only may drop even the ones worfy pins. A reference to any other is an
+   * unknown variable; the checks of the environment (IFS, BASH_ENV…) still see all of `env`.
    * Absent: every variable of `env`.
    */
   known?: ReadonlySet<string> | undefined

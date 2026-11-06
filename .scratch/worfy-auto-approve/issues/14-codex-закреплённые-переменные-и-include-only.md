@@ -124,3 +124,16 @@ Test-ы: `test/contract/auto-approve-codex.test.ts` («the owner's include_only 
 Известный предел (был до этого Ticket-а, Ticket 05): владелец своим `shell_environment_policy.set` в config Codex может
 добавить в shell команды `BASH_ENV`, `CDPATH`, `IFS` или `XDG_CONFIG_HOME`, которых нет в окружении app-server-а, и
 проверки наличия их не увидят. Записать этот config может только владелец.
+
+## Итог раунда 2
+
+Ревью PR #1498, раунд 2: все четыре пункта раунда 1 исправлены, high и medium нет. Три low исправлены только в
+комментариях и документах, логика не менялась:
+
+1. ADR-0098 (`## Amendments`) и `docs/features/autopilot.md` называют допущение: политика берёт `~` из `HOME`
+   app-server-а, а bash, zsh и Git Bash без `HOME` берут домашнюю папку из базы пользователей. Считается, что это одна
+   папка; на Windows со своим `HOME` (например `D:\home`) они могут различаться.
+2. Комментарии `AnalyzeContext.known` (`src/main/agent/auto-approve/shell.ts`) и `ApprovalWhere.known`
+   (`src/main/vendors/session.ts`) говорят, что Codex передаёт пустой список.
+3. Известный предел, без правки кода: dash (`/bin/sh` на Linux) без `HOME` оставляет `~` буквально, и `~/x` становится
+   `<папка команды>/~/x`. `ln` политика не одобряет, Linux — не целевая платформа worfy.

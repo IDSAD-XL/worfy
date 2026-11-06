@@ -76,7 +76,7 @@ export interface ApprovalWhere {
   env?: Readonly<Record<string, string | undefined>> | undefined
   /**
    * The variables of `env` whose value each command surely gets, when the Vendor may leave the others out of the
-   * command's shell (Codex: the ones worfy pins); absent: all of `env`.
+   * command's shell (Codex: none, worfy-auto-approve ticket 14); absent: all of `env`.
    */
   known?: readonly string[] | undefined
 }

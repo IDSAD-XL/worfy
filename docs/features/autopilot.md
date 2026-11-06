@@ -157,8 +157,9 @@ While a run goes on:
   (`shell_environment_policy.set`), but Codex applies the owner's `include_only` after these pins, so it may still drop
   any of them. When a Codex request is judged, no variable has a known value: a command that uses one — `TMPDIR`,
   `HOME`, `USERPROFILE` or a secret included — or makes a folder with `mktemp -d` outside macOS is not approved, and no
-  value of one reaches the journal. A `~` at the start of a word is still the home folder the app-server started with:
-  bash and zsh take it from the user database when `HOME` is dropped. Git on Codex is judged as git without the run's git environment,
+  value of one reaches the journal. A `~` at the start of a word is still judged as the `HOME` the app-server started
+  with, while bash, zsh and Git Bash with `HOME` dropped take the home folder from the user database: the two are
+  assumed to be the same folder (on Windows with a custom `HOME`, such as `D:\home`, they may differ). Git on Codex is judged as git without the run's git environment,
   so the policy approves no git command there and parks the ones it would allow on Claude Code. A file change is
   judged by each path it writes, the new path of a rename and its `grantRoot` included. A request with a `grantRoot`
   (writes under a folder for the rest of the Session) is never accepted by the policy, input to a running command and
