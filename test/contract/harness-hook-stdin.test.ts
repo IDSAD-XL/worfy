@@ -43,10 +43,11 @@ afterEach(() => vi.unstubAllEnvs())
  * A folder for one case: the hook runs in `hookCwd`, the input names `session`; the stand-in of
  * bin/profile appends the folder it is asked about (`-C`) to `record` and answers "no project" (exit 3),
  * so every hook stops right after that call. `hang` makes it wait 10 s before it answers; `print` makes
- * it print that text (or what the function makes of the case folder) and exit 0 instead. `sessionName`
- * names the session folder.
+ * it print that text (or what the function makes of the case folder) and exit 0 instead; `flood` makes
+ * it print 4 MB, more than spawnSync keeps by default (maxBuffer, 1 MB), so the hook's call fails with
+ * ENOBUFS on every system. `sessionName` names the session folder.
  */
-function caseDir({ hang = false, print, sessionName = 'session' }: { hang?: boolean; print?: string | ((dir: string) => string); sessionName?: string } = {}) {
+function caseDir({ hang = false, print, flood = false, sessionName = 'session' }: { hang?: boolean; print?: string | ((dir: string) => string); flood?: boolean; sessionName?: string } = {}) {
   const dir = realpathSync.native(mkdtempSync(join(root, 'case-')))
   const hookCwd = join(dir, 'hook-cwd')
   const session = join(dir, sessionName)
@@ -59,7 +60,7 @@ function caseDir({ hang = false, print, sessionName = 'session' }: { hang?: bool
     profile,
     `import fs from 'node:fs'
 fs.appendFileSync(${JSON.stringify(record)}, process.argv[process.argv.indexOf('-C') + 1] + '\\n')
-${printed !== undefined ? `process.stdout.write(${JSON.stringify(printed)})` : hang ? 'setTimeout(() => process.exit(3), 10000)' : 'process.exit(3)'}
+${flood ? "process.stdout.write('x'.repeat(4 * 1024 * 1024))" : printed !== undefined ? `process.stdout.write(${JSON.stringify(printed)})` : hang ? 'setTimeout(() => process.exit(3), 10000)' : 'process.exit(3)'}
 `,
   )
   // Says once on stderr which comes first: a touch of process.stdin or a synchronous read of descriptor 0.
@@ -162,15 +163,17 @@ describe('a hook input that arrives after the hook touched process.stdin', () =>
 
   // A failure inside the hook after its input came is still one line on stderr and exit 0: a broken hook
   // must not break the session. session-start and session-end fail on a profile that prints no JSON,
-  // gh-token-env on a gh it cannot start (a folder in its place).
-  for (const [hook, event, print, ghIsAFolder, why] of [
-    ['session-start.mjs', 'SessionStart', 'not json', false, 'profile --json printed no JSON'],
-    ['session-end.mjs', 'SessionEnd', 'not json', false, 'profile --json printed no JSON'],
-    ['gh-token-env.mjs', 'SessionStart', 'octo-cat', true, 'EACCES'],
+  // gh-token-env on a profile call whose output overflows spawnSync's buffer (ENOBUFS). Not a gh it
+  // cannot start: a folder in gh's place fails with EACCES on macOS and Linux, but on Windows the hook
+  // took it for a missing gh, a note on stdout with stderr empty (CI run 42143406350).
+  for (const [hook, event, answer, why] of [
+    ['session-start.mjs', 'SessionStart', { print: 'not json' }, 'profile --json printed no JSON'],
+    ['session-end.mjs', 'SessionEnd', { print: 'not json' }, 'profile --json printed no JSON'],
+    ['gh-token-env.mjs', 'SessionStart', { flood: true }, 'ENOBUFS'],
   ] as const) {
     it(`${hook} reports a failure after the input came as one line on stderr, exit 0`, async () => {
-      const c = caseDir({ print })
-      const run = await runLate(c, hook, [], sessionInput(event, c.session), ghIsAFolder ? { GH_TOKEN_ENV_GH: c.dir } : {})
+      const c = caseDir(answer)
+      const run = await runLate(c, hook, [], sessionInput(event, c.session))
       expect(run.code).toBe(0)
       expect(run.stderr).toMatch(new RegExp(`^${hook.replace('.mjs', '')}: .*${why}.*\n$`))
       expect(c.asked()).toEqual([c.session])
