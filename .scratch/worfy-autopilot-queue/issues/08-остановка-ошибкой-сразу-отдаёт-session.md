@@ -36,11 +36,18 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 6; «
 
 - [ ] Contract test: `turn-error` при двух живых задачах — Session attended сразу, процесс тот же (нет нового `init`
       от перезапуска), задачи в `orchestrator-returned`, их `task_notification` начинает ход в attended Session.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-background.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
 - [ ] Contract test: `user-stop` при живых задачах — как сейчас (unattended до конца задач).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-retry.test.ts test/contract/autopilot-background.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
 - [ ] Contract test: Codex (fake Codex, временный `CODEX_HOME`) — следующий `turn/start` идёт с режимом Node.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/orchestrator-relaunch.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
 - [ ] Contract test: seam отказал — `wanted = ATTENDED`, поведение как сейчас.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/orchestrator-relaunch.test.ts test/contract/autopilot-background.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
 - [ ] `## Amendments` в ADR-0029.
+  - evidence: commit pass · docs: ADR-0029 amendment, stop rows and ticket result for the in-place give-back (worfy-autopilot-queue 08) · - - · 1fc13a60f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
 
 ## Тесты
 
@@ -60,7 +67,8 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 6; «
   (`tasks` у `orchestrator-returned`), `src/shared/ipc/autopilot.ts` (строка остановленного Run-а),
   `src/main/ipc/autopilot.ts` (4-й аргумент `setUnattended`); test-ы `test/contract/autopilot-retry.test.ts`,
   `autopilot-faults-api.test.ts`, `autopilot-faults-setup.ts`, `autopilot-limits-switch.test.ts`, `orchestrator.test.ts`,
-  `test/unit/autopilot-journal.test.ts`, `autopilot-wait-line.test.ts`; feature pages `docs/features/autopilot.md` и
+  `test/unit/autopilot-journal.test.ts`, `autopilot-wait-line.test.ts`, e2e `test/e2e/autopilot.spec.ts` (test
+  worfy-polish 50: после `turn-error` при задачах новый Run ждёт Orchestrator); feature pages `docs/features/autopilot.md` и
   `docs/features/ru/autopilot.md` (две строки таблиц).
 
 Только читать: `src/main/vendors/codex/session.ts`.
