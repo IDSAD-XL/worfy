@@ -12,6 +12,7 @@ of its own because of its length. Terms are explained in [Concepts](concepts.md)
 |---|---|---|---|
 | A Session worfy runs finished its turn | Its folder name | What it said, else "Finished its turn" | The Session |
 | It waits for a permission answer | Its folder name | "Needs permission: `<tool>` `<input>`" | The Session |
+| Its Autopilot run parked a permission request for the owner (Auto-approval On) | Its folder name | "Parked: `<tool>` in `<folder name>`", without the command | The Session |
 | It asks a question | Its folder name | "Asks: `<first question>`" | The Session |
 | A Session of a terminal or Claude Desktop went from busy to idle | Its name, else its folder name | "Finished its turn" | The Session |
 | A Ticket came to wait for the owner or this Machine | `<epic> NN` is waiting for you | Its Blocked reason, else `<epic> NN — <title>` | The Pipeline board of its Project |

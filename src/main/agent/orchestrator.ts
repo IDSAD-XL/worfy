@@ -309,6 +309,9 @@ export class Orchestrators {
         entry.wanted = null
       } else if (inTurn(this.current(entry).state) || liveTasksOf(entry) > 0) {
         entry.wanted = ATTENDED
+        // A request parked for the owner would hold the turn, and so the give-back, up to its limit: a
+        // stop of the run ends it as the limit would (worfy-auto-approve ticket 07).
+        entry.run?.session?.releaseParked()
       } else {
         await this.relaunch(entry, ATTENDED)
       }

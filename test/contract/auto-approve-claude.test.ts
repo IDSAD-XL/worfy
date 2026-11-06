@@ -13,8 +13,9 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
+import { PARK_EXPIRED_HINT, PARK_STOPPED_HINT } from '../../src/main/agent/auto-approve/park'
 import { hardHint, HINTS } from '../../src/main/agent/auto-approve/policy'
-import { openRunApproval } from '../../src/main/agent/auto-approve/run-approval'
+import { openRunApproval, type LaunchApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
@@ -23,8 +24,9 @@ import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { Autopilot } from '../../src/main/autopilot/run'
 import { LayoutStore } from '../../src/main/layout/store'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
-import { UNATTENDED_DENIED_MESSAGE, unattendedDeniedMessage } from '../../src/main/vendors/claude/session'
+import { DENIED_MESSAGE, UNATTENDED_DENIED_MESSAGE, unattendedDeniedMessage } from '../../src/main/vendors/claude/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
+import { BACKGROUND_STALL_MS } from '../../src/shared/autopilot/cycle'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import type { AutoApprovalMode } from '../../src/shared/settings/app-settings'
@@ -113,6 +115,37 @@ interface HarnessOptions {
   vendor?: 'codex'
   /** The whole environment the factory tells the Session its process starts with, as the SDK's does (QueryRequest.processEnv). */
   processEnv?: Record<string, string>
+  /** The owner's answer to each request parked on the Session's gate (worfy-auto-approve ticket 07); `deny` by default, `none`: left open. */
+  answerParked?: 'allow' | 'deny' | 'none'
+  /** The clock of the background-task limit (AutopilotDeps.tasksClock); the real one when absent. */
+  tasksClock?: ManualClock
+}
+
+/** A clock whose timers fire only when the test says so. */
+class ManualClock {
+  private next = 1
+  /** How many timers were set so far. */
+  sets = 0
+  readonly timers = new Map<number, { fn: () => void; ms: number }>()
+  setTimeout = (fn: () => void, ms: number): number => {
+    this.sets += 1
+    const id = this.next++
+    this.timers.set(id, { fn, ms })
+    return id
+  }
+  clearTimeout = (handle: unknown): void => {
+    this.timers.delete(handle as number)
+  }
+  pending(): number[] {
+    return [...this.timers.values()].map((timer) => timer.ms)
+  }
+  fire(ms: number): void {
+    for (const [id, timer] of [...this.timers]) {
+      if (timer.ms !== ms) continue
+      this.timers.delete(id)
+      timer.fn()
+    }
+  }
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -173,18 +206,32 @@ function harness(options: HarnessOptions = {}) {
             return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
           },
         })
+  // The policy each unattended launch of the Orchestrator gets (worfy-auto-approve ticket 07: parks()).
+  const launches: LaunchApproval[] = []
+  const launched = new Proxy(seen, {
+    get(target, key) {
+      if (key === 'setUnattended')
+        return (...args: Parameters<Orchestrators['setUnattended']>) => {
+          if (args[2] !== undefined) launches.push(args[2])
+          return target.setUnattended(...args)
+        }
+      const value: unknown = Reflect.get(target, key)
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
+    },
+  })
   const autopilot = new Autopilot({
     projectRoot: () => ownRepo,
     selfRefusal: () => Promise.resolve(null),
     workflow,
     watchWorkflow: () => Promise.resolve(() => undefined),
-    orchestrators: seen,
+    orchestrators: launched,
     registry,
     waves: launcher,
     journal: (start) => openRun(start, { env }),
     harness: () => 'plugin',
     keepAwake: () => ({ start: () => undefined, stop: () => undefined }),
     settleMs: 60_000,
+    ...(options.tasksClock === undefined ? {} : { tasksClock: options.tasksClock }),
     ...(mode === undefined
       ? {}
       : {
@@ -211,6 +258,16 @@ function harness(options: HarnessOptions = {}) {
   registry.observe((sessionId, event) => {
     if (registry.get(sessionId).unattended) events.push(event)
   })
+  // The owner at the card of a parked request: it waits on the Session's gate until answered.
+  const parked: Extract<AgentEvent, { type: 'permission_request' }>[] = []
+  const parkedIn: string[] = []
+  registry.observe((sessionId, event) => {
+    if (event.type !== 'permission_request' || event.parked === undefined) return
+    parked.push(event)
+    parkedIn.push(sessionId)
+    const answer = options.answerParked ?? 'deny'
+    if (answer !== 'none') setTimeout(() => registry.get(sessionId).answerPermission(event.requestId, answer), 0)
+  })
   const runFile = (): string => {
     const dir = join(env.WORFY_DATA_DIR, 'autopilot')
     const runs = readdirSync(dir)
@@ -225,7 +282,11 @@ function harness(options: HarnessOptions = {}) {
     await autopilot.start(PROJECT, EPIC)
     await until(() => autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
   }
-  return { autopilot, registry, events, journal, runFile, answers, releases, env, runToEnd, requests }
+  /** The owner answers the `n`th parked request. */
+  const answerParked = (n: number, option: 'allow' | 'deny'): boolean => registry.get(parkedIn[n]!).answerPermission(parked[n]!.requestId, option)
+  /** The Session the `n`th parked request waits in. */
+  const parkedSession = (n: number) => registry.get(parkedIn[n]!)
+  return { autopilot, registry, events, journal, runFile, answers, releases, env, runToEnd, requests, parked, answerParked, parkedSession, launches }
 }
 
 /** A text with what changes from run to run written as placeholders. */
@@ -274,13 +335,16 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', autoApproval: 'shadow' })
   })
 
-  it('On: a delete inside the Wave\'s worktree goes through, one outside every root is refused with a hint, a hard deny is refused', async () => {
+  it('On: a delete inside the Wave\'s worktree goes through, one outside every root waits for the owner, a hard deny is refused', async () => {
     const h = harness({ mode: { value: 'on' } })
     await h.runToEnd()
     const [inside, outside, hard, secret] = h.answers()
     expect(inside).toEqual({ behavior: 'allow', updatedInput: { command: `rm -rf '${repo}/.claude/worktrees/01/build'`, description: "Remove the build folder of the Ticket's worktree" } })
-    expect(outside).toMatchObject({ behavior: 'deny' })
-    expect((outside as { message: string }).message).toBe(`${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${HINTS.parkPending}`)
+    // Parked on the Session's gate (ticket 07) with its rule, and refused as the owner answered.
+    expect(h.parked).toHaveLength(1)
+    expect(h.parked[0]?.parked?.rule).toBe('outside-roots')
+    expect(h.parked[0]?.options.map((option) => option.kind)).toEqual(['allow', 'deny'])
+    expect(outside).toEqual({ behavior: 'deny', message: DENIED_MESSAGE })
     expect(hard).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${hardHint('ssh', process.platform)}` })
     expect(secret).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${HINTS.notJudged}` })
 
@@ -288,7 +352,8 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     const lines = journal.filter((event) => event.kind === 'auto-approval')
     expect(lines.map((line) => [line.mode, line.outcome, line.rule, line.agent])).toEqual([
       ['on', 'allow', 'files-inside-roots', 'agent-impl-01'],
-      ['on', 'park', expect.any(String), 'agent-impl-01'],
+      ['on', 'park', 'outside-roots', 'agent-impl-01'],
+      ['on', 'park-answered', 'outside-roots', 'agent-impl-01'],
       ['on', 'hard-deny', 'hard:ssh', undefined],
       ['on', 'deny', 'not-judged', 'agent-impl-02'],
     ])
@@ -337,6 +402,7 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     expect(decided).toEqual([
       ['shadow', 'would-allow'],
       ['on', 'park'],
+      ['on', 'park-answered'],
       ['off', 'refused-dialog'],
       ['on', 'deny'],
     ])
@@ -386,9 +452,13 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     off.releases.release('next')
     await until(() => off.answers().length === 1, 'the git request')
     expect(off.requests.map((request) => request.environment)).toEqual([undefined])
-    expect(off.answers()).toEqual([{ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: This command requires approval\n${HINTS.parkPending}` }])
+    expect(off.answers()).toEqual([{ behavior: 'deny', message: DENIED_MESSAGE }])
+    expect(off.parked.map((request) => request.parked?.rule)).toEqual(['git-without-run-environment'])
     await until(() => off.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
-    expect((await off.journal()).find((event) => event.kind === 'auto-approval')).toMatchObject({ mode: 'on', outcome: 'park', rule: 'git-without-run-environment' })
+    expect((await off.journal()).filter((event) => event.kind === 'auto-approval')).toMatchObject([
+      { mode: 'on', outcome: 'park', rule: 'git-without-run-environment' },
+      { mode: 'on', outcome: 'park-answered', rule: 'git-without-run-environment' },
+    ])
   })
 
   it('a policy that cannot start: run-started says off, the Session starts as before, and every request is refused as before', async () => {
@@ -428,5 +498,80 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     await h.runToEnd()
     expect(h.requests.map((request) => request.environment)).toEqual([undefined])
     expect(observed(h)).toEqual(JSON.parse(readFileSync(BASELINE, 'utf8')))
+  })
+})
+
+// Park in a run (worfy-auto-approve ticket 07, round 2 of the review of PR #1467): a background task whose request
+// is parked waits for the owner without the run calling it stalled, and a graceful Stop ends the wait.
+describe('A parked request of a background task in an Autopilot run (worfy-auto-approve ticket 07)', () => {
+  const REASON = 'Dangerous rm operation on statically-unresolvable target'
+  const refusedWith = (hint: string) => ({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: ${REASON}\n${hint}` })
+
+  /** A run whose Wave's turn ended with one implementer in the background, whose first request is parked. */
+  async function parkedInTasks(clock: ManualClock) {
+    const h = harness({ mode: { value: 'on' }, script: 'auto-approve-claude-park', answerParked: 'none', tasksClock: clock })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.parked.length === 1, 'the parked request')
+    await until(() => clock.pending().includes(BACKGROUND_STALL_MS), 'the wait for the background task')
+    return h
+  }
+
+  it('the silence limit of the background tasks starts over while the request waits, and the refusal reaches the task', async () => {
+    const clock = new ManualClock()
+    const h = await parkedInTasks(clock)
+    const sets = clock.sets
+    clock.fire(BACKGROUND_STALL_MS)
+    await until(() => clock.sets > sets, 'the limit to start over')
+    expect(h.autopilot.state(PROJECT).status).toBe('running')
+    expect(clock.pending()).toEqual([BACKGROUND_STALL_MS])
+    // The request ends without the owner's answer, as at its limit: the task gets the refusal with the hint,
+    // and the end of the park is a sign of life of the task — the silence limit starts over again.
+    const before = clock.sets
+    h.parkedSession(0).releaseParked()
+    await until(() => h.answers().length === 1, 'the refusal')
+    expect(h.answers()).toEqual([refusedWith(PARK_EXPIRED_HINT)])
+    expect(clock.sets).toBeGreaterThan(before)
+    expect(h.autopilot.state(PROJECT).status).toBe('running')
+    // The next request of the task parks again; the owner allows it, and the Wave ends as usual.
+    h.releases.release('next')
+    await until(() => h.parked.length === 2, 'the second parked request')
+    expect(h.answerParked(1, 'allow')).toBe(true)
+    await until(() => h.answers().length === 2, 'the allowed request')
+    h.releases.release('next')
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    const lines = (await h.journal()).filter((event) => event.kind === 'auto-approval')
+    expect(lines.map((line) => [line.outcome, line.rule])).toEqual([
+      ['park', 'outside-roots'],
+      ['park-expired', 'outside-roots'],
+      ['park', 'outside-roots'],
+      ['park-answered', 'outside-roots'],
+    ])
+    expect(h.autopilot.state(PROJECT).reason).not.toBe('background-stalled')
+  })
+
+  it('a graceful Stop ends the parked request at once, and a request the policy would park while the run stops is refused at once', async () => {
+    const h = await parkedInTasks(new ManualClock())
+    // A parked request may wait while the run goes; once it stops, a request the gate just opened is taken off.
+    expect(h.launches).toHaveLength(1)
+    expect(h.launches[0]?.parks?.()).toBe(true)
+    await h.autopilot.stop(PROJECT)
+    expect(h.launches[0]?.parks?.()).toBe(false)
+    await until(() => h.answers().length === 1, 'the refusal of the parked request')
+    expect(h.answers()).toEqual([refusedWith(PARK_EXPIRED_HINT)])
+    h.releases.release('next')
+    await until(() => h.answers().length === 2, 'the second request')
+    expect(h.parked).toHaveLength(1)
+    expect(h.answers()[1]).toEqual(refusedWith(PARK_STOPPED_HINT))
+    h.releases.release('next')
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    const lines = (await h.journal()).filter((event) => event.kind === 'auto-approval')
+    expect(lines.slice(0, 3).map((line) => [line.outcome, line.rule])).toEqual([
+      ['park', 'outside-roots'],
+      ['park-expired', 'outside-roots'],
+      ['deny', 'outside-roots'],
+    ])
+    // The fake agent plays its script again for STOP_TEXT: nothing of it parks either.
+    expect(lines.slice(1).filter((line) => line.outcome === 'park')).toEqual([])
+    expect(h.parked).toHaveLength(1)
   })
 })

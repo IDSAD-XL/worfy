@@ -14,7 +14,8 @@
 // user's pick. An unattended Session (Autopilot) answers by the Auto-approval mode instead
 // (unattendedCanUseTool, worfy-auto-approve ticket 04): at Off it refuses every call at once, and each
 // refusal reaches its subscribers as a `refused_dialog` event; at Shadow and On it asks the approval
-// policy, whose every decision is an `auto_approval` event.
+// policy, whose every decision is an `auto_approval` event; a request it parks in On waits for the owner
+// on the Session's gate (worfy-auto-approve ticket 07, src/main/agent/auto-approve/park.ts).
 //
 // `null` — "Default" in the pickers — is the user's own model and effort from ~/.claude/settings.json
 // (worfy-daily ticket 23; user-model.ts): setModel(null) on a live query calls setModel with that
@@ -26,6 +27,7 @@
 // The app's part makes its query factory (query.ts) at its first start. Nothing in this driver imports
 // the Session registry (src/main/agent/app-registry.ts), which is made over it: the registry wires
 // what the fake agent needs from it itself (test/contract/vendor-imports.test.ts).
+import { createParker, PARK_EXPIRED_HINT, PARK_STOPPED_HINT, type Parker } from '../../agent/auto-approve/park'
 import { HINTS } from '../../agent/auto-approve/policy'
 import { CommandCatalog } from '../../agent/commands'
 import { userContent } from '../../agent/attachments'
@@ -192,10 +194,18 @@ function modeOf(approval: SessionApproval | undefined): AutoApprovalMode {
  * - Shadow: asks the policy, reports what it would have done (`would-*`, a hard deny as `hard-deny`),
  *   and refuses with the same message as Off; `refused` is not told;
  * - On: allow answers the call with its input unchanged; deny and hard deny refuse with the rule's hint
- *   after Claude Code's reason; park refuses with HINTS.parkPending until ticket 07 parks it.
+ *   after Claude Code's reason; park waits for the owner through `park` (worfy-auto-approve ticket 07):
+ *   the owner's Allow lets the call through, Deny refuses it, and no answer (the wait limit, a stop of
+ *   the run) refuses it with PARK_EXPIRED_HINT, then the rule's own hint, if any; each end is told as
+ *   `park-answered` (with the answer) or `park-expired`. Without `park` it refuses with HINTS.parkPending.
  * `folders` gives where the shell stood for the call (the PreToolUse hook, ToolUseFolders).
  */
-export function unattendedCanUseTool(refused: (toolName: string, message: string, details: RefusalDetails) => void, approval?: SessionApproval, folders?: ToolUseFolders): CanUseToolHandler {
+export function unattendedCanUseTool(
+  refused: (toolName: string, message: string, details: RefusalDetails) => void,
+  approval?: SessionApproval,
+  folders?: ToolUseFolders,
+  park?: Parker,
+): CanUseToolHandler {
   return async (toolName, input, options: PermissionRequestOptions) => {
     const reason = text(options.decisionReason)
     const agent = text(options.agentID)
@@ -210,9 +220,31 @@ export function unattendedCanUseTool(refused: (toolName: string, message: string
     const decision = await approval.judge({ tool: toolName, input }, where)
     const command = typeof input['command'] === 'string' ? input['command'] : null
     const outcome = mode === 'shadow' ? SHADOW_OUTCOME[decision.outcome] : decision.outcome
-    approval.decided({ mode, outcome, rule: decision.rule, tool: toolName, targets: [...decision.targets], command, ...details })
+    const line = { mode, rule: decision.rule, tool: toolName, targets: [...decision.targets], command, ...details }
+    approval.decided({ ...line, outcome })
     if (mode === 'shadow') return { behavior: 'deny', message }
     if (decision.outcome === 'allow') return { behavior: 'allow', updatedInput: input }
+    if (decision.outcome === 'park' && park !== undefined) {
+      const end = await park({
+        toolName,
+        toolUseId: text(options.toolUseID),
+        input,
+        blockedPath: text(options.blockedPath),
+        rule: decision.rule,
+        targets: decision.targets,
+        options: CLAUDE_PERMISSION_OPTIONS,
+        signal: options.signal,
+        waits: () => approval.parks?.() ?? true,
+      })
+      if (end.outcome === 'answered') {
+        const allowed = end.kind !== 'deny'
+        approval.decided({ ...line, outcome: 'park-answered', answer: allowed ? 'allow' : 'deny' })
+        return allowed ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: DENIED_MESSAGE }
+      }
+      approval.decided({ ...line, outcome: 'park-expired' })
+      if (end.outcome === 'stopped') return { behavior: 'deny', message: approvalDeniedMessage(reason, PARK_STOPPED_HINT) }
+      return { behavior: 'deny', message: approvalDeniedMessage(reason, decision.hint === null ? PARK_EXPIRED_HINT : `${PARK_EXPIRED_HINT}\n${decision.hint}`) }
+    }
     const hint = decision.outcome === 'park' ? HINTS.parkPending : decision.hint
     return { behavior: 'deny', message: hint === null ? message : approvalDeniedMessage(reason, hint) }
   }
@@ -468,7 +500,7 @@ export function claudeSessions(factory: QueryFactory, given: Partial<UserDefault
       sessionId: resume === undefined ? sessionId : undefined,
       stderr: opts.stderr,
       settings: handle.startSettings(opts.settings),
-      canUseTool: opts.unattended ? unattendedCanUseTool(opts.refused, opts.approval, folders) : claudeCanUseTool(opts.permissions),
+      canUseTool: opts.unattended ? unattendedCanUseTool(opts.refused, opts.approval, folders, createParker(opts.permissions)) : claudeCanUseTool(opts.permissions),
       unattended: opts.unattended,
       spawned: opts.spawned,
       orchestrator: opts.orchestrator,

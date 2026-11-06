@@ -23,8 +23,11 @@
 // another request never answers one. Interrupt, close and the Vendor's own withdrawal cancel it like
 // any request.
 //
-// An unattended Session (worfy-daily ticket 02, session-settings.ts) never reaches the gate: its
-// driver refuses every request at once (SessionStart.unattended).
+// An unattended Session (worfy-daily ticket 02, session-settings.ts) reaches the gate only with a
+// parked request (worfy-auto-approve ticket 07, src/main/agent/auto-approve/park.ts): one the approval
+// policy left to the owner in On; every other request its driver answers at once (SessionStart.unattended).
+// A parked request answers one tool call only: the `allow_always` list neither answers it nor is
+// answered by it, and releaseParked (a stop of the run) cancels the parked requests alone.
 import { randomUUID } from 'node:crypto'
 import type { AgentEvent, PermissionOption } from '../../shared/agent/events'
 import { formatAnswers, type Question, type QuestionPick } from '../../shared/agent/questions'
@@ -40,6 +43,8 @@ type Outcome = { kind: 'option'; id: string } | { kind: 'answers'; answers: Reco
 
 interface Pending {
   subject: string
+  /** A request the approval policy parked for the owner. */
+  parked: boolean
   options: readonly PermissionOption[]
   /** The questions of a question request; null for a permission request. */
   questions: Question[] | null
@@ -67,13 +72,21 @@ export class PermissionGate implements PermissionAsker {
     return this.open.size
   }
 
+  /** Open requests the approval policy parked for the owner. */
+  get parked(): number {
+    let count = 0
+    for (const pending of this.open.values()) if (pending.parked) count += 1
+    return count
+  }
+
   /** The subjects (Claude: tools) an `allow_always` answer covers in this Session. */
   alwaysAllowed(): string[] {
     return [...this.remembered.keys()]
   }
 
   readonly ask = (request: PermissionAsk): Promise<string | null> => {
-    const remembered = this.remembered.get(request.subject)
+    const parked = request.parked !== undefined
+    const remembered = parked ? undefined : this.remembered.get(request.subject)
     if (remembered !== undefined) return Promise.resolve(remembered)
     const { signal } = request
     if (signal.aborted) return Promise.resolve(null)
@@ -82,6 +95,7 @@ export class PermissionGate implements PermissionAsker {
       const onAbort = () => this.settle(requestId, CANCELLED)
       this.open.set(requestId, {
         subject: request.subject,
+        parked,
         options: request.options,
         questions: null,
         settle: (outcome) => {
@@ -104,6 +118,7 @@ export class PermissionGate implements PermissionAsker {
         blockedPath: request.blockedPath,
         suggestions: request.suggestions,
         options: request.options.map((option) => ({ ...option })),
+        ...(request.parked === undefined ? {} : { parked: { rule: request.parked.rule, targets: [...request.parked.targets] } }),
       })
       this.changed(this.open.size)
     })
@@ -117,6 +132,7 @@ export class PermissionGate implements PermissionAsker {
       const onAbort = () => this.settle(requestId, CANCELLED)
       this.open.set(requestId, {
         subject: '',
+        parked: false,
         options: [],
         questions,
         settle: (outcome) => {
@@ -150,7 +166,7 @@ export class PermissionGate implements PermissionAsker {
       // Other requests of the same subject already open (parallel Subagents) are covered too: a new
       // request of it would go through without asking, so these do not wait for an answer either.
       for (const [otherId, other] of [...this.open]) {
-        if (other.questions === null && other.subject === pending.subject) this.settle(otherId, { kind: 'option', id: optionId })
+        if (other.questions === null && !other.parked && other.subject === pending.subject) this.settle(otherId, { kind: 'option', id: optionId })
       }
     }
     return true
@@ -172,6 +188,13 @@ export class PermissionGate implements PermissionAsker {
     }
     this.settle(requestId, { kind: 'answers', answers: formatAnswers(pending.questions, picks) })
     return true
+  }
+
+  /** Cancels the parked requests alone: the run that parked them is stopping (orchestrator.ts, setUnattended). */
+  releaseParked(): void {
+    for (const [requestId, pending] of [...this.open]) {
+      if (pending.parked) this.settle(requestId, CANCELLED)
+    }
   }
 
   /** Cancels every open request: the turn was interrupted, or the Session is closing or died. */

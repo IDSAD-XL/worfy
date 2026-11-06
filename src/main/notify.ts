@@ -6,7 +6,9 @@
 //
 // - a Session worfy runs: its `result` (not one the user interrupted), each `permission_request`
 //   and each `question_request` ("Asks: <its first question>", worfy-ui ticket 17), seen through
-//   SessionRegistry.observe;
+//   SessionRegistry.observe. A request the approval policy of an Autopilot run parked for the owner
+//   (worfy-auto-approve ticket 07, Q5) says "Parked: <tool> in <Project>" and never its command: the
+//   note reaches Linked machines and the lock screen;
 // - a Session from the registry under ~/.claude (a terminal, Claude desktop): its status going
 //   from `busy` to `idle`, seen through the registry watchers the windows already run
 //   (src/main/ipc/claude-home.ts, liveSessionListeners). The first sight of a Session is not a
@@ -302,7 +304,7 @@ export class Notifier {
       case 'permission_request':
         this.notify({
           title: this.titleOf(sessionId),
-          body: clip(`Needs permission: ${event.toolName} ${inputLine(event.toolName, event.input)}`),
+          body: clip(event.parked === undefined ? `Needs permission: ${event.toolName} ${inputLine(event.toolName, event.input)}` : `Parked: ${event.toolName} in ${this.titleOf(sessionId)}`),
           sessionId,
           projectRoot: null,
         })
