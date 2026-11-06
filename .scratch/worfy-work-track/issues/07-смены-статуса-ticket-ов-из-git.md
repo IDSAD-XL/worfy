@@ -1,7 +1,8 @@
 # 07 — Смены статуса Ticket-ов из git
 
 Type: task
-Status: open
+Status: done 2026-11-06T16:30Z
+PR: #1509
 Blocked by: 04
 Source: [spec.md](../spec.md), «Как работает» → «Источники», «Чтение»; [research 04](../../worfy-autopilot-queue/issues/04-данные-work-track.md), п. 5; [01](../../worfy-autopilot-queue/issues/01-destination-и-масштаб.md), Q5
 
@@ -24,12 +25,16 @@ Source: [spec.md](../spec.md), «Как работает» → «Источни�
 
 - [ ] Unit test разбора: все формы из research 04 и неизвестная форма (`null`, без ошибки).
   - evidence: test-run pass · `pnpm test -- test/unit/work-track-status-value.test.ts` exit 0 · mac - · 70447ad4f76a5f728271162fbe05917b7d13efcb
+  - evidence: review pass · PR #1509 · - - · f5e800307fe204c7a765ea1529e1676937b9c18d
 - [ ] Contract test на временном репозитории: claim и done в ветке, squash в main — две смены с временем значения;
       смена без времени — время коммита ветки; репозиторий не изменён.
   - evidence: test-run pass · `pnpm test -- test/contract/work-track-ticket-status.test.ts` exit 0 · mac - · 70447ad4f76a5f728271162fbe05917b7d13efcb
+  - evidence: review pass · PR #1509 · - - · f5e800307fe204c7a765ea1529e1676937b9c18d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 70447ad4f76a5f728271162fbe05917b7d13efcb
   - evidence: gate pass · `gate fast` exit 0 · mac - · 70447ad4f76a5f728271162fbe05917b7d13efcb
+  - evidence: review pass · PR #1509 · - - · f5e800307fe204c7a765ea1529e1676937b9c18d
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42245113926 · ci - · f5e800307fe204c7a765ea1529e1676937b9c18d
 
 ## Тесты
 
