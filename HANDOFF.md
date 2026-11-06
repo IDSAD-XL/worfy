@@ -19,7 +19,7 @@
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): закрыт, 16/16, принят владельцем 2026-11-02 (Mac). `worfy-guide`: закрыт, 21/21.
 - `worfy-flight-recorder` (ADR-0091, 28/28) и `worfy-resource-planner` (12/12): закрыты, приняты владельцем 2026-11-01; Windows-часть FR 25 не проводилась.
-- Spec-и `worfy-autopilot-queue` и `worfy-work-track` ждут приёмки владельцем.
+- Spec-и `worfy-autopilot-queue` и `worfy-work-track` приняты 2026-11-06; раздача — после merge worfy-retry 05 и 14, Wave 1 обоих параллельно.
 - `worfy-multi-vendor`: 45/46, код в main; осталась 43 (приёмка владельца). Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–42, 44, 45 (`additionalContextLimit`), 46, ADR-0095; `high` 19–21. Должен: gate full ПК на `c4eb4117`.
 - Приняты 11-04: `worfy-evidence`, `worfy-faults` 7/8, `worfy-retry`, `worfy-auto-approve`; `worfy-failures` закрыт 10/10; подтвердить «Итог» 09.
 

@@ -1,6 +1,6 @@
 # worfy-link: Linked machines
 
-Status: по решениям владельца 2026-10-07 (сводка решений Q1–Q25 подтверждена владельцем целиком;
+Status: принят владельцем 2026-10-07 (сводка решений Q1–Q25 подтверждена владельцем целиком;
 «Готово, когда» и имя Epic-а — тоже)
 Source: [roadmap.md](../../docs/roadmap.md), раздел `worfy-link`; [CONTEXT.md](../../CONTEXT.md), термины
 Machine и Linked machine; ADR этого docs-PR — [ADR-0052](../../docs/adr/0052-machines-and-linking.md)

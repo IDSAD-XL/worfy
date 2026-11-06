@@ -1,6 +1,6 @@
 # worfy-guide — короткая живая справка внутри приложения
 
-Status: готов к работе после `worfy-onboarding` 13 и 14
+Status: принят владельцем 2026-10-31 (вопросы Q1–Q23); готов к работе после `worfy-onboarding` 13 и 14
 Source: слово владельца 2026-10-31, grill в два раунда, вопросы Q1–Q23
 Ticket-ы: Epic `worfy-guide`, 21 Ticket, нумерация с 01. Шапка — как у worfy-onboarding (Type:/Status:/Blocked by:/Source:)
 

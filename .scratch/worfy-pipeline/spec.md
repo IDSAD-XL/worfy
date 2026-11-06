@@ -1,6 +1,6 @@
 # worfy-pipeline: на каком Stage каждый Ticket и кого он ждёт — доска Pipeline, stepper на Card, отметки агентов
 
-Status: по решению владельца 2026-10-17 (grilling о Pipeline); разбиение на Ticket-ы, «Готово, когда»
+Status: принят владельцем 2026-10-17 (grilling о Pipeline); разбиение на Ticket-ы, «Готово, когда»
 и «Соглашения» — предложение этого docs-PR, первый черновик
 Source: решение владельца 2026-10-17, grilling о Pipeline; разбор кода и Harness по main `9ea609d8`.
 [CONTEXT.md](../../CONTEXT.md) — термины, раздел «Workflow» (Stage, Pipeline); ADR

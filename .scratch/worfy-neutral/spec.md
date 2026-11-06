@@ -1,6 +1,6 @@
 # worfy-neutral: Harness нейтрален по языку и проекту — User personalization, английский протокол, код без кириллицы
 
-Status: по решению владельца 2026-10-19 (grilling «worfy-neutral», Q1–Q15, все приняты как
+Status: принят владельцем 2026-10-19 (grilling «worfy-neutral», Q1–Q15, все приняты как
 рекомендованы); «Готово, когда», файлы Ticket-ов и Wave-ы — предложение этого docs-PR
 Source: решения владельца 2026-10-19 в чате с Orchestrator-ом на Mac; замер по main `07f17fa3`.
 [CONTEXT.md](../../CONTEXT.md) — термины (Harness, Profile, User personalization); ADR
