@@ -137,7 +137,10 @@ While a run goes on:
   the answer to the agent; with no answer in 60 minutes, or when the run stops, the request is refused with a hint, and
   while the run is stopping a request is not parked but refused at once. A parked request keeps its background task
   from counting as stalled. The journal gets `park` when it is parked, then `park-answered` or `park-expired`.
-  When the run stops, the Orchestrator's chat gets one line that counts the run's decisions: `Auto-approval: allowed 3,
+  When the run is over, the Orchestrator's chat gets one line that counts the run's decisions: at the stop when
+  nothing is left running, else once the run's turn and background tasks have ended and the Orchestrator is back, the
+  app quits, or the next run takes the Session over. A request of those tasks after the stop is judged by the run's
+  policy and journaled as during the run, and the line counts it. The line reads `Auto-approval: allowed 3,
   denied 1, parked 0` for On, `Shadow: would allow 2, would deny 1, would park 0` for Shadow, with `hard-denied N` added
   when there was a hard deny, and both, On first, when the mode was switched during the run. The end of a park is not
   counted again. A run with no decision gets no line. Run history lists the decisions
