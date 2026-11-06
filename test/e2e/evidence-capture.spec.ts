@@ -3,8 +3,8 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSyn
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { crc32 } from 'node:zlib'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { crc32, deflateSync, inflateSync } from 'node:zlib'
+import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { catScript, loginProfileWithNode } from '../harness-node'
 import {
   CLIP_MAX_BYTES,
@@ -16,8 +16,10 @@ import {
   ffmpegProblem,
   ffmpegRevision,
   keepIfPrivate,
+  opaquePng,
   playwrightCore,
   playwrightFfmpegDir,
+  pngPixels,
   pngSize,
   recordClip,
   saveClip,
@@ -26,10 +28,13 @@ import {
   SHEET_MAX_SIDE,
   sheetCell,
   sheetLayout,
+  takeFrame,
   ticketEvidenceCommand,
+  type Theme,
 } from './evidence-capture'
 import { canvasReady, innerSize, launchApp, repoRoot, type LaunchOptions } from './helpers'
 import { ms } from '../time-scale'
+import { WINDOW_BACKGROUND } from '../../src/main/window-frame'
 
 // The Evidence helpers of e2e (worfy-evidence ticket 11): captureScreenshot gives a PNG per theme,
 // recordClip a webm of the main window with its contact sheet, both from Playwright of the fixture
@@ -95,16 +100,17 @@ function fixtureProject(): LaunchOptions {
   }
 }
 
+function chunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(data.length)
+  const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(crc32(body))
+  return Buffer.concat([length, body, crc])
+}
+
 /** A 1 × 1 PNG, with a tEXt chunk of `text` when one is given. */
 function png(text?: string): Buffer {
-  const chunk = (type: string, data: Buffer): Buffer => {
-    const length = Buffer.alloc(4)
-    length.writeUInt32BE(data.length)
-    const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
-    const crc = Buffer.alloc(4)
-    crc.writeUInt32BE(crc32(body))
-    return Buffer.concat([length, body, crc])
-  }
   const ihdr = Buffer.from([0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 0, 0, 0])
   const idat = Buffer.from([0x78, 0x9c, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01])
   return Buffer.concat([
@@ -115,6 +121,87 @@ function png(text?: string): Buffer {
     chunk('IEND', Buffer.alloc(0)),
   ])
 }
+
+/** An 8-bit RGBA PNG of `pixels` ([r, g, b, a] each, row after row), every row unfiltered: written here, not by the helper. */
+function rgbaPng(width: number, height: number, pixels: number[][]): Buffer {
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  header[8] = 8
+  header[9] = 6
+  const rows: number[] = []
+  for (let y = 0; y < height; y++) rows.push(0, ...pixels.slice(y * width, (y + 1) * width).flat())
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(Buffer.from(rows))),
+    chunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+/** The filter byte of each row of an 8-bit PNG with `channels` bytes a pixel. */
+function rowFilters(file: Buffer, channels: number): number[] {
+  const { width, height } = pngSize(file)
+  const idat: Buffer[] = []
+  for (let at = 8; at + 12 <= file.length; at += 12 + file.readUInt32BE(at)) {
+    if (file.toString('latin1', at + 4, at + 8) === 'IDAT') idat.push(file.subarray(at + 8, at + 8 + file.readUInt32BE(at)))
+  }
+  const raw = inflateSync(Buffer.concat(idat))
+  return Array.from({ length: height }, (_, y) => raw[y * (width * channels + 1)] ?? -1)
+}
+
+/**
+ * The alpha of the pixels of `file` as Electron decodes them (nativeImage, Skia), not as the helper does:
+ * how many pixels, how many have alpha below 255 and the lowest alpha, and how many have another alpha
+ * than pngPixels reads. Only the alpha: Electron converts the colours by the ICC profile Chromium puts in
+ * a screenshot, and the order of the colour bytes of a bitmap is the platform's.
+ */
+async function decoded(app: ElectronApplication, file: Buffer): Promise<{ pixels: number; translucent: number; lowest: number; differ: number }> {
+  const ours = pngPixels(file).rgba
+  const theirs = Buffer.from(
+    await app.evaluate(({ nativeImage }, base64) => nativeImage.createFromBuffer(Buffer.from(base64, 'base64')).toBitmap().toString('base64'), file.toString('base64')),
+    'base64',
+  )
+  expect(theirs.length).toBe(ours.length)
+  let translucent = 0
+  let lowest = 255
+  let differ = 0
+  for (let at = 3; at < theirs.length; at += 4) {
+    const alpha = theirs[at] ?? 0
+    if (alpha < 255) translucent++
+    lowest = Math.min(lowest, alpha)
+    if (alpha !== ours[at]) differ++
+  }
+  return { pixels: theirs.length / 4, translucent, lowest, differ }
+}
+
+/**
+ * A 6 × 5 RGBA PNG Pillow wrote, its rows filtered Sub, Up, Sub, Up, Paeth: a reading of PNG filters
+ * independent of the helper's own writing. PILLOW_PIXELS gives its pixels.
+ */
+const PILLOW_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAYAAAAFCAYAAABmWJ3mAAAAQklEQVR42mPkZWdOSbSVNUXHTAw4AKOGnMh/EX4uBnTMhE1QhJ+LgeXD5YeMouw3dIVEb+gqK9/QVRW7oatqfkMXAH0iEVz9TGXjAAAAAElFTkSuQmCC'
+const PILLOW_PIXELS = Array.from({ length: 30 }, (_, at) => {
+  const [x, y] = [at % 6, Math.floor(at / 6)]
+  if (y <= 1) return [(x * 97 + 13) % 256, (x * 61 + 7) % 256, (x * 29 + 3) % 256, (x * 53 + 100) % 256]
+  if (y <= 3) return [(x + y) * 20, (x + y) * 15, (x + y) * 10, 255]
+  return [(x * 37 + y * 11) % 256, (x * x * 7) % 256, (255 - x * 40 + 256) % 256, (x * 45) % 256]
+})
+
+/**
+ * A 6 × 4 RGBA PNG Pillow wrote (optimize), its rows filtered None, Average, Sub, Sub: the second row
+ * halves each channel from pixel to pixel over an empty row, where Average predicts every byte but the
+ * first and an Average that rounds up does not. PILLOW_AVERAGE_PIXELS gives its pixels.
+ */
+const PILLOW_AVERAGE_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAYAAAAECAYAAACtBE5DAAAAOElEQVR42mNgwAGYT/5PXotNgpGb9YSgajSvLTpmFP3P8F/2ESuD7CN+BtlHkgyyj5QZZB/pMgAA76oPRJdX3Q4AAAAASUVORK5CYII='
+const PILLOW_AVERAGE_PIXELS = Array.from({ length: 24 }, (_, at) => {
+  const [x, y] = [at % 6, Math.floor(at / 6)]
+  if (y === 0) return [0, 0, 0, 0]
+  if (y === 1) return [201, 255, 99, 173].map((start) => start >> x)
+  if (y === 2) return [(x * 37 + 11) % 256, (x * 91 + 5) % 256, (x * 13 + 200) % 256, (x * 61 + 17) % 256]
+  return [(x * 29 + 21) % 256, 255 - x * 30, x * x * 5, 255]
+})
 
 /** The files of the test's output folder whose names start with `stem`. */
 const filesOf = (stem: string): string[] => (existsSync(test.info().outputDir) ? readdirSync(test.info().outputDir).filter((name) => name.startsWith(stem)) : [])
@@ -201,6 +288,72 @@ test.describe('where the files go and what the helpers print', () => {
     expect(() => pngSize(Buffer.from('GIF89a and more bytes than a header'))).toThrow('not a PNG')
   })
 
+  test('opaquePng: each translucent pixel laid over the background, as an RGB PNG; a picture with no translucent pixel stays as it is (worfy-evidence ticket 13)', () => {
+    // Opaque red, blue at alpha 128, green at alpha 0, over #102030.
+    const translucent = rgbaPng(3, 1, [
+      [255, 0, 0, 255],
+      [0, 0, 255, 128],
+      [0, 255, 0, 0],
+    ])
+    const flat = opaquePng(translucent, '#102030')
+    const read = pngPixels(flat)
+    expect(read.alpha).toBe(false)
+    expect([...read.rgba]).toEqual([255, 0, 0, 255, Math.round((16 * 127) / 255), Math.round((32 * 127) / 255), Math.round((255 * 128 + 48 * 127) / 255), 255, 16, 32, 48, 255])
+    // Every pixel opaque, or no alpha channel at all (Windows and Linux): the very bytes come back.
+    const opaque = rgbaPng(2, 1, [
+      [1, 2, 3, 255],
+      [4, 5, 6, 255],
+    ])
+    expect(opaquePng(opaque, '#102030')).toBe(opaque)
+    const grey = png()
+    expect(opaquePng(grey, '#102030')).toBe(grey)
+    expect(() => opaquePng(translucent, 'black')).toThrow(/must be #rrggbb/)
+
+    // A PNG another encoder wrote, rows filtered Sub, Up and Paeth: read as written.
+    expect(rowFilters(Buffer.from(PILLOW_PNG, 'base64'), 4)).toEqual([1, 2, 1, 2, 4])
+    expect([...pngPixels(Buffer.from(PILLOW_PNG, 'base64')).rgba]).toEqual(PILLOW_PIXELS.flat())
+    // And a row filtered Average, from the same encoder.
+    expect(rowFilters(Buffer.from(PILLOW_AVERAGE_PNG, 'base64'), 4)).toEqual([0, 3, 1, 1])
+    expect([...pngPixels(Buffer.from(PILLOW_AVERAGE_PNG, 'base64')).rgba]).toEqual(PILLOW_AVERAGE_PIXELS.flat())
+    // A filter byte above 4 is not a PNG filter: an error, not a row read as unfiltered.
+    const badFilter = rgbaPng(1, 1, [[1, 2, 3, 4]])
+    const idatAt = badFilter.indexOf('IDAT', 8, 'latin1')
+    const idatLength = badFilter.readUInt32BE(idatAt - 4)
+    const rows = inflateSync(badFilter.subarray(idatAt + 4, idatAt + 4 + idatLength))
+    rows[0] = 5
+    const withFive = Buffer.concat([badFilter.subarray(0, idatAt - 4), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))])
+    expect(() => pngPixels(withFive)).toThrow(/filter 5: only filters 0 to 4 exist/)
+    // Only the first pixel translucent: it is found, and the picture is laid over the background.
+    const firstOnly = opaquePng(
+      rgbaPng(2, 1, [
+        [0, 0, 0, 0],
+        [9, 9, 9, 255],
+      ]),
+      '#102030',
+    )
+    expect([...pngPixels(firstOnly).rgba]).toEqual([16, 32, 48, 255, 9, 9, 9, 255])
+
+    // Noise, the same row again, and diagonal gradients: the rows the helper writes take more than one
+    // filter (Up for a repeated row), and each pixel reads back as laid over the background.
+    const width = 48
+    const height = 24
+    const pixels: number[][] = []
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (y % 4 === 0) pixels.push([(x * 7919 + y * 104729) % 256, (x * 31 + y * 17) % 256, (x * y) % 256, (x * 13) % 256])
+        else if (y % 4 === 1) pixels.push([...(pixels[(y - 1) * width + x] ?? [])])
+        else pixels.push([(x + y) * 3, (x + y) * 2, x + y, 255])
+      }
+    }
+    const mixed = opaquePng(rgbaPng(width, height, pixels), '#f7f7f9')
+    expect(new Set(rowFilters(mixed, 3))).toContain(2)
+    expect(new Set(rowFilters(mixed, 3)).size).toBeGreaterThanOrEqual(2)
+    const under = [0xf7, 0xf7, 0xf9]
+    const expected = pixels.flatMap(([r, g, b, a]) => [...[r, g, b].map((c, i) => Math.round(((c ?? 0) * (a ?? 0) + (under[i] ?? 0) * (255 - (a ?? 0))) / 255)), 255])
+    expect([...pngPixels(mixed).rgba]).toEqual(expected)
+    expect(() => pngPixels(Buffer.from('GIF89a and more bytes than a header'))).toThrow('not a PNG')
+  })
+
   test('the contact sheet: frames at their own size, a grid near square, never over the largest side', () => {
     const cell = { width: 1280 + SHEET_GAP, height: 800 + SHEET_CAPTION + SHEET_GAP }
     expect(sheetLayout(1, { width: 1280, height: 800 })).toEqual({ columns: 1, rows: 1, width: SHEET_GAP + cell.width, height: SHEET_GAP + cell.height })
@@ -273,8 +426,10 @@ test.describe('where the files go and what the helpers print', () => {
         page: () => page as unknown as Page,
         screenshot: async ({ path }: { path: string }) => {
           shots.push(path)
-          writeFileSync(path, png())
+          const shot = png()
+          writeFileSync(path, shot)
           if (shots.length === failOn) throw new Error('the window went away')
+          return shot
         },
       } as unknown as Locator
     }
@@ -403,6 +558,92 @@ test('captureScreenshot: a PNG of the window in each theme, of a part of it, and
     await launched.close()
   }
   expect(scratchStatus()).toBe(before)
+})
+
+test('captureScreenshot and the contact sheet: no pixel with alpha below 255 in either theme, so nothing behind the picture shows through the sidebar (worfy-evidence ticket 13)', async () => {
+  test.skip(EVIDENCE_RUN, 'a WORFY_EVIDENCE run records only the clips of the Ticket')
+  const launched = await launchApp(fixtureProject())
+  try {
+    const { window, app } = launched
+    await canvasReady(launched, { visible: [window.locator(CARD)], size: SIZE })
+    // The helper's own reading of a PNG is Electron's on a screenshot as Chromium writes it: on macOS one
+    // with the translucent sidebar, elsewhere an opaque one.
+    const raw = await window.screenshot()
+    const asIs = await decoded(app, raw)
+    expect(asIs.pixels).toBeGreaterThan(0)
+    expect(asIs.differ, 'pixels whose alpha pngPixels reads otherwise than Electron').toBe(0)
+    const darkNow = (): Promise<boolean> =>
+      window.evaluate(() => (globalThis as unknown as { matchMedia: (query: string) => { matches: boolean } }).matchMedia('(prefers-color-scheme: dark)').matches)
+    const own: Theme = (await darkNow()) ? 'dark' : 'light'
+    // The screenshot of each theme as Playwright gives it, alpha and all, taken before the helper's.
+    const rawOf: Partial<Record<Theme, Buffer>> = {}
+    for (const theme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: theme })
+      rawOf[theme] = await window.screenshot()
+    }
+    await window.emulateMedia({ colorScheme: own })
+    const files = await captureScreenshot(window, 'opaque')
+    for (const [index, theme] of (['light', 'dark'] as const).entries()) {
+      const file = files[index] as string
+      const seen = await decoded(app, readFileSync(file))
+      expect(seen.pixels).toBeGreaterThan(0)
+      expect(seen.translucent, `${file}: pixels with alpha below 255 (the lowest ${seen.lowest})`).toBe(0)
+      expect(seen.differ).toBe(0)
+      // The most translucent pixel of the theme's own screenshot (the sidebar on macOS) is laid over the
+      // window background of that theme, not of the other one.
+      const before = pngPixels(rawOf[theme] as Buffer)
+      let spot = -1
+      for (let at = 3; at < before.rgba.length; at += 4) if ((before.rgba[at] ?? 255) < 255 && (spot < 0 || (before.rgba[at] ?? 255) < (before.rgba[spot * 4 + 3] ?? 255))) spot = (at - 3) / 4
+      if (process.platform === 'darwin') expect(spot, 'a macOS screenshot with no translucent pixel: the sidebar has no vibrancy').toBeGreaterThanOrEqual(0)
+      if (spot < 0) continue
+      const after = pngPixels(readFileSync(file))
+      const alpha = before.rgba[spot * 4 + 3] ?? 255
+      const over = (background: string): number[] =>
+        [1, 3, 5].map((from, channel) => Math.round(((before.rgba[spot * 4 + channel] ?? 0) * alpha + parseInt(background.slice(from, from + 2), 16) * (255 - alpha)) / 255))
+      const got = [...after.rgba.subarray(spot * 4, spot * 4 + 3)]
+      const near = (want: number[]): boolean => want.every((value, channel) => Math.abs(value - (got[channel] ?? 0)) <= 3)
+      const other: Theme = theme === 'light' ? 'dark' : 'light'
+      expect(near(over(WINDOW_BACKGROUND[theme])), `${theme}: pixel ${spot} (alpha ${alpha}) is ${got.join(',')}, over ${WINDOW_BACKGROUND[theme]} it is ${over(WINDOW_BACKGROUND[theme]).join(',')}`).toBe(true)
+      expect(near(over(WINDOW_BACKGROUND[other])), `${theme}: pixel ${spot} looks laid over the ${other} background`).toBe(false)
+    }
+
+    // A frame of a clip carries the scheme the page shows when it is taken.
+    for (const theme of ['dark', 'light'] as const) {
+      await window.emulateMedia({ colorScheme: theme })
+      const frame = await takeFrame(launched, undefined)
+      expect(frame.theme).toBe(theme)
+      expect(pngSize(frame.png).width).toBeGreaterThan(0)
+    }
+    await window.emulateMedia({ colorScheme: own })
+
+    // A frame of a clip is laid over the background of the theme it was taken in, not over the white of
+    // the sheet: a frame with nothing opaque on it shows that background whole.
+    const clear = rgbaPng(4, 4, Array.from({ length: 16 }, () => [255, 255, 255, 0]))
+    const sheetDir = join(scratch, 'sheet')
+    mkdirSync(sheetDir)
+    const sheet = await contactSheet(
+      app,
+      [
+        { second: 0, png: clear, theme: 'dark' },
+        { second: 1, png: clear, theme: 'light' },
+        // No scheme given: light.
+        { second: 2, png: clear },
+      ],
+      sheetDir,
+    )
+    const read = pngPixels(sheet)
+    const layout = sheetLayout(3, { width: 4, height: 4 })
+    const cell = (index: number): string => {
+      const x = SHEET_GAP + (index % layout.columns) * (4 + SHEET_GAP) + 1
+      const y = SHEET_GAP + Math.floor(index / layout.columns) * (4 + SHEET_CAPTION + SHEET_GAP) + 1
+      return '#' + [...read.rgba.subarray((y * read.width + x) * 4, (y * read.width + x) * 4 + 3)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+    }
+    expect([cell(0), cell(1), cell(2)]).toEqual([WINDOW_BACKGROUND.dark, WINDOW_BACKGROUND.light, WINDOW_BACKGROUND.light])
+    const sheetSeen = await decoded(app, sheet)
+    expect(sheetSeen.translucent).toBe(0)
+  } finally {
+    await launched.close()
+  }
 })
 
 test('recordClip: a Ticket in focus mode and a card dragged with its Epic frame make a webm under 60 s and 8 MB with a frame a second on its sheet, and both pass evidence-check with a video line', async () => {
