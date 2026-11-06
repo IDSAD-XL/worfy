@@ -46,8 +46,12 @@ Ticket 05 (PR #1469) судит команду Codex так. Значение п
 ## Готово, когда
 
 - [x] В «Итог» — ссылка на исходник Codex и порядок `set` / `include_only` / `exclude` / `inherit`.
+  - evidence: commit pass · docs: worfy-auto-approve 14 result — Codex order of set and include_only · - - · 3c63c20ff575f7d295d659eb85496f0466d8b0cc
 - [x] Путь выбран и записан; при (а) — test-ы п. 4 зелёные, при «set последним» — комментарий исправлен.
+  - evidence: test-run pass · `pnpm test test/unit/auto-approve-shell.test.ts test/unit/auto-approve-run.test.ts test/contract/auto-approve-codex.test.ts test/contract/auto-approve-claude.test.ts` exit 0 · mac - · 3c63c20ff575f7d295d659eb85496f0466d8b0cc
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 3c63c20ff575f7d295d659eb85496f0466d8b0cc
 - [x] `docs/features/autopilot.md` говорит, какие переменные Codex-Run раскрывает при суде.
+  - evidence: commit pass · docs: the Codex shell wrappers the policy judges, and TMPDIR on Codex (worfy-auto-approve 14) · - - · 3c63c20ff575f7d295d659eb85496f0466d8b0cc
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Где в коде
