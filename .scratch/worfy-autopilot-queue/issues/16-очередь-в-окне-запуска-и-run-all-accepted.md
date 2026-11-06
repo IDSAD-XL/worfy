@@ -27,15 +27,15 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4; «
 ## Готово, когда
 
 - [ ] Unit test списка: снять галочку, перетащить мышью и ⌥↑/⌥↓, прогноз пересчитан, пустой выбор — старт недоступен.
-  - evidence: test-run pass · `pnpm test test/unit/queue-list.test.tsx` 9 passed, exit 0 · mac - · b7c25ed7dc42eeb0351456614725c54fdfb0ed4e
+  - evidence: test-run pass · `pnpm test test/unit/queue-list.test.tsx` 9 passed, exit 0 · mac - · 047b774eb204c967bf1d64905b7ee108998c687c
 - [ ] Contract test `autopilot.prepare` с тремя Epic-ами: даты, Wave-ы, сумма прогноза.
-  - evidence: test-run pass · `pnpm test test/contract/autopilot-prepare.test.ts` 10 passed, exit 0 · mac - · b7c25ed7dc42eeb0351456614725c54fdfb0ed4e
+  - evidence: test-run pass · `pnpm test test/contract/autopilot-prepare.test.ts` 10 passed, exit 0 · mac - · 047b774eb204c967bf1d64905b7ee108998c687c
 - [ ] e2e: Command palette → «Run all accepted» → окно с тремя Epic-ами fixture-а → снять второй, первый и третий
       поменять местами → старт → `run-started.epics` в журнале — в новом порядке без снятого.
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-start-modal.spec.ts` 4 passed, exit 0 · mac dev · f52e9056af0dfbb9376a4396b71bffcd3cdaa92f
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-start-modal.spec.ts` 4 passed, exit 0 · mac dev · 047b774eb204c967bf1d64905b7ee108998c687c
 - [ ] Снимок вида «Queue» в обеих темах — `../evidence/16-*.png`.
-  - evidence: screenshot pass · `../evidence/16-start-window-queue-light.png` · mac dev · d830ba0fc21f4eb0e88ed4d2d8a067b294b60667 · scrub: 2026-11-07
-  - evidence: screenshot pass · `../evidence/16-start-window-queue-dark.png` · mac dev · d830ba0fc21f4eb0e88ed4d2d8a067b294b60667 · scrub: 2026-11-07
+  - evidence: screenshot pass · `../evidence/16-start-window-queue-light.png` · mac dev · 5bf6694213e0be90310c92348853b99de3089a81 · scrub: 2026-11-07
+  - evidence: screenshot pass · `../evidence/16-start-window-queue-dark.png` · mac dev · 5bf6694213e0be90310c92348853b99de3089a81 · scrub: 2026-11-07
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты
@@ -81,3 +81,7 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4; «
   называют роли `kind-*`); toast отказа старта очереди — тот же ключ, что у кнопки Autopilot.
 - Вне следа: стили — `src/renderer/autopilot/autopilot-modal.css`; страница `docs/features/autopilot.md` (вид «Queue»,
   «Run all accepted», просьба агента со списком).
+- Локально на Mac `pnpm lint` и `pnpm typecheck` — exit 0; `pnpm test` и gate fast — exit 1/2 только из-за contract
+  test-ов слежения за файлами (`cards-watch-edits`, `claude-home-registry`, `docs-watch-root`, `docs`,
+  `harness-script-env`, `workflow-reader`) при перегруженном fseventsd; остальные 15 620 test-ов зелёные. Пункт 5 —
+  по `ci-ok` PR-а.
