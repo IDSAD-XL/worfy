@@ -9,7 +9,7 @@
 // timings.json of every run for TIMINGS_KEPT_MS (31 days, counted from its `at`) and strips only the
 // script logs of a run past the newest ten of its worktree; worfy-work-track 08 brought this reading
 // to that: a folder full of ten runs no longer means a lost record. What the gate log no longer
-// holds is a lost fact «gate logs deleted»:
+// holds is a lost fact «gate logs deleted (kept 31 days)»:
 // - a run folder begun within the Run with no readable timings.json: a known run without its record,
 //   from the folder's start to the start of the next run of that worktree (else the Run's end, or
 //   now while the Run is live);

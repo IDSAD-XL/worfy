@@ -103,7 +103,7 @@ What the bars show:
 | `#2` on a bar and in its row | A retry: an implementer sent back after a REJECTED verifier, a narrow fix round, an agent started again after a Session error, a CI run again. Selecting it outlines the span that caused it with a dashed line. |
 | Red `!` on a Ticket's row | A block, with its `Blocked reason:` and `Waits:`. The row is hatched grey from there until the block is cleared or the run ends. |
 | A jagged, fading end | Cut off: the span has no end in any source, so it ends at the last event about it. |
-| Grey hatching and a label | The source of the details is gone: `transcript deleted`, `gate logs deleted (10 runs or 8 days)`, `GitHub did not answer` or `branch deleted`. |
+| Grey hatching and a label | The source of the details is gone: `transcript deleted`, `gate logs deleted (kept 31 days)`, `GitHub did not answer` or `branch deleted`. |
 | One Stage bar with several names | No source marks the boundaries between these Stages; the span notes `no boundary in sources`. |
 
 A step that neither the journal nor any other source mentions did not happen, and has no bar.
@@ -180,7 +180,7 @@ Run history keeps no copy. A run lasts as long as its sources:
 |---|---|
 | The Autopilot journal | Never cleaned by worfy, so the frame of every run stays: its Waves, waits, Tickets' statuses and stop. |
 | Transcripts | As long as Claude Code keeps them: `cleanupPeriodDays` of its settings, 30 days by default. |
-| Gate logs | The last 10 runs of each worktree. A later gate run removes the folder of a worktree untouched for more than 8 days. |
+| Gate logs | The record of each gate run (`timings.json`) for 31 days. A run folder that lost its record is labelled too. |
 | GitHub | Not cleaned. |
 
 A detail whose source is gone shows as grey hatching with the label of that source. Lines of the journal that are not

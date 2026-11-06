@@ -75,8 +75,9 @@ cached, so a red script always runs again.
 - The report of a failed script holds its last 40 lines under `--- FAILED: <label>`. For output in the shape of Playwright's
   list reporter it adds the failure blocks above those lines: at most 60 lines a block, 200 in all, 500 characters a line. It
   ends with the path of the full log.
-- The full output of every script, green ones too, goes to a log file. The newest 10 runs of a worktree are kept, and the
-  logs of another worktree untouched for more than 8 days are removed.
+- The full output of every script, green ones too, goes to a log file. The newest 10 runs of a worktree are kept whole. An
+  older run, and every run of another worktree untouched for more than 8 days, loses its script logs but keeps its
+  `timings.json` for 31 days.
 - A file that the diff takes from at most 1000 lines to more than 1000 prints
   `[gate] warning: file over 1000 lines: <path> (<before> → <now>)`. A file that was already longer, a file that only moved,
   a binary file, a lock file and a generated file get no warning. The warning changes nothing else, and a cache hit prints it

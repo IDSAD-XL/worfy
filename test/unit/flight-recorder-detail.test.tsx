@@ -243,7 +243,7 @@ describe('the detail panel', () => {
     expect(field('end-source')).toBe('a gate log')
     await select('lost:1')
     expect(field('start-source')).toBe('none: the source is gone')
-    expect(field('lost')).toBe('gate logs deleted (10 runs or 8 days)')
+    expect(field('lost')).toBe('gate logs deleted (kept 31 days)')
     await select(`turn:${SESSION}:16`)
     expect(field('start-source')).toBe('a transcript')
     expect(field('end-source')).toBe('none: cut off at the last event about it in any source')
