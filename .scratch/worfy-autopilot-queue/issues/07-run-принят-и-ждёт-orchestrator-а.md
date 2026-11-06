@@ -1,7 +1,8 @@
 # 07 — Run принят и ждёт Orchestrator-а: ожидание, Start now и Cancel в main
 
 Type: task
-Status: open
+Status: done 2026-11-06T14:51Z
+PR: #1499
 Blocked by: —
 Source: [spec.md](../spec.md), «Что видит владелец», п. 2–3; «Как работает» → «Run принят и ждёт»; «Решения владельца», 1–6, 8; «ADR»; «Решено без владельца», 1–4; [02](02-старт-при-идущей-работе.md), Q1–Q6, Q8
 
@@ -56,35 +57,46 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2–3
       `run-started`, `orchestrator-busy`; ход кончился — `orchestrator-free`, `wave-started`; Wave-команда ушла один раз.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
+  - evidence: review pass · PR #1499 · - - · 8f74215d3ba00e88478441ded4aab87818bca9e2
 - [ ] Contract test: очередь из двух сообщений и две задачи — ждёт, пока очередь пуста и задач нет; новое сообщение
       человека во время ожидания продлевает ожидание.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
+  - evidence: review pass · PR #1499 · - - · 8f74215d3ba00e88478441ded4aab87818bca9e2
 - [ ] Contract test: Cancel — `run-stopped` `start-cancelled`, Session не перезапускалась, сообщения на месте.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
+  - evidence: review pass · PR #1499 · - - · 8f74215d3ba00e88478441ded4aab87818bca9e2
 - [ ] Contract test: Start now — `tasks-killed` `start-now` с задачами, Session unattended, Wave пошла; сообщения
       очереди не ушли в unattended Session и достались Session человека после остановки Run-а.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
+  - evidence: review pass · PR #1499 · - - · 8f74215d3ba00e88478441ded4aab87818bca9e2
 - [ ] Contract test: Run того же Epic-а на другой Machine начался во время ожидания — `run-stopped` `start-refused`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
+  - evidence: review pass · PR #1499 · - - · 8f74215d3ba00e88478441ded4aab87818bca9e2
 - [ ] Contract test: Run mode Start window — окно считается от `orchestrator-free` (часы test-а).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
+  - evidence: review pass · PR #1499 · - - · 8f74215d3ba00e88478441ded4aab87818bca9e2
 - [ ] `test/contract/autopilot-start-tool.test.ts:592-654`: вместо «hint while a start waits» и «starts after this
       turn» — ожидание общим путём.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-start-tool.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
+  - evidence: review pass · PR #1499 · - - · 8f74215d3ba00e88478441ded4aab87818bca9e2
 - [ ] e2e `test/e2e/autopilot.spec.ts:1161-1196` (toast отказа, worfy-polish 50) берёт за пример отказа Orchestrator в
       ходе: пример меняется на отказ, который остаётся (пустой шаблон «Run wave»), а Orchestrator в ходе даёт строку
       ожидания.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot.spec.ts` exit 0 · mac dev · b4b4fa6e4279723cfb7afde9f53809e3221476a0
+  - evidence: review pass · PR #1499 · - - · 8f74215d3ba00e88478441ded4aab87818bca9e2
 - [ ] Новый ADR и `## Amendments` в ADR-0029 и ADR-0091.
   - evidence: commit pass · Autopilot: a run started while the Orchestrator is busy waits for it (worfy-autopilot-queue 07) · - - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
+  - evidence: review pass · PR #1499 · - - · 8f74215d3ba00e88478441ded4aab87818bca9e2
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
   - evidence: gate pass · `gate fast` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
   - evidence: gate pass · `gate fast` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
+  - evidence: review pass · PR #1499 · - - · 8f74215d3ba00e88478441ded4aab87818bca9e2
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42233850435 · ci - · 8f74215d3ba00e88478441ded4aab87818bca9e2
 
 ## Тесты
 
