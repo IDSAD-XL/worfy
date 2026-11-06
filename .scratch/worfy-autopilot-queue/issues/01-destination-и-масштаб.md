@@ -2,7 +2,7 @@
 
 Type: grilling
 Status: done 2026-11-05
-Blocked by:
+Blocked by: —
 Source: [map.md](../map.md); слово владельца 2026-11-05
 
 ## Question

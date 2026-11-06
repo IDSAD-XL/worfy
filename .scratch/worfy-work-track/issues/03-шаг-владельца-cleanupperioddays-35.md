@@ -4,7 +4,7 @@ Type: task
 Status: blocked 2026-11-05T19:30Z
 Blocked reason: owner step: set cleanupPeriodDays 35 in ~/.claude/settings.json on the Mac
 Waits: owner
-Blocked by:
+Blocked by: —
 Source: [spec.md](../spec.md), «Решения владельца», 5; «Открытые вопросы», 3; [research 04](../../worfy-autopilot-queue/issues/04-данные-work-track.md), «Пробелы», 4; [06](../../worfy-autopilot-queue/issues/06-объём-и-доступ-work-track.md), Q2
 
 ## Что происходит

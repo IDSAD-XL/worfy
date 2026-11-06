@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by:
+Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Модель»; «Решения владельца», 2, 9, 10; [05](../../worfy-autopilot-queue/issues/05-вид-work-track.md), Q3, Q4, Q6
 
 ## Что происходит
