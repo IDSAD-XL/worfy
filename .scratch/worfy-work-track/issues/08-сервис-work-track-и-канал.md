@@ -1,7 +1,8 @@
 # 08 — Сервис Work track и канал `work-track.read`
 
 Type: task
-Status: open
+Status: done 2026-11-06T20:14Z
+PR: #1521
 Blocked by: 01, 02, 05, 06, 07
 Source: [spec.md](../spec.md), «Как работает» → «Источники», «Чтение»; «Решения владельца», 2, 3, 6; «ADR»; [04](../../worfy-autopilot-queue/issues/04-данные-work-track.md), «Итог»
 
@@ -29,15 +30,21 @@ Source: [spec.md](../spec.md), «Как работает» → «Источни�
 - [ ] Contract test на fixture-ах: Run, ручная Wave по маркеру, ходы трёх Session, PR, CI, gate, смены статуса — все
       факты в ответе; Wave Run-а и её маркер — один Span.
   - evidence: test-run pass · `pnpm test test/contract/work-track-service.test.ts` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
+  - evidence: review pass · PR #1521 · - - · e1622b5e664b9a499413ce66c9077523d5d35ff5
 - [ ] Contract test: ни один файл в fixture Claude home, папке Harness-а и репозитории не изменён (ADR-0005).
   - evidence: test-run pass · `pnpm test test/contract/work-track-service.test.ts` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
+  - evidence: review pass · PR #1521 · - - · e1622b5e664b9a499413ce66c9077523d5d35ff5
 - [ ] Contract test: gate старше срока — пробел; GitHub недоступен — пробел и остальное.
   - evidence: test-run pass · `pnpm test test/contract/work-track-service.test.ts` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
+  - evidence: review pass · PR #1521 · - - · e1622b5e664b9a499413ce66c9077523d5d35ff5
 - [ ] `test/contract/flight-recorder-gate-logs.test.ts` зелёный с новыми константами.
   - evidence: test-run pass · `pnpm test test/contract/flight-recorder-gate-logs.test.ts` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
+  - evidence: review pass · PR #1521 · - - · e1622b5e664b9a499413ce66c9077523d5d35ff5
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
   - evidence: gate pass · `gate fast` exit 0 · mac - · c23447116a1396ca61d3b70056991327c856831f
+  - evidence: review pass · PR #1521 · - - · e1622b5e664b9a499413ce66c9077523d5d35ff5
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42282442156 · ci - · e1622b5e664b9a499413ce66c9077523d5d35ff5
 
 ## Тесты
 
