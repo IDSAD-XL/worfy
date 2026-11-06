@@ -63,7 +63,7 @@ import { createParker, type ParkEnd } from '../../agent/auto-approve/park'
 import type { Decision } from '../../agent/auto-approve/policy'
 import type { ApprovalDecided, PermissionAsk, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import type { CodexAppServer } from './app-server'
-import { approvalAsk, codexKnown, codexPinConfig, codexPinned, decisionOf, isApprovalRequest, parkedCard, policyRequestOf, UNATTENDED_DECLINED_MESSAGE, withGrantRoot, type CodexApprovalRequest, type CodexDecision } from './approvals'
+import { approvalAsk, codexPinConfig, codexPinned, decisionOf, isApprovalRequest, parkedCard, policyRequestOf, UNATTENDED_DECLINED_MESSAGE, withGrantRoot, type CodexApprovalRequest, type CodexDecision } from './approvals'
 import type { CodexRuntime } from './binary'
 import { codexModelOptions, codexPermissionPreset, codexPresetFor, codexSandboxPolicy, codexSettings, type CodexModelSource } from './capabilities'
 import { codexCommandOf, codexSlashCommands, CODEX_BUILT_IN_COMMANDS, slashName, type CodexCommand, type CodexSkillSource } from './commands'
@@ -174,8 +174,6 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
   private server: CodexAppServer | null = null
   /** The whole environment of the app-server process, which the shells of the Session inherit; null: not known. */
   private processEnv: Readonly<Record<string, string | undefined>> | null = null
-  /** The pinned variables a request is judged with (codexKnown); null: none pinned, as in Off. */
-  private known: readonly string[] | null = null
   private threadId = ''
   private readonly out = new InputQueue<AgentEvent>()
   /** Set once the events ended or the handle was closed: nothing more goes out. */
@@ -224,13 +222,12 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
   }
 
   /**
-   * The process, once its handshake is done, the whole environment it started with and the pinned variables a request
-   * is judged with (codexKnown): what it sends from now on reaches this handle.
+   * The process, once its handshake is done, and the whole environment it started with: what it sends from now on
+   * reaches this handle.
    */
-  started(server: CodexAppServer, env: Readonly<Record<string, string | undefined>> | null, known: readonly string[] | null): void {
+  started(server: CodexAppServer, env: Readonly<Record<string, string | undefined>> | null): void {
     this.server = server
     this.processEnv = env
-    this.known = known
   }
 
   /** The thread answered: the Session takes messages, and the end of the process ends the events. */
@@ -625,7 +622,7 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
    * policy. The request stays open while it is judged: Interrupt and the close answer it `cancel`, and Codex may
    * withdraw it; either way no decision is reported (Claude Code's canUseTool cannot be withdrawn, and reports each).
    * The command is judged in the folder Codex names for it, a file change in the Session's folder, both in the
-   * environment the app-server process started with, where only the home folder worfy pins has a known value. Shadow
+   * environment the app-server process started with, where no variable has a known value (codexPinned). Shadow
    * declines as Off does and reports what would have been done; On accepts what the policy allows, declines what it
    * denies, and parks the rest on the Session's gate (worfy-auto-approve ticket 07, park.ts; parkedCard): the owner's
    * pick is the answer, and a park that ends without one — the limit, a stop of the run, the gate's refusal, the request
@@ -637,9 +634,9 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
     const pending = new AbortController()
     this.approvals.set(request.id, pending)
     const { request: judged, cwd, grantRoot } = policyRequestOf(request, ask)
-    // The whole environment, for what its presence changes (IFS, BASH_ENV…); a value only of the home folder (codexKnown):
-    // Codex's shell_environment_policy may leave any other out of the command's shell, a pinned one too.
-    const where = { cwd: judged.tool === 'fileChange' ? this.opts.cwd : cwd, scratchpad: null, ...(this.processEnv === null ? {} : { env: this.processEnv }), known: this.known ?? [] }
+    // The whole environment, for what its presence changes (IFS, BASH_ENV…), and no variable with a known value: the
+    // owner's shell_environment_policy.include_only may leave any out of the command's shell, a pinned one too (codexPinned).
+    const where = { cwd: judged.tool === 'fileChange' ? this.opts.cwd : cwd, scratchpad: null, ...(this.processEnv === null ? {} : { env: this.processEnv }), known: [] }
     const failed: Decision = { outcome: 'deny', rule: 'policy-failed', hint: null, targets: [] }
     void approval
       .judge(judged, where)
@@ -781,7 +778,7 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
   }
   // The token lives as long as the process: it ends when the process exits, or when the handle closes.
   if (mcp !== null) server.process.once('exit', () => mcp.close())
-  session.started(server, processEnv, pinned === null ? null : codexKnown(pinned))
+  session.started(server, processEnv)
   try {
     const params = {
       cwd: opts.cwd,

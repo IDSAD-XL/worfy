@@ -18,7 +18,7 @@
 //   macOS in the system's temporary folder, MACOS_TEMP, whatever TMPDIR says). The
 //   name must be one the shell gives no meaning to (not PATH, PS4, GLOBIGNORE, zsh `path`, a
 //   `BASH_`, `GIT_` or `LD_` name…) and not exported;
-// - `~` and `~/…` at the start of a word, from HOME;
+// - `~` and `~/…` at the start of a word, from HOME, known or not (bash and zsh read the user database without it);
 // - redirections `>`, `>>`, `>|`, `<`, each with an optional fd number, and `N>&M`;
 // - glob `*` and `?` in the last component of a path. A glob that may expand into a word starting
 //   with `-` is refused where the program would read it as an option (`git grep -e x *` with a file
@@ -487,7 +487,8 @@ function surely(name: string, scope: Scope): string | undefined {
   return scope.context.known === undefined || scope.context.known.has(name) ? scope.context.env[name] : undefined
 }
 
-function variable(name: string, state: State, scope: Scope): string {
+/** `$NAME`, or with `anyway` the variable's value in the environment whether the command surely gets it or not. */
+function variable(name: string, state: State, scope: Scope, anyway = false): string {
   if (name === 'IFS') fail('a reference to IFS')
   if (name === 'OLDPWD') fail('a reference to OLDPWD')
   if (name === 'PWD') {
@@ -497,7 +498,7 @@ function variable(name: string, state: State, scope: Scope): string {
   }
   const assigned = state.assigned.get(name)
   if (assigned !== undefined) return assigned
-  const value = surely(name, scope)
+  const value = anyway ? scope.context.env[name] : surely(name, scope)
   if (value === undefined) fail('an unknown variable')
   // Git Bash turns these from the Windows form into its own when it starts (the MSYS runtime
   // converts HOME, TMPDIR, TMP and TEMP): `~` is `/c/Users/…` there, not `C:\Users\…`.
@@ -541,7 +542,9 @@ function expand(word: Word, state: State, scope: Scope, field: boolean): Expande
       const prefix = slash < 0 ? text : text.slice(0, slash)
       if (prefix !== '~') fail('a ~user or ~+ expansion')
       if (slash < 0 && word.parts.length > 1) fail('a ~ before quoted text')
-      const home = variable('HOME', state, scope)
+      // The home folder, though HOME may not reach the command (AnalyzeContext.known): bash and zsh then take it from
+      // the user database, the folder the process started with as HOME.
+      const home = variable('HOME', state, scope, true)
       if (/[*?]/.test(home)) literalGlob = true
       value += home
       text = text.slice(1)

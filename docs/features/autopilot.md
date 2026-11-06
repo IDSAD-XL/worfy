@@ -155,9 +155,10 @@ While a run goes on:
   login profile is the owner's own and outside every root); any other wrapper is not approved. Codex's `shell_environment_policy` may leave variables out of a command's shell. worfy pins the home
   folder and the run's variables (`TMPDIR` and its git environment) in every command's shell of the thread
   (`shell_environment_policy.set`), but Codex applies the owner's `include_only` after these pins, so it may still drop
-  any of them. When a Codex request is judged, only `HOME` (and `USERPROFILE`, where set) has a known value: a command
-  that uses any other variable, `TMPDIR` or a secret included, or makes a folder with `mktemp -d` outside macOS, is not
-  approved, and no value of one reaches the journal. Git on Codex is judged as git without the run's git environment,
+  any of them. When a Codex request is judged, no variable has a known value: a command that uses one — `TMPDIR`,
+  `HOME`, `USERPROFILE` or a secret included — or makes a folder with `mktemp -d` outside macOS is not approved, and no
+  value of one reaches the journal. A `~` at the start of a word is still the home folder the app-server started with:
+  bash and zsh take it from the user database when `HOME` is dropped. Git on Codex is judged as git without the run's git environment,
   so the policy approves no git command there and parks the ones it would allow on Claude Code. A file change is
   judged by each path it writes, the new path of a rename and its `grantRoot` included. A request with a `grantRoot`
   (writes under a folder for the rest of the Session) is never accepted by the policy, input to a running command and
@@ -190,7 +191,7 @@ While a run goes on:
   programs in its config. This does not stop hooks or filters themselves: while there are any, the policy approves git
   only for reading refs and objects. An agent whose process started without that environment (in Off, or before the
   repository got a hook) gets no git approved. On macOS `mktemp -d` ignores `TMPDIR`, so a folder it makes is outside
-  every root; `mkdir -p "$TMPDIR/<name>"` is approved (not on Codex, where `TMPDIR` has no known value), and the hint of a refusal in the home folder names it. In Off
+  every root; `mkdir -p "$TMPDIR/<name>"` is approved (not on Codex, where no variable has a known value), and the hint of a refusal in the home folder names it. In Off
   the agent starts as before, with neither. The folder is removed when the run ends; a run that could not start its
   policy has none. A Session another run took over keeps its folder, as does a crash or a quit;
   such folders go the next time worfy starts.

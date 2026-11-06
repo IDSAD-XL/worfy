@@ -101,3 +101,24 @@ HOME остаётся известным, хотя `include_only` может с�
 Test-ы: `test/contract/auto-approve-codex.test.ts` («the owner's include_only may drop…»),
 `test/unit/auto-approve-run.test.ts` (git с `known`), `test/unit/auto-approve-shell.test.ts` (`mktemp -d`, `git config
 --get` с `known`); `docs/features/autopilot.md` — какие переменные Codex-Run раскрывает при суде.
+
+## Итог раунда 1
+
+Ревью PR #1498, раунд 1 (три medium, один low):
+
+1. **HOME и USERPROFILE на Codex тоже неизвестны** — абзац «HOME остаётся известным» выше больше не верен. Без `HOME`
+   bash и sh раскрывают `"$HOME"/x` в `/x`, так что `/bin/bash -lc 'rm -rf "$HOME"/repo/…/build'` одобрялся бы как
+   удаление внутри корня, а выполнял `rm -rf /repo/…`. Теперь `known` на Codex пуст
+   (`src/main/vendors/codex/session.ts`, `judged`), `codexKnown` убран. `~` в начале слова по-прежнему — домашняя папка
+   из окружения app-server-а (`shell.ts`, `variable(…, anyway)`): bash и zsh без `HOME` берут её из базы пользователей.
+   Проверено на macOS: `env -u HOME /bin/bash -c 'echo ~'`, то же для `/bin/sh` (на macOS это bash) и `/bin/zsh` —
+   печатают домашнюю папку. Не проверено: dash (`/bin/sh` на Linux) без `HOME` оставляет `~` буквально, то есть путь
+   `~/…` ниже папки команды; Git Bash без `HOME` и `USERPROFILE`.
+2. **Off → On во время Run-а.** Session, запущенная в Off, ничего не закрепляет; после переключения на On её запрос
+   судится с пустым `known` — contract test «a Session started in Off and judged after the owner switched to On…».
+3. **ADR-0098** — раздел `## Amendments` с датированной строкой; `docs/features/autopilot.md` говорит то же.
+4. Список платформ в `codexKnown` ушёл вместе с функцией.
+
+Известный предел (был до этого Ticket-а, Ticket 05): владелец своим `shell_environment_policy.set` в config Codex может
+добавить в shell команды `BASH_ENV`, `CDPATH`, `IFS` или `XDG_CONFIG_HOME`, которых нет в окружении app-server-а, и
+проверки наличия их не увидят. Записать этот config может только владелец.

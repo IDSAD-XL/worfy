@@ -877,6 +877,17 @@ describe('the variables whose value the command surely gets (AnalyzeContext.know
     expect(brief('T=$(mktemp -d)', { ...posix, platform: 'darwin', known: new Set(['HOME']) })).toEqual(brief('T=$(mktemp -d)', { ...posix, platform: 'darwin' }))
   })
 
+  // Round 1 of PR #1498: Codex knows no variable, HOME included; `~` still means the home folder, since bash and zsh
+  // take it from the user database when HOME is not set.
+  it('~ is the home folder whether HOME is known or not; $HOME and a bare cd need a known HOME', () => {
+    expect(brief('rm -rf ~/x', known([]))).toEqual(brief('rm -rf ~/x'))
+    expect(brief('rm -rf ~', known([]))).toEqual(brief('rm -rf ~'))
+    expect(analyze('rm -rf "$HOME"/x', known([]))).toEqual({ judged: false, why: 'an unknown variable' })
+    expect(analyze('cd && rm -rf x', known([]))).toEqual({ judged: false, why: 'an unknown variable' })
+    expect(brief('rm -rf ~/x', { ...windows, known: new Set() })).toEqual(brief('rm -rf ~/x', windows))
+    expect(analyze('rm -rf ~/x', { ...posix, env: { TMPDIR: '/tmp/demo-tmp/' }, known: new Set() })).toEqual({ judged: false, why: 'an unknown variable' })
+  })
+
   it('git config --get reads the user\'s config from a known HOME, and from both places while XDG_CONFIG_HOME is not known', () => {
     expect(analyze('git config --get a.b', known(['TMPDIR']))).toEqual({ judged: false, why: 'a git config read without HOME' })
     const xdg = { ...posix, env: { ...posix.env, XDG_CONFIG_HOME: '/tmp/demo-xdg' } }
