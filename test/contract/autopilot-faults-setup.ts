@@ -516,9 +516,10 @@ export function faultRun(options: FaultRunOptions = {}) {
   }
   let restart: { refusal: string | null } | null = null
   /**
-   * The new start after the Run stopped (I6), kept for recovery(). It does not wait for the
-   * Orchestrator to be given back: a stop while background tasks live leaves it unattended, and a
-   * new run takes that Session over as it runs (worfy-polish ticket 50).
+   * The new start after the Run stopped (I6), kept for recovery(). It answers at once: a stop of the
+   * run's own while background tasks live gives the Orchestrator back to a person as it runs
+   * (worfy-autopilot-queue ticket 08), and the new run waits while it is busy (ADR-0099); a graceful
+   * Stop leaves it unattended, and a new run takes that Session over as it runs (worfy-polish ticket 50).
    */
   const startAgain = async (): Promise<{ refusal: string | null }> => {
     restart = await start()

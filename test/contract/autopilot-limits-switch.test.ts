@@ -542,7 +542,7 @@ describe('Autopilot, the Limits and the Auto-continue switch (worfy-retry ticket
     expect(await h.kinds()).not.toContain('resumed')
   })
 
-  it('on: the switch turned off during a far wait, and a turn starting while the run ends: keep-awake is taken again for the turn the stop waits for (ADR-0029)', async () => {
+  it('on: the switch turned off during a far wait, and a turn starting while the run ends: keep-awake is taken again for that turn, which goes on in the Session given back (ADR-0029, worfy-autopilot-queue ticket 08)', async () => {
     const all = scriptLines(WEEKLY)
     const second = all.findIndex((line, i) => i > 0 && line.fake === 'wait_message')
     const lines = [...all.slice(0, second + 2), { fake: 'wait_release', name: 'person' }, ...all.slice(second + 2)]
@@ -561,11 +561,11 @@ describe('Autopilot, the Limits and the Auto-continue switch (worfy-retry ticket
     release()
     await until(() => h.state().status === 'stopped', 'the run to stop')
     expect(h.state()).toMatchObject({ reason: 'limits-timeout' })
-    // The Orchestrator waits for the turn, and the Mac stays awake for it.
-    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    // The Orchestrator goes back to the person as the turn runs (worfy-autopilot-queue ticket 08), and the Mac stays awake for it.
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+    expect(h.registry.get(sessionId).state).toBe('busy')
     expect(h.power).toEqual(['start', 'stop', 'start'])
     h.releases.release('person')
-    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the Orchestrator to be given back')
     await until(() => h.power.at(-1) === 'stop', 'keep-awake released after the turn')
     expect(h.power).toEqual(['start', 'stop', 'start', 'stop'])
   })

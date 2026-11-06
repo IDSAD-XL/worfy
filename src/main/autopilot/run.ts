@@ -228,6 +228,11 @@ export interface RunSession {
    */
   readonly sdkId?: string | null
   readonly state: SessionState
+  /**
+   * The Session runs unattended (Session.unattended): false once a stopped run gave it back to a person as it runs
+   * (worfy-autopilot-queue ticket 08). Absent: read as still unattended.
+   */
+  readonly unattended?: boolean
   queued(): QueueSnapshot
   removeQueued(id: string): boolean
   /** The Session's live background tasks, ambient ones left out (ADR-0029). */
@@ -294,8 +299,12 @@ export interface AutopilotDeps {
   /** Calls `onChange` on every `workflow.changed` of the root; answers the unsubscribe. */
   watchWorkflow(root: string, onChange: () => void): Promise<() => Promise<void> | void>
   orchestrators: {
-    /** `approval`: the policy the unattended Session is launched with (worfy-auto-approve ticket 04). */
-    setUnattended(projectId: string, unattended: boolean, approval?: LaunchApproval): Promise<OrchestratorView | null>
+    /**
+     * `approval`: the policy the unattended Session is launched with (worfy-auto-approve ticket 04). Going attended
+     * while a turn runs or tasks live gives the Session back as it runs; `waitForWork` (a graceful Stop), or a
+     * failed change, waits for their end instead (Orchestrators.setUnattended, worfy-autopilot-queue ticket 08).
+     */
+    setUnattended(projectId: string, unattended: boolean, approval?: LaunchApproval, options?: { waitForWork?: boolean }): Promise<OrchestratorView | null>
     /**
      * Stop by the user: the Orchestrator attended again at once, its old process closed; answers once
      * that process has exited and the new one started (Orchestrators.giveBackNow, ADR-0064).
@@ -777,6 +786,11 @@ class Run {
   taken = false
   /** When the run stopped (ms), for AutopilotState.ended; null while it goes on. */
   stoppedAt: number | null = null
+  /**
+   * The background tasks that still run in the Session a stopped run gave back to a person as it runs (worfy-autopilot-queue
+   * ticket 08): the status line names them until they end. 0 otherwise.
+   */
+  returnedTasks = 0
   /**
    * The wait before the next Wave, of the budget (worfy-throughput ticket 41) or of the Start window
    * (worfy-resource-planner ticket 05), one at a time: its id, when the step that sends the Wave runs
@@ -2544,11 +2558,16 @@ export class Autopilot {
       this.noticeDecisions(run)
       await this.interruptAndGiveBack(run, live)
     } else {
-      // Live tasks keep the Orchestrator unattended, and the Mac awake, until they end (ADR-0029).
-      // So does a turn still running: /epic-wave starts the implementers inside the Wave's turn, so
-      // a stop during it may come before any task has started. The Session is read again here, after
-      // the journal write: its turn may have ended meanwhile.
-      const linger = reason !== 'app-quit' && run.session !== null && (this.liveTasks(run).length > 0 || inTurn(run.session.state))
+      // Live tasks, and a turn still running, are not killed (ADR-0029): /epic-wave starts the implementers inside the
+      // Wave's turn, so a stop during it may come before any task has started. The Session is read again here, after
+      // the journal write: its turn may have ended meanwhile. A stop of the run's own (an error, a limit, the cycle's
+      // end) gives the Session back to a person as it runs, the tasks living on in it (worfy-autopilot-queue ticket 08);
+      // a graceful Stop, or a give-back that did not change the Session, keeps it unattended, and the Mac awake, until
+      // they end.
+      let linger = reason !== 'app-quit' && run.session !== null && (this.liveTasks(run).length > 0 || inTurn(run.session.state))
+      const asked = linger && run.taken && reason !== 'user-stop'
+      const returned = asked && (await this.giveBackAsItRuns(run))
+      if (returned) linger = false
       if (linger) {
         // keep-awake released for a far Limits wait comes back for that turn or those tasks (worfy-retry ticket 05).
         if (run.asleep) {
@@ -2559,12 +2578,13 @@ export class Autopilot {
           }
         }
         this.linger(run)
-      } else {
+      } else if (!returned) {
         this.noticeDecisions(run)
       }
       // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
-      // A run that never took it leaves it as it is.
-      await this.release(run, run.taken && reason !== 'app-quit', !linger)
+      // A run that never took it leaves it as it is, and one that asked for it as it runs already did. A
+      // graceful Stop lets the turn and the tasks end unattended.
+      await this.release(run, run.taken && reason !== 'app-quit' && !asked, !linger && !returned, { waitForWork: reason === 'user-stop' })
     }
     // A stopped run's state does not say a Wave goes unchecked.
     this.noteDuration(run, null)
@@ -2682,13 +2702,109 @@ export class Autopilot {
         void this.write(run, autoApprovalLine(event, session.id, run.vendor))
       } else if (event.type === 'state' && event.state === 'closed') void finish({ kind: 'orchestrator-returned' })
     })
+    // Given back already, before the observer came (giveBackAsItRuns: its turn and tasks ended while the change was tried).
+    if (session.state === 'closed') void finish({ kind: 'orchestrator-returned' })
+  }
+
+  /**
+   * A stop of the run's own while its Session has a turn or background tasks (worfy-autopilot-queue ticket 08, ADR-0029
+   * Amendments): the Session goes back to a person as it runs (Orchestrators.setUnattended, Session.becomeAttended), so
+   * the tasks live on in the person's Session. Answers whether it did. Then the journal says `orchestrator-returned` with
+   * the tasks still alive, the policy's line goes to the chat, the policy lets the Session go (its folder stays: the
+   * process keeps it as TMPDIR, and the next start of the app removes it), and keep-awake stays until those tasks end
+   * (watchReturned). False when the Session stayed unattended — the change failed and it waits for its turn and tasks,
+   * or they ended meanwhile and it was started again — so the stop lingers as before; the give-back was asked for already.
+   */
+  private async giveBackAsItRuns(run: Run): Promise<boolean> {
+    const session = run.session
+    if (session === null) return false
+    // Nothing of the run fires, and no event of the Session reaches the run's observer, during the change.
+    this.stopTimers(run)
+    run.unobserveSession()
+    try {
+      await this.deps.orchestrators.setUnattended(run.projectId, false)
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not give the Orchestrator back`, error)
+    }
+    if (session.unattended !== false) return false
+    const live = this.liveTasks(run)
+    await this.write(run, { kind: 'orchestrator-returned', ...(live.length > 0 ? { tasks: journalTasks(live) } : {}) })
+    this.noticeDecisions(run)
+    await this.closeApproval(run, false)
+    this.watchReturned(run, session, live.length)
+    return true
+  }
+
+  /**
+   * keep-awake and the status line of a run that gave its Session back as it runs (giveBackAsItRuns): the Mac stays awake
+   * while the turn the run left, or the tasks alive at the give-back or started since, go on — so it does not sleep in the
+   * middle of their work (ADR-0029) — and the stopped run's line counts the tasks. Both end once no turn runs and no task
+   * lives, or the Session is closed. If the app quits first, the tasks alive then are journaled as killed (none, when only
+   * a turn ran).
+   */
+  private watchReturned(run: Run, session: RunSession, tasks: number): void {
+    const stopAwake = (): void => {
+      try {
+        run.awake?.stop()
+      } catch (error) {
+        console.error(`[autopilot] ${run.projectId}: could not release keep-awake`, error)
+      }
+    }
+    const working = (): boolean => this.liveTasks(run).length > 0 || inTurn(session.state)
+    run.returnedTasks = tasks
+    if (!working()) {
+      run.returnedTasks = 0
+      stopAwake()
+      return
+    }
+    // keep-awake released for a far Limits wait comes back for that turn or those tasks (worfy-retry ticket 05).
+    if (run.asleep) {
+      try {
+        run.awake?.start()
+      } catch (error) {
+        console.error(`[autopilot] ${run.projectId}: could not take keep-awake`, error)
+      }
+    }
+    let unsubscribe: () => void = () => undefined
+    const end = (): boolean => {
+      if (!this.lingering.delete(quit)) return false
+      unsubscribe()
+      stopAwake()
+      return true
+    }
+    const count = (n: number): void => {
+      if (run.returnedTasks === n) return
+      run.returnedTasks = n
+      // Only while the stopped run's state is the one shown: a later run of the Project shows its own.
+      if (this.runs.has(run.projectId) || run.journal === null || this.last.get(run.projectId)?.run !== run.journal.run) return
+      this.last.set(run.projectId, this.snapshot(run))
+      this.publish(run.projectId)
+    }
+    const quit = async (): Promise<void> => {
+      const live = this.liveTasks(run)
+      if (!end()) return
+      await this.write(run, { kind: 'tasks-killed', reason: 'app-quit', tasks: journalTasks(live) })
+    }
+    this.lingering.add(quit)
+    unsubscribe = this.deps.registry.observe((sessionId, event) => {
+      if (sessionId !== session.id) return
+      if (event.type === 'background_tasks') count(event.tasks.length)
+      else if (event.type !== 'state') return
+      if (session.state === 'closed') count(0)
+      if (session.state === 'closed' || !working()) end()
+    })
+    // The turn and the tasks may have ended between the give-back and the observer.
+    if (!working()) {
+      count(0)
+      end()
+    }
   }
 
   /**
    * Undoes what a run holds: subscriptions, the settle, tasks and Limits timers, keep-awake (unless
    * `stopAwake` is false: a stop with live tasks keeps it), the unattended Orchestrator.
    */
-  private async release(run: Run, giveBack: boolean, stopAwake = true): Promise<void> {
+  private async release(run: Run, giveBack: boolean, stopAwake = true, how: { waitForWork?: boolean } = {}): Promise<void> {
     this.stopTimers(run)
     for (const cleanup of run.cleanups.splice(0)) {
       try {
@@ -2706,7 +2822,7 @@ export class Autopilot {
     }
     if (giveBack) {
       try {
-        await this.deps.orchestrators.setUnattended(run.projectId, false)
+        await this.deps.orchestrators.setUnattended(run.projectId, false, undefined, how.waitForWork === true ? { waitForWork: true } : {})
       } catch (error) {
         console.warn(`[autopilot] ${run.projectId}: could not give the Orchestrator back`, error)
       }
@@ -2926,7 +3042,7 @@ export class Autopilot {
       epic: run.epic,
       status: !run.running ? 'stopped' : resumesAt !== null || wait !== null ? 'waiting' : 'running',
       wave: run.cycle.wave,
-      backgroundTasks: run.running ? this.liveTasks(run).length : 0,
+      backgroundTasks: run.running ? this.liveTasks(run).length : run.returnedTasks,
       resumesAt,
       ...(waitingFor === undefined ? {} : { waitingFor }),
       ...(wait === null ? {} : { busy: { turn: wait.busy.turn, queued: wait.busy.queued, tasks: journalTasks(wait.busy.tasks) }, waitingSince: wait.since }),

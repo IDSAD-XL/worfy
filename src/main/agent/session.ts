@@ -35,6 +35,9 @@
 // permission request at once. At Auto-approval Off it refuses each, and each refusal reaches its
 // subscribers as a `refused_dialog` event; at Shadow and On the driver asks the run's approval policy
 // (SessionLaunch.approval, worfy-auto-approve ticket 04), and each decision is an `auto_approval` event.
+// A stopped run gives such a Session back to a person as it runs (becomeAttended, worfy-autopilot-queue
+// ticket 08): the same process goes on in the Node's own permission setting, its background tasks live,
+// and the driver asks the person from the next permission request on.
 //
 // Stop in Autopilot halts the Orchestrator's Session before the Orchestrator is given back
 // (halt(), worfy-week ticket 17, ADR-0050): the queue is held, open requests are refused, and a
@@ -174,7 +177,7 @@ export class Session {
     private readonly onRenamed: (from: string, to: string) => void,
     resume: string | undefined,
     settings: SessionSettings = DEFAULT_SETTINGS,
-    private readonly launch: SessionLaunch = ATTENDED,
+    private launch: SessionLaunch = ATTENDED,
     /** The Vendor's capabilities and slash menu (SessionVendorParts). */
     private readonly parts: SessionVendorParts = STATIC_CLAUDE_PARTS,
   ) {
@@ -462,6 +465,36 @@ export class Session {
     return task
   }
 
+  /**
+   * Gives an unattended Session back to a person as it runs (worfy-autopilot-queue ticket 08): its launch turns
+   * attended and its settings become `settings`, the Node's own picks — on the live process through its handle (the
+   * permission setting through setPermissionPreset: Claude Code's setPermissionMode at once, Codex from its next
+   * turn/start), and for every process started later. The process, its background tasks, a running turn and the
+   * queue stay; the driver asks the person each permission request from then on (SessionStart.unattended). The run's
+   * approval policy and environment are no longer given to a later process. Rejects when the handle refuses the
+   * change: the Session stays unattended, in the settings it ran in, and the caller decides. Resolves at once for an
+   * attended Session.
+   */
+  becomeAttended(settings: SessionSettings): Promise<SessionSettings> {
+    if (this.closing) return Promise.reject(new Error(`Session ${this.current} is closed`))
+    if (!this.launch.unattended) return Promise.resolve(this.settings)
+    const task = this.configuring.then(async () => {
+      if (this.closing) throw new Error(`Session ${this.current} is closed`)
+      const before = this.settingsValue
+      const picked = withSelectableModel(settings)
+      const wanted = this.sessions.settingsFor?.(picked) ?? picked
+      const run = this.run
+      // Without a live process the settings go to the next one (begin() or the process being started: catchUp).
+      if (run?.handle) await pushSettings(run, run.handle, wanted)
+      this.launch = { unattended: false, ...(this.launch.orchestrator === undefined ? {} : { orchestrator: this.launch.orchestrator }) }
+      this.settingsValue = wanted
+      if (!sameSettings(before, wanted)) this.emit({ type: 'settings', settings: this.settings })
+      return this.settings
+    })
+    this.configuring = task.catch(() => undefined)
+    return task
+  }
+
   /** The model picker's rows: those of the live process, or else the model of the last `init`. */
   async models(): Promise<ModelOption[]> {
     const handle = this.run?.handle
@@ -573,10 +606,14 @@ export class Session {
     this.run = run
     this.interrupted = false
     const resume = this.sdkSessionId ?? undefined
+    const launch = (): SessionLaunch => this.launch
     const opts: SessionStart = {
       cwd: this.cwd,
       settings,
-      unattended: this.launch.unattended,
+      // Read by the driver at each permission request: becomeAttended turns it false in the running process.
+      get unattended() {
+        return launch().unattended
+      },
       orchestrator: this.launch.orchestrator === true,
       permissions: this.permissions,
       refused: (subject, message, details) => this.refuseDialog('permission_request', subject, message, details),
@@ -588,7 +625,8 @@ export class Session {
       spawned: (child) => this.watch(child),
       previous: this.lastHandle ?? undefined,
     }
-    const starting = resume === undefined ? this.sessions.start({ ...opts, sessionId: this.newSessionId() }) : this.sessions.resume(resume, opts)
+    // Object.assign, not a spread: a spread would copy `unattended` once instead of keeping its getter.
+    const starting = resume === undefined ? this.sessions.start(Object.assign(opts, { sessionId: this.newSessionId() })) : this.sessions.resume(resume, opts)
     void this.consume(run, starting)
   }
 

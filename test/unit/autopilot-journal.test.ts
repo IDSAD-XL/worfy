@@ -96,6 +96,14 @@ describe('parseJournal', () => {
     expect(walkParse(line(started) + line(retry) + line(refused) + line(stopped)).unknownKind).toBe(0)
   })
 
+  it("reads orchestrator-returned with the tasks that live on in the person's Session, and without them (worfy-autopilot-queue ticket 08)", () => {
+    const returned: JournalEvent = { ...base, at: at(40), kind: 'orchestrator-returned', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }] }
+    const bare: JournalEvent = { ...base, at: at(41), kind: 'orchestrator-returned' }
+    expect(parseJournal(line(started) + line(stopped) + line(returned) + line(bare))).toEqual({ events: [started, stopped, returned, bare], skipped: 0 })
+    expect(parseJournal(line(started) + line(stopped) + line({ ...returned, tasks: [{ id: '', type: null, description: null }] }))).toEqual({ events: [started, stopped], skipped: 1 })
+    expect(walkParse(line(started) + line(stopped) + line(returned)).unknownKind).toBe(0)
+  })
+
   it('clipRetryMessage keeps RETRY_MESSAGE_MAX units without cutting a surrogate pair', () => {
     expect(RETRY_MESSAGE_MAX).toBe(300)
     expect(clipRetryMessage('API Error: 500')).toBe('API Error: 500')

@@ -181,7 +181,10 @@ class ReadGate {
  */
 const HALT_MS = 100
 
-function harness(options: { script?: string; attendedScript?: string; returnGraceMs?: number; processes?: StubKind; exitWaitMs?: number; approval?: boolean } = {}) {
+/** What the unattended fake agent answers setPermissionMode with under `refuseModeChange`. */
+const MODE_REFUSED = 'the agent refused the change of the permission mode'
+
+function harness(options: { script?: string; attendedScript?: string; returnGraceMs?: number; processes?: StubKind; exitWaitMs?: number; approval?: boolean; refuseModeChange?: boolean | (() => Promise<void>) } = {}) {
   const env = { WORFY_DATA_DIR: join(scratch, 'data-root') }
   const calls: (FakeCall & { unattended: boolean })[] = []
   const requests: QueryRequest[] = []
@@ -199,7 +202,13 @@ function harness(options: { script?: string; attendedScript?: string; returnGrac
       record: (call) => calls.push({ ...call, unattended }),
       releases,
     })
-    return (stub === null ? fake : stub.wrap(fake))(request)
+    const query = (stub === null ? fake : stub.wrap(fake))(request)
+    // `refuseModeChange`: the unattended process refuses a change of its permission mode, so a stopped run cannot give
+    // its Session back as it runs (worfy-autopilot-queue ticket 08) and waits for its turn and tasks, as before. A function:
+    // what the change answers instead (a refusal the test holds back).
+    const refuse = options.refuseModeChange
+    if (refuse === undefined || refuse === false || !unattended) return query
+    return query.then((handle) => Object.assign(handle, { setPermissionMode: refuse === true ? () => Promise.reject(new Error(MODE_REFUSED)) : refuse }))
   })
   registries.push(registry)
   /** Every event of every Session as the main process sees it (registry.observe), and as the windows get it. */
@@ -335,6 +344,28 @@ async function waveWaitsForTasks(h: ReturnType<typeof harness>): Promise<void> {
   await until(() => autopilotStatusLine(h.autopilot.state(PROJECT)) === 'Wave 1 · 2 background tasks', 'the status line')
   // The turn's end has been judged: the run waits in phase tasks, with the limit set.
   await until(() => h.clock.pending().length > 0, 'the run to wait for the tasks')
+}
+
+/**
+ * A variant whose Wave turn starts both tasks and then ends with a server error: the run stops with turn-error. `edit`
+ * changes the script's lines (parsed) before the error is put in.
+ */
+function turnErrorScript(name = 'turn-error-tasks', edit: (lines: Record<string, unknown>[]) => Record<string, unknown>[] = (lines) => lines): string {
+  const lines = edit(readFileSync(join(fixtures, 'autopilot-background.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>))
+  let results = 0
+  const failed = lines.map((line) => {
+    if (line.type !== 'result' || (results += 1) > 1) return line
+    return { ...line, is_error: true, result: 'API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}', terminal_reason: 'api_error' }
+  })
+  writeFileSync(join(scriptsDir, `${name}.jsonl`), `${failed.map((line) => JSON.stringify(line)).join('\n')}\n`)
+  return name
+}
+
+/** The person's pick of the permission mode for the Orchestrator's Node, made in its attended Session before the run. */
+async function pickMode(h: ReturnType<typeof harness>, mode: string): Promise<void> {
+  const session = await h.session()
+  await until(() => session.state === 'idle', 'the attended Orchestrator')
+  await session.configure({ permissionMode: mode })
 }
 
 /** The background-tasks lines of a journal after its run-stopped line, as lists of task ids. */
@@ -582,7 +613,9 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
   })
 
   it('after a stop of the cycle, the Orchestrator returns when the grace time passes without the last task\'s turn', async () => {
-    const h = harness({ script: noLastTurn('return-grace'), returnGraceMs: 20 })
+    // The agent refuses the change of mode, so the stopped run waits for its tasks unattended (worfy-autopilot-queue ticket 08).
+    const h = harness({ script: noLastTurn('return-grace'), returnGraceMs: 20, refuseModeChange: true })
+    await pickMode(h, 'default')
     await waveWaitsForTasks(h)
     // background-stalled waits for the tasks (ADR-0029); only user-force-stop interrupts them (worfy-week tickets 17, 18).
     h.clock.fire(BACKGROUND_STALL_MS)
@@ -601,7 +634,9 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
   })
 
   it('a new run takes the Orchestrator of a stalled run that waits for the last task\'s turn, with no task left, as it is: no relaunch (worfy-polish ticket 50)', async () => {
-    const h = harness({ script: noLastTurn('return-pending'), returnGraceMs: 60_000 })
+    // The agent refuses the change of mode, so the stopped run waits for its tasks unattended (worfy-autopilot-queue ticket 08).
+    const h = harness({ script: noLastTurn('return-pending'), returnGraceMs: 60_000, refuseModeChange: true })
+    await pickMode(h, 'default')
     await waveWaitsForTasks(h)
     h.clock.fire(BACKGROUND_STALL_MS)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
@@ -693,16 +728,19 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     expect(h.broadcast.filter((event) => event.type === 'result')).toHaveLength(2)
   })
 
-  it('a stop for a reason of the cycle does not close the Session while tasks live either', async () => {
+  it('a stop for a reason of the cycle does not close the Session while tasks live either: it goes back to a person as it runs (worfy-autopilot-queue ticket 08)', async () => {
     const h = harness()
     await waveWaitsForTasks(h)
+    const session = await h.session()
     // The limit without task events is a stop of the cycle (background-stalled): the Session stays.
     expect(h.clock.pending()).toEqual([BACKGROUND_STALL_MS])
     h.clock.fire(BACKGROUND_STALL_MS)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'background-stalled' })
     expect(h.calls.filter((call) => call.kind === 'close')).toEqual([])
-    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+    expect(await h.session()).toBe(session)
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
   })
 
   it('a task event while the run waits sets the limit anew, without a turn', async () => {
@@ -734,7 +772,7 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     h.clock.fire(BACKGROUND_STALL_MS)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'background-stalled' })
-    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'background-stalled', tasks: [{ id: 'task_impl_0002', type: 'local_agent', description: 'Implement the second ticket of the wave' }] })
+    expect((await h.journal()).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'background-stalled', tasks: [{ id: 'task_impl_0002', type: 'local_agent', description: 'Implement the second ticket of the wave' }] })
   })
 
   it('judges the Wave without a turn when the tasks ended and no task-notification turn came within the grace time', async () => {
@@ -788,15 +826,184 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
   })
 })
 
-describe('a new run after a stop while the Orchestrator still has live tasks (worfy-polish ticket 50)', () => {
-  /** A variant whose Wave turn starts both tasks and then ends with a server error: the run stops with turn-error. */
-  const turnErrorScript = (): string => {
-    let results = 0
-    return variant('turn-error-tasks', (line) => {
-      if (line.type !== 'result' || (results += 1) > 1) return line
-      return { ...line, is_error: true, result: 'API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}', terminal_reason: 'api_error' }
+describe("a stop of the run's own gives the Orchestrator back as it runs: no new process, the tasks live on (worfy-autopilot-queue ticket 08)", () => {
+  /** A permission request of the Wave's turn that Claude Code makes in bypassPermissions too (its own rm check). */
+  const WAVE_REQUEST = { fake: 'permission', toolName: 'Bash', toolUseId: 'toolu_wave_rm', input: { command: 'rm -rf build', description: 'Remove the build folder' }, bypassImmune: true, decisionReason: 'Dangerous rm operation' }
+  /** A permission request of the turn the first task's task-notification starts. */
+  const REPORT_REQUEST = { fake: 'permission', toolName: 'Bash', toolUseId: 'toolu_report_ls', input: { command: 'ls build', description: 'List the build folder' } }
+  /** turnErrorScript with WAVE_REQUEST in the Wave's turn and REPORT_REQUEST in the first task-notification turn. */
+  const requestsScript = (): string =>
+    turnErrorScript('turn-error-requests', (lines) => {
+      const waveResult = lines.findIndex((line) => line.type === 'result')
+      const withWave: Record<string, unknown>[] = [...lines.slice(0, waveResult), WAVE_REQUEST, ...lines.slice(waveResult)]
+      const reportInit = withWave.findIndex((line, index) => index > waveResult && line.type === 'system' && line.subtype === 'init')
+      return [...withWave.slice(0, reportInit + 1), REPORT_REQUEST, ...withWave.slice(reportInit + 1)]
+    })
+  const line = (h: ReturnType<typeof harness>) => autopilotStatusLine(h.autopilot.state(PROJECT))
+
+  it("turn-error with two live tasks: the same process goes on attended in the Node's mode, orchestrator-returned names the tasks, and their task-notification turns run in the person's Session", async () => {
+    const h = harness({ script: turnErrorScript() })
+    await pickMode(h, 'default')
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    const session = await h.session()
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'turn-error', backgroundTasks: 2 })
+    expect(line(h)).toBe('stopped: turn error · 2 background tasks still run')
+    // A person's Session at once, in the mode the Node keeps; no run waits to give it back.
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+    expect(session.unattended).toBe(false)
+    expect(session.settings.permissionMode).toBe('default')
+    expect(h.orchestrators.awaitsGiveBack(session.id)).toBe(false)
+    // No new process: the run's one, never closed, its mode changed in place.
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
+    expect(h.closes()).toEqual([])
+    expect(h.calls.filter((call) => call.kind === 'setPermissionMode' && call.unattended)).toMatchObject([{ mode: 'default' }])
+    expect(await taskIds(h)).toEqual(['task_impl_0001', 'task_impl_0002'])
+    const named = [
+      { id: 'task_impl_0001', type: 'local_agent', description: 'Implement the first ticket of the wave' },
+      { id: 'task_impl_0002', type: 'local_agent', description: 'Implement the second ticket of the wave' },
+    ]
+    expect((await h.journal()).slice(-2)).toMatchObject([
+      { kind: 'run-stopped', reason: 'turn-error', tasks: named },
+      { kind: 'orchestrator-returned', tasks: named },
+    ])
+    // The Mac stays awake while the tasks live.
+    expect(h.power).toEqual(['start'])
+
+    // The first task ends: its task-notification starts a turn of the person's Session, in its mode.
+    h.releases.release('tasks')
+    await until(async () => (await taskIds(h)).length === 1 && session.state === 'idle', 'the first task-notification turn')
+    expect(await h.session()).toBe(session)
+    expect(h.observed.filter((event) => event.type === 'init').at(-1)).toMatchObject({ permissionMode: 'default' })
+    await until(() => line(h) === 'stopped: turn error · 1 background task still runs', 'the line to count one task')
+    expect(h.power).toEqual(['start'])
+
+    // The last one ends: keep-awake goes, the line names no task, and the journal says nothing more of the person's Session.
+    h.releases.release('tasks')
+    await until(async () => (await taskIds(h)).length === 0 && session.state === 'idle', 'the last task-notification turn')
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
+    expect(h.power).toEqual(['start', 'stop'])
+    expect(line(h)).toBe('stopped: turn error')
+    expect(h.states.at(-1)).toMatchObject({ status: 'stopped', backgroundTasks: 0 })
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'orchestrator-returned' })
+    expect(await h.kinds()).not.toContain('tasks-killed')
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
+    expect(h.closes()).toEqual([])
+  })
+
+  for (const policy of ['off', 'on'] as const) {
+    it(`Auto-approval ${policy}: a request while the run holds the Session is the run's to answer; after the give-back it goes to the person`, async () => {
+      const h = harness({ script: requestsScript(), approval: policy === 'on' })
+      await pickMode(h, 'default')
+      await h.autopilot.start(PROJECT, EPIC)
+      await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+      const session = await h.session()
+      const permissions = () => h.calls.filter((call) => call.kind === 'permission')
+      // In the run: refused at once (Off) or judged by the run's policy (On); no person was asked.
+      expect(permissions()).toMatchObject([{ toolName: 'Bash', input: WAVE_REQUEST.input, result: { behavior: 'deny' } }])
+      expect(h.observed.filter((event) => event.type === 'permission_request')).toEqual([])
+      if (policy === 'off') expect(h.observed.filter((event) => event.type === 'refused_dialog')).toMatchObject([{ dialog: 'permission_request', subject: 'Bash' }])
+      else expect(h.observed.filter((event) => event.type === 'auto_approval')).toMatchObject([{ mode: 'on', tool: 'Bash', outcome: 'deny' }])
+      const judged = h.observed.filter((event) => event.type === 'refused_dialog' || event.type === 'auto_approval').length
+
+      // The first task's report runs in the person's Session: its request waits for the person, in the same process.
+      h.releases.release('tasks')
+      await until(() => session.state === 'needs_permission', 'the request of the report to wait for the person')
+      const asked = h.observed.flatMap((event) => (event.type === 'permission_request' ? [event] : []))
+      expect(asked).toMatchObject([{ toolName: 'Bash', input: REPORT_REQUEST.input }])
+      expect(asked[0]).not.toHaveProperty('parked')
+      expect(session.answerPermission(asked[0]!.requestId, 'allow')).toBe(true)
+      await until(() => permissions().length === 2, 'the answer to reach the agent')
+      expect(permissions()[1]).toMatchObject({ input: REPORT_REQUEST.input, result: { behavior: 'allow' } })
+      expect(h.observed.filter((event) => event.type === 'refused_dialog' || event.type === 'auto_approval')).toHaveLength(judged)
+      expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
+      h.releases.release('tasks')
+      await until(async () => (await taskIds(h)).length === 0 && session.state === 'idle', 'the last task-notification turn')
     })
   }
+
+  it('the agent refuses the change of mode: the Session stays unattended until its tasks end, then starts again attended, as before', async () => {
+    const h = harness({ script: turnErrorScript(), refuseModeChange: true })
+    await pickMode(h, 'default')
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    const session = await h.session()
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    expect(session.unattended).toBe(true)
+    expect(session.settings.permissionMode).toBe('bypassPermissions')
+    // The give-back waits for the tasks: a new run would take the Session as it is (worfy-polish ticket 50).
+    expect(h.orchestrators.awaitsGiveBack(session.id)).toBe(true)
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'turn-error', backgroundTasks: 0 })
+    expect(line(h)).toBe('stopped: turn error')
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'turn-error' })
+    h.releases.release('tasks')
+    await until(async () => (await taskIds(h)).length === 1 && session.state === 'idle', 'the first task-notification turn')
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    h.releases.release('tasks')
+    await until(async () => (await h.kinds()).at(-1) === 'orchestrator-returned', 'the Orchestrator to be given back')
+    expect((await h.journal()).at(-1)).not.toHaveProperty('tasks')
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
+    expect(h.power).toEqual(['start', 'stop'])
+  })
+
+  it('a refusal that comes once the tasks and their turns have ended: the Session starts again attended at once, and the run journals orchestrator-returned and lets keep-awake go', async () => {
+    let refuse: (error: Error) => void = () => undefined
+    let asked = 0
+    const h = harness({
+      script: turnErrorScript(),
+      refuseModeChange: () => {
+        asked += 1
+        return new Promise<void>((_resolve, reject) => {
+          refuse = reject
+        })
+      },
+    })
+    await pickMode(h, 'default')
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => asked === 1, 'the change of mode to be asked')
+    const session = await h.session()
+    // Both tasks end, and their turns too, while the change is still tried.
+    h.releases.release('tasks')
+    h.releases.release('tasks')
+    await until(async () => session.backgroundTasks().length === 0 && session.state === 'idle', 'the tasks and their turns to end')
+    expect(h.autopilot.state(PROJECT).status).toBe('running')
+    refuse(new Error(MODE_REFUSED))
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    await until(async () => (await h.kinds()).at(-1) === 'orchestrator-returned', 'the Orchestrator to be given back')
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
+    expect(h.power).toEqual(['start', 'stop'])
+    expect(h.autopilot.anyRunning()).toBe(false)
+  })
+
+  it("a new run while the given-back Session still has its tasks waits for them: the Orchestrator is a busy person's Session now", async () => {
+    const h = harness({ script: turnErrorScript() })
+    await pickMode(h, 'default')
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    await expect(h.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
+    expect(h.autopilot.state(PROJECT).busy?.tasks).toHaveLength(2)
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
+    await h.autopilot.stop(PROJECT)
+  })
+
+  it('app-quit while the given-back Session still has its tasks journals them as killed and lets keep-awake go', async () => {
+    const h = harness({ script: turnErrorScript() })
+    await pickMode(h, 'default')
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.anyRunning()).toBe(true)
+    await h.autopilot.stopAll()
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] })
+    expect(h.power).toEqual(['start', 'stop'])
+    expect(h.autopilot.anyRunning()).toBe(false)
+  })
+})
+
+describe('a new run after a stop while the Orchestrator still has live tasks (worfy-polish ticket 50)', () => {
+  // A stop of the run's own gives the Session back as it runs (worfy-autopilot-queue ticket 08): these runs stop with a
+  // Session that refuses the change of its permission mode, so it waits for its tasks unattended, and a new run takes it.
 
   /** Every run journal of the test, oldest first. */
   const journals = async (): Promise<JournalEvent[][]> => {
@@ -806,7 +1013,8 @@ describe('a new run after a stop while the Orchestrator still has live tasks (wo
   }
 
   it('after a turn-error stop with live tasks, the next start takes the same unattended Session: no relaunch, the tasks live on', async () => {
-    const h = harness({ script: turnErrorScript() })
+    const h = harness({ script: turnErrorScript(), refuseModeChange: true })
+    await pickMode(h, 'default')
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'turn-error' })
@@ -842,7 +1050,8 @@ describe('a new run after a stop while the Orchestrator still has live tasks (wo
   })
 
   it('a start that fails after it took the Session leaves the tasks to the stopped run: keep-awake stays on, and that run journals them until it gives the Orchestrator back', async () => {
-    const h = harness({ script: turnErrorScript() })
+    const h = harness({ script: turnErrorScript(), refuseModeChange: true })
+    await pickMode(h, 'default')
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     const session = await h.session()
@@ -908,7 +1117,8 @@ describe('a new run after a stop while the Orchestrator still has live tasks (wo
 
   it("the stopped run's grace time does not give back the Session the new run took: only the new run's own grace time does", async () => {
     const grace = ms(1500)
-    const h = harness({ script: twoRunsScript(), returnGraceMs: grace })
+    const h = harness({ script: twoRunsScript(), returnGraceMs: grace, refuseModeChange: true })
+    await pickMode(h, 'default')
     const ended = await takenOverRun(h)
     // Task 2 ends well after task 1, so run B's grace time ends well after run A's would have.
     await new Promise((done) => setTimeout(done, Math.max(0, ended + ms(700) - Date.now())))
@@ -925,7 +1135,8 @@ describe('a new run after a stop while the Orchestrator still has live tasks (wo
   })
 
   it('the new run ends after the takeover: once its task and that task\'s turn have ended, the Session is given back attended', async () => {
-    const h = harness({ script: twoRunsScript(), returnGraceMs: 60_000 })
+    const h = harness({ script: twoRunsScript(), returnGraceMs: 60_000, refuseModeChange: true })
+    await pickMode(h, 'default')
     await takenOverRun(h)
     h.releases.release('b')
     await until(async () => (await taskIds(h)).length === 0, 'task 2 to end')
@@ -971,7 +1182,9 @@ describe('the folder for temporary files of a run with a policy (worfy-auto-appr
   }
 
   it('a stopped run whose tasks still live keeps its folder until the Orchestrator is given back', async () => {
-    const h = harness({ script: turnErrorScript(), approval: true })
+    // The agent refuses the change of mode, so the stopped run waits for its tasks unattended (worfy-autopilot-queue ticket 08).
+    const h = harness({ script: turnErrorScript(), approval: true, refuseModeChange: true })
+    await pickMode(h, 'default')
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     expect(h.requests.at(-1)?.environment).toEqual({ TMPDIR: join(scratch, 'run-temp', h.approvals[0]!.run) })
@@ -983,8 +1196,26 @@ describe('the folder for temporary files of a run with a policy (worfy-auto-appr
     await until(() => h.approvals[0]!.closed, 'the folder to go')
   })
 
-  it('a new run that takes the Session over keeps the old run\'s folder: the process goes on with it as TMPDIR', async () => {
+  it('a stopped run that gives its Session back as it runs keeps its folder after the tasks end: the process goes on with it as TMPDIR (worfy-autopilot-queue ticket 08)', async () => {
     const h = harness({ script: turnErrorScript(), approval: true })
+    await pickMode(h, 'default')
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+    h.releases.release('tasks')
+    h.releases.release('tasks')
+    await until(async () => (await taskIds(h)).length === 0 && (await h.session()).state === 'idle', 'the last task-notification turn')
+    await until(() => h.power.length >= 2, 'keep-awake to stop')
+    await new Promise((done) => setTimeout(done, 50))
+    // The person's Session goes on in the same process: its folder is left to the next start of the app (sweepRunTemps).
+    expect(h.approvals.map((approval) => approval.closed)).toEqual([false])
+    expect(h.requests.map((request) => request.environment?.['TMPDIR'])).toEqual([undefined, join(scratch, 'run-temp', h.approvals[0]!.run)])
+  })
+
+  it('a new run that takes the Session over keeps the old run\'s folder: the process goes on with it as TMPDIR', async () => {
+    // The agent refuses the change of mode, so the stopped run waits for its tasks unattended (worfy-autopilot-queue ticket 08).
+    const h = harness({ script: turnErrorScript(), approval: true, refuseModeChange: true })
+    await pickMode(h, 'default')
     await h.autopilot.start(PROJECT, EPIC)
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
     await expect(h.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'running' })

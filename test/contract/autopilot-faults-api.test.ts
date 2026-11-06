@@ -8,6 +8,7 @@
 // replaced (the two implementers it started still run when the error comes, as in worfy-polish 50).
 import { describe, expect, it, vi } from 'vitest'
 import { CONTINUE_TEXT } from '../../src/main/autopilot/limits-wait'
+import { TASKS_GRACE_MS } from '../../src/shared/autopilot/cycle'
 import { RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
 import { checkRecovery } from '../autopilot-invariants'
 import { EPIC, faultRun, LIMITS_RESET_MS, PROJECT, until, type FaultRun } from './autopilot-faults-setup'
@@ -27,12 +28,14 @@ const WAVE_1 = '/epic-wave Ticket-ы 01, 02 эпика demo'
 
 /**
  * A Run whose Wave turn ends with the API error of `script` while the two implementers it started
- * still run: it stops with turn-error, the error's text in session-error. The agent marks no
- * Ticket, as in worfy-polish 50, so the new start — which takes the still unattended Session over —
- * sends Wave 1 again, as a Wave of its own, once. A Force stop then ends the new Run.
+ * still run: it stops with turn-error, the error's text in session-error, and gives the Orchestrator
+ * back to a person as it runs, the implementers living on in that Session (worfy-autopilot-queue
+ * ticket 08). The agent marks no Ticket, so the new start — which waits for that busy Orchestrator
+ * (ADR-0099) until the implementers have reported and the grace time has passed — sends Wave 1 again,
+ * as a Wave of its own, once. A Force stop then ends the new Run.
  */
 async function apiFault(script: string, errorText: RegExp): Promise<FaultRun> {
-  const h = faultRun({ scripts: [script], marks: 'none', processes: 'exit-at-once' })
+  const h = faultRun({ scripts: [script, 'autopilot-waves'], marks: 'none', processes: 'exit-at-once' })
   expect(await h.start()).toEqual({ refusal: null })
   await h.stopped(1)
   expect(h.state()).toMatchObject({ status: 'stopped', reason: 'turn-error', wave: 1 })
@@ -41,18 +44,25 @@ async function apiFault(script: string, errorText: RegExp): Promise<FaultRun> {
   const errors = first.flatMap((event) => (event.kind === 'session-error' ? [event.message] : []))
   expect(errors).toHaveLength(1)
   expect(errors[0]).toMatch(errorText)
-  // The implementers still run: the Orchestrator stays unattended (ADR-0029).
-  expect(first.filter((event) => event.kind === 'background-tasks').at(-1)).toMatchObject({ tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] })
+  // The implementers still run, in the person's Session now: nothing was killed (ADR-0029, Amendments).
+  expect(first.at(-1)).toMatchObject({ kind: 'orchestrator-returned', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] })
+  expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
 
-  // A new start of the same Session goes through, and its Wave command goes once.
+  // A new start waits for that Orchestrator; once the implementers have reported and the grace time has passed, it goes through.
   expect(await h.startAgain()).toEqual({ refusal: null })
+  expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
+  h.releases.release('tasks')
+  h.releases.release('tasks')
+  await until(() => h.clock.pending().some((timer) => timer.ms === TASKS_GRACE_MS), 'the grace time after the last task')
+  h.clock.advance(TASKS_GRACE_MS)
   await until(() => waveCommands(h).length >= 2 && h.kinds(2).includes('wave-started'), 'the Wave of the new Run')
   expect(h.journal(2)[0]).toMatchObject({ kind: 'run-started', epic: EPIC })
   expect(h.journal(2).filter((event) => event.kind === 'wave-started')).toMatchObject([{ wave: 1, tickets: ['01', '02'] }])
   await h.autopilot.forceStop(PROJECT)
   expect(waveCommands(h)).toEqual([WAVE_1, WAVE_1])
-  // Both runs went to one Claude Code process: the new Run took the Session over, nothing was closed.
-  expect(h.queries().filter((query) => query.unattended)).toHaveLength(1)
+  // The new Run took the Orchestrator only once the person's Session was free: its own process, nothing killed.
+  expect(h.queries().filter((query) => query.unattended)).toHaveLength(2)
+  expect(h.kinds(1)).not.toContain('tasks-killed')
 
   // The runs read the PRs through gh (I2 has calls to check), and only read them.
   expect(h.gh!.calls().length).toBeGreaterThan(0)

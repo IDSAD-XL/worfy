@@ -105,7 +105,11 @@ export interface SessionStart {
   cwd: string
   /** The model, effort and permission preset the agent starts with; null model and effort: the Vendor's default. */
   settings: SessionSettings
-  /** No person is at the Session (Autopilot): nothing may wait for the UI, a permission request is refused at once. */
+  /**
+   * No person is at the Session (Autopilot): nothing may wait for the UI, a permission request is refused at once.
+   * Read again at each permission request: a stopped run gives its Session back to a person as it runs
+   * (Session.becomeAttended, worfy-autopilot-queue ticket 08), and the next request goes to `permissions`.
+   */
   unattended: boolean
   /** The Session is a Project's Orchestrator (SessionLaunch.orchestrator). */
   orchestrator: boolean

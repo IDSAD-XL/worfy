@@ -179,7 +179,7 @@ export function sharedAutopilot(): Autopilot {
     workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
     watchWorkflow: workflowWatch(workflowHub),
     orchestrators: {
-      setUnattended: (projectId, unattended, approval) => sharedOrchestrators().setUnattended(projectId, unattended, approval),
+      setUnattended: (projectId, unattended, approval, options) => sharedOrchestrators().setUnattended(projectId, unattended, approval, options),
       giveBackNow: (projectId) => sharedOrchestrators().giveBackNow(projectId),
       newUnattendedSession: (projectId) => sharedOrchestrators().newUnattendedSession(projectId),
       unattendedRefusal: (projectId) => sharedOrchestrators().unattendedRefusal(projectId),

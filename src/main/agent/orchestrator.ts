@@ -13,9 +13,11 @@
 //
 // Autopilot (worfy-daily ticket 04, ADR-0024) runs the Orchestrator unattended for the time of a
 // run (setUnattended): its Session is started again with the unattended launch (ADR-0022),
-// continuing the same SDK session, and started again attended when the run ends — at once, or once
-// a turn that still runs has ended and the Session has no live background task (ADR-0029: starting
-// it again would kill them). The settings of an unattended Session are not saved: its forced
+// continuing the same SDK session, and started again attended when the run ends. With a turn still
+// running or live background tasks it is not started again, which would kill them (ADR-0029): it goes
+// back to a person as it runs, attended in the Node's own settings (worfy-autopilot-queue ticket 08);
+// after a graceful Stop, or when that change fails, it is started again once the turn has ended and no
+// background task lives. The settings of an unattended Session are not saved: its forced
 // bypassPermissions would overwrite the mode the user picked for the Node. Going unattended is
 // refused while a turn runs (also the last turn of a run that was just stopped), while background
 // tasks of an attended Session live and while messages wait in the queue. A stopped run's Session
@@ -316,14 +318,18 @@ export class Orchestrators {
    * and is refused while a turn runs — also an unattended turn left over from a stopped run — while
    * an attended Session has live background tasks, and while messages wait in the queue; a stopped
    * run's Session that still waits to be given back is kept as it is (worfy-polish ticket 50).
-   * Going back to attended while a turn runs waits for the turn's end; the queue goes over to the
-   * attended Session. Answers the view, after a relaunch once the new Session's process has started
-   * (ADR-0064); for an Orchestrator that is not open, going attended does nothing. `approval`: the
+   * Going back to attended while a turn runs or background tasks live gives the Session back as it
+   * runs (Session.becomeAttended, worfy-autopilot-queue ticket 08): the same process goes on in the
+   * Node's own settings, and its turn, tasks and queue stay. Should that change fail, or with
+   * `waitForWork` (a graceful Stop, which lets the run's Wave end unattended), it waits for the turn's
+   * end and the tasks' as before; the queue then goes over to the attended Session. Answers the view,
+   * after a relaunch once the new Session's process has started (ADR-0064); for an Orchestrator that
+   * is not open, going attended does nothing. `approval`: the
    * run's approval policy the unattended Session is launched with (worfy-auto-approve ticket 04); a
    * Session taken over as it runs keeps the one it was launched with, and the new Session of the next
    * Wave (newUnattendedSession) the one of its launch.
    */
-  async setUnattended(projectId: string, unattended: boolean, approval?: LaunchApproval): Promise<OrchestratorView | null> {
+  async setUnattended(projectId: string, unattended: boolean, approval?: LaunchApproval, options: { waitForWork?: boolean } = {}): Promise<OrchestratorView | null> {
     if (!unattended) {
       const entry = this.entries.get(projectId)
       if (entry === undefined) return null
@@ -332,10 +338,15 @@ export class Orchestrators {
       if (!entry.launch.unattended) {
         entry.wanted = null
       } else if (inTurn(this.current(entry).state) || liveTasksOf(entry) > 0) {
-        entry.wanted = ATTENDED
+        const session = entry.run?.session ?? null
         // A request parked for the owner would hold the turn, and so the give-back, up to its limit: a
         // stop of the run ends it as the limit would (worfy-auto-approve ticket 07).
-        entry.run?.session?.releaseParked()
+        session?.releaseParked()
+        if (options.waitForWork === true || session === null || !(await this.attendInPlace(entry, session))) {
+          entry.wanted = ATTENDED
+          // The turn and the tasks may have ended while the change was tried: nothing would start the wait's relaunch then.
+          if (entry.run !== null) this.relaunchIfFree(entry, entry.run)
+        }
       } else {
         await this.relaunch(entry, ATTENDED)
       }
@@ -363,6 +374,29 @@ export class Orchestrators {
     const view = this.views.get(entry.nodeId)
     if (view === undefined) throw new Error(`the Orchestrator of ${projectId} has no view`)
     return view
+  }
+
+  /**
+   * The unattended Session goes back to a person as it runs (worfy-autopilot-queue ticket 08): attended,
+   * in the Node's own settings, with no new process, so its turn and background tasks live on. Answers
+   * whether it did; false when the Session refused the change (it stays unattended, as it was). While
+   * the change is tried no give-back waits (entry.wanted stays null): a new run meanwhile finds the
+   * Orchestrator busy rather than a Session left to it.
+   */
+  private async attendInPlace(entry: Entry, session: Session): Promise<boolean> {
+    try {
+      await session.becomeAttended(entry.settings)
+    } catch (error) {
+      console.warn(`[orchestrator] could not give the Session of ${entry.projectId} back as it runs; it goes back once its turn and tasks have ended`, error)
+      return false
+    }
+    // A relaunch or a removal of the Project meanwhile has replaced or closed that Session: nothing more to change here.
+    if (entry.run?.session === session && !entry.cancelled) {
+      entry.launch = ATTENDED
+      entry.wanted = null
+      this.cancelGrace(entry)
+    }
+    return true
   }
 
   /**
