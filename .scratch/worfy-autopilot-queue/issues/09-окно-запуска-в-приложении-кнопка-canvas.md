@@ -40,11 +40,15 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2
 
 - [ ] Unit test окна: факты из ответа `prepare`, Run mode по умолчанию отмечен, Esc и Cancel не стартуют, ⌘↩ стартует,
       фокус на Cancel, Tab не выходит из окна; при `busy` — уведомление и «Start when free».
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/unit/start-autopilot-modal.test.tsx: 10 passed, exit 0 (commit e7702b6f4) · mac - · e7702b6f4f86cf1d217b02b2e8ce70444b9b067d
 - [ ] Contract test `autopilot.prepare`: прогноз и Limits — те же строки, что `forecastLines` на том же журнале;
       Orchestrator на Codex — Vendor и окно Codex.
+  - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/autopilot-prepare.test.ts: 9 passed, exit 0 (commit e7702b6f4) · mac - · e7702b6f4f86cf1d217b02b2e8ce70444b9b067d
 - [ ] e2e: кнопка → окно → «Start Autopilot» → Run идёт; Orchestrator в ходе → «Start when free» → строка ожидания.
+  - evidence: test-run pass · pnpm test:e2e test/e2e/autopilot-start-modal.spec.ts: 2 passed, exit 0 · mac - · e7702b6f4f86cf1d217b02b2e8ce70444b9b067d
 - [ ] Снимки окна (Canvas button, Orchestrator busy) в обеих темах — `../evidence/09-окно-запуска-*.png`, ссылка в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · gate fast: [gate] green (fast): worfy/.:lint worfy/.:typecheck worfy/.:test, exit 0 on e7702b6f4 · mac - · e7702b6f4f86cf1d217b02b2e8ce70444b9b067d
 
 ## Тесты
 
@@ -70,3 +74,36 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2
 
 Только читать: `src/main/autopilot/chat-confirm.ts`, `src/renderer/machines/ChangeAddressDialog.tsx`,
 `src/renderer/machines/MachineDialogs.tsx`, прототип `card-918c77d9` (путь — spec, «Окно запуска»).
+
+## Итог
+
+Кнопка Autopilot рамки Epic-а больше не запускает run по клику: она открывает окно **Start Autopilot**
+(`src/renderer/autopilot/StartAutopilotModal.tsx`, store `start-modal.ts`, стили `autopilot-modal.css`, смонтировано в
+`AppShell`). Факты окна main отдаёт по новому read-каналу `autopilot.prepare` (`src/shared/ipc/autopilot-prepare.ts`,
+`src/main/ipc/autopilot-prepare.ts`, построитель `src/main/autopilot/prepare.ts`): Project, Epic-и, Ticket-ы и Wave-ы,
+Vendor и Session Orchestrator-а, прогноз (те же строки `dialogLines`, что в диалоге `autopilot_start`), бюджет, Limits,
+Run mode по умолчанию, часы Start window, занятость Orchestrator-а. `run.ts` только читается (`startRefusal`).
+Раздел «Start Autopilot window» — в `docs/design/F-SPEC.md`; абзацы — в `docs/features/autopilot.md` и `ru/`.
+
+Тест первым: `test/unit/start-autopilot-modal.test.tsx` был красным на старой кнопке
+(«Unable to find role="dialog" and name "Start Autopilot"»). Тесты: unit 10, contract 9, e2e 2
+(`autopilot-start-modal.spec.ts`); 22 клика старта в `autopilot.spec.ts`, `autopilot-faults.spec.ts`,
+`linked-autopilot.spec.ts`, `linked-machines.spec.ts` идут через helper `startAutopilot(button)`; остальные совпадения
+`action-autopilot` только проверяют видимость и не менялись. Вне списка «Где в коде» поправлены
+`test/unit/canvas-actions.test.tsx` (старт через окно) и `test/unit/link-access.test.ts` (новый read-канал).
+
+Решено без владельца:
+- Modes окно читает хуками меню Modes, а не из `prepare`.
+- Прогноз — время и доля недели, без token-ов: данных о token-ах нет.
+- Пункт «Start now (later, from the Autopilot line)…» не сделан до ticket 10.
+- `startAutopilot` принимает locator кнопки, а не page.
+- Start anyway по-прежнему стартует сразу, в режиме по умолчанию, без окна.
+- Отказ старта закрывает окно; отказ — toast и tooltip кнопки, как раньше.
+- Если факты не прочитались, окно показывает ошибку, а старт всё равно работает.
+- `accepted` в ответе — `null` до ticket 16.
+- «change in Modes» открывает меню Modes кликом по DOM (`shortcut:` в `start-modal.ts`).
+- Снимки названы латиницей (`09-start-window-*`): helper не принимает кириллицу.
+
+Снимки ждут проверки человеком и поэтому не закоммичены: `09-start-window-canvas-button-{light,dark}.png`,
+`09-start-window-orchestrator-busy-{light,dark}.png` лежат в `test-results/evidence-09/` worktree-а
+`agent-afce7bf5f5c7003d2`. Данные на них тестовые (Project `demo`, фейковая Session).
