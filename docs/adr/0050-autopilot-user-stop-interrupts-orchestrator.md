@@ -85,3 +85,14 @@ merge. Человек, который нажал Stop, ждёт обратног
   и Autopilot взял бы его без спроса.
 - **Хранить `resumable` в журнале и читать при старте приложения.** Отложено: нужен разбор
   журналов при каждом `autopilot.state`; в этом Ticket-е — только память main.
+
+## Amendments
+
+- **2026-11-06 — `resumable` и после `session-error` посреди Wave** (worfy-retry 14, PR #PRNUM; решение владельца
+  2026-11-05, Q9). Run, остановленный `session-error` после отправки Wave, оставляет `resumable` — Ticket-ы своей
+  последней Wave, как Force stop: implementer-ы умирают вместе с процессом Orchestrator-а, и `claimed` за ними Ticket
+  иначе ждал бы человека. Следующий Run того же Epic-а берёт из них только те, что ещё в работе, в первую команду Wave
+  вместе с ready Ticket-ами; Orchestrator доводит их, как при возобновлении Wave. Статус Ticket-а worfy по-прежнему не
+  пишет (ADR-0002). `session-error` до первой Wave, graceful Stop, `turn-error`, `session-closed` — как раньше.
+  Отвергнутый вариант «Возобновлять любой Ticket в `work`» остаётся отвергнутым: Ticket-ы берутся только из последней
+  Wave Run-а. `resumable` по-прежнему только в памяти main.

@@ -51,7 +51,9 @@
 //   the interrupted Wave, `tasks-killed` when tasks lived, and `orchestrator-returned`; forceStop()
 //   answers after that. The next run of the Epic
 //   takes those Tickets, if still in work, into its first Wave (`resumable`); after a graceful Stop
-//   it takes none.
+//   it takes none. A Session in error during a Wave (`session-error`, worfy-retry ticket 14) leaves
+//   them `resumable` too: its implementers died with the Orchestrator, and a Ticket one of them
+//   claimed would otherwise wait for a person (ADR-0050, Amendments).
 // - keep-awake (power.ts) is held from the start to the end of the run.
 // - A turn of the Wave refused by the Limits does not end it (worfy-daily ticket 05): the run goes
 //   `waiting` until the Limits reset, then sends the Orchestrator on (limits-wait.ts). Past the
@@ -607,16 +609,15 @@ function waveTicketCounts(run: Run): { done: number; blocked: number } {
 }
 
 /**
- * What a stopped run leaves resumable (AutopilotState.resumable): after a Force stop the Tickets of
- * the Wave it interrupted, in a run over named Tickets those of the last Force stop it did not take,
+ * What a stopped run leaves resumable (AutopilotState.resumable): after a Force stop or a Session in
+ * error the Tickets of the Wave it interrupted, in a run over named Tickets those of the last Force stop it did not take,
  * and in a run that sent no Wave the Tickets it was given; in number order.
  */
 function resumableOf(run: Run): number[] {
   // A run that sent no Wave took none of the Tickets it was given: they stay resumable, whatever
   // ended it (a Stop during the wait for the Start window, worfy-resource-planner ticket 05).
   const given = run.cycle.wave === 0 ? run.given : []
-  const interrupted = run.cycle.reason === 'user-force-stop' ? run.interrupted : []
-  return [...new Set([...given, ...interrupted, ...run.carried])].sort((a, b) => a - b)
+  return [...new Set([...given, ...run.interrupted, ...run.carried])].sort((a, b) => a - b)
 }
 
 /** One run of one Project. */
@@ -673,7 +674,7 @@ class Run {
   private stopAskedDone!: () => void
   /** Whether STOP_TEXT has gone to the Orchestrator: once per run. */
   stopSent = false
-  /** After a Force stop: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
+  /** After a Force stop or a Session in error: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
   interrupted: number[] = []
   /** The status of each Ticket of the Epic at the last read of the watch (statusChanges); the start's read is the first. */
   statuses = new Map<number, string>()
@@ -2220,8 +2221,8 @@ export class Autopilot {
       ...(run.actual.waves === 0 ? {} : { actual: { ...run.actual, share: millionths(run.actual.share) } }),
     })
     this.dropQueuedWave(run)
+    if (reason === 'user-force-stop' || reason === 'session-error') run.interrupted = tickets ?? []
     if (reason === 'user-force-stop') {
-      run.interrupted = tickets ?? []
       await this.interruptAndGiveBack(run, live)
     } else {
       // Live tasks keep the Orchestrator unattended, and the Mac awake, until they end (ADR-0029).

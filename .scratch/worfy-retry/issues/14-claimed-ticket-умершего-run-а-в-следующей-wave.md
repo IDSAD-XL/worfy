@@ -1,7 +1,7 @@
 # 14 — Ticket умершего Run-а остаётся `claimed`: следующий Run называет его в команде Wave
 
 Type: task
-Status: open
+Status: claimed 2026-11-06T08:27Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 14; решения владельца 2026-11-05: Q8 — Ticket перенесён из Epic-а [worfy-faults](../../worfy-faults/spec.md) (там был 09; тот Epic остаётся только test-ами), Q9 — поправка ADR-0050 входит в этот Ticket; дефект найден сценарием 1 Ticket-а [worfy-faults 03](../../worfy-faults/issues/03-убитый-orchestrator-и-упавший-implementer.md) (влит #1439), его «Итог»; [worfy-faults](../../worfy-faults/spec.md), «Вопросы владельцу», Q4 (найденный дефект — Ticket с «Инцидент»); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md) (worfy не пишет статус Ticket-а), [ADR-0050](../../../docs/adr/0050-autopilot-user-stop-interrupts-orchestrator.md) (`resumable` после Force stop)
 
@@ -93,3 +93,58 @@ Ticket перенесён в worfy-retry решением владельца 202
 (`autopilotWave`, `sendWave`, `:272-298`), `src/renderer/canvas/actions/AutopilotAction.tsx:383-384`,
 `test/contract/autopilot-faults-setup.ts` (`faultRun`, `startAgain`), `harness/skills/epic-wave/SKILL.md`
 («How to resume a wave»).
+
+## Итог
+
+PR #PRNUM. `session-error` после отправки Wave теперь останавливает Run так же, как Force stop, в части `resumable`:
+
+- `src/shared/autopilot/cycle.ts` — `session-error` даёт `stopped` с Ticket-ами последней Wave (`waveOf`: копия
+  `state.tickets`, `undefined` до первой Wave). Force stop берёт их через тот же `waveOf`, поведение прежнее.
+- `src/main/autopilot/run.ts` — `end()` запоминает Ticket-ы в `run.interrupted` и при `session-error`; `resumableOf`
+  отдаёт `run.interrupted` без своей проверки причины: её делает только `end()` (вторая проверка давала эквивалентный
+  мутант). Следующий Run того же Epic-а берёт их тем же путём, что после Force stop
+  (`run.resume` → `autopilotWave` → `resumedTickets`: только те, что ещё в работе).
+- Журнал: `run-stopped` с `session-error` после первой Wave несёт `tickets`, как `user-force-stop`. Строку читает
+  только `journal-walk.mjs`/`from-journal.ts`, и `tickets` этой строки они не используют; формат описан в
+  `src/shared/autopilot/journal.ts`.
+- worfy `Status:` не пишет (ADR-0002): И7 в `checkRecovery` сценария 1 пустой.
+- Сценарий 1 `test/contract/autopilot-faults-process.test.ts`: после первой остановки `resumable: [1, 2]`; вторая
+  команда Wave — `/epic-wave Ticket-ы 01, 02 эпика demo`, `wave-started` второго Run-а — `['01', '02']`. На
+  `c0a7a766a` красный (`resumable: []`, exit 1), после правки зелёный.
+- `test/unit/autopilot-cycle.test.ts` — новый test: `session-error` в фазах `turn` и `tasks` даёт `stopped` с `[1, 2]`;
+  до первой Wave (`starting`, `sending`) — без `tickets`.
+- ADR-0050 — раздел `## Amendments`; `docs/features/autopilot.md` — абзац о следующем Run-е, строка `run-stopped`
+  таблицы журнала, строка `autopilot-faults-process.test.ts` таблицы `#### Tests`. Перевод `docs/features/ru/` — нет
+  (ADR-0088).
+
+Mutation testing изменённых строк `cycle.ts` и `run.ts` (8 мутантов; test-ы — `autopilot-cycle`, `autopilot-run`,
+`autopilot-faults-process`, `autopilot.test.ts`): убито 7. Выжил один — `end()` запоминает `tickets` при любой причине:
+другая причина с `tickets` только `blocked-tickets`, и ни один test не проверяет `resumable: []` после неё (такая
+проверка была бы в `autopilot-faults-github.test.ts:237`, вне «Где в коде» этого Ticket-а).
+
+Решено без владельца:
+
+- Правлено ожидание одного прежнего case-а `test/unit/autopilot-cycle.test.ts` — «a Session in error stops the run
+  with session-error and its message»: он из фазы `turn` ждал `stopped` без `tickets`, а это ровно то, что меняет
+  Ticket. Остальные case-ы файла и `autopilot.test.ts`, `autopilot-background.test.ts`, `autopilot-run.test.ts` не
+  правились.
+- Условие для `session-error` — как у Force stop: Ticket-ы есть, если Wave уже отправлялась (`state.tickets` не пуст),
+  в любой фазе, не только `turn`/`tasks`. В фазе `sending` после законченной Wave это её Ticket-ы; в работе их нет,
+  и `resumedTickets` их отбрасывает.
+- `src/shared/autopilot/journal.ts` (вне «Где в коде») — одна строка комментария формата `run-stopped`.
+
+### Инцидент
+
+- **Симптом.** Run Autopilot-а остановлен `session-error` (Claude Code Orchestrator-а умер при живых implementer-ах);
+  Ticket 01 остался `claimed` за умершим implementer-ом, и следующий Run слал Wave без него — вернуть его в работу
+  мог только человек.
+- **Ссылки.** PR #1439 (worfy-faults 03), его «Итог»: [03-убитый-orchestrator-и-упавший-implementer.md](../../worfy-faults/issues/03-убитый-orchestrator-и-упавший-implementer.md),
+  сценарий 1 `test/contract/autopilot-faults-process.test.ts`; исправление — PR #PRNUM.
+- **Воспроизведение.** На чистом `main` (`c0a7a766a`), детерминированно: сценарий 1 на fake-агенте.
+- **Корневая причина.** `cycle.ts` передавал Ticket-ы Wave в `stopped`, а `run.ts` (`end()`, `resumableOf`) запоминал
+  их только у Force stop; `session-error` посреди Wave оставлял `resumable` пустым.
+- **Дубликат.** Нет.
+- **Класс.** Дефект кода (процесс worfy-reliability 03): воспроизводится на fixture, причина — строки `src/`.
+- **Вывод.** Детерминированный test — сценарий 1 `test/contract/autopilot-faults-process.test.ts` и case cycle-а
+  `session-error` в фазах `turn` и `tasks` (`test/unit/autopilot-cycle.test.ts`): красный на `c0a7a766a`, зелёный
+  на ветке `worfy-retry/14`. Урока нет: вывод не выходит за этот Ticket.

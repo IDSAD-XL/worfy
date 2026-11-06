@@ -67,8 +67,9 @@ export const autopilotStateSchema = z.object({
   reason: z.enum(AUTOPILOT_STOP_REASONS).nullable(),
   message: z.string().nullable(),
   /**
-   * After a Force stop (`user-force-stop`, worfy-week tickets 17, 18): the Ticket numbers of the
-   * Wave it interrupted, for `epic`. A new run of that Epic takes those still in work into its first
+   * After a Force stop (`user-force-stop`, worfy-week tickets 17, 18) or a Session in error during a
+   * Wave (`session-error`, worfy-retry ticket 14): the Ticket numbers of the Wave it interrupted, for
+   * `epic`. A new run of that Epic takes those still in work into its first
    * Wave, also when nothing else is ready; the button and main filter them by the Tickets they read.
    * A run over named Tickets takes only those of its list and leaves the others here when it stops,
    * whatever its reason (worfy-flight-recorder ticket 21, ADR-0091). A run that sent no Wave (a Stop

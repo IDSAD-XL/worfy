@@ -305,7 +305,11 @@ and gives the Orchestrator back to the person. Worktrees and branches stay. A me
 new Session's queue. The Wave and the stop message leave the queue.
 
 The next run of the same Epic takes the Tickets interrupted by a Force stop into its first Wave, if they are still in work,
-even when nothing else is ready. After a graceful Stop it takes none. A run that stops before its first Wave, for example
+even when nothing else is ready. So it does after a run that stopped with `session-error` during a Wave: the implementers
+died with the Orchestrator's process, and a Ticket one of them claimed stays `claimed`. The first Wave command of the next run
+names it along with the ready Tickets, and the Orchestrator resumes it as a resumed Wave (the `epic-wave` skill, "How to
+resume a wave"): by its branch, PR and result it carries the work on or hands the Ticket out again. worfy writes no
+`Status:` of its own. After a graceful Stop it takes none. A run that stops before its first Wave, for example
 during the wait for the Start window, took none of those Tickets, so the next run still gets them. worfy keeps this list in memory only, so it does not
 survive a restart of the app.
 
@@ -532,7 +536,7 @@ it cannot read.
 | `run-stopping` | A graceful Stop came during a turn or tasks. |
 | `gate-queue` | The run sent "Process gate queue". |
 | `gate-queue-finished` | The turn of "Process gate queue" ended. `run-stopped` follows. |
-| `run-stopped` | The run ended, with its reason. `tickets` for `blocked-tickets` and `user-force-stop`. `lastText` for a stop for want of a Wave. `actual` once a Wave has finished, on a Force stop and a quit too: the growth of the 7-day share over the run's Waves (`share`; in a run on Codex, of the longest Codex window), the Waves finished (`waves`) and how many of them counted (`counted`; a Wave with a stale number or a week reset inside does not). |
+| `run-stopped` | The run ended, with its reason. `tickets` for `blocked-tickets`, and for `user-force-stop` and `session-error` after the first Wave. `lastText` for a stop for want of a Wave. `actual` once a Wave has finished, on a Force stop and a quit too: the growth of the 7-day share over the run's Waves (`share`; in a run on Codex, of the longest Codex window), the Waves finished (`waves`) and how many of them counted (`counted`; a Wave with a stale number or a week reset inside does not). |
 | `orchestrator-returned` | The Orchestrator is a person's Session again, after a stop that had to wait, or after a Force stop. |
 | `tasks-killed` | Tasks the run waited for ended with the process, on a quit or a Force stop. |
 
@@ -585,7 +589,7 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/e2e/browser-autopilot.spec.ts` | What the Session of a run may do with a Browser. |
 | `test/unit/autopilot-invariants.test.ts` | The recovery rules over the journals of `test/fixtures/autopilot-faults/`: a good run breaks none, and each rule catches a broken copy made for it. |
 | `test/contract/autopilot-faults-api.test.ts` | Fault scenarios of the model API: an API 500, a 529 in the middle of a streamed answer (not taken for the Limits) and a dropped connection stop the run with `turn-error`, and a new start sends its Wave command once; Limits that refuse the turn of Wave 2 make the run wait and resume after the reset with one continuation, and Wave 1 does not go again. |
-| `test/contract/autopilot-faults-process.test.ts` | Fault scenarios of the processes: Claude Code of the Orchestrator dies while both implementers work (`session-error`, and a new start goes to a new Session); an implementer fails and its Ticket stays `claimed` (`wave-unfinished`) or goes back to `open` (the next Wave holds only that Ticket). |
+| `test/contract/autopilot-faults-process.test.ts` | Fault scenarios of the processes: Claude Code of the Orchestrator dies while both implementers work (`session-error`, and a new start goes to a new Session, its first Wave naming the Ticket still `claimed` by the dead implementer along with the ready one); an implementer fails and its Ticket stays `claimed` (`wave-unfinished`) or goes back to `open` (the next Wave holds only that Ticket). |
 | `test/contract/autopilot-faults-github.test.ts` | Fault scenarios on the GitHub side: the gh stub's `hang` mode; gh hangs for the whole run (the Waves go on, and the stop waits no longer than the limit of the last read); gh answers 502 (the next read comes after the doubled interval); a merge conflict (the run stops with `blocked-tickets`, and a new run does not take the blocked Ticket). |
 | `test/contract/autopilot-faults-codex.test.ts` | Fault scenarios on a Codex Orchestrator: a failed turn stops the run with `turn-error`; an app-server that exits in the middle of a Wave gives `session-error`, and a new run starts in a new Session. |
 | `test/e2e/autopilot-faults.spec.ts` | Fault scenarios in the built app: the app killed with SIGKILL in the middle of a Wave and started again (nothing goes to the Orchestrator at the start, Run history shows the old run cut off, the button starts a new run that sends its Wave once); GitHub out of reach for the whole run (both Waves go through, and `gh` was only read). |

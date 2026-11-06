@@ -271,7 +271,8 @@
 //                                    wave-started, numbers only); with `user-force-stop`, the
 //                                    Tickets of the Wave it interrupted, none before the first Wave
 //                                    (worfy-week tickets 17, 18; lines written before ticket 18 say
-//                                    `user-stop` for it); lastText: with `no-progress`,
+//                                    `user-stop` for it); so with `session-error` since
+//                                    worfy-retry ticket 14; lastText: with `no-progress`,
 //                                    `no-ready-wave`, `blocked-tickets` and `tickets-done`
 //                                    (worfy-flight-recorder ticket 21), the first 1000
 //                                    characters of the Orchestrator's last answer in the turns of

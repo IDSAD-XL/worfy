@@ -135,8 +135,23 @@ describe('the Autopilot cycle', () => {
 
   it('a Session in error stops the run with session-error and its message', () => {
     const { effects, state } = run([{ type: 'session-error', message: 'Claude Code exited' }], inWave1())
-    expect(effects).toEqual([{ kind: 'session-error', message: 'Claude Code exited' }, { kind: 'stopped', reason: 'session-error' }])
+    expect(effects).toEqual([{ kind: 'session-error', message: 'Claude Code exited' }, { kind: 'stopped', reason: 'session-error', tickets: [1, 2] }])
     expect(state).toMatchObject({ phase: 'stopped', reason: 'session-error' })
+  })
+
+  it('a Session in error during a Wave names its Tickets, in phase turn and in phase tasks; before the first Wave none (worfy-retry ticket 14)', () => {
+    const turn = inWave1()
+    expect(turn.phase).toBe('turn')
+    expect(run([{ type: 'session-error', message: 'x' }], turn).effects).toEqual([{ kind: 'session-error', message: 'x' }, { kind: 'stopped', reason: 'session-error', tickets: [1, 2] }])
+    const tasks = run([ok(OPEN, 2)], inWave1()).state
+    expect(tasks.phase).toBe('tasks')
+    expect(run([{ type: 'session-error', message: 'x' }], tasks).effects).toEqual([{ kind: 'session-error', message: 'x' }, { kind: 'stopped', reason: 'session-error', tickets: [1, 2] }])
+    // The effect's list is a copy: the stopped state does not share it.
+    const stopped = run([{ type: 'session-error', message: 'x' }], tasks)
+    expect((stopped.effects[1] as { tickets: number[] }).tickets).not.toBe(stopped.state.tickets)
+    for (const before of [initialCycle(EPIC), run([{ type: 'start', tickets: OPEN }]).state]) {
+      expect(run([{ type: 'session-error', message: 'x' }], before).effects).toEqual([{ kind: 'session-error', message: 'x' }, { kind: 'stopped', reason: 'session-error' }])
+    }
   })
 
   it('a turn that ends with an error stops with turn-error; an interrupted one with interrupted', () => {

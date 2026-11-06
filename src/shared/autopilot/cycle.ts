@@ -28,7 +28,8 @@
 // with `user-stop`, without `wave-finished`. `inWork` follows the Tickets of the Wave in work.
 //
 // Force stop (`user-force-stop`, worfy-week ticket 17, ADR-0050) names the Tickets of the Wave it
-// interrupts in its `stopped` effect. A run started after it is given those Tickets (`start`,
+// interrupts in its `stopped` effect, and so does a Session in error (`session-error`, worfy-retry
+// ticket 14): its implementers died with it. A run started after it is given those Tickets (`start`,
 // `resume`): the ones still in work count as ready, so the first Wave goes even when nothing else is.
 //
 // A run over named Tickets (`named`, worfy-flight-recorder ticket 21, ADR-0091) counts only those as
@@ -159,8 +160,8 @@ export type CycleEffect =
   | { kind: 'stopping'; wave: number; tickets: number[]; inWork: number[] }
   /**
    * The run is over: release keep-awake, give the Orchestrator back, write `run-stopped`. With
-   * `blocked-tickets`, `tickets` are the Tickets it stopped on; with `user-force-stop`, the Tickets
-   * of the Wave it interrupted (none before the first Wave is sent).
+   * `blocked-tickets`, `tickets` are the Tickets it stopped on; with `user-force-stop` and
+   * `session-error`, the Tickets of the Wave it interrupted (none before the first Wave is sent).
    */
   | { kind: 'stopped'; reason: AutopilotStopReason; tickets?: number[] }
 
@@ -206,6 +207,9 @@ function gracefulStop(state: CycleState, tickets: readonly CycleTicket[]): Cycle
 }
 
 const stay = (state: CycleState): CycleStep => ({ state, effects: [] })
+
+/** The Tickets of the run's last Wave, for a stop that interrupts it; undefined before the first Wave is sent. */
+const waveOf = (state: CycleState): number[] | undefined => (state.tickets.length > 0 ? [...state.tickets] : undefined)
 
 function stop(state: CycleState, reason: AutopilotStopReason, before: CycleEffect[] = [], tickets?: number[]): CycleStep {
   const stopped: CycleEffect = tickets === undefined ? { kind: 'stopped', reason } : { kind: 'stopped', reason, tickets }
@@ -259,11 +263,12 @@ export function step(state: CycleState, event: CycleEvent): CycleStep {
   if (state.phase === 'stopped') return stay(state)
   switch (event.type) {
     case 'stop':
-      return event.reason === 'user-force-stop' && state.tickets.length > 0 ? stop(state, event.reason, [], [...state.tickets]) : stop(state, event.reason)
+      return event.reason === 'user-force-stop' ? stop(state, event.reason, [], waveOf(state)) : stop(state, event.reason)
     case 'graceful-stop':
       return gracefulStop(state, event.tickets)
     case 'session-error':
-      return stop(state, 'session-error', [{ kind: 'session-error', message: event.message }])
+      // The Orchestrator's implementers died with its Session: the Wave stays resumable, as after a Force stop (worfy-retry ticket 14).
+      return stop(state, 'session-error', [{ kind: 'session-error', message: event.message }], waveOf(state))
     case 'session-closed':
       return stop(state, 'session-closed')
     case 'start':

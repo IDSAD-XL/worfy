@@ -28,7 +28,6 @@ const waveCommands = (h: FaultRun): string[] => h.messages().flatMap((text) => t
 /** What the default Run wave template sends for a Wave of the Epic (ADR-0033). */
 const WAVE_1 = '/epic-wave Ticket-ы 01, 02 эпика demo'
 const WAVE_OF_01 = '/epic-wave Ticket-ы 01 эпика demo'
-const WAVE_OF_02 = '/epic-wave Ticket-ы 02 эпика demo'
 
 /** The Status: lines the test writes for the Orchestrator. */
 const CLAIMED = 'claimed — 2026-11-05'
@@ -98,7 +97,8 @@ describe('Autopilot faults of the processes (worfy-faults ticket 03)', () => {
     h.releases.release('die')
     await h.stopped(1)
 
-    expect(h.state()).toMatchObject({ status: 'stopped', reason: 'session-error', wave: 1, backgroundTasks: 0 })
+    // The Tickets of the Wave the error interrupted stay resumable, as after a Force stop (worfy-retry ticket 14).
+    expect(h.state()).toMatchObject({ status: 'stopped', reason: 'session-error', wave: 1, backgroundTasks: 0, resumable: [1, 2] })
     const first = h.journal(1)
     expect(first.find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'session-error' })
     expect(first.flatMap((event) => (event.kind === 'session-error' ? [event.message] : []))).toEqual([expect.stringMatching(/^Claude Code process exited with code 1\b/u)])
@@ -112,13 +112,14 @@ describe('Autopilot faults of the processes (worfy-faults ticket 03)', () => {
     expect(await h.startAgain()).toEqual({ refusal: null })
     await until(() => waveCommands(h).length >= 2 && h.kinds(2).includes('wave-started'), 'the Wave of the new Run')
     expect(h.journal(2)[0]).toMatchObject({ kind: 'run-started', epic: EPIC })
-    // 01 is still claimed by the dead implementer: the new Run's Wave holds only 02.
-    expect(h.journal(2).filter((event) => event.kind === 'wave-started')).toMatchObject([{ wave: 1, tickets: ['02'] }])
+    // 01 is still claimed by the dead implementer: the Wave the session-error interrupted is resumable,
+    // so the new Run's Wave names 01 along with the ready 02 (worfy-retry ticket 14, ADR-0050).
+    expect(h.journal(2).filter((event) => event.kind === 'wave-started')).toMatchObject([{ wave: 1, tickets: ['01', '02'] }])
     await h.autopilot.forceStop(PROJECT)
     const unattended = h.queries().filter((query) => query.unattended)
     expect(unattended).toHaveLength(2)
     expect(unattended[1]!.messages.filter((text) => /^\s*\/(?:worfy:)?epic-wave\b/mu.test(text))).toHaveLength(1)
-    expect(waveCommands(h)).toEqual([WAVE_1, WAVE_OF_02])
+    expect(waveCommands(h)).toEqual([WAVE_1, WAVE_1])
 
     expect(checkRecovery(h.recovery({ stop: 'session-error', errorText: /^Claude Code process exited with code 1\b/u, waves: 2 }))).toEqual([])
   })
