@@ -230,6 +230,12 @@ export function sharedAutopilot(): Autopilot {
     // retry; the pause by the wall clock.
     retry: {
       enabled: (projectId) => autoContinueOn(projectId),
+      // A far Limits wait ends when the switch is turned off (worfy-retry ticket 05).
+      observe: (listener) => {
+        const store = appSettingsStore()
+        store.on('changed', listener)
+        return () => void store.off('changed', listener)
+      },
       send: (sessionId, text) => {
         sharedRegistry().get(sessionId).send(text)
       },

@@ -57,3 +57,8 @@ screen saver begins or display is turned off»). Ночной прогон Autop
   2026-10-06), прогон о нём не знает.
 - **Отключить пароль после гашения экрана.** Отвергнуто: это системная настройка, worfy системных
   настроек не меняет (ADR-0024, пункт 7).
+
+## Amendments
+
+- **2026-11-06, поправлен ADR-0097** (`worfy-retry` 05). Пункт 2 — для ожидания сброса Limits дальше 24 ч с включённым
+  Auto-continue: см. [ADR-0097](0097-far-limits-wait-releases-keep-awake.md).

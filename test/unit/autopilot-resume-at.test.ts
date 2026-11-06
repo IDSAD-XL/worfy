@@ -21,7 +21,7 @@ describe('toMs', () => {
 describe('resumeAt', () => {
   it('continues at the reported reset of the 5-hour window, in seconds, plus the margin', () => {
     const reset = NOW + 2 * H
-    expect(resumeAt({ hit: { window: 'five_hour', resetsAt: S(reset) }, limits: limits(), now: NOW, since: NOW })).toEqual({ kind: 'at', at: reset + RESUME_MARGIN_MS, resetsAt: reset })
+    expect(resumeAt({ hit: { window: 'five_hour', resetsAt: S(reset) }, limits: limits(), now: NOW, since: NOW })).toEqual({ kind: 'at', at: reset + RESUME_MARGIN_MS, resetsAt: reset, window: 'five_hour' })
   })
 
   it('takes a reset time in milliseconds as it is', () => {
@@ -91,5 +91,49 @@ describe('isLimitsMessage', () => {
     expect(isLimitsMessage('Not logged in · Please run /login')).toBe(false)
     expect(isLimitsMessage('Prompt is too long')).toBe(false)
     expect(isLimitsMessage('error_during_execution')).toBe(false)
+  })
+})
+
+// worfy-retry ticket 05: the windows differ by plan (the owner's top plan has no `five_hour`, only
+// `seven_day` or no window at all), and the Auto-continue switch decides a reset more than 24 h away.
+describe('resumeAt with the Auto-continue switch (worfy-retry ticket 05)', () => {
+  const SWITCH = [{ name: 'off', farReset: undefined }, { name: 'on', farReset: 'wait' as const }]
+
+  it.each(SWITCH)('switch $name: the Limits have five_hour and seven_day, the five_hour refused → its reset plus the margin', ({ farReset }) => {
+    const reset = NOW + 2 * H
+    const state = limits({ five_hour: win(S(reset), 'rejected'), seven_day: win(S(NOW + 4 * 24 * H), 'allowed') })
+    expect(resumeAt({ hit: { window: 'five_hour', resetsAt: S(reset) }, limits: state, now: NOW, since: NOW, farReset })).toEqual({ kind: 'at', at: reset + RESUME_MARGIN_MS, resetsAt: reset, window: 'five_hour' })
+    // The event without a time: the five_hour of limits.json, not the later seven_day.
+    expect(resumeAt({ hit: { window: 'five_hour', resetsAt: null }, limits: state, now: NOW, since: NOW, farReset })).toEqual({ kind: 'at', at: reset + RESUME_MARGIN_MS, resetsAt: reset, window: 'five_hour' })
+  })
+
+  it.each(SWITCH)('switch $name: only seven_day (the top plan) → the seven_day reset; five_hour is needed nowhere', ({ farReset }) => {
+    const reset = NOW + 6 * H
+    const state = limits({ seven_day: win(S(reset), 'rejected') })
+    expect(resumeAt({ hit: { window: 'seven_day', resetsAt: S(reset) }, limits: state, now: NOW, since: NOW, farReset })).toEqual({ kind: 'at', at: reset + RESUME_MARGIN_MS, resetsAt: reset, window: 'seven_day' })
+    // Neither the event's window nor its time: the rejected seven_day of limits.json names both.
+    expect(resumeAt({ hit: { window: null, resetsAt: null }, limits: state, now: NOW, since: NOW, farReset })).toEqual({ kind: 'at', at: reset + RESUME_MARGIN_MS, resetsAt: reset, window: 'seven_day' })
+  })
+
+  it.each(SWITCH)('switch $name: no window at all → recheck after 30 minutes', ({ farReset }) => {
+    expect(RECHECK_MS).toBe(30 * 60_000)
+    expect(resumeAt({ hit: { window: null, resetsAt: null }, limits: limits(), now: NOW, since: NOW, farReset })).toEqual({ kind: 'recheck', at: NOW + RECHECK_MS })
+    // The rechecks stay within the 24 h of the wait, whatever the switch.
+    expect(resumeAt({ hit: { window: null, resetsAt: null }, limits: limits(), now: NOW, since: NOW - MAX_WAIT_MS, farReset })).toMatchObject({ kind: 'give-up' })
+  })
+
+  it.each(SWITCH)('switch $name: a quota without a reset → no wait, the run stops with the reason', ({ farReset }) => {
+    const state = limits({ seven_day: win(S(NOW + 6 * H), 'rejected') })
+    expect(resumeAt({ hit: { window: null, resetsAt: null, quota: true }, limits: state, now: NOW, since: NOW, farReset })).toEqual({ kind: 'quota' })
+  })
+
+  it('a reset in 3 days: off → give-up (as before the switch), on → at the reset', () => {
+    const far = NOW + 3 * 24 * H
+    const hit = { window: 'seven_day', resetsAt: S(far) }
+    expect(resumeAt({ hit, limits: limits(), now: NOW, since: NOW })).toEqual({ kind: 'give-up', reason: `The Limits reset at ${new Date(far).toISOString()}, more than 24 h after the wait began` })
+    expect(resumeAt({ hit, limits: limits(), now: NOW, since: NOW, farReset: 'wait' })).toEqual({ kind: 'at', at: far + RESUME_MARGIN_MS, resetsAt: far, window: 'seven_day', far: true })
+    // On, a wait that has already lasted a day still waits for a known reset.
+    expect(resumeAt({ hit, limits: limits(), now: NOW, since: NOW - MAX_WAIT_MS, farReset: 'wait' })).toMatchObject({ kind: 'at', at: far + RESUME_MARGIN_MS })
+    expect(resumeAt({ hit, limits: limits(), now: NOW, since: NOW - MAX_WAIT_MS })).toMatchObject({ kind: 'give-up' })
   })
 })

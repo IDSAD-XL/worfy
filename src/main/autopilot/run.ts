@@ -625,6 +625,8 @@ class Run {
   session: RunSession | null = null
   journal: RunJournalLike | null = null
   awake: { start(): void; stop(): void } | null = null
+  /** keep-awake released for a far Limits wait (holdAwake, worfy-retry ticket 05). */
+  asleep = false
   /** The run's wait for the Limits; null when the app gave no Limits (AutopilotDeps.limits). */
   limits: LimitsWait | null = null
   /** The run's retries after a temporary API error; null when the app gave no Auto-continue (AutopilotDeps.retry). */
@@ -1112,6 +1114,12 @@ export class Autopilot {
         await this.feed(run, { type: 'stop', reason: 'user-stop' })
         return
       }
+      // Likewise a Limits wait past 24 h that only Auto-continue keeps (worfy-retry ticket 05): the run
+      // would otherwise stay unattended for days.
+      if (run.limits?.until != null && run.limits.far && !this.turnUnderWay(run)) {
+        await this.feed(run, { type: 'stop', reason: 'user-stop' })
+        return
+      }
       if (run.cycle.stopping) return
       // Waiting for the budget or the Start window before a Wave: no Wave is in work, the run ends
       // now (worfy-throughput ticket 41, worfy-resource-planner ticket 05).
@@ -1170,10 +1178,16 @@ export class Autopilot {
 
   private subscribe(run: Run): void {
     if (run.limits !== null) run.cleanups.push(run.limits.watch((sessionId) => run.session !== null && sessionId === run.session.id))
+    const unobserve = this.deps.retry?.observe?.(() => void run.enqueue(async () => void (await this.farWaitDropped(run))))
+    if (unobserve !== undefined) run.cleanups.push(unobserve)
     run.cleanups.push(
       this.deps.registry.observe((sessionId, event) => {
         if (run.session === null || sessionId !== run.session.id) return
         this.onEvent(run, event)
+        // During a far Limits wait (worfy-retry ticket 05): a turn or a task that starts takes keep-awake
+        // back, and the end of the last task lets it go. The end of a turn decides in the run's order:
+        // passed() keeps it, a refusal waits again (waitForLimits).
+        if (run.asleep || (event.type === 'background_tasks' && run.limits?.until != null)) this.holdAwake(run)
       }),
       this.deps.registry.observeInput((session, what) => {
         if (session !== run.session) return
@@ -1217,6 +1231,7 @@ export class Autopilot {
           // the Wave's duration does not count the rest of the Wave as waiting (wave-duration.ts).
           const waiting = run.limits?.until != null
           run.limits?.passed()
+          this.holdAwake(run)
           run.turnMayCome = false
           if (waiting) await this.write(run, { kind: 'resumed' })
           const retried = await this.retryTurn(run, { failure, actions, interrupted, message })
@@ -1932,7 +1947,8 @@ export class Autopilot {
       resetsAt: hit.resetsAt === null ? null : new Date(toMs(hit.resetsAt)).toISOString(),
       ...(hit.quota === true ? { reason: 'quota' as const, ...(said === null ? {} : { message: said }) } : {}),
     })
-    const plan = wait.plan(hit)
+    // Auto-continue on: a reset more than 24 h away is waited for (worfy-retry ticket 05).
+    const plan = wait.plan(hit, run.retry?.enabled() === true)
     if (plan.kind === 'quota') {
       run.message = said ?? `${run.vendor} refused the turn by its Limits, and nothing resets`
       await this.feed(run, { type: 'stop', reason: 'vendor-quota' })
@@ -1943,14 +1959,65 @@ export class Autopilot {
       await this.feed(run, { type: 'stop', reason: 'limits-timeout' })
       return
     }
+    // A Stop came before a refusal whose wait passes 24 h (worfy-retry ticket 05): no wait of days for it.
+    if (plan.kind === 'at' && plan.far === true && (run.cycle.stopping || run.stopRequested)) {
+      await this.feed(run, { type: 'stop', reason: 'user-stop' })
+      return
+    }
     await this.waitForLimits(run, wait, plan.at)
   }
 
   /** The run sleeps until `at` (`waiting-until`), then resumes (resume). */
   private async waitForLimits(run: Run, wait: LimitsWait, at: number): Promise<void> {
     await this.write(run, { kind: 'waiting-until', until: new Date(at).toISOString() })
-    const id = wait.wait(at, () => void run.enqueue(() => this.resume(run, id)))
+    const id = wait.wait(
+      at,
+      () => void run.enqueue(() => this.resume(run, id)),
+      () => void run.enqueue(() => this.wake(run, id)),
+    )
+    this.holdAwake(run)
     this.publish(run.projectId)
+  }
+
+  /**
+   * keep-awake during a Limits wait (worfy-retry ticket 05, spec Q8 (c), ADR-0097): released while the
+   * continuation is more than 24 h away (LimitsWait.keepAwake), no turn is under way and no background
+   * task lives (ADR-0029); held again as soon as one of them is no longer so.
+   */
+  private holdAwake(run: Run): void {
+    if (run.awake === null || run.cycle.phase === 'stopped') return
+    const asleep = run.limits !== null && !run.limits.keepAwake && !this.turnUnderWay(run) && this.liveTasks(run).length === 0
+    if (asleep === run.asleep) return
+    run.asleep = asleep
+    try {
+      if (asleep) run.awake.stop()
+      else run.awake.start()
+    } catch (error) {
+      console.error(`[autopilot] ${run.projectId}: could not ${asleep ? 'release' : 'take'} keep-awake`, error)
+    }
+  }
+
+  /** 24 h before the continuation of a far wait: keep-awake again, unless Auto-continue is off by now (farWaitDropped). */
+  private async wake(run: Run, id: number): Promise<void> {
+    const wait = run.limits
+    if (wait === null || !wait.isCurrent(id) || run.cycle.phase === 'stopped') return
+    if (await this.farWaitDropped(run)) return
+    this.holdAwake(run)
+  }
+
+  /**
+   * A Limits wait past 24 h exists only because Auto-continue is on (LimitsWait.far): with the switch
+   * off by now, it is dropped and the run stops with `limits-timeout`, as it would have at the refusal
+   * without the switch. Read when the switch changes (TurnRetryDeps.observe) and at the wait's timers.
+   * Answers whether the run stopped.
+   */
+  private async farWaitDropped(run: Run): Promise<boolean> {
+    const wait = run.limits
+    if (wait === null || wait.until === null || !wait.far || run.cycle.phase === 'stopped' || run.retry?.enabled() === true) return false
+    wait.cancel()
+    run.message = 'Auto-continue was turned off while the run waited for a Limits reset more than 24 h away'
+    await this.feed(run, { type: 'stop', reason: 'limits-timeout' })
+    return true
   }
 
   /**
@@ -1980,6 +2047,8 @@ export class Autopilot {
   private async resume(run: Run, id: number): Promise<void> {
     const wait = run.limits
     if (wait === null || !wait.isCurrent(id) || run.cycle.phase === 'stopped' || run.session === null) return
+    // A far wait whose switch was turned off meanwhile continues nothing (worfy-retry ticket 05).
+    if (await this.farWaitDropped(run)) return
     // On another Vendor, the windows are read again first: still used up, the run waits once more.
     const again = await this.stillRefused(run, wait)
     // Read anew after the read: a stop may have come meanwhile. A Force stop or the quit waits behind this
@@ -1987,7 +2056,7 @@ export class Autopilot {
     const phase = run.cycle.phase as CycleState['phase']
     if (!wait.isCurrent(id) || phase === 'stopped' || run.session === null || run.rushed || this.quitting) return
     if (again !== null) {
-      const plan = wait.plan(again)
+      const plan = wait.plan(again, run.retry?.enabled() === true)
       if (plan.kind === 'give-up') {
         wait.cancel()
         run.message = plan.reason
@@ -2003,6 +2072,7 @@ export class Autopilot {
     // Also when Stop was clicked but its step still waits behind this one: the Session would hold
     // STOP_TEXT behind the continuation's turn, which then runs without it.
     const continuation = wait.resume()
+    this.holdAwake(run)
     const withStop = run.cycle.stopping || run.stopRequested
     const text = withStop ? `${continuation}\n\n${STOP_TEXT}` : continuation
     if (withStop) run.stopSent = true
@@ -2163,7 +2233,17 @@ export class Autopilot {
       // a stop during it may come before any task has started. The Session is read again here, after
       // the journal write: its turn may have ended meanwhile.
       const linger = reason !== 'app-quit' && run.session !== null && (this.liveTasks(run).length > 0 || inTurn(run.session.state))
-      if (linger) this.linger(run)
+      if (linger) {
+        // keep-awake released for a far Limits wait comes back for that turn or those tasks (worfy-retry ticket 05).
+        if (run.asleep) {
+          try {
+            run.awake?.start()
+          } catch (error) {
+            console.error(`[autopilot] ${run.projectId}: could not take keep-awake`, error)
+          }
+        }
+        this.linger(run)
+      }
       // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
       await this.release(run, reason !== 'app-quit', !linger)
     }
@@ -2481,6 +2561,7 @@ export class Autopilot {
       backgroundTasks: run.running ? this.liveTasks(run).length : 0,
       resumesAt,
       ...(waitingFor === undefined ? {} : { waitingFor }),
+      ...(limitsUntil === null ? {} : { limitsWindow: run.limits?.window ?? null }),
       ...(windowReason === undefined ? {} : { windowReason }),
       ...(retry === null ? {} : { retry }),
       reason: run.done ? run.cycle.reason : null,
