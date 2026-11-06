@@ -160,7 +160,10 @@ While a run goes on:
   it changes not approved. Git is read again at each request that writes a file or runs git, in the Project's root and,
   when a worktree may have config of its own (`git config --worktree`, an `includeIf`), in the checkout each git
   command runs in and in each worktree of the Wave: a hook or a program the agent put into the git config since is
-  seen. A request that only reads, and runs no git, reads no git. Git in a worktree whose `.git` file or `commondir`
+  seen; where the refs are kept in reftable, the default branch is read from git as well. Writing a config file the
+  environment names (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `XDG_CONFIG_HOME/git/config`), even an empty one, is
+  never approved, as writing `.git/config`. A request that only reads, and runs no git, reads no git. Git in a worktree
+  whose `.git` file or `commondir`
   names a git folder other than the Project's, or cannot be read, is judged as git whose hooks are not known: a command
   a hook or the config could change is not approved. Writing a config file git reads — one an
   `include.path` or `includeIf` names too, also before it exists — is never approved, as writing `.git/config`.
@@ -526,7 +529,7 @@ it cannot read.
 | `retry-refused` | Auto-continue is on and the failed turn is not retried. `reason` is `not-transient`, `in-flight` or `cap`; with `in-flight`, `actions` has each call without a result (`git push origin main`): a shell call's command as the model wrote it, another tool's worfy summary, secrets replaced by `***` as in `auto-approval` (`--token ***`). `session-error` and `run-stopped` with `turn-error` follow. |
 | `session-error` | A Session failed. |
 | `refused-dialog` | An unattended Session refused a request. Has the Subagent and the reason when given, and never the command. The home folder is written as `~`. |
-| `auto-approval` | The approval policy judged a permission request in Shadow or On. Has the Session, the Subagent when given, the Vendor, the `mode`, the `outcome`, the `rule`, the tool, the `targets` and, for a shell command, the `command` cut to 200 characters with secrets replaced by `***`: the values of secret-named variables, options and JSON keys, passwords in URLs, after curl's `-u`, the `-p` of mysql, docker login and sshpass, and `password` of `.netrc`, secret-named headers and known token forms. The home folder is written as `~`. |
+| `auto-approval` | The approval policy judged a permission request in Shadow or On. Has the Session, the Subagent when given, the Vendor, the `mode`, the `outcome`, the `rule`, the tool, the `targets` and, for a shell command, the `command` cut to 200 characters with secrets replaced by `***`: the values of secret-named variables, options and JSON keys, passwords in URLs, after curl's `-u`, the `-p` of mysql, docker login and sshpass, and `password` of `.netrc`, secret-named headers and known token forms. A few commands that only look like these keep their text: `sort --key=2`, a `git commit -m "auth: …"` message, a bare search word or a letters-only quoted pattern of grep and rg (`grep -rn password src/`, `rg "apiKey: string"`), and a numeric `docker run -u 1000:1000`. Each of the `targets` has its secrets replaced the same way (`touch <worktree>/ghp_…` gives the target `<worktree>/***`). The home folder is written as `~`. |
 | `human-input` | A person stepped in. `source` is `worfy` or `observer`. |
 | `background-tasks` | The set of live background tasks changed. |
 | `run-stopping` | A graceful Stop came during a turn or tasks. |

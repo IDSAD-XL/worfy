@@ -20,11 +20,12 @@
 // environment when another run takes the Session over, or the mode changes. At each request git is read
 // again — the worktree list (an implementer makes its worktree after the Wave started) and the git facts
 // (in bypassPermissions the agent may set a hook or a program in the git config without asking), two
-// git calls per checkout (readGitFacts). Only for a request that writes or runs git (gitNeeds): the
-// Project's root, and, when a checkout may have config of its own (`git config --worktree`, an
-// `includeIf`), the checkout of each git command (`git -C <checkout>`) and, for a write, each worktree
-// of the Wave; each once per request. The config files git reads there, and the targets of its
-// include.path and includeIf.*.path, are guarded as .git/config (policy.ts). A process that started without
+// git calls per checkout, three when the refs are kept in reftable (readGitFacts). Only for a request
+// that writes or runs git (gitNeeds): the Project's root, and, when a checkout may have config of its own
+// (`git config --worktree`, an `includeIf`), the checkout of each git command (`git -C <checkout>`) and,
+// for a write, each worktree of the Wave; each once per request. The config files git reads there, the
+// targets of its include.path and includeIf.*.path, and the config files the environment names (an
+// empty one too), are guarded as .git/config (policy.ts). A process that started without
 // the run's git environment, or without GIT_NO_LAZY_FETCH while hooksActive is not false now, gets no
 // git approved: the reads the policy keeps are safe only under them. The worktrees of the Wave are
 // those on the branch `<epic>/<NN>` of a Ticket of the Wave (setWave); each is recorded the first time
@@ -101,7 +102,7 @@ export interface GitFacts extends CheckoutGitFacts {
   /** null: not read (no repository, or a value git does not read as a boolean). */
   rebaseUpdateRefs: boolean | null
   remotes: string[] | null
-  /** The Project's default branch: origin/HEAD, else the checkout's branch, else main. */
+  /** The Project's default branch: origin/HEAD, else the checkout's branch, else main; git tells both when the refs are no files (reftable). */
   defaultBranch: string
   configFiles: string[]
   /**
@@ -179,12 +180,34 @@ async function firstLine(path: string): Promise<string | null> {
 }
 
 /**
+ * The folders `~/` of an include path may name, as git takes its home: HOME when it is set; on Windows without it,
+ * where Git for Windows looks next — HOMEDRIVE with HOMEPATH, then USERPROFILE — both, since it takes the first
+ * that exists.
+ */
+export function includeHomes(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string[] {
+  const home = env['HOME']
+  if (home !== undefined) return home === '' ? [] : [home]
+  if (platform !== 'win32') return []
+  const homes: string[] = []
+  const drive = env['HOMEDRIVE']
+  const path = env['HOMEPATH']
+  if (drive !== undefined && drive !== '' && path !== undefined && path !== '') homes.push(`${drive}${path}`)
+  const profile = env['USERPROFILE']
+  if (profile !== undefined && profile !== '' && !homes.includes(profile)) homes.push(profile)
+  return homes
+}
+
+/** Whether a config file the environment names is the null device: GIT_CONFIG_GLOBAL=/dev/null turns the global config off. */
+const nullDevice = (path: string): boolean => path === '/dev/null' || (process.platform === 'win32' && /^nul$/i.test(path))
+
+/**
  * The config files git reads, or would read, at `folder`: each file an entry comes from, and the target of each
  * `include.path` and `includeIf.<condition>.path` — also one that is not there yet (git skips a missing file, so
- * writing it would add config) — read as git reads it: `~/` from HOME, a relative path from the folder of the file
- * that names it.
+ * writing it would add config) — read as git reads it: `~/` from the home (includeHomes), a relative path from the
+ * folder of the file that names it. And the files the environment names — GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM,
+ * XDG_CONFIG_HOME/git/config — even empty: an empty file has no entry to name it (worfy-auto-approve ticket 13).
  */
-function configFilesOf(entries: readonly ConfigEntry[], folder: string, home: string | undefined): string[] {
+function configFilesOf(entries: readonly ConfigEntry[], folder: string, env: NodeJS.ProcessEnv): string[] {
   const files = new Set<string>()
   const fileOf = (origin: string): string | null => (origin.startsWith('file:') ? resolve(folder, origin.slice('file:'.length)) : null)
   for (const entry of entries) {
@@ -194,15 +217,39 @@ function configFilesOf(entries: readonly ConfigEntry[], folder: string, home: st
     if (!include || entry.value === null || entry.value === '') continue
     const target = entry.value
     if (target.startsWith('~/')) {
-      if (home !== undefined) files.add(resolve(home, target.slice(2)))
+      for (const home of includeHomes(env)) files.add(resolve(home, target.slice(2)))
     } else if (isAbsolute(target)) files.add(resolve(target))
     else if (from !== null) files.add(resolve(dirname(from), target))
   }
+  for (const named of [env['GIT_CONFIG_GLOBAL'], env['GIT_CONFIG_SYSTEM']]) {
+    if (named !== undefined && named !== '' && !nullDevice(named)) files.add(resolve(folder, named))
+  }
+  const xdg = env['XDG_CONFIG_HOME']
+  if (xdg !== undefined && xdg !== '') files.add(resolve(folder, xdg, 'git', 'config'))
   return [...files]
 }
 
 /**
- * The git facts of the checkout at `folder` (GitFacts), read in the environment `env` with two git calls — the
+ * The branch origin/HEAD names and the checkout's branch, as git tells them in one call (`git for-each-ref`): for a
+ * ref store whose refs are no files (reftable). '' for one git does not tell: no origin/HEAD, a detached HEAD, a
+ * branch with no commit yet (for-each-ref lists no such branch, so the default branch is then main, as before).
+ */
+async function refsFromGit(folder: string, env: NodeJS.ProcessEnv): Promise<{ origin: string; current: string }> {
+  const listed = await runGit(folder, ['for-each-ref', '--format=%(HEAD)%00%(refname)%00%(symref)', 'refs/remotes/origin/HEAD', 'refs/heads/'], env)
+  let origin = ''
+  let current = ''
+  if (listed.code !== 0) return { origin, current }
+  for (const line of listed.stdout.split(/\r?\n/)) {
+    const [mark, name, target] = line.split('\0')
+    if (name === 'refs/remotes/origin/HEAD') origin = /^refs\/remotes\/origin\/(.+)$/.exec(target ?? '')?.[1] ?? ''
+    else if (mark === '*' && name?.startsWith('refs/heads/') === true) current = name.slice('refs/heads/'.length)
+  }
+  return { origin, current }
+}
+
+/**
+ * The git facts of the checkout at `folder` (GitFacts), read in the environment `env` with two git calls (three for a
+ * ref store that is no files: refsFromGit) — the
  * config with the origin of each entry, and the git folders — and the rest from the files: the hooks folder, HEAD,
  * origin/HEAD, the remotes of the old `remotes/` and `branches/` folders. Throws when the config cannot be read: the
  * policy needs core.hooksPath.
@@ -228,16 +275,19 @@ export async function readGitFacts(folder: string, env: NodeJS.ProcessEnv): Prom
     if (name !== undefined) remotes.add(name)
   }
   for (const name of [...(legacyRemotes ?? []), ...(legacyBranches ?? [])]) remotes.add(name)
-  const origin = /^ref: refs\/remotes\/origin\/(.+)$/.exec(originHead ?? '')?.[1] ?? ''
-  const current = /^ref: refs\/heads\/(.+)$/.exec(head ?? '')?.[1] ?? ''
+  const refStorage = last('extensions.refstorage')?.value?.toLowerCase()
+  // A ref store that is no files (reftable) names `.invalid` in HEAD and keeps origin/HEAD in no file: git tells both.
+  const { origin, current } =
+    repository && refStorage !== undefined && refStorage !== 'files'
+      ? await refsFromGit(folder, env)
+      : { origin: /^ref: refs\/remotes\/origin\/(.+)$/.exec(originHead ?? '')?.[1] ?? '', current: /^ref: refs\/heads\/(.+)$/.exec(head ?? '')?.[1] ?? '' }
   return {
     hooksPath,
     hooksActive: hooksActiveOf({ hooksPath, hookFiles, config: entries }),
     rebaseUpdateRefs: !repository ? null : updateRefs === undefined ? false : gitBool(updateRefs.value),
     remotes: repository ? [...remotes] : null,
-    // A ref store that is no files (reftable) names `.invalid` in HEAD: the default branch is then main.
     defaultBranch: origin !== '' ? origin : current !== '' && current !== '.invalid' ? current : 'main',
-    configFiles: configFilesOf(entries, folder, env['HOME']),
+    configFiles: configFilesOf(entries, folder, env),
     checkoutConfig: entries.some((entry) => (entry.key === 'extensions.worktreeconfig' && gitBool(entry.value) === true) || entry.key.startsWith('includeif.')),
     commonDir: repository ? common : null,
   }

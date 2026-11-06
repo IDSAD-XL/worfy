@@ -1,7 +1,7 @@
 # 13 — Остатки review Ticket-а 04
 
 Type: task
-Status: open
+Status: claimed 2026-11-06T02:57Z
 Blocked by: 04
 Source: review PR #1460 (Ticket 04), раунды 4–5; предел трёх раундов review (`review-of-another-pr.md:32-36`)
 
@@ -32,6 +32,9 @@ PR #1460 (Ticket 04: policy Auto-approval для Claude, Shadow и Journal) вл
    внутри корней.
 5. **Русский перевод** `docs/features/ru/autopilot.md` отстаёт от английской страницы по разделу Auto-approval с
    раунда 2 PR #1460.
+6. **Секреты в `targets` Journal** (найдено review PR #1469). `journalTarget` (`src/shared/autopilot/journal.ts`)
+   не скрывает секреты, а `journalCommand` скрывает: `touch <wt>/ghp_…` пишет token в `targets` строки
+   `auto-approval` (Claude и Codex). Скрывать в `targets` те же формы `SECRET_FORMS`.
 
 ## Готово, когда
 
@@ -40,6 +43,7 @@ PR #1460 (Ticket 04: policy Auto-approval для Claude, Shadow и Journal) вл
 - [ ] Test reftable из п. 3 на настоящем git.
 - [ ] Test п. 4: запись в пустой config по `GIT_CONFIG_GLOBAL` внутри корня → deny git-files.
 - [ ] `docs/features/ru/autopilot.md` совпадает по смыслу с английской страницей.
+- [ ] Test п. 6: путь с литеральным token `ghp_…` / `github_pat_…` в `journalTarget` даёт `***`.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Где в коде

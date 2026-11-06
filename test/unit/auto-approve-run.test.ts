@@ -7,12 +7,12 @@ import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { HARD_HINTS, hardHint, HINTS, type Decision } from '../../src/main/agent/auto-approve/policy'
-import { configRunsProgram, GIT_CONFIG_PARAMETERS, gitEnvironment, hooksActiveOf, openRunApproval, readCheckouts, readGitFacts, runTempsDir, sweepRunTemps } from '../../src/main/agent/auto-approve/run-approval'
+import { configRunsProgram, GIT_CONFIG_PARAMETERS, gitEnvironment, hooksActiveOf, includeHomes, openRunApproval, readCheckouts, readGitFacts, runTempsDir, sweepRunTemps } from '../../src/main/agent/auto-approve/run-approval'
 import type { PermissionRequestOptions } from '../../src/main/agent/session/types'
 import { sessionOptions } from '../../src/main/vendors/claude/options'
 import { ToolUseFolders, UNATTENDED_DENIED_MESSAGE, unattendedCanUseTool, unattendedDeniedMessage } from '../../src/main/vendors/claude/session'
 import type { SessionApproval } from '../../src/main/vendors/session'
-import { COMMAND_MAX, journalCommand, makeRunId } from '../../src/shared/autopilot/journal'
+import { COMMAND_MAX, journalCommand, journalTarget, makeRunId } from '../../src/shared/autopilot/journal'
 import type { AutoApprovalMode } from '../../src/shared/settings/app-settings'
 import { removeTreeAsync } from '../../src/main/storage/remove'
 import { removeTestTree } from '../remove'
@@ -125,7 +125,7 @@ describe('readGitFacts: what the Run reads of the repository when it starts', ()
     git(repo, 'remote', 'add', 'origin', 'https://example.invalid/demo.git')
     git(repo, 'remote', 'add', 'upstream', 'https://example.invalid/up.git')
     const facts = await readGitFacts(repo, gitEnv())
-    expect({ ...facts, configFiles: facts.configFiles.map(samePathForm), commonDir: samePathForm(facts.commonDir ?? '') }).toEqual({ hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: ['origin', 'upstream'], defaultBranch: 'main', configFiles: [samePathForm(join(repo, '.git', 'config'))], checkoutConfig: false, commonDir: samePathForm(join(repo, '.git')) })
+    expect({ ...facts, configFiles: facts.configFiles.map(samePathForm), commonDir: samePathForm(facts.commonDir ?? '') }).toEqual({ hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: ['origin', 'upstream'], defaultBranch: 'main', configFiles: [samePathForm(join(repo, '.git', 'config')), samePathForm(join(scratch, 'global-config'))], checkoutConfig: false, commonDir: samePathForm(join(repo, '.git')) })
   })
 
   it('reads rebase.updateRefs as git prints it, and the default branch of origin/HEAD', async () => {
@@ -168,7 +168,7 @@ describe('readGitFacts: what the Run reads of the repository when it starts', ()
     git(repo, 'config', '--add', 'include.path', 'rel.cfg')
     git(repo, 'config', '--add', 'include.path', join(scratch, 'abs.cfg'))
     const facts = await readGitFacts(repo, { ...gitEnv(), HOME: home })
-    expect(facts.configFiles.map(samePathForm).sort()).toEqual([join(repo, '.git', 'config'), join(home, 'demo.cfg'), join(repo, '.git', 'rel.cfg'), join(scratch, 'abs.cfg')].map(samePathForm).sort())
+    expect(facts.configFiles.map(samePathForm).sort()).toEqual([join(repo, '.git', 'config'), join(home, 'demo.cfg'), join(repo, '.git', 'rel.cfg'), join(scratch, 'abs.cfg'), join(scratch, 'global-config')].map(samePathForm).sort())
   })
 
   it('a HEAD of a ref store that is no files (reftable names .invalid) gives main as the default branch', async () => {
@@ -455,7 +455,7 @@ describe('openRunApproval: round 3 (review of PR #1460)', () => {
     await approval.close()
   })
 
-  it.skipIf(!posix)('an includeIf "gitdir:" of the Project\'s config that names only the worktree counts there', async () => {
+  it('an includeIf "gitdir:" of the Project\'s config that names only the worktree counts there (on Windows too: worfy-auto-approve ticket 13)', async () => {
     const approval = await inWave()
     expect(await ask(approval, 'git status')).toMatchObject({ outcome: 'allow' })
     const included = join(scratch, 'included-config')
@@ -505,18 +505,23 @@ describe('openRunApproval: round 3 (review of PR #1460)', () => {
 })
 
 describe('openRunApproval: round 4 (review of PR #1460)', () => {
-  const posix = process.platform !== 'win32'
   const shell = (): Record<string, string> => ({ ...(process.env as Record<string, string>), HOME: homedir(), USERPROFILE: homedir() })
   const wt = (n = 1): string => join(scratch, n === 1 ? 'wt' : `wt${n}`)
-  /** The git calls of the Run, counted by a git in front of the real one on PATH. */
+  /**
+   * The git calls of the Run, counted from git's own trace (GIT_TRACE2_EVENT: one `start` event per git process, its
+   * arguments with it). On every platform: a script in front of git on PATH does not start on Windows.
+   */
   const counted = (): { env: NodeJS.ProcessEnv; calls: () => string[] } => {
-    const bin = join(scratch, 'counting-bin')
-    const log = join(scratch, 'git-calls.log')
-    mkdirSync(bin, { recursive: true })
-    const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
-    writeFileSync(join(bin, 'git'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${real}' "$@"\n`, { mode: 0o755 })
+    const log = join(scratch, 'git-trace.jsonl')
     writeFileSync(log, '')
-    return { env: { ...gitEnv(), PATH: `${bin}:${process.env.PATH ?? ''}` }, calls: () => readFileSync(log, 'utf8').split('\n').filter((line) => line !== '') }
+    const calls = (): string[] =>
+      readFileSync(log, 'utf8')
+        .split('\n')
+        .filter((line) => line !== '')
+        .map((line) => JSON.parse(line) as { event: string; argv?: string[] })
+        .filter((event) => event.event === 'start')
+        .map((event) => (event.argv ?? []).slice(1).join(' '))
+    return { env: { ...gitEnv(), GIT_TRACE2_EVENT: log }, calls }
   }
   const open = (env: NodeJS.ProcessEnv = gitEnv()) =>
     openRunApproval({ root: repo, epic: 'demo', dataDir: join(scratch, 'data'), harnessHome: join(scratch, 'harness'), shellEnv: shell(), gitEnv: env, sessions: { list: () => [] } })
@@ -530,7 +535,7 @@ describe('openRunApproval: round 4 (review of PR #1460)', () => {
   const bash = (approval: Awaited<ReturnType<typeof open>>, command: string, cwd = wt()) => approval.judge({ tool: 'Bash', input: { command } }, at(approval, cwd))
   const write = (approval: Awaited<ReturnType<typeof open>>, path: string) => approval.judge({ tool: 'Write', input: { file_path: path, content: '[core]\n\thooksPath = h\n' } }, at(approval))
 
-  it.skipIf(!posix)('a file git includes (include.path, includeIf.*.path), there or not yet, is written as git config: never approved', async () => {
+  it('a file git includes (include.path, includeIf.*.path), there or not yet, is written as git config: never approved (on Windows too: worfy-auto-approve ticket 13)', async () => {
     const approval = await inWave()
     const absolute = join(wt(), 'cfg')
     const relative = join(wt(), 'cfg-relative')
@@ -559,7 +564,7 @@ describe('openRunApproval: round 4 (review of PR #1460)', () => {
     await approval.close()
   })
 
-  it.skipIf(!posix)('a file the config of one worktree includes (config.worktree) is protected there too', async () => {
+  it('a file the config of one worktree includes (config.worktree) is protected there too (on Windows too: worfy-auto-approve ticket 13)', async () => {
     const approval = await inWave()
     git(repo, 'config', 'extensions.worktreeConfig', 'true')
     const file = join(wt(), 'cfg-worktree')
@@ -568,7 +573,7 @@ describe('openRunApproval: round 4 (review of PR #1460)', () => {
     await approval.close()
   })
 
-  it.skipIf(!posix)('reads git at most twice per checkout, and not at all for a request that neither writes nor runs git', async () => {
+  it('reads git at most twice per checkout, and not at all for a request that neither writes nor runs git (on Windows too: worfy-auto-approve ticket 13)', async () => {
     const { env, calls } = counted()
     const approval = await inWave(env, 3)
     mkdirSync(join(wt(), 'build'))
@@ -598,7 +603,6 @@ describe('openRunApproval: round 4 (review of PR #1460)', () => {
 })
 
 describe('openRunApproval: round 5 (review of PR #1460): a worktree whose git folder is not the Project\'s', () => {
-  const posix = process.platform !== 'win32'
   const shell = (): Record<string, string> => ({ ...(process.env as Record<string, string>), HOME: homedir(), USERPROFILE: homedir() })
   const wt = (): string => join(scratch, 'wt')
   const inWave = async () => {
@@ -619,7 +623,7 @@ describe('openRunApproval: round 5 (review of PR #1460): a worktree whose git fo
     return other
   }
 
-  it.skipIf(!posix)('commondir that names another git folder, whose config runs core.fsmonitor: git status and add get no allow', async () => {
+  it('commondir that names another git folder, whose config runs core.fsmonitor: git status and add get no allow (on Windows too: worfy-auto-approve ticket 13)', async () => {
     const approval = await inWave()
     expect(await ask(approval, 'git status')).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
     const other = otherCommon()
@@ -637,7 +641,7 @@ describe('openRunApproval: round 5 (review of PR #1460): a worktree whose git fo
     await approval.close()
   })
 
-  it.skipIf(!posix)('commondir that names another git folder with a pre-commit hook: git commit gets no allow', async () => {
+  it('commondir that names another git folder with a pre-commit hook: git commit gets no allow (on Windows too: worfy-auto-approve ticket 13)', async () => {
     const approval = await inWave()
     const other = otherCommon()
     writeFileSync(join(other, 'hooks', 'pre-commit'), '#!/bin/sh\ntrue\n', { mode: 0o755 })
@@ -647,7 +651,7 @@ describe('openRunApproval: round 5 (review of PR #1460): a worktree whose git fo
     await approval.close()
   })
 
-  it.skipIf(!posix)('a .git file that names a git folder out of the Project\'s, or a commondir that cannot be read: git gets no allow', async () => {
+  it('a .git file that names a git folder out of the Project\'s, or a commondir that cannot be read: git gets no allow (on Windows too: worfy-auto-approve ticket 13)', async () => {
     const approval = await inWave()
     expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'allow' })
     // The worktree's .git file names a copy of its git folder in another common folder, and that copy's commondir names it.
@@ -671,6 +675,98 @@ describe('openRunApproval: round 5 (review of PR #1460): a worktree whose git fo
     removeTestTree(join(repo, '.git', 'worktrees', 'wt', 'commondir'))
     expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
     await approval.close()
+  })
+})
+
+/** Whether this git can make a repository whose refs are kept in reftable (git 2.45 and later). */
+const reftable = ((): boolean => {
+  const probe = mkdtempSync(join(tmpdir(), 'worfy-aa13-reftable-'))
+  try {
+    execFileSync('git', ['init', '-q', '--ref-format=reftable', join(probe, 'r')], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  } finally {
+    removeTestTree(probe)
+  }
+})()
+
+describe('readGitFacts and openRunApproval: the leftovers of the review of ticket 04 (worfy-auto-approve ticket 13)', () => {
+  const shell = (): Record<string, string> => ({ ...(process.env as Record<string, string>), HOME: homedir(), USERPROFILE: homedir() })
+  const wt = (): string => join(scratch, 'wt')
+
+  it.runIf(reftable)('a repository whose refs are in reftable: the default branch of origin/HEAD, else the checkout\'s branch, read from git', async () => {
+    const store = join(scratch, 'reftable')
+    git(scratch, 'init', '-q', '--ref-format=reftable', '-b', 'trunk', store)
+    git(store, 'commit', '-q', '--allow-empty', '-m', 'demo')
+    // The HEAD file of reftable names no branch.
+    expect(readFileSync(join(store, '.git', 'HEAD'), 'utf8').trim()).toBe('ref: refs/heads/.invalid')
+    expect((await readGitFacts(store, gitEnv())).defaultBranch).toBe('trunk')
+    git(store, 'update-ref', 'refs/remotes/origin/dev', 'HEAD')
+    git(store, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/dev')
+    expect((await readGitFacts(store, gitEnv())).defaultBranch).toBe('dev')
+    // A worktree of it reads its own HEAD, and the origin/HEAD of the repository.
+    git(store, 'worktree', 'add', '-q', '-b', 'demo/01', join(scratch, 'reftable-wt'))
+    expect((await readGitFacts(join(scratch, 'reftable-wt'), gitEnv())).defaultBranch).toBe('dev')
+    git(store, 'symbolic-ref', '-d', 'refs/remotes/origin/HEAD')
+    expect((await readGitFacts(join(scratch, 'reftable-wt'), gitEnv())).defaultBranch).toBe('demo/01')
+  })
+
+  it.runIf(reftable)('in a reftable repository git checkout of the default branch read from git is a hard deny', async () => {
+    const store = join(scratch, 'reftable')
+    git(scratch, 'init', '-q', '--ref-format=reftable', '-b', 'trunk', store)
+    git(store, 'commit', '-q', '--allow-empty', '-m', 'demo')
+    git(store, 'worktree', 'add', '-q', '-b', 'demo/01', join(store, 'wt'))
+    const approval = await openRunApproval({ root: store, epic: 'demo', dataDir: join(scratch, 'data'), harnessHome: join(scratch, 'harness'), shellEnv: shell(), gitEnv: gitEnv(), sessions: { list: () => [] } })
+    approval.setWave(['01'])
+    expect(approval.facts.defaultBranch).toBe('trunk')
+    const decision = await approval.judge({ tool: 'Bash', input: { command: 'git checkout trunk' } }, { cwd: join(store, 'wt'), scratchpad: null, sessionId: 's', started: { ...approval.environment, GIT_NO_LAZY_FETCH: '1' } })
+    expect(decision).toMatchObject({ outcome: 'hard-deny', rule: 'hard:git-checkout-default-branch' })
+    await approval.close()
+  })
+
+  it('the config files of the environment are git\'s even when empty: GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, XDG_CONFIG_HOME/git/config; /dev/null is none', async () => {
+    const xdg = join(scratch, 'xdg')
+    const env = { ...gitEnv(), GIT_CONFIG_SYSTEM: join(scratch, 'system-config'), XDG_CONFIG_HOME: xdg }
+    const facts = await readGitFacts(repo, env)
+    // The global config of gitEnv is an empty file: no entry of git names it.
+    expect(facts.configFiles.map(samePathForm).sort()).toEqual([join(repo, '.git', 'config'), join(scratch, 'global-config'), join(scratch, 'system-config'), join(xdg, 'git', 'config')].map(samePathForm).sort())
+    for (const device of process.platform === 'win32' ? ['/dev/null', 'NUL', 'nul'] : ['/dev/null']) {
+      const none = await readGitFacts(repo, { ...gitEnv(), GIT_CONFIG_GLOBAL: device })
+      expect(none.configFiles.map(samePathForm), device).toEqual([samePathForm(join(repo, '.git', 'config'))])
+    }
+  })
+
+  it.runIf(process.platform === 'win32')('on Windows without HOME, `~/` of an include is read from USERPROFILE, as Git for Windows reads it', async () => {
+    const profile = join(scratch, 'profile')
+    mkdirSync(profile)
+    git(repo, 'config', '--add', 'include.path', '~/demo.cfg')
+    const env = { ...gitEnv(), USERPROFILE: profile }
+    for (const name of ['HOME', 'HOMEDRIVE', 'HOMEPATH']) Reflect.deleteProperty(env, name)
+    const facts = await readGitFacts(repo, env)
+    expect(facts.configFiles.map(samePathForm)).toContain(samePathForm(join(profile, 'demo.cfg')))
+  })
+
+  it('a write into the empty config file GIT_CONFIG_GLOBAL names inside a root is refused as one into .git/config', async () => {
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/01', wt())
+    const global = join(wt(), 'global-config')
+    writeFileSync(global, '')
+    const approval = await openRunApproval({ root: repo, epic: 'demo', dataDir: join(scratch, 'data'), harnessHome: join(scratch, 'harness'), shellEnv: shell(), gitEnv: { ...gitEnv(), GIT_CONFIG_GLOBAL: global }, sessions: { list: () => [] } })
+    approval.setWave(['01'])
+    const at = { cwd: wt(), scratchpad: null, sessionId: 's', started: approval.environment }
+    expect(await approval.judge({ tool: 'Write', input: { file_path: global, content: '[core]\n\thooksPath = h\n' } }, at)).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    expect(await approval.judge({ tool: 'Write', input: { file_path: join(wt(), 'other.txt'), content: 'x' } }, at)).toMatchObject({ outcome: 'allow' })
+    await approval.close()
+  })
+
+  it('the home folder of `~/` in an include: HOME, else on Windows the ones Git for Windows takes, HOMEDRIVE+HOMEPATH and USERPROFILE', () => {
+    expect(includeHomes({ HOME: '/home/demo', USERPROFILE: '/other' }, 'linux')).toEqual(['/home/demo'])
+    expect(includeHomes({ USERPROFILE: '/other' }, 'linux')).toEqual([])
+    expect(includeHomes({ HOME: 'C:\\Users\\Demo' }, 'win32')).toEqual(['C:\\Users\\Demo'])
+    expect(includeHomes({ HOMEDRIVE: 'H:', HOMEPATH: '\\Demo', USERPROFILE: 'C:\\Users\\Demo' }, 'win32')).toEqual(['H:\\Demo', 'C:\\Users\\Demo'])
+    expect(includeHomes({ USERPROFILE: 'C:\\Users\\Demo' }, 'win32')).toEqual(['C:\\Users\\Demo'])
+    expect(includeHomes({ HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\Demo', USERPROFILE: 'C:\\Users\\Demo' }, 'win32')).toEqual(['C:\\Users\\Demo'])
+    expect(includeHomes({ HOME: '' }, 'win32')).toEqual([])
   })
 })
 
@@ -856,8 +952,77 @@ describe('journalCommand: a command as the Journal keeps it', () => {
     ]
     for (const [command, kept] of cases) expect(journalCommand(command, home), command).toBe(kept)
   })
+
+  it('keeps the safe commands the forms of round 3 hid (worfy-auto-approve ticket 13): an exception list, each for one program and one form', () => {
+    for (const command of [
+      'sort --key=2 data.txt',
+      'sort -t, --key 2,3n data.csv',
+      'ls -l | sort --key=5n',
+      'git commit -m "auth: refresh the session on start"',
+      "git commit -m 'session: keep the last one'",
+      'git commit -am "keyboard: add the shortcut"',
+      'git -C repo commit --message="auth: x"',
+      'grep -rn password src/',
+      'git grep -n passwd -- src',
+      'cd src && rg -l password .',
+      'docker run -u 1000:1000 image',
+      'podman run --rm --user=1000:1000 image ls',
+      'rg "apiKey: string"',
+      'grep -H "token: none" src/a.ts',
+      "rg -n 'session: string | null' src",
+      'LC_ALL=C sort --key=2 f',
+      'env LC_ALL=C sort --key=2 f',
+      'find . -name "*.ts" | xargs grep -l password',
+      'sudo docker run -u 0:0 image',
+    ]) expect(journalCommand(command, home), command).toBe(command)
+  })
+
+  it('the exception list of ticket 13 keeps every secret it does not name: another program, a value of another shape, another segment', () => {
+    const cases: [string, string][] = [
+      // sort: only a key definition of sort is a field number.
+      ['sort --key=s3cr3tvalue x', 'sort --key=*** x'],
+      ['tool --key=2', 'tool --key=***'],
+      ['echo sort | tool --key=2', 'echo sort | tool --key=***'],
+      ['sort x; tool --key=2', 'sort x; tool --key=***'],
+      // A commit message: only the message of git commit; a header elsewhere in the command stays hidden.
+      ['git commit -m "auth: x" && curl -H "X-Api-Key: s3cr3t" y', 'git commit -m "auth: x" && curl -H "X-Api-Key: ***" y'],
+      ['git log -n 1 "auth: x"', 'git log -n 1 "auth: ***"'],
+      ['git commit -q; tool -m "token: s3cr3t"', 'git commit -q; tool -m "token: ***"'],
+      // A secret before the kept text stays hidden.
+      ['curl -H "X-Api-Key: s3cr3t" x && git commit -m "auth: x"', 'curl -H "X-Api-Key: ***" x && git commit -m "auth: x"'],
+      ['echo git commit -m "auth: x" | tool -H "X-Api-Key: s3cr3t"', 'echo git commit -m "auth: ***" | tool -H "X-Api-Key: ***"'],
+      // A token in a commit message is still hidden by its own form.
+      ['git commit -m "auth: ghp_abcdefghijklmnop1234"', 'git commit -m "auth: ***"'],
+      // Search tools: a password word inside a quoted pattern, a value with a digit, another segment.
+      ['grep -r "password hunter2" .', 'grep -r "password ***" .'],
+      ['grep -r "x password hunter2" .', 'grep -r "x password ***" .'],
+      ['rg "X-Api-Key: s3cr3tvalue"', 'rg "X-Api-Key: ***"'],
+      ['grep -c x f; echo password s3cr3tvalue', 'grep -c x f; echo password ***'],
+      ['grep x f | curl -H "X-Api-Key: s3cr3tvalue" y', 'grep x f | curl -H "X-Api-Key: ***" y'],
+      ['echo grep password s3cr3tvalue', 'echo grep password ***'],
+      // docker: only a numeric user and group.
+      ['docker run -u bob:s3cr3t image', 'docker run -u bob:*** image'],
+      ['docker run image curl -u bob:s3cr3t x', 'docker run image curl -u bob:*** x'],
+      ['curl -u 1000:1000 x', 'curl -u 1000:*** x'],
+    ]
+    for (const [command, kept] of cases) expect(journalCommand(command, home), command).toBe(kept)
+  })
+
   it('the home folder of Windows in every form', () => {
     expect(journalCommand('rm -rf C:\\Users\\Demo\\x /c/Users/Demo/y', 'C:\\Users\\Demo')).toBe('rm -rf ~\\x ~/y')
+  })})
+
+describe('journalTarget: a target as the Journal keeps it (worfy-auto-approve ticket 13, item 6)', () => {
+  const home = '/Users/demo'
+  it('hides a token in a path as journalCommand does, and writes the home folder as ~', () => {
+    expect(journalTarget('/Users/demo/wt/ghp_abcdefghijklmnop1234', home)).toBe('~/wt/***')
+    expect(journalTarget('/tmp/github_pat_abcdefghijklmnop_1234/x', home)).toBe('/tmp/***/x')
+    expect(journalTarget('/tmp/x/GH_TOKEN=s3cr3tvalue', home)).toBe('/tmp/x/GH_TOKEN=***')
+    expect(journalTarget('C:\\Users\\Demo\\wt\\sk-abcdefghijklmnop1234.txt', 'C:\\Users\\Demo')).toBe('~\\wt\\***.txt')
+    // A path without a secret stays as it is, and is cut at COMMAND_MAX.
+    expect(journalTarget('/Users/demo/wt/build/out.js', home)).toBe('~/wt/build/out.js')
+    expect(journalTarget(`/tmp/${'a'.repeat(250)}`, home)).toHaveLength(COMMAND_MAX)
+    expect(journalTarget(`/tmp/${'a'.repeat(190)}/ghp_abcdefghijklmnop1234`, home)).not.toContain('ghp_')
   })
 })
 
