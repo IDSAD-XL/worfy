@@ -38,3 +38,33 @@ Source: [spec.md](../spec.md), «Как работает» → «Чтение»;
 - `test/contract/work-track-github.test.ts`, `test/fixtures/work-track/gh/**` (новые)
 
 Только читать: `src/main/flight-recorder/github.ts`, `src/main/github/prs.ts`, `src/shared/flight-recorder/from-github.ts`.
+
+## Итог
+
+- Reader — `src/main/work-track/github.ts`, класс `WorkGithubReader`: `read(root, repo, period, { retry })` отдаёт факты
+  `pr` и `ci` контракта `src/shared/work-track/facts.ts` и пробелы. gh — через `PrTracker.gh` (учётная запись Project-а),
+  как у Flight Recorder; интервал — тот же `GITHUB_READ_INTERVAL_MS`, импорт из `src/main/flight-recorder/github.ts`.
+- Чтение: неделя периода → один GraphQL search `repo:<o>/<n> is:pr is:merged merged:<от>..<до>` по 100 на страницу;
+  день → один REST `actions/runs?created=<от>..<до>&per_page=100`, страницы по `total_count`. Вызовы идут друг за
+  другом: search недели, затем run-ы её дней. Дни, которые ещё не начались, не читаются.
+- Сначала падающий test: `test/contract/work-track-github.test.ts` красный на `ceb9435e4` — модуля
+  `src/main/work-track/github.ts` нет (vitest не загрузил импорт); после реализации 8 test-ов зелёные.
+- Stub `gh` — `test/fixtures/work-track/gh/gh-work-track.mjs`, синтетический репозиторий `example-org/example-repo`;
+  PR и run-ы test генерирует сам (150 PR недели в одном fixture-файле были бы 45 КБ шума).
+
+Решено без владельца:
+
+1. **Ошибка gh останавливает чтение.** Первый упавший вызов — конец чтения: дальше gh не запускается (нет сети или
+   лимит — один вызов, а не 36), часть периода от начала непрочитанного куска до конца периода — пробел
+   `GitHub did not answer: <причина>`; прочитанные до ошибки факты остаются. Ответ с ошибкой держится интервал, как во
+   Flight Recorder; `retry` читает сразу.
+2. **`statusCheckRollup` не читается.** Факт `ci` — из REST run-ов с их исходом; у merged PR исход — всегда merge (`ok`).
+   От последнего коммита берётся только `oid`: по нему и по `mergeCommit.oid` run привязывается к PR, если GitHub не
+   дал `pull_requests` у run-а (CI на main после merge).
+3. **Epic и Ticket — только по ветке `<epic>/<NN>`** (две-три цифры); ветка run-а без PR — по её имени; другая ветка —
+   без Epic-а («—», риск 3).
+4. **Заголовок факта `pr`** — `#<номер> <заголовок PR>`; у `ci` — имя workflow.
+5. **Репозиторий даёт вызывающий** (`GithubRepo` из `src/main/github/deployments.ts`, как у `DeploymentReader`);
+   имя не из `[A-Za-z0-9._-]` — пробел без вызова gh.
+6. **Больше 1000 PR за неделю или run-ов за день** — остаток теряется (`shortcut:` в коде): search и `actions/runs`
+   дальше 1000 не отдают.
