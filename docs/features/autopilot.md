@@ -149,9 +149,10 @@ While a run goes on:
   On a Codex Orchestrator the request is Codex's approval of a command or a file
   change, and the answer is `accept` or `decline`: Codex's answer carries no text, so the rule's hint reaches only the
   journal. A command is judged in the folder Codex names for it. Codex wraps each command in the login shell
-  (`/bin/zsh -lc '<script>'`); exactly that form — one quoted script word and nothing after it — is judged as
-  `zsh -c '<script>'` (the login profile is the owner's own and outside every root), and any other wrapper is not
-  approved. Codex's `shell_environment_policy` may leave variables out of a command's shell. worfy pins the home
+  (`/bin/zsh -lc '<script>'`). A wrapper of `zsh`, `bash` or `sh` — by name or from `/bin`, `/usr/bin`,
+  `/usr/local/bin` or `/opt/homebrew/bin` — with `-lc` or `-c` and one quoted script word with nothing after it
+  (single-quoted, or double-quoted with every `$` and backquote escaped) is judged as `<shell> -c '<script>'` (the
+  login profile is the owner's own and outside every root); any other wrapper is not approved. Codex's `shell_environment_policy` may leave variables out of a command's shell. worfy pins the home
   folder and the run's variables (`TMPDIR` and its git environment) in every command's shell of the thread
   (`shell_environment_policy.set`), but Codex applies the owner's `include_only` after these pins, so it may still drop
   any of them. When a Codex request is judged, only `HOME` (and `USERPROFILE`, where set) has a known value: a command
@@ -189,7 +190,7 @@ While a run goes on:
   programs in its config. This does not stop hooks or filters themselves: while there are any, the policy approves git
   only for reading refs and objects. An agent whose process started without that environment (in Off, or before the
   repository got a hook) gets no git approved. On macOS `mktemp -d` ignores `TMPDIR`, so a folder it makes is outside
-  every root; `mkdir -p "$TMPDIR/<name>"` is approved, and the hint of a refusal in the home folder names it. In Off
+  every root; `mkdir -p "$TMPDIR/<name>"` is approved (not on Codex, where `TMPDIR` has no known value), and the hint of a refusal in the home folder names it. In Off
   the agent starts as before, with neither. The folder is removed when the run ends; a run that could not start its
   policy has none. A Session another run took over keeps its folder, as does a crash or a quit;
   such folders go the next time worfy starts.
@@ -652,7 +653,7 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/unit/auto-approve-park.test.ts` | Park: the wait on the gate, the 60-minute limit, a stop of the run (also while the request is on its way), the notification. |
 | `test/unit/auto-approve-summary.test.ts` | The decisions of a run in its journal, their counters for Run history and the line in the Orchestrator's chat at the end of a run. |
 | `test/contract/auto-approve-claude.test.ts` | Auto-approval of an unattended Claude Code Session: Off unchanged byte for byte, Shadow, On, a switch during the run, the run's environment, a policy that cannot start or throws, a parked request of a background task, a Stop during a park. |
-| `test/contract/auto-approve-codex.test.ts` | The same on Codex over the fake app-server: Off, Shadow, On, the variables pinned in Codex's shell, the login-shell wrapper, a request closed while judged, a park and its ends, a file change with a `grantRoot`. |
+| `test/contract/auto-approve-codex.test.ts` | The same on Codex over the fake app-server: Off, Shadow, On, the variables pinned in Codex's shell and the owner's `include_only` that may drop them, the login-shell wrapper, a request closed while judged, a park and its ends, a file change with a `grantRoot`. |
 | `test/contract/auto-approve-setting.test.ts` | The mode in `app-settings.json`: per Project, garbage read as Off, writes only through its channel, an edit made outside worfy, a Linked machine, the debugging port and the inspector. |
 | `test/e2e/auto-approve.spec.ts` | The built app under Playwright's debugging port: the Modes menu shows Off in force with the reason, the saved mode is read at start, nothing is written. |
 | `test/contract/codex-orchestrator.test.ts` | A run on a Codex Orchestrator on the fake app-server: Full access, the refusal while the hooks are not approved, before a later Wave and before the gate queue, the wait for a Codex window, `vendor-quota`, the budget by the Codex windows. |
