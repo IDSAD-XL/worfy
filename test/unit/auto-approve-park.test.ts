@@ -4,7 +4,14 @@
 // and a stop of the run, end it as a deny with a hint and `park-expired`. The notification of such a request
 // says "Parked: <tool> in <Project>" and never the command (src/main/notify.ts). The clock is a parameter;
 // no real timer, process or OS notification runs here.
+import { mkdtempSync, realpathSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
+import type { LaunchApproval } from '../../src/main/agent/auto-approve/run-approval'
+import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
+import { SessionRegistry } from '../../src/main/agent/session'
 import { createParker, PARK_EXPIRED_HINT, PARK_LIMIT_MS, PARK_STOPPED_HINT, parkDescription, type ParkClock, type ParkRequest } from '../../src/main/agent/auto-approve/park'
 import type { Decision } from '../../src/main/agent/auto-approve/policy'
 import { PermissionGate } from '../../src/main/agent/permissions'
@@ -13,6 +20,8 @@ import { CLAUDE_PERMISSION_OPTIONS, DENIED_MESSAGE, UNATTENDED_DENIED_MESSAGE, u
 import type { PermissionAsk, SessionApproval } from '../../src/main/vendors/session'
 import { agentEvent, type AgentEvent } from '../../src/shared/agent/events'
 import type { AutoApprovalMode } from '../../src/shared/settings/app-settings'
+import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const electron = vi.hoisted(() => ({ shown: [] as { title: string; body: string }[] }))
 
@@ -235,6 +244,32 @@ describe('park: a run that stops while the request is on its way to the gate (re
     void park(parkRequest({ waits: () => true }))
     await settle()
     expect(g.permissions.parked).toBe(1)
+  })
+})
+
+describe('a real Session gives its driver the run\'s parks() (review round 3 of PR #1467)', () => {
+  it('a park of a run that may not wait any more is refused with PARK_STOPPED_HINT, and nothing waits on the gate', async () => {
+    const scriptsDir = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')
+    const cwd = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-aa07-')))
+    const calls: FakeCall[] = []
+    const registry = new SessionRegistry(fakeQueryFactory({ scriptsDir, script: 'auto-approve-claude-park', record: (call) => calls.push(call) }))
+    const approval: LaunchApproval = {
+      mode: () => 'on',
+      environment: () => ({}),
+      judge: () => Promise.resolve({ outcome: 'park', rule: 'outside-roots', hint: null, targets: [] }),
+      parks: () => false,
+    }
+    const session = registry.start(cwd, undefined, () => undefined, undefined, { unattended: true, approval })
+    try {
+      session.send('/epic-wave Ticket-ы 01 эпика demo')
+      await vi.waitFor(() => expect(calls.some((call) => call.kind === 'permission')).toBe(true), { timeout: ms(5000) })
+      const asked = calls.find((call): call is Extract<FakeCall, { kind: 'permission' }> => call.kind === 'permission')
+      expect(asked?.result).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${PARK_STOPPED_HINT}` })
+      expect(session.parkedRequests()).toBe(0)
+    } finally {
+      registry.closeAll()
+      removeTestTree(cwd)
+    }
   })
 })
 

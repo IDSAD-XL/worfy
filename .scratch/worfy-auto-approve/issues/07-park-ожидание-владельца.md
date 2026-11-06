@@ -99,3 +99,6 @@ Source: [spec.md](../spec.md), «Как работает», п. 1; «Решен�
 - **Обычный Stop.** При переходе Run-а в `stopping` parked запросы снимаются (`Session.releaseParked`), а запрос,
   который политика park-ует, пока Run останавливается или уже остановлен, получает deny с `PARK_STOPPED_HINT` сразу.
 - Текст `HINTS.parkPending` в `policy.ts` — теперь только запасной путь без gate-а.
+- Раунд 3: Stop мог прийти между решением политики (park) и записью запроса на gate, уже после `releaseParked`.
+  Теперь, как только gate записал запрос как parked, parker спрашивает `LaunchApproval.parks()` (Run не
+  останавливается и не остановлен). Если нет — запрос сразу снимается, агент получает deny с `PARK_STOPPED_HINT`.
