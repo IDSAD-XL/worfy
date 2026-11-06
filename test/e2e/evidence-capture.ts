@@ -261,7 +261,7 @@ export function pngSize(png: Buffer): { width: number; height: number } {
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 /** Chunks about colour and pixel size that stay true once the alpha is gone; any other ancillary chunk is dropped. */
-const KEPT_CHUNKS = new Set(['sRGB', 'gAMA', 'cHRM', 'iCCP', 'pHYs'])
+const KEPT_CHUNKS = new Set(['sRGB', 'gAMA', 'cHRM', 'iCCP', 'cICP', 'pHYs'])
 
 interface PngChunk {
   type: string
@@ -343,6 +343,7 @@ export function pngPixels(png: Buffer): Pixels {
   for (let y = 0; y < height; y++) {
     const start = y * (stride + 1)
     const filter = raw[start] ?? 0
+    if (filter > 4) throw new Error(`a PNG row with filter ${filter}: only filters 0 to 4 exist`)
     const line = raw.subarray(start + 1, start + 1 + stride)
     for (let i = 0; i < stride; i++) {
       const left = i >= channels ? (line[i - channels] ?? 0) : 0
@@ -693,9 +694,10 @@ async function windowDestroyed(app: ElectronApplication, id: number | undefined)
 /**
  * A screenshot of the recorded window, in CSS pixels: the frame at the window's own size, whatever the
  * scale of the display. It fails at once when the page closes or main says the window is destroyed, and
- * at FRAME_BOUND_MS when the screenshot never settles.
+ * at FRAME_BOUND_MS when the screenshot never settles. The frame carries the colour scheme the page shows
+ * (contactSheet lays it over that background).
  */
-async function takeFrame(launched: LaunchedApp, windowId: number | undefined): Promise<Omit<Frame, 'second'>> {
+export async function takeFrame(launched: LaunchedApp, windowId: number | undefined): Promise<Omit<Frame, 'second'>> {
   const page = launched.window
   if (page.isClosed()) throw new WindowGone('the window was closed')
   let over = false

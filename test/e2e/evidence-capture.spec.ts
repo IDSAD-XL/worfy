@@ -28,7 +28,9 @@ import {
   SHEET_MAX_SIDE,
   sheetCell,
   sheetLayout,
+  takeFrame,
   ticketEvidenceCommand,
+  type Theme,
 } from './evidence-capture'
 import { canvasReady, innerSize, launchApp, repoRoot, type LaunchOptions } from './helpers'
 import { ms } from '../time-scale'
@@ -186,6 +188,21 @@ const PILLOW_PIXELS = Array.from({ length: 30 }, (_, at) => {
   return [(x * 37 + y * 11) % 256, (x * x * 7) % 256, (255 - x * 40 + 256) % 256, (x * 45) % 256]
 })
 
+/**
+ * A 6 × 4 RGBA PNG Pillow wrote (optimize), its rows filtered None, Average, Sub, Sub: the second row
+ * halves each channel from pixel to pixel over an empty row, where Average predicts every byte but the
+ * first and an Average that rounds up does not. PILLOW_AVERAGE_PIXELS gives its pixels.
+ */
+const PILLOW_AVERAGE_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAYAAAAECAYAAACtBE5DAAAAOElEQVR42mNgwAGYT/5PXotNgpGb9YSgajSvLTpmFP3P8F/2ESuD7CN+BtlHkgyyj5QZZB/pMgAA76oPRJdX3Q4AAAAASUVORK5CYII='
+const PILLOW_AVERAGE_PIXELS = Array.from({ length: 24 }, (_, at) => {
+  const [x, y] = [at % 6, Math.floor(at / 6)]
+  if (y === 0) return [0, 0, 0, 0]
+  if (y === 1) return [201, 255, 99, 173].map((start) => start >> x)
+  if (y === 2) return [(x * 37 + 11) % 256, (x * 91 + 5) % 256, (x * 13 + 200) % 256, (x * 61 + 17) % 256]
+  return [(x * 29 + 21) % 256, 255 - x * 30, x * x * 5, 255]
+})
+
 /** The files of the test's output folder whose names start with `stem`. */
 const filesOf = (stem: string): string[] => (existsSync(test.info().outputDir) ? readdirSync(test.info().outputDir).filter((name) => name.startsWith(stem)) : [])
 
@@ -295,6 +312,26 @@ test.describe('where the files go and what the helpers print', () => {
     // A PNG another encoder wrote, rows filtered Sub, Up and Paeth: read as written.
     expect(rowFilters(Buffer.from(PILLOW_PNG, 'base64'), 4)).toEqual([1, 2, 1, 2, 4])
     expect([...pngPixels(Buffer.from(PILLOW_PNG, 'base64')).rgba]).toEqual(PILLOW_PIXELS.flat())
+    // And a row filtered Average, from the same encoder.
+    expect(rowFilters(Buffer.from(PILLOW_AVERAGE_PNG, 'base64'), 4)).toEqual([0, 3, 1, 1])
+    expect([...pngPixels(Buffer.from(PILLOW_AVERAGE_PNG, 'base64')).rgba]).toEqual(PILLOW_AVERAGE_PIXELS.flat())
+    // A filter byte above 4 is not a PNG filter: an error, not a row read as unfiltered.
+    const badFilter = rgbaPng(1, 1, [[1, 2, 3, 4]])
+    const idatAt = badFilter.indexOf('IDAT', 8, 'latin1')
+    const idatLength = badFilter.readUInt32BE(idatAt - 4)
+    const rows = inflateSync(badFilter.subarray(idatAt + 4, idatAt + 4 + idatLength))
+    rows[0] = 5
+    const withFive = Buffer.concat([badFilter.subarray(0, idatAt - 4), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))])
+    expect(() => pngPixels(withFive)).toThrow(/filter 5: only filters 0 to 4 exist/)
+    // Only the first pixel translucent: it is found, and the picture is laid over the background.
+    const firstOnly = opaquePng(
+      rgbaPng(2, 1, [
+        [0, 0, 0, 0],
+        [9, 9, 9, 255],
+      ]),
+      '#102030',
+    )
+    expect([...pngPixels(firstOnly).rgba]).toEqual([16, 32, 48, 255, 9, 9, 9, 255])
 
     // Noise, the same row again, and diagonal gradients: the rows the helper writes take more than one
     // filter (Up for a repeated row), and each pixel reads back as laid over the background.
@@ -535,12 +572,49 @@ test('captureScreenshot and the contact sheet: no pixel with alpha below 255 in 
     const asIs = await decoded(app, raw)
     expect(asIs.pixels).toBeGreaterThan(0)
     expect(asIs.differ, 'pixels whose alpha pngPixels reads otherwise than Electron').toBe(0)
-    for (const file of await captureScreenshot(window, 'opaque')) {
+    const darkNow = (): Promise<boolean> =>
+      window.evaluate(() => (globalThis as unknown as { matchMedia: (query: string) => { matches: boolean } }).matchMedia('(prefers-color-scheme: dark)').matches)
+    const own: Theme = (await darkNow()) ? 'dark' : 'light'
+    // The screenshot of each theme as Playwright gives it, alpha and all, taken before the helper's.
+    const rawOf: Partial<Record<Theme, Buffer>> = {}
+    for (const theme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: theme })
+      rawOf[theme] = await window.screenshot()
+    }
+    await window.emulateMedia({ colorScheme: own })
+    const files = await captureScreenshot(window, 'opaque')
+    for (const [index, theme] of (['light', 'dark'] as const).entries()) {
+      const file = files[index] as string
       const seen = await decoded(app, readFileSync(file))
       expect(seen.pixels).toBeGreaterThan(0)
       expect(seen.translucent, `${file}: pixels with alpha below 255 (the lowest ${seen.lowest})`).toBe(0)
       expect(seen.differ).toBe(0)
+      // The most translucent pixel of the theme's own screenshot (the sidebar on macOS) is laid over the
+      // window background of that theme, not of the other one.
+      const before = pngPixels(rawOf[theme] as Buffer)
+      let spot = -1
+      for (let at = 3; at < before.rgba.length; at += 4) if ((before.rgba[at] ?? 255) < 255 && (spot < 0 || (before.rgba[at] ?? 255) < (before.rgba[spot * 4 + 3] ?? 255))) spot = (at - 3) / 4
+      if (process.platform === 'darwin') expect(spot, 'a macOS screenshot with no translucent pixel: the sidebar has no vibrancy').toBeGreaterThanOrEqual(0)
+      if (spot < 0) continue
+      const after = pngPixels(readFileSync(file))
+      const alpha = before.rgba[spot * 4 + 3] ?? 255
+      const over = (background: string): number[] =>
+        [1, 3, 5].map((from, channel) => Math.round(((before.rgba[spot * 4 + channel] ?? 0) * alpha + parseInt(background.slice(from, from + 2), 16) * (255 - alpha)) / 255))
+      const got = [...after.rgba.subarray(spot * 4, spot * 4 + 3)]
+      const near = (want: number[]): boolean => want.every((value, channel) => Math.abs(value - (got[channel] ?? 0)) <= 3)
+      const other: Theme = theme === 'light' ? 'dark' : 'light'
+      expect(near(over(WINDOW_BACKGROUND[theme])), `${theme}: pixel ${spot} (alpha ${alpha}) is ${got.join(',')}, over ${WINDOW_BACKGROUND[theme]} it is ${over(WINDOW_BACKGROUND[theme]).join(',')}`).toBe(true)
+      expect(near(over(WINDOW_BACKGROUND[other])), `${theme}: pixel ${spot} looks laid over the ${other} background`).toBe(false)
     }
+
+    // A frame of a clip carries the scheme the page shows when it is taken.
+    for (const theme of ['dark', 'light'] as const) {
+      await window.emulateMedia({ colorScheme: theme })
+      const frame = await takeFrame(launched, undefined)
+      expect(frame.theme).toBe(theme)
+      expect(pngSize(frame.png).width).toBeGreaterThan(0)
+    }
+    await window.emulateMedia({ colorScheme: own })
 
     // A frame of a clip is laid over the background of the theme it was taken in, not over the white of
     // the sheet: a frame with nothing opaque on it shows that background whole.
@@ -552,16 +626,19 @@ test('captureScreenshot and the contact sheet: no pixel with alpha below 255 in 
       [
         { second: 0, png: clear, theme: 'dark' },
         { second: 1, png: clear, theme: 'light' },
+        // No scheme given: light.
+        { second: 2, png: clear },
       ],
       sheetDir,
     )
     const read = pngPixels(sheet)
-    const at = (x: number, y: number): string => '#' + [...read.rgba.subarray((y * read.width + x) * 4, (y * read.width + x) * 4 + 3)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
-    const layout = sheetLayout(2, { width: 4, height: 4 })
-    const second = SHEET_GAP + (layout.columns > 1 ? 4 + SHEET_GAP : 0)
-    const secondY = SHEET_GAP + (layout.columns > 1 ? 0 : 4 + SHEET_CAPTION + SHEET_GAP)
-    expect(at(SHEET_GAP + 1, SHEET_GAP + 1)).toBe(WINDOW_BACKGROUND.dark)
-    expect(at(second + 1, secondY + 1)).toBe(WINDOW_BACKGROUND.light)
+    const layout = sheetLayout(3, { width: 4, height: 4 })
+    const cell = (index: number): string => {
+      const x = SHEET_GAP + (index % layout.columns) * (4 + SHEET_GAP) + 1
+      const y = SHEET_GAP + Math.floor(index / layout.columns) * (4 + SHEET_CAPTION + SHEET_GAP) + 1
+      return '#' + [...read.rgba.subarray((y * read.width + x) * 4, (y * read.width + x) * 4 + 3)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+    }
+    expect([cell(0), cell(1), cell(2)]).toEqual([WINDOW_BACKGROUND.dark, WINDOW_BACKGROUND.light, WINDOW_BACKGROUND.light])
     const sheetSeen = await decoded(app, sheet)
     expect(sheetSeen.translucent).toBe(0)
   } finally {
