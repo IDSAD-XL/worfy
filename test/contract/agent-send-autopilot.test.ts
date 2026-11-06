@@ -101,7 +101,6 @@ async function harness(options: HarnessOptions = {}) {
   const starter = new ChatStarts({
     autopilot: {
       runningEpic: () => running,
-      startCheck: () => Promise.resolve(null),
       start: async (projectId, epic, start) => {
         starts.push([projectId, epic, start])
         await options.startGate
@@ -112,10 +111,6 @@ async function harness(options: HarnessOptions = {}) {
       },
     },
     workflow: () => Promise.resolve(model),
-    orchestratorSession: () => Promise.resolve(null),
-    inTurn: () => false,
-    whenIdle: () => Promise.resolve(true),
-    orchestratorRefusal: () => null,
     notify: () => undefined,
   })
   const requests: ChatStartRequest[] = []
@@ -171,7 +166,8 @@ describe('agent.send: an Autopilot command typed in a chat', () => {
     const id = await h.start()
     expect(await h.send(id, '/worfy:epic-wave tickets 01 of epic demo')).toEqual({ autopilot: { kind: 'started', epic: EPIC, message: 'Autopilot started on Epic demo' } })
     expect(h.requests).toEqual([{ projectId: PROJECT, epic: EPIC, tickets: [1], by: 'command', session: id }])
-    expect(h.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'command', tickets: [1] }]])
+    // The Session that asked is told of a refusal when the run takes the Orchestrator (worfy-autopilot-queue ticket 07).
+    expect(h.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'command', tickets: [1], onLateRefusal: expect.any(Function) }]])
     // The next message is the agent's first.
     expect(await h.send(id, 'hi')).toBeUndefined()
     expect(await h.reached()).toEqual(['hi'])

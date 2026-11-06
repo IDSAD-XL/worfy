@@ -73,3 +73,13 @@ Session, а агенту не уходит. Ticket-ы, отложенные Run-
 - **Отдельная причина остановки не нужна, хватит `no-ready-wave`.** Отвергнуто: `no-ready-wave` значит «в Epic-е нечего
   брать», а Run по списку кончается, когда в Epic-е ещё есть готовые Ticket-ы; Journal и строка статуса должны это
   различать.
+
+## Amendments
+
+- **2026-11-06, [ADR-0099](0099-run-waits-for-orchestrator.md)** (`worfy-autopilot-queue` 07). Пункт 4: отказы старта
+  из чата из-за хода Orchestrator-а, его background tasks и очереди заменены ожиданием. Старт из чата идёт тем же путём,
+  что кнопка: Run заводится сразу и ждёт Orchestrator; ответ — `Autopilot waits for the Orchestrator and starts when it
+  is free`. `startAfterTurn`, `orchestratorRefusal` и отказ «Autopilot is about to start Epic X after the Orchestrator's
+  turn.» убраны: пока Run ждёт, следующий запрос получает обычный отказ «Autopilot is already running Epic X». Отказ при
+  настоящем старте по-прежнему показывается notice-ом в Session, которая просила старт; в Journal он теперь есть —
+  `run-stopped` с причиной `start-refused` и текстом.

@@ -17,7 +17,9 @@
 // Wave the run weighs the budget of the Limits (worfy-throughput ticket 41) with the settings of
 // Settings → Autopilot and the journals of the Project's recent runs; a run goes in its Run mode,
 // the default one of Settings when the start names none, and reads the Start window there before each
-// Wave (worfy-resource-planner ticket 05).
+// Wave (worfy-resource-planner ticket 05). A start while the Orchestrator is busy waits for it
+// (worfy-autopilot-queue ticket 07): Stop on such a run cancels it, Start now (`autopilot.startNow`)
+// takes the Orchestrator at once (Orchestrators.takeNow).
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
 import type { LimitsState } from '../../shared/agent/limits'
@@ -29,6 +31,7 @@ import {
   autopilotEstimate,
   autopilotForceStop,
   autopilotStart,
+  autopilotStartNow,
   autopilotState,
   autopilotStop,
   type AutopilotState,
@@ -40,7 +43,7 @@ import { openRunApproval, sweepRunTemps } from '../agent/auto-approve/run-approv
 import { agentEnv } from '../agent/env'
 import { appLimits, observeSessionLimits } from '../agent/limits'
 import { refreshAppUsage } from '../agent/limits-usage'
-import { ChatStarts, orchestratorRefusal, whenIdle } from '../autopilot/chat-start'
+import { ChatStarts } from '../autopilot/chat-start'
 import { harnessDriftWatch } from '../autopilot/harness-drift'
 import { openRun, readRecentRuns } from '../autopilot/journal'
 import { KeepAwake } from '../autopilot/power'
@@ -87,7 +90,7 @@ const appEstimateSources: EstimateSources = { runs: (projectId) => readRecentRun
 
 /** The handlers over an Autopilot; tests pass their own. */
 export function autopilotHandlers(
-  autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness'>>,
+  autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness' | 'startNow'>>,
   sources: EstimateSources = appEstimateSources,
 ): HandlerModule {
   return [
@@ -101,6 +104,10 @@ export function autopilotHandlers(
     }),
     defineHandler(autopilotStop, ({ projectId }) => autopilot().stop(projectId)),
     defineHandler(autopilotForceStop, ({ projectId }) => autopilot().forceStop(projectId)),
+    defineHandler(autopilotStartNow, ({ projectId }) => {
+      const current = autopilot()
+      return current.startNow?.(projectId) ?? current.state(projectId)
+    }),
     defineHandler(autopilotState, ({ projectId }) => {
       const current = autopilot()
       // The state answers at once; git answers later, through autopilot.changed.
@@ -176,6 +183,9 @@ export function sharedAutopilot(): Autopilot {
       giveBackNow: (projectId) => sharedOrchestrators().giveBackNow(projectId),
       newUnattendedSession: (projectId) => sharedOrchestrators().newUnattendedSession(projectId),
       unattendedRefusal: (projectId) => sharedOrchestrators().unattendedRefusal(projectId),
+      busy: (projectId) => sharedOrchestrators().busy(projectId),
+      takeNow: (projectId, approval, haltMs) => sharedOrchestrators().takeNow(projectId, approval, haltMs),
+      runsOn: (projectId) => sharedOrchestrators().runsOn(projectId),
     },
     registry: {
       get: (sessionId) => sharedRegistry().get(sessionId),
@@ -266,17 +276,6 @@ export function sharedChatStarts(): ChatStarts {
   sharedStarts ??= new ChatStarts({
     autopilot: sharedAutopilot(),
     workflow: async (projectId) => (await readWorkflow({ root: projectStore().get(projectId).path, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
-    orchestratorSession: async (projectId) => (await sharedOrchestrators().open(projectId)).sessionId,
-    inTurn: (sessionId) => {
-      try {
-        const state = sharedRegistry().get(sessionId).state
-        return state === 'busy' || state === 'needs_permission'
-      } catch {
-        return false
-      }
-    },
-    whenIdle: (sessionId) => whenIdle(sharedRegistry(), sessionId),
-    orchestratorRefusal: (sessionId) => orchestratorRefusal(sharedRegistry().get(sessionId), sharedOrchestrators().awaitsGiveBack(sessionId)),
     notify: (sessionId, text) => {
       try {
         sharedRegistry().get(sessionId).notice(text)

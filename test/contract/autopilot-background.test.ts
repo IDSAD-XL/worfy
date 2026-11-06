@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
 import type { RunApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { ORCHESTRATOR_HAS_TASKS, Orchestrators } from '../../src/main/agent/orchestrator'
+import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { openRun, readRun } from '../../src/main/autopilot/journal'
@@ -946,14 +946,17 @@ describe('a new run after a stop while the Orchestrator still has live tasks (wo
     h.orchestrators.retain(new Set())
   })
 
-  it('an attended Orchestrator with live tasks still refuses: going unattended would start its Session again and kill them', async () => {
+  it('an attended Orchestrator with live tasks is not taken: going unattended would start its Session again and kill them, so the run waits (worfy-autopilot-queue ticket 07)', async () => {
     // A person's turn starts the two tasks and ends while they run.
     const h = harness({ attendedScript: 'autopilot-background' })
     const session = await h.session()
     session.send('start the implementers')
     await until(async () => (await taskIds(h)).length === 2 && (await h.session()).state === 'idle', 'the person\'s turn to end with two tasks')
-    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(ORCHESTRATOR_HAS_TASKS)
+    await expect(h.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'waiting', waitingFor: 'orchestrator', busy: { turn: false, queued: 0 } })
+    expect(h.autopilot.state(PROJECT).busy?.tasks).toHaveLength(2)
     expect(h.requests.map((request) => request.unattended)).toEqual([false])
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+    await expect(h.autopilot.stop(PROJECT)).resolves.toMatchObject({ reason: 'start-cancelled' })
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
   })
 })
@@ -991,12 +994,14 @@ describe('the folder for temporary files of a run with a policy (worfy-auto-appr
     expect(h.approvals.map((approval) => approval.closed)).toEqual([false, false])
   })
 
-  it('a start refused when the Session goes unattended lets its folder go', async () => {
+  it('a start cancelled while it waits for the Orchestrator lets its folder go (worfy-autopilot-queue ticket 07)', async () => {
     const h = harness({ attendedScript: 'autopilot-background', approval: true })
     const session = await h.session()
     session.send('start the implementers')
     await until(async () => (await taskIds(h)).length === 2 && (await h.session()).state === 'idle', 'the person\'s turn to end with two tasks')
-    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(ORCHESTRATOR_HAS_TASKS)
+    await expect(h.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'waiting' })
+    expect(h.approvals.map((approval) => approval.closed)).toEqual([false])
+    await h.autopilot.stop(PROJECT)
     expect(h.approvals.map((approval) => approval.closed)).toEqual([true])
   })
 })

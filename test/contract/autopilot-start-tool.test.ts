@@ -13,7 +13,7 @@
 // then "Cancel", the default button; the forecast lines of the past runs' journals in its `detail`.
 import type { BaseWindow, BrowserWindow, MessageBoxOptions, MessageBoxReturnValue } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AFTER_TURN_MESSAGE, ChatStarts, chatRunningHint, chatWaitingHint, type ChatStartDeps } from '../../src/main/autopilot/chat-start'
+import { ChatStarts, chatRunningHint, WAIT_MESSAGE, type ChatStartDeps } from '../../src/main/autopilot/chat-start'
 import type { AutopilotStartOptions } from '../../src/main/autopilot/run'
 import type { CanvasContext, ToolResult } from '../../src/main/mcp/canvas-server'
 import type { LimitsState } from '../../src/shared/agent/limits'
@@ -234,39 +234,35 @@ function messageBox() {
   }
 }
 
-/** The real starts from a chat over a stand-in Autopilot; `journal` gets a line for every run that starts. */
-function world(options: { running?: string | null; orchestratorInTurn?: boolean } = {}) {
+/** The options of a start as the stand-in records them: without the listener of a late refusal (run.ts). */
+const recorded = (start: AutopilotStartOptions | undefined): AutopilotStartOptions | undefined =>
+  start === undefined ? undefined : (Object.fromEntries(Object.entries(start).filter(([key]) => key !== 'onLateRefusal')) as AutopilotStartOptions)
+
+/**
+ * The real starts from a chat over a stand-in Autopilot; `journal` gets a line for every run that starts.
+ * With `orchestratorBusy` the run is accepted and waits for the Orchestrator, as the real one does
+ * (worfy-autopilot-queue ticket 07): its journal opens at once all the same.
+ */
+function world(options: { running?: string | null; orchestratorBusy?: boolean } = {}) {
   const out = {
     running: options.running ?? null,
     starts: [] as [string, string, AutopilotStartOptions | undefined][],
     journal: [] as string[],
-    /** Ends the Orchestrator's turn: its Session is idle. */
-    endTurn: () => undefined as void,
-    inTurn: options.orchestratorInTurn ?? false,
+    busy: options.orchestratorBusy ?? false,
   }
   const deps: ChatStartDeps = {
     autopilot: {
       runningEpic: () => out.running,
-      startCheck: () => Promise.resolve(null),
       start: (projectId, epic, start) => {
-        out.starts.push([projectId, epic, start])
+        out.starts.push([projectId, epic, recorded(start)])
         // run-started of the real run (run.ts) carries the start's mode, else the default of Settings.
         out.journal.push(`run-started ${start?.mode ?? 'default'}`)
         out.running = epic
-        return Promise.resolve({ projectId, epic, status: 'running' } as unknown as AutopilotState)
+        const state = out.busy ? { projectId, epic, status: 'waiting', waitingFor: 'orchestrator' } : { projectId, epic, status: 'running' }
+        return Promise.resolve(state as unknown as AutopilotState)
       },
     },
     workflow: () => Promise.resolve(MODEL),
-    orchestratorSession: () => Promise.resolve(ORCHESTRATOR),
-    inTurn: (sessionId) => out.inTurn && sessionId === ORCHESTRATOR,
-    whenIdle: () =>
-      new Promise((done) => {
-        out.endTurn = () => {
-          out.inTurn = false
-          done(true)
-        }
-      }),
-    orchestratorRefusal: () => null,
     notify: () => undefined,
   }
   const chat = new ChatStarts(deps)
@@ -542,7 +538,7 @@ describe('autopilot_start: refusals without a dialog', () => {
     // unattended until they end, and the person asks in it for a new run.
     app.sessions.set(ORCHESTRATOR, true)
     app.givingBack.add(ORCHESTRATOR)
-    const w = world({ orchestratorInTurn: true })
+    const w = world({ orchestratorBusy: true })
     const { box, shown, answer } = messageBox()
     const { starter } = tool(w, box)
     const rpc = await connect(ORCHESTRATOR, starter)
@@ -551,9 +547,8 @@ describe('autopilot_start: refusals without a dialog', () => {
     answer(0)
     const result = await call
     expect(result.isError, textOf(result)).toBeFalsy()
-    expect(textOf(result)).toBe(AFTER_TURN_MESSAGE)
-    w.out.endTurn()
-    await vi.waitFor(() => expect(w.out.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', tickets: [6], mode: 'fastest' }]]))
+    expect(textOf(result)).toBe(WAIT_MESSAGE)
+    expect(w.out.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', tickets: [6], mode: 'fastest' }]])
     // The new run has taken the Session over: no one is at it again, and no dialog is shown.
     app.givingBack.delete(ORCHESTRATOR)
     w.out.running = null
@@ -589,17 +584,17 @@ describe('autopilot_start: refusals without a dialog', () => {
     expect(w.out.journal).toEqual(['run-started'])
   })
 
-  it('while a start waits for the end of the Orchestrator\'s turn: its hint, no second dialog', async () => {
-    const w = world({ orchestratorInTurn: true })
+  it('while a run waits for the busy Orchestrator: the running hint, no second dialog (worfy-autopilot-queue ticket 07)', async () => {
+    const w = world({ orchestratorBusy: true })
     const { box, shown, answer } = messageBox()
     const { starter } = tool(w, box)
     const call = (await connect(ORCHESTRATOR, starter)).call('autopilot_start', { epic: EPIC })
     await vi.waitFor(() => expect(shown).toHaveLength(1))
     answer(0)
-    expect(textOf(await call)).toBe(AFTER_TURN_MESSAGE)
+    expect(textOf(await call)).toBe(WAIT_MESSAGE)
     const again = await (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC, tickets: ['07'] })
     expect(again.isError).toBe(true)
-    expect(textOf(again)).toBe(chatWaitingHint(EPIC))
+    expect(textOf(again)).toBe(chatRunningHint(EPIC))
     expect(shown).toHaveLength(1)
     expect(w.startFromChat).toHaveBeenCalledOnce()
   })
@@ -633,8 +628,8 @@ describe('autopilot_start: refusals without a dialog', () => {
 })
 
 describe("autopilot_start from the Project's Orchestrator in its turn", () => {
-  it('answers "Autopilot starts after this turn", and the run starts once the Orchestrator is idle', async () => {
-    const w = world({ orchestratorInTurn: true })
+  it('answers that Autopilot waits for the Orchestrator: the run is accepted at once and waits by the common path (worfy-autopilot-queue ticket 07)', async () => {
+    const w = world({ orchestratorBusy: true })
     const { box, shown, answer } = messageBox()
     const rpc = await connect(ORCHESTRATOR, tool(w, box).starter)
     const call = rpc.call('autopilot_start', { epic: EPIC, tickets: ['06'] })
@@ -642,13 +637,10 @@ describe("autopilot_start from the Project's Orchestrator in its turn", () => {
     answer(0)
     const result = await call
     expect(result.isError, textOf(result)).toBeFalsy()
-    expect(textOf(result)).toBe(AFTER_TURN_MESSAGE)
-    expect(textOf(result)).toBe('Autopilot starts after this turn')
+    expect(textOf(result)).toBe(WAIT_MESSAGE)
+    expect(textOf(result)).toBe('Autopilot waits for the Orchestrator and starts when it is free')
     expect(w.startFromChat).toHaveBeenCalledWith({ projectId: PROJECT, epic: EPIC, tickets: [6], by: 'tool', session: ORCHESTRATOR, mode: 'fastest' })
-    await settle()
-    expect(w.out.starts).toEqual([])
-    w.out.endTurn()
-    await vi.waitFor(() => expect(w.out.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', tickets: [6], mode: 'fastest' }]]))
+    expect(w.out.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', tickets: [6], mode: 'fastest' }]])
     expect(w.out.journal).toEqual(['run-started fastest'])
   })
 })

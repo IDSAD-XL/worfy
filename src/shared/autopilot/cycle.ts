@@ -40,7 +40,11 @@ import { resumedTickets } from '../actions/render-template'
 import type { Ticket } from '../workflow/types'
 import { doneOnlyInBranch, readyWave } from '../workflow/waves'
 
-/** Why a run ended; the `reason` of its `run-stopped` journal line. */
+/**
+ * Why a run ended; the `reason` of its `run-stopped` journal line. `start-cancelled` and
+ * `start-refused` end a run that waited for its Orchestrator and never took it
+ * (worfy-autopilot-queue ticket 07): Cancel, or a refusal of the checks made again when it was free.
+ */
 export const AUTOPILOT_STOP_REASONS = [
   'no-ready-wave',
   'tickets-done',
@@ -60,6 +64,8 @@ export const AUTOPILOT_STOP_REASONS = [
   'user-stop',
   'user-force-stop',
   'app-quit',
+  'start-cancelled',
+  'start-refused',
 ] as const
 export type AutopilotStopReason = (typeof AUTOPILOT_STOP_REASONS)[number]
 
@@ -142,9 +148,11 @@ export type CycleEvent =
    * (src/shared/autopilot/resume-at.ts, MAX_WAIT_MS), the next Wave never fits the Start window
    * (`window-too-short`, worfy-resource-planner ticket 05), the Vendor refused by a quota that does
    * not reset (`vendor-quota`, worfy-multi-vendor ticket 38), or the run ends a graceful Stop itself
-   * (`user-stop`: its Wave still waited in the Session's queue).
+   * (`user-stop`: its Wave still waited in the Session's queue). A run that waits for its
+   * Orchestrator ends before its first Wave with `start-cancelled` or `start-refused`
+   * (worfy-autopilot-queue ticket 07).
    */
-  | { type: 'stop'; reason: 'user-stop' | 'user-force-stop' | 'app-quit' | 'limits-timeout' | 'vendor-quota' | 'window-too-short' }
+  | { type: 'stop'; reason: 'user-stop' | 'user-force-stop' | 'app-quit' | 'limits-timeout' | 'vendor-quota' | 'window-too-short' | 'start-cancelled' | 'start-refused' }
 
 export type CycleEffect =
   /** Send "Run wave" to the Orchestrator; answer with `wave-sent` or `send-failed`. */

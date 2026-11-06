@@ -50,10 +50,26 @@ export const autopilotStateSchema = z.object({
    * says why (worfy-resource-planner ticket 05, src/shared/autopilot/run-mode.ts). Then `message`
    * says it in words; `retry` — a turn of the Wave ended with a temporary API error, and with
    * Auto-continue on the run sends the Orchestrator a continuation at `resumesAt`, `retry` says which
-   * (worfy-retry ticket 04, src/main/autopilot/turn-retry.ts). Absent otherwise, and in states of
-   * builds before ticket 41.
+   * (worfy-retry ticket 04, src/main/autopilot/turn-retry.ts); `orchestrator` — the run was accepted
+   * while the Project's Orchestrator was busy and has not taken it yet (worfy-autopilot-queue ticket
+   * 07): `busy` says with what, `waitingSince` since when, `resumesAt` is null, `wave` 0. Absent
+   * otherwise, and in states of builds before ticket 41.
    */
-  waitingFor: z.enum(['limits', 'daily-share', 'five-hour', 'start-window', 'retry']).optional(),
+  waitingFor: z.enum(['limits', 'daily-share', 'five-hour', 'start-window', 'retry', 'orchestrator']).optional(),
+  /**
+   * While `waitingFor` is `orchestrator`: what keeps the Orchestrator busy now — a turn that runs,
+   * how many messages wait in its queue, and its live background tasks ({id, type, description}, as
+   * the journal names them). The run starts once none is left, or at Start now. Absent otherwise.
+   */
+  busy: z
+    .object({
+      turn: z.boolean(),
+      queued: z.number().int().nonnegative(),
+      tasks: z.array(z.object({ id: z.string().min(1), type: z.string().nullable(), description: z.string().nullable() })),
+    })
+    .optional(),
+  /** While `waitingFor` is `orchestrator`: when the run was accepted, in milliseconds since the epoch. Absent otherwise. */
+  waitingSince: z.number().int().nonnegative().optional(),
   /**
    * While `waitingFor` is `limits`: the window whose reset the run waits for (`five_hour`, `seven_day`,
    * `primary`…), or null when no reset time was reported and the run tries again every 30 minutes
@@ -149,8 +165,10 @@ export const MAX_NAMED_TICKETS = 500
 
 /**
  * Starts Autopilot over the Epic: the Orchestrator goes unattended, keep-awake is held, and the
- * ready Wave is sent. Refused while the Project has a run, while the Orchestrator is in a turn, and
- * on worfy's own repository in a development build. A run of the same Epic and origin on a Linked
+ * ready Wave is sent. Refused while the Project has a run (one that waits for its Orchestrator
+ * included) and on worfy's own repository in a development build. While the Orchestrator is busy —
+ * a turn, queued messages, background tasks — the run is accepted and waits for it
+ * (`waitingFor: 'orchestrator'`, worfy-autopilot-queue ticket 07). A run of the same Epic and origin on a Linked
  * machine (or in another Project of this Machine) answers `runningElsewhere` instead (worfy-link
  * ticket 15); `override` ("Start anyway") starts anyway: it still asks, and the run journals the
  * override only when it went past such a run. `tickets` (worfy-flight-recorder ticket 21): a run over
@@ -178,6 +196,16 @@ export const autopilotStart = invokeChannel(
  * `stopping` or already stopped, not at its end; again while stopping, it only answers the state.
  */
 export const autopilotStop = invokeChannel('autopilot.stop', z.object({ projectId }), autopilotStateSchema, 'project', 'write')
+
+/**
+ * Start now (worfy-autopilot-queue ticket 07): a run that waits for its Orchestrator takes it at once.
+ * The Orchestrator's turn is interrupted and its background tasks end with its process, as at Force
+ * stop (ADR-0050); its queued messages are not sent and wait for the person's Session after the run.
+ * Answers the state once the run has taken the Orchestrator, or has stopped with `start-refused`;
+ * the state as it is when the Project's run does not wait. On `autopilot.stop` a waiting run is
+ * cancelled instead (`start-cancelled`), and its Orchestrator is not touched.
+ */
+export const autopilotStartNow = invokeChannel('autopilot.startNow', z.object({ projectId }), autopilotStateSchema, 'project', 'write')
 
 /**
  * Force stop (`user-force-stop`): interrupts the Orchestrator's turn and its background tasks and
@@ -220,6 +248,8 @@ export const autopilotChanged = eventChannel('autopilot.changed', autopilotState
 export interface StatusLineOptions {
   /** IANA time zone of the times shown; the system's when omitted. Tests pass a fixed one. */
   timeZone?: string
+  /** The clock of the minutes a run has waited for its Orchestrator; Date.now when omitted. Tests pass a fixed one. */
+  now?: number
 }
 
 /**
@@ -229,10 +259,12 @@ export interface StatusLineOptions {
  * `5-hour limits full · resumes 02:12` (the budget, worfy-throughput ticket 41), `outside start
  * window · resumes 23:00` and `wave too long for window · resumes 23:00` (the Start window,
  * worfy-resource-planner ticket 05), `API error · retry 2/5 · 14:20` (the continuation after a
- * temporary API error, worfy-retry ticket 04), `stopped: no ready wave`, `stopped: user force stop`.
+ * temporary API error, worfy-retry ticket 04), `waiting for the Orchestrator · 4 min` (a run accepted
+ * while its Orchestrator was busy, in whole minutes since `waitingSince`, none in the first one;
+ * worfy-autopilot-queue ticket 07), `stopped: no ready wave`, `stopped: user force stop`.
  */
 export function autopilotStatusLine(
-  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
+  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
   options: StatusLineOptions = {},
 ): string | null {
   if (state.status === 'running') {
@@ -247,6 +279,10 @@ export function autopilotStatusLine(
   }
   if (state.status === 'waiting') {
     const at = (resumesAt: number): string => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: options.timeZone }).format(resumesAt)
+    if (state.waitingFor === 'orchestrator') {
+      const minutes = state.waitingSince === undefined ? 0 : Math.floor(((options.now ?? Date.now()) - state.waitingSince) / 60_000)
+      return minutes > 0 ? `waiting for the Orchestrator · ${minutes} min` : 'waiting for the Orchestrator'
+    }
     if (state.waitingFor === 'retry') {
       const parts = ['API error', ...(state.retry === undefined ? [] : [`retry ${state.retry.attempt}/${state.retry.of}`])]
       if (state.resumesAt !== null && state.resumesAt !== undefined) parts.push(at(state.resumesAt))
@@ -282,6 +318,7 @@ declare module './channels' {
   interface IpcContract {
     'autopilot.start': typeof autopilotStart
     'autopilot.stop': typeof autopilotStop
+    'autopilot.startNow': typeof autopilotStartNow
     'autopilot.forceStop': typeof autopilotForceStop
     'autopilot.state': typeof autopilotState
     'autopilot.estimate': typeof autopilotEstimate

@@ -14,7 +14,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher, AUTOPILOT_RUNNING_HINT, waveBriefText } from '../../src/main/actions/launch'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { AUTOPILOT_OWNS_ORCHESTRATOR, ORCHESTRATOR_HAS_QUEUE, ORCHESTRATOR_IN_TURN, Orchestrators } from '../../src/main/agent/orchestrator'
+import { AUTOPILOT_OWNS_ORCHESTRATOR, Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { SessionSettingsStore, UNATTENDED_MODE_MESSAGE } from '../../src/main/agent/session-settings'
 import { openRun, readRun } from '../../src/main/autopilot/journal'
@@ -656,17 +656,20 @@ describe('an Autopilot run on the fake agent', () => {
     expect((await h.journal()).filter((event) => event.kind === 'human-input')).toEqual([expect.objectContaining({ source: 'worfy', what: 'sent a message from a Card' })])
   })
 
-  it('refuses to start while the attended Orchestrator is in a turn, and starts no Session', async () => {
+  it('a start while the attended Orchestrator is in a turn waits for it and starts no Session; Stop cancels the wait (worfy-autopilot-queue ticket 07)', async () => {
     const h = harness({ attended: 'orchestrator' })
     const opened = await h.orchestrators.open(PROJECT)
     const session = h.registry.get(opened.sessionId ?? '')
     await until(() => session.state === 'idle', 'the idle Orchestrator')
     session.send('a long task')
     expect(session.state).toBe('busy')
-    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(ORCHESTRATOR_IN_TURN)
+    await expect(h.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'waiting', waitingFor: 'orchestrator', busy: { turn: true, queued: 0, tasks: [] } })
     expect(h.requests.map((request) => request.unattended)).toEqual([false])
     expect(session.state).toBe('busy')
+    // keep-awake waits for the real start.
     expect(h.power).toEqual([])
+    await expect(h.autopilot.stop(PROJECT)).resolves.toMatchObject({ status: 'stopped', reason: 'start-cancelled' })
+    expect(h.requests.map((request) => request.unattended)).toEqual([false])
     expect(h.autopilot.running(PROJECT)).toBe(false)
   })
 
@@ -737,7 +740,7 @@ describe('an Autopilot run on the fake agent', () => {
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false, true])
   })
 
-  it('refuses to start while messages wait in the Orchestrator\'s queue', async () => {
+  it('a start while messages wait in the Orchestrator\'s queue waits for it, and the messages stay where they are (worfy-autopilot-queue ticket 07)', async () => {
     const h = harness({ attended: 'orchestrator' })
     const session = await h.session()
     await until(() => session.state === 'idle', 'the idle Orchestrator')
@@ -747,8 +750,10 @@ describe('an Autopilot run on the fake agent', () => {
     await session.interrupt()
     await until(() => session.state === 'idle', 'the end of the turn')
     expect(session.queued()).toMatchObject({ items: [{ text: 'then this' }], paused: true })
-    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(ORCHESTRATOR_HAS_QUEUE)
+    await expect(h.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'waiting', waitingFor: 'orchestrator', busy: { turn: false, queued: 1 } })
     expect(h.requests.map((request) => request.unattended)).toEqual([false])
+    expect(session.queued().items.map((item) => item.text)).toEqual(['then this'])
+    await expect(h.autopilot.stop(PROJECT)).resolves.toMatchObject({ reason: 'start-cancelled' })
     expect(session.queued().items.map((item) => item.text)).toEqual(['then this'])
   })
 

@@ -8,6 +8,8 @@
 /** Every kind of Journal event, as JOURNAL_EVENT_KINDS of src/shared/autopilot/journal.ts (a unit test keeps them equal). */
 export const JOURNAL_KINDS = [
   'run-started',
+  'orchestrator-busy',
+  'orchestrator-free',
   'harness-behind',
   'forecast',
   'wave-started',
