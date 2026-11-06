@@ -96,3 +96,39 @@ PR #1460 (Ticket 04: policy Auto-approval для Claude, Shadow и Journal) вл
 Английская страница `docs/features/autopilot.md`: строка `auto-approval` (исключения, `targets`) и абзац про
 config-файлы из env и reftable. Mutation testing вручную на изменённых строках: 25 мутантов, 24 убиты на macOS,
 один (`includeHomes` в `configFilesOf`) убивает только test на win32 в CI.
+
+### Итог раунда 2 (review PR #1475)
+
+Сделаны medium и low 2–5. Low 6 (`~/` в `core.hooksPath` на Windows, `policy.ts`) и п. 5 тикета (перевод) ждут
+merge PR #1469: он правит `policy.ts` и ту же страницу.
+
+1. **medium — reftable.** Хранилище ref-ов теперь определяется только по файлу HEAD (`ref: refs/heads/.invalid`),
+   `extensions.refStorage` из config не читается совсем. Вариант ревью «ключ только из `<common>/config` плюс HEAD»
+   проверен mutation testing: обе половины условия дублировали друг друга, ни одна не была нужна test-ам. HEAD
+   агент переписать не может (запись в `.git` — deny), а config он менять может. Test на настоящем git: include с
+   `refStorage = files` и `git config --worktree extensions.refStorage files` — ветка по умолчанию остаётся `dev`,
+   `git push origin HEAD:dev` и `git checkout -b dev` остаются hard deny.
+2. **Исключения маскировки.** Разделитель команды (`|`, `;`, `&`, `(`, `$(`) считается только вне кавычек от начала
+   строки. Между программой и сохраняемым текстом нет кавычек, скобок и backquote. Все четыре примера ревью и ещё
+   два (кавычки внутри кавычек, backquote) дают `***`.
+3. **docker `-u`** сохраняется, только если до него после `run|exec|create` стоят одни опции: `docker run --rm
+   curlimages/curl -u 12345:987654` → `***`.
+4. **Относительный `GIT_CONFIG_GLOBAL`** (и `GIT_CONFIG_SYSTEM`, `XDG_CONFIG_HOME`) остаётся относительным в
+   `configFiles`. Policy охраняет его в каждом worktree и checkout, как относительный `core.hooksPath`. Test: запись
+   в `relative-config` двух worktree Wave → deny `git-files`. Не охраняется: такой файл в подпапке checkout-а
+   (`cd src && git status` читает `src/relative-config`).
+5. **Token после `_`:** `key_ghp_…` → `key_***` в `command` и в `targets`. Token-форма стала шире, ни одна форма
+   раунда 3 не сужена. Table test раунда 5 зелёный без правок.
+
+**CI первого раунда** (head `0c92da4fe`) нашёл три вещи, исправлены в `33e244f9f`:
+- Linux runner задаёт `XDG_CONFIG_HOME`, и его `git/config` попал в ожидания test-ов. `gitEnv` test-ов теперь его
+  убирает.
+- На Windows `.git` файл worktree скрыт (Git for Windows, `core.hideDotFiles`). Windows не даёт создать скрытый
+  файл заново (EPERM), поэтому test commondir переписывает его на месте.
+- На Windows `cp /dev/null cfg` — deny `not-judged`: `/dev/null` там не путь. `cp a.txt cfg` проверяет deny
+  `git-files` на всех платформах.
+Остальные test-ы п. 2 на Windows в этом run прошли. До второго запуска CI зелёным п. 2 не считается.
+
+Проверки: unit и contract test-ы модулей — 13 файлов, 1046 test-ов, exit 0. `pnpm lint`, `pnpm typecheck` — exit
+0. `gate fast` на `33e244f9f` — exit 0, `[gate] green (fast)`. Mutation testing на строках раунда 2: 11 мутантов;
+10 убиты сразу, а выживший (проверка `refStorage`) убран из кода вместе с проверяемым условием.
