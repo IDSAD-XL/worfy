@@ -72,8 +72,10 @@ Ticket перенесён в worfy-retry решением владельца 202
   - evidence: commit pass · Autopilot: a session-error during a Wave leaves its Tickets resumable (worfy-retry 14) · - - · 4a232a36b
 - [ ] ADR-0050: в конце файла раздел `## Amendments` с датированной строкой — `resumable` и после `session-error`
       посреди Wave, worfy-retry 14 и номер PR; прежний текст ADR не изменён.
+  - evidence: commit pass · docs: worfy-retry 14 — PR number in ADR-0050 Amendments and the result · - - · bb62ac400
 - [ ] «Итог» с подразделом «Инцидент»: класс — дефект кода (процесс worfy-reliability 03), ссылки на PR #1439 и «Итог»
       Ticket-а worfy-faults 03.
+  - evidence: commit pass · docs: worfy-retry 14 — PR number in ADR-0050 Amendments and the result · - - · bb62ac400
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
 
 ## Тесты
