@@ -28,10 +28,15 @@ Source: [spec.md](../spec.md), «Как работает» → «Источни�
 
 - [ ] Contract test на fixture-ах: Run, ручная Wave по маркеру, ходы трёх Session, PR, CI, gate, смены статуса — все
       факты в ответе; Wave Run-а и её маркер — один Span.
+  - evidence: test-run pass · `pnpm test test/contract/work-track-service.test.ts` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
 - [ ] Contract test: ни один файл в fixture Claude home, папке Harness-а и репозитории не изменён (ADR-0005).
+  - evidence: test-run pass · `pnpm test test/contract/work-track-service.test.ts` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
 - [ ] Contract test: gate старше срока — пробел; GitHub недоступен — пробел и остальное.
+  - evidence: test-run pass · `pnpm test test/contract/work-track-service.test.ts` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
 - [ ] `test/contract/flight-recorder-gate-logs.test.ts` зелёный с новыми константами.
+  - evidence: test-run pass · `pnpm test test/contract/flight-recorder-gate-logs.test.ts` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
 
 ## Тесты
 
