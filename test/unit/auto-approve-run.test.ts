@@ -1031,6 +1031,7 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       'sudo docker run -u 0:0 image',
       'docker run --rm -it -u 1000:1000 image sh',
       'echo $(rg -l password src)',
+      "printf $'a\\'b' ; sort --key=2 f",
     ]) expect(journalCommand(command, home), command).toBe(command)
   })
 
@@ -1069,6 +1070,8 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       ["curl -d 'a; rg \"apiKey: Letters\"' x", "curl -d 'a; rg \"apiKey: ***\"' x"],
       ['rg x `curl -H "X-Api-Key: LettersOnlySecret" u`', 'rg x `curl -H "X-Api-Key: ***" u`'],
       ['docker run --rm curlimages/curl -u 12345:987654 https://x', 'docker run --rm curlimages/curl -u 12345:*** https://x'],
+      // An ANSI-C quote $'…' holds `\'`: the `;` inside it starts nothing (round 2 of PR #1475, verification).
+      ["curl -d $'\\';docker run -u 1000:424242 ' https://x", "curl -d $'\\';docker run -u 1000:*** ' https://x"],
       // A token after `_` in a word.
       ['touch wt/key_ghp_abcdefghijklmnop1234', 'touch wt/key_***'],
       ['echo ghp_abcdefghijklmnop1234_x', 'echo ***_x'],

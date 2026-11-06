@@ -204,8 +204,11 @@ function configFilesOf(entries: readonly ConfigEntry[], folder: string, env: Nod
     } else if (isAbsolute(target)) files.add(resolve(target))
     else if (from !== null) files.add(resolve(dirname(from), target))
   }
-  // A relative one git reads from the folder each git command runs in: it stays relative, and the policy guards it
-  // under every worktree and checkout, as a relative core.hooksPath (policy.ts, hooksAreas).
+  // A relative one git reads twice (probed on git 2.50.1): its early read (aliases, before git finds the repository)
+  // from the folder the command starts in, and the rest, core.hooksPath and the programs among it, from the top of
+  // the checkout after git moved there. It stays relative here, and the policy guards it under every worktree and
+  // checkout, as a relative core.hooksPath (policy.ts, hooksAreas). The early read is not guarded in a subfolder: a
+  // git alias makes a command whose writes are not known (shell.ts), so it gets no allow from such a file anyway.
   const asNamed = (path: string): string => (isAbsolute(path) ? resolve(path) : path)
   for (const named of [env['GIT_CONFIG_GLOBAL'], env['GIT_CONFIG_SYSTEM']]) {
     if (named !== undefined && named !== '' && !nullDevice(named)) files.add(asNamed(named))

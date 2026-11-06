@@ -647,11 +647,11 @@ const SECRET_FORMS: readonly [RegExp, string][] = [
 
 /**
  * Where a program starts: at the start of the command, of a line or of a segment after `|`, `;`, `&` or `(` (`$(` too)
- * that stands outside every quote counted from the start, after assignments and words that run the next one (sudo,
- * env, xargs, time, nice, command, exec) with their options. A `;rg` inside another program's quoted argument starts
- * nothing.
+ * that stands outside every quote counted from the start — `'…'`, `"…"`, and the ANSI-C `$'…'`, which `\'` does not
+ * end — after assignments and words that run the next one (sudo, env, xargs, time, nice, command, exec) with their
+ * options. A `;rg` inside another program's quoted argument starts nothing.
  */
-const PROGRAM_AT = String.raw`(?:^|^(?:[^'"\\]|\\[\s\S]|'[^']*'|"(?:[^"\\]|\\[\s\S])*")*?[|;&(\n])\s*(?:(?:[\p{L}_][\p{L}\p{N}_]*=\S*|sudo|env|xargs|time|nice|command|exec)\s+(?:-\S+\s+)*)*`
+const PROGRAM_AT = String.raw`(?:^|^(?:[^'"\\$]|\$(?!')|\\[\s\S]|\$'(?:[^'\\]|\\[\s\S])*'|'[^']*'|"(?:[^"\\]|\\[\s\S])*")*?[|;&(\n])\s*(?:(?:[\p{L}_][\p{L}\p{N}_]*=\S*|sudo|env|xargs|time|nice|command|exec)\s+(?:-\S+\s+)*)*`
 /**
  * The words between a program and the text an exception keeps: within one segment, and across no quote, `(`, `)` or
  * backquote, so the text is the program's own and not one of a command inside it (`$(curl …)`). Where it cannot
