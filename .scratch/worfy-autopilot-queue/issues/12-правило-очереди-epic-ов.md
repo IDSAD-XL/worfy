@@ -33,7 +33,9 @@ Source: [spec.md](../spec.md), «Как работает» → «Очередь 
 - [ ] Unit test — таблица случаев: все `done`; один `blocked` `Waits: owner` и Ticket, ждущий его; `blocked` с `Waits:
       agent` — `stop`; `no-progress` (красный CI main) — `stop`; `limits-timeout` — `stop`; `tickets-done` у
       Run-а из одного Epic-а; Ticket `done` только в ветке — не `done`.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/epic-queue.test.ts) · mac - · 05aae51d208d166dd8539348ee7e7ee8d34f8b56
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 05aae51d208d166dd8539348ee7e7ee8d34f8b56
 
 ## Тесты
 
@@ -44,3 +46,15 @@ Source: [spec.md](../spec.md), «Как работает» → «Очередь 
 - `src/shared/autopilot/epic-queue.ts`, `test/unit/epic-queue.test.ts` (новые)
 
 Только читать: `src/shared/autopilot/cycle.ts`, `src/shared/workflow/waves.ts`, `src/shared/workflow/types.ts`.
+
+## Итог
+
+- Красный сначала: `test/unit/epic-queue.test.ts` до модуля — exit 1, «Failed to resolve import …/epic-queue».
+- `epicOutcome`: `tickets-done` — всегда `done` (названные Ticket-ы бывают только у Run-а из одного Epic-а);
+  `no-ready-wave` / `blocked-tickets` — `done`, если все Ticket-ы Epic-а `done` в checkout; `waits-owner`, если каждый
+  не `done` Ticket ждёт владельца. Ждёт владельца: `blocked` с `Waits: owner` (без учёта регистра и пробелов),
+  Ticket без статуса (`none` — `readyWave` его в Wave не берёт, это и есть «не в Autopilot»), и Ticket, чьи не `done`
+  блокеры — только такие (по цепочке). `blocked` с `Waits: agent`, `team`, именем Machine или без `Waits:` — `stop`;
+  Ticket в работе, `done` только в ветке, неразобранный или несуществующий блокер, цикл — `stop`.
+- `nextEpic(queue, index, outcomes)` — первый Epic после `index` (−1 до первого) без исхода; Epic, названный дважды,
+  идёт один раз.
