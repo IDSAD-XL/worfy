@@ -182,7 +182,8 @@ answers.
   the Electron fuses RunAsNode and EnableNodeCliInspectArguments off (`electronFuses` in `electron-builder.yml`): it
   ignores `--inspect` and its kin, `kill -USR1` opens no inspector (the signal ends worfy), and `ELECTRON_RUN_AS_NODE=1`
   starts worfy, not a Node. A development run (`pnpm dev`) is the stock Electron and keeps both.
-- For now the mode is only stored: an unattended Run still refuses every permission request.
+- In an Autopilot run the mode decides the answer to a permission request: Off refuses it, Shadow refuses it and
+  records what the approval policy would have done, On answers by the policy ([Autopilot, Auto-approval](autopilot.md#auto-approval)).
 - Auto-continue is off for a Project until turned on. It is kept per Project in the same `app-settings.json`, and only
   the Modes menu writes it: on adds the Project's entry, off removes it, other Projects keep theirs. A change shows at
   once in the Modes menu of every window, on a Linked machine too. A debugging port does not hold it off. An Autopilot run

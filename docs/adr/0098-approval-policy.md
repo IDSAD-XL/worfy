@@ -5,7 +5,8 @@
 `worfy-auto-approve` любой запрос разрешения получал отказ сразу. Claude Code в `bypassPermissions` всё равно спрашивает
 перед несколькими своими проверками (многострочный `zsh -c` с `rm`, `rm` по переменной, here-document); ночью такой
 отказ ломал шаг Ticket-а, хотя команда оставалась внутри worktree. Перепись прошлых ночей (Ticket 01, spec
-`.scratch/worfy-auto-approve/spec.md`, «Данные прошлых ночей») нашла на Mac-е 10 таких отказов. Владелец принял
+`.scratch/worfy-auto-approve/spec.md`, «Данные прошлых ночей») нашла на Mac-е 10 отказов: 6 — проверки shell-команд Claude Code, 4 — AskUserQuestion.
+Владелец принял
 направление 2026-11-04: три исхода, жёсткий запрет, Shadow mode, строка Journal на каждое решение, утренняя сводка,
 тот же ответ на Codex.
 
@@ -19,8 +20,8 @@
    режим, который не прочитать, — Off.
 2. **Approval policy — чистая функция `judge(request, context)`** (`src/main/agent/auto-approve/policy.ts`). Вход —
    tool и его input; контекст — корни Run-а, окружение процесса Session-а, факты git, живые Session-ы. Исходы: allow,
-   deny с подсказкой, park, hard-deny. Порядок проверки задан в коде: вопрос с вариантами ответа (AskUserQuestion,
-   вопрос Card-а) — deny с подсказкой «реши по правилам Project-а или запиши вопрос в Ticket»; команда, которую разбор не
+   deny с подсказкой, park, hard-deny. Порядок проверки задан в коде: вопрос с вариантами ответа (AskUserQuestion) — deny
+   с подсказкой «реши по правилам Project-а или запиши вопрос в Ticket»; команда, которую разбор не
    прочитал, — deny; hard deny; без домашней папки — deny; то, что агент может переписать (symlink на пути, удаление
    целого корня, config / hooks / attributes git) — deny; allow, если каждая цель внутри корней и каждое действие
    проходит одно из правил allow; всё остальное — park. Подсказка — константа модуля, без кусков пришедшей команды:
@@ -53,6 +54,9 @@
    Project-а (`src/main/settings/store.ts`); пишет его только меню Modes через IPC. Пока worfy запущен с debugging port
    или Node inspector, действует Off, что бы ни было сохранено.
 
+Вопрос Card-а (`session.ask`) до политики не доходит: unattended Session-у его отклоняет `refuseUnattended`
+(`src/main/ipc/card-api.ts`) в любом режиме, со строкой Journal `refused-dialog`.
+
 **Почему своя грамматика.** Разбор команды (`src/main/agent/auto-approve/shell.ts`) — маленькая консервативная
 грамматика: простые команды, `&&`, `||`, `;`, `|`, кавычки, `$VAR` с известным значением, `cd`, присваивание литерала
 и `X=$(mktemp -d)`, glob в последнем компоненте. Всё прочее (подстановка команды в цели, `eval`, циклы с целью-переменной,
@@ -75,8 +79,9 @@ Claude Code и опции zsh из `~/.zshenv`. Процесс того же п�
 
 **Codex (Ticket 05).** Approval-запрос unattended Session-а Codex судит та же политика (`src/main/vendors/codex/session.ts`,
 `judged`): allow → `accept`, deny и hard deny → `decline`, park ждёт владельца на той же карточке. Команда Codex-а
-приходит в обёртке login shell (`/bin/zsh -lc '<script>'`); ровно эта форма судится как `zsh -c '<script>'`, любая другая
-обёртка не одобряется. `fileChange` судится по каждому пути, который пишет; запрос с `grantRoot` (запись под папкой до
+приходит в обёртке login shell (`/bin/zsh -lc '<script>'`). Обёртка `<shell> -lc` или `<shell> -c`, где shell — `zsh`,
+`bash` или `sh` по имени или из `/bin`, `/usr/bin`, `/usr/local/bin`, `/opt/homebrew/bin`, со скриптом одним словом в
+кавычках и ничем после него, судится как `<shell> -c '<script>'` (`codexScript`); любая другая форма не одобряется. `fileChange` судится по каждому пути, который пишет; запрос с `grantRoot` (запись под папкой до
 конца Session-а) политика не принимает никогда. У ответа Codex-а нет поля текста, поэтому подсказка правила остаётся
 только в Journal. Пока unattended Codex идёт в Full access (`approvalPolicy: never`), запросов нет; ветка нужна для любого
 другого preset-а.
