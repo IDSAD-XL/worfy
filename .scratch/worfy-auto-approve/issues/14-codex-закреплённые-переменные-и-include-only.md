@@ -52,6 +52,7 @@ Ticket 05 (PR #1469) судит команду Codex так. Значение п
   - evidence: gate pass · `gate fast` exit 0 · mac - · 3c63c20ff575f7d295d659eb85496f0466d8b0cc
   - evidence: gate pass · `gate fast` exit 0 · mac - · 759e265ba37fb83673ea997c1bb13ff346276a89
   - evidence: test-run pass · `pnpm test test/unit/auto-approve- test/contract/auto-approve- test/unit/codex- test/contract/codex-` exit 0 · mac - · 759e265ba37fb83673ea997c1bb13ff346276a89
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 4c11061c0f95c47819d4b21616a4ad87a0fac38c
 - [x] `docs/features/autopilot.md` говорит, какие переменные Codex-Run раскрывает при суде.
   - evidence: commit pass · docs: the Codex shell wrappers the policy judges, and TMPDIR on Codex (worfy-auto-approve 14) · - - · 3c63c20ff575f7d295d659eb85496f0466d8b0cc
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
