@@ -57,6 +57,24 @@
   color: var(--text-muted);
   font-size: var(--text-12);
 }
+/* The Session that asks (worfy-autopilot-queue ticket 11, view "Agent asks"). */
+.w-apstart__asked b {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+/* The countdown of an agent's ask: the working colours, the last minute and "time is up" in the blocked ones. */
+.w-apstart__count {
+  padding: 0 5px;
+  border-radius: var(--radius-chip);
+  background: var(--working-bg);
+  color: var(--working-text);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.w-apstart__count--late {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
 
 .w-apstart__body {
   padding: 14px 20px var(--space-1);
