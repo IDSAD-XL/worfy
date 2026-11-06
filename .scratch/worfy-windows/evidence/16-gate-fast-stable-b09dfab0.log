@@ -1,0 +1,6 @@
+[gate] scope (fast): all packages — . (reason: set by GATE_SCOPE=all)
+[gate] time (fast): worfy-app/.:lint 67.1 s
+[gate] time (fast): worfy-app/.:typecheck 78.9 s
+[gate] time (fast): worfy-app/.:test 1283.9 s
+[gate] time (fast): 1430.7 s in all; worfy-app/.:lint 67.1 s, worfy-app/.:typecheck 78.9 s, worfy-app/.:test 1283.9 s
+[gate] green (fast): worfy-app/.:lint worfy-app/.:typecheck worfy-app/.:test
