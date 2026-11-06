@@ -866,4 +866,34 @@ describe('the variables whose value the command surely gets (AnalyzeContext.know
   it('the checks of the environment still see a variable not on the list', () => {
     expect(analyze('rm x', { ...posix, env: { ...posix.env, IFS: ':' }, known: new Set() })).toEqual({ judged: false, why: 'IFS in the environment' })
   })
+
+  // worfy-auto-approve ticket 14: what the shell or git reads from the environment by itself counts only when known.
+  it('mktemp -d on Linux and in Git Bash creates its folder in TMPDIR only when TMPDIR is known', () => {
+    for (const context of [posix, windows]) {
+      expect(analyze('T=$(mktemp -d)', { ...context, known: new Set(['HOME', 'TMPDIR']) })).toMatchObject({ judged: true })
+      expect(analyze('T=$(mktemp -d)', { ...context, known: new Set(['HOME']) })).toEqual({ judged: false, why: 'mktemp without TMPDIR' })
+    }
+    // macOS's mktemp -d ignores TMPDIR: its folder is the system's, known or not.
+    expect(brief('T=$(mktemp -d)', { ...posix, platform: 'darwin', known: new Set(['HOME']) })).toEqual(brief('T=$(mktemp -d)', { ...posix, platform: 'darwin' }))
+  })
+
+  // Round 1 of PR #1498: Codex knows no variable, HOME included; `~` still means the home folder, since bash and zsh
+  // take it from the user database when HOME is not set.
+  it('~ is the home folder whether HOME is known or not; $HOME and a bare cd need a known HOME', () => {
+    expect(brief('rm -rf ~/x', known([]))).toEqual(brief('rm -rf ~/x'))
+    expect(brief('rm -rf ~', known([]))).toEqual(brief('rm -rf ~'))
+    expect(analyze('rm -rf "$HOME"/x', known([]))).toEqual({ judged: false, why: 'an unknown variable' })
+    expect(analyze('cd && rm -rf x', known([]))).toEqual({ judged: false, why: 'an unknown variable' })
+    expect(brief('rm -rf ~/x', { ...windows, known: new Set() })).toEqual(brief('rm -rf ~/x', windows))
+    expect(analyze('rm -rf ~/x', { ...posix, env: { TMPDIR: '/tmp/demo-tmp/' }, known: new Set() })).toEqual({ judged: false, why: 'an unknown variable' })
+  })
+
+  it('git config --get reads the user\'s config from a known HOME, and from both places while XDG_CONFIG_HOME is not known', () => {
+    expect(analyze('git config --get a.b', known(['TMPDIR']))).toEqual({ judged: false, why: 'a git config read without HOME' })
+    const xdg = { ...posix, env: { ...posix.env, XDG_CONFIG_HOME: '/tmp/demo-xdg' } }
+    expect(actions('git config --get a.b', { ...xdg, known: new Set(['HOME', 'XDG_CONFIG_HOME']) })[0]?.reads).toEqual([REPOSITORY, '/home/demo/.gitconfig', '/tmp/demo-xdg/git/config'])
+    expect(actions('git config --get a.b', { ...xdg, known: new Set(['HOME']) })[0]?.reads).toEqual([REPOSITORY, '/home/demo/.gitconfig', '/home/demo/.config/git/config', '/tmp/demo-xdg/git/config'])
+    // Without XDG_CONFIG_HOME in the environment there is only the default place.
+    expect(actions('git config --get a.b', known(['HOME']))[0]?.reads).toEqual([REPOSITORY, '/home/demo/.gitconfig', '/home/demo/.config/git/config'])
+  })
 })

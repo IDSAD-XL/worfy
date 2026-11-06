@@ -216,6 +216,8 @@ const resolved = (id: number): string => `${JSON.stringify({ method: 'serverRequ
 interface RunOptions {
   /** The Auto-approval mode; null: the Session is given no policy at all (as before the ticket). */
   mode: AutoApprovalMode | null
+  /** The mode the Session's process started in, when the owner switched since; `mode` by default. */
+  startedIn?: AutoApprovalMode
   /** The environment of the app-server (process.env by default). */
   env?: NodeJS.ProcessEnv
   /** `mode`: reading the mode throws; `judge`: every judging rejects; `decided`: every report of a decision throws. */
@@ -250,7 +252,8 @@ async function codexRun(options: RunOptions) {
   run.setWave(['01'])
   const { mode } = options
   // As agent/session.ts: the run's variables only in Shadow and On; in Off the process starts as before.
-  const environment = mode === null || mode === 'off' ? {} : run.environment
+  const startedIn = options.startedIn ?? mode
+  const environment = startedIn === null || startedIn === 'off' ? {} : run.environment
   const decided: ApprovalDecided[] = []
   const wheres: ApprovalWhere[] = []
   const refused: [string, string, RefusalDetails][] = []
@@ -446,7 +449,7 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(on.answers()).not.toContain('acceptForSession')
   })
 
-  it('each request is judged in the whole environment the app-server process got; only the variables pinned in Codex\'s shell environment have a known value; a command in the folder Codex names', async () => {
+  it('each request is judged in the whole environment the app-server process got; no variable has a known value (worfy-auto-approve ticket 14); a command in the folder Codex names', async () => {
     const on = await codexRun({ mode: 'on', pick: () => Promise.resolve('decline') })
     const spawned = on.spawnedEnv[0]
     expect(spawned?.['TMPDIR']).toBe(on.run.runTemp)
@@ -460,7 +463,8 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(on.wheres).toHaveLength(COUNT)
     for (const where of on.wheres) {
       expect(where.env).toEqual(spawned)
-      expect([...(where.known ?? [])].sort()).toEqual(Object.keys(pinned).sort())
+      // Every variable is pinned, but the owner's include_only may still drop any of them.
+      expect(where.known).toEqual([])
     }
     expect(on.wheres[0]).toMatchObject({ cwd: worktree, scratchpad: null })
     // A file change is judged from the Session's folder.
@@ -598,26 +602,25 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
       ...command('cmd_pass', zshLc(`touch ${sq(join(worktree, 'x'))}"$DB_PASS"`), worktree),
       ...command('cmd_auth', zshLc(`touch ${sq(worktree)}/$NPM_AUTH`), worktree),
       ...command('cmd_other', zshLc('touch "$DEMO_DIR/x"'), worktree),
+      // The run's TMPDIR is pinned, yet the owner's include_only may drop it (worfy-auto-approve ticket 14).
       ...command('cmd_tmp', zshLc('touch "$TMPDIR/x"'), worktree),
     ]
     const on = await codexRun({ mode: 'on', env, steps, pick: () => Promise.resolve('decline') })
-    expect(on.decided.map((each) => [each.outcome, each.rule])).toEqual([
-      ['deny', 'not-judged'],
-      ['deny', 'not-judged'],
-      ['deny', 'not-judged'],
-      ['deny', 'not-judged'],
-      ['allow', 'files-inside-roots+shell-script-inside-roots'],
-    ])
-    expect(on.answers()).toEqual(['decline', 'decline', 'decline', 'decline', 'accept'])
+    expect(on.decided.map((each) => [each.outcome, each.rule])).toEqual(Array(5).fill(['deny', 'not-judged']))
+    expect(on.answers()).toEqual(Array(5).fill('decline'))
     for (const value of ['ghp_pat05value', 'db05value', 'npm05value']) expect(JSON.stringify(on.decided)).not.toContain(value)
     expect(on.threadStart()?.['config']).toMatchObject({ 'shell_environment_policy.set.TMPDIR': on.run.runTemp })
   })
 
-  it('git inside the login-shell wrapper: accepted in the Wave\'s worktree, parked once the repository has a hook', async () => {
+  it('git inside the login-shell wrapper: judged as git without the run\'s git environment, which the owner\'s include_only may drop (worfy-auto-approve ticket 14), so parked; parked by the policy itself once the repository has a hook', async () => {
     const add = command('cmd_add', zshLc('git add -A'), worktree)
     const clean = await codexRun({ mode: 'on', steps: add })
-    expect(clean.answers()).toEqual(['accept'])
-    expect(clean.decided.map((each) => [each.outcome, each.rule])).toEqual([['allow', 'shell-script-inside-roots+git-in-wave-worktree']])
+    // The gate rejects here: the parked request ends without the owner's answer.
+    expect(clean.answers()).toEqual(['decline'])
+    expect(clean.decided.map((each) => [each.outcome, each.rule])).toEqual([
+      ['park', 'git-without-run-environment'],
+      ['park-expired', 'git-without-run-environment'],
+    ])
     writeFileSync(join(repo, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n')
     const hooked = await codexRun({ mode: 'on', steps: add })
     // The gate rejects here: the parked request ends without the owner's answer.
@@ -626,6 +629,59 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
       ['park', 'git-hooks'],
       ['park-expired', 'git-hooks'],
     ])
+  })
+
+  // Codex 0.166.0 applies shell_environment_policy.include_only after `set` (codex-rs/protocol/src/shell_environment.rs,
+  // populate_env): an include_only of the owner's without these names drops the run's pins from the command's shell.
+  it('the owner\'s include_only may drop the run\'s TMPDIR and git environment (worfy-auto-approve ticket 14): a command that needs either is not approved, though both stay pinned', async () => {
+    const steps = [
+      ...command('cmd_tmp_rm', zshLc('rm -rf "$TMPDIR"/opt/x'), worktree),
+      ...command('cmd_git_log', zshLc('git log --oneline -1'), worktree),
+    ]
+    const on = await codexRun({ mode: 'on', steps })
+    expect(on.answers()).toEqual(['decline', 'decline'])
+    expect(on.decided.map((each) => [each.outcome, each.rule])).toEqual([
+      ['deny', 'not-judged'],
+      ['park', 'git-without-run-environment'],
+      ['park-expired', 'git-without-run-environment'],
+    ])
+    expect(on.decided.some((each) => each.outcome === 'allow')).toBe(false)
+    expect(on.threadStart()?.['config']).toMatchObject({
+      'shell_environment_policy.set.TMPDIR': on.run.runTemp,
+      'shell_environment_policy.set.GIT_CONFIG_PARAMETERS': on.run.environment['GIT_CONFIG_PARAMETERS'],
+    })
+  })
+
+  // The owner's include_only may drop HOME and USERPROFILE as well: bash and sh then expand "$HOME"/x to /x. `~` keeps
+  // the home folder: bash and zsh take it from the user database when HOME is not set (round 1 of PR #1498).
+  it('HOME and USERPROFILE have no known value either: "$HOME" in bash or sh is not approved, ~ is judged as before', async () => {
+    const env = { ...process.env, HOME: scratch, USERPROFILE: scratch }
+    const steps = [
+      ...command('cmd_bash_home', "/bin/bash -lc 'rm -rf \"$HOME\"/repo/.claude/worktrees/01/build'", worktree),
+      ...command('cmd_sh_home', "/bin/sh -c 'mkdir -p \"${HOME}\"/repo/.claude/worktrees/01/build/x'", worktree),
+      ...command('cmd_zsh_profile', zshLc('rm -rf "$USERPROFILE"/repo/.claude/worktrees/01/build'), worktree),
+    ]
+    const on = await codexRun({ mode: 'on', env, steps })
+    expect(on.decided.map((each) => [each.outcome, each.rule])).toEqual(Array(3).fill(['deny', 'not-judged']))
+    expect(on.answers()).toEqual(Array(3).fill('decline'))
+  })
+
+  it.skipIf(process.platform === 'win32')('a ~ path inside the Wave\'s worktree is approved as before', async () => {
+    const env = { ...process.env, HOME: scratch }
+    const on = await codexRun({ mode: 'on', env, steps: command('cmd_tilde', "/bin/bash -lc 'rm -rf ~/repo/.claude/worktrees/01/build'", worktree) })
+    expect(on.decided.map((each) => [each.outcome, each.rule])).toEqual([['allow', 'files-inside-roots+shell-script-inside-roots']])
+    expect(on.answers()).toEqual(['accept'])
+  })
+
+  it('a Session started in Off and judged after the owner switched to On knows no variable either', async () => {
+    const env = { ...process.env, TMPDIR: worktree, DEMO_DIR: worktree }
+    const steps = [...command('cmd_tmp', zshLc('touch "$TMPDIR/x"'), worktree), ...command('cmd_demo', zshLc('touch "$DEMO_DIR/x"'), worktree)]
+    const on = await codexRun({ mode: 'on', startedIn: 'off', env, steps })
+    // Nothing of the run was pinned: the process started in Off.
+    expect(JSON.stringify(on.threadStart()?.['config'] ?? {})).not.toContain('shell_environment_policy')
+    expect(on.wheres.map((where) => where.known)).toEqual([[], []])
+    expect(on.decided.map((each) => [each.outcome, each.rule])).toEqual(Array(2).fill(['deny', 'not-judged']))
+    expect(on.answers()).toEqual(['decline', 'decline'])
   })
 
   it('an app-server without HOME: no home folder, so the policy approves nothing', async () => {

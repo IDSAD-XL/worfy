@@ -27,7 +27,8 @@
 // targets of its include.path and includeIf.*.path, and the config files the environment names (an
 // empty one too), are guarded as .git/config (policy.ts). A process that started without
 // the run's git environment, or without GIT_NO_LAZY_FETCH while hooksActive is not false now, gets no
-// git approved: the reads the policy keeps are safe only under them. The worktrees of the Wave are
+// git approved: the reads the policy keeps are safe only under them. Nor does one whose commands may
+// not get them (a variable outside ApprovalAt.known: Codex, worfy-auto-approve ticket 14). The worktrees of the Wave are
 // those on the branch `<epic>/<NN>` of a Ticket of the Wave (setWave); each is recorded the first time
 // it is seen, and so is the scratchpad and the TMPDIR of the process. A list that cannot be read
 // approves nothing: an empty one would turn off the hard denies of other worktrees. A command whose
@@ -562,7 +563,10 @@ export async function openRunApproval(options: RunApprovalOptions): Promise<RunA
         gitFacts: facts,
       })
       const hooksOff = [now, ...needs.git.map((folder) => facts.get(folder) ?? null)].every((each) => each?.hooksActive === false)
-      const gitSafe = at.started['GIT_CONFIG_PARAMETERS'] === GIT_CONFIG_PARAMETERS && (hooksOff || at.started['GIT_NO_LAZY_FETCH'] === '1')
+      // A variable of the run's git environment counts only when each command surely gets it (ApprovalAt.known): Codex
+      // pins them, but an include_only of the owner's drops them from the command's shell (worfy-auto-approve ticket 14).
+      const gets = (name: string): string | undefined => (at.known === undefined || at.known.includes(name) ? at.started[name] : undefined)
+      const gitSafe = gets('GIT_CONFIG_PARAMETERS') === GIT_CONFIG_PARAMETERS && (hooksOff || gets('GIT_NO_LAZY_FETCH') === '1')
       if (decision.outcome === 'allow' && !gitSafe && decision.rule.split('+').includes(GIT_RULE)) return { outcome: 'park', rule: 'git-without-run-environment', hint: null, targets: decision.targets }
       return decision
     },

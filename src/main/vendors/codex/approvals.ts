@@ -142,10 +142,15 @@ export function codexScript(command: string): string {
 }
 
 /**
- * The variables each command of an unattended Codex at Shadow or On surely gets: the home folder and the run's
- * (TMPDIR and its git environment), with the values the app-server got. worfy pins each in Codex's shell environment
- * (codexPinConfig), whatever `shell_environment_policy` of the owner's leaves out; only these have a known value when a
- * request is judged (ApprovalWhere.known), and a command that uses any other variable is not approved.
+ * The variables worfy pins in each command's shell of an unattended Codex at Shadow or On: the home folder and the
+ * run's (TMPDIR and its git environment), with the values the app-server got (codexPinConfig). A pin is
+ * `shell_environment_policy.set`, which Codex 0.166.0 applies after `inherit` and `exclude` but before `include_only`
+ * (populate_env in https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/protocol/src/shell_environment.rs):
+ * an include_only of the owner's (`~/.codex/config.toml`) without a pinned name drops it from the command's shell. So
+ * no variable has a known value when a request is judged (ApprovalWhere.known is empty: worfy-auto-approve ticket 14):
+ * a command that refers to one, TMPDIR and HOME included, is not approved, mktemp -d outside macOS is not judged, and
+ * git is judged as without the run's git environment. `~` stays the home folder: bash and zsh take it from the user
+ * database when HOME is dropped.
  */
 export function codexPinned(env: Readonly<Record<string, string | undefined>>, run: Readonly<Record<string, string>>): Record<string, string> {
   const home = Object.fromEntries((['HOME', 'USERPROFILE'] as const).flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]])))

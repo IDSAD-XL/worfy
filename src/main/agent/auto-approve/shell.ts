@@ -14,11 +14,11 @@
 // - `$NAME` and `${NAME}` with a value known from the environment or from an assignment earlier in the
 //   same command; an unquoted value must hold no blank and no glob character (bash splits and globs
 //   it, zsh does not);
-// - assignments `NAME=value` on their own, and `NAME=$(mktemp -d)`: a new folder inside TMPDIR (on macOS
-//   in the system's temporary folder, MACOS_TEMP, whatever TMPDIR says). The
+// - assignments `NAME=value` on their own, and `NAME=$(mktemp -d)`: a new folder inside a known TMPDIR (on
+//   macOS in the system's temporary folder, MACOS_TEMP, whatever TMPDIR says). The
 //   name must be one the shell gives no meaning to (not PATH, PS4, GLOBIGNORE, zsh `path`, a
 //   `BASH_`, `GIT_` or `LD_` name…) and not exported;
-// - `~` and `~/…` at the start of a word, from HOME;
+// - `~` and `~/…` at the start of a word, from HOME, known or not (bash and zsh read the user database without it);
 // - redirections `>`, `>>`, `>|`, `<`, each with an optional fd number, and `N>&M`;
 // - glob `*` and `?` in the last component of a path. A glob that may expand into a word starting
 //   with `-` is refused where the program would read it as an option (`git grep -e x *` with a file
@@ -118,9 +118,10 @@ export interface AnalyzeContext {
   /** The environment of the shell that runs the command. */
   env: Readonly<Record<string, string | undefined>>
   /**
-   * The variables of `env` whose value the command surely gets (worfy-auto-approve ticket 05): a Vendor that may
-   * leave variables out of the command's shell (Codex's shell_environment_policy) names the ones it pins. A reference
-   * to any other is an unknown variable; the checks of the environment (IFS, BASH_ENV…) still see all of `env`.
+   * The variables of `env` whose value the command surely gets (worfy-auto-approve tickets 05, 14): a Vendor that may
+   * leave variables out of the command's shell names the ones that surely reach it; Codex names none, since the
+   * owner's shell_environment_policy.include_only may drop even the ones worfy pins. A reference to any other is an
+   * unknown variable; the checks of the environment (IFS, BASH_ENV…) still see all of `env`.
    * Absent: every variable of `env`.
    */
   known?: ReadonlySet<string> | undefined
@@ -479,7 +480,16 @@ interface Scope {
   actions: ShellAction[]
 }
 
-function variable(name: string, state: State, scope: Scope): string {
+/**
+ * The value of an environment variable the command surely gets (AnalyzeContext.known), for a reference and for what
+ * the shell or git read by themselves (mktemp's TMPDIR, git's HOME); undefined when it is not set or may be dropped.
+ */
+function surely(name: string, scope: Scope): string | undefined {
+  return scope.context.known === undefined || scope.context.known.has(name) ? scope.context.env[name] : undefined
+}
+
+/** `$NAME`, or with `anyway` the variable's value in the environment whether the command surely gets it or not. */
+function variable(name: string, state: State, scope: Scope, anyway = false): string {
   if (name === 'IFS') fail('a reference to IFS')
   if (name === 'OLDPWD') fail('a reference to OLDPWD')
   if (name === 'PWD') {
@@ -489,7 +499,7 @@ function variable(name: string, state: State, scope: Scope): string {
   }
   const assigned = state.assigned.get(name)
   if (assigned !== undefined) return assigned
-  const value = scope.context.known === undefined || scope.context.known.has(name) ? scope.context.env[name] : undefined
+  const value = anyway ? scope.context.env[name] : surely(name, scope)
   if (value === undefined) fail('an unknown variable')
   // Git Bash turns these from the Windows form into its own when it starts (the MSYS runtime
   // converts HOME, TMPDIR, TMP and TEMP): `~` is `/c/Users/…` there, not `C:\Users\…`.
@@ -533,7 +543,9 @@ function expand(word: Word, state: State, scope: Scope, field: boolean): Expande
       const prefix = slash < 0 ? text : text.slice(0, slash)
       if (prefix !== '~') fail('a ~user or ~+ expansion')
       if (slash < 0 && word.parts.length > 1) fail('a ~ before quoted text')
-      const home = variable('HOME', state, scope)
+      // The home folder, though HOME may not reach the command (AnalyzeContext.known): bash and zsh then take it from
+      // the user database, the folder the process started with as HOME.
+      const home = variable('HOME', state, scope, true)
       if (/[*?]/.test(home)) literalGlob = true
       value += home
       text = text.slice(1)
@@ -1005,13 +1017,14 @@ function git(args: Expanded[], cwd: string, scope: Scope): Effects {
     if (!reading) return { ...base(), writes: [UNKNOWN] }
     // Without --local or --worktree git also reads the user's own config files.
     if (rest.some((arg) => arg.value === '--local' || arg.value === '--worktree')) return { ...base(), reads: [REPOSITORY] }
-    const home = scope.context.env['HOME']
+    const home = surely('HOME', scope)
     if (home === undefined || home === '') fail('a git config read without HOME')
     const user = join(folder, home, scope.win)
     const sep = scope.win ? '\\' : '/'
+    // An XDG_CONFIG_HOME the command may not get: git reads one place or the other, so both are read.
     const xdg = scope.context.env['XDG_CONFIG_HOME']
-    const config = xdg === undefined || xdg === '' ? `${user}${sep}.config` : join(folder, xdg, scope.win)
-    return { ...base(), reads: [REPOSITORY, `${user}${sep}.gitconfig`, `${config}${sep}git${sep}config`] }
+    const configs = xdg === undefined || xdg === '' ? [`${user}${sep}.config`] : [...(surely('XDG_CONFIG_HOME', scope) === xdg ? [] : [`${user}${sep}.config`]), join(folder, xdg, scope.win)]
+    return { ...base(), reads: [REPOSITORY, `${user}${sep}.gitconfig`, ...configs.map((config) => `${config}${sep}git${sep}config`)] }
   }
   if (sub === 'branch') {
     if (rest.every((arg) => GIT_BRANCH_LIST.includes(arg.value))) return { ...base(), reads: [REPOSITORY] }
@@ -1119,7 +1132,8 @@ function newTempFolder(state: State, scope: Scope): string {
     scope.counter.tempFolders++
     return `${MACOS_TEMP}/${newTempFolderName(scope.counter.tempFolders)}`
   }
-  const tmp = scope.context.env['TMPDIR']
+  // A TMPDIR the command may not get: mktemp would make its folder elsewhere (/tmp).
+  const tmp = surely('TMPDIR', scope)
   if (tmp === undefined || tmp === '') fail('mktemp without TMPDIR')
   const base = scope.win ? shellForm(windowsAbsolute(tmp) ?? fail('a TMPDIR that is not absolute'), true) : tmp.startsWith('/') ? tmp : fail('a TMPDIR that is not absolute')
   scope.counter.tempFolders++

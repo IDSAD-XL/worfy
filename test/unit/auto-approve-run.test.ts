@@ -359,10 +359,20 @@ describe('openRunApproval: the environment, the git facts and the folders of rou
     expect(await ask(approval, 'git log --oneline -1 && rm -rf build/x', {})).toMatchObject({ outcome: 'park', rule: 'git-without-run-environment' })
     // Files are judged as before.
     expect(await ask(approval, 'rm -rf build/x', {})).toMatchObject({ outcome: 'allow' })
+    // worfy-auto-approve ticket 14: a Vendor that may drop the run's git variables from the command's shell (Codex's
+    // shell_environment_policy.include_only) leaves them out of `known`: git is judged as if the process had none.
+    const judged = (command: string, known: readonly string[]) => approval.judge({ tool: 'Bash', input: { command } }, { cwd: wt(), scratchpad: null, sessionId: 's', started: approval.environment, known })
+    expect(await judged('git log --oneline -1', ['HOME', 'USERPROFILE'])).toMatchObject({ outcome: 'park', rule: 'git-without-run-environment' })
+    expect(await judged('git log --oneline -1', ['HOME', 'GIT_CONFIG_PARAMETERS'])).toMatchObject({ outcome: 'allow', rule: 'git-in-wave-worktree' })
+    expect(await judged('rm -rf build/x', ['HOME'])).toMatchObject({ outcome: 'allow' })
     writeFileSync(join(repo, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\n')
     expect(approval.environment).not.toHaveProperty('GIT_NO_LAZY_FETCH')
     expect(await ask(approval, 'git log --oneline -1')).toMatchObject({ outcome: 'park', rule: 'git-without-run-environment' })
     expect(await ask(approval, 'git log --oneline -1', { ...approval.environment, GIT_NO_LAZY_FETCH: '1' })).toMatchObject({ outcome: 'allow' })
+    // GIT_NO_LAZY_FETCH counts only when the command surely gets it.
+    const fetchless = (known: readonly string[]) => approval.judge({ tool: 'Bash', input: { command: 'git log --oneline -1' } }, { cwd: wt(), scratchpad: null, sessionId: 's', started: { ...approval.environment, GIT_NO_LAZY_FETCH: '1' }, known })
+    expect(await fetchless(['HOME', 'GIT_CONFIG_PARAMETERS'])).toMatchObject({ outcome: 'park', rule: 'git-without-run-environment' })
+    expect(await fetchless(['HOME', 'GIT_CONFIG_PARAMETERS', 'GIT_NO_LAZY_FETCH'])).toMatchObject({ outcome: 'allow' })
     await approval.close()
   })
 
