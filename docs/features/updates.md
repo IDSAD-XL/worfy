@@ -50,7 +50,7 @@ The dot and the Health row stay until the Update is installed. The toasts:
 | "New worfy <version> available" | Update, Later | An Available update while "Update automatically" is off |
 | "worfy <version> ready" | Restart now or Restart when idle, Later | A build is ready. The first button changes in place when work starts or ends |
 | "worfy restarts when no Session is working and Autopilot has stopped" | None | After the button "Restart when idle" of the toast "ready", when worfy starts to wait |
-| "Update failed" | Show log | A build failed; when git, node or pnpm is missing: "Update failed: git, node and pnpm are needed, and <tool> was not found" |
+| "Update failed" | Show log | A build failed; when git, node or pnpm is missing: "Update failed: git, node and pnpm are needed, and <tool> was not found". Once per failed build: a restart that finds the same failed build tells nothing |
 | "The update did not start: <reason>" | Show log, when a build left a log | "Update worfy" was refused: there is no new version to build, or this update is being built already |
 | "Harness out of date: <from> → <to>" | Update, Later | The installed Harness is behind this copy's |
 | "worfy updated to <version>. The new Harness applies from the next Session." | None | The first start after a restart into an Update |
@@ -95,8 +95,9 @@ window hears each change; it never reads the log for that. The steps are "Fetchi
 fetch`, then the checkout), "Installing dependencies" (`pnpm install`), "Downloading Electron" (only when its download
 did not finish) and "Building app" (`pnpm package`). A build counts 3 steps, or 4 once "Downloading Electron" comes. The
 version chip shows a turning ring in place of the dot, and "Updating · 2/3 Installing dependencies"; the ring stands still
-when the system asks for reduced motion. Its tooltip is "Building worfy <version>… 3:12", the time since the build began,
-counting each second while the pointer or the focus is on the chip. A press of "Update worfy" in the chip, Settings, the
+when the system asks for reduced motion. The step is no wider than the Harness line above it and ends with an ellipsis, so a
+build does not widen the toolbar. Its tooltip is the whole step, then "Building worfy <version>… 3:12", the time since the
+build began, counting each second while the pointer or the focus is on the chip. A press of "Update worfy" in the chip, Settings, the
 Command palette or the toast answers at once with "Starting update…", until the build reaches its first step. When main
 refuses a press of the chip, the Command palette or the toast, a toast says why (see the toasts above); in Settings the
 reason shows under the line. There is no toast while a build runs: the chip is the sign of

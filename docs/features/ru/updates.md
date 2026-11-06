@@ -36,7 +36,7 @@ GitHub даёт 60 запросов в час с одного адреса, пр
 
 | Место | Что |
 |---|---|
-| Version chip | Версия приложения во второй строке пункта Harness в toolbar становится кнопкой с акцентной точкой. Tooltip: «worfy <version> is available», «Building worfy <version>…», «worfy <version> is ready — restart to update» или «The update to <version> failed — see Settings → Health». Меню: «Update worfy» (после сборки — «Restart now» или «Restart when idle»; во время сборки — неактивный «Building worfy <version>…»), «What's new» и «Later», который только закрывает меню |
+| Version chip | Версия приложения во второй строке пункта Harness в toolbar становится кнопкой с акцентной точкой. Tooltip: «worfy <version> is available», «Building worfy <version>…», «worfy <version> is ready — restart to update» или «The update to <version> failed — see Settings → Health». Меню: «Update worfy» (после сборки — «Restart now» или «Restart when idle»; во время сборки — неактивный «Building worfy <version>…»), «What's new» и «Later», который только закрывает меню. Во время сборки chip пишет шаг («Updating · 2/3 Installing dependencies»), не шире строки Harness над ним, с многоточием; весь шаг — первая строка tooltip-а |
 | Toast-ы | См. следующую таблицу |
 | Settings → General | Блок из трёх строк: «Updates», «Update automatically» и «Roll back to previous version» |
 | Settings → Health | Строка «worfy version» группы «worfy»: «<version>, up to date», «<version> available», «update failed» с «Show log» или «<tool> not found». Её сбои сами First run не открывают |
@@ -49,7 +49,7 @@ GitHub даёт 60 запросов в час с одного адреса, пр
 | «New worfy <version> available» | Update, Later | Available update, пока «Update automatically» выключен |
 | «worfy <version> ready» | Restart now или Restart when idle, Later | Сборка готова. Первая кнопка меняется на месте, когда работа начинается или кончается |
 | «worfy restarts when no Session is working and Autopilot has stopped» | Нет | После кнопки «Restart when idle» в toast-е «ready», когда worfy начинает ждать |
-| «Update failed» | Show log | Сборка упала |
+| «Update failed» | Show log | Сборка упала. Один раз на упавшую сборку: перезапуск, который застаёт ту же упавшую сборку, ничего не показывает |
 | «Harness out of date: <from> → <to>» | Update, Later | Установленный Harness отстаёт от Harness этой копии |
 | «worfy updated to <version>. The new Harness applies from the next Session.» | Нет | Первый старт после перезапуска в Update |
 | «worfy is back to <version>. Automatic updates wait for the next commit on main.» | Нет | Первый старт после отката |

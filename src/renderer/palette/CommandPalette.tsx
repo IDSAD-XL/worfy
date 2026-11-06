@@ -594,6 +594,9 @@ export function CommandPalette() {
         className="w-toolbar__palette-hint"
         style={styles.trigger}
         title="Command palette"
+        // A narrow window hides the words and keeps the icon and the shortcut (worfy-polish ticket 48,
+        // src/renderer/shell/shell.css): the name stays the same either way.
+        aria-label="Search or run…"
         aria-haspopup="dialog"
         aria-expanded={open}
         data-testid="palette-trigger"

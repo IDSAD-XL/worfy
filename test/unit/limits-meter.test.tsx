@@ -55,13 +55,23 @@ describe('LimitsMeterView', () => {
     expect(Number(sevenDay.style.opacity)).toBeLessThan(1)
   })
 
-  it('the value of an old bar has no tooltip of its own: the bar\'s tooltip carries it with "as of"', () => {
+  // worfy-polish ticket 48: a narrow window shows the value alone (shell.css), so its tooltip names the
+  // window, the value, the reset and the age of the data.
+  it('the tooltip of a value names the whole bar: its window, value, reset line and, for old data, "as of"', () => {
     render(<LimitsMeterView state={state} now={AT} timeZone={TZ} />)
-    // A fresh bar's value keeps its tooltip, in case the value is cut.
-    expect(screen.getByTestId('limit-five_hour-value').getAttribute('title')).toBe('62%')
+    expect(screen.getByTestId('limit-five_hour-value').getAttribute('title')).toBe('5-hour: 62% · resets 07:10')
     const sevenDay = screen.getByTestId('limit-seven_day')
     expect(sevenDay.dataset.stale).toBe('true')
-    expect(within(sevenDay).getByTestId('limit-seven_day-value').getAttribute('title')).toBeNull()
+    expect(within(sevenDay).getByTestId('limit-seven_day-value').getAttribute('title')).toBe('7-day: limit reached · as of 03:00')
+  })
+
+  it('the label, the reset line and the heading carry the classes the narrow-window rule of the toolbar hides', () => {
+    render(<LimitsMeterView state={state} now={AT} timeZone={TZ} />)
+    const fiveHour = screen.getByTestId('limit-five_hour')
+    expect(fiveHour.classList.contains('w-limit-bar')).toBe(true)
+    expect(within(fiveHour).getByText('5-hour').classList.contains('w-limit-bar__label')).toBe(true)
+    expect(within(fiveHour).getByTestId('limit-five_hour-note').classList.contains('w-limit-bar__resets')).toBe(true)
+    expect(within(screen.getByTestId('limits-meter')).getByText('Limits').classList.contains('w-limits__heading')).toBe(true)
   })
 
   it('an old bar with a reset time still has two lines of text at most: the label line and the reset line', () => {

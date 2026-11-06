@@ -220,6 +220,35 @@ describe('failed', () => {
     expect(toast(FAILED_KEY)?.text).toBe('Update failed')
   })
 
+  // worfy-polish ticket 48: main keeps a failed build in its state until the next build, so a restart
+  // (or a reload) gives the next window load the same failure; it was told twice.
+  it('one "Update failed" per failed build: a restart with the same failed build tells nothing, another build that failed is told', () => {
+    const failedAt = (version: string) => snapshot({ available, build: { phase: 'failed', sha: SHA, version } })
+    make(true).update(failedAt(VERSION))
+    expect(all().filter((each) => each.id === FAILED_KEY)).toHaveLength(1)
+    resetToasts()
+    // The next window load: the same build, failed.
+    make(true).update(failedAt(VERSION))
+    expect(toast(FAILED_KEY)).toBeUndefined()
+    // Another build failed before this start: it is told.
+    make(true).update(failedAt('0.6.1+ccccccc'))
+    expect(toast(FAILED_KEY)?.text).toBe('Update failed')
+  })
+
+  it('the same version built again and failed again in this window is told again', () => {
+    const update = make(true)
+    const failed = snapshot({ available, build: { phase: 'failed', sha: SHA, version: VERSION } })
+    update.update(failed)
+    dismissToast(FAILED_KEY)
+    resetToasts()
+    const next = make(true)
+    next.update(failed)
+    expect(toast(FAILED_KEY)).toBeUndefined()
+    next.update(snapshot({ available, build: { phase: 'building', sha: SHA, version: VERSION } }))
+    next.update(failed)
+    expect(toast(FAILED_KEY)?.text).toBe('Update failed')
+  })
+
   it('a log that cannot be opened shows the reason', async () => {
     answers['update.showLog'] = { ok: false, error: 'there is no build log yet: no Update was built' }
     const update = make(true)

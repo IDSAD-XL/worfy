@@ -17,7 +17,8 @@ run](onboarding.md) checks, and Settings → Pipeline when the Harness has no sc
 use one installer. A second request during an install gets the same run, and an install that may have changed something
 reaches every window.
 
-**The toolbar item.** It is the last item of the toolbar. Its second line holds the app version and worfy's own memory
+**The toolbar item.** It is the last item of the toolbar. When the toolbar has no room left once the Project title is
+gone, the item gives way: its lines end with an ellipsis, and the Harness line keeps its whole text as its tooltip. Its second line holds the app version and worfy's own memory
 ([Storage and diagnostics](storage-and-diagnostics.md)). The version is `v<major>.<minor>.<N>` with the build number
 ([Settings → General → Version](app-shell.md#settings)), and its tooltip is the build version with the commit; a build
 without a number shows the build version `v<semver>+<short SHA>` with no tooltip. In the Stable copy the version is the
