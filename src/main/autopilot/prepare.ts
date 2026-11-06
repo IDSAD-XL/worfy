@@ -6,9 +6,11 @@
 // Orchestrator's saved Session and what keeps it busy now (Orchestrators.busy, ticket 07).
 //
 // Several Epics (a queue, tickets 13–15) count one after another: their Waves left follow each other,
-// and the forecast is drawn over all of them. Named Tickets go with one Epic only. An Epic or a named
-// Ticket the Project does not have is refused, as a start would be (startRefusal). Journals that cannot
-// be read leave the forecast lines out; the window still opens. Nothing here writes.
+// and the forecast is drawn over all of them. Each Epic says the day the owner accepted its spec
+// (`acceptedAt` of epic-status --json, ticket 13), for the queue of the window (ticket 16). Named
+// Tickets go with one Epic only. An Epic or a named Ticket the Project does not have is refused, as a
+// start would be (startRefusal). Journals that cannot be read leave the forecast lines out; the window
+// still opens. Nothing here writes.
 import type { LimitsState } from '../../shared/agent/limits'
 import type { AutopilotBudget } from '../../shared/autopilot/budget'
 import { BUDGET_FRESH_MS } from '../../shared/autopilot/budget'
@@ -61,6 +63,12 @@ function joined(left: readonly RemainingWaves[]): RemainingWaves {
   return { waves: left.flatMap((each) => each.waves), uncounted: left.flatMap((each) => each.uncounted) }
 }
 
+/** The day the owner accepted `epic`'s spec, as epic-status --json gives it (acceptedEpics reads the same field); null for none. */
+function acceptedOn(model: Pick<WorkflowModel, 'epics'>, epic: string): string | null {
+  const date = model.epics.find((each) => each.epic === epic)?.acceptedAt
+  return typeof date === 'string' && date !== '' ? date : null
+}
+
 /** The facts of the window for `input`; throws the refusal for an Epic or a Ticket the Project does not have. */
 export async function prepareAutopilot(sources: PrepareSources, { projectId, epics, tickets }: AutopilotPrepareInput): Promise<AutopilotPrepareAnswer> {
   const name = sources.projectName(projectId)
@@ -97,7 +105,7 @@ export async function prepareAutopilot(sources: PrepareSources, { projectId, epi
         .map((ticket) => ticket.num)
         .sort((a, b) => a - b),
       waves: left[index]?.waves.length ?? 0,
-      accepted: null,
+      accepted: acceptedOn(model, epic),
     })),
     orchestrator: { vendor: sources.vendor(projectId), session: sources.session(projectId) },
     forecast: { lines, waves: forecast.waves, range: forecast.range, duration: wave === null || wave.p90 === null ? null : wave.p90 * forecast.waves },

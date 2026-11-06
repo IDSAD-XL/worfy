@@ -514,7 +514,7 @@ describe('palette commands', () => {
   describe('on the read-only screen of a Linked machine (worfy-link/26)', () => {
     const HINT = 'Mini gives this Machine read-only access'
     /** The commands that call a `write` channel of the Project's Machine. */
-    const WRITES = ['new:session', 'new:terminal', 'tidy-up', 'arrange-by-epic', 'repack', 'archive-finished', 'run-wave:e', 'ship-ticket:e/07', 'ship-ticket:e/08']
+    const WRITES = ['new:session', 'new:terminal', 'tidy-up', 'arrange-by-epic', 'repack', 'archive-finished', 'run-all-accepted', 'run-wave:e', 'ship-ticket:e/07', 'ship-ticket:e/08']
 
     it('the commands that would change the Project carry the hint; moving, showing and switching do not; with Full access none does', () => {
       const commands = buildCommands(context({ readOnly: HINT }))

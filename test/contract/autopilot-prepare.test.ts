@@ -95,6 +95,7 @@ const codexWindows = (): LimitWindow[] =>
   ] as unknown as LimitWindow[]
 
 interface World {
+  model?: WorkflowModel
   runs?: () => Promise<JournalEvent[][]>
   vendor?: VendorId
   busy?: OrchestratorBusy | null
@@ -106,7 +107,7 @@ function sources(world: World = {}): PrepareSources {
   const vendor = world.vendor ?? 'claude'
   return {
     projectName: () => PROJECT_NAME,
-    workflow: () => Promise.resolve(MODEL),
+    workflow: () => Promise.resolve(world.model ?? MODEL),
     runs: world.runs ?? (() => Promise.resolve(pastRuns(5))),
     limits: () => LIMITS,
     settings: () => ({ run: { mode: world.mode ?? 'budget-aware', window: { from: 21, to: 5 } }, budget: { enabled: true, reserve: 0.05 } }),
@@ -213,6 +214,35 @@ describe('autopilot.prepare: the facts of the Start Autopilot window', () => {
       { epic: OTHER, tickets: [1], waves: 1 },
     ])
     expect(answer.forecast.waves).toBe(3)
+  })
+
+  it('three Epics (a queue, worfy-autopilot-queue ticket 16): each with its acceptance date and Waves, the forecast their sum', async () => {
+    // demo: two Waves, accepted Nov 4; later: one Wave, accepted Nov 5; third: three Waves (one Ticket after another), not accepted.
+    const third = [t(1, 'open', 'third'), t(2, 'open', 'third', [1]), t(3, 'open', 'third', [2])]
+    const model = {
+      ...MODEL,
+      epics: [
+        { epic: EPIC, hasSpec: true, hasMap: false, acceptedAt: '2026-11-04' },
+        { epic: OTHER, hasSpec: true, hasMap: false, acceptedAt: '2026-11-05' },
+        { epic: 'third', hasSpec: true, hasMap: false, acceptedAt: null },
+      ],
+      tickets: [...MODEL.tickets, ...third],
+    } as WorkflowModel
+    const source = sources({ model })
+    const answer = await prepare(source, { projectId: PROJECT, epics: [OTHER, 'third', EPIC] })
+    expect(answer.epics).toEqual([
+      { epic: OTHER, tickets: [1], waves: 1, accepted: '2026-11-05' },
+      { epic: 'third', tickets: [1, 2, 3], waves: 3, accepted: null },
+      { epic: EPIC, tickets: [5, 6, 7], waves: 2, accepted: '2026-11-04' },
+    ])
+    // The forecast is the sum: 1 + 3 + 2 Waves, each an hour at p90.
+    expect(answer.forecast.waves).toBe(6)
+    expect(answer.forecast.duration).toBe(6 * HOUR)
+    expect(answer.forecast.range).not.toBeNull()
+    // Each Epic alone: their Waves and durations add up to the queue's.
+    const alone = await Promise.all([OTHER, 'third', EPIC].map((epic) => prepare(source, { projectId: PROJECT, epics: [epic] })))
+    expect(alone.map((each) => each.forecast.waves)).toEqual([1, 3, 2])
+    expect(alone.reduce((sum, each) => sum + (each.forecast.duration ?? 0), 0)).toBe(answer.forecast.duration)
   })
 
   it('journals that cannot be read: no forecast lines, the rest of the facts still come', async () => {

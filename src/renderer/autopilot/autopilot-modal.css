@@ -212,6 +212,75 @@
   font-weight: 600;
 }
 
+/* The "Queue" view (worfy-autopilot-queue ticket 16, prototype card-918c77d9): the count in the title,
+   the hint by the section's heading, and the list of Epics, rows 32 px tall. */
+.w-apstart__count-line,
+.w-apstart__queue-hint {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.w-apstart__queue {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  overflow: hidden;
+}
+.w-apstart__queue-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.w-apstart__queue-row:first-child {
+  border-top: 0;
+}
+.w-apstart__queue-row--off .w-apstart__queue-name,
+.w-apstart__queue-row--off .w-apstart__queue-waves {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+/* Where a dragged row lands: a line above the row under the pointer. */
+.w-apstart__queue-row--over {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.w-apstart__grip {
+  width: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  letter-spacing: -2px;
+  text-align: center;
+  cursor: grab;
+  user-select: none;
+}
+.w-apstart__grip:disabled {
+  cursor: default;
+}
+.w-apstart__queue-n {
+  width: 16px;
+  color: var(--text-muted);
+}
+.w-apstart__queue-epic {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--kind-epic);
+}
+.w-apstart__queue-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The segmented control of F (theme/primitives.css), its buttons 26 px tall. */
 .w-apstart__modes {
   display: inline-flex;

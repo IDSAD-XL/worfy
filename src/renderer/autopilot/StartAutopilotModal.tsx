@@ -26,7 +26,14 @@
 //   Modes" answer `cancel`. Time up (the countdown at 0:00, or main's `autopilot.confirm.close`): «time
 //   is up — the Session got "declined"», every control off, and the window closes after TIME_UP_CLOSE_MS.
 //   The facts of such an ask are read on this Machine, whichever Machine the window shows.
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+// - The "Queue" view (worfy-autopilot-queue ticket 16): "Run all accepted" of the Command palette, and an
+//   agent's ask with a list of Epics. The title counts the ticked Epics and their Waves ("Start Autopilot ·
+//   3 Epics, 6 Waves"); under it "N Epics are accepted and waiting…" (or the agent's "Asked by …"); the
+//   grid leaves the Epic and its Tickets out, and below it the queue (QueueList.tsx) shows each Epic with
+//   its Waves and acceptance date. The facts are asked again for the ticked Epics in their order whenever
+//   they change, so the forecast is theirs; the last facts stay on screen while the next are read. Nothing
+//   ticked: the start is off. The start goes with the ticked Epics in the order of the list.
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ticketNumber } from '../../shared/actions/render-template'
 import { duration } from '../../shared/autopilot/limits-estimate'
@@ -43,6 +50,7 @@ import { useAutoContinue } from '../session/modes/auto-continue'
 import { useEcoMode } from '../session/modes/eco-mode'
 import { focusablesOf } from '../settings/settings-window'
 import { useAppSettings } from '../settings/useAppSettings'
+import { QueueList, type QueueFacts, type QueueRow } from './QueueList'
 import { agentTimeUp, askFromAgent, openOrchestratorModes, useStartModal, type OpenStart } from './start-modal'
 import './autopilot-modal.css'
 
@@ -79,6 +87,8 @@ function modeLine(lines: readonly string[], mode: RunMode): string | null {
   return line === undefined ? null : strip(line.slice(label.length))
 }
 
+const wavesCount = (waves: number): string => `${waves} ${waves === 1 ? 'Wave' : 'Waves'}`
+
 /** The most Ticket numbers the Tickets row lists; the rest are counted. */
 const TICKETS_SHOWN = 12
 
@@ -114,6 +124,14 @@ function useSecondsLeft(deadline: number | null): number | null {
 
 /** The line under the title: where the ask comes from, and for an agent's the time left. */
 function AskedLine({ open, seconds, timeUp }: { open: OpenStart; seconds: number | null; timeUp: boolean }) {
+  if (open.from === 'accepted') {
+    const count = open.epics.length
+    return (
+      <div className="w-apstart__asked" data-testid="start-autopilot-accepted">
+        {count === 1 ? '1 Epic is' : `${count} Epics are`} accepted and waiting. Autopilot runs them one after another.
+      </div>
+    )
+  }
   if (open.agent === undefined) return <div className="w-apstart__asked">From the Autopilot button on the Canvas</div>
   const session = <b>"{sessionName(open.agent.session)}"</b>
   if (timeUp) {
@@ -134,31 +152,46 @@ function AskedLine({ open, seconds, timeUp }: { open: OpenStart; seconds: number
   )
 }
 
-type Facts = { kind: 'reading' } | { kind: 'read'; answer: AutopilotPrepareAnswer } | { kind: 'failed'; reason: string }
+/** The facts of the window: the last answer of main stays while the next is read. */
+type Facts = { kind: 'reading'; answer: AutopilotPrepareAnswer | null } | { kind: 'read'; answer: AutopilotPrepareAnswer } | { kind: 'failed'; reason: string; answer: null }
 
-/** The facts of `open`, asked once. */
-function useFacts(open: OpenStart): Facts {
-  const [facts, setFacts] = useState<Facts>({ kind: 'reading' })
-  const { projectId, epics, tickets } = open
+/**
+ * The facts of `open` for `epics` (the ticked Epics of a queue, in order), asked again whenever they
+ * change; with none, the last facts stay. `known` keeps what main said of every Epic asked so far.
+ */
+function useFacts(open: OpenStart, epics: readonly string[]): { facts: Facts; known: Readonly<Record<string, QueueFacts>> } {
+  // The last facts main answered, with the Epics they were asked for.
+  const [last, setLast] = useState<{ key: string; facts: Facts } | null>(null)
+  const [known, setKnown] = useState<Readonly<Record<string, QueueFacts>>>({})
+  const { projectId, tickets } = open
   // An agent's ask is about a Project of this Machine, whichever Machine the window shows.
   const local = open.from === 'agent'
+  const key = epics.join('\n')
   useEffect(() => {
+    if (key === '') return
     let active = true
-    const input = { projectId, epics: [...epics], ...(tickets === undefined ? {} : { tickets: [...tickets] }) }
+    const input = { projectId, epics: key.split('\n'), ...(tickets === undefined ? {} : { tickets: [...tickets] }) }
     void (local ? invokeOn(null, 'autopilot.prepare', input) : invoke('autopilot.prepare', input)).then((result) => {
       if (!active) return
       if (!result.ok) {
-        setFacts({ kind: 'failed', reason: readableReason(failureReason('autopilot.prepare', result.error)) })
+        setLast({ key, facts: { kind: 'failed', reason: readableReason(failureReason('autopilot.prepare', result.error)), answer: null } })
         return
       }
       const parsed = autopilotPrepareAnswerSchema.safeParse(result.value)
-      setFacts(parsed.success ? { kind: 'read', answer: parsed.data } : { kind: 'failed', reason: 'the answer of worfy could not be read' })
+      if (!parsed.success) {
+        setLast({ key, facts: { kind: 'failed', reason: 'the answer of worfy could not be read', answer: null } })
+        return
+      }
+      setLast({ key, facts: { kind: 'read', answer: parsed.data } })
+      setKnown((now) => ({ ...now, ...Object.fromEntries(parsed.data.epics.map((each) => [each.epic, { waves: each.waves, accepted: each.accepted }])) }))
     })
     return () => {
       active = false
     }
-  }, [projectId, epics, tickets, local])
-  return facts
+  }, [projectId, key, tickets, local])
+  // Facts of other Epics than those ticked now: the next are being read, the last stay on screen.
+  const facts: Facts = last === null ? { kind: 'reading', answer: null } : last.key === key || key === '' ? last.facts : { kind: 'reading', answer: last.facts.answer }
+  return { facts, known }
 }
 
 function Fact({ name, testId, children }: { name: string; testId: string; children: ReactNode }) {
@@ -199,10 +232,11 @@ function ModesFact({ projectId, onChange, off }: { projectId: string; onChange: 
   )
 }
 
-function FactsGrid({ facts, open, onChangeModes, off }: { facts: Facts; open: OpenStart; onChangeModes: () => void; off: boolean }) {
-  const answer = facts.kind === 'read' ? facts.answer : null
+function FactsGrid({ facts, open, queue, empty, onChangeModes, off }: { facts: Facts; open: OpenStart; queue: boolean; empty: boolean; onChangeModes: () => void; off: boolean }) {
+  const answer = facts.answer
   const pending = <span className="w-apstart__muted">{facts.kind === 'reading' ? '…' : '—'}</span>
-  const epics = answer?.epics ?? open.epics.map((epic) => ({ epic, tickets: [], waves: 0, accepted: null }))
+  // The queue view lists its Epics in the queue below, not here.
+  const epics = queue ? [] : (answer?.epics ?? open.epics.map((epic) => ({ epic, tickets: [], waves: 0, accepted: null })))
   const forecast = answer?.forecast
   const used = answer?.limits.utilization ?? null
   const usedPercent = used === null ? null : Math.min(100, Math.max(0, Math.round(used * 100)))
@@ -224,7 +258,7 @@ function FactsGrid({ facts, open, onChangeModes, off }: { facts: Facts; open: Op
             <>
               <span className="w-mono">{ticketsText(epics[0]?.tickets ?? [])}</span>
               <span className="w-apstart__muted">
-                · {epics[0]?.waves ?? 0} {(epics[0]?.waves ?? 0) === 1 ? 'Wave' : 'Waves'} left
+                · {wavesCount(epics[0]?.waves ?? 0)} left
               </span>
             </>
           )}
@@ -244,7 +278,9 @@ function FactsGrid({ facts, open, onChangeModes, off }: { facts: Facts; open: Op
         )}
       </Fact>
       <Fact name="Forecast" testId="start-autopilot-forecast">
-        {forecast === undefined ? (
+        {empty ? (
+          <span className="w-apstart__muted">No Epic is ticked</span>
+        ) : forecast === undefined ? (
           pending
         ) : forecast.range === null && forecast.duration === null ? (
           <span className="w-apstart__muted" title={forecast.lines.join('\n')}>
@@ -279,8 +315,14 @@ function FactsGrid({ facts, open, onChangeModes, off }: { facts: Facts; open: Op
 }
 
 function StartWindow({ open }: { open: OpenStart }) {
-  const facts = useFacts(open)
-  const answer = facts.kind === 'read' ? facts.answer : null
+  const queue = open.from === 'accepted' || open.epics.length > 1
+  // An agent's queue is the one it asked for: the answer to main carries only the Run mode.
+  const locked = open.from === 'agent'
+  const [rows, setRows] = useState<QueueRow[]>(() => open.epics.map((epic) => ({ epic, on: true })))
+  // The queue of the run: the ticked Epics, in the order of the list.
+  const ticked = useMemo(() => rows.filter((row) => row.on).map((row) => row.epic), [rows])
+  const { facts, known } = useFacts(open, ticked)
+  const answer = facts.answer
   const settingsMode = useAppSettings((settings) => autopilotRunOf(settings).mode)
   const windowFrom = useAppSettings((settings) => autopilotRunOf(settings).window.from)
   const windowTo = useAppSettings((settings) => autopilotRunOf(settings).window.to)
@@ -297,6 +339,8 @@ function StartWindow({ open }: { open: OpenStart }) {
   // An agent's ask whose time is up, here or in main: nothing can be chosen any more.
   const timeUp = open.agent !== undefined && (open.timeUp === true || seconds === 0)
   const off = starting || timeUp
+  const empty = ticked.length === 0
+  const tickedWaves = ticked.map((epic) => known[epic]?.waves)
 
   const cancel = (): void => {
     if (off) return
@@ -304,9 +348,9 @@ function StartWindow({ open }: { open: OpenStart }) {
     open.settle(undefined)
   }
   const start = (): void => {
-    if (off) return
+    if (off || empty) return
     setStarting(true)
-    void open.start(mode).then(
+    void open.start(mode, ticked).then(
       (reason) => open.settle(reason),
       (error: unknown) => open.settle(error instanceof Error ? error.message : String(error)),
     )
@@ -396,7 +440,16 @@ function StartWindow({ open }: { open: OpenStart }) {
         data-time-up={timeUp ? '' : undefined}
       >
         <div className="w-apstart__head">
-          <h2 id={titleId}>Start Autopilot</h2>
+          <h2 id={titleId}>
+            Start Autopilot
+            {queue ? (
+              <span className="w-apstart__count-line" data-testid="start-autopilot-queue-count">
+                {' '}
+                · {ticked.length} {ticked.length === 1 ? 'Epic' : 'Epics'}
+                {tickedWaves.every((waves) => waves !== undefined) ? `, ${wavesCount(tickedWaves.reduce<number>((sum, waves) => sum + (waves ?? 0), 0))}` : null}
+              </span>
+            ) : null}
+          </h2>
           <AskedLine open={open} seconds={seconds} timeUp={timeUp} />
         </div>
         <div className="w-apstart__body">
@@ -417,7 +470,18 @@ function StartWindow({ open }: { open: OpenStart }) {
               Could not read the facts of this start: {facts.reason}
             </p>
           ) : null}
-          <FactsGrid facts={facts} open={open} onChangeModes={changeModes} off={off} />
+          <FactsGrid facts={facts} open={open} queue={queue} empty={empty} onChangeModes={changeModes} off={off} />
+          {queue ? (
+            <div className="w-apstart__section">
+              <h3>
+                Queue{' '}
+                <span className="w-apstart__queue-hint" data-testid="start-autopilot-queue-hint">
+                  {locked ? 'In the order the Session asked' : open.from === 'accepted' ? 'Ordered by acceptance date · drag to reorder, untick to drop' : 'Drag to reorder, untick to drop'}
+                </span>
+              </h3>
+              <QueueList rows={rows} facts={known} onChange={setRows} locked={locked} off={off} />
+            </div>
+          ) : null}
           <div className="w-apstart__section">
             <h3>Mode</h3>
             <div className="w-apstart__modes" role="radiogroup" aria-label="Mode">
@@ -455,7 +519,7 @@ function StartWindow({ open }: { open: OpenStart }) {
             className="w-apstart__button w-apstart__button--primary"
             data-testid="start-autopilot-start"
             aria-keyshortcuts={isMac() ? 'Meta+Enter' : 'Control+Enter'}
-            disabled={off}
+            disabled={off || empty}
             onClick={start}
           >
             {label}

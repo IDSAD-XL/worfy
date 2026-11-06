@@ -37,6 +37,9 @@
 // Topic of its registry (guide/registry.ts) is a row of its own, found by typing only, that opens the
 // Guide at that Topic; the test Topic only in a build that is not packaged. The registry is all the
 // palette reads: the Guide's window and texts stay out of the app's first chunk.
+// "Run all accepted" (worfy-autopilot-queue ticket 16) opens the Start Autopilot window over the
+// Project's accepted Epics with a ready Ticket, oldest acceptance first, or says in a toast that there is
+// none (autopilot/start-modal.ts); it starts a run, so a read-only screen shows it inactive.
 // "Open Run history" (worfy-flight-recorder ticket 20) opens the Run history screen at the active
 // Project's newest Run (flight-recorder/open.ts).
 import type { AdrEntry } from '../../shared/ipc/docs'
@@ -50,6 +53,7 @@ import { epicNodeId, shownOnCanvas, SOURCE_NODE_KINDS, ticketNodeId } from '../.
 import type { LayoutNode } from '../../shared/layout/types'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
+import { runAllAccepted } from '../autopilot/start-modal'
 import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
 import { archiveFinishedNow } from '../canvas/archive-now'
 import { requestRepack } from '../canvas/sources/epics'
@@ -264,7 +268,17 @@ function workflowActionCommands({ project, model, readOnly }: CommandContext): P
   if (!project || !model || model.error !== null) return []
   const projectId = project.id
   const hint = readOnly ?? undefined
-  const commands: PaletteCommand[] = []
+  const commands: PaletteCommand[] = [
+    {
+      id: 'run-all-accepted',
+      group: 'Action',
+      title: 'Run all accepted',
+      detail: 'Autopilot over the accepted Epics, one after another',
+      keys: ['autopilot', 'accepted epics', 'queue of epics'],
+      readOnly: hint,
+      run: () => runAllAccepted(projectId, model),
+    },
+  ]
   for (const epic of model.epics) {
     // Only where the Epic frame has the button (canvas/actions/gates.ts).
     if (!hasRunWave(epic.epic, model.tickets)) continue
