@@ -14,7 +14,8 @@
 // by default and 3 s at most, and Codex kills it after that (codex-rs/hooks/src/engine/discovery.rs at
 // rust-v0.166.0). The hook has two steps that wait: its input, which gets at most 1 s for its first byte
 // (hook-stdin.mjs), and the bin/profile call, which takes about 0.1 s; under Codex the call gets what the
-// input left of CODEX_PROFILE_MS, so the hook ends inside the 3 s even when that call hangs. The lock
+// input left of CODEX_PROFILE_MS (at least CODEX_PROFILE_MIN_MS), so the hook ends inside the 3 s even
+// when that call hangs, unless the rest of the input itself comes after the 2 s. The lock
 // is released by its own SessionEnd hook (bin/worktree-lock release).
 // shortcut: a profile call that runs out of time under Codex records no line for /retro, so one
 // session goes uncounted; move the step to the next SessionStart when session-end gains a step whose
@@ -31,8 +32,11 @@ import { isCodexInput } from "./codex-input.mjs"
 import { FIRST_BYTE_MS, firstByteWait, readStdin } from "./hook-stdin.mjs"
 
 // How long the wait for the input and the bin/profile call may take together under Codex, in
-// milliseconds: the rest of 3 s goes to starting node twice. A late input leaves the call less.
+// milliseconds: the rest of 3 s goes to starting node twice. A late input leaves the call less, but
+// never less than CODEX_PROFILE_MIN_MS: an input whose rest came after the 2 s has used up the share,
+// and the call still gets a fair chance (it takes about 0.1 s) to record the session for /retro.
 const CODEX_PROFILE_MS = 2000
+const CODEX_PROFILE_MIN_MS = 1000
 
 function isDir(p) {
     try {
@@ -78,8 +82,7 @@ async function main() {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
         windowsHide: true,
-        // At least 1 ms: a timeout of 0 means none.
-        ...(isCodexInput(payload) ? { timeout: Math.max(1, CODEX_PROFILE_MS - waited) } : {}),
+        ...(isCodexInput(payload) ? { timeout: Math.max(CODEX_PROFILE_MIN_MS, CODEX_PROFILE_MS - waited) } : {}),
     })
     if (run.error) throw run.error
     if (run.status !== 0) return

@@ -15,7 +15,7 @@
 // The stop.mjs cases of the same reader (a late input, an open pipe that sends nothing, an input split
 // in two, a terminal) are in harness-codex-hooks.test.ts.
 import { execFileSync, spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -43,12 +43,14 @@ afterEach(() => vi.unstubAllEnvs())
  * A folder for one case: the hook runs in `hookCwd`, the input names `session`; the stand-in of
  * bin/profile appends the folder it is asked about (`-C`) to `record` and answers "no project" (exit 3),
  * so every hook stops right after that call. `hang` makes it wait 10 s before it answers; `print` makes
- * it print that text and exit 0 instead.
+ * it print that text (or what the function makes of the case folder) and exit 0 instead. `sessionName`
+ * names the session folder.
  */
-function caseDir({ hang = false, print }: { hang?: boolean; print?: string } = {}) {
+function caseDir({ hang = false, print, sessionName = 'session' }: { hang?: boolean; print?: string | ((dir: string) => string); sessionName?: string } = {}) {
   const dir = realpathSync.native(mkdtempSync(join(root, 'case-')))
   const hookCwd = join(dir, 'hook-cwd')
-  const session = join(dir, 'session')
+  const session = join(dir, sessionName)
+  const printed = typeof print === 'function' ? print(dir) : print
   mkdirSync(hookCwd)
   mkdirSync(session)
   const record = join(dir, 'asked.txt')
@@ -57,7 +59,7 @@ function caseDir({ hang = false, print }: { hang?: boolean; print?: string } = {
     profile,
     `import fs from 'node:fs'
 fs.appendFileSync(${JSON.stringify(record)}, process.argv[process.argv.indexOf('-C') + 1] + '\\n')
-${print !== undefined ? `process.stdout.write(${JSON.stringify(print)})` : hang ? 'setTimeout(() => process.exit(3), 10000)' : 'process.exit(3)'}
+${printed !== undefined ? `process.stdout.write(${JSON.stringify(printed)})` : hang ? 'setTimeout(() => process.exit(3), 10000)' : 'process.exit(3)'}
 `,
   )
   // Says once on stderr which comes first: a touch of process.stdin or a synchronous read of descriptor 0.
@@ -207,18 +209,53 @@ describe('an input pipe that stays open and sends nothing', () => {
     }, RUN_MS)
   }
 
+  // The cut falls inside a two-byte letter of the session folder's name: a reader that decoded each
+  // chunk on its own would turn both halves of it into replacement characters.
   it('session-start.mjs reads the input to its end once its first byte has come, however long the rest takes', async () => {
-    const c = caseDir()
-    const input = sessionInput('SessionStart', c.session)
-    const half = Math.floor(input.length / 2)
+    const c = caseDir({ sessionName: 'сессия' })
+    const input = Buffer.from(sessionInput('SessionStart', c.session))
+    const half = input.indexOf(Buffer.from('сессия')) + 1
     const child = spawn(scriptNode(), [join(HOOKS, 'session-start.mjs')], { cwd: c.hookCwd, env: hookEnv(c, { CLAUDE_HOOK_STDIN_WAIT_MS: '200' }), stdio: 'pipe' })
     const closed = closeOf(child)
-    child.stdin.write(input.slice(0, half))
+    child.stdin.write(input.subarray(0, half))
     // Five times the wait for the first byte: a hook that kept that wait after the first byte has given up by now.
     await new Promise((resolve) => setTimeout(resolve, 1000))
-    child.stdin.end(input.slice(half))
+    child.stdin.end(input.subarray(half))
     expect(await closed).toBe(0)
     expect(c.asked()).toEqual([c.session])
+  }, RUN_MS)
+
+  // No stdin at all (`ignore`): on POSIX Node opens /dev/null as descriptor 0, so the hook reads an
+  // empty input to its end at once. The catch around process.stdin in hook-stdin.mjs is not reached
+  // here: Node gives even a closed descriptor 0 a /dev/null before any script runs.
+  it('session-start.mjs takes an ignored stdin for no input, at once', async () => {
+    const c = caseDir()
+    const started = Date.now()
+    const child = spawn(scriptNode(), [join(HOOKS, 'session-start.mjs')], { cwd: c.hookCwd, env: hookEnv(c), stdio: ['ignore', 'pipe', 'pipe'] })
+    let output = ''
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => (output += chunk))
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => (output += chunk))
+    expect(await closeOf(child)).toBe(0)
+    expect(Date.now() - started).toBeLessThan(5000)
+    expect(output).toBe('')
+    expect(c.asked()).toEqual([c.hookCwd])
+  }, RUN_MS)
+
+  // A descriptor 0 that cannot be read (a file open for writing only): the stream fails with an error,
+  // and the hook goes on with no input at once, neither crashing nor waiting out its 5 s.
+  it('session-start.mjs takes a stdin it cannot read for no input, at once', async () => {
+    const c = caseDir()
+    const fd = openSync(join(c.dir, 'write-only.txt'), 'w')
+    const started = Date.now()
+    const child = spawn(scriptNode(), [join(HOOKS, 'session-start.mjs')], { cwd: c.hookCwd, env: hookEnv(c), stdio: [fd, 'pipe', 'pipe'] })
+    closeSync(fd)
+    let output = ''
+    child.stdout?.setEncoding('utf8').on('data', (chunk: string) => (output += chunk))
+    child.stderr?.setEncoding('utf8').on('data', (chunk: string) => (output += chunk))
+    expect(await closeOf(child)).toBe(0)
+    expect(Date.now() - started).toBeLessThan(5000)
+    expect(output).toBe('')
+    expect(c.asked()).toEqual([c.hookCwd])
   }, RUN_MS)
 })
 
@@ -228,37 +265,53 @@ describe('an input pipe that stays open and sends nothing', () => {
 // On a terminal they refuse at once instead of waiting for input nobody sends. python3 with its pty
 // module gives them the terminal; the script kills the command after half the test's limit (exit 98).
 describe.skipIf(WINDOWS)('the scripts of bin/ that read stdin to its end', () => {
+  // mode: `all` — stdin, stdout and stderr on the terminal; `stdin` — only stdin, the output on a
+  // pipe; `out` — the output on the terminal and stdin a pipe that sends `data` and closes.
   const ON_TERMINAL = `
-import os, pty, select, signal, sys, time
-pid, fd = pty.fork()
-if pid == 0:
-    os.execv(sys.argv[2], sys.argv[2:])
-deadline = time.monotonic() + float(sys.argv[1])
+import os, pty, select, subprocess, sys, time
+mode, seconds, data = sys.argv[1], float(sys.argv[2]), sys.argv[3].encode()
+master, slave = pty.openpty()
+tty_in, tty_out = mode in ("all", "stdin"), mode in ("all", "out")
+p = subprocess.Popen(sys.argv[4:], stdin=slave if tty_in else subprocess.PIPE,
+    stdout=slave if tty_out else subprocess.PIPE, stderr=slave if tty_out else subprocess.STDOUT)
+os.close(slave)
+if not tty_in:
+    p.stdin.write(data)
+    p.stdin.close()
+fds = [master] + ([] if tty_out else [p.stdout.fileno()])
 out = b""
-def finish(code):
-    sys.stdout.buffer.write(out)
-    sys.exit(code)
-while True:
-    left = deadline - time.monotonic()
-    if left <= 0:
-        os.kill(pid, signal.SIGKILL)
-        os.waitpid(pid, 0)
-        finish(98)
-    if not select.select([fd], [], [], left)[0]:
-        continue
-    try:
-        chunk = os.read(fd, 4096)
-    except OSError:
+def read_ready(wait):
+    global out
+    for fd in select.select(fds, [], [], wait)[0]:
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError:
+            chunk = b""
+        if chunk:
+            out += chunk
+        else:
+            fds.remove(fd)
+deadline = time.monotonic() + seconds
+while p.poll() is None:
+    if time.monotonic() > deadline:
+        p.kill()
+        p.wait()
+        sys.stdout.buffer.write(out)
+        sys.exit(98)
+    read_ready(0.05)
+for _ in range(20):
+    if not fds:
         break
-    if not chunk:
-        break
-    out += chunk
-_, status = os.waitpid(pid, 0)
-finish(os.WEXITSTATUS(status) if os.WIFEXITED(status) else 99)
+    read_ready(0.05)
+sys.stdout.buffer.write(out)
+sys.exit(p.returncode if p.returncode >= 0 else 99)
 `
-  /** Runs `script` of harness/bin with `args` on a terminal that sends nothing: its exit code and what it printed. */
-  function onTerminal(script: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) {
-    const run = spawnSync('python3', ['-c', ON_TERMINAL, String(RUN_MS / 2 / 1000), scriptNode(), join(REPO, 'harness', 'bin', script), ...args], { cwd, env, encoding: 'utf8', timeout: RUN_MS })
+  /**
+   * Runs `script` of harness/bin with `args`, the terminal where `mode` puts it (`data` on the stdin
+   * pipe of `out`): its exit code (98 when it was still running after half the test's limit) and what it printed.
+   */
+  function onTerminal(mode: 'all' | 'stdin' | 'out', script: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, data = '') {
+    const run = spawnSync('python3', ['-c', ON_TERMINAL, mode, String(RUN_MS / 2 / 1000), data, scriptNode(), join(REPO, 'harness', 'bin', script), ...args], { cwd, env, encoding: 'utf8', timeout: RUN_MS })
     return { status: run.status, output: run.stdout }
   }
 
@@ -279,22 +332,32 @@ finish(os.WEXITSTATUS(status) if os.WIFEXITED(status) else 99)
     return { repo, env }
   }
 
-  it('code-map put refuses a terminal at once: the description comes on stdin', (context) => {
-    // Asked here, not while the file loads: no file of test/contract starts a process then (e2e-no-spawn-on-load).
-    if (spawnSync('python3', ['-c', 'import pty'], { stdio: 'ignore' }).status !== 0) context.skip()
-    const { repo, env } = registered()
-    const run = onTerminal('code-map', ['put', '.', '-C', repo], repo, env)
-    expect(run.status, run.output).toBe(2)
-    expect(run.output).toContain('the description comes on stdin')
-  }, RUN_MS)
+  // Only a terminal on stdin counts: a terminal on stdout or stderr says nothing about where the input
+  // comes from, and in `all` the three descriptors are one terminal.
+  for (const [script, args, refusal, data] of [
+    ['code-map', (repo: string) => ['put', '.', '-C', repo], 'the description comes on stdin', 'The root folder.\n'],
+    ['project-connect', () => ['--schema-only'], 'the draft is read from stdin', '{}'],
+  ] as const) {
+    for (const mode of ['all', 'stdin'] as const) {
+      it(`${script} refuses a terminal on stdin at once (${mode === 'all' ? 'stdin, stdout and stderr' : 'stdin only'}): ${refusal}`, (context) => {
+        // Asked here, not while the file loads: no file of test/contract starts a process then (e2e-no-spawn-on-load).
+        if (spawnSync('python3', ['-c', 'import pty'], { stdio: 'ignore' }).status !== 0) context.skip()
+        const { repo, env } = registered()
+        const run = onTerminal(mode, script, args(repo), repo, env)
+        expect(run.status, run.output).toBe(2)
+        expect(run.output).toContain(refusal)
+      }, RUN_MS)
+    }
 
-  it('project-connect refuses a terminal at once: the draft is read from stdin', (context) => {
-    if (spawnSync('python3', ['-c', 'import pty'], { stdio: 'ignore' }).status !== 0) context.skip()
-    const { repo, env } = registered()
-    const run = onTerminal('project-connect', ['--schema-only'], repo, env)
-    expect(run.status, run.output).toBe(2)
-    expect(run.output).toContain('the draft is read from stdin')
-  }, RUN_MS)
+    it(`${script} reads a stdin pipe while its output goes to a terminal`, (context) => {
+      if (spawnSync('python3', ['-c', 'import pty'], { stdio: 'ignore' }).status !== 0) context.skip()
+      const { repo, env } = registered()
+      const run = onTerminal('out', script, args(repo), repo, env, data)
+      expect(run.status, run.output).not.toBe(98)
+      expect(run.status, run.output).not.toBe(2)
+      expect(run.output).not.toContain(refusal)
+    }, RUN_MS)
+  }
 })
 
 describe('the time a hook gives its input', () => {
@@ -361,5 +424,25 @@ describe('the time a hook gives its input', () => {
     expect(ended - reading).toBeLessThan(2500)
     expect(ended - started).toBeLessThan(3000)
     expect(c.asked()).toEqual([c.session])
+  }, RUN_MS)
+
+  // The first byte comes at once, the rest after 2.1 s: the wait has used up the call's 2 s share. The
+  // call still gets its least share, so the session is recorded for /retro.
+  it('session-end.mjs still records the session when the rest of a Codex input comes after the 2 s', async () => {
+    const c = caseDir({ print: (dir) => JSON.stringify({ session: { retro_reminder_after: 3 }, _resolved: { dir: join(dir, 'profile') } }) })
+    mkdirSync(join(c.dir, 'profile'))
+    const input = sessionInput('SessionEnd', c.session, { transcript_path: join(c.dir, 'rollout-2026-11-06T07-11-41-ses-1.jsonl') })
+    const child = spawn(scriptNode(), [join(HOOKS, 'session-end.mjs')], { cwd: c.hookCwd, env: hookEnv(c), stdio: 'pipe' })
+    let stderr = ''
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk))
+    const closed = closeOf(child)
+    child.stdin.write(input.slice(0, 1))
+    await new Promise((resolve) => setTimeout(resolve, 2100))
+    child.stdin.end(input.slice(1))
+    expect([await closed, stderr]).toEqual([0, ''])
+    expect(c.asked()).toEqual([c.session])
+    const recorded = readFileSync(join(c.dir, 'profile', 'state', 'pending-retro.log'), 'utf8').split('\n')
+    expect(recorded).toEqual([expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\t/), ''])
+    expect(recorded[0]?.split('\t')[1]).toBe(c.session)
   }, RUN_MS)
 })
