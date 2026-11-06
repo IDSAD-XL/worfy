@@ -24,7 +24,9 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 3, 7,
 
 - [ ] Unit test панели: Span Subagent-а, Wave вне Run-а (Open Run недоступна), PR; сводка — часы параллельных
       Subagent-ов без двойного счёта.
+  - evidence: test-run pass · `pnpm test test/unit/work-track-panel.test.tsx test/unit/work-track-view.test.tsx` exit 0 · mac dev · dd5df057abca20c9d477e7182842b678d3e4ddc2
 - [ ] e2e: щелчок по Wave Run-а → «Open Run» → Run history этого Run-а.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/work-track.spec.ts` exit 0 · mac dev · dd5df057abca20c9d477e7182842b678d3e4ddc2
 - [ ] Снимки сводки и панели в обеих темах — `../evidence/10-*.png`.
   - evidence: screenshot pass · `../evidence/10-summary-light.png` · mac dev · f4f1182dd1fc00913aaca81ea0f0b57e3267a85a · scrub: 2026-11-06
   - evidence: screenshot pass · `../evidence/10-summary-dark.png` · mac dev · f4f1182dd1fc00913aaca81ea0f0b57e3267a85a · scrub: 2026-11-06
