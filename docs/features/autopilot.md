@@ -140,7 +140,8 @@ While a run goes on:
   When the run is over, the Orchestrator's chat gets one line that counts the run's decisions: at the stop when
   nothing is left running, else once the run's turn and background tasks have ended and the Orchestrator is back, the
   app quits, or the next run takes the Session over. A request of those tasks after the stop is judged by the run's
-  policy and journaled as during the run, and the line counts it. The line reads `Auto-approval: allowed 3,
+  policy and journaled as during the run, and the line counts it; once the next run has opened its own policy, the
+  requests are judged by that policy and belong to the next run. The line reads `Auto-approval: allowed 3,
   denied 1, parked 0` for On, `Shadow: would allow 2, would deny 1, would park 0` for Shadow, with `hard-denied N` added
   when there was a hard deny, and both, On first, when the mode was switched during the run. The end of a park is not
   counted again. A run with no decision gets no line. Run history lists the decisions
