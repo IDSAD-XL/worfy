@@ -50,7 +50,11 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2
 - [ ] e2e: кнопка → окно → «Start Autopilot» → Run идёт; Orchestrator в ходе → «Start when free» → строка ожидания.
   - evidence: test-run pass · pnpm test:e2e test/e2e/autopilot-start-modal.spec.ts: 2 passed, exit 0 · mac - · e7702b6f4f86cf1d217b02b2e8ce70444b9b067d
   - evidence: review pass · PR #1507 · - - · b875fb7cb452cdaccdbde58283359e6678c14efe
-- [ ] Снимки окна (Canvas button, Orchestrator busy) в обеих темах — `../evidence/09-окно-запуска-*.png`, ссылка в «Итог».
+- [ ] Снимки окна (Canvas button, Orchestrator busy) в обеих темах — `../evidence/09-start-window-*.png`, ссылка в «Итог».
+  - evidence: screenshot pass · `../evidence/09-start-window-canvas-button-light.png` · mac dev · 19c637855603944551269345bd3cfa4b1733ecb1 · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/09-start-window-canvas-button-dark.png` · mac dev · 19c637855603944551269345bd3cfa4b1733ecb1 · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/09-start-window-orchestrator-busy-light.png` · mac dev · 19c637855603944551269345bd3cfa4b1733ecb1 · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/09-start-window-orchestrator-busy-dark.png` · mac dev · 19c637855603944551269345bd3cfa4b1733ecb1 · scrub: 2026-11-06
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · gate fast: [gate] green (fast): worfy/.:lint worfy/.:typecheck worfy/.:test, exit 0 on e7702b6f4 · mac - · e7702b6f4f86cf1d217b02b2e8ce70444b9b067d
   - evidence: review pass · PR #1507 · - - · b875fb7cb452cdaccdbde58283359e6678c14efe
@@ -113,3 +117,9 @@ Run mode по умолчанию, часы Start window, занятость Orch
 Снимки ждут проверки человеком и поэтому не закоммичены: `09-start-window-canvas-button-{light,dark}.png`,
 `09-start-window-orchestrator-busy-{light,dark}.png` лежат в `test-results/evidence-09/` worktree-а
 `agent-afce7bf5f5c7003d2`. Данные на них тестовые (Project `demo`, фейковая Session).
+
+Снимки окна: [Canvas button, светлая](../evidence/09-start-window-canvas-button-light.png),
+[Canvas button, тёмная](../evidence/09-start-window-canvas-button-dark.png),
+[Orchestrator busy, светлая](../evidence/09-start-window-orchestrator-busy-light.png),
+[Orchestrator busy, тёмная](../evidence/09-start-window-orchestrator-busy-dark.png). Владелец посмотрел их 2026-11-06
+(«все ок»): на них только тестовые данные (Project «demo», Epic «demo»).

@@ -1,9 +1,7 @@
 # 03 — Шаг владельца: `cleanupPeriodDays` Claude Code — 35 дней
 
 Type: task
-Status: blocked 2026-11-05T19:30Z
-Blocked reason: owner step: set cleanupPeriodDays 35 in ~/.claude/settings.json on the Mac
-Waits: owner
+Status: done 2026-11-06T17:23Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Решения владельца», 5; «Открытые вопросы», 3; [research 04](../../worfy-autopilot-queue/issues/04-данные-work-track.md), «Пробелы», 4; [06](../../worfy-autopilot-queue/issues/06-объём-и-доступ-work-track.md), Q2
 
@@ -24,6 +22,7 @@ Source: [spec.md](../spec.md), «Решения владельца», 5; «От�
 ## Готово, когда
 
 - [ ] В `~/.claude/settings.json` на Mac — `cleanupPeriodDays` 35 (вручную).
+  - evidence: owner-check pass · owner set it 2026-11-06; read-only check: valid JSON, cleanupPeriodDays = 35 · mac stable · 19c637855603944551269345bd3cfa4b1733ecb1
 
 ## Тесты
 
@@ -32,3 +31,10 @@ Source: [spec.md](../spec.md), «Решения владельца», 5; «От�
 ## Где в коде
 
 - `.scratch/worfy-work-track/issues/03-шаг-владельца-cleanupperioddays-35.md`
+
+## Итог
+
+- Владелец добавил строку `"cleanupPeriodDays": 35` в `~/.claude/settings.json` на Mac 2026-11-06.
+- Orchestrator проверил файл только чтением: JSON валиден, значение `cleanupPeriodDays` — 35.
+- Первая попытка была с висячей запятой после новой строки, и JSON не читался. Ошибка была в инструкции
+  Orchestrator-а, не у владельца; инструкцию исправили, вторая попытка прошла.
