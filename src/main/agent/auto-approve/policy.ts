@@ -54,6 +54,8 @@ export interface PolicyContext {
   cwd: string
   /** The environment of the Session's shell: HOME, TMPDIR, APPDATA, XDG_CONFIG_HOME. */
   env: Readonly<Record<string, string | undefined>>
+  /** The variables of `env` a command surely gets (AnalyzeContext.known); absent: all of them. */
+  known?: ReadonlySet<string> | undefined
   /** The worktrees of the Tickets of the current Wave. */
   worktrees: readonly string[]
   /** The Project's .scratch. */
@@ -285,7 +287,7 @@ export function gitNeeds(request: ApprovalRequest, context: PolicyContext): { gi
   if (FILE_TOOLS.has(request.tool)) return { git: [], writes: true }
   const where = commandOf(request, context)
   if (where === null) return { git: [], writes: false }
-  const analysis = analyze(where.command, { cwd: where.cwd, env: context.env, platform: context.platform })
+  const analysis = analyze(where.command, { cwd: where.cwd, env: context.env, known: context.known, platform: context.platform })
   if (!analysis.judged) return { git: [], writes: false }
   return {
     git: [...new Set(analysis.actions.filter((action) => action.git !== undefined).map((action) => action.cwd))],
@@ -363,7 +365,7 @@ function prepare(context: PolicyContext): Prepared {
 
 function judgeCommand(command: string, cwd: string, prepared: Prepared): Decision {
   const { context } = prepared
-  const analysis = analyze(command, { cwd, env: context.env, platform: context.platform })
+  const analysis = analyze(command, { cwd, env: context.env, known: context.known, platform: context.platform })
   if (!analysis.judged) return deny('not-judged', HINTS.notJudged, [])
   const actions = analysis.actions
   const acts = actions.map((action) => actOf(action, prepared))

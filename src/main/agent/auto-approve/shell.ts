@@ -117,6 +117,13 @@ export interface AnalyzeContext {
   cwd: string
   /** The environment of the shell that runs the command. */
   env: Readonly<Record<string, string | undefined>>
+  /**
+   * The variables of `env` whose value the command surely gets (worfy-auto-approve ticket 05): a Vendor that may
+   * leave variables out of the command's shell (Codex's shell_environment_policy) names the ones it pins. A reference
+   * to any other is an unknown variable; the checks of the environment (IFS, BASH_ENV…) still see all of `env`.
+   * Absent: every variable of `env`.
+   */
+  known?: ReadonlySet<string> | undefined
   /** The platform of the machine; `win32` means Git Bash. */
   platform: NodeJS.Platform
 }
@@ -482,7 +489,7 @@ function variable(name: string, state: State, scope: Scope): string {
   }
   const assigned = state.assigned.get(name)
   if (assigned !== undefined) return assigned
-  const value = scope.context.env[name]
+  const value = scope.context.known === undefined || scope.context.known.has(name) ? scope.context.env[name] : undefined
   if (value === undefined) fail('an unknown variable')
   // Git Bash turns these from the Windows form into its own when it starts (the MSYS runtime
   // converts HOME, TMPDIR, TMP and TEMP): `~` is `/c/Users/…` there, not `C:\Users\…`.

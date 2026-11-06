@@ -97,41 +97,62 @@ export function approvalAsk(request: CodexApprovalRequest, item: ThreadItem | un
 
 /**
  * The login shell Codex wraps a command in, as it names it: `<shell> -lc <script>` (or `-c`), the shell zsh, bash or
- * sh by name or in a folder of the system the agent cannot write, the script one quoted word. Codex runs the shell
- * with the script as one argument and shows the command joined with quotes (test/fixtures/codex-messages/turn.jsonl:
- * `/bin/zsh -lc 'cat README.md'`).
+ * sh by name or in a folder of the system the agent cannot write, then a quote that opens the script. Codex runs the
+ * shell with the script as one argument and shows the command joined with quotes (test/fixtures/codex-messages/
+ * turn.jsonl: `/bin/zsh -lc 'cat README.md'`).
  */
-const CODEX_SHELL = /^(?:(?:\/usr\/local|\/opt\/homebrew|\/usr)?\/bin\/)?(zsh|bash|sh) -l?c (["'].*)$/s
-/** A `$` or a backquote no backslash escapes. */
-const UNESCAPED_EXPANSION = /(?<!\\)(?:\\\\)*[$`]/
+const CODEX_SHELL = /^(?:(?:\/usr\/local|\/opt\/homebrew|\/usr)?\/bin\/)?(zsh|bash|sh) -l?c (?=["'])/
+
+/**
+ * The length of the one quoted word `text` starts with: single quotes up to the next single quote; double quotes up to
+ * the next double quote no backslash escapes. -1 when the quote does not close, or when a double-quoted word holds a `$`
+ * or a backquote no backslash escapes (the shell would expand it in the outer word, before the script runs).
+ */
+function quotedWordEnd(text: string): number {
+  if (text.startsWith("'")) {
+    const close = text.indexOf("'", 1)
+    return close === -1 ? -1 : close + 1
+  }
+  for (let at = 1; at < text.length; at++) {
+    const char = text[at]
+    if (char === '\\') at++
+    else if (char === '$' || char === '`') return -1
+    else if (char === '"') return at + 1
+  }
+  return -1
+}
 
 /**
  * The command the policy judges for Codex's `command`: its login-shell wrapper as `<shell> -c <script>`, so the
  * script is read by the shell grammar's own `-c` rules (shell.ts: one unglobbed script word, a refusal when ZDOTDIR,
  * BASH_ENV or ENV is set). `-l` makes the shell read the owner's login profile first; the agent cannot write it (it is
- * outside every root), so `-lc` is judged as `-c`. Any other form stays as it is, and the policy does not approve it:
- * another shell or folder, other options, a second word after the script (the grammar refuses it). A double-quoted
- * script with an unescaped `$` or backquote stays as well: the grammar would expand it in the outer word, Codex does not.
+ * outside every root), so `-lc` is judged as `-c`. The script must be exactly one quoted word that closes at the end
+ * of the command — single-quoted, or double-quoted with every `$` and backquote escaped. Anything else stays as it is,
+ * and the policy does not approve it: another shell or folder, other options, an unquoted script, a script of several
+ * quoted parts (`'a'\''b'`), anything after the word (an operator, a redirection, a comment), an unclosed quote.
  */
 export function codexScript(command: string): string {
   const match = CODEX_SHELL.exec(command)
   if (match === null) return command
-  const [, shell, script] = match as unknown as [string, string, string]
-  if (script.startsWith('"') && UNESCAPED_EXPANSION.test(script)) return command
-  return `${shell} -c ${script}`
+  const script = command.slice(match[0].length)
+  if (quotedWordEnd(script) !== script.length) return command
+  return `${match[1]} -c ${script}`
 }
 
-/** Names of the environment a secret is kept under. */
-const SECRET_NAME = /KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL/i
-
 /**
- * The environment a request is judged in: the app-server's without the variables named like secrets (GH_TOKEN, the
- * MCP token WORFY_MCP_TOKEN, any *_KEY). Codex's `shell_environment_policy` may leave them out of the command's shell,
- * so their values cannot be known there: a command that names one is not judged, and no value of one reaches the
- * journal.
+ * The variables each command of an unattended Codex at Shadow or On surely gets: the home folder and the run's
+ * (TMPDIR and its git environment), with the values the app-server got. worfy pins each in Codex's shell environment
+ * (codexPinConfig), whatever `shell_environment_policy` of the owner's leaves out; only these have a known value when a
+ * request is judged (ApprovalWhere.known), and a command that uses any other variable is not approved.
  */
-export function judgedEnvironment(env: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
-  return Object.fromEntries(Object.entries(env).filter(([name]) => !SECRET_NAME.test(name)))
+export function codexPinned(env: Readonly<Record<string, string | undefined>>, run: Readonly<Record<string, string>>): Record<string, string> {
+  const home = Object.fromEntries((['HOME', 'USERPROFILE'] as const).flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]])))
+  return { ...home, ...run }
+}
+
+/** The `config` keys of thread/start and thread/resume that set each pinned variable in every command's shell. */
+export function codexPinConfig(pinned: Readonly<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(Object.entries(pinned).map(([name, value]) => [`shell_environment_policy.set.${name}`, value]))
 }
 
 /** An approval in the terms of the approval policy (policyRequestOf). */
@@ -176,6 +197,23 @@ export function policyRequestOf(request: CodexApprovalRequest, ask: Omit<Permiss
  */
 export function withGrantRoot(decision: Decision, grantRoot: string | null): Decision {
   return grantRoot !== null && decision.outcome === 'allow' ? { outcome: 'park', rule: 'grant-root', hint: null, targets: decision.targets } : decision
+}
+
+/**
+ * What the card of a parked approval offers and says besides the rule and the paths (worfy-auto-approve ticket 05).
+ * A file change with a grantRoot is offered no Accept: Codex's answer is the decision alone, and an accept would let it
+ * write under the root until the Session ends, which a parked card never grants. The card also says Codex's reason and,
+ * for a request for network access, the host.
+ */
+export function parkedCard(request: CodexApprovalRequest, ask: Omit<PermissionAsk, 'signal'>, grantRoot: string | null): { options: PermissionOption[]; note: string | null } {
+  const options = grantRoot === null ? [...ask.options] : ask.options.filter((option) => option.kind === 'deny')
+  const network = request.method === 'item/commandExecution/requestApproval' ? request.params.networkApprovalContext : null
+  const lines = [
+    ...(grantRoot === null ? [] : [`Accept is not offered: it would let Codex write under ${grantRoot} until the Session ends. The agent can ask again for each file.`]),
+    ...(network === null || network === undefined ? [] : [`Network access to ${network.host} (${network.protocol}).`]),
+    ...(ask.description === null ? [] : [`Codex says: ${ask.description}`]),
+  ]
+  return { options, note: lines.length === 0 ? null : lines.join('\n') }
 }
 
 /** The decision for the option picked: null (the request was cancelled) is `cancel`; an id Codex does not offer, `decline`. */

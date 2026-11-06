@@ -16,11 +16,12 @@ import { execFileSync, spawn, type ChildProcess, type SpawnOptions } from 'node:
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openRunApproval, type RunApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { hasExited } from '../../src/main/agent/session/process'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
-import { codexScript, judgedEnvironment, UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
+import { codexScript, UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
 import { codexSessions } from '../../src/main/vendors/codex/session'
 import type { ApprovalDecided, ApprovalWhere, PermissionAsk, RefusalDetails, SessionApproval, SessionHandle } from '../../src/main/vendors/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
@@ -180,16 +181,39 @@ function writeScript(dir: string, steps: Step[]): void {
 interface Logged {
   id?: number | string
   method?: string
+  params?: Record<string, unknown>
   result?: { decision?: unknown }
 }
+
+/**
+ * A preload of the fake's Node (`--import`): once the file WORFY_TEST_INJECT_WHEN exists, it writes the lines
+ * WORFY_TEST_INJECT to the fake's stdout — what no script can play, as Codex resolving a request itself while worfy
+ * still judges it or the owner still has not answered (test/contract/codex-session.test.ts injects the same way).
+ */
+const PRELOAD = `
+import { existsSync } from 'node:fs'
+const when = process.env.WORFY_TEST_INJECT_WHEN
+const lines = process.env.WORFY_TEST_INJECT
+if (when && lines) {
+  const timer = setInterval(() => {
+    if (!existsSync(when)) return
+    clearInterval(timer)
+    process.stdout.write(lines)
+  }, 10)
+  timer.unref()
+}
+`
+
+/** Codex's notification that it resolved its request `id` itself. */
+const resolved = (id: number): string => `${JSON.stringify({ method: 'serverRequest/resolved', params: { threadId: THREAD, requestId: id } })}\n`
 
 interface RunOptions {
   /** The Auto-approval mode; null: the Session is given no policy at all (as before the ticket). */
   mode: AutoApprovalMode | null
   /** The environment of the app-server (process.env by default). */
   env?: NodeJS.ProcessEnv
-  /** `mode`: reading the mode throws; `judge`: every judging rejects. */
-  broken?: 'mode' | 'judge'
+  /** `mode`: reading the mode throws; `judge`: every judging rejects; `decided`: every report of a decision throws. */
+  broken?: 'mode' | 'judge' | 'decided'
   /** Each judging waits for it; with it the run does not wait for the turn's result. */
   hold?: Promise<void>
   /** The approvals of the turn; approvals() by default. */
@@ -198,6 +222,8 @@ interface RunOptions {
   pick?: (ask: PermissionAsk) => Promise<string | null>
   /** Whether a parked request may wait for the owner (SessionApproval.parks); absent: the policy has no such check. */
   parks?: () => boolean
+  /** Lines the fake writes to worfy when the test calls inject() (PRELOAD). */
+  inject?: string
 }
 
 /** One unattended Codex Session over the fake, with the run's policy as agent/session.ts hands it to the driver. */
@@ -241,12 +267,19 @@ async function codexRun(options: RunOptions) {
             settled++
             return decision
           },
-          decided: (decision) => decided.push(decision),
+          decided: (decision) => {
+            decided.push(decision)
+            if (options.broken === 'decided') throw new Error('the window is gone')
+          },
           ...(options.parks === undefined ? {} : { parks: options.parks }),
         }
+  const signal = join(dir, 'inject-now')
+  const preload = join(dir, 'preload.mjs')
+  writeFileSync(preload, PRELOAD)
   const spawnProcess = (_file: string, args: readonly string[], spawnOptions: SpawnOptions): ChildProcess => {
     spawnedEnv.push(spawnOptions.env ?? {})
-    const child = spawn(scriptNode(), [...args], spawnOptions)
+    const injected = options.inject === undefined ? {} : { WORFY_TEST_INJECT_WHEN: signal, WORFY_TEST_INJECT: options.inject }
+    const child = spawn(scriptNode(), [...(options.inject === undefined ? [] : ['--import', pathToFileURL(preload).href]), ...args], { ...spawnOptions, env: { ...spawnOptions.env, ...injected } })
     children.push(child)
     return child
   }
@@ -296,7 +329,10 @@ async function codexRun(options: RunOptions) {
       .split('\n')
       .map((line) => JSON.parse(line) as Logged)
   const answers = (): unknown[] => logged().filter((message) => message.method === undefined).map((message) => message.result?.decision)
-  return { decided, wheres, refused, spawnedEnv, asked, answers, run, events, handle, settled: () => settled }
+  /** The params of the thread/start worfy sent. */
+  const threadStart = (): Record<string, unknown> | undefined => logged().find((message) => message.method === 'thread/start')?.params
+  const inject = (): void => writeFileSync(signal, '')
+  return { decided, wheres, refused, spawnedEnv, asked, answers, threadStart, inject, run, events, handle, settled: () => settled }
 }
 
 const COUNT = 16
@@ -318,6 +354,9 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     // The same environment as without a policy: no TMPDIR, no git variables of the run.
     expect(off.spawnedEnv[0]?.['TMPDIR']).toBe(before.spawnedEnv[0]?.['TMPDIR'])
     expect(off.spawnedEnv[0]?.['GIT_CONFIG_PARAMETERS']).toBe(before.spawnedEnv[0]?.['GIT_CONFIG_PARAMETERS'])
+    // The same thread: no variable pinned in Codex's shell environment.
+    expect(off.threadStart()).toEqual(before.threadStart())
+    expect(off.threadStart()?.['config']).toBeUndefined()
   })
 
   it('Shadow: every approval is declined as at Off, and each decision is recorded with what the policy would have done', async () => {
@@ -340,7 +379,8 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
       ['shadow', 'would-allow', 'files-inside-roots+shell-script-inside-roots', 'commandExecution'],
       ['shadow', 'would-deny', 'not-judged', 'commandExecution'],
       ['shadow', 'would-deny', 'not-judged', 'commandExecution'],
-      ['shadow', 'would-deny', 'not-judged', 'commandExecution'],
+      // Not unwrapped (a word after the script): a program outside every root.
+      ['shadow', 'would-park', expect.any(String), 'commandExecution'],
       ['shadow', 'would-park', expect.any(String), 'commandExecution'],
       ['shadow', 'would-allow', 'files-inside-roots', 'commandExecution'],
     ])
@@ -370,15 +410,26 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
       ['on', 'allow', 'files-inside-roots+shell-script-inside-roots'],
       ['on', 'deny', 'not-judged'],
       ['on', 'deny', 'not-judged'],
-      ['on', 'deny', 'not-judged'],
+      ...parked(expect.any(String)),
       ...parked(expect.any(String)),
       ['on', 'allow', 'files-inside-roots'],
     ])
     // Each parked request opened on the Session's gate once, marked with the rule and the paths of its park line.
     const parks = on.decided.filter((each) => each.outcome === 'park')
-    expect(on.asked).toHaveLength(8)
+    expect(on.asked).toHaveLength(9)
     expect(on.asked.map((ask) => ask.parked)).toEqual(parks.map((each) => ({ rule: each.rule, targets: each.targets })))
     expect(on.decided.filter((each) => each.outcome === 'park-answered').every((each) => each.answer === 'deny')).toBe(true)
+    // A file change with a grantRoot is offered no Accept: it would let Codex write under the root until the Session ends.
+    const ids = (n: number): string[] | undefined => on.asked[n]?.options.map((option) => option.id)
+    expect(ids(0)).toEqual(['accept', 'decline', 'cancel'])
+    expect(ids(2)).toEqual(['decline', 'cancel'])
+    expect(ids(4)).toEqual(['decline', 'cancel'])
+    expect(ids(3)).toEqual(['accept', 'decline', 'cancel'])
+    expect(on.asked[2]?.description).toContain(`Accept is not offered: it would let Codex write under ${outside} until the Session ends`)
+    // The card says what Codex gave as the reason, and the host of a request for network access.
+    expect(on.asked[0]?.description).toContain('Codex says: The command runs outside the sandbox.')
+    expect(on.asked[6]?.description).toContain('Network access to example.com (https).')
+    expect(on.asked[0]?.description).not.toContain('Network access')
     // A secret of the app-server's environment is no known value: no decision names it.
     expect(JSON.stringify(on.decided)).not.toContain(TOKEN)
     // The grantRoot and the move_path are judged as paths the change writes.
@@ -389,17 +440,19 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(on.answers()).not.toContain('acceptForSession')
   })
 
-  it('each request is judged in the whole environment the app-server process got, the run\'s variables included; a command in the folder Codex names', async () => {
-    const on = await codexRun({ mode: 'on' })
+  it('each request is judged in the whole environment the app-server process got; only the variables pinned in Codex\'s shell environment have a known value; a command in the folder Codex names', async () => {
+    const on = await codexRun({ mode: 'on', pick: () => Promise.resolve('decline') })
     const spawned = on.spawnedEnv[0]
     expect(spawned?.['TMPDIR']).toBe(on.run.runTemp)
     expect(spawned?.['GIT_CONFIG_PARAMETERS']).toBe(on.run.environment['GIT_CONFIG_PARAMETERS'])
+    // The run's variables and HOME are pinned for every command of the thread (shell_environment_policy.set).
+    const pinned = { HOME: homedir(), ...on.run.environment }
+    expect(on.threadStart()?.['config']).toEqual(Object.fromEntries(Object.entries(pinned).map(([name, value]) => [`shell_environment_policy.set.${name}`, value])))
     expect(on.wheres).toHaveLength(COUNT)
-    // The secrets of the environment are not judged with: a command's shell may not have them.
-    const judgedEnv = Object.fromEntries(Object.entries(spawned ?? {}).filter(([name]) => !/KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL/i.test(name)))
-    expect(judgedEnv['GH_TOKEN']).toBeUndefined()
-    expect(judgedEnv['TMPDIR']).toBe(on.run.runTemp)
-    for (const where of on.wheres) expect(where.env).toEqual(judgedEnv)
+    for (const where of on.wheres) {
+      expect(where.env).toEqual(spawned)
+      expect([...(where.known ?? [])].sort()).toEqual(Object.keys(pinned).sort())
+    }
     expect(on.wheres[0]).toMatchObject({ cwd: worktree, scratchpad: null })
     // A file change is judged from the Session's folder.
     expect(on.wheres[3]).toMatchObject({ cwd: repo, scratchpad: null })
@@ -482,22 +535,73 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
       expect(on.decided.map((each) => each.outcome)).toEqual(['park', 'park-expired'])
     })
 
-    it('a request Codex withdraws while it is judged is not parked', async () => {
+    it('a request Codex resolves itself while it is judged is not parked, and gets no answer', async () => {
       let release = (): void => undefined
       const hold = new Promise<void>((resolve) => {
         release = resolve
       })
-      const on = await codexRun({ mode: 'on', steps: outsideStep(), pick: unanswered, hold })
+      const on = await codexRun({ mode: 'on', steps: outsideStep(), pick: unanswered, hold, inject: resolved(1) })
       await eventually(() => on.wheres.length === 1, 'the request being judged')
-      on.handle.close()
-      await eventually(() => children.every(hasExited), 'the app-server exited')
+      on.inject()
+      // The resolution reaches worfy within the fake's 10 ms look at the file; nothing worfy sends shows it.
+      await new Promise((resolve) => setTimeout(resolve, ms(300)))
       release()
       await eventually(() => on.settled() === 1, 'the judging to end')
       await new Promise((resolve) => setTimeout(resolve, 20))
       expect(on.asked).toEqual([])
       expect(on.decided).toEqual([])
-      expect(on.answers()).toEqual(['cancel'])
+      on.handle.close()
+      await eventually(() => children.every(hasExited), 'the app-server exited')
+      expect(on.answers()).toEqual([])
     })
+
+    it('a parked request Codex resolves itself comes off the gate, ends as park-expired and gets no answer', async () => {
+      const on = await codexRun({ mode: 'on', steps: outsideStep(), pick: unanswered, hold: Promise.resolve(), inject: resolved(1) })
+      await eventually(() => on.asked.length === 1, 'the request parked on the gate')
+      on.inject()
+      await eventually(() => on.decided.length === 2, 'the park to end')
+      expect(on.asked[0]?.signal.aborted).toBe(true)
+      expect(on.decided.map((each) => each.outcome)).toEqual(['park', 'park-expired'])
+      on.handle.close()
+      await eventually(() => children.every(hasExited), 'the app-server exited')
+      expect(on.answers()).toEqual([])
+    })
+
+    it('a file change with a grantRoot: the card has no Accept, and an Accept the gate passes on anyway is declined', async () => {
+      const steps = change('patch_grant_outside', [update(join(worktree, 'README.md'))], outside)
+      const on = await codexRun({ mode: 'on', steps, pick: () => Promise.resolve('accept') })
+      expect(on.asked[0]?.options.map((option) => option.id)).toEqual(['decline', 'cancel'])
+      expect(on.answers()).toEqual(['decline'])
+      expect(on.decided.map((each) => each.outcome)).toEqual(['park', 'park-expired'])
+    })
+
+    it('a report that throws leaves no request without its answer', async () => {
+      const on = await codexRun({ mode: 'on', pick: () => Promise.resolve('decline'), broken: 'decided' })
+      expect(on.answers()).toEqual(['accept', 'decline', 'decline', 'accept', 'decline', 'decline', 'decline', 'decline', 'decline', 'decline', 'accept', 'decline', 'decline', 'decline', 'decline', 'accept'])
+      expect(on.asked).toHaveLength(9)
+    })
+  })
+
+  it('a variable not pinned in Codex\'s shell environment has no known value: a command that uses one is not approved, and no decision names its value', async () => {
+    const env = { ...process.env, GITHUB_PAT: 'ghp_pat05value', DB_PASS: 'db05value', NPM_AUTH: 'npm05value', DEMO_DIR: worktree }
+    const steps = [
+      ...command('cmd_pat', zshLc('touch "$TMPDIR/$GITHUB_PAT"'), worktree),
+      ...command('cmd_pass', zshLc(`touch "${join(worktree, 'x')}$DB_PASS"`), worktree),
+      ...command('cmd_auth', zshLc(`touch ${worktree}/$NPM_AUTH`), worktree),
+      ...command('cmd_other', zshLc('touch "$DEMO_DIR/x"'), worktree),
+      ...command('cmd_tmp', zshLc('touch "$TMPDIR/x"'), worktree),
+    ]
+    const on = await codexRun({ mode: 'on', env, steps, pick: () => Promise.resolve('decline') })
+    expect(on.decided.map((each) => [each.outcome, each.rule])).toEqual([
+      ['deny', 'not-judged'],
+      ['deny', 'not-judged'],
+      ['deny', 'not-judged'],
+      ['deny', 'not-judged'],
+      ['allow', 'files-inside-roots+shell-script-inside-roots'],
+    ])
+    expect(on.answers()).toEqual(['decline', 'decline', 'decline', 'decline', 'accept'])
+    for (const value of ['ghp_pat05value', 'db05value', 'npm05value']) expect(JSON.stringify(on.decided)).not.toContain(value)
+    expect(on.threadStart()?.['config']).toMatchObject({ 'shell_environment_policy.set.TMPDIR': on.run.runTemp })
   })
 
   it('git inside the login-shell wrapper: accepted in the Wave\'s worktree, parked once the repository has a hook', async () => {
@@ -535,6 +639,8 @@ describe('the login-shell wrapper of a Codex command (codexScript)', () => {
     ["/opt/homebrew/bin/zsh -lc 'ls'", "zsh -c 'ls'"],
     ["/bin/zsh -lc 'ls\npwd'", "zsh -c 'ls\npwd'"],
     ['/bin/zsh -lc "echo \\$HOME \\`x\\` \\" \\\\"', 'zsh -c "echo \\$HOME \\`x\\` \\" \\\\"'],
+    ['/bin/zsh -lc "it\'s"', 'zsh -c "it\'s"'],
+    ["/bin/zsh -lc ''", "zsh -c ''"],
   ])('%s is judged as %s', (command, script) => {
     expect(codexScript(command)).toBe(script)
   })
@@ -550,12 +656,20 @@ describe('the login-shell wrapper of a Codex command (codexScript)', () => {
     '/bin/zsh -lc "echo $HOME"',
     '/bin/zsh -lc "echo `id`"',
     '/bin/zsh -lc "echo \\\\$HOME"',
+    // One shell word after -lc, nothing after it: no operator, no redirection, no comment, no second part.
+    "/bin/zsh -lc 'touch a' && touch b",
+    "/bin/zsh -lc 'touch a' 2>&1",
+    "/bin/zsh -lc 'touch a' #'",
+    "/bin/zsh -lc 'touch a';touch b",
+    "/bin/zsh -lc 'touch '$WT_DIR'/x'",
+    "/bin/zsh -lc 'touch a'b",
+    "/bin/zsh -lc 'a'\\''b'",
+    '/bin/zsh -lc "touch a" && touch b',
+    '/bin/zsh -lc "touch a"$X',
+    "/bin/zsh -lc 'unclosed",
+    '/bin/zsh -lc "unclosed',
+    '/bin/zsh -lc "ends with \\"',
   ])('%s stays as it is', (command) => {
     expect(codexScript(command)).toBe(command)
-  })
-
-  it('leaves out of the judged environment every name a secret is kept under', () => {
-    const env = { PATH: '/bin', GH_TOKEN: 't', WORFY_MCP_TOKEN: 't', OPENAI_API_KEY: 'k', aws_secret: 's', DB_PASSWORD: 'p', GIT_CREDENTIAL_X: 'c', HOME: '/h' }
-    expect(judgedEnvironment(env)).toEqual({ PATH: '/bin', HOME: '/h' })
   })
 })

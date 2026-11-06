@@ -50,6 +50,8 @@ export interface ParkRequest {
   targets: readonly string[]
   /** The options the Vendor offers; the park offers them without `allow_always`. */
   options: readonly PermissionOption[]
+  /** What the card says after the rule and the targets (Codex: its reason, the host, why Accept is missing); none: nothing. */
+  note?: string | null | undefined
   /** The Vendor's own withdrawal of the request. */
   signal: AbortSignal
   /**
@@ -87,7 +89,7 @@ export function createParker(asker: PermissionAsker, { limitMs = PARK_LIMIT_MS, 
         toolUseId: request.toolUseId,
         input: request.input,
         title: null,
-        description: parkDescription(request.rule, request.targets),
+        description: request.note === null || request.note === undefined ? parkDescription(request.rule, request.targets) : `${parkDescription(request.rule, request.targets)}\n${request.note}`,
         blockedPath: request.blockedPath,
         suggestions: [],
         options: options.map((option) => ({ ...option })),

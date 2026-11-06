@@ -61,9 +61,9 @@ import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
 import { approvalMode, reportedOutcome } from '../../agent/auto-approve/mode'
 import { createParker, type ParkEnd } from '../../agent/auto-approve/park'
 import type { Decision } from '../../agent/auto-approve/policy'
-import type { PermissionAsk, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
+import type { ApprovalDecided, PermissionAsk, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import type { CodexAppServer } from './app-server'
-import { approvalAsk, decisionOf, isApprovalRequest, judgedEnvironment, policyRequestOf, UNATTENDED_DECLINED_MESSAGE, withGrantRoot, type CodexApprovalRequest, type CodexDecision } from './approvals'
+import { approvalAsk, codexPinConfig, codexPinned, decisionOf, isApprovalRequest, parkedCard, policyRequestOf, UNATTENDED_DECLINED_MESSAGE, withGrantRoot, type CodexApprovalRequest, type CodexDecision } from './approvals'
 import type { CodexRuntime } from './binary'
 import { codexModelOptions, codexPermissionPreset, codexPresetFor, codexSandboxPolicy, codexSettings, type CodexModelSource } from './capabilities'
 import { codexCommandOf, codexSlashCommands, CODEX_BUILT_IN_COMMANDS, slashName, type CodexCommand, type CodexSkillSource } from './commands'
@@ -174,6 +174,8 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
   private server: CodexAppServer | null = null
   /** The whole environment of the app-server process, which the shells of the Session inherit; null: not known. */
   private processEnv: Readonly<Record<string, string | undefined>> | null = null
+  /** The variables worfy pinned in every command's shell (codexPinned); null: none, as in Off. */
+  private pinned: readonly string[] | null = null
   private threadId = ''
   private readonly out = new InputQueue<AgentEvent>()
   /** Set once the events ended or the handle was closed: nothing more goes out. */
@@ -221,10 +223,14 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
     })
   }
 
-  /** The process, once its handshake is done, and the whole environment it started with: what it sends from now on reaches this handle. */
-  started(server: CodexAppServer, env: Readonly<Record<string, string | undefined>> | null): void {
+  /**
+   * The process, once its handshake is done, the whole environment it started with and the variables pinned in its
+   * commands' shells: what it sends from now on reaches this handle.
+   */
+  started(server: CodexAppServer, env: Readonly<Record<string, string | undefined>> | null, pinned: readonly string[] | null): void {
     this.server = server
     this.processEnv = env
+    this.pinned = pinned
   }
 
   /** The thread answered: the Session takes messages, and the end of the process ends the events. */
@@ -619,18 +625,21 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
    * policy. The request stays open while it is judged: Interrupt and the close answer it `cancel`, and Codex may
    * withdraw it; either way no decision is reported (Claude Code's canUseTool cannot be withdrawn, and reports each).
    * The command is judged in the folder Codex names for it, a file change in the Session's folder, both in the
-   * environment the app-server process started with, its secrets left out. Shadow declines as Off does and reports what would
-   * have been done; On accepts what the policy allows, declines what it denies, and parks the rest on the Session's gate
-   * (worfy-auto-approve ticket 07, park.ts): the owner's pick is the answer, and a park that ends without one — the limit,
-   * a stop of the run, the gate's refusal, the request withdrawn — is declined. A request withdrawn before the policy
-   * decided is not parked. A decision is for this request only: never `acceptForSession`, which the park does not offer.
+   * environment the app-server process started with, where only the variables worfy pinned have a known value. Shadow
+   * declines as Off does and reports what would have been done; On accepts what the policy allows, declines what it
+   * denies, and parks the rest on the Session's gate (worfy-auto-approve ticket 07, park.ts; parkedCard): the owner's
+   * pick is the answer, and a park that ends without one — the limit, a stop of the run, the gate's refusal, the request
+   * withdrawn — is declined. A request withdrawn before the policy decided is not parked. A decision is for this request
+   * only: never `acceptForSession`, which the park does not offer, and no Accept for a grantRoot. Codex is answered
+   * before the decision is reported, so a report that fails leaves no request without its answer.
    */
   private judged(request: CodexApprovalRequest, ask: Omit<PermissionAsk, 'signal'>, approval: SessionApproval, mode: Exclude<AutoApprovalMode, 'off'>): void {
     const pending = new AbortController()
     this.approvals.set(request.id, pending)
     const { request: judged, cwd, grantRoot } = policyRequestOf(request, ask)
-    // The secrets of the process are left out: a command's shell may not have them (judgedEnvironment).
-    const where = { cwd: judged.tool === 'fileChange' ? this.opts.cwd : cwd, scratchpad: null, ...(this.processEnv === null ? {} : { env: judgedEnvironment(this.processEnv) }) }
+    // The whole environment, for what its presence changes (IFS, BASH_ENV…); a value only of a pinned variable: Codex's
+    // shell_environment_policy may leave any other out of the command's shell.
+    const where = { cwd: judged.tool === 'fileChange' ? this.opts.cwd : cwd, scratchpad: null, ...(this.processEnv === null ? {} : { env: this.processEnv }), known: this.pinned ?? [] }
     const failed: Decision = { outcome: 'deny', rule: 'policy-failed', hint: null, targets: [] }
     void approval
       .judge(judged, where)
@@ -649,10 +658,18 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
           command: typeof command === 'string' ? command : null,
           ...(ask.description === null ? {} : { reason: ask.description }),
         }
+        const report = (decided: ApprovalDecided): void => {
+          try {
+            approval.decided(decided)
+          } catch (error) {
+            console.warn('[codex] could not report an Auto-approval decision', error)
+          }
+        }
         if (mode === 'on' && final.outcome === 'park') {
           // Codex withdrew the request, or the turn was interrupted: nothing to park, nothing is reported.
           if (!this.approvals.has(request.id)) return
-          approval.decided({ ...line, outcome: 'park' })
+          report({ ...line, outcome: 'park' })
+          const card = parkedCard(request, ask, grantRoot)
           const end = await createParker(this.opts.permissions)({
             toolName: ask.toolName,
             toolUseId: ask.toolUseId,
@@ -660,23 +677,24 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
             blockedPath: ask.blockedPath,
             rule: final.rule,
             targets: final.targets,
-            options: ask.options,
+            options: card.options,
+            note: card.note,
             signal: pending.signal,
             waits: () => approval.parks?.() ?? true,
           }).catch((): ParkEnd => ({ outcome: 'expired' }))
           if (end.outcome === 'answered') {
-            approval.decided({ ...line, outcome: 'park-answered', answer: end.kind === 'deny' ? 'deny' : 'allow' })
             this.answer(request.id, decisionOf(end.option))
+            report({ ...line, outcome: 'park-answered', answer: end.kind === 'deny' ? 'deny' : 'allow' })
             return
           }
-          approval.decided({ ...line, outcome: 'park-expired' })
           this.answer(request.id, 'decline')
+          report({ ...line, outcome: 'park-expired' })
           return
         }
         const answered = mode === 'on' && final.outcome === 'allow' ? 'accept' : 'decline'
         // Codex withdrew the request, or the turn was interrupted: the agent got no decision, nothing is reported.
         if (!this.answer(request.id, answered)) return
-        approval.decided({ ...line, outcome: reportedOutcome(mode, final.outcome) })
+        report({ ...line, outcome: reportedOutcome(mode, final.outcome) })
       })
   }
 
@@ -733,6 +751,9 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
   // The run's TMPDIR and git environment of an unattended Session at Shadow or On (worfy-auto-approve tickets 04, 05);
   // without them, in Off, the environment as before.
   const env = opts.environment === undefined ? tokenEnv : { ...tokenEnv, ...opts.environment }
+  // The same variables pinned in every command's shell, so a request is judged with the values its command gets; none in Off.
+  const pinned = opts.environment === undefined ? null : codexPinned(env, opts.environment)
+  const config = { ...mcp?.config, ...(pinned === null ? {} : codexPinConfig(pinned)) }
   /** What the process was spawned with: the approval policy judges each request in it. */
   let processEnv: NodeJS.ProcessEnv | null = null
   let server: CodexAppServer
@@ -760,14 +781,15 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
   }
   // The token lives as long as the process: it ends when the process exits, or when the handle closes.
   if (mcp !== null) server.process.once('exit', () => mcp.close())
-  session.started(server, processEnv)
+  session.started(server, processEnv, pinned === null ? null : Object.keys(pinned))
   try {
     const params = {
       cwd: opts.cwd,
       approvalPolicy: preset.approvalPolicy,
       sandbox: preset.sandbox,
       ...(opts.settings.model === null ? {} : { model: opts.settings.model }),
-      ...(mcp === null ? {} : { config: mcp.config, developerInstructions: mcp.developerInstructions }),
+      ...(Object.keys(config).length === 0 ? {} : { config }),
+      ...(mcp === null ? {} : { developerInstructions: mcp.developerInstructions }),
     }
     const response =
       resume === undefined
