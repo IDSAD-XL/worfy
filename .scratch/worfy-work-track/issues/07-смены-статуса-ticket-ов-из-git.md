@@ -23,9 +23,13 @@ Source: [spec.md](../spec.md), «Как работает» → «Источни�
 ## Готово, когда
 
 - [ ] Unit test разбора: все формы из research 04 и неизвестная форма (`null`, без ошибки).
+  - evidence: test-run pass · `pnpm test -- test/unit/work-track-status-value.test.ts` exit 0 · mac - · 70447ad4f76a5f728271162fbe05917b7d13efcb
 - [ ] Contract test на временном репозитории: claim и done в ветке, squash в main — две смены с временем значения;
       смена без времени — время коммита ветки; репозиторий не изменён.
+  - evidence: test-run pass · `pnpm test -- test/contract/work-track-ticket-status.test.ts` exit 0 · mac - · 70447ad4f76a5f728271162fbe05917b7d13efcb
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 70447ad4f76a5f728271162fbe05917b7d13efcb
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 70447ad4f76a5f728271162fbe05917b7d13efcb
 
 ## Тесты
 
@@ -38,3 +42,31 @@ Source: [spec.md](../spec.md), «Как работает» → «Источни�
 - `test/unit/work-track-status-value.test.ts`, `test/contract/work-track-ticket-status.test.ts` (новые)
 
 Только читать: `harness/bin/epic-status` (разбор `Status:` Harness-а), `harness/bin/TICKETS.md`.
+
+## Итог
+
+- `src/shared/work-track/status-value.ts` — чистый разбор значения `Status:`: состояние (`open`, `claimed`, `blocked`,
+  `done`; старое `in-progress` — `claimed`) и время трёх видов: момент (ISO с `Z` или смещением), дата и время без
+  пояса (`done 2026-11-01 00:00` — пояс берётся у коммита, который его записал), только дата. Неизвестное слово — `null`
+  без ошибки; дата в тексте причины (`blocked — отложен … 2026-10-12`) временем не считается.
+- `src/main/work-track/ticket-status.ts` — два `git log -p --unified=0` по `.scratch/*/issues/*.md`: main
+  (`origin/main`, без него — `HEAD`) с начала периода и `--remotes --not <main>` с запасом 14 дней до начала. Смена —
+  строка `Status:` в первых 15 строках файла с другим состоянием до и после коммита. Смена в main, чьё новое значение
+  есть в ветке, — та же смена: остаётся ветка, номер PR берётся из `(#N)` коммита main. `git` только читает
+  (`GIT_OPTIONAL_LOCKS=0`); `readTicketStatusFacts` отдаёт факты `ticket-status` источника `git` (`start` = `end`).
+- Сначала падающий test: оба test-а красные на `ceb9435e4` — модулей нет (vitest не находит импорт, 2 файла failed); после
+  реализации 45 unit- и 9 contract-test-ов зелёные.
+- Проверка на истории репозитория worfy (только чтение): 30 дней — 1234 смены за 0.34 с; время из значения у 931,
+  из коммита ветки у 189, из коммита main у 114.
+
+Решено без владельца:
+
+1. **Время ветки — дата автора коммита**, не коммиттера: rebase меняет вторую, а смена была сделана в момент первой.
+   Время main — дата коммиттера (момент merge).
+2. **Новый файл Ticket-а — смена, только если он сразу `claimed` или `done`** (`from: null`, в заголовке «new»).
+   Созданный `open` или `blocked` — не работа, а нарезка Ticket-ов.
+3. **Смена формы без смены состояния** (`claimed — 2026-11-05` → `claimed 2026-11-05`, `ticket migrate`) — не смена.
+4. **Запас 14 дней для веток**: squash в периоде повторяет коммиты ветки до периода; без них он считался бы новой
+   сменой во время squash.
+5. **Строка `Status:` в теле Ticket-а** (дальше 15-й строки) — не заголовок, не читается.
+6. **`outcome`** факта — `blocked` для смены в `blocked`, иначе `ok`; `title` — `07 claimed → done`.
