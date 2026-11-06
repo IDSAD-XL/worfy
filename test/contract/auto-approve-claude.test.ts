@@ -490,7 +490,8 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     await h.runToEnd()
     const journal = await h.journal()
     expect(journal[0]).toMatchObject({ kind: 'run-started', vendor: 'codex', autoApproval: 'on' })
-    expect(journal.filter((event) => event.kind === 'auto-approval')).toHaveLength(4)
+    // The four requests, the parked one with the owner's answer (ticket 07).
+    expect(journal.filter((event) => event.kind === 'auto-approval').map((line) => line.outcome)).toEqual(['allow', 'park', 'park-answered', 'hard-deny', 'deny'])
     expect(existsSync(join(h.env.WORFY_DATA_DIR, 'autopilot-tmp')) ? readdirSync(join(h.env.WORFY_DATA_DIR, 'autopilot-tmp')) : []).toEqual([])
   })
 
