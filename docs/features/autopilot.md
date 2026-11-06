@@ -160,7 +160,10 @@ While a run goes on:
   it changes not approved. Git is read again at each request that writes a file or runs git, in the Project's root and,
   when a worktree may have config of its own (`git config --worktree`, an `includeIf`), in the checkout each git
   command runs in and in each worktree of the Wave: a hook or a program the agent put into the git config since is
-  seen; where the refs are kept in reftable, the default branch is read from git as well. Writing a config file the
+  seen; where the refs are kept in reftable, the default branch is read from git as well. When git lists the config
+  but will not name the git folders (a path key with no value, such as `core.excludesFile`), they are read from the
+  `.git` folder or file and its `commondir`, and only when git listed that repository's config; otherwise the facts
+  count as unknown and no write or git command is approved. Writing a config file the
   environment names (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `XDG_CONFIG_HOME/git/config`), even an empty one, is
   never approved, as writing `.git/config`. A request that only reads, and runs no git, reads no git. Git in a worktree
   whose `.git` file or `commondir`

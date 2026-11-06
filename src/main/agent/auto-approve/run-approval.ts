@@ -34,7 +34,7 @@
 // shell folder the Vendor did not tell is not judged in another folder.
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdir, readdir, readFile, realpath } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { isRunId, makeRunId, RUN_ID_SUFFIX_LENGTH } from '../../../shared/autopilot/journal'
 import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
@@ -225,9 +225,10 @@ function configFilesOf(entries: readonly ConfigEntry[], folder: string, env: Nod
  */
 async function refsFromGit(folder: string, env: NodeJS.ProcessEnv): Promise<{ origin: string; current: string }> {
   const listed = await runGit(folder, ['for-each-ref', '--format=%(HEAD)%00%(refname)%00%(symref)', 'refs/remotes/origin/HEAD', 'refs/heads/'], env)
+  // No list, no default branch: a guess (main) would take the hard denies off the real one.
+  if (listed.code !== 0) throw new Error(`could not list the refs of the ref store in ${folder} (exit code ${String(listed.code)})`)
   let origin = ''
   let current = ''
-  if (listed.code !== 0) return { origin, current }
   for (const line of listed.stdout.split(/\r?\n/)) {
     const [mark, name, target] = line.split('\0')
     if (name === 'refs/remotes/origin/HEAD') origin = /^refs\/remotes\/origin\/(.+)$/.exec(target ?? '')?.[1] ?? ''
@@ -237,21 +238,58 @@ async function refsFromGit(folder: string, env: NodeJS.ProcessEnv): Promise<{ or
 }
 
 /**
+ * The git folders of the checkout at `folder` read from the files, for a git that lists the config and still refuses
+ * `rev-parse` — a key it reads as a path given with no value: core.excludesFile, and core.hooksPath on Git for Windows
+ * 2.45 (issue #1481). The nearest `.git` folder or `.git` file at or above `folder`, and the `commondir` of that git
+ * folder. Null when there is no `.git` up to the root: no repository. Throws when the folders cannot be told — GIT_DIR,
+ * GIT_COMMON_DIR or GIT_WORK_TREE in `env`, a `.git` that cannot be read, or a common folder whose config is not one
+ * of `configFiles` (git listed another repository's config, or none): the facts are then unknown, never "no
+ * repository".
+ */
+async function gitDirsFromFiles(folder: string, env: NodeJS.ProcessEnv, configFiles: readonly string[]): Promise<{ gitDir: string; common: string } | null> {
+  const unknown = (why: string): Error => new Error(`could not find the git folder of ${folder}: ${why}`)
+  if (['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE'].some((name) => env[name] !== undefined)) throw unknown('git rev-parse failed, and the environment names the git folders')
+  let gitDir: string | null = null
+  for (let dir = resolve(folder); gitDir === null; dir = dirname(dir)) {
+    const dotGit = join(dir, '.git')
+    const found = await stat(dotGit).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw unknown(`${dotGit} cannot be read`)
+    })
+    if (found?.isDirectory() === true) gitDir = dotGit
+    else if (found !== null) {
+      const named = /^gitdir: (.+)$/.exec((await firstLine(dotGit)) ?? '')?.[1]
+      if (named === undefined) throw unknown(`${dotGit} names no git folder`)
+      gitDir = resolve(dir, named)
+    } else if (dirname(dir) === dir) return null
+  }
+  const commondir = await firstLine(join(gitDir, 'commondir'))
+  const common = commondir === null ? gitDir : resolve(gitDir, commondir)
+  // Compared as written, not by real path: a mismatch leaves the facts unknown, it never relaxes a rule.
+  const config = join(common, 'config')
+  if (!configFiles.some((file) => samePath(file, config, process.platform))) throw unknown(`git did not list the config of ${common}`)
+  return { gitDir, common }
+}
+
+/**
  * The git facts of the checkout at `folder` (GitFacts), read in the environment `env` with two git calls (three for a
  * ref store that is no files: refsFromGit) — the
  * config with the origin of each entry, and the git folders — and the rest from the files: the hooks folder, HEAD,
- * origin/HEAD, the remotes of the old `remotes/` and `branches/` folders. Throws when the config cannot be read: the
- * policy needs core.hooksPath.
+ * origin/HEAD, the remotes of the old `remotes/` and `branches/` folders. When `rev-parse` fails, the git folders come
+ * from the files (gitDirsFromFiles). Throws when the config cannot be read (the policy needs core.hooksPath), and when
+ * the git folders or the refs of a ref store that is no files cannot be told.
  */
 export async function readGitFacts(folder: string, env: NodeJS.ProcessEnv): Promise<GitFacts> {
   const [config, dirs] = await Promise.all([runGit(folder, ['config', '--list', '-z', '--show-origin'], env), runGit(folder, ['rev-parse', '--git-dir', '--git-common-dir'], env)])
   if (config.code !== 0) throw new Error(`could not read git's config (core.hooksPath and the rest) in ${folder} (exit code ${String(config.code)})`)
   const entries = configEntries(config.stdout)
   const last = (key: string): ConfigEntry | undefined => entries.findLast((entry) => entry.key === key)
+  const configFiles = configFilesOf(entries, folder, env)
   const lines = dirs.code === 0 ? dirs.stdout.split(/\r?\n/).filter((line) => line !== '') : []
-  const repository = lines.length === 2
-  const gitDir = resolve(folder, lines[0] ?? '.')
-  const common = resolve(folder, lines[1] ?? '.')
+  const fromFiles = lines.length === 2 ? null : await gitDirsFromFiles(folder, env, configFiles)
+  const repository = lines.length === 2 || fromFiles !== null
+  const gitDir = fromFiles?.gitDir ?? resolve(folder, lines[0] ?? '.')
+  const common = fromFiles?.common ?? resolve(folder, lines[1] ?? '.')
   const [hookFiles, head, originHead, legacyRemotes, legacyBranches] = repository
     ? await Promise.all([namesIn(join(common, 'hooks')), firstLine(join(gitDir, 'HEAD')), firstLine(join(common, 'refs', 'remotes', 'origin', 'HEAD')), namesIn(join(common, 'remotes')), namesIn(join(common, 'branches'))])
     : [null, null, null, null, null]
@@ -277,7 +315,7 @@ export async function readGitFacts(folder: string, env: NodeJS.ProcessEnv): Prom
     rebaseUpdateRefs: !repository ? null : updateRefs === undefined ? false : gitBool(updateRefs.value),
     remotes: repository ? [...remotes] : null,
     defaultBranch: origin !== '' ? origin : current !== '' && current !== '.invalid' ? current : 'main',
-    configFiles: configFilesOf(entries, folder, env),
+    configFiles,
     checkoutConfig: entries.some((entry) => (entry.key === 'extensions.worktreeconfig' && gitBool(entry.value) === true) || entry.key.startsWith('includeif.')),
     commonDir: repository ? common : null,
   }

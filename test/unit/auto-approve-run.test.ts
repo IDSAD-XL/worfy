@@ -2,9 +2,9 @@
 // (hooksActive, hooksPath, rebase.updateRefs, remotes, the default branch), the git environment of its
 // Session, the worktrees of its Wave, and the Journal's cleaning of a command.
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, truncateSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { HARD_HINTS, hardHint, HINTS, includeHomes, type Decision } from '../../src/main/agent/auto-approve/policy'
 import { configRunsProgram, GIT_CONFIG_PARAMETERS, gitEnvironment, hooksActiveOf, openRunApproval, readCheckouts, readGitFacts, runTempsDir, sweepRunTemps } from '../../src/main/agent/auto-approve/run-approval'
@@ -778,6 +778,87 @@ describe('readGitFacts and openRunApproval: the leftovers of the review of ticke
     }
     expect(await approval.judge({ tool: 'Write', input: { file_path: join(wt(), 'other.txt'), content: 'x' } }, at)).toMatchObject({ outcome: 'allow' })
     await approval.close()
+  })
+
+  it('a valueless config entry that stops git rev-parse (core.excludesFile; core.hooksPath on Git for Windows 2.45): the git folders come from the files, every fact as before (issue #1481)', async () => {
+    git(repo, 'remote', 'add', 'origin', 'https://example.invalid/demo.git')
+    git(repo, 'branch', 'trunk')
+    git(repo, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD')
+    git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk')
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/01', wt())
+    // The worktree's .git file names its git folder by a relative path (git worktree add --relative-paths), read from
+    // the folder of that file. Written in place: Git for Windows hides the file, and Windows refuses a new hidden file.
+    const dotGit = join(wt(), '.git')
+    const named = /^gitdir: (.+)$/.exec(readFileSync(dotGit, 'utf8').trim())?.[1] ?? ''
+    truncateSync(dotGit, 0)
+    writeFileSync(dotGit, `gitdir: ${relative(wt(), named).replaceAll('\\', '/')}\n`, { flag: 'r+' })
+    writeFileSync(join(repo, '.git', 'hooks', 'pre-push'), '#!/bin/sh\n')
+    const before = { root: await readGitFacts(repo, gitEnv()), worktree: await readGitFacts(wt(), gitEnv()) }
+    const config = join(repo, '.git', 'config')
+    writeFileSync(config, `${readFileSync(config, 'utf8')}[core]\n\texcludesFile\n`)
+    // git itself refuses the git folders now, and still lists the config.
+    expect(() => git(repo, 'rev-parse', '--git-dir')).toThrow()
+    mkdirSync(join(wt(), 'sub'))
+    // A folder reached through a symbolic link: git lists the config by its real path.
+    const link = join(scratch, 'link')
+    if (process.platform !== 'win32') symlinkSync(wt(), link)
+    for (const [folder, known] of [[repo, before.root], [wt(), before.worktree], [join(wt(), 'sub'), before.worktree], ...(process.platform === 'win32' ? [] : [[join(link, 'sub'), before.worktree] as const])] as const) {
+      const facts = await readGitFacts(folder, gitEnv())
+      expect({ ...facts, configFiles: facts.configFiles.map(samePathForm).sort(), commonDir: samePathForm(facts.commonDir ?? '') }, folder).toEqual({ ...known, configFiles: known.configFiles.map(samePathForm).sort(), commonDir: samePathForm(known.commonDir ?? '') })
+    }
+    expect(before.root).toMatchObject({ defaultBranch: 'trunk', remotes: ['origin'], hooksActive: true })
+    // git worktree list stops on the same entry: with no list of checkouts the policy approves nothing, a hard deny of
+    // the default branch included (it is refused, as no-checkouts).
+    const approval = await openRunApproval({ root: repo, epic: 'demo', dataDir: join(scratch, 'data'), harnessHome: join(scratch, 'harness'), shellEnv: shell(), gitEnv: gitEnv(), sessions: { list: () => [] } })
+    approval.setWave(['01'])
+    const at = { cwd: wt(), scratchpad: null, sessionId: 's', started: { ...approval.environment, GIT_NO_LAZY_FETCH: '1' } }
+    for (const command of ['git push origin HEAD:trunk', 'git checkout -b trunk', 'git status']) {
+      expect(await approval.judge({ tool: 'Bash', input: { command } }, at), command).toMatchObject({ outcome: 'deny', rule: 'no-checkouts' })
+    }
+    expect(await approval.judge({ tool: 'Write', input: { file_path: join(repo, '.git', 'hooks', 'post-checkout'), content: 'x' } }, at)).toMatchObject({ outcome: 'deny', rule: 'no-checkouts' })
+    await approval.close()
+  })
+
+  it('git facts that cannot be found when git rev-parse fails are unknown, never a folder without a repository: readGitFacts throws (issue #1481)', async () => {
+    const config = join(repo, '.git', 'config')
+    writeFileSync(config, `${readFileSync(config, 'utf8')}[core]\n\texcludesFile\n`)
+    // A .git file that names a git folder whose config is not the one git listed.
+    const odd = join(scratch, 'odd')
+    mkdirSync(odd)
+    writeFileSync(join(odd, '.git'), `gitdir: ${join(scratch, 'nowhere')}\n`)
+    await expect(readGitFacts(odd, { ...gitEnv(), GIT_DIR: join(repo, '.git') })).rejects.toThrow(/git folder/)
+    // A .git file that names no repository: git cannot read the config either.
+    await expect(readGitFacts(odd, gitEnv())).rejects.toThrow(/could not read git's config/)
+    // git stops above the folder (a ceiling), the files find the repository: git listed no config of it.
+    mkdirSync(join(repo, 'sub'))
+    await expect(readGitFacts(join(repo, 'sub'), { ...gitEnv(), GIT_CEILING_DIRECTORIES: repo })).rejects.toThrow(/did not list the config/)
+    // The environment names the git folders: git reads them, the files above the folder do not tell them.
+    await expect(readGitFacts(repo, { ...gitEnv(), GIT_DIR: join(repo, '.git') })).rejects.toThrow(/environment names the git folders/)
+    // Above a ceiling: a .git file with no gitdir line, and a .git that cannot be read (a symbolic link to itself).
+    mkdirSync(join(odd, 'sub'))
+    writeFileSync(join(odd, '.git'), 'nothing\n')
+    await expect(readGitFacts(join(odd, 'sub'), { ...gitEnv(), GIT_CEILING_DIRECTORIES: odd })).rejects.toThrow(/names no git folder/)
+    if (process.platform !== 'win32') {
+      rmSync(join(odd, '.git'))
+      symlinkSync(join(odd, '.git'), join(odd, '.git'))
+      await expect(readGitFacts(join(odd, 'sub'), { ...gitEnv(), GIT_CEILING_DIRECTORIES: odd })).rejects.toThrow(/cannot be read/)
+    }
+    // A folder with no .git up to the root stays a folder without a repository.
+    const outside = mkdtempSync(join(tmpdir(), 'worfy-aa13-outside-'))
+    try {
+      expect(await readGitFacts(outside, gitEnv())).toMatchObject({ remotes: null, commonDir: null, rebaseUpdateRefs: null })
+    } finally {
+      removeTestTree(outside)
+    }
+  })
+
+  it.runIf(reftable)('a reftable repository whose refs git cannot list (a valueless config entry): the default branch is unknown, never main (issue #1481)', async () => {
+    const store = join(scratch, 'reftable')
+    git(scratch, 'init', '-q', '--ref-format=reftable', '-b', 'trunk', store)
+    git(store, 'commit', '-q', '--allow-empty', '-m', 'demo')
+    const config = join(store, '.git', 'config')
+    writeFileSync(config, `${readFileSync(config, 'utf8')}[core]\n\texcludesFile\n`)
+    await expect(readGitFacts(store, gitEnv())).rejects.toThrow(/could not list the refs/)
   })
 
   it('the config files of the environment are git\'s even when empty: GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, XDG_CONFIG_HOME/git/config; /dev/null is none', async () => {

@@ -154,3 +154,38 @@ merge PR #1469: он правит `policy.ts` и ту же страницу.
 
 Проверки на `264319dc6`: unit и contract test-ы модулей — 14 файлов, 1107 test-ов, exit 0. `pnpm lint`, `pnpm
 typecheck` — exit 0. `gate fast` — exit 0, `[gate] green (fast)`.
+
+### Итог проверки раунда 2 и issue #1481
+
+- **Low 1 — комментарий об относительном `GIT_CONFIG_GLOBAL`** (`run-approval.ts`, `configFilesOf`). Теперь он
+  говорит, что git читает такой путь дважды: ранний разбор (alias-ы) — от папки запуска, остальное — от верха
+  checkout-а. Охрану папки запуска не добавил: охрана по `needs.git` не остановит запись и запуск в двух разных
+  запросах, а команда, которую меняет alias, и так не получает allow (запись `UNKNOWN`).
+- **Low 2 — ANSI-C кавычки `$'…'`** (`journal.ts`, `PROGRAM_AT`). `$'…'` теперь считается кавычками, как `'…'`.
+  Test: `curl -d $'\';docker run -u 1000:424242 ' …` → `1000:***`; разделитель внутри `$'…'` не открывает
+  исключение. Красный до правки.
+- **Issue #1481 — `git rev-parse` падает на config с ключом-путём без значения.** Git for Windows 2.45 так читает
+  `[core] hooksPath` без значения; любой git — `core.excludesFile` без значения (воспроизведено на git 2.50:
+  `rev-parse` exit 128, `config --list` exit 0).
+  - Что policy отвечала до правки (проверено test-ом на копии): `readGitFacts` брала `repository=false`, но `git
+    worktree list` падает на том же ключе, и каждый запрос с записью или git получал deny `no-checkouts`. Allow не
+    было ни одного. Hard deny (push и `checkout -b` в ветку по умолчанию) превращались в обычный deny.
+  - Правка: `readGitFacts` больше не зависит от `rev-parse`. Если он упал, папки git читаются из файлов
+    (`gitDirsFromFiles`): ближайшая папка или файл `.git` вверх от папки, `gitdir:` (относительный — от папки файла),
+    затем `commondir`. Результат принимается, только если git выдал config именно этого common folder (`<common>/config`
+    есть среди origin-ов `config --list`). Иначе — ошибка «could not find the git folder», то есть факты неизвестны:
+    при старте run идёт без policy, при запросе — deny `no-git-facts`, для worktree — git в нём не одобряется.
+    `GIT_DIR`, `GIT_COMMON_DIR`, `GIT_WORK_TREE` в окружении — тоже «неизвестно». Нет `.git` до корня — «нет
+    репозитория», как раньше.
+  - Почему так, а не `-c core.hooksPath=`: git умирает на первом ключе-пути без значения при чтении config, и ключ
+    может быть любым (`core.excludesFile`), так что параметр для одного ключа не спасает. Чтение файлов не зависит от
+    версии git; сверка с origin-ами config-а не даёт принять чужой репозиторий (ceiling, `safe.directory`).
+  - Заодно: `refsFromGit` (reftable) при ошибке `for-each-ref` бросает ошибку, а не отвечает «main». Раньше упавший
+    git молча давал ветку по умолчанию `main` и снимал hard deny с настоящей.
+  - Test-ы (`test/unit/auto-approve-run.test.ts`, «issue #1481»): факты репозитория, worktree (с относительным
+    `gitdir:`), подпапки и папки через symlink — те же, что до порчи config-а; policy отвечает deny `no-checkouts`, без
+    allow. Факты неизвестны: `GIT_DIR`, ceiling, `.git` без `gitdir:`, `.git`-symlink на себя; папка вне репозитория
+    — «нет репозитория». Reftable с упавшим `for-each-ref` — ошибка. Красные до правки; mutation testing — 12
+    мутантов, 11 убиты сразу, выживший (`realpath` при сверке) убран из кода. Test `:153` (`hooksPath` без значения)
+    на Git 2.45 теперь идёт через чтение файлов; сам Git 2.45 здесь не проверен — проверка в CI Windows и на PC.
+
