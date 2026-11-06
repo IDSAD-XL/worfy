@@ -22,7 +22,7 @@ Orchestrator отмечает пункты «(вручную)» в Ticket-е и 
 
 1. [`worfy-multi-vendor` 43](#worfy-multi-vendor-43) — Mac, затем ПК.
 2. [`worfy-windows` 16](#worfy-windows-16) — ПК.
-3. [`worfy-faults` 08](#worfy-faults-08) и [`worfy-evidence` 09](#worfy-evidence-09) — код готов.
+3. [`worfy-evidence` 09](#worfy-evidence-09) — код готов. ([`worfy-faults` 08](#worfy-faults-08) — принят 2026-11-06.)
 4. [`worfy-auto-approve` 11](#worfy-auto-approve-11) — ещё не готово: ждёт Ticket-ов 05, 08, 10, 13, 14.
 5. [`worfy-retry` 11](#worfy-retry-11) — ещё не готово: ждёт Ticket-ов 05–10, 14.
 6. [`worfy-autopilot-queue` 20](#worfy-autopilot-queue-20) — ещё не готово: ждёт Ticket-ов 07–19.
@@ -107,22 +107,7 @@ Mac:
 
 ## worfy-faults 08
 
-Приёмка набора сценариев сбоев Autopilot ([Ticket](worfy-faults/issues/08-приёмка-с-владельцем.md), полный чек-лист — там
-же, раздел «Чек-лист приёмки», состав подтверждён владельцем 2026-11-06).
-
-- **Где:** Mac Stable `66c3a490` или новее (PR-ы Epic-а не правят `src/`), без ПК.
-- **Время:** ~5 мин; Run Orchestrator-а тратит немного usage Claude Code.
-- **Перед началом Orchestrator сделает:** worktree и шаги 1–4 и 7 чек-листа (unit, contract, e2e под замком
-  `/tmp/worfy-e2e.lock`, уборка); ссылки на job-ы `linux-tests`, `windows`, `macos-e2e`, `windows-e2e` и время test-ов
-  по логам CI; `git log` без `src/`; Demo project (`~/worfy-demo`) в Stable с Epic-ом `todo`; через CDP — Force Quit
-  посреди Wave (Q7; И1, И4, И6): Autopilot, `kill -9` по pid worfy, перезапуск, Run сам не продолжился, Run history —
-  `no stop in the Journal`, новый Run стартует кнопкой, Stop.
-
-1. Сделай: прочитай разделы «Правила восстановления» и «Сценарии» в [spec](worfy-faults/spec.md) и строки
-   `autopilot-faults` таблицы «Tests» в `docs/features/autopilot.md` → Должно быть: ответ «хватает» или какой сбой
-   добавить (новый сбой — новый Ticket).
-
-Результат — в Ticket `worfy-faults` 08, «Итог»; отметки «Готово, когда» spec-а.
+Принят 2026-11-06 — «Итог» [Ticket-а](worfy-faults/issues/08-приёмка-с-владельцем.md#итог).
 
 ## worfy-evidence 09
 
