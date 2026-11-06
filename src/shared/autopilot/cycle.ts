@@ -16,8 +16,9 @@
 // blockers done (they would be the Wave if they were open; ADR-0033), else with `no-ready-wave`;
 // the same holds at the start of the run.
 //
-// Waves are counted per run from 1: `wave` is the run's count, not the Wave number of the Epic's
-// plan. The text the Orchestrator gets names the Wave's Tickets (ADR-0033).
+// Waves are counted per cycle from 1: `wave` is the cycle's count, not the Wave number of the Epic's
+// plan. A run over a queue of Epics starts a cycle for each Epic, so its count starts again at 1 with
+// each Epic (worfy-autopilot-queue ticket 14). The text the Orchestrator gets names the Wave's Tickets (ADR-0033).
 //
 // Stop by the user is graceful (worfy-week ticket 18, ADR-0051): no new Ticket, the ones in work
 // finish. Before the Wave is sent, and once the Orchestrator's turn has ended with no task left

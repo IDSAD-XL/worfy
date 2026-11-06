@@ -3,6 +3,7 @@
 // src/main/autopilot/run.ts, handled in src/main/ipc/autopilot.ts (ADR-0006).
 import { z } from 'zod'
 import { AUTOPILOT_STOP_REASONS } from '../autopilot/cycle'
+import { MAX_QUEUE_EPICS } from '../autopilot/epic-queue'
 import { ESTIMATE_WAVES } from '../autopilot/limits-estimate'
 import { RUN_MODES, WINDOW_WAIT_REASONS } from '../autopilot/run-mode'
 import { DURATION_WAVES } from '../autopilot/wave-duration'
@@ -23,15 +24,32 @@ export const harnessBehindSchema = z.object({ harness: z.string().min(1), main: 
 export type HarnessBehind = z.infer<typeof harnessBehindSchema>
 
 /**
+ * What the state says of an Epic of a run's queue (worfy-autopilot-queue ticket 14): `done` — all its Tickets
+ * done; `waits-owner` — passed, only Tickets for the owner were left; `elsewhere` — passed, it ran on another
+ * Machine when the run reached it; `running` — the Epic the run is on (or stopped on); `next` — not started yet.
+ */
+export const QUEUE_EPIC_STATUSES = ['done', 'running', 'next', 'waits-owner', 'elsewhere'] as const
+export type QueueEpicStatus = (typeof QUEUE_EPIC_STATUSES)[number]
+
+/**
  * The Project's run: `running`; `waiting` for the Limits to reset (worfy-daily ticket 05), until
  * `resumesAt`; or `stopped` with the reason of the last run (null before any). `wave` counts the
- * Waves the run has sent, from 1. `message` is what went wrong, in words, when a Session failed, a
+ * Waves the run has sent in the Epic it is on (`epic`), from 1; in a run over a queue it starts at 1
+ * again with each Epic (worfy-autopilot-queue ticket 14). `message` is what went wrong, in words, when a Session failed, a
  * Wave could not be sent or the wait for the Limits was given up. `revision` grows with every change
  * of any Project; a client keeps the state with the highest one.
  */
 export const autopilotStateSchema = z.object({
   projectId,
   epic: epicNameSchema.nullable(),
+  /**
+   * The Epics of the run in order, each with its status (worfy-autopilot-queue ticket 14): one for a run of one
+   * Epic; the Epics added between Waves at the end, those removed gone. `epic` is the one at `index`. Kept in the
+   * stopped state. Absent before any run, and in states of builds before the ticket.
+   */
+  queue: z.array(z.object({ epic: epicNameSchema, status: z.enum(QUEUE_EPIC_STATUSES) })).optional(),
+  /** Where in `queue` the run is, from 0; with `queue` only. */
+  index: z.number().int().nonnegative().optional(),
   status: z.enum(['running', 'waiting', 'stopped']),
   wave: z.number().int().nonnegative(),
   /**
@@ -175,13 +193,16 @@ export const MAX_NAMED_TICKETS = 500
  * override only when it went past such a run. `tickets` (worfy-flight-recorder ticket 21): a run over
  * these Tickets of the Epic only, ending with `tickets-done`; absent, the whole Epic, as the button.
  * `mode` (worfy-resource-planner ticket 05): the Run mode of this run; absent, the default mode of
- * Settings → Autopilot at the start.
+ * Settings → Autopilot at the start. `epics` (worfy-autopilot-queue ticket 14): a run over this queue of
+ * Epics, in order, `epic` its first; refused with `tickets` when it holds more than one Epic, and when an Epic
+ * of it is not the Project's or runs elsewhere. Absent: `epic` alone, as before.
  */
 export const autopilotStart = invokeChannel(
   'autopilot.start',
   z.object({
     projectId,
     epic: epicNameSchema,
+    epics: z.array(epicNameSchema).min(1).max(MAX_QUEUE_EPICS).optional(),
     override: z.boolean().optional(),
     tickets: z.array(ticketNumSchema).min(1).max(MAX_NAMED_TICKETS).optional(),
     mode: z.enum(RUN_MODES).optional(),
@@ -215,6 +236,18 @@ export const autopilotStartNow = invokeChannel('autopilot.startNow', z.object({ 
  * click.
  */
 export const autopilotForceStop = invokeChannel('autopilot.forceStop', z.object({ projectId }), autopilotStateSchema, 'project', 'write')
+
+/** What `autopilot.queue` changes: an Epic to add at the end of the queue, one to remove from it, or both. */
+export const autopilotQueueEditSchema = z.object({ add: epicNameSchema.optional(), remove: epicNameSchema.optional() })
+export type AutopilotQueueEdit = z.infer<typeof autopilotQueueEditSchema>
+
+/**
+ * Changes the queue of the Project's run between Waves (worfy-autopilot-queue ticket 14, Autopilot.editQueue):
+ * `add` an Epic of the Project at the end, `remove` one not started yet; no reordering. During a Wave the change
+ * waits for its end. Answers the state; refused without a run, for the Epic running or finished, an Epic in the
+ * queue already or not in it, and past MAX_QUEUE_EPICS.
+ */
+export const autopilotQueue = invokeChannel('autopilot.queue', autopilotQueueEditSchema.extend({ projectId }), autopilotStateSchema, 'project', 'write')
 
 /** The Project's run as it is now. */
 export const autopilotState = invokeChannel('autopilot.state', z.object({ projectId }), autopilotStateSchema, 'project', 'read')
@@ -325,6 +358,7 @@ declare module './channels' {
     'autopilot.stop': typeof autopilotStop
     'autopilot.startNow': typeof autopilotStartNow
     'autopilot.forceStop': typeof autopilotForceStop
+    'autopilot.queue': typeof autopilotQueue
     'autopilot.state': typeof autopilotState
     'autopilot.estimate': typeof autopilotEstimate
     'autopilot.changed': typeof autopilotChanged

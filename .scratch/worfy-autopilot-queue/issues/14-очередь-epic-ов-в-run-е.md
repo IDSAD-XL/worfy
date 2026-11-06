@@ -43,12 +43,18 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5
 
 - [ ] Contract test: очередь из двух Epic-ов — первый кончился (`done`), `epic-finished`, `epic-started` второго,
       Wave-ы второго; `run-stopped` один на весь Run.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Contract test: в первом Epic-е остался `blocked` `Waits: owner` — `epic-finished` `waits-owner`, второй идёт.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Contract test: `limits-timeout` и `no-progress` в первом Epic-е — весь Run стоп, второй не начат.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Contract test: второй Epic идёт на другой Machine (stub `linkedRuns`) — `elsewhere`, третий идёт.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Contract test: `editQueue` add/remove во время Wave — применено на её границе, `queue-changed`; убрать идущий —
       отказ.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Contract test: `epics` + `tickets` — отказ; старый вход `{ epic }` работает как сейчас.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Новый ADR. `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
 
 ## Тесты
@@ -67,3 +73,58 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5
 - `docs/adr/<номер>-run-epic-queue.md` (новый)
 
 Только читать: `src/shared/autopilot/epic-queue.ts`, `src/shared/autopilot/cycle.ts`, `src/shared/workflow/accepted-epics.ts`.
+
+## Итог
+
+ADR-0100. Run ведёт очередь Epic-ов: `AutopilotStartOptions.epics` (1–10, первый — `epic`), `queue`, `index`,
+`outcomes`, свой `initialCycle` на каждый Epic. Остановка цикла → `epicOutcome` (Ticket 12) на свежем чтении workflow:
+`next` — `epic-finished` и `epic-started` следующего, `stop` — `run-stopped` всего Run-а. Журнал: `run-started.epics`,
+`epic-started`, `epic-finished`, `queue-changed`, `epic` строки — Epic, о котором она. Канал `autopilot.queue`
+(`Autopilot.editQueue`), в состоянии `queue` и `index`, прогноз — по всем Epic-ам очереди.
+
+Сначала падающий: с отключённым переходом к следующему Epic-у (`moveOn`) 13 из 28 test-ов
+`test/contract/autopilot-queue.test.ts` падали, первый — «второй Epic не начинается» (`epic-started` нет, Run кончается
+на первом Epic-е).
+
+Решено без владельца:
+
+- При старте занятый на другой Machine Epic очереди — отказ старта (как для одного Epic-а), «Start anyway» снимает
+  проверку на весь Run; без него проверка повторяется в начале каждого следующего Epic-а и даёт `elsewhere`.
+- `epic-started` нет у первого Epic-а; `epic-finished` нет у Epic-а, на котором Run остановился; Run из одного Epic-а
+  не пишет `epics` и новых событий.
+- Убранный Epic получает `epic-finished` `removed` на своей строке сразу после `queue-changed`.
+- Wave-ы считаются с 1 в каждом Epic-е; сведение по номеру Wave в Flight Recorder и Run history — Ticket 18.
+- Правка во время Wave применяется после `wave-finished`; не применённая к остановке Run-а — отбрасывается; добавить к
+  Run-у с named Ticket-ами нельзя; добавление, которое ждёт, забирается обратно удалением того же Epic-а.
+- Статус `running` в состоянии остаётся у Epic-а, на котором Run остановился.
+- `epics`, где первый не `epic`, — отказ.
+
+Вне списка файлов: `src/main/autopilot/journal.ts` (`append` со своим `epic`, `epics` в `run-started`),
+`src/main/agent/auto-approve/run-approval.ts` (ветки Wave — от Epic-а этой Wave, не первого),
+`src/shared/flight-recorder/journal-walk.mjs` (три новых вида событий), test-ы `autopilot-journal` (unit и contract),
+`auto-approve-run`. Feature page `docs/features/autopilot.md` не менялась: точек входа для очереди ещё нет
+(Ticket-ы 15–17), описание — Ticket 19.
+
+### Раунд 2
+
+Ревью high (раунд 1, REJECTED за два пробела в test-ах) — добавлены test-ы в `test/contract/autopilot-queue.test.ts`, каждый
+сначала красный на своей мутации, потом зелёный:
+
+- Очередь и «Process gate queue» на машине с `serve`: gate-queue — один раз, после последнего Epic-а; конец первого
+  Epic-а ведёт к следующему. Мутация «gate-queue раньше перехода» — красный.
+- Auto-approval: `setWave` второго Epic-а получает его Epic. Мутация «`setWave` без Epic-а» — красный.
+- Одинаковые номера Ticket-ов в двух Epic-ах: счёт `ended`, ветки PR и строки `narrow-round` — свои у каждого Epic-а
+  (сброс `waveTickets` и `narrowJournaled`); Ticket-ы, данные первому Epic-у, не становятся resumable у второго
+  (сброс `given`). Три мутации — красный.
+- Канал `autopilot.queue` с `remove`. Мутация «канал теряет `remove`» — красный.
+- Правка очереди после Stop теперь отказ (`STOPPING_MESSAGE`): следующий Epic уже не начнётся. Мутация «правка
+  принята» — красный.
+
+Документация приведена к коду: правка применяется сразу только пока Run ждёт Orchestrator-а, budget или окна Start;
+`wave` считается с 1 заново в каждом Epic-е (`src/shared/ipc/autopilot.ts`, шапка `src/shared/autopilot/cycle.ts` —
+только комментарий).
+
+Открытый вопрос владельцу: при старте Epic очереди, занятый на другой Machine, отказывает старт, а «Start anyway»
+снимает проверку для всех Epic-ов очереди. Spec («Решено без владельца», 6) говорит о пропуске занятого Epic-а в
+середине очереди, о старте молчит. Сделано строже; если
+владелец выберет пропуск и при старте — это правка `checkElsewhere` в `Autopilot.start`.

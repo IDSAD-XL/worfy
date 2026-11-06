@@ -244,6 +244,21 @@ describe('openRunApproval: the context of each request', () => {
     await approval.close()
   })
 
+  it('a Wave of a later Epic of the queue: the worktree of its own Epic\'s Ticket is a root, the first Epic\'s of the same number is not (worfy-autopilot-queue ticket 14)', async () => {
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/01', join(scratch, 'wt-demo'))
+    git(repo, 'worktree', 'add', '-q', '-b', 'other/01', join(scratch, 'wt-other'))
+    const approval = await open()
+    const remove = (folder: string) => ({ tool: 'Bash', input: { command: `rm -rf '${join(scratch, folder, 'build')}'` } })
+    const at = (folder: string) => ({ cwd: join(scratch, folder), scratchpad: null, sessionId: 's', started: approval.environment })
+    approval.setWave(['01'], 'other')
+    expect(await approval.judge(remove('wt-other'), at('wt-other'))).toMatchObject({ outcome: 'allow', rule: 'files-inside-roots' })
+    expect((await approval.judge(remove('wt-demo'), at('wt-demo'))).outcome).not.toBe('allow')
+    // Without an Epic, the run's first again.
+    approval.setWave(['01'])
+    expect(await approval.judge(remove('wt-demo'), at('wt-demo'))).toMatchObject({ outcome: 'allow', rule: 'files-inside-roots' })
+    await approval.close()
+  })
+
   it('a relative target is judged from the shell folder of the request, not from the Project', async () => {
     git(repo, 'worktree', 'add', '-q', '-b', 'demo/01', join(scratch, 'wt'))
     const approval = await open()
