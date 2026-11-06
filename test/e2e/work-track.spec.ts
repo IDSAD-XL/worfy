@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { formatJournalLine, makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
 import { launchApp } from './helpers'
 
 // The Work track view (worfy-work-track ticket 09) in the built app: the Runs tab of the toolbar shows Run
@@ -14,6 +15,10 @@ import { launchApp } from './helpers'
 // with their Waves, gate runs, merged PRs, transcripts older than 30 days as «no data»), so the view is
 // checked apart from the readers of the sources (their contract tests are test/contract/work-track-*.test.ts).
 // The screen is kept in both themes with the test's output: the evidence of the ticket is chosen from it.
+//
+// The second test (ticket 10) has one Autopilot Run that is real: its Journal is in the data folder, and the stub
+// answers its Run and Wave beside the made-up work. A click on the Wave opens the Span panel, «Open Run» opens
+// Run history on that Run; the summary row and the panel are kept in both themes.
 
 const PROJECT = 'CanvasForAI-0e2e0e2e'
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -26,11 +31,30 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-function prepare(): Record<string, string> {
+/** The real Run of the second test: yesterday 03:00–05:00 local, before any made-up work of that day. */
+interface RealRun {
+  id: string
+  epic: string
+  start: number
+  end: number
+}
+
+function prepare(run?: RealRun): Record<string, string> {
   const root = join(scratch, 'CanvasForAI')
   const dataDir = join(scratch, 'data')
   mkdirSync(root, { recursive: true })
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
+  if (run !== undefined) {
+    const iso = (time: number) => new Date(time).toISOString()
+    const events: Record<string, unknown>[] = [
+      { at: iso(run.start), kind: 'run-started', by: 'command' },
+      { at: iso(run.start + 5 * 60_000), kind: 'wave-started', wave: 1, tickets: ['01', '02'] },
+      { at: iso(run.end - 5 * 60_000), kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
+      { at: iso(run.end), kind: 'run-stopped', reason: 'all-tickets-done' },
+    ]
+    mkdirSync(join(dataDir, 'autopilot'), { recursive: true })
+    writeFileSync(join(dataDir, 'autopilot', `${run.id}.jsonl`), events.map((event) => formatJournalLine({ run: run.id, project: PROJECT, epic: run.epic, ...event } as JournalEvent)).join(''))
+  }
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'CanvasForAI', path: root }], activeId: PROJECT }))
   writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 20, zoom: 0.8 } }))
   return { WORFY_DATA_DIR: dataDir }
@@ -38,10 +62,11 @@ function prepare(): Record<string, string> {
 
 /**
  * Replaces main's handler of `workTrack.read` with made-up work for the period asked, the same for the same
- * day whenever it is asked. Runs in main: everything it needs is inside the function.
+ * day whenever it is asked, and the Run `run` with its Wave as the service names them. Runs in main:
+ * everything it needs is inside the function.
  */
-function stubWorkTrack(app: ElectronApplication): Promise<void> {
-  return app.evaluate(({ ipcMain }) => {
+function stubWorkTrack(app: ElectronApplication, run: RealRun | null = null): Promise<void> {
+  return app.evaluate(({ ipcMain }, real) => {
     const MIN = 60_000
     const HOUR = 60 * MIN
     const DAY_MS = 24 * HOUR
@@ -93,6 +118,10 @@ function stubWorkTrack(app: ElectronApplication): Promise<void> {
         if (over.start >= now) return
         const until = over.end === null ? null : Math.min(over.end, now)
         facts.push({ outcome: until === null ? null : 'ok', session: null, ...over, start: new Date(over.start).toISOString(), end: until === null ? null : new Date(until).toISOString() })
+      }
+      if (real !== null && real.start < end && real.end > start) {
+        fact({ id: `run:${real.id}`, kind: 'run', start: real.start, end: real.end, epic: real.epic, source: 'journal', title: `Run · ${real.epic}` })
+        fact({ id: `wave:${real.id}:1`, kind: 'wave', start: real.start + 5 * MIN, end: real.end - 5 * MIN, session: 'orch-0001', parent: `run:${real.id}`, epic: real.epic, source: 'journal', title: 'Wave 1 · tickets 01, 02' })
       }
       const days: { start: number; workMs: number; prsMerged: number }[] = []
       for (let day = start; day < end; day = addDays(day, 1)) {
@@ -169,14 +198,14 @@ function stubWorkTrack(app: ElectronApplication): Promise<void> {
       }
       return { ok: true, value }
     })
-  })
+  }, run)
 }
 
-/** The Runs view in both themes, kept with the test's output. */
-async function snapshots(window: Page, name: string): Promise<void> {
+/** The Runs view in both themes, kept with the test's output as `<ticket>-<name>-<theme>.png`. */
+async function snapshots(window: Page, name: string, ticket = '09'): Promise<void> {
   for (const scheme of ['light', 'dark'] as const) {
     await window.emulateMedia({ colorScheme: scheme })
-    await window.locator('.w-shell__view[data-view="history"]').screenshot({ path: test.info().outputPath(`09-${name}-${scheme}.png`), animations: 'disabled' })
+    await window.locator('.w-shell__view[data-view="history"]').screenshot({ path: test.info().outputPath(`${ticket}-${name}-${scheme}.png`), animations: 'disabled' })
   }
   await window.emulateMedia({ colorScheme: null })
 }
@@ -249,6 +278,64 @@ test('Runs → Work track: the Week, a day of it, the Month and a day of it; Run
     await expect(window.getByTestId('run-history')).toBeVisible()
     await expect(window.getByTestId('run-history')).toContainText('This Project has no Autopilot Runs yet.')
     await expect(track).toBeHidden()
+  } finally {
+    await launched.close()
+  }
+})
+
+test('Work track: the summary of the period; a Wave of a Run → its panel → «Open Run» → Run history of that Run', async () => {
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const start = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 3).getTime()
+  const run: RealRun = { id: makeRunId(new Date(start), 'a10b10'), epic: 'worfy-work-track', start, end: start + 2 * 3_600_000 }
+  const launched = await launchApp({ env: prepare(run) })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
+    await stubWorkTrack(app, run)
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+
+    await window.locator('.w-toolbar [role="group"][aria-label="View"]').getByRole('button', { name: 'Runs' }).click()
+    await window.getByRole('button', { name: 'Work track' }).click()
+    const track = window.getByTestId('work-track')
+    await expect(track).toBeVisible()
+
+    // The summary of the Week: hours by Epic and the four numbers.
+    const summary = window.getByTestId('work-track-summary')
+    await expect(summary).toBeVisible()
+    await expect(summary.getByTestId('work-track-epic-hours')).toHaveCount(4)
+    await expect(summary.getByTestId('work-track-total')).toHaveText(/^\d+\.\d h$/u)
+    await expect(summary.getByTestId('work-track-runs')).not.toHaveText('0')
+
+    // Yesterday's Day, the Wave of the Run: the panel says what it is and where it comes from.
+    await window.getByTestId('work-track-day').nth(5).click()
+    await expect(window.getByTestId('work-track-span').first()).toBeVisible()
+    await expect(window.getByTestId('work-track-panel')).toHaveCount(0)
+    await track.locator(`[data-span-id="wave:${run.id}:1"]`).click()
+    const panel = window.getByTestId('work-track-panel')
+    await expect(panel).toBeVisible()
+    await expect(panel.getByRole('heading')).toHaveText('Wave 1 · tickets 01, 02')
+    await expect(panel.getByTestId('work-track-panel-source')).toContainText('Source: Run journals.')
+    await expect(panel.getByRole('button', { name: 'Open PR' })).toBeDisabled()
+    await snapshots(window, 'panel', '10')
+    await window.emulateMedia({ colorScheme: 'light' })
+    await summary.screenshot({ path: test.info().outputPath('10-summary-light.png'), animations: 'disabled' })
+    await window.emulateMedia({ colorScheme: 'dark' })
+    await summary.screenshot({ path: test.info().outputPath('10-summary-dark.png'), animations: 'disabled' })
+    await window.emulateMedia({ colorScheme: null })
+
+    // Esc closes the panel and leaves the Runs tab on screen; the Wave opens it again.
+    await window.keyboard.press('Escape')
+    await expect(panel).toHaveCount(0)
+    await expect(track).toBeVisible()
+    await track.locator(`[data-span-id="wave:${run.id}:1"]`).click()
+
+    // «Open Run»: Run history on that Run, read from its Journal.
+    await panel.getByRole('button', { name: 'Open Run' }).click()
+    await expect(window.getByTestId('run-history')).toBeVisible()
+    await expect(track).toBeHidden()
+    await expect(window.getByTestId('run-history-choose')).toHaveValue(run.id)
+    await expect(window.getByTestId('run-history-epic')).toHaveText(run.epic)
   } finally {
     await launched.close()
   }
