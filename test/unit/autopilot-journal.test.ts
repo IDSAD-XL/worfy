@@ -5,7 +5,9 @@ import {
   JOURNAL_EVENT_KINDS,
   LAST_TEXT_MAX,
   REASON_MAX,
+  RETRY_MESSAGE_MAX,
   clipLastText,
+  clipRetryMessage,
   formatJournalLine,
   isRunId,
   journalReason,
@@ -55,6 +57,8 @@ const everyKind: JournalEvent[] = [
   { ...base, at: at(3), kind: 'limits-hit', window: 'five_hour', resetsAt: at(30) },
   { ...base, at: at(3), kind: 'waiting-until', until: at(31) },
   { ...base, at: at(31), kind: 'resumed' },
+  { ...base, at: at(31), kind: 'turn-retry', attempt: 2, of: 5, error: 'overloaded', message: 'API Error: 529 {"type":"error","error":{"type":"overloaded_error"}}', until: at(32) },
+  { ...base, at: at(32), kind: 'retry-refused', reason: 'in-flight', actions: ['gh pr merge 12'] },
   { ...base, at: at(32), kind: 'session-error', session: 'abc-123', message: 'spawn ENOENT' },
   { ...base, at: at(33), kind: 'refused-dialog', session: 'abc-123', what: 'AskUserQuestion' },
   { ...base, at: at(33), kind: 'auto-approval', session: 'abc-123', agent: 'agent-impl-01', vendor: 'claude', mode: 'on', outcome: 'allow', rule: 'files-inside-roots', tool: 'Bash', targets: ['~/repo/.claude/worktrees/01/build'], command: 'rm -rf build' },
@@ -69,6 +73,32 @@ const everyKind: JournalEvent[] = [
 ]
 
 describe('parseJournal', () => {
+  it('reads turn-retry and retry-refused (worfy-retry ticket 04); skips one outside the format and counts it', () => {
+    const retry: JournalEvent = { ...base, at: at(3), kind: 'turn-retry', attempt: 1, of: 5, error: 'api-500', message: 'API Error: 500', until: at(4) }
+    const refused: JournalEvent = { ...base, at: at(5), kind: 'retry-refused', reason: 'cap' }
+    expect(parseJournal(line(started) + line(retry) + line(refused) + line(stopped))).toEqual({ events: [started, retry, refused, stopped], skipped: 0 })
+    const bad: Record<string, unknown>[] = [
+      { ...retry, attempt: 0 },
+      { ...retry, of: 1.5 },
+      { ...retry, error: '' },
+      { ...retry, message: 'x'.repeat(RETRY_MESSAGE_MAX + 1) },
+      { ...retry, until: 'soon' },
+      { ...refused, reason: 'tired' },
+      { ...refused, reason: 'in-flight', actions: [''] },
+    ]
+    for (const fields of bad) expect(parseJournal(line(started) + line(fields) + line(stopped)), JSON.stringify(fields)).toEqual({ events: [started, stopped], skipped: 1 })
+    expect(parseJournal(line({ ...retry, message: 'x'.repeat(RETRY_MESSAGE_MAX) })).skipped).toBe(0)
+    // The shared Journal walk knows both kinds too.
+    expect(walkParse(line(started) + line(retry) + line(refused) + line(stopped)).unknownKind).toBe(0)
+  })
+
+  it('clipRetryMessage keeps RETRY_MESSAGE_MAX units without cutting a surrogate pair', () => {
+    expect(RETRY_MESSAGE_MAX).toBe(300)
+    expect(clipRetryMessage('API Error: 500')).toBe('API Error: 500')
+    expect(clipRetryMessage('a'.repeat(RETRY_MESSAGE_MAX + 5))).toBe('a'.repeat(RETRY_MESSAGE_MAX))
+    expect(clipRetryMessage(`${'a'.repeat(RETRY_MESSAGE_MAX - 1)}😀tail`)).toBe('a'.repeat(RETRY_MESSAGE_MAX - 1))
+  })
+
   it('reads a file whose last line was cut off by a crash: the events before it stay, one line is skipped', () => {
     const text = line(started) + line(waveStarted) + JSON.stringify(stopped).slice(0, 25)
     expect(parseJournal(text)).toEqual({ events: [started, waveStarted], skipped: 1 })

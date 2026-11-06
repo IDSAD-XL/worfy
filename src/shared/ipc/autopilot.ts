@@ -48,9 +48,14 @@ export const autopilotStateSchema = z.object({
    * its reset (worfy-throughput ticket 41, src/shared/autopilot/budget.ts); `start-window` — the
    * Run mode Start window holds the next Wave back until the window's next start, `windowReason`
    * says why (worfy-resource-planner ticket 05, src/shared/autopilot/run-mode.ts). Then `message`
-   * says it in words. Absent otherwise, and in states of builds before ticket 41.
+   * says it in words; `retry` — a turn of the Wave ended with a temporary API error, and with
+   * Auto-continue on the run sends the Orchestrator a continuation at `resumesAt`, `retry` says which
+   * (worfy-retry ticket 04, src/main/autopilot/turn-retry.ts). Absent otherwise, and in states of
+   * builds before ticket 41.
    */
-  waitingFor: z.enum(['limits', 'daily-share', 'five-hour', 'start-window']).optional(),
+  waitingFor: z.enum(['limits', 'daily-share', 'five-hour', 'start-window', 'retry']).optional(),
+  /** While `waitingFor` is `retry`: the retry the run waits to send, `attempt` of `of` at most in a row. Absent otherwise. */
+  retry: z.object({ attempt: z.number().int().positive(), of: z.number().int().positive() }).optional(),
   /** While `waitingFor` is `start-window`: `outside` the window, or the next Wave `wave-too-long` for it. Absent otherwise. */
   windowReason: z.enum(WINDOW_WAIT_REASONS).optional(),
   reason: z.enum(AUTOPILOT_STOP_REASONS).nullable(),
@@ -216,10 +221,11 @@ export interface StatusLineOptions {
  * ticket 18), `waiting for limits · resumes 14:20`, `today's share used · resumes 00:00` and
  * `5-hour limits full · resumes 02:12` (the budget, worfy-throughput ticket 41), `outside start
  * window · resumes 23:00` and `wave too long for window · resumes 23:00` (the Start window,
- * worfy-resource-planner ticket 05), `stopped: no ready wave`, `stopped: user force stop`.
+ * worfy-resource-planner ticket 05), `API error · retry 2/5 · 14:20` (the continuation after a
+ * temporary API error, worfy-retry ticket 04), `stopped: no ready wave`, `stopped: user force stop`.
  */
 export function autopilotStatusLine(
-  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
+  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
   options: StatusLineOptions = {},
 ): string | null {
   if (state.status === 'running') {
@@ -233,6 +239,12 @@ export function autopilotStatusLine(
     return `Wave ${state.wave} · running`
   }
   if (state.status === 'waiting') {
+    const at = (resumesAt: number): string => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: options.timeZone }).format(resumesAt)
+    if (state.waitingFor === 'retry') {
+      const parts = ['API error', ...(state.retry === undefined ? [] : [`retry ${state.retry.attempt}/${state.retry.of}`])]
+      if (state.resumesAt !== null && state.resumesAt !== undefined) parts.push(at(state.resumesAt))
+      return parts.join(' · ')
+    }
     const what =
       state.waitingFor === 'daily-share'
         ? "today's share used"
@@ -244,8 +256,7 @@ export function autopilotStatusLine(
               : 'outside start window'
             : 'waiting for limits'
     if (state.resumesAt === null || state.resumesAt === undefined) return what
-    const at = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: options.timeZone }).format(state.resumesAt)
-    return `${what} · resumes ${at}`
+    return `${what} · resumes ${at(state.resumesAt)}`
   }
   if (state.reason === null) return null
   return `stopped: ${state.reason.replaceAll('-', ' ')}`

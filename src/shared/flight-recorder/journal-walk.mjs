@@ -19,6 +19,8 @@ export const JOURNAL_KINDS = [
   'limits-hit',
   'waiting-until',
   'resumed',
+  'turn-retry',
+  'retry-refused',
   'session-error',
   'refused-dialog',
   'auto-approval',

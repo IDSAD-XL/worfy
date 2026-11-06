@@ -80,7 +80,8 @@ rows. The narrowest stretch is one minute. Times on the axis are local.
 The rows, top to bottom:
 
 1. The **Waits** lane: the waits of the run, one bar each, named by cause: `Limits`, `Limits budget`, `Start window`,
-   `Background tasks`, `Gate queue` or `Other Machine`. The tooltip of a `Start window` bar gives its reason:
+   `Background tasks`, `Gate queue`, `Other Machine` or `Retry after an API error` (from `turn-retry` to `resumed`, or
+   to the `limits-hit` that takes it over). The tooltip of a `Start window` bar gives its reason:
    `outside, until <time>`, or `wave-too-long, until <time>` when the next Wave would not end inside the window. The
    time of a wait's `until` is local, as the other times on the screen, in the tooltip and in the detail panel.
 2. The **Orchestrator** lane: the Orchestrator's turns. A turn links to the Tickets it touched and is not nested in
@@ -186,7 +187,7 @@ commits are found by the branch of a Ticket and by sha; nothing is stamped into 
 
 | Source | Gives |
 |---|---|
-| The Autopilot journal | The run and its Waves, the waits for the Limits, the budget, background tasks and the gate queue, the Tickets' statuses (`ticket-status`), the narrow fix round, Session errors, refused dialogs, a person's actions, the stop. |
+| The Autopilot journal | The run and its Waves, the waits for the Limits, the budget, background tasks, the gate queue and a retry after an API error, the Tickets' statuses (`ticket-status`), the narrow fix round, Session errors, refused dialogs, a person's actions, the stop. |
 | The Orchestrator's transcript | Its turns, the `Agent` calls and the `SendMessage` calls that resume an agent, the task-notifications. On Codex: the spawns, `send_message` and `followup_task`, and the Subagents' ends. |
 | The Subagents' transcripts | The start, the end and the outcome of each agent. |
 | GitHub | The PR opened and its new heads, CI runs and their retries, verdict comments, marks of agents on the head, the merge, and the label of the cross-machine gate (the wait `Other Machine`). |

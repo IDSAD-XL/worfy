@@ -53,7 +53,7 @@ import { harnessScriptEnv } from '../harness/script-env'
 import { AutopilotRunsLink } from '../link/autopilot-runs'
 import { appLinkService, onAppLinkStart, type LinkService } from '../link/service'
 import { projectStore } from '../projects/store'
-import { appSettingsStore, autoApprovalMode } from '../settings/store'
+import { appSettingsStore, autoApprovalMode, autoContinueOn } from '../settings/store'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { readWorkflow } from '../workflow/reader'
 import type { WorkflowHub } from '../workflow/watch'
@@ -222,6 +222,14 @@ export function sharedAutopilot(): Autopilot {
       // A run on another Vendor than Claude reads that Vendor's windows (worfy-multi-vendor ticket 38).
       windows: (vendor) => appLimits().windowsOf(vendor),
       observeSession: (isSession, listener) => observeSessionLimits((sink) => sharedRegistry().observe(sink), isSession, listener),
+      send: (sessionId, text) => {
+        sharedRegistry().get(sessionId).send(text)
+      },
+    },
+    // Auto-continue (worfy-retry ticket 04): the Project's switch of app-settings.json, read before each
+    // retry; the pause by the wall clock.
+    retry: {
+      enabled: (projectId) => autoContinueOn(projectId),
       send: (sessionId, text) => {
         sharedRegistry().get(sessionId).send(text)
       },

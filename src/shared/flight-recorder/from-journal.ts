@@ -297,16 +297,21 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
   let limits: OpenWait | null = null
   let tasks: OpenWait | null = null
   let gate: OpenWait | null = null
+  // The pause before a retry after an API error (worfy-retry ticket 04): turn-retry to resumed.
+  let retry: OpenWait | null = null
   const retryCauses: RetryCauseFact[] = []
   const orchestratorMarks: OrchestratorMarkFact[] = []
 
   for (const event of inRun) {
     const { at } = event
-    for (const wait of [limits, tasks, gate]) if (wait !== null) wait.lastSeen = at
+    for (const wait of [limits, tasks, gate, retry]) if (wait !== null) wait.lastSeen = at
     switch (event.kind) {
       case 'limits-hit':
         // A refusal by a quota (worfy-multi-vendor ticket 38) is no Wait: nothing resets, and run-stopped `vendor-quota` follows.
         if (event.reason === 'quota') break
+        // The Limits take over a retry pause: it ends where their Wait starts.
+        if (retry !== null) close(retry, at)
+        retry = null
         limits ??= open('limits', at, text(event.window) === undefined ? [] : [event.window as string])
         break
       case 'budget-stop':
@@ -320,9 +325,23 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
         limits ??= open('limits', at)
         limits.detail = [...limits.detail.filter((part) => !part.startsWith('until ')), `until ${event.until as string}`]
         break
+      case 'turn-retry': {
+        const { attempt, of } = event
+        const until = text(event.until)
+        const detail = [text(event.error), typeof attempt === 'number' && typeof of === 'number' ? `retry ${attempt} of ${of}` : undefined, until === undefined ? undefined : `until ${until}`].filter(
+          (part): part is string => part !== undefined,
+        )
+        // A turn that fails again during the wait (a background task's) writes the next turn-retry with
+        // no resumed between: the same Wait goes on from its start, named by its last retry.
+        retry ??= open('api-retry', at)
+        retry.detail = detail
+        break
+      }
       case 'resumed':
         if (limits !== null) close(limits, at)
+        if (retry !== null) close(retry, at)
         limits = null
+        retry = null
         break
       case 'background-tasks': {
         const names = taskNames(event.tasks)
@@ -346,8 +365,10 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
         // The stop ends the Limits and the background tasks the Run waited for; a gate queue has an end of its own.
         if (limits !== null) close(limits, at)
         if (tasks !== null) close(tasks, at)
+        if (retry !== null) close(retry, at)
         limits = null
         tasks = null
+        retry = null
         break
       case 'narrow-round':
         if (event.outcome === 'started') {
@@ -375,7 +396,7 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
         break
     }
   }
-  for (const wait of [limits, tasks, gate]) if (wait !== null) close(wait, null)
+  for (const wait of [limits, tasks, gate, retry]) if (wait !== null) close(wait, null)
   waits.sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
   // A budget-stop or a start-window is checked before a Wave, never inside one (often in the
   // millisecond of the last wave-finished, where the model still counts that Wave open): the Tickets

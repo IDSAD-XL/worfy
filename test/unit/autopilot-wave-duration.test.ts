@@ -28,6 +28,7 @@ const finished = (wave: number, at: number | string) => ({ kind: 'wave-finished'
 const limitsHit = (at: number) => ({ kind: 'limits-hit' as const, at, window: 'seven_day', resetsAt: null })
 const waitingUntil = (at: number, until: number) => ({ kind: 'waiting-until' as const, at, until: iso(until) })
 const resumed = (at: number) => ({ kind: 'resumed' as const, at })
+const turnRetry = (at: number, until: number) => ({ kind: 'turn-retry' as const, at, attempt: 1, of: 5, error: 'api-500', message: 'API Error: 500', until: iso(until) })
 
 /** A Run of Waves 1, 2, … one after another, the n-th lasting `minutes[n]` minutes, the first starting at `from`. */
 function waves(id: string, from: number, minutes: readonly number[]): JournalEvent[] {
@@ -89,6 +90,16 @@ describe('waveDurations', () => {
   it('a second limits-hit while the wait is open does not start the wait again', () => {
     const events = run(RUN_A, started(1, T0), limitsHit(T0 + 10 * MINUTE), limitsHit(T0 + 40 * MINUTE), resumed(T0 + 50 * MINUTE), finished(1, T0 + 60 * MINUTE))
     expect(waveDurations([events])).toEqual([20 * MINUTE])
+  })
+
+  it('takes the pause before a retry after an API error off the Wave: turn-retry 09:10, resumed 10:10 take an hour off (worfy-retry ticket 04)', () => {
+    const events = run(RUN_A, started(1, T0), turnRetry(T0 + 10 * MINUTE, T0 + 70 * MINUTE), resumed(T0 + 70 * MINUTE), finished(1, T0 + 100 * MINUTE))
+    expect(waveDurations([events])).toEqual([40 * MINUTE])
+  })
+
+  it('a retry pause the Limits take over counts once, until the resumed of the Limits wait', () => {
+    const events = run(RUN_A, started(1, T0), turnRetry(T0 + 10 * MINUTE, T0 + 15 * MINUTE), limitsHit(T0 + 12 * MINUTE), waitingUntil(T0 + 12 * MINUTE, T0 + 2 * HOUR), resumed(T0 + 2 * HOUR), finished(1, T0 + 2 * HOUR + 20 * MINUTE))
+    expect(waveDurations([events])).toEqual([30 * MINUTE])
   })
 
   it('a resumed with no open wait takes nothing off', () => {

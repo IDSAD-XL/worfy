@@ -157,9 +157,11 @@ import type { AutopilotWaveResult } from '../actions/launch'
 import { ticketNumber } from '../../shared/actions/render-template'
 import { messageText } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
+import { MAX_RETRIES } from '../../shared/agent/continue-plan'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
+import { turnFailureKind, type TurnFailure } from '../../shared/agent/turn-failure'
 import { budgetWindows, listsWindows, STORED_LIMITS_VENDOR, type VendorLimits } from '../../shared/autopilot/budget-window'
-import { clipLastText, journalCommand, journalLimits, journalReason, journalTarget, journalVendorLimits, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
+import { clipLastText, clipRetryMessage, journalCommand, journalLimits, journalReason, journalTarget, journalVendorLimits, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
 import { BUDGET_FRESH_MS, budgetDecision, budgetStopText, type AutopilotBudget, type BudgetCause, type BudgetDecision } from '../../shared/autopilot/budget'
 import { epicForecast, remainingWaves } from '../../shared/autopilot/forecast'
 import { fitBeforeReset } from '../../shared/autopilot/forecast-lines'
@@ -193,6 +195,7 @@ import type { WorkflowModel } from '../../shared/workflow/types'
 import { BASE_INTERVAL_MS } from '../github/prs'
 import type { RunStart } from './journal'
 import { LimitsWait, wallTimer, type LimitsWaitDeps } from './limits-wait'
+import { TurnRetry, type RetryAction, type TurnRetryDeps } from './turn-retry'
 
 /** The run's Orchestrator Session, as far as the run needs it. */
 export interface RunSession {
@@ -330,6 +333,12 @@ export interface AutopilotDeps {
    * `turn-error`, and no Wave's line has `limits`.
    */
   limits?: LimitsWaitDeps
+  /**
+   * Auto-continue (worfy-retry ticket 04, turn-retry.ts): with it on for the Project, a turn that
+   * ended with a temporary API error waits and then gets a continuation instead of ending the run.
+   * Without it a failed turn ends the run as `turn-error`, as it did before.
+   */
+  retry?: TurnRetryDeps
   /**
    * Asks the usage once when a Limits window is older than `olderThanMs` (LimitsRefresher.refreshIfOlder),
    * resolving once the answer is in `limits`; without it the Wave's lines carry what `limits` has.
@@ -618,6 +627,8 @@ class Run {
   awake: { start(): void; stop(): void } | null = null
   /** The run's wait for the Limits; null when the app gave no Limits (AutopilotDeps.limits). */
   limits: LimitsWait | null = null
+  /** The run's retries after a temporary API error; null when the app gave no Auto-continue (AutopilotDeps.retry). */
+  retry: TurnRetry | null = null
   /** The Vendor of the run's Orchestrator, as run-started names it (worfy-multi-vendor ticket 37); Claude without one. */
   vendor: string = STORED_LIMITS_VENDOR
   /** The policy's side of the run (worfy-auto-approve ticket 04); null without Auto-approval, or when it could not open. */
@@ -926,6 +937,7 @@ export class Autopilot {
       // The first read of the statuses: a status from before the run is not a change of it.
       statusChanges(run, model.tickets)
       if (this.deps.limits !== undefined) run.limits = new LimitsWait(this.deps.limits)
+      if (this.deps.retry !== undefined) run.retry = new TurnRetry(this.deps.retry, projectId)
       // Opened before the Orchestrator goes unattended: its Session starts with the run's TMPDIR and git environment.
       const autoApproval = await this.openApproval(run)
       let view: OrchestratorView | null
@@ -1081,7 +1093,8 @@ export class Autopilot {
 
   /**
    * The graceful Stop (worfy-week ticket 18): answers the run's state as soon as it is stopping or
-   * stopped. A second Stop while stopping sends nothing and answers the state.
+   * stopped. A second Stop while stopping sends nothing and answers the state; during a wait to retry
+   * after an API error it ends the run (worfy-retry ticket 04).
    *
    * The Stop is noted on the run at once, before its step waits in the run's order: a step ahead of
    * it (the end of a turn, a workflow change, reading the workflow for hundreds of milliseconds)
@@ -1092,7 +1105,14 @@ export class Autopilot {
     if (run === undefined) return this.state(projectId)
     run.requestStop()
     await run.enqueue(async () => {
-      if (run.cycle.phase === 'stopped' || run.cycle.stopping) return
+      if (run.cycle.phase === 'stopped') return
+      // Waiting to retry after an API error with no turn under way: nothing goes on that a graceful
+      // Stop would wait for, also when an earlier Stop made the run stopping (worfy-retry ticket 04).
+      if (run.retry?.until != null && !this.turnUnderWay(run)) {
+        await this.feed(run, { type: 'stop', reason: 'user-stop' })
+        return
+      }
+      if (run.cycle.stopping) return
       // Waiting for the budget or the Start window before a Wave: no Wave is in work, the run ends
       // now (worfy-throughput ticket 41, worfy-resource-planner ticket 05).
       if (run.boundary !== null) {
@@ -1167,6 +1187,7 @@ export class Autopilot {
       case 'prompt':
         run.turns += 1
         run.limits?.turnStarted()
+        run.retry?.turnStarted()
         if (run.sending) run.promptsWhileSending.set(run.turns, event.text)
         else if (run.waveTurn === null && run.wavePrompt !== null && event.text === run.wavePrompt) run.waveTurn = run.turns
         return
@@ -1177,6 +1198,9 @@ export class Autopilot {
         const message = event.error ?? (event.isError ? event.text : null)
         // Whether the Limits refused the turn is known now, from the Limits status of this turn.
         const hit = run.limits?.hitOf({ isError: event.isError, interrupted: event.interrupted, message }) ?? null
+        // And how the turn failed, with its external calls, for Auto-continue (worfy-retry ticket 04).
+        const failure: TurnFailure = run.retry === null ? { kind: 'none' } : turnFailureKind({ vendor: run.vendor, isError: event.isError, interrupted: event.interrupted, error: message, terminalReason: event.terminalReason })
+        const actions = failure.kind === 'transient' ? (run.retry?.actions() ?? []) : []
         // The background tasks the turn left alive, as of its end: a task that ends later starts a
         // turn of its own (its task-notification), and that turn's result judges the Wave.
         const tasks = this.liveTasks(run).length
@@ -1195,11 +1219,13 @@ export class Autopilot {
           run.limits?.passed()
           run.turnMayCome = false
           if (waiting) await this.write(run, { kind: 'resumed' })
+          const retried = await this.retryTurn(run, { failure, actions, interrupted, message })
+          if (retried.waits) return
           return this.readAndFeed(run, 'stop', (tickets) => ({
             type: 'turn-ended',
             isError: event.isError,
             interrupted,
-            message: message === '' ? null : message,
+            message: retried.message === '' ? null : retried.message,
             tickets,
             tasks,
             // The Session as it is now, after the fresh read: a turn may have started since.
@@ -1233,6 +1259,7 @@ export class Autopilot {
         return
       }
       default:
+        run.retry?.observe(event)
         // Any other event of a task is a sign of life: the limit starts over.
         if (isTaskEvent(event)) void run.enqueue(() => this.tasksTimer(run, true))
         return
@@ -1802,6 +1829,91 @@ export class Autopilot {
     run.actual.share += growth
   }
 
+  /** Whether a turn of the run's Session is under way now. */
+  private turnUnderWay(run: Run): boolean {
+    return run.session !== null && inTurn(run.session.state)
+  }
+
+  /**
+   * Auto-continue at the end of a turn (worfy-retry ticket 04): a temporary API error with the switch
+   * on waits for a continuation (`turn-retry`, `waits`); any other failure with the switch on is
+   * refused (`retry-refused`) and goes to the cycle as before, with the words of the give-up after
+   * the last retry. A turn that ends any other way ends a wait and the count of retries.
+   */
+  private async retryTurn(run: Run, end: { failure: TurnFailure; actions: readonly RetryAction[]; interrupted: boolean; message: string | null }): Promise<{ waits: boolean; message: string | null }> {
+    const retry = run.retry
+    const { failure, message } = end
+    if (retry === null) return { waits: false, message }
+    // A wait this turn ends gets its `resumed`, as a Limits wait does (wave-duration.ts).
+    const waited = retry.until !== null
+    if (end.interrupted || failure.kind === 'none' || run.cycle.phase === 'stopped' || !retry.enabled()) {
+      retry.passed()
+      if (waited) await this.write(run, { kind: 'resumed' })
+      return { waits: false, message }
+    }
+    const decision = retry.decide(failure, end.actions)
+    if (decision.kind === 'retry' && failure.kind === 'transient') {
+      retry.wait(decision, { error: failure.error, actions: end.actions, message }, (id) => void run.enqueue(() => this.retryResume(run, id)))
+      await this.write(run, { kind: 'turn-retry', attempt: decision.attempt, of: decision.of, error: failure.error, message: clipRetryMessage(message ?? ''), until: new Date(retry.until ?? this.now()).toISOString() })
+      this.publish(run.projectId)
+      return { waits: true, message }
+    }
+    retry.passed()
+    const reason = decision.kind === 'refused' ? decision.reason : 'not-transient'
+    const inFlight = decision.kind === 'refused' ? decision.inFlight : []
+    const home = homedir()
+    // The command as the model wrote it is masked, not worfy's summary: the summary drops the option
+    // names (`--token x` becomes `x`) that the masking goes by.
+    const lines = new Map(end.actions.map((action) => [action.toolUseId, action.command]))
+    const commands = inFlight.map((action) => journalCommand(lines.get(action.toolUseId) ?? action.description, home))
+    await this.write(run, { kind: 'retry-refused', reason, ...(commands.length === 0 ? {} : { actions: commands }) })
+    if (reason !== 'cap') return { waits: false, message }
+    const gaveUp = `gave up after ${MAX_RETRIES} retries`
+    return { waits: false, message: message === null || message === '' ? gaveUp : `${message} — ${gaveUp}` }
+  }
+
+  /**
+   * The retry wait `id` is over: the Orchestrator gets the continuation, once. A wait cancelled or
+   * replaced since its timer fired sends nothing; so does a Stop on its way (its step ends the run).
+   * A turn under way ends the wait with `resumed`, and that turn's end decides. Auto-continue
+   * switched off meanwhile: the wait is dropped and the failed turn's end goes to the cycle.
+   */
+  private async retryResume(run: Run, id: number): Promise<void> {
+    const retry = run.retry
+    if (retry === null || !retry.isCurrent(id) || run.cycle.phase === 'stopped' || run.session === null || run.rushed || this.quitting) return
+    if (run.stopRequested && !run.cycle.stopping) return
+    if (this.turnUnderWay(run)) {
+      // That turn's end decides; the wait is over, so the Canvas shows the run running, not a retry due.
+      retry.cancel()
+      await this.write(run, { kind: 'resumed' })
+      this.publish(run.projectId)
+      return
+    }
+    if (!retry.enabled()) {
+      const message = retry.failed?.message ?? null
+      retry.passed()
+      this.publish(run.projectId)
+      return this.readAndFeed(run, 'stop', (tickets) => ({
+        type: 'turn-ended',
+        isError: true,
+        interrupted: false,
+        message,
+        tickets,
+        tasks: this.liveTasks(run).length,
+        idle: run.session?.state === 'idle',
+      }))
+    }
+    const text = retry.resume()
+    await this.write(run, { kind: 'resumed' })
+    this.publish(run.projectId)
+    try {
+      retry.send(run.session.id, text)
+    } catch (error) {
+      run.message = messageOf(error)
+      await this.feed(run, { type: 'session-error', message: run.message })
+    }
+  }
+
   /**
    * The Limits refused a turn of the Wave: the run waits until they reset (resume-at.ts) and then
    * sends the Orchestrator on, or stops with `limits-timeout` when the wait would be too long. A
@@ -1811,6 +1923,8 @@ export class Autopilot {
   private async limitsHit(run: Run, hit: LimitsHit, message: string | null): Promise<void> {
     const wait = run.limits
     if (wait === null || (run.cycle.phase !== 'turn' && run.cycle.phase !== 'settling')) return
+    // The Limits wait takes over a wait to retry after an API error: one wait, one resumed (worfy-retry ticket 04).
+    run.retry?.cancel()
     const said = message === null || message.trim() === '' ? null : clipLastText(message)
     await this.write(run, {
       kind: 'limits-hit',
@@ -2336,6 +2450,7 @@ export class Autopilot {
     if (run.tasksTimer !== null) (this.deps.tasksClock ?? realClock).clearTimeout(run.tasksTimer)
     run.tasksTimer = null
     run.limits?.cancel()
+    run.retry?.cancel()
     this.cancelBoundary(run)
   }
 
@@ -2350,9 +2465,11 @@ export class Autopilot {
 
   private snapshot(run: Run): AutopilotState {
     const limitsUntil = run.running ? (run.limits?.until ?? null) : null
+    const retryUntil = run.running ? (run.retry?.until ?? null) : null
+    const retry = retryUntil === null ? null : (run.retry?.retry ?? null)
     const boundary = run.running ? run.boundary : null
-    const resumesAt = limitsUntil ?? boundary?.until ?? null
-    const waitingFor = limitsUntil !== null ? 'limits' : boundary?.cause
+    const resumesAt = limitsUntil ?? retryUntil ?? boundary?.until ?? null
+    const waitingFor = limitsUntil !== null ? 'limits' : retryUntil !== null ? 'retry' : boundary?.cause
     const windowReason = waitingFor === 'start-window' ? boundary?.reason : undefined
     // From the click on: the run's step for it may still wait behind another one.
     const stopping = run.running && (run.cycle.stopping || run.stopRequested)
@@ -2365,6 +2482,7 @@ export class Autopilot {
       resumesAt,
       ...(waitingFor === undefined ? {} : { waitingFor }),
       ...(windowReason === undefined ? {} : { windowReason }),
+      ...(retry === null ? {} : { retry }),
       reason: run.done ? run.cycle.reason : null,
       message: run.message,
       resumable: run.done ? resumableOf(run) : [],

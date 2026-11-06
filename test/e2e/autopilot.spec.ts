@@ -619,6 +619,50 @@ test('Autopilot waits for the Limits after a refusal: the status line says until
   }
 })
 
+test('Autopilot with Auto-continue on waits to retry after an API 500: the status line says which retry and when; Force stop cancels the wait (worfy-retry ticket 04)', async () => {
+  const { dataDir, claudeHome, log, repo, statusBefore, claudeHomeBefore } = prepare()
+  // Auto-continue on for the Project, as the Modes menu writes it. The first pause is about a
+  // minute: the test is over long before it.
+  writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ autoContinue: { [PROJECT]: true } }))
+  const scripts = join(repoRoot, 'test', 'fixtures', 'agent-scripts')
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPTS: scripts, WORFY_AGENT_SCRIPT: 'autopilot-retry-500', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    const power = await recordPower(app)
+
+    const frame = window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    const header = frame.locator('header')
+    const status = frame.getByTestId('autopilot-status')
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+
+    await frame.getByTestId('action-autopilot').click()
+    await expect(status).toHaveText(/^API error · retry 1\/5 · \d{2}:\d{2}$/)
+    await expect(status).toHaveAttribute('data-status', 'waiting')
+    const line = (await status.textContent())!
+    await expect(status).toHaveAttribute('title', `${line}. ${DISPLAY_STAYS_ON}`)
+    // The line is shown whole and covers nothing.
+    expect(await status.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await expectStatusClear(window, header, status)
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'turn-retry'])
+    expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
+    expect(await power()).toEqual(['start prevent-display-sleep'])
+    await snapshots(window, header, 'autopilot-retry-waiting')
+
+    // Force stop cancels the wait: no continuation goes out.
+    await forceStop(window, frame)
+    await expect(status).toHaveText('stopped: user force stop')
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'turn-retry', 'run-stopped user-force-stop', 'orchestrator-returned'])
+    expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
+    expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
+    expect(git(repo, 'status', '--porcelain')).toBe(statusBefore)
+    expect(files(claudeHome)).toEqual(claudeHomeBefore)
+  } finally {
+    await launched.close()
+  }
+})
+
 test("Autopilot keeps the daily budget of the Limits: today's share used before Wave 1, the status line and its tooltip say why and until when; Stop ends the wait at once", async () => {
   const { dataDir, claudeHome, log, repo, statusBefore, claudeHomeBefore } = prepare()
   const scripts = join(scratch, 'scripts')

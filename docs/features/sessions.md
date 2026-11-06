@@ -185,8 +185,9 @@ answers.
 - For now the mode is only stored: an unattended Run still refuses every permission request.
 - Auto-continue is off for a Project until turned on. It is kept per Project in the same `app-settings.json`, and only
   the Modes menu writes it: on adds the Project's entry, off removes it, other Projects keep theirs. A change shows at
-  once in the Modes menu of every window, on a Linked machine too. A debugging port does not hold it off. For now it is only
-  stored: the Orchestrator still stops on an API error as before.
+  once in the Modes menu of every window, on a Linked machine too. A debugging port does not hold it off. An Autopilot run
+  reads it before each retry after a temporary API error ([Autopilot, Retry after an API error](autopilot.md#retry-after-an-api-error)).
+  A turn of the Orchestrator outside a run still stops on an API error as before.
 - Autopilot runs this Session unattended. On Codex a run is refused, with the reason, while the Harness's hooks are not
   approved in Codex's `/hooks`; see [Autopilot, During a run](autopilot.md#during-a-run). While it does, the permission
   mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission

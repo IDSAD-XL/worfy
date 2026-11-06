@@ -202,6 +202,23 @@
 //                                    have neither field
 //   waiting-until  until             the run sleeps until this ISO time
 //   resumed                          the run continues after a wait
+//   turn-retry     attempt, of,      a turn of the run's Orchestrator ended with a temporary API
+//                  error, message,   error and Auto-continue is on (worfy-retry ticket 04): the
+//                  until             run waits and then sends the Orchestrator a continuation;
+//                                    attempt: this retry, from 1, of `of` at most in a row; error:
+//                                    the kind (`api-500`, `overloaded`, `connection`, …,
+//                                    src/shared/agent/turn-failure.ts); message: the first 300
+//                                    characters of the turn's error text; until: the ISO time the
+//                                    continuation goes. resumed follows when it has gone; a turn
+//                                    that goes through in the meantime ends the wait without one
+//   retry-refused  reason, actions?  Auto-continue is on, the turn ended with an error, and the
+//                                    run does not retry it: `not-transient` (the error does not
+//                                    pass with time), `in-flight` (an external action of the turn
+//                                    has no result: it may or may not have run), `cap` (the
+//                                    retries in a row ran out). actions: with `in-flight`, worfy's
+//                                    summary of each such call (`git push origin main`), secrets
+//                                    hidden as in `auto-approval`. session-error and run-stopped
+//                                    `turn-error` follow, as without Auto-continue
 //   session-error  session, message  a Session failed; session: its id or null
 //   refused-dialog session, what,    a Session asked for a person (a permission or a question)
 //                  agent?, reason?   and the run refused it without one; what: which request;
@@ -329,6 +346,8 @@ export const JOURNAL_EVENT_KINDS = [
   'limits-hit',
   'waiting-until',
   'resumed',
+  'turn-retry',
+  'retry-refused',
   'session-error',
   'refused-dialog',
   'auto-approval',
@@ -353,6 +372,9 @@ export type { AutoApprovalOutcome } from '../agent/auto-approval'
 
 /** What a `limits-hit` line says of a refusal without a window that resets (worfy-multi-vendor ticket 38). */
 export const LIMITS_HIT_REASONS = ['quota'] as const
+
+/** Why a `retry-refused` line says the run did not retry a failed turn (src/shared/agent/continue-plan.ts, RefusedReason). */
+export const RETRY_REFUSED_REASONS = ['not-transient', 'in-flight', 'cap'] as const
 
 /** What a `budget-stop` line says stopped the run (src/shared/autopilot/budget.ts, BudgetCause). */
 export const BUDGET_CAUSES = ['daily-share', 'five-hour'] as const
@@ -397,6 +419,8 @@ export const LAST_TEXT_MAX = 1000
 export const REASON_MAX = 200
 /** How much of a command, and of each target path, `auto-approval` keeps. */
 export const COMMAND_MAX = 200
+/** How much of the turn's error text `turn-retry` keeps. */
+export const RETRY_MESSAGE_MAX = 300
 const skipped = z.array(z.object({ num: text, state: z.enum(['blocked', 'none']) }))
 const session = z.string().min(1).nullable()
 const tasks = z.array(z.object({ id: text, type: z.string().nullable(), description: z.string().nullable() }))
@@ -473,6 +497,8 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('limits-hit', { window: z.string().min(1).nullable(), resetsAt: isoTime.nullable(), reason: z.enum(LIMITS_HIT_REASONS).optional().catch(undefined), message: z.string().max(LAST_TEXT_MAX).optional() }),
   event('waiting-until', { until: isoTime }),
   event('resumed', {}),
+  event('turn-retry', { attempt: z.number().int().positive(), of: z.number().int().positive(), error: text, message: z.string().max(RETRY_MESSAGE_MAX), until: isoTime }),
+  event('retry-refused', { reason: z.enum(RETRY_REFUSED_REASONS), actions: z.array(text.max(COMMAND_MAX)).optional() }),
   event('session-error', { session, message: z.string() }),
   event('refused-dialog', { session, what: text, agent: text.optional(), reason: text.max(REASON_MAX).optional() }),
   event('auto-approval', {
@@ -508,6 +534,11 @@ function clip(text: string, max: number): string {
 /** The start of an answer as `run-stopped` keeps it: at most LAST_TEXT_MAX UTF-16 units. */
 export function clipLastText(answer: string): string {
   return clip(answer, LAST_TEXT_MAX)
+}
+
+/** The start of a turn's error text as `turn-retry` keeps it: at most RETRY_MESSAGE_MAX UTF-16 units. */
+export function clipRetryMessage(message: string): string {
+  return clip(message, RETRY_MESSAGE_MAX)
 }
 
 /**
