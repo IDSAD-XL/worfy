@@ -138,6 +138,22 @@ A click on a bar or a row opens the panel at the bottom, with three tabs:
   marks file of the Harness, git), and what limits the source, for example a gate run answered wholly from the green
   cache, which leaves no log.
 
+#### The Auto-approval block
+
+Under the detail panel, whatever is selected, a run with Auto-approval decisions shows the block **Auto-approval**. A
+run without one (Off, or no request) has no block. The block has:
+
+- the counters of each mode the run has decisions in: `On: allow · deny · park · hard-deny`, and for Shadow
+  `would-allow · would-deny · would-park · hard-deny`. A request whose park ended (`park-answered`, `park-expired`) is
+  in the list but not counted again;
+- with a Shadow decision in the run, `Shadow: N decisions so far`: the Shadow decisions of every run of the Project, so
+  the owner can tell when the list of `would-allow` is long enough to switch to On;
+- the list of the run's `auto-approval` lines in journal order, those after the stop too: the time, the outcome, the
+  rule, the tool with the Subagent that asked, the targets and the command. The command and the targets are as the
+  journal keeps them, shortened and with secrets as `***`; nothing is read again.
+
+The block scrolls on its own when the list is long. A Linked machine sees the same block.
+
 #### A live run
 
 The screen can be open while the run goes on. The timeline follows it: it is computed again at most every 5 seconds
@@ -270,7 +286,8 @@ is over is read whole, once per computation, and kept nowhere.
 | `src/renderer/flight-recorder/Timeline.tsx` | The controls, the axis and mini-map, the zoom, the rows and bars. |
 | `src/renderer/flight-recorder/label-layout.ts` | Where a bar's label goes. Pure. |
 | `src/renderer/flight-recorder/filter.ts` | The filter, Problems only, what a selection highlights. Pure. |
-| `src/renderer/flight-recorder/DetailPanel.tsx` | The detail panel, the GitHub notice and Retry. |
+| `src/renderer/flight-recorder/DetailPanel.tsx` | The detail panel, the GitHub notice and Retry, the Auto-approval block. |
+| `src/shared/autopilot/auto-approval-summary.ts` | The counters of a run's Auto-approval decisions and the line in the Orchestrator's chat at the end of a run. Pure. |
 | `src/renderer/flight-recorder/SummaryStrip.tsx` | The summary. |
 | `src/renderer/flight-recorder/store.ts` | The state of the screen and the rows of the tree. |
 | `src/renderer/flight-recorder/stop-toast.ts` | The stop toast. |
@@ -286,7 +303,8 @@ is over is read whole, once per computation, and kept nowhere.
    `runs.open` for the chosen one.
 2. The service reads the run's journal from the data folder, then the transcripts, GitHub (only for Projects whose
    Tickets end with a PR), the gate logs, and the marks file and git for Tickets without a PR. Each reader hands facts
-   over; `buildTimeline` makes the spans and `summarize` the summary.
+   over; `buildTimeline` makes the spans and `summarize` the summary. The run's `auto-approval` lines go into the view
+   as they are; with one in Shadow the service also reads every journal of the Project for `Shadow: N decisions so far`.
 3. While the run is live and the window holds it, the service computes again on growth of its files and sends
    `runs.changed`. `runs.close` lets the run go when the window shows another run or leaves the view.
 4. `runs.retry` asks GitHub at once and answers the new timeline.
@@ -317,7 +335,8 @@ These tests call no model and no GitHub: the journal and transcripts are fixture
 | `test/unit/flight-recorder-stop-toast.test.ts` | The stop toast: one per run, the latest per Project. |
 | `test/unit/canvas-actions.test.tsx`, `test/unit/palette-commands.test.tsx` | "History", "Run history" in "⋯", "Open Run history". |
 | `test/unit/toolbar-runs.test.tsx` | The **Runs** tab: four tabs, the Project it passes, selected on the screen, inactive without a Project. |
-| `test/contract/flight-recorder-service.test.ts` | The service over all readers, the live recompute, Retry. |
+| `test/contract/flight-recorder-service.test.ts` | The service over all readers, the live recompute, Retry, the Auto-approval decisions of a run and the Project's Shadow decisions so far. |
 | `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` | The readers in main. The transcripts test also reads a run on Codex from the fake app-server (`test/fixtures/codex-scripts/flight-recorder-run.jsonl`). |
+| `test/unit/auto-approve-summary.test.ts` | The Auto-approval decisions of a journal, their counters, the view's schema that keeps them, and the chat line at the end of a run. |
 | `test/contract/runs-ipc.test.ts` | The `runs` channels. |
 | `test/e2e/flight-recorder.spec.ts`, `test/e2e/flight-recorder-detail.spec.ts` | The built app: the screen, labels that cross no bar, the panel, Retry, Problems only. |

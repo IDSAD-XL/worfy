@@ -250,6 +250,56 @@ describe('the detail panel', () => {
   })
 })
 
+describe('the block «Auto-approval» (worfy-auto-approve ticket 08)', () => {
+  const decision = (at: string, mode: 'on' | 'shadow', outcome: NonNullable<RunView['autoApproval']>['decisions'][number]['outcome'], more: Partial<NonNullable<RunView['autoApproval']>['decisions'][number]> = {}) => ({ at, mode, outcome, rule: 'files-inside-roots', tool: 'Bash', targets: ['~/repo/.claude/worktrees/01/build'], ...more })
+  const block = () => screen.getByTestId('run-history-auto-approval')
+
+  it('a Run without a decision has none, whatever is selected', async () => {
+    await show()
+    expect(screen.queryByTestId('run-history-auto-approval')).toBeNull()
+    await select(IMPL_07_RETRY)
+    expect(screen.queryByTestId('run-history-auto-approval')).toBeNull()
+  })
+
+  it('On: the counters and the list — time, outcome, rule, tool with the agent, targets, the command as the Journal masked it', async () => {
+    const at = '2026-10-18T01:00:00.000Z'
+    await show({
+      ...NIGHT,
+      autoApproval: {
+        decisions: [
+          decision(at, 'on', 'allow', { agent: 'agent-impl-01', command: 'rm -rf ~/repo/.claude/worktrees/01/build' }),
+          decision(at, 'on', 'park', { rule: 'outside-roots', targets: ['/opt/x'] }),
+          decision(at, 'on', 'park-answered', { rule: 'outside-roots', targets: ['/opt/x'] }),
+          decision(at, 'on', 'deny', { rule: 'not-judged', command: 'GH_TOKEN=*** gh pr list', targets: [] }),
+        ],
+        shadowSoFar: null,
+      },
+    })
+    expect(within(block()).getByTestId('run-history-auto-approval-on').textContent).toBe('On: allow 1 · deny 1 · park 1 · hard-deny 0')
+    expect(within(block()).queryByTestId('run-history-auto-approval-shadow')).toBeNull()
+    expect(within(block()).queryByTestId('run-history-auto-approval-so-far')).toBeNull()
+    const rows = within(block()).getAllByTestId('run-history-auto-approval-decision').map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent))
+    const time = clock(Date.parse(at))
+    expect(rows).toEqual([
+      [time, 'allow', 'files-inside-roots', 'Bash (agent-impl-01)', '~/repo/.claude/worktrees/01/build', 'rm -rf ~/repo/.claude/worktrees/01/build'],
+      [time, 'park', 'outside-roots', 'Bash', '/opt/x', '—'],
+      [time, 'park-answered', 'outside-roots', 'Bash', '/opt/x', '—'],
+      [time, 'deny', 'not-judged', 'Bash', '—', 'GH_TOKEN=*** gh pr list'],
+    ])
+    // It stays while a span is selected.
+    await select(IMPL_07_RETRY)
+    expect(block()).toBeTruthy()
+  })
+
+  it('Shadow: the would-* counters and «Shadow: N decisions so far» over the Runs of the Project', async () => {
+    const at = '2026-10-18T01:00:00.000Z'
+    await show({ ...NIGHT, autoApproval: { decisions: [decision(at, 'shadow', 'would-allow'), decision(at, 'shadow', 'would-allow'), decision(at, 'shadow', 'would-deny'), decision(at, 'shadow', 'hard-deny', { rule: 'hard:ssh' })], shadowSoFar: 7 } })
+    expect(within(block()).getByTestId('run-history-auto-approval-shadow').textContent).toBe('Shadow: would-allow 2 · would-deny 1 · would-park 0 · hard-deny 1')
+    expect(within(block()).queryByTestId('run-history-auto-approval-on')).toBeNull()
+    expect(within(block()).getByTestId('run-history-auto-approval-so-far').textContent).toBe('Shadow: 7 decisions so far')
+  })
+})
+
 describe('«GitHub did not answer» and «Retry»', () => {
   it('shows the reason over the timeline; «Retry» asks main at once, and its answer takes the label away', async () => {
     const calls = await show(withoutGithub(), NIGHT)

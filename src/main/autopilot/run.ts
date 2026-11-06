@@ -164,6 +164,7 @@ import { MAX_RETRIES } from '../../shared/agent/continue-plan'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import { turnFailureKind, type TurnFailure } from '../../shared/agent/turn-failure'
 import { budgetWindows, listsWindows, STORED_LIMITS_VENDOR, type VendorLimits } from '../../shared/autopilot/budget-window'
+import { autoApprovalChatLine, type Judged } from '../../shared/autopilot/auto-approval-summary'
 import { clipLastText, clipRetryMessage, journalCommand, journalLimits, journalReason, journalTarget, journalVendorLimits, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
 import { BUDGET_FRESH_MS, budgetDecision, budgetStopText, type AutopilotBudget, type BudgetCause, type BudgetDecision } from '../../shared/autopilot/budget'
 import { epicForecast, remainingWaves } from '../../shared/autopilot/forecast'
@@ -222,6 +223,8 @@ export interface RunSession {
   releaseParked?(): void
   /** How many requests wait parked for the owner (Session.parkedRequests); a task with one is waiting, not stalled. */
   parkedRequests?(): number
+  /** A notice of worfy's own in the Session's view (Session.notice): the Auto-approval line at the end of a run. */
+  notice?(text: string): void
 }
 
 /**
@@ -637,9 +640,16 @@ class Run {
   vendor: string = STORED_LIMITS_VENDOR
   /** The policy's side of the run (worfy-auto-approve ticket 04); null without Auto-approval, or when it could not open. */
   approval: RunApproval | null = null
+  /** The policy's decisions so far (`auto_approval` events): the line in the Orchestrator's chat at the end (worfy-auto-approve ticket 08). */
+  readonly decisions: Judged[] = []
   message: string | null = null
   private chain: Promise<void> = Promise.resolve()
   readonly cleanups: (() => Promise<void> | void)[] = []
+  /**
+   * Drops the run's own observer of its Session's events (also one of `cleanups`): a stop that lingers drops it before
+   * the linger observer comes, so no event reaches both (worfy-auto-approve ticket 08).
+   */
+  unobserveSession: () => void = () => undefined
   settleTimer: ReturnType<typeof setTimeout> | null = null
   /** The wait for background tasks (phase `tasks`): their limit, or the grace time after the last one. */
   tasksTimer: unknown = null
@@ -1178,15 +1188,16 @@ export class Autopilot {
     if (run.limits !== null) run.cleanups.push(run.limits.watch((sessionId) => run.session !== null && sessionId === run.session.id))
     const unobserve = this.deps.retry?.observe?.(() => void run.enqueue(async () => void (await this.farWaitDropped(run))))
     if (unobserve !== undefined) run.cleanups.push(unobserve)
+    run.unobserveSession = this.deps.registry.observe((sessionId, event) => {
+      if (run.session === null || sessionId !== run.session.id) return
+      this.onEvent(run, event)
+      // During a far Limits wait (worfy-retry ticket 05): a turn or a task that starts takes keep-awake
+      // back, and the end of the last task lets it go. The end of a turn decides in the run's order:
+      // passed() keeps it, a refusal waits again (waitForLimits).
+      if (run.asleep || (event.type === 'background_tasks' && run.limits?.until != null)) this.holdAwake(run)
+    })
     run.cleanups.push(
-      this.deps.registry.observe((sessionId, event) => {
-        if (run.session === null || sessionId !== run.session.id) return
-        this.onEvent(run, event)
-        // During a far Limits wait (worfy-retry ticket 05): a turn or a task that starts takes keep-awake
-        // back, and the end of the last task lets it go. The end of a turn decides in the run's order:
-        // passed() keeps it, a refusal waits again (waitForLimits).
-        if (run.asleep || (event.type === 'background_tasks' && run.limits?.until != null)) this.holdAwake(run)
-      }),
+      () => run.unobserveSession(),
       this.deps.registry.observeInput((session, what) => {
         if (session !== run.session) return
         void run.enqueue(() => this.write(run, { kind: 'human-input', source: 'worfy', what }))
@@ -1259,6 +1270,7 @@ export class Autopilot {
         // A decision is a sign of life of whoever asked: the limit of the tasks starts over at once, so a park
         // that just ended is not overtaken by that limit (worfy-auto-approve ticket 07).
         this.tasksTimer(run, true)
+        run.decisions.push({ mode: event.mode, outcome: event.outcome })
         void run.enqueue(() => this.write(run, autoApprovalLine(event, run.session?.id ?? null, run.vendor)))
         return
       case 'background_tasks': {
@@ -2224,6 +2236,7 @@ export class Autopilot {
     this.dropQueuedWave(run)
     if (reason === 'user-force-stop' || reason === 'session-error') run.interrupted = tickets ?? []
     if (reason === 'user-force-stop') {
+      this.noticeDecisions(run)
       await this.interruptAndGiveBack(run, live)
     } else {
       // Live tasks keep the Orchestrator unattended, and the Mac awake, until they end (ADR-0029).
@@ -2241,6 +2254,8 @@ export class Autopilot {
           }
         }
         this.linger(run)
+      } else {
+        this.noticeDecisions(run)
       }
       // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
       await this.release(run, reason !== 'app-quit', !linger)
@@ -2253,6 +2268,22 @@ export class Autopilot {
     this.last.set(run.projectId, this.snapshot(run))
     this.publish(run.projectId)
     run.finish()
+  }
+
+  /**
+   * The one line of the policy's decisions in the Orchestrator's chat, once, when the run is over (worfy-auto-approve
+   * ticket 08): at its stop when nothing lingers, else once its turn and tasks have ended, the app quits or the next
+   * run takes the Session over (linger) — so the decisions of the tasks after run-stopped count too. None without a
+   * decision.
+   */
+  private noticeDecisions(run: Run): void {
+    const line = autoApprovalChatLine(run.decisions)
+    if (line === null || run.session === null) return
+    try {
+      run.session.notice?.(line)
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not show the Auto-approval line in the Orchestrator's chat`, error)
+    }
   }
 
   /**
@@ -2290,7 +2321,8 @@ export class Autopilot {
    * After a stop with live background tasks, or during a turn: the run's Session stays unattended
    * until the turn and the tasks have ended (orchestrator.ts gives it back then). Meanwhile every
    * change of the set goes to the journal; once the Session is closed — given back —
-   * `orchestrator-returned` is written and keep-awake released. If the app quits first, the tasks
+   * `orchestrator-returned` is written and keep-awake released. The policy's decisions meanwhile are journaled
+   * as during the run (worfy-auto-approve ticket 08). If the app quits first, the tasks
    * alive then are journaled as killed (none, when only the turn was running). A new run of the
    * Project may take the Session over meanwhile (worfy-polish ticket 50): the wait then ends with
    * no line of its own, and the tasks are the new run's.
@@ -2316,6 +2348,7 @@ export class Autopilot {
       if (!end()) return
       await this.write(run, last)
       stopAwake()
+      this.noticeDecisions(run)
       await this.closeApproval(run)
     }
     const quit = (): Promise<void> => finish({ kind: 'tasks-killed', reason: 'app-quit', tasks: journalTasks(this.liveTasks(run)) })
@@ -2324,14 +2357,24 @@ export class Autopilot {
     const takeOver = (): void => {
       if (!end()) return
       stopAwake()
+      this.noticeDecisions(run)
       void this.closeApproval(run, false)
     }
     this.lingering.add(quit)
     this.takeOvers.set(run.projectId, takeOver)
+    // The run's own observer goes first, at once rather than later in release(): an event that comes meanwhile would
+    // reach both and be journaled twice.
+    run.unobserveSession()
     unsubscribe = this.deps.registry.observe((sessionId, event) => {
       if (sessionId !== session.id) return
       if (event.type === 'background_tasks') void this.write(run, { kind: 'background-tasks', tasks: journalTasks(event.tasks) })
-      else if (event.type === 'state' && event.state === 'closed') void finish({ kind: 'orchestrator-returned' })
+      else if (event.type === 'auto_approval') {
+        // The Session is still under the run's policy (closeApproval waits for the end): its decisions are the run's.
+        // The next run opens its own policy before it takes the Session over: a decision under that one is the next run's.
+        if (this.activeApprovals.get(run.projectId) !== (run.approval ?? undefined)) return
+        run.decisions.push({ mode: event.mode, outcome: event.outcome })
+        void this.write(run, autoApprovalLine(event, session.id, run.vendor))
+      } else if (event.type === 'state' && event.state === 'closed') void finish({ kind: 'orchestrator-returned' })
     })
   }
 

@@ -4,6 +4,7 @@
 // Handled in src/main/ipc/runs.ts. Every channel is `project` and `read`: a window on a Linked machine
 // reads the Runs on the Machine where they ran (decision 01, Q7); «Retry» only reads gh again.
 import { z } from 'zod'
+import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from '../agent/auto-approval'
 import { epicNameSchema } from '../binding/resolve'
 import { isRunId, RUN_STARTED_BY } from '../autopilot/journal'
 import { RUN_MODES } from '../autopilot/run-mode'
@@ -124,6 +125,30 @@ export const runGithubSchema = z.discriminatedUnion('state', [
 ])
 export type RunGithub = z.infer<typeof runGithubSchema>
 
+/**
+ * The Auto-approval decisions of a Run (worfy-auto-approve ticket 08): its `auto-approval` lines, each as
+ * AutoApprovalDecisionFact of src/shared/flight-recorder/facts.ts, the command as the Journal masked it.
+ * `shadowSoFar`: the Shadow decisions of every Run of the Project so far (isShadowDecision of
+ * src/shared/autopilot/auto-approval-summary.ts), the measure of Q2 for the switch to On; null when this Run
+ * has no decision in Shadow.
+ */
+export const runAutoApprovalSchema = z.object({
+  decisions: z.array(
+    z.object({
+      at: z.string(),
+      mode: z.enum(AUTO_APPROVAL_LINE_MODES),
+      outcome: z.enum(AUTO_APPROVAL_OUTCOMES),
+      rule: z.string(),
+      tool: z.string(),
+      targets: z.array(z.string()).readonly(),
+      command: z.string().optional(),
+      agent: z.string().optional(),
+    }),
+  ),
+  shadowSoFar: count.nullable(),
+})
+export type RunAutoApproval = z.infer<typeof runAutoApprovalSchema>
+
 /** One Run's timeline as the screen shows it. */
 export const runViewSchema = z.object({
   projectId,
@@ -147,6 +172,11 @@ export const runViewSchema = z.object({
    * read). The timeline is the last one, not live; open the Run again to retry. Null otherwise.
    */
   error: z.string().nullable(),
+  /**
+   * The block «Auto-approval» of the screen; absent when the Run's Journal has no decision (Off, or none asked),
+   * and from a Machine whose build is older than worfy-auto-approve ticket 08.
+   */
+  autoApproval: runAutoApprovalSchema.optional(),
 })
 export type RunView = z.infer<typeof runViewSchema>
 

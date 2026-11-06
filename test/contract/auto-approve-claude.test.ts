@@ -333,6 +333,8 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     // Shadow writes no refused-dialog: each refusal has its auto-approval line instead.
     expect((await h.journal()).filter((event) => event.kind === 'refused-dialog')).toEqual([])
     expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', autoApproval: 'shadow' })
+    // At the end of the run, one line in the Orchestrator's chat (worfy-auto-approve ticket 08).
+    expect(h.events.flatMap((event) => (event.type === 'notice' ? [[event.kind, event.text]] : []))).toEqual([['notification', 'Shadow: would allow 1, would deny 1, would park 1, hard-denied 1']])
   })
 
   it('On: a delete inside the Wave\'s worktree goes through, one outside every root waits for the owner, a hard deny is refused', async () => {
@@ -371,6 +373,8 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     expect(raw).toContain('GH_TOKEN=***')
     expect(raw).toContain('~/.ssh/demo-key')
     expect(journal[0]).toMatchObject({ kind: 'run-started', autoApproval: 'on' })
+    // At the end of the run, one line in the Orchestrator's chat (worfy-auto-approve ticket 08): the end of the park is no decision of its own.
+    expect(h.events.flatMap((event) => (event.type === 'notice' ? [[event.kind, event.text]] : []))).toEqual([['notification', 'Auto-approval: allowed 1, denied 1, parked 1, hard-denied 1']])
   })
 
   it('each request is judged in the whole environment the process started with, as the query factory tells it', async () => {
