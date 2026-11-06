@@ -11,7 +11,7 @@
 // And under Claude Code nothing changes: its Stop input runs no gate, its SubagentStop does nothing.
 // Only the hooks of stop.mjs, guard.mjs, session-end.mjs and the lock release are run: the others
 // (qmd-refresh, the SessionStart ones) read the machine's own setup and are none of these guarantees.
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -117,6 +117,23 @@ const claudeStop = (cwd: string, input: object) =>
 /** The same with a Codex input: the exit code and the output as the engine reads them. */
 const codexStop = claudeStop
 
+/**
+ * The exit code of `child` once it closes. A child still running after half the test's limit is killed
+ * there and gives 'killed': a hook that hangs fails its test without outliving it.
+ */
+function closeOf(child: ChildProcess): Promise<number | null | 'killed'> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      resolve('killed')
+    }, RUN_MS / 2)
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      resolve(code)
+    })
+  })
+}
+
 describe('the hook inputs of the pinned Codex', () => {
   it('are told from Claude Code by every recorded input of the events the Harness hooks', () => {
     for (const event of ['PreToolUse', 'Stop', 'SubagentStop', 'SessionEnd', 'SessionStart', 'SubagentStart']) {
@@ -160,6 +177,126 @@ describe('gate before the end of the work: Stop and SubagentStop on Codex', () =
     const verdicts = readdirNames(state).filter((name) => name.startsWith('verdict-'))
     expect(verdicts).toHaveLength(1)
     expect(JSON.parse(readFileSync(join(state, verdicts[0] as string), 'utf8'))).toMatchObject({ outcome: 'green', profile: 'fast', key: 'c' })
+  }, RUN_MS)
+
+  // Codex, or a busy machine, may write the input after the hook has started. stop.mjs once read its
+  // stdin with fs.readFileSync(0) after touching process.stdin, which holds a pipe in non-blocking mode:
+  // the read failed with EAGAIN, the hook took the input for empty, ran no gate and held or let the
+  // turn go by the marker of an earlier run (codex-parity.test.ts failed so under load). Here the input
+  // goes only once the hook has touched process.stdin (a preload says so on stderr), so a synchronous
+  // read meets an empty pipe every time.
+  it('read an input that arrives after the hook started: the gate runs and a red one holds the turn', async () => {
+    const { dir, work, state, mode } = project()
+    mode('bad')
+    const touched = 'stdin-touched-by-the-hook'
+    const preload = join(dir, 'stdin-touched.cjs')
+    writeFileSync(
+      preload,
+      `const own = Object.getOwnPropertyDescriptor(process, 'stdin')
+let told = false
+Object.defineProperty(process, 'stdin', { configurable: true, enumerable: own.enumerable, get() {
+  const stdin = own.get.call(process)
+  if (!told) { told = true; require('node:fs').writeSync(2, ${JSON.stringify(`${touched}\n`)}) }
+  return stdin
+} })
+`,
+    )
+    const child = spawn(scriptNode(), [join(plugin, 'hooks', 'stop.mjs')], { cwd: work, env: { ...process.env, NODE_OPTIONS: `--require ${JSON.stringify(preload)}` }, stdio: 'pipe' })
+    let stderr = ''
+    let sent = false
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+      stderr += chunk
+      if (!sent && stderr.includes(touched)) {
+        sent = true
+        child.stdin.end(JSON.stringify(codexStopInput(work)))
+      }
+    })
+    const code = await closeOf(child)
+    expect(sent, 'the hook touched process.stdin').toBe(true)
+    expect([code, stderr.replace(`${touched}\n`, '')]).toEqual([2, expect.stringMatching(/^The quality gate is red \(failed at .+\)\. Run `node /)])
+    const verdicts = readdirNames(state).filter((name) => name.startsWith('verdict-'))
+    expect(verdicts, 'the hook ran the gate').toHaveLength(1)
+    expect(JSON.parse(readFileSync(join(state, verdicts[0] as string), 'utf8'))).toMatchObject({ outcome: 'red', key: 'c' })
+  }, RUN_MS)
+
+  // The wait for the first byte is 30 s; CLAUDE_STOP_STDIN_WAIT_MS shortens it here.
+  it('take an input pipe that stays open and sends nothing for no input once the wait for its first byte is over', async () => {
+    const { work, state, mode } = project()
+    mode('bad')
+    const child = spawn(scriptNode(), [join(plugin, 'hooks', 'stop.mjs')], { cwd: work, env: { ...process.env, CLAUDE_STOP_STDIN_WAIT_MS: '200' }, stdio: 'pipe' })
+    let output = ''
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => (output += chunk))
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => (output += chunk))
+    // stdin is never written or closed: only the hook's own wait ends the run.
+    expect(await closeOf(child)).toBe(0)
+    expect(output).toBe('')
+    expect(readdirNames(state).filter((name) => name.startsWith('verdict-')), 'no input, no gate run').toEqual([])
+  }, RUN_MS)
+
+  it('read the input to its end once its first byte has come, however long the rest takes', async () => {
+    const { work, state, mode } = project()
+    mode('bad')
+    const input = JSON.stringify(codexStopInput(work))
+    const half = Math.floor(input.length / 2)
+    const child = spawn(scriptNode(), [join(plugin, 'hooks', 'stop.mjs')], { cwd: work, env: { ...process.env, CLAUDE_STOP_STDIN_WAIT_MS: '200' }, stdio: 'pipe' })
+    let stderr = ''
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk))
+    const closed = closeOf(child)
+    child.stdin.write(input.slice(0, half))
+    // Five times the wait for the first byte: a hook that kept that wait after the first byte has given up by now.
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    child.stdin.end(input.slice(half))
+    expect([await closed, stderr]).toEqual([2, expect.stringMatching(/^The quality gate is red \(failed at .+\)\. Run `node /)])
+    expect(readdirNames(state).filter((name) => name.startsWith('verdict-'))).toHaveLength(1)
+  }, RUN_MS)
+
+  // On a terminal the hook reads nothing. The input is typed into the terminal anyway (a line, then the
+  // end of input): a hook that read the terminal would get a red Codex Stop and hold the turn. The script
+  // kills the hook itself after half the test's limit (exit 98): a kill of python3 alone would leave the
+  // hook running on its terminal.
+  it.skipIf(WINDOWS)('read nothing from a terminal: the hook ends with no input even when the terminal sends one', (context) => {
+    // python3 with its pty module drives the terminal; a runner without it skips the case. Asked here,
+    // not while the file loads: no file of test/contract starts a process then (e2e-no-spawn-on-load).
+    if (spawnSync('python3', ['-c', 'import pty'], { stdio: 'ignore' }).status !== 0) context.skip()
+    const { work, state, mode } = project()
+    mode('bad')
+    const input = JSON.stringify(codexStopInput(work))
+    expect(input.length, 'one line of a terminal').toBeLessThan(1000)
+    const python = `
+import os, pty, select, signal, sys, time
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv(sys.argv[1], sys.argv[1:3])
+deadline = time.monotonic() + float(sys.argv[4])
+def give_up():
+    os.kill(pid, signal.SIGKILL)
+    os.waitpid(pid, 0)
+    sys.exit(98)
+os.write(fd, sys.argv[3].encode() + b"\\n\\x04")
+while True:
+    left = deadline - time.monotonic()
+    if left <= 0:
+        give_up()
+    if not select.select([fd], [], [], left)[0]:
+        continue
+    try:
+        if not os.read(fd, 4096):
+            break
+    except OSError:
+        break
+while True:
+    done, status = os.waitpid(pid, os.WNOHANG)
+    if done:
+        break
+    if time.monotonic() > deadline:
+        give_up()
+    time.sleep(0.05)
+sys.exit(os.WEXITSTATUS(status) if os.WIFEXITED(status) else 99)
+`
+    const seconds = String(RUN_MS / 2 / 1000)
+    const run = spawnSync('python3', ['-c', python, scriptNode(), join(plugin, 'hooks', 'stop.mjs'), input, seconds], { cwd: work, env: process.env, encoding: 'utf8', timeout: RUN_MS })
+    expect([run.error, run.status]).toEqual([undefined, 0])
+    expect(readdirNames(state).filter((name) => name.startsWith('verdict-')), 'no input, no gate run').toEqual([])
   }, RUN_MS)
 
   it('count the blocks of each Subagent on their own: two red SubagentStops of the reviewer leave the main Stop its own two', async () => {

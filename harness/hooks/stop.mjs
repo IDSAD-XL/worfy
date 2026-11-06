@@ -33,8 +33,9 @@
 // held on red too and told to report the red gate rather than fix it.
 //
 // For tests: CLAUDE_GATE_STATE (the state folder), CLAUDE_GATE_RESOLVE (the resolver),
-// CLAUDE_GATE_CONFIG (read by the resolver). Tests: hooks/tests/gate-notverified.test.sh,
-// gate-unregistered.test.sh, bin/tests/harness-home.test.sh; on Codex inputs
+// CLAUDE_GATE_CONFIG (read by the resolver), CLAUDE_STOP_STDIN_WAIT_MS (a shorter wait for the input).
+// Tests: hooks/tests/gate-notverified.test.sh, gate-unregistered.test.sh, bin/tests/harness-home.test.sh;
+// on Codex inputs and on the reading of stdin
 // test/contract/harness-codex-hooks.test.ts.
 
 import { spawnSync } from "node:child_process"
@@ -49,13 +50,51 @@ const MAX_BLOCKS = 2
 // limit in hooks.json became the 900 s the gate run on Codex needs.
 const RESOLVE_MS = 10_000
 
+// The hook input: stdin read as a stream to its end. Not fs.readFileSync(0): once process.stdin has
+// been touched (its isTTY below), Node holds a pipe on descriptor 0 in non-blocking mode, and a
+// synchronous read of it fails with EAGAIN when the input has not arrived yet — under load the
+// writer is late. The hook then took the input for empty: on Codex it ran no gate and held or let go
+// the turn by the marker an earlier run had left.
+// A pipe that stays open and sends nothing gets STDIN_FIRST_BYTE_MS for its first byte, then the
+// input is empty: without a limit the hook would hold the turn until its own limit in hooks.json
+// (900 s). Not the 2 s of silence gate.mjs allows a manual run: a late hook input is exactly what
+// this reader is for. Once the first byte has come, the input is read to its end.
+const STDIN_FIRST_BYTE_MS = (() => {
+    const DEFAULT = 30_000
+    // A test may shorten the wait, never lengthen it.
+    const v = Number(process.env.CLAUDE_STOP_STDIN_WAIT_MS)
+    return Number.isInteger(v) && v > 0 ? Math.min(v, DEFAULT) : DEFAULT
+})()
+
 function readStdin() {
-    if (process.stdin.isTTY) return ""
+    let stdin
     try {
-        return fs.readFileSync(0, "utf8")
+        stdin = process.stdin // a closed descriptor 0 makes this getter throw
     } catch {
-        return ""
+        return Promise.resolve("")
     }
+    // A terminal: a hook always gets its input on a pipe, and a person at a terminal sends none.
+    if (stdin.isTTY) return Promise.resolve("")
+    return new Promise((resolve) => {
+        let text = ""
+        const done = (value) => {
+            clearTimeout(timer)
+            stdin.removeAllListeners("data")
+            stdin.removeAllListeners("end")
+            stdin.removeAllListeners("error")
+            // An open pipe would keep the process alive after the hook has decided.
+            stdin.destroy()
+            resolve(value)
+        }
+        const timer = setTimeout(() => done(""), STDIN_FIRST_BYTE_MS)
+        stdin.setEncoding("utf8")
+        stdin.on("data", (chunk) => {
+            clearTimeout(timer)
+            text += chunk
+        })
+        stdin.on("end", () => done(text))
+        stdin.on("error", () => done(""))
+    })
 }
 
 // A top-level string field of the hook JSON, or "".
@@ -117,14 +156,13 @@ function runGate(here, input) {
     })
 }
 
-// What the hook does; the exit code it returns.
-function main() {
+// What the hook does with `input`, the text it got on stdin; the exit code it returns.
+function main(input) {
     // The scripts next to this one: the folder of its real file, not of a symlink to it.
     const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)))
     const state = gateStateDir()
     const resolver = process.env.CLAUDE_GATE_RESOLVE || path.join(here, "gate-resolve.mjs")
 
-    const input = readStdin()
     let payload = null
     try {
         payload = JSON.parse(input)
@@ -315,7 +353,10 @@ export function sessionStart(stats) {
     return stats && stats.isFile() && stats.birthtimeMs > 0 ? Math.floor(stats.birthtimeMs / 1000) : null
 }
 
-// Run as the hook, not when a test imports sessionStart.
+// Whether this file is the script the process was started with (argv[1]): then the hook runs. An
+// `import` of the file from another script does not run it; `node -e` with this file's path as its first
+// argument does, in full, since that path is argv[1] there (gate-notverified.test.sh imports
+// sessionStart that way).
 function isMain() {
     try {
         return !!process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))
@@ -327,7 +368,7 @@ function isMain() {
 if (isMain()) {
     let code = 0
     try {
-        code = main()
+        code = main(await readStdin())
     } catch (e) {
         // code stays 0: a broken hook must not hold the turn.
         process.stderr.write(`stop: ${String(e?.message ?? e).split("\n")[0]}\n`)
