@@ -1,7 +1,8 @@
 # 09 — Окно запуска Autopilot в приложении: кнопка Canvas, канал `autopilot.prepare`
 
 Type: task
-Status: open
+Status: done 2026-11-06T16:03Z
+PR: #1507
 Blocked by: 07
 Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2; «Окно запуска (прототип)»; «Как работает» → «Окно запуска»; «Решения владельца», 8, 10, 11, 13, 15; [02](02-старт-при-идущей-работе.md), решения 10–15; прототип — Card `card-918c77d9`
 
@@ -41,14 +42,19 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2
 - [ ] Unit test окна: факты из ответа `prepare`, Run mode по умолчанию отмечен, Esc и Cancel не стартуют, ⌘↩ стартует,
       фокус на Cancel, Tab не выходит из окна; при `busy` — уведомление и «Start when free».
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/unit/start-autopilot-modal.test.tsx: 10 passed, exit 0 (commit e7702b6f4) · mac - · e7702b6f4f86cf1d217b02b2e8ce70444b9b067d
+  - evidence: review pass · PR #1507 · - - · b875fb7cb452cdaccdbde58283359e6678c14efe
 - [ ] Contract test `autopilot.prepare`: прогноз и Limits — те же строки, что `forecastLines` на том же журнале;
       Orchestrator на Codex — Vendor и окно Codex.
   - evidence: test-run pass · node scripts/vitest-electron.mjs test/contract/autopilot-prepare.test.ts: 9 passed, exit 0 (commit e7702b6f4) · mac - · e7702b6f4f86cf1d217b02b2e8ce70444b9b067d
+  - evidence: review pass · PR #1507 · - - · b875fb7cb452cdaccdbde58283359e6678c14efe
 - [ ] e2e: кнопка → окно → «Start Autopilot» → Run идёт; Orchestrator в ходе → «Start when free» → строка ожидания.
   - evidence: test-run pass · pnpm test:e2e test/e2e/autopilot-start-modal.spec.ts: 2 passed, exit 0 · mac - · e7702b6f4f86cf1d217b02b2e8ce70444b9b067d
+  - evidence: review pass · PR #1507 · - - · b875fb7cb452cdaccdbde58283359e6678c14efe
 - [ ] Снимки окна (Canvas button, Orchestrator busy) в обеих темах — `../evidence/09-окно-запуска-*.png`, ссылка в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · gate fast: [gate] green (fast): worfy/.:lint worfy/.:typecheck worfy/.:test, exit 0 on e7702b6f4 · mac - · e7702b6f4f86cf1d217b02b2e8ce70444b9b067d
+  - evidence: review pass · PR #1507 · - - · b875fb7cb452cdaccdbde58283359e6678c14efe
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42244367283 · ci - · b875fb7cb452cdaccdbde58283359e6678c14efe
 
 ## Тесты
 
