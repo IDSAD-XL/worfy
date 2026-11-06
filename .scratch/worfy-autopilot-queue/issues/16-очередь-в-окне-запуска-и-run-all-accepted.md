@@ -31,6 +31,8 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4; «
 - [ ] e2e: Command palette → «Run all accepted» → окно с тремя Epic-ами fixture-а → снять второй, первый и третий
       поменять местами → старт → `run-started.epics` в журнале — в новом порядке без снятого.
 - [ ] Снимок вида «Queue» в обеих темах — `../evidence/16-*.png`.
+  - evidence: screenshot pass · `../evidence/16-start-window-queue-light.png` · mac dev · d830ba0fc21f4eb0e88ed4d2d8a067b294b60667 · scrub: 2026-11-07
+  - evidence: screenshot pass · `../evidence/16-start-window-queue-dark.png` · mac dev · d830ba0fc21f4eb0e88ed4d2d8a067b294b60667 · scrub: 2026-11-07
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
 
 ## Тесты

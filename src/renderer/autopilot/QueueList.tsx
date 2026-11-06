@@ -9,6 +9,7 @@
 // dragging — the window's answer to main carries only the Run mode, so the queue stays the one the
 // Session asked for.
 import { useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
+import { KIND } from '../canvas/kind-colours'
 import { isMac } from '../platform'
 
 /** One Epic of the queue, ticked or not. */
@@ -140,7 +141,7 @@ export function QueueList({
               </>
             )}
             <span className="w-apstart__queue-n w-mono">{row.on ? ticked.indexOf(row) + 1 : '–'}</span>
-            <span className="w-apstart__queue-epic" aria-hidden="true" />
+            <span className="w-apstart__queue-epic" style={{ background: KIND.epic.band }} aria-hidden="true" />
             <span className="w-apstart__queue-name w-mono">{row.epic}</span>
             <span className="w-apstart__queue-waves w-apstart__muted">{fact === undefined ? '…' : wavesText(fact.waves)}</span>
             {fact === undefined || fact.accepted === null ? null : (

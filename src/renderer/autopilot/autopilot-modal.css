@@ -271,7 +271,6 @@
   height: 10px;
   flex: none;
   border-radius: 2px;
-  background: var(--kind-epic);
 }
 .w-apstart__queue-name {
   flex: 1;
