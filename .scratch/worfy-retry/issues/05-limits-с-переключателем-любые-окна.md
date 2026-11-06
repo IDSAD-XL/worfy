@@ -34,14 +34,22 @@ Source: [spec.md](../spec.md), «Цель» (окна у планов разны
 ## Готово, когда
 
 - [ ] Unit test `resumeAt`: stub Limits с `five_hour` и `seven_day`, отказ `five_hour` → сброс `five_hour` + 2 мин.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
 - [ ] Unit test: stub только с `seven_day` (верхний план) → сброс `seven_day`; `five_hour` нигде не нужен.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
 - [ ] Unit test: ни одного окна → `recheck` через 30 мин; квота → `give-up` с причиной.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
 - [ ] Unit test: сброс через 3 дня — off → `give-up` (как сегодня), on → `at`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
 - [ ] Contract test: Run с переключателем on, отказ `seven_day` без `five_hour` → `limits-hit`, `waiting-until`, по
       таймеру test-а `resumed`; продолжение одно.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-limits-switch.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
 - [ ] Contract test: off — те же сценарии, что `test/contract/autopilot-limits.test.ts`, без изменений и зелёные.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-limits.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
 - [ ] Все Limits — stub-ы (`LimitsTracker` с часами test-а); настоящих Limits test нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-limits-switch.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
 
 ## Тесты
 
