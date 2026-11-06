@@ -8,9 +8,11 @@
 // Time is `at` inside timings.json, never a file's mtime. What the gate log no longer holds is a
 // lost fact «gate logs deleted (10 runs or 8 days)»:
 // - a worktree whose folder holds `LOG_RUNS_KEPT` runs, the oldest begun after the Run started.
-//   pruneLogs of gate-log.mjs leaves at most that many after each run, so a full folder may have lost
-//   older runs (a folder that has only ever had that many cannot be told from it, hence «may»). The
-//   mark covers the Run's start to the start of the oldest kept run;
+//   pruneLogs of gate-log.mjs used to leave at most that many after each run, so a full folder may have
+//   lost older runs (a folder that has only ever had that many cannot be told from it, hence «may»). The
+//   mark covers the Run's start to the start of the oldest kept run. Since worfy-work-track 01 the
+//   gate keeps the timings.json of an older run for 31 days and removes only its script logs;
+//   worfy-work-track 08 brings this reading to that;
 // - a run folder begun within the Run with no readable timings.json: a known run without its record,
 //   from the folder's start to the start of the next run of that worktree (else the Run's end, or
 //   now while the Run is live);

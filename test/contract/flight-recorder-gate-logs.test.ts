@@ -281,18 +281,24 @@ describe('lost gate logs', () => {
     expect((await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END })).lost).toEqual([])
   })
 
-  it('counts a folder full by the pruning of the gate itself (gate-log.mjs pruneLogs)', async () => {
-    const gateLog = (await import(pathToFileURL(GATE_LOG).href)) as { LOG_RUNS_KEPT: number; pruneLogs: (state: string, tag: string, current: string) => void }
+  it('reads a run past the newest LOG_RUNS_KEPT of a worktree: the pruning of the gate keeps its timings.json (gate-log.mjs pruneLogs)', async () => {
+    const gateLog = (await import(pathToFileURL(GATE_LOG).href)) as {
+      LOG_RUNS_KEPT: number
+      pruneLogs: (state: string, tag: string, current: string, keep: number, now: number) => void
+    }
     expect(LOG_RUNS_KEPT).toBe(gateLog.LOG_RUNS_KEPT)
     const worktree = join(dir, 'wt', '05')
     mkdirSync(worktree, { recursive: true })
-    // The eleventh run of a worktree: the gate prunes the oldest and keeps LOG_RUNS_KEPT.
-    const folders = runsAt('ffff6666', worktree, ['11:05', ...tenAfter])
-    gateLog.pruneLogs(join(harnessHome, 'gate', 'state'), 'ffff6666', folders.at(-1) as string)
-    expect(readdirSync(join(harnessHome, 'gate', 'state', 'logs', 'ffff6666'))).toHaveLength(LOG_RUNS_KEPT)
+    // The eleventh run of a worktree, the first begun before the Run: the gate strips the oldest down
+    // to its timings.json, which it keeps for 31 days, so nothing of the Run is lost.
+    const folders = runsAt('ffff6666', worktree, ['10:03', ...tenAfter])
+    writeFileSync(join(folders[0] as string, '01-worfy_.__lint.log'), 'ok\n')
+    gateLog.pruneLogs(join(harnessHome, 'gate', 'state'), 'ffff6666', folders.at(-1) as string, gateLog.LOG_RUNS_KEPT, RUN_END)
+    expect(readdirSync(join(harnessHome, 'gate', 'state', 'logs', 'ffff6666'))).toHaveLength(LOG_RUNS_KEPT + 1)
+    expect(readdirSync(folders[0] as string)).toEqual(['timings.json'])
     const read = await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END })
-    expect(read.lost).toEqual([{ worktree: await canonicalWorktree(worktree), kind: 'gate', name: 'gate', source: 'gate-logs-deleted', start: T('10:00'), end: '2026-10-17T12:04:30.000Z' }])
-    expect(read.work.filter((fact) => fact.kind === 'gate')).toHaveLength(LOG_RUNS_KEPT)
+    expect(read.lost).toEqual([])
+    expect(read.work.filter((fact) => fact.kind === 'gate')).toHaveLength(LOG_RUNS_KEPT + 1)
   })
 
   it('labels a run folder of the Run without timings.json, up to the next run of its worktree or the Run end', async () => {

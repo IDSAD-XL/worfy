@@ -9,7 +9,11 @@
 #   - a script that passed in the same run leaves its log too;
 #   - Playwright-shaped output with the error at line 300 of 500: the error lines in the report;
 #     the same "Error:" line in output of another shape is not picked out; a long block is cut;
-#   - old runs of the worktree are pruned, logs of other worktrees untouched for long are removed.
+#   - retention: the newest 10 runs of the worktree keep their logs; older runs, and the runs of
+#     another worktree untouched for more than 8 days, keep only timings.json, for 31 days by its
+#     `at`; a worktree touched lately and what is not a run stay as they are; a timings.json that
+#     is broken, empty or a folder counts as none once the run is past 31 days, and is not read
+#     before; a symlinked run folder or worktree folder is not followed, its target keeps its logs.
 # Run: bash harness/hooks/tests/gate-log.test.sh; exit code 0 means everything passed.
 # HOOKS_DIR runs the test on another copy of the hooks (for example, on the version before an edit).
 #
@@ -117,7 +121,8 @@ touched() { n=$((n + 1)); echo "$n" >"$R/n.txt"; }   # changes the content, so t
 # The age of files and folders, in days: their modification time set that far back.
 age() { node -e 'const t = Date.now() / 1000 - Number(process.argv[1]) * 86400; for (const p of process.argv.slice(2)) require("node:fs").utimesSync(p, t, t)' "$@"; }
 # The run folders of this worktree, one name a line; newruns prints the ones that appeared since $before.
-runs() { ls "$LOGS/$TAG" 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' | LC_ALL=C sort; }
+# A symlink (a junction on Windows) is not a run folder.
+runs() { for r in $(ls "$LOGS/$TAG" 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' | LC_ALL=C sort); do [ -L "$LOGS/$TAG/$r" ] || echo "$r"; done; }
 newruns() { comm -13 <(printf '%s\n' "$before") <(runs); }
 run() { before="$(runs)"; touched; out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?; }
 # The path of the "check" log as the report names it.
@@ -184,11 +189,62 @@ if printf '%s\n' "$out" | grep -qxF "$Y500 …" && ! printf '%s\n' "$out" | grep
 else bad "caps: the 600-character line cut at 500 expected"; fi
 
 # --- 4. Retention -------------------------------------------------------------------
-# Twelve old runs of this worktree, a stale folder of another worktree and a fresh one.
-for i in 01 02 03 04 05 06 07 08 09 10 11 12; do mkdir -p "$LOGS/$TAG/2020-01-${i}T00-00-00Z-1"; echo x >"$LOGS/$TAG/2020-01-${i}T00-00-00Z-1/01-t_.__check.log"; done
-mkdir -p "$LOGS/deadbeef/2020-01-01T00-00-00Z-1" "$LOGS/cafebabe/2020-01-01T00-00-00Z-1" "$LOGS/week7aaa/r" "$LOGS/week9bbb/r"
+# Run folders made by hand: `fakerun <worktree folder> <began> <ended>` makes, under
+# $LOGS/<worktree folder>, the folder of a run begun <began> days ago with a script log and, unless
+# <ended> is "-", a timings.json whose `at` is <ended> days ago; it prints the name of the folder.
+fakerun() { node -e '
+const fs = require("node:fs"), path = require("node:path")
+const [logs, tag, began, ended] = process.argv.slice(1)
+const ago = (days) => new Date(Date.now() - Number(days) * 86400000)
+const name = `${ago(began).toISOString().replace(/\.\d+Z$/, "Z").replaceAll(":", "-")}-1`
+const dir = path.join(logs, tag, name)
+fs.mkdirSync(dir, { recursive: true })
+fs.writeFileSync(path.join(dir, "01-t_.__check.log"), "x\n")
+if (ended !== "-") fs.writeFileSync(path.join(dir, "timings.json"), JSON.stringify({ version: 1, outcome: "green", at: ago(ended).toISOString(), total_ms: 1 }))
+process.stdout.write(name)' "$LOGS" "$@"; }
+haslog() { ls "$1" 2>/dev/null | grep -qE '^[0-9]+-.+\.log$'; }
+stripped() { [ -f "$1/timings.json" ] && ! haslog "$1"; }
+# `mklink <target> <link>`: a symlink to a folder, a junction on Windows (no rights needed there).
+mklink() { node -e 'require("node:fs").symlinkSync(process.argv[1], process.argv[2], process.platform === "win32" ? "junction" : "dir")' "$1" "$2"; }
+# `linkrun <began> <ended> <target>`: a run made by fakerun, moved to <target> outside logs/; prints its name.
+linkrun() { local n; n="$(fakerun linksrc "$1" "$2")" && mv "$LOGS/linksrc/$n" "$3" && rmdir "$LOGS/linksrc" && printf '%s' "$n"; }
+
+# This worktree: twelve runs begun 12.5 days ago to 1.5 days ago, each with its log and timings.json;
+# one begun 20 days ago with a file that is not a script log; one 40 days old; one begun 32 days ago
+# that ended 30 days ago (the `at` decides, not the name); one 19 days old without timings.json.
+OWN=()
+for d in 12 11 10 9 8 7 6 5 4 3 2 1; do OWN+=("$(fakerun "$TAG" "$d.5" "$d.5")"); done
+R20="$(fakerun "$TAG" 20 20)"; echo x >"$LOGS/$TAG/$R20/notes.txt"
+R40="$(fakerun "$TAG" 40 40)"
+R32="$(fakerun "$TAG" 32 30)"
+R19="$(fakerun "$TAG" 19 -)"
+# Runs whose timings.json cannot be read: broken JSON and an empty file, begun 15 and 14 days ago
+# (younger than 31 days by the name: not read, kept) and 41 and 42 days ago (read, counted as none:
+# gone); one begun 43 days ago whose timings.json is a folder (gone).
+RBF="$(fakerun "$TAG" 15 -)"; printf '{"at": ' >"$LOGS/$TAG/$RBF/timings.json"
+REF="$(fakerun "$TAG" 14 -)"; : >"$LOGS/$TAG/$REF/timings.json"
+RBO="$(fakerun "$TAG" 41 -)"; printf '{"at": ' >"$LOGS/$TAG/$RBO/timings.json"
+REO="$(fakerun "$TAG" 42 -)"; : >"$LOGS/$TAG/$REO/timings.json"
+RDO="$(fakerun "$TAG" 43 -)"; mkdir "$LOGS/$TAG/$RDO/timings.json"
+# Symlinked folders whose targets lie outside logs/: a run of this worktree begun 16 days ago, a run
+# of the stale worktree stale9aa begun 10 days ago, and a whole worktree folder untouched for 9 days.
+LT="$T/link-targets"; mkdir -p "$LT/wt"
+L16="$(linkrun 16 16 "$LT/run16")"; mklink "$LT/run16" "$LOGS/$TAG/$L16"
+L9="$(linkrun 10 10 "$LT/run9")"
+LW9="$(linkrun 9 9 "$LT/wt")"; age 9 "$LT/wt"; mklink "$LT/wt" "$LOGS/linkwt9a"
+# Other worktrees. deadbeef: untouched since 2020, a run without timings.json. cafebabe: touched
+# today, its run 40 days old. stale9aa: untouched for 9 days, a run 9 days old and one 40 days old.
+# stale40a: untouched for 9 days, its only run 40 days old. week7aaa and week9bbb: no runs at all,
+# untouched for 7 and 9 days.
+mkdir -p "$LOGS/deadbeef/2020-01-01T00-00-00Z-1" "$LOGS/week7aaa/r" "$LOGS/week9bbb/r"
 touch -t 202001010000 "$LOGS/deadbeef/2020-01-01T00-00-00Z-1" "$LOGS/deadbeef"
-age 7 "$LOGS/week7aaa"; age 9 "$LOGS/week9bbb"
+C40="$(fakerun cafebabe 40 40)"
+S9="$(fakerun stale9aa 9 9)"; S9OLD="$(fakerun stale9aa 40 40)"
+fakerun stale40a 40 40 >/dev/null
+# What is not a run in stale9aa, which keeps a run: a file and a folder, and the symlinked run.
+echo x >"$LOGS/stale9aa/notes.txt"; mkdir -p "$LOGS/stale9aa/not-a-run"; echo x >"$LOGS/stale9aa/not-a-run/inside.txt"
+mklink "$LT/run9" "$LOGS/stale9aa/$L9"
+age 7 "$LOGS/week7aaa"; age 9 "$LOGS/week9bbb" "$LOGS/stale9aa" "$LOGS/stale40a"
 # What pruning must leave alone: old entries of the state folder outside logs/, and an entry of
 # this worktree's logs folder whose name is not that of a run.
 S="$HARNESS_HOME/gate/state"
@@ -196,13 +252,50 @@ mkdir -p "$S/old-folder" "$LOGS/$TAG/not-a-run"
 echo x >"$S/old-file.txt"; echo x >"$S/old-folder/inside.txt"; echo x >"$LOGS/$TAG/notes.txt"
 touch -t 202001010000 "$S/old-file.txt" "$S/old-folder/inside.txt" "$S/old-folder" "$LOGS/$TAG/not-a-run" "$LOGS/$TAG/notes.txt"
 mode ok; run
-left="$(runs | wc -l | tr -d ' ')"
 newest="$(newruns)"
-if [ "$left" -eq 10 ] && [ -n "$newest" ] && [ -f "$(ls -d "$LOGS/$TAG/$newest"/*check*.log 2>/dev/null | head -1)" ] && [ ! -e "$LOGS/$TAG/2020-01-01T00-00-00Z-1" ]; then
-    ok "retention: the newest 10 runs of the worktree are kept, this run among them"
-else bad "retention: 10 runs expected, got $left ($(ls "$LOGS/$TAG" | tr '\n' ' '))"; fi
-if [ ! -e "$LOGS/deadbeef" ] && [ -d "$LOGS/cafebabe" ]; then ok "retention: logs of another worktree untouched for long are removed, fresh ones kept"
-else bad "retention: stale folder of another worktree expected gone, fresh one kept ($(ls "$LOGS" | tr '\n' ' '))"; fi
+# The runs of the sections above are newer than these: the 10 newest by name are this run, those
+# runs and the newest of the twelve; each run past the 10th has lost its logs.
+whole=0 past=0
+for r in $(runs | tail -10); do haslog "$LOGS/$TAG/$r" && whole=$((whole + 1)); done
+for r in $(runs | head -n "$(($(runs | wc -l) - 10))"); do haslog "$LOGS/$TAG/$r" && past=$((past + 1)); done
+if [ -n "$newest" ] && [ "$(runs | tail -1)" = "$newest" ] && [ "$whole" -eq 10 ] && [ "$past" -eq 0 ] && haslog "$LOGS/$TAG/${OWN[11]}"; then
+    ok "retention: the newest 10 runs of the worktree keep their logs, this run among them; no older run does"
+else bad "retention: 10 runs with logs expected, got $whole, and $past older ones ($(ls "$LOGS/$TAG" | tr '\n' ' '))"; fi
+if stripped "$LOGS/$TAG/${OWN[0]}" && stripped "$LOGS/$TAG/${OWN[1]}" && stripped "$LOGS/$TAG/${OWN[2]}" \
+    && grep -q '"at"' "$LOGS/$TAG/${OWN[0]}/timings.json"; then
+    ok "retention: a run older than the 10th loses its logs and keeps its timings.json"
+else bad "retention: runs past the 10th: logs gone, timings.json kept expected (${OWN[0]}: $(ls "$LOGS/$TAG/${OWN[0]}" 2>/dev/null | tr '\n' ' '))"; fi
+if stripped "$LOGS/$TAG/$R20" && [ -f "$LOGS/$TAG/$R20/notes.txt" ]; then
+    ok "retention: only the script logs of a run are removed, other files in it stay"
+else bad "retention: the run 20 days old: $(ls "$LOGS/$TAG/$R20" 2>/dev/null | tr '\n' ' ')"; fi
+if [ ! -e "$LOGS/$TAG/$R40" ] && stripped "$LOGS/$TAG/$R32"; then
+    ok "retention: a timings.json older than 31 days goes with its run folder; its own \`at\` decides, not the run's name"
+else bad "retention: 40 days old gone, ended 30 days ago kept expected ($(ls "$LOGS/$TAG" | tr '\n' ' '))"; fi
+if [ ! -e "$LOGS/$TAG/$R19" ]; then ok "retention: a run past the 10th without timings.json goes whole"
+else bad "retention: the run without timings.json stayed: $(ls "$LOGS/$TAG/$R19" | tr '\n' ' ')"; fi
+if stripped "$LOGS/$TAG/$RBF" && stripped "$LOGS/$TAG/$REF"; then
+    ok "retention: a run begun less than 31 days ago keeps its broken or empty timings.json unread"
+else bad "retention: broken/empty timings.json of a run 15/14 days old: kept and stripped expected ($(ls "$LOGS/$TAG/$RBF" "$LOGS/$TAG/$REF" 2>&1 | tr '\n' ' '))"; fi
+if [ ! -e "$LOGS/$TAG/$RBO" ] && [ ! -e "$LOGS/$TAG/$REO" ] && [ ! -e "$LOGS/$TAG/$RDO" ]; then
+    ok "retention: a run older than 31 days whose timings.json is broken, empty or a folder goes whole"
+else bad "retention: unreadable timings.json of a run 41-43 days old: gone expected ($(ls "$LOGS/$TAG" | tr '\n' ' '))"; fi
+if [ -L "$LOGS/$TAG/$L16" ] && haslog "$LT/run16" && [ -f "$LT/run16/timings.json" ]; then
+    ok "retention: a symlinked run folder is not followed, its target keeps its logs"
+else bad "retention: symlinked run of this worktree: link and target logs expected (link: $(ls -ld "$LOGS/$TAG/$L16" 2>&1); target: $(ls "$LT/run16" 2>&1 | tr '\n' ' '))"; fi
+if [ -L "$LOGS/stale9aa/$L9" ] && haslog "$LT/run9" && [ -L "$LOGS/linkwt9a" ] && haslog "$LT/wt/$LW9"; then
+    ok "retention: a symlinked run of another worktree and a symlinked worktree folder are not followed"
+else bad "retention: symlinked foreign run/worktree: targets keep logs expected (run9: $(ls "$LT/run9" 2>&1 | tr '\n' ' '); wt: $(ls "$LT/wt/$LW9" 2>&1 | tr '\n' ' '))"; fi
+if [ ! -e "$LOGS/deadbeef" ] && haslog "$LOGS/cafebabe/$C40" && [ -f "$LOGS/cafebabe/$C40/timings.json" ]; then
+    ok "retention: another worktree untouched for long without timings is removed, one touched lately is not touched at all"
+else bad "retention: deadbeef gone, cafebabe whole expected ($(ls "$LOGS" | tr '\n' ' '))"; fi
+if stripped "$LOGS/stale9aa/$S9" && [ ! -e "$LOGS/stale9aa/$S9OLD" ]; then
+    ok "retention: another worktree untouched for 9 days loses its logs, keeps its timings.json; its run 40 days old goes"
+else bad "retention: stale9aa: $(ls -R "$LOGS/stale9aa" 2>/dev/null | tr '\n' ' ')"; fi
+if [ -f "$LOGS/stale9aa/notes.txt" ] && [ -f "$LOGS/stale9aa/not-a-run/inside.txt" ]; then
+    ok "retention: a file and a folder that are not runs, in another worktree that keeps a run, stay"
+else bad "retention: non-run entries of stale9aa removed ($(ls -R "$LOGS/stale9aa" 2>/dev/null | tr '\n' ' '))"; fi
+if [ ! -e "$LOGS/stale40a" ]; then ok "retention: another worktree with no timings.json younger than 31 days goes whole"
+else bad "retention: stale40a stayed: $(ls -R "$LOGS/stale40a" | tr '\n' ' ')"; fi
 if [ -d "$LOGS/week7aaa" ] && [ ! -e "$LOGS/week9bbb" ]; then ok "retention: another worktree's folder 7 days old stays, one 9 days old goes"
 else bad "retention: the 8-day boundary ($(ls "$LOGS" | tr '\n' ' '))"; fi
 if [ -f "$S/old-file.txt" ] && [ -f "$S/old-folder/inside.txt" ] && [ -d "$LOGS/$TAG/not-a-run" ] && [ -f "$LOGS/$TAG/notes.txt" ]; then

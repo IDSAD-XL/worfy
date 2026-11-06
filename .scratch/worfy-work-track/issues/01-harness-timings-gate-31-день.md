@@ -1,8 +1,8 @@
 # 01 — Harness: `timings.json` gate живёт 31 день
 
 Type: task
-Status: open
-Blocked by:
+Status: claimed 2026-11-06T09:47Z
+Blocked by: —
 Source: [spec.md](../spec.md), «Решения владельца», 4; «Как работает» → «Источники»; [research 04](../../worfy-autopilot-queue/issues/04-данные-work-track.md), «Пробелы», 1, «Рекомендация» (а); [06](../../worfy-autopilot-queue/issues/06-объём-и-доступ-work-track.md), Q2
 
 ## Что происходит
@@ -22,6 +22,8 @@ Source: [spec.md](../spec.md), «Решения владельца», 4; «Ка�
 
 - [ ] `harness/hooks/tests/gate-log.test.sh`: run старше 10-го — выводы удалены, `timings.json` есть; worktree, не тронутый
       9 дней, — выводы удалены, `timings.json` есть; `timings.json` старше 31 дня — удалён вместе с папкой.
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-log.test.sh` exit 0 · mac - · 539d5a7e5bc5a7d1536ee76a38dd4af5b274691e
+  - evidence: test-run pass · `bash harness/hooks/tests/gate-log.test.sh` exit 0 · mac - · 4de684a63c4f71fac0cf267a9ccfeddc2a938774
 - [ ] Test-ы — с `HOME` и `HARNESS_HOME` во временном каталоге. PR ждёт Windows (ADR-0056); `ci-ok` зелёный.
 
 ## Тесты

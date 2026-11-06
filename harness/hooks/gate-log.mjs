@@ -2,9 +2,15 @@
 // nothing of a script that passed; the whole output of every script it runs goes to a file here:
 //   <state>/logs/<worktree tag>/<run>/<NN>-<label>.log
 // <run> is the UTC time the run started and the gate's pid (2026-10-20T12-00-00Z-4242), so the
-// names sort by time. The newest LOG_RUNS_KEPT runs of a worktree are kept; the folder of another
-// worktree untouched for more than eight days is removed with everything in it, as the markers of
-// abandoned sessions are (removeOld in gate.mjs).
+// names sort by time. The newest LOG_RUNS_KEPT runs of a worktree are kept whole. An older run of
+// the worktree, and every run in the folder of another worktree untouched for more than eight days,
+// loses its script logs (<NN>-<label>.log) but keeps its timings.json for TIMINGS_KEPT_MS, 31 days
+// counted from the `at` inside it: worfy's Work track reads the gate runs of the past month from
+// these files, and one weighs about 1 KB where the logs of a run weigh up to megabytes. A run
+// folder is removed with everything in it once its timings.json is older than that, or when it has
+// none; the folder of another worktree, once none of its runs has a timings.json younger than that,
+// as the markers of abandoned sessions are (removeOld in gate.mjs). Pruning acts only on real
+// folders: a symlink or a junction under logs/ is never followed, so nothing outside logs/ is removed.
 //
 // For output shaped like the list reporter of Playwright, the report of a failed script also gets
 // the failure blocks that lie above its last 40 lines: the error text, the locator and the call
@@ -21,9 +27,19 @@ import fs from "node:fs"
 import path from "node:path"
 import { stripVTControlCharacters } from "node:util"
 
+const DAY_MS = 24 * 60 * 60 * 1000
 export const LOG_RUNS_KEPT = 10
-const STALE_MS = 8 * 24 * 60 * 60 * 1000
-const RUN_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z-\d+$/
+const STALE_MS = 8 * DAY_MS
+export const TIMINGS_KEPT_MS = 31 * DAY_MS
+const RUN_NAME = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})Z-\d+$/
+// The output of one script, as gate.mjs names it: «03-<label>.log».
+const SCRIPT_LOG = /^\d+-.+\.log$/
+
+// When the run began, from the name of its folder (see runLogDir).
+function runStart(name) {
+    const [, day, h, m, s] = RUN_NAME.exec(name)
+    return Date.parse(`${day}T${h}:${m}:${s}Z`)
+}
 
 // The folder of this run's logs. A colon is not allowed in a file name on Windows.
 export function runLogDir(state, tag, now = new Date(), pid = process.pid) {
@@ -45,9 +61,14 @@ export function writeScriptLog(dir, name, out) {
     }
 }
 
-// Removes all run folders of the worktree but the newest `keep - 1` and `current`, and the
-// folders of other worktrees not touched for more than eight days. Errors are left alone: a
-// folder another gate is writing to at that moment stays for the next run to remove.
+// Prunes the logs (see the head of this file). The newest `keep - 1` run folders of the worktree
+// and `current` stay whole; each older one is stripped down to its timings.json, and so is each run
+// of another worktree whose folder was not touched for more than eight days. A stripped run whose
+// timings.json is missing, unreadable or older than TIMINGS_KEPT_MS goes whole; the folder of
+// another worktree goes whole when none of its runs keeps a timings.json. Nothing else in the
+// state folder is touched, nor an entry that is a symlink or a junction, nor what it points to.
+// Errors are left alone: a folder another gate is writing to at that moment stays for the next run
+// to remove.
 export function pruneLogs(state, tag, current, keep = LOG_RUNS_KEPT, now = Date.now()) {
     const root = path.join(state, "logs")
     const rm = (dir) => {
@@ -62,16 +83,56 @@ export function pruneLogs(state, tag, current, keep = LOG_RUNS_KEPT, now = Date.
             return []
         }
     }
+    // The real folders in `dir`, by name: a symlink or a junction is not one (a Dirent describes
+    // the entry itself, as lstat does), so a link to a folder outside logs/ is never followed.
+    const folders = (dir) => {
+        try {
+            return fs
+                .readdirSync(dir, { withFileTypes: true })
+                .filter((entry) => entry.isDirectory())
+                .map((entry) => entry.name)
+        } catch {
+            return []
+        }
+    }
+    // Whether the timings.json of the run `name` in `dir` is younger than TIMINGS_KEPT_MS by its
+    // `at`. A run ends after it begins, so one begun less than that ago needs no read: a gate run
+    // reads only the records about to expire, not the month of them.
+    const young = (dir, name) => {
+        if (now - runStart(name) <= TIMINGS_KEPT_MS) return true
+        try {
+            return now - Date.parse(JSON.parse(fs.readFileSync(path.join(dir, TIMINGS_FILE), "utf8")).at) <= TIMINGS_KEPT_MS
+        } catch {
+            return false
+        }
+    }
+    // Removes the script logs of a run and keeps its timings.json, or removes the whole run when
+    // that file is missing or too old. True when the run folder stays.
+    const strip = (dir, name) => {
+        const entries = list(dir)
+        if (!entries.includes(TIMINGS_FILE) || !young(dir, name)) {
+            rm(dir)
+            return false
+        }
+        for (const entry of entries) if (SCRIPT_LOG.test(entry)) rm(path.join(dir, entry))
+        return true
+    }
     const mine = path.join(root, tag)
-    const runs = list(mine)
+    const runs = folders(mine)
         .filter((name) => RUN_NAME.test(name) && path.join(mine, name) !== current)
         .sort()
-    for (const name of runs.slice(0, Math.max(0, runs.length - (keep - 1)))) rm(path.join(mine, name))
-    for (const other of list(root)) {
+    for (const name of runs.slice(0, Math.max(0, runs.length - (keep - 1)))) strip(path.join(mine, name), name)
+    for (const other of folders(root)) {
         if (other === tag) continue
+        const dir = path.join(root, other)
         try {
-            if (now - fs.statSync(path.join(root, other)).mtimeMs > STALE_MS) rm(path.join(root, other))
-        } catch {}
+            if (now - fs.statSync(dir).mtimeMs <= STALE_MS) continue
+        } catch {
+            continue
+        }
+        let kept = false
+        for (const name of folders(dir)) if (RUN_NAME.test(name) && strip(path.join(dir, name), name)) kept = true
+        if (!kept) rm(dir)
     }
 }
 
