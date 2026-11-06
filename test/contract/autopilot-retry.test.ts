@@ -20,7 +20,7 @@ import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { Autopilot } from '../../src/main/autopilot/run'
 import { LayoutStore } from '../../src/main/layout/store'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
-import { MAX_RETRIES, RETRY_DELAYS_MS, retryText } from '../../src/shared/agent/continue-plan'
+import { MAX_RETRIES, RETRY_DELAYS_MS, retryDelay, retryText } from '../../src/shared/agent/continue-plan'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { autopilotStateSchema, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
@@ -131,6 +131,8 @@ interface HarnessOptions {
   on?: boolean
   /** Without AutopilotDeps.retry at all: the app before this ticket. */
   noRetry?: boolean
+  /** The random number of each pause's spread (default 0.5: the pause itself). */
+  random?: number
 }
 
 function harness(options: HarnessOptions) {
@@ -233,7 +235,7 @@ function harness(options: HarnessOptions) {
             send,
             now: () => clock,
             schedule,
-            random: () => 0.5,
+            random: () => options.random ?? 0.5,
           },
         }),
   })
@@ -251,7 +253,9 @@ function harness(options: HarnessOptions) {
   const setOn = (value: boolean): void => {
     on = value
   }
-  return { autopilot, orchestrators, timers, live, states, journal, kinds, messages, state, releases, setOn, asked }
+  /** The state of the run's Orchestrator Session, the only live one. */
+  const sessionState = () => registry.get(registry.list()[0]!.sessionId).state
+  return { autopilot, orchestrators, timers, live, states, journal, kinds, messages, state, releases, setOn, asked, sessionState }
 }
 
 type Harness = ReturnType<typeof harness>
@@ -339,14 +343,22 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
   })
 
   it('on: 529 again and again — pauses of 1, 5, 15, 30 and 60 minutes, then retry-refused cap and turn-error', async () => {
-    const h = harness({ script: 'autopilot-retry-overloaded-5' })
+    // The spread at its low end: each pause is the plan's less 20 %.
+    const h = harness({ script: 'autopilot-retry-overloaded-5', random: 0 })
     await h.autopilot.start(PROJECT, EPIC)
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
       await untilRetry(h, attempt)
       const timer = h.live().at(-1)!
       expect(h.live()).toHaveLength(1)
-      expect(timer.at - clock).toBe(RETRY_DELAYS_MS[attempt - 1])
+      expect(timer.at - clock).toBe(retryDelay(attempt, 0))
+      expect(timer.at - clock).toBe(Math.round(RETRY_DELAYS_MS[attempt - 1]! * 0.8))
       expect(h.state()).toMatchObject({ waitingFor: 'retry', retry: { attempt, of: 5 }, resumesAt: timer.at })
+      // The timer of the retry before fires late: it sends nothing for this wait.
+      if (attempt > 1) {
+        h.timers.at(-2)!.fire()
+        await tick()
+        expect(continuations(h)).toHaveLength(attempt - 1)
+      }
       clock = timer.at
       timer.fire()
       await until(() => continuations(h).length === attempt, `continuation ${attempt}`)
@@ -389,6 +401,58 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     expect(h.timers).toEqual([])
   })
 
+  it('on: the journal keeps no secret of a push in flight — a token in its URL is written as ***', async () => {
+    const token = `ghp_${'a1'.repeat(12)}`
+    const lines = scriptLines('autopilot-retry-in-flight').map((line) => {
+      if (line.type !== 'assistant') return line
+      const text = JSON.stringify(line).replace('git push origin demo/01', `git push https://bot:${token}@github.com/o/r.git main`)
+      return JSON.parse(text) as Record<string, unknown>
+    })
+    const h = harness({ script: 'autopilot-retry-in-flight', lines })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    const refused = (await h.journal()).find((event) => event.kind === 'retry-refused')
+    expect(refused).toMatchObject({ reason: 'in-flight' })
+    expect(JSON.stringify(refused)).not.toContain(token)
+    expect(refused).toMatchObject({ actions: [expect.stringMatching(/^git push https:\/\/bot:\*\*\*@github\.com/u)] })
+  })
+
+  it('on: each continuation names the actions of the turn that failed, not of an earlier one', async () => {
+    // Turn 1 pushes (with its result) and fails with a 500; the continuation's turn does nothing and fails again.
+    const [wait, init, push] = scriptLines('autopilot-retry-in-flight')
+    const failed = scriptLines('autopilot-retry-500').find((line) => line.type === 'result' && line.is_error === true)!
+    const result = { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_retry_push', content: 'pushed', is_error: false }] }, parent_tool_use_id: null, session_id: '{{session}}', uuid: '00000000-0000-4000-8000-000000000499' }
+    const lines = [wait!, init!, push!, result, failed, wait!, init!, failed]
+    const h = harness({ script: 'autopilot-retry-in-flight', lines })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    clock = h.live()[0]!.at
+    h.live()[0]!.fire()
+    await untilRetry(h, 2)
+    clock = h.live()[0]!.at
+    h.live()[0]!.fire()
+    await until(() => continuations(h).length === 2, 'the second continuation')
+    const pushed = [{ toolUseId: 'toolu_retry_push', tool: 'Bash', description: 'git push origin demo/01', done: true, known: true }]
+    expect(continuations(h)).toEqual([retryText({ attempt: 1, of: 5, error: 'api-500', actions: pushed }), retryText({ attempt: 2, of: 5, error: 'api-500', actions: [] })])
+    expect(continuations(h)[0]).toContain('`git push origin demo/01`')
+    await h.autopilot.forceStop(PROJECT)
+  })
+
+  it('on: a Stop clicked as the timer fires wins — the run ends with user-stop and the continuation does not go', async () => {
+    const h = harness({ script: 'autopilot-retry-500' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    const timer = h.live()[0]!
+    clock = timer.at
+    // The timer's step is queued first, the Stop's right behind it.
+    timer.fire()
+    const stopped = await h.autopilot.stop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    await tick()
+    expect(h.messages()).toEqual([WAVE_1])
+    expect(await h.kinds()).not.toContain('resumed')
+  })
+
   it('on: a refusal by the Limits is no retry — limits-hit and waiting-until, as before', async () => {
     const h = harness({ script: 'autopilot-limits' })
     await h.autopilot.start(PROJECT, EPIC)
@@ -400,23 +464,36 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     await h.autopilot.forceStop(PROJECT)
   })
 
-  it('on: a turn of a background task that goes through during the wait ends it — no continuation', async () => {
-    const h = harness({ script: 'autopilot-fault-api-500' })
+  it('on: a turn of a background task during the wait holds the timer, and going through ends the wait — no continuation', async () => {
+    // The turn of the first implementer's report holds until the test lets it end.
+    const lines = scriptLines('autopilot-fault-api-500')
+    const report = lines.findIndex((line) => line.type === 'result' && line.is_error === false)
+    lines.splice(report, 0, { fake: 'wait_release', name: 'turn' })
+    const h = harness({ script: 'autopilot-fault-api-500', lines })
     await h.autopilot.start(PROJECT, EPIC)
     await untilRetry(h)
     const timer = h.live()[0]!
-    // The first implementer reports: its turn goes through, and the wait is over.
+    // The first implementer reports: its turn starts and is under way when the timer fires.
     h.releases.release('tasks')
-    await until(() => h.state().status === 'running', 'the wait to end')
-    expect(h.state()).not.toHaveProperty('retry')
-    expect(h.state()).not.toHaveProperty('waitingFor')
-    expect(timer.cancelled).toBe(true)
-    // A late fire of the cancelled timer sends nothing.
+    await until(() => h.sessionState() === 'busy', 'the turn of the report')
     clock = timer.at
     timer.fire()
     await tick()
     expect(continuations(h)).toEqual([])
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'retry' })
+    // The turn goes through: the wait is over.
+    h.releases.release('turn')
+    await until(() => h.state().status === 'running', 'the wait to end')
+    expect(h.state()).not.toHaveProperty('retry')
+    expect(h.state()).not.toHaveProperty('waitingFor')
+    expect(timer.cancelled).toBe(true)
+    // A late fire of the old timer sends nothing and stops nothing, the switch off or not.
+    h.setOn(false)
+    timer.fire()
+    await tick()
+    expect(continuations(h)).toEqual([])
     expect(h.messages()).toEqual([WAVE_1])
+    expect(h.state()).toMatchObject({ status: 'running' })
     // The second implementer reports: the Wave is finished.
     h.releases.release('tasks')
     await until(async () => (await h.kinds()).includes('wave-finished'), 'the end of Wave 1')
