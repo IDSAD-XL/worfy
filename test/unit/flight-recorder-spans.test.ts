@@ -775,7 +775,7 @@ describe('the module', () => {
       expect(sources.length).toBeGreaterThan(0)
       for (const source of sources) {
         expect([file, source, source.startsWith('node:') || builtins.has(source.split('/')[0] ?? '') || source.startsWith('electron')]).toEqual([file, source, false])
-        expect([file, source, source.startsWith('./') || ['../workflow/pipeline', '../workflow/types', '../agent/subagent-type'].includes(source)]).toEqual([file, source, true])
+        expect([file, source, source.startsWith('./') || ['../workflow/pipeline', '../workflow/types', '../agent/subagent-type', '../agent/auto-approval'].includes(source)]).toEqual([file, source, true])
       }
       expect([file, /\bimport\s*\(|\brequire\s*\(/u.test(text)]).toEqual([file, false])
       expect([file, /\b(?:window|document|navigator|localStorage|HTMLElement|process|fetch|XMLHttpRequest|WebSocket)\s*[.(]/u.test(text)]).toEqual([file, false])
