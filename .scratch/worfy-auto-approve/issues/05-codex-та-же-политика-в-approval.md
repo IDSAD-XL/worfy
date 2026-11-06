@@ -56,8 +56,9 @@ Approval-запрос unattended Session-и Codex при Auto-approval Shadow и
 у Claude Code (`src/main/vendors/codex/session.ts`, `judged`). Режим читается при каждом запросе; если прочитать
 нельзя — Off. Off — как до Ticket-а: `decline` сразу, `refused`, политика не спрашивается, процесс app-server-а
 получает прежнее окружение. Shadow — `decline`, как Off, и решение (`would-*`, hard deny как `hard-deny`) уходит
-событием `auto_approval`; `refused` не зовётся. On — allow → `accept`, deny и hard deny → `decline`; park → `decline`,
-пока Ticket 07 не влит (как заготовка Ticket-а 04 у Claude). `acceptForSession` политика не отвечает никогда.
+событием `auto_approval`; `refused` не зовётся. On — allow → `accept`, deny и hard deny → `decline`; park ждёт владельца
+на gate Session-и, как у Claude (Ticket 07, см. «После rebase на #1467»). `acceptForSession` политика не отвечает
+никогда.
 
 **Что судится** (`policyRequestOf`, `src/main/vendors/codex/approvals.ts`):
 - команда — `commandExecution` с `command` и `cwd` из запроса (или из `item/started`); папка запроса — та, что назвал
@@ -130,3 +131,26 @@ file change нет `command`, проверка была лишней; убран
 Mutation testing изменённых строк раунда 2 (`approvals.ts`, `session.ts`, `mode.ts`; 28 mutant-ов: части regex обёртки,
 проверка `$` в двойных кавычках, каждое имя секрета, окружение суда, `networkApprovalContext: null`, helper режима):
 28 убиты, выживших нет.
+
+### После rebase на #1467 (Ticket 07, park)
+
+Rebase на `origin/main` с #1467 (`8ec31f601`). Конфликты: `docs/features/autopilot.md` — текст park из #1467 оставлен,
+абзац про Codex добавлен после него; `src/main/vendors/claude/session.ts` — код park из #1467 оставлен, исход строки
+теперь через `reportedOutcome` (`mode.ts`) вместо локального `SHADOW_OUTCOME`. `src/main/autopilot/run.ts` слился без
+конфликта: правки #1467 на месте, снятие политики для Codex-Run-а убрано, как в раунде 1.
+
+Ticket 07 пишет: «Codex park не делает — это Ticket 05». Поэтому п. 1 «park → как у attended» сделан здесь
+(`judged`, `src/main/vendors/codex/session.ts`). В On запрос, который политика паркует, открывается на gate Session-и
+через `createParker` (`park.ts`), как у Claude: карточка с правилом и путями, варианты Accept, Decline и «Decline and
+stop the turn», без «Accept for this Session». В Journal — `park`, потом `park-answered` (с `allow` / `deny`) или
+`park-expired`. Ответ Codex — выбор владельца (`accept`, `decline` или `cancel`); park без ответа (60 мин, остановка
+Run-а, `parks()` = false, отказ gate-а, запрос снят) — `decline`. Запрос, снятый до решения политики, не паркуется и
+строки не получает. `grantRoot` политика не принимает никогда; владелец на карточке может принять — путь `grantRoot`
+есть в `targets` карточки.
+
+Contract test-ы park (`auto-approve-codex.test.ts`, describe «a parked request waits for the owner»): владелец
+принимает → `accept`, на карточке нет `acceptForSession`; «Decline and stop the turn» → `cancel`; Run останавливается
+→ `decline` и `park-expired`; Session закрыта во время ожидания → один `cancel` и `park-expired`; запрос снят до решения
+→ не паркуется. Test On: владелец отклоняет все 8 parked запросов, у каждой строки `park` — своя карточка с тем же
+правилом и путями. Mutation testing новых строк `judged` (16 mutant-ов: условие On, проверка снятого запроса, каждое
+поле запроса к gate-у, ответ владельца, ответ без владельца, строки Journal, отказ gate-а): 16 убиты.

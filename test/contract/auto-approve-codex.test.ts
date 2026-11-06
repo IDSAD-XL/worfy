@@ -10,7 +10,8 @@
 // worktree as grantRoot); input to a running command (kind writeStdin); a request for network access and one with
 // no network asked; two commands that use GH_TOKEN of the app-server's environment; wrappers that are not exactly
 // `<shell> -lc <script>`; a bare command. Off answers as before the ticket, Shadow judges and declines, On accepts
-// what the policy allows. What worfy answered is read from the fake's log (WORFY_CODEX_LOG).
+// what the policy allows and parks the rest on the Session's gate, whose answer the test gives (`pick`). What worfy
+// answered is read from the fake's log (WORFY_CODEX_LOG).
 import { execFileSync, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -21,7 +22,7 @@ import { hasExited } from '../../src/main/agent/session/process'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexScript, judgedEnvironment, UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
 import { codexSessions } from '../../src/main/vendors/codex/session'
-import type { ApprovalDecided, ApprovalWhere, RefusalDetails, SessionApproval, SessionHandle } from '../../src/main/vendors/session'
+import type { ApprovalDecided, ApprovalWhere, PermissionAsk, RefusalDetails, SessionApproval, SessionHandle } from '../../src/main/vendors/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import type { AutoApprovalMode } from '../../src/shared/settings/app-settings'
@@ -193,6 +194,10 @@ interface RunOptions {
   hold?: Promise<void>
   /** The approvals of the turn; approvals() by default. */
   steps?: Step[]
+  /** The owner's answer to a request on the Session's gate; without it the gate rejects, as an unattended Session's did. */
+  pick?: (ask: PermissionAsk) => Promise<string | null>
+  /** Whether a parked request may wait for the owner (SessionApproval.parks); absent: the policy has no such check. */
+  parks?: () => boolean
 }
 
 /** One unattended Codex Session over the fake, with the run's policy as agent/session.ts hands it to the driver. */
@@ -218,6 +223,7 @@ async function codexRun(options: RunOptions) {
   const wheres: ApprovalWhere[] = []
   const refused: [string, string, RefusalDetails][] = []
   const spawnedEnv: NodeJS.ProcessEnv[] = []
+  const asked: PermissionAsk[] = []
   let settled = 0
   const approval: SessionApproval | undefined =
     mode === null
@@ -236,6 +242,7 @@ async function codexRun(options: RunOptions) {
             return decision
           },
           decided: (decision) => decided.push(decision),
+          ...(options.parks === undefined ? {} : { parks: options.parks }),
         }
   const spawnProcess = (_file: string, args: readonly string[], spawnOptions: SpawnOptions): ChildProcess => {
     spawnedEnv.push(spawnOptions.env ?? {})
@@ -258,7 +265,13 @@ async function codexRun(options: RunOptions) {
     settings: DEFAULT_SETTINGS,
     unattended: true,
     orchestrator: true,
-    permissions: { ask: () => Promise.reject(new Error('an unattended Session asks no one')), askQuestions: () => Promise.reject(new Error('an unattended Session asks no one')) },
+    permissions: {
+      ask: (ask) => {
+        asked.push(ask)
+        return options.pick === undefined ? Promise.reject(new Error('an unattended Session asks no one')) : options.pick(ask)
+      },
+      askQuestions: () => Promise.reject(new Error('an unattended Session asks no one')),
+    },
     refused: (subject, message, details) => refused.push([subject, message, details]),
     ...(approval === undefined ? {} : { approval }),
     ...(Object.keys(environment).length === 0 ? {} : { environment }),
@@ -283,7 +296,7 @@ async function codexRun(options: RunOptions) {
       .split('\n')
       .map((line) => JSON.parse(line) as Logged)
   const answers = (): unknown[] => logged().filter((message) => message.method === undefined).map((message) => message.result?.decision)
-  return { decided, wheres, refused, spawnedEnv, answers, run, events, handle, settled: () => settled }
+  return { decided, wheres, refused, spawnedEnv, asked, answers, run, events, handle, settled: () => settled }
 }
 
 const COUNT = 16
@@ -301,6 +314,7 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(off.refused[0]).toEqual([zshLc(`rm -rf ${join(worktree, 'build')}`), UNATTENDED_DECLINED_MESSAGE, { reason: 'The command runs outside the sandbox.' }])
     expect(off.wheres).toEqual([])
     expect(off.decided).toEqual([])
+    expect(off.asked).toEqual([])
     // The same environment as without a policy: no TMPDIR, no git variables of the run.
     expect(off.spawnedEnv[0]?.['TMPDIR']).toBe(before.spawnedEnv[0]?.['TMPDIR'])
     expect(off.spawnedEnv[0]?.['GIT_CONFIG_PARAMETERS']).toBe(before.spawnedEnv[0]?.['GIT_CONFIG_PARAMETERS'])
@@ -309,8 +323,9 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
   it('Shadow: every approval is declined as at Off, and each decision is recorded with what the policy would have done', async () => {
     const shadow = await codexRun({ mode: 'shadow' })
     expect(shadow.answers()).toEqual(DECLINED_ALL)
-    // Shadow reports no refusal: each request has its decision instead.
+    // Shadow reports no refusal: each request has its decision instead; nothing waits for the owner.
     expect(shadow.refused).toEqual([])
+    expect(shadow.asked).toEqual([])
     expect(shadow.decided.map((each) => [each.mode, each.outcome, each.rule, each.tool])).toEqual([
       ['shadow', 'would-allow', 'files-inside-roots+shell-script-inside-roots', 'commandExecution'],
       ['shadow', 'would-park', expect.any(String), 'commandExecution'],
@@ -333,34 +348,43 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(shadow.decided[3]).toMatchObject({ command: null, reason: 'The change writes a file.' })
   })
 
-  it('On: accept inside the Wave\'s worktree; decline outside every root, on a hard deny, a grantRoot or a move_path outside the roots, a grantRoot inside them, input to a running command and a request for network access', async () => {
-    const on = await codexRun({ mode: 'on' })
+  it('On: accept inside the Wave\'s worktree; decline outside every root, on a hard deny and on not-judged; a grantRoot or a move_path outside the roots, a grantRoot inside them, input to a running command and a request for network access wait for the owner, who declines here', async () => {
+    const on = await codexRun({ mode: 'on', pick: () => Promise.resolve('decline') })
     expect(on.answers()).toEqual(['accept', 'decline', 'decline', 'accept', 'decline', 'decline', 'decline', 'decline', 'decline', 'decline', 'accept', 'decline', 'decline', 'decline', 'decline', 'accept'])
     expect(on.refused).toEqual([])
+    const parked = (rule: unknown) => [
+      ['on', 'park', rule],
+      ['on', 'park-answered', rule],
+    ]
     expect(on.decided.map((each) => [each.mode, each.outcome, each.rule])).toEqual([
       ['on', 'allow', 'files-inside-roots+shell-script-inside-roots'],
-      ['on', 'park', expect.any(String)],
+      ...parked(expect.any(String)),
       ['on', 'hard-deny', 'hard:ssh'],
       ['on', 'allow', 'edit-inside-roots'],
-      ['on', 'park', expect.any(String)],
-      ['on', 'park', expect.any(String)],
-      ['on', 'park', expect.any(String)],
-      ['on', 'park', 'grant-root'],
-      ['on', 'park', 'unknown-tool'],
-      ['on', 'park', 'unknown-tool'],
+      ...parked(expect.any(String)),
+      ...parked(expect.any(String)),
+      ...parked(expect.any(String)),
+      ...parked('grant-root'),
+      ...parked('unknown-tool'),
+      ...parked('unknown-tool'),
       ['on', 'allow', 'files-inside-roots+shell-script-inside-roots'],
       ['on', 'deny', 'not-judged'],
       ['on', 'deny', 'not-judged'],
       ['on', 'deny', 'not-judged'],
-      ['on', 'park', expect.any(String)],
+      ...parked(expect.any(String)),
       ['on', 'allow', 'files-inside-roots'],
     ])
+    // Each parked request opened on the Session's gate once, marked with the rule and the paths of its park line.
+    const parks = on.decided.filter((each) => each.outcome === 'park')
+    expect(on.asked).toHaveLength(8)
+    expect(on.asked.map((ask) => ask.parked)).toEqual(parks.map((each) => ({ rule: each.rule, targets: each.targets })))
+    expect(on.decided.filter((each) => each.outcome === 'park-answered').every((each) => each.answer === 'deny')).toBe(true)
     // A secret of the app-server's environment is no known value: no decision names it.
     expect(JSON.stringify(on.decided)).not.toContain(TOKEN)
     // The grantRoot and the move_path are judged as paths the change writes.
     const slash = (paths: readonly string[]): string[] => paths.map((path) => path.replaceAll('\\', '/'))
-    expect(slash(on.decided[5]?.targets ?? [])).toContain(outside.replaceAll('\\', '/'))
-    expect(slash(on.decided[6]?.targets ?? [])).toContain(join(outside, 'README.md').replaceAll('\\', '/'))
+    expect(slash(parks[2]?.targets ?? [])).toContain(outside.replaceAll('\\', '/'))
+    expect(slash(parks[3]?.targets ?? [])).toContain(join(outside, 'README.md').replaceAll('\\', '/'))
     // Each decision is for one request: Codex is never told acceptForSession.
     expect(on.answers()).not.toContain('acceptForSession')
   })
@@ -408,6 +432,74 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(failing.decided.map((each) => [each.outcome, each.rule])).toEqual(Array(COUNT).fill(['deny', 'policy-failed']))
   })
 
+  describe('a parked request waits for the owner on the Session\'s gate (worfy-auto-approve ticket 07)', () => {
+    /** A command outside every root: the policy parks it. */
+    const outsideStep = (): Step[] => command('cmd_outside', zshLc(`rm -rf '${join(outside, 'build')}'`), worktree)
+    /** The gate's answer once the request is withdrawn, as PermissionGate gives it. */
+    const unanswered = (ask: PermissionAsk): Promise<string | null> =>
+      new Promise((resolve) => {
+        if (ask.signal.aborted) resolve(null)
+        ask.signal.addEventListener('abort', () => resolve(null), { once: true })
+      })
+
+    it('the owner accepts: Codex is told accept for this one request; the card offers no "Accept for this Session"', async () => {
+      const on = await codexRun({ mode: 'on', steps: outsideStep(), pick: () => Promise.resolve('accept') })
+      expect(on.answers()).toEqual(['accept'])
+      expect(on.decided.map((each) => [each.outcome, each.rule, each.answer])).toEqual([
+        ['park', expect.any(String), undefined],
+        ['park-answered', on.decided[0]?.rule, 'allow'],
+      ])
+      expect(on.decided[1]).toMatchObject({ mode: 'on', tool: 'commandExecution', command: zshLc(`rm -rf '${join(outside, 'build')}'`), targets: on.decided[0]?.targets })
+      expect(on.asked).toHaveLength(1)
+      expect(on.asked[0]?.options.map((option) => option.id)).toEqual(['accept', 'decline', 'cancel'])
+      expect(on.asked[0]?.parked).toEqual({ rule: on.decided[0]?.rule, targets: on.decided[0]?.targets })
+      expect(on.asked[0]?.toolName).toBe('commandExecution')
+    })
+
+    it('the owner picks "Decline and stop the turn": Codex is told cancel', async () => {
+      const on = await codexRun({ mode: 'on', steps: outsideStep(), pick: () => Promise.resolve('cancel') })
+      expect(on.answers()).toEqual(['cancel'])
+      expect(on.decided.map((each) => [each.outcome, each.answer])).toEqual([
+        ['park', undefined],
+        ['park-answered', 'deny'],
+      ])
+    })
+
+    it('the run is stopping: the request comes off the gate at once and is declined as one with no answer', async () => {
+      const on = await codexRun({ mode: 'on', steps: outsideStep(), pick: unanswered, parks: () => false })
+      expect(on.answers()).toEqual(['decline'])
+      expect(on.decided.map((each) => each.outcome)).toEqual(['park', 'park-expired'])
+      expect(on.asked).toHaveLength(1)
+    })
+
+    it('the Session closes while the request waits: Codex is told cancel once, and the park ends as park-expired', async () => {
+      const on = await codexRun({ mode: 'on', steps: outsideStep(), pick: unanswered, hold: Promise.resolve() })
+      await eventually(() => on.asked.length === 1, 'the request parked on the gate')
+      on.handle.close()
+      await eventually(() => on.decided.length === 2, 'the park to end')
+      await eventually(() => children.every(hasExited), 'the app-server exited')
+      expect(on.answers()).toEqual(['cancel'])
+      expect(on.decided.map((each) => each.outcome)).toEqual(['park', 'park-expired'])
+    })
+
+    it('a request Codex withdraws while it is judged is not parked', async () => {
+      let release = (): void => undefined
+      const hold = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const on = await codexRun({ mode: 'on', steps: outsideStep(), pick: unanswered, hold })
+      await eventually(() => on.wheres.length === 1, 'the request being judged')
+      on.handle.close()
+      await eventually(() => children.every(hasExited), 'the app-server exited')
+      release()
+      await eventually(() => on.settled() === 1, 'the judging to end')
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(on.asked).toEqual([])
+      expect(on.decided).toEqual([])
+      expect(on.answers()).toEqual(['cancel'])
+    })
+  })
+
   it('git inside the login-shell wrapper: accepted in the Wave\'s worktree, parked once the repository has a hook', async () => {
     const add = command('cmd_add', zshLc('git add -A'), worktree)
     const clean = await codexRun({ mode: 'on', steps: add })
@@ -415,8 +507,12 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(clean.decided.map((each) => [each.outcome, each.rule])).toEqual([['allow', 'shell-script-inside-roots+git-in-wave-worktree']])
     writeFileSync(join(repo, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n')
     const hooked = await codexRun({ mode: 'on', steps: add })
+    // The gate rejects here: the parked request ends without the owner's answer.
     expect(hooked.answers()).toEqual(['decline'])
-    expect(hooked.decided.map((each) => [each.outcome, each.rule])).toEqual([['park', 'git-hooks']])
+    expect(hooked.decided.map((each) => [each.outcome, each.rule])).toEqual([
+      ['park', 'git-hooks'],
+      ['park-expired', 'git-hooks'],
+    ])
   })
 
   it('an app-server without HOME: no home folder, so the policy approves nothing', async () => {

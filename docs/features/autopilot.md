@@ -145,9 +145,11 @@ While a run goes on:
   without the variables named like secrets (`*TOKEN*`, `*KEY*`, `*SECRET*`, `*PASSWORD*`, `*CREDENTIAL*`): Codex may
   leave them out of the command's shell, so a command that uses one is not approved. A file change is judged by each
   path it writes, the new path of a rename and its `grantRoot` included. A request with a `grantRoot` (writes under a folder for the rest of the
-  Session) is never accepted, input to a running command and a request for network access are parked, and no answer is
-  ever "accept for this Session". A request Codex withdraws, or one Interrupt cancels, while it is being judged gets
-  no journal line on Codex; on Claude Code each judged request gets one. An unattended Codex runs in Full access, so it
+  Session) is never accepted by the policy, input to a running command and a request for network access are parked, and
+  no answer is ever "accept for this Session". A parked Codex request waits on the card as Claude Code's does, with
+  Accept, Decline and "Decline and stop the turn"; the owner's pick is Codex's answer, and a park that ends without one is
+  declined. A request Codex withdraws, or one Interrupt cancels, while it is being judged gets no journal line on Codex
+  and is not parked; on Claude Code each judged request gets one. An unattended Codex runs in Full access, so it
   asks nothing for now. Each request is judged in the environment the agent's process started with: its
   whole shell environment, so `CDPATH`, `BASH_ENV`, `ZDOTDIR`, `ENV`, `IFS` or a `GIT_` variable there makes a command
   it changes not approved. Git is read again at each request that writes a file or runs git, in the Project's root and,

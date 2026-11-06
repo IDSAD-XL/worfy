@@ -59,6 +59,7 @@ import { InputQueue } from '../../agent/session/input-queue'
 import { hasExited, within } from '../../agent/session/process'
 import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
 import { approvalMode, reportedOutcome } from '../../agent/auto-approve/mode'
+import { createParker, type ParkEnd } from '../../agent/auto-approve/park'
 import type { Decision } from '../../agent/auto-approve/policy'
 import type { PermissionAsk, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import type { CodexAppServer } from './app-server'
@@ -619,11 +620,14 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
    * withdraw it; either way no decision is reported (Claude Code's canUseTool cannot be withdrawn, and reports each).
    * The command is judged in the folder Codex names for it, a file change in the Session's folder, both in the
    * environment the app-server process started with, its secrets left out. Shadow declines as Off does and reports what would
-   * have been done; On accepts what the policy allows and declines the rest — park too, until the owner can be asked
-   * (worfy-auto-approve ticket 07). A decision is for this request only: never `acceptForSession`.
+   * have been done; On accepts what the policy allows, declines what it denies, and parks the rest on the Session's gate
+   * (worfy-auto-approve ticket 07, park.ts): the owner's pick is the answer, and a park that ends without one — the limit,
+   * a stop of the run, the gate's refusal, the request withdrawn — is declined. A request withdrawn before the policy
+   * decided is not parked. A decision is for this request only: never `acceptForSession`, which the park does not offer.
    */
   private judged(request: CodexApprovalRequest, ask: Omit<PermissionAsk, 'signal'>, approval: SessionApproval, mode: Exclude<AutoApprovalMode, 'off'>): void {
-    this.approvals.set(request.id, new AbortController())
+    const pending = new AbortController()
+    this.approvals.set(request.id, pending)
     const { request: judged, cwd, grantRoot } = policyRequestOf(request, ask)
     // The secrets of the process are left out: a command's shell may not have them (judgedEnvironment).
     const where = { cwd: judged.tool === 'fileChange' ? this.opts.cwd : cwd, scratchpad: null, ...(this.processEnv === null ? {} : { env: judgedEnvironment(this.processEnv) }) }
@@ -631,22 +635,48 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
     void approval
       .judge(judged, where)
       .catch(() => failed)
-      .then((decision) => {
+      .then(async (decision) => {
         const final = withGrantRoot(decision, grantRoot)
-        const answered = mode === 'on' && final.outcome === 'allow' ? 'accept' : 'decline'
-        // Codex withdrew the request, or the turn was interrupted: the agent got no decision, nothing is reported.
-        if (!this.answer(request.id, answered)) return
+        // approvalAsk gives an object: a command's command and folder, or a file change's changes.
+        const input = ask.input as Record<string, unknown>
         // A file change's input has no command: its line names none.
-        const command = (ask.input as Record<string, unknown>)['command']
-        approval.decided({
+        const command = input['command']
+        const line = {
           mode,
-          outcome: reportedOutcome(mode, final.outcome),
           rule: final.rule,
           tool: judged.tool,
           targets: [...final.targets],
           command: typeof command === 'string' ? command : null,
           ...(ask.description === null ? {} : { reason: ask.description }),
-        })
+        }
+        if (mode === 'on' && final.outcome === 'park') {
+          // Codex withdrew the request, or the turn was interrupted: nothing to park, nothing is reported.
+          if (!this.approvals.has(request.id)) return
+          approval.decided({ ...line, outcome: 'park' })
+          const end = await createParker(this.opts.permissions)({
+            toolName: ask.toolName,
+            toolUseId: ask.toolUseId,
+            input,
+            blockedPath: ask.blockedPath,
+            rule: final.rule,
+            targets: final.targets,
+            options: ask.options,
+            signal: pending.signal,
+            waits: () => approval.parks?.() ?? true,
+          }).catch((): ParkEnd => ({ outcome: 'expired' }))
+          if (end.outcome === 'answered') {
+            approval.decided({ ...line, outcome: 'park-answered', answer: end.kind === 'deny' ? 'deny' : 'allow' })
+            this.answer(request.id, decisionOf(end.option))
+            return
+          }
+          approval.decided({ ...line, outcome: 'park-expired' })
+          this.answer(request.id, 'decline')
+          return
+        }
+        const answered = mode === 'on' && final.outcome === 'allow' ? 'accept' : 'decline'
+        // Codex withdrew the request, or the turn was interrupted: the agent got no decision, nothing is reported.
+        if (!this.answer(request.id, answered)) return
+        approval.decided({ ...line, outcome: reportedOutcome(mode, final.outcome) })
       })
   }
 
