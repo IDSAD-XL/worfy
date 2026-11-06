@@ -1339,6 +1339,19 @@ describe('round 6: the repository git opens, and the paths and branch names insi
     expect(outcome('echo x > .GITHOOKS/pre-commit', relative)).toBe('allow')
     expect(judge({ tool: 'Write', input: { file_path: 'c:/work/repo/.claude/worktrees/03/.GITHOOKS/pre-commit' } }, { ...windows(), hooksPath: '.githooks' }).rule).toBe('git-files')
   })
+  it('core.hooksPath `~/` on Windows without HOME: each home Git for Windows may take, HOMEDRIVE+HOMEPATH and USERPROFILE (round 2 of PR #1475)', () => {
+    const base = windows()
+    const env = { TMPDIR: base.env.TMPDIR, HOMEDRIVE: 'C:', HOMEPATH: '\\work\\repo\\.scratch\\drive', USERPROFILE: 'C:\\work\\repo\\.scratch\\profile' }
+    const context = { ...base, env, hooksPath: '~/h' }
+    const write = (path: string): Decision => judge({ tool: 'Write', input: { file_path: path, content: 'x' } }, context)
+    expect(write('C:\\work\\repo\\.scratch\\drive\\h\\pre-commit')).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    expect(write('C:/work/repo/.scratch/profile/h/pre-commit')).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    expect(write('C:\\work\\repo\\.scratch\\other\\h\\pre-commit').outcome).toBe('allow')
+    // HOME set: git takes it alone.
+    const home = { ...context, env: { ...env, HOME: 'C:\\work\\repo\\.scratch\\home' } }
+    expect(judge({ tool: 'Write', input: { file_path: 'C:\\work\\repo\\.scratch\\home\\h\\pre-commit', content: 'x' } }, home)).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    expect(judge({ tool: 'Write', input: { file_path: 'C:\\work\\repo\\.scratch\\profile\\h\\pre-commit', content: 'x' } }, home).outcome).toBe('allow')
+  })
 })
 
 describe('round 7: installed git hooks, the parents of the hooks folder, and *_HEAD', () => {

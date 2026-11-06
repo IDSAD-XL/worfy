@@ -40,7 +40,7 @@ import { isRunId, makeRunId, RUN_ID_SUFFIX_LENGTH } from '../../../shared/autopi
 import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
 import { removeTreeAsync } from '../../storage/remove'
 import type { SessionInfo } from '../session/types'
-import { gitNeeds, HINTS, judge, type ApprovalRequest, type CheckoutGitFacts, type Decision, type PolicyContext } from './policy'
+import { gitNeeds, HINTS, includeHomes, judge, type ApprovalRequest, type CheckoutGitFacts, type Decision, type PolicyContext } from './policy'
 import { normalizePath, recordRoots } from './roots'
 
 /** The git config of the run's Session, in the form of GIT_CONFIG_PARAMETERS. */
@@ -180,24 +180,6 @@ async function firstLine(path: string): Promise<string | null> {
   }
 }
 
-/**
- * The folders `~/` of an include path may name, as git takes its home: HOME when it is set; on Windows without it,
- * where Git for Windows looks next — HOMEDRIVE with HOMEPATH, then USERPROFILE — both, since it takes the first
- * that exists.
- */
-export function includeHomes(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string[] {
-  const home = env['HOME']
-  if (home !== undefined) return home === '' ? [] : [home]
-  if (platform !== 'win32') return []
-  const homes: string[] = []
-  const drive = env['HOMEDRIVE']
-  const path = env['HOMEPATH']
-  if (drive !== undefined && drive !== '' && path !== undefined && path !== '') homes.push(`${drive}${path}`)
-  const profile = env['USERPROFILE']
-  if (profile !== undefined && profile !== '' && !homes.includes(profile)) homes.push(profile)
-  return homes
-}
-
 /** Whether a config file the environment names is the null device: GIT_CONFIG_GLOBAL=/dev/null turns the global config off. */
 const nullDevice = (path: string): boolean => path === '/dev/null' || (process.platform === 'win32' && /^nul$/i.test(path))
 
@@ -218,7 +200,7 @@ function configFilesOf(entries: readonly ConfigEntry[], folder: string, env: Nod
     if (!include || entry.value === null || entry.value === '') continue
     const target = entry.value
     if (target.startsWith('~/')) {
-      for (const home of includeHomes(env)) files.add(resolve(home, target.slice(2)))
+      for (const home of includeHomes(env)) files.add(resolve(`${home}/`, target.slice(2)))
     } else if (isAbsolute(target)) files.add(resolve(target))
     else if (from !== null) files.add(resolve(dirname(from), target))
   }

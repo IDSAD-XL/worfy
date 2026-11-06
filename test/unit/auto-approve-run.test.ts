@@ -6,8 +6,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { HARD_HINTS, hardHint, HINTS, type Decision } from '../../src/main/agent/auto-approve/policy'
-import { configRunsProgram, GIT_CONFIG_PARAMETERS, gitEnvironment, hooksActiveOf, includeHomes, openRunApproval, readCheckouts, readGitFacts, runTempsDir, sweepRunTemps } from '../../src/main/agent/auto-approve/run-approval'
+import { HARD_HINTS, hardHint, HINTS, includeHomes, type Decision } from '../../src/main/agent/auto-approve/policy'
+import { configRunsProgram, GIT_CONFIG_PARAMETERS, gitEnvironment, hooksActiveOf, openRunApproval, readCheckouts, readGitFacts, runTempsDir, sweepRunTemps } from '../../src/main/agent/auto-approve/run-approval'
 import type { PermissionRequestOptions } from '../../src/main/agent/session/types'
 import { sessionOptions } from '../../src/main/vendors/claude/options'
 import { ToolUseFolders, UNATTENDED_DENIED_MESSAGE, unattendedCanUseTool, unattendedDeniedMessage } from '../../src/main/vendors/claude/session'
@@ -821,7 +821,7 @@ describe('readGitFacts and openRunApproval: the leftovers of the review of ticke
     expect(includeHomes({ HOMEDRIVE: 'H:', HOMEPATH: '\\Demo', USERPROFILE: 'C:\\Users\\Demo' }, 'win32')).toEqual(['H:\\Demo', 'C:\\Users\\Demo'])
     expect(includeHomes({ USERPROFILE: 'C:\\Users\\Demo' }, 'win32')).toEqual(['C:\\Users\\Demo'])
     expect(includeHomes({ HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\Demo', USERPROFILE: 'C:\\Users\\Demo' }, 'win32')).toEqual(['C:\\Users\\Demo'])
-    expect(includeHomes({ HOME: '' }, 'win32')).toEqual([])
+    expect(includeHomes({ HOME: '' }, 'win32')).toEqual([''])
   })
 })
 
