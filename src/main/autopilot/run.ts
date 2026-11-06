@@ -235,7 +235,7 @@ import type { WorkflowModel } from '../../shared/workflow/types'
 import { BASE_INTERVAL_MS } from '../github/prs'
 import type { RunStart } from './journal'
 import { LimitsWait, wallTimer, type LimitsWaitDeps } from './limits-wait'
-import { outputChanged, outputMarks, taskOutputFiles, type OutputMarks } from './task-output'
+import { outputChanged, outputMarks, rememberTaskOutputs, type OutputMarks } from './task-output'
 import { TurnRetry, type RetryAction, type TurnRetryDeps } from './turn-retry'
 
 /** The run's Orchestrator Session, as far as the run needs it. */
@@ -1857,7 +1857,7 @@ export class Autopilot {
       default:
         run.retry?.observe(event)
         // A background task's output file, for a sign of life of a task that sends no events (worfy-polish ticket 61).
-        if (event.type === 'tool_result') for (const [taskId, path] of taskOutputFiles(event.content)) run.taskOutputs.set(taskId, path)
+        if (event.type === 'tool_result') rememberTaskOutputs(run.taskOutputs, event.content)
         // Any other event of a task is a sign of life: the limit starts over.
         if (isTaskEvent(event)) void run.enqueue(() => this.tasksTimer(run, true))
         return

@@ -4,8 +4,9 @@ import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { performance } from 'node:perf_hooks'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { outputChanged, outputMarks, taskOutputFiles, type OutputMarks } from '../../src/main/autopilot/task-output'
+import { outputChanged, outputMarks, rememberTaskOutputs, taskOutputFiles, type OutputMarks } from '../../src/main/autopilot/task-output'
 
 describe('taskOutputFiles', () => {
   it('reads the file of a Bash started in the background, as Claude Code words it', () => {
@@ -19,9 +20,26 @@ describe('taskOutputFiles', () => {
     expect(taskOutputFiles(text)).toEqual(new Map([['b9x', 'C:\\Users\\John Doe\\AppData\\Local\\Temp\\claude\\F--SWE-worfy\\s1\\tasks\\b9x.output']]))
   })
 
-  it('reads a UNC path and a forward-slash Windows path', () => {
-    expect(taskOutputFiles('written to: \\\\host\\share\\tasks\\u1.output.')).toEqual(new Map([['u1', '\\\\host\\share\\tasks\\u1.output']]))
+  it('reads a forward-slash Windows path', () => {
     expect(taskOutputFiles('written to: D:/tmp/tasks/d1.output')).toEqual(new Map([['d1', 'D:/tmp/tasks/d1.output']]))
+  })
+
+  it('names no UNC path, in either slash: a stat of it on the main thread could wait on another host', () => {
+    expect(taskOutputFiles('written to: \\\\host\\share\\tasks\\u1.output.')).toEqual(new Map())
+    expect(taskOutputFiles('written to: //host/share/tasks/u2.output')).toEqual(new Map())
+    expect(taskOutputFiles('see \\\\host\\share\\tasks\\u3.output')).toEqual(new Map())
+  })
+
+  it('the first path named for a task id wins, in one text too', () => {
+    expect(taskOutputFiles('written to: /a/tasks/t1.output\nwritten to: /b/tasks/t1.output')).toEqual(new Map([['t1', '/a/tasks/t1.output']]))
+  })
+
+  it('a path longer than the look-back is cut and so not named; a word cut by the look-back is not taken for a path', () => {
+    const deep = `/${'d/'.repeat(1000)}tasks/deep.output`
+    expect(taskOutputFiles(`written to: ${deep}`)).toEqual(new Map())
+    // A relative word longer than the look-back: wherever the look-back starts in it, a slash or not, it is no path.
+    expect(taskOutputFiles(`x${'/a'.repeat(3000)}/tasks/cut.output`)).toEqual(new Map())
+    expect(taskOutputFiles(`xy${'/a'.repeat(3000)}/tasks/cut.output`)).toEqual(new Map())
   })
 
   it('without «: » before it, the path is the last word; several files on several lines each count', () => {
@@ -43,6 +61,43 @@ describe('taskOutputFiles', () => {
     expect(taskOutputFiles('written to: /tmp/s/logs/l1.output')).toEqual(new Map())
     expect(taskOutputFiles('written to: /tmp/s/tasks/x1.outputs')).toEqual(new Map())
     expect(taskOutputFiles('0 problems')).toEqual(new Map())
+  })
+})
+
+describe('the cost grows with the text, not with its square (it runs on the main thread for every tool result)', () => {
+  // A generous bound, far above the linear cost (a few ms) and far below the quadratic one (seconds): not a tuned timeout.
+  const BOUND_MS = 100
+
+  it('a 200 000-character word before a path', () => {
+    const text = `Output is being written to: ${'x'.repeat(200_000)} /tmp/s/tasks/long.output.`
+    const started = performance.now()
+    const found = taskOutputFiles(text)
+    const took = performance.now() - started
+    expect(found).toEqual(new Map([['long', '/tmp/s/tasks/long.output']]))
+    expect(took).toBeLessThan(BOUND_MS)
+  })
+
+  it('5000 paths on one line', () => {
+    const text = Array.from({ length: 5000 }, (_, index) => `/tmp/s/tasks/t${index}.output`).join(' ')
+    const started = performance.now()
+    const found = taskOutputFiles(text)
+    const took = performance.now() - started
+    expect(found.size).toBe(5000)
+    expect(found.get('t4999')).toBe('/tmp/s/tasks/t4999.output')
+    expect(took).toBeLessThan(BOUND_MS)
+  })
+})
+
+describe('rememberTaskOutputs', () => {
+  it('adds the files a tool result names and keeps a path already known for a task id', () => {
+    const files = new Map([['t1', '/first/tasks/t1.output']])
+    rememberTaskOutputs(files, 'written to: /later/tasks/t1.output\nwritten to: /tmp/tasks/t2.output')
+    expect(files).toEqual(
+      new Map([
+        ['t1', '/first/tasks/t1.output'],
+        ['t2', '/tmp/tasks/t2.output'],
+      ]),
+    )
   })
 })
 

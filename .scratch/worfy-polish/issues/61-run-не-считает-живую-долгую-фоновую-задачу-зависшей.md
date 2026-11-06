@@ -91,3 +91,15 @@ stalled while its output file changes (worfy-polish ticket 61)»: gate пише�
 `background-stalled` с задачей `local_bash` в `run-stopped`; писал и перестал — остановка на первом пределе без
 изменения (до правки — красный); файла нет — остановка. `test/unit/autopilot-task-output.test.ts` — разбор путей,
 метки, сравнение.
+
+**Раунд 2** (review PR #1531, раунд 1 — REJECTED, один medium-дефект). Разбор пути в `taskOutputFiles` для каждого
+совпадения резал строку от её начала и искал `/\S+$/`: на main thread это квадратично по длине строки. Теперь путь
+ищется не дальше `LOOK_BACK` = 1024 символов перед `tasks/<id>.output` (PATH_MAX macOS), последний пробел — циклом
+в этом окне, и вся функция линейна. Слово, которое окно режет посередине, за путь не считается. Замеры на этом Mac
+(`node --experimental-strip-types`): слово 40 000 символов перед путём — 641 ms → меньше 0.1 ms; 4000 путей в
+одной строке — 5128 ms → 4.7 ms; 200 000 символов — 0.2 ms; 5000 путей — 4.8 ms. По «Consider» ревью: UNC-путь
+(`\\host\share`, `//host/share`) не принимается — его `statSync` на main thread мог бы ждать чужой host; первый путь,
+названный для id задачи, остаётся (`rememberTaskOutputs`, и внутри одного текста). Test-ы в
+`test/unit/autopilot-task-output.test.ts`: «a 200 000-character word before a path», «5000 paths on one line»
+(результат и `performance.now()` против щедрой границы 100 ms), «names no UNC path…», «the first path named for a
+task id wins…», «rememberTaskOutputs …keeps a path already known», «a path longer than the look-back is cut…».

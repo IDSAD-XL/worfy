@@ -24,25 +24,51 @@ export interface OutputMark {
 export type OutputMarks = ReadonlyMap<string, OutputMark | null>
 
 const OUTPUT_FILE = /[\\/]tasks[\\/]([\w-]+)\.output(?![\w-])/g
-/** An absolute path on macOS and Linux, or on Windows: a drive letter, or a UNC path. */
-const ABSOLUTE = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/
+/**
+ * A local absolute path: from the root on macOS and Linux, or from a drive letter on Windows. Never a UNC path
+ * (`\\host\share`, `//host/share`): its stat on the main thread could wait on another host.
+ */
+const LOCAL_ABSOLUTE = /^(?:\/(?!\/)|[A-Za-z]:[\\/])/
+/**
+ * How far before the end of `tasks/<id>.output` its path may start (PATH_MAX of macOS; Windows paths are shorter). The
+ * bound keeps the cost linear in the text: the scan runs on the main thread for every tool result.
+ */
+export const LOOK_BACK = 1024
+
+/** Where the last white space of `line` is; -1 when it has none. */
+function lastSpace(line: string): number {
+  for (let index = line.length - 1; index >= 0; index -= 1) if (/\s/.test(line[index]!)) return index
+  return -1
+}
 
 /**
- * The output files a tool result names, by task id: absolute paths that end in `tasks/<id>.output`. A path runs from
- * the last «: » before that end (so a Windows path with spaces in it stays whole), or else from the last space.
+ * The output files a tool result names, by task id: local absolute paths that end in `tasks/<id>.output`. A path runs
+ * from the last «: » before that end (so a Windows path with spaces in it stays whole), or else from the last space;
+ * neither is looked for further back than LOOK_BACK. The first path named for a task id wins.
  */
 export function taskOutputFiles(text: string): Map<string, string> {
   const found = new Map<string, string>()
   for (const match of text.matchAll(OUTPUT_FILE)) {
-    const end = match.index + match[0].length
-    const line = text.slice(text.lastIndexOf('\n', match.index) + 1, end)
+    const taskId = match[1]!
+    if (found.has(taskId)) continue
+    const from = Math.max(0, match.index - LOOK_BACK)
+    const before = text.slice(from, match.index + match[0].length)
+    const newline = before.lastIndexOf('\n')
+    const line = before.slice(newline + 1)
+    // The line starts within the look-back (or with the text): its first word is whole, and may be the path.
+    const whole = newline >= 0 || from === 0
     const colon = line.lastIndexOf(': ')
-    const space = line.search(/\S+$/)
-    const candidates = [colon >= 0 ? line.slice(colon + 2) : null, space >= 0 ? line.slice(space) : null]
-    const path = candidates.find((candidate): candidate is string => candidate !== null && ABSOLUTE.test(candidate))
-    if (path !== undefined) found.set(match[1]!, path)
+    const space = lastSpace(line)
+    const candidates = [colon >= 0 ? line.slice(colon + 2) : null, space >= 0 ? line.slice(space + 1) : whole ? line : null]
+    const path = candidates.find((candidate): candidate is string => candidate !== null && LOCAL_ABSOLUTE.test(candidate))
+    if (path !== undefined) found.set(taskId, path)
   }
   return found
+}
+
+/** Adds the output files `text` names to `files`; a task id that already has one keeps it. */
+export function rememberTaskOutputs(files: Map<string, string>, text: string): void {
+  for (const [taskId, path] of taskOutputFiles(text)) if (!files.has(taskId)) files.set(taskId, path)
 }
 
 function markOf(path: string): OutputMark | null {
