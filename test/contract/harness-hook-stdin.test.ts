@@ -42,9 +42,10 @@ afterEach(() => vi.unstubAllEnvs())
 /**
  * A folder for one case: the hook runs in `hookCwd`, the input names `session`; the stand-in of
  * bin/profile appends the folder it is asked about (`-C`) to `record` and answers "no project" (exit 3),
- * so every hook stops right after that call. `hang` makes it wait 10 s before it answers.
+ * so every hook stops right after that call. `hang` makes it wait 10 s before it answers; `print` makes
+ * it print that text and exit 0 instead.
  */
-function caseDir(hang = false) {
+function caseDir({ hang = false, print }: { hang?: boolean; print?: string } = {}) {
   const dir = realpathSync.native(mkdtempSync(join(root, 'case-')))
   const hookCwd = join(dir, 'hook-cwd')
   const session = join(dir, 'session')
@@ -56,7 +57,7 @@ function caseDir(hang = false) {
     profile,
     `import fs from 'node:fs'
 fs.appendFileSync(${JSON.stringify(record)}, process.argv[process.argv.indexOf('-C') + 1] + '\\n')
-${hang ? 'setTimeout(() => process.exit(3), 10000)' : 'process.exit(3)'}
+${print !== undefined ? `process.stdout.write(${JSON.stringify(print)})` : hang ? 'setTimeout(() => process.exit(3), 10000)' : 'process.exit(3)'}
 `,
   )
   // Says once on stderr which comes first: a touch of process.stdin or a synchronous read of descriptor 0.
@@ -153,6 +154,23 @@ describe('a hook input that arrives after the hook touched process.stdin', () =>
       const run = await runLate(c, hook, [], sessionInput(event, c.session))
       expect(run.first, 'the hook touched process.stdin before its input came').toBe(TOUCHED)
       expect([run.code, run.stderr]).toEqual([0, ''])
+      expect(c.asked()).toEqual([c.session])
+    }, RUN_MS)
+  }
+
+  // A failure inside the hook after its input came is still one line on stderr and exit 0: a broken hook
+  // must not break the session. session-start and session-end fail on a profile that prints no JSON,
+  // gh-token-env on a gh it cannot start (a folder in its place).
+  for (const [hook, event, print, ghIsAFolder, why] of [
+    ['session-start.mjs', 'SessionStart', 'not json', false, 'profile --json printed no JSON'],
+    ['session-end.mjs', 'SessionEnd', 'not json', false, 'profile --json printed no JSON'],
+    ['gh-token-env.mjs', 'SessionStart', 'octo-cat', true, 'EACCES'],
+  ] as const) {
+    it(`${hook} reports a failure after the input came as one line on stderr, exit 0`, async () => {
+      const c = caseDir({ print })
+      const run = await runLate(c, hook, [], sessionInput(event, c.session), ghIsAFolder ? { GH_TOKEN_ENV_GH: c.dir } : {})
+      expect(run.code).toBe(0)
+      expect(run.stderr).toMatch(new RegExp(`^${hook.replace('.mjs', '')}: .*${why}.*\n$`))
       expect(c.asked()).toEqual([c.session])
     }, RUN_MS)
   }
@@ -318,17 +336,30 @@ describe('the time a hook gives its input', () => {
   })
 
   // On Codex a SessionEnd hook has 3 s in all. A late input eats into the bin/profile call's share, so the
-  // call gets what is left of its 2 s: the hook still ends inside the 3 s when the call hangs.
+  // call gets what is left of its 2 s: the hook still ends inside the 3 s when the call hangs. The input
+  // comes 900 ms after the hook began to wait for it (the preload says when), so the wait and the call
+  // end about 2 s after that moment; a call that kept its whole 2 s would end at 2.9 s. 500 ms are left
+  // for starting the call and ending both processes.
   it('session-end.mjs ends inside the 3 s of Codex when its input comes late and the profile call hangs', async () => {
-    const c = caseDir(true)
+    const c = caseDir({ hang: true })
     const input = sessionInput('SessionEnd', c.session, { transcript_path: join(c.dir, 'rollout-2026-11-06T07-11-41-ses-1.jsonl') })
-    const child = spawn(scriptNode(), [join(HOOKS, 'session-end.mjs')], { cwd: c.hookCwd, env: hookEnv(c), stdio: 'pipe' })
     const started = Date.now()
-    const closed = closeOf(child)
-    await new Promise((resolve) => setTimeout(resolve, 900))
-    child.stdin.end(input)
-    expect(await closed).toBe(0)
-    expect(Date.now() - started).toBeLessThan(3000)
+    const child = spawn(scriptNode(), [join(HOOKS, 'session-end.mjs')], {
+      cwd: c.hookCwd,
+      env: hookEnv(c, { NODE_OPTIONS: `--require ${JSON.stringify(c.preload)}` }),
+      stdio: 'pipe',
+    })
+    let reading = 0
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+      if (reading || !chunk.startsWith(TOUCHED)) return
+      reading = Date.now()
+      setTimeout(() => child.stdin.end(input), 900)
+    })
+    expect(await closeOf(child)).toBe(0)
+    const ended = Date.now()
+    expect(reading, 'the hook touched process.stdin').toBeGreaterThan(0)
+    expect(ended - reading).toBeLessThan(2500)
+    expect(ended - started).toBeLessThan(3000)
     expect(c.asked()).toEqual([c.session])
   }, RUN_MS)
 })
