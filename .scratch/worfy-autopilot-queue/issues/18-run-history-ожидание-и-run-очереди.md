@@ -1,7 +1,8 @@
 # 18 — Run history и Flight Recorder: ожидание Orchestrator-а и Run очереди
 
 Type: task
-Status: open
+Status: done 2026-11-06T22:53Z
+PR: #1535
 Blocked by: 07, 14
 Source: [spec.md](../spec.md), «Что видит владелец», п. 7; «Термины» (причина `orchestrator-busy`); «Решения владельца», 5, 21; [02](02-старт-при-идущей-работе.md), Q5; [03](03-очередь-epic-ов.md), Q6
 
@@ -32,12 +33,17 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 7; «
 - [ ] Unit test `from-journal`: журнал с ожиданием — Wait `orchestrator-busy` с detail; Cancel — Wait до
       `run-stopped`; журнал очереди — метки Epic-ов.
   - evidence: test-run pass · `pnpm test test/unit/flight-recorder-journal.test.ts` exit 0 · mac - · d24e6d6b45af80579547417ca38255e21cc082fa
+  - evidence: review pass · PR #1535 · - - · 0fb0154117d5a84b616959a8a701c9f23a3c21dd
 - [ ] Unit test вида: пункт списка и заголовок Run-а очереди; фильтр по второму Epic-у находит Run.
   - evidence: test-run pass · `pnpm test test/unit/flight-recorder-view.test.tsx test/contract/flight-recorder-service.test.ts` exit 0 · mac - · d24e6d6b45af80579547417ca38255e21cc082fa
+  - evidence: review pass · PR #1535 · - - · 0fb0154117d5a84b616959a8a701c9f23a3c21dd
 - [ ] e2e `test/e2e/flight-recorder.spec.ts`: Run очереди из fixture-журнала — заголовок со списком, Wait «Orchestrator
       busy» на шкале.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/flight-recorder.spec.ts` exit 0 · mac - · d24e6d6b45af80579547417ca38255e21cc082fa
+  - evidence: review pass · PR #1535 · - - · 0fb0154117d5a84b616959a8a701c9f23a3c21dd
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: review pass · PR #1535 · - - · 0fb0154117d5a84b616959a8a701c9f23a3c21dd
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42302945032 · ci - · 0fb0154117d5a84b616959a8a701c9f23a3c21dd
 
 ## Тесты
 
