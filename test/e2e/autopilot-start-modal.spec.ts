@@ -17,6 +17,11 @@ import { launchApp } from './helpers'
 // WORFY_EVIDENCE=worfy-autopilot-queue/09 into .scratch/worfy-autopilot-queue/evidence/, else into the
 // test's output). Keys, focus and the facts in detail are the unit test's (test/unit/start-autopilot-modal.test.tsx).
 // Electron's powerSaveBlocker is replaced in main before a run starts, so the test never keeps the Mac awake.
+//
+// An agent's `autopilot_start` (worfy-autopilot-queue ticket 11) opens the same window in its "Agent asks"
+// view. The fake agent calls no MCP tool, so the test calls the tool as the Orchestrator's canvas server
+// answers it, in main (`globalThis.worfyCanvasTool` under WORFY_AGENT=fake, src/main/ipc/autopilot-confirm.ts);
+// the call waits for the person's answer in the window, as Claude Code's would.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -140,6 +145,70 @@ test('with the Orchestrator in a turn the window says it is busy, and "Start whe
     expect(messages(world.log)).toEqual(['how is it going?'])
     // Stop cancels the wait; the Orchestrator is not touched.
     expect(await bridgeCall(window, 'autopilot.stop', { projectId: PROJECT })).toMatchObject({ ok: true, value: { status: 'stopped', reason: 'start-cancelled' } })
+  } finally {
+    await launched.close()
+  }
+})
+
+type ToolAnswer = { content: { type: string; text: string }[]; isError?: boolean }
+
+/** Session `sessionId` calls `autopilot_start` with `args`; resolves once the person has answered (or main stopped waiting). */
+const agentCalls = (launched: Awaited<ReturnType<typeof launchApp>>, sessionId: string, args: Record<string, unknown>): Promise<ToolAnswer> =>
+  launched.app.evaluate(
+    (_electron, [project, session, input]) =>
+      (globalThis as unknown as { worfyCanvasTool: (p: string, s: string, n: string, a: unknown) => Promise<ToolAnswer> }).worfyCanvasTool(project, session, 'autopilot_start', input),
+    [PROJECT, sessionId, args] as const,
+  )
+
+test("an agent's autopilot_start asks in the window with the Session that asks: Esc gives the Session a refusal, \"Start Autopilot\" starts the run", async () => {
+  const world = prepareWorld(scratch)
+  const launched = await launchApp({ env: world.env('orchestrator') })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    await quietPower(launched)
+    const frame = frameOf(window)
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    await expect.poll(() => app.evaluate(() => typeof (globalThis as { worfyCanvasTool?: unknown }).worfyCanvasTool)).toBe('function')
+    const view = (await bridgeCall(window, 'orchestrator.open', { projectId: PROJECT })) as { ok: boolean; value?: { sessionId: string | null } }
+    const sessionId = view.value?.sessionId ?? null
+    expect(sessionId).not.toBeNull()
+    const asked = `Asked by Session "${sessionId!.slice(0, 8)}" in a chat · answer within`
+
+    // The first ask: the window names the Session and counts down; Esc is Cancel, and the Session hears it.
+    const refused = agentCalls(launched, sessionId!, { epic: EPIC })
+    const dialog = startWindow(window)
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAttribute('data-from', 'agent')
+    await expect(dialog).toHaveAttribute('data-facts', 'read')
+    await expect(dialog.getByTestId('start-autopilot-asked')).toContainText(asked)
+    await expect(dialog.getByTestId('start-autopilot-countdown')).toHaveText(/^(10:00|9:[0-5]\d)$/u)
+    await expect(dialog.getByTestId('start-autopilot-cancel')).toBeFocused()
+    await window.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    const refusal = await refused
+    expect(refusal.isError).toBe(true)
+    expect(refusal.content[0]?.text).toBe('The user chose Cancel in the Start Autopilot window: Autopilot did not start.')
+    expect(journalsOf(world.dataDir)).toEqual([])
+    expect(messages(world.log)).toEqual([])
+
+    // The second ask: "Start Autopilot" starts the run, the Session hears it started, Wave 1 goes to the Orchestrator.
+    const started = agentCalls(launched, sessionId!, { epic: EPIC })
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAttribute('data-facts', 'read')
+    await expect(dialog.getByTestId('start-autopilot-modes')).not.toContainText('…')
+    await expect(dialog.getByTestId('start-autopilot-asked')).toContainText(asked)
+    await expect(dialog.getByTestId('start-autopilot-project')).toHaveText('demo')
+    await expect(dialog.getByTestId('start-autopilot-epic')).toHaveText(EPIC)
+    await captureScreenshot(dialog, 'start-window-agent-asks')
+    await dialog.getByTestId('start-autopilot-start').click()
+    await expect(dialog).toHaveCount(0)
+    const answer = await started
+    expect(answer.isError ?? false).toBe(false)
+    expect(answer.content[0]?.text).toBe(`Autopilot started Epic ${EPIC}.`)
+    await expect(frame.getByTestId('autopilot-status')).toHaveText('Wave 1 · running')
+    await expect.poll(() => messages(world.log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
+    expect(await bridgeCall(window, 'autopilot.forceStop', { projectId: PROJECT })).toMatchObject({ ok: true, value: { status: 'stopped' } })
   } finally {
     await launched.close()
   }

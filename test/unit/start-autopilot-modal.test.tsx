@@ -5,10 +5,17 @@
 // with the chosen mode only on "Start Autopilot" or ⌘↩. Esc and Cancel start nothing; the focus is on
 // Cancel when it opens and Tab does not leave it. With the Orchestrator busy it says so and its main
 // button is "Start when free". What main answers is checked in test/contract/autopilot-prepare.test.ts.
+//
+// An agent's `autopilot_start` (worfy-autopilot-queue ticket 11): main's `autopilot.confirm.ask` opens the
+// same window in its "Agent asks" view — the Session that asks and a countdown of main's 10 minutes, the
+// last minute in the blocked colours, "time is up" at 0:00 or on main's `autopilot.confirm.close`. The
+// choice goes back as `autopilot.confirm.answer`. The countdown runs on the test's clock (fake timers).
+// What main does with the answer is checked in test/contract/autopilot-start-tool.test.ts.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AutopilotPrepareAnswer } from '../../src/shared/ipc/autopilot-prepare'
 import type { AutopilotState } from '../../src/shared/ipc/autopilot'
+import type { AutopilotConfirmAsk } from '../../src/shared/ipc/autopilot-confirm'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { defaultAppSettings } from '../../src/shared/settings/app-settings'
@@ -61,6 +68,8 @@ interface Fake {
   prepared: AutopilotPrepareAnswer | string
   /** What autopilot.start answers; undefined: the run's first state. */
   started: { ok: boolean; value?: unknown; error?: string } | undefined
+  /** The subscriptions of the page, by id. */
+  listeners: Map<number, { channel: string; handler: (payload: unknown) => void }>
 }
 
 let fake: Fake
@@ -69,7 +78,7 @@ const idle = (): AutopilotState => ({ projectId: PROJECT, epic: null, status: 's
 
 beforeEach(() => {
   vi.resetModules()
-  fake = { calls: [], prepared: PREPARED, started: undefined }
+  fake = { calls: [], prepared: PREPARED, started: undefined, listeners: new Map() }
   const model: WorkflowModel = { root: ROOT, epics: [EPIC], tickets: TICKETS, error: null, branchErrors: [] } as unknown as WorkflowModel
   const bridge = {
     invoke: (channel: string, input: unknown) => {
@@ -97,18 +106,25 @@ beforeEach(() => {
           return Promise.resolve({ ok: true, value: { blocked: null } })
         case 'autoContinue.read':
           return Promise.resolve({ ok: true, value: { on: true } })
+        case 'autopilot.confirm.answer':
+          return Promise.resolve({ ok: true, value: undefined })
         default:
           return Promise.resolve({ ok: false, error: `no ${channel} here` })
       }
     },
-    on: () => 1,
-    off: () => undefined,
+    on: (channel: string, handler: (payload: unknown) => void) => {
+      const id = fake.listeners.size + 1
+      fake.listeners.set(id, { channel, handler })
+      return id
+    },
+    off: (id: number) => fake.listeners.delete(id),
   } as unknown as WorfyBridge
   ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
 })
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
@@ -267,5 +283,134 @@ describe('the Autopilot button opens the Start Autopilot window', () => {
     expect(within(dialog).getByTestId('start-autopilot-project').textContent).toBe('—')
     fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
     await vi.waitFor(() => expect(starts()).toEqual([{ projectId: PROJECT, epic: 'demo', mode: 'budget-aware' }]))
+  })
+})
+
+describe('an agent\'s autopilot_start opens the window in its "Agent asks" view (worfy-autopilot-queue ticket 11)', () => {
+  const SESSION = 'c0ffee12-3456-4789-8abc-def012345678'
+  const ASK: AutopilotConfirmAsk = { id: 'ask-1', projectId: PROJECT, project: 'Demo shop', epic: 'demo', tickets: [8, 9], session: SESSION, mode: 'budget-aware', forecast: [], waitMs: 10 * 60_000 }
+
+  /** Lets the window take main's answers: the fake bridge answers at once, in microtasks. */
+  const flush = () =>
+    act(async () => {
+      for (let i = 0; i < 20; i += 1) await Promise.resolve()
+    })
+
+  /** Sends the page the event `channel` of main. */
+  const emit = (channel: string, payload: unknown) =>
+    act(() => {
+      for (const listener of [...fake.listeners.values()]) if (listener.channel === channel) listener.handler(payload)
+    })
+
+  /** Moves the test's clock by `ms`. */
+  const pass = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms)
+    })
+
+  const answers = () => fake.calls.filter((call) => call.channel === 'autopilot.confirm.answer').map((call) => call.input)
+
+  /** The shell's window with main's ask received, its facts read; the test's clock from here on. */
+  async function agentWindow(ask: AutopilotConfirmAsk = ASK): Promise<HTMLElement> {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+    vi.setSystemTime(Date.parse('2026-11-06T12:00:00.000Z'))
+    const { StartAutopilotModal } = await import('../../src/renderer/autopilot/StartAutopilotModal')
+    render(<StartAutopilotModal />)
+    await flush()
+    emit('autopilot.confirm.ask', ask)
+    await flush()
+    const dialog = screen.getByRole('dialog', { name: 'Start Autopilot' })
+    expect(dialog.getAttribute('data-facts')).toBe('read')
+    return dialog
+  }
+
+  const asked = (dialog: HTMLElement) => within(dialog).getByTestId('start-autopilot-asked')
+  const countdown = (dialog: HTMLElement) => within(dialog).getByTestId('start-autopilot-countdown')
+
+  it('names the Session that asks and counts down main\'s 10 minutes; the facts are those of the asked start', async () => {
+    const dialog = await agentWindow()
+    expect(dialog.getAttribute('data-from')).toBe('agent')
+    expect(asked(dialog).textContent).toBe('Asked by Session "c0ffee12" in a chat · answer within 10:00')
+    expect(within(dialog).queryByText('From the Autopilot button on the Canvas')).toBeNull()
+    await pass(1000)
+    expect(countdown(dialog).textContent).toBe('9:59')
+    expect(countdown(dialog).className).toBe('w-apstart__count')
+    expect(fake.calls.filter((call) => call.channel === 'autopilot.prepare').map((call) => call.input)).toEqual([{ projectId: PROJECT, epics: ['demo'], tickets: [8, 9] }])
+    expect(within(dialog).getByTestId('start-autopilot-project').textContent).toBe('Demo shop')
+    // The focus is on Cancel, as for the Canvas button.
+    expect(document.activeElement).toBe(within(dialog).getByTestId('start-autopilot-cancel'))
+    expect(answers()).toEqual([])
+  })
+
+  it('the last minute is in the blocked colours', async () => {
+    const dialog = await agentWindow()
+    await pass(9 * 60_000 - 1000)
+    expect(countdown(dialog).textContent).toBe('1:01')
+    expect(countdown(dialog).hasAttribute('data-late')).toBe(false)
+    await pass(1000)
+    expect(countdown(dialog).textContent).toBe('1:00')
+    expect(countdown(dialog).hasAttribute('data-late')).toBe(true)
+    expect(countdown(dialog).className).toBe('w-apstart__count w-apstart__count--late')
+    await pass(59_000)
+    expect(countdown(dialog).textContent).toBe('0:01')
+  })
+
+  it('at 0:00 the time is up: "the Session got declined", every control off, no answer, and the window closes', async () => {
+    const { TIME_UP_CLOSE_MS } = await import('../../src/renderer/autopilot/StartAutopilotModal')
+    const dialog = await agentWindow()
+    await pass(10 * 60_000)
+    expect(asked(dialog).textContent).toBe('Asked by Session "c0ffee12" · time is up — the Session got "declined"')
+    expect(dialog.hasAttribute('data-time-up')).toBe(true)
+    const controls = [...dialog.querySelectorAll('button')]
+    expect(controls.length).toBeGreaterThan(3)
+    for (const control of controls) expect((control as HTMLButtonElement).disabled, control.textContent ?? '').toBe(true)
+    // Neither Esc nor ⌘↩ answers any more.
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    fireEvent.keyDown(dialog, { key: 'Enter', metaKey: true })
+    await flush()
+    expect(screen.queryByRole('dialog')).not.toBeNull()
+    await pass(TIME_UP_CLOSE_MS - 1)
+    expect(screen.queryByRole('dialog')).not.toBeNull()
+    await pass(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // Main has answered the Session itself.
+    expect(answers()).toEqual([])
+  })
+
+  it("main's close says the time is up at once, whatever the window counted", async () => {
+    const dialog = await agentWindow()
+    await pass(5000)
+    emit('autopilot.confirm.close', { id: 'another-ask' })
+    expect(dialog.hasAttribute('data-time-up')).toBe(false)
+    emit('autopilot.confirm.close', { id: ASK.id })
+    expect(asked(dialog).textContent).toBe('Asked by Session "c0ffee12" · time is up — the Session got "declined"')
+    expect((within(dialog).getByTestId('start-autopilot-start') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('"Start Autopilot" answers the chosen mode and closes the window; the window starts nothing itself', async () => {
+    const dialog = await agentWindow()
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Fastest' }))
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
+    await flush()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(answers()).toEqual([{ id: ASK.id, answer: 'fastest' }])
+    expect(starts()).toEqual([])
+  })
+
+  it('Esc answers cancel and closes the window', async () => {
+    const dialog = await agentWindow()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(answers()).toEqual([{ id: ASK.id, answer: 'cancel' }])
+  })
+
+  it('a second ask while the window is open is answered "occupied"; the open one stays', async () => {
+    const dialog = await agentWindow()
+    emit('autopilot.confirm.ask', { ...ASK, id: 'ask-2', session: 'feedface-0000-4000-8000-000000000000' })
+    await flush()
+    expect(answers()).toEqual([{ id: 'ask-2', answer: 'occupied' }])
+    expect(screen.getAllByRole('dialog')).toEqual([dialog])
+    expect(asked(dialog).textContent).toContain('"c0ffee12"')
   })
 })

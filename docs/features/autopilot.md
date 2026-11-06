@@ -86,24 +86,31 @@ read as a command.
 
 **From a chat, by the agent.** When the user asks a Session in words to run an Epic, or some of its Tickets, on autopilot,
 the agent calls the canvas tool `autopilot_start` with the Epic and, for named Tickets, their numbers. worfy then asks the
-user in a dialog that names the Project, the Epic and the Tickets. Its text has the Epic forecast, one line per mode.
-The person chooses the Run mode of this one run with **Start: Fastest**, **Start: Budget-aware** or **Start: Start
-window**. **Cancel** is the default button, so Enter or Escape alone start nothing. [Run planning](run-planning.md)
-gives the forecast lines and the buttons. The dialog is on a window of the Project's Machine, the Machine
-that runs the Session: the focused window, else one on screen, else a minimised or hidden one brought back first. A
-Linked machine's window gets no dialog and cannot confirm. Without an answer in 10 minutes the dialog closes and the
-agent gets "No one confirmed …"; Cancel is a refusal too. A start button starts the same run as the Autopilot button,
+user in the same **Start Autopilot** window as the button, in its "Agent asks" view: under the title it says
+`Asked by Session "<first 8 characters of the Session id>" in a chat · answer within 9:59` and counts down 10 minutes;
+the last minute is in the blocked colours. The facts, the Modes and the Run mode are as for the button, and the
+person chooses the Run mode of this one run there. The focus is on **Cancel**, Esc is Cancel, ⌘↩ (Ctrl+Enter on
+Windows) is **Start Autopilot**. [Run planning](run-planning.md) gives the forecast lines. The window opens on one
+window of the Project's Machine, the Machine that runs the Session: the focused window, else one on screen, else a
+minimised or hidden one brought back first. Main sends the ask on the channel `autopilot.confirm.ask` and takes the
+answer `autopilot.confirm.answer` only from that window (`src/shared/ipc/autopilot-confirm.ts`). These channels are
+closed to a Linked machine, so its screen gets no ask and cannot confirm. Without an answer in 10 minutes the window
+says `time is up — the Session got "declined"`, its controls go inactive, it closes a few seconds later, and the agent
+gets "No one confirmed …". Cancel, Esc and "change in Modes" are a refusal too; a window closed meanwhile answers that
+no worfy window is open. Nothing guards the window against a click an agent makes in it. Main shows no native message
+box for this tool any more. **Start Autopilot** starts the same run as the Autopilot button,
 in the chosen mode, over the named Tickets when there are any. A command typed in a chat always starts in the default
-mode; the Autopilot button starts in the mode chosen in its window. When the Orchestrator is busy, also when the asking Session is the Orchestrator in its turn, the run
-waits for it as described under "While the Orchestrator is busy", and the agent gets "Autopilot waits for the Orchestrator and starts when it is free". Without a dialog the tool refuses:
+mode. When the Orchestrator is busy, also when the asking Session is the Orchestrator in its turn, the run
+waits for it as described under "While the Orchestrator is busy", and the agent gets "Autopilot waits for the Orchestrator and starts when it is free". Without an ask the tool refuses:
 
 - a Session that runs unattended, such as the Orchestrator during a run: no one is there to confirm. The Orchestrator of a
-  stopped run that still waits for its turn or background tasks is not refused: it gets the dialog;
+  stopped run that still waits for its turn or background tasks is not refused: it gets the window;
 - a Session worfy cannot find;
 - a Project with a run under way: "Autopilot is already running Epic X. Stop it first.", and the journal gets nothing;
 - an Epic or a Ticket the Project does not have, or a workflow that cannot be read;
-- a second call while a dialog of the same Project waits;
-- a Machine with no worfy window open: a box without a window would block worfy on macOS.
+- a second call while an ask of the same Project waits;
+- a Machine with no worfy window open;
+- a Start Autopilot window already open for another start: the agent is told so.
 
 **What is not a run.** "Run wave" on the Canvas or in the Command palette sends one Wave to the Orchestrator and starts
 no run. So does a Wave that Claude Code runs in a terminal. Such a Wave has no journal, no status line, no stop toast and
@@ -558,7 +565,8 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | `src/shared/autopilot/chat-command.ts` | `parseChatCommand`: which typed messages are a command, with what Epic and Tickets; the toast of its answer. |
 | `src/shared/workflow/wave-plan.ts` | `parseWavePlan`, `waveTickets`: the Waves table of an Epic's `spec.md`, and the Tickets of Wave N not done yet. |
 | `src/main/ipc/agent.ts` | `agent.send`: a command does not reach the agent; it starts the run through `startFromChat` and answers what became of it. |
-| `src/main/autopilot/chat-confirm.ts` | The tool `autopilot_start` behind the canvas server: the refusals without a dialog, the confirmation dialog on this Machine and its 10 minutes. |
+| `src/main/autopilot/chat-confirm.ts` | The tool `autopilot_start` behind the canvas server: the refusals without an ask, the ask in the Start Autopilot window of this Machine (`WindowAsks`) and its 10 minutes. |
+| `src/main/ipc/autopilot-confirm.ts` | The handler of `autopilot.confirm.answer`: an answer counts only from the window asked. |
 | `src/shared/autopilot/cycle.ts` | The cycle: phases, events, effects, stop reasons and their time limits. Pure. |
 | `src/main/ipc/autopilot.ts` | The IPC handlers, and `sharedAutopilot`, which wires the app's Projects, Orchestrators, Sessions, watch and journal to a run. |
 | `src/shared/ipc/autopilot.ts` | The `autopilot` IPC channels, the state of a run and the text of the status line. |
@@ -688,7 +696,7 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/contract/agent-send-autopilot.test.ts` | `agent.send` with a command: the start, the refusal while a run goes on, and what still reaches the agent. |
 | `test/e2e/autopilot-chat.spec.ts` | The command typed in the Session view and in a Session Node: the toasts and the status line. |
 | `test/contract/autopilot-background.test.ts` | Background tasks, and stops while they live. |
-| `test/contract/autopilot-start-tool.test.ts` | The tool `autopilot_start`: the dialog, its 10 minutes, the window it is on, the refusals without it, the answer of a run that waits for the Orchestrator. |
+| `test/contract/autopilot-start-tool.test.ts` | The tool `autopilot_start`: the ask in the window and its answers, its 10 minutes, the window it goes to, the refusals without it, the answer of a run that waits for the Orchestrator. |
 | `test/contract/autopilot-limits.test.ts` | The wait for the Limits and the budget, with a clock the test moves. |
 | `test/contract/autopilot-limits-switch.test.ts` | The wait for the Limits with Auto-continue off and on: the 7-day window without the 5-hour one, a reset in 3 days with keep-awake released and taken again, no reset time, the switch turned off during the wait. |
 | `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result and the secrets of its command, the Limits (also during the wait), a background task's turn, Stop (also a second one while stopping), Force stop, the quit and the switch turned off during the wait. |

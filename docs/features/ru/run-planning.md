@@ -24,17 +24,10 @@ Wave в работе он никогда не останавливает и не
 | **Start window** | Новая Wave начинается только внутри Start window. После окна проверяется и budget, если **Daily budget of the Limits** включён. |
 
 Run берёт режим по умолчанию из Settings → Autopilot (**Default run mode**). Кнопка **Autopilot** и команда
-`/worfy:epic-wave`, набранная в чате, всегда стартуют в этом режиме. Выбрать режим одного Run-а можно только в диалоге
-canvas-инструмента `autopilot_start`, который агент вызывает, когда человек словами просит его запустить Epic. Кнопок в
-диалоге четыре:
-
-- **Start: Fastest**
-- **Start: Budget-aware**
-- **Start: Start window**
-- **Cancel**
-
-Кнопка режима по умолчанию кончается на « (default)», например **Start: Budget-aware (default)**. **Cancel** — кнопка
-по умолчанию, поэтому Enter или Escape сами по себе ничего не запускают.
+`/worfy:epic-wave`, набранная в чате, всегда стартует в этом режиме. Режим одного Run-а выбирают в окне **Start
+Autopilot**: его открывает кнопка **Autopilot** и canvas-инструмент `autopilot_start`, когда агент просит о Run-е. В окне —
+**Fastest**, **Budget-aware** и **Start window**, режим по умолчанию помечен «(default)» и выбран. Фокус — на
+**Cancel**, поэтому Enter сам по себе ничего не запускает, а Esc — Cancel.
 
 Настройки и окно читаются заново перед каждой Wave. Изменение Settings во время Run-а меняет окно и budget его
 следующей Wave, но не его режим.
@@ -126,7 +119,7 @@ Wave: полное окно на 5 часов встретит Wave отказо
 #### Epic forecast
 
 **Epic forecast** (прогноз Epic-а) говорит, какую долю Limits недели обычно берут оставшиеся Wave Epic-а на этой
-Machine. Он виден в tooltip кнопки **Autopilot** и в диалоге `autopilot_start`. Он ничего не останавливает: Run ведёт
+Machine. Он виден в tooltip кнопки **Autopilot** и в окне Start Autopilot. Он ничего не останавливает: Run ведёт
 только его Run mode.
 
 Tooltip активной кнопки **Autopilot** кончается такими строками, соединёнными через «. ». Пока main не ответил
@@ -170,8 +163,8 @@ duration: every Wave may start inside the window`.
 Рекомендация — только слова. Run в Budget-aware ведёт дневной budget, поэтому tooltip может сказать «Recommended:
 2 Waves now», а budget всё равно остановит Run на доле дня после первой Wave.
 
-В диалоге `autopilot_start` прогноз стоит между первым абзацем и последним, по строке на режим, какой бы режим человек
-потом ни выбрал:
+Просьба `autopilot_start` несёт прогноз, по строке на режим, какой бы режим человек потом ни выбрал; окно показывает
+строку выбранного режима под режимами:
 
 ```
 Forecast: This Epic: 4 Waves, 11 Tickets left, usually 18–31% of the week. Used now: 41%, resets in 2 d 5 h.
@@ -182,7 +175,7 @@ Start window 23:00–07:00: a Wave usually takes up to 1 h 40 min.
 
 Строк `Budget-aware:` и `Fastest:` нет, когда им нечего сказать. Строка `Budget-aware:` учитывает reserve из Settings,
 что бы ни говорил переключатель budget. Run по названным Ticket-ам прогнозирует только их. Когда Journal-ы Run-ов не
-читаются, в диалоге нет прогноза, но он всё равно спрашивает.
+читаются, в просьбе нет прогноза, но окно всё равно спрашивает.
 
 #### Прогноз и фактическая доля в Journal
 
@@ -262,11 +255,11 @@ Fastest — без него. Доли сравниваются в целых м�
 | `src/shared/autopilot/run-mode.ts` | Run mode и их названия, Start window, `windowDecision` на границе Wave, слова ожидания и `window-too-short`. Чистые функции. |
 | `src/shared/autopilot/wave-duration.ts` | `waveDurationP90`: длительность Wave по Journal-ам. Чистые функции. |
 | `src/shared/autopilot/forecast.ts` | `remainingWaves` и `epicForecast`: оставшиеся Wave и диапазон bootstrap; `percentile`. Чистые функции. |
-| `src/shared/autopilot/forecast-lines.ts` | `fitBeforeReset` (K) и строки tooltip и диалога. Чистые функции. |
+| `src/shared/autopilot/forecast-lines.ts` | `fitBeforeReset` (K) и строки tooltip и окна Start Autopilot. Чистые функции. |
 | `src/shared/autopilot/limits-estimate.ts` | `waveSamples`, `waveGrowth`, оценка одной Wave, `usedNowText`, `duration` и ответ `autopilot.estimate`. Чистые функции. |
 | `src/shared/autopilot/budget.ts` | Budget и его решение перед Wave, слова остановки по budget. Чистые функции. |
 | `src/main/autopilot/run.ts` | Run: режим, заданный на старте, проверка на границе Wave, ожидания, строка `forecast` и `actual`. |
-| `src/main/autopilot/chat-confirm.ts` | Диалог `autopilot_start`: строки прогноза и по кнопке старта на режим. |
+| `src/main/autopilot/chat-confirm.ts` | Просьба `autopilot_start`: строки прогноза и режим по умолчанию, которые она несёт в окно Start Autopilot. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | Tooltip кнопки **Autopilot**: режим, прогноз и совет. |
 | `src/shared/ipc/autopilot.ts` | `autopilotStatusLine`: строки состояния ожиданий. |
 | `src/renderer/settings/AutopilotSection.tsx` | Settings → Autopilot. |
@@ -278,8 +271,8 @@ Fastest — без него. Доли сравниваются в целых м�
 1. Кнопка **Autopilot** спрашивает main `autopilot.estimate`, когда появляется, и при каждой смене состояния Run-а. Main
    читает самые новые Journal-ы Run-ов Project-а и отвечает выборками и длительностью Wave. Tooltip считает по ним и по
    Ticket-ам рамки прогноз, а строки — по живым Limits и Settings.
-2. `autopilot_start` читает в main те же Journal-ы, Limits и Settings и кладёт `dialogLines` в диалог. Нажатая кнопка
-   передаёт свой режим в старт.
+2. `autopilot_start` читает в main те же Journal-ы, Limits и Settings и кладёт `dialogLines` в свою просьбу. Режим,
+   выбранный в окне, уходит в старт.
 3. Старт задаёт режим Run-а, пишет с ним `run-started`, затем строку `forecast`, затем берёт keep-awake.
 4. Перед каждой Wave `sendWave` спрашивает usage, затем проверяет границу по режиму. Ожидание пишет `start-window` или
    `budget-stop` и `waiting-until` и ставит тот же шаг снова на своё время, после `resumed`.
@@ -302,5 +295,5 @@ Fastest — без него. Доли сравниваются в целых м�
 | `test/unit/canvas-actions.test.tsx` | Прогноз в tooltip кнопки и строки состояния окна. |
 | `test/unit/settings-autopilot.test.tsx` | Settings → Autopilot. |
 | `test/contract/autopilot-limits.test.ts` | Ожидания budget и Start window, `window-too-short`, окно на 5 часов и его отсутствие, с часами, которые двигает test. |
-| `test/contract/autopilot-start-tool.test.ts` | Кнопки режимов в диалоге и его строки прогноза. |
+| `test/contract/autopilot-start-tool.test.ts` | Режим по умолчанию и строки прогноза в просьбе, и режим, который отвечает окно. |
 | `test/e2e/autopilot.spec.ts` | Собранное приложение: ожидание вне Start window и Stop во время него, прогноз в tooltip в каждом режиме. |

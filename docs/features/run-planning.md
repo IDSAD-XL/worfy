@@ -22,17 +22,10 @@ the run waits for the reset, as the [Autopilot](autopilot.md) page describes.
 | **Start window** | A new Wave starts only inside the Start window. After the window, the budget is checked too, when **Daily budget of the Limits** is on. |
 
 A run takes the default mode of Settings → Autopilot (**Default run mode**). The **Autopilot** button and the command
-`/worfy:epic-wave` typed in a chat always start in that mode. Only the dialog of the canvas tool `autopilot_start`, which
-an agent calls when the person asks it in words to run an Epic, lets the person choose the mode of one run. Its four
-buttons are:
-
-- **Start: Fastest**
-- **Start: Budget-aware**
-- **Start: Start window**
-- **Cancel**
-
-The button of the default mode ends with " (default)", for example **Start: Budget-aware (default)**. **Cancel** is the
-default button, so Enter or Escape alone start nothing.
+`/worfy:epic-wave` typed in a chat always starts in that mode. The **Start Autopilot** window, which the **Autopilot**
+button opens and the canvas tool `autopilot_start` opens when an agent asks for a run, lets the person choose the mode of
+one run: **Fastest**, **Budget-aware** or **Start window**, the default marked "(default)" and chosen. The focus is on
+**Cancel**, so Enter alone starts nothing, and Esc is Cancel.
 
 The settings and the window are read again before each Wave. A change in Settings during a run changes the window and
 the budget of its next Wave, but not its mode.
@@ -125,7 +118,7 @@ end becomes a wait for the next window.
 #### The Epic forecast
 
 The **Epic forecast** says what share of the week's Limits the Waves left of an Epic usually take on this Machine. It
-is shown in the tooltip of the **Autopilot** button and in the dialog of `autopilot_start`. It stops nothing: the run is
+is shown in the tooltip of the **Autopilot** button and in the Start Autopilot window. It stops nothing: the run is
 led by its Run mode alone.
 
 The tooltip of an active **Autopilot** button ends with these lines, joined by ". ". Until main answers with the samples,
@@ -169,8 +162,8 @@ duration: every Wave may start inside the window`.
 The recommendation is words only. The run in Budget-aware is led by the daily budget, so the tooltip may say
 "Recommended: 2 Waves now" and the budget may still stop the run on today's share after the first Wave.
 
-The dialog of `autopilot_start` has the forecast between its first paragraph and its last, one line per mode, whichever
-mode the person then chooses:
+The ask of `autopilot_start` carries the forecast, one line per mode, whichever mode the person then chooses; the
+window shows the line of the chosen mode under the modes:
 
 ```
 Forecast: This Epic: 4 Waves, 11 Tickets left, usually 18–31% of the week. Used now: 41%, resets in 2 d 5 h.
@@ -181,7 +174,7 @@ Start window 23:00–07:00: a Wave usually takes up to 1 h 40 min.
 
 The `Budget-aware:` and `Fastest:` lines are left out when they have nothing to say. The `Budget-aware:` line applies the
 reserve of Settings whatever the budget switch says. A run over named Tickets forecasts only those. When the run journals
-cannot be read, the dialog has no forecast and still asks.
+cannot be read, the ask has no forecast and still asks.
 
 #### The forecast and the actual share in the journal
 
@@ -199,7 +192,7 @@ finished, and when no finished Wave counted. When fewer Waves counted than finis
 The mode shows whenever `run-started` names it. The forecast and the actual show only when the journal has a
 `forecast` line, so a run journaled before the forecast existed has no such line, and may still show its mode. The
 percents are whole, rounded half up from whole millionths of the week, the same way as in the forecast lines of the
-tooltip and the dialog: 0.285 of the week is 29%. The advice of K is not shown here.
+tooltip and the Start Autopilot window: 0.285 of the week is 29%. The advice of K is not shown here.
 
 ### How it works
 
@@ -280,11 +273,11 @@ statistics file of its own.
 | `src/shared/autopilot/wave-duration.ts` | `waveDurationP90`: the duration of a Wave from the journals. Pure. |
 | `src/shared/autopilot/forecast.ts` | `remainingWaves` and `epicForecast`: the Waves left and the bootstrap range; `percentile`. Pure. |
 | `src/shared/autopilot/share-percent.ts` | A share of the week in whole percents, half up from whole millionths, and its words. Pure. |
-| `src/shared/autopilot/forecast-lines.ts` | `fitBeforeReset` (K), and the lines of the tooltip and the dialog. Pure. |
+| `src/shared/autopilot/forecast-lines.ts` | `fitBeforeReset` (K), and the lines of the tooltip and the Start Autopilot window. Pure. |
 | `src/shared/autopilot/limits-estimate.ts` | `waveSamples`, `waveGrowth`, the estimate of one Wave, `usedNowText`, `duration`, and the answer of `autopilot.estimate`. Pure. |
 | `src/shared/autopilot/budget.ts` | The budget and its decision before a Wave, and the words of a budget stop. Pure. |
 | `src/main/autopilot/run.ts` | The run: the mode set at the start, the check at the boundary of a Wave, the waits, the `forecast` line and `actual`. |
-| `src/main/autopilot/chat-confirm.ts` | The dialog of `autopilot_start`: the forecast lines and one start button per mode. |
+| `src/main/autopilot/chat-confirm.ts` | The ask of `autopilot_start`: the forecast lines and the default mode it carries to the Start Autopilot window. |
 | `src/renderer/flight-recorder/RunHistoryView.tsx` | The header of a run in Run history: the mode, the forecast and the actual share. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | The tooltip of the **Autopilot** button: the mode, the forecast and its advice. |
 | `src/shared/ipc/autopilot.ts` | `autopilotStatusLine`: the status lines of the waits. |
@@ -297,8 +290,8 @@ statistics file of its own.
 1. The **Autopilot** button asks main `autopilot.estimate` when it appears and whenever the run's status changes. Main
    reads the Project's newest run journals and answers the samples and the Wave duration. The tooltip computes the
    forecast from them and the Tickets of the frame, and the lines from the live Limits and Settings.
-2. `autopilot_start` reads the same journals, the Limits and Settings in main, and puts `dialogLines` in the dialog. The
-   chosen button passes its mode to the start.
+2. `autopilot_start` reads the same journals, the Limits and Settings in main, and puts `dialogLines` in its ask. The
+   mode chosen in the window goes to the start.
 3. The start sets the run's mode, writes `run-started` with it, then the `forecast` line, then takes keep-awake.
 4. Before each Wave, `sendWave` asks the usage, then the boundary check by the mode. A wait writes `start-window` or
    `budget-stop` and `waiting-until`, and schedules the same step again at its time, after `resumed`.
@@ -324,7 +317,7 @@ zone for the days the clocks change.
 | `test/unit/canvas-actions.test.tsx` | The forecast in the tooltip of the button, and the status lines of the window. |
 | `test/unit/settings-autopilot.test.tsx` | Settings → Autopilot. |
 | `test/contract/autopilot-limits.test.ts` | The waits for the budget and the Start window, `window-too-short`, the 5-hour window and its absence, with a clock the test moves. |
-| `test/contract/autopilot-start-tool.test.ts` | The mode buttons of the dialog and its forecast lines. |
+| `test/contract/autopilot-start-tool.test.ts` | The default mode and the forecast lines of the ask, and the mode the window answers. |
 | `test/unit/flight-recorder-view.test.tsx` | The header of Run history: the mode, the forecast beside the actual, `not enough data`, `actual: unknown`, the tooltip of the counted Waves. |
 | `test/contract/flight-recorder-run-by.test.ts` | The mode, the forecast range and `actual` in `runs.list`, and null for an older journal. |
 | `test/e2e/flight-recorder.spec.ts` | The built app: the header of a run in the Start window mode with its forecast and actual, and its wait on the Wait lane. |

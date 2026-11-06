@@ -19,6 +19,13 @@
 //   start is not asked about by accident.
 // - The start goes to main with the chosen mode; the window closes once main answers — started,
 //   waiting for the Orchestrator, or refused (the refusal is a toast, as before, and the button's reason).
+// - An agent's `autopilot_start` (worfy-autopilot-queue ticket 11, view "Agent asks"): main asks one
+//   window of its Machine (`autopilot.confirm.ask`, start-modal.ts). Under the title — «Asked by Session
+//   "<id>" in a chat · answer within 9:59», counted down to main's deadline, the last minute in the
+//   blocked colours. The choice goes back to main, which starts the run; Cancel, Esc and "change in
+//   Modes" answer `cancel`. Time up (the countdown at 0:00, or main's `autopilot.confirm.close`): «time
+//   is up — the Session got "declined"», every control off, and the window closes after TIME_UP_CLOSE_MS.
+//   The facts of such an ask are read on this Machine, whichever Machine the window shows.
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ticketNumber } from '../../shared/actions/render-template'
@@ -29,14 +36,14 @@ import { autopilotPrepareAnswerSchema, type AutopilotPrepareAnswer } from '../..
 import { failureReason } from '../../shared/ipc/channels'
 import { autopilotRunOf } from '../../shared/settings/app-settings'
 import { vendorLabel } from '../../shared/vendors/vendor'
-import { invoke, readableReason } from '../ipc'
+import { hasPreloadBridge, invoke, invokeOn, readableReason, subscribe } from '../ipc'
 import { isMac, isPrimary } from '../platform'
 import { AUTO_APPROVAL_LABELS, AUTO_APPROVAL_TITLES, useAutoApproval } from '../session/modes/auto-approval'
 import { useAutoContinue } from '../session/modes/auto-continue'
 import { useEcoMode } from '../session/modes/eco-mode'
 import { focusablesOf } from '../settings/settings-window'
 import { useAppSettings } from '../settings/useAppSettings'
-import { openOrchestratorModes, useStartModal, type OpenStart } from './start-modal'
+import { agentTimeUp, askFromAgent, openOrchestratorModes, useStartModal, type OpenStart } from './start-modal'
 import './autopilot-modal.css'
 
 /** The line under the modes when main has no forecast line for the chosen one. */
@@ -80,15 +87,65 @@ function ticketsText(tickets: readonly number[]): string {
   return tickets.length > TICKETS_SHOWN ? `${shown} +${tickets.length - TICKETS_SHOWN} more` : shown
 }
 
+/** How long the window of an agent's ask stays after its time is up, saying so, before it closes. */
+export const TIME_UP_CLOSE_MS = 4000
+
+/** The Session's name as the window gives it: the first 8 characters of its id, as the Session Nodes do. */
+const sessionName = (session: string): string => session.slice(0, 8)
+
+/** Seconds as m:ss ("9:59"). */
+const clock = (seconds: number): string => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+
+/** The whole seconds left until `deadline` (Date.now() time), counted down once a second; never below 0. */
+function useSecondsLeft(deadline: number | null): number | null {
+  const left = (): number | null => (deadline === null ? null : Math.max(0, Math.ceil((deadline - Date.now()) / 1000)))
+  const [seconds, setSeconds] = useState(left)
+  useEffect(() => {
+    if (deadline === null) return
+    const timer = setInterval(() => {
+      const now = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+      setSeconds(now)
+      if (now === 0) clearInterval(timer)
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [deadline])
+  return seconds
+}
+
+/** The line under the title: where the ask comes from, and for an agent's the time left. */
+function AskedLine({ open, seconds, timeUp }: { open: OpenStart; seconds: number | null; timeUp: boolean }) {
+  if (open.agent === undefined) return <div className="w-apstart__asked">From the Autopilot button on the Canvas</div>
+  const session = <b>"{sessionName(open.agent.session)}"</b>
+  if (timeUp) {
+    return (
+      <div className="w-apstart__asked" data-testid="start-autopilot-asked">
+        Asked by Session {session} · <span className="w-apstart__count w-apstart__count--late">time is up — the Session got "declined"</span>
+      </div>
+    )
+  }
+  const late = seconds !== null && seconds <= 60
+  return (
+    <div className="w-apstart__asked" data-testid="start-autopilot-asked">
+      Asked by Session {session} in a chat · answer within{' '}
+      <span className={`w-apstart__count${late ? ' w-apstart__count--late' : ''}`} data-testid="start-autopilot-countdown" data-late={late ? '' : undefined}>
+        {clock(seconds ?? 0)}
+      </span>
+    </div>
+  )
+}
+
 type Facts = { kind: 'reading' } | { kind: 'read'; answer: AutopilotPrepareAnswer } | { kind: 'failed'; reason: string }
 
 /** The facts of `open`, asked once. */
 function useFacts(open: OpenStart): Facts {
   const [facts, setFacts] = useState<Facts>({ kind: 'reading' })
   const { projectId, epics, tickets } = open
+  // An agent's ask is about a Project of this Machine, whichever Machine the window shows.
+  const local = open.from === 'agent'
   useEffect(() => {
     let active = true
-    void invoke('autopilot.prepare', { projectId, epics: [...epics], ...(tickets === undefined ? {} : { tickets: [...tickets] }) }).then((result) => {
+    const input = { projectId, epics: [...epics], ...(tickets === undefined ? {} : { tickets: [...tickets] }) }
+    void (local ? invokeOn(null, 'autopilot.prepare', input) : invoke('autopilot.prepare', input)).then((result) => {
       if (!active) return
       if (!result.ok) {
         setFacts({ kind: 'failed', reason: readableReason(failureReason('autopilot.prepare', result.error)) })
@@ -100,7 +157,7 @@ function useFacts(open: OpenStart): Facts {
     return () => {
       active = false
     }
-  }, [projectId, epics, tickets])
+  }, [projectId, epics, tickets, local])
   return facts
 }
 
@@ -123,7 +180,7 @@ function Chip({ label, on, title }: { label: string; on: boolean | null; title: 
   )
 }
 
-function ModesFact({ projectId, onChange }: { projectId: string; onChange: () => void }) {
+function ModesFact({ projectId, onChange, off }: { projectId: string; onChange: () => void; off: boolean }) {
   const eco = useEcoMode(projectId)
   const auto = useAutoApproval(projectId)
   const cont = useAutoContinue(projectId)
@@ -135,14 +192,14 @@ function ModesFact({ projectId, onChange }: { projectId: string; onChange: () =>
       <Chip label={`Eco ${word(eco.on, eco.reading)}`} on={eco.on} title={eco.unavailable ?? eco.title} />
       <Chip label={`Auto-approval ${auto.mode === null ? unknown(auto.reading) : AUTO_APPROVAL_LABELS[auto.mode]}`} on={auto.mode === null ? null : auto.mode !== 'off'} title={auto.unavailable ?? (auto.mode === null ? 'Auto-approval' : AUTO_APPROVAL_TITLES[auto.mode])} />
       <Chip label={`Auto-continue ${word(cont.on, cont.reading)}`} on={cont.on} title={cont.unavailable ?? cont.title} />
-      <button type="button" className="w-apstart__link" data-testid="start-autopilot-change-modes" onClick={onChange}>
+      <button type="button" className="w-apstart__link" data-testid="start-autopilot-change-modes" disabled={off} onClick={onChange}>
         change in Modes
       </button>
     </Fact>
   )
 }
 
-function FactsGrid({ facts, open, onChangeModes }: { facts: Facts; open: OpenStart; onChangeModes: () => void }) {
+function FactsGrid({ facts, open, onChangeModes, off }: { facts: Facts; open: OpenStart; onChangeModes: () => void; off: boolean }) {
   const answer = facts.kind === 'read' ? facts.answer : null
   const pending = <span className="w-apstart__muted">{facts.kind === 'reading' ? '…' : '—'}</span>
   const epics = answer?.epics ?? open.epics.map((epic) => ({ epic, tickets: [], waves: 0, accepted: null }))
@@ -216,7 +273,7 @@ function FactsGrid({ facts, open, onChangeModes }: { facts: Facts; open: OpenSta
           </>
         )}
       </Fact>
-      <ModesFact projectId={open.projectId} onChange={onChangeModes} />
+      <ModesFact projectId={open.projectId} onChange={onChangeModes} off={off} />
     </dl>
   )
 }
@@ -236,12 +293,18 @@ function StartWindow({ open }: { open: OpenStart }) {
   const titleId = useId()
   const busy = answer?.busy ?? null
   const hours = answer?.window ?? { from: windowFrom, to: windowTo }
+  const seconds = useSecondsLeft(open.agent?.deadline ?? null)
+  // An agent's ask whose time is up, here or in main: nothing can be chosen any more.
+  const timeUp = open.agent !== undefined && (open.timeUp === true || seconds === 0)
+  const off = starting || timeUp
 
   const cancel = (): void => {
-    if (!starting) open.settle(undefined)
+    if (off) return
+    open.cancel?.()
+    open.settle(undefined)
   }
   const start = (): void => {
-    if (starting) return
+    if (off) return
     setStarting(true)
     void open.start(mode).then(
       (reason) => open.settle(reason),
@@ -249,7 +312,8 @@ function StartWindow({ open }: { open: OpenStart }) {
     )
   }
   const changeModes = (): void => {
-    if (starting) return
+    if (off) return
+    open.cancel?.()
     open.settle(undefined)
     openOrchestratorModes(open.projectId)
   }
@@ -258,6 +322,14 @@ function StartWindow({ open }: { open: OpenStart }) {
   useLayoutEffect(() => {
     keys.current = { cancel, start }
   })
+
+  const { settle } = open
+  // Time up: the window says so for a while, then closes; main has answered the Session already.
+  useEffect(() => {
+    if (!timeUp) return
+    const timer = setTimeout(() => settle(undefined), TIME_UP_CLOSE_MS)
+    return () => clearTimeout(timer)
+  }, [timeUp, settle])
 
   // The focus goes to Cancel, so Enter right after opening starts nothing; it goes back where it was
   // when the window closes.
@@ -311,10 +383,21 @@ function StartWindow({ open }: { open: OpenStart }) {
   const label = busy === null ? 'Start Autopilot' : 'Start when free'
   return createPortal(
     <div className="w-apstart-backdrop">
-      <div ref={frame} className="w-apstart" role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid="start-autopilot" data-busy={busy === null ? undefined : ''} data-facts={facts.kind}>
+      <div
+        ref={frame}
+        className="w-apstart"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        data-testid="start-autopilot"
+        data-from={open.from}
+        data-busy={busy === null ? undefined : ''}
+        data-facts={facts.kind}
+        data-time-up={timeUp ? '' : undefined}
+      >
         <div className="w-apstart__head">
           <h2 id={titleId}>Start Autopilot</h2>
-          <div className="w-apstart__asked">From the Autopilot button on the Canvas</div>
+          <AskedLine open={open} seconds={seconds} timeUp={timeUp} />
         </div>
         <div className="w-apstart__body">
           {busy === null ? null : (
@@ -334,7 +417,7 @@ function StartWindow({ open }: { open: OpenStart }) {
               Could not read the facts of this start: {facts.reason}
             </p>
           ) : null}
-          <FactsGrid facts={facts} open={open} onChangeModes={changeModes} />
+          <FactsGrid facts={facts} open={open} onChangeModes={changeModes} off={off} />
           <div className="w-apstart__section">
             <h3>Mode</h3>
             <div className="w-apstart__modes" role="radiogroup" aria-label="Mode">
@@ -345,6 +428,7 @@ function StartWindow({ open }: { open: OpenStart }) {
                   role="radio"
                   aria-checked={mode === each}
                   data-testid={`start-autopilot-mode-${each}`}
+                  disabled={timeUp}
                   onClick={() => setPicked(each)}
                 >
                   {RUN_MODE_LABELS[each]}
@@ -363,7 +447,7 @@ function StartWindow({ open }: { open: OpenStart }) {
             <kbd>esc</kbd> Cancel · <kbd>tab</kbd> next · <kbd>{isMac() ? '⌘' : 'Ctrl'}</kbd>
             <kbd>↩</kbd> Start
           </span>
-          <button ref={cancelButton} type="button" className="w-apstart__button" data-testid="start-autopilot-cancel" disabled={starting} onClick={cancel}>
+          <button ref={cancelButton} type="button" className="w-apstart__button" data-testid="start-autopilot-cancel" disabled={off} onClick={cancel}>
             Cancel
           </button>
           <button
@@ -371,7 +455,7 @@ function StartWindow({ open }: { open: OpenStart }) {
             className="w-apstart__button w-apstart__button--primary"
             data-testid="start-autopilot-start"
             aria-keyshortcuts={isMac() ? 'Meta+Enter' : 'Control+Enter'}
-            disabled={starting}
+            disabled={off}
             onClick={start}
           >
             {label}
@@ -383,8 +467,18 @@ function StartWindow({ open }: { open: OpenStart }) {
   )
 }
 
-/** The window of the start asked for, if any; mounted once, in the shell. */
+/** The window of the start asked for, if any; mounted once, in the shell. It also listens for main's asks of an agent's `autopilot_start`. */
 export function StartAutopilotModal() {
   const open = useStartModal((store) => store.open)
+  useEffect(() => {
+    // Without the preload (a unit test of the shell that sets none) there is no main to ask.
+    if (!hasPreloadBridge()) return
+    const offAsk = subscribe('autopilot.confirm.ask', (ask) => askFromAgent(ask))
+    const offClose = subscribe('autopilot.confirm.close', ({ id }) => agentTimeUp(id))
+    return () => {
+      offAsk()
+      offClose()
+    }
+  }, [])
   return open === null ? null : <StartWindow key={open.id} open={open} />
 }

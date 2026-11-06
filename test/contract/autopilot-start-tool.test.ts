@@ -1,32 +1,41 @@
 // The canvas tool autopilot_start (worfy-flight-recorder ticket 23, ADR-0091), called through the
-// canvas MCP server the way Claude Code calls it. A person confirms the start in a native message box
-// (a stand-in showMessageBox here) on a window of the Project's Machine; it waits 10 minutes (fake
-// timers); "Start Autopilot" goes to the real ChatStarts.startFromChat, whose Autopilot is a stand-in
-// that records every start (its `journal`, with the Run mode the start names, as run-started of the
-// real run carries it). An unattended Session, a Project with a run under way and
-// a Machine without a worfy window are refused without a dialog. The app's own wiring
-// (appAutopilotStarter, the starter of appDeps) runs over a stand-in Session registry, ChatStarts,
-// Project list, workflow read, run journals, Limits and Settings. No Claude Code and no agent start here.
+// canvas MCP server the way Claude Code calls it. A person confirms the start in the Start Autopilot
+// window of worfy, its "Agent asks" view (worfy-autopilot-queue ticket 11): main sends
+// `autopilot.confirm.ask` to a window of the Project's Machine (a stand-in webContents here) and waits
+// 10 minutes (fake timers) for that window's `autopilot.confirm.answer`; a Run mode goes to the real
+// ChatStarts.startFromChat, whose Autopilot is a stand-in that records every start (its `journal`, with
+// the Run mode the start names, as run-started of the real run carries it). An unattended Session, a
+// Project with a run under way and a Machine without a worfy window are refused without an ask. The
+// app's own wiring (appAutopilotStarter, the starter of appDeps, the handler of `autopilot.confirm.answer`)
+// runs over a stand-in Session registry, ChatStarts, Project list, workflow read, run journals, Limits
+// and Settings. No native message box is shown any more: the stand-in of Electron's counts any, and
+// every test ends with none. No Claude Code and no agent start here.
 //
-// The dialog's Run mode buttons and forecast (worfy-resource-planner ticket 06): "Start: Fastest",
-// "Start: Budget-aware" and "Start: Start window", the default mode of Settings marked " (default)",
-// then "Cancel", the default button; the forecast lines of the past runs' journals in its `detail`.
-import type { BaseWindow, BrowserWindow, MessageBoxOptions, MessageBoxReturnValue } from 'electron'
+// The Run mode and the forecast (worfy-resource-planner ticket 06): the ask carries the default mode of
+// Settings and the forecast lines of the past runs' journals; the window answers the mode chosen.
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import type { BrowserWindow } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatStarts, chatRunningHint, WAIT_MESSAGE, type ChatStartDeps } from '../../src/main/autopilot/chat-start'
+import type { AutopilotPrompt } from '../../src/main/autopilot/chat-confirm'
 import type { AutopilotStartOptions } from '../../src/main/autopilot/run'
 import type { CanvasContext, ToolResult } from '../../src/main/mcp/canvas-server'
 import type { LimitsState } from '../../src/shared/agent/limits'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import type { RunMode } from '../../src/shared/autopilot/run-mode'
 import type { AutopilotState } from '../../src/shared/ipc/autopilot'
+import type { AutopilotConfirmAnswer, AutopilotConfirmAsk } from '../../src/shared/ipc/autopilot-confirm'
+import { IPC_CHANNEL_PREFIX } from '../../src/shared/ipc/channels'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 /** What the mocked modules below answer; each test sets its own. */
 const app = vi.hoisted(() => ({
   focused: null as unknown,
   windows: [] as unknown[],
-  showMessageBox: null as unknown as (...args: unknown[]) => Promise<unknown>,
+  /** Every native message box main tried to show: none, since worfy-autopilot-queue ticket 11. */
+  messageBoxes: 0,
   /** Session id → whether it runs unattended; a Session not here is not in the registry. */
   sessions: new Map<string, boolean>(),
   /** The unattended Sessions whose run has stopped and which only wait to be given back (Orchestrators.awaitsGiveBack). */
@@ -47,7 +56,12 @@ const app = vi.hoisted(() => ({
 vi.mock('electron', () => ({
   app: { on: () => undefined, isPackaged: false, getAppPath: () => '/nowhere' },
   BrowserWindow: { getFocusedWindow: () => app.focused, getAllWindows: () => app.windows, fromWebContents: () => null },
-  dialog: { showMessageBox: (...args: unknown[]) => app.showMessageBox(...args) },
+  dialog: {
+    showMessageBox: () => {
+      app.messageBoxes += 1
+      return Promise.reject(new Error('no message box: autopilot_start asks in the window of worfy'))
+    },
+  },
 }))
 vi.mock('../../src/main/agent/app-registry', () => ({
   sharedRegistry: () => ({
@@ -150,18 +164,27 @@ function pastCodexRuns(waves: number): JournalEvent[][] {
   return [events]
 }
 
-/** The lines the forecast adds to the dialog's `detail`: those between its first paragraph and its last. */
-const forecastOf = (detail: string | undefined): string[] => (detail ?? '').split('\n\n').slice(1, -1).join('\n').split('\n').filter(Boolean)
+let windowsMade = 0
 
-/** A window of this Machine; `calls` records what was done to it. */
+/** A window of this Machine; `calls` records what was done to it, `sent` the events its page got. */
 function localWindow(name: string, state: { visible?: boolean; minimized?: boolean } = {}) {
   const calls: string[] = []
+  const sent: { channel: string; payload: unknown }[] = []
+  const closedListeners = new Set<() => void>()
   let visible = state.visible ?? true
   let minimized = state.minimized ?? false
+  let destroyed = false
+  windowsMade += 1
   const window = {
     name,
     calls,
-    isDestroyed: () => false,
+    sent,
+    webContents: {
+      id: windowsMade,
+      isDestroyed: () => destroyed,
+      send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
+    },
+    isDestroyed: () => destroyed,
     isVisible: () => visible,
     isMinimized: () => minimized,
     restore: () => {
@@ -172,9 +195,33 @@ function localWindow(name: string, state: { visible?: boolean; minimized?: boole
       calls.push('show')
       visible = true
     },
+    once: (event: string, listener: () => void) => {
+      if (event === 'closed') closedListeners.add(listener)
+    },
+    removeListener: (event: string, listener: () => void) => {
+      if (event === 'closed') closedListeners.delete(listener)
+    },
+    /** The person closes the window. */
+    close: () => {
+      destroyed = true
+      for (const listener of [...closedListeners]) listener()
+      closedListeners.clear()
+    },
+    /** How many listeners of its close the asks left on it. */
+    closedListeners: () => closedListeners.size,
   }
-  return window as unknown as BrowserWindow & { calls: string[] }
+  return window as unknown as BrowserWindow & { calls: string[]; sent: typeof sent; close(): void; closedListeners(): number }
 }
+
+type LocalWindow = ReturnType<typeof localWindow>
+
+/** The asks `window` got, as its page receives them. */
+const asksOf = (window: LocalWindow): AutopilotConfirmAsk[] =>
+  window.sent.filter((each) => each.channel === `${IPC_CHANNEL_PREFIX}autopilot.confirm.ask`).map((each) => each.payload as AutopilotConfirmAsk)
+
+/** The ids of the asks main closed on `window`: their time was up. */
+const closesOf = (window: LocalWindow): string[] =>
+  window.sent.filter((each) => each.channel === `${IPC_CHANNEL_PREFIX}autopilot.confirm.close`).map((each) => (each.payload as { id: string }).id)
 
 let confirm: typeof import('../../src/main/autopilot/chat-confirm')
 let server: typeof import('../../src/main/mcp/canvas-server')
@@ -196,7 +243,7 @@ beforeEach(async () => {
   app.vendor = 'claude'
   app.vendorWindows = {}
   app.settings = {}
-  app.showMessageBox = () => Promise.reject(new Error('no message box in this test'))
+  app.messageBoxes = 0
   vi.resetModules()
   confirm = await import('../../src/main/autopilot/chat-confirm')
   server = await import('../../src/main/mcp/canvas-server')
@@ -204,32 +251,26 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.useRealTimers()
+  expect(app.messageBoxes).toBe(0)
 })
 
-/** The button "Cancel" of the dialog, after "Start: Fastest", "Start: Budget-aware" and "Start: Start window". */
-const CANCEL = 3
-
-/** The message boxes shown, and the answer of the last one: the number of its button. */
-function messageBox() {
-  const shown: { owner: BaseWindow | null; options: MessageBoxOptions; args: number }[] = []
-  let answer: ((response: number) => void) | null = null
-  const box = {
-    showMessageBox: vi.fn((...args: [BaseWindow, MessageBoxOptions] | [MessageBoxOptions]): Promise<MessageBoxReturnValue> => {
-      const options = args.length === 2 ? args[1] : args[0]
-      shown.push({ owner: args.length === 2 ? args[0] : null, options, args: args.length })
-      return new Promise((done) => {
-        answer = (response) => done({ response, checkboxChecked: false })
-        // Electron closes the box when its signal aborts, and answers the cancel button.
-        options.signal?.addEventListener('abort', () => done({ response: options.cancelId ?? 1, checkboxChecked: false }))
-      })
-    }),
-  }
+/**
+ * The window of the Project's Machine that is asked, over its own WindowAsks: `shown` — the asks its
+ * page got; `answer` — what the person chose in the last one, sent back from this window.
+ */
+function windowAsk() {
+  const owner = localWindow('project machine')
+  const asks = new confirm.WindowAsks()
   return {
-    box,
-    shown,
-    answer: (response: number) => {
-      if (answer === null) throw new Error('no message box is open')
-      answer(response)
+    owner,
+    asks,
+    get shown(): AutopilotConfirmAsk[] {
+      return asksOf(owner)
+    },
+    answer: (answer: AutopilotConfirmAnswer) => {
+      const last = asksOf(owner).at(-1)
+      if (last === undefined) throw new Error('no ask is open')
+      asks.answer(last.id, answer, owner.webContents.id)
     },
   }
 }
@@ -270,12 +311,11 @@ function world(options: { running?: string | null; orchestratorBusy?: boolean } 
   return { out, chat, startFromChat }
 }
 
-/** The tool over the stand-ins, with the dialog of `box` on `owner`. */
+/** The tool over the stand-ins, asking in the window of `ask`. */
 function tool(
   w: ReturnType<typeof world>,
-  box: ReturnType<typeof messageBox>['box'],
+  ask: ReturnType<typeof windowAsk>,
   options: {
-    owner?: BrowserWindow
     workflow?: () => Promise<WorkflowModel>
     runs?: () => Promise<JournalEvent[][]>
     mode?: RunMode
@@ -284,8 +324,7 @@ function tool(
     reserve?: number
   } = {},
 ) {
-  const owner = options.owner ?? localWindow('project machine')
-  const confirmations = vi.fn((prompt: Parameters<typeof confirm.confirmAutopilotStart>[1]) => confirm.confirmAutopilotStart(owner, prompt, box))
+  const confirmations = vi.fn((prompt: AutopilotPrompt) => ask.asks.ask(ask.owner, prompt))
   const starter = confirm.autopilotStarter({
     unattended: (sessionId) => app.sessions.get(sessionId) ?? null,
     awaitsGiveBack: (sessionId) => app.givingBack.has(sessionId),
@@ -362,59 +401,70 @@ async function connect(sessionId: string | null, autopilotStart: CanvasContext['
 
 const textOf = (result: ToolResult): string => result.content[0]?.text ?? ''
 
-/** Lets the call reach its dialog: the workflow read and the server's own steps are promises. */
+/** Lets the call reach its ask: the workflow read and the server's own steps are promises. */
 async function settle(): Promise<void> {
   for (let i = 0; i < 20; i += 1) await Promise.resolve()
 }
 
-describe('autopilot_start: the dialog and "Start Autopilot"', () => {
+describe('autopilot_start: the ask in the window of worfy and its start', () => {
   it('is a tool of the worfy-canvas server', async () => {
     expect(await (await connect(NODE_SESSION, undefined)).names()).toContain('autopilot_start')
   })
 
-  it('names the Epic, the Project and the named Tickets; "Start: Fastest" calls startFromChat with them, `tool` and the mode, and the run starts', async () => {
+  it('asks the window with the Project, the Epic, the named Tickets and the Session; a Run mode calls startFromChat with them, `tool` and the mode, and the run starts', async () => {
     const w = world()
-    const { box, shown, answer } = messageBox()
-    const rpc = await connect(NODE_SESSION, tool(w, box).starter)
+    const ask = windowAsk()
+    const rpc = await connect(NODE_SESSION, tool(w, ask).starter)
     const call = rpc.call('autopilot_start', { epic: EPIC, tickets: ['05', '06'] })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    const { options } = shown[0]!
-    expect(options.buttons).toEqual(['Start: Fastest', 'Start: Budget-aware (default)', 'Start: Start window', 'Cancel'])
-    // Cancel is both the default and the cancel button: Enter or Escape alone start nothing.
-    expect(options.defaultId).toBe(3)
-    expect(options.cancelId).toBe(3)
-    expect(options.message).toBe(`Start Autopilot on Tickets 05, 06 of Epic "${EPIC}" in Project "${PROJECT_NAME}"?`)
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    expect(ask.shown[0]).toEqual({
+      id: expect.any(String),
+      projectId: PROJECT,
+      project: PROJECT_NAME,
+      epic: EPIC,
+      tickets: [5, 6],
+      session: NODE_SESSION,
+      mode: 'budget-aware',
+      // No past runs: the forecast says so (dialogLines).
+      forecast: [
+        'Forecast: This Epic: 1 Wave, 2 Tickets left. Not enough data for a forecast: fewer than 5 past Waves with fresh Limits. Used now: 80%, resets in 2 d 0 h.',
+        'Start window 23:00–07:00. Not enough data on Wave duration: every Wave may start inside the window.',
+      ],
+      waitMs: confirm.CONFIRM_WAIT_MS,
+    })
     expect(w.startFromChat).not.toHaveBeenCalled()
-    answer(0)
+    ask.answer('fastest')
     const result = await call
     expect(result.isError, textOf(result)).toBeFalsy()
     expect(textOf(result)).toBe(`Autopilot started Tickets 05, 06 of Epic ${EPIC}.`)
     expect(w.startFromChat).toHaveBeenCalledWith({ projectId: PROJECT, epic: EPIC, tickets: [5, 6], by: 'tool', session: NODE_SESSION, mode: 'fastest' })
     expect(w.out.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', tickets: [5, 6], mode: 'fastest' }]])
     expect(w.out.journal).toEqual(['run-started fastest'])
+    // The answered ask leaves nothing on the window: no close, no listener of its close.
+    expect(closesOf(ask.owner)).toEqual([])
+    expect(ask.owner.closedListeners()).toBe(0)
   })
 
-  it('without Tickets names the Epic and the Project only, and the whole Epic starts', async () => {
+  it('without Tickets the ask names no Ticket, and the whole Epic starts', async () => {
     const w = world()
-    const { box, shown, answer } = messageBox()
-    const rpc = await connect(NODE_SESSION, tool(w, box).starter)
+    const ask = windowAsk()
+    const rpc = await connect(NODE_SESSION, tool(w, ask).starter)
     const call = rpc.call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    expect(shown[0]!.options.message).toBe(`Start Autopilot on Epic "${EPIC}" in Project "${PROJECT_NAME}"?`)
-    expect(shown[0]!.options.message).not.toMatch(/Ticket/u)
-    answer(0)
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    expect(ask.shown[0]).not.toHaveProperty('tickets')
+    ask.answer('fastest')
     expect(textOf(await call)).toBe(`Autopilot started Epic ${EPIC}.`)
     expect(w.startFromChat).toHaveBeenCalledWith({ projectId: PROJECT, epic: EPIC, by: 'tool', session: NODE_SESSION, mode: 'fastest' })
     expect(w.out.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', mode: 'fastest' }]])
   })
 
-  it('"Cancel" is a refusal: no startFromChat, no run, nothing in the journal', async () => {
+  it('Cancel is a refusal: no startFromChat, no run, nothing in the journal', async () => {
     const w = world()
-    const { box, shown, answer } = messageBox()
-    const rpc = await connect(NODE_SESSION, tool(w, box).starter)
+    const ask = windowAsk()
+    const rpc = await connect(NODE_SESSION, tool(w, ask).starter)
     const call = rpc.call('autopilot_start', { epic: EPIC, tickets: ['05'] })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    answer(CANCEL)
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.answer('cancel')
     const result = await call
     expect(result.isError).toBe(true)
     expect(textOf(result)).toBe(confirm.CANCELED_MESSAGE)
@@ -423,15 +473,15 @@ describe('autopilot_start: the dialog and "Start Autopilot"', () => {
     expect(w.out.journal).toEqual([])
   })
 
-  it('a run that started while the box waited: "Start Autopilot" answers the refusal of startFromChat, not a start', async () => {
+  it('a run that started while the window asked: the start answers the refusal of startFromChat, not a start', async () => {
     const w = world()
-    const { box, shown, answer } = messageBox()
-    const rpc = await connect(NODE_SESSION, tool(w, box).starter)
+    const ask = windowAsk()
+    const rpc = await connect(NODE_SESSION, tool(w, ask).starter)
     const call = rpc.call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    // The person pressed the Autopilot button of Epic billing while the box was open.
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    // The person pressed the Autopilot button of Epic billing while the window asked.
     w.out.running = 'billing'
-    answer(0)
+    ask.answer('fastest')
     const result = await call
     expect(result.isError).toBe(true)
     expect(textOf(result)).toBe(chatRunningHint('billing'))
@@ -439,50 +489,95 @@ describe('autopilot_start: the dialog and "Start Autopilot"', () => {
     expect(w.out.starts).toEqual([])
   })
 
-  it('a second call while the first dialog waits is refused without a second dialog', async () => {
+  it('a second call while the first ask waits is refused without a second ask', async () => {
     const w = world()
-    const { box, shown, answer } = messageBox()
-    const rpc = await connect(NODE_SESSION, tool(w, box).starter)
+    const ask = windowAsk()
+    const rpc = await connect(NODE_SESSION, tool(w, ask).starter)
     const first = rpc.call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
     const second = await rpc.call('autopilot_start', { epic: EPIC, tickets: ['07'] })
     expect(second.isError).toBe(true)
     expect(textOf(second)).toBe(confirm.CONFIRM_PENDING_MESSAGE)
-    expect(shown).toHaveLength(1)
-    answer(CANCEL)
+    expect(ask.shown).toHaveLength(1)
+    ask.answer('cancel')
     await first
     expect(w.out.starts).toEqual([])
+  })
+
+  it('a window open for another start answers `occupied`: the Session is told so, nothing starts', async () => {
+    const w = world()
+    const ask = windowAsk()
+    const rpc = await connect(NODE_SESSION, tool(w, ask).starter)
+    const call = rpc.call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.answer('occupied')
+    const result = await call
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toBe(confirm.WINDOW_OCCUPIED_MESSAGE)
+    expect(w.startFromChat).not.toHaveBeenCalled()
+  })
+
+  it('the window closed while it asks: no window to answer, nothing starts', async () => {
+    const w = world()
+    const ask = windowAsk()
+    const rpc = await connect(NODE_SESSION, tool(w, ask).starter)
+    const call = rpc.call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.owner.close()
+    const result = await call
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toBe(confirm.NO_WINDOW_MESSAGE)
+    expect(w.startFromChat).not.toHaveBeenCalled()
+  })
+
+  it("only the window asked answers: another window's answer is refused and the ask still waits", async () => {
+    const w = world()
+    const ask = windowAsk()
+    const rpc = await connect(NODE_SESSION, tool(w, ask).starter)
+    const call = rpc.call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    const { id } = ask.shown[0]!
+    const other = localWindow('another window')
+    expect(() => ask.asks.answer(id, 'fastest', other.webContents.id)).toThrow('This window was not asked to confirm this start of Autopilot')
+    expect(w.startFromChat).not.toHaveBeenCalled()
+    ask.answer('cancel')
+    expect(textOf(await call)).toBe(confirm.CANCELED_MESSAGE)
+    // An answer after the ask is over changes nothing.
+    ask.asks.answer(id, 'fastest', ask.owner.webContents.id)
+    expect(w.startFromChat).not.toHaveBeenCalled()
   })
 })
 
 describe('autopilot_start: no answer in 10 minutes', () => {
-  it('closes the dialog and refuses with "No one confirmed"; no run starts', async () => {
+  it('closes the window and refuses with "No one confirmed"; no run starts, and a late answer changes nothing', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const w = world()
-    const { box, shown } = messageBox()
-    const rpc = await connect(NODE_SESSION, tool(w, box).starter)
+    const ask = windowAsk()
+    const rpc = await connect(NODE_SESSION, tool(w, ask).starter)
     let result: ToolResult | null = null
     void rpc.call('autopilot_start', { epic: EPIC }).then((answer) => (result = answer))
-    for (let i = 0; i < 50 && shown.length === 0; i += 1) await settle()
-    expect(shown).toHaveLength(1)
+    for (let i = 0; i < 50 && ask.shown.length === 0; i += 1) await settle()
+    expect(ask.shown).toHaveLength(1)
     await vi.advanceTimersByTimeAsync(confirm.CONFIRM_WAIT_MS - 1)
     expect(result).toBeNull()
-    expect(shown[0]!.options.signal?.aborted).toBe(false)
+    expect(closesOf(ask.owner)).toEqual([])
     await vi.advanceTimersByTimeAsync(1)
     await settle()
     expect(result).not.toBeNull()
     expect(result!.isError).toBe(true)
     expect(textOf(result!)).toBe(confirm.NO_ONE_CONFIRMED)
     expect(textOf(result!)).toMatch(/^No one confirmed/u)
-    // The box itself is closed, not left open on the screen.
-    expect(shown[0]!.options.signal?.aborted).toBe(true)
+    // The window is told to close, not left asking on the screen.
+    expect(closesOf(ask.owner)).toEqual([ask.shown[0]!.id])
+    expect(ask.owner.closedListeners()).toBe(0)
+    ask.answer('fastest')
     expect(w.startFromChat).not.toHaveBeenCalled()
     expect(w.out.starts).toEqual([])
     expect(confirm.CONFIRM_WAIT_MS).toBe(10 * 60_000)
   })
 })
 
-describe("autopilot_start: the dialog is on a window of the Project's Machine, never without one", () => {
+describe("autopilot_start: the ask goes to a window of the Project's Machine, never without one", () => {
   it('the focused window when it is on screen, else the first window on screen', () => {
     const hidden = localWindow('hidden', { visible: false })
     const minimized = localWindow('minimized', { minimized: true })
@@ -500,7 +595,7 @@ describe("autopilot_start: the dialog is on a window of the Project's Machine, n
     expect([...hidden.calls, ...minimized.calls, ...shown.calls, ...other.calls]).toEqual([])
   })
 
-  it('a minimised or hidden window is brought back before the box goes on it', () => {
+  it('a minimised or hidden window is brought back before the ask goes to it', () => {
     const minimized = localWindow('minimized', { minimized: true })
     app.windows = [minimized]
     app.focused = minimized
@@ -519,97 +614,97 @@ describe("autopilot_start: the dialog is on a window of the Project's Machine, n
   })
 })
 
-describe('autopilot_start: refusals without a dialog', () => {
-  it('an unattended Session (Autopilot) is refused: no dialog, no start', async () => {
+describe('autopilot_start: refusals without an ask', () => {
+  it('an unattended Session (Autopilot) is refused: no ask, no start', async () => {
     const w = world()
-    const { box, shown } = messageBox()
-    const { starter, confirmations } = tool(w, box)
+    const ask = windowAsk()
+    const { starter, confirmations } = tool(w, ask)
     const result = await (await connect(AUTOPILOT_SESSION, starter)).call('autopilot_start', { epic: EPIC, tickets: ['05'] })
     expect(result.isError).toBe(true)
     expect(textOf(result)).toBe(confirm.UNATTENDED_MESSAGE)
     expect(confirmations).not.toHaveBeenCalled()
-    expect(shown).toEqual([])
+    expect(ask.shown).toEqual([])
     expect(w.startFromChat).not.toHaveBeenCalled()
     expect(w.out.starts).toEqual([])
   })
 
-  it("an Orchestrator's unattended Session whose run has stopped and which waits to be given back gets the dialog; once a run drives it again, it is refused (worfy-polish ticket 50)", async () => {
+  it("an Orchestrator's unattended Session whose run has stopped and which waits to be given back is asked; once a run drives it again, it is refused (worfy-polish ticket 50)", async () => {
     // The run stopped (turn-error) while the Orchestrator's background tasks live: its Session stays
     // unattended until they end, and the person asks in it for a new run.
     app.sessions.set(ORCHESTRATOR, true)
     app.givingBack.add(ORCHESTRATOR)
     const w = world({ orchestratorBusy: true })
-    const { box, shown, answer } = messageBox()
-    const { starter } = tool(w, box)
+    const ask = windowAsk()
+    const { starter } = tool(w, ask)
     const rpc = await connect(ORCHESTRATOR, starter)
     const call = rpc.call('autopilot_start', { epic: EPIC, tickets: ['06'] })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    answer(0)
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.answer('fastest')
     const result = await call
     expect(result.isError, textOf(result)).toBeFalsy()
     expect(textOf(result)).toBe(WAIT_MESSAGE)
     expect(w.out.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', tickets: [6], mode: 'fastest' }]])
-    // The new run has taken the Session over: no one is at it again, and no dialog is shown.
+    // The new run has taken the Session over: no one is at it again, and nothing is asked.
     app.givingBack.delete(ORCHESTRATOR)
     w.out.running = null
     const again = await rpc.call('autopilot_start', { epic: EPIC })
     expect(again.isError).toBe(true)
     expect(textOf(again)).toBe(confirm.UNATTENDED_MESSAGE)
-    expect(shown).toHaveLength(1)
+    expect(ask.shown).toHaveLength(1)
   })
 
   it('a Session worfy does not know, or a call before the Session id is known, is refused the same way', async () => {
     const w = world()
-    const { box, shown } = messageBox()
-    const { starter } = tool(w, box)
+    const ask = windowAsk()
+    const { starter } = tool(w, ask)
     for (const session of ['someone-else', null]) {
       const result = await (await connect(session, starter)).call('autopilot_start', { epic: EPIC })
       expect(result.isError).toBe(true)
       expect(textOf(result)).toBe(confirm.UNKNOWN_SESSION_MESSAGE)
     }
-    expect(shown).toEqual([])
+    expect(ask.shown).toEqual([])
     expect(w.out.starts).toEqual([])
   })
 
-  it('while a run goes on: the hint to stop it first, no dialog, no new journal line', async () => {
+  it('while a run goes on: the hint to stop it first, no ask, no new journal line', async () => {
     const w = world({ running: 'billing' })
     w.out.journal.push('run-started')
-    const { box, shown } = messageBox()
-    const result = await (await connect(NODE_SESSION, tool(w, box).starter)).call('autopilot_start', { epic: EPIC })
+    const ask = windowAsk()
+    const result = await (await connect(NODE_SESSION, tool(w, ask).starter)).call('autopilot_start', { epic: EPIC })
     expect(result.isError).toBe(true)
     expect(textOf(result)).toBe(chatRunningHint('billing'))
     expect(textOf(result)).toBe('Autopilot is already running Epic billing. Stop it first.')
-    expect(shown).toEqual([])
+    expect(ask.shown).toEqual([])
     expect(w.startFromChat).not.toHaveBeenCalled()
     expect(w.out.journal).toEqual(['run-started'])
   })
 
-  it('while a run waits for the busy Orchestrator: the running hint, no second dialog (worfy-autopilot-queue ticket 07)', async () => {
+  it('while a run waits for the busy Orchestrator: the running hint, no second ask (worfy-autopilot-queue ticket 07)', async () => {
     const w = world({ orchestratorBusy: true })
-    const { box, shown, answer } = messageBox()
-    const { starter } = tool(w, box)
+    const ask = windowAsk()
+    const { starter } = tool(w, ask)
     const call = (await connect(ORCHESTRATOR, starter)).call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    answer(0)
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.answer('fastest')
     expect(textOf(await call)).toBe(WAIT_MESSAGE)
     const again = await (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC, tickets: ['07'] })
     expect(again.isError).toBe(true)
     expect(textOf(again)).toBe(chatRunningHint(EPIC))
-    expect(shown).toHaveLength(1)
+    expect(ask.shown).toHaveLength(1)
     expect(w.startFromChat).toHaveBeenCalledOnce()
   })
 
   it('an Epic or a Ticket the Project has not, or a workflow that cannot be read, is refused before anyone is asked', async () => {
     const w = world()
-    const { box, shown } = messageBox()
-    const rpc = await connect(NODE_SESSION, tool(w, box).starter)
+    const ask = windowAsk()
+    const rpc = await connect(NODE_SESSION, tool(w, ask).starter)
     expect(textOf(await rpc.call('autopilot_start', { epic: 'billing' }))).toBe('The Project has no Epic billing')
     expect(textOf(await rpc.call('autopilot_start', { epic: EPIC, tickets: ['05', '09'] }))).toBe(`Epic ${EPIC} has no Ticket 09`)
     const unreadable = { ...MODEL, error: { message: 'no .scratch' } } as unknown as WorkflowModel
-    const broken = await (await connect(NODE_SESSION, tool(w, box, { workflow: () => Promise.resolve(unreadable) }).starter)).call('autopilot_start', { epic: EPIC })
+    const broken = await (await connect(NODE_SESSION, tool(w, ask, { workflow: () => Promise.resolve(unreadable) }).starter)).call('autopilot_start', { epic: EPIC })
     expect(broken.isError).toBe(true)
     expect(textOf(broken)).toBe('Cannot read the workflow: no .scratch')
-    expect(shown).toEqual([])
+    expect(ask.shown).toEqual([])
     expect(w.out.starts).toEqual([])
   })
 
@@ -619,22 +714,22 @@ describe('autopilot_start: refusals without a dialog', () => {
     expect(refused.isError).toBe(true)
     expect(textOf(refused)).toBe(server.NO_AUTOPILOT_MESSAGE)
     const w = world()
-    const { box, shown } = messageBox()
-    const malformed = await (await connect(NODE_SESSION, tool(w, box).starter)).call('autopilot_start', { tickets: ['05'] })
+    const ask = windowAsk()
+    const malformed = await (await connect(NODE_SESSION, tool(w, ask).starter)).call('autopilot_start', { tickets: ['05'] })
     expect(malformed.isError).toBe(true)
     expect(textOf(malformed)).toMatch(/epic/u)
-    expect(shown).toEqual([])
+    expect(ask.shown).toEqual([])
   })
 })
 
 describe("autopilot_start from the Project's Orchestrator in its turn", () => {
   it('answers that Autopilot waits for the Orchestrator: the run is accepted at once and waits by the common path (worfy-autopilot-queue ticket 07)', async () => {
     const w = world({ orchestratorBusy: true })
-    const { box, shown, answer } = messageBox()
-    const rpc = await connect(ORCHESTRATOR, tool(w, box).starter)
+    const ask = windowAsk()
+    const rpc = await connect(ORCHESTRATOR, tool(w, ask).starter)
     const call = rpc.call('autopilot_start', { epic: EPIC, tickets: ['06'] })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    answer(0)
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.answer('fastest')
     const result = await call
     expect(result.isError, textOf(result)).toBeFalsy()
     expect(textOf(result)).toBe(WAIT_MESSAGE)
@@ -645,92 +740,101 @@ describe("autopilot_start from the Project's Orchestrator in its turn", () => {
   })
 })
 
-describe("autopilot_start: the app's wiring (appDeps().autopilotStart, appAutopilotStarter)", () => {
+describe("autopilot_start: the app's wiring (appDeps().autopilotStart, appAutopilotStarter, autopilot.confirm.answer)", () => {
   /** The app's starter of every Session, over the stand-ins of the mocked modules. */
   function appWorld() {
     const w = world()
     app.chat = w.chat
-    const box = messageBox()
-    app.showMessageBox = box.box.showMessageBox as unknown as (...args: unknown[]) => Promise<unknown>
     const starter = server.appDeps().autopilotStart
     if (starter === undefined) throw new Error('the app gives no autopilot_start')
-    return { w, box, starter }
+    return { w, starter }
   }
 
-  it('reads the Session registry at the call: an unattended Session and one not in the registry are refused, and no box is shown', async () => {
-    const { box, starter, w } = appWorld()
-    app.windows = [localWindow('main')]
+  /** The app's handler of `autopilot.confirm.answer`, called from the page of `from`. */
+  async function answerFrom(from: LocalWindow, id: string, answer: AutopilotConfirmAnswer): Promise<void> {
+    const { default: handlers } = await import('../../src/main/ipc/autopilot-confirm')
+    const handler = handlers.find((each) => each.channel.name === 'autopilot.confirm.answer')
+    if (handler === undefined) throw new Error('no handler of autopilot.confirm.answer')
+    await handler.handle({ id, answer }, { event: { sender: from.webContents } } as never)
+  }
+
+  it('reads the Session registry at the call: an unattended Session and one not in the registry are refused, and nothing is asked', async () => {
+    const { starter, w } = appWorld()
+    const main = localWindow('main')
+    app.windows = [main]
     expect(textOf(await (await connect(AUTOPILOT_SESSION, starter)).call('autopilot_start', { epic: EPIC }))).toBe(confirm.UNATTENDED_MESSAGE)
     expect(textOf(await (await connect('gone-session', starter)).call('autopilot_start', { epic: EPIC }))).toBe(confirm.UNKNOWN_SESSION_MESSAGE)
     // The same Session once the registry says it runs unattended (Autopilot took it).
     app.sessions.set(NODE_SESSION, true)
     expect(textOf(await (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC }))).toBe(confirm.UNATTENDED_MESSAGE)
+    expect(asksOf(main)).toEqual([])
     // The app's Orchestrators say when such a Session's run has stopped and it only waits to be given back: then it is asked.
     app.givingBack.add(NODE_SESSION)
     const asked = (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(box.shown).toHaveLength(1))
-    box.answer(4)
+    await vi.waitFor(() => expect(asksOf(main)).toHaveLength(1))
+    await answerFrom(main, asksOf(main)[0]!.id, 'cancel')
     expect(textOf(await asked)).toBe(confirm.CANCELED_MESSAGE)
-    box.shown.length = 0
     app.givingBack.delete(NODE_SESSION)
     // The app's ChatStarts says whether a run goes on.
     w.out.running = 'billing'
     expect(textOf(await (await connect(ORCHESTRATOR, starter)).call('autopilot_start', { epic: EPIC }))).toBe(chatRunningHint('billing'))
-    expect(box.shown).toEqual([])
+    expect(asksOf(main)).toHaveLength(1)
     expect(w.startFromChat).not.toHaveBeenCalled()
   })
 
-  it('with no worfy window on the Machine: refused at once, and no box without a parent is shown', async () => {
-    const { box, starter, w } = appWorld()
+  it('with no worfy window on the Machine: refused at once, and nothing is asked', async () => {
+    const { starter, w } = appWorld()
     app.windows = []
     const result = await (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC })
     expect(result.isError).toBe(true)
     expect(textOf(result)).toBe(confirm.NO_WINDOW_MESSAGE)
-    expect(box.box.showMessageBox).not.toHaveBeenCalled()
     expect(w.startFromChat).not.toHaveBeenCalled()
   })
 
-  it('shows the box on the window of this Machine, with the Project from the list and the workflow of its root; Start goes to the app\'s ChatStarts', async () => {
-    const { box, starter, w } = appWorld()
+  it("asks the window of this Machine, brought back first, with the Project from the list and the workflow of its root; that window's answer goes to the app's ChatStarts", async () => {
+    const { starter, w } = appWorld()
     const main = localWindow('main', { minimized: true })
     app.windows = [main]
     const call = (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC, tickets: ['07'] })
-    await vi.waitFor(() => expect(box.shown).toHaveLength(1))
-    expect(box.shown[0]!.args).toBe(2)
-    expect(box.shown[0]!.owner).toBe(main)
+    await vi.waitFor(() => expect(asksOf(main)).toHaveLength(1))
     expect(main.calls).toEqual(['restore', 'show'])
-    expect(box.shown[0]!.options.message).toBe(`Start Autopilot on Ticket 07 of Epic "${EPIC}" in Project "${PROJECT_NAME}"?`)
+    expect(asksOf(main)[0]).toMatchObject({ projectId: PROJECT, project: PROJECT_NAME, epic: EPIC, tickets: [7], session: NODE_SESSION, waitMs: confirm.CONFIRM_WAIT_MS })
     expect(app.workflowReads).toEqual([PROJECT_ROOT])
-    box.answer(0)
+    // A page of another window cannot answer: the handler refuses it.
+    const other = localWindow('other')
+    await expect(answerFrom(other, asksOf(main)[0]!.id, 'fastest')).rejects.toThrow('This window was not asked')
+    await answerFrom(main, asksOf(main)[0]!.id, 'fastest')
     expect(textOf(await call)).toBe(`Autopilot started Ticket 07 of Epic ${EPIC}.`)
     expect(w.out.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', tickets: [7], mode: 'fastest' }]])
   })
 
-  it("the forecast reads the Project's run journals, the app's Limits and Settings → Autopilot: the default mode marked, the lines in the box", async () => {
-    const { box, starter } = appWorld()
-    app.windows = [localWindow('main')]
+  it("the forecast reads the Project's run journals, the app's Limits and Settings → Autopilot: the default mode and the lines in the ask", async () => {
+    appWorld()
+    const main = localWindow('main')
+    app.windows = [main]
     // A reserve of 5 % and a window of 21:00–05:00 in Settings: at 60 % used, 35 % free holds the 30 % of the one Wave.
     app.settings = { autopilotRun: { mode: 'start-window', windowFrom: 21, windowTo: 5 }, autopilotBudget: { reservePercent: 5 } }
     app.runs = pastRuns(5)
     const now = Date.now()
     app.limits = { windows: { seven_day: { utilization: 0.6, resetsAt: Math.floor(now / 1000) + 48 * 3600 + 600, status: null, receivedAt: now, source: 'usage' } } }
-    const call = (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(box.shown).toHaveLength(1))
+    const call = (await connect(NODE_SESSION, server.appDeps().autopilotStart)).call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(asksOf(main)).toHaveLength(1))
     expect(app.runReads).toEqual([PROJECT])
-    const { options } = box.shown[0]!
-    expect(options.buttons).toEqual(['Start: Fastest', 'Start: Budget-aware', 'Start: Start window (default)', 'Cancel'])
-    expect(forecastOf(options.detail)).toEqual([
+    const [ask] = asksOf(main)
+    expect(ask!.mode).toBe('start-window')
+    expect(ask!.forecast).toEqual([
       'Forecast: This Epic: 1 Wave, 3 Tickets left, usually about 30% of the week. Used now: 60%, resets in 2 d 0 h.',
       'Budget-aware: 1 Wave fits before the reset without the reserve.',
       'Start window 21:00–05:00: a Wave usually takes up to 1 h 0 min.',
     ])
-    box.answer(CANCEL)
+    await answerFrom(main, ask!.id, 'cancel')
     expect(textOf(await call)).toBe(confirm.CANCELED_MESSAGE)
   })
 
   it("on a Project whose Orchestrator runs on Codex the forecast reads Codex's Waves and its weekly window, not Claude's (worfy-multi-vendor ticket 38)", async () => {
-    const { box, starter } = appWorld()
-    app.windows = [localWindow('main')]
+    appWorld()
+    const main = localWindow('main')
+    app.windows = [main]
     app.settings = { autopilotRun: { mode: 'start-window', windowFrom: 21, windowTo: 5 }, autopilotBudget: { reservePercent: 5 } }
     // Claude's Waves use 10 % of its week each, Codex's 5 % of Plus's weekly window: the forecast takes Codex's.
     app.runs = [...pastRuns(5), ...pastCodexRuns(5)]
@@ -740,125 +844,128 @@ describe("autopilot_start: the app's wiring (appDeps().autopilotStart, appAutopi
     app.vendorWindows = { codex: [window('primary', 300, 10), window('secondary', 10080, 92)] }
     // Claude's week alone would fit the Wave: 60 % used, 35 % free.
     app.limits = { windows: { seven_day: { utilization: 0.6, resetsAt: Math.floor(now / 1000) + 48 * 3600 + 600, status: null, receivedAt: now, source: 'usage' } } }
-    const call = (await connect(NODE_SESSION, starter)).call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(box.shown).toHaveLength(1))
-    expect(forecastOf(box.shown[0]!.options.detail)).toEqual([
+    const call = (await connect(NODE_SESSION, server.appDeps().autopilotStart)).call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(asksOf(main)).toHaveLength(1))
+    expect(asksOf(main)[0]!.forecast).toEqual([
       // 5 % per Ticket over 3 Tickets; with Claude's samples it would say 30 % and "Used now: 60%".
       'Forecast: This Epic: 1 Wave, 3 Tickets left, usually about 15% of the week. The range is wide: this Vendor reports its Limits in whole percents only. Used now: 92%, resets in 2 d 0 h.',
       'Budget-aware: Recommended: no Wave now, 1 after the reset.',
       'Fastest: No Wave fits before the reset: then the run waits for the Limits.',
       'Start window 21:00–05:00: a Wave usually takes up to 1 h 0 min.',
     ])
-    box.answer(CANCEL)
+    await answerFrom(main, asksOf(main)[0]!.id, 'cancel')
     expect(textOf(await call)).toBe(confirm.CANCELED_MESSAGE)
   })
 
-  it('one starter for every Session: a second Session asking while the box is open is refused, one box in all', async () => {
-    const { box, w } = appWorld()
-    app.windows = [localWindow('main')]
+  it('one starter for every Session: a second Session asking while the window asks is refused, one ask in all', async () => {
+    const { w } = appWorld()
+    const main = localWindow('main')
+    app.windows = [main]
     // Each Session's server takes the starter from its own appDeps(), as canvasForSession does.
     const first = (await connect(ORCHESTRATOR, server.appDeps().autopilotStart)).call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(box.shown).toHaveLength(1))
+    await vi.waitFor(() => expect(asksOf(main)).toHaveLength(1))
     const second = await (await connect(NODE_SESSION, server.appDeps().autopilotStart)).call('autopilot_start', { epic: EPIC })
     expect(textOf(second)).toBe(confirm.CONFIRM_PENDING_MESSAGE)
-    expect(box.shown).toHaveLength(1)
-    box.answer(CANCEL)
+    expect(asksOf(main)).toHaveLength(1)
+    await answerFrom(main, asksOf(main)[0]!.id, 'cancel')
     expect(textOf(await first)).toBe(confirm.CANCELED_MESSAGE)
     expect(w.out.starts).toEqual([])
   })
+
+  it('no native message box is left on the way of autopilot_start: none of its modules calls showMessageBox', () => {
+    const src = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src')
+    const files = [
+      ...readdirSync(join(src, 'main', 'autopilot'))
+        .filter((name) => name.endsWith('.ts'))
+        .map((name) => join(src, 'main', 'autopilot', name)),
+      join(src, 'main', 'mcp', 'canvas-server.ts'),
+      join(src, 'main', 'ipc', 'autopilot-confirm.ts'),
+    ]
+    expect(files.length).toBeGreaterThan(3)
+    for (const file of files) expect(readFileSync(file, 'utf8'), file).not.toMatch(/showMessageBox/u)
+  })
 })
 
-describe('autopilot_start: the Run mode buttons and the forecast (worfy-resource-planner ticket 06)', () => {
-  it('"Start: Start window" starts a run whose run-started carries start-window', async () => {
+describe('autopilot_start: the Run mode and the forecast in the ask (worfy-resource-planner ticket 06)', () => {
+  it('"start-window" starts a run whose run-started carries start-window', async () => {
     const w = world()
-    const { box, shown, answer } = messageBox()
-    const rpc = await connect(NODE_SESSION, tool(w, box, { mode: 'fastest' }).starter)
+    const ask = windowAsk()
+    const rpc = await connect(NODE_SESSION, tool(w, ask, { mode: 'fastest' }).starter)
     const call = rpc.call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    expect(shown[0]!.options.buttons).toEqual(['Start: Fastest (default)', 'Start: Budget-aware', 'Start: Start window', 'Cancel'])
-    expect(shown[0]!.options.buttons![2]).toBe('Start: Start window')
-    answer(2)
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    expect(ask.shown[0]!.mode).toBe('fastest')
+    ask.answer('start-window')
     expect(textOf(await call)).toBe(`Autopilot started Epic ${EPIC}.`)
     expect(w.startFromChat).toHaveBeenCalledWith({ projectId: PROJECT, epic: EPIC, by: 'tool', session: NODE_SESSION, mode: 'start-window' })
     expect(w.out.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', mode: 'start-window' }]])
     expect(w.out.journal).toEqual(['run-started start-window'])
   })
 
-  it.each<[number, RunMode]>([
-    [0, 'fastest'],
-    [1, 'budget-aware'],
-    [2, 'start-window'],
-  ])('button %i starts in the mode %s, whatever the default', async (button, mode) => {
+  it.each<RunMode>(['fastest', 'budget-aware', 'start-window'])('the answer %s starts in that mode, whatever the default', async (mode) => {
     const w = world()
-    const { box, shown, answer } = messageBox()
-    const call = (await connect(NODE_SESSION, tool(w, box, { mode: 'start-window' }).starter)).call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    answer(button)
+    const ask = windowAsk()
+    const call = (await connect(NODE_SESSION, tool(w, ask, { mode: 'start-window' }).starter)).call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.answer(mode)
     await call
     expect(w.out.journal).toEqual([`run-started ${mode}`])
   })
 
-  it('"Cancel" — and Enter or Escape, which answer it — starts nothing in any mode', async () => {
+  it.each<RunMode>(['fastest', 'budget-aware', 'start-window'])('Cancel starts nothing with the default %s', async (mode) => {
     const w = world()
-    const { box, shown, answer } = messageBox()
-    const call = (await connect(NODE_SESSION, tool(w, box).starter)).call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    const { options } = shown[0]!
-    expect(options.buttons![CANCEL]).toBe('Cancel')
-    expect([options.defaultId, options.cancelId]).toEqual([CANCEL, CANCEL])
-    answer(CANCEL)
+    const ask = windowAsk()
+    const call = (await connect(NODE_SESSION, tool(w, ask, { mode }).starter)).call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.answer('cancel')
     expect(textOf(await call)).toBe(confirm.CANCELED_MESSAGE)
     expect(w.startFromChat).not.toHaveBeenCalled()
     expect(w.out.journal).toEqual([])
   })
 
-  it('the detail has the forecast of the journals between its first paragraph and the 10 minutes', async () => {
+  it('the ask carries the forecast of the journals', async () => {
     const w = world()
-    const { box, shown, answer } = messageBox()
-    const call = (await connect(NODE_SESSION, tool(w, box, { runs: () => Promise.resolve(pastRuns(5)) }).starter)).call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    const { detail } = shown[0]!.options
-    expect(detail).toMatch(/^An agent asked for it in a chat\./u)
-    expect(detail).toMatch(/\n\nWithout an answer in 10 minutes nothing starts\.$/u)
-    expect(forecastOf(detail)).toEqual([
+    const ask = windowAsk()
+    const call = (await connect(NODE_SESSION, tool(w, ask, { runs: () => Promise.resolve(pastRuns(5)) }).starter)).call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    expect(ask.shown[0]!.forecast).toEqual([
       'Forecast: This Epic: 1 Wave, 3 Tickets left, usually about 30% of the week. Used now: 80%, resets in 2 d 0 h.',
       'Budget-aware: Recommended: no Wave now, 1 after the reset.',
       'Fastest: No Wave fits before the reset: then the run waits for the Limits.',
       'Start window 23:00–07:00: a Wave usually takes up to 1 h 0 min.',
     ])
-    answer(CANCEL)
+    ask.answer('cancel')
     await call
   })
 })
 
-describe('confirmationOptions: the forecast lines (worfy-resource-planner ticket 06)', () => {
+describe("the ask's forecast lines (worfy-resource-planner ticket 06)", () => {
   it('the reserve and the Start window are those of Settings: at 60 % used the reserve keeps Wave 1 back, and the window is 21:00–05:00', async () => {
     const w = world()
-    const { box, shown, answer } = messageBox()
+    const ask = windowAsk()
     const at60: LimitsState = { windows: { seven_day: { ...LIMITS.windows.seven_day!, utilization: 0.6 } } }
     const options = { runs: () => Promise.resolve(pastRuns(5)), limits: at60, window: { from: 21, to: 5 }, reserve: 0.15 }
-    const call = (await connect(NODE_SESSION, tool(w, box, options).starter)).call('autopilot_start', { epic: EPIC })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
+    const call = (await connect(NODE_SESSION, tool(w, ask, options).starter)).call('autopilot_start', { epic: EPIC })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
     // 1 − 0.15 − 0.6 = 25 % free under the 30 % of the one Wave; without the reserve 40 % would hold it,
     // so there is no Fastest line.
-    expect(forecastOf(shown[0]!.options.detail)).toEqual([
+    expect(ask.shown[0]!.forecast).toEqual([
       'Forecast: This Epic: 1 Wave, 3 Tickets left, usually about 30% of the week. Used now: 60%, resets in 2 d 0 h.',
       'Budget-aware: Recommended: no Wave now, 1 after the reset.',
       'Start window 21:00–05:00: a Wave usually takes up to 1 h 0 min.',
     ])
-    answer(CANCEL)
+    ask.answer('cancel')
     await call
   })
 
-  /** The forecast lines of the box for a call with `tickets`, over the journals `runs`. */
+  /** The forecast lines of the ask for a call with `tickets`, over the journals `runs`. */
   async function linesFor(runs: () => Promise<JournalEvent[][]>, tickets?: string[]): Promise<string[] | undefined> {
     const w = world()
-    const { box, shown, answer } = messageBox()
-    const call = (await connect(NODE_SESSION, tool(w, box, { runs }).starter)).call('autopilot_start', { epic: EPIC, ...(tickets === undefined ? {} : { tickets }) })
-    await vi.waitFor(() => expect(shown).toHaveLength(1))
-    answer(CANCEL)
+    const ask = windowAsk()
+    const call = (await connect(NODE_SESSION, tool(w, ask, { runs }).starter)).call('autopilot_start', { epic: EPIC, ...(tickets === undefined ? {} : { tickets }) })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.answer('cancel')
     await call
-    return forecastOf(shown[0]!.options.detail)
+    return ask.shown[0]!.forecast
   }
 
   it('too few past Waves: the Forecast line says so, and there is no Budget-aware or Fastest line', async () => {
@@ -874,7 +981,7 @@ describe('confirmationOptions: the forecast lines (worfy-resource-planner ticket
     )
   })
 
-  it('journals that cannot be read: the box shows no forecast, and still asks', async () => {
+  it('journals that cannot be read: the ask carries no forecast, and still asks', async () => {
     expect(await linesFor(() => Promise.reject(new Error('EACCES')))).toEqual([])
   })
 })
