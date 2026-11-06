@@ -27,9 +27,13 @@ Source: [spec.md](../spec.md), «Как работает» → «Очередь 
 ## Готово, когда
 
 - [ ] Unit test команды: `epics A, B`, `accepted`, неверное имя, повтор Epic-а, больше 10 — отказ со словами.
+  - evidence: test-run pass · `pnpm test test/unit/autopilot-chat-command.test.ts` exit 0 · mac - · e90e8ff2eb519f038fdc826c74b966ae44ba7180
 - [ ] Contract test tool-а: `epics` → окно с очередью → старт с `epics`; `epics` + `tickets` — ошибка формы.
+  - evidence: test-run pass · `pnpm test test/contract/autopilot-start-tool.test.ts` exit 0 · mac - · e90e8ff2eb519f038fdc826c74b966ae44ba7180
 - [ ] Contract test `agent.send`: `/worfy:epic-wave epics A, B` стартует Run очереди, сообщение не уходит агенту.
+  - evidence: test-run pass · `pnpm test test/contract/agent-send-autopilot.test.ts` exit 0 · mac - · e90e8ff2eb519f038fdc826c74b966ae44ba7180
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e90e8ff2eb519f038fdc826c74b966ae44ba7180
 
 ## Тесты
 
