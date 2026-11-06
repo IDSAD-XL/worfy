@@ -104,6 +104,7 @@ export interface GitFacts extends CheckoutGitFacts {
   remotes: string[] | null
   /** The Project's default branch: origin/HEAD, else the checkout's branch, else main; git tells both when the refs are no files (reftable). */
   defaultBranch: string
+  /** The config files git reads (configFilesOf): absolute, but a relative one the environment names stays relative. */
   configFiles: string[]
   /**
    * Whether a checkout may see config of its own: `extensions.worktreeConfig` is true (config.worktree), or an
@@ -221,17 +222,20 @@ function configFilesOf(entries: readonly ConfigEntry[], folder: string, env: Nod
     } else if (isAbsolute(target)) files.add(resolve(target))
     else if (from !== null) files.add(resolve(dirname(from), target))
   }
+  // A relative one git reads from the folder each git command runs in: it stays relative, and the policy guards it
+  // under every worktree and checkout, as a relative core.hooksPath (policy.ts, hooksAreas).
+  const asNamed = (path: string): string => (isAbsolute(path) ? resolve(path) : path)
   for (const named of [env['GIT_CONFIG_GLOBAL'], env['GIT_CONFIG_SYSTEM']]) {
-    if (named !== undefined && named !== '' && !nullDevice(named)) files.add(resolve(folder, named))
+    if (named !== undefined && named !== '' && !nullDevice(named)) files.add(asNamed(named))
   }
   const xdg = env['XDG_CONFIG_HOME']
-  if (xdg !== undefined && xdg !== '') files.add(resolve(folder, xdg, 'git', 'config'))
+  if (xdg !== undefined && xdg !== '') files.add(asNamed(join(xdg, 'git', 'config')))
   return [...files]
 }
 
 /**
  * The branch origin/HEAD names and the checkout's branch, as git tells them in one call (`git for-each-ref`): for a
- * ref store whose refs are no files (reftable). '' for one git does not tell: no origin/HEAD, a detached HEAD, a
+ * ref store whose refs are no files (reftable, whose HEAD file names `refs/heads/.invalid`). '' for one git does not tell: no origin/HEAD, a detached HEAD, a
  * branch with no commit yet (for-each-ref lists no such branch, so the default branch is then main, as before).
  */
 async function refsFromGit(folder: string, env: NodeJS.ProcessEnv): Promise<{ origin: string; current: string }> {
@@ -275,10 +279,11 @@ export async function readGitFacts(folder: string, env: NodeJS.ProcessEnv): Prom
     if (name !== undefined) remotes.add(name)
   }
   for (const name of [...(legacyRemotes ?? []), ...(legacyBranches ?? [])]) remotes.add(name)
-  const refStorage = last('extensions.refstorage')?.value?.toLowerCase()
   // A ref store that is no files (reftable) names `.invalid` in HEAD and keeps origin/HEAD in no file: git tells both.
+  // Told by the HEAD file alone, not by extensions.refStorage: an include or config.worktree may name another store
+  // that git does not use (it reads that key only from the common config).
   const { origin, current } =
-    repository && refStorage !== undefined && refStorage !== 'files'
+    repository && head === 'ref: refs/heads/.invalid'
       ? await refsFromGit(folder, env)
       : { origin: /^ref: refs\/remotes\/origin\/(.+)$/.exec(originHead ?? '')?.[1] ?? '', current: /^ref: refs\/heads\/(.+)$/.exec(head ?? '')?.[1] ?? '' }
   return {

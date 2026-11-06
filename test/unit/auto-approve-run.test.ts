@@ -725,6 +725,50 @@ describe('readGitFacts and openRunApproval: the leftovers of the review of ticke
     await approval.close()
   })
 
+  it.runIf(reftable)('extensions.refStorage counts only from the common config: an include or config.worktree that says files keeps the default branch and its hard denies (round 2 of PR #1475)', async () => {
+    const store = join(scratch, 'reftable')
+    git(scratch, 'init', '-q', '--ref-format=reftable', '-b', 'trunk', store)
+    git(store, 'commit', '-q', '--allow-empty', '-m', 'demo')
+    git(store, 'update-ref', 'refs/remotes/origin/dev', 'HEAD')
+    git(store, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/dev')
+    git(store, 'worktree', 'add', '-q', '-b', 'demo/01', join(store, 'wt'))
+    const approval = await openRunApproval({ root: store, epic: 'demo', dataDir: join(scratch, 'data'), harnessHome: join(scratch, 'harness'), shellEnv: shell(), gitEnv: gitEnv(), sessions: { list: () => [] } })
+    approval.setWave(['01'])
+    const at = { cwd: join(store, 'wt'), scratchpad: null, sessionId: 's', started: { ...approval.environment, GIT_NO_LAZY_FETCH: '1' } }
+    const hard = async (): Promise<void> => {
+      expect(await approval.judge({ tool: 'Bash', input: { command: 'git push origin HEAD:dev' } }, at)).toMatchObject({ outcome: 'hard-deny', rule: 'hard:git-push-default-branch' })
+      expect(await approval.judge({ tool: 'Bash', input: { command: 'git checkout -b dev' } }, at)).toMatchObject({ outcome: 'hard-deny', rule: 'hard:git-checkout-default-branch' })
+    }
+    await hard()
+    // An include file that says files: git still keeps the refs in reftable.
+    const included = join(scratch, 'refstorage.cfg')
+    writeFileSync(included, '[extensions]\n\trefStorage = files\n')
+    git(store, 'config', '--add', 'include.path', included)
+    expect(git(join(store, 'wt'), 'log', '--oneline', '-1')).not.toBe('')
+    for (const folder of [store, join(store, 'wt')]) expect((await readGitFacts(folder, gitEnv())).defaultBranch, folder).toBe('dev')
+    await hard()
+    git(store, 'config', '--unset', 'include.path')
+    // The config of the worktree alone.
+    git(store, 'config', 'extensions.worktreeConfig', 'true')
+    git(join(store, 'wt'), 'config', '--worktree', 'extensions.refStorage', 'files')
+    expect((await readGitFacts(join(store, 'wt'), gitEnv())).defaultBranch).toBe('dev')
+    await hard()
+    await approval.close()
+  })
+
+  it('a relative GIT_CONFIG_GLOBAL is read by git from the folder it runs in: it is guarded in every checkout (round 2 of PR #1475)', async () => {
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/01', wt())
+    git(repo, 'worktree', 'add', '-q', '-b', 'demo/02', join(scratch, 'wt2'))
+    const approval = await openRunApproval({ root: repo, epic: 'demo', dataDir: join(scratch, 'data'), harnessHome: join(scratch, 'harness'), shellEnv: shell(), gitEnv: { ...gitEnv(), GIT_CONFIG_GLOBAL: 'relative-config' }, sessions: { list: () => [] } })
+    approval.setWave(['01', '02'])
+    const at = { cwd: wt(), scratchpad: null, sessionId: 's', started: approval.environment }
+    for (const top of [wt(), join(scratch, 'wt2')]) {
+      expect(await approval.judge({ tool: 'Write', input: { file_path: join(top, 'relative-config'), content: '[core]\n\thooksPath = h\n' } }, at), top).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    }
+    expect(await approval.judge({ tool: 'Write', input: { file_path: join(wt(), 'other.txt'), content: 'x' } }, at)).toMatchObject({ outcome: 'allow' })
+    await approval.close()
+  })
+
   it('the config files of the environment are git\'s even when empty: GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, XDG_CONFIG_HOME/git/config; /dev/null is none', async () => {
     const xdg = join(scratch, 'xdg')
     const env = { ...gitEnv(), GIT_CONFIG_SYSTEM: join(scratch, 'system-config'), XDG_CONFIG_HOME: xdg }
@@ -974,6 +1018,8 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       'env LC_ALL=C sort --key=2 f',
       'find . -name "*.ts" | xargs grep -l password',
       'sudo docker run -u 0:0 image',
+      'docker run --rm -it -u 1000:1000 image sh',
+      'echo $(rg -l password src)',
     ]) expect(journalCommand(command, home), command).toBe(command)
   })
 
@@ -1004,6 +1050,17 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       ['docker run -u bob:s3cr3t image', 'docker run -u bob:*** image'],
       ['docker run image curl -u bob:s3cr3t x', 'docker run image curl -u bob:*** x'],
       ['curl -u 1000:1000 x', 'curl -u 1000:*** x'],
+      // Round 2 of PR #1475: a program that starts inside a quote or $(…) of another one, and a later -u after the image.
+      ['curl -d "x;rg" -H "X-Api-Key: LettersOnlySecret" https://api', 'curl -d "x;rg" -H "X-Api-Key: ***" https://api'],
+      ['rg x $(curl -s -H "X-Api-Key: LettersOnlySecret" u)', 'rg x $(curl -s -H "X-Api-Key: ***" u)'],
+      ['git commit -q $(tool -m "token: s3cr3t9")', 'git commit -q $(tool -m "token: ***")'],
+      ['curl -d "(docker run" -u 1000:424242 https://x', 'curl -d "(docker run" -u 1000:*** https://x'],
+      ["curl -d 'a; rg \"apiKey: Letters\"' x", "curl -d 'a; rg \"apiKey: ***\"' x"],
+      ['rg x `curl -H "X-Api-Key: LettersOnlySecret" u`', 'rg x `curl -H "X-Api-Key: ***" u`'],
+      ['docker run --rm curlimages/curl -u 12345:987654 https://x', 'docker run --rm curlimages/curl -u 12345:*** https://x'],
+      // A token after `_` in a word.
+      ['touch wt/key_ghp_abcdefghijklmnop1234', 'touch wt/key_***'],
+      ['echo ghp_abcdefghijklmnop1234_x', 'echo ***_x'],
     ]
     for (const [command, kept] of cases) expect(journalCommand(command, home), command).toBe(kept)
   })
@@ -1017,6 +1074,7 @@ describe('journalTarget: a target as the Journal keeps it (worfy-auto-approve ti
   it('hides a token in a path as journalCommand does, and writes the home folder as ~', () => {
     expect(journalTarget('/Users/demo/wt/ghp_abcdefghijklmnop1234', home)).toBe('~/wt/***')
     expect(journalTarget('/tmp/github_pat_abcdefghijklmnop_1234/x', home)).toBe('/tmp/***/x')
+    expect(journalTarget('/Users/demo/wt/key_ghp_abcdefghijklmnop1234', home)).toBe('~/wt/key_***')
     expect(journalTarget('/tmp/x/GH_TOKEN=s3cr3tvalue', home)).toBe('/tmp/x/GH_TOKEN=***')
     expect(journalTarget('C:\\Users\\Demo\\wt\\sk-abcdefghijklmnop1234.txt', 'C:\\Users\\Demo')).toBe('~\\wt\\***.txt')
     // A path without a secret stays as it is, and is cut at COMMAND_MAX.

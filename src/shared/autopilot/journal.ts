@@ -641,16 +641,23 @@ const SECRET_FORMS: readonly [RegExp, string][] = [
   // The password of docker login (podman's too) and of sshpass: -p secret.
   [new RegExp(String.raw`(\b(?:(?:docker|podman)\s+login|sshpass)\b[^|;&\n]*?\s-p\s*)${WORD}`, 'giu'), '$1***'],
   // The token forms that say what they are: GitHub, OpenAI and Anthropic, Slack, AWS.
-  [/\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[abeprs]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16})\b/gu, '***'],
+  // Not after a letter or a digit, but after `_` too: `key_ghp_…` names one.
+  [/(?<![A-Za-z0-9])(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[abeprs]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16})(?![A-Za-z0-9])/gu, '***'],
 ]
 
 /**
- * Where a program starts: at the start of the command, of a line or of a segment after `|`, `;`, `&` or `(`, after
- * assignments and words that run the next one (sudo, env, xargs, time, nice, command, exec) with their options.
+ * Where a program starts: at the start of the command, of a line or of a segment after `|`, `;`, `&` or `(` (`$(` too)
+ * that stands outside every quote counted from the start, after assignments and words that run the next one (sudo,
+ * env, xargs, time, nice, command, exec) with their options. A `;rg` inside another program's quoted argument starts
+ * nothing.
  */
-const PROGRAM_AT = String.raw`(?:^|[|;&(\n])\s*(?:(?:[\p{L}_][\p{L}\p{N}_]*=\S*|sudo|env|xargs|time|nice|command|exec)\s+(?:-\S+\s+)*)*`
-/** The rest of one segment: no `|`, `;`, `&` or new line. A quoted one that holds such a character ends early, so the form stays. */
-const IN_SEGMENT = String.raw`[^|;&\n]*?`
+const PROGRAM_AT = String.raw`(?:^|^(?:[^'"\\]|\\[\s\S]|'[^']*'|"(?:[^"\\]|\\[\s\S])*")*?[|;&(\n])\s*(?:(?:[\p{L}_][\p{L}\p{N}_]*=\S*|sudo|env|xargs|time|nice|command|exec)\s+(?:-\S+\s+)*)*`
+/**
+ * The words between a program and the text an exception keeps: within one segment, and across no quote, `(`, `)` or
+ * backquote, so the text is the program's own and not one of a command inside it (`$(curl …)`). Where it cannot
+ * tell, the form stays.
+ */
+const IN_SEGMENT = String.raw`[^|;&\n()\x60'"]*?`
 /** A program that searches text: the word after it is a pattern, not a secret. */
 const SEARCH = String.raw`(?:git\s+grep|[ef]?grep|rg|ag|ack)`
 
@@ -667,11 +674,12 @@ const SECRET_EXCEPTIONS: readonly { forms: readonly RegExp[]; text: RegExp }[] =
   // The message of git commit: -m "auth: …", -am '…', --message="…". It goes into the repository's history anyway.
   { forms: [HEADER_FORM], text: new RegExp(String.raw`(?<=${PROGRAM_AT}git\s(?:${IN_SEGMENT}\s)?commit\b${IN_SEGMENT}\s(?:-[a-zA-Z]*m\s*|--message(?:=|\s+)))(?:"(?:[^"\\]|\\.)*"|'[^']*')`, 'gu') },
   // The pattern of a search, bare: grep -rn password src/.
-  { forms: [PASSWORD_WORD_FORM], text: new RegExp(String.raw`(?<=${PROGRAM_AT}${SEARCH}\b[^|;&\n'"]*\s)(?:password|passwd)\s+[^\s'"]+`, 'giu') },
+  { forms: [PASSWORD_WORD_FORM], text: new RegExp(String.raw`(?<=${PROGRAM_AT}${SEARCH}\b${IN_SEGMENT}\s)(?:password|passwd)\s+[^\s'"]+`, 'giu') },
   // The pattern of a search, quoted, whose value is words of letters only (a type, a keyword): rg "apiKey: string".
   { forms: [HEADER_FORM], text: new RegExp(String.raw`(?<=${PROGRAM_AT}${SEARCH}\b${IN_SEGMENT}\s)(['"])[\w-]+\s*:\s*[\p{L}_ |?<>[\].]+\1`, 'gu') },
-  // A numeric user and group of a container: docker run -u 1000:1000.
-  { forms: [USER_FORM, USER_QUOTED_FORM], text: new RegExp(String.raw`(?<=${PROGRAM_AT}(?:docker|podman)\s+(?:container\s+)?(?:run|exec|create)\b${IN_SEGMENT})\s(?:-u\s*|--user(?:=|\s+))\d+:\d+(?=\s|$)`, 'gu') },
+  // A numeric user and group of a container, before the image: docker run --rm -u 1000:1000 image. Only options stand
+  // between the subcommand and -u: a later -u is one of the command the container runs.
+  { forms: [USER_FORM, USER_QUOTED_FORM], text: new RegExp(String.raw`(?<=${PROGRAM_AT}(?:docker|podman)\s+(?:container\s+)?(?:run|exec|create)(?:\s+-[^\s'"\x60()]+)*?)\s(?:-u\s*|--user(?:=|\s+))\d+:\d+(?=\s|$)`, 'gu') },
 ]
 
 /** `text` with each form of SECRET_FORMS hidden, but where SECRET_EXCEPTIONS keep it. */
