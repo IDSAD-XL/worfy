@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { z } from 'zod'
 import type { AutopilotWaveResult } from '../../src/main/actions/launch'
+import type { RunApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { harnessDriftWatch } from '../../src/main/autopilot/harness-drift'
 import { Autopilot, QUITTING_MESSAGE, RunningElsewhere, runningElsewhere, STOP_TEXT, type AutopilotDeps, type LinkedRuns, type RunKey, type RunSession } from '../../src/main/autopilot/run'
 import { ASK_RUNS_TIMEOUT_MS, AutopilotRunsLink, type RunsLinkService } from '../../src/main/link/autopilot-runs'
@@ -2831,5 +2832,94 @@ describe('the Auto-approval line in the Orchestrator\'s chat at the end of a run
     await s.autopilot.start(PROJECT, EPIC)
     await settle()
     expect(s.notices).toEqual(['Shadow: would allow 1, would deny 0, would park 0'])
+  })
+})
+
+describe('a lingering run counts only the decisions of its own policy, once (worfy-auto-approve ticket 08, review 2)', () => {
+  const TASK: BackgroundTask = { taskId: 'task-1', taskType: 'local_agent', description: 'Implement 01' }
+  const decided = (outcome: 'allow' | 'deny'): AgentEvent =>
+    ({ type: 'auto_approval', mode: 'on', outcome, rule: 'files-inside-roots', tool: 'Bash', targets: ['/repo/build'], command: 'rm -rf /repo/build' }) as AgentEvent
+  const fakeApproval = (run: string): RunApproval => ({
+    run,
+    runTemp: `/tmp/run-temp/${run}`,
+    environment: { TMPDIR: `/tmp/run-temp/${run}` },
+    facts: { hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: [], defaultBranch: 'main', configFiles: [], checkoutConfig: false, commonDir: null },
+    setWave: () => undefined,
+    judge: () => Promise.resolve({ outcome: 'deny', rule: 'not-judged', hint: null, targets: [] }),
+    close: () => Promise.resolve(),
+  })
+  const denials = (lines: readonly JournalEventFields[]) => lines.filter((line) => line.kind === 'auto-approval' && 'outcome' in line && line.outcome === 'deny')
+
+  it('a decision taken under the next run\'s policy, before that run takes the Session over, is not the stopped run\'s', async () => {
+    const journals: JournalEventFields[][] = []
+    let starts = 0
+    let emitWhileJournalOpens: () => void = () => undefined
+    let emitWhileWatchOpens: () => void = () => undefined
+    const s = standIn({
+      approval: { mode: () => 'on', open: () => Promise.resolve(fakeApproval(`run-${journals.length + 1}`)) },
+      journal: () => {
+        const lines: JournalEventFields[] = []
+        journals.push(lines)
+        emitWhileJournalOpens()
+        return Promise.resolve({
+          run: `run-${journals.length}`,
+          append: (fields) => {
+            lines.push(fields)
+            return Promise.resolve()
+          },
+        })
+      },
+      watchWorkflow: () => {
+        starts += 1
+        emitWhileWatchOpens()
+        return Promise.resolve(() => undefined)
+      },
+    })
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.emit(decided('allow'))
+    s.tasks = [TASK]
+    s.emit(result(true))
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped' })
+    expect(s.notices).toEqual([])
+    // The next run opens its policy first: the requests of the stopped run's task are judged by it from then on.
+    emitWhileJournalOpens = () => s.emit(decided('deny'))
+    // After the next run subscribes, before it takes the Session over.
+    emitWhileWatchOpens = () => s.emit(decided('deny'))
+    s.state = 'idle'
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(starts).toBe(2)
+    const [first, second] = journals
+    expect(denials(first!)).toEqual([])
+    expect(s.notices).toEqual(['Auto-approval: allowed 1, denied 0, parked 0'])
+    // The decision after the next run subscribed is that run's, once.
+    expect(denials(second!)).toHaveLength(1)
+  })
+
+  it('a decision while the stop drops the run\'s own subscriptions is journaled and counted once', async () => {
+    let emitWhileReleasing: () => void = () => undefined
+    const s = standIn({
+      retry: {
+        enabled: () => false,
+        send: () => undefined,
+        // The first of the run's cleanups: the run's own observer of the Session is still there, the linger one too.
+        observe: () => () => emitWhileReleasing(),
+      },
+    })
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.emit(decided('allow'))
+    emitWhileReleasing = () => s.emit(decided('deny'))
+    s.tasks = [TASK]
+    s.emit(result(true))
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped' })
+    expect(denials(s.journal)).toHaveLength(1)
+    s.tasks = []
+    s.emit({ type: 'state', state: 'closed', error: null } as AgentEvent)
+    await settle()
+    expect(s.notices).toEqual(['Auto-approval: allowed 1, denied 1, parked 0'])
   })
 })

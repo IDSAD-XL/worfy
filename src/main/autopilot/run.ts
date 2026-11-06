@@ -645,6 +645,11 @@ class Run {
   message: string | null = null
   private chain: Promise<void> = Promise.resolve()
   readonly cleanups: (() => Promise<void> | void)[] = []
+  /**
+   * Drops the run's own observer of its Session's events (also one of `cleanups`): a stop that lingers drops it before
+   * the linger observer comes, so no event reaches both (worfy-auto-approve ticket 08).
+   */
+  unobserveSession: () => void = () => undefined
   settleTimer: ReturnType<typeof setTimeout> | null = null
   /** The wait for background tasks (phase `tasks`): their limit, or the grace time after the last one. */
   tasksTimer: unknown = null
@@ -1183,15 +1188,16 @@ export class Autopilot {
     if (run.limits !== null) run.cleanups.push(run.limits.watch((sessionId) => run.session !== null && sessionId === run.session.id))
     const unobserve = this.deps.retry?.observe?.(() => void run.enqueue(async () => void (await this.farWaitDropped(run))))
     if (unobserve !== undefined) run.cleanups.push(unobserve)
+    run.unobserveSession = this.deps.registry.observe((sessionId, event) => {
+      if (run.session === null || sessionId !== run.session.id) return
+      this.onEvent(run, event)
+      // During a far Limits wait (worfy-retry ticket 05): a turn or a task that starts takes keep-awake
+      // back, and the end of the last task lets it go. The end of a turn decides in the run's order:
+      // passed() keeps it, a refusal waits again (waitForLimits).
+      if (run.asleep || (event.type === 'background_tasks' && run.limits?.until != null)) this.holdAwake(run)
+    })
     run.cleanups.push(
-      this.deps.registry.observe((sessionId, event) => {
-        if (run.session === null || sessionId !== run.session.id) return
-        this.onEvent(run, event)
-        // During a far Limits wait (worfy-retry ticket 05): a turn or a task that starts takes keep-awake
-        // back, and the end of the last task lets it go. The end of a turn decides in the run's order:
-        // passed() keeps it, a refusal waits again (waitForLimits).
-        if (run.asleep || (event.type === 'background_tasks' && run.limits?.until != null)) this.holdAwake(run)
-      }),
+      () => run.unobserveSession(),
       this.deps.registry.observeInput((session, what) => {
         if (session !== run.session) return
         void run.enqueue(() => this.write(run, { kind: 'human-input', source: 'worfy', what }))
@@ -2356,11 +2362,16 @@ export class Autopilot {
     }
     this.lingering.add(quit)
     this.takeOvers.set(run.projectId, takeOver)
+    // The run's own observer goes first, at once rather than later in release(): an event that comes meanwhile would
+    // reach both and be journaled twice.
+    run.unobserveSession()
     unsubscribe = this.deps.registry.observe((sessionId, event) => {
       if (sessionId !== session.id) return
       if (event.type === 'background_tasks') void this.write(run, { kind: 'background-tasks', tasks: journalTasks(event.tasks) })
       else if (event.type === 'auto_approval') {
         // The Session is still under the run's policy (closeApproval waits for the end): its decisions are the run's.
+        // The next run opens its own policy before it takes the Session over: a decision under that one is the next run's.
+        if (this.activeApprovals.get(run.projectId) !== (run.approval ?? undefined)) return
         run.decisions.push({ mode: event.mode, outcome: event.outcome })
         void this.write(run, autoApprovalLine(event, session.id, run.vendor))
       } else if (event.type === 'state' && event.state === 'closed') void finish({ kind: 'orchestrator-returned' })
