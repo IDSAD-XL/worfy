@@ -1,0 +1,2 @@
+{"type":"user","sessionId":"a0a0a0a0-0000-4000-8000-000000000001","cwd":"/work/acme/shop/.claude/worktrees/05","timestamp":"2026-03-03T09:01:01.000Z","isSidechain":true,"message":{"role":"user","content":"SECRET-NESTED-PROMPT"},"agentId":"n1"}
+{"type":"assistant","sessionId":"a0a0a0a0-0000-4000-8000-000000000001","cwd":"/work/acme/shop/.claude/worktrees/05","timestamp":"2026-03-03T09:02:59.000Z","isSidechain":true,"message":{"role":"assistant","model":"claude-test","content":[{"type":"text","text":"SECRET-NESTED-REPORT"}]},"agentId":"n1"}
