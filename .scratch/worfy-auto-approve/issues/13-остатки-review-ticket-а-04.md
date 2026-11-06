@@ -46,6 +46,7 @@ PR #1460 (Ticket 04: policy Auto-approval для Claude, Shadow и Journal) вл
 - [ ] Test п. 4: запись в пустой config по `GIT_CONFIG_GLOBAL` внутри корня → deny git-files.
   - evidence: test-run pass · `pnpm test test/unit/auto-approve-run.test.ts` exit 0 · mac - · 7d37844ee80b7843d4b2507b44180abfaa831a4f
 - [ ] `docs/features/ru/autopilot.md` совпадает по смыслу с английской страницей.
+  - evidence: commit pass · Auto-approval: `~/` in core.hooksPath on Windows without HOME, and the Russian Auto-approval text · - - · 264319dc6
 - [ ] Test п. 6: путь с литеральным token `ghp_…` / `github_pat_…` в `journalTarget` даёт `***`.
   - evidence: test-run pass · `pnpm test test/unit/auto-approve-run.test.ts` exit 0 · mac - · 7d37844ee80b7843d4b2507b44180abfaa831a4f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
@@ -132,3 +133,24 @@ merge PR #1469: он правит `policy.ts` и ту же страницу.
 Проверки: unit и contract test-ы модулей — 13 файлов, 1046 test-ов, exit 0. `pnpm lint`, `pnpm typecheck` — exit
 0. `gate fast` на `33e244f9f` — exit 0, `[gate] green (fast)`. Mutation testing на строках раунда 2: 11 мутантов;
 10 убиты сразу, а выживший (проверка `refStorage`) убран из кода вместе с проверяемым условием.
+
+### Итог раунда 2, часть 2 (после merge PR #1469)
+
+Ветка перенесена на `origin/main` с #1469, без конфликтов.
+
+- **Low 6 — `~/` в `core.hooksPath` на Windows.** `hooksAreasOf` (`src/main/agent/auto-approve/policy.ts`) берёт `~/`
+  из каждой папки, которую git может считать домашней: HOME, иначе на Windows HOMEDRIVE+HOMEPATH и USERPROFILE.
+  `includeHomes` перенесена из `run-approval.ts` в `policy.ts`, чтобы не было циклического импорта. Пустой HOME —
+  тоже домашняя папка, как у git (`~/x` → `/x`). Раньше `configFilesOf` разрешал такой путь от папки checkout-а.
+  Test (`test/unit/auto-approve-policy.test.ts`): запись в `h/pre-commit` под HOMEDRIVE+HOMEPATH и под USERPROFILE →
+  deny `git-files`, в другую папку → allow; при заданном HOME — только он. Красный до правки, оба мутанта убиты.
+- **П. 5 — перевод.** В `docs/features/ru/autopilot.md` переведены оба пункта Auto-approval из «Во время run-а»
+  (mode, Codex, окружение, git; `TMPDIR` и git-окружение), строка `auto-approval` и поле `autoApproval` строки
+  `run-started` в таблице journal.
+  Commit в шапке **не** обновлён. Остальные разделы страницы отстают от английской: `node
+  scripts/feature-docs-lag.mjs` — 14 commit-ов после `19f1660c` (multi-vendor, retry, Limits, faults). С новым SHA в
+  шапке скрипт перестал бы показывать это отставание, а ADR-0088 требует, чтобы шапка называла commit, с которого
+  сделан перевод всей страницы. Полный перевод — для пакетного обновления.
+
+Проверки на `264319dc6`: unit и contract test-ы модулей — 14 файлов, 1107 test-ов, exit 0. `pnpm lint`, `pnpm
+typecheck` — exit 0. `gate fast` — exit 0, `[gate] green (fast)`.
