@@ -1,7 +1,8 @@
 # 07 — Park: ожидание владельца
 
 Type: task
-Status: claimed 2026-11-06T00:00Z
+Status: done 2026-11-06T01:45Z
+PR: #1467
 Blocked by: 04
 Source: [spec.md](../spec.md), «Как работает», п. 1; «Решено без владельца», п. 6; Q3, Q5
 
