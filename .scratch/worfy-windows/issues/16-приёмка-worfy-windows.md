@@ -140,7 +140,9 @@ machines (`worfy-link`).
   - evidence: gate pass · gate full на ПК на main после Wave (ADR-0086, пункт 2): origin/main a0d72a4f1, GATE_SCOPE=all, EXIT 0, [gate] green (full), 0 failed; run c848baa6/2026-11-06T16-25-37Z-44448 · windows - · a0d72a4f1e5184071b77fbfd0337742b9ba6b977
 - [x] Пункт 4: по пути Ticket-а 15 агент нашёл ADR через qmd или grep-ом в установленном worfy на ПК владельца. Выдержка из транскрипта (вызов инструмента и найденный файл) — в Итог.
   - evidence: screenshot pass · `../evidence/16-adr-grep.png` — Session в Stable copy нашла docs/adr/0054-full-windows-port.md grep-ом (qmd на ПК нет): вызовы Bash profile, Grep windows, Bash head · windows stable · 3c9518a6488353e91705b1bea0b1b1a8c3107c64 · scrub: 2026-11-06
-- [ ] Пункт 5: `GATE_SCOPE=all` gate full на Mac на коммите main после последнего мержа Epic-а — код 0 и вердикт «зелено». Кто прогнал, коммит и строка `[gate]` — в Итог.
+- [x] Пункт 5: `GATE_SCOPE=all` gate full на Mac на коммите main после последнего мержа Epic-а — код 0 и вердикт «зелено». Кто прогнал, коммит и строка `[gate]` — в Итог. — заменён по ADR-0083, п. 5
+  (решение владельца 2026-10-28: локального gate full нет): job-ы macOS в CI на `a0d72a4f1` зелёные. Подробно — в Итог.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42251826160 на main a0d72a4f1: macos-tests, macos-e2e (1/2), macos-e2e (2/2), macos-package — success (вместо gate full на Mac, ADR-0083, п. 5); ci-ok этого run-а красный из-за job-а windows (1/3), не macOS: упали feature-docs-lag:233 и guide-lag:104 · ci ci · a0d72a4f1e5184071b77fbfd0337742b9ba6b977
 - [x] `GATE_SCOPE=all` gate full на ветке с contract test-ом — код 0 на ПК владельца и на Mac (по правилу needs-mac-gate: проверяет и вливает Session на Mac). — заменено ADR-0083, пункт 5: #1231 влит по `ci-ok` 2026-11-02; на ПК зелёный
   чистый gate full на `a0d72a4f1` с этим test-ом, на macOS — ревью #1231 и job `macos-tests`.
   - evidence: gate pass · gate full GATE_SCOPE=all на ПК, origin/main a0d72a4f1 (с test/contract/harness-node-only.test.ts): EXIT 0, 3875.3 s, [gate] green (full), 0 failed; run c848baa6/2026-11-06T16-25-37Z-44448 · windows - · a0d72a4f1e5184071b77fbfd0337742b9ba6b977
@@ -176,7 +178,8 @@ Ticket последний в Epic-е, с другими Ticket-ами он не 
 
 **Приёмка владельцем, 2026-11-06** (ПК владельца, Stable copy `v0.3.1538`, Harness `0.3.0+3c9518a6`; шаги — по
 [гайду](../../owner-acceptance-guides.md#worfy-windows-16)). Шаги владельца 1–9 пройдены, планка gate full на Windows
-выполнена. Открыт один пункт «Готово, когда» — пункт 5, gate full на Mac (ниже). Ниже — сегодняшние факты; записи
+выполнена. Все пункты «Готово, когда» закрыты; три из них — по новым правилам, а не как написаны (ниже). Ниже —
+сегодняшние факты; записи
 2026-10-31…2026-11-04 после них — история, их «не сделано» закрыто здесь.
 
 - **Планка gate full.** Чистый gate full на ПК: `GATE_SCOPE=all`, `VITEST_MAX_WORKERS=8`, `origin/main` `a0d72a4f1`.
@@ -238,10 +241,12 @@ Ticket последний в Epic-е, с другими Ticket-ами он не 
   в обоих `test/contract/harness-node-only.test.ts (15 tests)` ✓. Своего прогона на Mac владельца нет; вместо него —
   `macos-tests` (ADR-0083, пункт 5) и ревью #1231 на macOS (15/15, мутанты красные). #1231 влит 2026-11-02 по `ci-ok`
   с меткой `needs-mac-gate`; отчёта gate full на ветке в PR нет — правило к тому времени уже заменил ADR-0083.
-- **Открыто — пункт 5: gate full на Mac.** `GATE_SCOPE=all` gate full на Mac на `main` после последнего мержа Epic-а
-  сегодня никто не гонял. На `a0d72a4f1` зелёные job-ы `macos-tests`, `macos-e2e (1/2)`, `macos-e2e (2/2)` и
-  `macos-package` (CI run 42251826160). Засчитать их вместо gate full на Mac (ADR-0083, пункт 5) или прогнать gate
-  full на Mac — решает Orchestrator.
+- **Пункт 5, gate full на Mac — заменён по ADR-0083, п. 5** (решение владельца 2026-10-28: локального gate full
+  нет, его проверки делают job-ы `ci-ok` на macOS). `GATE_SCOPE=all` gate full на Mac не гоняли. Вместо него — CI
+  run [42251826160](https://github.com/IDSAD-XL/worfy/actions/runs/42251826160) на `main` `a0d72a4f1`: `macos-tests`,
+  `macos-e2e (1/2)`, `macos-e2e (2/2)` и `macos-package` — success. Сам `ci-ok` этого run-а красный из-за job-а
+  `windows (1/3)`, а не macOS: упали `test/unit/feature-docs-lag.test.ts:233` и `test/unit/guide-lag.test.ts:104`.
+  Решил Orchestrator, 2026-11-06.
 - Снимки с ПК — копии снимков владельца. Закрашены сплошными прямоугольниками: email входа и git identity, имя ПК в
   списке Projects, `C:\Users\<имя>` в путях, обрезанная полоска текста у верхнего края окна. Метаданных в PNG нет.
   Снимок Welcome-экрана в репозиторий не вошёл.
