@@ -577,16 +577,32 @@ describe('the Harness in main is newer than the Stable copy (worfy-harness ticke
 })
 
 describe('a refused start of Autopilot (worfy-polish ticket 50)', () => {
+  /** The button with the shell's Start Autopilot window (worfy-autopilot-queue ticket 09), which the button opens. */
+  async function renderWithWindow(): Promise<void> {
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    const { StartAutopilotModal } = await import('../../src/renderer/autopilot/StartAutopilotModal')
+    render(
+      <>
+        <AutopilotAction subject={epicSubject()} />
+        <StartAutopilotModal />
+      </>,
+    )
+  }
+  /** "Start Autopilot" in the window the button opened. */
+  const startInWindow = async (): Promise<void> => {
+    fireEvent.click(await screen.findByTestId('start-autopilot-start'))
+  }
+
   it("is an error toast with main's reason, as well as the button's tooltip; a second refusal replaces it", async () => {
     const reason = 'The Orchestrator is in a turn: wait for it to end, or Interrupt it, before starting Autopilot'
     startAnswer = { ok: false, error: `autopilot.start failed: ${reason}` }
     const { toasts } = await import('../../src/renderer/toast/toasts')
-    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
-    render(<AutopilotAction subject={epicSubject()} />)
+    await renderWithWindow()
     const button = await screen.findByRole('button', { name: 'Autopilot' })
     await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
     expect(toasts.getState().toasts).toEqual([])
     fireEvent.click(button)
+    await startInWindow()
     await vi.waitFor(() => expect(button.getAttribute('data-error')).toBe(reason))
     expect(button.getAttribute('title')).toBe(reason)
     expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', text: reason, projectId: PROJECT, testId: 'autopilot-start-refused' }])
@@ -594,6 +610,7 @@ describe('a refused start of Autopilot (worfy-polish ticket 50)', () => {
     const other = "Messages wait in the Orchestrator's queue: send or remove them before starting Autopilot"
     startAnswer = { ok: false, error: `autopilot.start failed: ${other}` }
     fireEvent.click(button)
+    await startInWindow()
     await vi.waitFor(() => expect(button.getAttribute('data-error')).toBe(other))
     expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', text: other }])
     expect(toasts.getState().toasts).toHaveLength(1)
@@ -603,11 +620,11 @@ describe('a refused start of Autopilot (worfy-polish ticket 50)', () => {
     const message = 'Autopilot is already running Epic demo of this repository on Studio'
     startAnswer = { ok: true, value: { runningElsewhere: { epic: 'demo', machine: 'Studio', message } } }
     const { toasts } = await import('../../src/renderer/toast/toasts')
-    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
-    render(<AutopilotAction subject={epicSubject()} />)
+    await renderWithWindow()
     const button = await screen.findByRole('button', { name: 'Autopilot' })
     await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
     fireEvent.click(button)
+    await startInWindow()
     await vi.waitFor(() => expect(screen.getByTestId('autopilot-elsewhere').textContent).toBe('running on Studio'))
     expect(screen.getByRole('button', { name: 'Autopilot' }).getAttribute('data-error')).toBe(message)
     expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', text: message, projectId: PROJECT, testId: 'autopilot-start-refused' }])
@@ -618,7 +635,7 @@ describe('a refused start of Autopilot (worfy-polish ticket 50)', () => {
     await vi.waitFor(() => expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', text: reason }]))
     expect(toasts.getState().toasts).toHaveLength(1)
     expect(calls.filter((call) => call.channel === 'autopilot.start').map((call) => call.input)).toEqual([
-      { projectId: PROJECT, epic: 'demo' },
+      { projectId: PROJECT, epic: 'demo', mode: 'fastest' },
       { projectId: PROJECT, epic: 'demo', override: true },
     ])
   })
@@ -626,11 +643,11 @@ describe('a refused start of Autopilot (worfy-polish ticket 50)', () => {
   it('a start that goes shows no toast', async () => {
     startAnswer = { ok: true, value: { ...autopilot, epic: 'demo', status: 'running', wave: 1, revision: 2 } }
     const { toasts } = await import('../../src/renderer/toast/toasts')
-    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
-    render(<AutopilotAction subject={epicSubject()} />)
+    await renderWithWindow()
     const button = await screen.findByRole('button', { name: 'Autopilot' })
     await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
     fireEvent.click(button)
+    await startInWindow()
     await screen.findByRole('button', { name: 'Stop autopilot' })
     expect(toasts.getState().toasts).toEqual([])
   })

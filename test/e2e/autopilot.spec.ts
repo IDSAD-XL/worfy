@@ -15,6 +15,7 @@ import { autopilotStatusLine } from '../../src/shared/ipc/autopilot'
 import { launchApp, repoRoot } from './helpers'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
+import { startAutopilot } from './autopilot-start'
 
 // The hints' phrase (DISPLAY_STAYS_ON in src/renderer/canvas/actions/AutopilotAction.tsx), written
 // out: the renderer module is not loaded into the Playwright process.
@@ -285,7 +286,7 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     expect(self).toEqual({ ok: false, error: `autopilot.start failed: ${SELF_PROJECT_MESSAGE}` })
 
     // Start: Wave 1 goes to the Orchestrator, now unattended.
-    await autopilot.click()
+    await startAutopilot(autopilot)
     await expect(status).toHaveText('Wave 1 · running')
     await expect(status).toHaveAttribute('title', `Wave 1 · running. ${DISPLAY_STAYS_ON}`)
     await expectStatusClear(window, header, status)
@@ -441,7 +442,7 @@ test('the stop of a Run: a toast with its count that stays; "Open history", "His
     await expect(frame.getByTestId('action-autopilot')).toHaveAttribute('aria-disabled', 'false')
 
     // The Run: Wave 1 (01, 02) goes; while its turn holds, 01 is done and 02 blocked; Stop, and the turn ends.
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     await expect(status).toHaveText('Wave 1 · running')
     const run = newJournal(dataDir, [])
     await expect(history).toHaveCount(0)
@@ -525,7 +526,7 @@ test('the stop of a Run: a toast with its count that stays; "Open history", "His
     // The next run, over 02 open again: "History" goes with its start; its own stop has a toast of its own.
     setState(2, 'open')
     writeFileSync(script, `${interruptible.join('\n')}\n`)
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     await expect(status).toHaveText('Wave 1 · running')
     await expect(history).toHaveCount(0)
     const next = newJournal(dataDir, [run])
@@ -575,7 +576,7 @@ test('Autopilot waits for the Limits after a refusal: the status line says until
     const stop = frame.getByTestId('action-stop-autopilot')
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     const resumesAt = reset * 1000 + RESUME_MARGIN_MS
     const line = autopilotStatusLine({ status: 'waiting', wave: 1, reason: null, resumesAt })
     expect(line).toMatch(/^waiting for limits · resumes \d{2}:\d{2}$/)
@@ -637,7 +638,7 @@ test('Autopilot with Auto-continue on waits to retry after an API 500: the statu
     const status = frame.getByTestId('autopilot-status')
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     await expect(status).toHaveText(/^API error · retry 1\/5 · \d{2}:\d{2}$/)
     await expect(status).toHaveAttribute('data-status', 'waiting')
     const line = (await status.textContent())!
@@ -707,7 +708,7 @@ test("Autopilot keeps the daily budget of the Limits: today's share used before 
     const status = frame.getByTestId('autopilot-status')
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     const until = nextLocalDayStart(now)
     const line = autopilotStatusLine({ status: 'waiting', wave: 1, reason: null, resumesAt: until, waitingFor: 'daily-share' })
     expect(line).toMatch(/^today's share used · resumes \d{2}:\d{2}$/)
@@ -782,7 +783,7 @@ test('Autopilot in the Run mode Start window: outside the window the status line
     const status = frame.getByTestId('autopilot-status')
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     const until = nextWindowStart(now, window_)
     const line = autopilotStatusLine({ status: 'waiting', wave: 0, reason: null, resumesAt: until, waitingFor: 'start-window', windowReason: 'outside' })
     expect(line).toBe(`outside start window · resumes ${hourText(from)}`)
@@ -971,7 +972,7 @@ test('Autopilot waits for the background tasks of the Wave; Force stop kills the
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
     // The Wave's turn ends with two tasks alive: the run waits, and says so.
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     await expect(status).toHaveText('Wave 1 · 2 background tasks')
     await expect(status).toHaveAttribute('data-status', 'running')
     expect(await status.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
@@ -1032,7 +1033,7 @@ test('Force stop during the Wave\'s turn: the button says Stopping… until the 
     const stop = frame.getByTestId('action-stop-autopilot')
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'background-tasks', 'background-tasks'])
     await expect(status).toHaveText('Wave 1 · 2 background tasks')
     await snapshots(window, header, 'stop-before')
@@ -1109,7 +1110,7 @@ test('the narrow fix round of a Wave Ticket goes to the run journal from the com
     const status = frame.getByTestId('autopilot-status')
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     await expect.poll(() => messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
     // Read at wave-started: both states of the round, in comment order; nothing of demo/03.
     await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'narrow-round', 'narrow-round'])
@@ -1185,12 +1186,12 @@ test('the Autopilot button after a turn-error stop while the Orchestrator\'s bac
     const status = frame.getByTestId('autopilot-status')
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     await expect(status).toHaveText('stopped: turn error')
     await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'background-tasks', 'background-tasks', 'session-error', 'run-stopped turn-error'])
 
     // Pressed again: the run starts, with the same Session and process; nothing was closed.
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     await expect(frame.getByTestId('action-stop-autopilot')).toHaveText('Stop autopilot')
     await expect(status).not.toHaveText(/^stopped/)
     await expect(window.getByTestId('autopilot-start-refused')).toHaveCount(0)
@@ -1229,7 +1230,7 @@ test('a refused start of Autopilot is an error toast with main\'s reason, as wel
     const settings = defaultProjectSettings('plugin')
     writeFileSync(settingsFile, JSON.stringify({ ...settings, actionTemplates: { ...settings.actionTemplates, runWave: ' ' } }))
     const reason = 'Set the Run wave template in Project settings'
-    await autopilot.click()
+    await startAutopilot(autopilot)
     const toast = window.getByTestId('autopilot-start-refused')
     await expect(toast).toBeVisible()
     await expect(toast).toHaveAttribute('data-kind', 'error')
@@ -1242,7 +1243,7 @@ test('a refused start of Autopilot is an error toast with main\'s reason, as wel
 
     // The template back: the run is accepted and waits for the Orchestrator's turn, its journal opens.
     writeFileSync(settingsFile, JSON.stringify(settings))
-    await autopilot.click()
+    await startAutopilot(autopilot)
     await expect(frame.getByTestId('autopilot-status')).toHaveText('waiting for the Orchestrator')
     await expect(frame.getByTestId('autopilot-status')).toHaveAttribute('data-status', 'waiting')
     await expect.poll(() => (existsSync(join(dataDir, 'autopilot')) ? readdirSync(join(dataDir, 'autopilot')).length : 0)).toBe(1)

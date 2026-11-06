@@ -19,6 +19,17 @@ says what it does, that the display stays on until the run ends, the Run mode th
 Settings → Autopilot), and the Epic forecast of what is left of the Epic. [Run planning](run-planning.md) gives these
 lines.
 
+A click on the button does not start the run: it opens the **Start Autopilot** window inside worfy
+(`src/renderer/autopilot/StartAutopilotModal.tsx`). The window shows the Project, the Epic, its Tickets and Waves left,
+the Vendor and Session of the Orchestrator, the forecast against the budget, the Limits now, and the Modes (Eco mode,
+Auto-approval, Auto-continue) with a "change in Modes" link to the Orchestrator's Modes menu. Main reads these facts on
+the channel `autopilot.prepare`, from the same sources and with the same forecast lines as the `autopilot_start` dialog.
+Below them the person picks the Run mode: Fastest, Budget-aware or Start window, the default of Settings → Autopilot
+marked "(default)" and chosen. The focus is on **Cancel**, Esc is Cancel, ⌘↩ (Ctrl+Enter on Windows) is the main
+button. The main button is **Start Autopilot**, or **Start when free** while the Orchestrator is busy: the window then
+says what keeps it busy. The window closes once main answers; a refusal is the toast and the button's tooltip, as
+below. **Start anyway** starts at once, in the default mode, without the window.
+
 A start is refused in these cases. The reason shows in the button's tooltip and in an error toast:
 
 - The Project already has a run. A Project has at most one run at a time.
@@ -82,8 +93,8 @@ gives the forecast lines and the buttons. The dialog is on a window of the Proje
 that runs the Session: the focused window, else one on screen, else a minimised or hidden one brought back first. A
 Linked machine's window gets no dialog and cannot confirm. Without an answer in 10 minutes the dialog closes and the
 agent gets "No one confirmed …"; Cancel is a refusal too. A start button starts the same run as the Autopilot button,
-in the chosen mode, over the named Tickets when there are any. The Autopilot button and a command typed in a chat
-always start in the default mode. When the Orchestrator is busy, also when the asking Session is the Orchestrator in its turn, the run
+in the chosen mode, over the named Tickets when there are any. A command typed in a chat always starts in the default
+mode; the Autopilot button starts in the mode chosen in its window. When the Orchestrator is busy, also when the asking Session is the Orchestrator in its turn, the run
 waits for it as described under "While the Orchestrator is busy", and the agent gets "Autopilot waits for the Orchestrator and starts when it is free". Without a dialog the tool refuses:
 
 - a Session that runs unattended, such as the Orchestrator during a run: no one is there to confirm. The Orchestrator of a

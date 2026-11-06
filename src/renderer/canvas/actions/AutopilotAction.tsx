@@ -15,6 +15,7 @@ import {
   type RunningElsewhereRefusal,
 } from '../../../shared/ipc/autopilot'
 import { failureReason } from '../../../shared/ipc/channels'
+import { askStart } from '../../autopilot/start-modal'
 import { invoke, subscribe } from '../../ipc'
 import { autopilotBudgetOf, autopilotRunOf } from '../../../shared/settings/app-settings'
 import { openRunHistory } from '../../flight-recorder/open'
@@ -58,9 +59,14 @@ import { hasRunWave, useRunWaveState } from './gates'
 //   (`run`): the screen at that Run. It goes with the start of the next run. The toast of the stop
 //   (flight-recorder/stop-toast.ts) opens the same.
 // Autopilot can start when "Run wave" could (the same verdict, gates.ts) with a template that names
-// the Wave's Tickets ({tickets}, ADR-0033), and the Project has no run; main checks again and may still refuse (the Orchestrator is in a turn, worfy's own
-// repository in a development build): the button then shows main's reason, and an error toast
-// says it too (worfy-polish ticket 50; also for "Start anyway"). The Project's run state
+// the Wave's Tickets ({tickets}, ADR-0033), and the Project has no run. The button does not start a
+// run itself: it opens the Start Autopilot window (worfy-autopilot-queue ticket 09,
+// src/renderer/autopilot/StartAutopilotModal.tsx), which starts it in the Run mode chosen there, and
+// stays inactive while the window is open. Main checks again and may still refuse (worfy's own
+// repository in a development build, an empty "Run wave" template): the window closes, the button
+// then shows main's reason, and an error toast says it too (worfy-polish ticket 50; also for "Start
+// anyway", which starts at once, in the default mode). A start while the Orchestrator is busy is not
+// refused: the run waits for it (ticket 07). The Project's run state
 // is asked once (`autopilot.state`), then taken from `autopilot.changed`; a state replaces the one
 // before it only with a higher revision.
 //
@@ -204,11 +210,12 @@ function useAutopilot(projectId: string): AutopilotState | undefined {
 
 /**
  * Starts a run; its first state is taken at once. Resolves to main's reason when refused; a refusal
- * for a run on another Machine is kept for "Start anyway". `override` is that button's start.
+ * for a run on another Machine is kept for "Start anyway". `override` is that button's start; `mode`
+ * the Run mode chosen in the Start Autopilot window (absent: the default of Settings, in main).
  */
-async function start(projectId: string, epic: string, override = false): Promise<string | undefined> {
+async function start(projectId: string, epic: string, override = false, mode?: RunMode): Promise<string | undefined> {
   setElsewhere(projectId, null)
-  const result = await invoke('autopilot.start', override ? { projectId, epic, override } : { projectId, epic })
+  const result = await invoke('autopilot.start', { projectId, epic, ...(override ? { override } : {}), ...(mode === undefined ? {} : { mode }) })
   if (!result.ok) return refused(projectId, failureReason('autopilot.start', result.error))
   if ('runningElsewhere' in result.value) {
     setElsewhere(projectId, result.value.runningElsewhere)
@@ -442,7 +449,7 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
               ? `Run the Waves of ${epic.epic} one after another, without a person. ${DISPLAY_STAYS_ON}${hint === null ? '' : `. ${hint.join('. ')}`}`
               : wave.reason
         }
-        run={() => start(projectId, epic.epic)}
+        run={() => askStart({ projectId, epics: [epic.epic], from: 'canvas', start: (chosen) => start(projectId, epic.epic, false, chosen) })}
       />
     )
   // "⋯" right of the button: Force stop while this Epic's run goes on (stopping included), and

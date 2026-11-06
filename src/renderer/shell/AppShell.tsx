@@ -1,4 +1,5 @@
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { StartAutopilotModal } from '../autopilot/StartAutopilotModal'
 import { underFocusCover } from '../focus/cover'
 import { setFocusSlot } from '../focus/focus-state'
 import { GettingStartedPanel } from '../getting-started/GettingStartedPanel'
@@ -122,6 +123,8 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
       {/* The worfy Guide (worfy-guide ticket 03): Help ▸ worfy Guide and the palette open it; its window is a chunk loaded on the first opening. */}
       <GuideHost />
       <MachineDialogs />
+      {/* The Start Autopilot window (worfy-autopilot-queue ticket 09): the Autopilot button of an Epic frame opens it; over everything, Settings included. */}
+      <StartAutopilotModal />
     </div>
   )
 }

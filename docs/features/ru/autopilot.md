@@ -20,6 +20,16 @@ run-а она остаётся неактивной, пока приложени
 делает, что экран останется включённым до конца run-а, в каком Run mode стартует кнопка (режим по умолчанию из Settings →
 Autopilot), и Epic forecast для того, что осталось от Epic-а. Эти строки приводит страница [Run planning](run-planning.md).
 
+Клик по кнопке run не запускает: он открывает окно **Start Autopilot** внутри worfy
+(`src/renderer/autopilot/StartAutopilotModal.tsx`). Окно показывает Project, Epic, его Ticket-ы и сколько Wave осталось,
+Vendor и Session Orchestrator-а, прогноз против бюджета, Limits сейчас и Modes (Eco mode, Auto-approval, Auto-continue)
+со ссылкой «change in Modes» на меню Modes Orchestrator-а. Эти факты main читает по каналу `autopilot.prepare`, из тех же
+источников и с теми же строками прогноза, что и диалог `autopilot_start`. Ниже человек выбирает Run mode: Fastest,
+Budget-aware или Start window; режим по умолчанию из Settings → Autopilot помечен «(default)» и выбран. Фокус стоит на
+**Cancel**, Esc — это Cancel, ⌘↩ (Ctrl+Enter на Windows) — главная кнопка. Главная кнопка — **Start Autopilot**, а пока
+Orchestrator занят — **Start when free**; окно тогда говорит, чем он занят. Окно закрывается, как только main ответил;
+отказ — это toast и tooltip кнопки, как сказано ниже. **Start anyway** стартует сразу, в режиме по умолчанию, без окна.
+
 Старт получает отказ, с причиной на кнопке, в таких случаях:
 
 - У Project-а уже есть run. У Project-а не больше одного run-а одновременно.
@@ -84,8 +94,8 @@ window**. **Cancel** — кнопка по умолчанию, поэтому En
 которой идёт Session: в окне с фокусом, иначе в окне на экране, иначе в свёрнутом или скрытом окне, которое сначала
 возвращают. Окно Linked machine диалога не получает и подтвердить не может. Если ответа нет 10 минут, диалог закрывается,
 а агент получает «No one confirmed …»; Cancel — тоже отказ. Кнопка старта запускает тот же run, что и кнопка Autopilot, в
-выбранном режиме, по названным Ticket-ам, если они есть. Кнопка Autopilot и команда, набранная в чате, всегда стартуют в
-режиме по умолчанию. Если Orchestrator занят, в том числе когда спрашивающая Session — сам Orchestrator в своём turn-е,
+выбранном режиме, по названным Ticket-ам, если они есть. Команда, набранная в чате, всегда стартует в режиме по
+умолчанию; кнопка Autopilot стартует в режиме, выбранном в её окне. Если Orchestrator занят, в том числе когда спрашивающая Session — сам Orchestrator в своём turn-е,
 run ждёт его, как сказано в «Пока Orchestrator занят», а агент получает «Autopilot waits for the Orchestrator and starts
 when it is free». Без диалога инструмент отказывает:
 

@@ -8,6 +8,7 @@ import { expect, test, type ElectronApplication, type Locator, type Page } from 
 import { runningElsewhere, STOP_TEXT } from '../../src/main/autopilot/run'
 import { launchLinkedPair, openSecondWindow, repoRoot, type LaunchedApp } from './helpers'
 import { catScript } from '../harness-node'
+import { startAutopilot } from './autopilot-start'
 
 // One Autopilot per Epic and origin across the Linked machines (worfy-link ticket 15, ADR-0053,
 // Q13), in two built worfy linked through "Link a machine" (launchLinkedPair, worfy-link ticket 02)
@@ -235,7 +236,7 @@ test('Autopilot over an Epic on A: B is refused for the same Epic of the same or
     // A starts the Epic; the chip under the button says that A runs it.
     const onA = frameOf(pair.a.window)
     await expect(onA.autopilot).toHaveAttribute('aria-disabled', 'false')
-    await onA.autopilot.click()
+    await startAutopilot(onA.autopilot)
     await expect(onA.status).toHaveText('Wave 1 · running')
     await expect(onA.machine).toHaveText('on Studio')
     await expect(onA.machine).toHaveAttribute('title', `Studio runs Autopilot over ${EPIC}`)
@@ -249,7 +250,7 @@ test('Autopilot over an Epic on A: B is refused for the same Epic of the same or
     await expect(onB.autopilot).toHaveAttribute('aria-disabled', 'false')
     const titleBefore = (await onB.title.boundingBox())!.width
     expect(titleBefore, 'the Epic title of the two-Ticket frame has room before the refusal').toBeGreaterThan(20)
-    await onB.autopilot.click()
+    await startAutopilot(onB.autopilot)
     const refusal = runningElsewhere(EPIC, 'Studio')
     await expect(onB.autopilot).toHaveAttribute('data-error', refusal)
     // The refusal's chip and "Start anyway" stand under the buttons, inside the header: the Epic
@@ -307,11 +308,11 @@ test('Stop of A\'s run pressed at once on two screens: both show stopped, the jo
     await setUp(pair.a)
     await setUp(pair.b)
     const first = frameOf(pair.a.window)
-    await first.autopilot.click()
+    await startAutopilot(first.autopilot)
     await expect(first.status).toHaveText('Wave 1 · running')
     // B is refused while A's run goes on; its "Start anyway" stays for after the run.
     const onB = frameOf(pair.b.window)
-    await onB.autopilot.click()
+    await startAutopilot(onB.autopilot)
     await expect(onB.autopilot).toHaveAttribute('data-error', runningElsewhere(EPIC, 'Studio'))
     // The second screen of A: the Project of A as another window shows it.
     const window = await openSecondWindow(pair.a, { size: { width: 1400, height: 900 } })
