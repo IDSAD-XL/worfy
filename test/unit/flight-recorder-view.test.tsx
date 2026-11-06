@@ -202,7 +202,7 @@ describe('the Run history screen over the night Run', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand all' }))
     const lost = NIGHT.timeline.spans.find((span) => span.lost === 'gate-logs-deleted')!
     expect(rowOf(lost.id).querySelector('[data-testid="run-history-bar"]')?.className).toContain('w-fr-bar--lost')
-    expect(rowOf(lost.id).textContent).toContain('gate logs deleted (10 runs or 8 days)')
+    expect(rowOf(lost.id).textContent).toContain('gate logs deleted (kept 31 days)')
     expectLabelsClear()
   })
 

@@ -37,7 +37,7 @@ export type FactSource = (typeof FACT_SOURCES)[number]
 /** A source that is gone or did not answer, with the label the screen shows (decision 08, Q5). */
 export const LOST_SOURCE_LABELS = {
   'transcript-deleted': 'transcript deleted',
-  'gate-logs-deleted': 'gate logs deleted (10 runs or 8 days)',
+  'gate-logs-deleted': 'gate logs deleted (kept 31 days)',
   'github-no-answer': 'GitHub did not answer',
   'branch-deleted': 'branch deleted',
 } as const

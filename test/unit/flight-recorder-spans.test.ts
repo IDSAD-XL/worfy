@@ -697,7 +697,7 @@ describe('lost sources', () => {
   it('label a span the Journal knows of whose details are gone, with the four labels', () => {
     expect(LOST_SOURCE_LABELS).toEqual({
       'transcript-deleted': 'transcript deleted',
-      'gate-logs-deleted': 'gate logs deleted (10 runs or 8 days)',
+      'gate-logs-deleted': 'gate logs deleted (kept 31 days)',
       'github-no-answer': 'GitHub did not answer',
       'branch-deleted': 'branch deleted',
     })

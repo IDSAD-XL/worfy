@@ -3,8 +3,9 @@
 // branches of Tickets, and the gate runs of the shared night-Run fixture. Each gate run lands on its
 // Ticket through the span model (spans.ts): by `head`, and without a PR by `worktree`, the path in
 // the canonical form (realpath, then on Windows one separator and no letter case). Times come from
-// `at` inside timings.json, not from the file's mtime. What is gone is labelled: «gate logs deleted
-// (10 runs or 8 days)», «branch deleted». Nothing is written to the Harness home or the repository.
+// `at` inside timings.json, not from the file's mtime. What is gone is labelled: «gate logs deleted»
+// (a run without its record, a Run older than the 31 days the gate keeps one), «branch deleted».
+// Nothing is written to the Harness home or the repository.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
@@ -13,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { LOG_RUNS_KEPT, readGateLogs } from '../../src/main/flight-recorder/gate-logs'
+import { readGateLogs, TIMINGS_KEPT_MS } from '../../src/main/flight-recorder/gate-logs'
 import { readLocalVerdicts } from '../../src/main/flight-recorder/local-verdicts'
 import { canonicalWorktree } from '../../src/main/flight-recorder/worktree-path'
 import { markFilePath } from '../../src/main/workflow/marks'
@@ -257,25 +258,10 @@ describe('lost gate logs', () => {
   const runsAt = (tag: string, worktree: string, ends: readonly string[]): string[] => ends.map((end, index) => writeRun({ tag, end, worktree, head: SHA(`${tag}${index}`) }))
   const tenAfter = ['12:10', '12:15', '12:20', '12:25', '12:30', '12:35', '12:40', '12:45', '12:50', '12:55']
 
-  it('labels a worktree whose folder is full and whose oldest kept run began after the Run started: from the Run start to that run', async () => {
+  it('does not label a worktree folder full of runs begun after the Run started, nor one short of full: the gate keeps every record 31 days', async () => {
     const worktree = join(dir, 'wt', '05')
     mkdirSync(worktree, { recursive: true })
     runsAt('ffff6666', worktree, tenAfter)
-    const read = await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END })
-    const canonical = await canonicalWorktree(worktree)
-    expect(read.lost).toEqual([{ worktree: canonical, kind: 'gate', name: 'gate', source: 'gate-logs-deleted', start: T('10:00'), end: '2026-10-17T12:04:30.000Z' }])
-
-    // On the timeline the label covers that stretch of the Ticket's row, not the whole row over the kept runs.
-    const agent: WorkFact = { id: 'agent-05', kind: 'agent', ticket: 'e/05', name: 'impl-05', start: T('10:05'), end: T('13:30'), worktree: canonical, startSource: 'transcript', endSource: 'transcript' }
-    const timeline = buildTimeline(runFacts({ ticketEvents: [ev('10:02', 'e/05', { event: 'status', state: 'claimed' })], work: [agent, ...read.work], lost: read.lost }))
-    const lost = timeline.spans.filter((span) => span.lost !== null)
-    expect(lost.map((span) => [span.kind, span.links.ticket, LOST_SOURCE_LABELS[span.lost ?? 'gate-logs-deleted'], new Date(span.until).toISOString()])).toEqual([['gate', 'e/05', 'gate logs deleted (10 runs or 8 days)', '2026-10-17T12:04:30.000Z']])
-  })
-
-  it('does not label a full folder whose oldest run began before the Run, nor a folder short of full', async () => {
-    const worktree = join(dir, 'wt', '05')
-    mkdirSync(worktree, { recursive: true })
-    runsAt('ffff6666', worktree, ['09:58', ...tenAfter.slice(1)])
     expect((await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END })).lost).toEqual([])
     runsAt('ffff7777', worktree, tenAfter.slice(1))
     expect((await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END })).lost).toEqual([])
@@ -284,21 +270,24 @@ describe('lost gate logs', () => {
   it('reads a run past the newest LOG_RUNS_KEPT of a worktree: the pruning of the gate keeps its timings.json (gate-log.mjs pruneLogs)', async () => {
     const gateLog = (await import(pathToFileURL(GATE_LOG).href)) as {
       LOG_RUNS_KEPT: number
+      TIMINGS_KEPT_MS: number
       pruneLogs: (state: string, tag: string, current: string, keep: number, now: number) => void
     }
-    expect(LOG_RUNS_KEPT).toBe(gateLog.LOG_RUNS_KEPT)
+    // The mirror of the gate's limit (worfy-work-track 01): a record younger than it is never removed.
+    expect(TIMINGS_KEPT_MS).toBe(gateLog.TIMINGS_KEPT_MS)
+    const kept = gateLog.LOG_RUNS_KEPT
     const worktree = join(dir, 'wt', '05')
     mkdirSync(worktree, { recursive: true })
     // The eleventh run of a worktree, the first begun before the Run: the gate strips the oldest down
     // to its timings.json, which it keeps for 31 days, so nothing of the Run is lost.
     const folders = runsAt('ffff6666', worktree, ['10:03', ...tenAfter])
     writeFileSync(join(folders[0] as string, '01-worfy_.__lint.log'), 'ok\n')
-    gateLog.pruneLogs(join(harnessHome, 'gate', 'state'), 'ffff6666', folders.at(-1) as string, gateLog.LOG_RUNS_KEPT, RUN_END)
-    expect(readdirSync(join(harnessHome, 'gate', 'state', 'logs', 'ffff6666'))).toHaveLength(LOG_RUNS_KEPT + 1)
+    gateLog.pruneLogs(join(harnessHome, 'gate', 'state'), 'ffff6666', folders.at(-1) as string, kept, RUN_END)
+    expect(readdirSync(join(harnessHome, 'gate', 'state', 'logs', 'ffff6666'))).toHaveLength(kept + 1)
     expect(readdirSync(folders[0] as string)).toEqual(['timings.json'])
     const read = await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END })
     expect(read.lost).toEqual([])
-    expect(read.work.filter((fact) => fact.kind === 'gate')).toHaveLength(LOG_RUNS_KEPT + 1)
+    expect(read.work.filter((fact) => fact.kind === 'gate')).toHaveLength(kept + 1)
   })
 
   it('labels a run folder of the Run without timings.json, up to the next run of its worktree or the Run end', async () => {
@@ -321,11 +310,12 @@ describe('lost gate logs', () => {
     expect((await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END })).lost).toHaveLength(2)
   })
 
-  it('labels every Ticket without a gate run once the Run is older than the 8 days the gate keeps a quiet worktree', async () => {
-    const read = await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END + 9 * 24 * 60 * 60 * 1000 })
+  it('labels every Ticket without a gate run once the Run is older than the 31 days the gate keeps a record', async () => {
+    const day = 24 * 60 * 60 * 1000
+    const read = await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END + 32 * day })
     expect(read.lost).toEqual([{ ticket: null, kind: 'gate', name: 'gate', source: 'gate-logs-deleted' }])
-    const fresh = await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END + 7 * 24 * 60 * 60 * 1000 })
-    expect(fresh.lost).toEqual([])
+    // Within the 31 days nothing is gone: a Run of 9 days ago (past the 8 days of the gate before worfy-work-track 01) too.
+    for (const days of [9, 30]) expect((await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END + days * day })).lost).toEqual([])
   })
 })
 
