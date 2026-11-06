@@ -22,8 +22,6 @@ lines.
 A start is refused in these cases. The reason shows in the button's tooltip and in an error toast:
 
 - The Project already has a run. A Project has at most one run at a time.
-- The Orchestrator is in a turn, has live background tasks, or has messages waiting in its queue. Live background tasks
-  do not refuse a start while a stopped run still waits for them (see "After any other stop").
 - The "Run wave" template is empty or does not contain `{tickets}`.
 - The Project has no such Epic, or the workflow cannot be read.
 - The Project is worfy's own repository and this is a development build. Any checkout of that repository counts, the
@@ -35,6 +33,20 @@ A refused start writes no journal and does not keep the display on. "Start anywa
 will take the same Tickets. It is the only way past that refusal. A Linked machine that is not connected, or that does
 not answer within 3 seconds, does not block a start: the chip "on <Machine>" names it in its tooltip. A Project without
 remote `origin` asks no one.
+
+**While the Orchestrator is busy** — in a turn, with live background tasks, or with messages waiting in its queue — a
+start is not refused. The run begins at once, its journal opens with `run-started` and `orchestrator-busy`, and the status line says
+`waiting for the Orchestrator · 4 min`. The run sends its first Wave once the Orchestrator is free: the turn is over, the
+queue is empty, no background task lives, and two minutes passed after the last task ended with no new turn. A message
+sent during the wait makes it longer. Then the checks above run again: a refusal at this moment stops the run with
+`start-refused` and the reason, in the journal and as a notice in the Session that asked from a chat. keep-awake starts
+only with the real start. **Stop** (and Force stop) on a waiting run cancels it: `start-cancelled`, the Orchestrator
+untouched. **Start now** (channel `autopilot.startNow`) does not wait: it stops the Orchestrator's turn and background
+tasks, journals them as `tasks-killed` with the reason `start-now`, and starts the run at once. The checks above run
+first, so Start now can also end the run with `start-refused`. The window has no Start now button yet: only the main
+process channel calls it. The messages of the queue
+are not sent to the run: they come back, held, to the person's Session after the run
+([ADR-0099](../adr/0099-run-waits-for-orchestrator.md)).
 
 No run starts by itself, also not after the app restarts.
 
@@ -57,8 +69,8 @@ that is no Epic of the Project, an argument such as `depth medium`, or a message
 became of the command: "Autopilot started on Epic X", or the refusal. While a run of the Project goes on, the refusal is
 "Autopilot is already running Epic X. Stop it first." A refused command writes no journal, and a running run does not
 count it as a person stepping in. A message sent right after a command waits for its answer, so it reaches the run that
-command started, and the run journals it as a person stepping in. Typed in the Orchestrator's own Session during its turn, the run starts once that turn
-is over, and the toast says "Autopilot starts after this turn". The Waves Autopilot sends to the Orchestrator are never
+command started, and the run journals it as a person stepping in. Typed while the Orchestrator is busy, also in its own Session during its turn, the run
+waits for it as described under "While the Orchestrator is busy", and the toast says "Autopilot waits for the Orchestrator and starts when it is free". The Waves Autopilot sends to the Orchestrator are never
 read as a command.
 
 **From a chat, by the agent.** When the user asks a Session in words to run an Epic, or some of its Tickets, on autopilot,
@@ -71,14 +83,13 @@ that runs the Session: the focused window, else one on screen, else a minimised 
 Linked machine's window gets no dialog and cannot confirm. Without an answer in 10 minutes the dialog closes and the
 agent gets "No one confirmed …"; Cancel is a refusal too. A start button starts the same run as the Autopilot button,
 in the chosen mode, over the named Tickets when there are any. The Autopilot button and a command typed in a chat
-always start in the default mode. When the asking Session is the Project's Orchestrator in its turn, the run starts once that turn
-is over, and the agent gets "Autopilot starts after this turn". Without a dialog the tool refuses:
+always start in the default mode. When the Orchestrator is busy, also when the asking Session is the Orchestrator in its turn, the run
+waits for it as described under "While the Orchestrator is busy", and the agent gets "Autopilot waits for the Orchestrator and starts when it is free". Without a dialog the tool refuses:
 
 - a Session that runs unattended, such as the Orchestrator during a run: no one is there to confirm. The Orchestrator of a
   stopped run that still waits for its turn or background tasks is not refused: it gets the dialog;
 - a Session worfy cannot find;
 - a Project with a run under way: "Autopilot is already running Epic X. Stop it first.", and the journal gets nothing;
-- a Project whose start from a chat waits for the Orchestrator's turn to end;
 - an Epic or a Ticket the Project does not have, or a workflow that cannot be read;
 - a second call while a dialog of the same Project waits;
 - a Machine with no worfy window open: a box without a window would block worfy on macOS.
@@ -94,6 +105,7 @@ The line above the button shows the state of the run:
 | Status line | Meaning |
 |---|---|
 | `starting` | The run has begun and no Wave has gone yet. |
+| `waiting for the Orchestrator · 4 min` | The run has begun and waits for the Orchestrator's turn, queue and background tasks to end. No minutes in the first minute. |
 | `Wave 2 · running` | The run has sent its second Wave. Waves are counted per run from 1, this is not the Wave number of the Epic's plan. |
 | `Wave 2 · 4 background tasks` | The same, with four live background tasks of the Orchestrator. |
 | `waiting for limits · resumes 14:20` | The Limits refused a turn. The run continues at this time. |
@@ -415,6 +427,8 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `workflow-error` | The workflow could not be read when the run had to judge the Wave. |
 | `user-stop` | Stop autopilot. |
 | `user-force-stop` | Force stop. |
+| `start-cancelled` | Stop or Force stop while the run waited for the Orchestrator. |
+| `start-refused` | A check refused when the Orchestrator became free. The reason is in the journal's `message`. |
 | `app-quit` | The app quit. |
 
 The tooltip of the status line gives the error in words when there is one.
@@ -515,7 +529,7 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | Path | What it holds |
 |---|---|
 | `src/main/autopilot/run.ts` | The `Autopilot` class and one `Run`: start checks, events of the Session, effects of the cycle, stops, give-back. |
-| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: the start from a chat, over the Epic or named Tickets; the refusal while a run goes on, and the start after the asking Orchestrator's turn. The command typed in a chat and the tool `autopilot_start` call it. |
+| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: the start from a chat, over the Epic or named Tickets; the refusal while a run goes on, the answer that the run waits for a busy Orchestrator, and the notice when that run is refused later. The command typed in a chat and the tool `autopilot_start` call it. |
 | `src/shared/autopilot/chat-command.ts` | `parseChatCommand`: which typed messages are a command, with what Epic and Tickets; the toast of its answer. |
 | `src/shared/workflow/wave-plan.ts` | `parseWavePlan`, `waveTickets`: the Waves table of an Epic's `spec.md`, and the Tickets of Wave N not done yet. |
 | `src/main/ipc/agent.ts` | `agent.send`: a command does not reach the agent; it starts the run through `startFromChat` and answers what became of it. |
@@ -526,7 +540,7 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | `src/main/actions/launch.ts` | `autopilotWave`, `autopilotRefusal`, `autopilotGateQueue`: the text from the template, sent to the Orchestrator. |
 | `src/shared/actions/render-template.ts` | `runWaveState`: the verdict and the text, shared with the button. |
 | `src/shared/workflow/waves.ts` | `readyWave`: the ready Wave and the Tickets left out. |
-| `src/main/agent/orchestrator.ts` | `setUnattended`, `giveBackNow`, `newUnattendedSession`, and the refusals for a turn, tasks or a queue. `runsOn`: the Vendor a run goes on; `unattendedRefusal`: the refusal of a Vendor whose Harness does not hold. |
+| `src/main/agent/orchestrator.ts` | `setUnattended`, `giveBackNow`, `newUnattendedSession`, and the refusals for a turn, tasks or a queue. `busy`: what keeps the Orchestrator busy; `takeNow`: Start now. `runsOn`: the Vendor a run goes on; `unattendedRefusal`: the refusal of a Vendor whose Harness does not hold. |
 | `src/main/agent/app-orchestrators.ts` | The Orchestrator's Vendor, the Project's `defaultVendor`, read at its start. |
 | `src/shared/autopilot/budget-window.ts` | Which Limits window a run's budget reads: Claude Code's 7-day and 5-hour, or the Codex windows by length. Pure. |
 | `src/main/vendors/codex/harness-hooks.ts` | Whether the Harness hooks are approved in Codex (`hooks/list`), and the refusal of a Codex run while they are not. |
@@ -556,8 +570,9 @@ page.
 
 1. The button calls `autopilot.start`. `Autopilot.start` runs the checks in order: the Project has no run, the self-project refusal
    and the template, the workflow and the Epic, then the origin key and the question to the Linked machines.
-2. `setUnattended` starts the Orchestrator's Session again unattended, continuing its SDK session, or refuses. Then the run opens the
-   journal (`run-started`, then `forecast`), starts keep-awake, subscribes to the Session's events and opens a workflow watch that reports changes of
+2. The run opens its journal (`run-started`). While `Orchestrators.busy` reports a turn, queued messages or live tasks, it
+   waits (`orchestrator-busy`); once free it writes `orchestrator-free` and runs the checks again. `setUnattended` starts the
+   Orchestrator's Session again unattended, continuing its SDK session, or refuses. Then the run writes `forecast`, starts keep-awake, subscribes to the Session's events and opens a workflow watch that reports changes of
    Tickets' fields only.
 3. The `start` event goes to the cycle. Its `send-wave` effect runs `sendWave` in the run: it asks the usage, checks the Run mode (the Start window and the budget), starts
    a new SDK session for a Wave after the first, and calls `autopilotWave`. The launcher reads the workflow once and takes the text,
@@ -584,6 +599,8 @@ it cannot read.
 | Kind | Written when |
 |---|---|
 | `run-started` | The run began. Has `origin`, and `override` or `unasked` when they apply. `by` says who started it: `button`, `command` or `tool`. `tickets` names the Tickets of a run over named Tickets. `mode` is the Run mode: `fastest`, `budget-aware` or `start-window`. `vendor` is the Vendor of the Orchestrator, `claude` or `codex`; a line without it is a run on Claude Code. `autoApproval` is the Auto-approval mode at the start, `shadow` or `on`, or `off` when the policy could not start, and the run went on as at Off; a line without it is a run at Off. |
+| `orchestrator-busy` | The run waits for the busy Orchestrator: `turn`, `queued` (messages in its queue) and `tasks`, at the start of the wait and on each change. |
+| `orchestrator-free` | The wait for the Orchestrator ended; the run takes it now. |
 | `harness-behind` | The Harness in `main` is newer: after `run-started`, and before a `wave-started` when the count changed. |
 | `forecast` | The Epic forecast at the start, once, after `run-started` and `harness-behind`, before the first `wave-started`: the Run mode, the Waves and Tickets left, the samples, `low` and `high` (p10 and p90 of the share of the week, `null` under 5 samples), `fit` (how many Waves fit before the 7-day reset with the reserve; only when the Run has a recommendation, in Budget-aware or in Start window with the budget on, else `null`), `week` (the 7-day number at the start), the p90 of a Wave's duration with its sample count, and `window` in Start window. Journals that cannot be read give `samples: 0`; the run goes on. In a run on Codex, `samples`, `fit` and `week` are of the longest Codex window and of earlier Codex Waves only. |
 | `wave-started`, `wave-finished` | A Wave went or ended. `wave-started` has the text sent, the skipped Tickets and `session`, the id of the Orchestrator's SDK session the Wave went to (its transcript's name). Both may have `limits`: `{five_hour, seven_day}` in a run on Claude Code, `{windows}` with the Codex windows in a run on Codex. |
@@ -605,7 +622,7 @@ it cannot read.
 | `gate-queue-finished` | The turn of "Process gate queue" ended. `run-stopped` follows. |
 | `run-stopped` | The run ended, with its reason. `tickets` for `blocked-tickets`, and for `user-force-stop` and `session-error` after the first Wave. `lastText` for a stop for want of a Wave. `actual` once a Wave has finished, on a Force stop and a quit too: the growth of the 7-day share over the run's Waves (`share`; in a run on Codex, of the longest Codex window), the Waves finished (`waves`) and how many of them counted (`counted`; a Wave with a stale number or a week reset inside does not). |
 | `orchestrator-returned` | The Orchestrator is a person's Session again, after a stop that had to wait, or after a Force stop. |
-| `tasks-killed` | Tasks the run waited for ended with the process, on a quit or a Force stop. |
+| `tasks-killed` | Tasks the run waited for ended with the process, on a quit or a Force stop. With the reason `start-now`: the tasks of the Orchestrator that Start now stopped. |
 
 #### Windows
 
@@ -643,7 +660,7 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/contract/agent-send-autopilot.test.ts` | `agent.send` with a command: the start, the refusal while a run goes on, and what still reaches the agent. |
 | `test/e2e/autopilot-chat.spec.ts` | The command typed in the Session view and in a Session Node: the toasts and the status line. |
 | `test/contract/autopilot-background.test.ts` | Background tasks, and stops while they live. |
-| `test/contract/autopilot-start-tool.test.ts` | The tool `autopilot_start`: the dialog, its 10 minutes, the window it is on, the refusals without it, the start after the Orchestrator's turn. |
+| `test/contract/autopilot-start-tool.test.ts` | The tool `autopilot_start`: the dialog, its 10 minutes, the window it is on, the refusals without it, the answer of a run that waits for the Orchestrator. |
 | `test/contract/autopilot-limits.test.ts` | The wait for the Limits and the budget, with a clock the test moves. |
 | `test/contract/autopilot-limits-switch.test.ts` | The wait for the Limits with Auto-continue off and on: the 7-day window without the 5-hour one, a reset in 3 days with keep-awake released and taken again, no reset time, the switch turned off during the wait. |
 | `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result and the secrets of its command, the Limits (also during the wait), a background task's turn, Stop (also a second one while stopping), Force stop, the quit and the switch turned off during the wait. |

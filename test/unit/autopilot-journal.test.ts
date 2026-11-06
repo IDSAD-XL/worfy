@@ -44,8 +44,12 @@ const forecast: JournalEvent = {
 }
 
 /** One valid event of every kind, in the order of JOURNAL_EVENT_KINDS. */
+const busy: JournalEvent = { ...base, at: at(0), kind: 'orchestrator-busy', turn: true, queued: 2, tasks: [{ id: 'task-0', type: 'local_agent', description: 'Look into the flaky test' }] }
+const free: JournalEvent = { ...base, at: at(0), kind: 'orchestrator-free' }
 const everyKind: JournalEvent[] = [
   started,
+  busy,
+  free,
   harnessBehind,
   forecast,
   waveStarted,
@@ -108,6 +112,15 @@ describe('parseJournal', () => {
     expect(everyKind.map((event) => event.kind)).toEqual([...JOURNAL_EVENT_KINDS])
     const text = everyKind.map((event) => formatJournalLine(event)).join('')
     expect(parseJournal(text)).toEqual({ events: everyKind, skipped: 0 })
+  })
+
+  it('reads the wait for the busy Orchestrator, Start now and a refusal when the run takes it (worfy-autopilot-queue ticket 07); skips a busy line without its fields', () => {
+    const killed: JournalEvent = { ...base, at: at(1), kind: 'tasks-killed', reason: 'start-now', tasks: [{ id: 'task-0', type: 'local_agent', description: null }] }
+    const refused: JournalEvent = { ...base, at: at(2), kind: 'run-stopped', reason: 'start-refused', message: 'Autopilot is already running Epic demo of this repository on Studio' }
+    const cancelled: JournalEvent = { ...base, at: at(2), kind: 'run-stopped', reason: 'start-cancelled' }
+    expect(parseJournal(line(started) + line(busy) + line(killed) + line(free) + line(refused))).toEqual({ events: [started, busy, killed, free, refused], skipped: 0 })
+    expect(parseJournal(line(started) + line(busy) + line(cancelled))).toEqual({ events: [started, busy, cancelled], skipped: 0 })
+    expect(parseJournal(line(started) + line({ ...base, at: at(0), kind: 'orchestrator-busy', turn: true }))).toEqual({ events: [started], skipped: 1 })
   })
 
   it('reads harness-behind (worfy-harness ticket 21), and a journal without it as before', () => {

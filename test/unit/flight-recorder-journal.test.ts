@@ -676,6 +676,8 @@ describe('from-journal: the frame of the Run', () => {
       'vendor-quota': 'failed',
       'background-stalled': 'failed',
       'window-too-short': 'failed',
+      'start-cancelled': 'stopped',
+      'start-refused': 'failed',
     })
     expect(read(started(), stopped('10:01', 'tickets-done')).run.outcome).toBe('ok')
     // The Start window too short for any Wave (worfy-resource-planner ticket 05): the Run did not do its work.

@@ -48,7 +48,8 @@ export const agentStart = invokeChannel(
 
 /**
  * What became of an Autopilot command typed in a chat (worfy-flight-recorder ticket 22): the run
- * started, it starts after the Orchestrator's turn, or it was refused; `message` says it in words.
+ * started, it waits for the busy Orchestrator (kind `after-turn`, a name kept from ADR-0091), or it
+ * was refused; `message` says it in words.
  */
 export const chatCommandAnswerSchema = z.object({ kind: z.enum(['started', 'after-turn', 'refused']), epic: z.string(), message: z.string() })
 export type ChatCommandAnswer = z.infer<typeof chatCommandAnswerSchema>

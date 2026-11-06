@@ -23,7 +23,6 @@ Autopilot), и Epic forecast для того, что осталось от Epic-
 Старт получает отказ, с причиной на кнопке, в таких случаях:
 
 - У Project-а уже есть run. У Project-а не больше одного run-а одновременно.
-- Orchestrator в turn-е, у него живые background task-и или сообщения в очереди.
 - Шаблон «Run wave» пуст или в нём нет `{tickets}`.
 - У Project-а нет такого Epic-а, или workflow не читается.
 - Project — это собственный репозиторий worfy, а сборка development. Считается любой checkout этого репозитория, worktree
@@ -35,6 +34,20 @@ Autopilot), и Epic forecast для того, что осталось от Epic-
 одни и те же Ticket-ы. Другого пути мимо этого отказа нет. Linked machine, которая не подключена или не ответила за
 3 секунды, старт не блокирует: chip «on <Machine>» называет её в своём tooltip. Project без remote `origin` никого не
 спрашивает.
+
+**Пока Orchestrator занят** — в turn-е, с живыми background task-ами или с сообщениями в очереди — старт не получает
+отказ. Run начинается сразу, его journal открывается строками `run-started` и `orchestrator-busy`, а строка состояния говорит
+`waiting for the Orchestrator · 4 min`. Первую Wave run отправляет, когда Orchestrator свободен: turn кончился, очередь
+пуста, живых background task-ов нет, и за две минуты после конца последней задачи не начался новый turn. Сообщение,
+отправленное во время ожидания, ожидание продлевает. Затем проверки из списка выше идут заново: отказ в этот момент
+останавливает run с `start-refused` и причиной — в journal и notice-ом в Session, которая просила старт из чата.
+keep-awake включается только при настоящем старте. **Stop** (и Force stop) на ожидающем run-е его отменяет:
+`start-cancelled`, Orchestrator не трогается. **Start now** (канал `autopilot.startNow`) не ждёт: останавливает turn и
+background task-и Orchestrator-а, пишет их в journal как `tasks-killed` с причиной `start-now` и сразу запускает run.
+Проверки из списка выше идут и здесь, так что Start now тоже может закончить run с `start-refused`. Кнопки Start now в
+окне пока нет: его вызывает только канал main process.
+Сообщения очереди run-у не уходят: они возвращаются в Session человека после run-а, придержанными
+([ADR-0099](../../adr/0099-run-waits-for-orchestrator.md)).
 
 Сам по себе run не стартует, и после перезапуска приложения тоже.
 
@@ -57,8 +70,9 @@ Autopilot), и Epic forecast для того, что осталось от Epic-
 кончилась команда: «Autopilot started on Epic X» или отказ. Пока у Project-а идёт run, отказ такой: «Autopilot is already
 running Epic X. Stop it first.» Команда с отказом не пишет journal, и идущий run не считает её вмешательством человека.
 Сообщение, отправленное сразу после команды, ждёт её ответа, поэтому попадает в run, который запустила эта команда, и run
-пишет его в journal как вмешательство человека. Если команду набрали в собственной Session Orchestrator-а во время его
-turn-а, run стартует, когда этот turn закончится, а toast говорит «Autopilot starts after this turn». Wave-ы, которые
+пишет его в journal как вмешательство человека. Если Orchestrator занят, в том числе когда команду набрали в его собственной
+Session во время turn-а, run ждёт его, как сказано в «Пока Orchestrator занят», а toast говорит «Autopilot waits for the
+Orchestrator and starts when it is free». Wave-ы, которые
 Autopilot отправляет Orchestrator-у, никогда не читаются как команда.
 
 **Из чата, через агента.** Когда пользователь словами просит Session запустить на autopilot Epic или часть его Ticket-ов,
@@ -71,13 +85,13 @@ window**. **Cancel** — кнопка по умолчанию, поэтому En
 возвращают. Окно Linked machine диалога не получает и подтвердить не может. Если ответа нет 10 минут, диалог закрывается,
 а агент получает «No one confirmed …»; Cancel — тоже отказ. Кнопка старта запускает тот же run, что и кнопка Autopilot, в
 выбранном режиме, по названным Ticket-ам, если они есть. Кнопка Autopilot и команда, набранная в чате, всегда стартуют в
-режиме по умолчанию. Если спрашивающая Session — Orchestrator Project-а в своём turn-е, run стартует, когда этот turn
-закончится, а агент получает «Autopilot starts after this turn». Без диалога инструмент отказывает:
+режиме по умолчанию. Если Orchestrator занят, в том числе когда спрашивающая Session — сам Orchestrator в своём turn-е,
+run ждёт его, как сказано в «Пока Orchestrator занят», а агент получает «Autopilot waits for the Orchestrator and starts
+when it is free». Без диалога инструмент отказывает:
 
 - Session, которая работает unattended, например Orchestrator во время run-а: подтвердить некому;
 - Session, которую worfy не может найти;
 - Project, у которого идёт run: «Autopilot is already running Epic X. Stop it first.», и в journal ничего не попадает;
-- Project, чей старт из чата ждёт конца turn-а Orchestrator-а;
 - Epic или Ticket, которого у Project-а нет, или workflow, который не читается;
 - второй вызов, пока ждёт диалог того же Project-а;
 - Machine без открытого окна worfy: диалог без окна заблокировал бы worfy на macOS.
@@ -93,6 +107,7 @@ window**. **Cancel** — кнопка по умолчанию, поэтому En
 | Строка состояния | Значение |
 |---|---|
 | `starting` | Run начался, Wave ещё не ушла. |
+| `waiting for the Orchestrator · 4 min` | Run начался и ждёт, пока у Orchestrator-а кончатся turn, очередь и background task-и. В первую минуту — без минут. |
 | `Wave 2 · running` | Run отправил вторую Wave. Wave считаются внутри run-а с 1, это не номер Wave в плане Epic-а. |
 | `Wave 2 · 4 background tasks` | То же, и у Orchestrator-а четыре живых background task-а. |
 | `waiting for limits · resumes 14:20` | Limits отказали turn-у. Run продолжит в это время. |
@@ -332,6 +347,8 @@ Orchestrator сразу возвращается к человеку, когда
 | `workflow-error` | Workflow не прочитался, когда run должен был оценить Wave. |
 | `user-stop` | Stop autopilot. |
 | `user-force-stop` | Force stop. |
+| `start-cancelled` | Stop или Force stop, пока run ждал Orchestrator. |
+| `start-refused` | Проверка отказала, когда Orchestrator освободился. Причина — в `message` journal-а. |
 | `app-quit` | Выход из приложения. |
 
 Tooltip строки состояния называет ошибку словами, когда она есть.
@@ -436,7 +453,7 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 | Путь | Что там |
 |---|---|
 | `src/main/autopilot/run.ts` | Класс `Autopilot` и один `Run`: проверки старта, события Session, эффекты цикла, остановки, возврат Orchestrator-а. |
-| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: старт из чата, по Epic-у или по названным Ticket-ам; отказ, пока идёт run, и старт после turn-а спрашивающего Orchestrator-а. Его вызывают команда, набранная в чате, и инструмент `autopilot_start`. |
+| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: старт из чата, по Epic-у или по названным Ticket-ам; отказ, пока идёт run, ответ, что run ждёт занятого Orchestrator-а, и notice, если этот run позже получил отказ. Его вызывают команда, набранная в чате, и инструмент `autopilot_start`. |
 | `src/shared/autopilot/chat-command.ts` | `parseChatCommand`: какие набранные сообщения являются командой, с каким Epic-ом и Ticket-ами; toast её ответа. |
 | `src/shared/workflow/wave-plan.ts` | `parseWavePlan`, `waveTickets`: таблица Waves в `spec.md` Epic-а и ещё не выполненные Ticket-ы Wave N. |
 | `src/main/ipc/agent.ts` | `agent.send`: команда не доходит до агента; она запускает run через `startFromChat` и отвечает, чем кончилась. |
@@ -447,7 +464,7 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 | `src/main/actions/launch.ts` | `autopilotWave`, `autopilotRefusal`, `autopilotGateQueue`: текст из шаблона, отправленный Orchestrator-у. |
 | `src/shared/actions/render-template.ts` | `runWaveState`: решение и текст, общие с кнопкой. |
 | `src/shared/workflow/waves.ts` | `readyWave`: готовая Wave и пропущенные Ticket-ы. |
-| `src/main/agent/orchestrator.ts` | `setUnattended`, `giveBackNow`, `newUnattendedSession` и отказы из-за turn-а, task-ов или очереди. |
+| `src/main/agent/orchestrator.ts` | `setUnattended`, `giveBackNow`, `newUnattendedSession` и отказы из-за turn-а, task-ов или очереди. `busy` — чем занят Orchestrator; `takeNow` — Start now. |
 | `src/main/agent/session-settings.ts` | Запуск Session и принудительный режим разрешений. |
 | `src/main/agent/permissions.ts` | `unattendedCanUseTool`: отказ на каждый запрос. |
 | `src/main/agent/session.ts` | `halt` для Force stop, `refuseDialog`. |
@@ -471,8 +488,10 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 
 1. Кнопка вызывает `autopilot.start`. `Autopilot.start` выполняет проверки по порядку: у Project-а нет run-а, отказ для
    собственного репозитория и шаблон, workflow и Epic, затем ключ origin и вопрос к Linked machines.
-2. `setUnattended` заново запускает Session Orchestrator-а как unattended, продолжая её SDK session, или отказывает. Затем
-   run открывает journal (`run-started`, затем `forecast`), включает keep-awake, подписывается на события Session и
+2. Run открывает journal (`run-started`). Пока `Orchestrators.busy` сообщает turn, сообщения в очереди или живые task-и,
+   run ждёт (`orchestrator-busy`); освободился — пишет `orchestrator-free` и выполняет проверки заново. `setUnattended`
+   заново запускает Session Orchestrator-а как unattended, продолжая её SDK session, или отказывает. Затем run пишет
+   `forecast`, включает keep-awake, подписывается на события Session и
    открывает watch workflow, который сообщает только об изменениях полей Ticket-ов.
 3. Событие `start` идёт в цикл. Его эффект `send-wave` запускает `sendWave` в run-е: тот спрашивает расход, проверяет Run
    mode (Start window и бюджет), запускает новую SDK session для Wave после первой и вызывает `autopilotWave`. Launcher
@@ -499,6 +518,8 @@ run-а — время старта в UTC и шесть шестнадцатер
 | Kind | Когда пишется |
 |---|---|
 | `run-started` | Run начался. Есть `origin`, а также `override` или `unasked`, когда они применимы. `by` говорит, кто его запустил: `button`, `command` или `tool`. `tickets` называет Ticket-ы run-а по названным Ticket-ам. `mode` — Run mode: `fastest`, `budget-aware` или `start-window`. `autoApproval` — Auto-approval mode на старте, `shadow` или `on`, либо `off`, если policy не смогла запуститься и run шёл как при Off; строка без него — run при Off. |
+| `orchestrator-busy` | Run ждёт занятый Orchestrator: `turn`, `queued` (сообщения в очереди) и `tasks`, в начале ожидания и при каждом изменении. |
+| `orchestrator-free` | Ожидание Orchestrator-а кончилось; run берёт его сейчас. |
 | `harness-behind` | Harness в `main` новее: после `run-started` и перед `wave-started`, когда счётчик изменился. |
 | `forecast` | Epic forecast на старте, один раз, после `run-started` и `harness-behind`, перед первой `wave-started`: Run mode, оставшиеся Wave и Ticket-ы, образцы, `low` и `high` (p10 и p90 доли недели, `null` при числе образцов меньше 5), `fit` (сколько Wave помещается до сброса окна на 7 дней с учётом резерва; только когда у run-а есть рекомендация, в Budget-aware или в Start window с включённым бюджетом, иначе `null`), `week` (число окна на 7 дней на старте), p90 длительности Wave с числом её образцов и `window` в Start window. Journal-ы, которые не читаются, дают `samples: 0`; run продолжается. |
 | `wave-started`, `wave-finished` | Wave ушла или окончена. В `wave-started` есть отправленный текст, пропущенные Ticket-ы и `session` — id SDK session Orchestrator-а, в которую ушла Wave (имя её transcript-а). В обеих может быть `limits`. |
@@ -518,7 +539,7 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `gate-queue-finished` | Turn «Process gate queue» закончился. Дальше идёт `run-stopped`. |
 | `run-stopped` | Run окончен, с причиной. `tickets` — для `blocked-tickets` и `user-force-stop`. `lastText` — для остановки из-за отсутствия Wave. `actual` — когда хотя бы одна Wave окончена, в том числе при Force stop и выходе: рост доли окна на 7 дней за Wave run-а (`share`), оконченные Wave (`waves`) и сколько из них учтено (`counted`; Wave с устаревшим числом или со сбросом недели внутри не учитывается). |
 | `orchestrator-returned` | Orchestrator снова Session человека, после остановки, которой пришлось ждать, или после Force stop. |
-| `tasks-killed` | Task-и, которых ждал run, закончились вместе с процессом, при выходе или Force stop. |
+| `tasks-killed` | Task-и, которых ждал run, закончились вместе с процессом, при выходе или Force stop. С причиной `start-now` — task-и Orchestrator-а, которые остановил Start now. |
 
 #### Windows
 
@@ -556,7 +577,7 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `test/contract/agent-send-autopilot.test.ts` | `agent.send` с командой: старт, отказ, пока идёт run, и то, что всё ещё доходит до агента. |
 | `test/e2e/autopilot-chat.spec.ts` | Команда, набранная в Session view и в Session Node: toast-ы и строка состояния. |
 | `test/contract/autopilot-background.test.ts` | Background task-и и остановки при живых task-ах. |
-| `test/contract/autopilot-start-tool.test.ts` | Инструмент `autopilot_start`: диалог, его 10 минут, окно, в котором он появляется, отказы без него, старт после turn-а Orchestrator-а. |
+| `test/contract/autopilot-start-tool.test.ts` | Инструмент `autopilot_start`: диалог, его 10 минут, окно, в котором он появляется, отказы без него, ответ run-а, который ждёт Orchestrator. |
 | `test/contract/autopilot-limits.test.ts` | Ожидание Limits и бюджет, с часами, которые двигает test. |
 | `test/unit/auto-approve-shell.test.ts` | Разбор shell-команды для Auto-approval: примеры spec-а, каждая конструкция вне грамматики, слова и кавычки, переменные, которые команда точно получает, Git Bash на Windows. |
 | `test/contract/auto-approve-shell-sh.test.ts` | Разбор против настоящих shell-ов (sh, bash, dash и zsh, где они есть, Git Bash на Windows): слова, которые он читает, — это слова, которые передаёт shell. |

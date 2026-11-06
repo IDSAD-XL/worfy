@@ -3,10 +3,11 @@
 // brief of "Run wave" and the kind of the Harness on the machine. The app's Orchestrators, launcher
 // and Harness lookup are stand-ins here, so each call is seen as the run's deps make it. The app's
 // starts from a chat (sharedChatStarts) run over the same Orchestrators and a stand-in Session
-// registry, Project list and workflow read (worfy-polish ticket 50).
+// registry, Project list and workflow read (worfy-polish ticket 50). A run that waits for the busy
+// Orchestrator asks the app's Orchestrators what keeps it busy, and Start now takes it through them
+// (worfy-autopilot-queue ticket 07).
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ORCHESTRATOR_HAS_TASKS } from '../../src/main/agent/orchestrator'
-import { AFTER_TURN_MESSAGE } from '../../src/main/autopilot/chat-start'
+import { WAIT_MESSAGE } from '../../src/main/autopilot/chat-start'
 import type { AutopilotDeps } from '../../src/main/autopilot/run'
 import type { HarnessKind } from '../../src/shared/projects/action-templates'
 
@@ -27,6 +28,9 @@ const stand = vi.hoisted(() => ({
     /** Session ids whose stopped run waits to be given back (Orchestrators.awaitsGiveBack). */
     waiting: new Set<string>(),
     awaitsGiveBack: vi.fn((sessionId: string): boolean => stand.orchestrators.waiting.has(sessionId)),
+    busy: vi.fn((projectId: string) => (projectId === '' ? null : { turn: true, queued: 0, tasks: [] })),
+    takeNow: vi.fn((projectId: string) => Promise.resolve({ view: { projectId, sessionId: 'orchestrator-session' }, killed: [] })),
+    runsOn: vi.fn(() => 'claude'),
   },
   /** The Orchestrator's Session in the app's registry: in a turn, with one live background task, nothing queued. */
   session: {
@@ -102,26 +106,26 @@ describe('the deps of the app\'s Autopilot (worfy-throughput ticket 52)', () => 
   })
 })
 
-describe("the app's starts from a chat ask the app's Orchestrators about a stopped run's Session (worfy-polish ticket 50)", () => {
-  /** autopilot_start confirmed in a turn of the Project's Orchestrator, whose Session has a live background task. */
+describe("a run that waits for the busy Orchestrator, over the app's Orchestrators (worfy-autopilot-queue ticket 07)", () => {
+  it("busy, Start now and the machine of the Orchestrator go to the app's Orchestrators, and their answers back", async () => {
+    expect(deps().orchestrators.busy?.('demo-00000007')).toEqual({ turn: true, queued: 0, tasks: [] })
+    expect(stand.orchestrators.busy).toHaveBeenCalledWith('demo-00000007')
+    await expect(deps().orchestrators.takeNow?.('demo-00000007', undefined, 100)).resolves.toEqual({ view: { projectId: 'demo-00000007', sessionId: 'orchestrator-session' }, killed: [] })
+    expect(stand.orchestrators.takeNow).toHaveBeenCalledWith('demo-00000007', undefined, 100)
+    expect(deps().orchestrators.runsOn?.('demo-00000007')).toBe('claude')
+  })
+})
+
+describe("the app's starts from a chat (worfy-polish ticket 50)", () => {
+  /** autopilot_start confirmed in a turn of the Project's Orchestrator. */
   const fromTurn = () => sharedChatStarts().startFromChat({ projectId: 'demo-00000050', epic: 'demo', by: 'tool', session: 'orchestrator-session', mode: 'fastest' })
 
-  // The checks of the run itself are Autopilot's (autopilot-background.test.ts); here they pass.
-  // The refusal goes first: the start promised after the turn stays waiting in the app's ChatStarts
-  // (the stand-in Session never goes idle), and would refuse any later start with its hint.
-  it('an attended Session with a live task is refused, as before', async () => {
-    vi.spyOn(sharedAutopilot(), 'startCheck').mockResolvedValue(null)
-    await expect(fromTurn()).resolves.toEqual({ kind: 'refused', message: ORCHESTRATOR_HAS_TASKS })
-  })
-
-  it('a Session that waits to be given back is not refused for the same live task: the run starts after the turn', async () => {
-    vi.spyOn(sharedAutopilot(), 'startCheck').mockResolvedValue(null)
-    stand.orchestrators.waiting.add('orchestrator-session')
-    try {
-      await expect(fromTurn()).resolves.toEqual({ kind: 'after-turn', message: AFTER_TURN_MESSAGE })
-      expect(stand.orchestrators.awaitsGiveBack).toHaveBeenCalledWith('orchestrator-session')
-    } finally {
-      stand.orchestrators.waiting.clear()
-    }
+  // The run itself is Autopilot's (autopilot-wait.test.ts); here the app's Autopilot answers with a
+  // run that waits for the Orchestrator, and the chat is told so instead of a refusal.
+  it('a busy Orchestrator, also the one whose turn asked, does not refuse: the run waits and the chat is told so', async () => {
+    vi.spyOn(sharedAutopilot(), 'runningEpic').mockReturnValue(null)
+    const start = vi.spyOn(sharedAutopilot(), 'start').mockResolvedValue({ projectId: 'demo-00000050', epic: 'demo', status: 'waiting', waitingFor: 'orchestrator' } as never)
+    await expect(fromTurn()).resolves.toEqual({ kind: 'after-turn', message: WAIT_MESSAGE })
+    expect(start).toHaveBeenCalledWith('demo-00000050', 'demo', expect.objectContaining({ by: 'tool', mode: 'fastest', override: false }))
   })
 })

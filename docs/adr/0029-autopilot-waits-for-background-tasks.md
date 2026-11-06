@@ -101,3 +101,10 @@ Session и файлов Ticket-ов. Протокола со skill-ом нет (
   `bypassPermissions`, и вернуть её — ещё одно действие человека.
 - **Stop сразу вызывает `stopTask` каждой задачи.** Отвергнуто: так Stop убивает работу
   implementer-ов так же, как сейчас, только явно.
+
+## Amendments
+
+- **2026-11-06, [ADR-0099](0099-run-waits-for-orchestrator.md)** (`worfy-autopilot-queue` 07). Пункт 5, последний
+  пункт: новый старт Autopilot, пока Orchestrator с живыми задачами не вернулся, больше не отклоняется. Run заводится и
+  ждёт (`waitingFor: 'orchestrator'`, Journal `orchestrator-busy`), пока задачи не кончатся и не пройдёт пауза
+  `TASKS_GRACE_MS`; Start now останавливает задачи явно (`tasks-killed` с причиной `start-now`).

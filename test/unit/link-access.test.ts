@@ -275,6 +275,7 @@ describe('the read-or-write mark of `project` channels', () => {
     'autoContinue.set',
     'autopilot.forceStop',
     'autopilot.start',
+    'autopilot.startNow',
     'autopilot.stop',
     'bindings.remove',
     'bindings.set',

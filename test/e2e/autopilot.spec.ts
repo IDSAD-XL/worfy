@@ -1202,9 +1202,11 @@ test('the Autopilot button after a turn-error stop while the Orchestrator\'s bac
   }
 })
 
-test('a refused start of Autopilot is an error toast with main\'s reason, as well as the button\'s tooltip (worfy-polish ticket 50)', async () => {
+test('a refused start of Autopilot is an error toast with main\'s reason, as well as the button\'s tooltip (worfy-polish ticket 50); a start while the Orchestrator is in a turn waits for it (worfy-autopilot-queue ticket 07)', async () => {
+  // Main refuses the start for an empty "Run wave" template, written to the Project's settings.json
+  // after the window has read them: main reads them again at the start, the button stays enabled.
   // `orchestrator`: the first turn holds until it is interrupted, so a person's message keeps the
-  // Orchestrator in a turn and main refuses the start (ORCHESTRATOR_IN_TURN).
+  // Orchestrator in a turn; a start then is not refused but waits for it.
   const { dataDir, log } = prepare()
   const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: join(scratch, 'claude-home'), WORFY_AGENT_SCRIPT: 'orchestrator', WORFY_AGENT_LOG: log }
   const launched = await launchApp({ env })
@@ -1223,7 +1225,10 @@ test('a refused start of Autopilot is an error toast with main\'s reason, as wel
     expect(await bridgeCall(window, 'agent.send', { sessionId, text: 'how is it going?' })).toMatchObject({ ok: true })
     await expect.poll(() => messages(log)).toEqual(['how is it going?'])
 
-    const reason = 'The Orchestrator is in a turn: wait for it to end, or Interrupt it, before starting Autopilot'
+    const settingsFile = join(dataDir, PROJECT, 'settings.json')
+    const settings = defaultProjectSettings('plugin')
+    writeFileSync(settingsFile, JSON.stringify({ ...settings, actionTemplates: { ...settings.actionTemplates, runWave: ' ' } }))
+    const reason = 'Set the Run wave template in Project settings'
     await autopilot.click()
     const toast = window.getByTestId('autopilot-start-refused')
     await expect(toast).toBeVisible()
@@ -1234,6 +1239,17 @@ test('a refused start of Autopilot is an error toast with main\'s reason, as wel
     await expect(frame.getByTestId('autopilot-status')).toHaveCount(0)
     expect(existsSync(join(dataDir, 'autopilot')) ? readdirSync(join(dataDir, 'autopilot')) : []).toEqual([])
     await evidence50(window, toast, 'refused-toast')
+
+    // The template back: the run is accepted and waits for the Orchestrator's turn, its journal opens.
+    writeFileSync(settingsFile, JSON.stringify(settings))
+    await autopilot.click()
+    await expect(frame.getByTestId('autopilot-status')).toHaveText('waiting for the Orchestrator')
+    await expect(frame.getByTestId('autopilot-status')).toHaveAttribute('data-status', 'waiting')
+    await expect.poll(() => (existsSync(join(dataDir, 'autopilot')) ? readdirSync(join(dataDir, 'autopilot')).length : 0)).toBe(1)
+    expect(messages(log)).toEqual(['how is it going?'])
+    // Stop cancels the wait; the Orchestrator's turn goes on, nothing was sent to it.
+    expect(await bridgeCall(window, 'autopilot.stop', { projectId: PROJECT })).toMatchObject({ ok: true, value: { status: 'stopped', reason: 'start-cancelled' } })
+    expect(messages(log)).toEqual(['how is it going?'])
   } finally {
     await launched.close()
   }

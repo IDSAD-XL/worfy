@@ -47,6 +47,15 @@
 // workflow (gate, guards, read-only reviewers) are proven there (unattendedRefusal). A Vendor that
 // turns the Harness's hooks off until the user approves them (Codex, worfy-multi-vendor ticket 39)
 // is asked through its driver whether they are approved now, before each unattended start.
+//
+// A run started while the Orchestrator is busy waits for it (worfy-autopilot-queue ticket 07,
+// ADR-0099): busy() says what keeps it busy — a turn, queued messages, live background tasks — by the
+// same conditions that refuse setUnattended. Start now (takeNow) does not wait: it halts the Session,
+// as Stop in Autopilot does, and starts it again unattended at once, so the old process ends its
+// background tasks. The halted Session's queue does not go to the unattended Session: it is kept
+// aside and goes, held, to the Session that gives the Orchestrator back attended, before the queue of
+// the unattended one.
+import type { BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import { findStatusBlock } from '../../shared/agent/status-block'
@@ -65,7 +74,7 @@ import { placeNewNode } from '../layout/place'
 import type { HarnessHooksPart } from '../vendors/harness-hooks'
 import type { TranscriptFacts } from './orchestrator-transcript'
 import { closeRefusal } from './resume'
-import { EXIT_WAIT_MS, type EventSink, type Session, type SessionRegistry } from './session'
+import { EXIT_WAIT_MS, HALT_TURN_MS, type EventSink, type Session, type SessionRegistry } from './session'
 import { ATTENDED, type SessionLaunch } from './session-settings'
 import type { LaunchApproval } from './auto-approve/run-approval'
 
@@ -205,6 +214,21 @@ interface Entry {
   wanted: SessionLaunch | null
   /** The grace time after the last background task, before the waiting launch goes on without its turn; null when none runs. */
   grace: ReturnType<typeof setTimeout> | null
+  /**
+   * The queue of a Session that Start now halted (takeNow): a person's messages, kept for the attended
+   * Session that gives the Orchestrator back; null when none is kept.
+   */
+  kept: ReturnType<Session['handOverQueue']> | null
+}
+
+/**
+ * What keeps an Orchestrator busy, so a run waits before it takes it (worfy-autopilot-queue ticket 07):
+ * a turn runs, messages wait in its queue, background tasks of a person's Session live.
+ */
+export interface OrchestratorBusy {
+  turn: boolean
+  queued: number
+  tasks: BackgroundTask[]
 }
 
 /** Why "New conversation" is refused while Autopilot runs the Orchestrator. */
@@ -382,6 +406,68 @@ export class Orchestrators {
   }
 
   /**
+   * What keeps the Project's Orchestrator busy now, so a run cannot take it without killing or losing
+   * something (worfy-autopilot-queue ticket 07): the conditions of setUnattended's refusals — a turn
+   * runs, messages wait in the queue, background tasks live — where the tasks of a stopped run's
+   * Session that waits to be given back do not count (it is taken over as it runs). Null when none
+   * holds, and for an Orchestrator that is not open (setUnattended opens it).
+   */
+  busy(projectId: string): OrchestratorBusy | null {
+    const entry = this.entries.get(projectId)
+    const view = entry === undefined ? undefined : this.views.get(entry.nodeId)
+    if (entry === undefined || view === undefined) return null
+    const session = entry.run?.session ?? null
+    const turn = inTurn(view.state)
+    const queued = session?.queued().items.length ?? 0
+    const tasks = awaitsGiveBack(entry) ? [] : (session?.backgroundTasks() ?? [])
+    return turn || queued > 0 || tasks.length > 0 ? { turn, queued, tasks } : null
+  }
+
+  /**
+   * Start now (worfy-autopilot-queue ticket 07): the Orchestrator goes unattended at once, busy or not.
+   * Its Session is halted as by Stop in Autopilot (Session.halt: the queue held, a running turn
+   * interrupted and waited for `haltMs` at most), its queue is kept aside for the person's Session
+   * after the run, and it starts again unattended with `approval`; closing the old process ends its
+   * background tasks. Refused, before anything is halted, for a Vendor without the Harness's
+   * guarantees (unattendedRefusal). Answers the view once the new process has started, with the
+   * tasks that were alive at the halt or after it — those that died with the old process.
+   */
+  async takeNow(projectId: string, approval?: LaunchApproval, haltMs = HALT_TURN_MS): Promise<{ view: OrchestratorView; killed: BackgroundTask[] }> {
+    const refusal = await this.unattendedRefusal(projectId)
+    if (refusal !== null) throw new Error(refusal)
+    await this.open(projectId)
+    const entry = this.entries.get(projectId)
+    if (entry === undefined) throw new Error(`the Orchestrator of ${projectId} was stopped`)
+    const session = entry.run?.session ?? null
+    const killed = new Map<string, BackgroundTask>()
+    if (session !== null) {
+      for (const task of session.backgroundTasks()) killed.set(task.taskId, task)
+      try {
+        await session.halt(haltMs)
+      } catch (error) {
+        console.warn(`[orchestrator] could not halt the Session of ${projectId}`, error)
+      }
+      for (const task of session.backgroundTasks()) killed.set(task.taskId, task)
+      // Taken here, while the Session is the current one: relaunch hands an empty queue over.
+      if (entry.run?.session === session) this.keep(entry, session.handOverQueue())
+    }
+    entry.wanted = null
+    this.cancelGrace(entry)
+    await this.relaunch(entry, { unattended: true, ...(approval === undefined ? {} : { approval }) })
+    if (this.entries.get(projectId) !== entry || entry.cancelled) throw new Error(`the Orchestrator of ${projectId} was stopped`)
+    const view = this.views.get(entry.nodeId)
+    if (view === undefined) throw new Error(`the Orchestrator of ${projectId} has no view`)
+    return { view, killed: [...killed.values()] }
+  }
+
+  /** Adds a halted Session's queue to the one kept for the person's Session; held, as Session.halt left it. */
+  private keep(entry: Entry, queue: ReturnType<Session['handOverQueue']>): void {
+    if (queue.items.length === 0) return
+    const kept = entry.kept
+    entry.kept = kept === null ? queue : { items: [...kept.items, ...queue.items], paused: kept.paused || queue.paused }
+  }
+
+  /**
    * Why Autopilot may not take the Project's Orchestrator, or null. The Vendor its Session runs on —
    * the open Orchestrator's, else the Project's — lacks the `harness` capability, so the workflow's
    * guarantees are not proven there (worfy-multi-vendor ticket 37): the reason is the capability's
@@ -468,6 +554,7 @@ export class Orchestrators {
       launch: ATTENDED,
       wanted: null,
       grace: null,
+      kept: null,
     }
     // A session of another Vendor than the Project's is not resumed: its agent does not know it.
     if (this.takeVendor(entry, this.vendorOf(projectId))) this.leaveSession(entry)
@@ -679,7 +766,8 @@ export class Orchestrators {
 
   /**
    * Starts the Orchestrator's Session again with `launch`, continuing the saved SDK session. What
-   * waits in the old Session's queue goes over to the new one, held as it was. The old Session's
+   * waits in the old Session's queue goes over to the new one, held as it was; an attended launch
+   * also takes the queue Start now kept aside (takeNow), first and held. The old Session's
    * error is not carried: the new Session starts a new Claude Code process — once the old one has
    * exited (ADR-0064). The new Session is live at once and holds what is sent to it until then; a
    * second relaunch meanwhile closes it before it started, so it waits for the same old process.
@@ -691,7 +779,13 @@ export class Orchestrators {
     entry.wanted = null
     entry.launch = launch
     const old = entry.run
-    const queue = old?.session?.handOverQueue() ?? { items: [], paused: false }
+    let queue = old?.session?.handOverQueue() ?? { items: [], paused: false }
+    // Back to a person: the messages Start now kept aside come first, held (worfy-autopilot-queue ticket 07).
+    const kept = entry.kept
+    if (!launch.unattended && kept !== null) {
+      entry.kept = null
+      queue = { items: [...kept.items, ...queue.items], paused: true }
+    }
     let oldExit: Promise<void> | undefined
     if (old) {
       old.current = false

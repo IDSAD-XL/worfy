@@ -53,7 +53,9 @@ with the Epic instead of running the Waves yourself. When the user names Tickets
 autopilot"), pass them: `tickets: ["05", "06"]`; without `tickets` the whole Epic runs.
 
 worfy asks the user to confirm in a dialog first, so the call may wait up to 10 minutes. The answer
-says whether Autopilot started, starts after your turn ("Autopilot starts after this turn": end your
-turn), or was refused and why. A Session that runs unattended (inside an Autopilot run) is always
+says whether Autopilot started, was refused and why, or waits for you ("Autopilot waits for the
+Orchestrator and starts when it is free"). Waiting is not a refusal: the run is accepted and starts
+by itself once your turn, the queued messages and your background tasks are over, so end your turn
+and do not call it again. If it is refused at that point, you get a notice that names the reason. A Session that runs unattended (inside an Autopilot run) is always
 refused: no one is there to confirm. Do not call it for a request that does not ask for Autopilot,
 and do not call it again after a refusal unless the user asks again.

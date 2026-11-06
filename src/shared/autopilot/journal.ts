@@ -54,6 +54,19 @@
 //                                    absent when it was Off, as in every line written before the
 //                                    ticket. A mode switched later counts from the next request,
 //                                    and each auto-approval line names the mode it was judged in
+//   orchestrator-busy turn, queued,  the run was accepted while the Project's Orchestrator was busy
+//                  tasks             and waits for it (worfy-autopilot-queue ticket 07): written
+//                                    right after run-started and again at every change; turn: a
+//                                    turn of the Orchestrator runs; queued: how many messages wait
+//                                    in its queue; tasks: its live background tasks, possibly none.
+//                                    The run has not taken the Orchestrator yet: keep-awake is not
+//                                    held, nothing is sent. Journals written before the ticket
+//                                    have none
+//   orchestrator-free                the wait ended: the Orchestrator was free (no turn, no queued
+//                                    message, no task), or a person chose Start now (after its
+//                                    tasks-killed). The checks of the start run again, then the run
+//                                    takes the Orchestrator; a refusal then is run-stopped
+//                                    (`start-refused`)
 //   harness-behind harness, main,   the Harness in worfy's main has changes in harness/ that the
 //                  commits           running build's Harness has not (worfy-harness ticket 21,
 //                                    ADR-0047): the Stable copy is due `pnpm install:stable` once
@@ -287,6 +300,10 @@
 //                                    when the run finished no Wave. A Force stop and a quit write
 //                                    it too. An actual of another shape reads as none, the line
 //                                    stays. Lines written before ticket 07 have none
+//                  message?          message: with `start-refused` (worfy-autopilot-queue ticket
+//                                    07), the refusal in words, its first 1000 characters. A run
+//                                    that waited for its Orchestrator and was cancelled says
+//                                    `start-cancelled`, without a message
 //   orchestrator-returned            after a run-stopped with live tasks: they have ended and the
 //                                    Orchestrator runs as a person's Session again; after
 //                                    `user-force-stop`: it was given back at once (ADR-0050)
@@ -296,7 +313,11 @@
 //                                    `user-force-stop`: the tasks alive at the Force stop, or
 //                                    started by the turn it interrupted, ended with the
 //                                    Orchestrator's process (ADR-0050), written only when there
-//                                    were any
+//                                    were any; or `start-now`: the tasks of the busy
+//                                    Orchestrator alive when a person chose Start now for a run
+//                                    waiting for it, and any its interrupted turn started, ended
+//                                    with its process (worfy-autopilot-queue ticket 07), written
+//                                    only when there were any
 //
 // A graceful Stop journals run-stopping → background-tasks … → run-stopped (`user-stop`, no
 // tickets). A Force stop during it: run-stopping → … → run-stopped (`user-force-stop`, tickets) →
@@ -336,6 +357,8 @@ import { RUN_MODES, WINDOW_WAIT_REASONS } from './run-mode'
 /** Every kind of event, in the order a run usually meets them. */
 export const JOURNAL_EVENT_KINDS = [
   'run-started',
+  'orchestrator-busy',
+  'orchestrator-free',
   'harness-behind',
   'forecast',
   'wave-started',
@@ -474,6 +497,8 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
 
 export const journalEventSchema = z.discriminatedUnion('kind', [
   event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional(), mode: z.enum(RUN_MODES).optional().catch(undefined), vendor: vendorIdSchema.optional().catch(undefined), autoApproval: z.enum(['off', 'shadow', 'on']).optional().catch(undefined) }),
+  event('orchestrator-busy', { turn: z.boolean(), queued: count, tasks }),
+  event('orchestrator-free', {}),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
   event('forecast', {
     mode: z.enum(RUN_MODES).optional().catch(undefined),
@@ -518,7 +543,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('run-stopping', { reason: text, ...wave, inWork: z.array(text) }),
   event('gate-queue', { text }),
   event('gate-queue-finished', {}),
-  event('run-stopped', { reason: text, tasks: tasks.optional(), tickets: z.array(text).optional(), lastText: z.string().max(LAST_TEXT_MAX).optional(), actual }),
+  event('run-stopped', { reason: text, tasks: tasks.optional(), tickets: z.array(text).optional(), lastText: z.string().max(LAST_TEXT_MAX).optional(), actual, message: z.string().max(LAST_TEXT_MAX).optional() }),
   event('orchestrator-returned', {}),
   event('tasks-killed', { reason: text, tasks }),
 ])

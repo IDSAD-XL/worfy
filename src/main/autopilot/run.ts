@@ -55,6 +55,22 @@
 //   them `resumable` too, unless a graceful Stop came first: its implementers died with the
 //   Orchestrator, and a Ticket one of them claimed would otherwise wait for a person (ADR-0050,
 //   Amendments).
+// - A run started while the Orchestrator is busy is accepted and waits for it (worfy-autopilot-queue
+//   ticket 07, ADR-0099): a turn runs, messages wait in its queue or its background tasks live
+//   (Orchestrators.busy, the conditions that refuse setUnattended). The checks that need no
+//   Orchestrator, and a run elsewhere, refuse the start as before. The run exists from the click: its
+//   journal opens with run-started and `orchestrator-busy`, its state is `waiting` with `waitingFor:
+//   'orchestrator'`, and a second start is refused as for any run. Every change of what keeps the
+//   Orchestrator busy is a new `orchestrator-busy` line; the wait ends, with `orchestrator-free`, once
+//   nothing does — after the last task, once the grace time for its task-notification turn has passed
+//   or that turn has ended. Then the checks run again and the run takes the Orchestrator as a start
+//   does; a refusal there ends it with `start-refused` and the refusal in words (also told to the
+//   start's own listener: the chat that asked). The Start window, the budget, the Limits and
+//   keep-awake count from then, not from the click; while it waits the run holds nothing and sends
+//   nothing. Cancel (and Stop, and Force stop) during the wait ends it with `start-cancelled` and
+//   leaves the Orchestrator as it is. Start now takes it at once: Orchestrators.takeNow halts its
+//   Session and starts it again unattended, the tasks that die with the old process go to
+//   `tasks-killed` (`start-now`), and its queued messages wait for the person's Session after the run.
 // - keep-awake (power.ts) is held from the start to the end of the run.
 // - A turn of the Wave refused by the Limits does not end it (worfy-daily ticket 05): the run goes
 //   `waiting` until the Limits reset, then sends the Orchestrator on (limits-wait.ts). Past the
@@ -188,6 +204,7 @@ import type { AutopilotState, HarnessBehind } from '../../shared/ipc/autopilot'
 import type { HarnessKind } from '../../shared/projects/action-templates'
 import type { PullRequest } from '../../shared/ipc/checks'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
+import type { OrchestratorBusy } from '../agent/orchestrator'
 import type { AutopilotRunSettings, AutoApprovalMode } from '../../shared/settings/app-settings'
 import type { VendorId } from '../../shared/vendors/vendor'
 import { PARK_STOPPED_HINT } from '../agent/auto-approve/park'
@@ -297,6 +314,18 @@ export interface AutopilotDeps {
      * refused for it.
      */
     unattendedRefusal?(projectId: string): Promise<string | null>
+    /**
+     * What keeps the Orchestrator busy, or null when nothing does (Orchestrators.busy, worfy-autopilot-queue
+     * ticket 07): a run started meanwhile waits. Absent: a start never waits, and a busy Orchestrator refuses it.
+     */
+    busy?(projectId: string): OrchestratorBusy | null
+    /**
+     * Start now: the Orchestrator unattended at once, its turn interrupted and its old process closed
+     * with its background tasks; answers the view and the tasks that died (Orchestrators.takeNow).
+     */
+    takeNow?(projectId: string, approval?: LaunchApproval, haltMs?: number): Promise<{ view: OrchestratorView; killed: BackgroundTask[] }>
+    /** The Vendor the Orchestrator runs on (Orchestrators.runsOn): run-started of a run that waits names it. */
+    runsOn?(projectId: string): VendorId
   }
   registry: {
     get(sessionId: string): RunSession
@@ -425,6 +454,20 @@ export const END_READ_MS = 1000
 /** A task as the journal writes it. */
 const journalTasks = (tasks: readonly BackgroundTask[]) => tasks.map((task) => ({ id: task.taskId, type: task.taskType, description: task.description }))
 
+/** The `orchestrator-busy` line of what keeps the Orchestrator busy (worfy-autopilot-queue ticket 07). */
+const busyLine = (busy: OrchestratorBusy): JournalEventFields => ({ kind: 'orchestrator-busy', turn: busy.turn, queued: busy.queued, tasks: journalTasks(busy.tasks) })
+
+/** Whether two reads of a busy Orchestrator say the same: the turn, the count of queued messages and the tasks by id. */
+function sameBusy(a: OrchestratorBusy, b: OrchestratorBusy): boolean {
+  return a.turn === b.turn && a.queued === b.queued && a.tasks.map((task) => task.taskId).join('\n') === b.tasks.map((task) => task.taskId).join('\n')
+}
+
+/** What run-started says of a start besides the run's own fields: whether it went past a run elsewhere, and the Auto-approval mode. */
+interface RunFacts {
+  override: boolean
+  autoApproval: { autoApproval?: AutoApprovalMode }
+}
+
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /** A share of the week rounded to millionths: the journal keeps 0.1, not the 0.09999999999999998 of a sum. */
@@ -484,6 +527,12 @@ export interface AutopilotStartOptions {
   by?: AutopilotStartedBy
   /** The Run mode of this run (worfy-resource-planner ticket 05); absent: the default mode at the start. */
   mode?: RunMode
+  /**
+   * Told the refusal when a run that waited for its Orchestrator is refused once it is free
+   * (`start-refused`, worfy-autopilot-queue ticket 07): the start has answered by then. A start from a
+   * chat shows it on the Session that asked (chat-start.ts).
+   */
+  onLateRefusal?: (message: string) => void
 }
 
 /** What a wait before a Wave is for: the budget's causes, or the Start window. */
@@ -712,8 +761,20 @@ class Run {
   readonly narrowJournaled = new Set<string>()
   /** The next read of the PRs; null before the first Wave and once the run stops. */
   prsTimer: unknown = null
-  /** When the run started (ms): narrow-round comments made before it are not this run's. */
+  /** When the run started (ms), the click: narrow-round comments made before it are not this run's. */
   readonly startedAt = Date.now()
+  /**
+   * The wait for the Orchestrator before the run takes it (worfy-autopilot-queue ticket 07): what keeps
+   * it busy as last journaled, since when (ms), the unsubscribe of the Sessions' events, and the grace
+   * timer after its last background task; null once the run has taken the Orchestrator, or never waited.
+   */
+  wait: { busy: OrchestratorBusy; since: number; unobserve: () => void; grace: unknown } | null = null
+  /** The start went with "Start anyway": the checks made again when the Orchestrator is free go past a run elsewhere too. */
+  override = false
+  /** Told the refusal of the checks made again once the Orchestrator was free (AutopilotStartOptions.onLateRefusal). */
+  onLateRefusal: ((message: string) => void) | null = null
+  /** The Orchestrator went unattended for the run: its end gives it back. False while the run waits for it, and after a run that never took it. */
+  taken = false
   /** When the run stopped (ms), for AutopilotState.ended; null while it goes on. */
   stoppedAt: number | null = null
   /**
@@ -824,6 +885,8 @@ export class Autopilot {
   private readonly launchApprovals = new Map<string, LaunchApproval>()
   /** The open policy of each Project's run, until the run lets its Session go (closeApproval). */
   private readonly activeApprovals = new Map<string, RunApproval>()
+  /** The policies their runs have let go (closeApproval): none of them judges again. */
+  private readonly letGo = new WeakSet<RunApproval>()
 
   constructor(private readonly deps: AutopilotDeps) {}
 
@@ -915,9 +978,11 @@ export class Autopilot {
 
   /**
    * Starts a run of `epic`, or of its Tickets `options.tickets` only. Refused while the Project has a
-   * run, on worfy's own repository in a development build, when the workflow cannot be read, has no
-   * such Epic or no such Ticket in it (startRefusal), and while the Orchestrator is in a turn.
-   * Answers the run's first state.
+   * run (one that waits for its Orchestrator included), on worfy's own repository in a development
+   * build, when the workflow cannot be read, has no such Epic or no such Ticket in it (startRefusal),
+   * and by a run of the same Epic and origin elsewhere. While the Orchestrator is busy the run is
+   * accepted and waits for it (worfy-autopilot-queue ticket 07). Answers the run's first state:
+   * running, or waiting for the Orchestrator.
    */
   async start(projectId: string, epic: string, options: AutopilotStartOptions = {}): Promise<AutopilotState> {
     // Taken before the first await: two starts that arrive together do not both pass.
@@ -934,13 +999,14 @@ export class Autopilot {
       if (check.elsewhere !== null && options.override !== true) throw check.elsewhere
       // Asked again on "Start anyway" too: once the other run has ended, the start is a plain one.
       const override = check.elsewhere !== null
-      const unasked = check.unasked
       if (this.quitting) throw new Error(QUITTING_MESSAGE)
 
       const run = new Run(projectId, epic, root, options.tickets, options.by)
       run.mode = options.mode ?? this.defaultMode()
       run.origin = starting.origin
-      run.unasked = unasked
+      run.unasked = check.unasked
+      run.override = options.override === true
+      run.onLateRefusal = options.onLateRefusal ?? null
       // The Wave the last Force stop of this Epic interrupted goes along with the first Wave (worfy-week tickets 17, 18).
       // A run over named Tickets takes only those of its list, and keeps the rest resumable (ADR-0091).
       const last = this.last.get(projectId)
@@ -954,50 +1020,38 @@ export class Autopilot {
       if (this.deps.retry !== undefined) run.retry = new TurnRetry(this.deps.retry, projectId)
       // Opened before the Orchestrator goes unattended: its Session starts with the run's TMPDIR and git environment.
       const autoApproval = await this.openApproval(run)
+      const facts: RunFacts = { override, autoApproval }
+
+      // The Orchestrator is busy: the run is accepted and waits for it (worfy-autopilot-queue ticket 07).
+      const busy = this.deps.orchestrators.busy?.(projectId) ?? null
+      if (busy !== null) {
+        await this.waitForOrchestrator(run, busy, facts)
+        return this.snapshot(run)
+      }
+
+      const deactivate = this.activateApproval(run)
       let view: OrchestratorView | null
       try {
-        view = await this.deps.orchestrators.setUnattended(projectId, true, this.deps.approval === undefined ? undefined : this.launchApproval(projectId))
+        view = await this.deps.orchestrators.setUnattended(projectId, true, this.runLaunchApproval(projectId))
       } catch (error) {
+        // A message of the person landed between the read above and the Orchestrator's answer: the run
+        // waits for it, as when the read saw it.
+        const late = this.deps.orchestrators.busy?.(projectId) ?? null
+        if (late !== null && !this.quitting) {
+          deactivate()
+          await this.waitForOrchestrator(run, late, facts)
+          return this.snapshot(run)
+        }
         await this.closeApproval(run)
         throw error
       }
+      run.taken = true
       try {
-        if (view === null || view.sessionId === null) throw new Error('The Orchestrator has no Session')
-        run.session = this.deps.registry.get(view.sessionId)
-        run.vendor = view.vendor ?? STORED_LIMITS_VENDOR
-        run.journal = await this.deps.journal({
-          // The run's folder for temporary files is named by the run id: the journal takes the same one.
-          ...(run.approval === null ? {} : { run: run.approval.run }),
-          project: projectId,
-          epic,
-          ...(run.origin === null ? {} : { origin: run.origin }),
-          ...(override ? { override: true as const } : {}),
-          ...(unasked.length > 0 ? { unasked } : {}),
-          by: run.by,
-          ...(run.cycle.named === undefined ? {} : { tickets: run.cycle.named.map(ticketNumber) }),
-          mode: run.mode,
-          // Whose agent runs the Waves, as the Orchestrator's view names it (worfy-multi-vendor ticket 37).
-          ...(view.vendor === undefined ? {} : { vendor: view.vendor }),
-          ...autoApproval,
-        })
-        await this.journalHarness(run)
-        await this.journalForecast(run, model.tickets)
-        run.awake = this.deps.keepAwake()
-        run.awake.start()
-        this.subscribe(run)
-        const unwatch = await this.deps.watchWorkflow(root, () => void run.enqueue(() => this.readAndFeed(run, 'ignore', (tickets) => ({ type: 'workflow', tickets }), true)))
-        if (run.cycle.phase === 'stopped') {
-          // The Session failed or closed while the watch opened: the run has ended (or is ending)
-          // and released what it held without this watch, so it is closed here.
-          await this.unwatch(run, unwatch)
+        if (!(await this.take(run, model, view, facts))) {
+          // The Session failed or closed while the watch opened: the run has ended (or is ending).
           await run.ended
           return this.snapshot(run)
         }
-        run.cleanups.push(unwatch)
-        // A stopped run of the Project may still have waited for this Session's tasks: they are
-        // this run's now, which journals them and holds keep-awake (worfy-polish ticket 50). Only
-        // here, past the last step that can fail: a start that fails leaves them to that run.
-        this.takeOvers.get(projectId)?.()
       } catch (error) {
         await this.release(run, true)
         throw error
@@ -1010,6 +1064,247 @@ export class Autopilot {
     } finally {
       this.starting.delete(projectId)
     }
+  }
+
+  /** The policy the run's unattended Session is launched with; none without Auto-approval in the app. */
+  private runLaunchApproval(projectId: string): LaunchApproval | undefined {
+    return this.deps.approval === undefined ? undefined : this.launchApproval(projectId)
+  }
+
+  /**
+   * The run has the Orchestrator (`view`, unattended now) and begins: its journal (run-started, unless
+   * the run opened it while it waited), harness-behind and forecast, keep-awake, the Session's events
+   * and the workflow's watch; a stopped run that still waited for this Session's tasks hands them
+   * over. Throws what fails, with the Orchestrator already the run's. Answers false when the Session
+   * failed or closed while the watch opened: the run has ended then, or ends in its order.
+   */
+  private async take(run: Run, model: WorkflowModel, view: OrchestratorView | null, facts: RunFacts | null): Promise<boolean> {
+    if (view === null || view.sessionId === null) throw new Error('The Orchestrator has no Session')
+    run.session = this.deps.registry.get(view.sessionId)
+    run.vendor = view.vendor ?? STORED_LIMITS_VENDOR
+    if (run.journal === null && facts !== null) run.journal = await this.openJournal(run, facts, view.vendor)
+    await this.journalHarness(run)
+    await this.journalForecast(run, model.tickets)
+    run.awake = this.deps.keepAwake()
+    run.awake.start()
+    this.subscribe(run)
+    const unwatch = await this.deps.watchWorkflow(run.root, () => void run.enqueue(() => this.readAndFeed(run, 'ignore', (tickets) => ({ type: 'workflow', tickets }), true)))
+    if (run.cycle.phase === 'stopped') {
+      // The run released what it held without this watch, so it is closed here.
+      await this.unwatch(run, unwatch)
+      return false
+    }
+    run.cleanups.push(unwatch)
+    // A stopped run of the Project may still have waited for this Session's tasks: they are
+    // this run's now, which journals them and holds keep-awake (worfy-polish ticket 50). Only
+    // here, past the last step that can fail: a start that fails leaves them to that run.
+    this.takeOvers.get(run.projectId)?.()
+    return true
+  }
+
+  /**
+   * Opens the run's journal with its run-started line: the origin key, `override` when the start went
+   * past a run of another Machine, the Linked machines it could not ask, who started it and its named
+   * Tickets (worfy-flight-recorder ticket 11), the Run mode, the Vendor and the Auto-approval mode.
+   */
+  private openJournal(run: Run, facts: RunFacts, vendor: VendorId | undefined): Promise<RunJournalLike> {
+    return this.deps.journal({
+      // The run's folder for temporary files is named by the run id: the journal takes the same one.
+      ...(run.approval === null ? {} : { run: run.approval.run }),
+      project: run.projectId,
+      epic: run.epic,
+      ...(run.origin === null ? {} : { origin: run.origin }),
+      ...(facts.override ? { override: true as const } : {}),
+      ...(run.unasked.length > 0 ? { unasked: run.unasked } : {}),
+      by: run.by,
+      ...(run.cycle.named === undefined ? {} : { tickets: run.cycle.named.map(ticketNumber) }),
+      mode: run.mode,
+      // Whose agent runs the Waves, as the Orchestrator's view names it (worfy-multi-vendor ticket 37).
+      ...(vendor === undefined ? {} : { vendor }),
+      ...facts.autoApproval,
+    })
+  }
+
+  /**
+   * The run waits for its busy Orchestrator (worfy-autopilot-queue ticket 07): its journal opens with
+   * run-started (the Vendor the Orchestrator runs on) and `orchestrator-busy`, it counts as the
+   * Project's run, and every state, queue or task change of any Session reads the Orchestrator again
+   * (recheck). Throws when the journal cannot open; nothing is held then.
+   */
+  private async waitForOrchestrator(run: Run, busy: OrchestratorBusy, facts: RunFacts): Promise<void> {
+    try {
+      run.journal = await this.openJournal(run, facts, this.deps.orchestrators.runsOn?.(run.projectId))
+    } catch (error) {
+      await this.closeApproval(run)
+      throw error
+    }
+    const unobserve = this.deps.registry.observe((_sessionId, event) => {
+      if (event.type === 'state' || event.type === 'queue' || event.type === 'background_tasks') void run.enqueue(() => this.recheck(run))
+    })
+    run.wait = { busy, since: Date.now(), unobserve, grace: null }
+    this.runs.set(run.projectId, run)
+    this.starting.delete(run.projectId)
+    await this.write(run, busyLine(busy))
+    this.publish(run.projectId)
+    // What changed between the read and the subscription.
+    void run.enqueue(() => this.recheck(run))
+  }
+
+  /**
+   * Reads the Orchestrator again for a run that waits: a change of what keeps it busy is a new
+   * `orchestrator-busy` line; once nothing does, `orchestrator-free` and the run takes it (begin).
+   * After the last background task the run waits the grace time for the turn its task-notification
+   * starts (TASKS_GRACE_MS, as the run's own wait for its tasks): taking the Orchestrator then would
+   * close that turn's process.
+   */
+  private async recheck(run: Run): Promise<void> {
+    const wait = run.wait
+    if (wait === null || run.done || run.cycle.phase === 'stopped') return
+    const busy = this.deps.orchestrators.busy?.(run.projectId) ?? null
+    const clock = this.deps.tasksClock ?? realClock
+    if (busy !== null) {
+      if (wait.grace !== null) clock.clearTimeout(wait.grace)
+      wait.grace = null
+      if (sameBusy(busy, wait.busy)) return
+      wait.busy = busy
+      await this.write(run, busyLine(busy))
+      this.publish(run.projectId)
+      return
+    }
+    if (wait.grace !== null) return
+    if (wait.busy.tasks.length > 0) {
+      // The tasks are over; the state says so, the journal waits for what comes next.
+      wait.busy = { turn: false, queued: 0, tasks: [] }
+      const timer = clock.setTimeout(() => {
+        void run.enqueue(async () => {
+          if (run.wait !== wait || wait.grace !== timer) return
+          wait.grace = null
+          await this.recheck(run)
+        })
+      }, this.deps.tasksGraceMs ?? TASKS_GRACE_MS)
+      wait.grace = timer
+      this.publish(run.projectId)
+      return
+    }
+    await this.write(run, { kind: 'orchestrator-free' })
+    await this.begin(run, false)
+  }
+
+  /**
+   * A run that waited takes the Orchestrator: when it is free (`now` false), or at Start now. The
+   * checks of the start run again first (startChecks); a refusal ends the run with `start-refused`.
+   * Start now halts the Orchestrator's Session and starts it again unattended at once (takeNow): the
+   * tasks that died with its process go to `tasks-killed` (`start-now`), then `orchestrator-free`.
+   * When the Orchestrator was free but is busy again by the time it is asked (a person wrote
+   * meanwhile), the run goes on waiting.
+   */
+  private async begin(run: Run, now: boolean): Promise<void> {
+    let model: WorkflowModel
+    try {
+      model = await this.startChecks(run)
+    } catch (error) {
+      await this.refuse(run, error)
+      return
+    }
+    // The quit ends the run in its order (stopAll), behind this step.
+    if (this.quitting) return
+    const deactivate = this.activateApproval(run)
+    const approval = this.runLaunchApproval(run.projectId)
+    let view: OrchestratorView | null
+    if (now) {
+      // A stopped run that still waited for this Session's tasks: its wait ends here, with no line of
+      // its own, before the Session's process closes.
+      this.takeOvers.get(run.projectId)?.()
+      try {
+        const taken = await this.deps.orchestrators.takeNow?.(run.projectId, approval, this.deps.haltTurnMs)
+        if (taken === undefined) throw new Error('Start now is not available in this build')
+        if (taken.killed.length > 0) await this.write(run, { kind: 'tasks-killed', reason: 'start-now', tasks: journalTasks(taken.killed) })
+        view = taken.view
+      } catch (error) {
+        await this.refuse(run, error)
+        return
+      }
+      await this.write(run, { kind: 'orchestrator-free' })
+    } else {
+      try {
+        view = await this.deps.orchestrators.setUnattended(run.projectId, true, approval)
+      } catch (error) {
+        const busy = this.deps.orchestrators.busy?.(run.projectId) ?? null
+        const wait = run.wait
+        if (busy === null || wait === null) {
+          await this.refuse(run, error)
+          return
+        }
+        // Waiting again, the run's policy judges nothing until it takes the Orchestrator.
+        deactivate()
+        wait.busy = busy
+        await this.write(run, busyLine(busy))
+        this.publish(run.projectId)
+        return
+      }
+    }
+    run.taken = true
+    this.leaveWait(run)
+    // The statuses read now are the run's first: a change during the wait is not the run's.
+    statusChanges(run, model.tickets)
+    try {
+      if (!(await this.take(run, model, view, null))) return
+    } catch (error) {
+      await this.refuse(run, error)
+      return
+    }
+    this.publish(run.projectId)
+    void run.enqueue(() => this.feed(run, { type: 'start', tickets: model.tickets, resume: run.resume }))
+  }
+
+  /**
+   * The checks of a start, made again when a run that waited takes its Orchestrator: those that need
+   * no Orchestrator (ownChecks), then a run of the same Epic and origin elsewhere, past which only
+   * "Start anyway" goes. Throws the refusal; answers a fresh read of the workflow.
+   */
+  private async startChecks(run: Run): Promise<WorkflowModel> {
+    const { model } = await this.ownChecks(run.projectId, run.epic, run.cycle.named)
+    if (run.origin === null) return model
+    const check = await this.checkElsewhere(run.projectId, run.epic, run.origin)
+    if (check.elsewhere !== null && !run.override) throw check.elsewhere
+    return model
+  }
+
+  /** A run that waited is refused when it takes its Orchestrator: `start-refused`, its words in the state, the journal and to the start's listener. */
+  private async refuse(run: Run, error: unknown): Promise<void> {
+    const message = messageOf(error)
+    run.message = message
+    console.warn(`[autopilot] ${run.projectId}: the run that waited for the Orchestrator did not start: ${message}`)
+    try {
+      run.onLateRefusal?.(message)
+    } catch (failed) {
+      console.warn(`[autopilot] ${run.projectId}: could not tell the start's listener that it was refused`, failed)
+    }
+    await this.feed(run, { type: 'stop', reason: 'start-refused' })
+  }
+
+  /** The run no longer waits for its Orchestrator: the Sessions' events and the grace timer go. */
+  private leaveWait(run: Run): void {
+    const wait = run.wait
+    if (wait === null) return
+    run.wait = null
+    wait.unobserve()
+    if (wait.grace !== null) (this.deps.tasksClock ?? realClock).clearTimeout(wait.grace)
+  }
+
+  /**
+   * Start now (worfy-autopilot-queue ticket 07): a run that waits for its Orchestrator takes it at once
+   * (begin). Answers the state once the run has taken it, or has stopped with `start-refused`; a run
+   * that does not wait (any more) is left as it is.
+   */
+  async startNow(projectId: string): Promise<AutopilotState> {
+    const run = this.runs.get(projectId)
+    if (run === undefined) return this.state(projectId)
+    await run.enqueue(async () => {
+      if (run.wait === null || run.cycle.phase === 'stopped') return
+      await this.begin(run, true)
+    })
+    return this.state(projectId)
   }
 
   /**
@@ -1033,8 +1328,9 @@ export class Autopilot {
    * Why a start of `epic` would be refused now, without starting anything: a run of the Project,
    * the checks of start() that need no Orchestrator (ownChecks), and — without `override` — a run
    * of the same Epic and origin elsewhere. Null when start() would go past them. The Orchestrator's
-   * own state is not asked here (chat-start.ts asks it). Used by a start from a chat before it
-   * promises to start after the Orchestrator's turn (ADR-0091).
+   * own state is not asked here: a busy one refuses no start (worfy-autopilot-queue ticket 07). No
+   * start of the app asks it since that ticket; test/contract/codex-orchestrator.test.ts (worfy-multi-vendor
+   * ticket 39) does, to show a Run on Codex would start once its hooks are approved, without starting one.
    */
   async startCheck(projectId: string, epic: string, options: AutopilotStartOptions = {}): Promise<string | null> {
     const running = this.runningEpic(projectId)
@@ -1116,6 +1412,11 @@ export class Autopilot {
     run.requestStop()
     await run.enqueue(async () => {
       if (run.cycle.phase === 'stopped') return
+      // Waiting for its Orchestrator, the run has nothing to finish: Stop cancels it (worfy-autopilot-queue ticket 07).
+      if (run.wait !== null) {
+        await this.feed(run, { type: 'stop', reason: 'start-cancelled' })
+        return
+      }
       // Waiting to retry after an API error with no turn under way: nothing goes on that a graceful
       // Stop would wait for, also when an earlier Stop made the run stopping (worfy-retry ticket 04).
       if (run.retry?.until != null && !this.turnUnderWay(run)) {
@@ -1147,7 +1448,8 @@ export class Autopilot {
     if (run === undefined) return this.state(projectId)
     // Before its step waits in the run's order: an end that waits for gh there goes on now.
     run.rush()
-    await run.enqueue(() => this.feed(run, { type: 'stop', reason: 'user-force-stop' }))
+    // A run that waits for its Orchestrator has not taken it: nothing of the person's is interrupted (worfy-autopilot-queue ticket 07).
+    await run.enqueue(() => this.feed(run, { type: 'stop', reason: run.wait !== null ? 'start-cancelled' : 'user-force-stop' }))
     await run.ended
     return this.state(projectId)
   }
@@ -2217,8 +2519,10 @@ export class Autopilot {
     // journaled ahead of the run-stopped that names it. So are the Tickets' last changes of status:
     // the read after the turn that stopped the run may have seen a `done` before the watch reported
     // it, and the watch's read after the stop writes nothing (worfy-flight-recorder ticket 11). A
-    // Force stop and a quit wait for neither read.
-    if (reason !== 'user-force-stop' && reason !== 'app-quit') {
+    // Force stop and a quit wait for neither read, and nor does a run that never took the Orchestrator
+    // (it waited for it, worfy-autopilot-queue ticket 07): it sent nothing and watched nothing.
+    this.leaveWait(run)
+    if (run.taken && reason !== 'user-force-stop' && reason !== 'app-quit') {
       const [pulls, tickets] = await Promise.all([this.lastPrs(run), this.endRead(run, () => this.freshTickets(run), [])])
       await this.journalNarrow(run, pulls)
       for (const fields of statusChanges(run, tickets)) await this.write(run, fields)
@@ -2232,6 +2536,7 @@ export class Autopilot {
       ...(tickets === undefined ? {} : { tickets: tickets.map(ticketNumber) }),
       ...(lastText === null ? {} : { lastText }),
       ...(run.actual.waves === 0 ? {} : { actual: { ...run.actual, share: millionths(run.actual.share) } }),
+      ...(reason === 'start-refused' && run.message !== null ? { message: clipLastText(run.message) } : {}),
     })
     this.dropQueuedWave(run)
     if (reason === 'user-force-stop' || reason === 'session-error') run.interrupted = tickets ?? []
@@ -2258,7 +2563,8 @@ export class Autopilot {
         this.noticeDecisions(run)
       }
       // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
-      await this.release(run, reason !== 'app-quit', !linger)
+      // A run that never took it leaves it as it is.
+      await this.release(run, run.taken && reason !== 'app-quit', !linger)
     }
     // A stopped run's state does not say a Wave goes unchecked.
     this.noteDuration(run, null)
@@ -2410,6 +2716,25 @@ export class Autopilot {
   }
 
   /**
+   * The run's policy judges the Project's unattended Session from now on: right before the run takes
+   * the Orchestrator. A run that waits for it opened its policy at the click, but the stopped run whose
+   * Session may still linger keeps judging until then (worfy-autopilot-queue ticket 07). Answers the
+   * undo, for a run that goes back to waiting: the policy active before judges again, unless it has
+   * been let go meanwhile (closeApproval); else none does.
+   */
+  private activateApproval(run: Run): () => void {
+    const approval = run.approval
+    if (approval === null) return () => undefined
+    const previous = this.activeApprovals.get(run.projectId)
+    this.activeApprovals.set(run.projectId, approval)
+    return () => {
+      if (this.activeApprovals.get(run.projectId) !== approval) return
+      if (previous === undefined || this.letGo.has(previous)) this.activeApprovals.delete(run.projectId)
+      else this.activeApprovals.set(run.projectId, previous)
+    }
+  }
+
+  /**
    * Opens the policy's side of the run (AutopilotDeps.approval, worfy-auto-approve ticket 04); answers
    * what run-started says of it: nothing at Off, the mode at Shadow and On, `off` at Shadow or On when it
    * could not open — the run then goes without a policy, as at Off.
@@ -2420,7 +2745,6 @@ export class Autopilot {
     const mode = this.approvalMode(run.projectId)
     try {
       run.approval = await approval.open(run.projectId, run.root, run.epic)
-      this.activeApprovals.set(run.projectId, run.approval)
     } catch (error) {
       console.warn(`[autopilot] ${run.projectId}: Auto-approval is off for this run, its policy could not start: ${messageOf(error)}`)
     }
@@ -2448,7 +2772,8 @@ export class Autopilot {
     if (known !== undefined) return known
     const parks = (): boolean => {
       const run = this.runs.get(projectId)
-      return run !== undefined && !run.cycle.stopping && run.cycle.phase !== 'stopped'
+      // A run that waits for its Orchestrator has not taken it: what is judged now is not its own.
+      return run !== undefined && run.wait === null && !run.cycle.stopping && run.cycle.phase !== 'stopped'
     }
     const made: LaunchApproval = {
       mode: () => (this.activeApprovals.has(projectId) ? this.approvalMode(projectId) : 'off'),
@@ -2477,6 +2802,7 @@ export class Autopilot {
     const approval = run.approval
     if (approval === null) return
     run.approval = null
+    this.letGo.add(approval)
     if (this.activeApprovals.get(run.projectId) === approval) this.activeApprovals.delete(run.projectId)
     if (!remove) return
     try {
@@ -2590,18 +2916,20 @@ export class Autopilot {
     const retry = retryUntil === null ? null : (run.retry?.retry ?? null)
     const boundary = run.running ? run.boundary : null
     const resumesAt = limitsUntil ?? retryUntil ?? boundary?.until ?? null
-    const waitingFor = limitsUntil !== null ? 'limits' : retryUntil !== null ? 'retry' : boundary?.cause
+    const wait = run.running ? run.wait : null
+    const waitingFor = wait !== null ? 'orchestrator' : limitsUntil !== null ? 'limits' : retryUntil !== null ? 'retry' : boundary?.cause
     const windowReason = waitingFor === 'start-window' ? boundary?.reason : undefined
     // From the click on: the run's step for it may still wait behind another one.
     const stopping = run.running && (run.cycle.stopping || run.stopRequested)
     return {
       projectId: run.projectId,
       epic: run.epic,
-      status: !run.running ? 'stopped' : resumesAt !== null ? 'waiting' : 'running',
+      status: !run.running ? 'stopped' : resumesAt !== null || wait !== null ? 'waiting' : 'running',
       wave: run.cycle.wave,
       backgroundTasks: run.running ? this.liveTasks(run).length : 0,
       resumesAt,
       ...(waitingFor === undefined ? {} : { waitingFor }),
+      ...(wait === null ? {} : { busy: { turn: wait.busy.turn, queued: wait.busy.queued, tasks: journalTasks(wait.busy.tasks) }, waitingSince: wait.since }),
       ...(limitsUntil === null ? {} : { limitsWindow: run.limits?.window ?? null }),
       ...(windowReason === undefined ? {} : { windowReason }),
       ...(retry === null ? {} : { retry }),
