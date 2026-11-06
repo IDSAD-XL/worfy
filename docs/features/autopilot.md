@@ -151,10 +151,13 @@ While a run goes on:
   journal. A command is judged in the folder Codex names for it. Codex wraps each command in the login shell
   (`/bin/zsh -lc '<script>'`); exactly that form — one quoted script word and nothing after it — is judged as
   `zsh -c '<script>'` (the login profile is the owner's own and outside every root), and any other wrapper is not
-  approved. Codex's `shell_environment_policy` may leave variables out of a command's shell, so worfy pins the home
+  approved. Codex's `shell_environment_policy` may leave variables out of a command's shell. worfy pins the home
   folder and the run's variables (`TMPDIR` and its git environment) in every command's shell of the thread
-  (`shell_environment_policy.set`), and only these have a known value when a request is judged: a command that uses
-  any other variable, a secret included, is not approved, and no value of one reaches the journal. A file change is
+  (`shell_environment_policy.set`), but Codex applies the owner's `include_only` after these pins, so it may still drop
+  any of them. When a Codex request is judged, only `HOME` (and `USERPROFILE`, where set) has a known value: a command
+  that uses any other variable, `TMPDIR` or a secret included, or makes a folder with `mktemp -d` outside macOS, is not
+  approved, and no value of one reaches the journal. Git on Codex is judged as git without the run's git environment,
+  so the policy approves no git command there and parks the ones it would allow on Claude Code. A file change is
   judged by each path it writes, the new path of a rename and its `grantRoot` included. A request with a `grantRoot`
   (writes under a folder for the rest of the Session) is never accepted by the policy, input to a running command and
   a request for network access are parked, and no answer is ever "accept for this Session". A parked Codex request

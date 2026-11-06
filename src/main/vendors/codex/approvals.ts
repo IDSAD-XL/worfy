@@ -142,14 +142,27 @@ export function codexScript(command: string): string {
 }
 
 /**
- * The variables each command of an unattended Codex at Shadow or On surely gets: the home folder and the run's
- * (TMPDIR and its git environment), with the values the app-server got. worfy pins each in Codex's shell environment
- * (codexPinConfig), whatever `shell_environment_policy` of the owner's leaves out; only these have a known value when a
- * request is judged (ApprovalWhere.known), and a command that uses any other variable is not approved.
+ * The variables worfy pins in each command's shell of an unattended Codex at Shadow or On: the home folder and the
+ * run's (TMPDIR and its git environment), with the values the app-server got (codexPinConfig). A pin is
+ * `shell_environment_policy.set`, which Codex 0.166.0 applies after `inherit` and `exclude` but before `include_only`
+ * (populate_env in https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/protocol/src/shell_environment.rs):
+ * an include_only of the owner's (`~/.codex/config.toml`) without a pinned name drops it from the command's shell.
  */
 export function codexPinned(env: Readonly<Record<string, string | undefined>>, run: Readonly<Record<string, string>>): Record<string, string> {
   const home = Object.fromEntries((['HOME', 'USERPROFILE'] as const).flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]])))
   return { ...home, ...run }
+}
+
+/**
+ * The pinned variables whose value a request is judged with (ApprovalWhere.known): only the home folder. The run's
+ * TMPDIR and git environment stay pinned, but the owner's include_only may drop them (codexPinned), so a command that
+ * refers to TMPDIR, or makes a folder in it, is not approved, and git is judged as without the run's git environment
+ * (worfy-auto-approve ticket 14). HOME stays known though an include_only may drop it too: a `$HOME` path the policy
+ * reads as inside a root then names `/` followed by the root's path below the home folder (`/Stuff/<project>/…`), a
+ * folder that ordinarily does not exist.
+ */
+export function codexKnown(pinned: Readonly<Record<string, string>>): string[] {
+  return Object.keys(pinned).filter((name) => name === 'HOME' || name === 'USERPROFILE')
 }
 
 /** The `config` keys of thread/start and thread/resume that set each pinned variable in every command's shell. */

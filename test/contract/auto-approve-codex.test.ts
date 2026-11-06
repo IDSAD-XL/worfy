@@ -446,7 +446,7 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(on.answers()).not.toContain('acceptForSession')
   })
 
-  it('each request is judged in the whole environment the app-server process got; only the variables pinned in Codex\'s shell environment have a known value; a command in the folder Codex names', async () => {
+  it('each request is judged in the whole environment the app-server process got; only the home folder has a known value (worfy-auto-approve ticket 14); a command in the folder Codex names', async () => {
     const on = await codexRun({ mode: 'on', pick: () => Promise.resolve('decline') })
     const spawned = on.spawnedEnv[0]
     expect(spawned?.['TMPDIR']).toBe(on.run.runTemp)
@@ -460,7 +460,8 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(on.wheres).toHaveLength(COUNT)
     for (const where of on.wheres) {
       expect(where.env).toEqual(spawned)
-      expect([...(where.known ?? [])].sort()).toEqual(Object.keys(pinned).sort())
+      // The run's TMPDIR and git environment are pinned too, but the owner's include_only may still drop them.
+      expect([...(where.known ?? [])].sort()).toEqual(Object.keys(home).sort())
     }
     expect(on.wheres[0]).toMatchObject({ cwd: worktree, scratchpad: null })
     // A file change is judged from the Session's folder.
@@ -598,26 +599,25 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
       ...command('cmd_pass', zshLc(`touch ${sq(join(worktree, 'x'))}"$DB_PASS"`), worktree),
       ...command('cmd_auth', zshLc(`touch ${sq(worktree)}/$NPM_AUTH`), worktree),
       ...command('cmd_other', zshLc('touch "$DEMO_DIR/x"'), worktree),
+      // The run's TMPDIR is pinned, yet the owner's include_only may drop it (worfy-auto-approve ticket 14).
       ...command('cmd_tmp', zshLc('touch "$TMPDIR/x"'), worktree),
     ]
     const on = await codexRun({ mode: 'on', env, steps, pick: () => Promise.resolve('decline') })
-    expect(on.decided.map((each) => [each.outcome, each.rule])).toEqual([
-      ['deny', 'not-judged'],
-      ['deny', 'not-judged'],
-      ['deny', 'not-judged'],
-      ['deny', 'not-judged'],
-      ['allow', 'files-inside-roots+shell-script-inside-roots'],
-    ])
-    expect(on.answers()).toEqual(['decline', 'decline', 'decline', 'decline', 'accept'])
+    expect(on.decided.map((each) => [each.outcome, each.rule])).toEqual(Array(5).fill(['deny', 'not-judged']))
+    expect(on.answers()).toEqual(Array(5).fill('decline'))
     for (const value of ['ghp_pat05value', 'db05value', 'npm05value']) expect(JSON.stringify(on.decided)).not.toContain(value)
     expect(on.threadStart()?.['config']).toMatchObject({ 'shell_environment_policy.set.TMPDIR': on.run.runTemp })
   })
 
-  it('git inside the login-shell wrapper: accepted in the Wave\'s worktree, parked once the repository has a hook', async () => {
+  it('git inside the login-shell wrapper: judged as git without the run\'s git environment, which the owner\'s include_only may drop (worfy-auto-approve ticket 14), so parked; parked by the policy itself once the repository has a hook', async () => {
     const add = command('cmd_add', zshLc('git add -A'), worktree)
     const clean = await codexRun({ mode: 'on', steps: add })
-    expect(clean.answers()).toEqual(['accept'])
-    expect(clean.decided.map((each) => [each.outcome, each.rule])).toEqual([['allow', 'shell-script-inside-roots+git-in-wave-worktree']])
+    // The gate rejects here: the parked request ends without the owner's answer.
+    expect(clean.answers()).toEqual(['decline'])
+    expect(clean.decided.map((each) => [each.outcome, each.rule])).toEqual([
+      ['park', 'git-without-run-environment'],
+      ['park-expired', 'git-without-run-environment'],
+    ])
     writeFileSync(join(repo, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n')
     const hooked = await codexRun({ mode: 'on', steps: add })
     // The gate rejects here: the parked request ends without the owner's answer.
@@ -626,6 +626,27 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
       ['park', 'git-hooks'],
       ['park-expired', 'git-hooks'],
     ])
+  })
+
+  // Codex 0.166.0 applies shell_environment_policy.include_only after `set` (codex-rs/protocol/src/shell_environment.rs,
+  // populate_env): an include_only of the owner's without these names drops the run's pins from the command's shell.
+  it('the owner\'s include_only may drop the run\'s TMPDIR and git environment (worfy-auto-approve ticket 14): a command that needs either is not approved, though both stay pinned', async () => {
+    const steps = [
+      ...command('cmd_tmp_rm', zshLc('rm -rf "$TMPDIR"/opt/x'), worktree),
+      ...command('cmd_git_log', zshLc('git log --oneline -1'), worktree),
+    ]
+    const on = await codexRun({ mode: 'on', steps })
+    expect(on.answers()).toEqual(['decline', 'decline'])
+    expect(on.decided.map((each) => [each.outcome, each.rule])).toEqual([
+      ['deny', 'not-judged'],
+      ['park', 'git-without-run-environment'],
+      ['park-expired', 'git-without-run-environment'],
+    ])
+    expect(on.decided.some((each) => each.outcome === 'allow')).toBe(false)
+    expect(on.threadStart()?.['config']).toMatchObject({
+      'shell_environment_policy.set.TMPDIR': on.run.runTemp,
+      'shell_environment_policy.set.GIT_CONFIG_PARAMETERS': on.run.environment['GIT_CONFIG_PARAMETERS'],
+    })
   })
 
   it('an app-server without HOME: no home folder, so the policy approves nothing', async () => {

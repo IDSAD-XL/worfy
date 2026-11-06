@@ -1,7 +1,7 @@
 # 14 — Codex: закреплённые переменные и `include_only` владельца
 
 Type: task
-Status: open
+Status: claimed 2026-11-06T12:17Z
 Blocked by: 05
 Source: review PR #1469 (Ticket 05), раунд 3; предел трёх раундов review: medium после раунда 3 уходит в отдельный Ticket
 
