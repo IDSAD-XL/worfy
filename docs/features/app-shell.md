@@ -9,7 +9,8 @@ explained in [Concepts](concepts.md).
 ### Behaviour
 
 One field over the window that finds commands and things of the Project. The "Search or run…" field of the toolbar opens
-it, and so does ⌘K (Ctrl+K on Windows). The panel is 560 pixels wide and at most 440 high.
+it, and so does ⌘K (Ctrl+K on Windows). In a window up to 1100 px wide the field shows its icon and the shortcut alone,
+so the toolbar fits the smallest window with the sidebar open. The panel is 560 pixels wide and at most 440 high.
 
 Typing ranks the rows. ↑ and ↓ walk all the rows across the groups and wrap round, and the pointer over a row selects it.
 Enter or a click runs the selected row. Esc or a press outside the panel closes the palette.

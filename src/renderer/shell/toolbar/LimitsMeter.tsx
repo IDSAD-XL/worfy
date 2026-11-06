@@ -23,6 +23,10 @@ import { VendorBadge } from '../../session/VendorBadge'
 // no "Limits" heading (the group keeps it as its name), a thin line between the sections, smaller gaps,
 // and narrower bars whose reset line is the time alone, the whole line as its tooltip. With Claude's
 // section alone it looks as in the F mockup.
+//
+// In a narrow window (worfy-polish ticket 48) the toolbar hides the heading, the bars' labels and their
+// reset lines (src/renderer/shell/shell.css): each bar shows its value, whose tooltip names the rest
+// (src/renderer/limits/LimitBar.tsx).
 
 // Before the Harness item (500), which carries the app version.
 export const order = 100
@@ -70,7 +74,11 @@ export function LimitsMeterView({ state, now, timeZone }: { state: LimitsView; n
   const compact = sections !== null && sections.length > 1
   return (
     <div role="group" aria-label="Limits" data-testid="limits-meter" data-compact={compact ? 'true' : undefined} style={{ display: 'flex', alignItems: 'center', gap: compact ? COMPACT_GAP : GAP, flex: 'none' }}>
-      {!compact && <span style={{ ...muted, fontWeight: 600 }}>Limits</span>}
+      {!compact && (
+        <span className="w-limits__heading" style={{ ...muted, fontWeight: 600 }}>
+          Limits
+        </span>
+      )}
       {sections === null ? (
         <span style={muted} data-testid="limits-empty">
           no data yet

@@ -34,6 +34,11 @@ export const STALE_OPACITY = 0.55
  * default; the toolbar gives another Vendor's bars its id as well (`limit-codex-primary`).
  * `compact`: the narrower bar of a toolbar with several Vendor sections, whose reset line is the time
  * alone (`Fri 03:18`), with the whole line as its tooltip.
+ *
+ * In a narrow window (worfy-polish ticket 48, the rule in src/renderer/shell/shell.css) the toolbar
+ * shows the value alone: the label and the reset line are hidden, so the value's tooltip names them
+ * all (`5-hour: 62% · resets Thu 09:00`, and `· as of 13:05` for old data). The width of a bar is
+ * set there too.
  */
 export function LimitBarView({ bar, testId = `limit-${bar.window}`, compact = false }: { bar: LimitBar; testId?: string; compact?: boolean }) {
   const valueColor = bar.level === 'blocked' ? 'var(--blocked-text)' : 'var(--text)'
@@ -44,14 +49,17 @@ export function LimitBarView({ bar, testId = `limit-${bar.window}`, compact = fa
       data-level={bar.level}
       data-stale={stale ? 'true' : undefined}
       title={stale ? `${bar.value} · ${bar.asOf}` : undefined}
-      style={{ display: 'flex', flexDirection: 'column', gap: 3, width: compact ? COMPACT_WIDTH : WIDTH, ...(stale ? { opacity: STALE_OPACITY } : {}) }}
+      className={compact ? 'w-limit-bar w-limit-bar--compact' : 'w-limit-bar'}
+      style={{ display: 'flex', flexDirection: 'column', gap: 3, ...(stale ? { opacity: STALE_OPACITY } : {}) }}
     >
       {/* One line: a status in words ("limit reached") is set in the UI font, which is narrower
           than mono, and anything still wider ends with an ellipsis instead of wrapping. */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 2, fontSize: 'var(--text-11)', lineHeight: '13px', whiteSpace: 'nowrap' }}>
-        <span style={{ flex: 'none', color: 'var(--text-secondary)' }}>{bar.label}</span>
+        <span className="w-limit-bar__label" style={{ flex: 'none', color: 'var(--text-secondary)' }}>
+          {bar.label}
+        </span>
         <span
-          title={stale ? undefined : bar.value}
+          title={valueTooltip(bar)}
           style={{ ...(bar.percent === null ? {} : mono), minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600, color: valueColor }}
           data-testid={`${testId}-value`}
         >
@@ -64,16 +72,12 @@ export function LimitBarView({ bar, testId = `limit-${bar.window}`, compact = fa
   )
 }
 
-const RESETS = 'resets '
+/** The whole of a bar in one line, for the tooltip of its value: its label, value, reset line and age. */
+function valueTooltip(bar: LimitBar): string {
+  return [`${bar.label}: ${bar.value}`, bar.resets, bar.asOf].filter((part) => part !== null).join(' · ')
+}
 
-/**
- * The width of a bar: room for `resets Thu 09:00`; a compact one, of a panel with several Vendor
- * sections, for `Thu 09:00` and `weekly 40%`. 72 px is the widest at which the Project title stays whole
- * in a 1280 px window next to two sections, each with its Vendor's logo (worfy-multi-vendor ticket 24):
- * at 73 px the title is cut by 1 px, at 80 px by 29 px (test/e2e/limits-vendors.spec.ts).
- */
-const WIDTH = 104
-const COMPACT_WIDTH = 72
+const RESETS = 'resets '
 
 /**
  * The reset line, `resets Thu 09:00`: the word in the UI font, the time in mono, as in the F
@@ -84,13 +88,13 @@ function ResetsLine({ text, testId, compact }: { text: string; testId: string; c
   const line: CSSProperties = { fontSize: 'var(--text-11)', lineHeight: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
   if (!text.startsWith(RESETS) || compact) {
     return (
-      <div style={{ ...line, ...mono }} title={text} data-testid={testId}>
+      <div className="w-limit-bar__resets" style={{ ...line, ...mono }} title={text} data-testid={testId}>
         {compact && text.startsWith(RESETS) ? text.slice(RESETS.length) : text}
       </div>
     )
   }
   return (
-    <div style={line} title={text} data-testid={testId}>
+    <div className="w-limit-bar__resets" style={line} title={text} data-testid={testId}>
       {RESETS}
       <span style={mono}>{text.slice(RESETS.length)}</span>
     </div>

@@ -30,6 +30,12 @@ import WhatsNew, { type WhatsNewAction } from './WhatsNew'
 // counting each second while the pointer or the focus is on the chip. A refused press is a toast
 // (store.ts, tellInstallRefusal). Once a restart began, "Restarting…" until the window closes.
 //
+// worfy-polish ticket 48: the step is no wider than the Harness line above it and ends with an
+// ellipsis (src/renderer/shell/shell.css, .w-toolbar__version-step), so a build does not widen the
+// toolbar; the whole step is the first line of the tooltip. When the button gives way to the plain
+// line, the pointer and the focus on it are forgotten: no mouseleave or blur comes from a button that
+// is gone, and the time would count on without anyone on the chip once it is a button again.
+//
 // It lives here, not in src/renderer/shell/toolbar/: every .tsx file there is a toolbar item of its
 // own (src/renderer/shell/Toolbar.tsx), and the chip is a part of the Harness item.
 
@@ -230,6 +236,8 @@ export default function UpdateChip({ version, number, update, now = Date.now }: 
   const time = useTicking(startedAt !== undefined && (pointed || focused), now)
   if (update?.enabled === true && update.restarting) {
     if (anchor !== null) setAnchor(null)
+    if (pointed) setPointed(false)
+    if (focused) setFocused(false)
     return (
       <small className="w-mono w-toolbar__version w-toolbar__version-chip" data-testid="app-version" data-update="restarting" role="status">
         {spinner}
@@ -242,6 +250,8 @@ export default function UpdateChip({ version, number, update, now = Date.now }: 
     // signal shows a closed chip rather than a menu that opens by itself. Adjusted during render, as
     // React advises for state that follows a prop.
     if (anchor !== null) setAnchor(null)
+    if (pointed) setPointed(false)
+    if (focused) setFocused(false)
     return (
       <small className="w-mono w-toolbar__version" data-testid="app-version" title={buildVersionTooltip(version, number)}>
         v{shown}
@@ -252,7 +262,8 @@ export default function UpdateChip({ version, number, update, now = Date.now }: 
   const step = build === undefined ? undefined : buildStepText(build)
   // Under way: pressed here and not answered yet, or begun and before its first step, or at a step.
   const progress = step !== undefined ? `Updating · ${step}` : starting || signal.phase === 'building' ? 'Starting update…' : undefined
-  const tooltip = TOOLTIP[signal.phase](label(signal.version)) + (startedAt === undefined ? '' : ` ${elapsedText(startedAt, time)}`)
+  const said = TOOLTIP[signal.phase](label(signal.version)) + (startedAt === undefined ? '' : ` ${elapsedText(startedAt, time)}`)
+  const tooltip = progress === undefined ? said : `${progress}\n${said}`
   return (
     <>
       <button
@@ -281,7 +292,7 @@ export default function UpdateChip({ version, number, update, now = Date.now }: 
         ) : (
           <>
             {spinner}
-            {progress}
+            <span className="w-toolbar__version-step">{progress}</span>
           </>
         )}
       </button>

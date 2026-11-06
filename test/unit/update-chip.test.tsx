@@ -140,7 +140,7 @@ describe('UpdateChip', () => {
     const calls = fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(), build: { phase: 'building', sha: SHA, version: NEW } })} />)
     expect(chip().querySelector('.w-update-spinner')).not.toBeNull()
-    expect(chip().getAttribute('title')).toBe(`Building worfy ${NEW}…`)
+    expect(chip().getAttribute('title')).toBe(`Starting update…\nBuilding worfy ${NEW}…`)
     fireEvent.click(chip())
     expect(items()).toEqual([`Building worfy ${NEW}…`, "What's new", 'Later'])
     const building = screen.getByRole('menuitem', { name: `Building worfy ${NEW}…` })
@@ -241,21 +241,59 @@ describe('UpdateChip while an update is under way (ticket 16)', () => {
     vi.useFakeTimers()
     let now = later()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={building({ step: 'install', steps: 3 })} now={() => now} />)
-    expect(chip().getAttribute('title')).toBe(`Building worfy ${NEW}… 3:12`)
+    expect(chip().getAttribute('title')).toBe(`Updating · 2/3 Installing dependencies\nBuilding worfy ${NEW}… 3:12`)
     fireEvent.mouseEnter(chip())
     act(() => {
       now += 1000
       vi.advanceTimersByTime(1000)
     })
-    expect(chip().getAttribute('title')).toBe(`Building worfy ${NEW}… 3:13`)
+    expect(chip().getAttribute('title')).toBe(`Updating · 2/3 Installing dependencies\nBuilding worfy ${NEW}… 3:13`)
     act(() => {
       now += 3600_000
       vi.advanceTimersByTime(1000)
     })
-    expect(chip().getAttribute('title')).toBe(`Building worfy ${NEW}… 1:03:13`)
+    expect(chip().getAttribute('title')).toBe(`Updating · 2/3 Installing dependencies\nBuilding worfy ${NEW}… 1:03:13`)
     // The pointer gone, nothing ticks.
     fireEvent.mouseLeave(chip())
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  // worfy-polish ticket 48: a button that is gone sends no mouseleave or blur.
+  it('the pointer and the focus on the chip are forgotten when the button gives way to the plain line: a later build does not tick unpointed', () => {
+    vi.useFakeTimers()
+    const version = '0.4.0+aaaaaaa'
+    const view = render(<UpdateChip version={version} update={building({ step: 'install', steps: 3 })} now={later} />)
+    fireEvent.mouseEnter(chip())
+    fireEvent.focus(chip())
+    expect(vi.getTimerCount()).toBe(1)
+    // Restarting: the button is a <small> now, and nothing ticks.
+    view.rerender(<UpdateChip version={version} update={{ ...snapshot({ available: available(), idle: true, build: { phase: 'ready', sha: SHA, version: NEW } }), restarting: true }} now={later} />)
+    expect(chip().tagName).toBe('SMALL')
+    // The restart did not happen and a build runs again: no one points at the new button.
+    view.rerender(<UpdateChip version={version} update={building({ step: 'fetch', steps: 3 })} now={later} />)
+    expect(chip().tagName).toBe('BUTTON')
+    expect(vi.getTimerCount()).toBe(0)
+    // The same after the plain version line.
+    fireEvent.mouseEnter(chip())
+    expect(vi.getTimerCount()).toBe(1)
+    view.rerender(<UpdateChip version={version} update={snapshot()} now={later} />)
+    expect(chip().tagName).toBe('SMALL')
+    view.rerender(<UpdateChip version={version} update={building({ step: 'fetch', steps: 3 })} now={later} />)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('the step is cut with an ellipsis on the chip (shell.css), and is the first line of the tooltip', () => {
+    render(<UpdateChip version="0.4.0+aaaaaaa" update={building({ step: 'install', steps: 3 })} now={later} />)
+    const step = chip().querySelector('.w-toolbar__version-step')
+    expect(step?.textContent).toBe('Updating · 2/3 Installing dependencies')
+    expect(chip().getAttribute('title')).toBe(`Updating · 2/3 Installing dependencies\nBuilding worfy ${NEW}… 3:12`)
+    const css = readFileSync(join(import.meta.dirname, '../../src/renderer/shell/shell.css'), 'utf8')
+    const start = css.indexOf('\n.w-toolbar__version-step {')
+    expect(start).toBeGreaterThanOrEqual(0)
+    const rule = css.slice(start, css.indexOf('}', start))
+    expect(rule).toMatch(/max-width:\s*\d+ch;/)
+    expect(rule).toMatch(/text-overflow:\s*ellipsis;/)
+    expect(rule).toMatch(/overflow:\s*hidden;/)
   })
 
   it('"Update worfy" answers at once: "Starting update…" until main answers', async () => {

@@ -7,7 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { buildVersionTooltip } from '../../src/shared/version-number'
 import { putElectron } from '../fixtures/update/electron.mjs'
 import { startUpdateStub, type UpdateStub } from '../update-stub'
-import { launchApp, type LaunchedApp } from './helpers'
+import { launchApp, smallestWindow, type LaunchedApp } from './helpers'
 import { E2E_SHELL } from './launch-env'
 
 // worfy-update ticket 06: the version chip of the toolbar in the built app, and its "What's new"
@@ -292,12 +292,34 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   // The build holds at `pnpm install`: the step is on the chip itself, the time in its tooltip.
   await expect(chip).toHaveText('Updating · 2/3 Installing dependencies')
   await expect(chip).toHaveAttribute('data-update', 'building')
-  await expect(chip).toHaveAttribute('title', new RegExp(`^Building worfy ${update.replace(/[.+]/gu, '\\$&')}… \\d+:\\d\\d`, 'u'))
+  // The whole step is the first line of the tooltip: on the chip it may end with an ellipsis (worfy-polish ticket 48).
+  await expect(chip).toHaveAttribute('title', new RegExp(`^Updating · 2/3 Installing dependencies\\nBuilding worfy ${update.replace(/[.+]/gu, '\\$&')}… \\d+:\\d\\d`, 'u'))
   for (const scheme of ['light', 'dark'] as const) {
     await window.emulateMedia({ colorScheme: scheme })
     expect(await textContrast(chip), `the chip's text in the ${scheme} theme`).toBeGreaterThanOrEqual(4.5)
   }
   await window.emulateMedia({ colorScheme: null })
+  // worfy-polish ticket 48: in the smallest window with the sidebar open, the build does not widen the
+  // toolbar past the window; the step ends with an ellipsis. The size comes back after.
+  const size = await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.getSize())
+  await expect(window.getByRole('navigation', { name: 'Sidebar' })).toBeVisible()
+  await smallestWindow(launched)
+  const widths = await toolbar.evaluate((element) => {
+    const node = element as unknown as { scrollWidth: number; clientWidth: number; getBoundingClientRect(): { right: number }; ownerDocument: { defaultView: { innerWidth: number } } }
+    return { scrollWidth: node.scrollWidth, clientWidth: node.clientWidth, right: node.getBoundingClientRect().right, window: node.ownerDocument.defaultView.innerWidth }
+  })
+  expect(widths.scrollWidth, 'the toolbar draws no wider than it is').toBeLessThanOrEqual(widths.clientWidth)
+  expect(widths.right, 'the toolbar ends inside the window').toBeLessThanOrEqual(widths.window)
+  await expect(chip).toHaveText('Updating · 2/3 Installing dependencies')
+  expect(
+    await chip.locator('.w-toolbar__version-step').evaluate((element) => {
+      const node = element as unknown as { scrollWidth: number; clientWidth: number }
+      return node.scrollWidth > node.clientWidth
+    }),
+    'the step is cut',
+  ).toBe(true)
+  await snapshots(window, toolbar, 'update-building-smallest')
+  await launched.app.evaluate(({ BrowserWindow }, [width, height]) => BrowserWindow.getAllWindows()[0]?.setSize(width ?? 1280, height ?? 800), size)
   await snapshots(window, toolbar, 'update-building-install')
   // Reduced motion: the spinner stands still.
   await window.emulateMedia({ reducedMotion: 'reduce' })

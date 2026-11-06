@@ -39,7 +39,10 @@ import UpdateChip from '../../update/UpdateChip'
 // After the Limits (100), last of the toolbar items.
 export const order = 500
 
-const textStyle = { fontSize: 'var(--text-11)', lineHeight: '20px', color: 'var(--text-muted)', whiteSpace: 'nowrap' } as const
+// worfy-polish ticket 48: the column gives way once the toolbar's title is gone (src/renderer/shell/shell.css),
+// so each text ends with an ellipsis rather than run past the window; the Harness line keeps its whole
+// text as its tooltip.
+const textStyle = { fontSize: 'var(--text-11)', lineHeight: '20px', color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' } as const
 
 const iconProps = { width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const
 
@@ -123,9 +126,9 @@ export interface HarnessStatusViewProps {
 export function HarnessStatusView({ version, versionNumber, memory, update = null, ...props }: HarnessStatusViewProps) {
   const harness = <HarnessLine {...props} />
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', flex: 'none' }} data-testid="harness-column">
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', flex: '0 1 auto', minWidth: 0 }} data-testid="harness-column">
       {harness}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }} data-testid="app-line">
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, maxWidth: '100%' }} data-testid="app-line">
         {version ? <UpdateChip version={version} number={versionNumber} update={update} /> : null}
         {memory}
       </div>
@@ -196,8 +199,8 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate, onApproveHoo
   const codex = state.kind === 'installed' && status.codex !== undefined ? codexPart(status.codex) : null
   if (codex?.button !== undefined) button = action(codex.button.icon, codex.button.label, codex.button.title, codex.button.icon === 'update')
   return (
-    <span role="group" aria-label="Harness" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flex: 'none' }} data-testid="harness-status" data-state={state.kind}>
-      <span style={{ ...textStyle, color: tone }} title={title} data-testid="harness-text">
+    <span role="group" aria-label="Harness" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, maxWidth: '100%' }} data-testid="harness-status" data-state={state.kind}>
+      <span style={{ ...textStyle, color: tone }} title={title ?? text} data-testid="harness-text">
         {text}
       </span>
       {codex === null ? null : codex.state === 'hooks' && onApproveHooks !== undefined ? (

@@ -195,6 +195,8 @@ any data arrives it says "no data yet". A window without data says "no data".
 - **Colour:** changes at 60% and 85%. A near-limit status also gives the first colour, and a rejected one the second; so does a Codex
   window Codex reports as reached.
 - **Old data:** older than an hour, the bar dims and its tooltip ends with `as of 13:05`.
+- **Narrow window:** up to 1100 px wide, each bar shows its value alone, with no "Limits" heading, label or reset line. The
+  value's tooltip names the rest: `5-hour: 62% · resets 14:20`, with `· as of 13:05` for old data.
 
 ### How it works
 

@@ -68,6 +68,29 @@
     padding: 0 10px;
   }
 }
+/* In a window up to 1100 px wide (worfy-polish ticket 48) the toolbar keeps every item in its place
+   but spends less width on each, so that it stays inside the smallest window (800×520) with the
+   sidebar open (test/e2e/toolbar.spec.ts): narrower gaps, the Limits show their values alone (the
+   value's tooltip names the window and its reset, limits/LimitBar.tsx), and the search field its icon
+   and its shortcut (its name stays as aria-label). What is still too wide comes off the Harness
+   column, which ends with an ellipsis (below). */
+@media (max-width: 1100px) {
+  .w-toolbar {
+    gap: var(--space-2);
+  }
+  .w-toolbar .w-limits__heading,
+  .w-toolbar .w-limit-bar__label,
+  .w-toolbar .w-limit-bar__resets,
+  .w-toolbar .w-toolbar__palette-text {
+    display: none;
+  }
+  .w-toolbar .w-limit-bar {
+    width: 30px;
+  }
+  .w-toolbar .w-toolbar__palette-hint {
+    width: auto;
+  }
+}
 /* Without the sidebar the traffic lights sit over the toolbar: keep clear of them. They do not move
    with the interface scale, so the room is 80 px of the window, not 80 CSS px
    (settings/interface-scale.ts writes --interface-scale on <html>). */
@@ -138,6 +161,15 @@ html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
   opacity: 0.8;
   white-space: nowrap;
 }
+/* The step of an Update build on the version chip ("Updating · 2/3 Installing dependencies",
+   worfy-polish ticket 48): no wider than the Harness line above it, ending with an ellipsis; the whole
+   step is the first line of the chip's tooltip (update/UpdateChip.tsx). */
+.w-toolbar__version-step {
+  min-width: 0;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* The version chip (worfy-update ticket 06): the same line as a button with a menu while an Update
    waits; its height stays 13px. */
 .w-toolbar__version-chip {
@@ -152,6 +184,8 @@ html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
   border-radius: 4px;
   background: transparent;
   opacity: 1;
+  /* Gives way with the Harness column; the step inside it ends with an ellipsis. */
+  min-width: 0;
 }
 .w-toolbar__version-chip:hover {
   background: var(--surface-raised);
@@ -188,12 +222,14 @@ html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
     animation: none;
   }
 }
-/* The title shrinks (and only the title): a long Project name is cut with an ellipsis, the full
-   name is in the title attribute, and the controls to the right always stay whole. */
+/* The title shrinks first: a long Project name is cut with an ellipsis, the full name is in the title
+   attribute, and the controls to the right stay whole. Its shrink factor is a million times the
+   Harness column's, the one other item that shrinks: the column gives way (by less than a pixel's
+   fraction before) only once the title is gone. */
 .w-toolbar__title {
   display: flex;
   flex-direction: column;
-  flex: 0 1 auto;
+  flex: 0 1000000 auto;
   min-width: 0;
 }
 .w-toolbar__name {
@@ -230,6 +266,24 @@ html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
   display: flex;
   align-items: center;
   flex: none;
+}
+/* The Harness column (worfy-polish ticket 48) gives way too, but only once the title is gone: the
+   title's shrink factor is that much larger, so the column keeps its whole text while the title has
+   any width left. Its lines then end with an ellipsis (toolbar/HarnessStatus.tsx). */
+.w-toolbar__item[data-item='HarnessStatus'] {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* A bar of the Limits (limits/LimitBar.tsx): room for `resets Thu 09:00`; a compact one, of a panel
+   with several Vendor sections, for `Thu 09:00` and `weekly 40%`. 72 px is the widest at which the
+   Project title stays whole in a 1280 px window next to two sections, each with its Vendor's logo
+   (worfy-multi-vendor ticket 24): at 73 px the title is cut by 1 px, at 80 px by 29 px
+   (test/e2e/limits-vendors.spec.ts). A narrow window narrows it further (above). */
+.w-limit-bar {
+  width: 104px;
+}
+.w-limit-bar--compact {
+  width: 72px;
 }
 .w-toolbar__palette-hint {
   display: inline-flex;

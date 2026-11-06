@@ -21,7 +21,9 @@
 //
 // Main keeps `lastRestart` in its state until the next restart, so the toast of it is remembered in
 // this window's localStorage (worfy's data folder, ADR-0005), not shown at every start. Its `at`
-// (when that restart was asked) keeps two equal results of two restarts apart.
+// (when that restart was asked) keeps two equal results of two restarts apart. A failed build stays in
+// main's state until the next build in the same way: "Update failed" is remembered there by the
+// build's version (worfy-polish ticket 48), one toast per failed build.
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import { failureReason } from '../../shared/ipc/channels'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
@@ -43,6 +45,8 @@ export const ERROR_KEY = 'update-error'
 
 /** The `lastRestart` already told, in localStorage. */
 export const RESTART_SHOWN_ITEM = 'worfy.update.lastRestartShown'
+/** The version of the failed build last told, in localStorage (worfy-polish ticket 48). */
+export const FAILED_SHOWN_ITEM = 'worfy.update.failedShown'
 
 export const WAITING_TEXT = 'worfy restarts when no Session is working and Autopilot has stopped'
 
@@ -99,6 +103,23 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
   let lastPhase: UpdateSnapshot['build']['phase'] | undefined
   let restartTold = false
   let harnessAfterTold = false
+
+  /** What `actions.storage` keeps under `item`; null when nothing, or when it cannot be read. */
+  const stored = (item: string): string | null => {
+    try {
+      return actions.storage?.getItem(item) ?? null
+    } catch (error) {
+      console.error('update toasts: localStorage cannot be used', error)
+      return null
+    }
+  }
+  const store = (item: string, value: string): void => {
+    try {
+      actions.storage?.setItem(item, value)
+    } catch (error) {
+      console.error('update toasts: localStorage cannot be used', error)
+    }
+  }
 
   const fail = (reason: string): void => {
     showToast({ kind: 'error', key: ERROR_KEY, testId: ERROR_KEY, text: reason })
@@ -177,6 +198,12 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
       return
     }
     if (before === 'failed') return
+    // One toast per failed build (worfy-polish ticket 48), by its version: main keeps the failure in its
+    // state until the next build, so the first snapshot of a window load after a restart may be the
+    // failure told before it. A failure this window saw happen (after another phase) is always new.
+    const failed = state.build.version ?? state.build.sha ?? ''
+    if (before === undefined && stored(FAILED_SHOWN_ITEM) === failed) return
+    store(FAILED_SHOWN_ITEM, failed)
     const missing = state.build.missing ?? []
     const text = missing.length === 0 ? 'Update failed' : `Update failed: git, node and pnpm are needed, and ${missing.join(', ')} ${missing.length === 1 ? 'was' : 'were'} not found`
     showToast({ kind: 'action', key: FAILED_KEY, testId: FAILED_KEY, text, actions: [{ label: 'Show log', run: () => call('update.showLog') }] })
@@ -206,12 +233,8 @@ export function createUpdateToasts(actions: UpdateToastActions): UpdateToasts {
     const last = state.lastRestart
     if (last === null) return
     const told = JSON.stringify(last)
-    try {
-      if (actions.storage?.getItem(RESTART_SHOWN_ITEM) === told) return
-      actions.storage?.setItem(RESTART_SHOWN_ITEM, told)
-    } catch (error) {
-      console.error('update toasts: localStorage cannot be used', error)
-    }
+    if (stored(RESTART_SHOWN_ITEM) === told) return
+    store(RESTART_SHOWN_ITEM, told)
     showToast({ kind: last.ok ? 'success' : 'error', key: RESTART_RESULT_KEY, testId: RESTART_RESULT_KEY, text: restartText(last, (version) => updateVersionLabel(state, version)) })
   }
 
