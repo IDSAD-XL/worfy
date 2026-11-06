@@ -70,3 +70,29 @@ Source: [spec.md](../spec.md), «Цель» (окна у планов разны
 
 Только читать: `src/shared/agent/limits.ts`, `src/main/agent/limits.ts`, `src/main/autopilot/power.ts`,
 `src/main/vendors/codex/limits.ts`, `test/contract/autopilot-limits.test.ts`.
+
+## Итог
+
+PR #1473. Переключатель — Auto-continue Project-а; Run читает его через `AutopilotDeps.retry.enabled` (та же
+настройка, что у повтора Ticket-а 04), поэтому `src/main/ipc/autopilot.ts` не менялся.
+
+- Выключен — ожидание Limits ровно как раньше: сброс дальше 24 ч от первого отказа — `limits-timeout`.
+- Включён — известный сброс дальше 24 ч ждём (`resumeAt` с `farReset: 'wait'`). Пока до продолжения больше 24 ч,
+  Run отпускает keep-awake; второй таймер за 24 ч до продолжения берёт его снова. Если Mac проспал сброс, keep-awake
+  берётся до отправки продолжения. Auto-continue, выключенный во время такого ожидания, читается по таймеру «за 24 ч»:
+  Run останавливается с `limits-timeout`.
+- Окно — любое: `five_hour` нигде не нужен, план только с `seven_day` ждёт сброса `seven_day`. План `at` теперь несёт
+  имя окна; `AutopilotState.limitsWindow` (новое поле) — окно ожидания, `null` без времени сброса (для строки Ticket-а 07).
+- Нет окна — без изменений: попытка каждые 30 мин в пределах 24 ч при любом положении переключателя.
+- Квота без сброса — без изменений (worfy-multi-vendor 38): остановка сразу с `vendor-quota` и текстом ошибки Codex.
+
+Решено без владельца:
+
+- Пункт 3 тикета (seam `peek()` для Codex) не понадобился: чтение окон Codex перед продолжением уже есть
+  (`stillRefused` в `run.ts`, `deps.usage.refresh(0, vendor)`, worfy-multi-vendor 38).
+- Пункт 4 («квота → give-up с причиной»): остался план `quota` и причина `vendor-quota`, а не `give-up`/`limits-timeout`.
+- keep-awake отсчитывается от времени продолжения (сброс + 2 мин), а не от самого сброса.
+- Попытки без времени сброса и при включённом переключателе ограничены 24 ч от первого отказа.
+
+Долг: ветка `resume()` → `plan(again, …)` (Codex: окно всё ещё исчерпано после ожидания, сброс дальше 24 ч) с
+включённым переключателем не покрыта test-ом.
