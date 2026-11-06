@@ -6,8 +6,8 @@
 // nor interrupted, the Session has no live background task and is idle (ADR-0029), and in a fresh
 // read of the workflow model no Ticket of the Wave is in work (ADR-0024). Live background tasks
 // keep the run in `tasks`: their task-notifications start turns of the Session, each of them a turn
-// of the Wave whose result checks again. Without any task event for BACKGROUND_STALL_MS the run
-// stops with `background-stalled`; with no task left and no turn within TASKS_GRACE_MS the Wave is
+// of the Wave whose result checks again. Without any task event for BACKGROUND_STALL_MS (nor a
+// change of a live task's output file, which run.ts looks for) the run stops with `background-stalled`; with no task left and no turn within TASKS_GRACE_MS the Wave is
 // checked without that turn. A Ticket still in work keeps the run settling: each workflow change
 // checks again, a new turn of the Orchestrator waits for its own result, and after SETTLE_MS
 // without either the run stops with `wave-unfinished`. After a finished Wave the next ready Wave
@@ -76,7 +76,9 @@ export const SETTLE_MS = 10 * 60_000
 /**
  * How long a run waits for its background tasks without any event of theirs before it stops with
  * `background-stalled` (ADR-0029): an implementer may wait for CI in one 10-minute Bash, and more
- * than once; a hung Subagent holds the run an hour at most.
+ * than once; a hung Subagent holds the run an hour at most. A live task whose output file changed
+ * within this time starts it over (worfy-polish ticket 61): a gate full in one silent Bash runs
+ * longer than an hour, and a task that stopped writing holds the run less than twice this time.
  */
 export const BACKGROUND_STALL_MS = 60 * 60_000
 
@@ -128,7 +130,8 @@ export type CycleEvent =
    */
   | { type: 'turn-ended'; isError: boolean; interrupted: boolean; message: string | null; tickets: readonly CycleTicket[]; tasks: number; idle: boolean }
   /**
-   * In `tasks`, the time ran out: BACKGROUND_STALL_MS without a task event while `tasks` live, or
+   * In `tasks`, the time ran out: BACKGROUND_STALL_MS without a task event (or a change of a live
+   * task's output file) while `tasks` live, or
    * TASKS_GRACE_MS after the last one ended without a turn. The Tickets of a fresh read.
    */
   | { type: 'tasks-timeout'; tasks: number; tickets: readonly CycleTicket[] }

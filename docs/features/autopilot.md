@@ -306,8 +306,11 @@ A Ticket still in work after the turn makes the run wait up to 10 minutes. Each 
 new turn of the Orchestrator waits for its own result. After that the run stops with `wave-unfinished`.
 
 Live background tasks make the run wait up to one hour without any event from them. Each event of a task starts this time
-over. After the last task ends, the run waits up to 2 minutes for the turn its task-notification starts, then judges the
-Wave without that turn.
+over. So does a change of a live task's output file — the file Claude Code writes a background command's output to, named
+in the tool result that started it: when the hour runs out, the run looks at those files again, and one that changed in the
+hour starts it over. That way a gate full in one silent background command, which prints a line at the end of each step,
+does not stop the run, and a task that stopped writing stops it within two hours of its last line. After the last task
+ends, the run waits up to 2 minutes for the turn its task-notification starts, then judges the Wave without that turn.
 
 Every Wave after the run's first goes to a new SDK session of the Orchestrator, so the context does not grow from Wave to
 Wave. Its first prompt also tells the Orchestrator to run `wave-brief <epic>`. The Wave stays in the current session when the
@@ -447,7 +450,7 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `blocked-tickets` | Nothing open is ready, and some `blocked` or status-less Tickets have all their blockers done. In a run over named Tickets, only Tickets of the list count. |
 | `no-progress` | The next ready Wave is the same set of Tickets as the one just finished. |
 | `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn. |
-| `background-stalled` | Background tasks gave no event for an hour. |
+| `background-stalled` | Background tasks gave no event for an hour, and none of their output files changed in it. |
 | `limits-timeout` | The wait for the Limits would pass 24 hours (with Auto-continue on, only when no reset time is known), or Auto-continue was switched off during a wait for a reset more than 24 hours away. |
 | `vendor-quota` | Codex refused a turn by its Limits, and no window is used up, so nothing will reset. Codex's error text is the message of the run's state (the status line's tooltip) and `message` of the `limits-hit` line. |
 | `window-too-short` | The Run mode is Start window, and the next Wave usually takes longer than the whole window. The tooltip names the Wave, its usual duration and the window. |
