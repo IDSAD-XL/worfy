@@ -1,7 +1,8 @@
 # 04 — Модель Work track: Span-ы, дорожки, сводка, пробелы
 
 Type: task
-Status: open
+Status: done 2026-11-06T13:28Z
+PR: #1496
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Модель»; «Решения владельца», 2, 9, 10; [05](../../worfy-autopilot-queue/issues/05-вид-work-track.md), Q3, Q4, Q6
 
@@ -31,12 +32,16 @@ Source: [spec.md](../spec.md), «Как работает» → «Модель»;
 - [ ] Unit test дорожек: три Session, Run с двумя Wave-ами, Subagent-ы внутри и снаружи Wave, run-ы gate — порядок
       дорожек, свёрнутые дети, «by Epic» с «—».
   - evidence: test-run pass · `pnpm test -- test/unit/work-track-lanes.test.ts` exit 0 · mac - · 4e57409f70ab7f59ba9b3e2ca9217f8a81a64b43
+  - evidence: review pass · PR #1496 · - - · b1b87e7002ef0d16781aaed61a061293c536ce19
 - [ ] Unit test сводки: два параллельных Subagent-а по часу — 1 h, не 2; Span через полночь в Month — делится по
       дням; пробел считается один раз на источник.
   - evidence: test-run pass · `pnpm test -- test/unit/work-track-summary.test.ts` exit 0 · mac - · 4e57409f70ab7f59ba9b3e2ca9217f8a81a64b43
+  - evidence: review pass · PR #1496 · - - · b1b87e7002ef0d16781aaed61a061293c536ce19
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 4e57409f70ab7f59ba9b3e2ca9217f8a81a64b43
   - evidence: gate pass · `gate fast` exit 0 · mac - · 4e57409f70ab7f59ba9b3e2ca9217f8a81a64b43
+  - evidence: review pass · PR #1496 · - - · b1b87e7002ef0d16781aaed61a061293c536ce19
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42222379919 · ci - · b1b87e7002ef0d16781aaed61a061293c536ce19
 
 ## Тесты
 
