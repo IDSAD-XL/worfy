@@ -33,8 +33,12 @@ Source: [spec.md](../spec.md), «Как работает» → «Очередь 
       «утверждён владельцем», «по решению владельца», «по решениям владельца», «решения владельца … приняты» —
       `acceptedAt` верный; «draft» и «ждёт приёмки владельцем» — `null`; spec без `Status:` — оба `null`; текстовый
       вывод не изменился. На `.scratch` worfy каждый spec со `Status: принят владельцем YYYY-MM-DD` получает эту дату.
+  - evidence: test-run pass · `bash harness/bin/tests/epic-status.test.sh` exit 0 · mac - · eb5ebd2b22e3ce92cc7e176bf4df571a9ee8a170
+  - evidence: gate pass · `gate fast` exit 0 · mac - · eb5ebd2b22e3ce92cc7e176bf4df571a9ee8a170
 - [ ] Unit test `acceptedEpics`: закрытый Epic (все `done`) не входит; Epic без готовых Ticket-ов не входит; порядок по
       дате.
+  - evidence: test-run pass · `vitest run test/unit/accepted-epics.test.ts` exit 0 · mac - · eb5ebd2b22e3ce92cc7e176bf4df571a9ee8a170
+  - evidence: gate pass · `gate fast` exit 0 · mac - · eb5ebd2b22e3ce92cc7e176bf4df571a9ee8a170
 - [ ] PR ждёт Windows (скрипт Harness-а, ADR-0056); `ci-ok` зелёный.
 
 ## Тесты
