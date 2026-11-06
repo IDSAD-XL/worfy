@@ -393,6 +393,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 10 | `docs/features/autopilot.md`, `docs/features/ru/autopilot.md`, `CONTEXT.md`, `docs/adr/<NNNN>-approval-policy.md` | 5 |
 | 12 | `electron-builder.yml`, `package.json`, `src/main/program.ts`, `src/main/vendors/codex/launch.ts`, `test/contract/electron-fuses.test.ts` | 1 |
 | 13 | `src/shared/autopilot/journal.ts`, `src/main/agent/auto-approve/run-approval.ts`, `test/unit/auto-approve-run.test.ts`, `test/unit/autopilot-journal.test.ts`, `docs/features/ru/autopilot.md` | 4 |
+| 14 | `src/main/vendors/codex/approvals.ts`, `src/main/vendors/codex/session.ts`, `src/main/agent/auto-approve/run-approval.ts`, `test/contract/auto-approve-codex.test.ts`, `docs/features/autopilot.md` | 5 |
 | 11 | `.scratch/worfy-auto-approve/spec.md` | 6 |
 
 Правило плана: Ticket стоит в первой Wave, где закрыты все его блокеры; общий файл у двух Ticket-ов одной Wave —
@@ -402,7 +403,7 @@ Ticket с большим номером уходит дальше (`filesOverlap
 - **Wave 2 — 03, 09.** Политике нужны категории 01 и разбор 02; hook-у — только категории 01.
 - **Wave 3 — 04.** Первое подключение к driver-у: нужны политика и режим.
 - **Wave 4 — 05, 07, 08, 13.** Все ждут 04; общих файлов нет (`run.ts` из них правит только 08).
-- **Wave 5 — 10.** Wave 6 — 11, владелец.
+- **Wave 5 — 10, 14.** 14 ждёт 05 (follow-up review PR #1469). Wave 6 — 11, владелец.
 
 ## Не в этом Epic-е
 
