@@ -387,11 +387,12 @@ a pid's start time`.
   test-ом держит папку данных и профиль Chromium в `os.tmpdir()`: при задержке C: в сотни миллисекунд на операцию оно
   перестаёт отвечать.
 - **Правка.** В шаге e2e job-а `windows-e2e` (`.github/workflows/ci.yml`) `TEMP` и `TMP` = `runner.temp` (`D:\a\_temp`);
-  contract test в `test/contract/ci-workflow.test.ts`. Timeout-ы не тронуты. Записи quarantine
-  `card-drag-canvas-middle-pan` и `card-drag-card-jerked-lower-end` сняты, у test-ов снова `test(`.
+  contract test в `test/contract/ci-workflow.test.ts`. Timeout-ы не тронуты. Сняты все четыре записи quarantine с этой
+  причиной — `card-drag-canvas-middle-pan`, `card-drag-card-jerked-lower-end`, `card-drag-note-jerked-across-card` и
+  `browser-open-bar-long-host-640`: каждая описывает тот же отказ («the window is 1600/1400 px wide» в `canvasReady`, страница
+  не отвечала, первая попытка и retry), у их test-ов снова `test(`. Под тяжёлым эпизодом C: ни один из четырёх с правкой
+  ещё не наблюдался.
 - **Проверка.** Run 42262647542 (5 копий shard 1/4 с TEMP на D:): данные test-ов на `D:\a\_temp`, 108 test-ов зелёные в
   каждой копии, окно `StorSvc` было в четырёх. Задержки C: выше 0.06 s в этих четырёх не случилось, поэтому правка под
   тяжёлым видом эпизода ещё не наблюдалась — это покажут run-ы `windows-e2e` после merge. Один красный первой попытки
   там — `browser-profile.spec.ts:127` («three pages, two on the partition of admin»), при простое машины: другая причина.
-- **Осталось.** Записи `card-drag-note-jerked-across-card` и `browser-open-bar-long-host-640` — та же причина; бриф
-  этой части их не называл.

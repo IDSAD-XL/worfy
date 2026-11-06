@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
-import { quarantined } from './quarantine'
 
 // A gesture that runs over a Card's iframe ends on the release (worfy-week ticket 09). A Card's
 // page lives on another origin, worfy-card://, so while the pointer is over its iframe the mouse
@@ -194,7 +193,7 @@ for (const [where, below] of [['the middle', 0.5], ['the lower end', 1]] as cons
   })
 }
 
-quarantined('card-drag-note-jerked-across-card')('a Note jerked across a Card iframe ends its drag on the release and lands where it was dropped', async () => {
+test('a Note jerked across a Card iframe ends its drag on the release and lands where it was dropped', async () => {
   // At zoom 0.5 the Note stands 8 screen px left of the Card (16 on the Canvas, ADR-0038). Held at
   // the right end of its header and pulled right: the first step puts the pointer on the Card's
   // iframe, and the pull carries the Note across the Card to beyond it.
