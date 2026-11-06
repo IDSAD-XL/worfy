@@ -34,7 +34,8 @@ export type QueueEpicStatus = (typeof QUEUE_EPIC_STATUSES)[number]
 /**
  * The Project's run: `running`; `waiting` for the Limits to reset (worfy-daily ticket 05), until
  * `resumesAt`; or `stopped` with the reason of the last run (null before any). `wave` counts the
- * Waves the run has sent, from 1. `message` is what went wrong, in words, when a Session failed, a
+ * Waves the run has sent in the Epic it is on (`epic`), from 1; in a run over a queue it starts at 1
+ * again with each Epic (worfy-autopilot-queue ticket 14). `message` is what went wrong, in words, when a Session failed, a
  * Wave could not be sent or the wait for the Limits was given up. `revision` grows with every change
  * of any Project; a client keeps the state with the highest one.
  */

@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher, waveBriefText, type AutopilotWaveResult } from '../../src/main/actions/launch'
+import type { RunApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { LimitsTracker, observeSessionLimits } from '../../src/main/agent/limits'
 import { Orchestrators, type OrchestratorBusy } from '../../src/main/agent/orchestrator'
@@ -30,6 +31,7 @@ import {
   queueRefusals,
   RunningElsewhere,
   startQueue,
+  STOPPING_MESSAGE,
   type AutopilotDeps,
   type LinkedRuns,
   type RunSession,
@@ -157,6 +159,8 @@ interface HarnessOptions {
   limits?: boolean
   /** Told the Epic and the Tickets of every Wave as its prompt reaches the agent. */
   onWave?: (epic: string, nums: number[]) => void
+  /** "Process gate queue" answers this text: the machine with `serve` (worfy-windows ticket 17). */
+  gateQueue?: string
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -235,6 +239,14 @@ function harness(options: HarnessOptions = {}) {
   })
   autopilots.push(autopilot)
   launcher.attachAutopilot(autopilot)
+  const gateCalls: string[] = []
+  const gateText = options.gateQueue
+  if (gateText !== undefined) {
+    launcher.autopilotGateQueue = (projectId) => {
+      gateCalls.push(projectId)
+      return Promise.resolve(gateText)
+    }
+  }
   const journal = async (): Promise<JournalEvent[]> => {
     const runs = readdirSync(join(env.WORFY_DATA_DIR, 'autopilot')).map((name) => name.replace(/\.jsonl$/, ''))
     expect(runs).toHaveLength(1)
@@ -243,7 +255,7 @@ function harness(options: HarnessOptions = {}) {
   /** The journal as [kind, Epic of the line, what it says], its ticket-status lines left out. */
   const story = async () => (await journal()).filter((event) => event.kind !== 'ticket-status').map(told)
   const stopped = () => until(() => autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
-  return { registry, orchestrators, autopilot, prompts, power, states, journal, story, stopped, env }
+  return { registry, orchestrators, autopilot, prompts, power, states, journal, story, stopped, env, gateCalls }
 }
 
 /** One journal line as the tests read it: its kind, its Epic and the field that matters for it. */
@@ -317,6 +329,27 @@ describe('a Run over a queue of Epics on the fake agent', () => {
     for (const state of h.states) expect(autopilotStateSchema.safeParse(state).success).toBe(true)
     // keep-awake once, for the whole Run.
     expect(h.power).toEqual(['start', 'stop'])
+  })
+
+  it('on the machine with serve the gate queue goes once, after the last Epic: the first Epic\'s end goes on to the next', async () => {
+    writeEpic('alpha')
+    writeEpic('beta')
+    const h = harness({ gateQueue: '/worfy:gate-queue' })
+    await h.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] })
+    await h.stopped()
+    expect(await h.story()).toEqual([
+      ['run-started', 'alpha', ['alpha', 'beta']],
+      ['wave-started', 'alpha', '01,02'],
+      ['wave-finished', 'alpha', '01,02'],
+      ['epic-finished', 'alpha', 'done'],
+      ['epic-started', 'beta', '2/2'],
+      ['wave-started', 'beta', '01,02'],
+      ['wave-finished', 'beta', '01,02'],
+      ['gate-queue', 'beta', null],
+      ['gate-queue-finished', 'beta', null],
+      ['run-stopped', 'beta', 'no-ready-wave'],
+    ])
+    expect(h.gateCalls).toEqual([PROJECT])
   })
 
   it('an Epic where only a Ticket that waits for the owner is left: epic-finished waits-owner with that Ticket, and the next Epic goes', async () => {
@@ -541,21 +574,35 @@ describe('autopilot.start with a queue and autopilot.queue', () => {
     expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', epics: ['alpha', 'beta'] })
   })
 
-  it('autopilot.queue changes the queue of the run and answers its state; without a run it is refused', async () => {
+  it('autopilot.queue adds and removes an Epic of the queue of the run and answers its state; without a run it is refused', async () => {
     writeEpic('alpha')
     writeEpic('beta')
     writeEpic('gamma')
     let h: ReturnType<typeof harness> | null = null
     let invoke: Awaited<ReturnType<typeof ipcOver>> | null = null
     const answers: Promise<IpcResult<unknown>>[] = []
-    h = harness({ onWave: (epic) => void (epic === 'alpha' && answers.push(invoke!('autopilot.queue', { projectId: PROJECT, add: 'gamma' }))) })
+    h = harness({
+      onWave: (epic) => {
+        if (epic !== 'alpha') return
+        answers.push(invoke!('autopilot.queue', { projectId: PROJECT, add: 'gamma' }), invoke!('autopilot.queue', { projectId: PROJECT, remove: 'beta' }))
+      },
+    })
     invoke = await ipcOver(() => h!.autopilot)
     expect(await invoke('autopilot.queue', { projectId: PROJECT, add: 'gamma' })).toEqual({ ok: false, error: expect.stringContaining(NO_RUN_MESSAGE) })
     expect((await invoke('autopilot.queue', { projectId: PROJECT, add: '' })).ok).toBe(false)
     await h.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] })
     await h.stopped()
-    expect(await Promise.all(answers)).toMatchObject([{ ok: true, value: { epic: 'alpha' } }])
-    expect((await h.journal()).filter((event) => event.kind === 'epic-started').map((event) => event.epic)).toEqual(['beta', 'gamma'])
+    expect(await Promise.all(answers)).toMatchObject([
+      { ok: true, value: { epic: 'alpha' } },
+      { ok: true, value: { epic: 'alpha' } },
+    ])
+    // Both reached the run: gamma joined the queue at the Wave's end, and beta left it without a Wave.
+    expect((await h.story()).filter(([kind]) => kind === 'queue-changed' || kind.startsWith('epic-'))).toEqual([
+      ['queue-changed', 'alpha', { added: ['gamma'], removed: ['beta'] }],
+      ['epic-finished', 'beta', 'removed'],
+      ['epic-finished', 'alpha', 'done'],
+      ['epic-started', 'gamma', '2/2'],
+    ])
   })
 })
 
@@ -900,11 +947,15 @@ describe('the queue of a run over stand-ins', () => {
     await expect(s.autopilot.editQueue(PROJECT, { add: 'beta' })).rejects.toThrow('Cannot read the workflow: EIO')
   })
 
-  it('a Stop during the first Epic\'s Wave ends the Run there: the next Epic is not begun', async () => {
+  it('a Stop during the first Epic\'s Wave ends the Run there: the next Epic is not begun, and the queue no longer changes', async () => {
     const s = stand({ hold: true })
     await s.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] })
     await until(() => s.out.waves.length === 1, 'the first Wave')
     await s.autopilot.stop(PROJECT)
+    // The run is still on its Wave, but no Epic of its queue begins any more: an edit is refused.
+    expect(s.autopilot.state(PROJECT).status).toBe('running')
+    await expect(s.autopilot.editQueue(PROJECT, { add: 'gamma' })).rejects.toThrow(STOPPING_MESSAGE)
+    await expect(s.autopilot.editQueue(PROJECT, { remove: 'beta' })).rejects.toThrow(STOPPING_MESSAGE)
     s.out.finish()
     await s.stopped()
     expect(s.out.waves.map((wave) => wave.epic)).toEqual(['alpha'])
@@ -974,5 +1025,84 @@ describe('the queue of a run over stand-ins', () => {
       { epic: 'beta', nums: [1], resume: [] },
     ])
     expect(s.said().slice(-3)).toEqual(['epic-finished alpha done', 'epic-started beta 2/2', 'wave-started beta'])
+  })
+
+  it('a later Epic that sends no Wave leaves resumable nothing of the Tickets the first Epic was given', async () => {
+    const s = stand({ hold: true })
+    await s.autopilot.start(PROJECT, 'alpha')
+    await until(() => s.out.waves.length === 1, 'the first Wave')
+    await s.autopilot.forceStop(PROJECT)
+    expect(s.autopilot.state(PROJECT).resumable).toEqual([1])
+    s.out.state = 'idle'
+    // beta has no ready Wave: its only Ticket is blocked, and not by the owner.
+    s.out.tickets = s.out.tickets.map((each) => (each.epic === 'beta' ? { ...each, state: 'blocked' as const, statusRaw: 'blocked', blockedRaw: '07', blockedNums: [7] } : each))
+    await s.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] })
+    await s.stopped()
+    expect(s.out.waves.map((wave) => wave.epic)).toEqual(['alpha'])
+    expect(s.said().slice(-3)).toEqual(['epic-finished alpha done', 'epic-started beta 2/2', 'run-stopped beta no-ready-wave'])
+    // alpha's Ticket 01 was given to alpha, not to beta: beta's 01 is another Ticket, not resumable.
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ epic: 'beta', wave: 0, resumable: [] })
+  })
+
+  it('Auto-approval follows the Epic of each Wave: the policy opens once, and the second Epic\'s Wave sets its roots with that Epic', async () => {
+    const opened: string[] = []
+    const set: [string[], string | undefined][] = []
+    const approval = {
+      run: 'r',
+      runTemp: '/tmp/worfy-run',
+      environment: {},
+      facts: {},
+      setWave: (tickets: readonly string[], epic?: string) => void set.push([[...tickets], epic]),
+      judge: () => Promise.resolve({ outcome: 'deny', rule: 'not-judged', hint: null, targets: [] }),
+      close: () => Promise.resolve(),
+    } as unknown as RunApproval
+    const s = stand({
+      overrides: {
+        approval: {
+          mode: () => 'on',
+          open: (_projectId, _root, epic) => {
+            opened.push(epic)
+            return Promise.resolve(approval)
+          },
+        },
+      },
+    })
+    await s.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] })
+    await s.stopped()
+    expect(opened).toEqual(['alpha'])
+    expect(set).toEqual([
+      [['01'], 'alpha'],
+      [['01'], 'beta'],
+    ])
+  })
+
+  it('the Tickets and PRs of a Wave are each Epic\'s own: same numbers in two Epics are counted and journaled for both', async () => {
+    const asked: string[][] = []
+    const s = stand({
+      epics: ['alpha', 'beta'],
+      overrides: {
+        prs: {
+          read: (_root, branches) => {
+            asked.push([...branches])
+            const pulls = branches.map((branch, at) => ({ number: at + 1, url: `https://example.com/${branch}`, state: 'OPEN' as const, branch, ci: null, verdict: null, narrow: [{ outcome: 'verified' as const, text: 'NARROW: VERIFIED', at: null }] }))
+            return Promise.resolve({ pulls })
+          },
+        },
+      },
+    })
+    // alpha: 01 and 02 in one Wave. beta: 01 in its Wave; its 02 was done before the run.
+    s.out.tickets = [t('alpha', 1), t('alpha', 2), t('beta', 1), t('beta', 2, 'done')]
+    await s.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] })
+    await s.stopped()
+    expect(s.out.waves.map(({ epic, nums }) => [epic, nums])).toEqual([
+      ['alpha', [1, 2]],
+      ['beta', [1]],
+    ])
+    // beta's 02 is not a Ticket of the run's Waves: two of alpha and one of beta are done.
+    expect(s.autopilot.state(PROJECT).ended).toMatchObject({ done: 3, blocked: 0 })
+    // The last read of each Epic asks the branches of its own Wave only.
+    expect(asked.at(-1)).toEqual(['beta/01'])
+    // The narrow round of beta's 01 is journaled, though alpha's 01 had the same state.
+    expect(s.out.lines.filter(({ fields }) => fields.kind === 'narrow-round').map(({ fields, epic }) => `${epic} ${(fields as { ticket: string }).ticket}`)).toEqual(['alpha 01', 'alpha 02', 'beta 01'])
   })
 })

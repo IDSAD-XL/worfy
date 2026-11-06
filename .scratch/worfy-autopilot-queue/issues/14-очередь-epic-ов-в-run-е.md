@@ -104,3 +104,27 @@ ADR-0100. Run ведёт очередь Epic-ов: `AutopilotStartOptions.epics`
 `src/shared/flight-recorder/journal-walk.mjs` (три новых вида событий), test-ы `autopilot-journal` (unit и contract),
 `auto-approve-run`. Feature page `docs/features/autopilot.md` не менялась: точек входа для очереди ещё нет
 (Ticket-ы 15–17), описание — Ticket 19.
+
+### Раунд 2
+
+Ревью high (раунд 1, REJECTED за два пробела в test-ах) — добавлены test-ы в `test/contract/autopilot-queue.test.ts`, каждый
+сначала красный на своей мутации, потом зелёный:
+
+- Очередь и «Process gate queue» на машине с `serve`: gate-queue — один раз, после последнего Epic-а; конец первого
+  Epic-а ведёт к следующему. Мутация «gate-queue раньше перехода» — красный.
+- Auto-approval: `setWave` второго Epic-а получает его Epic. Мутация «`setWave` без Epic-а» — красный.
+- Одинаковые номера Ticket-ов в двух Epic-ах: счёт `ended`, ветки PR и строки `narrow-round` — свои у каждого Epic-а
+  (сброс `waveTickets` и `narrowJournaled`); Ticket-ы, данные первому Epic-у, не становятся resumable у второго
+  (сброс `given`). Три мутации — красный.
+- Канал `autopilot.queue` с `remove`. Мутация «канал теряет `remove`» — красный.
+- Правка очереди после Stop теперь отказ (`STOPPING_MESSAGE`): следующий Epic уже не начнётся. Мутация «правка
+  принята» — красный.
+
+Документация приведена к коду: правка применяется сразу только пока Run ждёт Orchestrator-а, budget или окна Start;
+`wave` считается с 1 заново в каждом Epic-е (`src/shared/ipc/autopilot.ts`, шапка `src/shared/autopilot/cycle.ts` —
+только комментарий).
+
+Открытый вопрос владельцу: при старте Epic очереди, занятый на другой Machine, отказывает старт, а «Start anyway»
+снимает проверку для всех Epic-ов очереди. Spec («Решено без владельца», 6) говорит о пропуске занятого Epic-а в
+середине очереди, о старте молчит. Сделано строже; если
+владелец выберет пропуск и при старте — это правка `checkElsewhere` в `Autopilot.start`.

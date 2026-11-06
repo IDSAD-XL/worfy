@@ -618,6 +618,9 @@ export function startQueue(epic: string, epics: readonly string[] | undefined, t
 /** What editQueue is refused with when the Project has no run that goes on. */
 export const NO_RUN_MESSAGE = 'Autopilot is not running in this Project: there is no queue to change'
 
+/** What editQueue is refused with once a Stop of the run was asked: no Epic of its queue begins any more. */
+export const STOPPING_MESSAGE = 'Autopilot is stopping: its queue no longer changes'
+
 /** What editQueue is refused with when it names no Epic. */
 export const NO_EDIT_MESSAGE = 'Name an Epic to add to the queue or to remove from it'
 
@@ -1425,10 +1428,10 @@ export class Autopilot {
   /**
    * Changes the queue of the Project's run (worfy-autopilot-queue ticket 14): `add` an Epic of the Project at its
    * end, one not in it; `remove` an Epic not started yet (or one whose adding still waits). Never reorders.
-   * Between Waves — while the run waits for its Orchestrator, for the budget or for the Start window, or before
-   * its first Wave — the change applies at once; during a Wave it waits for the Wave's end (applyEdits). Throws
-   * the refusal: no run, nothing named, the Epic in the queue already or not in it, the queue full, an Epic the
-   * Project has not, the Epic running or finished, an Epic added to a run over named Tickets. Answers the state.
+   * While the run waits between Waves — for its Orchestrator, for the budget or for the Start window — the change
+   * applies at once; otherwise it waits for the end of the Wave (applyEdits). Throws the refusal: no run, a Stop
+   * asked, nothing named, the Epic in the queue already or not in it, the queue full, an Epic the Project has not,
+   * the Epic running or finished, an Epic added to a run over named Tickets. Answers the state.
    */
   async editQueue(projectId: string, edit: AutopilotQueueEdit): Promise<AutopilotState> {
     const run = this.runs.get(projectId)
@@ -1444,6 +1447,8 @@ export class Autopilot {
   /** editQueue in the run's order: the refusal, or null once the change is made (or waits for the Wave's end). */
   private async edit(run: Run, edit: AutopilotQueueEdit): Promise<string | null> {
     if (run.cycle.phase === 'stopped') return NO_RUN_MESSAGE
+    // After a Stop no Epic of the queue begins: a change would never be made.
+    if (run.stopRequested) return STOPPING_MESSAGE
     const { add, remove } = edit
     if (add === undefined && remove === undefined) return NO_EDIT_MESSAGE
     if (add !== undefined) {
