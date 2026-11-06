@@ -110,6 +110,63 @@ window**. **Cancel** — кнопка по умолчанию, поэтому En
 - Запрос разрешения, вопрос с вариантами ответа и `session.ask` от Card сразу получают отказ: отвечать некому. Каждый
   отказ идёт в journal. Если Claude Code назвал причину запроса разрешения, модель получает эту причину и может изменить
   команду.
+- Auto-approval mode Project-а меняет судьбу запроса разрешения на обоих Vendor-ах. Mode читается при каждом запросе,
+  поэтому переключение действует со следующего. Off: как выше. Shadow: approval policy оценивает запрос, journal получает
+  строку `auto-approval` с тем, что policy сделала бы (`would-allow`, `would-deny`, `would-park`), и rule, а модель
+  по-прежнему получает отказ, как при Off. On: решение policy и есть ответ. Разрешённый запрос выполняется,
+  запрещённый получает отказ с hint-ом rule, hard deny получает отказ всегда. Запрос, который может решить только
+  человек, уходит в park: он открывается на Session Orchestrator-а как permission card с rule и путями, с Allow и Deny,
+  но без Always allow, так что один ответ покрывает один запрос. Во время собственного turn-а Orchestrator-а Session
+  показывает, что ей нужно разрешение; запрос в park от background task-а оставляет Session в покое, если она idle.
+  Уходит notification «Parked: `<tool>` in `<folder name>`», остальные Subagent-ы продолжают работу. Ответ владельца —
+  это ответ агенту. Без ответа за 60 минут, или когда run останавливается, запрос получает отказ с hint-ом. Пока run
+  останавливается, запрос не уходит в park, а сразу получает отказ. Запрос в park не даёт считать его background task
+  зависшим. Journal получает `park`, когда запрос уходит в park, затем `park-answered` или `park-expired`.
+
+  На Orchestrator-е Codex запрос — это approval Codex-а для команды или изменения файла, а ответ — `accept` или
+  `decline`. В ответе Codex-а нет текста, поэтому hint rule доходит только до journal. Команда оценивается в папке, которую
+  Codex для неё назвал. Codex оборачивает каждую команду в login shell (`/bin/zsh -lc '<script>'`). Ровно эта форма —
+  одно слово скрипта в кавычках и ничего после него — оценивается как `zsh -c '<script>'` (login profile принадлежит
+  владельцу и лежит вне всех root-ов); любая другая обёртка не одобряется. `shell_environment_policy` Codex-а может
+  не передать переменные в shell команды, поэтому worfy закрепляет домашнюю папку и переменные run-а (`TMPDIR` и его
+  git-окружение) в shell каждой команды thread-а (`shell_environment_policy.set`). Только у них есть известное значение,
+  когда запрос оценивается: команда, которая использует любую другую переменную, в том числе секрет, не одобряется, и
+  значение такой переменной не попадает в journal. Изменение файла оценивается по каждому пути, который оно пишет, включая
+  новый путь при rename и его `grantRoot`. Запрос с `grantRoot` (запись в папку до конца Session) policy не принимает
+  никогда; ввод в идущую команду и запрос доступа к сети уходят в park; ответа «accept for this Session» нет никогда.
+  Запрос Codex-а в park ждёт на card так же, как у Claude Code, с Accept, Decline и «Decline and stop the turn»; card
+  показывает и причину Codex-а, а для доступа к сети — host. Изменение файла с `grantRoot` в park не предлагает
+  Accept: Codex принял бы его как запись в эту папку до конца Session, а агент может спросить снова о каждом файле.
+  Выбор владельца — ответ Codex-у, park без выбора заканчивается `decline`. Запрос, который Codex отозвал или который
+  Interrupt отменил, пока его оценивают, на Codex не получает строки journal и не уходит в park; на Claude Code строку
+  получает каждый оценённый запрос. Unattended Codex работает в Full access, поэтому пока ни о чём не спрашивает.
+
+  Каждый запрос оценивается в окружении, с которым стартовал процесс агента: во всём окружении его shell. Поэтому
+  `CDPATH`, `BASH_ENV`, `ZDOTDIR`, `ENV`, `IFS` или переменная `GIT_` в нём делают не одобренной команду, которую они
+  меняют. Git читается заново при каждом запросе, который пишет файл или запускает git: в root Project-а и, если у
+  worktree может быть свой config (`git config --worktree`, `includeIf`), в checkout-е, где идёт каждая команда git, и в
+  каждом worktree Wave. Так видны hook или программа, которые агент с тех пор записал в config git. Если ref-ы
+  хранятся в reftable, ветка по умолчанию тоже читается у git. Если git выдаёт config, но не называет папки git
+  (ключ-путь без значения, например `core.excludesFile`), они читаются из папки или файла `.git` и его `commondir`, и
+  только когда git выдал config этого репозитория; иначе факты считаются неизвестными, и ни запись, ни команда git не
+  одобряются. Запись в config-файл, который называет окружение
+  (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `XDG_CONFIG_HOME/git/config`), даже пустой, не одобряется никогда, как
+  запись в `.git/config`. Запрос, который только читает и не запускает git, git не читает. Git в worktree, чей файл
+  `.git` или `commondir` называет другую папку git, а не папку Project-а, или не читается, оценивается как git с
+  неизвестными hook-ами: команда, которую может изменить hook или config, не одобряется. Запись в config-файл, который
+  читает git, — в том числе в тот, который называют `include.path` или `includeIf`, и ещё до того, как он появился, —
+  не одобряется никогда, как запись в `.git/config`.
+- В Shadow и On агент run-а (Claude Code или app-server Codex-а) стартует с собственной временной папкой run-а как
+  `TMPDIR` (`<data folder>/autopilot-tmp/<run>`) и с git-окружением. `GIT_CONFIG_PARAMETERS` выключает
+  `log.showSignature` и `format.pretty` владельца и не даёт git открыть bare repository выше папки, а
+  `GIT_NO_LAZY_FETCH=1` не даёт partial clone скачивать объекты через `core.sshCommand`, пока в репозитории есть hook-и
+  или программы в config. Сами hook-и и фильтры это не останавливает: пока они есть, policy одобряет git только для
+  чтения ref-ов и объектов. Агент, процесс которого стартовал без этого окружения (в Off или до того, как в
+  репозитории появился hook), не получает одобрения ни на один git. На macOS `mktemp -d` не смотрит на `TMPDIR`, и
+  папка, которую он создаёт, лежит вне всех root-ов; `mkdir -p "$TMPDIR/<name>"` одобряется, и hint отказа в домашней
+  папке называет эту форму. В Off агент стартует как раньше, без того и другого. Папка удаляется, когда run
+  кончается; у run-а, который не смог запустить свою policy, её нет. Session, которую забрал другой run, сохраняет
+  свою папку, как и после падения или выхода из приложения; такие папки удаляются при следующем запуске worfy.
 - «Run wave» и «Process gate queue» вручную и «New conversation» у Orchestrator-а получают отказ.
 - Человек по-прежнему может написать Orchestrator-у. То, что человек делает с его Session через worfy, идёт в journal как
   `human-input`: сообщение, сообщение от Card, Interrupt, «Send queued», удаление сообщения из очереди, смена настроек, в
@@ -397,7 +454,7 @@ run-а — время старта в UTC и шесть шестнадцатер
 
 | Kind | Когда пишется |
 |---|---|
-| `run-started` | Run начался. Есть `origin`, а также `override` или `unasked`, когда они применимы. `by` говорит, кто его запустил: `button`, `command` или `tool`. `tickets` называет Ticket-ы run-а по названным Ticket-ам. `mode` — Run mode: `fastest`, `budget-aware` или `start-window`. |
+| `run-started` | Run начался. Есть `origin`, а также `override` или `unasked`, когда они применимы. `by` говорит, кто его запустил: `button`, `command` или `tool`. `tickets` называет Ticket-ы run-а по названным Ticket-ам. `mode` — Run mode: `fastest`, `budget-aware` или `start-window`. `autoApproval` — Auto-approval mode на старте, `shadow` или `on`, либо `off`, если policy не смогла запуститься и run шёл как при Off; строка без него — run при Off. |
 | `harness-behind` | Harness в `main` новее: после `run-started` и перед `wave-started`, когда счётчик изменился. |
 | `forecast` | Epic forecast на старте, один раз, после `run-started` и `harness-behind`, перед первой `wave-started`: Run mode, оставшиеся Wave и Ticket-ы, образцы, `low` и `high` (p10 и p90 доли недели, `null` при числе образцов меньше 5), `fit` (сколько Wave помещается до сброса окна на 7 дней с учётом резерва; только когда у run-а есть рекомендация, в Budget-aware или в Start window с включённым бюджетом, иначе `null`), `week` (число окна на 7 дней на старте), p90 длительности Wave с числом её образцов и `window` в Start window. Journal-ы, которые не читаются, дают `samples: 0`; run продолжается. |
 | `wave-started`, `wave-finished` | Wave ушла или окончена. В `wave-started` есть отправленный текст, пропущенные Ticket-ы и `session` — id SDK session Orchestrator-а, в которую ушла Wave (имя её transcript-а). В обеих может быть `limits`. |
@@ -409,6 +466,7 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `waiting-until`, `resumed` | Ожидание началось или кончилось. |
 | `session-error` | Session упала. |
 | `refused-dialog` | Unattended Session отказала запросу. Есть Subagent и причина, если они известны, и никогда нет команды. Домашняя папка пишется как `~`. |
+| `auto-approval` | Approval policy оценила запрос разрешения в Shadow или On. Есть Session, Subagent, если он известен, Vendor, `mode`, `outcome`, `rule`, инструмент, `targets` и, для команды shell, `command`, обрезанная до 200 символов, с секретами, заменёнными на `***`: значения переменных, опций и ключей JSON с именем секрета, пароли в URL, после `-u` у curl, `-p` у mysql, docker login и sshpass, `password` из `.netrc`, заголовки с именем секрета и известные формы token-ов. Несколько команд, которые только похожи на них, сохраняют свой текст: `sort --key=2`, сообщение `git commit -m "auth: …"`, слово поиска без кавычек или шаблон grep и rg в кавычках из одних букв (`grep -rn password src/`, `rg "apiKey: string"`) и числовой `docker run -u 1000:1000` до имени образа. В каждом из `targets` секреты заменяются так же (`touch <worktree>/ghp_…` даёт target `<worktree>/***`). Домашняя папка пишется как `~`. |
 | `human-input` | Вмешался человек. `source` — `worfy` или `observer`. |
 | `background-tasks` | Изменился набор живых background task-ов. |
 | `run-stopping` | Graceful Stop пришёл во время turn-а или task-ов. |

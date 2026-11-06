@@ -613,47 +613,120 @@ function secretName(name: string): boolean {
  */
 const JSON_PAIR = /((\\?)"([\w.-]+)\2"\s*:\s*)(\2")(?:\\\\|\\(?!")|[^"\\])*\4/gu
 
+// The forms of a secret that the exceptions below name. Each stays as round 3 of PR #1460 wrote it.
+/** An option that takes a secret: --token x, --password=x, --api-key x, --client-secret x. */
+const OPTION_FORM = new RegExp(String.raw`((?:^|\s)--?(?:[a-z0-9]+[-_])*(?:token|password|passwd|pass|secret|api-?key|apikey|auth|key)(?:[-_][a-z0-9]+)*(?:=|\s+))${VALUE}`, 'giu')
+/** A password word of .netrc and its kind: machine x login y password secret. */
+const PASSWORD_WORD_FORM = new RegExp(String.raw`(\b(?:password|passwd)\s+)${WORD}`, 'giu')
+/** A quoted header whose name says secret: "X-Api-Key: x", 'Cookie: a=b; c=d'. */
+const HEADER_FORM = /((['"])[\w-]*?(?:key|token|secret|cookie|auth|password|session)[\w-]*\s*:\s*)(?:(?!\2).)+/giu
+/** curl's user and password: -u user:secret, -uuser:secret, --user user:secret, -u "user:a b". */
+const USER_QUOTED_FORM = /((?:^|\s)(?:-u\s*|--user(?:=|\s+))(['"])[^:'"]+:)[^'"]*/giu
+const USER_FORM = /((?:^|\s)(?:-u\s*|--user(?:=|\s+))[^\s:'"]+:)[^\s'"]+/giu
+
 /** The forms of a secret outside `NAME=value`, each replaced by its kept part and `***`. */
 const SECRET_FORMS: readonly [RegExp, string][] = [
-  // An option that takes a secret: --token x, --password=x, --api-key x, --client-secret x.
   // The word must be a whole part of the option's name: --author and -psecret are no such option.
-  [new RegExp(String.raw`((?:^|\s)--?(?:[a-z0-9]+[-_])*(?:token|password|passwd|pass|secret|api-?key|apikey|auth|key)(?:[-_][a-z0-9]+)*(?:=|\s+))${VALUE}`, 'giu'), '$1***'],
-  // A password word of .netrc and its kind: machine x login y password secret.
-  [new RegExp(String.raw`(\b(?:password|passwd)\s+)${WORD}`, 'giu'), '$1***'],
-  // A quoted header whose name says secret: "X-Api-Key: x", 'Cookie: a=b; c=d'.
-  [/((['"])[\w-]*?(?:key|token|secret|cookie|auth|password|session)[\w-]*\s*:\s*)(?:(?!\2).)+/giu, '$1***'],
+  [OPTION_FORM, '$1***'],
+  [PASSWORD_WORD_FORM, '$1***'],
+  [HEADER_FORM, '$1***'],
   // A header or a word that carries one: Authorization: Bearer x, Bearer x, Basic x.
   [/(authorization\s*:\s*)(?:(?:bearer|basic|token|digest)\s+)?[^\s'"]+/giu, '$1***'],
   [/(\b(?:bearer|basic)\s+)[A-Za-z0-9._~+/=-]{8,}/giu, '$1***'],
   // The password of a URL: https://user:secret@host.
   [/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]*:)[^\s@/]+@/giu, '$1***@'],
-  // curl's user and password: -u user:secret, -uuser:secret, --user user:secret, -u "user:a b".
-  [/((?:^|\s)(?:-u\s*|--user(?:=|\s+))(['"])[^:'"]+:)[^'"]*/giu, '$1***'],
-  [/((?:^|\s)(?:-u\s*|--user(?:=|\s+))[^\s:'"]+:)[^\s'"]+/giu, '$1***'],
+  [USER_QUOTED_FORM, '$1***'],
+  [USER_FORM, '$1***'],
   // The password of mysql and its tools, joined to -p: mysql -psecret.
   [/(\bmysql\w*\b[^|;&\n]*?\s-p)[^\s'"]\S*/giu, '$1***'],
   // The password of docker login (podman's too) and of sshpass: -p secret.
   [new RegExp(String.raw`(\b(?:(?:docker|podman)\s+login|sshpass)\b[^|;&\n]*?\s-p\s*)${WORD}`, 'giu'), '$1***'],
   // The token forms that say what they are: GitHub, OpenAI and Anthropic, Slack, AWS.
-  [/\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[abeprs]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16})\b/gu, '***'],
+  // Not after a letter or a digit, but after `_` too: `key_ghp_…` names one.
+  [/(?<![A-Za-z0-9])(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[abeprs]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16})(?![A-Za-z0-9])/gu, '***'],
 ]
+
+/**
+ * Where a program starts: at the start of the command, of a line or of a segment after `|`, `;`, `&` or `(` (`$(` too)
+ * that stands outside every quote counted from the start — `'…'`, `"…"`, and the ANSI-C `$'…'`, which `\'` does not
+ * end — after assignments and words that run the next one (sudo, env, xargs, time, nice, command, exec) with their
+ * options. A `;rg` inside another program's quoted argument starts nothing.
+ */
+const PROGRAM_AT = String.raw`(?:^|^(?:[^'"\\$]|\$(?!')|\\[\s\S]|\$'(?:[^'\\]|\\[\s\S])*'|'[^']*'|"(?:[^"\\]|\\[\s\S])*")*?[|;&(\n])\s*(?:(?:[\p{L}_][\p{L}\p{N}_]*=\S*|sudo|env|xargs|time|nice|command|exec)\s+(?:-\S+\s+)*)*`
+/**
+ * The words between a program and the text an exception keeps: within one segment, and across no quote, `(`, `)` or
+ * backquote, so the text is the program's own and not one of a command inside it (`$(curl …)`). Where it cannot
+ * tell, the form stays.
+ */
+const IN_SEGMENT = String.raw`[^|;&\n()\x60'"]*?`
+/** A program that searches text: the word after it is a pattern, not a secret. */
+const SEARCH = String.raw`(?:git\s+grep|[ef]?grep|rg|ag|ack)`
+
+/**
+ * The commands the forms above hid though they hold no secret (worfy-auto-approve ticket 13): each names the
+ * forms it lets through, and the text it lets them through in. A match of one of those forms is kept as it is
+ * when it lies wholly inside such a text, in the command as it stands when that form runs. Each is bound to one
+ * program and to the shape of the value it keeps; whatever else the text holds is hidden as before. Narrow by
+ * design: where it is not sure, the form hides.
+ */
+const SECRET_EXCEPTIONS: readonly { forms: readonly RegExp[]; text: RegExp }[] = [
+  // sort's key definition: sort --key=2, --key 2,3n.
+  { forms: [OPTION_FORM], text: new RegExp(String.raw`(?<=${PROGRAM_AT}sort\b${IN_SEGMENT})\s--key(?:=|\s+)\d+(?:\.\d+)?[bdfgiMhnRrV]*(?:,\d+(?:\.\d+)?[bdfgiMhnRrV]*)?(?=\s|$)`, 'gu') },
+  // The message of git commit: -m "auth: …", -am '…', --message="…". It goes into the repository's history anyway.
+  { forms: [HEADER_FORM], text: new RegExp(String.raw`(?<=${PROGRAM_AT}git\s(?:${IN_SEGMENT}\s)?commit\b${IN_SEGMENT}\s(?:-[a-zA-Z]*m\s*|--message(?:=|\s+)))(?:"(?:[^"\\]|\\.)*"|'[^']*')`, 'gu') },
+  // The pattern of a search, bare: grep -rn password src/.
+  { forms: [PASSWORD_WORD_FORM], text: new RegExp(String.raw`(?<=${PROGRAM_AT}${SEARCH}\b${IN_SEGMENT}\s)(?:password|passwd)\s+[^\s'"]+`, 'giu') },
+  // The pattern of a search, quoted, whose value is words of letters only (a type, a keyword): rg "apiKey: string".
+  { forms: [HEADER_FORM], text: new RegExp(String.raw`(?<=${PROGRAM_AT}${SEARCH}\b${IN_SEGMENT}\s)(['"])[\w-]+\s*:\s*[\p{L}_ |?<>[\].]+\1`, 'gu') },
+  // A numeric user and group of a container, before the image: docker run --rm -u 1000:1000 image. Only options stand
+  // between the subcommand and -u: a later -u is one of the command the container runs.
+  { forms: [USER_FORM, USER_QUOTED_FORM], text: new RegExp(String.raw`(?<=${PROGRAM_AT}(?:docker|podman)\s+(?:container\s+)?(?:run|exec|create)(?:\s+-[^\s'"\x60()]+)*?)\s(?:-u\s*|--user(?:=|\s+))\d+:\d+(?=\s|$)`, 'gu') },
+]
+
+/** `text` with each form of SECRET_FORMS hidden, but where SECRET_EXCEPTIONS keep it. */
+function hideSecretForms(text: string): string {
+  let out = text
+  for (const [form, kept] of SECRET_FORMS) {
+    const exceptions = SECRET_EXCEPTIONS.filter((exception) => exception.forms.includes(form))
+    const spans = exceptions.flatMap((exception) => [...out.matchAll(exception.text)].map((match) => [match.index, match.index + match[0].length] as const))
+    out = out.replace(form, (...args: unknown[]) => {
+      // The arguments of a replacer: the match, each group (a string or undefined), then the offset.
+      const whole = args[0] as string
+      const at = args.findIndex((arg, n) => n > 0 && typeof arg === 'number')
+      const offset = args[at] as number
+      if (spans.some(([from, to]) => from <= offset && offset + whole.length <= to)) return whole
+      return kept.replace(/\$(\d)/g, (_dollar: string, group: string) => {
+        const value = Number(group) < at ? args[Number(group)] : undefined
+        return typeof value === 'string' ? value : ''
+      })
+    })
+  }
+  return out
+}
+
+/** `text` with the value of each assignment and JSON pair whose name says secret, and each form of a secret, as `***`. */
+function hideSecrets(text: string): string {
+  let out = text.replace(ASSIGNMENT, (whole: string, name: string) => (secretName(name) ? `${name}=***` : whole))
+  out = out.replace(JSON_PAIR, (whole: string, before: string, _slash: string, name: string, quote: string) => (secretName(name.replaceAll('-', '_')) ? `${before}${quote}***${quote}` : whole))
+  return hideSecretForms(out)
+}
 
 /**
  * A command as `auto-approval` keeps it (spec of worfy-auto-approve, how it works, item 7; security,
  * item 7): the value of an assignment whose name says secret as `NAME=***`, every form of SECRET_FORMS
- * hidden, the home folder as `~` (as journalReason), then at most COMMAND_MAX UTF-16 units. The secrets go
- * first, so a cut never leaves half of one.
+ * hidden but where SECRET_EXCEPTIONS keep it, the home folder as `~` (as journalReason), then at most
+ * COMMAND_MAX UTF-16 units. The secrets go first, so a cut never leaves half of one.
  */
 export function journalCommand(command: string, home: string): string {
-  let text = command.replace(ASSIGNMENT, (whole: string, name: string) => (secretName(name) ? `${name}=***` : whole))
-  text = text.replace(JSON_PAIR, (whole: string, before: string, _slash: string, name: string, quote: string) => (secretName(name.replaceAll('-', '_')) ? `${before}${quote}***${quote}` : whole))
-  for (const [form, kept] of SECRET_FORMS) text = text.replace(form, kept)
-  return clip(homeAsTilde(text, home), COMMAND_MAX)
+  return clip(homeAsTilde(hideSecrets(command), home), COMMAND_MAX)
 }
 
-/** A path as `auto-approval` keeps it in `targets`: the home folder as `~`, at most COMMAND_MAX units. */
+/**
+ * A path as `auto-approval` keeps it in `targets`: its secrets hidden as in journalCommand (`touch <wt>/ghp_…` names a
+ * token in its target), the home folder as `~`, at most COMMAND_MAX units.
+ */
 export function journalTarget(path: string, home: string): string {
-  return clip(homeAsTilde(path, home), COMMAND_MAX)
+  return clip(homeAsTilde(hideSecrets(path), home), COMMAND_MAX)
 }
 
 /**

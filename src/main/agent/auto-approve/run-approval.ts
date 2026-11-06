@@ -20,11 +20,12 @@
 // environment when another run takes the Session over, or the mode changes. At each request git is read
 // again — the worktree list (an implementer makes its worktree after the Wave started) and the git facts
 // (in bypassPermissions the agent may set a hook or a program in the git config without asking), two
-// git calls per checkout (readGitFacts). Only for a request that writes or runs git (gitNeeds): the
-// Project's root, and, when a checkout may have config of its own (`git config --worktree`, an
-// `includeIf`), the checkout of each git command (`git -C <checkout>`) and, for a write, each worktree
-// of the Wave; each once per request. The config files git reads there, and the targets of its
-// include.path and includeIf.*.path, are guarded as .git/config (policy.ts). A process that started without
+// git calls per checkout, three when the refs are kept in reftable (readGitFacts). Only for a request
+// that writes or runs git (gitNeeds): the Project's root, and, when a checkout may have config of its own
+// (`git config --worktree`, an `includeIf`), the checkout of each git command (`git -C <checkout>`) and,
+// for a write, each worktree of the Wave; each once per request. The config files git reads there, the
+// targets of its include.path and includeIf.*.path, and the config files the environment names (an
+// empty one too), are guarded as .git/config (policy.ts). A process that started without
 // the run's git environment, or without GIT_NO_LAZY_FETCH while hooksActive is not false now, gets no
 // git approved: the reads the policy keeps are safe only under them. The worktrees of the Wave are
 // those on the branch `<epic>/<NN>` of a Ticket of the Wave (setWave); each is recorded the first time
@@ -33,13 +34,13 @@
 // shell folder the Vendor did not tell is not judged in another folder.
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdir, readdir, readFile, realpath } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { isRunId, makeRunId, RUN_ID_SUFFIX_LENGTH } from '../../../shared/autopilot/journal'
 import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
 import { removeTreeAsync } from '../../storage/remove'
 import type { SessionInfo } from '../session/types'
-import { gitNeeds, HINTS, judge, type ApprovalRequest, type CheckoutGitFacts, type Decision, type PolicyContext } from './policy'
+import { gitNeeds, HINTS, includeHomes, judge, type ApprovalRequest, type CheckoutGitFacts, type Decision, type PolicyContext } from './policy'
 import { normalizePath, recordRoots } from './roots'
 
 /** The git config of the run's Session, in the form of GIT_CONFIG_PARAMETERS. */
@@ -101,8 +102,9 @@ export interface GitFacts extends CheckoutGitFacts {
   /** null: not read (no repository, or a value git does not read as a boolean). */
   rebaseUpdateRefs: boolean | null
   remotes: string[] | null
-  /** The Project's default branch: origin/HEAD, else the checkout's branch, else main. */
+  /** The Project's default branch: origin/HEAD, else the checkout's branch, else main; git tells both when the refs are no files (reftable). */
   defaultBranch: string
+  /** The config files git reads (configFilesOf): absolute, but a relative one the environment names stays relative. */
   configFiles: string[]
   /**
    * Whether a checkout may see config of its own: `extensions.worktreeConfig` is true (config.worktree), or an
@@ -178,13 +180,17 @@ async function firstLine(path: string): Promise<string | null> {
   }
 }
 
+/** Whether a config file the environment names is the null device: GIT_CONFIG_GLOBAL=/dev/null turns the global config off. */
+const nullDevice = (path: string): boolean => path === '/dev/null' || (process.platform === 'win32' && /^nul$/i.test(path))
+
 /**
  * The config files git reads, or would read, at `folder`: each file an entry comes from, and the target of each
  * `include.path` and `includeIf.<condition>.path` — also one that is not there yet (git skips a missing file, so
- * writing it would add config) — read as git reads it: `~/` from HOME, a relative path from the folder of the file
- * that names it.
+ * writing it would add config) — read as git reads it: `~/` from the home (includeHomes), a relative path from the
+ * folder of the file that names it. And the files the environment names — GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM,
+ * XDG_CONFIG_HOME/git/config — even empty: an empty file has no entry to name it (worfy-auto-approve ticket 13).
  */
-function configFilesOf(entries: readonly ConfigEntry[], folder: string, home: string | undefined): string[] {
+function configFilesOf(entries: readonly ConfigEntry[], folder: string, env: NodeJS.ProcessEnv): string[] {
   const files = new Set<string>()
   const fileOf = (origin: string): string | null => (origin.startsWith('file:') ? resolve(folder, origin.slice('file:'.length)) : null)
   for (const entry of entries) {
@@ -194,28 +200,96 @@ function configFilesOf(entries: readonly ConfigEntry[], folder: string, home: st
     if (!include || entry.value === null || entry.value === '') continue
     const target = entry.value
     if (target.startsWith('~/')) {
-      if (home !== undefined) files.add(resolve(home, target.slice(2)))
+      for (const home of includeHomes(env)) files.add(resolve(`${home}/`, target.slice(2)))
     } else if (isAbsolute(target)) files.add(resolve(target))
     else if (from !== null) files.add(resolve(dirname(from), target))
   }
+  // A relative one git reads twice (probed on git 2.50.1): its early read (aliases, before git finds the repository)
+  // from the folder the command starts in, and the rest, core.hooksPath and the programs among it, from the top of
+  // the checkout after git moved there. It stays relative here, and the policy guards it under every worktree and
+  // checkout, as a relative core.hooksPath (policy.ts, hooksAreas). The early read is not guarded in a subfolder: a
+  // git alias makes a command whose writes are not known (shell.ts), so it gets no allow from such a file anyway.
+  const asNamed = (path: string): string => (isAbsolute(path) ? resolve(path) : path)
+  for (const named of [env['GIT_CONFIG_GLOBAL'], env['GIT_CONFIG_SYSTEM']]) {
+    if (named !== undefined && named !== '' && !nullDevice(named)) files.add(asNamed(named))
+  }
+  const xdg = env['XDG_CONFIG_HOME']
+  if (xdg !== undefined && xdg !== '') files.add(asNamed(join(xdg, 'git', 'config')))
   return [...files]
 }
 
 /**
- * The git facts of the checkout at `folder` (GitFacts), read in the environment `env` with two git calls — the
+ * The branch origin/HEAD names and the checkout's branch, as git tells them in one call (`git for-each-ref`): for a
+ * ref store whose refs are no files (reftable, whose HEAD file names `refs/heads/.invalid`). '' for one git does not tell: no origin/HEAD, a detached HEAD, a
+ * branch with no commit yet (for-each-ref lists no such branch, so the default branch is then main, as before).
+ */
+async function refsFromGit(folder: string, env: NodeJS.ProcessEnv): Promise<{ origin: string; current: string }> {
+  const listed = await runGit(folder, ['for-each-ref', '--format=%(HEAD)%00%(refname)%00%(symref)', 'refs/remotes/origin/HEAD', 'refs/heads/'], env)
+  // No list, no default branch: a guess (main) would take the hard denies off the real one.
+  if (listed.code !== 0) throw new Error(`could not list the refs of the ref store in ${folder} (exit code ${String(listed.code)})`)
+  let origin = ''
+  let current = ''
+  for (const line of listed.stdout.split(/\r?\n/)) {
+    const [mark, name, target] = line.split('\0')
+    if (name === 'refs/remotes/origin/HEAD') origin = /^refs\/remotes\/origin\/(.+)$/.exec(target ?? '')?.[1] ?? ''
+    else if (mark === '*' && name?.startsWith('refs/heads/') === true) current = name.slice('refs/heads/'.length)
+  }
+  return { origin, current }
+}
+
+/**
+ * The git folders of the checkout at `folder` read from the files, for a git that lists the config and still refuses
+ * `rev-parse` — a key it reads as a path given with no value: core.excludesFile, and core.hooksPath on Git for Windows
+ * 2.45 (issue #1481). The nearest `.git` folder or `.git` file at or above `folder`, and the `commondir` of that git
+ * folder. Null when there is no `.git` up to the root: no repository. Throws when the folders cannot be told — GIT_DIR,
+ * GIT_COMMON_DIR or GIT_WORK_TREE in `env`, a `.git` that cannot be read, or a common folder whose config is not one
+ * of `configFiles` (git listed another repository's config, or none): the facts are then unknown, never "no
+ * repository".
+ */
+async function gitDirsFromFiles(folder: string, env: NodeJS.ProcessEnv, configFiles: readonly string[]): Promise<{ gitDir: string; common: string } | null> {
+  const unknown = (why: string): Error => new Error(`could not find the git folder of ${folder}: ${why}`)
+  if (['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE'].some((name) => env[name] !== undefined)) throw unknown('git rev-parse failed, and the environment names the git folders')
+  let gitDir: string | null = null
+  for (let dir = resolve(folder); gitDir === null; dir = dirname(dir)) {
+    const dotGit = join(dir, '.git')
+    const found = await stat(dotGit).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw unknown(`${dotGit} cannot be read`)
+    })
+    if (found?.isDirectory() === true) gitDir = dotGit
+    else if (found !== null) {
+      const named = /^gitdir: (.+)$/.exec((await firstLine(dotGit)) ?? '')?.[1]
+      if (named === undefined) throw unknown(`${dotGit} names no git folder`)
+      gitDir = resolve(dir, named)
+    } else if (dirname(dir) === dir) return null
+  }
+  const commondir = await firstLine(join(gitDir, 'commondir'))
+  const common = commondir === null ? gitDir : resolve(gitDir, commondir)
+  // Compared as written, not by real path: a mismatch leaves the facts unknown, it never relaxes a rule.
+  const config = join(common, 'config')
+  if (!configFiles.some((file) => samePath(file, config, process.platform))) throw unknown(`git did not list the config of ${common}`)
+  return { gitDir, common }
+}
+
+/**
+ * The git facts of the checkout at `folder` (GitFacts), read in the environment `env` with two git calls (three for a
+ * ref store that is no files: refsFromGit) — the
  * config with the origin of each entry, and the git folders — and the rest from the files: the hooks folder, HEAD,
- * origin/HEAD, the remotes of the old `remotes/` and `branches/` folders. Throws when the config cannot be read: the
- * policy needs core.hooksPath.
+ * origin/HEAD, the remotes of the old `remotes/` and `branches/` folders. When `rev-parse` fails, the git folders come
+ * from the files (gitDirsFromFiles). Throws when the config cannot be read (the policy needs core.hooksPath), and when
+ * the git folders or the refs of a ref store that is no files cannot be told.
  */
 export async function readGitFacts(folder: string, env: NodeJS.ProcessEnv): Promise<GitFacts> {
   const [config, dirs] = await Promise.all([runGit(folder, ['config', '--list', '-z', '--show-origin'], env), runGit(folder, ['rev-parse', '--git-dir', '--git-common-dir'], env)])
   if (config.code !== 0) throw new Error(`could not read git's config (core.hooksPath and the rest) in ${folder} (exit code ${String(config.code)})`)
   const entries = configEntries(config.stdout)
   const last = (key: string): ConfigEntry | undefined => entries.findLast((entry) => entry.key === key)
+  const configFiles = configFilesOf(entries, folder, env)
   const lines = dirs.code === 0 ? dirs.stdout.split(/\r?\n/).filter((line) => line !== '') : []
-  const repository = lines.length === 2
-  const gitDir = resolve(folder, lines[0] ?? '.')
-  const common = resolve(folder, lines[1] ?? '.')
+  const fromFiles = lines.length === 2 ? null : await gitDirsFromFiles(folder, env, configFiles)
+  const repository = lines.length === 2 || fromFiles !== null
+  const gitDir = fromFiles?.gitDir ?? resolve(folder, lines[0] ?? '.')
+  const common = fromFiles?.common ?? resolve(folder, lines[1] ?? '.')
   const [hookFiles, head, originHead, legacyRemotes, legacyBranches] = repository
     ? await Promise.all([namesIn(join(common, 'hooks')), firstLine(join(gitDir, 'HEAD')), firstLine(join(common, 'refs', 'remotes', 'origin', 'HEAD')), namesIn(join(common, 'remotes')), namesIn(join(common, 'branches'))])
     : [null, null, null, null, null]
@@ -228,16 +302,20 @@ export async function readGitFacts(folder: string, env: NodeJS.ProcessEnv): Prom
     if (name !== undefined) remotes.add(name)
   }
   for (const name of [...(legacyRemotes ?? []), ...(legacyBranches ?? [])]) remotes.add(name)
-  const origin = /^ref: refs\/remotes\/origin\/(.+)$/.exec(originHead ?? '')?.[1] ?? ''
-  const current = /^ref: refs\/heads\/(.+)$/.exec(head ?? '')?.[1] ?? ''
+  // A ref store that is no files (reftable) names `.invalid` in HEAD and keeps origin/HEAD in no file: git tells both.
+  // Told by the HEAD file alone, not by extensions.refStorage: an include or config.worktree may name another store
+  // that git does not use (it reads that key only from the common config).
+  const { origin, current } =
+    repository && head === 'ref: refs/heads/.invalid'
+      ? await refsFromGit(folder, env)
+      : { origin: /^ref: refs\/remotes\/origin\/(.+)$/.exec(originHead ?? '')?.[1] ?? '', current: /^ref: refs\/heads\/(.+)$/.exec(head ?? '')?.[1] ?? '' }
   return {
     hooksPath,
     hooksActive: hooksActiveOf({ hooksPath, hookFiles, config: entries }),
     rebaseUpdateRefs: !repository ? null : updateRefs === undefined ? false : gitBool(updateRefs.value),
     remotes: repository ? [...remotes] : null,
-    // A ref store that is no files (reftable) names `.invalid` in HEAD: the default branch is then main.
     defaultBranch: origin !== '' ? origin : current !== '' && current !== '.invalid' ? current : 'main',
-    configFiles: configFilesOf(entries, folder, env['HOME']),
+    configFiles,
     checkoutConfig: entries.some((entry) => (entry.key === 'extensions.worktreeconfig' && gitBool(entry.value) === true) || entry.key.startsWith('includeif.')),
     commonDir: repository ? common : null,
   }

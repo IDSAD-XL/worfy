@@ -777,6 +777,25 @@ function ownRepository(cwd: string, prepared: Prepared): boolean {
 }
 
 /**
+ * The folders `~/` of an include path or of core.hooksPath may name, as git takes its home: HOME when it is set; on Windows without it,
+ * where Git for Windows looks next — HOMEDRIVE with HOMEPATH, then USERPROFILE — both, since it takes the first
+ * that exists.
+ */
+export function includeHomes(env: Readonly<Record<string, string | undefined>>, platform: NodeJS.Platform = process.platform): string[] {
+  const home = env['HOME']
+  // An empty HOME is a home too: git writes `~/x` as `/x` then.
+  if (home !== undefined) return [home]
+  if (platform !== 'win32') return []
+  const homes: string[] = []
+  const drive = env['HOMEDRIVE']
+  const path = env['HOMEPATH']
+  if (drive !== undefined && drive !== '' && path !== undefined && path !== '') homes.push(`${drive}${path}`)
+  const profile = env['USERPROFILE']
+  if (profile !== undefined && profile !== '' && !homes.includes(profile)) homes.push(profile)
+  return homes
+}
+
+/**
  * What core.hooksPath guards, each path written and real: `folders`, the hooks folder (an absolute one, or a
  * relative one under each worktree and checkout), with everything inside; `parents`, the folders between it and the
  * nearest top above it, themselves only: moving or replacing one puts another hooks folder in place.
@@ -795,16 +814,21 @@ function hooksAreas(prepared: Prepared): { folders: string[]; parents: string[] 
   return { folders: areas.flatMap((area) => area.folders), parents: areas.flatMap((area) => area.parents) }
 }
 
-/** hooksAreas of the one core.hooksPath `value`. */
+/**
+ * hooksAreas of the one core.hooksPath `value`. `~/` is read from each home git may take (includeHomes: on Windows
+ * without HOME, HOMEDRIVE+HOMEPATH and USERPROFILE); with none, it stays a relative path.
+ */
 function hooksAreasOf(value: string, prepared: Prepared): { folders: string[]; parents: string[] } {
   const { context, roots, win } = prepared
-  const home = context.env.HOME
-  const path = value.startsWith('~/') && home !== undefined ? `${home}${value.slice(1)}` : value
-  const absolute = normalizePath(path, win)
+  const homes = value.startsWith('~/') ? includeHomes(context.env, win ? 'win32' : context.platform) : []
+  const paths = homes.length > 0 ? homes.map((home) => `${home}${value.slice(1)}`) : [value]
   const tops = [...context.worktrees, ...context.checkouts.map((checkout) => checkout.path)].map((top) => normalizePath(top, win) ?? top)
   const nearest = (folder: string): string | undefined =>
     tops.filter((top) => within(folder, top, prepared) && !within(top, folder, prepared)).sort((a, b) => b.length - a.length)[0]
-  const pairs = absolute === null ? tops.map((top) => [joinPath(top, path, win), top] as const) : [[absolute, nearest(absolute)] as const]
+  const pairs = paths.flatMap((path) => {
+    const absolute = normalizePath(path, win)
+    return absolute === null ? tops.map((top) => [joinPath(top, path, win), top] as const) : [[absolute, nearest(absolute)] as const]
+  })
   const both = (folder: string): string[] => [folder, realPathOf(folder, roots) ?? folder]
   const parents: string[] = []
   for (const [folder, top] of pairs) {
