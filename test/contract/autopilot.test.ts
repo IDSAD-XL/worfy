@@ -904,6 +904,8 @@ describe('an Autopilot run on the fake agent', () => {
     const events = await h.journal()
     expect(events.map((event) => event.kind)).toEqual(['run-started', 'wave-started', 'wave-finished', 'ticket-status', 'run-stopped'])
     expect(events.at(-1)).toMatchObject({ reason: 'blocked-tickets', tickets: ['02'], lastText: ANSWER })
+    // The Tickets it stopped on are not resumable: only a Force stop and a Session in error leave a Wave so (worfy-retry ticket 14).
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'blocked-tickets', resumable: [] })
   })
 
   it('keeps the first 1000 characters of a longer answer, so run-stopped still reaches the journal', async () => {
