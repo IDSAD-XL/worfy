@@ -4,9 +4,11 @@ import { rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
+import { crc32, deflateSync, inflateSync } from 'node:zlib'
 import { test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { launchApp, repoRoot, type LaunchedApp, type LaunchOptions } from './helpers'
 import { ms } from '../time-scale'
+import { WINDOW_BACKGROUND } from '../../src/main/window-frame'
 
 // Screenshots and clips of the app under test that can stay as Evidence of a Ticket (worfy-evidence
 // ticket 11). Both come from Playwright of the fixture build only: `page.screenshot` of its window and
@@ -152,10 +154,17 @@ function announce(target: EvidenceTarget, file: string, kind: 'screenshot' | 'vi
 
 const isPage = (target: Page | Locator): target is Page => 'mainFrame' in target
 
+/** The colour scheme `page` shows now: the one emulateMedia set, or the system's. */
+const schemeOf = async (page: Page): Promise<Theme> =>
+  (await page.evaluate(() => (globalThis as unknown as { matchMedia: (query: string) => { matches: boolean } }).matchMedia('(prefers-color-scheme: dark)').matches))
+    ? 'dark'
+    : 'light'
+
 /**
  * Screenshots of `target` (the app's window or a part of it) in each theme of `options.themes` (both by
- * default), through `emulateMedia`; the scheme the page had before is restored afterwards. Files:
- * `<NN>-<what>-light.png`, `<NN>-<what>-dark.png`. Resolves with their paths.
+ * default), through `emulateMedia`; the scheme the page had before is restored afterwards. Each is opaque:
+ * laid over the window background of its theme (opaquePng). Files: `<NN>-<what>-light.png`,
+ * `<NN>-<what>-dark.png`. Resolves with their paths.
  */
 export async function captureScreenshot(target: Page | Locator, what: string, options: EvidenceOptions & { themes?: Theme[] } = {}): Promise<string[]> {
   checkWhat(what)
@@ -169,9 +178,7 @@ export async function captureScreenshot(target: Page | Locator, what: string, op
   // The scheme the page has now, put back afterwards. Not emulateMedia({ colorScheme: null }): that is the
   // system's scheme, and Playwright starts the app emulating light, so on a Mac in dark mode the rest of the
   // test would run dark.
-  const before: Theme = (await page.evaluate(() => (globalThis as unknown as { matchMedia: (query: string) => { matches: boolean } }).matchMedia('(prefers-color-scheme: dark)').matches))
-    ? 'dark'
-    : 'light'
+  const before = await schemeOf(page)
   const files: string[] = []
   try {
     try {
@@ -179,7 +186,10 @@ export async function captureScreenshot(target: Page | Locator, what: string, op
         await page.emulateMedia({ colorScheme: theme })
         // Listed before it is written: a screenshot that fails half way is removed too.
         files.push(fileOf(theme))
-        await target.screenshot({ path: fileOf(theme) })
+        const shot = await target.screenshot({ path: fileOf(theme) })
+        // Laid over the window background of its theme, so no pixel lets the desktop through (opaquePng).
+        const opaque = opaquePng(shot, WINDOW_BACKGROUND[theme])
+        if (opaque !== shot) writeFileSync(fileOf(theme), opaque)
       }
     } finally {
       await page.emulateMedia({ colorScheme: before })
@@ -216,6 +226,8 @@ export interface Clip {
 export interface Frame {
   second: number
   png: Buffer
+  /** The colour scheme of the window when the frame was taken; its background is laid under the frame. Light by default. */
+  theme?: Theme
 }
 
 function limitsOf(options: ClipOptions): { seconds: number; bytes: number } {
@@ -245,6 +257,174 @@ async function bounded<T>(work: Promise<T>, limit: number, what: string): Promis
 export function pngSize(png: Buffer): { width: number; height: number } {
   if (png.length < 24 || png.readUInt32BE(12) !== 0x49484452) throw new Error('not a PNG')
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) }
+}
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+/** Chunks about colour and pixel size that stay true once the alpha is gone; any other ancillary chunk is dropped. */
+const KEPT_CHUNKS = new Set(['sRGB', 'gAMA', 'cHRM', 'iCCP', 'pHYs'])
+
+interface PngChunk {
+  type: string
+  data: Buffer
+}
+
+function pngChunks(png: Buffer): PngChunk[] {
+  if (!png.subarray(0, 8).equals(PNG_SIGNATURE)) throw new Error('not a PNG')
+  const chunks: PngChunk[] = []
+  for (let at = 8; at + 12 <= png.length; ) {
+    const length = png.readUInt32BE(at)
+    const type = png.toString('latin1', at + 4, at + 8)
+    chunks.push({ type, data: png.subarray(at + 8, at + 8 + length) })
+    at += 12 + length
+    if (type === 'IEND') break
+  }
+  return chunks
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(data.length)
+  const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(crc32(body))
+  return Buffer.concat([length, body, crc])
+}
+
+/** The predictor of PNG filter `filter` (1 Sub, 2 Up, 3 Average, 4 Paeth; 0 None) from the left, upper and upper-left bytes. */
+function predict(filter: number, left: number, up: number, upLeft: number): number {
+  switch (filter) {
+    case 1:
+      return left
+    case 2:
+      return up
+    case 3:
+      return (left + up) >> 1
+    case 4: {
+      const p = left + up - upLeft
+      const toLeft = Math.abs(p - left)
+      const toUp = Math.abs(p - up)
+      const toUpLeft = Math.abs(p - upLeft)
+      return toLeft <= toUp && toLeft <= toUpLeft ? left : toUp <= toUpLeft ? up : upLeft
+    }
+    default:
+      return 0
+  }
+}
+
+export interface Pixels {
+  width: number
+  height: number
+  /** Four bytes a pixel, R G B A, row after row; alpha 255 for a PNG without alpha. */
+  rgba: Buffer
+  /** Whether the PNG has an alpha channel at all (colour type 6). */
+  alpha: boolean
+}
+
+/**
+ * The pixels of a PNG as Chromium writes a screenshot: 8 bits a channel, RGB or RGBA, not interlaced.
+ * Any other kind is an error rather than a guess.
+ */
+export function pngPixels(png: Buffer): Pixels {
+  const chunks = pngChunks(png)
+  const header = chunks[0]
+  if (header?.type !== 'IHDR' || header.data.length < 13) throw new Error('not a PNG')
+  const width = header.data.readUInt32BE(0)
+  const height = header.data.readUInt32BE(4)
+  const [depth, colour, , , interlace] = header.data.subarray(8, 13)
+  if (depth !== 8 || (colour !== 2 && colour !== 6) || interlace !== 0) {
+    throw new Error(`a PNG of bit depth ${String(depth)}, colour type ${String(colour)}, interlace ${String(interlace)}: only 8-bit RGB or RGBA, not interlaced, is read`)
+  }
+  const channels = colour === 6 ? 4 : 3
+  const stride = width * channels
+  const raw = inflateSync(Buffer.concat(chunks.filter((each) => each.type === 'IDAT').map((each) => each.data)))
+  if (raw.length < height * (stride + 1)) throw new Error('a PNG with fewer rows than its header says')
+  const rgba = Buffer.alloc(width * height * 4, 255)
+  let up = Buffer.alloc(stride)
+  for (let y = 0; y < height; y++) {
+    const start = y * (stride + 1)
+    const filter = raw[start] ?? 0
+    const line = raw.subarray(start + 1, start + 1 + stride)
+    for (let i = 0; i < stride; i++) {
+      const left = i >= channels ? (line[i - channels] ?? 0) : 0
+      const upLeft = i >= channels ? (up[i - channels] ?? 0) : 0
+      line[i] = ((line[i] ?? 0) + predict(filter, left, up[i] ?? 0, upLeft)) & 0xff
+    }
+    for (let x = 0; x < width; x++) line.copy(rgba, (y * width + x) * 4, x * channels, x * channels + channels)
+    up = line
+  }
+  return { width, height, rgba, alpha: colour === 6 }
+}
+
+/** An RGB PNG (colour type 2) of `rgb`, three bytes a pixel; each row with the filter that leaves the smallest bytes. */
+function rgbPng(width: number, height: number, rgb: Buffer, kept: PngChunk[]): Buffer {
+  const stride = width * 3
+  const filtered = Buffer.alloc(height * (stride + 1))
+  const candidate = Buffer.alloc(stride)
+  const zero = Buffer.alloc(stride)
+  for (let y = 0; y < height; y++) {
+    const line = rgb.subarray(y * stride, (y + 1) * stride)
+    const up = y > 0 ? rgb.subarray((y - 1) * stride, y * stride) : zero
+    let best = Infinity
+    for (let filter = 0; filter <= 4; filter++) {
+      let cost = 0
+      for (let i = 0; i < stride; i++) {
+        const left = i >= 3 ? (line[i - 3] ?? 0) : 0
+        const upLeft = i >= 3 ? (up[i - 3] ?? 0) : 0
+        const byte = ((line[i] ?? 0) - predict(filter, left, up[i] ?? 0, upLeft)) & 0xff
+        candidate[i] = byte
+        cost += byte < 128 ? byte : 256 - byte
+      }
+      if (cost < best) {
+        best = cost
+        filtered[y * (stride + 1)] = filter
+        candidate.copy(filtered, y * (stride + 1) + 1)
+      }
+    }
+  }
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  header[8] = 8
+  header[9] = 2
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk('IHDR', header),
+    ...kept.map((each) => pngChunk(each.type, each.data)),
+    pngChunk('IDAT', deflateSync(filtered)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+/**
+ * `png` with no alpha: each pixel laid over `background` (`#rrggbb`), as an RGB PNG. A PNG without
+ * alpha, or whose every pixel is opaque already (the window of Windows and Linux), is given back as it
+ * is. On macOS the window has a translucent sidebar (vibrancy, src/main/window-frame.ts), and a
+ * screenshot keeps its alpha: a viewer would show what lies behind the picture through it
+ * (worfy-evidence ticket 13).
+ */
+export function opaquePng(png: Buffer, background: string): Buffer {
+  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(background)
+  if (!hex) throw new Error(`opaquePng: the background must be #rrggbb, got "${background}"`)
+  const under = hex.slice(1).map((each) => parseInt(each, 16))
+  const chunks = pngChunks(png)
+  const colour = chunks[0]?.type === 'IHDR' ? chunks[0].data[9] : undefined
+  // Grey or RGB without a transparent colour, or a palette without one: no pixel can be translucent.
+  if ((colour === 0 || colour === 2 || colour === 3) && !chunks.some((each) => each.type === 'tRNS')) return png
+  const pixels = pngPixels(png)
+  if (!pixels.alpha) return png
+  const count = pixels.width * pixels.height
+  let translucent = false
+  for (let at = 3; at < pixels.rgba.length && !translucent; at += 4) translucent = pixels.rgba[at] !== 255
+  if (!translucent) return png
+  const rgb = Buffer.alloc(count * 3)
+  for (let pixel = 0; pixel < count; pixel++) {
+    const alpha = pixels.rgba[pixel * 4 + 3] ?? 255
+    for (let channel = 0; channel < 3; channel++) {
+      const over = pixels.rgba[pixel * 4 + channel] ?? 0
+      rgb[pixel * 3 + channel] = Math.round((over * alpha + (under[channel] ?? 0) * (255 - alpha)) / 255)
+    }
+  }
+  return rgbPng(pixels.width, pixels.height, rgb, chunks.filter((each) => KEPT_CHUNKS.has(each.type)))
 }
 
 export interface SheetLayout {
@@ -302,6 +482,7 @@ export async function contactSheet(app: ElectronApplication, frames: Frame[], di
     return {
       src: name,
       second: each.second,
+      background: WINDOW_BACKGROUND[each.theme ?? 'light'],
       x: SHEET_GAP + (index % size.columns) * (cell.width + SHEET_GAP),
       y: SHEET_GAP + Math.floor(index / size.columns) * (cell.height + SHEET_CAPTION + SHEET_GAP),
     }
@@ -323,6 +504,10 @@ export async function contactSheet(app: ElectronApplication, frames: Frame[], di
       const image = new Image()
       image.src = each.src
       await image.decode()
+      // A frame keeps the alpha of the window (the translucent sidebar on macOS): laid over the window
+      // background of its theme, as a screenshot is (opaquePng), not over the white of the sheet.
+      pen.fillStyle = each.background
+      pen.fillRect(each.x, each.y, image.naturalWidth, image.naturalHeight)
       pen.drawImage(image, each.x, each.y)
       pen.strokeStyle = '#999'
       pen.strokeRect(each.x - 0.5, each.y - 0.5, image.naturalWidth + 1, image.naturalHeight + 1)
@@ -510,7 +695,7 @@ async function windowDestroyed(app: ElectronApplication, id: number | undefined)
  * scale of the display. It fails at once when the page closes or main says the window is destroyed, and
  * at FRAME_BOUND_MS when the screenshot never settles.
  */
-async function takeFrame(launched: LaunchedApp, windowId: number | undefined): Promise<Buffer> {
+async function takeFrame(launched: LaunchedApp, windowId: number | undefined): Promise<Omit<Frame, 'second'>> {
   const page = launched.window
   if (page.isClosed()) throw new WindowGone('the window was closed')
   let over = false
@@ -526,7 +711,12 @@ async function takeFrame(launched: LaunchedApp, windowId: number | undefined): P
     })()
   })
   try {
-    return await bounded(Promise.race([page.screenshot({ scale: 'css', timeout: FRAME_TIMEOUT_MS }), gone]), FRAME_BOUND_MS, 'the screenshot')
+    // The scheme is asked after the screenshot, within the same bound: a frame that never comes keeps its error.
+    const frame = async (): Promise<Omit<Frame, 'second'>> => {
+      const png = await page.screenshot({ scale: 'css', timeout: FRAME_TIMEOUT_MS })
+      return { png, theme: await schemeOf(page) }
+    }
+    return await bounded(Promise.race([frame(), gone]), FRAME_BOUND_MS, 'the screenshot')
   } finally {
     over = true
     page.off('close', onClose)
@@ -562,7 +752,7 @@ async function underLimit(
       await sleep(start + second * FRAME_EVERY_MS - Date.now())
       if (second > 0 && !running) return
       try {
-        frames.push({ second, png: await takeFrame(launched, windowId) })
+        frames.push({ second, ...(await takeFrame(launched, windowId)) })
       } catch (error) {
         frameError = error
         return
