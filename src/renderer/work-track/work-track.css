@@ -107,7 +107,95 @@
   color: var(--text-secondary);
 }
 
+/* ── the summary of the period (SummaryRow.tsx, ticket 10) ────────────────────── */
+
+.w-wt-summary {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 62px;
+  padding: var(--space-1) var(--space-3);
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.w-wt-summary__epics {
+  min-width: 0;
+}
+.w-wt-summary__title {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 3px;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  font-weight: 600;
+}
+.w-wt-summary__more {
+  color: var(--text-secondary);
+  font-weight: 400;
+  cursor: default;
+}
+.w-wt-summary__none {
+  color: var(--text-secondary);
+  font-size: var(--text-11);
+}
+.w-wt-summary__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 250px);
+  gap: 2px 14px;
+}
+.w-wt-epic {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-11);
+  white-space: nowrap;
+}
+.w-wt-epic__name {
+  width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+.w-wt-epic__bar {
+  flex: none;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--span-ticket);
+}
+.w-wt-epic__hours {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+.w-wt-kpi {
+  flex: none;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
+.w-wt-kpi__value {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-20);
+  font-weight: 600;
+  line-height: 1.1;
+}
+.w-wt-kpi__words {
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+
 /* ── the lanes ─────────────────────────────────────────────────────────────── */
+
+.w-wt-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.w-wt-body .w-wt-main {
+  min-width: 0;
+}
 
 .w-wt-main {
   flex: 1;
@@ -481,4 +569,105 @@ button.w-wt-toggle {
 }
 .w-wt-legend__note {
   margin-left: auto;
+}
+
+/* ── the Span panel (SpanPanel.tsx, ticket 10) ─────────────────────────────── */
+
+.w-wt-bar,
+.w-wt-pr {
+  cursor: pointer;
+}
+.w-wt-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 300px;
+  padding: var(--space-3);
+  overflow: auto;
+  border-left: 1px solid var(--border-strong);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+  cursor: default;
+}
+.w-wt-panel__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: none;
+  color: var(--text-muted);
+}
+.w-wt-panel__close:hover {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+.w-wt-panel__title {
+  margin: 0 24px 4px 0;
+  font-size: var(--text-15);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.w-wt-panel__what {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-11);
+}
+.w-wt-panel__table {
+  width: 100%;
+  margin: var(--space-2) 0;
+  border-collapse: collapse;
+}
+.w-wt-panel__table th,
+.w-wt-panel__table td {
+  padding: 3px 8px 3px 0;
+  text-align: left;
+  vertical-align: top;
+}
+.w-wt-panel__table th {
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.w-wt-panel__table td {
+  overflow-wrap: anywhere;
+}
+.w-wt-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.w-wt-action {
+  height: 24px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  font-size: var(--text-12);
+}
+.w-wt-action:disabled {
+  color: var(--text-muted);
+}
+.w-wt-action:focus-visible,
+.w-wt-panel__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.w-wt-panel__problem {
+  margin: var(--space-2) 0 0;
+  color: var(--blocked-text);
+}
+.w-wt-panel__source {
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--text-11);
 }

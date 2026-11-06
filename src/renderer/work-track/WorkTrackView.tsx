@@ -4,12 +4,19 @@
 // comfortable» — then the lanes of the period (Lanes.tsx; the Month as cells of days, MonthGrid.tsx) and
 // the legend of the colours. The answer of main comes at once without the slow sources, which a line names
 // while they are read; a source that fails is a hatched «no data» on the lanes, not an empty screen.
-import { useEffect, type ReactNode } from 'react'
+//
+// Ticket 10 adds the summary of the period over the lanes (SummaryRow.tsx) and the Span panel on their right
+// (SpanPanel.tsx): a click on a bar or on a merged PR's diamond — anything that carries `data-span-id` —
+// selects that Span; another period or Project clears the choice.
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import type { WorkTrackSlowSource } from '../../shared/ipc/work-track'
 import type { PeriodKind } from '../../shared/work-track/facts'
+import { buildSpans } from '../../shared/work-track/lanes'
 import { SegmentedControl, type SegmentOption } from '../theme/primitives'
 import { Lanes } from './Lanes'
+import { SpanPanel } from './SpanPanel'
 import { canGoLater, periodLabel, periodOf, readWorkTrack, setDensity, setLanes, setPeriod, shiftPeriod, showWorkTrack, useWorkTrack, type Density, type LaneMode } from './store'
+import { SummaryRow } from './SummaryRow'
 import './work-track.css'
 
 const PERIODS: readonly SegmentOption<PeriodKind>[] = [
@@ -84,15 +91,33 @@ export function WorkTrackView({ projectId, active, switcher }: { projectId: stri
   const view = useWorkTrack((state) => (state.view?.projectId === projectId ? state.view : undefined))
   const error = useWorkTrack((state) => state.error)
 
+  // The Span chosen, with the Project and the period it was chosen in: another one shows no panel.
+  const [selected, setSelected] = useState<{ id: string; on: string } | null>(null)
+  const close = useCallback(() => setSelected(null), [])
+  const on = `${projectId}\n${period}\n${day ?? 'today'}`
+
   useEffect(() => {
     if (active) void showWorkTrack(projectId)
   }, [active, projectId])
 
   const shown = periodOf({ period, day })
   const later = canGoLater({ period, day })
+  const chosen = selected?.on === on ? selected.id : null
+  const span = useMemo(() => (view === undefined || chosen === null ? undefined : buildSpans(view).find((each) => each.id === chosen)), [view, chosen])
+
+  const choose = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-span-id]') : null
+    if (target?.dataset.spanId !== undefined) setSelected({ id: target.dataset.spanId, on })
+  }
 
   let body: ReactNode
-  if (view !== undefined) body = <Lanes view={view} mode={lanes} expanded={expanded} density={density} />
+  if (view !== undefined)
+    body = (
+      <div className="w-wt-body" onClick={choose}>
+        <Lanes view={view} mode={lanes} expanded={expanded} density={density} />
+        {span !== undefined ? <SpanPanel key={span.id} projectId={projectId} span={span} view={view} onClose={close} /> : null}
+      </div>
+    )
   else if (error === null) body = <p className="w-wt-empty">Reading the Work track…</p>
   else body = null
 
@@ -134,6 +159,7 @@ export function WorkTrackView({ projectId, active, switcher }: { projectId: stri
           </button>
         </div>
       ) : null}
+      {view !== undefined ? <SummaryRow summary={view.summary} /> : null}
       {body}
       <Legend />
     </div>

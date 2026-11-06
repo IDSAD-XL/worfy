@@ -237,6 +237,7 @@ function Axis({ view, scale, prs, width }: { view: WorkTrackView; scale: Scale; 
           key={span.id}
           className="w-wt-pr"
           data-testid="work-track-pr"
+          data-span-id={span.id}
           title={[`PR #${span.pr ?? '?'} merged`, formatLocal(span.end), [span.epic, span.ticket].filter((part) => part !== null && part !== undefined).join(' ')].filter((line) => line !== '').join('\n')}
           style={{ left: `${percent(span.end, scale)}%` }}
         >
