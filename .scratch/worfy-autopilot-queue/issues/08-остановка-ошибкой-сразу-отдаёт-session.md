@@ -1,7 +1,8 @@
 # 08 — Run, остановленный ошибкой, сразу отдаёт Session человеку: без перезапуска, задачи живут
 
 Type: task
-Status: open
+Status: done 2026-11-06T18:01Z
+PR: #1512
 Blocked by: 07
 Source: [spec.md](../spec.md), «Что видит владелец», п. 6; «Как работает» → «Остановка ошибкой отдаёт Session сразу»; «Решения владельца», 7; «Решено без владельца», 5; «Риски», 1–2; [02](02-старт-при-идущей-работе.md), Q7; случай 2026-11-03 ([worfy-polish 50](../../worfy-polish/issues/50-autopilot-не-стартует-после-остановки-run-а.md))
 
@@ -39,22 +40,27 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 6; «
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-background.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-background.test.ts` exit 0 · mac - · a23bec41e6fce924ee815169693c44c8ce7eae6f
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 43f4ff5d466f4069d0e1b1849d0971a84054f36e
+  - evidence: review pass · PR #1512 · - - · e362fbff501c199c1e21f2332779e7205405c3b3
 - [ ] Contract test: `user-stop` при живых задачах — как сейчас (unattended до конца задач).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-retry.test.ts test/contract/autopilot-background.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-retry.test.ts test/contract/autopilot-background.test.ts` exit 0 · mac - · a23bec41e6fce924ee815169693c44c8ce7eae6f
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 43f4ff5d466f4069d0e1b1849d0971a84054f36e
+  - evidence: review pass · PR #1512 · - - · e362fbff501c199c1e21f2332779e7205405c3b3
 - [ ] Contract test: Codex (fake Codex, временный `CODEX_HOME`) — следующий `turn/start` идёт с режимом Node.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/orchestrator-relaunch.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/orchestrator-relaunch.test.ts` exit 0 · mac - · a23bec41e6fce924ee815169693c44c8ce7eae6f
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 43f4ff5d466f4069d0e1b1849d0971a84054f36e
+  - evidence: review pass · PR #1512 · - - · e362fbff501c199c1e21f2332779e7205405c3b3
 - [ ] Contract test: seam отказал — `wanted = ATTENDED`, поведение как сейчас.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/orchestrator-relaunch.test.ts test/contract/autopilot-background.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/orchestrator-relaunch.test.ts test/contract/autopilot-background.test.ts` exit 0 · mac - · a23bec41e6fce924ee815169693c44c8ce7eae6f
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 43f4ff5d466f4069d0e1b1849d0971a84054f36e
+  - evidence: review pass · PR #1512 · - - · e362fbff501c199c1e21f2332779e7205405c3b3
 - [ ] `## Amendments` в ADR-0029.
   - evidence: commit pass · docs: ADR-0029 amendment, stop rows and ticket result for the in-place give-back (worfy-autopilot-queue 08) · - - · 1fc13a60f
   - evidence: commit pass · docs: ADR-0029 amendment, stop rows and ticket result for the in-place give-back (worfy-autopilot-queue 08) · - - · ed1c9ebb2
   - evidence: commit pass · docs: in-place give-back in the Autopilot page, ADR-0029 amendment notes, round 2 result (worfy-autopilot-queue 08) · - - · 43f4ff5d466f4069d0e1b1849d0971a84054f36e
+  - evidence: review pass · PR #1512 · - - · e362fbff501c199c1e21f2332779e7205405c3b3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
   - evidence: gate pass · `gate fast` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
@@ -62,6 +68,8 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 6; «
   - evidence: gate pass · `gate fast` exit 0 · mac - · a23bec41e6fce924ee815169693c44c8ce7eae6f
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 43f4ff5d466f4069d0e1b1849d0971a84054f36e
   - evidence: gate pass · `gate fast` exit 0 · mac - · 43f4ff5d466f4069d0e1b1849d0971a84054f36e
+  - evidence: review pass · PR #1512 · - - · e362fbff501c199c1e21f2332779e7205405c3b3
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42262786788 · ci - · e362fbff501c199c1e21f2332779e7205405c3b3
 
 ## Тесты
 
