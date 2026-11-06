@@ -1,7 +1,7 @@
 # 05 — Codex: та же политика в approval
 
 Type: task
-Status: open
+Status: claimed 2026-11-06T00:00Z
 Blocked by: 04
 Source: [spec.md](../spec.md), «Как работает», п. 8; Q7
 

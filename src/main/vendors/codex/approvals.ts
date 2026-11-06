@@ -7,7 +7,13 @@
 // The option ids are Codex's decisions themselves and the same on every request: the gate answers a
 // later request of the same subject with a remembered `allow_always` id without looking at the options
 // the request offers (permissions.ts, ask()), so an id must mean the same thing on every request.
+//
+// An unattended Session at Auto-approval Shadow or On asks the approval policy instead (worfy-auto-approve
+// ticket 05): policyRequestOf turns an approval into the policy's request. Codex's answer carries no text
+// (`{decision}` only: protocol/ts/v2/CommandExecutionRequestApprovalResponse.ts,
+// FileChangeRequestApprovalResponse.ts), so the hint of a refusal reaches the Journal only, never the model.
 import type { PermissionOption } from '../../../shared/agent/events'
+import type { ApprovalRequest, Decision } from '../../agent/auto-approve/policy'
 import type { PermissionAsk } from '../session'
 import type { ServerRequest } from './protocol/ts/ServerRequest'
 import type { ThreadItem } from './protocol/ts/v2/ThreadItem'
@@ -87,6 +93,49 @@ export function approvalAsk(request: CodexApprovalRequest, item: ThreadItem | un
     title: 'Codex wants to change files',
     blockedPath: text(request.params.grantRoot),
   }
+}
+
+/** An approval in the terms of the approval policy (policyRequestOf). */
+export interface CodexPolicyRequest {
+  request: ApprovalRequest
+  /** The folder the command runs in, as Codex names it; for a file change, null (the Session's folder is used). */
+  cwd: string | null
+  /** The folder the request asks writes under for the rest of the Session (FileChangeRequestApprovalParams.grantRoot). */
+  grantRoot: string | null
+}
+
+/**
+ * What the approval policy judges of an approval (worfy-auto-approve ticket 05), from its permission request `ask`:
+ * - a command: `commandExecution` with its command and folder. Input to a command that runs (`kind` writeStdin) and a
+ *   request for network access (`networkApprovalContext`) are no command the policy can read: they go under their own
+ *   tool names, which the policy parks as unknown;
+ * - a file change: `fileChange` with a path for each change, each `move_path` (an update that renames writes there
+ *   too) and the grantRoot, so every place the change may write is judged.
+ */
+export function policyRequestOf(request: CodexApprovalRequest, ask: Omit<PermissionAsk, 'signal'>): CodexPolicyRequest {
+  const input = ask.input as Record<string, unknown>
+  if (request.method === 'item/commandExecution/requestApproval') {
+    const { kind, networkApprovalContext } = request.params as { kind?: unknown; networkApprovalContext?: unknown }
+    const tool = kind !== undefined && kind !== 'command' ? 'writeStdin' : networkApprovalContext !== undefined && networkApprovalContext !== null ? 'networkAccess' : 'commandExecution'
+    const cwd = typeof input['cwd'] === 'string' ? input['cwd'] : null
+    return { request: { tool, input: { command: input['command'], cwd } }, cwd, grantRoot: null }
+  }
+  const grantRoot = text(request.params.grantRoot)
+  const changes = Array.isArray(input['changes']) ? (input['changes'] as unknown[]) : []
+  const paths = changes.flatMap((change) => {
+    const { path, kind } = (typeof change === 'object' && change !== null ? change : {}) as { path?: unknown; kind?: { move_path?: unknown } }
+    return [{ path }, ...(typeof kind?.move_path === 'string' ? [{ path: kind.move_path }] : [])]
+  })
+  return { request: { tool: 'fileChange', input: { changes: [...paths, ...(grantRoot === null ? [] : [{ path: grantRoot }])] } }, cwd: null, grantRoot }
+}
+
+/**
+ * The decision on a request with a grantRoot: never allow. Codex would take the root for the rest of the Session (its
+ * schema says it is unclear whether it does today), and the policy answers one request at a time; so an allowed one is
+ * parked for the owner (rule `grant-root`), and a refused one stays refused.
+ */
+export function withGrantRoot(decision: Decision, grantRoot: string | null): Decision {
+  return grantRoot !== null && decision.outcome === 'allow' ? { outcome: 'park', rule: 'grant-root', hint: null, targets: decision.targets } : decision
 }
 
 /** The decision for the option picked: null (the request was cancelled) is `cancel`; an id Codex does not offer, `decline`. */
