@@ -34,7 +34,7 @@ Orchestrator отмечает пункты «(вручную)» в Ticket-е и 
 ## worfy-multi-vendor 43
 
 Финальная приёмка Epic-а «Codex рядом с Claude Code» ([Ticket](worfy-multi-vendor/issues/43-финальная-приёмка.md)).
-Пункт 1 (Install Harness ставит Harness и в Codex) уже пройден.
+Пункт 1 (Install Harness ставит Harness и в Codex) уже пройден. 2026-11-06: ПК (шаги 3–8) пройден, риск 1 проверен; осталась Mac-часть — ночной Run на Codex.
 
 - **Где:** Mac Stable `66c3a490` (стоит с 2026-11-05) или новее, затем ПК — Stable copy той же сборки.
 - **Время:** Mac ~5 мин + ночь на Run; ПК ~20 мин.

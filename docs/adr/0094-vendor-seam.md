@@ -131,3 +131,15 @@ hook-ам (Ticket-ы 02–05).
 - **TOML агентов в `.codex/agents/` Project-а.** Отклонено: worfy не пишет своё состояние в репозиторий (ADR-0005).
 - **ACP вместо своей границы.** Отклонено (Ticket 10): ACP не даёт Limits подписки и плана аккаунта.
 - **Отдельный Harness для Codex.** Отклонено (решение 08): Codex читает формат Claude, два Harness разошлись бы.
+
+## Amendments
+
+- 2026-11-06 — риск 1 проверен заново (Ticket `worfy-multi-vendor` 43, PR #1492). Условия OpenAI не молчат: документация
+  app-server (<https://learn.chatgpt.com/docs/app-server>, раздел «Auth endpoints», по снимкам Wayback Machine
+  текст на странице с конца сентября 2026) разрешает локальному или open-source приложению вести Codex по входу ChatGPT через app-server
+  («If you've built a local or open-source application using Codex app-server authentication, you can continue
+  using it») и запрещает это коммерческому или серверному сервису («App-server authentication has never been
+  permitted for commercial or hosted services»); OpenAI советует перейти на Sign in with ChatGPT. Решение
+  владельца 2026-11-06: worfy ведёт Codex по подписке, пока остаётся бесплатным локальным приложением; платная или
+  серверная версия — только после одобрения OpenAI (форма для партнёров). Переход на Sign in with ChatGPT не
+  обязателен; к нему возвращаемся перед публичным выпуском, Ticket-а нет.
