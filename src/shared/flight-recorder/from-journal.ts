@@ -50,7 +50,8 @@
 // - The decisions of Auto-approval (`auto-approval`, worfy-auto-approve ticket 08), for the block «Auto-approval»
 //   of Run history: every such line of the Run's file, those after run-stopped too (the Session stays under the
 //   Run's policy while its tasks end), as the line has it — the command stays as the Journal masked it. A line of
-//   another shape (journalEventSchema of src/shared/autopilot/journal.ts) is left out of the list.
+//   another shape (journalEventSchema of src/shared/autopilot/journal.ts) is left out of the list and counted in
+//   `skipped`. The service counts the Project's Shadow decisions through this same reader.
 import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from '../agent/auto-approval'
 import type { AutopilotStopReason } from '../autopilot/cycle'
 import { COMMAND_MAX, RUN_STARTED_BY } from '../autopilot/journal'
@@ -435,12 +436,14 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
     wait.tickets = waves.find((wave) => Date.parse(wave.startedAt) >= Date.parse(wait.start))?.tickets ?? []
   }
 
-  const autoApproval = events.flatMap((event) => {
-    const decision = event.kind === 'auto-approval' ? decisionOf(event) : null
+  const judged = events.filter((event) => event.kind === 'auto-approval')
+  const autoApproval = judged.flatMap((event) => {
+    const decision = decisionOf(event)
     return decision === null ? [] : [decision]
   })
 
-  const facts: JournalFacts = { run, epic, tickets, waves, ticketEvents, retryCauses, waits, orchestratorMarks, autoApproval, skipped }
+  // An auto-approval line of another shape is a line left out, as one with a field the walk relies on.
+  const facts: JournalFacts = { run, epic, tickets, waves, ticketEvents, retryCauses, waits, orchestratorMarks, autoApproval, skipped: skipped + judged.length - autoApproval.length }
   // Another value of `by` reads as none (the run-started header of src/shared/autopilot/journal.ts).
   const by = (RUN_STARTED_BY as readonly unknown[]).includes(runStarted?.by) ? (runStarted?.by as string) : undefined
   if (by !== undefined) facts.by = by

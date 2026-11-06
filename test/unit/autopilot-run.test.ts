@@ -94,6 +94,8 @@ interface StandIn {
   sent: string[]
   /** Tells the run its workflow changed (`workflow.changed`). */
   workflowChanged: () => void
+  /** The notices of worfy's own the run showed in the Session (Session.notice). */
+  notices: string[]
 }
 
 function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
@@ -119,6 +121,7 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
     resumes: [],
     sent: [],
     workflowChanged: () => undefined,
+    notices: [],
   }
   const session: RunSession = {
     id: SESSION,
@@ -136,6 +139,9 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
       out.queue = out.queue.filter((item) => item.id !== id)
       if (out.queue.length !== before) out.removed.push(id)
       return out.queue.length !== before
+    },
+    notice: (text) => {
+      out.notices.push(text)
     },
     send: (text) => {
       out.sent.push(text)
@@ -2756,5 +2762,74 @@ describe('the state names the run and, once stopped, counts its Tickets (worfy-f
     await s.autopilot.forceStop(PROJECT)
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop', run: 'run-1', ended: { done: 0, blocked: 1 } })
+  })
+})
+
+describe('the Auto-approval line in the Orchestrator\'s chat at the end of a run (worfy-auto-approve ticket 08)', () => {
+  const TASK: BackgroundTask = { taskId: 'task-1', taskType: 'local_agent', description: 'Implement 01' }
+  const decided = (outcome: 'allow' | 'deny' | 'would-allow', mode: 'on' | 'shadow' = 'on'): AgentEvent =>
+    ({ type: 'auto_approval', mode, outcome, rule: 'files-inside-roots', tool: 'Bash', targets: ['/repo/build'], command: 'rm -rf /repo/build' }) as AgentEvent
+
+  it('a run with no decision shows no line', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    await s.autopilot.forceStop(PROJECT)
+    expect(s.notices).toEqual([])
+  })
+
+  it('a run that stops with nothing alive shows its line once, at the stop', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.emit(decided('allow'))
+    s.emit(decided('deny'))
+    await settle()
+    await s.autopilot.forceStop(PROJECT)
+    await settle()
+    expect(s.notices).toEqual(['Auto-approval: allowed 1, denied 1, parked 0'])
+  })
+
+  it('a run that lingers for its background tasks shows the line once they end, with the decisions after run-stopped journaled and counted', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.emit(decided('allow'))
+    s.tasks = [TASK]
+    s.emit(result(true))
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped' })
+    expect(s.journal.map((line) => line.kind)).toContain('run-stopped')
+    // The run waits for its task: no line yet.
+    expect(s.notices).toEqual([])
+    // The task's request after run-stopped: the Session is still under the run's policy.
+    s.emit(decided('deny'))
+    await settle()
+    const stop = s.journal.findIndex((line) => line.kind === 'run-stopped')
+    expect(s.journal.slice(stop + 1).filter((line) => line.kind === 'auto-approval')).toEqual([expect.objectContaining({ kind: 'auto-approval', outcome: 'deny' })])
+    expect(s.notices).toEqual([])
+    // The task ends and the Orchestrator is given back: the line, once, with both decisions.
+    s.tasks = []
+    s.emit({ type: 'state', state: 'closed', error: null } as AgentEvent)
+    await settle()
+    expect(s.notices).toEqual(['Auto-approval: allowed 1, denied 1, parked 0'])
+    s.emit({ type: 'state', state: 'closed', error: null } as AgentEvent)
+    await settle()
+    expect(s.notices).toHaveLength(1)
+  })
+
+  it('a lingering run whose Session the next run takes over shows its line at the take-over, without the next run\'s decisions', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.emit(decided('would-allow', 'shadow'))
+    s.tasks = [TASK]
+    s.emit(result(true))
+    await settle()
+    expect(s.notices).toEqual([])
+    s.state = 'idle'
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.notices).toEqual(['Shadow: would allow 1, would deny 0, would park 0'])
   })
 })

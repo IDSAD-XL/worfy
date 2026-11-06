@@ -28,8 +28,8 @@
 //   ticket 27), which takes only the lines that came since the last step. A Run that is over is read
 //   and parsed whole, once per computation, and kept nowhere.
 // - The Auto-approval decisions of the Run (worfy-auto-approve ticket 08) come with its view when it has any;
-//   with one in Shadow the view also counts the Shadow decisions of every Run of the Project so far (Q2),
-//   from their Journals as listRuns reads them.
+//   with one in Shadow the view also counts the Shadow decisions of every Run of the Project so far (Q2): each
+//   Journal of the list the computation reads anyway, through the same reader, kept by its size and mtime.
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isShadowDecision } from '../../shared/autopilot/auto-approval-summary'
@@ -41,7 +41,7 @@ import { buildTimeline, type LostFact, type RunFacts, type StageEventFact } from
 import { summarize } from '../../shared/flight-recorder/summary'
 import type { RunAutoApproval, RunGithub, RunListItem, RunView } from '../../shared/ipc/runs'
 import type { PipelineStage } from '../../shared/workflow/pipeline'
-import { journalDir, listRuns, readRecentRuns } from '../autopilot/journal'
+import { journalDir, listRuns, type RunSummary } from '../autopilot/journal'
 import type { ClientId } from '../clients'
 import { readNewLines, type TailCursor } from '../claude-home/tail'
 import { marksInFile, gitRunner, type GitRunner } from '../workflow/stages'
@@ -255,6 +255,11 @@ export class FlightRecorder {
   private readonly git: GitRunner
   private readonly github: GithubReader
   private readonly open_ = new Map<string, OpenRun>()
+  /**
+   * The Shadow decisions of each Journal read so far, by file (worfy-auto-approve ticket 08).
+   * shortcut: an entry per Journal file, never dropped; redo when the Journals of a data folder run into the thousands.
+   */
+  private readonly shadowCounts = new Map<string, { size: number; mtimeMs: number; count: number }>()
   private stopTimer: (() => void) | null = null
   private ticking: Promise<void> | null = null
 
@@ -503,7 +508,8 @@ export class FlightRecorder {
     const journal = (await this.journal(run, projectId)).facts
     const root = this.options.projectRoot(projectId)
     const now = this.now()
-    const newest = (await listRuns(projectId, { env: this.env }))[0]?.run
+    const runs = await listRuns(projectId, { env: this.env })
+    const newest = runs[0]?.run
     const live = this.isLive(projectId, run, journal, newest)
     const end = journal.run.stoppedAt ?? (live ? null : (journal.run.lastSeenAt ?? null))
     const profile = state.profile ?? (await this.options.profile(root))
@@ -587,20 +593,38 @@ export class FlightRecorder {
     const read = await originOf()
     const repoUrl = read.url === null ? null : repoPageUrl(read.url)
     const view: RunView = { projectId, run, epic: journal.epic, timeline, summary: summarize(timeline), github: githubState, repoUrl, profileReason: profile.reason, skippedLines: journal.skipped, error: null }
-    const autoApproval = await this.autoApproval(projectId, journal)
+    const autoApproval = await this.autoApproval(runs, journal)
     if (autoApproval !== null) view.autoApproval = autoApproval
     return { view, profile, origin: read }
   }
 
   /** The Run's Auto-approval decisions and, with one in Shadow, the Project's Shadow decisions so far; null without a decision. */
-  private async autoApproval(projectId: string, journal: JournalFacts): Promise<RunAutoApproval | null> {
+  private async autoApproval(runs: readonly RunSummary[], journal: JournalFacts): Promise<RunAutoApproval | null> {
     const decisions = journal.autoApproval
     if (decisions.length === 0) return null
     if (!decisions.some(isShadowDecision)) return { decisions, shadowSoFar: null }
-    // Every Run of the Project, this one with them: the Journals the schema reads, a line of another shape left out.
-    const runs = await readRecentRuns(projectId, { env: this.env, limit: Number.POSITIVE_INFINITY })
-    const shadowSoFar = runs.reduce((sum, events) => sum + events.filter((event) => event.kind === 'auto-approval' && isShadowDecision(event)).length, 0)
+    let shadowSoFar = 0
+    for (const summary of runs) shadowSoFar += await this.shadowDecisions(summary)
     return { decisions, shadowSoFar }
+  }
+
+  /**
+   * The Shadow decisions of one Run's Journal, read by the reader of the view (journalFacts) so a line of another
+   * shape counts in neither; kept by the file's size and mtime, so a recompute reads again only a Journal that
+   * changed. A file gone meanwhile counts none.
+   */
+  private async shadowDecisions(summary: RunSummary): Promise<number> {
+    // The size before the read: a line appended meanwhile changes it, and the next recompute counts again.
+    const info = await stat(summary.file).catch(() => null)
+    if (info === null) return 0
+    const kept = this.shadowCounts.get(summary.file)
+    if (kept !== undefined && kept.size === info.size && kept.mtimeMs === info.mtimeMs) return kept.count
+    const text = await readFile(summary.file, 'utf8').catch(() => null)
+    if (text === null) return 0
+    const facts = journalFacts({ run: summary.run, lines: text.split('\n').filter((line) => line.trim() !== '') })
+    const count = facts?.autoApproval.filter(isShadowDecision).length ?? 0
+    this.shadowCounts.set(summary.file, { size: info.size, mtimeMs: info.mtimeMs, count })
+    return count
   }
 }
 

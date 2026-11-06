@@ -90,6 +90,9 @@ describe('the decisions of a Run in its Journal', () => {
       decision('22:06', 'on', 'deny'),
     )
     expect(facts.autoApproval.map((each) => each.at)).toEqual([T('22:06')])
+    // Each is a line left out, as the footnote of Run history counts them.
+    expect(facts.skipped).toBe(5)
+    expect(read(started, decision('22:01', 'on', 'allow', { targets: [1] })).skipped).toBe(1)
   })
 
   it('a Run without a decision has none: no counters, so no block in Run history', () => {

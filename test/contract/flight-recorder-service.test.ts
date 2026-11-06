@@ -6,7 +6,7 @@
 // interval give one `runs.changed`, gh is read at most once a minute, a transcript is read on from where the
 // last read stopped. Nothing reaches GitHub, no real Claude Code or Agent SDK runs, git is a stand-in.
 import { symlinkSync } from 'node:fs'
-import { appendFile, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { join } from 'node:path'
@@ -1009,7 +1009,13 @@ describe('the Auto-approval decisions of a Run', () => {
       { at: `2026-11-${day}T23:00:00.000Z`, run: id, project: projectId, epic: 'e', kind: 'run-stopped', reason: 'tickets-done' },
     ]
     const [first, second, on, none, other] = [runOn('01', 'aaaaaa'), runOn('02', 'bbbbbb'), runOn('03', 'cccccc'), runOn('04', 'dddddd'), runOn('05', 'eeeeee')]
-    await writeJournal(data, first, lines(first, '01', [decision(first, '01', 'shadow', 'would-allow'), decision(first, '01', 'shadow', 'hard-deny', { rule: 'hard:ssh' })]))
+    // A line of another shape (targets that are not texts) counts in neither the list nor the Shadow decisions so far.
+    const firstFile = await writeJournal(data, first, lines(first, '01', [decision(first, '01', 'shadow', 'would-allow'), decision(first, '01', 'shadow', 'hard-deny', { rule: 'hard:ssh' })]))
+    // Written as is: the journal's own writer refuses such a line.
+    await appendFile(firstFile, `${JSON.stringify(decision(first, '01', 'shadow', 'would-allow', { targets: [1] }))}\n`)
+    // A whole second, which every file system keeps exactly: the test restores it below.
+    const FIXED = new Date('2026-11-01T00:00:00.000Z')
+    await utimes(firstFile, FIXED, FIXED)
     await writeJournal(data, second, lines(second, '02', [decision(second, '02', 'shadow', 'would-deny', { rule: 'not-judged', command: 'GH_TOKEN=*** gh pr list' })]))
     await writeJournal(data, on, lines(on, '03', [decision(on, '03', 'on', 'park'), decision(on, '03', 'on', 'park-expired')]))
     await writeJournal(data, none, lines(none, '04', []))
@@ -1021,5 +1027,17 @@ describe('the Auto-approval decisions of a Run', () => {
     expect(shadow.autoApproval).toEqual({ decisions: [{ at: '2026-11-02T22:30:00.000Z', mode: 'shadow', outcome: 'would-deny', rule: 'not-judged', tool: 'Bash', targets: ['~/repo/build'], command: 'GH_TOKEN=*** gh pr list' }], shadowSoFar: 3 })
     expect((await recorder.view(project, on)).autoApproval).toEqual({ decisions: [expect.objectContaining({ outcome: 'park' }), expect.objectContaining({ outcome: 'park-expired' })], shadowSoFar: null })
     expect(await recorder.view(project, none)).not.toHaveProperty('autoApproval')
+    expect((await recorder.view(project, first)).skippedLines).toBe(1)
+
+    // The count of a Journal is kept by its size and mtime: the same size and mtime are not read again…
+    // ("park-expire" has the length of "would-allow" and is no outcome: read again, the line would count no more.)
+    const text = await readFile(firstFile, 'utf8')
+    await writeFile(firstFile, text.replace('"would-allow"', '"park-expire"'))
+    await utimes(firstFile, FIXED, FIXED)
+    expect((await recorder.view(project, second)).autoApproval?.shadowSoFar).toBe(3)
+    // …a Journal that grew is.
+    // (Read again: the first Journal's hard-deny and these two; its first line counts no more.)
+    await appendFile(firstFile, journalLine(decision(first, '01', 'shadow', 'would-deny')) + journalLine(decision(first, '01', 'shadow', 'would-park')))
+    expect((await recorder.view(project, second)).autoApproval?.shadowSoFar).toBe(4)
   })
 })
